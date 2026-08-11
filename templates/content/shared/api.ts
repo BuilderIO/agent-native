@@ -1062,10 +1062,25 @@ export interface ContentDatabaseSummary {
   databaseId: string;
   documentId: string;
   title: string;
+  spaceId?: string | null;
+  spaceName?: string | null;
+  spaceKind?: string | null;
+  systemRole?: null;
+}
+
+export interface ContentSystemCollectionSummary {
+  databaseId: string;
+  documentId: string;
+  title: string;
+  spaceId: string | null;
+  spaceName: string | null;
+  spaceKind: string | null;
+  systemRole: string;
 }
 
 export interface ListContentDatabasesResponse {
   databases: ContentDatabaseSummary[];
+  systemCollections?: ContentSystemCollectionSummary[];
 }
 
 export interface TrashedContentDatabaseSummary {

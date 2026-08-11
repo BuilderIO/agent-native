@@ -2,7 +2,9 @@ import { getHeader } from "h3";
 
 import {
   appendA2AArtifactLinks,
+  extractA2APersistedMutationReceipts,
   type A2AArtifactResponseOptions,
+  type A2APersistedMutationReceipt,
   type A2AToolResultSummary,
 } from "../../a2a/artifact-response.js";
 import { collectFinalResponseTextFromAgentEvents } from "../../a2a/response-text.js";
@@ -254,7 +256,11 @@ export function assembleA2AFinalResponse(
     event?: any;
     outcome?: AgentLoopOutcome;
   } = {},
-): { responseText: string; finalText: string } {
+): {
+  responseText: string;
+  finalText: string;
+  mutationReceipts: A2APersistedMutationReceipt[];
+} {
   const terminalError = options.outcome
     ? terminalErrorFromOutcome(options.outcome)
     : getA2ATerminalErrorEvent(events);
@@ -266,6 +272,9 @@ export function assembleA2AFinalResponse(
     includeReferencedArtifacts: true,
     includePersistedArtifactMarker: true,
   });
+  const mutationReceipts = extractA2APersistedMutationReceipts([
+    ...toolResults,
+  ]);
   if (terminalError) {
     const partialResult = finalText.trim()
       ? `\n\nPartial verified results before the failure:\n${finalText.trim()}`
@@ -277,7 +286,7 @@ export function assembleA2AFinalResponse(
       "Agent completed without a response or verified artifact.\ncode: empty_agent_response",
     );
   }
-  return { responseText, finalText };
+  return { responseText, finalText, mutationReceipts };
 }
 
 function terminalErrorFromOutcome(

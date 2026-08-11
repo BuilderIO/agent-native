@@ -38,6 +38,9 @@ async function createDatabaseDocument(args: {
   documentId: string;
   databaseId: string;
   title: string;
+  spaceId?: string;
+  systemRole?: string;
+  hideFromSearch?: number;
 }) {
   const db = getDb();
   const now = new Date().toISOString();
@@ -48,6 +51,8 @@ async function createDatabaseDocument(args: {
     title: args.title,
     content: "",
     position: 1,
+    spaceId: args.spaceId,
+    hideFromSearch: args.hideFromSearch ?? 0,
     visibility: "private",
     createdAt: now,
     updatedAt: now,
@@ -57,6 +62,27 @@ async function createDatabaseDocument(args: {
     ownerEmail: OWNER,
     documentId: args.documentId,
     title: args.title,
+    spaceId: args.spaceId,
+    systemRole: args.systemRole,
+  });
+}
+
+async function createPersonalSpace(args: {
+  id: string;
+  name: string;
+  filesDatabaseId: string;
+}) {
+  const now = new Date().toISOString();
+  await getDb().insert(schema.contentSpaces).values({
+    id: args.id,
+    name: args.name,
+    kind: "personal",
+    ownerEmail: OWNER,
+    orgId: null,
+    filesDatabaseId: args.filesDatabaseId,
+    createdBy: OWNER,
+    createdAt: now,
+    updatedAt: now,
   });
 }
 
@@ -165,5 +191,97 @@ describe("list-content-databases", () => {
         result.databases.map((database) => database.databaseId),
       ).not.toContain("db-grandchild");
     });
+  });
+
+  it("finds an exact Personal database and classifies system collections without title or count assumptions", async () => {
+    // These immutable IDs are the read-only regression anchors recovered from
+    // Alice's Personal scope after the observed Slack DM returned other IDs.
+    const spaceId = "content_space_personal_dd0c011c68137c2ae7baa4d672932070";
+    const feedbackDatabaseId = "7uLr3ect3IIm";
+    const feedbackDocumentId = "FJk2OZ1SWcZ9";
+    await createPersonalSpace({
+      id: spaceId,
+      name: "Personal",
+      filesDatabaseId: "system-files-exact",
+    });
+    await createDatabaseDocument({
+      documentId: feedbackDocumentId,
+      databaseId: feedbackDatabaseId,
+      title: "Feedback",
+      spaceId,
+    });
+    await createDatabaseDocument({
+      documentId: "feedback-document-same-name",
+      databaseId: "feedback-database-same-name",
+      title: "Feedback",
+      spaceId,
+    });
+    for (const systemRole of ["files", "favorites", "workspaces"]) {
+      await createDatabaseDocument({
+        documentId: `system-${systemRole}-document-exact`,
+        databaseId: `system-${systemRole}-exact`,
+        title: systemRole === "files" ? "Personal" : systemRole,
+        spaceId,
+        systemRole,
+        hideFromSearch: 1,
+      });
+    }
+
+    await runWithRequestContext({ userEmail: OWNER }, async () => {
+      const inventory = await listContentDatabasesAction.run({
+        spaceId,
+        includeSystemCollections: true,
+      });
+      expect(inventory.databases).toContainEqual({
+        databaseId: feedbackDatabaseId,
+        documentId: feedbackDocumentId,
+        title: "Feedback",
+        spaceId,
+        spaceName: "Personal",
+        spaceKind: "personal",
+        systemRole: null,
+      });
+      expect(
+        inventory.databases.some((database) => database.systemRole !== null),
+      ).toBe(false);
+      expect(
+        new Set(
+          inventory.systemCollections?.map(
+            (collection) => collection.systemRole,
+          ),
+        ),
+      ).toEqual(new Set(["files", "favorites", "workspaces"]));
+
+      await expect(
+        listContentDatabasesAction.run({
+          spaceId,
+          databaseId: feedbackDatabaseId,
+        }),
+      ).resolves.toEqual({
+        databases: [
+          {
+            databaseId: feedbackDatabaseId,
+            documentId: feedbackDocumentId,
+            title: "Feedback",
+            spaceId,
+            spaceName: "Personal",
+            spaceKind: "personal",
+            systemRole: null,
+          },
+        ],
+      });
+    });
+
+    await runWithRequestContext(
+      { userEmail: "managed-channel@integration.local" },
+      async () => {
+        await expect(
+          listContentDatabasesAction.run({
+            spaceId,
+            databaseId: feedbackDatabaseId,
+          }),
+        ).rejects.toThrow();
+      },
+    );
   });
 });

@@ -334,6 +334,77 @@ describe("askGrantedDispatchMcpApp", () => {
     });
   });
 
+  it("preserves authenticated structured mutation receipts from the target app", async () => {
+    const receipt = {
+      receiptId: "receipt-row-1",
+      sourceAction: "upsert-database-item-by-key",
+      operation: "upsert",
+      outcome: "updated",
+      target: {
+        authorityScopeKind: "personal",
+        authorityScopeId: "owner@example.test",
+        spaceId: "space-owner",
+        databaseId: "feedback-db",
+        databaseDocumentId: "feedback-db-document",
+      },
+      row: {
+        itemId: "feedback-item-1",
+        documentId: "feedback-document-1",
+        urlPath: "/page/feedback-document-1",
+      },
+      idempotency: {
+        key: "request-1",
+        result: "replayed",
+        payloadDigest: "digest-1",
+      },
+      revisions: { before: "before", after: "after" },
+      readbackVerified: true,
+    };
+    mocks.a2aSend.mockResolvedValueOnce({
+      id: "task-with-receipt",
+      status: {
+        state: "completed",
+        message: {
+          role: "agent",
+          parts: [
+            { type: "text", text: "Updated the exact feedback row." },
+            {
+              type: "data",
+              data: {
+                kind: "agent-native/mutation-receipts",
+                version: 1,
+                receipts: [receipt],
+              },
+            },
+          ],
+        },
+      },
+    });
+
+    const result = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "http://localhost:8092",
+      },
+      () => askGrantedDispatchMcpApp("analytics", "Update feedback."),
+    );
+
+    expect(result).toMatchObject({
+      status: "completed",
+      response: "Updated the exact feedback row.",
+      receipts: [
+        {
+          receiptId: "receipt-row-1",
+          row: {
+            documentId: "feedback-document-1",
+            urlPath: "/page/feedback-document-1",
+          },
+          idempotency: { result: "replayed" },
+        },
+      ],
+    });
+  });
+
   it("returns a durable polling handle when the downstream task is still working", async () => {
     mocks.a2aSend.mockResolvedValueOnce({
       id: "task-working",

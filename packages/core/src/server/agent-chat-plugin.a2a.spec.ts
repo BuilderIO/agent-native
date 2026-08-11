@@ -683,6 +683,53 @@ describe("assembleA2AFinalResponse", () => {
     ).toBe("Recovered answer");
   });
 
+  it("returns structured verified Content mutation receipts with the final text", () => {
+    const assembled = assembleA2AFinalResponse(
+      [{ type: "text", text: "Feedback updated." }, { type: "done" }],
+      [
+        {
+          tool: "upsert-database-item-by-key",
+          result: JSON.stringify({
+            receipt: {
+              receiptId: "receipt-row-1",
+              operation: "upsert",
+              outcome: "updated",
+              target: {
+                authorityScope: {
+                  kind: "personal",
+                  id: "alice@example.test",
+                },
+                spaceId: "space-alice",
+                databaseId: "feedback-db",
+                databaseDocumentId: "feedback-db-document",
+              },
+              row: {
+                itemId: "feedback-item-1",
+                documentId: "feedback-document-1",
+                urlPath: "/page/feedback-document-1",
+              },
+              idempotency: {
+                key: "request-1",
+                result: "applied",
+                payloadDigest: "digest-1",
+              },
+              revisions: { before: "before", after: "after" },
+              readback: { verified: true, propertyValues: {} },
+            },
+          }),
+        },
+      ],
+    );
+
+    expect(assembled.mutationReceipts).toEqual([
+      expect.objectContaining({
+        receiptId: "receipt-row-1",
+        row: expect.objectContaining({ documentId: "feedback-document-1" }),
+      }),
+    ]);
+    expect(assembled.finalText).toContain("/page/feedback-document-1");
+  });
+
   it.each([
     {
       outcome: {

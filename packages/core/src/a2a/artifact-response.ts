@@ -39,11 +39,56 @@ export interface A2AArtifactIdentity {
   url?: string;
 }
 
+export interface A2APersistedMutationReceipt {
+  receiptId: string;
+  sourceAction: string;
+  operation: string;
+  outcome: string;
+  target: {
+    authorityScopeKind: "personal" | "organization";
+    authorityScopeId: string;
+    spaceId: string;
+    databaseId: string;
+    databaseDocumentId: string;
+    itemId?: string;
+    rowDocumentId?: string;
+    propertyId?: string;
+  };
+  row: {
+    itemId?: string;
+    documentId: string;
+    urlPath: string;
+  };
+  idempotency: {
+    key: string;
+    result: "applied" | "replayed";
+    payloadDigest: string;
+  };
+  revisions: {
+    before?: string | null;
+    after?: string;
+    rowBefore?: string;
+    rowAfter?: string;
+    fieldBefore?: number;
+    fieldAfter?: number;
+  };
+  affected?: {
+    title?: boolean;
+    propertyIds?: string[];
+    blockIds?: string[];
+    deletedBlockIds?: string[];
+    order?: string[];
+  };
+  readbackVerified: true;
+}
+
 const ARTIFACT_IDENTITY_WRITE_TOOLS = new Set([
   "save-monitor",
   "create-form",
   "submit-content-database-form",
   "add-database-item",
+  "upsert-database-item-by-key",
+  "mutate-content-database-block",
   "create-document",
   "update-document",
   "set-document-property",
@@ -87,17 +132,23 @@ const ARTIFACT_RESOURCE_TYPES = new Set<A2AArtifactIdentity["resourceType"]>([
   "form",
 ]);
 
-function persistedArtifactIdentitiesFromMarker(
+interface PersistedArtifactLedger {
+  version: 1;
+  identities: A2AArtifactIdentity[];
+  mutationReceipts: A2APersistedMutationReceipt[];
+}
+
+function persistedArtifactLedgerFromMarker(
   result: string,
   secrets: readonly string[] = process.env.A2A_SECRET
     ? [process.env.A2A_SECRET]
     : [],
-): A2AArtifactIdentity[] {
-  if (secrets.length === 0) return [];
+): PersistedArtifactLedger | null {
+  if (secrets.length === 0) return null;
   const match = result.match(
     /<!--\s*agent-native:persisted-artifacts=([A-Za-z0-9_-]+)\.([a-f0-9]{64})\s*-->/,
   );
-  if (!match) return [];
+  if (!match) return null;
   try {
     const payload = match[1];
     const supplied = Buffer.from(match[2], "hex");
@@ -108,27 +159,47 @@ function persistedArtifactIdentitiesFromMarker(
         timingSafeEqual(supplied, expected)
       );
     });
-    if (!verified) {
-      return [];
+    if (!verified) return null;
+    const parsed: unknown = JSON.parse(
+      Buffer.from(payload, "base64url").toString(),
+    );
+    if (Array.isArray(parsed)) {
+      return { version: 1, identities: parsed, mutationReceipts: [] };
     }
-    const parsed = JSON.parse(Buffer.from(payload, "base64url").toString());
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .slice(0, 12)
-      .filter((identity): identity is A2AArtifactIdentity => {
-        const item = asRecord(identity);
-        return (
-          !!item &&
-          ARTIFACT_RESOURCE_TYPES.has(
-            item.resourceType as A2AArtifactIdentity["resourceType"],
-          ) &&
-          typeof item.id === "string" &&
-          typeof item.sourceAction === "string"
-        );
-      });
+    const ledger = asRecord(parsed);
+    if (!ledger || ledger.version !== 1) return null;
+    return {
+      version: 1,
+      identities: Array.isArray(ledger.identities) ? ledger.identities : [],
+      mutationReceipts: Array.isArray(ledger.mutationReceipts)
+        ? ledger.mutationReceipts
+        : [],
+    } as PersistedArtifactLedger;
   } catch {
-    return [];
+    // coercion-ok: malformed signed-marker payloads are untrusted absence, never a successful receipt ledger
+    return null;
   }
+}
+
+function persistedArtifactIdentitiesFromMarker(
+  result: string,
+  secrets: readonly string[] = process.env.A2A_SECRET
+    ? [process.env.A2A_SECRET]
+    : [],
+): A2AArtifactIdentity[] {
+  return (persistedArtifactLedgerFromMarker(result, secrets)?.identities ?? [])
+    .slice(0, 12)
+    .filter((identity): identity is A2AArtifactIdentity => {
+      const item = asRecord(identity);
+      return (
+        !!item &&
+        ARTIFACT_RESOURCE_TYPES.has(
+          item.resourceType as A2AArtifactIdentity["resourceType"],
+        ) &&
+        typeof item.id === "string" &&
+        typeof item.sourceAction === "string"
+      );
+    });
 }
 
 function withPersistedArtifactMarker(
@@ -143,8 +214,14 @@ function withPersistedArtifactMarker(
   const identities = extractA2AArtifactIdentities(toolResults, {
     persistedArtifactSecrets: verificationSecrets,
   }).slice(0, 12);
-  if (identities.length === 0 || !secret) return text;
-  const payload = Buffer.from(JSON.stringify(identities)).toString("base64url");
+  const mutationReceipts = extractA2APersistedMutationReceipts(toolResults, {
+    persistedArtifactSecrets: verificationSecrets,
+  }).slice(0, 12);
+  if ((identities.length === 0 && mutationReceipts.length === 0) || !secret)
+    return text;
+  const payload = Buffer.from(
+    JSON.stringify({ version: 1, identities, mutationReceipts }),
+  ).toString("base64url");
   const signature = createHmac("sha256", secret).update(payload).digest("hex");
   const marker = `<!-- ${PERSISTED_ARTIFACT_MARKER}${payload}.${signature} -->`;
   return text ? `${text}\n\n${marker}` : marker;
@@ -678,6 +755,27 @@ function collectArtifacts(results: A2AToolResultSummary[]): {
     }
 
     if (
+      toolResult.tool === "upsert-database-item-by-key" ||
+      toolResult.tool === "mutate-content-database-block"
+    ) {
+      const receipt = asRecord(parsed.receipt);
+      const receiptRow = asRecord(receipt?.row);
+      const receiptTarget = asRecord(receipt?.target);
+      const rowLink = asRecord(receipt?.rowLink);
+      const rowDocumentId =
+        stringValue(receiptRow?.documentId) ??
+        stringValue(receiptTarget?.rowDocumentId);
+      if (rowDocumentId) {
+        documents.set(rowDocumentId, {
+          id: rowDocumentId,
+          url:
+            stringValue(receiptRow?.urlPath) ?? stringValue(rowLink?.urlPath),
+        });
+      }
+      continue;
+    }
+
+    if (
       toolResult.tool === "create-document" ||
       toolResult.tool === "update-document"
     ) {
@@ -1012,6 +1110,210 @@ export function extractA2AArtifactIdentities(
   }
 
   return [...identities.values()];
+}
+
+function boundedStrings(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  return value
+    .map(stringValue)
+    .filter((item): item is string => !!item)
+    .slice(0, 50);
+}
+
+function parsePersistedMutationReceipt(
+  value: unknown,
+  sourceAction: string,
+): A2APersistedMutationReceipt | null {
+  const receipt = asRecord(value);
+  const target = asRecord(receipt?.target);
+  const authorityScope = asRecord(target?.authorityScope);
+  const row = asRecord(receipt?.row);
+  const rowLink = asRecord(receipt?.rowLink);
+  const idempotency = asRecord(receipt?.idempotency);
+  const revisions = asRecord(receipt?.revisions);
+  const rowRevisions = asRecord(revisions?.row);
+  const fieldRevisions = asRecord(revisions?.field);
+  const affected = asRecord(receipt?.affected);
+  const readback = asRecord(receipt?.readback);
+  const authorityScopeKind =
+    stringValue(authorityScope?.kind) ??
+    stringValue(target?.authorityScopeKind);
+  const idempotencyResult = stringValue(idempotency?.result);
+  const rowDocumentId =
+    stringValue(row?.documentId) ?? stringValue(target?.rowDocumentId);
+  const urlPath = stringValue(row?.urlPath) ?? stringValue(rowLink?.urlPath);
+  const receiptId = stringValue(receipt?.receiptId);
+  const operation = stringValue(receipt?.operation);
+  const outcome = stringValue(receipt?.outcome);
+  const authorityScopeId =
+    stringValue(authorityScope?.id) ?? stringValue(target?.authorityScopeId);
+  const spaceId = stringValue(target?.spaceId);
+  const databaseId = stringValue(target?.databaseId);
+  const databaseDocumentId = stringValue(target?.databaseDocumentId);
+  const idempotencyKey = stringValue(idempotency?.key);
+  const payloadDigest = stringValue(idempotency?.payloadDigest);
+
+  if (
+    !receipt ||
+    !target ||
+    (authorityScopeKind !== "personal" &&
+      authorityScopeKind !== "organization") ||
+    (idempotencyResult !== "applied" && idempotencyResult !== "replayed") ||
+    (readback?.verified !== true && receipt.readbackVerified !== true) ||
+    !receiptId ||
+    !operation ||
+    !outcome ||
+    !authorityScopeId ||
+    !spaceId ||
+    !databaseId ||
+    !databaseDocumentId ||
+    !idempotencyKey ||
+    !payloadDigest ||
+    !rowDocumentId ||
+    !urlPath
+  ) {
+    return null;
+  }
+
+  const propertyIds = boundedStrings(affected?.propertyIds);
+  const blockIds = boundedStrings(affected?.blockIds);
+  const deletedBlockIds = boundedStrings(affected?.deletedBlockIds);
+  const order = boundedStrings(affected?.order);
+  const compactAffected = {
+    ...(typeof affected?.title === "boolean" ? { title: affected.title } : {}),
+    ...(propertyIds ? { propertyIds } : {}),
+    ...(blockIds ? { blockIds } : {}),
+    ...(deletedBlockIds ? { deletedBlockIds } : {}),
+    ...(order ? { order } : {}),
+  };
+  const itemId = stringValue(row?.itemId) ?? stringValue(target.itemId);
+  const targetItemId = stringValue(target.itemId);
+  const targetRowDocumentId = stringValue(target.rowDocumentId);
+  const targetPropertyId = stringValue(target.propertyId);
+  const after = stringValue(revisions?.after);
+  const rowBefore =
+    stringValue(rowRevisions?.before) ?? stringValue(revisions?.rowBefore);
+  const rowAfter =
+    stringValue(rowRevisions?.after) ?? stringValue(revisions?.rowAfter);
+
+  return {
+    receiptId,
+    sourceAction,
+    operation,
+    outcome,
+    target: {
+      authorityScopeKind,
+      authorityScopeId,
+      spaceId,
+      databaseId,
+      databaseDocumentId,
+      ...(targetItemId ? { itemId: targetItemId } : {}),
+      ...(targetRowDocumentId ? { rowDocumentId: targetRowDocumentId } : {}),
+      ...(targetPropertyId ? { propertyId: targetPropertyId } : {}),
+    },
+    row: {
+      ...(itemId ? { itemId } : {}),
+      documentId: rowDocumentId,
+      urlPath,
+    },
+    idempotency: {
+      key: idempotencyKey,
+      result: idempotencyResult,
+      payloadDigest,
+    },
+    revisions: {
+      ...(revisions?.before === null || typeof revisions?.before === "string"
+        ? { before: revisions.before as string | null }
+        : {}),
+      ...(after ? { after } : {}),
+      ...(rowBefore ? { rowBefore } : {}),
+      ...(rowAfter ? { rowAfter } : {}),
+      ...(typeof (fieldRevisions?.before ?? revisions?.fieldBefore) === "number"
+        ? {
+            fieldBefore: (fieldRevisions?.before ??
+              revisions?.fieldBefore) as number,
+          }
+        : {}),
+      ...(typeof (fieldRevisions?.after ?? revisions?.fieldAfter) === "number"
+        ? {
+            fieldAfter: (fieldRevisions?.after ??
+              revisions?.fieldAfter) as number,
+          }
+        : {}),
+    },
+    ...(Object.keys(compactAffected).length > 0
+      ? { affected: compactAffected }
+      : {}),
+    readbackVerified: true,
+  };
+}
+
+/**
+ * Extract bounded, read-back-verified mutation receipts. Nested agent results
+ * are accepted only through the signed persisted ledger.
+ */
+export function extractA2APersistedMutationReceipts(
+  results: A2AToolResultSummary[],
+  options: A2AArtifactIdentityOptions = {},
+): A2APersistedMutationReceipt[] {
+  const receipts = new Map<string, A2APersistedMutationReceipt>();
+  for (const result of results) {
+    if (result.isError === true || result.completedSideEffect === false)
+      continue;
+    if (result.tool === "call-agent") {
+      const nested = persistedArtifactLedgerFromMarker(
+        result.result,
+        options.persistedArtifactSecrets,
+      );
+      for (const receipt of nested?.mutationReceipts ?? []) {
+        const parsed = parsePersistedMutationReceipt(receipt, "call-agent");
+        if (parsed) receipts.set(parsed.receiptId, parsed);
+      }
+      continue;
+    }
+    if (
+      result.tool !== "upsert-database-item-by-key" &&
+      result.tool !== "mutate-content-database-block"
+    ) {
+      continue;
+    }
+    const parsedResult = parseToolResultJson(result.result);
+    const receipt = parsePersistedMutationReceipt(
+      parsedResult?.receipt,
+      result.tool,
+    );
+    if (receipt) receipts.set(receipt.receiptId, receipt);
+  }
+  return [...receipts.values()].slice(0, 12);
+}
+
+export function appendA2APersistedMutationReceipts(
+  text: string,
+  toolResults: A2AToolResultSummary[],
+  options: A2AArtifactResponseOptions = {},
+): string {
+  const receiptSecrets = [
+    options.persistedArtifactSecret,
+    process.env.A2A_SECRET,
+  ].filter(
+    (value, index, values): value is string =>
+      !!value && values.indexOf(value) === index,
+  );
+  const receipts = extractA2APersistedMutationReceipts(toolResults, {
+    persistedArtifactSecrets: receiptSecrets,
+  }).filter((receipt) => !text.includes(receipt.receiptId));
+  if (receipts.length === 0) return text;
+  const lines = receipts.map((receipt) => {
+    const url = artifactUrl(options.baseUrl, receipt.row.urlPath);
+    const item = receipt.row.itemId ? `; item ID: ${receipt.row.itemId}` : "";
+    return (
+      `- ${receipt.receiptId}: ${receipt.outcome} via ${receipt.sourceAction}; ` +
+      `row ${url} (document ID: ${receipt.row.documentId}${item}); ` +
+      `idempotency: ${receipt.idempotency.result}`
+    );
+  });
+  const section = ["Mutation receipts:", ...lines].join("\n");
+  return text.trim() ? `${text.trim()}\n\n${section}` : section;
 }
 
 type DownstreamArtifact =
@@ -1415,14 +1717,20 @@ export function guardA2AArtifactResponse(
   const baseUrl = normalizeBaseUrl(options.baseUrl);
   const includeReferencedArtifacts =
     options.includeReferencedArtifacts ?? false;
-  const finalize = (value: string) =>
-    options.includePersistedArtifactMarker
+  const finalize = (value: string) => {
+    const withReceipts = appendA2APersistedMutationReceipts(
+      value,
+      toolResults,
+      options,
+    );
+    return options.includePersistedArtifactMarker
       ? withPersistedArtifactMarker(
-          value,
+          withReceipts,
           toolResults,
           options.persistedArtifactSecret ?? process.env.A2A_SECRET,
         )
-      : value;
+      : withReceipts;
+  };
   const {
     documents,
     decks,

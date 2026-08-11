@@ -90,6 +90,51 @@ function dispatchTaskText(task: Task): string {
   );
 }
 
+type DispatchMutationReceipt = {
+  receiptId: string;
+  sourceAction: string;
+  row: { itemId?: string; documentId: string; urlPath: string };
+  idempotency: {
+    result: "applied" | "replayed";
+    [key: string]: unknown;
+  };
+  readbackVerified: true;
+  [key: string]: unknown;
+};
+
+function dispatchTaskMutationReceipts(task: Task): DispatchMutationReceipt[] {
+  const parts = task.status.message?.parts ?? [];
+  for (const part of parts) {
+    if (part.type !== "data" || !part.data || typeof part.data !== "object")
+      continue;
+    const data = part.data as Record<string, unknown>;
+    if (
+      data.kind !== "agent-native/mutation-receipts" ||
+      data.version !== 1 ||
+      !Array.isArray(data.receipts)
+    ) {
+      continue;
+    }
+    return data.receipts
+      .filter((value): value is DispatchMutationReceipt => {
+        if (!value || typeof value !== "object" || Array.isArray(value))
+          return false;
+        const receipt = value as Partial<DispatchMutationReceipt>;
+        return (
+          typeof receipt.receiptId === "string" &&
+          typeof receipt.sourceAction === "string" &&
+          receipt.readbackVerified === true &&
+          typeof receipt.row?.documentId === "string" &&
+          typeof receipt.row?.urlPath === "string" &&
+          (receipt.idempotency?.result === "applied" ||
+            receipt.idempotency?.result === "replayed")
+        );
+      })
+      .slice(0, 12);
+  }
+  return [];
+}
+
 type DispatchAskAppStatusErrorCategory =
   | "transport"
   | "timeout"
@@ -102,6 +147,7 @@ type DispatchAskAppTaskResult = {
   taskId: string;
   status: string;
   response?: string;
+  receipts?: DispatchMutationReceipt[];
   error?: string;
   inputRequired?: string;
   statusRead?: "unavailable";
@@ -119,6 +165,7 @@ function dispatchAskAppTaskResult(
 ): DispatchAskAppTaskResult {
   const status = String(task.status.state);
   const response = dispatchTaskText(task);
+  const receipts = dispatchTaskMutationReceipts(task);
   const base = {
     app,
     routedVia: "a2a" as const,
@@ -127,7 +174,11 @@ function dispatchAskAppTaskResult(
   };
 
   if (status === "completed") {
-    return { ...base, response: response || "(no response)" };
+    return {
+      ...base,
+      response: response || "(no response)",
+      ...(receipts.length > 0 ? { receipts } : {}),
+    };
   }
   if (status === "failed" || status === "canceled") {
     return {

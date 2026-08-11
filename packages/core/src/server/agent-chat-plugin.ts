@@ -2120,11 +2120,11 @@ export function createAgentChatPlugin(
             return;
           }
 
-          const { responseText, finalText } = assembleA2AFinalResponse(
-            a2aEvents,
-            a2aToolResults,
-            { event: context.event, outcome: a2aOutcome },
-          );
+          const { responseText, finalText, mutationReceipts } =
+            assembleA2AFinalResponse(a2aEvents, a2aToolResults, {
+              event: context.event,
+              outcome: a2aOutcome,
+            });
 
           console.log(
             `[A2A] Loop complete. Text: ${responseText.slice(0, 100)}...`,
@@ -2139,6 +2139,18 @@ export function createAgentChatPlugin(
                 type: "text" as const,
                 text: finalText,
               },
+              ...(mutationReceipts.length > 0
+                ? [
+                    {
+                      type: "data" as const,
+                      data: {
+                        kind: "agent-native/mutation-receipts",
+                        version: 1,
+                        receipts: mutationReceipts,
+                      },
+                    },
+                  ]
+                : []),
             ],
           };
         },
