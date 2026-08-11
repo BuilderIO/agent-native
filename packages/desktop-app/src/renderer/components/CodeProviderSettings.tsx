@@ -468,8 +468,8 @@ export function CodeProviderSettings({
         />
 
         <SettingsRow
-          label="API keys"
-          description="Use a provider key for direct provider access."
+          label="Custom keys"
+          description="Use your own provider key for direct provider access."
           control={
             <button
               type="button"

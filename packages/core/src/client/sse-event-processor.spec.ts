@@ -2386,6 +2386,36 @@ describe("SSE event processor error classification", () => {
     });
   });
 
+  it("keeps an intentional user stop neutral instead of adding a final warning", async () => {
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "activity",
+            label: "Contacting model",
+          },
+          { type: "done", reason: "user" },
+        ]),
+        [],
+        { value: 0 },
+        "tab-user-stop",
+      ),
+    );
+
+    expect(results.at(-1)).toMatchObject({
+      status: { type: "complete", reason: "stop" },
+      metadata: { custom: { userStopped: true } },
+    });
+    expect(results.at(-1)?.content).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "text",
+          text: expect.stringContaining("without sending a final message"),
+        }),
+      ]),
+    );
+  });
+
   it("fills the pending tool activity card when tool_start arrives", async () => {
     const results = await drain(
       readSSEStream(

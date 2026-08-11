@@ -7,6 +7,7 @@ import {
   createSlidesCanvasInteractionCore,
   isWithinSlidesCanvasEdgeMoveBand,
   resolveSlidesCanvasDragTarget,
+  resolveSlidesCanvasNudge,
   resolveSlidesCanvasPointerIntent,
   SLIDES_CANVAS_EDGE_MOVE_BAND,
 } from "./slides-canvas-adapter";
@@ -62,6 +63,24 @@ describe("Slides canvas interaction adapter", () => {
         },
       ),
     ).toEqual({ x: 140, y: 50, width: 160, height: 100 });
+  });
+
+  it("keeps modifier-arrow chords native while nudging plain arrows", () => {
+    expect(resolveSlidesCanvasNudge({ key: "ArrowRight" })).toMatchObject({
+      delta: { x: 1, y: 0 },
+    });
+    expect(
+      resolveSlidesCanvasNudge({ key: "ArrowRight", shiftKey: true }),
+    ).toMatchObject({ delta: { x: 10, y: 0 } });
+    expect(
+      resolveSlidesCanvasNudge({ key: "ArrowRight", metaKey: true }),
+    ).toBeNull();
+    expect(
+      resolveSlidesCanvasNudge({ key: "ArrowRight", ctrlKey: true }),
+    ).toBeNull();
+    expect(resolveSlidesCanvasNudge({ key: "ArrowRight", altKey: true })).toBe(
+      null,
+    );
   });
 
   it("reserves only a selected object's edge band for movement", () => {

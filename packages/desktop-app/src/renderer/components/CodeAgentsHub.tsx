@@ -178,6 +178,31 @@ export function chatFirstAppSurfaceTab(
   };
 }
 
+const DISPATCH_CONTROL_PLANE_PATHS = [
+  "/integrations",
+  "/automations",
+  "/admin/integrations",
+  "/admin/automations",
+] as const;
+
+export function isDispatchControlPlanePath(path?: string): boolean {
+  if (!path?.trim()) return false;
+  const base = "http://agent-native.invalid";
+  if (!URL.canParse(path, base)) return false;
+  const pathname = new URL(path, base).pathname;
+  return DISPATCH_CONTROL_PLANE_PATHS.some(
+    (route) => pathname === route || pathname.startsWith(`${route}/`),
+  );
+}
+
+export function dispatchControlPlaneUrlParams(
+  path?: string,
+): Record<string, string | null> {
+  return isDispatchControlPlanePath(path)
+    ? { embedded: "1", chatFirst: null, electron: "1" }
+    : { embedded: "1", chatFirst: "1" };
+}
+
 function DesktopAppsGrid({
   apps,
   onCreateApp,
@@ -259,6 +284,7 @@ interface CodeAgentsHubProps {
   onOpenSettings?: () => void;
   onCreateApp?: () => void;
   onChatFirstAppCreated?: (result: DesktopCreateAppResult) => void;
+  onChatFirstAppRemove?: (app: ChatFirstAppItem) => void;
   onChatFirstAppSelectionChange?: (appId?: string) => void;
   chatFirstMode?: boolean;
 }
@@ -292,6 +318,7 @@ export default function CodeAgentsHub({
   onOpenSettings,
   onCreateApp,
   onChatFirstAppCreated,
+  onChatFirstAppRemove,
   onChatFirstAppSelectionChange,
   chatFirstMode = false,
 }: CodeAgentsHubProps) {
@@ -483,28 +510,29 @@ export default function CodeAgentsHub({
         })),
     [apps],
   );
+  const returnToChatFirstChats = useCallback(() => {
+    closeChatFirstSessionWatch();
+    setChatFirstBrowserSelection(null);
+    chatFirstSurfaceTabsStore.closeAll();
+    setChatFirstSurfacePanelOpen(false);
+  }, [chatFirstSurfaceTabsStore, setChatFirstSurfacePanelOpen]);
   const chatFirstNavigation = useMemo(
     () =>
       chatFirstMode
         ? {
             activeTab: activeChatFirstPrimaryTab,
-            onNewChat: () => {
-              closeChatFirstSessionWatch();
-              chatFirstSurfaceTabsStore.closeAll();
-              setChatFirstSurfacePanelOpen(false);
-            },
+            onNewChat: returnToChatFirstChats,
+            onOpenChats: returnToChatFirstChats,
             onOpenIntegrations: () =>
-              openChatFirstApp("dispatch", "/admin/integrations"),
-            onOpenScheduled: () =>
-              openChatFirstApp("dispatch", "/admin/automations"),
+              openChatFirstApp("dispatch", "/integrations"),
+            onOpenScheduled: () => openChatFirstApp("dispatch", "/automations"),
           }
         : undefined,
     [
       activeChatFirstPrimaryTab,
       chatFirstMode,
-      chatFirstSurfaceTabsStore,
       openChatFirstApp,
-      setChatFirstSurfacePanelOpen,
+      returnToChatFirstChats,
     ],
   );
   const openChatFirstAppFromRail = useCallback(
@@ -564,6 +592,7 @@ export default function CodeAgentsHub({
             ) : undefined
           }
           onCreateApp={onCreateApp}
+          onRemoveApp={onChatFirstAppRemove}
           onOpenApp={openChatFirstAppFromRail}
           onOpenAllApps={openAllChatFirstApps}
           renderIcon={renderChatFirstAppIcon}
@@ -578,6 +607,7 @@ export default function CodeAgentsHub({
     chatFirstMode,
     chatFirstNotice,
     onChatFirstAppCreated,
+    onChatFirstAppRemove,
     onCreateApp,
     openAllChatFirstApps,
     openChatFirstAppFromRail,
@@ -767,6 +797,17 @@ export default function CodeAgentsHub({
     closeChatFirstSessionWatch();
     chatFirstSurfaceTabsStore.closeAll();
   }, [chatFirstSurfaceTabsStore]);
+
+  useEffect(() => {
+    const enabledAppIds = new Set(
+      apps.filter((app) => app.enabled).map((app) => app.id),
+    );
+    for (const tab of chatFirstSurfaceTabs.tabs) {
+      if (tab.kind === "app" && tab.appId && !enabledAppIds.has(tab.appId)) {
+        chatFirstSurfaceTabsStore.close(tab.id);
+      }
+    }
+  }, [apps, chatFirstSurfaceTabs.tabs, chatFirstSurfaceTabsStore]);
 
   const openChatFirstSurface = useCallback(
     (kind: ChatFirstSurfaceKind) => {
@@ -1717,6 +1758,8 @@ export default function CodeAgentsHub({
       if (tab.kind === "app" && tab.appId) {
         const app = apps.find((candidate) => candidate.id === tab.appId);
         if (!app) return null;
+        const dispatchControlPlane =
+          tab.appId === "dispatch" && isDispatchControlPlanePath(tab.path);
         const isTabActive = isChatFirstSurfaceTabActive({
           surfaceActive: isActive,
           tabId: tab.id,
@@ -1733,7 +1776,11 @@ export default function CodeAgentsHub({
                 appConfig={app}
                 isActive={isTabActive}
                 urlPath={tab.path}
-                urlParams={{ embedded: "1", chatFirst: "1" }}
+                urlParams={
+                  dispatchControlPlane
+                    ? dispatchControlPlaneUrlParams(tab.path)
+                    : { embedded: "1", chatFirst: "1" }
+                }
               />
             )}
             copy={defaultChatFirstCopy}

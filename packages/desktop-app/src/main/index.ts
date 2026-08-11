@@ -38,6 +38,7 @@ import {
 } from "@shared/code-agents";
 import {
   formatDesktopShortcutAccelerator,
+  isMacAppHideShortcut,
   normalizeDesktopShortcutAccelerator,
   shortcutOpenPathForBinding,
   type DesktopShortcutBinding,
@@ -4241,14 +4242,20 @@ async function createCodeAgentRun(
       error: "Missing prompt.",
     };
   }
+  const userMetadata = isObject(payload.metadata) ? payload.metadata : {};
+  const isDesktopAppCreation = userMetadata.kind === "desktop-create-app";
   const provider = ensureCodeAgentLlmProvider();
-  if (!provider.ok) {
+  if (!provider.ok && !isDesktopAppCreation) {
     return {
       ok: false,
       message: "Connect a model provider before starting a coding chat.",
       error: provider.error,
     };
   }
+
+  // App creation must still produce a visible chat when setup is incomplete.
+  // The runner records the credential gap on this queued run, which lets the
+  // chat render the shared Builder/custom-key recovery actions and retry it.
 
   const goal =
     getCodeAgentGoal(firstStringValue(payload.goalId)) ?? CODE_AGENT_GOALS[0];
@@ -4264,7 +4271,6 @@ async function createCodeAgentRun(
   const model = firstStringValue(payload.model);
   const effort = firstStringValue(payload.effort);
   const attachments = normalizeCodeAgentPromptAttachments(payload.attachments);
-  const userMetadata = isObject(payload.metadata) ? payload.metadata : {};
   const retryOf = firstStringValue(userMetadata.retryOf, payload.retryOf);
   const rerunOf = firstStringValue(userMetadata.rerunOf, payload.rerunOf);
   const attempt = Number(userMetadata.attempt ?? payload.attempt);
@@ -5551,8 +5557,8 @@ async function ensureManagedDesktopAppRunning(appId: string): Promise<void> {
       console.log(`[desktop-app:${appId}] ${text}`);
       emitDesktopAppRuntimeStatus({
         appId,
-        state: "running",
-        message: "Preview updated.",
+        state: "starting",
+        message: "Building the local preview.",
       });
     });
     child.stderr?.on("data", (chunk) => {
@@ -9315,6 +9321,12 @@ app.on("web-contents-created", (_event, contents) => {
   contents.on("before-input-event", (event, input) => {
     if (!(input.meta || input.control) || input.type !== "keyDown") return;
 
+    if (process.platform === "darwin" && isMacAppHideShortcut(input)) {
+      event.preventDefault();
+      app.hide();
+      return;
+    }
+
     const key = input.key.toLowerCase();
 
     // Cmd+Option+I (and legacy Cmd+Shift+I) — toggle devtools for the active app webview
@@ -9478,7 +9490,9 @@ function installApplicationMenu() {
       { type: "separator" as const },
       { role: "services" as const },
       { type: "separator" as const },
-      { role: "hide" as const },
+      // Keep Cmd+H explicit because the custom menu replaces Electron's
+      // default app menu, whose implicit hide accelerator is easy to lose.
+      { role: "hide" as const, accelerator: "Command+H" },
       { role: "hideOthers" as const },
       { role: "unhide" as const },
       { type: "separator" as const },
@@ -9785,6 +9799,13 @@ app.whenReady().then(async () => {
   // Intercept keyboard shortcuts on the shell renderer
   win.webContents.on("before-input-event", (_event, input) => {
     if (!(input.meta || input.control) || input.type !== "keyDown") return;
+
+    if (process.platform === "darwin" && isMacAppHideShortcut(input)) {
+      _event.preventDefault();
+      app.hide();
+      return;
+    }
+
     const key = input.key.toLowerCase();
 
     // Cmd+Option+I (and legacy Cmd+Shift+I) — open devtools for the active webview, not the shell

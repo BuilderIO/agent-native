@@ -1,3 +1,5 @@
+import { isDefaultWorkspaceAppHiddenId } from "./workspace-apps";
+
 export interface ConnectedAppSummary {
   id: string;
   name: string;
@@ -38,6 +40,7 @@ export function filterOtherApps(
       const id = app.id.trim().toLowerCase();
       if (
         !id ||
+        isDefaultWorkspaceAppHiddenId(id) ||
         HIDDEN_OTHER_APP_IDS.has(id) ||
         workspaceAppIds.has(id) ||
         seen.has(id)

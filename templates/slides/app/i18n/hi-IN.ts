@@ -47,7 +47,8 @@ const messages = {
   },
   agent: {
     emptyState: "अपनी प्रस्तुतियों के बारे में मुझसे कुछ भी पूछें",
-    thisDeck: "यह डेक",
+    thisSlide: "यह स्लाइड",
+    currentSelection: "वर्तमान चयन",
     suggestionPitch: "इस दस्तावेज़ से 10-स्लाइड पिच बनाएं",
     suggestionBrand: "इस डेक पर हमारा ब्रांड लागू करें",
     suggestionHero: "इस स्लाइड के लिए हीरो इमेज बनाएं",
@@ -433,6 +434,10 @@ const messages = {
     order: "क्रम",
     bringToFront: "सबसे आगे लाएं",
     sendToBack: "सबसे पीछे भेजें",
+    copyStyle: "शैली कॉपी करें",
+    pasteStyle: "शैली पेस्ट करें",
+    copy: "कॉपी करें",
+    paste: "पेस्ट करें",
   },
   animations: {
     appear: "दिखाएं",

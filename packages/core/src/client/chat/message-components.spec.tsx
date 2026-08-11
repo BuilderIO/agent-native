@@ -27,6 +27,7 @@ import {
   isHiddenUserMessage,
   assistantMessageRunId,
   assistantMessageTurnId,
+  assistantMessageWasUserStopped,
   resolveAssistantRequestId,
 } from "./message-components.js";
 import { runErrorKey } from "./run-recovery.js";
@@ -69,6 +70,15 @@ describe("assistant request ID resolution", () => {
         metadata: { custom: { turnId: "turn-1" } },
       }),
     ).toBe("turn-1");
+  });
+
+  it("recognizes a persisted user stop marker", () => {
+    expect(
+      assistantMessageWasUserStopped({
+        metadata: { custom: { userStopped: true } },
+      }),
+    ).toBe(true);
+    expect(assistantMessageWasUserStopped({})).toBe(false);
   });
 });
 
@@ -256,6 +266,18 @@ describe("shouldShowMissingFinalResponse", () => {
         statusIsTerminal: true,
         hasAssistantText: false,
         hasUnresolvedTool: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("stays hidden after the user explicitly stops the run", () => {
+    expect(
+      shouldShowMissingFinalResponse({
+        isCurrentTurnRunning: false,
+        statusIsTerminal: true,
+        hasAssistantText: false,
+        hasUnresolvedTool: false,
+        userStoppedRun: true,
       }),
     ).toBe(false);
   });

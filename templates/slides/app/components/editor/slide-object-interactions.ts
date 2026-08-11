@@ -522,14 +522,30 @@ export function removeSlideObjectAndLayoutSpacer(element: HTMLElement): void {
 }
 
 /**
- * Whether Delete should remove `element` even though it is not a freeform
- * canvas object.
+ * Whether Delete may remove this selected element from the slide content.
  *
- * Flow-layout nodes are deliberately excluded from object operations, because
- * deleting an arbitrary one collapses the layout around it. An image is the
- * exception: it is a leaf, users select it directly, and removing it leaves
- * the surrounding grid or card intact. Without this, selecting a picture in a
- * card grid and pressing Delete silently did nothing.
+ * Selection is intentionally broader than freeform object manipulation: an
+ * AI-generated flow-layout div is still user content and must be removable.
+ * The renderer's structural shells and the hidden spacer used to preserve a
+ * moved object's original layout slot are not user content.
+ */
+export function isDeletableSlideElement(element: HTMLElement): boolean {
+  return (
+    !element.classList.contains("fmd-layout-spacer") &&
+    !element.classList.contains("fmd-slide") &&
+    !element.classList.contains("fmd-autofit-scale") &&
+    !element.hasAttribute("data-fmd-autofit-content") &&
+    !element.hasAttribute("data-slide-canvas")
+  );
+}
+
+/**
+ * Whether Delete should remove `element` even though it is not a freeform
+ * canvas object or generic flow element.
+ *
+ * Images are handled specially because they are leaves: an image nested in a
+ * card should be removed without swallowing the surrounding card. Generic
+ * flow elements are covered by `isDeletableSlideElement`.
  */
 export function isDeletableFlowImage(element: HTMLElement): boolean {
   return (

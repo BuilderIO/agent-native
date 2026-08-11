@@ -142,6 +142,7 @@ describe("DispatchControlPlane", () => {
       selectedEffort: "medium",
       selectedEngine: "",
       selectedModel: "auto",
+      rootClassName: "bg-card",
     });
 
     await act(async () => {

@@ -581,8 +581,15 @@ export function DesignSystemSetup({
       }. Present a summary for review.`,
     );
 
+    const message =
+      parts[0] ?? "Set up a design system from the selected sources.";
+    const contextParts = parts.slice(1);
     openAgentSidebar();
-    sendToAgentChat({ message: parts.join("\n"), submit: true });
+    sendToAgentChat({
+      message,
+      context: contextParts.join("\n"),
+      submit: true,
+    });
     toast(t("designSystemSetup.generationStarted"), {
       description: t("designSystemSetup.generationStartedDescription"),
     });

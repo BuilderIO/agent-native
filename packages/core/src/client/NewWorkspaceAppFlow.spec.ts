@@ -307,6 +307,27 @@ describe("NewWorkspaceAppFlow", () => {
     ).toBe(false);
   });
 
+  it("opens a fresh local chat when the server hands off app creation", async () => {
+    startWorkspaceAppCreationResponse.result = {
+      mode: "local-agent",
+      appId: "quality-dashboard",
+      prompt: "Create the quality dashboard in the new workspace app.",
+      message: "Starting the local coding chat.",
+    };
+    await renderAndSelectAccess();
+    await submitForm();
+
+    expect(sendToAgentChatMock).toHaveBeenCalledTimes(1);
+    expect(sendToAgentChatMock).toHaveBeenCalledWith({
+      message: "Create the quality dashboard in the new workspace app.",
+      submit: true,
+      type: "code",
+      newTab: true,
+      reuseEmptyTab: true,
+    });
+    expect(container.textContent).toContain("Sent to the local agent.");
+  });
+
   it("passes selected key ids to the server action as a pending request", async () => {
     await renderAndSelectAccess();
     await submitForm();

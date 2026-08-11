@@ -24,10 +24,6 @@ import {
   awaitLayoutFitCheck,
   formatOverflowForTool,
 } from "./_await-fit-check.js";
-import {
-  readAppStateForCurrentTab,
-  writeAppStateForCurrentTab,
-} from "./_tab-state.js";
 // Use the shared, globalThis-pinned per-deck lock so add-slide, update-slide,
 // and the browser's patch-deck all serialise against the SAME lock — writes to
 // different slides of the same deck can never clobber each other.
@@ -382,29 +378,6 @@ export default defineAction({
       // Broadcast to any open editors so the new slide appears immediately.
       // Include the new slideId + agent actor (backwards-compatible payload).
       notifyClients(deckId, { slideId: newSlideId, actor: "agent" });
-
-      // Nudge any open editor onto the new slide so the renderer measures
-      // IT (not whichever slide was previously selected). Only fires when an
-      // editor is open on this deck; navigation state is a no-op if nobody
-      // is watching.
-      const nav = (await readAppStateForCurrentTab("navigation", {
-        fallbackToGlobal: false,
-      }).catch(() => null)) as {
-        view?: string;
-        deckId?: string;
-      } | null;
-      if (nav?.view === "editor" && nav.deckId === deckId) {
-        await writeAppStateForCurrentTab("navigate", {
-          deckId,
-          slideIndex: insertIndex,
-          // Unique-per-write token. The UI's `use-navigation-state` hook
-          // dedups by this so a race between the GET and the consume-DELETE
-          // doesn't cause the same command to be re-applied repeatedly
-          // (which previously bounced the editor between slides whenever the
-          // agent path errored partway through a turn).
-          _writeId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        }).catch(() => {});
-      }
 
       // Wait briefly for the editor to render the new slide and report its
       // measured fit. If we get an "overflows" signal, append the auto-fix

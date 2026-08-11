@@ -104,6 +104,8 @@ import { toast } from "sonner";
 
 import { cn } from "../../lib/utils";
 import {
+  isDispatchWorkspaceAppId,
+  isWorkspaceAppVisibleInDefaultLaunchers,
   mergeChatFirstWorkspaceApps,
   workspaceAppIdFromRoute,
   workspaceAppRoute,
@@ -297,6 +299,10 @@ function localDispatchPath(pathname: string): string {
     return pathname.slice(basePath.length) || "/";
   }
   return pathname;
+}
+
+export function isElectronEmbeddedSearch(search: string): boolean {
+  return new URLSearchParams(search).get("electron") === "1";
 }
 
 function chatFirstPrimaryTabForPath(
@@ -1330,6 +1336,11 @@ export function Layout({
     }
   });
   const localPathname = localDispatchPath(location.pathname);
+  const [electronEmbedded] = useState(() =>
+    typeof window !== "undefined"
+      ? isElectronEmbeddedSearch(window.location.search)
+      : false,
+  );
   const isChatRoute =
     localPathname === "/chat" || localPathname.startsWith("/chat/");
   const chatFirstSurfaceScope = threadIdFromPath(localPathname) ?? "new";
@@ -1347,6 +1358,17 @@ export function Layout({
   const chatFirstMode =
     extensions?.chatFirst === true || chatFirstPreference || chatFirstEmbedded;
   const chatFirstHasActiveChat = chatFirstSurfaceScope !== "new";
+  useEffect(() => {
+    if (!electronEmbedded || typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    if (isElectronEmbeddedSearch(url.search)) return;
+    url.searchParams.set("electron", "1");
+    window.history.replaceState(
+      window.history.state,
+      "",
+      `${url.pathname}${url.search}${url.hash}`,
+    );
+  }, [electronEmbedded, location.pathname, location.search]);
   useEffect(() => {
     if (!chatFirstMode || chatFirstEmbedded || localPathname !== "/overview") {
       return;
@@ -1396,7 +1418,9 @@ export function Layout({
   const chatFirstAppItems = useMemo<ChatFirstAppItem[]>(
     () =>
       chatFirstAppRegistrations
-        .filter((app) => app.enabled)
+        .filter(
+          (app) => app.enabled && isWorkspaceAppVisibleInDefaultLaunchers(app),
+        )
         .map((app) => ({
           id: app.id,
           name: app.name ?? app.id,
@@ -1729,6 +1753,19 @@ export function Layout({
         setChatFirstNotice(chatFirstResolutionMessage(resolution.reason));
         return;
       }
+      if (isDispatchWorkspaceAppId(resolution.target.appId)) {
+        closeChatFirstSessionWatch();
+        chatFirstSurfaceTabsStore.closeAll();
+        setChatFirstSurfacePanelOpen(false);
+        persistChatFirstPane(null);
+        if (resolution.target.path) {
+          navigateWithAgentChatViewTransition(
+            navigate,
+            dispatchNavLinkTarget(resolution.target.path),
+          );
+        }
+        return;
+      }
       openChatFirstPane(resolution.target);
     },
     [
@@ -1736,7 +1773,12 @@ export function Layout({
       chatFirstAppsQuery.isError,
       chatFirstAppsQuery.isLoading,
       chatFirstGrantedAppsQuery.isLoading,
+      chatFirstSurfaceTabsStore,
+      closeChatFirstSessionWatch,
       openChatFirstPane,
+      navigate,
+      persistChatFirstPane,
+      setChatFirstSurfacePanelOpen,
     ],
   );
   const chatHomeHandoffActive = useAgentChatHomeHandoff({
@@ -2204,6 +2246,29 @@ export function Layout({
     return <>{children}</>;
   }
 
+  if (electronEmbedded) {
+    return (
+      <DispatchExtensionsContext.Provider value={extensions}>
+        <HeaderActionsProvider>
+          <div
+            data-dispatch-electron-control-plane
+            className="flex h-screen w-full overflow-hidden bg-background"
+          >
+            <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
+              <Header showAgentToggle={false} />
+              <InvitationBanner />
+              <main className="flex-1 overflow-y-auto">
+                <div className="mx-auto max-w-7xl space-y-10 px-4 py-6 sm:px-6">
+                  {children}
+                </div>
+              </main>
+            </div>
+          </div>
+        </HeaderActionsProvider>
+      </DispatchExtensionsContext.Provider>
+    );
+  }
+
   if (isWorkspaceAppHostRoute) {
     return (
       <DispatchExtensionsContext.Provider value={extensions}>
@@ -2403,9 +2468,11 @@ export function Layout({
                 chatFirstSurfaceTabsStore.closeAll();
                 setChatFirstSurfacePanelOpen(false);
               }}
-              onChatFirstAppOpen={(app) =>
-                navigate(dispatchNavLinkTarget(workspaceAppRoute(app.id)))
-              }
+              onChatFirstAppOpen={(app) => {
+                if (isDispatchWorkspaceAppId(app.id)) return;
+                setSidebarCollapsed(true);
+                navigate(dispatchNavLinkTarget(workspaceAppRoute(app.id)));
+              }}
               onChatFirstAppsRetry={() => void chatFirstAppsQuery.refetch()}
               collapsible
               onCollapsedChange={setSidebarCollapsed}

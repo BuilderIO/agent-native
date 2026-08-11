@@ -57,6 +57,17 @@ describe("CodeAgentsApp full-page chat width", () => {
   });
 });
 
+describe("CodeAgentsApp project folder picker", () => {
+  it("keeps folder creation in the dropdown instead of duplicating its action", () => {
+    const source = readFileSync("src/CodeAgentsApp.tsx", "utf8");
+    const css = readFileSync("src/styles.css", "utf8");
+
+    expect(source).toContain("<span>Add folder...</span>");
+    expect(source).not.toContain('aria-label="Add folder"');
+    expect(css).toContain("margin-top: -10px;");
+  });
+});
+
 describe("CodeAgentsApp unread run state", () => {
   const run = (id: string, status: CodeAgentRun["status"]) =>
     ({ id, status }) as CodeAgentRun;

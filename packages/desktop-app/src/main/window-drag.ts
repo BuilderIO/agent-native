@@ -1,7 +1,8 @@
 import type { BrowserWindow, MouseInputEvent, WebContents } from "electron";
 
-export const WINDOW_DRAG_REGION_TOP = 20;
-export const WINDOW_DRAG_REGION_HEIGHT = 16;
+export const WINDOW_DRAG_REGION_TOP = 0;
+export const WINDOW_DRAG_REGION_HEIGHT = 36;
+export const WINDOW_DRAG_REGION_LEFT = 100;
 export const WINDOW_DRAG_THRESHOLD = 4;
 
 export interface WindowDragScreenPoint {
@@ -19,7 +20,7 @@ export type WindowDragMouseInput = Pick<
 >;
 
 interface WindowDragTarget {
-  getContentBounds: () => { y: number };
+  getContentBounds: () => { x: number; y: number };
   getPosition: () => number[];
   isDestroyed: () => boolean;
   setPosition: (x: number, y: number, animate?: boolean) => void;
@@ -27,6 +28,7 @@ interface WindowDragTarget {
 
 interface WindowDragOptions {
   getCursorScreenPoint: () => WindowDragScreenPoint;
+  regionLeft?: number;
   regionTop?: number;
   regionHeight?: number;
   threshold?: number;
@@ -52,6 +54,7 @@ export function createWindowDragController(
   window: WindowDragTarget,
   {
     getCursorScreenPoint,
+    regionLeft = WINDOW_DRAG_REGION_LEFT,
     regionTop = WINDOW_DRAG_REGION_TOP,
     regionHeight = WINDOW_DRAG_REGION_HEIGHT,
     threshold = WINDOW_DRAG_THRESHOLD,
@@ -76,9 +79,11 @@ export function createWindowDragController(
       if (pendingDrag || input.button !== "left") return;
 
       const cursor = pointFromMouseInput(input, getCursorScreenPoint);
-      const contentTop = window.getContentBounds().y;
-      const regionTopEdge = contentTop + regionTop;
+      const contentBounds = window.getContentBounds();
+      const regionLeftEdge = contentBounds.x + regionLeft;
+      const regionTopEdge = contentBounds.y + regionTop;
       if (
+        cursor.x < regionLeftEdge ||
         cursor.y < regionTopEdge ||
         cursor.y >= regionTopEdge + regionHeight
       ) {

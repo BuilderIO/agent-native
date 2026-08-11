@@ -48,7 +48,8 @@ const messages = {
   },
   agent: {
     emptyState: "プレゼンテーションについて何でも聞いてください",
-    thisDeck: "このデッキ",
+    thisSlide: "このスライド",
+    currentSelection: "現在の選択",
     suggestionPitch: "このドキュメントから 10 枚のピッチ資料を作成",
     suggestionBrand: "このデッキにブランドを適用",
     suggestionHero: "このスライド用のヒーロー画像を生成",
@@ -438,6 +439,10 @@ const messages = {
     order: "順序",
     bringToFront: "最前面へ移動",
     sendToBack: "最背面へ移動",
+    copyStyle: "スタイルをコピー",
+    pasteStyle: "スタイルを貼り付け",
+    copy: "コピー",
+    paste: "貼り付け",
   },
   animations: {
     appear: "出现",

@@ -65,7 +65,9 @@ import {
   uploadFile,
   getActiveFileUploadProviderForRequest,
   listFileUploadProviders,
+  registerFileUploadProvider,
 } from "../file-upload/index.js";
+import { s3FileUploadProvider } from "../file-upload/s3.js";
 import { handleMcpConnect } from "../mcp/connect-route.js";
 import {
   handleMcpOAuth,
@@ -1422,6 +1424,17 @@ function wireRouteErrorCapture(nitroApp: any): void {
   );
 }
 
+export function ensureS3FileUploadProvider(): void {
+  if (
+    listFileUploadProviders().some(
+      (provider) => provider.id === s3FileUploadProvider.id,
+    )
+  ) {
+    return;
+  }
+  registerFileUploadProvider(s3FileUploadProvider);
+}
+
 export function createCoreRoutesPlugin(
   options: CoreRoutesPluginOptions = {},
 ): NitroPluginDef {
@@ -1440,6 +1453,13 @@ export function createCoreRoutesPlugin(
     });
     try {
       const P = FRAMEWORK_ROUTE_PREFIX;
+
+      // Keep the framework-owned S3-compatible provider available even when an
+      // app does not mount the optional onboarding plugin. The settings CTA and
+      // the upload route share this registry. An app may register its own
+      // provider under the conventional `s3` id, so preserve that explicit
+      // registration instead of replacing it during core bootstrap.
+      ensureS3FileUploadProvider();
 
       // This response is a side-effect-free static contract used by the SSR
       // shell. Mount it before optional default-plugin/bootstrap work so a

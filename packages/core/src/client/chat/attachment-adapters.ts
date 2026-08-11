@@ -327,6 +327,17 @@ export function serializeAttachmentContentPart(
       ...(typeof part.filename === "string" ? { filename: part.filename } : {}),
     };
   }
+  if (part.type === "file" && typeof part.url === "string") {
+    return {
+      type: "file",
+      url: part.url,
+      mimeType:
+        typeof part.mimeType === "string"
+          ? part.mimeType
+          : "application/octet-stream",
+      ...(typeof part.filename === "string" ? { filename: part.filename } : {}),
+    } as unknown as QueuedAttachment["content"][number];
+  }
   return null;
 }
 
