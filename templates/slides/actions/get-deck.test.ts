@@ -89,6 +89,51 @@ describe("get-deck", () => {
     });
   });
 
+  it("returns only the requested slide with full HTML for targeted agent reads", async () => {
+    const result = (await action.run(
+      { id: "deck-1", slideId: "slide-b" },
+      { caller: "tool" },
+    )) as any;
+
+    expect(result).toMatchObject({
+      slideCount: 2,
+      selectedSlideId: "slide-b",
+    });
+    expect(result.slides).toHaveLength(1);
+    expect(result.slides[0]).toMatchObject({
+      id: "slide-b",
+      slideNumber: 2,
+      zeroBasedIndex: 1,
+      content: "<p>Metrics</p>",
+    });
+  });
+
+  it("supports compact summaries for a single requested slide", async () => {
+    const result = (await action.run(
+      { id: "deck-1", slideId: "slide-b", compact: "true" },
+      { caller: "tool" },
+    )) as any;
+
+    expect(result).toMatchObject({ selectedSlideId: "slide-b" });
+    expect(result.slides).toHaveLength(1);
+    expect(result.slides[0]).toMatchObject({
+      id: "slide-b",
+      slideNumber: 2,
+      zeroBasedIndex: 1,
+      textPreview: "Metrics",
+    });
+    expect(result.slides[0]).not.toHaveProperty("content");
+  });
+
+  it("returns a not-found error for an unknown requested slide", async () => {
+    await expect(
+      action.run(
+        { id: "deck-1", slideId: "missing-slide" },
+        { caller: "tool" },
+      ),
+    ).rejects.toMatchObject({ statusCode: 404 });
+  });
+
   it("keeps full slide HTML for frontend callers", async () => {
     const result = (await action.run(
       { id: "deck-1" },

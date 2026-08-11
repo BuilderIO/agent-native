@@ -98,7 +98,7 @@ export function sharedRule8(
 
 /**
  * Rule 9 — Consolidated anti-fabrication rule (shared). Formerly three
- * separate rules (fabricating facts, fabricating success, and Rule 11's
+ * separate rules (fabricating facts, fabricating success, and a since-removed
  * "verify before you claim done") — merged because they are one behavior,
  * honesty about what actually happened, viewed from three angles. Keep all
  * three sub-behaviors distinct; do not re-split them back into separate

@@ -51,15 +51,21 @@ function deckDeepLink(deckId: string): string {
 
 export default defineAction({
   description:
-    "Get a specific deck. Agent calls return compact slide metadata by default; set compact=false when full slide HTML is needed for an edit. Frontend and CLI reads remain full unless compact=true. User-visible slide numbers are 1-based and match the UI: slide 1 is the first slide. Use slideId for edits.",
+    "Get a specific deck. Pass slideId to return only that slide; targeted agent reads include full HTML by default. In-app agent calls without slideId return compact slide metadata by default; set compact=false when full deck HTML is needed. Frontend and CLI reads remain full unless compact=true. User-visible slide numbers are 1-based and match the UI: slide 1 is the first slide. Use slideId for edits.",
   timeoutMs: 60_000,
   schema: z.object({
     id: z.string().optional().describe("Deck ID (required)"),
+    slideId: z
+      .string()
+      .optional()
+      .describe(
+        "Optional stable slide ID. When set, return only that slide for a targeted read.",
+      ),
     compact: z
       .enum(["true", "false"])
       .optional()
       .describe(
-        "Set to 'true' for compact slide summaries, or 'false' for full slide HTML. Agent calls default to compact output.",
+        "Set to 'true' for compact slide summaries, or 'false' for full slide HTML. In-app agent calls without slideId default to compact output.",
       ),
   }),
   http: { method: "GET" },
@@ -89,10 +95,29 @@ export default defineAction({
     const data = JSON.parse(row.data);
     const slides = data?.slides || [];
     const ownerEmail = getRequestUserEmail();
+    const selectedSlideIndex =
+      args.slideId === undefined
+        ? -1
+        : slides.findIndex((slide: any) => slide?.id === args.slideId);
+
+    if (args.slideId !== undefined && selectedSlideIndex < 0) {
+      throw Object.assign(new Error(`Slide not found: ${args.slideId}`), {
+        statusCode: 404,
+      });
+    }
+
+    const selectedSlide =
+      selectedSlideIndex >= 0 ? slides[selectedSlideIndex] : null;
+    const slideEntries: Array<{ slide: any; index: number }> =
+      selectedSlideIndex >= 0
+        ? [{ slide: selectedSlide, index: selectedSlideIndex }]
+        : slides.map((slide: any, index: number) => ({ slide, index }));
 
     const compact =
       args.compact === "true" ||
-      (args.compact === undefined && ctx?.caller === "tool");
+      (args.compact === undefined &&
+        ctx?.caller === "tool" &&
+        selectedSlideIndex < 0);
 
     if (compact) {
       return {
@@ -116,7 +141,8 @@ export default defineAction({
         slideNumbering:
           'User-visible slide numbers are 1-based and match the UI. "Slide 1" means slideNumber 1 / zeroBasedIndex 0. Use slideId for edits.',
         deepLink: deckDeepLink(row.id),
-        slides: slides.map((s: any, i: number) => ({
+        ...(selectedSlide ? { selectedSlideId: selectedSlide.id } : {}),
+        slides: slideEntries.map(({ slide: s, index: i }) => ({
           slideNumber: i + 1,
           zeroBasedIndex: i,
           id: s.id,
@@ -128,8 +154,11 @@ export default defineAction({
       };
     }
 
+    const deckMetadata = { ...data };
+    delete deckMetadata.slides;
+
     return {
-      ...data,
+      ...deckMetadata,
       id: row.id,
       title: row.title || data?.title,
       visibility: row.visibility,
@@ -142,7 +171,8 @@ export default defineAction({
         typeof data.createdAt === "string" ? data.createdAt : row.createdAt,
       updatedAt: row.updatedAt,
       deepLink: deckDeepLink(row.id),
-      slides: slides.map((s: any, i: number) => ({
+      ...(selectedSlide ? { selectedSlideId: selectedSlide.id } : {}),
+      slides: slideEntries.map(({ slide: s, index: i }) => ({
         ...s,
         slideNumber: i + 1,
         zeroBasedIndex: i,

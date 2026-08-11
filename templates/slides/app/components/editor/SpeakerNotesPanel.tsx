@@ -26,6 +26,7 @@ export function SpeakerNotesPanel({
     try {
       return localStorage.getItem("speaker-notes-expanded") === "true";
     } catch {
+      // coercion-ok: browser storage is optional; the collapsed state is the default.
       return false;
     }
   });

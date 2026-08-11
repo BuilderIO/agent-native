@@ -4237,7 +4237,7 @@ export default function SlideEditor({
 
   return (
     <div
-      className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-xl bg-[var(--slides-editor-surface)]"
+      className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-l-lg bg-[var(--slides-editor-surface)]"
       data-slide-element-selected={slideElementSelected ? "true" : undefined}
     >
       {!readOnly && wideContextToolbarSlot
@@ -4271,7 +4271,7 @@ export default function SlideEditor({
             </div>
           ) : (
             <div className="relative h-full bg-[var(--slides-editor-surface)]">
-              <div className="absolute right-3 top-3 z-20 flex h-8 items-center gap-0.5 rounded-md border border-border bg-popover/95 px-1 shadow-lg">
+              <div className="absolute right-3 top-3 z-20 flex h-8 items-center gap-0.5 rounded-md bg-popover/95 px-1">
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button

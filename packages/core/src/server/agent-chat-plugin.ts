@@ -356,7 +356,10 @@ import {
   createDocsScriptEntries,
   createResourceScriptEntries,
 } from "./agent-chat/script-entries.js";
-import { parseSkillFrontmatter } from "./agent-chat/skill-frontmatter.js";
+import {
+  isRuntimeVisibleScope,
+  parseSkillFrontmatter,
+} from "./agent-chat/skill-frontmatter.js";
 import { shouldDisableInProcessSweeps } from "./sweep-runtime.js";
 
 export { loadResourcesForPrompt };
@@ -4250,7 +4253,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                     const content = _fs.readFileSync(skillFilePath, "utf-8");
                     const fm = parseSkillFrontmatter(content);
                     if (fm.userInvocable === false) continue;
-                    if (fm.scope === "dev") continue;
+                    if (!isRuntimeVisibleScope(fm.scope)) continue;
                     const skillName =
                       fm.name || entry.name.replace(/\.md$/, "");
                     if (!seenNames.has(skillName)) {
@@ -4334,7 +4337,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 );
                 if (full) {
                   const fm = parseSkillFrontmatter(full.content);
-                  if (fm.scope === "dev") continue;
+                  if (!isRuntimeVisibleScope(fm.scope)) continue;
                   if (fm.name) skillName = fm.name;
                   description = fm.description;
                   userInvocable = fm.userInvocable;

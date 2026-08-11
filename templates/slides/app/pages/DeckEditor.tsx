@@ -1015,7 +1015,7 @@ export default function DeckEditor() {
 
   return (
     <div
-      className="deck-editor-shell flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-xl bg-background"
+      className="deck-editor-shell flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-l-lg bg-background"
       onDragOver={editorDragOver}
       onDrop={editorDrop}
     >
@@ -1128,7 +1128,7 @@ export default function DeckEditor() {
         className="deck-editor-context-toolbar-host deck-editor-context-toolbar-host--narrow shrink-0"
       />
 
-      <div className="deck-editor-workspace relative flex min-h-0 flex-1 overflow-hidden rounded-xl bg-background">
+      <div className="deck-editor-workspace relative flex min-h-0 flex-1 overflow-hidden rounded-l-lg bg-background">
         {sidebarOpen && (
           <>
             <div
