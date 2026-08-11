@@ -1,11 +1,17 @@
+// @vitest-environment happy-dom
+
 import type { ContentDatabaseItem, Document } from "@shared/api";
-import { QueryClient } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { act, createElement } from "react";
+import { createRoot } from "react-dom/client";
 import { describe, expect, it } from "vitest";
 
 import {
   buildDocumentTree,
   DOCUMENT_QUERY_FRESHNESS_OPTIONS,
   documentUpdateSuccessPatch,
+  fetchCompleteDocumentList,
+  LIST_DOCUMENTS_QUERY_KEY,
   documentPropertiesQueryKey,
   documentQueryKey,
   filterDocumentTreeDocuments,
@@ -20,7 +26,107 @@ import {
   setDocumentFavoriteInDatabaseCache,
   setDocumentFavoriteInListCache,
   seedDatabaseItemDocumentCaches,
+  useDocuments,
 } from "./use-documents";
+
+describe("complete document discovery", () => {
+  it("keeps object-shaped optimistic cache writes array-shaped for consumers", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+    });
+    const optimisticDocument = doc("optimistic-document", null);
+    queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, {
+      documents: [optimisticDocument],
+    });
+    let consumerData: unknown;
+    function Consumer() {
+      consumerData = useDocuments().data;
+      return null;
+    }
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    const actEnvironment = globalThis as typeof globalThis & {
+      IS_REACT_ACT_ENVIRONMENT?: boolean;
+    };
+    const previousActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT;
+    actEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
+
+    try {
+      await act(async () => {
+        root.render(
+          createElement(
+            QueryClientProvider,
+            { client: queryClient },
+            createElement(Consumer),
+          ),
+        );
+      });
+
+      expect(Array.isArray(consumerData)).toBe(true);
+      expect(consumerData).toEqual([optimisticDocument]);
+    } finally {
+      await act(async () => root.unmount());
+      actEnvironment.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+      queryClient.clear();
+    }
+  });
+
+  it("exhausts every bounded page before returning the document tree", async () => {
+    const documents = Array.from({ length: 401 }, (_, index) =>
+      doc(`document-${index}`, null, index),
+    );
+    const offsets: number[] = [];
+
+    const result = await fetchCompleteDocumentList(async (offset, limit) => {
+      offsets.push(offset);
+      const page = documents.slice(offset, offset + limit);
+      const nextOffset = offset + page.length;
+      return {
+        documents: page,
+        pagination: {
+          offset,
+          limit,
+          totalItems: documents.length,
+          returnedItems: page.length,
+          hasMore: nextOffset < documents.length,
+          nextOffset: nextOffset < documents.length ? nextOffset : null,
+        },
+      };
+    });
+
+    expect(offsets).toEqual([0, 200, 400]);
+    expect(result.map((document) => document.id)).toEqual(
+      documents.map((document) => document.id),
+    );
+  });
+
+  it("rejects a response whose missing boundary could hide clipping", async () => {
+    await expect(
+      fetchCompleteDocumentList(
+        async () =>
+          ({
+            documents: [doc("document-1", null)],
+          }) as never,
+      ),
+    ).rejects.toThrow("returned no pagination boundary");
+  });
+
+  it("rejects a non-advancing continuation", async () => {
+    await expect(
+      fetchCompleteDocumentList(async (_offset, limit) => ({
+        documents: [],
+        pagination: {
+          offset: 0,
+          limit,
+          totalItems: 1,
+          returnedItems: 0,
+          hasMore: true,
+          nextOffset: 0,
+        },
+      })),
+    ).rejects.toThrow("non-advancing continuation");
+  });
+});
 
 describe("document query freshness", () => {
   it("always replaces seeded row snapshots before the editor mounts", () => {
