@@ -56,7 +56,7 @@ const COMPARISON_ROWS = [
   },
   {
     feature: "Can it integrate?",
-    clips: "Yes.\nOpenAI + Anthropic, and any API you can think of.",
+    clips: "Yes.\nChatGPT, Claude, or any API.",
     loom: "Atlassian products + select partners.",
     alternatives: "Select partners.",
   },
@@ -658,7 +658,7 @@ export default function ClipsTemplate() {
           <TemplateDocsLink
             template={template}
             location="landing_page_cta"
-            className="inline-flex items-center justify-center gap-2 rounded-xl bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
+            className="inline-flex items-center justify-center gap-2 rounded-xl border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
           >
             {t("templateLanding.clips.s061")}
           </TemplateDocsLink>
