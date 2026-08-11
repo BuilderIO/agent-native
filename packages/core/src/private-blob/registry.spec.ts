@@ -135,21 +135,28 @@ describe("private blob registry", () => {
       .mockResolvedValueOnce(new Response(null, { status: 503 }))
       .mockImplementationOnce(
         async () => new Response(uploadedInput?.data ?? new Uint8Array()),
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 404 }))
+      .mockResolvedValueOnce(new Response(null, { status: 503 }))
+      .mockImplementationOnce(
+        async () => new Response(uploadedInput?.data ?? new Uint8Array()),
       );
     vi.stubGlobal("fetch", fetchMock);
     vi.useFakeTimers();
 
-    const handle = await registry.putPrivateBlob({
+    const putPromise = registry.putPrivateBlob({
       data: new TextEncoder().encode("hello"),
     });
+    await vi.advanceTimersByTimeAsync(1_000);
+    const handle = await putPromise;
     const readPromise = registry.readPrivateBlob(handle!);
     await vi.advanceTimersByTimeAsync(1_000);
 
     await expect(readPromise).resolves.toMatchObject({ handle });
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(6);
   });
 
-  it("does not retry non-transient public-upload failures", async () => {
+  it("does not return a reference for non-transient public-upload failures", async () => {
     const registry = await freshRegistry();
     uploadFileMock.mockResolvedValue({
       url: "https://cdn.example.test/private/replay.bin",
@@ -161,13 +168,11 @@ describe("private blob registry", () => {
       .mockResolvedValue(new Response(null, { status: 403 }));
     vi.stubGlobal("fetch", fetchMock);
 
-    const handle = await registry.putPrivateBlob({
-      data: new TextEncoder().encode("hello"),
-    });
-
-    await expect(registry.readPrivateBlob(handle!)).rejects.toThrow(
-      "Private blob public-upload read failed (403)",
-    );
+    await expect(
+      registry.putPrivateBlob({
+        data: new TextEncoder().encode("hello"),
+      }),
+    ).rejects.toThrow("Private blob public-upload read failed (403)");
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 

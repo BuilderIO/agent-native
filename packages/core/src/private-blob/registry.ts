@@ -157,7 +157,7 @@ async function putViaEncryptedPublicUpload(
     createdAt: new Date().toISOString(),
   };
 
-  return {
+  const handle: PrivateBlobHandle = {
     id: encodePublicUploadDescriptor(descriptor),
     provider: `public-upload:${uploaded.provider}`,
     opaque: true,
@@ -167,23 +167,38 @@ async function putViaEncryptedPublicUpload(
     createdAt: descriptor.createdAt,
     metadata: input.metadata,
   };
+
+  // Do not hand callers a reference that the next request cannot read yet.
+  // The public-upload fallback is eventually consistent at the URL boundary,
+  // so readiness belongs to the write path as well as the later read path.
+  await readViaEncryptedPublicUpload(handle);
+  return handle;
 }
 
 async function readViaEncryptedPublicUpload(
   handle: PrivateBlobHandle,
 ): Promise<PrivateBlobReadResult> {
   const descriptor = decodePublicUploadDescriptor(handle.id);
+  const startedAt = Date.now();
 
   let response: Response | undefined;
+  let attempts = 0;
   for (
     let attempt = 0;
     attempt <= PUBLIC_UPLOAD_READ_RETRY_DELAYS_MS.length;
     attempt++
   ) {
+    attempts = attempt + 1;
     try {
       response = await fetch(descriptor.url);
     } catch (error) {
       if (attempt === PUBLIC_UPLOAD_READ_RETRY_DELAYS_MS.length) {
+        console.warn("[private-blob] public-upload read failed", {
+          attempts: attempt + 1,
+          elapsedMs: Date.now() - startedAt,
+          provider: handle.provider,
+          reason: "network",
+        });
         throw new Error(
           `Private blob public-upload read failed: ${
             error instanceof Error ? error.message : "network error"
@@ -203,6 +218,12 @@ async function readViaEncryptedPublicUpload(
       !isRetryablePublicUploadStatus(response.status) ||
       attempt === PUBLIC_UPLOAD_READ_RETRY_DELAYS_MS.length
     ) {
+      console.warn("[private-blob] public-upload read failed", {
+        attempts: attempt + 1,
+        elapsedMs: Date.now() - startedAt,
+        provider: handle.provider,
+        status: response.status,
+      });
       throw new Error(
         `Private blob public-upload read failed (${response.status}): ${response.statusText}`,
       );
@@ -212,9 +233,22 @@ async function readViaEncryptedPublicUpload(
   }
 
   if (!response?.ok) {
+    console.warn("[private-blob] public-upload read failed", {
+      attempts: PUBLIC_UPLOAD_READ_RETRY_DELAYS_MS.length + 1,
+      elapsedMs: Date.now() - startedAt,
+      provider: handle.provider,
+      reason: "no-response",
+    });
     throw new Error(
       "Private blob public-upload read failed without a response",
     );
+  }
+  if (attempts > 1) {
+    console.info("[private-blob] public-upload read recovered after retry", {
+      attempts,
+      elapsedMs: Date.now() - startedAt,
+      provider: handle.provider,
+    });
   }
   // The uploaded ciphertext is intentionally opaque; the descriptor carries
   // auth tag + IV separately so the backing public URL is useless by itself.
