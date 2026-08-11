@@ -35,6 +35,33 @@ export const meta = () =>
 
 const template = templates.find((t) => t.slug === "slides")!;
 
+const COMPARISON_ROWS = [
+  {
+    feature: "Where you start",
+    google: "Blank deck UI",
+    gamma: "In-app prompt",
+    slides: "In-app or your own AI agent (Claude, ChatGPT, etc)",
+  },
+  {
+    feature: "Does it know your brand?",
+    google: "No",
+    gamma: "If you pay.",
+    slides: "Yes - feed in your design system or riff off an old deck.",
+  },
+  {
+    feature: "AI control",
+    google: "Manual, start to finish",
+    gamma: "Black box",
+    slides: "Open-source, customizable",
+  },
+  {
+    feature: "Integrations",
+    google: "Only Google Suite",
+    gamma: "Touchy and limited",
+    slides: "Anything",
+  },
+];
+
 function CliCopy() {
   const [copied, setCopied] = useState(false);
   function handleCopy() {
@@ -344,7 +371,10 @@ export default function SlidesTemplate() {
       </section>
 
       {/* Comparison table */}
-      <section className="border-t border-[var(--docs-border)] py-16">
+      <section
+        id="comparison"
+        className="scroll-mt-24 border-t border-[var(--docs-border)] py-16"
+      >
         <h2 className="mb-8 text-2xl font-bold tracking-tight">
           {t("templateLanding.slides.s035")}
         </h2>
@@ -354,10 +384,10 @@ export default function SlidesTemplate() {
               <tr className="border-b border-[var(--docs-border)] bg-[var(--bg-secondary)]">
                 <th className="px-5 py-3 text-left font-semibold text-[var(--fg)]"></th>
                 <th className="px-5 py-3 text-left font-semibold text-[var(--fg-secondary)]">
-                  Google Slides / Pitch
+                  Google Slides
                 </th>
                 <th className="px-5 py-3 text-left font-semibold text-[var(--fg-secondary)]">
-                  {t("templateLanding.slides.s036")}
+                  Gamma, Tome
                 </th>
                 <th className="px-5 py-3 text-left font-semibold text-[var(--docs-accent)]">
                   Agent-Native Slides
@@ -365,71 +395,30 @@ export default function SlidesTemplate() {
               </tr>
             </thead>
             <tbody className="text-[var(--fg-secondary)]">
-              <tr className="border-b border-[var(--docs-border)]">
-                <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  {t("templateLanding.slides.s037")}
-                </td>
-                <td className="px-5 py-3">
-                  {t("templateLanding.slides.s038")}
-                </td>
-                <td className="px-5 py-3">
-                  {t("templateLanding.slides.s039")}
-                </td>
-                <td className="px-5 py-3 text-[var(--fg)]">
-                  {t("templateLanding.slides.s040")}
-                </td>
-              </tr>
-              <tr className="border-b border-[var(--docs-border)]">
-                <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  {t("templateLanding.slides.s041")}
-                </td>
-                <td className="px-5 py-3">
-                  {t("templateLanding.slides.s042")}
-                </td>
-                <td className="px-5 py-3">
-                  {t("templateLanding.slides.s043")}
-                </td>
-                <td className="px-5 py-3 text-[var(--fg)]">
-                  {t("templateLanding.slides.s044")}
-                </td>
-              </tr>
-              <tr className="border-b border-[var(--docs-border)]">
-                <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  {t("templateLanding.slides.s045")}
-                </td>
-                <td className="px-5 py-3">None</td>
-                <td className="px-5 py-3">
-                  {t("templateLanding.slides.s046")}
-                </td>
-                <td className="px-5 py-3 text-[var(--fg)]">
-                  Gemini with style refs
-                </td>
-              </tr>
-              <tr className="border-b border-[var(--docs-border)]">
-                <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  {t("templateLanding.slides.s047")}
-                </td>
-                <td className="px-5 py-3">
-                  {t("templateLanding.slides.s048")}
-                </td>
-                <td className="px-5 py-3">
-                  {t("templateLanding.slides.s049")}
-                </td>
-                <td className="px-5 py-3 text-[var(--fg)]">
-                  {t("templateLanding.slides.s050")}
-                </td>
-              </tr>
+              {COMPARISON_ROWS.map((row) => (
+                <tr
+                  key={row.feature}
+                  className="border-b border-[var(--docs-border)] align-top"
+                >
+                  <td className="px-5 py-4 font-medium text-[var(--fg)]">
+                    {row.feature}
+                  </td>
+                  <td className="px-5 py-4">{row.google}</td>
+                  <td className="px-5 py-4">{row.gamma}</td>
+                  <td className="px-5 py-4 text-[var(--fg)]">{row.slides}</td>
+                </tr>
+              ))}
               <tr>
-                <td className="px-5 py-3 font-medium text-[var(--fg)]">
+                <td className="px-5 py-4 font-medium text-[var(--fg)]">
                   {t("templateLanding.slides.s051")}
                 </td>
-                <td className="px-5 py-3">
+                <td className="px-5 py-4">
                   {t("templateLanding.slides.s052")}
                 </td>
-                <td className="px-5 py-3">
+                <td className="px-5 py-4">
                   {t("templateLanding.slides.s053")}
                 </td>
-                <td className="px-5 py-3 text-[var(--fg)]">
+                <td className="px-5 py-4 text-[var(--fg)]">
                   {t("templateLanding.slides.s054")}
                 </td>
               </tr>
