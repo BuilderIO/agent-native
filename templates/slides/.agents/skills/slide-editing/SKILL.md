@@ -75,12 +75,13 @@ To edit a slide's content:
    changes.
 5. **Land the whole request in one write.** Several changes to one slide are one
    call carrying the finished state, not one call per change. Compose the final
-   HTML and the final field values first, then send them together — a second
-   call targeting the same slide replaces what the first one wrote.
+   HTML and the final field values first, then send them together. A later call
+   re-sending a field overwrites the value the earlier one wrote, so splitting
+   one request across calls loses everything but the last.
 6. For browser/editor code, enqueue granular deck operations through
    `patch-deck` / `DeckContext.tsx` instead of replacing the whole deck JSON.
 
-6. For factual edits, compare changed text against the retrieved source and
+7. For factual edits, compare changed text against the retrieved source and
    preserve quote, speaker, date, metric, and uncertainty status. Existing HTML
    or visual similarity is not proof of source fidelity.
 
@@ -99,10 +100,13 @@ The field is a full replacement, so send the complete list the slide should end
 with. Three reveals is one operation carrying three entries — patching them in
 one at a time leaves the slide with only the last.
 
-Prefer `elementPath`, the child-index path from the outer `.fmd-slide` wrapper,
-since it survives sibling edits that shift a flat `elementIndex`. Read the
-current list with `get-deck` before changing it so an edit preserves the reveals
-the user already has.
+Every entry needs both targets: `elementIndex`, the child index within the slide
+content, and `elementPath`, the child-index path from the outer `.fmd-slide`
+wrapper. The editor and presentation runtime read `elementIndex` directly, so an
+entry without it targets the wrong element; `elementPath` is the more precise
+target and survives sibling edits that shift a flat index. Read the current list
+with `get-deck` before changing it so an edit preserves the reveals the user
+already has.
 
 ## Freeform Canvas Objects
 

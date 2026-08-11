@@ -337,7 +337,9 @@ describe("patch-deck agent schema", () => {
       "slide-up",
       "zoom",
     ]);
-    expect(animations.items.required).toContain("id");
+    expect(animations.items.required).toEqual(
+      expect.arrayContaining(["id", "elementIndex", "type"]),
+    );
     expect(animations.items.properties).toHaveProperty("elementPath");
   });
 });

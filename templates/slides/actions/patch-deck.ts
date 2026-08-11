@@ -75,13 +75,14 @@ const SlideAnimationSchema = z.object({
     .number()
     .int()
     .min(0)
-    .optional()
-    .describe("Child index of the target element within the slide content"),
+    .describe(
+      "Child index of the target element within the slide content. Required: the editor and presentation runtime read it directly.",
+    ),
   elementPath: z
     .array(z.number().int().min(0))
     .optional()
     .describe(
-      "Preferred target: child-index path from the outer .fmd-slide wrapper",
+      "More precise target: child-index path from the outer .fmd-slide wrapper. Send it alongside elementIndex.",
     ),
   type: z.enum(["appear", "fade", "slide-up", "zoom"]),
 });
@@ -219,7 +220,7 @@ const AgentPatchDeckInputSchema = z.object({
     )
     .min(1)
     .describe(
-      "Every change for this turn, in one call: one patch-slide operation per affected slide, carrying all of that slide's changed fields together. Repeating the same slide across separate calls overwrites the earlier ones. Use patch-deck-fields only for a deck title change.",
+      "Every change for this turn, in one call: one patch-slide operation per affected slide, carrying all of that slide's changed fields together. A later call re-sending a field overwrites the value an earlier one wrote. Use patch-deck-fields only for a deck title change.",
     ),
 });
 
