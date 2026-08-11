@@ -186,6 +186,36 @@ describe("OAuth credential lifecycle", () => {
     ).resolves.toEqual({ kind: "missing" });
   });
 
+  it("reads and deletes legacy user credentials stored under mixed-case ownership", async () => {
+    const legacyIdentity: OAuthCredentialIdentity = {
+      provider: "mcp",
+      accountId: "mcp_oauth:test",
+      resource: "https://mcp.example.com/mcp",
+      owner: { scope: "user", id: "Alice@Example.com" },
+    };
+    state.rows.set(rowKey("mcp", "mcp_oauth:test"), {
+      tokens: credential(),
+      owner: "user:Alice@Example.com",
+      revision: 1,
+      legacyRevision: 1,
+      storageVersion: "legacy-storage",
+    });
+
+    await expect(
+      readOAuthCredentialState(legacyIdentity, {
+        allowLegacy: true,
+        legacyAccountKey: true,
+      }),
+    ).resolves.toMatchObject({ kind: "connected" });
+    await expect(
+      revokeOAuthCredential(legacyIdentity, {
+        allowLegacy: true,
+        legacyAccountKey: true,
+      }),
+    ).resolves.toEqual({ remote: "unsupported", local: "deleted" });
+    expect(state.rows.size).toBe(0);
+  });
+
   it("keeps credentials for two resources with the same provider and account independently retrievable", async () => {
     const fusionIdentity = {
       ...identity,

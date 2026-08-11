@@ -266,13 +266,17 @@ export async function addOAuthRemoteServer(
       error: "MCP server URL must match the OAuth credential resource URL",
     };
   }
+  const credentials = {
+    ...input.credentials,
+    serverUrl: credentialResource.url.toString(),
+  };
   const oauthSecretKey = `mcp_oauth:${shortId()}`;
   try {
     await saveMcpOAuthCredentials({
       key: oauthSecretKey,
       scope,
       scopeId,
-      credentials: input.credentials,
+      credentials,
     });
     const result = await addRemoteServerInternal(scope, scopeId, {
       name: input.name,
@@ -285,7 +289,7 @@ export async function addOAuthRemoteServer(
         key: oauthSecretKey,
         scope,
         scopeId,
-        serverUrl: input.credentials.serverUrl,
+        serverUrl: credentials.serverUrl,
       });
     }
     return result;
@@ -294,7 +298,7 @@ export async function addOAuthRemoteServer(
       key: oauthSecretKey,
       scope,
       scopeId,
-      serverUrl: input.credentials.serverUrl,
+      serverUrl: credentials.serverUrl,
     }).catch(() => {});
     return {
       ok: false,

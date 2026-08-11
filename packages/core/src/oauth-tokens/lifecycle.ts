@@ -56,6 +56,7 @@ interface CredentialSnapshot<T extends OAuthCredential> {
 interface StoredCredentialSnapshot<
   T extends OAuthCredential,
 > extends CredentialSnapshot<T> {
+  storageOwner: string;
   storageVersion: string;
 }
 
@@ -77,6 +78,7 @@ type StoredOAuthCredentialState<T extends OAuthCredential = OAuthCredential> =
       kind: "malformed";
       revision: number;
       legacyRevision: number;
+      storageOwner: string;
       storageVersion: string;
       reason: "structure" | "identity" | "validation";
     }
@@ -119,6 +121,12 @@ function ownerKey(owner: OAuthCredentialOwner): string {
   const id = owner.id.trim();
   if (!id) throw new Error("OAuth credential owner is required.");
   return `${owner.scope}:${owner.scope === "user" ? id.toLowerCase() : id}`;
+}
+
+function legacyOwnerKey(owner: OAuthCredentialOwner): string {
+  const id = owner.id.trim();
+  if (!id) throw new Error("OAuth credential owner is required.");
+  return `${owner.scope}:${id}`;
 }
 
 function assertIdentity(identity: OAuthCredentialIdentity): void {
@@ -299,11 +307,23 @@ async function readStoredOAuthCredentialState<
   } = {},
 ): Promise<StoredOAuthCredentialState<T>> {
   assertIdentity(identity);
-  const stored = await getOAuthTokenSnapshot(
+  const accountId = storageAccountId(identity, options.legacyAccountKey);
+  const canonicalOwner = ownerKey(identity.owner);
+  let storageOwner = canonicalOwner;
+  let stored = await getOAuthTokenSnapshot(
     identity.provider,
-    storageAccountId(identity, options.legacyAccountKey),
-    ownerKey(identity.owner),
+    accountId,
+    storageOwner,
   );
+  const legacyOwner = legacyOwnerKey(identity.owner);
+  if (!stored && options.allowLegacy && legacyOwner !== canonicalOwner) {
+    storageOwner = legacyOwner;
+    stored = await getOAuthTokenSnapshot(
+      identity.provider,
+      accountId,
+      storageOwner,
+    );
+  }
   if (!stored) return { kind: "missing" };
   const parsed = stored.tokens as Partial<T>;
   if (!parsed.tokens || typeof parsed.tokens.access_token !== "string") {
@@ -311,6 +331,7 @@ async function readStoredOAuthCredentialState<
       kind: "malformed",
       revision: stored.revision,
       legacyRevision: stored.legacyRevision,
+      storageOwner,
       storageVersion: stored.storageVersion,
       reason: "structure",
     };
@@ -324,6 +345,7 @@ async function readStoredOAuthCredentialState<
       kind: "malformed",
       revision: stored.revision,
       legacyRevision: stored.legacyRevision,
+      storageOwner,
       storageVersion: stored.storageVersion,
       reason: "identity",
     };
@@ -334,6 +356,7 @@ async function readStoredOAuthCredentialState<
       kind: "malformed",
       revision: stored.revision,
       legacyRevision: stored.legacyRevision,
+      storageOwner,
       storageVersion: stored.storageVersion,
       reason: "validation",
     };
@@ -344,6 +367,7 @@ async function readStoredOAuthCredentialState<
       credential,
       revision: stored.revision,
       legacyRevision: stored.legacyRevision,
+      storageOwner,
       storageVersion: stored.storageVersion,
     };
   }
@@ -357,6 +381,7 @@ async function readStoredOAuthCredentialState<
       credential,
       revision: stored.revision,
       legacyRevision: stored.legacyRevision,
+      storageOwner,
       storageVersion: stored.storageVersion,
     };
   }
@@ -365,6 +390,7 @@ async function readStoredOAuthCredentialState<
     credential,
     revision: stored.revision,
     legacyRevision: stored.legacyRevision,
+    storageOwner,
     storageVersion: stored.storageVersion,
   };
 }
@@ -413,7 +439,7 @@ async function markReconnectRequired<T extends OAuthCredential>(
   await replaceOAuthTokensIfRevision(
     identity.provider,
     storageAccountId(identity, legacyAccountKey),
-    ownerKey(identity.owner),
+    snapshot.storageOwner,
     snapshot.revision,
     snapshot.legacyRevision,
     snapshot.storageVersion,
@@ -585,7 +611,7 @@ export async function resolveOAuthCredentialAccess<
         const saved = await replaceOAuthTokensIfRevision(
           identity.provider,
           storageAccountId(identity, options.legacyAccountKey),
-          ownerKey(identity.owner),
+          state.storageOwner,
           state.revision,
           state.legacyRevision,
           state.storageVersion,
@@ -709,7 +735,7 @@ export async function revokeOAuthCredential<T extends OAuthCredential>(
   const deleted = await deleteOAuthTokensIfRevision(
     identity.provider,
     storageAccountId(identity, options.legacyAccountKey),
-    ownerKey(identity.owner),
+    state.storageOwner,
     state.revision,
     state.legacyRevision,
     state.storageVersion,

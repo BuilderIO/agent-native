@@ -1,4 +1,23 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const oauthMocks = vi.hoisted(() => ({
+  delete: vi.fn(),
+  save: vi.fn(),
+}));
+const getUserSettingMock = vi.hoisted(() => vi.fn());
+
+vi.mock("./oauth-client.js", () => ({
+  deleteMcpOAuthCredentials: oauthMocks.delete,
+  getMcpOAuthAccessToken: vi.fn(),
+  revokeMcpOAuthCredentials: vi.fn(),
+  saveMcpOAuthCredentials: oauthMocks.save,
+}));
+
+vi.mock("../settings/user-settings.js", () => ({
+  deleteUserSetting: vi.fn(),
+  getUserSetting: getUserSettingMock,
+  putUserSetting: vi.fn(),
+}));
 
 import {
   addFirstPartyRemoteServer,
@@ -15,6 +34,11 @@ const fetchOrgAppsMock = vi.hoisted(() => vi.fn());
 vi.mock("../mcp/org-directory.js", () => ({
   fetchOrgApps: fetchOrgAppsMock,
 }));
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  getUserSettingMock.mockResolvedValue(null);
+});
 
 describe("validateRemoteUrl", () => {
   it("rejects bracketed IPv6 loopback and private hosts", () => {
@@ -70,6 +94,50 @@ describe("OAuth remote MCP metadata", () => {
       ok: false,
       error: "MCP server URL must match the OAuth credential resource URL",
     });
+  });
+
+  it("uses the canonical resource when failed registration cleans up", async () => {
+    getUserSettingMock.mockResolvedValueOnce({
+      servers: [
+        {
+          id: "mcps_existing",
+          name: "example",
+          url: "https://existing.example.com/mcp",
+          createdAt: 1,
+        },
+      ],
+    });
+
+    await expect(
+      addOAuthRemoteServer("user", "user@example.com", {
+        name: "example",
+        url: "https://mcp.example.com",
+        credentials: {
+          serverUrl: "https://mcp.example.com",
+          clientInformation: {
+            client_id: "example-client",
+            redirect_uris: ["https://app.example.com/callback"],
+          },
+          tokens: {
+            access_token: "<ACCESS_TOKEN>",
+            token_type: "bearer",
+          },
+        },
+      }),
+    ).resolves.toEqual({
+      ok: false,
+      error: 'A server named "example" already exists',
+    });
+    expect(oauthMocks.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        credentials: expect.objectContaining({
+          serverUrl: "https://mcp.example.com/",
+        }),
+      }),
+    );
+    expect(oauthMocks.delete).toHaveBeenCalledWith(
+      expect.objectContaining({ serverUrl: "https://mcp.example.com/" }),
+    );
   });
 });
 
