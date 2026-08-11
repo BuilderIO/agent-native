@@ -120,6 +120,7 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
   const [linkUrl, setLinkUrl] = useState("");
   const [textStyleOpen, setTextStyleOpen] = useState(false);
   const textStyleSelection = useRef<{ from: number; to: number } | null>(null);
+  const textStyleApplied = useRef(false);
   const [textStyle, setTextStyle] = useState<TextStyle>(() =>
     activeTextStyle(editor),
   );
@@ -188,14 +189,11 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
       chain.setTextSelection(textStyleSelection.current);
     }
     if (style === "paragraph") {
-      if (textStyle === "paragraph") {
-        chain.focus().run();
-      } else {
-        chain.toggleHeading({ level: textStyle }).focus().run();
-      }
+      chain.setParagraph().focus().run();
     } else {
       chain.setHeading({ level: style }).focus().run();
     }
+    textStyleApplied.current = true;
     setTextStyle(style);
     setTextStyleOpen(false);
   };
@@ -440,6 +438,7 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
                   open={textStyleOpen}
                   onOpenChange={(open) => {
                     if (open) {
+                      textStyleApplied.current = false;
                       const { from, to } = editor.state.selection;
                       if (from !== to)
                         textStyleSelection.current = { from, to };
@@ -462,7 +461,10 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
                     align="start"
                     sideOffset={24}
                     className="w-44 p-1"
-                    onCloseAutoFocus={(event) => event.preventDefault()}
+                    onCloseAutoFocus={(event) => {
+                      if (textStyleApplied.current) event.preventDefault();
+                      textStyleApplied.current = false;
+                    }}
                   >
                     <div className="px-2 py-1 text-xs font-medium text-muted-foreground">
                       {t("editor.slash.turnInto")}

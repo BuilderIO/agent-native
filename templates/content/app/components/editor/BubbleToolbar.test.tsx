@@ -37,8 +37,28 @@ vi.mock("@/components/ui/tooltip", () => ({
 vi.mock("@/components/ui/popover", () => ({
   Popover: ({ children }: { children: ReactNode }) => children,
   PopoverTrigger: ({ children }: { children: ReactNode }) => children,
-  PopoverContent: ({ children }: { children: ReactNode }) => (
-    <div>{children}</div>
+  PopoverContent: ({
+    children,
+    onCloseAutoFocus,
+  }: {
+    children: ReactNode;
+    onCloseAutoFocus?: (event: Event) => void;
+  }) => (
+    <div>
+      <button
+        data-close-auto-focus
+        onClick={(clickEvent) => {
+          const closeEvent = new Event("closeAutoFocus", {
+            cancelable: true,
+          });
+          onCloseAutoFocus?.(closeEvent);
+          clickEvent.currentTarget.dataset.prevented = String(
+            closeEvent.defaultPrevented,
+          );
+        }}
+      />
+      {children}
+    </div>
   ),
 }));
 
@@ -194,6 +214,55 @@ describe("BubbleToolbar", () => {
     expect(editor.getHTML()).not.toContain("<h2>Selected heading</h2>");
   });
 
+  it("converts every block in a mixed paragraph and heading selection to Text", () => {
+    editorElement = document.createElement("div");
+    toolbarElement = document.createElement("div");
+    document.body.append(editorElement, toolbarElement);
+    editor = new Editor({
+      element: editorElement,
+      extensions: [StarterKit],
+      content: "<p>First block</p><h2>Second block</h2>",
+    });
+    editor.commands.setTextSelection({
+      from: 1,
+      to: editor.state.doc.content.size - 2,
+    });
+    root = createRoot(toolbarElement);
+    act(() => root!.render(<BubbleToolbar editor={editor!} />));
+
+    const textOption = [
+      ...toolbarElement.querySelectorAll<HTMLButtonElement>(
+        'button[role="menuitemradio"]',
+      ),
+    ].find((button) => button.textContent?.includes("editor.slash.text"));
+    act(() => textOption!.click());
+
+    expect(editor.getHTML()).toContain("<p>First block</p><p>Second block</p>");
+    expect(editor.getHTML()).not.toContain("<h2>");
+  });
+
+  it("allows close autofocus to restore focus when no style was applied", () => {
+    editorElement = document.createElement("div");
+    toolbarElement = document.createElement("div");
+    document.body.append(editorElement, toolbarElement);
+    editor = new Editor({
+      element: editorElement,
+      extensions: [StarterKit],
+      content: "<p>Selected paragraph</p>",
+    });
+    editor.commands.setTextSelection({ from: 1, to: 9 });
+
+    root = createRoot(toolbarElement);
+    act(() => root!.render(<BubbleToolbar editor={editor!} />));
+
+    const closeAutoFocus = toolbarElement.querySelector<HTMLButtonElement>(
+      "button[data-close-auto-focus]",
+    )!;
+    act(() => closeAutoFocus.click());
+
+    expect(closeAutoFocus.dataset.prevented).toBe("false");
+  });
+
   it.each([5, 6] as const)(
     "identifies an H%s block and converts it to Text",
     (level) => {
@@ -274,6 +343,11 @@ describe("BubbleToolbar", () => {
 
     expect(editor.getHTML()).toContain("<h3>Stable heading</h3>");
     expect(editor.getHTML()).not.toContain("<p>Stable heading</p>");
+    const closeAutoFocus = toolbarElement.querySelector<HTMLButtonElement>(
+      "button[data-close-auto-focus]",
+    )!;
+    act(() => closeAutoFocus.click());
+    expect(closeAutoFocus.dataset.prevented).toBe("true");
   });
 
   it("sets a heading from a pointer click", () => {
