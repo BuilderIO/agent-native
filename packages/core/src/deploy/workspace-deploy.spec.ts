@@ -1394,6 +1394,12 @@ describe("durable-background Netlify function emit (workspace, flag-gated)", () 
         `const SWEEP_PATH = ${JSON.stringify(`/${app}/_agent-native/jobs/_process-sweep`)}`,
       );
       expect(recurringEntry).toContain("return new URL(request.url).origin");
+      // The entry imports node:crypto, so the deploy packager rejects it
+      // unless includedFiles is declared.
+      expect(recurringEntry).toContain(
+        'import { createHmac } from "node:crypto"',
+      );
+      expect(recurringEntry).toContain('includedFiles: ["**"]');
       const recurringModule = await import(
         `${pathToFileURL(path.join(recurringDir, `${app}-agent-recurring-jobs.mjs`)).href}?t=${Date.now()}-${app}`
       );
