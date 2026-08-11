@@ -38,15 +38,25 @@ export const meta = () =>
   );
 
 const template = templates.find((t) => t.slug === "clips")!;
+const AI_PROMPT =
+  "Watch https://clips.agent-native.com/share/B0AgxdvzuZ7H?ref=clip_share and tell me the most impactful way I could be using agent-native clips in my own work projects this week.";
 
-function CliCopy() {
+function CliCopy({
+  value = template.cliCommand,
+  location = "landing_page",
+  multiline = false,
+}: {
+  value?: string;
+  location?: string;
+  multiline?: boolean;
+} = {}) {
   const [copied, setCopied] = useState(false);
   function handleCopy() {
-    navigator.clipboard.writeText(template.cliCommand);
+    navigator.clipboard.writeText(value);
     setCopied(true);
     trackEvent("copy cli command", {
       template: template.slug,
-      location: "landing_page",
+      location,
     });
     setTimeout(() => setCopied(false), 2000);
   }
@@ -54,14 +64,22 @@ function CliCopy() {
     <button
       onClick={handleCopy}
       data-template-cli-copy
-      className="group col-span-full flex w-full min-w-0 max-w-full items-center gap-3 rounded-md border border-[var(--code-border)] bg-[var(--code-bg)] px-4 py-3 font-mono text-sm transition hover:border-[var(--fg-secondary)] sm:w-auto sm:max-w-[min(100%,36rem)] sm:px-5"
+      className={`group col-span-full flex w-full min-w-0 max-w-full gap-3 rounded-md border border-[var(--code-border)] bg-[var(--code-bg)] px-4 py-3 font-mono text-sm transition hover:border-[var(--fg-secondary)] sm:px-5 ${
+        multiline
+          ? "items-start"
+          : "items-center sm:w-auto sm:max-w-[min(100%,36rem)]"
+      }`}
     >
-      <span className="shrink-0 text-[var(--fg-secondary)]">$</span>
+      {!multiline ? (
+        <span className="shrink-0 text-[var(--fg-secondary)]">$</span>
+      ) : null}
       <span
         data-template-cli-copy-text
-        className="min-w-0 truncate text-[var(--fg)]"
+        className={`min-w-0 text-[var(--fg)] ${
+          multiline ? "break-words text-left leading-relaxed" : "truncate"
+        }`}
       >
-        {template.cliCommand}
+        {value}
       </span>
       <span className="ml-auto shrink-0 text-[var(--fg-secondary)] opacity-100 transition sm:opacity-0 sm:group-hover:opacity-100">
         {copied ? (
@@ -170,12 +188,11 @@ export default function ClipsTemplate() {
 
       {/* By the numbers */}
       <section className="border-t border-[var(--docs-border)] py-16">
-        <div className="mx-auto grid max-w-3xl gap-px overflow-hidden rounded-xl border border-[var(--docs-border)] bg-[var(--docs-border)] sm:grid-cols-4">
+        <div className="mx-auto grid max-w-3xl gap-px overflow-hidden rounded-xl border border-[var(--docs-border)] bg-[var(--docs-border)] sm:grid-cols-3">
           {[
-            { number: "1-click", label: t("templateLanding.clips.s002") },
             { number: "Auto", label: t("templateLanding.clips.s003") },
-            { number: "Hold-to", label: t("templateLanding.clips.s004") },
             { number: "Agent", label: t("templateLanding.clips.s005") },
+            { number: "People", label: "Love it too!" },
           ].map((stat) => (
             <div key={stat.label} className="bg-[var(--bg)] p-6 text-center">
               <div className="mb-1 text-2xl font-bold text-[var(--docs-accent)]">
@@ -186,6 +203,12 @@ export default function ClipsTemplate() {
               </div>
             </div>
           ))}
+        </div>
+        <div id="try-with-ai" className="mx-auto mt-8 max-w-3xl scroll-mt-24">
+          <p className="mb-3 text-sm font-medium text-[var(--fg)]">
+            Paste this into Claude, ChatGPT, or Cursor:
+          </p>
+          <CliCopy value={AI_PROMPT} location="landing_page_prompt" multiline />
         </div>
       </section>
 
