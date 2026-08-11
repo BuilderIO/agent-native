@@ -1,5 +1,8 @@
-import type { ActionEntry } from "../../agent/production-agent.js";
-import type { AgentLoopFinalResponseGuard } from "../../agent/production-agent.js";
+import type {
+  ActionEntry,
+  AgentLoopFinalResponseGuard,
+  ProductionAgentOptions,
+} from "../../agent/production-agent.js";
 import type {
   AgentChatAttachment,
   AgentChatReference,
@@ -182,6 +185,12 @@ export interface AgentChatPluginOptions {
         displayMessage?: string;
         attachments?: AgentChatAttachment[];
       }>;
+  /**
+   * Resolve the exact native action surface for each interactive chat request.
+   * Omitted names are not sent to the model and are not discoverable through
+   * tool-search. When configured, every allowed action is loaded directly.
+   */
+  resolveActionSurface?: ProductionAgentOptions["resolveActionSurface"];
   /**
    * Use ONLY the template's `systemPrompt` and the actions list — skip the
    * framework prompt wrapper, resource loading (AGENTS.md/LEARNINGS.md/

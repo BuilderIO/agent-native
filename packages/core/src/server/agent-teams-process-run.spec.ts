@@ -268,6 +268,16 @@ function fakeFilterInitialEngineTools(
 
 vi.mock("../agent/production-agent.js", () => ({
   actionsToEngineTools: (actions: any) => actionsToEngineToolsMock(actions),
+  filterActionsByAllowedNames: (
+    actions: Record<string, unknown>,
+    allowedActionNames: string[],
+  ) => {
+    const unknown = allowedActionNames.filter((name) => !actions[name]);
+    if (unknown.length > 0) throw new Error(`Unknown actions: ${unknown}`);
+    return Object.fromEntries(
+      allowedActionNames.map((name) => [name, actions[name]]),
+    );
+  },
   filterInitialEngineTools: fakeFilterInitialEngineTools,
   resolveAgentRequestReasoningEffort: ({ model }: { model: string }) =>
     model === "gpt-5.6" ? "medium" : undefined,
@@ -352,7 +362,11 @@ const { runWithRequestContext } = await import("./request-context.js");
 
 const OWNER = "owner@example.com";
 
-async function seedTask(taskId: string, parentRunId?: string) {
+async function seedTask(
+  taskId: string,
+  parentRunId?: string,
+  allowedActionNames?: string[],
+) {
   await queue.enqueueAgentTeamRun({
     taskId,
     threadId: "thread-1",
@@ -363,6 +377,7 @@ async function seedTask(taskId: string, parentRunId?: string) {
       description: "do the thing",
       turnId: `run-task-${taskId}`,
       ...(parentRunId ? { parentRunId } : {}),
+      ...(allowedActionNames ? { allowedActionNames } : {}),
     },
   });
   appState.set(`agent-task:${taskId}`, {
@@ -469,6 +484,56 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
         },
       }),
     );
+  });
+
+  it("reapplies the persisted action surface in the durable processor", async () => {
+    actionsToEngineToolsMock.mockImplementation((actions: any) =>
+      Object.keys(actions).map((name) => ({ name })),
+    );
+    runAgentLoopMock.mockImplementation(async () => {});
+    await seedTask("surface", undefined, ["allowed"]);
+
+    await processAgentTeamRun({
+      taskId: "surface",
+      mode: "start",
+      resolveConfig: async () => ({
+        ...resolveConfig(),
+        actions: {
+          allowed: {
+            tool: { description: "Allowed", parameters: {} },
+            run: async () => "allowed",
+          },
+          denied: {
+            tool: { description: "Denied", parameters: {} },
+            run: async () => "denied",
+          },
+        },
+      }),
+    });
+
+    expect(actionsToEngineToolsMock).toHaveBeenCalledWith(
+      expect.objectContaining({ allowed: expect.any(Object) }),
+    );
+    expect(actionsToEngineToolsMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ denied: expect.any(Object) }),
+    );
+  });
+
+  it("fails closed if a persisted sub-agent action no longer exists", async () => {
+    await seedTask("missing-surface", undefined, ["removed"]);
+
+    const result = await processAgentTeamRun({
+      taskId: "missing-surface",
+      mode: "start",
+      resolveConfig: async () => ({
+        ...resolveConfig(),
+        actions: {},
+      }),
+    });
+
+    expect(result).toEqual({ ok: false, skipped: "config-failed" });
+    expect(appState.get("agent-task:missing-surface").status).toBe("errored");
+    expect(runAgentLoopMock).not.toHaveBeenCalled();
   });
 
   it("defers framework-added tools behind tool-search on the first sub-agent request when an initial tool list is supplied", async () => {

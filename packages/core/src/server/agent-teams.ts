@@ -26,6 +26,7 @@ import type {
 } from "../agent/production-agent.js";
 import {
   actionsToEngineTools,
+  filterActionsByAllowedNames,
   filterInitialEngineTools,
   resolveAgentRequestReasoningEffort,
 } from "../agent/production-agent.js";
@@ -93,7 +94,9 @@ import {
   type AgentTeamRunPayload,
 } from "./agent-teams-run-queue.js";
 import {
+  getRequestOrgId,
   getRequestUserEmail,
+  hasRequestContext,
   runWithRequestContext,
 } from "./request-context.js";
 import { fireInternalDispatch } from "./self-dispatch.js";
@@ -1390,11 +1393,15 @@ export async function spawnTask(opts: SpawnTaskOptions): Promise<AgentTask> {
   // (integrations/webhook-handler.ts). Execution happens in `processAgentTeamRun`,
   // invoked by the `/_agent-native/agent-teams/_process-run` route mounted
   // inside the agent-chat plugin (where the action/prompt/engine closures live).
-  let orgId: string | null = null;
-  try {
-    orgId = (await resolveOrgIdForEmail(opts.ownerEmail)) ?? null;
-  } catch {
-    orgId = null;
+  let orgId: string | null;
+  if (hasRequestContext()) {
+    orgId = getRequestOrgId() ?? null;
+  } else {
+    try {
+      orgId = (await resolveOrgIdForEmail(opts.ownerEmail)) ?? null;
+    } catch {
+      orgId = null;
+    }
   }
 
   const payload: AgentTeamRunPayload = {
@@ -1404,6 +1411,7 @@ export async function spawnTask(opts: SpawnTaskOptions): Promise<AgentTask> {
     ...(opts.parentThreadId ? { parentThreadId: opts.parentThreadId } : {}),
     ...(opts.parentRunId ? { parentRunId: opts.parentRunId } : {}),
     ...(opts.name ? { name: opts.name } : {}),
+    allowedActionNames: Object.keys(opts.actions),
     // Stable across continuation chunks so the durable assistant message folds.
     turnId: runId,
   };
@@ -1700,6 +1708,15 @@ export async function processAgentTeamRun(
       let config: AgentTeamRunConfig;
       try {
         config = await opts.resolveConfig({ payload, ownerEmail, orgId });
+        if (payload.allowedActionNames) {
+          config = {
+            ...config,
+            actions: filterActionsByAllowedNames(
+              config.actions,
+              payload.allowedActionNames,
+            ),
+          };
+        }
       } catch (err) {
         const message =
           err instanceof Error

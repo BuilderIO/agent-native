@@ -752,6 +752,45 @@ export type ScriptEntry = ActionEntry;
 
 export type AgentExecutionMode = "act" | "plan";
 
+export interface AgentActionSurface {
+  allowedActionNames: readonly string[];
+}
+
+export interface AgentActionSurfaceDetails {
+  event: any;
+  ownerEmail: string | null;
+  orgId: string | null;
+  threadId?: string;
+  mode: AgentExecutionMode;
+  internalContinuation: boolean;
+  availableActionNames: readonly string[];
+}
+
+export function filterActionsByAllowedNames(
+  actions: Record<string, ActionEntry>,
+  allowedActionNames: readonly string[],
+): Record<string, ActionEntry> {
+  const allowedNames = [...new Set(allowedActionNames)];
+  const unknownNames = allowedNames.filter((name) => !actions[name]);
+  if (unknownNames.length > 0) {
+    throw new Error(
+      `resolveActionSurface returned unknown action name(s): ${unknownNames.join(", ")}`,
+    );
+  }
+  const filtered = Object.fromEntries(
+    allowedNames.map((name) => [name, actions[name]!]),
+  );
+
+  // `attachToolSearch` closes over the registry it was originally attached to.
+  // Rebind it to this request's filtered registry so explicitly allowing
+  // `tool-search` cannot disclose actions that the resolver omitted.
+  if (filtered[TOOL_SEARCH_ACTION_NAME]) {
+    filtered[TOOL_SEARCH_ACTION_NAME] = createToolSearchEntry(() => filtered);
+  }
+
+  return filtered;
+}
+
 export const PLAN_MODE_SYSTEM_PROMPT = `## Plan Mode Active
 
 You are in Plan mode. This turn is for research, clarification, and a proposed approach only.
@@ -1099,6 +1138,15 @@ export interface ProductionAgentOptions {
         displayMessage?: string;
         attachments?: AgentChatAttachment[];
       }>;
+  /**
+   * Resolve the exact action registry exposed to one interactive agent-chat
+   * request. Returned names are a hard allowlist: omitted actions are absent
+   * from both the provider schemas and the searchable registry. When set, all
+   * allowed actions are loaded directly on the first model request.
+   */
+  resolveActionSurface?: (
+    details: AgentActionSurfaceDetails,
+  ) => AgentActionSurface | Promise<AgentActionSurface>;
   /** Optional per-app agent run chunk budget in milliseconds. Defaults to
    *  AGENT_RUN_SOFT_TIMEOUT_MS when set, otherwise no framework-imposed
    *  timeout. When reached, the client receives an internal auto-continuation
@@ -7753,7 +7801,7 @@ export function createProductionAgentHandler(
   // the settings UI) show up to the LLM without a process restart. MCP tools
   // are also scope-filtered per request — a user-scope server added by Alice
   // must not appear in Bob's tool list in a shared-process deployment.
-  const getEngineTools = (
+  const getRequestActions = (
     actions: Record<string, ActionEntry> = resolvedActions,
   ) => {
     const filtered: Record<string, ActionEntry> = {};
@@ -7763,8 +7811,10 @@ export function createProductionAgentHandler(
       }
       filtered[name] = entry;
     }
-    return actionsToEngineTools(filtered);
+    return filtered;
   };
+  const getEngineTools = (actions: Record<string, ActionEntry>) =>
+    actionsToEngineTools(getRequestActions(actions));
 
   return defineEventHandler(async (event) => {
     // Diagnostic-only setup-timing instrumentation. Captures wall-clock offsets
@@ -7824,12 +7874,20 @@ export function createProductionAgentHandler(
     // run the loop inline with the background soft-timeout, reusing the
     // pre-claimed runId/turnId — we must NOT re-claim the slot or re-dispatch.
     const backgroundRunMarker =
+      preInjectedBody &&
       body[AGENT_CHAT_BACKGROUND_RUN_FIELD] &&
       typeof body[AGENT_CHAT_BACKGROUND_RUN_FIELD] === "object" &&
       typeof body[AGENT_CHAT_BACKGROUND_RUN_FIELD]!.runId === "string"
         ? body[AGENT_CHAT_BACKGROUND_RUN_FIELD]!
         : null;
     const isBackgroundWorker = backgroundRunMarker !== null;
+    // Both fields are internal durable-dispatch artifacts, never client input.
+    // A body marker alone is not proof of worker identity: only the verified
+    // `_process-run` route can install `preInjectedBody` on the event context.
+    if (!isBackgroundWorker) {
+      delete body[AGENT_CHAT_BACKGROUND_RUN_FIELD];
+      delete body.__resolvedActionSurface;
+    }
     // DIAGNOSTIC-ONLY: progressive per-stage hang localizer for the bg worker.
     // The worker's runId is available EARLY on the marker (the general `runId`
     // var resolves much later), so capture it now and emit the LAST setup stage
@@ -7943,6 +8001,40 @@ export function createProductionAgentHandler(
       }
       if (Array.isArray(preparedRequest.attachments)) {
         requestAttachments = preparedRequest.attachments;
+      }
+    }
+    const availableRequestActions = getRequestActions();
+    let surfacedRequestActions = availableRequestActions;
+    if (options.resolveActionSurface) {
+      const persistedSurface =
+        isBackgroundWorker &&
+        body.__resolvedActionSurface &&
+        Array.isArray(body.__resolvedActionSurface.allowedActionNames)
+          ? body.__resolvedActionSurface
+          : null;
+      const surface = persistedSurface
+        ? { allowedActionNames: persistedSurface.allowedActionNames }
+        : await options.resolveActionSurface({
+            event,
+            ownerEmail,
+            orgId: getRequestOrgId() ?? null,
+            threadId,
+            mode: requestMode,
+            internalContinuation: Boolean(internalContinuation),
+            availableActionNames: Object.keys(availableRequestActions),
+          });
+      surfacedRequestActions = filterActionsByAllowedNames(
+        availableRequestActions,
+        surface.allowedActionNames,
+      );
+      const allowedNames = Object.keys(surfacedRequestActions);
+      const runCtx = ensureRequestRunContext();
+      if (runCtx) runCtx.allowedActionNames = allowedNames;
+      if (!isBackgroundWorker) {
+        body.__resolvedActionSurface = {
+          orgId: getRequestOrgId() ?? null,
+          allowedActionNames: allowedNames,
+        };
       }
     }
     // DIAGNOSTIC-ONLY: owner/request context prep (resolveAgentOwnerEmail +
@@ -8229,7 +8321,7 @@ export function createProductionAgentHandler(
       (async (): Promise<string> => {
         const screenStart = Date.now();
         try {
-          const viewScreenAction = resolvedActions["view-screen"];
+          const viewScreenAction = surfacedRequestActions["view-screen"];
           if (viewScreenAction) {
             const result = await viewScreenAction.run(
               {},
@@ -8538,13 +8630,15 @@ export function createProductionAgentHandler(
     const screenContext = timeBlock + screenBlock + urlBlock + selectionBlock;
     const requestActions =
       requestMode === "plan"
-        ? createPlanModeActionRegistry(resolvedActions)
-        : resolvedActions;
+        ? createPlanModeActionRegistry(surfacedRequestActions)
+        : surfacedRequestActions;
     const availableRequestTools = getEngineTools(requestActions);
-    const initialRequestTools = filterInitialEngineTools(
-      availableRequestTools,
-      options.initialToolNames,
-    );
+    const initialRequestTools = options.resolveActionSurface
+      ? availableRequestTools
+      : filterInitialEngineTools(
+          availableRequestTools,
+          options.initialToolNames,
+        );
     const requestTools =
       requestMode === "plan"
         ? preloadPlanModeEngineTools({

@@ -116,6 +116,8 @@ export interface RequestRunContext {
   engine?: import("../agent/engine/types.js").AgentEngine;
   /** Model name for this run (set by onEngineResolved). */
   model?: string;
+  /** Request-authorized action names exposed to this agent run. */
+  allowedActionNames?: readonly string[];
   /**
    * True when this run is executing inside the durable background-function
    * worker (the `_process-run` self-dispatch), not the synchronous foreground

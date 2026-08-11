@@ -108,6 +108,8 @@ export {
   type ActionEntry,
   type ScriptEntry,
   type ProductionAgentOptions,
+  type AgentActionSurface,
+  type AgentActionSurfaceDetails,
   type ActionTool,
   type ScriptTool,
   type AgentMessage,
