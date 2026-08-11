@@ -8291,6 +8291,37 @@ describe("activeRunLooksAlive", () => {
       }),
     ).resolves.toBe(true);
   });
+
+  it("does not treat an activity-only tool placeholder as in-flight work", async () => {
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse({
+        active: true,
+        runId: "run-1",
+        status: "running",
+        hasInFlightWork: false,
+      }),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await expect(
+      activeRunLooksAlive({
+        apiUrl: "/_agent-native/agent-chat",
+        threadId: "thread-1",
+        runId: "run-1",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "activity-only",
+            toolName: "patch-deck",
+            argsText: "",
+            args: {},
+            activity: true,
+          },
+        ] as any,
+      }),
+    ).resolves.toBe(false);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("empty-run continuation backoff", () => {
