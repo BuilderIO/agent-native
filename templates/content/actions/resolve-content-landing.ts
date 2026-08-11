@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 import { defineAction } from "@agent-native/core";
 import { readAppState } from "@agent-native/core/application-state";
+import { runWithRequestContext } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { z } from "zod";
 
@@ -50,7 +51,7 @@ async function resolveWelcomeDocument(userEmail: string) {
 
   const normalizedEmail = normalizeContentSpaceEmail(userEmail);
   if (
-    document.ownerEmail !== normalizedEmail ||
+    normalizeContentSpaceEmail(document.ownerEmail) !== normalizedEmail ||
     document.spaceId !== personalContentSpaceId(normalizedEmail) ||
     document.parentId !== null ||
     document.visibility !== "private" ||
@@ -72,12 +73,15 @@ async function resolveWelcome(userEmail: string): Promise<{
   if (existing) return { documentId: existing, resolution: "welcome-reused" };
 
   const documentId = welcomeDocumentId(userEmail);
+  const normalizedEmail = normalizeContentSpaceEmail(userEmail);
   try {
-    await createDocumentAction.run({
-      id: documentId,
-      title: WELCOME_TITLE,
-      content: WELCOME_CONTENT,
-    });
+    await runWithRequestContext({ userEmail: normalizedEmail }, () =>
+      createDocumentAction.run({
+        id: documentId,
+        title: WELCOME_TITLE,
+        content: WELCOME_CONTENT,
+      }),
+    );
     return { documentId, resolution: "welcome-created" };
   } catch (error) {
     // The stable per-user document ID is the cross-request convergence point.

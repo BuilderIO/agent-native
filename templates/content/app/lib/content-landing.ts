@@ -4,10 +4,19 @@ import {
   type ContentLastLocationState,
 } from "@shared/content-landing";
 
+let landingWriteQueue = Promise.resolve();
+
 export function rememberContentLandingDocument(documentId: string) {
-  return writeClientAppState<ContentLastLocationState>(
-    CONTENT_LAST_LOCATION_STATE_KEY,
-    { documentId },
-    { requestSource: "content-landing" },
+  const write = landingWriteQueue.then(() =>
+    writeClientAppState<ContentLastLocationState>(
+      CONTENT_LAST_LOCATION_STATE_KEY,
+      { documentId },
+      { requestSource: "content-landing" },
+    ),
   );
+  landingWriteQueue = write.then(
+    () => undefined,
+    () => undefined,
+  );
+  return write;
 }

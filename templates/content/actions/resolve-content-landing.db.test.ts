@@ -123,6 +123,23 @@ describe("resolve-content-landing", () => {
     expect(result.documentId).not.toBe(deletedDocumentId);
   });
 
+  it("reuses the welcome page when the request email is not canonical", async () => {
+    const userEmail = "  Landing.MixedCase@Example.com ";
+
+    const first = await runWithRequestContext({ userEmail }, () =>
+      resolveContentLandingAction.run({}),
+    );
+    const second = await runWithRequestContext({ userEmail }, () =>
+      resolveContentLandingAction.run({}),
+    );
+
+    expect(first.resolution).toBe("welcome-created");
+    expect(second).toEqual({
+      documentId: first.documentId,
+      resolution: "welcome-reused",
+    });
+  });
+
   it("converges concurrent root invocations on one private welcome page", async () => {
     const userEmail = "landing-concurrent@example.com";
     const resolve = () =>
