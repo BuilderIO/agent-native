@@ -299,6 +299,31 @@ function localDispatchPath(pathname: string): string {
   return pathname;
 }
 
+function chatFirstPrimaryTabForPath(
+  pathname: string,
+): ChatFirstPrimaryTab | undefined {
+  if (pathname === "/chat" || pathname.startsWith("/chat/")) {
+    return "new-chat";
+  }
+  if (
+    pathname === "/integrations" ||
+    pathname.startsWith("/integrations/") ||
+    pathname === "/admin/integrations" ||
+    pathname.startsWith("/admin/integrations/")
+  ) {
+    return "integrations";
+  }
+  if (
+    pathname === "/automations" ||
+    pathname.startsWith("/automations/") ||
+    pathname === "/admin/automations" ||
+    pathname.startsWith("/admin/automations/")
+  ) {
+    return "scheduled";
+  }
+  return undefined;
+}
+
 function dispatchNavLinkTarget(path: string): string {
   if (typeof window === "undefined") return path;
   const basePath = appBasePath();
@@ -546,6 +571,8 @@ function DispatchChatsSection({
   chatFirstMode?: boolean;
   chatFirstEmbedded?: boolean;
   chatFirstNavigation?: {
+    activeTab?: ChatFirstPrimaryTab;
+    onNewChat?: () => void;
     onOpenIntegrations: () => void;
     onOpenScheduled: () => void;
   };
@@ -581,20 +608,6 @@ function DispatchChatsSection({
     [activeThreadId, threads],
   );
   const localPathname = localDispatchPath(location.pathname);
-  const activeChatFirstTab: ChatFirstPrimaryTab | undefined =
-    localPathname === "/chat" || localPathname.startsWith("/chat/")
-      ? "new-chat"
-      : localPathname === "/integrations" ||
-          localPathname.startsWith("/integrations/") ||
-          localPathname === "/admin/integrations" ||
-          localPathname.startsWith("/admin/integrations/")
-        ? "integrations"
-        : localPathname === "/automations" ||
-            localPathname.startsWith("/automations/") ||
-            localPathname === "/admin/automations" ||
-            localPathname.startsWith("/admin/automations/")
-          ? "scheduled"
-          : undefined;
   const displayedActiveThreadId =
     threadIdFromPath(localPathname) ??
     (localPathname === "/chat" ? null : activeThreadId);
@@ -703,11 +716,14 @@ function DispatchChatsSection({
         <nav className="space-y-0.5 px-2 py-2">
           <ChatFirstPrimaryNavigation
             copy={chatFirstCopy}
-            onNewChat={() => void handleNewChat()}
+            onNewChat={() => {
+              chatFirstNavigation.onNewChat?.();
+              void handleNewChat();
+            }}
             onOpenIntegrations={chatFirstNavigation.onOpenIntegrations}
             onOpenScheduled={chatFirstNavigation.onOpenScheduled}
             onSearch={openCommandMenu}
-            activeTab={activeChatFirstTab}
+            activeTab={chatFirstNavigation.activeTab}
           />
         </nav>
       ) : null}
@@ -922,6 +938,8 @@ export function NavContent({
   chatFirstAppsLoading = false,
   chatFirstAppsError,
   chatFirstActiveAppId,
+  chatFirstActivePrimaryTab,
+  onChatFirstNewChat,
   onChatFirstAppOpen,
   onChatFirstAppsRetry,
 }: {
@@ -938,6 +956,8 @@ export function NavContent({
   chatFirstAppsLoading?: boolean;
   chatFirstAppsError?: string | null;
   chatFirstActiveAppId?: string;
+  chatFirstActivePrimaryTab?: ChatFirstPrimaryTab;
+  onChatFirstNewChat?: () => void;
   onChatFirstAppOpen?: (app: ChatFirstAppItem) => void;
   onChatFirstAppsRetry?: () => void;
 }) {
@@ -1237,6 +1257,8 @@ export function NavContent({
               chatFirstMode
               chatFirstEmbedded={chatFirstEmbedded}
               chatFirstNavigation={{
+                activeTab: chatFirstActivePrimaryTab,
+                onNewChat: onChatFirstNewChat,
                 onOpenIntegrations: () => {
                   navigate(dispatchNavLinkTarget("/admin/integrations"));
                   onNavigate?.();
@@ -1435,6 +1457,19 @@ export function Layout({
     isChatRoute &&
     activeChatFirstSurfaceTab?.kind === "app" &&
     activeChatFirstSurfaceTab.placement === "main";
+  const chatFirstAppSelected =
+    chatFirstMode && activeChatFirstSurfaceTab?.kind === "app";
+  const chatFirstActivePrimaryTab = chatFirstAppSelected
+    ? activeChatFirstSurfaceTab?.kind === "app" &&
+      activeChatFirstSurfaceTab.appId === "dispatch"
+      ? chatFirstPrimaryTabForPath(activeChatFirstSurfaceTab.path ?? "")
+      : undefined
+    : chatFirstPrimaryTabForPath(localPathname);
+  const chatFirstActiveAppId = isWorkspaceAppRoute
+    ? (workspaceAppIdFromRoute(localPathname) ?? undefined)
+    : chatFirstAppSelected && activeChatFirstSurfaceTab?.kind === "app"
+      ? activeChatFirstSurfaceTab.appId
+      : undefined;
   const activeChatFirstAppRegistration = useMemo(
     () =>
       activeChatFirstSurfaceTab?.kind === "app" &&
@@ -2361,11 +2396,13 @@ export function Layout({
                   ? chatFirstCopy("appsLoadError")
                   : null
               }
-              chatFirstActiveAppId={
-                isWorkspaceAppRoute
-                  ? (workspaceAppIdFromRoute(localPathname) ?? undefined)
-                  : undefined
-              }
+              chatFirstActiveAppId={chatFirstActiveAppId}
+              chatFirstActivePrimaryTab={chatFirstActivePrimaryTab}
+              onChatFirstNewChat={() => {
+                closeChatFirstSessionWatch();
+                chatFirstSurfaceTabsStore.closeAll();
+                setChatFirstSurfacePanelOpen(false);
+              }}
               onChatFirstAppOpen={(app) =>
                 navigate(dispatchNavLinkTarget(workspaceAppRoute(app.id)))
               }
@@ -2401,11 +2438,13 @@ export function Layout({
                       ? chatFirstCopy("appsLoadError")
                       : null
                   }
-                  chatFirstActiveAppId={
-                    isWorkspaceAppRoute
-                      ? (workspaceAppIdFromRoute(localPathname) ?? undefined)
-                      : undefined
-                  }
+                  chatFirstActiveAppId={chatFirstActiveAppId}
+                  chatFirstActivePrimaryTab={chatFirstActivePrimaryTab}
+                  onChatFirstNewChat={() => {
+                    closeChatFirstSessionWatch();
+                    chatFirstSurfaceTabsStore.closeAll();
+                    setChatFirstSurfacePanelOpen(false);
+                  }}
                   onChatFirstAppOpen={(app) =>
                     navigate(dispatchNavLinkTarget(workspaceAppRoute(app.id)))
                   }

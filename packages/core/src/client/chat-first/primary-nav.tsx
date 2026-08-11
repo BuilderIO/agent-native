@@ -27,10 +27,10 @@ export function ChatFirstPrimaryNavigation({
   copy?: ChatFirstCopy;
 }) {
   const tabClassName = (tab: ChatFirstPrimaryTab) =>
-    `flex h-8 w-full items-center gap-2 rounded-md border px-2 text-[13px] font-medium transition-[background-color,border-color,color] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+    `flex h-8 w-full items-center gap-2 rounded-md px-2 text-[13px] font-medium transition-[background-color,color] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
       activeTab === tab
-        ? "border-sidebar-foreground/45 bg-sidebar-accent text-sidebar-accent-foreground"
-        : "border-transparent text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+        ? "bg-sidebar-accent text-sidebar-accent-foreground"
+        : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
     }`;
 
   const renderTab = (
@@ -90,7 +90,7 @@ export function ChatFirstPrimaryNavigation({
       {onSearch ? (
         <button
           type="button"
-          className="mt-px flex h-8 w-full items-center gap-2 rounded-md border border-transparent px-2 text-[13px] font-medium text-sidebar-foreground/80 transition-[background-color,color] hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="mt-px flex h-8 w-full items-center gap-2 rounded-md px-2 text-[13px] font-medium text-sidebar-foreground/80 transition-[background-color,color] hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           onClick={onSearch}
         >
           <IconSearch size={15} className="shrink-0" aria-hidden="true" />

@@ -38,10 +38,12 @@ describe("ChatFirstPrimaryNavigation", () => {
 
     const tabs = container.querySelectorAll('[role="tab"]');
     expect(tabs).toHaveLength(3);
-    expect(
-      container.querySelector('[role="tab"][aria-selected="true"]')
-        ?.textContent,
-    ).toContain("Integrations");
+    const activeTab = container.querySelector(
+      '[role="tab"][aria-selected="true"]',
+    );
+    expect(activeTab?.textContent).toContain("Integrations");
+    expect(activeTab?.className).toContain("bg-sidebar-accent");
+    expect(activeTab?.className).not.toContain("border-sidebar-foreground/45");
     const searchButton = [...container.querySelectorAll("button")].find(
       (button) => button.textContent?.includes("Search"),
     );

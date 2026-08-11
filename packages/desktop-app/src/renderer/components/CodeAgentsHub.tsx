@@ -332,13 +332,17 @@ export default function CodeAgentsHub({
     chatFirstMode &&
     activeChatFirstSurfaceTab?.kind === "app" &&
     activeChatFirstSurfaceTab.placement === "main";
-  const activeChatFirstPrimaryTab = useMemo<ChatFirstPrimaryTab>(() => {
+  const chatFirstAppSelected =
+    chatFirstMode && activeChatFirstSurfaceTab?.kind === "app";
+  const activeChatFirstPrimaryTab = useMemo<
+    ChatFirstPrimaryTab | undefined
+  >(() => {
     if (
-      !chatFirstAppTakesMain ||
+      !chatFirstAppSelected ||
       activeChatFirstSurfaceTab?.kind !== "app" ||
       activeChatFirstSurfaceTab.appId !== "dispatch"
     ) {
-      return "new-chat";
+      return chatFirstAppSelected ? undefined : "new-chat";
     }
     if (
       activeChatFirstSurfaceTab.path === "/admin/integrations" ||
@@ -352,8 +356,8 @@ export default function CodeAgentsHub({
     ) {
       return "scheduled";
     }
-    return "new-chat";
-  }, [activeChatFirstSurfaceTab, chatFirstAppTakesMain]);
+    return undefined;
+  }, [activeChatFirstSurfaceTab, chatFirstAppSelected]);
   const [chatFirstBrowserSelection, setChatFirstBrowserSelection] = useState<{
     url: string;
     title?: string;
