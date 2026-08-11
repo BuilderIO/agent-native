@@ -6,6 +6,10 @@ export interface ActiveRunState {
   threadId: string;
   runId: string;
   lastSeq: number;
+  /** Last SSE sequence classified as real work progress, not keepalive. */
+  lastProgressSeq?: number;
+  /** Browser time when the last real work-progress event was received. */
+  lastProgressObservedAt?: number;
   activityTool?: string | null;
 }
 
@@ -34,10 +38,24 @@ function normalizeActivityTool(toolName: unknown): string | null {
 }
 
 export function setActiveRun(state: ActiveRunState): void {
+  const previous = getActiveRun();
+  const sameRun =
+    previous?.threadId === state.threadId && previous.runId === state.runId;
+  const nextState = sameRun
+    ? {
+        ...state,
+        // Reconnect/continuation writers replace the cursor object. Preserve
+        // the browser's real-progress proof across those writes so a healthy
+        // stream cannot be reclassified as stale by its own reconnect path.
+        lastProgressSeq: state.lastProgressSeq ?? previous.lastProgressSeq,
+        lastProgressObservedAt:
+          state.lastProgressObservedAt ?? previous.lastProgressObservedAt,
+      }
+    : state;
   try {
-    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(nextState));
   } catch {}
-  notifyActiveRunStateChanged(state);
+  notifyActiveRunStateChanged(nextState);
 }
 
 export function getActiveRun(): ActiveRunState | null {
@@ -50,12 +68,40 @@ export function getActiveRun(): ActiveRunState | null {
   }
 }
 
-export function updateActiveRunSeq(seq: number): void {
+export function updateActiveRunSeq(seq: number, isProgress = false): void {
   const state = getActiveRun();
   if (state) {
     state.lastSeq = seq;
+    if (
+      isProgress &&
+      seq >=
+        (Number.isFinite(state.lastProgressSeq) ? state.lastProgressSeq! : -1)
+    ) {
+      state.lastProgressSeq = seq;
+      state.lastProgressObservedAt = Date.now();
+    }
     setActiveRun(state);
   }
+}
+
+/** Whether this browser has received real progress for the matching run recently. */
+export function hasRecentActiveRunProgress(
+  threadId: string | null | undefined,
+  runId: string | null | undefined,
+  thresholdMs: number,
+  now = Date.now(),
+): boolean {
+  const state = getActiveRun();
+  if (
+    !state ||
+    !runId ||
+    state.runId !== runId ||
+    (threadId != null && state.threadId !== threadId) ||
+    typeof state.lastProgressObservedAt !== "number"
+  ) {
+    return false;
+  }
+  return now - state.lastProgressObservedAt <= thresholdMs;
 }
 
 export function updateActiveRunActivity(
