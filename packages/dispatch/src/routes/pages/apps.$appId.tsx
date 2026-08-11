@@ -109,7 +109,8 @@ export default function WorkspaceAppRoute() {
     };
 
     window.addEventListener("message", handleEmbedSessionExpired);
-    return () => window.removeEventListener("message", handleEmbedSessionExpired);
+    return () =>
+      window.removeEventListener("message", handleEmbedSessionExpired);
   }, []);
 
   if (appsQuery.isError) {
