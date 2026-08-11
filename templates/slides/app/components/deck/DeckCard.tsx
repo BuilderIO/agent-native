@@ -98,7 +98,7 @@ export default function DeckCard({
     <div className="group relative">
       <Link
         to={`/deck/${deck.id}`}
-        className="block overflow-hidden rounded-xl bg-card transition-[box-shadow,background-color] duration-200 hover:bg-accent/30 hover:shadow-lg hover:shadow-[#609FF8]/5"
+        className="block overflow-hidden rounded-xl border border-transparent bg-card transition-[background-color,border-color] duration-200 hover:border-border hover:bg-accent/30"
         onClick={(e) => {
           if (isRenaming) e.preventDefault();
         }}

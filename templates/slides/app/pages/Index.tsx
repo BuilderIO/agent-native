@@ -1335,7 +1335,7 @@ export default function Index() {
               {/* New deck card */}
               <button
                 onClick={openNewDeck}
-                className="group relative cursor-pointer overflow-hidden rounded-xl bg-card text-start hover:bg-accent/30"
+                className="group relative cursor-pointer overflow-hidden rounded-xl border border-transparent bg-card text-start transition-[background-color,border-color] duration-200 hover:border-border hover:bg-accent/30"
               >
                 <div className="flex aspect-video items-center justify-center bg-muted/30">
                   <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-accent/50 group-hover:bg-accent">
