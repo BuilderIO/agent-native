@@ -178,6 +178,7 @@ async function queryImage(input: {
 export async function performCreativeContextSearch(
   input: CreativeContextSearchInput,
 ) {
+  debugger;
   const query = input.query?.trim() ?? "";
   const image = await queryImage(input);
   if (!query && !image)

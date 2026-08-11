@@ -573,6 +573,10 @@ import {
 } from "./design-editor/collab-sync";
 import { getCreatedScreenNavigationPlan } from "./design-editor/created-screen-navigation";
 import {
+  designPrecedentDirectives,
+  probeCreativeContextPrecedent,
+} from "./design-editor/creative-context-precedent";
+import {
   adaptAutoTextColorForCrossScreenNode,
   BOARD_TEXT_AUTO_COLOR_MARKER,
   clearAutoTextColorMarkerOnExplicitColorCommit,
@@ -5948,8 +5952,15 @@ function DesignEditor() {
     let cancelled = false;
     void (async () => {
       const shouldExploreVariants = promptRequestsVariantExploration(prompt);
+      const precedent =
+        pending.skipQuestions === true || shouldExploreVariants
+          ? null
+          : await probeCreativeContextPrecedent(prompt);
+      if (cancelled) return;
       const shouldSkipQuestions =
-        pending.skipQuestions === true || shouldExploreVariants;
+        pending.skipQuestions === true ||
+        shouldExploreVariants ||
+        precedent?.status === "strong";
       const designSystemContext = await loadDesignSystemGenerationContext(
         pendingDesignSystemId,
       );
@@ -5974,7 +5985,12 @@ function DesignEditor() {
           : shouldExploreVariants
             ? designVariantGenerationDirectives(id, pendingDesignSystemId)
             : shouldSkipQuestions
-              ? designGenerationDirectives(id, pendingDesignSystemId)
+              ? [
+                  ...designGenerationDirectives(id, pendingDesignSystemId),
+                  ...(precedent?.status === "strong"
+                    ? designPrecedentDirectives(precedent.matches)
+                    : []),
+                ]
               : designIntakeQuestionDirectives(id, pendingDesignSystemId)),
       ].join("\n");
 
@@ -32506,6 +32522,7 @@ function DesignEditor() {
           files: UploadedFile[],
           options: PromptComposerSubmitOptions,
         ) => {
+          debugger;
           if (isBuilderDesignEmbed) {
             window.parent.postMessage(
               {
@@ -32526,7 +32543,11 @@ function DesignEditor() {
             await loadDesignSystemGenerationContext(designSystemId);
           const shouldExploreVariants =
             promptRequestsVariantExploration(prompt);
-          const shouldSkipQuestions = shouldExploreVariants;
+          const precedent = shouldExploreVariants
+            ? null
+            : await probeCreativeContextPrecedent(prompt);
+          const shouldSkipQuestions =
+            shouldExploreVariants || precedent?.status === "strong";
           const context = [
             `The user has design "${id}" (title: "${design.title}") open and wants to fill it with design files.`,
             `User request: "${prompt}"`,
@@ -32537,7 +32558,12 @@ function DesignEditor() {
             ...(shouldExploreVariants
               ? designVariantGenerationDirectives(id, designSystemId)
               : shouldSkipQuestions
-                ? designGenerationDirectives(id, designSystemId)
+                ? [
+                    ...designGenerationDirectives(id, designSystemId),
+                    ...(precedent?.status === "strong"
+                      ? designPrecedentDirectives(precedent.matches)
+                      : []),
+                  ]
                 : designIntakeQuestionDirectives(id, designSystemId)),
           ].join("\n");
           clearGenerationCompleteTimer();

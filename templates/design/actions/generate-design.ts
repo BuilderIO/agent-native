@@ -228,6 +228,7 @@ async function resolveDesignCreativeContext(input: {
   contextModeOverride?: "off";
   reuseLabels: CreativeContextReuseLabel[];
 }): Promise<DesignCreativeContextProvenance> {
+  debugger;
   if (input.contextModeOverride === "off") {
     const validated = await validateGenerationCreativeContext({
       contextPackId: input.contextPackId,
