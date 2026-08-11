@@ -453,6 +453,44 @@ describe("animation target validation", () => {
     ).toThrow(/reveal-title-again.*duplicates target path 0.0/);
   });
 
+  it("rejects elementIndex-only targets when an agent revises animations", () => {
+    expect(() =>
+      assertPatchedSlideAnimationsResolve(
+        {
+          slides: [
+            {
+              id: "s1",
+              content,
+              animations: [
+                {
+                  id: "legacy-target",
+                  elementIndex: 0,
+                  type: "fade" as const,
+                },
+              ],
+            },
+          ],
+        },
+        [
+          {
+            op: "patch-slide",
+            slideId: "s1",
+            fields: {
+              animations: [
+                {
+                  id: "legacy-target",
+                  elementIndex: 0,
+                  type: "fade",
+                },
+              ],
+            },
+          },
+        ],
+        { requireElementPaths: true },
+      ),
+    ).toThrow(/legacy-target.*missing elementPath/);
+  });
+
   it("does not validate stale animation metadata for unrelated writes", () => {
     expect(() =>
       applyAndValidate(

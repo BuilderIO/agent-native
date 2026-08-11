@@ -26,12 +26,12 @@ import { z } from "zod";
 import { normalizeSlidePadding } from "../app/lib/normalize-slide-padding.js";
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
-import { assertSlideAnimationsResolve } from "../server/lib/validate-slide-animations.js";
 import {
   assertSourceSlidePreserved,
   sourceImportForDeck,
   type SourceImportMetadata,
 } from "../server/lib/source-import.js";
+import { assertSlideAnimationsResolve } from "../server/lib/validate-slide-animations.js";
 import { ASPECT_RATIO_VALUES } from "../shared/aspect-ratios.js";
 import {
   assertHumanReadableDeckTitle,
@@ -85,11 +85,13 @@ const SlideAnimationSchema = z.object({
     .min(1)
     .optional()
     .describe(
-      "Preferred 0-based child-index path from the outer .fmd-slide wrapper. Re-read final HTML after content edits.",
+      "Preferred 0-based child-index path from the outer .fmd-slide wrapper. Required for agent-created or content-revised animations; re-read final HTML after content edits.",
     ),
   type: z
     .enum(["appear", "fade", "slide-up", "zoom"])
-    .describe("Animation used when this step is revealed"),
+    .describe(
+      "Animation used when this step is revealed. Supported semantics: appear (immediate reveal), fade (opacity), slide-up (subtle upward motion), zoom (subtle scale). Do not invent other types.",
+    ),
 });
 
 const SlideFieldsSchema = z.object({
@@ -441,6 +443,7 @@ export function applyOperation(deck: any, op: Operation): void {
 export function assertPatchedSlideAnimationsResolve(
   deck: any,
   operations: readonly Operation[],
+  options?: { requireElementPaths?: boolean },
 ): void {
   const slideIdsToValidate = new Set(
     operations.flatMap((operation) =>
@@ -463,6 +466,7 @@ export function assertPatchedSlideAnimationsResolve(
       slideId,
       content: typeof slide.content === "string" ? slide.content : "",
       animations: slide.animations,
+      requireElementPaths: options?.requireElementPaths,
     });
   }
 }
@@ -616,7 +620,9 @@ export default defineAction({
       for (const op of operations) {
         applyOperation(deck, op);
       }
-      assertPatchedSlideAnimationsResolve(deck, operations);
+      assertPatchedSlideAnimationsResolve(deck, operations, {
+        requireElementPaths: isAgentCaller,
+      });
 
       const now = new Date().toISOString();
       deck.updatedAt = now;

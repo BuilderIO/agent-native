@@ -248,10 +248,7 @@ export function resolveSlideAnimationTargets<T extends AnimationTarget>(
 
 export function resolveSlideAnimationTargetsWithDiagnostics<
   T extends AnimationTarget,
->(
-  root: Element,
-  targets: readonly T[],
-): AnimationTargetResolution<T> {
+>(root: Element, targets: readonly T[]): AnimationTargetResolution<T> {
   const seen = new Set<string>();
   const resolved: ResolvedAnimationTarget<T>[] = [];
 

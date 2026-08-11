@@ -4,6 +4,7 @@ import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
+import { summarizeSlideAnimationTargets } from "../server/lib/validate-slide-animations.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
 
 function stripHtml(html: string): string {
@@ -16,8 +17,9 @@ function stripHtml(html: string): string {
     .trim();
 }
 
-function compactAnimationSummary(value: unknown) {
+function compactAnimationSummary(value: unknown, content: string) {
   if (!Array.isArray(value)) return null;
+  const targetSummaries = summarizeSlideAnimationTargets(content, value);
   return {
     count: value.length,
     steps: value.map((entry, index) => {
@@ -25,6 +27,7 @@ function compactAnimationSummary(value: unknown) {
         return { order: index + 1, valid: false };
       }
       const animation = entry as Record<string, unknown>;
+      const targetSummary = targetSummaries[index];
       return {
         order: index + 1,
         id: typeof animation.id === "string" ? animation.id : null,
@@ -36,6 +39,12 @@ function compactAnimationSummary(value: unknown) {
           ? animation.elementPath
           : null,
         type: typeof animation.type === "string" ? animation.type : null,
+        targetPreview: targetSummary?.targetPreview ?? null,
+        resolvedPath: targetSummary?.resolvedPath ?? null,
+        targetValid: targetSummary?.targetValid ?? false,
+        targetIssue: targetSummary
+          ? targetSummary.targetIssue
+          : "target-not-found",
       };
     }),
   };
@@ -148,7 +157,10 @@ export default defineAction({
           id: s.id,
           layout: s.layout ?? null,
           transition: s.transition ?? null,
-          animations: compactAnimationSummary(s.animations),
+          animations: compactAnimationSummary(
+            s.animations,
+            typeof s.content === "string" ? s.content : "",
+          ),
           textPreview: stripHtml(s.content || "").slice(0, 120),
         })),
       };

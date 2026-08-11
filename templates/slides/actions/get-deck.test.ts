@@ -125,6 +125,47 @@ describe("get-deck", () => {
     expect(result.slides[0]).not.toHaveProperty("content");
   });
 
+  it("reports resolved animation targets in compact reads", async () => {
+    mockResolveAccess.mockResolvedValue({
+      resource: {
+        id: "deck-1",
+        title: "Animated",
+        visibility: "private",
+        designSystemId: null,
+        data: JSON.stringify({
+          title: "Animated",
+          slides: [
+            {
+              id: "slide-a",
+              content:
+                '<div class="fmd-slide"><h1>Opening</h1><p>Details</p></div>',
+              animations: [
+                {
+                  id: "opening",
+                  elementIndex: 0,
+                  elementPath: [0],
+                  type: "fade",
+                },
+              ],
+            },
+          ],
+        }),
+      },
+    });
+
+    const result = (await action.run(
+      { id: "deck-1", compact: "true" },
+      { caller: "tool" },
+    )) as any;
+
+    expect(result.slides[0].animations.steps[0]).toMatchObject({
+      targetPreview: "Opening",
+      resolvedPath: "0",
+      targetValid: true,
+      targetIssue: null,
+    });
+  });
+
   it("returns a not-found error for an unknown requested slide", async () => {
     await expect(
       action.run(
