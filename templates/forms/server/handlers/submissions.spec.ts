@@ -97,7 +97,7 @@ describe("submitForm pageUrl pass-through", () => {
       data: { msg: "love it" },
       _meta: {
         pageUrl:
-          "https://clips.agent-native.com/library?utm_source=slack&token=example-token&share_token=example-share-token",
+          "https://clips.agent-native.com/library?utm_source=slack&access_token=example-access-token&id_token=example-id-token&refresh_token=example-refresh-token&authorization=example-authorization&api_key=example-api-key&key=example-key&secret=example-secret&session=example-session&token=example-token&share_token=example-share-token",
         submitterEmail: "user@example.com",
         clientSurface: "tauri",
       },
@@ -106,7 +106,7 @@ describe("submitForm pageUrl pass-through", () => {
     expect(res).toMatchObject({ success: true });
     expect(state.inserted).toHaveLength(1);
     expect(state.inserted[0]!.pageUrl).toBe(
-      "https://clips.agent-native.com/library?utm_source=slack&token=%3Credacted%3E&share_token=%3Credacted%3E",
+      "https://clips.agent-native.com/library?utm_source=slack&access_token=%3Credacted%3E&id_token=%3Credacted%3E&refresh_token=%3Credacted%3E&authorization=%3Credacted%3E&api_key=%3Credacted%3E&key=%3Credacted%3E&secret=%3Credacted%3E&session=%3Credacted%3E&token=%3Credacted%3E&share_token=%3Credacted%3E",
     );
     expect(state.inserted[0]!.submitterEmail).toBe("user@example.com");
     expect(state.inserted[0]!.clientSurface).toBe("tauri");

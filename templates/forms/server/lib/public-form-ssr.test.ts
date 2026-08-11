@@ -248,6 +248,8 @@ describe("public form SSR", () => {
     expect(html).toContain("var pageUrl = scrubPageUrl(window.location.href);");
     expect(html).toContain("_meta: { pageUrl: pageUrl }");
     expect(html).toContain('"share_token"');
+    expect(html).toContain('"access_token"');
+    expect(html).toContain('"session"');
     expect(html).toContain("Array.from(params.keys()).forEach(function(key)");
     expect(html).toContain('params.set(key, "<redacted>")');
   });

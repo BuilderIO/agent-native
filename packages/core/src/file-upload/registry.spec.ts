@@ -117,6 +117,21 @@ describe("file-upload registry", () => {
       expect(s3.isConfiguredForRequest).toHaveBeenCalled();
     });
 
+    it("propagates request-scoped provider lookup failures", async () => {
+      const failure = new Error("credential store unavailable");
+      const s3 = {
+        ...makeProvider("s3", false),
+        isConfiguredForRequest: vi.fn(async () => {
+          throw failure;
+        }),
+      };
+      registerFileUploadProvider(s3);
+
+      await expect(getActiveFileUploadProviderForRequest()).rejects.toBe(
+        failure,
+      );
+    });
+
     it("resolves a request-scoped Builder connection", async () => {
       resolveHasBuilderPrivateKeyMock.mockResolvedValue(true);
 

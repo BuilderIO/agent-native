@@ -11,6 +11,7 @@ import { eq } from "drizzle-orm";
 import { getMethod, getRequestURL, type H3Event } from "h3";
 
 import { isConditionalFieldVisible } from "../../shared/conditional.js";
+import { SENSITIVE_QUERY_PARAMS } from "../../shared/page-url.js";
 import {
   toPublicFormSettings,
   type FormField,
@@ -440,16 +441,7 @@ function renderFormPage(
   var REDIRECT = ${JSON.stringify(safeRedirectUrl(settings.redirectUrl))};
   var TURNSTILE_KEY = ${JSON.stringify(turnstileSiteKey)};
   var FIELDS = ${JSON.stringify(fields.map((f) => ({ id: f.id, type: f.type, required: f.required, validation: f.validation, label: f.label, conditional: f.conditional })))};
-  var SENSITIVE_QUERY_PARAMS = ${JSON.stringify([
-    "password",
-    "p",
-    "token",
-    "state",
-    "code",
-    "share",
-    "share_token",
-    "bridge",
-  ])};
+  var SENSITIVE_QUERY_PARAMS = ${JSON.stringify(SENSITIVE_QUERY_PARAMS)};
 
   function scrubPageUrl(value) {
     try {

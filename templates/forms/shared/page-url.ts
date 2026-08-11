@@ -1,4 +1,4 @@
-const SENSITIVE_QUERY_PARAMS = new Set([
+export const SENSITIVE_QUERY_PARAMS = [
   "password",
   "p",
   "token",
@@ -7,7 +7,17 @@ const SENSITIVE_QUERY_PARAMS = new Set([
   "share",
   "share_token",
   "bridge",
-]);
+  "access_token",
+  "id_token",
+  "refresh_token",
+  "authorization",
+  "api_key",
+  "key",
+  "secret",
+  "session",
+] as const;
+
+const SENSITIVE_QUERY_PARAM_SET = new Set<string>(SENSITIVE_QUERY_PARAMS);
 
 /**
  * Keep response page context useful while never retaining URL-bar secrets.
@@ -37,7 +47,7 @@ export function scrubPageUrl(value: unknown): string | null {
 
 function scrubParams(params: URLSearchParams) {
   for (const key of params.keys()) {
-    if (SENSITIVE_QUERY_PARAMS.has(key.toLowerCase())) {
+    if (SENSITIVE_QUERY_PARAM_SET.has(key.toLowerCase())) {
       params.set(key, "<redacted>");
     }
   }

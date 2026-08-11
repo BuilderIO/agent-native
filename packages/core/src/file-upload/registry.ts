@@ -58,12 +58,7 @@ export async function getActiveFileUploadProviderForRequest(): Promise<FileUploa
   for (const provider of providers.values()) {
     if (provider.isConfigured()) return provider;
     if (provider.isConfiguredForRequest) {
-      try {
-        if (await provider.isConfiguredForRequest()) return provider;
-      } catch {
-        // Treat failed scoped credential lookups as unavailable. The upload
-        // call will surface real provider errors after a provider is selected.
-      }
+      if (await provider.isConfiguredForRequest()) return provider;
     }
   }
   if (builderFileUploadProvider.isConfigured()) {
