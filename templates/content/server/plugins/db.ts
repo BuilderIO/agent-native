@@ -1029,6 +1029,18 @@ export const runContentMigrations = runMigrations(
       CREATE INDEX IF NOT EXISTS document_blocks_parent_idx
         ON document_blocks (parent_id)`,
     },
+    // The portable schema maps integer({ mode: "boolean" }) to BOOLEAN on
+    // Postgres, while the raw INTEGER migration above is adapted to BIGINT.
+    // Convert the stored column before Drizzle sends boolean values.
+    {
+      version: 84,
+      name: "content-block-addressable-postgres-boolean",
+      sql: {
+        postgres: `ALTER TABLE document_blocks ALTER COLUMN addressable DROP DEFAULT;
+        ALTER TABLE document_blocks ALTER COLUMN addressable TYPE boolean USING addressable::text::boolean;
+        ALTER TABLE document_blocks ALTER COLUMN addressable SET DEFAULT true`,
+      },
+    },
   ],
   { table: "content_migrations" },
 );

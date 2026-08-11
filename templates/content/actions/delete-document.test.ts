@@ -90,8 +90,8 @@ const { schema } = vi.hoisted(() => ({
     },
     documentBlockFields: {
       id: "documentBlockFields.id",
-      propertyId: "documentBlockFields.propertyId",
       documentId: "documentBlockFields.documentId",
+      propertyId: "documentBlockFields.propertyId",
     },
     documentBlocks: {
       fieldId: "documentBlocks.fieldId",
