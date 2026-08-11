@@ -309,6 +309,8 @@ export interface CodeAgentsAppProps {
   ) => void;
   /** Exposes the already-loaded run list to a host-owned side surface. */
   onRunsChange?: (runs: CodeAgentRun[]) => void;
+  /** Exposes the selected primary chat to a host-owned surface controller. */
+  onSelectedRunChange?: (runId: string | null) => void;
 }
 
 function recordFromUnknown(value: unknown): Record<string, unknown> | null {
@@ -549,6 +551,7 @@ export default function CodeAgentsApp({
   onChatFirstOpenApp,
   onWatchedRunChange,
   onRunsChange,
+  onSelectedRunChange,
 }: CodeAgentsAppProps) {
   const [selectedGoalId, setSelectedGoalId] = useState<CodeAgentGoalId>("task");
   const selectedGoal =
@@ -639,6 +642,10 @@ export default function CodeAgentsApp({
   useEffect(() => {
     onRunsChange?.(runs);
   }, [onRunsChange, runs]);
+
+  useEffect(() => {
+    onSelectedRunChange?.(selectedRunId);
+  }, [onSelectedRunChange, selectedRunId]);
 
   useEffect(() => {
     if (!openDetailRequest || !activeNewSessionExtension?.renderDetail) return;

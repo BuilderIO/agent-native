@@ -908,6 +908,11 @@ async function runElectronSmoke(): Promise<void> {
     await page.reload({ waitUntil: "domcontentloaded" });
     await page.waitForTimeout(5_000);
     await openElectronAgentSurface(page);
+    const activeChatRow = page
+      .locator(".code-agents-run-list .an-chat-history-row")
+      .filter({ hasText: "Active chat" });
+    await activeChatRow.waitFor({ state: "visible", timeout: 15_000 });
+    await activeChatRow.locator(".an-chat-history-row__button").click();
     const active = await electronSnapshot(
       page,
       "electron-03-chat-first-active",

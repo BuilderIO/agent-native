@@ -646,28 +646,6 @@ export default function AppSettings({
     return () => window.clearInterval(timer);
   }, [refreshRemoteStatus]);
 
-  const handleFrameToggle = useCallback(
-    async (enabled: boolean) => {
-      if (window.electronAPI?.frame) {
-        const updated = await window.electronAPI.frame.update({ enabled });
-        setFrameSettings(updated);
-        onFrameSettingsChanged?.(updated);
-      }
-    },
-    [onFrameSettingsChanged],
-  );
-
-  const handleFrameModeToggle = useCallback(
-    async (mode: "dev" | "prod") => {
-      if (window.electronAPI?.frame) {
-        const updated = await window.electronAPI.frame.update({ mode });
-        setFrameSettings(updated);
-        onFrameSettingsChanged?.(updated);
-      }
-    },
-    [onFrameSettingsChanged],
-  );
-
   const handleCodeTabToggle = useCallback(
     async (showCodeTab: boolean) => {
       if (window.electronAPI?.frame) {
@@ -839,25 +817,14 @@ export default function AppSettings({
         }
       }
       onAppsChanged(latest);
-      if (
-        window.electronAPI?.frame &&
-        frameSettings &&
-        frameSettings.mode !== mode
-      ) {
-        const updated = await window.electronAPI.frame.update({ mode });
-        setFrameSettings(updated);
-        onFrameSettingsChanged?.(updated);
-      }
     },
-    [apps, frameSettings, onAppsChanged, onFrameSettingsChanged],
+    [apps, onAppsChanged],
   );
 
   const allMode: "dev" | "prod" | null = (() => {
-    if (!frameSettings) return null;
-    const modes = new Set<"dev" | "prod">([
-      frameSettings.mode,
-      ...apps.map((a) => (a.mode ?? "prod") as "dev" | "prod"),
-    ]);
+    const modes = new Set<"dev" | "prod">(
+      apps.map((a) => (a.mode ?? "prod") as "dev" | "prod"),
+    );
     return modes.size === 1 ? (modes.values().next().value ?? null) : null;
   })();
 
@@ -1080,10 +1047,40 @@ export default function AppSettings({
             </SettingsRow>
           </SettingsGroup>
 
-          <SettingsGroup
-            title="Installed apps"
-            description="Apps open in production by default. Edit a local app only when you are actively developing it."
-          >
+          <div className="space-y-2">
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <h2 className="text-sm font-semibold text-foreground">
+                  Installed apps
+                </h2>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                  Apps open in production by default. Change every installed
+                  app at once when you need local development.
+                </p>
+              </div>
+              <div
+                className="inline-flex shrink-0 overflow-hidden rounded-md border border-border bg-background"
+                role="group"
+                aria-label="Set all installed apps to"
+              >
+                {(["prod", "dev"] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    className={
+                      allMode === mode
+                        ? "px-3 py-1.5 text-sm font-medium transition-colors bg-accent text-foreground"
+                        : "px-3 py-1.5 text-sm font-medium transition-colors text-muted-foreground hover:bg-accent/60 hover:text-foreground"
+                    }
+                    aria-pressed={allMode === mode}
+                    onClick={() => void handleAllToMode(mode)}
+                  >
+                    {mode === "prod" ? "Prod" : "Dev"}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <SettingsGroup>
             {apps.map((app) => (
               <SettingsRow
                 key={app.id}
@@ -1105,7 +1102,8 @@ export default function AppSettings({
                               ? "px-2.5 py-1.5 text-xs font-medium transition-colors bg-accent text-foreground"
                               : "px-2.5 py-1.5 text-xs font-medium transition-colors text-muted-foreground hover:bg-accent/60 hover:text-foreground"
                           }
-                          onClick={() => handleModeToggle(app.id, mode)}
+                          aria-pressed={(app.mode ?? "prod") === mode}
+                          onClick={() => void handleModeToggle(app.id, mode)}
                         >
                           {mode === "prod" ? "Prod" : "Dev"}
                         </button>
@@ -1144,37 +1142,6 @@ export default function AppSettings({
                 }
               />
             ))}
-            {frameSettings ? (
-              <SettingsRow
-                label="Agent task frame"
-                description="Agent tasks with chat and CLI."
-                control={
-                  <div className="flex flex-wrap items-center justify-end gap-2">
-                    <div className="inline-flex overflow-hidden rounded-md border border-border bg-background">
-                      {(["prod", "dev"] as const).map((mode) => (
-                        <button
-                          key={mode}
-                          type="button"
-                          className={
-                            frameSettings.mode === mode
-                              ? "px-2.5 py-1.5 text-xs font-medium transition-colors bg-accent text-foreground"
-                              : "px-2.5 py-1.5 text-xs font-medium transition-colors text-muted-foreground hover:bg-accent/60 hover:text-foreground"
-                          }
-                          onClick={() => handleFrameModeToggle(mode)}
-                        >
-                          {mode === "prod" ? "Prod" : "Dev"}
-                        </button>
-                      ))}
-                    </div>
-                    <Switch
-                      checked={frameSettings.enabled}
-                      onCheckedChange={handleFrameToggle}
-                      aria-label="Enable Agent task frame"
-                    />
-                  </div>
-                }
-              />
-            ) : null}
             <SettingsRow
               label="Add an app"
               description="Create a local agent-native app in your workspace."
@@ -1205,7 +1172,8 @@ export default function AppSettings({
                 </button>
               }
             />
-          </SettingsGroup>
+            </SettingsGroup>
+          </div>
         </div>
       ),
     },

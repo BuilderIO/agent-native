@@ -327,6 +327,7 @@ export default function CodeAgentsHub({
     title?: string;
   } | null>(null);
   const [hasChatFirstChats, setHasChatFirstChats] = useState(false);
+  const [hasChatFirstActiveChat, setHasChatFirstActiveChat] = useState(false);
   const [chatFirstNotice, setChatFirstNotice] = useState<string | null>(null);
   const handledChatFirstAppOpenNonceRef = useRef<number | null>(null);
   const handledChatFirstPreviewNonceRef = useRef<number | null>(null);
@@ -645,7 +646,7 @@ export default function CodeAgentsHub({
   useEffect(() => {
     const tabCount = chatFirstSurfaceTabs.tabs.length;
     const previousTabCount = previousChatFirstSurfaceTabCountRef.current;
-    if (!chatFirstMode || !hasChatFirstChats) {
+    if (!chatFirstMode || !hasChatFirstActiveChat) {
       setChatFirstSurfacePanelOpen(false);
     } else if (
       tabCount > 0 &&
@@ -662,7 +663,7 @@ export default function CodeAgentsHub({
     previousChatFirstSurfaceTabCountRef.current = tabCount;
   }, [
     chatFirstMode,
-    hasChatFirstChats,
+    hasChatFirstActiveChat,
     setChatFirstSurfacePanelOpen,
     chatFirstSurfaceTabs.tabs.length,
   ]);
@@ -1747,7 +1748,9 @@ export default function CodeAgentsHub({
           brandIconUrl={agentNativeIconUrl}
           onOpenSettings={onOpenSettings}
           mainToolbarSlot={
-            chatFirstMode && hasChatFirstChats && !chatFirstAppTakesMain ? (
+            chatFirstMode &&
+            hasChatFirstActiveChat &&
+            !chatFirstAppTakesMain ? (
               <ChatFirstSurfacePanelToggle
                 open={chatFirstSurfacePanel.open}
                 onToggle={chatFirstSurfacePanel.toggle}
@@ -1767,6 +1770,9 @@ export default function CodeAgentsHub({
           }
           suppressChatFirstUnavailableNotice={chatFirstMode}
           onRunsChange={handleChatFirstRunsChange}
+          onSelectedRunChange={(runId) =>
+            setHasChatFirstActiveChat(Boolean(runId))
+          }
           onWatchedRunChange={handleChatFirstWatchedRunChange}
           chatFirstNavigation={chatFirstNavigation}
           onChatFirstOpenApp={
@@ -1810,7 +1816,7 @@ export default function CodeAgentsHub({
           )}
         />
         {chatFirstMode &&
-        hasChatFirstChats &&
+        hasChatFirstActiveChat &&
         chatFirstSurfacePanel.open &&
         !chatFirstAppTakesMain ? (
           <ChatFirstSurfacePanel
