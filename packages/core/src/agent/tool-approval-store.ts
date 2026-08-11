@@ -1,12 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
 
-import {
-  getDbExec,
-  intType,
-  isPostgres,
-  retryOnDdlRace,
-} from "../db/client.js";
+import { getDbExec, isPostgres, retryOnDdlRace } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
+import {
+  AGENT_TOOL_APPROVAL_INDEX_SQL,
+  AGENT_TOOL_APPROVAL_TABLE_SQL,
+} from "./tool-approval-migrations.js";
 
 const APPROVAL_TTL_MS = 15 * 60_000;
 const APPROVAL_CLEANUP_AGE_MS = 24 * 60 * 60_000;
@@ -16,31 +15,19 @@ let initPromise: Promise<void> | undefined;
 async function ensureAgentToolApprovalTable(): Promise<void> {
   if (!initPromise) {
     initPromise = (async () => {
-      const createSql = `CREATE TABLE IF NOT EXISTS agent_tool_approvals (
-  id TEXT PRIMARY KEY,
-  owner_email TEXT NOT NULL,
-  org_id TEXT,
-  thread_id TEXT,
-  turn_id TEXT,
-  tool_name TEXT NOT NULL,
-  call_id TEXT NOT NULL,
-  approval_key_hash TEXT NOT NULL,
-  status TEXT NOT NULL,
-  expires_at ${intType()} NOT NULL,
-  consumed_at ${intType()},
-  created_at ${intType()} NOT NULL,
-  updated_at ${intType()} NOT NULL
-)`;
-      const indexSql = `CREATE INDEX IF NOT EXISTS idx_agent_tool_approvals_binding
-        ON agent_tool_approvals(owner_email, org_id, thread_id, tool_name, call_id, status)`;
+      const createSql =
+        AGENT_TOOL_APPROVAL_TABLE_SQL[isPostgres() ? "postgres" : "sqlite"];
       if (isPostgres()) {
         await ensureTableExists("agent_tool_approvals", createSql);
-        await ensureIndexExists("idx_agent_tool_approvals_binding", indexSql);
+        await ensureIndexExists(
+          "idx_agent_tool_approvals_binding",
+          AGENT_TOOL_APPROVAL_INDEX_SQL,
+        );
         return;
       }
       const client = getDbExec();
       await retryOnDdlRace(() => client.execute(createSql));
-      await retryOnDdlRace(() => client.execute(indexSql));
+      await retryOnDdlRace(() => client.execute(AGENT_TOOL_APPROVAL_INDEX_SQL));
     })().catch((error) => {
       initPromise = undefined;
       throw error;

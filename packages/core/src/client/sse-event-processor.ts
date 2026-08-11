@@ -1251,6 +1251,7 @@ function emitFirstPartyOpenAppHandoff(ev: SSEEvent): void {
   if (ev.type !== "tool_done" || (ev.tool ?? "unknown") !== "open_app") {
     return;
   }
+  if (ev.isError === true) return;
   if (!ev.result?.trim()) {
     console.warn(
       "[chat-first] open_app completed without a readable result; no app pane opened",
@@ -1500,7 +1501,6 @@ export function processEvent(
     if (findCompletedToolCallIndex(content, ev.id) >= 0) {
       return { action: "continue" };
     }
-    emitFirstPartyOpenAppHandoff(ev);
     if (typeof window !== "undefined") {
       window.dispatchEvent(
         new CustomEvent("agent-native:tool-start", {
@@ -1604,6 +1604,7 @@ export function processEvent(
     if (findCompletedToolCallIndex(content, ev.id) >= 0) {
       return { action: "continue" };
     }
+    emitFirstPartyOpenAppHandoff(ev);
     if (typeof window !== "undefined") {
       window.dispatchEvent(
         new CustomEvent("agent-native:tool-done", {

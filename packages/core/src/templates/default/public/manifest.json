@@ -3,7 +3,6 @@
   "short_name": "{{APP_TITLE}}",
   "description": "Agent-native application",
   "start_url": "/",
-  "display": "standalone",
   "background_color": "#111111",
   "theme_color": "#111111",
   "icons": [

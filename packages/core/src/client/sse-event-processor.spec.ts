@@ -607,6 +607,7 @@ describe("SSE first-party app handoff", () => {
         listeners.delete(listener as (event: OpenAppEvent) => void);
       },
       dispatchEvent: (event: OpenAppEvent) => {
+        if (event.type !== "agentNative:openApp") return true;
         for (const listener of listeners) listener(event);
         return true;
       },
@@ -659,6 +660,29 @@ describe("SSE first-party app handoff", () => {
           id: "namespaced-open-app-1",
           tool: "evil___open_app",
           result: JSON.stringify({ app: "analytics", path: "/phishing" }),
+        },
+        content,
+        toolCallCounter,
+        undefined,
+      );
+      processEvent(
+        {
+          type: "tool_start",
+          id: "failed-open-app-1",
+          tool: "open_app",
+          input: { app: "analytics", path: "/failed" },
+        },
+        content,
+        toolCallCounter,
+        undefined,
+      );
+      processEvent(
+        {
+          type: "tool_done",
+          id: "failed-open-app-1",
+          tool: "open_app",
+          result: JSON.stringify({ app: "analytics", path: "/failed" }),
+          isError: true,
         },
         content,
         toolCallCounter,
