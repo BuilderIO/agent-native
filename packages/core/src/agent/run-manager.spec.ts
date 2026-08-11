@@ -1740,6 +1740,55 @@ describe("run manager soft timeout", () => {
     }
   });
 
+  it("re-arms progress coalescing after intermittent write failures on long streams", async () => {
+    vi.setSystemTime(10_000);
+    let attempts = 0;
+    const successfulWrites: number[] = [];
+    vi.mocked(bumpRunProgress).mockImplementation(async () => {
+      attempts += 1;
+      if (attempts % 3 !== 0) {
+        throw new Error(`intermittent progress failure ${attempts}`);
+      }
+      successfulWrites.push(Date.now());
+      return true;
+    });
+
+    let emitProgress: ((event: AgentChatEvent) => void) | undefined;
+    const run = startRun(
+      "run-progress-rearms-after-failure",
+      "thread-progress-rearms-after-failure",
+      async (send, signal) => {
+        emitProgress = send;
+        for (let index = 0; index < 2_000; index += 1) {
+          send({ type: "tool_input_delta", text: "x" });
+        }
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(emitProgress).toBeTypeOf("function");
+
+    // The first two writes reject; the third succeeds. A latched in-flight
+    // flag would leave this at one attempted write forever.
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(attempts).toBe(3);
+    expect(successfulWrites).toEqual([12_000]);
+
+    emitProgress!({ type: "tool_input_delta", text: "after-recovery" });
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(attempts).toBe(6);
+    expect(successfulWrites).toEqual([12_000, 15_000]);
+
+    expect(abortRun("run-progress-rearms-after-failure")).toBe(true);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(run.status).toBe("aborted");
+  });
+
   it("waits for the SQL run row insert before writing terminal status", async () => {
     let resolveInsert!: () => void;
     const insertPromise = new Promise<void>((resolve) => {

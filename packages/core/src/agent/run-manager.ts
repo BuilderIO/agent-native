@@ -745,11 +745,10 @@ function abortInMemoryRun(run: ActiveRun, reason: string = "user") {
   const existingTerminalEvent = [...run.events]
     .reverse()
     .find((event) => isTerminalRunEvent(event.event));
-  const terminalRunEvent =
-    existingTerminalEvent ?? {
-      seq: run.events.length,
-      event: terminalEventForAbortReason(reason),
-    };
+  const terminalRunEvent = existingTerminalEvent ?? {
+    seq: run.events.length,
+    event: terminalEventForAbortReason(reason),
+  };
   if (!existingTerminalEvent) {
     run.events.push(terminalRunEvent);
   }

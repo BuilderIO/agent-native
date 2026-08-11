@@ -26,6 +26,7 @@ import {
   userMessageTextBeforeAssistant,
   isHiddenUserMessage,
   assistantMessageRunId,
+  assistantMessageTurnId,
   resolveAssistantRequestId,
 } from "./message-components.js";
 import { runErrorKey } from "./run-recovery.js";
@@ -60,6 +61,14 @@ describe("assistant request ID resolution", () => {
       ),
     ).toBeUndefined();
     expect(assistantMessageRunId({ id: "local-message-id" })).toBeUndefined();
+  });
+
+  it("reads the stable logical turn ID from assistant metadata", () => {
+    expect(
+      assistantMessageTurnId({
+        metadata: { custom: { turnId: "turn-1" } },
+      }),
+    ).toBe("turn-1");
   });
 });
 
@@ -162,6 +171,35 @@ describe("shouldShowAssistantMessageFooter", () => {
         chatRunning: true,
         activeRunId: "run-active",
         messageRunId: "run-active",
+        hasRenderableContent: true,
+        statusIsTerminal: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("hides historical controls across continuation run IDs in the same turn", () => {
+    expect(
+      shouldShowAssistantMessageFooter({
+        isLast: false,
+        chatRunning: true,
+        activeRunId: "run-successor",
+        messageRunId: "run-original",
+        activeTurnId: "turn-shared",
+        messageTurnId: "turn-shared",
+        hasRenderableContent: true,
+        statusIsTerminal: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("does not treat missing turn metadata as a different turn", () => {
+    expect(
+      shouldShowAssistantMessageFooter({
+        isLast: false,
+        chatRunning: true,
+        activeRunId: "run-same",
+        messageRunId: "run-same",
+        activeTurnId: "turn-current",
         hasRenderableContent: true,
         statusIsTerminal: true,
       }),

@@ -1139,8 +1139,7 @@ export function shouldShowAssistantMessageFooter({
   if (!hasRenderableContent) return false;
   const ownsActiveTurn =
     activeTurnId != null &&
-    messageTurnId != null &&
-    activeTurnId === messageTurnId;
+    (messageTurnId == null || activeTurnId === messageTurnId);
   // Keep the run-id comparison only for legacy messages that predate the
   // turn-id metadata. Once either side has a logical-turn identity, absent
   // turn evidence must not be treated as proof of a different run.
