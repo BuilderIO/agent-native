@@ -326,7 +326,8 @@ export default defineAction({
           preserveSource,
         });
         slide.content = nextContent;
-        applied = nextContent !== previousContent;
+        applied = patched.changed;
+        if (!applied) slide.content = previousContent;
       } else if (find !== undefined) {
         const idx = previousContent.indexOf(find);
         if (idx === -1) {

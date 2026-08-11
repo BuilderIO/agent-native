@@ -109,7 +109,7 @@ export function isSourceImprovementRequest(
       normalized,
     );
   const asksToPreserveSource =
-    /\b(turn|convert|transform)\b[\s\S]{0,50}\b(into|to)\b[\s\S]{0,30}\b(deck|presentation|slides?)\b/.test(
+    /(?:\b(turn|convert|transform)\b[\s\S]{0,50}\b(into|to)\b[\s\S]{0,30}\b(deck|presentation|slides?)\b|\b(create|build|make|generate)\b[\s\S]{0,80}\b(deck|presentation|slides?)\b[\s\S]{0,80}\bfrom\b)/.test(
       normalized,
     ) &&
     /\b(copy|slide[- ]for[- ]slide|preserv\w*|same order|before\s*\/?\s*after|placeholder\w*|out of order)\b/.test(

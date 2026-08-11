@@ -24,6 +24,7 @@ describe("applySlideContentEdits", () => {
       '<section data-id="hero"><h1>New</h1><span class="eyebrow">Now</span><p>Keep\nthis</p></section>',
     );
     expect(result.applied).toEqual(["replace:first", "insert-before:1"]);
+    expect(result.changed).toBe(true);
   });
 
   it("fails the whole patch when a later edit misses", async () => {
@@ -78,5 +79,16 @@ describe("applySlideContentEdits", () => {
     ]);
 
     expect(result.content).toBe("<p>New</p><p>Old</p>");
+  });
+
+  it("reports edit changes separately from formatter output", async () => {
+    const result = await applySlideContentEdits(
+      "<div>Old</div>",
+      [{ find: "Missing", replace: "Never written", required: false }],
+      true,
+    );
+
+    expect(result.changed).toBe(false);
+    expect(result.content).not.toBe("<div>Old</div>");
   });
 });

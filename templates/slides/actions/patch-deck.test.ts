@@ -527,6 +527,64 @@ describe("animation target validation", () => {
     expect(deck.slides[0].animations).toBeUndefined();
   });
 
+  it("preserves imported animations for source-preserving content patches", () => {
+    const sourceImport = buildSourceImportMetadata({
+      format: "pptx",
+      slides: [
+        {
+          id: "s1",
+          text: "Imported slide text",
+          notes: "",
+          imageUrls: [],
+          editableText: true,
+        },
+      ],
+    });
+    const animations = [animation()];
+    const deck = {
+      sourceImport,
+      slides: [{ id: "s1", content, animations }],
+    };
+    const operations: Operation[] = [
+      {
+        op: "patch-slide",
+        slideId: "s1",
+        fields: { content },
+      },
+    ];
+
+    for (const operation of operations) applyOperation(deck, operation);
+    clearOmittedAnimationsForAgentContentPatches(deck, operations, {
+      sourceImport,
+    });
+
+    expect(deck.slides[0].animations).toEqual(animations);
+  });
+
+  it("does not clear a separate explicit animation patch", () => {
+    const animations = [animation()];
+    const deck = {
+      slides: [{ id: "s1", content, animations }],
+    };
+    const operations: Operation[] = [
+      {
+        op: "patch-slide",
+        slideId: "s1",
+        fields: { content: '<div class="fmd-slide"><div>New</div></div>' },
+      },
+      {
+        op: "patch-slide",
+        slideId: "s1",
+        fields: { animations },
+      },
+    ];
+
+    for (const operation of operations) applyOperation(deck, operation);
+    clearOmittedAnimationsForAgentContentPatches(deck, operations);
+
+    expect(deck.slides[0].animations).toEqual(animations);
+  });
+
   it("keeps an explicit complete animation list with revised content", () => {
     const nextContent =
       '<div class="fmd-slide"><div><h2>New title</h2></div></div>';

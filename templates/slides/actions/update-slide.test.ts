@@ -268,6 +268,32 @@ describe("update-slide", () => {
     expect(mockNotifyClients).not.toHaveBeenCalled();
   });
 
+  it("does not treat formatter output as an applied optional edit", async () => {
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<div>Old</div>",
+          animations: [{ id: "reveal-1", elementPath: [0] }],
+        },
+      ],
+    });
+
+    const result = (await action.run({
+      deckId: "deck-1",
+      slideId: "slide-1",
+      format: true,
+      edits: [{ find: "Missing", replace: "Never written", required: false }],
+    })) as Record<string, unknown>;
+
+    expect(result).toMatchObject({ ok: true, applied: false });
+    expect(lastUpdateSet).toBeUndefined();
+    expect(
+      JSON.parse(mockDeckRow!.data as string).slides[0].animations,
+    ).toEqual([{ id: "reveal-1", elementPath: [0] }]);
+  });
+
   it("applies ordered code-style edits atomically and returns the new hash", async () => {
     mockDeckRow!.data = JSON.stringify({
       title: "Deck",

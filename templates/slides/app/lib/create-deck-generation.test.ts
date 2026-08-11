@@ -48,6 +48,23 @@ describe("startDeckGeneration", () => {
     ).toBe(true);
   });
 
+  it("treats create-from-source requests that preserve order as source-preserving", () => {
+    expect(
+      isSourceImprovementRequest(
+        "Create a slide deck from this PDF, preserving the same order",
+        [
+          {
+            path: "/uploads/source.pdf",
+            originalName: "source.pdf",
+            filename: "source.pdf",
+            type: "application/pdf",
+            size: 1024,
+          },
+        ],
+      ),
+    ).toBe(true);
+  });
+
   it("keeps an ordinary attached PDF as agent reference material", async () => {
     const deck = {
       id: "deck-1",

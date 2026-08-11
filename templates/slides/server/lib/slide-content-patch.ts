@@ -48,6 +48,7 @@ export interface SlideContentPatchResult {
   content: string;
   applied: string[];
   formatted: boolean;
+  changed: boolean;
 }
 
 /**
@@ -69,11 +70,13 @@ export async function applySlideContentEdits(
       applied.push(result.summary);
     }
 
+    const changed = content !== currentContent;
+
     if (format) {
       content = await formatSlideHtml(content);
     }
 
-    return { content, applied, formatted: format };
+    return { content, applied, formatted: format, changed };
   } catch (error) {
     if (error instanceof SlideContentEditError) throw error;
     const message = error instanceof Error ? error.message : String(error);
