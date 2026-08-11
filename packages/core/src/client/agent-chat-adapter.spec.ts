@@ -5389,6 +5389,18 @@ describe("createAgentChatAdapter", () => {
         type: "agent-chat:run-error",
       }),
     );
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:activity-clear",
+        detail: { tabId: "chat-completed-side-effect" },
+      }),
+    );
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:stream-progress",
+        detail: { tabId: "chat-completed-side-effect" },
+      }),
+    );
     const last = results.at(-1) as any;
     expect(last.status).toEqual({ type: "complete", reason: "stop" });
     expect(last.metadata.custom.runWarning).toMatchObject({
