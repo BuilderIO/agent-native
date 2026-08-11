@@ -1014,6 +1014,8 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
     );
     expect(wsYaml).toContain("catalog:");
     expect(wsYaml).toContain("tailwindcss");
+    expect(wsYaml).toContain('"@tiptap/extension-list": "catalog:"');
+    expect(wsYaml).toContain('"@tiptap/extension-list": "3.28.0"');
   });
 
   it("allows Tesseract builds in workspace settings", async () => {

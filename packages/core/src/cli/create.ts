@@ -662,7 +662,7 @@ async function scaffoldWorkspaceRoot(
     const existing = fs.existsSync(wsPath)
       ? fs.readFileSync(wsPath, "utf-8")
       : "";
-    if (!existing.includes("catalog:")) {
+    if (!/^catalog:\s*$/m.test(existing)) {
       const catalogYaml = Object.entries(catalog)
         .map(([k, v]) => `  "${k}": "${v}"`)
         .join("\n");

@@ -7,6 +7,8 @@ overrides:
   "@assistant-ui/tap": "^0.5.14"
   better-auth: "1.6.0"
   nf3: "0.3.17"
+  # Tiptap's internal caret ranges can otherwise mix API-coupled releases.
+  "@tiptap/extension-list": "catalog:"
   # These four reach @agent-native/core through peer edges, so two apps that
   # drift even a patch apart fork a second ~175 MB physical copy of core.
   # One spec string per workspace is what keeps it at one copy — raise these
