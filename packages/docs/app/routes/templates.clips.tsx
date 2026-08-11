@@ -41,6 +41,27 @@ const template = templates.find((t) => t.slug === "clips")!;
 const AI_PROMPT =
   "Watch https://clips.agent-native.com/share/B0AgxdvzuZ7H?ref=clip_share and tell me the most impactful way I could be using agent-native clips in my own work projects this week.";
 
+const COMPARISON_ROWS = [
+  {
+    feature: "Can AI read it?",
+    clips: "Yes.\nTranscript, summary, frames, & debug.",
+    loom: "No.",
+    alternatives: "No.",
+  },
+  {
+    feature: "Who owns the data?",
+    clips: "You.",
+    loom: "Atlassian.",
+    alternatives: "Them.",
+  },
+  {
+    feature: "Can it integrate?",
+    clips: "Yes.\nOpenAI + Anthropic, and any API you can think of.",
+    loom: "Atlassian products + select partners.",
+    alternatives: "Select partners.",
+  },
+];
+
 function CliCopy({
   value = template.cliCommand,
   location = "landing_page",
@@ -567,7 +588,10 @@ export default function ClipsTemplate() {
       </section>
 
       {/* Comparison table */}
-      <section className="border-t border-[var(--docs-border)] py-16">
+      <section
+        id="comparison"
+        className="scroll-mt-24 border-t border-[var(--docs-border)] py-16"
+      >
         <h2 className="mb-8 text-2xl font-bold tracking-tight">
           {t("templateLanding.clips.s032")}
         </h2>
@@ -575,108 +599,43 @@ export default function ClipsTemplate() {
           <table className="comparison-table min-w-[42rem] w-full text-sm">
             <thead>
               <tr className="border-b border-[var(--docs-border)] bg-[var(--bg-secondary)]">
-                <th className="px-5 py-3 text-left font-semibold text-[var(--fg)]"></th>
-                <th className="px-5 py-3 text-left font-semibold text-[var(--fg-secondary)]">
+                <th className="w-[18%] px-5 py-3 text-left font-semibold text-[var(--fg)]"></th>
+                <th className="w-[30%] px-5 py-3 text-left font-semibold text-[var(--docs-accent)]">
+                  Agent-Native Clips
+                </th>
+                <th className="w-[20%] px-5 py-3 text-left font-semibold text-[var(--fg-secondary)]">
                   Loom
                 </th>
-                <th className="px-5 py-3 text-left font-semibold text-[var(--fg-secondary)]">
-                  Jam
-                </th>
-                <th className="px-5 py-3 text-left font-semibold text-[var(--fg-secondary)]">
-                  Granola
-                </th>
-                <th className="px-5 py-3 text-left font-semibold text-[var(--fg-secondary)]">
-                  Wisprflow
-                </th>
-                <th className="px-5 py-3 text-left font-semibold text-[var(--docs-accent)]">
-                  Agent-Native Clips
+                <th className="w-[32%] px-5 py-3 text-left font-semibold text-[var(--fg-secondary)]">
+                  Tella, Screenpal, Vidyard
                 </th>
               </tr>
             </thead>
             <tbody className="text-[var(--fg-secondary)]">
-              <tr className="border-b border-[var(--docs-border)]">
-                <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  {t("templateLanding.clips.s033")}
-                </td>
-                <td className="px-5 py-3">{t("templateLanding.clips.s034")}</td>
-                <td className="px-5 py-3">{t("templateLanding.clips.s034")}</td>
-                <td className="px-5 py-3">{t("templateLanding.clips.s035")}</td>
-                <td className="px-5 py-3">{t("templateLanding.clips.s035")}</td>
-                <td className="px-5 py-3 text-[var(--fg)]">
-                  {t("templateLanding.clips.s034")}
-                </td>
-              </tr>
-              <tr className="border-b border-[var(--docs-border)]">
-                <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  {t("templateLanding.clips.s036")}
-                </td>
-                <td className="px-5 py-3">{t("templateLanding.clips.s035")}</td>
-                <td className="px-5 py-3">{t("templateLanding.clips.s034")}</td>
-                <td className="px-5 py-3">{t("templateLanding.clips.s035")}</td>
-                <td className="px-5 py-3">{t("templateLanding.clips.s035")}</td>
-                <td className="px-5 py-3 text-[var(--fg)]">
-                  {t("templateLanding.clips.s034")}
-                </td>
-              </tr>
-              <tr className="border-b border-[var(--docs-border)]">
-                <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  {t("templateLanding.clips.s039")}
-                </td>
-                <td className="px-5 py-3">{t("templateLanding.clips.s040")}</td>
-                <td className="px-5 py-3">{t("templateLanding.clips.s040")}</td>
-                <td className="px-5 py-3">{t("templateLanding.clips.s034")}</td>
-                <td className="px-5 py-3">N/A</td>
-                <td className="px-5 py-3 text-[var(--fg)]">
-                  {t("templateLanding.clips.s041")}
-                </td>
-              </tr>
-              <tr className="border-b border-[var(--docs-border)]">
-                <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  {t("templateLanding.clips.s042")}
-                </td>
-                <td className="px-5 py-3">{t("templateLanding.clips.s035")}</td>
-                <td className="px-5 py-3">{t("templateLanding.clips.s035")}</td>
-                <td className="px-5 py-3">{t("templateLanding.clips.s035")}</td>
-                <td className="px-5 py-3">{t("templateLanding.clips.s035")}</td>
-                <td className="px-5 py-3 text-[var(--fg)]">
-                  {t("templateLanding.clips.s034")}
-                </td>
-              </tr>
-              <tr className="border-b border-[var(--docs-border)]">
-                <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  {t("templateLanding.clips.s043")}
-                </td>
-                <td className="px-5 py-3">{t("templateLanding.clips.s044")}</td>
-                <td className="px-5 py-3">{t("templateLanding.clips.s045")}</td>
-                <td className="px-5 py-3">{t("templateLanding.clips.s046")}</td>
-                <td className="px-5 py-3">{t("templateLanding.clips.s047")}</td>
-                <td className="px-5 py-3 text-[var(--fg)]">
-                  {t("templateLanding.clips.s048")}
-                </td>
-              </tr>
-              <tr className="border-b border-[var(--docs-border)]">
-                <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  {t("templateLanding.clips.s049")}
-                </td>
-                <td className="px-5 py-3">{t("templateLanding.clips.s050")}</td>
-                <td className="px-5 py-3">{t("templateLanding.clips.s050")}</td>
-                <td className="px-5 py-3">{t("templateLanding.clips.s050")}</td>
-                <td className="px-5 py-3">{t("templateLanding.clips.s051")}</td>
-                <td className="px-5 py-3 text-[var(--fg)]">
-                  {t("templateLanding.clips.s052")}
-                </td>
-              </tr>
+              {COMPARISON_ROWS.map((row) => (
+                <tr
+                  key={row.feature}
+                  className="border-b border-[var(--docs-border)] align-top"
+                >
+                  <td className="px-5 py-4 font-medium text-[var(--fg)]">
+                    {row.feature}
+                  </td>
+                  <td className="whitespace-pre-line px-5 py-4 text-[var(--fg)]">
+                    {row.clips}
+                  </td>
+                  <td className="px-5 py-4">{row.loom}</td>
+                  <td className="px-5 py-4">{row.alternatives}</td>
+                </tr>
+              ))}
               <tr>
-                <td className="px-5 py-3 font-medium text-[var(--fg)]">
+                <td className="px-5 py-4 font-medium text-[var(--fg)]">
                   {t("templateLanding.clips.s053")}
                 </td>
-                <td className="px-5 py-3">{t("templateLanding.clips.s054")}</td>
-                <td className="px-5 py-3">{t("templateLanding.clips.s055")}</td>
-                <td className="px-5 py-3">{t("templateLanding.clips.s056")}</td>
-                <td className="px-5 py-3">{t("templateLanding.clips.s057")}</td>
-                <td className="px-5 py-3 text-[var(--fg)]">
+                <td className="px-5 py-4 text-[var(--fg)]">
                   {t("templateLanding.clips.s058")}
                 </td>
+                <td className="px-5 py-4">{t("templateLanding.clips.s054")}</td>
+                <td className="px-5 py-4">{t("templateLanding.clips.s055")}</td>
               </tr>
             </tbody>
           </table>
