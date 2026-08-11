@@ -54,6 +54,12 @@ const attachSourceMutation = vi.hoisted(() => ({
   isPending: false,
 }));
 
+const changeSourceRoleMutation = vi.hoisted(() => ({
+  mutate: vi.fn(),
+  mutateAsync: vi.fn(),
+  isPending: false,
+}));
+
 const builderModel = vi.hoisted<BuilderCmsModelSummary>(() => ({
   id: "model-1",
   name: "article",
@@ -149,7 +155,7 @@ vi.mock("@/hooks/use-content-database", () => ({
     error: null,
   }),
   writeBuilderAttachPreviewToCache: vi.fn(),
-  useChangeContentDatabaseSourceRole: () => benignMutation,
+  useChangeContentDatabaseSourceRole: () => changeSourceRoleMutation,
   useRefreshContentDatabaseSource: () => benignMutation,
   useDisconnectContentDatabaseSource: () => benignMutation,
   useProcessBuilderBodyHydration: () => benignMutation,
@@ -278,6 +284,9 @@ describe("DatabaseView UI regressions", () => {
     contentDatabaseQueryMock.mockReset();
     addItemMutation.mutateAsync.mockReset();
     attachSourceMutation.mutateAsync.mockReset();
+    changeSourceRoleMutation.mutateAsync
+      .mockReset()
+      .mockResolvedValue(databaseResponse);
     benignMutation.mutateAsync.mockReset().mockResolvedValue(undefined);
     databaseResponse.items = [];
     databaseResponse.properties = [];
@@ -661,6 +670,90 @@ describe("DatabaseView UI regressions", () => {
         'input[aria-label="editor.properties.searchPropertyTypes"]',
       ),
     ).toBeTruthy();
+  });
+
+  it("returns to Add property after changing an attached source role", async () => {
+    const secondarySource = {
+      id: "source-2",
+      databaseId: "database-1",
+      sourceType: "builder-cms",
+      sourceName: "Authors",
+      sourceTable: "author",
+      syncState: "idle",
+      freshness: "fresh",
+      lastRefreshedAt: null,
+      lastSourceUpdatedAt: null,
+      lastError: null,
+      capabilities: {
+        canRefresh: true,
+        canCreateChangeSets: false,
+        canWriteFields: false,
+        canWriteBody: false,
+        canPush: false,
+        canPull: true,
+        canPublish: false,
+        canDelete: false,
+        canStageLocalRevision: false,
+        liveWritesEnabled: false,
+        readOnlyRefresh: true,
+      },
+      metadata: {
+        primaryKey: "id",
+        titleField: "name",
+        federation: {
+          role: "secondary",
+          keyField: "name",
+          normalizationFormula: "lower(trim(value))",
+          join: {
+            kind: "identity",
+            collection: null,
+            localExpr: "{canonical}",
+            remoteKeyField: "name",
+            normalizationFormula: "lower(trim(value))",
+          },
+          canonicalKey: { propertyId: null, label: "Author", type: "text" },
+        },
+      },
+      fields: [],
+      rows: [],
+      changeSets: [],
+    } as ContentDatabaseSource;
+    databaseResponse.sources = [secondarySource];
+    await renderDatabaseView();
+
+    await act(async () => {
+      findButtonByText(container, "Add property")?.click();
+    });
+    await act(async () => {
+      findButtonByText(
+        document.body,
+        "editor.properties.connectASource",
+      )?.click();
+    });
+    await act(async () => {
+      findButtonByText(container, "Authors")?.click();
+    });
+    await act(async () => {
+      findButtonByText(
+        container,
+        messagesByLocale["en-US"].database.addAsItems,
+      )?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(changeSourceRoleMutation.mutateAsync).toHaveBeenCalledWith({
+      documentId: "document-1",
+      sourceId: "source-2",
+      relationshipMode: "items",
+      join: undefined,
+    });
+    expect(
+      document.body.querySelector(
+        'input[aria-label="editor.properties.searchPropertyTypes"]',
+      ),
+    ).toBeTruthy();
+    expect(container.textContent).not.toContain("Connected sources");
   });
 
   it("removes the confirmed selection snapshot without clearing newer selections", async () => {

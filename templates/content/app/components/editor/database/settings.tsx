@@ -1476,19 +1476,28 @@ function CanonicalKeyConfirmView({
         type="button"
         size="sm"
         disabled={!canEdit || pending || matchedCount === 0}
-        onClick={() =>
-          onCommit({
-            canonicalKey: suggestion.canonicalKey,
-            primary: {
-              keyField: primaryKeyField,
-              normalizationFormula: primaryFormula,
-            },
-            secondary: {
-              keyField: secondaryKeyField,
-              normalizationFormula: secondaryFormula,
-            },
-          })
-        }
+        onClick={async () => {
+          try {
+            await onCommit({
+              canonicalKey: suggestion.canonicalKey,
+              primary: {
+                keyField: primaryKeyField,
+                normalizationFormula: primaryFormula,
+              },
+              secondary: {
+                keyField: secondaryKeyField,
+                normalizationFormula: secondaryFormula,
+              },
+            });
+          } catch (error) {
+            toast.error(dbText("failedToAttachSource"), {
+              description:
+                error instanceof Error
+                  ? error.message
+                  : dbText("somethingWentWrong"),
+            });
+          }
+        }}
       >
         {pending ? (
           <Spinner className="mr-1.5 size-3.5" />

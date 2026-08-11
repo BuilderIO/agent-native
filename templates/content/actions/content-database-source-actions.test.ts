@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { ContentDatabaseSource } from "../shared/api";
 import type { BuilderCmsReadResult } from "./_builder-cms-read-client";
@@ -13,6 +13,7 @@ import attachSource, {
   builderAttachDurableItemCount,
   builderCmsAttachReadMetadata,
   initialBuilderAttachmentSetupOptions,
+  readBeforeLocalDetailsBootstrap,
   readCompleteBuilderCmsAttachSource,
   readInitialBuilderCmsAttachEntries,
   readInitialBuilderCmsAttachSource,
@@ -236,6 +237,20 @@ describe("content database source actions", () => {
         hasJoin: true,
       }),
     ).not.toThrow();
+  });
+
+  it("does not bootstrap a local primary when the details source read fails", async () => {
+    const bootstrapLocalSource = vi.fn();
+
+    await expect(
+      readBeforeLocalDetailsBootstrap({
+        readCandidate: async () => {
+          throw new Error("source read failed");
+        },
+        bootstrapLocalSource,
+      }),
+    ).rejects.toThrow("source read failed");
+    expect(bootstrapLocalSource).not.toHaveBeenCalled();
   });
 
   it("accepts a bounded read-only Notion database details source", () => {

@@ -3046,14 +3046,16 @@ function DatabaseTable({
           completeSourceHandoff();
           return result;
         }}
-        onChangeSourceRole={(sourceId, relationshipMode, join) =>
-          changeSourceRole.mutateAsync({
+        onChangeSourceRole={async (sourceId, relationshipMode, join) => {
+          const result = await changeSourceRole.mutateAsync({
             documentId: document.id,
             sourceId,
             relationshipMode,
             join,
-          })
-        }
+          });
+          completeSourceHandoff();
+          return result;
+        }}
         onDisconnectSecondary={(sourceId) =>
           disconnectSource.mutate({ documentId: document.id, sourceId })
         }
