@@ -737,10 +737,25 @@ function abortInMemoryRun(run: ActiveRun, reason: string = "user") {
     threadToRun.delete(run.threadId);
   }
   run.abort.abort(reason);
-  const terminalEvent = terminalEventForAbortReason(reason);
+  // Keep the abort terminal in the replay buffer as well as sending it to
+  // current subscribers. A reconnect can arrive after the live subscriber
+  // was removed but while this run is still warm in memory; closing that
+  // replay with no terminal frame makes the client manufacture a false
+  // frozen response and retry against a run that is already done.
+  const existingTerminalEvent = [...run.events]
+    .reverse()
+    .find((event) => isTerminalRunEvent(event.event));
+  const terminalRunEvent =
+    existingTerminalEvent ?? {
+      seq: run.events.length,
+      event: terminalEventForAbortReason(reason),
+    };
+  if (!existingTerminalEvent) {
+    run.events.push(terminalRunEvent);
+  }
   for (const subscriber of run.subscribers) {
     try {
-      subscriber({ seq: run.events.length, event: terminalEvent });
+      subscriber(terminalRunEvent);
     } catch {
       // ignore — subscriber is being removed below
     }

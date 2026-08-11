@@ -1101,9 +1101,21 @@ describe("run manager soft timeout", () => {
     await Promise.resolve();
 
     expect(run.status).toBe("aborted");
-    expect(run.events).toHaveLength(0);
+    expect(run.events).toEqual([{ seq: 0, event: { type: "done" } }]);
     expect(run.subscribers.size).toBe(0);
     expect(terminalEvents).toContainEqual({ type: "done" });
+
+    const replay = subscribeToRun("run-explicit-abort", 0);
+    const reader = replay!.getReader();
+    const chunks: string[] = [];
+    const decoder = new TextDecoder();
+    for (;;) {
+      const result = await reader.read();
+      if (result.done) break;
+      chunks.push(decoder.decode(result.value));
+    }
+    expect(chunks.join("")).toContain('data: {"type":"done","seq":0}');
+
     await vi.waitFor(() => expect(onComplete).toHaveBeenCalledTimes(1));
     expect(markRunAborted).toHaveBeenCalledWith("run-explicit-abort", "user");
   });
