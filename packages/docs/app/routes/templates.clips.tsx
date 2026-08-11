@@ -62,8 +62,9 @@ function CliCopy({
   }
   return (
     <button
+      type="button"
       onClick={handleCopy}
-      data-template-cli-copy
+      data-template-cli-copy={multiline ? undefined : true}
       className={`group col-span-full flex w-full min-w-0 max-w-full gap-3 rounded-md border border-[var(--code-border)] bg-[var(--code-bg)] px-4 py-3 font-mono text-sm transition hover:border-[var(--fg-secondary)] sm:px-5 ${
         multiline
           ? "items-start"
@@ -74,14 +75,22 @@ function CliCopy({
         <span className="shrink-0 text-[var(--fg-secondary)]">$</span>
       ) : null}
       <span
-        data-template-cli-copy-text
+        data-template-cli-copy-text={multiline ? undefined : true}
         className={`min-w-0 text-[var(--fg)] ${
-          multiline ? "break-words text-left leading-relaxed" : "truncate"
+          multiline
+            ? "flex-1 whitespace-normal text-left leading-relaxed [overflow-wrap:anywhere]"
+            : "truncate"
         }`}
       >
         {value}
       </span>
-      <span className="ml-auto shrink-0 text-[var(--fg-secondary)] opacity-100 transition sm:opacity-0 sm:group-hover:opacity-100">
+      <span
+        className={`ml-auto inline-flex shrink-0 items-center gap-1.5 transition ${
+          multiline
+            ? "text-[var(--fg)] opacity-100 group-hover:text-[var(--docs-accent)]"
+            : "text-[var(--fg-secondary)] opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
+        }`}
+      >
         {copied ? (
           <svg
             width="16"
