@@ -30,6 +30,7 @@ export function sameResolvedMetadata(
     a.title === b.title &&
     a.width === b.width &&
     a.height === b.height &&
+    a.heightPinned === b.heightPinned &&
     a.previewUrl === b.previewUrl
   );
 }
@@ -49,6 +50,7 @@ function sameScreenMetadataInput(
     a.title === b.title &&
     a.width === b.width &&
     a.height === b.height &&
+    a.heightPinned === b.heightPinned &&
     a.url === b.url &&
     a.previewUrl === b.previewUrl &&
     a.bridgeUrl === b.bridgeUrl &&
@@ -187,6 +189,8 @@ export function resolveScreenMetadata(
     title: metadata.title,
     width,
     height,
+    // A height the user dragged. Auto-fit must not grow past it.
+    heightPinned: metadata.heightPinned === true,
     previewUrl,
   };
 }

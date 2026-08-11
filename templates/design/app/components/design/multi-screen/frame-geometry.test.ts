@@ -40,6 +40,30 @@ describe("content-fit frame height", () => {
     expect(measured.naturalHeight).toBe(2600);
   });
 
+  it("keeps a pinned height when content measures taller", () => {
+    const geo = getBreakpointFrameGeometry({
+      widthPx: 390,
+      naturalAspect: 1,
+      primaryScale: 1,
+      contentHeightPx: 2600,
+      pinnedHeightPx: 844,
+    });
+    expect(geo.naturalHeight).toBe(844);
+  });
+
+  it("keeps a pinned height below the device floor", () => {
+    // A pinned height is a user decision, so the floor must not raise it back
+    // up the way it does for a measured height.
+    const geo = getBreakpointFrameGeometry({
+      widthPx: 390,
+      naturalAspect: 1,
+      primaryScale: 1,
+      contentHeightPx: 120,
+      pinnedHeightPx: 500,
+    });
+    expect(geo.naturalHeight).toBe(500);
+  });
+
   it("never renders shorter than the device floor even when content is tiny", () => {
     const geo = getBreakpointFrameGeometry({
       widthPx: 390,

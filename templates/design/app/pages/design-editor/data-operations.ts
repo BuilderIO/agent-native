@@ -114,6 +114,8 @@ export function buildFrameGeometryDataOperations(args: {
   nextGeometry: CanvasFrameGeometryById;
   designData: Record<string, unknown>;
   syncViewportFrameIds?: readonly string[];
+  /** Frames whose height the user just dragged. */
+  pinHeightFrameIds?: readonly string[];
 }): DesignDataOperation[] {
   const operations: DesignDataOperation[] = [];
   const frameIds = new Set([
@@ -154,6 +156,18 @@ export function buildFrameGeometryDataOperations(args: {
         op: "set",
         path: ["screenMetadata", frameId, "height"],
         value: viewport.height,
+      });
+    }
+    // A resize is a deliberate height. Without this the content-fit pass in
+    // MultiScreenCanvas grows the frame straight back past the drag.
+    if (
+      args.pinHeightFrameIds?.includes(frameId) &&
+      !metadataEntry.heightPinned
+    ) {
+      operations.push({
+        op: "set",
+        path: ["screenMetadata", frameId, "heightPinned"],
+        value: true,
       });
     }
 

@@ -770,6 +770,7 @@ const messages = {
     tools: {
       move: "移動",
       frame: "畫框",
+      screen: "畫面",
       rect: "矩形",
       line: "線條",
       arrow: "箭頭",
