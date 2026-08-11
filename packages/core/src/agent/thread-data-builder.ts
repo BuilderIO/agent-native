@@ -1273,6 +1273,7 @@ function buildStoredAttachments(
       // so the transcript can explain why the attachment needs storage setup
       // without putting base64 bytes in SQL.
       if (att.storageRequired === true || typeof att.data === "string") {
+        const uploadFailed = att.storageUploadFailed === true;
         return {
           id,
           type: att.type === "image" ? "image" : "file",
@@ -1282,10 +1283,15 @@ function buildStoredAttachments(
           content: [
             {
               type: "text",
-              text: "Attachment not retained: connect object storage to keep files available throughout this thread.",
+              text: uploadFailed
+                ? "Attachment not retained: the configured object-storage upload failed. Retry the upload to keep files available throughout this thread."
+                : "Attachment not retained: connect object storage to keep files available throughout this thread.",
             },
           ],
-          metadata: { storageRequired: true },
+          metadata: {
+            storageRequired: true,
+            ...(uploadFailed ? { storageUploadFailed: true } : {}),
+          },
         };
       }
       return null;

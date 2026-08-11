@@ -161,7 +161,14 @@ describe("server/auth", () => {
         })),
         getBetterAuthSync: vi.fn(() => undefined),
       }));
-
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
+        isLocalDatabase: () => true,
+        isPostgres: () => false,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        describeDbError: (error: unknown) => String(error),
+      }));
       const { autoMountAuth } = await import("./auth.js");
       const app = createMockApp();
       await autoMountAuth(app);
@@ -205,6 +212,14 @@ describe("server/auth", () => {
         })),
         getBetterAuthSync: vi.fn(() => undefined),
       }));
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
+        isLocalDatabase: () => true,
+        isPostgres: () => false,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        describeDbError: (error: unknown) => String(error),
+      }));
 
       const { autoMountAuth } = await import("./auth.js");
       const app = createMockApp();
@@ -218,15 +233,22 @@ describe("server/auth", () => {
       const callbackPath = "/?utm_source=friend&utm_content=button:hero#signup";
       await expect(
         handler(
-          createJsonPostEvent("/_agent-native/auth/magic-link", {
-            email: "owner@example.com",
-            callbackURL: callbackPath,
-          }),
+          createJsonPostEvent(
+            "/_agent-native/auth/magic-link",
+            {
+              email: "owner@example.com",
+              callbackURL: callbackPath,
+            },
+            undefined,
+            "https://self-hosted.example",
+          ),
         ),
       ).resolves.toEqual({ ok: true });
 
       const request = signInMagicLink.mock.calls[0]?.[0];
-      expect(request.body.callbackURL).toMatch(/^https?:\/\//);
+      expect(request.body.callbackURL).toMatch(
+        /^https:\/\/self-hosted\.example\//,
+      );
       const callbackURL = new URL(request.body.callbackURL);
       expect(callbackURL.searchParams.get("utm_source")).toBe("friend");
       expect(callbackURL.searchParams.get("utm_content")).toBe("button:hero");
@@ -640,6 +662,14 @@ describe("server/auth", () => {
           },
         })),
         getBetterAuthSync: vi.fn(() => undefined),
+      }));
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
+        isLocalDatabase: () => true,
+        isPostgres: () => false,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        describeDbError: (error: unknown) => String(error),
       }));
 
       const { autoMountAuth } = await import("./auth.js");
@@ -5636,8 +5666,9 @@ function createJsonPostEvent(
   path: string,
   body: unknown,
   headers?: Record<string, string>,
+  origin = "http://localhost",
 ): any {
-  const request = new Request(`http://localhost${path}`, {
+  const request = new Request(`${origin}${path}`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -5647,6 +5678,7 @@ function createJsonPostEvent(
   });
   const requestHeaders = Object.fromEntries(request.headers.entries());
   const event = createMockEvent({ path, headers: requestHeaders });
+  event.url = new URL(`${origin}${path}`);
   event.req = request;
   event.headers = request.headers;
   event.node.req.method = "POST";

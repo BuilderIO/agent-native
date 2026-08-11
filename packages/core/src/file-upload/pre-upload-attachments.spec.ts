@@ -339,6 +339,11 @@ describe("preUploadAttachments", () => {
     });
 
     expect(result.uploaded).toHaveLength(0);
+    expect(result.providerMissing).toBe(false);
+    expect(result.uploadFailed).toBe(true);
+    expect(result.uploadError).toBe("network error");
+    expect(result.injectedText).toContain("configured storage provider failed");
+    expect(result.injectedText).not.toContain("Call `connect-file-storage`");
     // The attachment should still be in the list so the model can see base64.
     expect(result.attachments).toContain(att);
     expect(warn).toHaveBeenCalled();

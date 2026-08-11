@@ -132,6 +132,8 @@ export interface AgentChatAttachment {
   securityNote?: string;
   /** Set when the current turn could not create a durable object-storage URL. */
   storageRequired?: boolean;
+  /** Set when a configured object-storage provider rejected or failed the upload. */
+  storageUploadFailed?: boolean;
   contentType?: string;
   text?: string;
 }

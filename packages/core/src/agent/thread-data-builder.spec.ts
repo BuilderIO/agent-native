@@ -1865,6 +1865,33 @@ describe("upsertUserMessage", () => {
     expect(storedAtt.metadata).toEqual({ storageRequired: true });
   });
 
+  it("preserves a distinct marker when a configured provider upload fails", () => {
+    const message = buildUserMessage({
+      text: "Keep this failed upload visible",
+      runId: "run-upload-failed",
+      attachments: [
+        {
+          type: "image",
+          name: "failed.png",
+          contentType: "image/png",
+          data: "data:image/png;base64,AAAA",
+          storageRequired: true,
+          storageUploadFailed: true,
+        } as any,
+      ],
+    });
+
+    const storedAtt = message.attachments?.[0];
+    expect(storedAtt?.content[0]).toEqual({
+      type: "text",
+      text: expect.stringContaining("configured object-storage upload failed"),
+    });
+    expect(storedAtt?.metadata).toEqual({
+      storageRequired: true,
+      storageUploadFailed: true,
+    });
+  });
+
   it("preserves bounded text attachments when storage is required", () => {
     const message = buildUserMessage({
       text: "Keep these notes in the thread",

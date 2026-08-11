@@ -613,6 +613,7 @@ const BETTER_AUTH_RELATIVE_CALLBACK_PATH_RE =
 function betterAuthCallbackURL(
   raw: string | null | undefined,
   forceAbsolute = false,
+  event?: H3Event,
 ): string {
   const safePath = safeReturnPath(raw);
   if (!forceAbsolute && BETTER_AUTH_RELATIVE_CALLBACK_PATH_RE.test(safePath)) {
@@ -620,7 +621,7 @@ function betterAuthCallbackURL(
   }
 
   try {
-    return new URL(safePath, getAppProductionUrl()).toString();
+    return new URL(safePath, getAppProductionUrl(event)).toString();
   } catch {
     return "/";
   }
@@ -3948,7 +3949,11 @@ async function mountBetterAuthRoutes(
             let changed = false;
             for (const key of callbackKeys) {
               if (typeof body[key] !== "string") continue;
-              const callbackURL = betterAuthCallbackURL(body[key]);
+              const callbackURL = betterAuthCallbackURL(
+                body[key],
+                false,
+                event,
+              );
               if (callbackURL !== body[key]) {
                 sanitizedBody[key] = callbackURL;
                 changed = true;
@@ -4214,7 +4219,7 @@ async function mountBetterAuthRoutes(
           desktopFlow = await issueDesktopMagicLinkFlow();
           callbackPath = withDesktopMagicLinkFlow(callbackPath, desktopFlow);
         }
-        const callbackURL = betterAuthCallbackURL(callbackPath);
+        const callbackURL = betterAuthCallbackURL(callbackPath, false, event);
         const newUserCallbackPath = `${getAppBasePath()}/_agent-native/auth/magic-link/new-user?return=${encodeURIComponent(callbackPath)}`;
         await auth.api.signInMagicLink({
           body: {
@@ -4223,6 +4228,7 @@ async function mountBetterAuthRoutes(
             newUserCallbackURL: betterAuthCallbackURL(
               newUserCallbackPath,
               callbackURL !== callbackPath,
+              event,
             ),
           },
           headers: event.headers,
@@ -4257,7 +4263,7 @@ async function mountBetterAuthRoutes(
       const password = body?.password;
       const callbackURL =
         typeof body?.callbackURL === "string"
-          ? betterAuthCallbackURL(body.callbackURL)
+          ? betterAuthCallbackURL(body.callbackURL, false, event)
           : "/";
 
       if (!email) {

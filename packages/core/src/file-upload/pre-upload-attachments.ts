@@ -38,6 +38,10 @@ export interface PreUploadAttachmentsResult {
    *  file-upload provider is configured. The agent uses this to render the
    *  storage setup card. */
   providerMissing: boolean;
+  /** True if at least one configured provider failed while uploading. */
+  uploadFailed: boolean;
+  /** The first provider error, bounded for safe inclusion in the chat hint. */
+  uploadError?: string;
   /** A pre-formatted block to inject into the user message text so the agent
    *  has each hosted URL inline. Null when nothing was uploaded or no provider
    *  is configured. */
@@ -143,6 +147,7 @@ export async function preUploadAttachments(opts: {
   const uploadedFiles: PreUploadedFileAttachment[] = [];
   let providerMissing = false;
   let uploadFailed = false;
+  let uploadError: string | undefined;
 
   if (list.length === 0) {
     return {
@@ -150,6 +155,7 @@ export async function preUploadAttachments(opts: {
       uploaded,
       uploadedFiles,
       providerMissing: false,
+      uploadFailed: false,
       injectedText: null,
     };
   }
@@ -263,7 +269,12 @@ export async function preUploadAttachments(opts: {
       // Real upload failure (network, API). Keep the bytes in memory for the
       // current turn, but never treat the failure as a durable upload.
       att.storageRequired = true;
+      att.storageUploadFailed = true;
       uploadFailed = true;
+      uploadError ??= (err instanceof Error ? err.message : String(err)).slice(
+        0,
+        500,
+      );
       console.warn(
         "[agent-native] pre-upload of chat attachment failed:",
         err instanceof Error ? err.message : String(err),
@@ -307,10 +318,24 @@ export async function preUploadAttachments(opts: {
       "</chat-attachments>",
     ];
     if (providerMissing || uploadFailed) {
+      const failureLines = [
+        providerMissing
+          ? "One or more attachments could not be stored because no durable object-storage provider is configured."
+          : null,
+        uploadFailed
+          ? `A configured object-storage provider failed to upload an attachment${uploadError ? `: ${escapeXmlAttr(uploadError)}` : "."}`
+          : null,
+      ].filter((line): line is string => Boolean(line));
       linesWithMetadata.push(
         "<chat-file-attachment-upload-error>",
-        "One or more attachments could not be given a durable object-storage URL.",
-        "Call `connect-file-storage` now so the user can connect Builder or configure custom storage keys, then continue using the hosted references.",
+        ...failureLines,
+        ...(providerMissing
+          ? [
+              "Call `connect-file-storage` now so the user can connect Builder or configure custom storage keys, then continue using the hosted references.",
+            ]
+          : [
+              "Retry the upload or inspect the configured storage provider. Do not claim the attachment is durably available until it succeeds.",
+            ]),
         "</chat-file-attachment-upload-error>",
       );
     }
@@ -320,9 +345,11 @@ export async function preUploadAttachments(opts: {
       "<chat-file-attachment-upload-error>",
       providerMissing
         ? "The user attached one or more images or files, but durable object storage is not configured for this app."
-        : "The user attached one or more images or files, but the storage upload did not complete.",
-      "Call `connect-file-storage` now to render the inline storage setup card. The user can connect Builder for managed storage or open the same card's custom-key setup for S3-compatible object storage.",
-      "Do not claim the attachment is durably available, and do not persist its base64 contents in SQL. Until storage is connected, use the attachment only for this turn.",
+        : `The user attached one or more images or files, but the configured storage provider failed to upload them${uploadError ? `: ${escapeXmlAttr(uploadError)}` : "."}`,
+      providerMissing
+        ? "Call `connect-file-storage` now to render the inline storage setup card. The user can connect Builder for managed storage or open the same card's custom-key setup for S3-compatible object storage."
+        : "Retry the upload or inspect the configured storage provider. Do not claim the attachment is durably available until it succeeds.",
+      "Do not persist the base64 contents in SQL. Until storage succeeds, use the attachment only for this turn.",
       "</chat-file-attachment-upload-error>",
     ].join("\n");
   }
@@ -332,6 +359,8 @@ export async function preUploadAttachments(opts: {
     uploaded,
     uploadedFiles,
     providerMissing,
+    uploadFailed,
+    ...(uploadError ? { uploadError } : {}),
     injectedText,
   };
 }
