@@ -3365,6 +3365,9 @@ export function AddProperty({
                 if (event.key === "Enter" && firstFilteredPropertyType) {
                   event.preventDefault();
                   void add(firstFilteredPropertyType);
+                } else if (event.key === "Enter" && connectSourceMatches) {
+                  event.preventDefault();
+                  connectSource();
                 }
                 if (event.key === "Escape") {
                   event.preventDefault();

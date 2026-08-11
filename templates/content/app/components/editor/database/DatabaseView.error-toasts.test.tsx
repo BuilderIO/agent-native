@@ -292,6 +292,7 @@ describe("DatabaseView UI regressions", () => {
     databaseResponse.properties = [];
     databaseResponse.source = null;
     databaseResponse.sources = [];
+    databaseResponse.database.viewConfig = defaultDatabaseViewConfig();
     databasePagination.totalItems = 0;
     databasePagination.hasMore = false;
 
@@ -515,6 +516,83 @@ describe("DatabaseView UI regressions", () => {
     expect(container.textContent).toContain("Article");
   });
 
+  it("shows a toast and keeps the source picker retryable when adding another item source fails", async () => {
+    const connectedSource = {
+      id: "source-1",
+      databaseId: "database-1",
+      sourceType: "builder-cms",
+      sourceName: "Existing articles",
+      sourceTable: "existing-article",
+      syncState: "idle",
+      freshness: "fresh",
+      lastRefreshedAt: null,
+      lastSourceUpdatedAt: null,
+      lastError: null,
+      capabilities: {
+        canRefresh: true,
+        canCreateChangeSets: false,
+        canWriteFields: false,
+        canWriteBody: false,
+        canPush: false,
+        canPull: true,
+        canPublish: false,
+        canDelete: false,
+        canStageLocalRevision: false,
+        liveWritesEnabled: false,
+        readOnlyRefresh: true,
+      },
+      metadata: { primaryKey: "id", titleField: "title" },
+      fields: [],
+      rows: [],
+      changeSets: [],
+    } as ContentDatabaseSource;
+    databaseResponse.source = connectedSource;
+    databaseResponse.sources = [connectedSource];
+    attachSourceMutation.mutateAsync.mockRejectedValue(
+      new Error("second attach failed"),
+    );
+    await renderDatabaseView();
+
+    await act(async () => {
+      findButtonByText(container, "Add property")?.click();
+    });
+    await act(async () => {
+      findButtonByText(
+        document.body,
+        "editor.properties.connectASource",
+      )?.click();
+    });
+    await act(async () => {
+      findButtonByText(container, "Builder")?.click();
+    });
+    await act(async () => {
+      findButtonByText(container, "Test Space")?.click();
+    });
+    await act(async () => {
+      findButtonByText(container, "Article")?.click();
+    });
+    await act(async () => {
+      findButtonByText(
+        container,
+        messagesByLocale["en-US"].database.addMoreItemsToThisList,
+      )?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(attachSourceMutation.mutateAsync).toHaveBeenCalledTimes(1);
+    expect(toastErrorMock).toHaveBeenCalledWith(
+      failedToAttachSource,
+      expect.objectContaining({ description: "second attach failed" }),
+    );
+    expect(container.textContent).toContain("Article");
+    expect(
+      document.body.querySelector(
+        'input[aria-label="editor.properties.searchPropertyTypes"]',
+      ),
+    ).toBeNull();
+  });
+
   it("opens Sources from Add property and keeps Add property closed when canceled", async () => {
     await renderDatabaseView();
 
@@ -551,6 +629,85 @@ describe("DatabaseView UI regressions", () => {
       ),
     ).toBeNull();
   });
+
+  it("opens Sources with Enter when Connect a source is the only search result", async () => {
+    await renderDatabaseView();
+
+    await act(async () => {
+      findButtonByText(container, "Add property")?.click();
+    });
+    const searchInput = document.body.querySelector<HTMLInputElement>(
+      'input[aria-label="editor.properties.searchPropertyTypes"]',
+    );
+    expect(searchInput).toBeTruthy();
+
+    await act(async () => {
+      if (!searchInput) return;
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set?.call(searchInput, "source");
+      searchInput.dispatchEvent(new Event("input", { bubbles: true }));
+      searchInput.dispatchEvent(
+        new KeyboardEvent("keydown", { bubbles: true, key: "Enter" }),
+      );
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("Sources");
+    expect(
+      document.body.querySelector(
+        'input[aria-label="editor.properties.searchPropertyTypes"]',
+      ),
+    ).toBeNull();
+  });
+
+  it.each(["calendar", "board", "timeline"] as const)(
+    "offers the source handoff from the %s view Add property entry",
+    async (viewType) => {
+      const viewConfig = defaultDatabaseViewConfig();
+      viewConfig.views[0] = { ...viewConfig.views[0], type: viewType };
+      databaseResponse.database.viewConfig = viewConfig;
+      attachSourceMutation.mutateAsync.mockResolvedValue(databaseResponse);
+      await renderDatabaseView();
+
+      await act(async () => {
+        container
+          .querySelector<HTMLButtonElement>(
+            'button[aria-label="editor.properties.addProperty"]',
+          )
+          ?.click();
+      });
+      await act(async () => {
+        findButtonByText(
+          document.body,
+          "editor.properties.connectASource",
+        )?.click();
+      });
+
+      expect(container.textContent).toContain("Sources");
+      await act(async () => {
+        findButtonByText(container, "Builder")?.click();
+      });
+      await act(async () => {
+        findButtonByText(container, "Test Space")?.click();
+      });
+      await act(async () => {
+        findButtonByText(container, "Article")?.click();
+      });
+      await act(async () => {
+        findButtonByText(container, "Attach")?.click();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(
+        document.body.querySelector(
+          'input[aria-label="editor.properties.searchPropertyTypes"]',
+        ),
+      ).toBeTruthy();
+    },
+  );
 
   it("clears the Add property handoff when backing out of Sources", async () => {
     attachSourceMutation.mutateAsync.mockResolvedValue(databaseResponse);
@@ -764,6 +921,9 @@ describe("DatabaseView UI regressions", () => {
       changeSets: [],
     } as ContentDatabaseSource;
     databaseResponse.sources = [secondarySource];
+    changeSourceRoleMutation.mutateAsync.mockRejectedValueOnce(
+      new Error("role change failed"),
+    );
     await renderDatabaseView();
 
     await act(async () => {
@@ -778,6 +938,27 @@ describe("DatabaseView UI regressions", () => {
     await act(async () => {
       findButtonByText(container, "Authors")?.click();
     });
+    await act(async () => {
+      findButtonByText(
+        container,
+        messagesByLocale["en-US"].database.addAsItems,
+      )?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(toastErrorMock).toHaveBeenCalledWith(
+      failedToAttachSource,
+      expect.objectContaining({ description: "role change failed" }),
+    );
+    expect(container.textContent).toContain("Authors");
+    expect(
+      document.body.querySelector(
+        'input[aria-label="editor.properties.searchPropertyTypes"]',
+      ),
+    ).toBeNull();
+
+    changeSourceRoleMutation.mutateAsync.mockResolvedValue(databaseResponse);
     await act(async () => {
       findButtonByText(
         container,
