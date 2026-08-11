@@ -26,6 +26,10 @@ export interface EngineModelGroup {
   label: string;
   models: string[];
   configured: boolean;
+  /** Provider-owned connection state shown at the far edge of the row. */
+  statusLabel?: string;
+  /** Marks a configured local subscription so setup CTAs can stay hidden. */
+  isSubscription?: boolean;
 }
 
 export interface ComposerModelState {
@@ -188,7 +192,7 @@ const fallbackModels = {
   useChatModels: () => ({
     selectedModel: "auto",
     selectedEngine: "auto",
-    selectedEffort: "medium" as ReasoningEffort,
+    selectedEffort: "high" as ReasoningEffort,
     availableModels: [],
     isLoading: false,
     onModelChange: () => {},
@@ -287,7 +291,7 @@ export function useComposerRuntimeAdapters() {
   return useContext(ComposerRuntimeAdaptersContext);
 }
 
-export const DEFAULT_REASONING_EFFORT: ReasoningEffort = "medium";
+export const DEFAULT_REASONING_EFFORT: ReasoningEffort = "high";
 export function getReasoningEffortOptionsForModel(
   _model?: string,
 ): ReasoningEffort[] {

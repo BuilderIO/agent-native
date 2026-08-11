@@ -15,7 +15,10 @@ import {
   SUPPORTED_LOCALES,
   type LocaleCode,
 } from "../localization/shared.js";
-import { PASSWORD_MIN_LENGTH } from "../shared/password-policy.js";
+import {
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MIN_LENGTH,
+} from "../shared/password-policy.js";
 import { signInJourneyInlineScript } from "../shared/sign-in-journey.js";
 import {
   AGENT_NATIVE_SOCIAL_IMAGE_ALT,
@@ -68,6 +71,21 @@ function withAppBasePath(path: string): string {
 
 const AGENT_NATIVE_TERMS_URL = "https://www.agent-native.com/terms";
 const AGENT_NATIVE_PRIVACY_URL = "https://www.agent-native.com/privacy";
+const BUILDER_PREVIEW_LOCAL_DEV_ENV =
+  "AGENT_NATIVE_ALLOW_BUILDER_PREVIEW_LOCAL_DEV";
+
+function isBuilderPreviewLocalDevEnabled(): boolean {
+  if (
+    process.env.NODE_ENV !== "development" &&
+    process.env.NODE_ENV !== "test"
+  ) {
+    return false;
+  }
+  const value = process.env[BUILDER_PREVIEW_LOCAL_DEV_ENV]
+    ?.trim()
+    .toLowerCase();
+  return value === "1" || value === "true";
+}
 
 const EN_AUTH_COPY = {
   languageLabel: "Language",
@@ -101,7 +119,8 @@ const EN_AUTH_COPY = {
   sendMagicLink: "Continue",
   magicLinkSent: "Check your email",
   magicLinkSentCopy: "We sent a secure sign-in link to",
-  magicLinkFailed: "Could not send sign-in link.",
+  magicLinkFailed:
+    "We couldn't send a sign-in link. Check your email and try again.",
   usePasswordInstead: "Use a password instead",
   backToMagicLink: "Use a sign-in link instead",
   signupProgress: "Signup progress",
@@ -143,34 +162,42 @@ const EN_AUTH_COPY = {
   legalSuffix: ".",
   invalidEmail: "Enter a valid email address, like you@example.com.",
   signInToContinue: "Sign in to continue.",
-  finishSignInFailed: "Could not finish sign-in automatically.",
+  finishSignInFailed:
+    "We couldn't finish signing you in. Please sign in manually.",
   enterPasswordAfterVerification:
     "Enter your password after verifying your email.",
   finishSignInManually:
-    "We could not finish sign-in automatically. Sign in to continue.",
+    "We couldn't finish signing you in automatically. Sign in to continue.",
   stillWaitingVerification:
     "Still waiting on verification. Click the link in your email, then try Continue again.",
-  checkVerificationFailed: "Could not check verification. Please try again.",
+  checkVerificationFailed:
+    "We couldn't check your verification status. Please try again.",
+  verificationLinkInvalid:
+    "This verification link is invalid or expired. Request a new one.",
   checking: "Checking...",
   checkingVerification: "Checking your verification...",
   sending: "Sending...",
   sent: "Sent",
   sentVerification: "Sent a fresh verification link.",
-  resendVerificationFailed: "Could not resend the verification email.",
-  networkErrorRetry: "Network error. Please try again.",
-  networkErrorDashRetry: "Network error — please try again",
-  passwordsMismatch: "Passwords do not match",
+  resendVerificationFailed:
+    "We couldn't resend the verification email. Please try again.",
+  networkErrorRetry:
+    "We couldn't reach the server. Check your connection and try again.",
+  networkErrorDashRetry:
+    "We couldn't reach the server. Check your connection and try again.",
+  passwordsMismatch: "Passwords do not match.",
   creatingAccount: "Creating account…",
-  registrationFailed: "Registration failed",
+  registrationFailed: "We couldn't create your account. Please try again.",
   accountCreatedSigningIn: "Account created — signing you in…",
   emailVerifiedFinishing: "Email verified. Finishing sign-in...",
   emailVerifiedSignIn: "Email verified. Sign in to continue.",
   resetEmailSent: "If that email exists, a reset link is on its way.",
-  resetEmailFailed: "Could not send reset email.",
+  resetEmailFailed:
+    "We couldn't send a password reset email. Check your email and try again.",
   signingIn: "Signing in…",
-  invalidLogin: "Invalid email or password",
-  googleNotConfigured: "Google OAuth is not configured.",
-  failedToConnect: "Failed to connect. Please try again.",
+  invalidLogin: "The email or password is incorrect.",
+  googleNotConfigured: "Google sign-in is not available right now.",
+  failedToConnect: "We couldn't connect. Please try again.",
   migrateLocalFallback: "Continue signing in to migrate local data.",
   googlePopupHelp: "Allow popups for this site and try again",
   googleNeverFinished:
@@ -257,6 +284,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     stillWaitingVerification:
       "仍在等待验证。请点击邮件中的链接，然后再次点击继续。",
     checkVerificationFailed: "无法检查验证状态。请重试。",
+    verificationLinkInvalid: "此验证链接无效或已过期。请重新请求一个。",
     checking: "正在检查...",
     checkingVerification: "正在检查验证状态...",
     sending: "正在发送...",
@@ -360,6 +388,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     stillWaitingVerification:
       "仍在等待驗證。請點擊郵件中的連結，然後再次點擊繼續。",
     checkVerificationFailed: "無法檢查驗證狀態。請重試。",
+    verificationLinkInvalid: "此驗證連結無效或已過期。請重新索取。",
     checking: "正在檢查...",
     checkingVerification: "正在檢查驗證狀態...",
     sending: "正在寄送...",
@@ -470,6 +499,8 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
       "Aún esperamos la verificación. Haz clic en el enlace del email y luego prueba Continuar de nuevo.",
     checkVerificationFailed:
       "No se pudo comprobar la verificación. Inténtalo de nuevo.",
+    verificationLinkInvalid:
+      "Este enlace de verificación no es válido o ha caducado. Solicita uno nuevo.",
     checking: "Comprobando...",
     checkingVerification: "Comprobando tu verificación...",
     sending: "Enviando...",
@@ -582,6 +613,8 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
       "La vérification est toujours en attente. Cliquez sur le lien dans votre e-mail, puis réessayez Continuer.",
     checkVerificationFailed:
       "Impossible de vérifier l'état. Veuillez réessayer.",
+    verificationLinkInvalid:
+      "Ce lien de vérification est invalide ou expiré. Demandez-en un nouveau.",
     checking: "Vérification...",
     checkingVerification: "Vérification en cours...",
     sending: "Envoi...",
@@ -696,6 +729,8 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
       "Die Bestätigung steht noch aus. Klicke auf den Link in deiner E-Mail und versuche Weiter erneut.",
     checkVerificationFailed:
       "Bestätigung konnte nicht geprüft werden. Bitte erneut versuchen.",
+    verificationLinkInvalid:
+      "Dieser Bestätigungslink ist ungültig oder abgelaufen. Fordere einen neuen an.",
     checking: "Prüfen...",
     checkingVerification: "Bestätigung wird geprüft...",
     sending: "Senden...",
@@ -807,6 +842,8 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
       "まだ確認待ちです。メール内のリンクをクリックしてから、もう一度続行してください。",
     checkVerificationFailed:
       "確認状態をチェックできませんでした。もう一度お試しください。",
+    verificationLinkInvalid:
+      "この確認リンクは無効か期限切れです。新しいリンクをリクエストしてください。",
     checking: "確認中...",
     checkingVerification: "確認状態をチェック中...",
     sending: "送信中...",
@@ -915,6 +952,8 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     stillWaitingVerification:
       "아직 확인을 기다리고 있습니다. 이메일의 링크를 클릭한 뒤 계속을 다시 눌러주세요.",
     checkVerificationFailed: "확인 상태를 확인할 수 없습니다. 다시 시도하세요.",
+    verificationLinkInvalid:
+      "이 인증 링크가 유효하지 않거나 만료되었습니다. 새 링크를 요청하세요.",
     checking: "확인 중...",
     checkingVerification: "확인 상태 확인 중...",
     sending: "보내는 중...",
@@ -1024,6 +1063,8 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     stillWaitingVerification:
       "Ainda estamos aguardando a verificação. Clique no link do email e tente Continuar novamente.",
     checkVerificationFailed: "Não foi possível verificar. Tente novamente.",
+    verificationLinkInvalid:
+      "Este link de verificação é inválido ou expirou. Solicite um novo.",
     checking: "Verificando...",
     checkingVerification: "Verificando sua confirmação...",
     sending: "Enviando...",
@@ -1132,6 +1173,8 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     stillWaitingVerification:
       "सत्यापन का इंतजार है। ईमेल में लिंक खोलें, फिर Continue दोबारा दबाएं।",
     checkVerificationFailed: "सत्यापन जांच नहीं हो सकी। कृपया फिर कोशिश करें।",
+    verificationLinkInvalid:
+      "यह सत्यापन लिंक अमान्य या समाप्त हो गया है। नया लिंक मांगें।",
     checking: "जांच हो रही है...",
     checkingVerification: "आपका सत्यापन जांच रहे हैं...",
     sending: "भेजा जा रहा है...",
@@ -1239,6 +1282,8 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     stillWaitingVerification:
       "ما زلنا ننتظر التحقق. افتح الرابط في بريدك الإلكتروني ثم جرّب متابعة مرة أخرى.",
     checkVerificationFailed: "تعذر التحقق من الحالة. حاول مرة أخرى.",
+    verificationLinkInvalid:
+      "رابط التحقق هذا غير صالح أو منتهي الصلاحية. اطلب رابطًا جديدًا.",
     checking: "جارٍ التحقق...",
     checkingVerification: "جارٍ التحقق من حالتك...",
     sending: "جارٍ الإرسال...",
@@ -1500,6 +1545,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   const publicOAuthOrigin = getPublicOAuthOrigin();
   const workspaceGatewayReturnOrigin = getWorkspaceGatewayReturnOrigin();
   const googleAuthMode = resolveGoogleAuthMode(opts.googleAuthMode);
+  const builderPreviewLocalDevEnabled = isBuilderPreviewLocalDevEnabled();
   const localeInitScript = getLocaleInitScript();
 
   const marketing: AuthMarketingContent | undefined =
@@ -2807,9 +2853,9 @@ ${
       <label for="s-email"${i18nAttr("email")}>${esc(t("email"))}</label>
       <input id="s-email" type="email" autocomplete="email" autofocus placeholder="you@example.com" required />
     <label for="s-pass"${i18nAttr("password")}>${esc(t("password"))}</label>
-    <input id="s-pass" type="password" autocomplete="new-password" placeholder="${esc(t("passwordMinPlaceholder"))}"${i18nPlaceholderAttr("passwordMinPlaceholder")} required minlength="${PASSWORD_MIN_LENGTH}" />
+    <input id="s-pass" type="password" autocomplete="new-password" placeholder="${esc(t("passwordMinPlaceholder"))}"${i18nPlaceholderAttr("passwordMinPlaceholder")} required minlength="${PASSWORD_MIN_LENGTH}" maxlength="${PASSWORD_MAX_LENGTH}" />
     <label for="s-pass2"${i18nAttr("confirmPassword")}>${esc(t("confirmPassword"))}</label>
-    <input id="s-pass2" type="password" autocomplete="new-password" placeholder="${esc(t("confirmPasswordPlaceholder"))}"${i18nPlaceholderAttr("confirmPasswordPlaceholder")} required minlength="${PASSWORD_MIN_LENGTH}" />
+    <input id="s-pass2" type="password" autocomplete="new-password" placeholder="${esc(t("confirmPasswordPlaceholder"))}"${i18nPlaceholderAttr("confirmPasswordPlaceholder")} required minlength="${PASSWORD_MIN_LENGTH}" maxlength="${PASSWORD_MAX_LENGTH}" />
       <button type="submit"${i18nAttr("createAccount")}>${esc(t("createAccount"))}</button>
 ${signupLegalNoteHtml}
 ${signupLocalModeNoteHtml}
@@ -2957,6 +3003,28 @@ ${signInJourneyInlineScript()}
       var fallback = __AN_AUTH_LOCALES[__AN_AUTH_DEFAULT_LOCALE] || {};
       return localized[key] || fallback[key] || key;
     }
+    function __anAuthErrorText(data, fallback) {
+      var candidate = data && (data.error || data.message);
+      if (typeof candidate !== 'string' || !candidate.trim()) return fallback;
+      var message = candidate.trim();
+      if (/failed query|\bselect\b.*\bfrom\b|\binsert\b.*\binto\b|\bupdate\b.*\bset\b|\bdelete\b.*\bfrom\b|\bsql\b|database|relation .* does not exist|column .* does not exist|syntax error|constraint|connection refused|econn|timeout/i.test(message)) {
+        return fallback;
+      }
+      return message;
+    }
+    function __anBindPasswordValidation(input) {
+      if (!input) return;
+      input.addEventListener('invalid', function() {
+        if (input.validity && input.validity.tooShort) {
+          input.setCustomValidity(__anT('passwordMinPlaceholder'));
+        } else if (input.validity && input.validity.tooLong) {
+          input.setCustomValidity('Choose a password with no more than ${PASSWORD_MAX_LENGTH} characters.');
+        }
+      });
+      input.addEventListener('input', function() {
+        input.setCustomValidity('');
+      });
+    }
     function __anSetAuthI18nKey(node, key) {
       if (!node || !key) return;
       node.setAttribute('data-i18n', key);
@@ -3076,6 +3144,7 @@ ${signInJourneyInlineScript()}
     var __AN_PUBLIC_OAUTH_ORIGIN = ${JSON.stringify(publicOAuthOrigin)};
     var __AN_WORKSPACE_GATEWAY_RETURN_ORIGIN = ${JSON.stringify(workspaceGatewayReturnOrigin)};
     var __AN_GOOGLE_AUTH_MODE = ${JSON.stringify(googleAuthMode)};
+    var __AN_BUILDER_PREVIEW_LOCAL_DEV_ENABLED = ${JSON.stringify(builderPreviewLocalDevEnabled)};
     function __anConfiguredOAuthOrigin() {
       if (!__AN_PUBLIC_OAUTH_ORIGIN) return '';
       try {
@@ -3167,6 +3236,7 @@ ${signInJourneyInlineScript()}
     }
     function __anFinishOAuthExchange(ret, flowId, sessionToken) {
       __anGoogleSignInInFlight = false;
+      __anMagicLinkInFlight = false;
       if (__anIsBuilderPreview()) {
         if (sessionToken) {
           __anSetOAuthDebug('OAuth exchange redeemed; applying session bridge to embedded app', flowId);
@@ -3205,8 +3275,15 @@ ${signInJourneyInlineScript()}
       var hostname = (window.location.hostname || '').toLowerCase();
       return hostname === 'localhost' || hostname === '::1' || hostname === '127.0.0.1' || hostname.indexOf('127.') === 0;
     }
+    function __anIsBuilderPreviewHost() {
+      var hostname = (window.location.hostname || '').toLowerCase();
+      return hostname.endsWith('.builderio.xyz') || hostname.endsWith('.builderio.dev') || hostname.endsWith('.builder.codes') || hostname.endsWith('.builder.my');
+    }
+    function __anCanUseLocalDevSignin() {
+      return __anIsLoopbackHostname() || (__AN_BUILDER_PREVIEW_LOCAL_DEV_ENABLED && __anIsBuilderPreviewHost());
+    }
     function __anShouldStartWithLocalDev() {
-      if (!__anIsLoopbackHostname()) return false;
+      if (!__anCanUseLocalDevSignin()) return false;
       var params = new URLSearchParams(window.location.search);
       var explicitTab = params.get('tab');
       var verifiedRedirect = typeof __anIsVerifiedRedirectSuccess === 'function' && __anIsVerifiedRedirectSuccess();
@@ -3229,7 +3306,7 @@ ${signInJourneyInlineScript()}
       var button = document.getElementById('local-dev-btn');
       var fullOptionsButton = document.getElementById('local-dev-full-options');
       var message = document.getElementById('local-dev-msg');
-      if (!container || !button || !__anIsLoopbackHostname()) return;
+      if (!container || !button || !__anCanUseLocalDevSignin()) return;
       container.hidden = false;
       var startWithLocalDev = __anShouldStartWithLocalDev();
       __anSetFullAuthOptionsVisible(!startWithLocalDev);
@@ -3415,6 +3492,7 @@ ${identitySsoScript}
     var __anOAuthPollTimer = null;
     var __anOAuthPollCount = 0;
     var __anGoogleSignInInFlight = false;
+    var __anMagicLinkInFlight = false;
     var __anGoogleRecoverBound = false;
     function __anNewOAuthFlowId() {
       try {
@@ -3448,15 +3526,26 @@ ${identitySsoScript}
         if (showDebugOverlay) debug.classList.add('show');
       }
     }
-    function __anShowOAuthError(err, btn, message) {
+    function __anStopOAuthExchangePolling() {
       if (__anOAuthPollTimer) {
         clearInterval(__anOAuthPollTimer);
         __anOAuthPollTimer = null;
       }
+    }
+    function __anShowAuthExchangeError(err, btn, message, kind) {
+      __anStopOAuthExchangePolling();
       err.textContent = message;
-      err.classList.add('show');
+      err.classList.add('show', 'error');
       btn.disabled = false;
-      __anGoogleSignInInFlight = false;
+      if (kind === 'magic-link') {
+        __anMagicLinkInFlight = false;
+        showMagicLinkForm();
+      } else {
+        __anGoogleSignInInFlight = false;
+      }
+    }
+    function __anShowOAuthError(err, btn, message) {
+      __anShowAuthExchangeError(err, btn, message, 'google');
     }
     function __anRecoverGoogleSignInAfterReturn() {
       // The user left for the Google sign-in window and came back. If the flow
@@ -3503,17 +3592,20 @@ ${identitySsoScript}
       try {
         __anOpenOAuthUrl(__anGoogleAuthUrlPath() + '?' + params.toString());
       } catch(e) {
-        __anShowOAuthError(err, btn, 'Could not start Google sign-in redirect' + (flowId ? ' for flow ' + __anFlowDebugId(flowId) : '') + ': ' + (e && e.message ? e.message : 'unknown error'));
+        __anShowOAuthError(err, btn, __anT('failedToConnect'));
       }
     }
-    function __anWaitForOAuthExchange(flowId, ret, btn, err) {
+    function __anWaitForOAuthExchange(flowId, ret, btn, err, kind, verifier) {
       var started = Date.now();
       var timeoutMs = 5 * 60 * 1000;
+      var isMagicLink = kind === 'magic-link';
       __anOAuthPollCount = 0;
       async function check() {
         __anOAuthPollCount++;
         try {
-          var res = await fetch(__anPath('/_agent-native/auth/desktop-exchange') + '?flow_id=' + encodeURIComponent(flowId), { credentials: 'include' });
+          var exchangeParams = '?flow_id=' + encodeURIComponent(flowId);
+          if (verifier) exchangeParams += '&verifier=' + encodeURIComponent(verifier);
+          var res = await fetch(__anPath('/_agent-native/auth/desktop-exchange') + exchangeParams, { credentials: 'include' });
           var data = await res.json().catch(function() { return {}; });
           if (data && (data.email || data.token)) {
             if (__anOAuthPollTimer) clearInterval(__anOAuthPollTimer);
@@ -3523,7 +3615,12 @@ ${identitySsoScript}
           }
           if (data && data.error) {
             __anSetOAuthDebug('OAuth exchange returned an error: ' + (data.message || data.error), flowId);
-            __anShowOAuthError(err, btn, data.message || data.error);
+            __anShowAuthExchangeError(
+              err,
+              btn,
+              __anAuthErrorText(data, isMagicLink ? __anT('magicLinkFailed') : __anT('googleNotConfigured')),
+              isMagicLink ? 'magic-link' : 'google',
+            );
             return;
           }
           if (data && data.pending && (__anOAuthPollCount === 1 || __anOAuthPollCount % 5 === 0)) {
@@ -3535,10 +3632,17 @@ ${identitySsoScript}
           }
         }
         if (Date.now() - started > timeoutMs) {
-          __anShowOAuthError(err, btn, __anT('googleNeverFinished') + ' Flow ' + __anFlowDebugId(flowId) + '.');
+          __anShowAuthExchangeError(
+            err,
+            btn,
+            isMagicLink
+              ? __anT('magicLinkFailed')
+              : __anT('googleNeverFinished') + ' Flow ' + __anFlowDebugId(flowId) + '.',
+            isMagicLink ? 'magic-link' : 'google',
+          );
         }
       }
-      if (__anOAuthPollTimer) clearInterval(__anOAuthPollTimer);
+      __anStopOAuthExchangePolling();
       __anOAuthPollTimer = setInterval(check, 1000);
       setTimeout(check, 500);
     }
@@ -3675,6 +3779,8 @@ ${
       __anSetAuthView('magicLinkSent');
     }
     function showMagicLinkForm() {
+      __anStopOAuthExchangePolling();
+      __anMagicLinkInFlight = false;
       var form = document.getElementById('magic-link-form');
       if (!form) return;
       hideMagicLinkSuccess();
@@ -3767,6 +3873,16 @@ ${
 	        return false;
 	      }
 	    }
+	    function __anVerificationRedirectError() {
+	      try {
+	        var params = new URLSearchParams(location.search);
+        return params.get('error') === 'verification_link_invalid'
+          ? __anT('verificationLinkInvalid')
+          : '';
+      } catch (e) { // coercion-ok: malformed query has no verification error to render
+        return '';
+      }
+	    }
 	    function __anShowEmailValidationError(input, msg) {
 	      if (msg) {
 	        msg.textContent = __anT('invalidEmail');
@@ -3808,7 +3924,7 @@ ${
         console.warn('[auth] Could not parse sign-in response', error);
         return null;
       });
-      var error = (data && (data.error || data.message)) || __anT('finishSignInFailed');
+      var error = __anAuthErrorText(data, __anT('finishSignInFailed'));
       return {
         ok: false,
         error: error,
@@ -3931,7 +4047,7 @@ ${
 	        }
 	        var data = await res.json().catch(function() { return {}; });
 	        if (msg) {
-          msg.textContent = (data && (data.message || data.error)) || __anT('resendVerificationFailed');
+          msg.textContent = __anAuthErrorText(data, __anT('resendVerificationFailed'));
           msg.classList.add('show', 'error');
         }
         if (btn) {
@@ -3951,6 +4067,7 @@ ${
     }
     (function initActiveTab() {
     var initial = __AN_AUTH_MODE === 'magic-link' ? 'magicLink' : 'signup';
+    var verificationError = __anVerificationRedirectError();
     try {
       var params = new URLSearchParams(location.search);
       var qp = params.get('tab');
@@ -3959,6 +4076,8 @@ ${
       if (qp === 'login' || qp === 'signup') {
         initial = qp;
 	      } else if (__anIsVerifiedRedirectSuccess()) {
+	        initial = 'login';
+	      } else if (verificationError) {
 	        initial = 'login';
 	      } else if (path === '/login' || path.endsWith('/login')) {
         initial = 'login';
@@ -3971,6 +4090,13 @@ ${
     } catch (e) {}
     if (initial === 'magicLink') showMagicLinkForm();
     else setActiveTab(initial, { persist: false });
+	    if (verificationError) {
+	      var verificationMsg = document.getElementById('l-msg');
+	      if (verificationMsg) {
+	        verificationMsg.textContent = verificationError;
+	        verificationMsg.classList.add('show', 'error');
+	      }
+	    }
 	      try {
 	        if (__anIsVerifiedRedirectSuccess()) {
 	          var rememberedEmail = readRememberedPendingSignupEmail();
@@ -4013,6 +4139,8 @@ ${
   });
 
   var magicLinkForm = document.getElementById('magic-link-form');
+  __anBindPasswordValidation(document.getElementById('s-pass'));
+  __anBindPasswordValidation(document.getElementById('s-pass2'));
   var magicLinkEmail = document.getElementById('m-email');
   if (magicLinkEmail) {
     magicLinkEmail.addEventListener('input', updateMagicLinkSubmitState);
@@ -4025,6 +4153,7 @@ ${
     var msg = document.getElementById('m-msg');
     var emailInput = document.getElementById('m-email');
     var email = __anNormalizeAuthEmail(emailInput && emailInput.value);
+    var isDesktopMagicLink = __anIsAgentNativeDesktop();
     msg.classList.remove('show', 'error', 'success');
     if (!__anIsValidAuthEmail(email)) {
       __anShowEmailValidationError(emailInput, msg);
@@ -4032,12 +4161,18 @@ ${
     }
     var originalLabel = btn.textContent;
     btn.disabled = true;
+    __anMagicLinkInFlight = isDesktopMagicLink;
     btn.textContent = __anT('sending');
     try {
       var res = await fetch(__anPath('/_agent-native/auth/magic-link'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email, callbackURL: __anResumeHref() }),
+        body: JSON.stringify({
+          email: email,
+          callbackURL: isDesktopMagicLink
+            ? __anPath('/_agent-native/auth/magic-link/desktop-callback')
+            : __anResumeHref(),
+        }),
       });
       var data = await res.json().catch(function(error) {
         console.warn('[auth] Could not parse magic-link response', error);
@@ -4047,13 +4182,23 @@ ${
         btn.disabled = false;
         btn.textContent = originalLabel;
         showMagicLinkSuccess(email);
+        if (isDesktopMagicLink) {
+          var magicFlowId = data && typeof data.flowId === 'string' ? data.flowId : '';
+          var magicVerifier = data && typeof data.verifier === 'string' ? data.verifier : '';
+          if (!magicFlowId || !magicVerifier) {
+            throw new Error('The sign-in flow was not initialized.');
+          }
+          __anWaitForOAuthExchange(magicFlowId, __anResumeHref(), btn, msg, 'magic-link', magicVerifier);
+        }
         return;
       }
-      msg.textContent = (data && (data.error || data.message)) || __anT('magicLinkFailed');
+      __anMagicLinkInFlight = false;
+      msg.textContent = __anAuthErrorText(data, __anT('magicLinkFailed'));
       msg.classList.add('show', 'error');
       btn.disabled = false;
       btn.textContent = originalLabel;
     } catch (err) {
+      __anMagicLinkInFlight = false;
       msg.textContent = __anT('networkErrorDashRetry');
       msg.classList.add('show', 'error');
       btn.disabled = false;
@@ -4116,7 +4261,7 @@ ${
           showVerificationStep(email, pass);
           return;
         }
-      msg.textContent = data.error || __anT('registrationFailed');
+      msg.textContent = __anAuthErrorText(data, __anT('registrationFailed'));
       msg.classList.add('show', 'error');
       btn.disabled = false;
       btn.textContent = originalLabel;
@@ -4200,7 +4345,7 @@ ${
         return;
       }
       var data = await res.json().catch(function() { return {}; });
-      msg.textContent = (data && (data.message || data.error)) || __anT('resetEmailFailed');
+      msg.textContent = __anAuthErrorText(data, __anT('resetEmailFailed'));
       msg.classList.add('show', 'error');
       btn.disabled = false;
       btn.textContent = original;
@@ -4245,7 +4390,7 @@ ${
         return;
       }
       var data = await res.json().catch(function() { return {}; });
-      msg.textContent = data.error || __anT('invalidLogin');
+      msg.textContent = __anAuthErrorText(data, __anT('invalidLogin'));
       msg.classList.add('show');
       btn.disabled = false;
       btn.textContent = originalLabel;
@@ -4296,7 +4441,7 @@ ${
       if (data.url) {
         __anOpenOAuthUrl(data.url);
       } else {
-        err.textContent = data.message || __anT('googleNotConfigured');
+        err.textContent = __anAuthErrorText(data, __anT('googleNotConfigured'));
         err.classList.add('show');
         btn.disabled = false;
         __anGoogleSignInInFlight = false;
@@ -4466,9 +4611,9 @@ export function getResetPasswordHtml(): string {
   <p class="subtitle">Set a new password for your account.</p>
   <form id="reset-form">
     <label for="p1">New password</label>
-    <input id="p1" type="password" autocomplete="new-password" autofocus placeholder="At least ${PASSWORD_MIN_LENGTH} characters" required minlength="${PASSWORD_MIN_LENGTH}" />
+    <input id="p1" type="password" autocomplete="new-password" autofocus placeholder="At least ${PASSWORD_MIN_LENGTH} characters" required minlength="${PASSWORD_MIN_LENGTH}" maxlength="${PASSWORD_MAX_LENGTH}" />
     <label for="p2">Confirm password</label>
-    <input id="p2" type="password" autocomplete="new-password" placeholder="Confirm password" required minlength="${PASSWORD_MIN_LENGTH}" />
+    <input id="p2" type="password" autocomplete="new-password" placeholder="Confirm password" required minlength="${PASSWORD_MIN_LENGTH}" maxlength="${PASSWORD_MAX_LENGTH}" />
     <button type="submit">Save new password</button>
     <p class="msg" id="msg"></p>
   </form>
@@ -4488,20 +4633,51 @@ export function getResetPasswordHtml(): string {
     var params = new URLSearchParams(location.search);
     var token = params.get('token') || '';
     var msg = document.getElementById('msg');
+    var resetForm = document.getElementById('reset-form');
+    function resetErrorText(data, fallback) {
+      var candidate = data && (data.error || data.message);
+      if (typeof candidate !== 'string' || !candidate.trim()) return fallback;
+      var message = candidate.trim();
+      if (/failed query|\bselect\b.*\bfrom\b|\binsert\b.*\binto\b|\bupdate\b.*\bset\b|\bdelete\b.*\bfrom\b|\bsql\b|database|relation .* does not exist|column .* does not exist|syntax error|constraint|connection refused|econn|timeout/i.test(message)) {
+        return fallback;
+      }
+      if (/password.*(?:at least|minimum|min(?:imum)?|too short)/i.test(message)) {
+        return 'Choose a password with at least ${PASSWORD_MIN_LENGTH} characters.';
+      }
+      if (/password.*(?:at most|maximum|max(?:imum)?|too long)/i.test(message)) {
+        return 'Choose a password with no more than ${PASSWORD_MAX_LENGTH} characters.';
+      }
+      return message;
+    }
+    function bindPasswordValidation(input) {
+      if (!input) return;
+      input.addEventListener('invalid', function() {
+        if (input.validity && input.validity.tooShort) {
+          input.setCustomValidity('Choose a password with at least ${PASSWORD_MIN_LENGTH} characters.');
+        } else if (input.validity && input.validity.tooLong) {
+          input.setCustomValidity('Choose a password with no more than ${PASSWORD_MAX_LENGTH} characters.');
+        }
+      });
+      input.addEventListener('input', function() {
+        input.setCustomValidity('');
+      });
+    }
+    bindPasswordValidation(document.getElementById('p1'));
+    bindPasswordValidation(document.getElementById('p2'));
     if (!token) {
-      msg.textContent = 'Missing or invalid reset token. Request a new reset link.';
+      msg.textContent = 'This password reset link is missing or invalid. Request a new one.';
       msg.classList.add('show', 'error');
-      document.getElementById('reset-form').style.display = 'none';
+      resetForm.style.display = 'none';
       return;
     }
-    document.getElementById('reset-form').addEventListener('submit', async function(e) {
+    resetForm.addEventListener('submit', async function(e) {
       e.preventDefault();
       var btn = e.currentTarget.querySelector('button[type="submit"]');
       var p1 = document.getElementById('p1').value;
       var p2 = document.getElementById('p2').value;
       msg.classList.remove('show', 'error', 'success');
       if (p1 !== p2) {
-        msg.textContent = 'Passwords do not match';
+        msg.textContent = 'Passwords do not match.';
         msg.classList.add('show', 'error');
         return;
       }
@@ -4521,12 +4697,12 @@ export function getResetPasswordHtml(): string {
           return;
         }
         var data = await res.json().catch(function() { return {}; });
-        msg.textContent = (data && (data.message || data.error)) || 'Reset failed. The link may have expired — request a new one.';
+        msg.textContent = resetErrorText(data, "We couldn't update your password. The link may have expired; request a new one.");
         msg.classList.add('show', 'error');
         btn.disabled = false;
         btn.textContent = original;
       } catch (err) {
-        msg.textContent = 'Network error — please try again';
+        msg.textContent = "We couldn't reach the server. Check your connection and try again.";
         msg.classList.add('show', 'error');
         btn.disabled = false;
         btn.textContent = original;

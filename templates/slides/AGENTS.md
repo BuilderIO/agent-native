@@ -12,11 +12,10 @@ Before building common workspace or agent UI, read `agent-native-toolkit` and
 
 ## Core Rules
 
-- Store large file/blob payloads in configured file/blob storage, not SQL: no
-  base64, `data:` URLs, images, video/audio, PDFs, ZIPs, screenshots,
-  thumbnails, or replay chunks in app tables, `application_state`, `settings`,
-  or `resources`; persist URLs, ids, or handles instead.
-- Never hardcode API keys, tokens, webhook URLs, signing secrets, private Builder/internal data, customer data, or credential-looking literals. Use secrets/OAuth/runtime configuration and obvious placeholders in examples.
+- Keep large files/blobs in configured file storage, not SQL, settings, or
+  resources; persist only URLs, ids, or handles.
+- Never hardcode secrets or private/customer data; use vault/OAuth/runtime
+  configuration and fake placeholders in examples.
 - Use actions for deck lifecycle, slide edits, imports, exports, images, design
   systems, and sharing. Do not write deck/slide rows directly.
 - In dev, call actions with `pnpm action <name>`; in production, use native
@@ -25,11 +24,10 @@ Before building common workspace or agent UI, read `agent-native-toolkit` and
   current layout is unclear.
 - Preserve deck structure and visual consistency. Prefer focused slide edits over
   regenerating whole decks unless requested.
-- When an uploaded PPTX or PDF is being improved, import it into the target deck
-  first with `import-pptx` or `import-file --importIntoDeck true`. Treat the
-  resulting `sourceImport` metadata as the source-of-truth contract: preserve
-  slide count, order, IDs, factual copy, notes, images, and positioned objects;
-  use `update-slide` for bounded visual edits and verify with `get-deck`.
+- When improving an uploaded PPTX or PDF, import it into the target deck first.
+  Treat `sourceImport` as the source-of-truth contract: preserve slide count,
+  order, IDs, copy, notes, images, and positioned objects; verify with
+  `get-deck`.
 - A source import with `fidelity: partial` or `imagesSkipped` is not safe to
   restyle automatically. Report the exact warning rather than silently
   replacing missing content.
@@ -42,9 +40,13 @@ Before building common workspace or agent UI, read `agent-native-toolkit` and
   Drive API needs, use `provider-api-catalog`, `provider-api-docs`, and
   `provider-api-request`; auth comes from the user's Google Docs OAuth. Stage
   large scans with `stageAs` and analyze them via `query-staged-dataset`.
-- `import-google-slides-reference` accepts either a Picker `fileId` or a
-  `presentationUrl`; imported PPTX timing metadata, including by-paragraph
-  reveals, stays on the deck's slide records.
+- `import-google-slides-reference` accepts a Picker `fileId` or `presentationUrl`;
+  pasted URLs may need a one-time Google reconnect for Drive export. Preserve
+  imported PPTX timing metadata, including by-paragraph reveals, on slide
+  records.
+- For per-click reveals, use ordered 0-based animation targets and patch the
+  complete animation list with content; stale or missing targets disable
+  reveals.
 - For images, use `generate-image-api` with provenance; show results as
   `![alt](url)`.
 - Ask a sibling app's agent with a natural-language `call-agent` message by

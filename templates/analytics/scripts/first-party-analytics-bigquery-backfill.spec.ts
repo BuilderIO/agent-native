@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   assertSourceAtCheckpoint,
-  buildPageQuery,
+  buildHydrationQuery,
+  buildPageKeyQuery,
   parseDedicatedBackfillOptions,
   runDedicatedBackfill,
   type CheckpointStore,
@@ -52,6 +53,8 @@ describe("dedicated first-party Analytics BigQuery backfill", () => {
         "batch-size": "10000",
         concurrency: "20",
         "max-batches": "20000",
+        "lookback-days": "30",
+        "skip-events": "http.response,action.response",
         finalize: "true",
       }),
     ).toMatchObject({
@@ -61,15 +64,19 @@ describe("dedicated first-party Analytics BigQuery backfill", () => {
       batchSize: 2500,
       concurrency: 4,
       maxBatches: 10000,
+      lookbackDays: 30,
+      excludedEventNames: ["http.response", "action.response"],
     });
   });
 
-  it("reads the projected event columns with a fixed tuple cutoff", () => {
-    const query = buildPageQuery(
+  it("reads only ordered event keys with a fixed tuple cutoff", () => {
+    const query = buildPageKeyQuery(
       {
         name: "org",
         predicate: "org_id = ?",
         predicateArgs: [scope.orgId],
+        lookbackStart: "2026-06-09T00:00:00.000Z",
+        excludedEventNames: ["http.response"],
       },
       {
         cutoff: {
@@ -86,22 +93,29 @@ describe("dedicated first-party Analytics BigQuery backfill", () => {
       1000,
     );
 
-    expect(query.sql).toContain("SELECT id, public_key_id, event_name");
-    expect(query.sql).toContain("received_at < ?");
-    expect(query.sql).toContain("id <= ?");
-    expect(query.sql).toContain("received_at > ?");
+    expect(query.sql).toContain("SELECT received_at, id");
+    expect(query.sql).toContain("event_name IS DISTINCT FROM 'http.response'");
+    expect(query.sql).toContain("(received_at, id) <= (?, ?)");
+    expect(query.sql).toContain("(received_at, id) > (?, ?)");
     expect(query.sql).not.toContain("SELECT *");
     expect(query.sql).not.toContain("WHERE id IN");
     expect(query.args).toEqual([
       scope.orgId,
-      "2026-08-08T00:00:00.000Z",
+      "2026-06-09T00:00:00.000Z",
       "2026-08-08T00:00:00.000Z",
       "cutoff",
-      "2026-08-07T00:00:00.000Z",
       "2026-08-07T00:00:00.000Z",
       "cursor",
       1000,
     ]);
+  });
+
+  it("hydrates a bounded key page by primary key", () => {
+    const query = buildHydrationQuery(["event-1", "event-2"]);
+
+    expect(query.sql).toContain("SELECT id, public_key_id, event_name");
+    expect(query.sql).toContain("WHERE id IN (?, ?)");
+    expect(query.args).toEqual(["event-1", "event-2"]);
   });
 
   it("checkpoints only after BigQuery acknowledges a complete page", async () => {
@@ -114,6 +128,12 @@ describe("dedicated first-party Analytics BigQuery backfill", () => {
         rows: [
           { received_at: "2026-08-07T00:00:00.000Z", id: "event-1" },
           { received_at: "2026-08-07T00:00:01.000Z", id: "event-2" },
+        ],
+      })
+      .mockResolvedValueOnce({
+        rows: [
+          { received_at: "2026-08-07T00:00:01.000Z", id: "event-2" },
+          { received_at: "2026-08-07T00:00:00.000Z", id: "event-1" },
         ],
       })
       .mockResolvedValueOnce({ rows: [] })
@@ -164,7 +184,13 @@ describe("dedicated first-party Analytics BigQuery backfill", () => {
         rows: [{ received_at: "2026-08-08T00:00:01.000Z", id: "event-1" }],
       })
       .mockResolvedValueOnce({
+        rows: [{ received_at: "2026-08-08T00:00:01.000Z", id: "event-1" }],
+      })
+      .mockResolvedValueOnce({
         rows: [{ received_at: "2026-08-08T00:00:02.000Z", id: "cutoff-2" }],
+      })
+      .mockResolvedValueOnce({
+        rows: [{ received_at: "2026-08-08T00:00:02.000Z", id: "event-2" }],
       })
       .mockResolvedValueOnce({
         rows: [{ received_at: "2026-08-08T00:00:02.000Z", id: "event-2" }],
@@ -172,6 +198,7 @@ describe("dedicated first-party Analytics BigQuery backfill", () => {
       .mockResolvedValueOnce({
         rows: [{ received_at: "2026-08-08T00:00:02.000Z", id: "cutoff-2" }],
       })
+      .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [] });
     const upload = vi.fn().mockResolvedValue(1);
     const store = memoryStore();
@@ -207,6 +234,9 @@ describe("dedicated first-party Analytics BigQuery backfill", () => {
       .fn()
       .mockResolvedValueOnce({
         rows: [{ received_at: "2026-08-08T00:00:00.000Z", id: "cutoff" }],
+      })
+      .mockResolvedValueOnce({
+        rows: [{ received_at: "2026-08-07T00:00:00.000Z", id: "event-1" }],
       })
       .mockResolvedValueOnce({
         rows: [{ received_at: "2026-08-07T00:00:00.000Z", id: "event-1" }],
@@ -323,6 +353,9 @@ describe("dedicated first-party Analytics BigQuery backfill", () => {
       .fn()
       .mockResolvedValueOnce({
         rows: [{ received_at: "2026-08-08T00:00:00.000Z", id: "cutoff" }],
+      })
+      .mockResolvedValueOnce({
+        rows: [{ received_at: "2026-08-07T00:00:00.000Z", id: "event-1" }],
       })
       .mockResolvedValueOnce({
         rows: [{ received_at: "2026-08-07T00:00:00.000Z", id: "event-1" }],

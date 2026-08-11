@@ -67,7 +67,7 @@ const messages: AgentChatTranslation = {
   "composer.activeAppContext": "アクティブなアプリのコンテキスト",
   "composer.actMode": "実行モード",
   "composer.add": "追加...",
-  "composer.addOwnKeys": "独自のキーを追加",
+  "composer.addOwnKeys": "カスタムキー",
   "composer.assets.closePicker": "画像選択を閉じる",
   "composer.assets.contextTitle": "画像：{{title}}",
   "composer.assets.generatedImage": "生成された画像",
@@ -337,6 +337,7 @@ const messages: AgentChatTranslation = {
   "message.actions": "メッセージの操作",
   "message.copyMessage": "メッセージをコピー",
   "message.copyRequestId": "リクエスト ID をコピー",
+  "message.requestIdUnavailable": "リクエスト ID を利用できません",
   "message.edit": "メッセージを編集",
   "message.forkChat": "チャットを分岐",
   "message.missingFinal":

@@ -6,7 +6,10 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   callAction: (...args: unknown[]) => mockCallAction(...args),
 }));
 
-import { importUploadedDeckIntoDeck } from "./import-uploaded-deck";
+import {
+  IMPORT_ACTION_TIMEOUT_MS,
+  importUploadedDeckIntoDeck,
+} from "./import-uploaded-deck";
 
 const pptxFile = {
   path: "/uploads/source.pptx",
@@ -43,10 +46,14 @@ describe("importUploadedDeckIntoDeck", () => {
       slideCount: 8,
       file: pptxFile,
     });
-    expect(mockCallAction).toHaveBeenCalledWith("import-pptx", {
-      filePath: pptxFile.path,
-      deckId: "deck-1",
-    });
+    expect(mockCallAction).toHaveBeenCalledWith(
+      "import-pptx",
+      {
+        filePath: pptxFile.path,
+        deckId: "deck-1",
+      },
+      { timeoutMs: IMPORT_ACTION_TIMEOUT_MS },
+    );
   });
 
   it("uses source-faithful page import for PDFs", async () => {
@@ -58,12 +65,18 @@ describe("importUploadedDeckIntoDeck", () => {
 
     await importUploadedDeckIntoDeck([pdfFile], "deck-1");
 
-    expect(mockCallAction).toHaveBeenCalledWith("import-file", {
-      filePath: pdfFile.path,
-      format: "pdf",
-      deckId: "deck-1",
-      importIntoDeck: true,
-    });
+    expect(mockCallAction).toHaveBeenCalledWith(
+      "import-file",
+      {
+        filePath: pdfFile.path,
+        format: "pdf",
+        deckId: "deck-1",
+        importIntoDeck: true,
+      },
+      // A large PDF routinely outruns the 60s default, and this is the path
+      // the create-from-upload flow uses before generation starts.
+      { timeoutMs: IMPORT_ACTION_TIMEOUT_MS },
+    );
   });
 
   it("refuses ambiguous multi-deck uploads", async () => {

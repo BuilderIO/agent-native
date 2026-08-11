@@ -1333,6 +1333,138 @@
   direction: inherit;
 }
 
+/* Diagram arrows are geometry, not text glyphs. The clean path draws these
+   shapes with CSS; sketchy mode replaces them with the rough.js paths below. */
+.plan-diagram-frame :is(.diagram-arrow[data-arrow]) {
+  position: relative;
+  display: inline-block;
+  flex: 0 0 28px;
+  width: 28px;
+  height: 24px;
+  min-width: 28px;
+  font-size: 0 !important;
+  line-height: 1;
+}
+
+.plan-diagram-frame .diagram-arrow[data-arrow]::before,
+.plan-diagram-frame .diagram-arrow[data-arrow]::after {
+  position: absolute;
+  display: block;
+  content: "";
+  pointer-events: none;
+}
+
+.plan-diagram-frame
+  :is(
+    .diagram-arrow[data-arrow="right"],
+    .diagram-arrow[data-arrow="left"]
+  )::before {
+  top: calc(50% - 0.75px);
+  left: 3px;
+  width: 22px;
+  height: 1.5px;
+  background: currentColor;
+}
+
+.plan-diagram-frame
+  :is(
+    .diagram-arrow[data-arrow="up"],
+    .diagram-arrow[data-arrow="down"]
+  )::before {
+  top: 2px;
+  left: calc(50% - 0.75px);
+  width: 1.5px;
+  height: 20px;
+  background: currentColor;
+}
+
+.plan-diagram-frame .diagram-arrow[data-arrow="right"]::after,
+.plan-diagram-frame .diagram-arrow[data-arrow="left"]::after,
+.plan-diagram-frame .diagram-arrow[data-arrow="up"]::after,
+.plan-diagram-frame .diagram-arrow[data-arrow="down"]::after {
+  width: 7px;
+  height: 7px;
+  border-top: 1.5px solid currentColor;
+  border-right: 1.5px solid currentColor;
+}
+
+.plan-diagram-frame .diagram-arrow[data-arrow="right"]::after {
+  top: calc(50% - 4px);
+  right: 2px;
+  transform: rotate(45deg);
+}
+
+.plan-diagram-frame .diagram-arrow[data-arrow="left"]::after {
+  top: calc(50% - 4px);
+  left: 2px;
+  transform: rotate(225deg);
+}
+
+.plan-diagram-frame .diagram-arrow[data-arrow="up"]::after {
+  top: 0;
+  left: calc(50% - 4px);
+  transform: rotate(-45deg);
+}
+
+.plan-diagram-frame .diagram-arrow[data-arrow="down"]::after {
+  bottom: 0;
+  left: calc(50% - 4px);
+  transform: rotate(135deg);
+}
+
+.plan-diagram-frame .diagram-arrow[data-arrow="both"]::before {
+  top: calc(50% - 0.75px);
+  left: 3px;
+  width: 22px;
+  height: 1.5px;
+  background: currentColor;
+}
+
+.plan-diagram-frame .diagram-arrow[data-arrow="both"]::after {
+  inset: 3px;
+  background: currentColor;
+  clip-path: polygon(
+    0 50%,
+    22% 0,
+    22% 38%,
+    78% 38%,
+    78% 0,
+    100% 50%,
+    78% 100%,
+    78% 62%,
+    22% 62%,
+    22% 100%
+  );
+}
+
+.plan-diagram-frame .diagram-arrow[data-arrow="refresh"]::before {
+  top: 3px;
+  left: 5px;
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid currentColor;
+  border-left-color: transparent;
+  border-radius: 50%;
+}
+
+.plan-diagram-frame .diagram-arrow[data-arrow="refresh"]::after {
+  top: 1px;
+  right: 2px;
+  width: 0;
+  height: 0;
+  border-right: 4px solid transparent;
+  border-bottom: 7px solid currentColor;
+  border-left: 4px solid transparent;
+  transform: rotate(35deg);
+}
+
+.plan-diagram-frame[data-style="sketchy"][data-rough-ready]
+  .diagram-arrow[data-arrow]::before,
+.plan-diagram-frame[data-style="sketchy"][data-rough-ready]
+  .diagram-arrow[data-arrow]::after {
+  opacity: 0;
+}
+
 .plan-diagram-frame[data-frame="show"] .plan-diagram-frame-content {
   padding: 0;
 }

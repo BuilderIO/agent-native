@@ -63,7 +63,7 @@ const messages = {
   "composer.activeAppContext": "Active app context",
   "composer.actMode": "Act mode",
   "composer.add": "Add...",
-  "composer.addOwnKeys": "Add your own keys",
+  "composer.addOwnKeys": "Custom keys",
   "composer.assets.closePicker": "Close image picker",
   "composer.assets.contextTitle": "Image: {{title}}",
   "composer.assets.generatedImage": "Generated image",
@@ -332,6 +332,7 @@ const messages = {
   "message.actions": "Message actions",
   "message.copyMessage": "Copy message",
   "message.copyRequestId": "Copy request ID",
+  "message.requestIdUnavailable": "Request ID unavailable",
   "message.edit": "Edit message",
   "message.forkChat": "Fork chat",
   "message.missingFinal":

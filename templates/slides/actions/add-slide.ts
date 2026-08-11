@@ -17,6 +17,7 @@ import { normalizeSlidePadding } from "../app/lib/normalize-slide-padding.js";
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
 import { createDeckVersionSnapshot } from "../server/lib/deck-versions.js";
+import { repairGeneratedDeckTitle } from "../shared/deck-title.js";
 import { hashSlideContent } from "../shared/slide-fit.js";
 import { slideLabelFor, touchAgentSlidePresence } from "./_agent-presence.js";
 import {
@@ -308,11 +309,20 @@ export default defineAction({
         typeof position === "number"
           ? Math.max(0, Math.min(position, slides.length))
           : slides.length;
+      const shouldRepairTitle = slides.length === 0;
       slides.splice(insertIndex, 0, newSlide);
 
       const now = new Date().toISOString();
       deck.slides = slides;
       deck.updatedAt = now;
+      const currentTitle =
+        typeof row.title === "string" && row.title.trim()
+          ? row.title
+          : deck.title;
+      const repairedTitle = shouldRepairTitle
+        ? repairGeneratedDeckTitle(currentTitle, newSlide.content)
+        : null;
+      if (repairedTitle) deck.title = repairedTitle;
       deck.creativeContext =
         contextMode === "off" && existingContext
           ? existingContext
@@ -334,7 +344,11 @@ export default defineAction({
       await db.transaction(async (tx: any) => {
         await tx
           .update(schema.decks)
-          .set({ data: JSON.stringify(deck), updatedAt: now })
+          .set({
+            ...(repairedTitle ? { title: repairedTitle } : {}),
+            data: JSON.stringify(deck),
+            updatedAt: now,
+          })
           .where(eq(schema.decks.id, deckId));
         await recordGenerationCreativeContext(
           {

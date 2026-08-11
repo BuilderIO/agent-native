@@ -15,7 +15,7 @@ import { track } from "@agent-native/core/tracking";
 track(
   "order.completed",
   { total: 49.99, items: 3 },
-  { userId: "steve@builder.io" },
+  { userId: "user@example.com" },
 );
 ```
 
@@ -101,7 +101,7 @@ import { track } from "@agent-native/core/tracking";
 track(
   "meal.logged",
   { mealName: "Salad", calories: 350 },
-  { userId: "steve@builder.io" },
+  { userId: "user@example.com" },
 );
 ```
 
@@ -116,7 +116,7 @@ track(
 ```ts
 import { identify } from "@agent-native/core/tracking";
 
-identify("steve@builder.io", { plan: "pro", company: "Builder.io" });
+identify("user@example.com", { plan: "pro", company: "Builder.io" });
 ```
 
 कस्टम बैकएंड, प्रदाता-रजिस्ट्री API, या बैचिंग/सिंगलटन इंटरनल्स की आवश्यकता है? अंत में [Advanced: custom providers & internals](#advanced) देखें।
@@ -358,5 +358,5 @@ interface TrackingEvent {
 ## आगे क्या है
 
 - [**Actions**](/docs/actions) - जहां अधिकांश ट्रैकिंग कॉल शुरू होती हैं
-- [**Server Plugins**](/docs/server#server-plugins) - `registerBuiltinProviders()` स्टार्टअप पर कोर-रूट्स प्लगइन में चलता है
+- [**Server Plugins**](/docs/server-plugins) - `registerBuiltinProviders()` स्टार्टअप पर कोर-रूट्स प्लगइन में चलता है
 - [**सुरक्षा — सीक्रेट प्रबंधन**](/docs/security#secrets) - ट्रैकिंग प्रदाताओं के लिए API कुंजी प्रबंधित करें

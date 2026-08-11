@@ -5,11 +5,11 @@ description: "액션을 호출하고 그 결과를 표시하는 React 라우트�
 
 # 페이지 추가하기
 
-시작하기 시리즈의 세 번째 단계입니다. [액션 추가하기](/docs/getting-started-actions)에서 `analyze-text`를 만들었습니다. 여기서는 동일한 액션을 라우트에서 호출합니다. 아직 데이터베이스는 필요하지 않습니다. 도메인 데이터를 저장해야 할 때를 위해 Chat에는 SQL 런타임이 이미 포함되어 있습니다.
+시작하기 시리즈의 세 번째 단계입니다. [액션 추가하기](/docs/getting-started-actions)에서 `analyze-text`를 만들었습니다. 여기서는 동일한 액션을 라우트에서 호출합니다. 이 예제에는 새 데이터베이스 테이블이 필요하지 않습니다. Chat은 채팅 기록을 이미 SQL에 저장하므로, 앱에서 도메인 데이터를 저장해야 할 때만 자체 테이블을 추가하세요.
 
 ## 라우트 만들기 {#add-a-page}
 
-`app/routes/`의 라우트 파일은 자동으로 인식됩니다. `app/routes/text-analyses.tsx`를 만들면 `http://localhost:8080/text-analyses`에서 사용할 수 있습니다.
+개발 서버는 시작할 때 라우트 파일을 읽습니다. `app/routes/text-analyses.tsx`를 만들고 `pnpm dev`가 이미 실행 중이면 파일을 만든 후 다시 시작하세요. `http://localhost:8080/text-analyses`에서 사용할 수 있습니다.
 
 ```tsx filename="app/routes/text-analyses.tsx"
 import { useActionQuery } from "@agent-native/core/client/hooks";

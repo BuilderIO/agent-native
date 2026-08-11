@@ -29,6 +29,7 @@ import {
   type AgentAutoContinueErrorInfo,
   type ContentPart,
   type PreparingActionState,
+  type SSEStreamOptions,
   readSSEStream,
   settleInterruptedToolCalls,
 } from "./sse-event-processor.js";
@@ -147,6 +148,21 @@ const LARGE_INPUT_TOOL_NAMES = new Set([
 const MAX_HISTORY_LARGE_TOOL_ARGS_CHARS = 200_000;
 const STARTUP_RESPONSE_TIMEOUT_MS = 45_000;
 
+function dispatchTerminalChatUiCleanup(tabId: string | undefined): void {
+  if (typeof window === "undefined") return;
+
+  // Some terminal outcomes are synthesized by the adapter after recovery
+  // (for example, a completed tool whose final response timed out) and never
+  // pass through a terminal SSE frame. Clear both halves of the status UI so
+  // the wrap-up result cannot leave a preparation label or "Resuming" state.
+  window.dispatchEvent(
+    new CustomEvent("agent-chat:activity-clear", { detail: { tabId } }),
+  );
+  window.dispatchEvent(
+    new CustomEvent("agent-chat:stream-progress", { detail: { tabId } }),
+  );
+}
+
 // ── Background follow mode ──────────────────────────────────────────────────
 // For server-continued runs (dispatchMode starts with "background" or equals
 // "foreground-self-chain") the SERVER normally chains continuation chunks
@@ -158,6 +174,10 @@ const STARTUP_RESPONSE_TIMEOUT_MS = 45_000;
 // reports that the self-dispatch itself failed before a successor claimed the
 // run, the existing client auto-continue POST remains the fallback.
 const BACKGROUND_FOLLOW_POLL_INTERVAL_MS = 1_000;
+// This watchdog belongs to a read-only reattach, not to the server run. A
+// shorter reader window lets the follow loop re-poll `/runs/active` while a
+// completed run is still inside the server's terminal replay window.
+export const BACKGROUND_FOLLOW_ATTACH_WATCHDOG_MS = 90_000;
 // How long the follow loop tolerates seeing NO active run for this turn before
 // treating the turn as ended. The server pre-inserts the successor row before
 // the old chunk completes, so a healthy chain never shows an idle gap; allow a
@@ -2092,12 +2112,18 @@ export function createAgentChatAdapter(
         return state;
       };
 
-      const currentSSEOptions = () => ({
+      const currentSSEOptions = (
+        overrides: Pick<
+          SSEStreamOptions,
+          "noProgressTimeoutMs" | "actionPreparationStallTimeoutMs"
+        > = {},
+      ): SSEStreamOptions => ({
         durableBackgroundRun:
           currentRunDispatchMode?.startsWith("background") === true,
         ...(runId
           ? { preparingActionState: preparingActionStateForRun(runId) }
           : {}),
+        ...overrides,
       });
 
       const captureChatClientError = (
@@ -2596,7 +2622,11 @@ export function createAgentChatAdapter(
                 if (threadId) updateActiveRunSeq(seq);
               },
               runId,
-              currentSSEOptions(),
+              currentSSEOptions({
+                noProgressTimeoutMs: BACKGROUND_FOLLOW_ATTACH_WATCHDOG_MS,
+                actionPreparationStallTimeoutMs:
+                  BACKGROUND_FOLLOW_ATTACH_WATCHDOG_MS,
+              }),
             )) {
               yield withRequestModeMetadata(result);
             }
@@ -4214,6 +4244,7 @@ export function createAgentChatAdapter(
         }
       } finally {
         if (typeof window !== "undefined") {
+          dispatchTerminalChatUiCleanup(tabId);
           window.dispatchEvent(
             new CustomEvent("agentNative.chatRunning", {
               detail: { isRunning: false, tabId },

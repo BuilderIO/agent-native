@@ -69,7 +69,7 @@ describe("createTiptapComposerExtensions", () => {
     }).not.toThrow();
   });
 
-  it("offers explicit reasoning levels without legacy Auto", () => {
+  it("offers explicit effort levels without legacy Auto", () => {
     expect(getComposerReasoningEffortOptions("auto")).toEqual([
       "low",
       "medium",
@@ -87,6 +87,7 @@ describe("createTiptapComposerExtensions", () => {
     expect(compactComposerModelName("gpt-5-6-terra")).toBe("Terra");
     expect(compactComposerModelName("openai/gpt-5.6-luna")).toBe("Luna");
     expect(compactComposerModelName("claude-sonnet-5")).toBe("Sonnet 5");
+    expect(compactComposerModelName("codex-cli")).toBe("Codex");
     expect(compactComposerReasoningEffortLabel("medium")).toBe("Med");
     expect(compactComposerReasoningEffortLabel("minimal")).toBe("Min");
     expect(compactComposerReasoningEffortLabel("xhigh")).toBe("XHigh");

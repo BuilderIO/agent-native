@@ -56,7 +56,7 @@ describe("built-in Core chat translations", () => {
 
     expect(messages).toMatchObject({
       agentPanel: {
-        addOwnKeys: "Eigene Schlüssel hinzufügen",
+        addOwnKeys: "Eigene Schlüssel",
         chat: "Chat",
         loadingTerminal: "Terminal wird geladen...",
         newChat: "Neuer Chat",

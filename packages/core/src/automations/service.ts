@@ -2,6 +2,7 @@ import { getDbExec } from "../db/client.js";
 import { isValidCron, isValidTimezone, nextOccurrence } from "../jobs/cron.js";
 import {
   buildJobResourceContent,
+  jobBelongsToApp,
   normalizeJobMcpTools,
   parseJobResource,
   type JobFrontmatter,
@@ -156,15 +157,6 @@ function isOrganizationAdmin(membership: OrganizationMembership): boolean {
   return membership.role === "owner" || membership.role === "admin";
 }
 
-function automationBelongsToApp(
-  meta: JobFrontmatter,
-  appId: string | null | undefined,
-): boolean {
-  const ownerAppId = meta.appId?.trim();
-  if (!ownerAppId || !appId?.trim()) return true;
-  return ownerAppId === appId.trim();
-}
-
 async function mutationAccess(
   actorInput: AutomationActor,
   resource: Resource,
@@ -202,7 +194,7 @@ export async function canUpdateAutomationResource(
 ): Promise<boolean> {
   const { meta } = parseJobResource(resource.content);
   const actor = normalizeActor(actorInput);
-  if (!automationBelongsToApp(meta, actor.appId)) return false;
+  if (!jobBelongsToApp(meta, actor.appId)) return false;
   return (await mutationAccess(actor, resource, meta)).canUpdate;
 }
 
@@ -241,7 +233,7 @@ async function readDefinition(
     throw httpError(`Automation "${automationName(path)}" not found.`, 404);
   }
   const definition = assertExplicitAutomation(resource);
-  if (!automationBelongsToApp(definition.meta, actor.appId)) {
+  if (!jobBelongsToApp(definition.meta, actor.appId)) {
     throw httpError(`Automation "${automationName(path)}" not found.`, 404);
   }
   const access = await mutationAccess(actor, resource, definition.meta);
@@ -277,7 +269,7 @@ export async function listAutomationDefinitions(
     if (!resource) continue;
     const parsed = parseJobResource(resource.content);
     if (parsed.classification.kind !== "automation") continue;
-    if (!automationBelongsToApp(parsed.meta, actor.appId)) continue;
+    if (!jobBelongsToApp(parsed.meta, actor.appId)) continue;
     const isCreator =
       parsed.meta.createdBy?.trim().toLowerCase() === actor.userEmail;
     automations.push({

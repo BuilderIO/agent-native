@@ -2164,6 +2164,7 @@ audio.media-block__content {
   opacity: 0.55;
   pointer-events: none;
   filter: saturate(0.45);
+  /* compositing-ok: drag preview — transient, transformed every frame. */
   will-change: transform;
 }
 

@@ -311,6 +311,29 @@ export const analyticsUserDays = table("analytics_user_days", {
   userKey: text("user_key").notNull(),
 });
 
+/** Atomic per-tenant event reservations used to cap future Postgres growth. */
+export const analyticsEventVolumeUsage = table(
+  "analytics_event_volume_usage",
+  {
+    id: text("id").primaryKey(),
+    tenantKey: text("tenant_key").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    windowStart: text("window_start").notNull(),
+    eventCount: integer("event_count").notNull().default(0),
+    eventLimit: integer("event_limit").notNull(),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (t) => ({
+    tenantWindowUnique: uniqueIndex(
+      "analytics_event_volume_usage_tenant_window_idx",
+    ).on(t.tenantKey, t.windowStart),
+    updatedAtIdx: index("analytics_event_volume_usage_updated_at_idx").on(
+      t.updatedAt,
+    ),
+  }),
+);
+
 /**
  * Compact pressure signals for first-party queries that are already slow or
  * failing. Successful fast queries never write here, so the diagnostic path

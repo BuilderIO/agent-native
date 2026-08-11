@@ -206,6 +206,36 @@ describe("http response telemetry", () => {
     });
   });
 
+  it("does not recursively track analytics ingestion requests", async () => {
+    const { requestHooks, responseHooks } = createHooks();
+    processState.requestSequence = 5;
+
+    const tracked: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "http-response-telemetry-test",
+      track(event) {
+        tracked.push(event);
+      },
+    });
+
+    for (const path of [
+      "/track",
+      "/track/",
+      "/api/analytics/track",
+      "/api/analytics/track/",
+      "/api/events/track",
+      "/api/events/track/",
+      "/_agent-native/track",
+      "/_agent-native/track/",
+    ]) {
+      const event = eventFor(path);
+      await requestHooks[0](event);
+      await responseHooks[0](new Response("", { status: 202 }), event);
+    }
+
+    expect(tracked).toHaveLength(0);
+  });
+
   it("reports the pre-handler boot phases on a cold start", async () => {
     const { requestHooks, responseHooks } = createHooks();
     processState.requestSequence = 0;

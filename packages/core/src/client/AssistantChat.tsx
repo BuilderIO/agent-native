@@ -141,6 +141,7 @@ import {
   ChatRunningContext,
   ChatRunDurationContext,
   ApprovalContext,
+  type ApprovalResolution,
   type ApprovalContextValue,
   ReconnectStreamMessage,
 } from "./chat/tool-call-display.js";
@@ -1743,6 +1744,7 @@ type QueuedMessage = {
   recoveryAction?: AgentRecoveryAction;
   trackInRunsTray?: boolean;
   hideUserMessage?: boolean;
+  approvedToolCalls?: string[];
   /**
    * Model/engine/effort snapshotted at enqueue time, for the same reason
    * `requestMode` is: the picker is global and live, so a queue that flushes
@@ -1972,7 +1974,7 @@ export interface AssistantChatProps {
   defaultModel?: string;
   /** Selected engine override for this conversation */
   selectedEngine?: string;
-  /** Selected reasoning effort override for this conversation */
+  /** Selected effort override for this conversation */
   selectedEffort?: ReasoningEffort;
   /** Available engine/model list for the model picker */
   availableModels?: Array<{
@@ -1985,7 +1987,7 @@ export interface AssistantChatProps {
   modelListLoading?: boolean;
   /** Callback when user picks a model from the picker */
   onModelChange?: (model: string, engine: string) => void;
-  /** Callback when user picks a reasoning effort from the picker */
+  /** Callback when user picks an effort from the picker */
   onEffortChange?: (effort: ReasoningEffort) => void;
   /**
    * Optional secondary model menu (e.g. an image-generation model) shown inside
@@ -2310,6 +2312,13 @@ export function useAutoResumeStatus(
   }, [clearAutoResume, forceStopped]);
 
   return { isAutoResuming, clearAutoResume };
+}
+
+function approvalResolutionIdentity(
+  approvalKey: string,
+  toolCallId?: string,
+): string {
+  return `${toolCallId ?? ""}\u0000${approvalKey}`;
 }
 
 const AssistantChatInner = forwardRef<
@@ -4364,7 +4373,7 @@ const AssistantChatInner = forwardRef<
               next.requestMode,
               next.recoveryAction,
               next.trackInRunsTray,
-              undefined,
+              next.approvedToolCalls,
               next.id,
               next.hideUserMessage,
               {
@@ -4732,6 +4741,7 @@ const AssistantChatInner = forwardRef<
       preserveReconnectAutoRecoveryBudget = false,
       hideUserMessage = false,
       submitMessageId?: string,
+      approvedToolCalls?: string[],
     ) => {
       if (isAgentChatSubmitCancelled(submitMessageId)) return;
       if (engineSetupRequired) {
@@ -4912,6 +4922,7 @@ const AssistantChatInner = forwardRef<
             recoveryAction,
             trackInRunsTray,
             hideUserMessage,
+            approvedToolCalls,
             ...modelSnapshot,
           },
         ]);
@@ -4933,6 +4944,7 @@ const AssistantChatInner = forwardRef<
             recoveryAction,
             trackInRunsTray,
             hideUserMessage,
+            approvedToolCalls,
             ...modelSnapshot,
           },
         ]);
@@ -4950,7 +4962,7 @@ const AssistantChatInner = forwardRef<
               effectiveRequestMode,
               recoveryAction,
               trackInRunsTray,
-              undefined,
+              approvedToolCalls,
               undefined,
               hideUserMessage,
             ),
@@ -5445,41 +5457,86 @@ const AssistantChatInner = forwardRef<
     showInlineMissingKeySetup,
   );
 
+  const approvalResolutionScope = threadId ?? tabId ?? "default";
+  const [approvalResolutionState, setApprovalResolutionState] = useState<{
+    scope: string;
+    byIdentity: Map<string, ApprovalResolution>;
+  }>(() => ({
+    scope: approvalResolutionScope,
+    byIdentity: new Map(),
+  }));
+  const getApprovalResolution = useCallback(
+    (approvalKey: string, toolCallId?: string) => {
+      if (approvalResolutionState.scope !== approvalResolutionScope) {
+        return null;
+      }
+      return (
+        approvalResolutionState.byIdentity.get(
+          approvalResolutionIdentity(approvalKey, toolCallId),
+        ) ?? null
+      );
+    },
+    [approvalResolutionScope, approvalResolutionState],
+  );
+  const recordApprovalResolution = useCallback(
+    (
+      approvalKey: string,
+      resolution: ApprovalResolution,
+      toolCallId?: string,
+    ) => {
+      setApprovalResolutionState((previous) => {
+        const byIdentity =
+          previous.scope === approvalResolutionScope
+            ? previous.byIdentity
+            : new Map<string, ApprovalResolution>();
+        const next = new Map(byIdentity);
+        next.set(
+          approvalResolutionIdentity(approvalKey, toolCallId),
+          resolution,
+        );
+        return { scope: approvalResolutionScope, byIdentity: next };
+      });
+    },
+    [approvalResolutionScope],
+  );
+
   // Human-in-the-loop approvals: when the user approves a paused `needsApproval`
   // tool call, re-issue the turn carrying the call's approval key so the server
   // gate lets that specific call run. Reuses the same append path as recovery /
   // queued messages (no hand-written fetch).
   const approvalCtx = useMemo<ApprovalContextValue>(
     () => ({
+      getApprovalResolution,
+      onApprovalResolved: recordApprovalResolution,
       onApprove: (approvalKey: string) => {
-        markOptimisticRunning();
-        appendThreadMessage({
-          role: "user",
-          content: [
-            {
-              type: "text",
-              text: "Approved. Go ahead and run the requested action.", // i18n-ignore -- stable hidden agent instruction, not UI copy.
-            },
-          ],
-          ...createUserMessageRunConfig(
-            undefined,
-            execMode === "plan"
-              ? "plan"
-              : execMode === "build"
-                ? "act"
-                : undefined,
-            undefined,
-            undefined,
-            [approvalKey],
-          ),
-        } as Parameters<typeof threadRuntime.append>[0]);
+        void addToQueue(
+          "Approved. Go ahead and run the requested action.", // i18n-ignore -- stable hidden agent instruction, not UI copy.
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          "queued",
+          undefined,
+          false,
+          false,
+          false,
+          false,
+          undefined,
+          [approvalKey],
+        );
       },
       ...(approvalActions?.onDeny ? { onDeny: approvalActions.onDeny } : {}),
       ...(approvalActions?.onAlwaysAllow
         ? { onAlwaysAllow: approvalActions.onAlwaysAllow }
         : {}),
     }),
-    [appendThreadMessage, execMode, markOptimisticRunning, approvalActions],
+    [
+      addToQueue,
+      execMode,
+      getApprovalResolution,
+      approvalActions,
+      recordApprovalResolution,
+    ],
   );
 
   return (

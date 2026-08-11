@@ -1,5 +1,61 @@
 # @agent-native/dispatch
 
+## 0.23.1
+
+### Patch Changes
+
+- dab8787: Keep Builder Visual Editor links out of chat-first browser iframes so branch links open without CSP framing errors.
+- dab8787: Widen full-page chat composers and conversation rails to use up to 1000px when space is available.
+- Updated dependencies [dab8787]
+- Updated dependencies [dab8787]
+- Updated dependencies [dab8787]
+  - @agent-native/toolkit@0.13.9
+
+## 0.23.0
+
+### Minor Changes
+
+- c41fd16: Polish the Electron and Dispatch chat-first app surfaces with a fuller layout, simpler app lists, and inline workspace-app opening.
+
+### Patch Changes
+
+- c41fd16: Keep granted Dispatch app surfaces available from the Chat-first workspace panel.
+- c41fd16: Route Dispatch overview prompts into the full-page chat surface instead of the agent sidebar.
+- Updated dependencies [c41fd16]
+  - @agent-native/toolkit@0.13.8
+
+## 0.22.1
+
+### Patch Changes
+
+- c29fcb7: Keep the Admin and Settings links visible in the chat-first Dispatch sidebar.
+
+## 0.22.0
+
+### Minor Changes
+
+- 061896a: Add an opt-in chat-first workbench with contextual app surfaces for desktop, Dispatch, and mobile clients.
+
+### Patch Changes
+
+- 061896a: Make turn-into-app Builder handoffs autonomous by choosing recommended defaults and recording non-blocking assumptions instead of stopping for questions.
+- 061896a: Use the Toolkit header store and mobile hook through Dispatch compatibility paths.
+- 061896a: Improve Thread Debug with diagnosis-first failure triage and retained run evidence.
+- Updated dependencies [061896a]
+  - @agent-native/toolkit@0.13.7
+
+## 0.21.0
+
+### Minor Changes
+
+- cf16fae: Add an opt-in chat-first workbench with contextual app surfaces for desktop, Dispatch, and mobile clients.
+
+### Patch Changes
+
+- cf16fae: Make turn-into-app Builder handoffs autonomous by choosing recommended defaults and recording non-blocking assumptions instead of stopping for questions.
+- Updated dependencies [cf16fae]
+  - @agent-native/toolkit@0.13.6
+
 ## 0.20.4
 
 ### Patch Changes

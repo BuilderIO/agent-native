@@ -14,16 +14,20 @@ const flow = source.slice(
 );
 
 describe("new deck generation flow", () => {
-  it("persists and opens the empty editor before the agent asks dynamic questions", () => {
+  it("opens the generating editor before persistence and dynamic questions", () => {
     const persistIndex = flow.indexOf("await ensureDeckPersisted(deck.id)");
-    const openEditorIndex = flow.indexOf("navigate(`/deck/${deck.id}`");
+    const openEditorIndex = flow.indexOf(
+      "navigate(`/deck/${deck.id}?generating=1`",
+    );
     const askQuestionIndex = flow.indexOf("use the `ask-question` tool");
 
     expect(persistIndex).toBeGreaterThan(-1);
-    expect(openEditorIndex).toBeGreaterThan(persistIndex);
+    expect(openEditorIndex).toBeGreaterThan(-1);
+    expect(openEditorIndex).toBeLessThan(persistIndex);
     expect(askQuestionIndex).toBeGreaterThan(openEditorIndex);
     expect(flow).not.toContain("await askUserQuestion");
     expect(flow).toContain("prompt-specific question");
+    expect(flow).toContain("recoverFromGenerationSetupFailure");
   });
 
   it("marks generation intent before submitting the agent run", () => {
@@ -54,6 +58,9 @@ describe("new deck generation flow", () => {
     expect(titlePatchIndex).toBeGreaterThan(titleInstructionIndex);
     expect(sparseTitleInstructionIndex).toBeGreaterThan(titlePatchIndex);
     expect(addSlideInstructionIndex).toBeGreaterThan(titlePatchIndex);
+    expect(flow).toContain(
+      "Never use the deck id, run id, file id, or another opaque alphanumeric token as the title",
+    );
   });
 
   it("keeps presentation generation multi-slide and persisted", () => {
@@ -66,26 +73,77 @@ describe("new deck generation flow", () => {
     );
   });
 
+  it("uses an atomic source-restyle patch and compact verification", () => {
+    expect(source).toContain("requireAllSourceSlides: true");
+    expect(source).toContain('verify with `get-deck` using `compact: "true"`');
+    expect(source).toContain("Do not report an initial or partial pass");
+  });
+
+  it("routes both prompt submit and prompt skip into the reference step", () => {
+    expect(source).toContain("const handlePromptSubmit");
+    expect(source).toContain("const handlePromptSkip");
+    expect(source).toContain('setPendingDeck({ prompt: "", files: [] })');
+    expect(source).toContain("onSubmit={handlePromptSubmit}");
+    expect(source).toContain("onSkip={handlePromptSkip}");
+    expect(source).toContain("setShowNewDeckReferenceStep(true)");
+  });
+
+  it("imports directly from the new-deck prompt and opens the imported deck", () => {
+    const directImportFlow = source.slice(
+      source.indexOf("const handleDirectImport"),
+      source.indexOf("const handleReferenceSelect"),
+    );
+
+    expect(directImportFlow).toContain(
+      'callAction("import-google-slides-reference"',
+    );
+    expect(directImportFlow).toContain('callAction("import-pptx"');
+    expect(directImportFlow).toContain('callAction("import-file"');
+    expect(directImportFlow).toContain("navigate(`/deck/${imported.id}`");
+    expect(source).toContain("onImport={handleDirectImport}");
+    expect(source).toContain('importFromLabel={t("home.importFrom")}');
+  });
+
   it("turns an imported PPTX into a reusable reference deck", () => {
-    expect(flow).toContain('callAction("import-pptx"');
-    expect(flow).toContain("setSelectedReferenceDeckId(imported.id)");
-    expect(flow).toContain("const generationFiles = uploaded.filter");
-    expect(flow).toContain("referenceSelection = {");
-    expect(flow).toContain("referenceDeckId: imported.id");
+    const referenceImportFlow = source.slice(
+      source.indexOf("const handleReferenceImport"),
+      source.indexOf("const handleReferenceSkip"),
+    );
+
+    // Whitespace-tolerant: passing the extended import timeout wraps the call
+    // across lines, and this asserts the call exists, not how it is formatted.
+    expect(referenceImportFlow).toMatch(/callAction\(\s*"import-pptx"/);
+    expect(referenceImportFlow).toContain("importedReference = {");
+    expect(referenceImportFlow).toContain('source: "pptx"');
+    expect(referenceImportFlow).toContain("setPendingDeck((current) =>");
+    expect(referenceImportFlow).toContain("return importedReference");
+    expect(referenceImportFlow).not.toContain("handleCreateDeckWithPrompt(");
   });
 
   it("imports an uploaded PDF into a reusable reference deck", () => {
-    expect(flow).toContain('callAction("import-file"');
-    expect(flow).toContain('format: "pdf"');
-    expect(flow).toContain("importIntoDeck: true");
-    expect(flow).toContain("The PDF reference deck could not be imported.");
+    const referenceImportFlow = source.slice(
+      source.indexOf("const handleReferenceImport"),
+      source.indexOf("const handleReferenceSkip"),
+    );
+
+    expect(referenceImportFlow).toMatch(/callAction\(\s*"import-file"/);
+    expect(referenceImportFlow).toContain('format: "pdf"');
+    expect(referenceImportFlow).toContain("importIntoDeck: true");
+    expect(referenceImportFlow).toContain(
+      "The PDF reference deck could not be imported.",
+    );
   });
 
-  it("supports direct imports from the new-deck prompt", () => {
-    expect(flow).toContain("const handleDirectImport");
-    expect(flow).toContain("presentationUrl: selection.url");
-    expect(flow).toContain('callAction("import-pptx"');
-    expect(flow).toContain('callAction("import-file"');
-    expect(source).toContain('importFromLabel={t("home.importFrom")}');
+  it("imports a pasted Google Slides URL before selecting the reference deck", () => {
+    const referenceSourceImportFlow = source.slice(
+      source.indexOf("const handleReferenceSourceImport"),
+      source.indexOf("const handleReferenceSkip"),
+    );
+
+    expect(referenceSourceImportFlow).toContain(
+      'callAction("import-google-slides-reference"',
+    );
+    expect(referenceSourceImportFlow).toContain("return importedReference");
+    expect(source).toContain("onImportSource={handleReferenceSourceImport}");
   });
 });

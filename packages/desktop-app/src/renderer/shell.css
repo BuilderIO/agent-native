@@ -4,33 +4,113 @@
 
 @source "./**/*.{ts,tsx}";
 @source "../../../code-agents-ui/src/**/*.{ts,tsx}";
+@source "../../../core/src/client/chat-first/**/*.{ts,tsx}";
 
 /* ─── Design tokens ──────────────────────────────────────────── */
 :root {
+  /* Shared Tailwind/core settings components resolve these semantic tokens at
+     the desktop renderer root, including portal-mounted dialogs and menus. */
+  --background: 0 0% 100%;
+  --foreground: 0 0% 10%;
+  --card: 0 0% 100%;
+  --card-foreground: 0 0% 10%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 0 0% 10%;
+  --primary: 0 0% 15%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 0 0% 95%;
+  --secondary-foreground: 0 0% 15%;
+  --muted: 0 0% 95%;
+  --muted-foreground: 0 0% 45%;
+  --accent: 0 0% 95%;
+  --accent-foreground: 0 0% 15%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 0 0% 90%;
+  --input: 0 0% 90%;
+  --ring: 0 0% 40%;
+  --radius: 0.5rem;
+  --sidebar-background: 0 0% 97%;
+  --sidebar-foreground: 0 0% 45%;
+  --sidebar-primary: 0 0% 15%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 0 0% 95%;
+  --sidebar-accent-foreground: 0 0% 15%;
+  --sidebar-border: 0 0% 90%;
+  --sidebar-ring: 0 0% 40%;
   --sidebar-width: 56px;
   --tabbar-height: 38px;
   --macos-traffic-light-safe-area: 100px;
-  --sidebar-bg: #121212;
+  --sidebar-bg: hsl(var(--sidebar-background, 0 0% 97%));
   --app-surface-radius: 12px;
-  --item-hover-bg: rgba(255, 255, 255, 0.1);
-  --icon-inactive: rgba(255, 255, 255, 0.52);
-  --icon-hover: rgba(255, 255, 255, 0.8);
-  --icon-active: #ffffff;
-  --label-inactive: rgba(255, 255, 255, 0.48);
-  --label-hover: rgba(255, 255, 255, 0.72);
-  --label-active: rgba(255, 255, 255, 0.88);
-  --shell-bg: #121212;
-  --separator: rgba(255, 255, 255, 0.1);
-  --tabbar-bg: #121212;
+  --item-hover-bg: hsl(var(--foreground, 0 0% 10%) / 0.06);
+  --icon-inactive: hsl(var(--foreground, 0 0% 10%) / 0.52);
+  --icon-hover: hsl(var(--foreground, 0 0% 10%) / 0.8);
+  --icon-active: hsl(var(--foreground, 0 0% 10%));
+  --label-inactive: hsl(var(--foreground, 0 0% 10%) / 0.48);
+  --label-hover: hsl(var(--foreground, 0 0% 10%) / 0.72);
+  --label-active: hsl(var(--foreground, 0 0% 10%) / 0.88);
+  --shell-bg: hsl(var(--background, 0 0% 100%));
+  --shell-fg: hsl(var(--foreground, 0 0% 10%));
+  --separator: hsl(var(--foreground, 0 0% 10%) / 0.1);
+  --tabbar-bg: hsl(var(--background, 0 0% 100%));
   --tab-bg: transparent;
-  --tab-active-bg: #1a1a1a;
-  --tab-hover-bg: rgba(255, 255, 255, 0.06);
-  --tab-text: #666;
-  --tab-active-text: #ccc;
-  --tab-close-hover: rgba(255, 255, 255, 0.12);
+  --tab-active-bg: hsl(var(--muted, 0 0% 95%));
+  --tab-hover-bg: hsl(var(--foreground, 0 0% 10%) / 0.04);
+  --tab-text: hsl(var(--muted-foreground, 0 0% 45%));
+  --tab-active-text: hsl(var(--foreground, 0 0% 10%));
+  --tab-close-hover: hsl(var(--foreground, 0 0% 10%) / 0.08);
 
   /* Transition */
   --ease: 0.15s ease;
+}
+
+.dark {
+  --background: 0 0% 13%;
+  --foreground: 0 0% 90%;
+  --card: 0 0% 15%;
+  --card-foreground: 0 0% 90%;
+  --popover: 0 0% 15%;
+  --popover-foreground: 0 0% 90%;
+  --primary: 0 0% 75%;
+  --primary-foreground: 0 0% 10%;
+  --secondary: 0 0% 18%;
+  --secondary-foreground: 0 0% 90%;
+  --muted: 0 0% 16%;
+  --muted-foreground: 0 0% 60%;
+  --accent: 0 0% 18%;
+  --accent-foreground: 0 0% 90%;
+  --destructive: 0 91% 71%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 0 0% 24%;
+  --input: 0 0% 24%;
+  --ring: 0 0% 60%;
+  --radius: 0.5rem;
+  --sidebar-background: 0 0% 10%;
+  --sidebar-foreground: 0 0% 60%;
+  --sidebar-primary: 0 0% 75%;
+  --sidebar-primary-foreground: 0 0% 10%;
+  --sidebar-accent: 0 0% 16%;
+  --sidebar-accent-foreground: 0 0% 90%;
+  --sidebar-border: 0 0% 20%;
+  --sidebar-ring: 0 0% 60%;
+  --sidebar-bg: hsl(var(--sidebar-background, 0 0% 7%));
+  --item-hover-bg: hsl(var(--foreground, 0 0% 100%) / 0.1);
+  --icon-inactive: hsl(var(--foreground, 0 0% 100%) / 0.52);
+  --icon-hover: hsl(var(--foreground, 0 0% 100%) / 0.8);
+  --icon-active: hsl(var(--foreground, 0 0% 100%));
+  --label-inactive: hsl(var(--foreground, 0 0% 100%) / 0.48);
+  --label-hover: hsl(var(--foreground, 0 0% 100%) / 0.72);
+  --label-active: hsl(var(--foreground, 0 0% 100%) / 0.88);
+  --shell-bg: hsl(var(--background, 0 0% 10%));
+  --shell-fg: hsl(var(--foreground, 0 0% 100%));
+  --separator: hsl(var(--foreground, 0 0% 100%) / 0.1);
+  --tabbar-bg: hsl(var(--background, 0 0% 10%));
+  --tab-active-bg: hsl(var(--muted, 0 0% 10%));
+  --tab-hover-bg: hsl(var(--foreground, 0 0% 100%) / 0.06);
+  --tab-text: hsl(var(--muted-foreground, 0 0% 60%));
+  --tab-active-text: hsl(var(--foreground, 0 0% 90%));
+  --tab-close-hover: hsl(var(--foreground, 0 0% 100%) / 0.12);
 }
 
 /* ─── Base ───────────────────────────────────────────────────── */
@@ -47,7 +127,7 @@ body {
     -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, "Helvetica Neue",
     sans-serif;
   background: var(--shell-bg);
-  color: #fff;
+  color: var(--shell-fg);
   user-select: none;
   -webkit-user-select: none;
 }
@@ -120,7 +200,9 @@ body {
 
 .shell-body {
   display: flex;
-  height: calc(100vh - var(--tabbar-height));
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
   overflow: hidden;
 }
 
@@ -439,6 +521,16 @@ body {
   -webkit-app-region: no-drag;
 }
 
+.platform-win32 .desktop-chat-first-window-controls,
+.platform-linux .desktop-chat-first-window-controls {
+  position: absolute;
+  top: 8px;
+  left: 10px;
+  z-index: 20;
+  width: auto;
+  padding: 0;
+}
+
 .win-btn {
   width: 12px;
   height: 12px;
@@ -453,14 +545,17 @@ body {
 }
 
 .win-btn--close {
+  /* guard:allow-raw-color — native window-control status color */
   background: #ff5f57;
 }
 
 .win-btn--minimize {
+  /* guard:allow-raw-color — native window-control status color */
   background: #febc2e;
 }
 
 .win-btn--maximize {
+  /* guard:allow-raw-color — native window-control status color */
   background: #28c840;
 }
 
@@ -493,6 +588,271 @@ body {
   transform: translate3d(-200vw, 0, 0);
 }
 
+.content-area--chat-first {
+  border-radius: 0;
+}
+
+.desktop-chat-first-hub {
+  --background: 0 0% 100%;
+  --foreground: 0 0% 10%;
+  --card: 0 0% 100%;
+  --card-foreground: 0 0% 10%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 0 0% 10%;
+  --primary: 0 0% 15%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 0 0% 95%;
+  --secondary-foreground: 0 0% 15%;
+  --muted: 0 0% 95%;
+  --muted-foreground: 0 0% 45%;
+  --accent: 0 0% 95%;
+  --accent-foreground: 0 0% 15%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 0 0% 90%;
+  --input: 0 0% 90%;
+  --ring: 0 0% 40%;
+  --radius: 0.5rem;
+  --sidebar-background: 0 0% 97%;
+  --sidebar-foreground: 0 0% 45%;
+  --sidebar-accent: 0 0% 95%;
+  --sidebar-accent-foreground: 0 0% 15%;
+  --sidebar-border: 0 0% 90%;
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  background: var(--shell-bg);
+}
+
+.desktop-chat-first-hub--enabled:has(.chat-first-surface-panel) {
+  grid-template-columns: minmax(0, 1fr) minmax(
+      320px,
+      var(--chat-first-surface-width, 40%)
+    );
+}
+
+.desktop-chat-first-hub > .code-agents-surface {
+  min-width: 0;
+  min-height: 0;
+}
+
+.desktop-chat-first-hub .code-agents-main {
+  position: relative;
+}
+
+.desktop-chat-first-hub [data-chat-first-main-chat] {
+  position: relative;
+  height: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.desktop-chat-first-hub .code-agents-rail {
+  position: relative;
+  border-right: 0;
+  padding-top: 36px;
+}
+
+/* Keep the blank rail strip beside the native traffic lights available for
+   moving the frameless desktop window without covering rail controls. */
+.desktop-chat-first-hub .code-agents-window-drag-region {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: var(--macos-traffic-light-safe-area);
+  height: 36px;
+  -webkit-app-region: drag;
+}
+
+.desktop-chat-first-hub .code-agents-nav-list,
+.desktop-chat-first-hub .code-agents-main-toolbar {
+  border-bottom: 0;
+}
+
+.desktop-chat-first-hub .code-agents-start {
+  justify-content: flex-start;
+  max-width: min(1000px, 100%);
+  padding: clamp(48px, 10vh, 96px) 28px 24px;
+  box-sizing: border-box;
+}
+
+.desktop-chat-first-hub .code-agents-start .code-agents-standard-composer {
+  align-self: center;
+  margin-inline: auto;
+  width: min(100%, 750px) !important;
+  inline-size: min(100%, 750px) !important;
+  max-width: 750px !important;
+}
+
+.desktop-chat-first-hub .code-agents-start .code-agents-project-picker--bar {
+  align-self: center;
+  width: min(100%, 750px);
+}
+
+.desktop-chat-first-hub--no-chats [data-chat-first-chat-history] {
+  display: none;
+}
+
+.desktop-apps-grid {
+  width: 100%;
+  max-width: 1000px;
+  margin-inline: auto;
+}
+
+.desktop-apps-grid__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.desktop-apps-grid__title {
+  color: hsl(var(--foreground));
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.desktop-apps-grid__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.desktop-apps-grid__action {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 9px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background var(--ease),
+    border-color var(--ease),
+    color var(--ease);
+}
+
+.desktop-apps-grid__action:hover {
+  border-color: hsl(var(--border));
+  background: hsl(var(--muted));
+  color: hsl(var(--foreground));
+}
+
+.desktop-apps-grid__action--primary {
+  border-color: hsl(var(--border));
+  background: hsl(var(--card));
+  color: hsl(var(--foreground));
+}
+
+.desktop-apps-grid__list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.desktop-app-card {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 10px;
+  background: hsl(var(--card));
+  color: hsl(var(--foreground));
+  text-align: start;
+  cursor: pointer;
+}
+
+.desktop-app-card:hover {
+  border-color: hsl(var(--ring) / 0.45);
+  background: hsl(var(--muted));
+}
+
+.desktop-app-card__icon {
+  display: flex;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: hsl(var(--muted));
+  color: hsl(var(--foreground) / 0.78);
+}
+
+.desktop-app-icon {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: color-mix(
+    in srgb,
+    var(--desktop-app-icon-color, hsl(var(--desktop-app-icon-hue))) 14%,
+    transparent
+  );
+  color: var(--desktop-app-icon-color, hsl(var(--desktop-app-icon-hue)));
+}
+
+.desktop-app-card__icon .desktop-app-icon {
+  width: 28px;
+  height: 28px;
+}
+
+.desktop-app-card__copy {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.desktop-app-card__name,
+.desktop-app-card__description {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.desktop-app-card__name {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.desktop-app-card__description {
+  color: hsl(var(--muted-foreground));
+  font-size: 11px;
+}
+
+@media (max-width: 900px) {
+  .desktop-apps-grid__list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 767px) {
+  .desktop-chat-first-hub--enabled:has(.chat-first-surface-panel) {
+    position: relative;
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.code-agents-rail-footer {
+  border-top: 1px solid hsl(var(--sidebar-border));
+  padding: 8px;
+}
+
 .code-agents-embedded-app-surface {
   position: absolute;
   inset: 0;
@@ -501,6 +861,20 @@ body {
   overflow: hidden;
   isolation: isolate;
   background: var(--shell-bg);
+}
+
+.code-agents-primary-app-surface {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+  isolation: isolate;
+  background: var(--shell-bg);
+}
+
+.code-agents-primary-app-surface .webview-slot {
+  inset: 0;
 }
 
 .code-agents-embedded-app-surface .webview-slot {
@@ -541,6 +915,15 @@ body {
   opacity: 0;
   pointer-events: none;
   transform: translate3d(-200vw, 0, 0);
+}
+
+/* Chat-first owns the visible center slot. The legacy code-agent rule above
+   must not hide its active Dispatch guest when both shells share a surface. */
+.content-area--code-agents .desktop-chat-first-hub .webview-slot--active {
+  z-index: 1;
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate3d(0, 0, 0);
 }
 
 .webview-slot--fullscreen {
@@ -1340,7 +1723,7 @@ body {
 }
 
 .settings-provider-message {
-  color: #888;
+  color: hsl(var(--muted-foreground));
   font-size: 11px;
   line-height: 1.45;
   overflow-wrap: anywhere;
@@ -1353,10 +1736,100 @@ body {
   justify-content: space-between;
   gap: 12px;
   padding: 12px 14px;
-  background: rgba(255, 255, 255, 0.025);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: hsl(var(--foreground) / 0.025);
+  border: 1px solid hsl(var(--border) / 0.6);
   border-radius: 10px;
   margin-bottom: 12px;
+}
+
+.settings-chat-first-card {
+  background: linear-gradient(
+    135deg,
+    hsl(var(--primary) / 0.08),
+    hsl(var(--foreground) / 0.025) 55%
+  );
+  border-color: hsl(var(--primary) / 0.22);
+}
+
+.settings-chat-first-card:focus-within {
+  border-color: hsl(var(--primary) / 0.5);
+  box-shadow: 0 0 0 2px hsl(var(--primary) / 0.12);
+}
+
+.settings-subscriptions-card {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  border: 1px solid hsl(var(--border) / 0.6);
+  border-radius: 10px;
+  background: hsl(var(--foreground) / 0.025);
+}
+
+.settings-subscriptions-header,
+.settings-subscription-row,
+.settings-subscription-actions {
+  display: flex;
+  align-items: center;
+}
+
+.settings-subscriptions-header {
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings-subscriptions-header > div,
+.settings-subscription-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.settings-subscriptions-platform,
+.settings-subscription-command {
+  color: hsl(var(--muted-foreground));
+  font-size: 10px;
+}
+
+.settings-subscriptions-list {
+  display: grid;
+  gap: 8px;
+}
+
+.settings-subscription-row {
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px 12px;
+  padding-top: 8px;
+  border-top: 1px solid hsl(var(--border) / 0.5);
+}
+
+.settings-subscription-name {
+  color: hsl(var(--foreground));
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.settings-subscription-description {
+  overflow: hidden;
+  color: hsl(var(--muted-foreground));
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-subscription-actions {
+  gap: 8px;
+}
+
+.settings-subscription-status {
+  color: hsl(var(--muted-foreground));
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.settings-subscription-status--ok {
+  color: hsl(var(--primary));
 }
 
 .settings-code-tab-copy {
@@ -2387,6 +2860,33 @@ body {
   isolation: isolate;
 }
 
+.dark .desktop-chat-first-hub {
+  --background: 0 0% 15%;
+  --foreground: 0 0% 90%;
+  --card: 0 0% 17%;
+  --card-foreground: 0 0% 90%;
+  --popover: 0 0% 17%;
+  --popover-foreground: 0 0% 90%;
+  --primary: 0 0% 75%;
+  --primary-foreground: 0 0% 10%;
+  --secondary: 0 0% 18%;
+  --secondary-foreground: 0 0% 90%;
+  --muted: 0 0% 18%;
+  --muted-foreground: 0 0% 60%;
+  --accent: 0 0% 20%;
+  --accent-foreground: 0 0% 90%;
+  --destructive: 0 91% 71%;
+  --destructive-foreground: 0 0% 10%;
+  --border: 0 0% 24%;
+  --input: 0 0% 24%;
+  --ring: 0 0% 60%;
+  --sidebar-background: 0 0% 12%;
+  --sidebar-foreground: 0 0% 60%;
+  --sidebar-accent: 0 0% 16%;
+  --sidebar-accent-foreground: 0 0% 90%;
+  --sidebar-border: 0 0% 20%;
+}
+
 .update-prompt-body {
   display: flex;
   flex-direction: column;
@@ -2477,12 +2977,13 @@ body {
   max-width: min(360px, calc(100vw - 32px));
   justify-content: center;
   padding: 10px 14px;
-  background: #171717;
-  border-color: rgba(255, 255, 255, 0.12);
+  background: hsl(var(--popover, 0 0% 100%));
+  color: hsl(var(--popover-foreground, 0 0% 10%));
+  border-color: hsl(var(--border, 0 0% 90%) / 0.78);
   border-radius: 8px;
   box-shadow:
-    0 18px 42px rgba(0, 0, 0, 0.42),
-    0 0 0 1px rgba(255, 255, 255, 0.03) inset;
+    0 18px 42px hsl(var(--foreground, 0 0% 10%) / 0.14),
+    0 0 0 1px hsl(var(--border, 0 0% 90%) / 0.2) inset;
 }
 
 .shell [data-sonner-toast].shell-snackbar [data-content] {
@@ -2493,5 +2994,451 @@ body {
   font-size: 13px;
   font-weight: 500;
   letter-spacing: 0;
-  color: rgba(255, 255, 255, 0.92);
+  color: hsl(var(--popover-foreground, 0 0% 10%));
+}
+
+/* ─── Full-page settings ──────────────────────────────────────
+   Settings is a destination in the desktop shell, not a modal over it. */
+.settings-overlay {
+  align-items: stretch;
+  justify-content: stretch;
+  background: var(--shell-bg);
+  backdrop-filter: none;
+  animation: none;
+}
+
+.settings-overlay--closing {
+  animation: settings-overlay-out 160ms ease-out both;
+}
+
+.settings-panel {
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  border: 0;
+  border-radius: 0;
+  background: var(--shell-bg);
+  color: var(--shell-fg);
+  box-shadow: none;
+  animation: none;
+}
+
+.settings-sidebar {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 28px 12px 16px;
+  background: var(--sidebar-bg);
+}
+
+.settings-sidebar-heading {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 10px 24px;
+  color: var(--shell-fg);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.settings-sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settings-sidebar-link,
+.settings-sidebar-close {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--label-inactive);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background var(--ease),
+    color var(--ease);
+}
+
+.settings-sidebar-link:hover,
+.settings-sidebar-close:hover {
+  background: var(--item-hover-bg);
+  color: var(--label-hover);
+}
+
+.settings-sidebar-link--active {
+  background: var(--tab-active-bg);
+  color: var(--label-active);
+  font-weight: 500;
+}
+
+.settings-sidebar-spacer {
+  flex: 1;
+}
+
+.settings-sidebar-close {
+  color: var(--label-inactive);
+}
+
+.settings-main {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--shell-bg);
+}
+
+.settings-header {
+  min-height: 64px;
+  flex: 0 0 64px;
+  padding: 0 36px;
+  border-bottom: 1px solid var(--separator);
+  background: var(--shell-bg);
+}
+
+.settings-header-eyebrow {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--label-inactive);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+.settings-header h2 {
+  color: var(--shell-fg);
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+
+.settings-close {
+  color: var(--label-inactive);
+}
+
+.settings-close:hover {
+  color: var(--shell-fg);
+  background: var(--item-hover-bg);
+}
+
+.settings-body {
+  width: min(900px, 100%);
+  min-height: 0;
+  margin: 0 auto;
+  padding: 34px 44px 72px;
+  background: var(--shell-bg);
+}
+
+.settings-page-section {
+  scroll-margin-top: 28px;
+}
+
+.settings-page-section + .settings-page-section {
+  margin-top: 42px;
+}
+
+.settings-page-section-heading {
+  margin: 0 0 14px;
+}
+
+.settings-page-section-heading h3 {
+  margin: 0;
+  color: var(--shell-fg);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.settings-page-section-heading p {
+  margin: 4px 0 0;
+  color: var(--label-inactive);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.settings-mode-card,
+.settings-provider-card,
+.settings-builder-connect-card,
+.settings-code-tab-card,
+.settings-remote-card,
+.settings-update-card {
+  border-color: var(--separator);
+  background: var(--tab-active-bg);
+  box-shadow: none;
+}
+
+.settings-mode-card,
+.settings-code-tab-card,
+.settings-remote-card {
+  min-height: 62px;
+  border-radius: 8px;
+}
+
+.settings-mode-card-title,
+.settings-app-name,
+.settings-header h2,
+.settings-update-title,
+.settings-provider-card strong {
+  color: var(--shell-fg);
+}
+
+.settings-mode-card-status,
+.settings-app-url,
+.settings-provider-card small,
+.settings-field-hint,
+.settings-update-description {
+  color: var(--label-inactive);
+}
+
+.settings-app-row {
+  border-bottom: 0;
+  min-height: 42px;
+  padding: 6px 0;
+}
+
+.settings-body input,
+.settings-body select,
+.settings-body textarea {
+  border-color: var(--separator);
+  background: var(--shell-bg);
+  color: var(--shell-fg);
+}
+
+.settings-disclosure {
+  color: var(--label-inactive);
+}
+
+.settings-disclosure:hover {
+  color: var(--shell-fg);
+  background: var(--item-hover-bg);
+}
+
+@media (max-width: 720px) {
+  .settings-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-sidebar {
+    flex: 0 0 auto;
+    padding: 14px 12px 8px;
+  }
+
+  .settings-sidebar-heading {
+    padding-bottom: 10px;
+  }
+
+  .settings-sidebar-nav {
+    flex-direction: row;
+    overflow-x: auto;
+  }
+
+  .settings-sidebar-link {
+    width: auto;
+    white-space: nowrap;
+  }
+
+  .settings-sidebar-spacer,
+  .settings-sidebar-close {
+    display: none;
+  }
+
+  .settings-header {
+    padding: 0 20px;
+  }
+
+  .settings-body {
+    padding: 24px 20px 56px;
+  }
+}
+
+/* The desktop settings destination uses the shared page surface. Keep the
+   host responsible only for the window-sized frame and the back affordance. */
+.settings-overlay:has(.settings-panel--page) {
+  align-items: stretch;
+  background: var(--shell-bg);
+  backdrop-filter: none;
+}
+
+.settings-panel--page {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  flex-direction: column;
+  border: 0;
+  border-radius: 0;
+  background: var(--shell-bg);
+  color: var(--shell-fg);
+  box-shadow: none;
+  animation: none;
+}
+
+.settings-page-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  background: transparent;
+  color: var(--label-inactive);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: color var(--ease);
+}
+
+.settings-page-back:hover {
+  color: var(--shell-fg);
+}
+
+.settings-page-back--nav {
+  width: 100%;
+  min-height: 36px;
+  padding: 0 10px;
+  border-radius: 7px;
+  justify-content: flex-start;
+}
+
+.settings-page-back--nav:hover {
+  background: var(--item-hover-bg);
+}
+
+.settings-page-tabs {
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
+  background: var(--shell-bg);
+}
+
+.settings-page-tabs > div {
+  height: 100%;
+}
+
+.settings-page-tabs-nav {
+  border-right: 0;
+  background: var(--sidebar-bg);
+}
+
+/* The settings destination covers the normal tab bar, so preserve the native
+   macOS title-bar clearance before placing the back affordance in the rail. */
+.platform-darwin .settings-page-tabs-nav {
+  padding-top: calc(var(--tabbar-height) + 16px);
+}
+
+.settings-page-tabs-content {
+  background: var(--shell-bg);
+}
+
+.settings-page-tabs-content .rounded-xl {
+  border-color: var(--separator);
+  background: var(--tab-active-bg);
+}
+
+.settings-page-tabs-content .divide-border\/60 > :not(:last-child) {
+  border-color: var(--separator);
+}
+
+/* Full-page settings uses the shared core surface. Keep the few Electron-owned
+   controls on that same token and radius contract instead of introducing a
+   second high-contrast control language. */
+.settings-page-tabs-content .settings-btn {
+  border: 1px solid hsl(var(--border));
+  border-radius: calc(var(--radius) - 2px);
+  background: hsl(var(--accent));
+  color: hsl(var(--foreground));
+}
+
+.settings-page-tabs-content .settings-btn--primary {
+  border-color: hsl(var(--border));
+  background: hsl(var(--accent));
+  color: hsl(var(--foreground));
+}
+
+.settings-page-tabs-content .settings-btn--primary:hover {
+  background: hsl(var(--accent) / 0.8);
+}
+
+.settings-page-tabs-content .settings-btn--ghost {
+  border-color: transparent;
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+}
+
+.settings-page-tabs-content .settings-btn--ghost:hover {
+  border-color: hsl(var(--border));
+  background: hsl(var(--accent) / 0.4);
+  color: hsl(var(--foreground));
+}
+
+.settings-page-tabs-content .settings-btn--danger {
+  border-color: transparent;
+  background: transparent;
+  color: hsl(var(--destructive));
+}
+
+.settings-page-tabs-content .settings-btn--danger:hover {
+  border-color: hsl(var(--destructive) / 0.3);
+  background: hsl(var(--destructive) / 0.08);
+  color: hsl(var(--destructive));
+}
+
+.settings-page-tabs-content .settings-icon-btn {
+  border-radius: calc(var(--radius) - 4px);
+  color: hsl(var(--muted-foreground));
+}
+
+.settings-page-tabs-content .settings-icon-btn:hover {
+  background: hsl(var(--accent) / 0.6);
+  color: hsl(var(--foreground));
+}
+
+.settings-page-tabs-content .settings-mode-toggle {
+  border-color: hsl(var(--border));
+  border-radius: calc(var(--radius) - 2px);
+  background: hsl(var(--background));
+}
+
+.settings-page-tabs-content .settings-mode-btn {
+  color: hsl(var(--muted-foreground));
+}
+
+.settings-page-tabs-content .settings-mode-btn:hover,
+.settings-page-tabs-content .settings-mode-btn--active {
+  background: hsl(var(--accent));
+  color: hsl(var(--foreground));
+}
+
+.settings-page-tabs-content .settings-provider-form input[type="password"],
+.settings-page-tabs-content .settings-shortcut-form select,
+.settings-page-tabs-content .settings-shortcut-form input[type="text"],
+.settings-page-tabs-content .settings-shortcut-view-input {
+  border-color: hsl(var(--border));
+  border-radius: calc(var(--radius) - 2px);
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+}
+
+.settings-page-tabs-content .settings-provider-pill {
+  border-color: hsl(var(--border));
+  border-radius: calc(var(--radius) - 2px);
+  background: hsl(var(--background));
+  color: hsl(var(--muted-foreground));
+}
+
+.settings-page-tabs-content .settings-provider-pill:hover,
+.settings-page-tabs-content .settings-provider-pill--active {
+  border-color: hsl(var(--border));
+  background: hsl(var(--accent));
+  color: hsl(var(--foreground));
 }

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildJobResourceContent,
   classifyJobResource,
+  jobBelongsToApp,
   parseJobResource,
   type JobFrontmatter,
 } from "./frontmatter.js";
@@ -94,5 +95,16 @@ mcpTools: ["https://example.com/not-a-tool"]
 
 Run the job.`),
     ).toThrow(/mcpTools must contain only framework MCP tool names/);
+  });
+
+  it("fails closed for organization resources without an app owner", () => {
+    expect(jobBelongsToApp({ orgId: "org-1" }, "factory")).toBe(false);
+    expect(
+      jobBelongsToApp({ orgId: "org-1", appId: "factory" }, "factory"),
+    ).toBe(true);
+    expect(jobBelongsToApp({ orgId: "org-1", appId: "factory" }, "mail")).toBe(
+      false,
+    );
+    expect(jobBelongsToApp({}, "mail")).toBe(true);
   });
 });

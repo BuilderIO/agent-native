@@ -1,5 +1,89 @@
 # @agent-native/skills
 
+## 0.2.520
+
+### Patch Changes
+
+- Updated dependencies [dab8787]
+- Updated dependencies [dab8787]
+- Updated dependencies [dab8787]
+- Updated dependencies [dab8787]
+- Updated dependencies [dab8787]
+- Updated dependencies [dab8787]
+- Updated dependencies [dab8787]
+- Updated dependencies [dab8787]
+- Updated dependencies [dab8787]
+- Updated dependencies [dab8787]
+  - @agent-native/core@0.149.2
+
+## 0.2.519
+
+### Patch Changes
+
+- Updated dependencies [dae1840]
+  - @agent-native/core@0.149.1
+
+## 0.2.518
+
+### Patch Changes
+
+- Updated dependencies [c41fd16]
+- Updated dependencies [c41fd16]
+- Updated dependencies [c41fd16]
+- Updated dependencies [c41fd16]
+- Updated dependencies [c41fd16]
+- Updated dependencies [c41fd16]
+- Updated dependencies [c41fd16]
+- Updated dependencies [c41fd16]
+- Updated dependencies [c41fd16]
+- Updated dependencies [c41fd16]
+- Updated dependencies [c41fd16]
+- Updated dependencies [c41fd16]
+- Updated dependencies [c41fd16]
+- Updated dependencies [c41fd16]
+- Updated dependencies [c41fd16]
+- Updated dependencies [c41fd16]
+  - @agent-native/core@0.149.0
+
+## 0.2.517
+
+### Patch Changes
+
+- Updated dependencies [c29fcb7]
+- Updated dependencies [c29fcb7]
+  - @agent-native/core@0.148.1
+
+## 0.2.516
+
+### Patch Changes
+
+- 061896a: Update the skills package prompt dependency and synchronized workspace skill content.
+- Updated dependencies [061896a]
+- Updated dependencies [061896a]
+- Updated dependencies [061896a]
+- Updated dependencies [061896a]
+- Updated dependencies [061896a]
+- Updated dependencies [061896a]
+- Updated dependencies [061896a]
+- Updated dependencies [061896a]
+- Updated dependencies [061896a]
+- Updated dependencies [061896a]
+- Updated dependencies [061896a]
+- Updated dependencies [061896a]
+- Updated dependencies [061896a]
+  - @agent-native/core@0.148.0
+
+## 0.2.515
+
+### Patch Changes
+
+- Updated dependencies [cf16fae]
+- Updated dependencies [cf16fae]
+- Updated dependencies [cf16fae]
+- Updated dependencies [cf16fae]
+- Updated dependencies [cf16fae]
+  - @agent-native/core@0.147.0
+
 ## 0.2.514
 
 ### Patch Changes

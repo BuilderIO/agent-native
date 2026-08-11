@@ -91,6 +91,7 @@ const messages: AgentChatTranslation = {
   "message.actions": "Ações da mensagem",
   "message.copyMessage": "Copiar mensagem",
   "message.copyRequestId": "Copiar ID da solicitação",
+  "message.requestIdUnavailable": "ID da solicitação indisponível",
   "message.edit": "Editar mensagem",
   "message.forkChat": "Bifurcar chat",
   "message.missingFinal":
@@ -215,7 +216,7 @@ const messages: AgentChatTranslation = {
   "composer.activeAppContext": "Contexto de aplicativo ativo",
   "composer.actMode": "Modo de ação",
   "composer.add": "Adicionar...",
-  "composer.addOwnKeys": "Adicione suas próprias chaves",
+  "composer.addOwnKeys": "Chaves personalizadas",
   "composer.assets.closePicker": "Fechar seletor de imagens",
   "composer.assets.contextTitle": "Imagem: {{title}}",
   "composer.assets.generatedImage": "Imagem gerada",

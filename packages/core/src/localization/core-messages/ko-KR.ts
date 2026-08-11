@@ -66,7 +66,7 @@ const messages: AgentChatTranslation = {
   "composer.activeAppContext": "활성 앱 컨텍스트",
   "composer.actMode": "실행 모드",
   "composer.add": "추가...",
-  "composer.addOwnKeys": "직접 키 추가",
+  "composer.addOwnKeys": "사용자 지정 키",
   "composer.assets.closePicker": "이미지 선택기 닫기",
   "composer.assets.contextTitle": "이미지: {{title}}",
   "composer.assets.generatedImage": "생성된 이미지",
@@ -329,6 +329,7 @@ const messages: AgentChatTranslation = {
   "message.actions": "메시지 작업",
   "message.copyMessage": "메시지 복사",
   "message.copyRequestId": "요청 ID 복사",
+  "message.requestIdUnavailable": "요청 ID를 사용할 수 없음",
   "message.edit": "메시지 편집",
   "message.forkChat": "채팅 분기",
   "message.missingFinal":

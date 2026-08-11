@@ -3,7 +3,7 @@ import { LOCAL_FILES_REFERENCE_MD } from "./skill-content/local-files.js";
 import { VISUAL_RECAP_SKILL_MD } from "./skill-content/visual-recap-skill.js";
 import { WIREFRAME_REFERENCE_MD } from "./skill-content/wireframe.js";
 
-export { VISUAL_RECAP_SKILL_MD };
+export { CONNECTION_REFERENCE_MD, VISUAL_RECAP_SKILL_MD };
 
 export const RECAP_REFERENCE_FILES = {
   "references/wireframe.md": WIREFRAME_REFERENCE_MD,

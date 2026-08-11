@@ -91,6 +91,10 @@ describe("durable BigQuery backfill worker", () => {
         sql: expect.stringContaining("SET status = 'pending'"),
       }),
     );
+    const releaseQuery = db.execute.mock.calls[1]?.[0] as {
+      args?: unknown[];
+    };
+    expect(releaseQuery.args?.[0]).toBe(releaseQuery.args?.[1]);
   });
 
   it("pauses before claiming work when the database has lock waiters", async () => {

@@ -119,6 +119,8 @@ import {
   getSlideTextBoxDefaultColor,
   getSlideSelectionIdentity,
   getSlideSelectionMode,
+  findPersistedImageObject,
+  isDeletableFlowImage,
   removeSlideObjectAndLayoutSpacer,
   resolveSlideObjectContainingBlock,
   type CopiedSlideObjects,
@@ -148,7 +150,7 @@ function ExcalidrawExitButton(props: { onExit: () => void; label: string }) {
         <Button
           variant="ghost"
           size="icon"
-          className="absolute right-3 top-3 z-20 h-8 w-8 cursor-pointer border border-border bg-popover/95 shadow-lg backdrop-blur"
+          className="absolute right-3 top-3 z-20 h-8 w-8 cursor-pointer border border-border bg-popover/95 shadow-lg"
           onClick={props.onExit}
           aria-label={props.label}
         >
@@ -650,7 +652,7 @@ function SameSlidePresenceIndicator({ users }: { users: CollabUser[] }) {
       ? `${users[0].name} is here`
       : `${users.length} others here`;
   return (
-    <div className="pointer-events-auto flex items-center gap-1.5 rounded-full border border-border bg-popover/95 py-1 pl-1 pr-2.5 text-xs text-popover-foreground shadow-lg backdrop-blur">
+    <div className="pointer-events-auto flex items-center gap-1.5 rounded-full border border-border bg-popover/95 py-1 pl-1 pr-2.5 text-xs text-popover-foreground shadow-lg">
       <div className="flex items-center">
         {visible.map((u) => (
           <SamePresenceAvatar key={u.email} user={u} />
@@ -2404,9 +2406,24 @@ export default function SlideEditor({
         clearMultiSelection();
       } else {
         const element = resolveSelectedElement();
-        if (!element || !isPersistedFreeformObject(element)) return;
-        e.preventDefault();
-        removeSlideObjectAndLayoutSpacer(element);
+        if (!element) return;
+        if (isPersistedFreeformObject(element)) {
+          e.preventDefault();
+          removeSlideObjectAndLayoutSpacer(element);
+        } else if (isDeletableFlowImage(element)) {
+          e.preventDefault();
+          // An imported PPTX/PDF image is an <img> (or placeholder) nested in
+          // an absolutely positioned wrapper that carries the persisted object
+          // id. Removing only the inner node would leave that wrapper and its
+          // durable metadata behind as an invisible ghost object.
+          const owner = findPersistedImageObject(element, slideContent);
+          if (owner) removeSlideObjectAndLayoutSpacer(owner);
+          else element.remove();
+          setSelectedImg(null);
+          setImageOverlay(null);
+        } else {
+          return;
+        }
         clearSelectedElement();
       }
 
@@ -4229,7 +4246,7 @@ export default function SlideEditor({
             </div>
           ) : (
             <div className="relative h-full bg-background">
-              <div className="absolute right-3 top-3 z-20 flex h-8 items-center gap-0.5 rounded-md border border-border bg-popover/95 px-1 shadow-lg backdrop-blur">
+              <div className="absolute right-3 top-3 z-20 flex h-8 items-center gap-0.5 rounded-md border border-border bg-popover/95 px-1 shadow-lg">
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
@@ -4328,6 +4345,7 @@ export default function SlideEditor({
                           edits={activeSlideEdits}
                           resolveRect={resolveCanvasRect}
                           containerRef={slideCanvasRef}
+                          outlineOnly
                         />
                       )}
                       {(agentActive || passivePresentUsers.length > 0) && (
@@ -4412,7 +4430,12 @@ export default function SlideEditor({
         onSendToAgent={sendSelectionToAgent}
       />
 
-      <BlockBubbleMenu editingEl={editingEl} />
+      <BlockBubbleMenu
+        editingEl={editingEl}
+        slideId={slide.id}
+        deckId={deckId}
+        onCommitInlineEdit={exitInlineEdit}
+      />
 
       {pendingUpdateCount > 0 && (
         <div className="absolute top-4 right-4 z-50">

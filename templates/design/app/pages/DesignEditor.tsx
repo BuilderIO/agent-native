@@ -48,7 +48,10 @@ import {
 import { ShareButton } from "@agent-native/core/client/sharing";
 import { buildSignInReturnHref } from "@agent-native/core/client/ui";
 import type { ReviewComment } from "@agent-native/core/review";
-import { withBuilderUtmTrackingParams } from "@agent-native/core/shared";
+import {
+  normalizeDocumentTitle,
+  withBuilderUtmTrackingParams,
+} from "@agent-native/core/shared";
 import { CreativeContextShareTab } from "@agent-native/creative-context/client";
 import {
   LiveCursorOverlay,
@@ -4006,6 +4009,7 @@ function DesignEditor() {
   const updateFileMutation = useActionMutation("update-file");
   const renameScreenMutation = useActionMutation("rename-screen");
   const createFileMutation = useActionMutation("create-file");
+  const createFileAsync = createFileMutation.mutateAsync;
   const deleteFileMutation = useActionMutation("delete-file");
   const updateDesignMutation = useActionMutation("update-design");
   const updateDesignAsync = updateDesignMutation.mutateAsync;
@@ -4990,7 +4994,10 @@ function DesignEditor() {
 
   useEffect(() => {
     if (!design?.title) return;
-    const nextTitle = `${design.title} — Design`;
+    const nextTitle = `${normalizeDocumentTitle(
+      design.title,
+      "Untitled design",
+    )} — Design`;
     const previousTitle = document.title;
     document.title = nextTitle;
     return () => {
@@ -6877,127 +6884,121 @@ function DesignEditor() {
       const createdGeometry: FrameGeometry = request?.canvasPosition
         ? {
             ...fallbackGeometry,
-            ...canvasFrameGeometryById[screenId],
+            ...liveFrameGeometryRef.current[screenId],
             x: request.canvasPosition.x,
             y: request.canvasPosition.y,
           }
         : fallbackGeometry;
 
-      createFileMutation.mutate(
-        {
-          designId: id,
-          filename,
-          content,
-          fileType,
-        } as any,
-        {
-          onSuccess: (result: any) => {
-            const nextId = typeof result?.id === "string" ? result.id : null;
-            // Refetch only when there is no created id to insert optimistically:
-            // a whole-design refetch re-downloads every screen's HTML, which is
-            // what made adding a frame feel slow.
-            if (!nextId) {
-              queryClient.invalidateQueries({
-                queryKey: ["action", "get-design"],
-              });
-            } else {
-              optimisticallyInsertCreatedFile({
-                fileId: nextId,
-                filename,
-                fileType,
-                content,
-                result,
-              });
-              // Use the same immediate optimistic geometry path for every
-              // duplicate entry point. This makes the frame, selection, and
-              // camera agree before the authoritative refetch completes.
-              writeFrameGeometrySnapshot({
-                ...canvasFrameGeometryById,
-                [nextId]: createdGeometry,
-              });
-              focusCreatedScreen(nextId, createdGeometry);
-              recordFileCreationHistoryEntry({
-                filename,
-                content,
-                fileType,
-                geometry: createdGeometry,
-              });
-              // Duplicating a localhost/fusion screen must keep it a live,
-              // editable URL-backed screen — not just a copied HTML snapshot.
-              // Carry the source screen's screenMetadata entry (sourceType,
-              // connectionId, url, path, bridgeUrl, etc.) and its
-              // localhostScreens entry (if present) over to the new file id,
-              // using path-addressed operations so a peer's metadata for any
-              // other screen cannot be replaced by this duplicate's snapshot.
-              const sourceMetadataById = getDesignDataRecord(
+      // Per-call mutate callbacks, not a promise, would silently strand every
+      // duplicate but the last: a second mutate() detaches the observer from
+      // the first mutation, so only the newest call's onSuccess ever runs.
+      void createFileAsync({
+        designId: id,
+        filename,
+        content,
+        fileType,
+      } as any)
+        .then((result: any) => {
+          const nextId = typeof result?.id === "string" ? result.id : null;
+          // Refetch only when there is no created id to insert optimistically:
+          // a whole-design refetch re-downloads every screen's HTML, which is
+          // what made adding a frame feel slow.
+          if (!nextId) {
+            queryClient.invalidateQueries({
+              queryKey: ["action", "get-design"],
+            });
+          } else {
+            optimisticallyInsertCreatedFile({
+              fileId: nextId,
+              filename,
+              fileType,
+              content,
+              result,
+            });
+            // Optimistic geometry keeps frame, selection, and camera agreeing
+            // before the refetch. Base it on the map writeFrameGeometrySnapshot
+            // diffs against, or a sibling duplicate's placement is deleted.
+            writeFrameGeometrySnapshot({
+              ...getCanvasFrameGeometry(designDataJsonRef.current),
+              [nextId]: createdGeometry,
+            });
+            focusCreatedScreen(nextId, createdGeometry);
+            recordFileCreationHistoryEntry({
+              filename,
+              content,
+              fileType,
+              geometry: createdGeometry,
+            });
+            // A duplicated localhost/fusion screen stays URL-backed only if its
+            // metadata comes along, and the carry must be path-addressed or it
+            // replaces a peer's metadata for every other screen.
+            const sourceMetadataById = getDesignDataRecord(
+              designDataJsonRef.current,
+              "screenMetadata",
+            );
+            const sourceMetadata = getDesignDataRecord(
+              sourceMetadataById,
+              screenId,
+            );
+            const sourceType = sourceMetadata.sourceType;
+            if (sourceType === "localhost" || sourceType === "fusion") {
+              const dataOperations: DesignDataOperation[] = [
+                {
+                  op: "set",
+                  path: ["screenMetadata", nextId],
+                  value: { ...sourceMetadata },
+                },
+              ];
+              const sourceLocalhostScreensById = getDesignDataRecord(
                 designDataJsonRef.current,
-                "screenMetadata",
+                "localhostScreens",
               );
-              const sourceMetadata = getDesignDataRecord(
-                sourceMetadataById,
+              const sourceLocalhostScreen = getDesignDataRecord(
+                sourceLocalhostScreensById,
                 screenId,
               );
-              const sourceType = sourceMetadata.sourceType;
-              if (sourceType === "localhost" || sourceType === "fusion") {
-                const dataOperations: DesignDataOperation[] = [
-                  {
-                    op: "set",
-                    path: ["screenMetadata", nextId],
-                    value: { ...sourceMetadata },
-                  },
-                ];
-                const sourceLocalhostScreensById = getDesignDataRecord(
-                  designDataJsonRef.current,
-                  "localhostScreens",
-                );
-                const sourceLocalhostScreen = getDesignDataRecord(
-                  sourceLocalhostScreensById,
-                  screenId,
-                );
-                if (Object.keys(sourceLocalhostScreen).length > 0) {
-                  dataOperations.push({
-                    op: "set",
-                    path: ["localhostScreens", nextId],
-                    value: { ...sourceLocalhostScreen },
-                  });
-                }
-                const nextData = applyDesignDataOperations(
-                  designDataJsonRef.current,
-                  dataOperations,
-                );
-                designDataJsonRef.current = nextData;
-                queryClient.setQueryData(
-                  ["action", "get-design", { id }],
-                  (old: any) => {
-                    if (!old || typeof old !== "object") return old;
-                    return { ...old, data: JSON.stringify(nextData) };
-                  },
-                );
-                updateDesignMutation.mutate({ id, dataOperations } as any, {
-                  onError: () => {
-                    queryClient.invalidateQueries({
-                      queryKey: ["action", "get-design"],
-                    });
-                  },
+              if (Object.keys(sourceLocalhostScreen).length > 0) {
+                dataOperations.push({
+                  op: "set",
+                  path: ["localhostScreens", nextId],
+                  value: { ...sourceLocalhostScreen },
                 });
               }
+              const nextData = applyDesignDataOperations(
+                designDataJsonRef.current,
+                dataOperations,
+              );
+              designDataJsonRef.current = nextData;
+              queryClient.setQueryData(
+                ["action", "get-design", { id }],
+                (old: any) => {
+                  if (!old || typeof old !== "object") return old;
+                  return { ...old, data: JSON.stringify(nextData) };
+                },
+              );
+              void updateDesignAsync({ id, dataOperations } as any).catch(
+                () => {
+                  queryClient.invalidateQueries({
+                    queryKey: ["action", "get-design"],
+                  });
+                },
+              );
             }
-            toast.success(t("designEditor.toasts.screenDuplicated"));
-          },
-          onError: (error) => {
-            toast.error(
-              error instanceof Error
-                ? error.message
-                : t("designEditor.toasts.screenDuplicateError"),
-            );
-          },
-        },
-      );
+          }
+          toast.success(t("designEditor.toasts.screenDuplicated"));
+        })
+        .catch((error: unknown) => {
+          toast.error(
+            error instanceof Error
+              ? error.message
+              : t("designEditor.toasts.screenDuplicateError"),
+          );
+        });
     },
     [
       canEditDesign,
-      canvasFrameGeometryById,
-      createFileMutation,
+      createFileAsync,
       files,
       focusCreatedScreen,
       recordFileCreationHistoryEntry,
@@ -7006,7 +7007,7 @@ function DesignEditor() {
       overviewScreens,
       queryClient,
       t,
-      updateDesignMutation,
+      updateDesignAsync,
       writeFrameGeometrySnapshot,
     ],
   );
@@ -11481,7 +11482,6 @@ function DesignEditor() {
       screenId: string,
       nodeId: string,
       options?: {
-        selectFrame?: boolean;
         nextTool?: "move" | "pen";
         preserveActiveTool?: boolean;
       },
@@ -11503,8 +11503,7 @@ function DesignEditor() {
       // for the board), but keep the previous active FILE and never put the
       // board id into the overview screen-frame selection.
       const isBoardTarget = Boolean(boardFileId && screenId === boardFileId);
-      pendingOverviewScreenSelectionRef.current =
-        isBoardTarget || options?.selectFrame === false ? null : screenId;
+      pendingOverviewScreenSelectionRef.current = null;
       pendingOverviewLayerSelectionRef.current = nodeId;
       clearPendingOverviewLayerSelectionTimer();
       flushSync(() => {
@@ -11515,9 +11514,9 @@ function DesignEditor() {
         setSelectedElement(null);
         setHoveredElement(null);
         setSelectedLayerIdsState([nodeId]);
-        setOverviewSelectedScreenIds(
-          isBoardTarget || options?.selectFrame === false ? [] : [screenId],
-        );
+        // The new node is the selection; leaving its parent frame selected too
+        // hands Cmd+D and alt-drag to the screen-level duplicate instead.
+        setOverviewSelectedScreenIds([]);
         if (!options?.preserveActiveTool) {
           setActiveTool(options?.nextTool ?? "move");
         }
@@ -11625,7 +11624,7 @@ function DesignEditor() {
       if (!result) return false;
       const nodeId = typeof result === "string" ? result : primitive.nodeId;
       if (nodeId) {
-        handlePrimitiveCreated(boardFileId, nodeId, { selectFrame: false });
+        handlePrimitiveCreated(boardFileId, nodeId);
       }
 
       return result;
@@ -11653,7 +11652,6 @@ function DesignEditor() {
       if (!result) return;
       const resultNodeId = typeof result === "string" ? result : nodeId;
       handlePrimitiveCreated(activeFile.id, resultNodeId, {
-        selectFrame: false,
         nextTool: spec.tool === "pen" ? "pen" : undefined,
         preserveActiveTool: spec.preserveActiveTool,
       });
@@ -15064,7 +15062,13 @@ function DesignEditor() {
         });
         return false;
       }
-      applyLocalContentUpdate(nextContent, { refreshPreview: false });
+      // Structural insert: a selector-scoped push matches the live clone but
+      // not the re-keyed copy in the new source, and the bridge deletes what
+      // it cannot match.
+      applyLocalContentUpdate(nextContent, {
+        refreshPreview: false,
+        forcePreviewFullDocument: true,
+      });
       const nextProjection = buildCodeLayerProjection(nextContent);
       const nextNode = elementInfo
         ? resolveCodeLayerNodeFromElementInfo(nextProjection, elementInfo)

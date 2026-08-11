@@ -22,13 +22,15 @@ import {
   effectiveTimezone,
   isValidTimezone,
 } from "./cron.js";
-import { classifyJobResource } from "./frontmatter.js";
+import { classifyJobResource, jobBelongsToApp } from "./frontmatter.js";
 import {
   parseJobFrontmatter,
   buildJobContent,
   normalizeJobMcpTools,
   type JobFrontmatter,
 } from "./scheduler.js";
+
+export { jobBelongsToApp } from "./frontmatter.js";
 
 function getOwner(): string {
   const email = getRequestUserEmail();
@@ -38,12 +40,6 @@ function getOwner(): string {
 
 function getSharedOwner(): string {
   return sharedResourceOwner(getRequestOrgId());
-}
-
-export function jobBelongsToApp(meta: JobFrontmatter, appId?: string): boolean {
-  const ownerAppId = meta.appId?.trim();
-  if (!ownerAppId) return true;
-  return ownerAppId === appId?.trim();
 }
 
 /**

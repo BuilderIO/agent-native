@@ -24,7 +24,7 @@ export default defineAction({
       workspaceMemberIdentityFromContext(context),
     );
     const definitions = await listAutomationDefinitions(
-      { userEmail, orgId },
+      { userEmail, orgId, appId: "factory" },
       "organization",
     );
     const definition = definitions.find(

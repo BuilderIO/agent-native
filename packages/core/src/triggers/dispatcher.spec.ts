@@ -766,6 +766,7 @@ event: event.org.creator
 mode: agentic
 createdBy: alice+triggers@agent-native.test
 orgId: "org-1"
+appId: mail
 runAs: creator
 ---
 
@@ -776,6 +777,7 @@ Handle the organization event.`,
     await initTriggerDispatcher({
       getActions: () => ({}),
       getSystemPrompt: async () => "system",
+      appId: "mail",
     });
     const handler = subscribeMock.mock.calls.find(
       ([eventName]) => eventName === "event.org.creator",

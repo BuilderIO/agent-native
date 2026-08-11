@@ -18,13 +18,15 @@ import {
   readDeployCredentialEnv,
   resolveBuilderCredentialsDetailed,
   resolveSecret,
+  type BuilderCredentialLookupIdentity,
 } from "../../server/credential-provider.js";
 import { getSetting } from "../../settings/store.js";
 import { getAgentAppModelDefaultForCurrentRequest } from "../app-model-defaults.js";
 import {
-  normalizeOpenAiBaseUrl,
+  OLLAMA_BASE_URL_ENV_VAR,
   OPENAI_BASE_URL_ENV_VAR,
 } from "./openai-compatible-endpoint.js";
+import { validateProviderBaseUrl } from "./provider-endpoint-validation.js";
 import type { AgentEngine, EngineCapabilities } from "./types.js";
 
 const require = createRequire(import.meta.url);
@@ -342,21 +344,24 @@ export function resolveDelegatedRunModel(
  * verbatim instead of normalized against the built-in catalog.
  *
  * `normalizeModelForEngine` honors a live engine's `preserveCustomModels`, but
- * that flag is only set on an AI SDK engine INSTANCE when the OpenAI provider
- * is pointed at an OpenAI-compatible gateway (a custom base URL — e.g. Ollama
- * Cloud or LiteLLM), whose model IDs are not in the built-in OpenAI catalog.
+ * that flag is only set on an AI SDK engine INSTANCE when the provider is
+ * Ollama, or when OpenAI is pointed at an OpenAI-compatible gateway (a custom
+ * base URL — e.g. Ollama Cloud or LiteLLM), whose model IDs are not in the
+ * built-in catalogs.
  * The static registry entry the settings actions pass to
  * `normalizeModelForEngine` cannot carry that runtime flag, so this async
- * helper reproduces the same decision — `ai-sdk:openai` AND a resolved base URL
- * — from the request's stored/deploy config. First-party OpenAI (no gateway)
- * returns false so an unknown/invalid model still normalizes to a supported one.
+ * helper reproduces the same decision from the request's stored/deploy config.
+ * Ollama always returns true because its local model inventory is user-defined;
+ * first-party OpenAI (no gateway) returns false so an unknown/invalid model
+ * still normalizes to a supported one.
  */
 export async function resolveEnginePreservesCustomModels(
   entry: Pick<AgentEngineEntry, "name">,
 ): Promise<boolean> {
+  if (entry.name === "ai-sdk:ollama") return true;
   if (entry.name !== "ai-sdk:openai") return false;
   try {
-    return Boolean(await resolveOpenAiBaseUrl());
+    return Boolean(await resolveProviderBaseUrl(OPENAI_BASE_URL_ENV_VAR));
   } catch {
     return false;
   }
@@ -527,22 +532,31 @@ function shouldTraceEngineDetection(): boolean {
  * `/builder/status` resolves them via the same request org context, and the
  * chat engine picker must not disagree with that card.
  */
-export async function detectEngineFromUserSecrets(): Promise<AgentEngineEntry | null> {
+export async function detectEngineFromUserSecrets(
+  identity?: BuilderCredentialLookupIdentity,
+): Promise<AgentEngineEntry | null> {
   const traceLookup = shouldTraceEngineDetection();
-  let email: string | undefined;
-  let orgId: string | null | undefined;
+  let email = identity?.userEmail?.trim() || undefined;
+  let orgId = identity?.orgId;
   try {
     const { getRequestUserEmail, getRequestOrgId } =
       await import("../../server/request-context.js");
-    email = getRequestUserEmail();
-    orgId = getRequestOrgId();
+    email ??= getRequestUserEmail();
+    if (orgId === undefined) orgId = getRequestOrgId();
   } catch {
+    if (!email) {
+      if (traceLookup) {
+        console.log(
+          `[engine-detect] result=null reason=no-request-context email=(unknown) orgId=(unknown)`,
+        );
+      }
+      return null;
+    }
     if (traceLookup) {
       console.log(
-        `[engine-detect] result=null reason=no-request-context email=(unknown) orgId=(unknown)`,
+        `[engine-detect] request context unavailable; using explicit identity email=${email} orgId=${orgId ?? "(none)"}`,
       );
     }
-    return null;
   }
   if (!email) {
     if (traceLookup) {
@@ -556,7 +570,9 @@ export async function detectEngineFromUserSecrets(): Promise<AgentEngineEntry | 
   const hasAllKeys = async (entry: AgentEngineEntry): Promise<boolean> => {
     if (!isAgentEnginePackageInstalled(entry)) return false;
     if (entry.requiredEnvVars.length === 0) return false;
-    if (entry.name === "builder") return hasUsableBuilderConnection();
+    if (entry.name === "builder") {
+      return hasUsableBuilderConnection(identity);
+    }
     for (const key of entry.requiredEnvVars) {
       // A throw here means the credential store could not be read. Let it
       // propagate: swallowing it reports "no provider connected" to a user
@@ -646,22 +662,26 @@ function engineCreateConfig(
   };
 }
 
-async function resolveOpenAiBaseUrl(): Promise<string | undefined> {
-  let raw: string | null | undefined = null;
-  try {
-    raw = await resolveSecret(OPENAI_BASE_URL_ENV_VAR);
-  } catch {
-    raw = null;
+async function resolveProviderBaseUrl(
+  envVar: string,
+): Promise<string | undefined> {
+  const raw = await resolveSecret(envVar);
+
+  if (!raw && canUseDeployCredentialFallbackForRequest(envVar)) {
+    const deployValue = readDeployCredentialEnv(envVar);
+    if (!deployValue) return undefined;
+    return validateProviderBaseUrl(deployValue, {
+      allowPrivate: true,
+    });
   }
 
-  if (
-    !raw &&
-    canUseDeployCredentialFallbackForRequest(OPENAI_BASE_URL_ENV_VAR)
-  ) {
-    raw = readDeployCredentialEnv(OPENAI_BASE_URL_ENV_VAR);
-  }
-
-  return raw ? normalizeOpenAiBaseUrl(raw) : undefined;
+  return raw
+    ? validateProviderBaseUrl(raw, {
+        allowLocalOllama:
+          envVar === OLLAMA_BASE_URL_ENV_VAR &&
+          process.env.NODE_ENV === "development",
+      })
+    : undefined;
 }
 
 /**
@@ -669,8 +689,10 @@ async function resolveOpenAiBaseUrl(): Promise<string | undefined> {
  * keeps that distinction instead of reporting "connect a provider" to a user
  * whose org-shared keys exist but were unreadable.
  */
-async function hasUsableBuilderConnection(): Promise<boolean> {
-  const creds = await resolveBuilderCredentialsDetailed();
+async function hasUsableBuilderConnection(
+  identity?: BuilderCredentialLookupIdentity,
+): Promise<boolean> {
+  const creds = await resolveBuilderCredentialsDetailed(identity);
   assertCredentialStoreReadable(creds);
   return Boolean(creds.privateKey && creds.publicKey);
 }
@@ -725,6 +747,7 @@ async function engineCreateConfigForEntry(
   extra?: Record<string, unknown>,
   preferResolvedCredential = false,
   apiKeyEnvVar?: string,
+  credentialIdentity?: BuilderCredentialLookupIdentity,
 ): Promise<Record<string, unknown>> {
   const safeExtra = { ...(extra ?? {}) };
   let matchingApiKey = apiKey;
@@ -782,13 +805,44 @@ async function engineCreateConfigForEntry(
           : undefined;
     }
   }
-  if (entry.name === "ai-sdk:openai") {
+  if (entry.name === "ai-sdk:openai" || entry.name === "ai-sdk:ollama") {
     if (typeof safeExtra.baseURL === "string" && safeExtra.baseUrl == null) {
-      safeExtra.baseUrl = normalizeOpenAiBaseUrl(safeExtra.baseURL);
+      safeExtra.baseUrl = await validateProviderBaseUrl(safeExtra.baseURL, {
+        allowLocalOllama:
+          entry.name === "ai-sdk:ollama" &&
+          process.env.NODE_ENV === "development",
+      });
     }
     if (safeExtra.baseUrl == null) {
-      const baseUrl = await resolveOpenAiBaseUrl();
+      const baseUrl = await resolveProviderBaseUrl(
+        entry.name === "ai-sdk:ollama"
+          ? OLLAMA_BASE_URL_ENV_VAR
+          : OPENAI_BASE_URL_ENV_VAR,
+      );
       if (baseUrl) safeExtra.baseUrl = baseUrl;
+    }
+  }
+  if (
+    entry.name === "builder" &&
+    (credentialIdentity !== undefined || safeExtra.credentials == null)
+  ) {
+    // Builder authentication is a private/public key pair, not the single
+    // provider key carried by ResolveEngineConfig. Capture the scoped pair
+    // while the verified request identity is available so a later stream or
+    // detached run cannot resolve credentials from the wrong ambient context.
+    const creds = await resolveBuilderCredentialsDetailed(credentialIdentity);
+    assertCredentialStoreReadable(creds);
+    if (
+      credentialIdentity !== undefined ||
+      creds.source !== null ||
+      creds.lookupFailed
+    ) {
+      safeExtra.credentials = {
+        privateKey: creds.privateKey,
+        publicKey: creds.publicKey,
+        userId: creds.userId,
+        orgName: creds.orgName,
+      };
     }
   }
   return engineCreateConfig(entry, matchingApiKey, safeExtra);
@@ -828,11 +882,14 @@ export function isStoredEngineUsable(
 export async function isStoredEngineUsableForRequest(
   stored: unknown,
   entry: AgentEngineEntry,
+  options: { credentialIdentity?: BuilderCredentialLookupIdentity } = {},
 ): Promise<boolean> {
   if (!isAgentEnginePackageInstalled(entry)) return false;
   if (isAgentEngineSettingConfigured(stored)) return true;
   if (entry.requiredEnvVars.length === 0) return true;
-  if (entry.name === "builder") return hasUsableBuilderConnection();
+  if (entry.name === "builder") {
+    return hasUsableBuilderConnection(options.credentialIdentity);
+  }
   for (const key of entry.requiredEnvVars) {
     if (!(await resolveUsableProviderSecret(key))) return false;
   }
@@ -847,7 +904,10 @@ export async function isStoredEngineUsableForRequest(
  */
 export async function isResolvedEngineUsableForRequest(
   engine: AgentEngine,
-  options: { apiKey?: string } = {},
+  options: {
+    apiKey?: string;
+    credentialIdentity?: BuilderCredentialLookupIdentity;
+  } = {},
 ): Promise<boolean> {
   const entry = _registry.get(engine.name);
   // Custom engines may have their own credential contract outside the core
@@ -856,7 +916,9 @@ export async function isResolvedEngineUsableForRequest(
   if (!isAgentEnginePackageInstalled(entry)) return false;
   if (entry.requiredEnvVars.length === 0) return true;
 
-  if (entry.name === "builder") return hasUsableBuilderConnection();
+  if (entry.name === "builder") {
+    return hasUsableBuilderConnection(options.credentialIdentity);
+  }
 
   if (options.apiKey?.trim()) {
     const key = entry.requiredEnvVars[0];
@@ -891,6 +953,8 @@ export interface ResolveEngineConfig {
   model?: string;
   /** App/template id used for org-scoped per-app model defaults. */
   appId?: string;
+  /** Verified owner identity for request-scoped Builder credential capture. */
+  credentialIdentity?: BuilderCredentialLookupIdentity;
 }
 
 /**
@@ -972,7 +1036,14 @@ export async function getConfiguredEngineNameForRequest(
 export async function resolveEngine(
   config: ResolveEngineConfig,
 ): Promise<AgentEngine> {
-  const { engineOption, apiKey, apiKeyEnvVar, model: _model, appId } = config;
+  const {
+    engineOption,
+    apiKey,
+    apiKeyEnvVar,
+    model: _model,
+    appId,
+    credentialIdentity,
+  } = config;
 
   // 1. Explicit instance passed directly
   if (
@@ -1006,6 +1077,7 @@ export async function resolveEngine(
         engineConfig,
         false,
         apiKeyEnvVar,
+        credentialIdentity,
       ),
     );
   }
@@ -1025,6 +1097,7 @@ export async function resolveEngine(
         undefined,
         false,
         apiKeyEnvVar,
+        credentialIdentity,
       ),
     );
   }
@@ -1042,6 +1115,7 @@ export async function resolveEngine(
           undefined,
           true,
           apiKeyEnvVar,
+          credentialIdentity,
         ),
       );
     }
@@ -1050,7 +1124,12 @@ export async function resolveEngine(
   const appDefault = await getAgentAppModelDefaultForCurrentRequest(appId);
   if (appDefault?.engine) {
     const entry = _registry.get(appDefault.engine);
-    if (entry && (await isStoredEngineUsableForRequest(appDefault, entry))) {
+    if (
+      entry &&
+      (await isStoredEngineUsableForRequest(appDefault, entry, {
+        credentialIdentity,
+      }))
+    ) {
       return entry.create(
         await engineCreateConfigForEntry(
           entry,
@@ -1058,6 +1137,7 @@ export async function resolveEngine(
           undefined,
           true,
           apiKeyEnvVar,
+          credentialIdentity,
         ),
       );
     }
@@ -1074,7 +1154,8 @@ export async function resolveEngine(
   // (Builder OAuth callback + "paste your own key" settings flow write here,
   // not env). Stored/app defaults are checked first so an explicit provider
   // selection can override a connected Builder account.
-  const detectedFromUser = await detectEngineFromUserSecrets();
+  const detectedFromUser =
+    await detectEngineFromUserSecrets(credentialIdentity);
 
   // 6. Settings store — only when the stored row's API key is reachable.
   // This explicit selection beats automatic Builder detection so users can
@@ -1084,7 +1165,12 @@ export async function resolveEngine(
   const storedConfig = storedRaw?.config;
   if (storedRaw && typeof storedEngine === "string") {
     const entry = _registry.get(storedEngine);
-    if (entry && (await isStoredEngineUsableForRequest(storedRaw, entry))) {
+    if (
+      entry &&
+      (await isStoredEngineUsableForRequest(storedRaw, entry, {
+        credentialIdentity,
+      }))
+    ) {
       return entry.create(
         await engineCreateConfigForEntry(
           entry,
@@ -1094,6 +1180,7 @@ export async function resolveEngine(
           ),
           true,
           apiKeyEnvVar,
+          credentialIdentity,
         ),
       );
     }
@@ -1107,6 +1194,7 @@ export async function resolveEngine(
         undefined,
         true,
         apiKeyEnvVar,
+        credentialIdentity,
       ),
     );
   }
@@ -1123,6 +1211,7 @@ export async function resolveEngine(
         undefined,
         true,
         apiKeyEnvVar,
+        credentialIdentity,
       ),
     );
   }
@@ -1141,6 +1230,7 @@ export async function resolveEngine(
       undefined,
       true,
       apiKeyEnvVar,
+      credentialIdentity,
     ),
   );
 }

@@ -65,7 +65,7 @@ const messages: AgentChatTranslation = {
   "composer.activeAppContext": "सक्रिय ऐप संदर्भ",
   "composer.actMode": "कार्य मोड",
   "composer.add": "जोड़ें...",
-  "composer.addOwnKeys": "अपनी कुंजियाँ जोड़ें",
+  "composer.addOwnKeys": "कस्टम कुंजियाँ",
   "composer.assets.closePicker": "इमेज पिकर बंद करें",
   "composer.assets.contextTitle": "इमेज: {{title}}",
   "composer.assets.generatedImage": "बनाई गई इमेज",
@@ -331,6 +331,7 @@ const messages: AgentChatTranslation = {
   "message.actions": "संदेश की कार्रवाइयाँ",
   "message.copyMessage": "संदेश कॉपी करें",
   "message.copyRequestId": "अनुरोध ID कॉपी करें",
+  "message.requestIdUnavailable": "अनुरोध ID उपलब्ध नहीं है",
   "message.edit": "संदेश संपादित करें",
   "message.forkChat": "चैट की नई शाखा बनाएँ",
   "message.missingFinal":

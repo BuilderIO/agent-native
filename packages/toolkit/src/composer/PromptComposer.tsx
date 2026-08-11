@@ -81,7 +81,7 @@ export interface PromptComposerProps {
     files: PromptComposerFile[],
     references: Reference[],
     options: PromptComposerSubmitOptions,
-  ) => void;
+  ) => void | Promise<void>;
   placeholder?: string;
   disabled?: boolean;
   /** Override the generic document attachment cap for a multipart host. */
@@ -99,6 +99,8 @@ export interface PromptComposerProps {
   preserveDraftOnSubmit?: boolean;
   /** Show the model selector (default: true). */
   showModelSelector?: boolean;
+  /** Show the legacy provider-level Auto model option (default: true). */
+  showAutoModelOption?: boolean;
   /** Show the voice dictation button. Defaults to DEFAULT_VOICE_DICTATION_ENABLED. */
   voiceEnabled?: boolean;
   /** Show file upload controls and pass submitted files to onSubmit (default: true). */
@@ -488,6 +490,7 @@ function PromptComposerInner({
   draftScope,
   preserveDraftOnSubmit = false,
   showModelSelector = true,
+  showAutoModelOption = true,
   voiceEnabled = DEFAULT_VOICE_DICTATION_ENABLED,
   attachmentsEnabled = true,
   plusMenuMode,
@@ -601,7 +604,7 @@ function PromptComposerInner({
         text,
         attachments,
       });
-      onSubmit(finalText, files, references, {
+      await onSubmit(finalText, files, references, {
         intent: submitOptions?.intent ?? "immediate",
         model: composerModel,
         engine: composerEngine,
@@ -686,6 +689,7 @@ function PromptComposerInner({
           selectedModel={composerModel}
           selectedEffort={composerEffort}
           availableModels={composerModelGroups}
+          showAutoModelOption={showAutoModelOption}
           modelListLoading={composerModelListLoading}
           onModelChange={handleModelChange}
           onEffortChange={handleEffortChange}

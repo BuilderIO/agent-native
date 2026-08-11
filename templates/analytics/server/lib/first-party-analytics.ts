@@ -25,6 +25,7 @@ import {
   recordFirstPartyAnalyticsQueryPressure,
 } from "./first-party-analytics-health.js";
 import { upsertFirstPartyAnalyticsRollups } from "./first-party-analytics-rollups.js";
+import { reserveFirstPartyPostgresEventVolume } from "./first-party-analytics-volume.js";
 
 export interface AnalyticsScope {
   userEmail: string;
@@ -578,6 +579,7 @@ export async function recordAnalyticsEvents(
     orgId: key.orgId ?? null,
   });
 
+  let bigQueryInsertError: unknown = null;
   if (rows.length && (backend.sink === "dual" || backend.sink === "bigquery")) {
     try {
       await runWithRequestContext(
@@ -588,21 +590,47 @@ export async function recordAnalyticsEvents(
         () => insertFirstPartyAnalyticsRows(rows, backend.table),
       );
     } catch (error) {
-      if (backend.sink === "bigquery") throw error;
+      if (backend.sink === "bigquery") {
+        // Keep SQL-only exception issues, public-key metadata, and session
+        // replay links durable even when the warehouse is temporarily down.
+        // The request still fails below so callers do not mistake a warehouse
+        // outage for a successful BigQuery write.
+        bigQueryInsertError = error;
+      }
       // Dual-write mode keeps Postgres as the recoverable source until the
       // backfill has completed. A BigQuery outage must not lose live events.
-      console.error(
-        "[first-party-analytics] BigQuery dual-write failed; retaining Postgres event:",
-        error,
-      );
+      if (backend.sink === "dual") {
+        console.error(
+          "[first-party-analytics] BigQuery dual-write failed; retaining Postgres event:",
+          error,
+        );
+      }
     }
   }
 
+  let postgresInsertError: unknown = null;
   if (rows.length && backend.sink !== "bigquery") {
-    await db.transaction(async (tx: any) => {
-      await tx.insert(schema.analyticsEvents).values(rows);
-      await upsertFirstPartyAnalyticsRollups(rows, tx);
-    });
+    try {
+      await db.transaction(async (tx: any) => {
+        if (backend.sink === "postgres" || backend.sink === "dual") {
+          await reserveFirstPartyPostgresEventVolume(
+            tx,
+            {
+              ownerEmail: key.ownerEmail,
+              orgId: key.orgId ?? null,
+              receivedAt,
+            },
+            rows.length,
+          );
+        }
+        await tx.insert(schema.analyticsEvents).values(rows);
+        await upsertFirstPartyAnalyticsRollups(rows, tx);
+      });
+    } catch (error) {
+      // Preserve SQL-only exception issues and public-key metadata below even
+      // when a Postgres volume reservation or insert rejects the batch.
+      postgresInsertError = error;
+    }
   }
   if (rows.length) {
     await touchPublicKeyLastUsedAt(key.id, receivedAt);
@@ -626,6 +654,9 @@ export async function recordAnalyticsEvents(
       console.warn("[first-party-analytics] Exception ingest failed:", error);
     }
   }
+
+  if (bigQueryInsertError) throw bigQueryInsertError;
+  if (postgresInsertError) throw postgresInsertError;
 
   return { accepted: rows.length, keyId: key.id };
 }

@@ -188,8 +188,8 @@ describe("desktop passive-access regressions", () => {
       'source: codex.authenticated ? ("local-codex" as const) : undefined',
     );
     expect(modelList).toContain("configured: codex.authenticated");
-    expect(modelList).toContain(
-      "codex.authenticated && !apiProviderConfigured",
-    );
+    expect(modelList).toContain('statusLabel: "ChatGPT subscription"');
+    expect(modelList).toContain('statusLabel: "Claude subscription"');
+    expect(modelList).not.toContain('engine: "auto"');
   });
 });

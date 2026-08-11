@@ -4,6 +4,7 @@ import os from "node:os";
 const guards = [
   "guard:no-drizzle-push",
   "guard:no-pnpm-patches",
+  "guard:chat-first-shared-ui",
   "guard:no-empty-migrations",
   "guard:no-unscoped-queries",
   "guard:no-env-credentials",
@@ -46,10 +47,12 @@ const guards = [
   "guard:additive-migrations",
   "guard:no-silent-coercion",
   "guard:no-raw-colors",
+  "guard:persistent-compositing",
   "guard:help-icon-scale",
   "guard:no-boot-data-work",
   "guard:no-heavy-dashboard-list-reads",
   "guard:dead-settings-keys",
+  "guard:serverless-function-payload",
 ] as const;
 
 type GuardName = (typeof guards)[number];

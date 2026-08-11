@@ -9,8 +9,8 @@ import {
   assistantMessageHasCompletedCustomUi,
   assistantMessageHasCustomUi,
   assistantMessageHasUnresolvedTool,
-  completedAssistantToolNamesAfterLastText,
   computeActiveTailToolCallId,
+  getAssistantWorkSummaryDurationMs,
   getAssistantToolSummaryInfo,
   InlineRunErrorNotice,
   isAlwaysVisibleAssistantTool,
@@ -27,8 +27,43 @@ import {
   userMessageTextBeforeAssistant,
   isHiddenUserMessage,
   SelectionAttachedPill,
+  assistantMessageRunId,
+  resolveAssistantRequestId,
 } from "./message-components.js";
 import { runErrorKey } from "./run-recovery.js";
+
+describe("assistant request ID resolution", () => {
+  it("prefers the server run ID attached to the message", () => {
+    expect(
+      resolveAssistantRequestId(
+        { id: "local-message-id", metadata: { custom: { runId: "run-1" } } },
+        { threadId: "thread-1", runId: "run-2" },
+        "thread-1",
+      ),
+    ).toBe("run-1");
+  });
+
+  it("uses the current thread's active server run ID for an in-flight message", () => {
+    expect(
+      resolveAssistantRequestId(
+        { id: "local-message-id" },
+        { threadId: "thread-1", runId: "run-1" },
+        "thread-1",
+      ),
+    ).toBe("run-1");
+  });
+
+  it("never falls back to a local message ID or another thread's run", () => {
+    expect(
+      resolveAssistantRequestId(
+        { id: "local-message-id" },
+        { threadId: "thread-2", runId: "run-2" },
+        "thread-1",
+      ),
+    ).toBeUndefined();
+    expect(assistantMessageRunId({ id: "local-message-id" })).toBeUndefined();
+  });
+});
 
 describe("SelectionAttachedPill", () => {
   let container: HTMLDivElement;
@@ -459,30 +494,6 @@ describe("assistant completion notices", () => {
       false,
     );
   });
-
-  it("lists completed tools after the latest assistant text in arrival order", () => {
-    expect(
-      completedAssistantToolNamesAfterLastText([
-        { type: "text", text: "I will inspect the workspace." },
-        {
-          type: "tool-call",
-          toolCallId: "call-1",
-          toolName: "view-screen",
-          argsText: "{}",
-          args: {},
-          result: "{}",
-        },
-        {
-          type: "tool-call",
-          toolCallId: "call-2",
-          toolName: "workspace-read",
-          argsText: "{}",
-          args: {},
-          result: "{}",
-        },
-      ]),
-    ).toEqual(["view screen", "workspace read"]);
-  });
 });
 
 describe("latestUserMessageText", () => {
@@ -604,6 +615,18 @@ describe("shouldShowAssistantWorkSummary", () => {
         chatRunning: true,
       }),
     ).toBe(true);
+  });
+});
+
+describe("getAssistantWorkSummaryDurationMs", () => {
+  it("shows a turn duration only on the first folded work segment", () => {
+    expect(getAssistantWorkSummaryDurationMs(11_000, 2, 2)).toBe(11_000);
+    expect(getAssistantWorkSummaryDurationMs(11_000, 5, 2)).toBeNull();
+  });
+
+  it("does not invent a duration when the turn has none", () => {
+    expect(getAssistantWorkSummaryDurationMs(null, 2, 2)).toBeNull();
+    expect(getAssistantWorkSummaryDurationMs(undefined, 2, 2)).toBeUndefined();
   });
 });
 

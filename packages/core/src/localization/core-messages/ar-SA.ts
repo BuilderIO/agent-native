@@ -65,7 +65,7 @@ const messages: AgentChatTranslation = {
   "composer.activeAppContext": "سياق التطبيق النشط",
   "composer.actMode": "وضع التنفيذ",
   "composer.add": "إضافة...",
-  "composer.addOwnKeys": "إضافة مفاتيحك الخاصة",
+  "composer.addOwnKeys": "مفاتيح مخصصة",
   "composer.assets.closePicker": "إغلاق منتقي الصور",
   "composer.assets.contextTitle": "الصورة: {{title}}",
   "composer.assets.generatedImage": "صورة تم إنشاؤها",
@@ -345,6 +345,7 @@ const messages: AgentChatTranslation = {
   "message.actions": "إجراءات الرسالة",
   "message.copyMessage": "نسخ الرسالة",
   "message.copyRequestId": "نسخ معرّف الطلب",
+  "message.requestIdUnavailable": "معرّف الطلب غير متاح",
   "message.edit": "تعديل الرسالة",
   "message.forkChat": "تفريع المحادثة",
   "message.missingFinal":

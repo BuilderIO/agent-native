@@ -746,18 +746,13 @@ function TranscriptSetupCard({
                   <p className="text-xs font-semibold">
                     {builderConfigured
                       ? "Builder.io connected"
-                      : "Use Builder.io (free)"}
+                      : "Use Builder.io"}
                   </p>
-                  {!builderConfigured && (
-                    <span className="rounded-sm bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
-                      Free
-                    </span>
-                  )}
                 </div>
                 <p className="text-[11px] text-muted-foreground mt-0.5">
                   {builderConfigured
                     ? "Ready to use for backup transcription."
-                    : "One-click setup. No API key required."}
+                    : "Builder.io's free tier includes backup transcription."}
                 </p>
               </div>
             </div>

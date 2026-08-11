@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { getPendingTurn } from "./active-run-state.js";
 import {
   activeRunLooksAlive,
+  BACKGROUND_FOLLOW_ATTACH_WATCHDOG_MS,
   BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS,
   createAgentChatAdapter,
   MAX_BACKGROUND_FOLLOW_WALL_TIME_MS,
@@ -99,7 +100,7 @@ function emptySseResponse(runId = "run-empty"): Response {
   );
 }
 
-function idleSseResponse(runId = "run-idle"): Response {
+function idleSseResponse(runId = "run-idle", dispatchMode?: string): Response {
   let timer: ReturnType<typeof setTimeout> | undefined;
   return new Response(
     new ReadableStream<Uint8Array>({
@@ -123,6 +124,7 @@ function idleSseResponse(runId = "run-idle"): Response {
       headers: {
         "Content-Type": "text/event-stream",
         "X-Run-Id": runId,
+        ...(dispatchMode ? { "X-Dispatch-Mode": dispatchMode } : {}),
       },
     },
   );
@@ -427,6 +429,47 @@ describe("createAgentChatAdapter", () => {
       engine: "anthropic",
       effort: "high",
     });
+  });
+
+  it("posts approval grants on the continuation turn", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-approval",
+      threadId: "thread-approval",
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                toolName: "create-builder-branch",
+                toolCallId: "call-1",
+                args: {},
+                result: "Awaiting human approval.",
+              },
+            ],
+          },
+          {
+            role: "user",
+            content: [{ type: "text", text: "Approved. Go ahead." }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+        runConfig: {
+          custom: { approvedToolCalls: ["create-builder-branch:{}"] },
+        },
+      } as any),
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.approvedToolCalls).toEqual(["create-builder-branch:{}"]);
   });
 
   it("falls back to the live picker for queue entries without a model snapshot", async () => {
@@ -5346,6 +5389,18 @@ describe("createAgentChatAdapter", () => {
         type: "agent-chat:run-error",
       }),
     );
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:activity-clear",
+        detail: { tabId: "chat-completed-side-effect" },
+      }),
+    );
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:stream-progress",
+        detail: { tabId: "chat-completed-side-effect" },
+      }),
+    );
     const last = results.at(-1) as any;
     expect(last.status).toEqual({ type: "complete", reason: "stop" });
     expect(last.metadata.custom.runWarning).toMatchObject({
@@ -7565,6 +7620,99 @@ describe("background follow per-turn budget", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.useRealTimers();
+  });
+
+  it("re-polls a live run after a silent reattach instead of losing its completion", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let requestTurnId = "";
+    let eventRequestCount = 0;
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+        requestTurnId = JSON.parse(init.body as string).turnId;
+        return backgroundSseResponse(
+          [
+            { type: "text", text: "started " },
+            { type: "auto_continue", reason: "run_timeout" },
+          ],
+          "run-follow-watchdog",
+        );
+      }
+      if (url.includes("/runs/active")) {
+        const completed = eventRequestCount > 0;
+        return jsonResponse({
+          active: true,
+          runId: "run-follow-watchdog",
+          threadId: "thread-follow-watchdog",
+          turnId: requestTurnId,
+          status: completed ? "completed" : "running",
+          dispatchMode: "background-processing",
+          terminalReason: completed ? "done" : null,
+          heartbeatAt: Date.now(),
+          lastProgressAt: completed ? Date.now() : 1_000,
+        });
+      }
+      if (url.includes("/runs/run-follow-watchdog/events")) {
+        eventRequestCount += 1;
+        return eventRequestCount === 1
+          ? idleSseResponse("run-follow-watchdog", "background-processing")
+          : backgroundSseResponse(
+              [
+                { type: "text", text: "finished after reattach" },
+                { type: "done" },
+              ],
+              "run-follow-watchdog",
+            );
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-follow-watchdog",
+      threadId: "thread-follow-watchdog",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "finish this background task" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(
+      BACKGROUND_FOLLOW_ATTACH_WATCHDOG_MS + 5_000,
+    );
+    const results = await promise;
+
+    expect(eventRequestCount).toBe(2);
+    expect(
+      results.some(
+        (result: any) =>
+          result.status?.type === "incomplete" &&
+          result.status?.reason === "error",
+      ),
+    ).toBe(false);
+    expect((results.at(-1) as any).content.at(-1).text).toContain(
+      "finished after reattach",
+    );
   });
 
   it("stops following after too many successor runs in one turn", async () => {

@@ -105,7 +105,7 @@ import * as schema from "./schema.js";
 export const getDb = createGetDb(schema);
 ```
 
-`@agent-native/core` から直接ではなく、このテンプレート ローカル パス (ルート内の `../../server/db/index.js`、actions 内の `../server/db/index.js`) から `getDb` をインポートします。コア エクスポートは、汎用の型なしインスタンスを返します。テンプレートの `getDb()` にはスキーマ タイプが含まれます。 actions とカスタム ルートがそれぞれどのようにインポートするかについては、[Server](/docs/server#request-context) を参照してください。
+`@agent-native/core` から直接ではなく、このテンプレート ローカル パス (ルート内の `../../server/db/index.js`、actions 内の `../server/db/index.js`) から `getDb` をインポートします。コア エクスポートは、汎用の型なしインスタンスを返します。テンプレートの `getDb()` にはスキーマ タイプが含まれます。 actions とカスタム ルートがそれぞれどのようにインポートするかについては、[Server](/docs/server-routes#request-context) を参照してください。
 
 ## 方言に依存しないスキーマとクエリ {#schema}
 
