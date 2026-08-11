@@ -288,7 +288,7 @@ export class DesktopIdentityBroker {
     );
   }
 
-  ensureAppSession(appId: string): Promise<boolean> {
+  private ensureAppSession(appId: string): Promise<boolean> {
     const existing = this.pendingByApp.get(appId);
     if (existing) return existing;
 

@@ -399,7 +399,7 @@ describe("DesktopIdentityBroker", () => {
     });
 
     const refresh = broker.refreshStatus(authority);
-    const ceremony = broker.ensureAppSession(app.id);
+    const ceremony = broker.signIn(app.id);
     await vi.waitFor(() => expect(broker.getStatus()).toBe("signing-in"));
     statusCookies.resolve([
       sessionCookie("an_session_dispatch", authority.origin),
@@ -474,7 +474,7 @@ describe("DesktopIdentityBroker", () => {
       clearLocalBroker: vi.fn(),
     });
 
-    const ceremony = broker.ensureAppSession(app.id);
+    const ceremony = broker.signIn(app.id);
     await vi.waitFor(() =>
       expect(identityWindow.loadURL).toHaveBeenCalledWith(resolvedUrl),
     );
@@ -515,7 +515,8 @@ describe("DesktopIdentityBroker", () => {
       clearLocalBroker: vi.fn(),
     });
 
-    const ceremony = broker.ensureAppSession(app.id);
+    await broker.refreshStatus(authority);
+    const ceremony = broker.signIn(app.id);
     await vi.waitFor(() => expect(identityWindow.loadURL).toHaveBeenCalled());
     const didNavigate = webContents.on.mock.calls.find(
       ([event]) => event === "did-navigate",
@@ -546,7 +547,7 @@ describe("DesktopIdentityBroker", () => {
       clearLocalBroker: vi.fn(),
     });
 
-    await expect(broker.ensureAppSession(app.id)).resolves.toBe(false);
+    await expect(broker.signIn(app.id)).resolves.toBe(false);
     expect(warn).toHaveBeenCalledWith(
       "[desktop-identity] identity preflight failed",
     );
@@ -576,7 +577,7 @@ describe("DesktopIdentityBroker", () => {
       clearLocalBroker: vi.fn(),
     });
 
-    await expect(broker.ensureAppSession(app.id)).resolves.toBe(false);
+    await expect(broker.signIn(app.id)).resolves.toBe(false);
     expect(createWindow).not.toHaveBeenCalled();
     expect(reloadApp).toHaveBeenCalledWith(app);
     expect(broker.getStatus()).toBe("failed");
@@ -611,7 +612,8 @@ describe("DesktopIdentityBroker", () => {
       clearLocalBroker: vi.fn(),
     });
 
-    const ceremony = broker.ensureAppSession(app.id);
+    await broker.refreshStatus(authority);
+    const ceremony = broker.signIn(app.id);
     await vi.waitFor(() => expect(identityWindow.loadURL).toHaveBeenCalled());
     const navigationHandler = webContents.on.mock.calls.find(
       ([event]) => event === "will-navigate",
@@ -697,8 +699,8 @@ describe("DesktopIdentityBroker", () => {
       timeoutMs: 10_000,
     });
 
-    const first = broker.ensureAppSession("mail");
-    const second = broker.ensureAppSession("mail");
+    const first = broker.signIn("mail");
+    const second = broker.signIn("mail");
     expect(second).toBe(first);
     await vi.waitFor(() => expect(loadedUrl).not.toBe(""));
 
@@ -765,7 +767,7 @@ describe("DesktopIdentityBroker", () => {
       clearLocalBroker: vi.fn(),
     });
 
-    const ceremony = broker.ensureAppSession(app.id);
+    const ceremony = broker.signIn(app.id);
     await vi.waitFor(() => expect(loadedUrl).not.toBe(""));
     const returnPath = new URL(loadedUrl).searchParams.get("return")!;
     const completion = new URL(returnPath, app.origin).toString();
@@ -820,7 +822,7 @@ describe("DesktopIdentityBroker", () => {
       clearLocalBroker: vi.fn(),
     });
 
-    const ceremony = broker.ensureAppSession(app.id);
+    const ceremony = broker.signIn(app.id);
     await vi.waitFor(() => expect(loadedUrl).not.toBe(""));
     const wrongCompletion = new URL(
       `${DESKTOP_IDENTITY_COMPLETE_PATH}?nonce=wrong`,
@@ -867,7 +869,7 @@ describe("DesktopIdentityBroker", () => {
       sessionCookieWaitMs: 50,
     });
 
-    const ceremony = broker.ensureAppSession(app.id);
+    const ceremony = broker.signIn(app.id);
     await vi.waitFor(() => expect(loadedUrl).not.toBe(""));
     const returnPath = new URL(loadedUrl).searchParams.get("return")!;
     const completion = new URL(returnPath, app.origin).toString();
@@ -920,7 +922,7 @@ describe("DesktopIdentityBroker", () => {
       sessionCookieWaitMs: 500,
     });
 
-    const ceremony = broker.ensureAppSession(app.id);
+    const ceremony = broker.signIn(app.id);
     await vi.waitFor(() => expect(loadedUrl).not.toBe(""));
     const returnPath = new URL(loadedUrl).searchParams.get("return")!;
     const completion = new URL(returnPath, app.origin).toString();
@@ -979,7 +981,7 @@ describe("DesktopIdentityBroker", () => {
       sessionCookieWaitMs: 500,
     });
 
-    const ceremony = broker.ensureAppSession(app.id);
+    const ceremony = broker.signIn(app.id);
     await vi.waitFor(() => expect(loadedUrl).not.toBe(""));
     const returnPath = new URL(loadedUrl).searchParams.get("return")!;
     const completion = new URL(returnPath, app.origin).toString();
@@ -1029,7 +1031,7 @@ describe("DesktopIdentityBroker", () => {
       sessionCookieWaitMs: 25,
     });
 
-    const ceremony = broker.ensureAppSession(app.id);
+    const ceremony = broker.signIn(app.id);
     await vi.waitFor(() => expect(loadedUrl).not.toBe(""));
     const returnPath = new URL(loadedUrl).searchParams.get("return")!;
     const completion = new URL(returnPath, app.origin).toString();
@@ -1082,7 +1084,7 @@ describe("DesktopIdentityBroker", () => {
       clearLocalBroker: vi.fn(),
     });
 
-    const ceremony = broker.ensureAppSession(dispatch.id);
+    const ceremony = broker.signIn(dispatch.id);
     await vi.waitFor(() => expect(loadedUrl).not.toBe(""));
     const loginUrl = String(resolveLoginRedirect.mock.calls[0]?.[0]);
     const returnPath = new URL(loginUrl).searchParams.get("return")!;
@@ -1414,7 +1416,7 @@ describe("DesktopIdentityBroker", () => {
       clearLocalBroker: vi.fn(),
     });
 
-    const ceremony = broker.ensureAppSession(app.id);
+    const ceremony = broker.signIn(app.id);
     await vi.waitFor(() => expect(resolveLoginRedirect).toHaveBeenCalled());
     await broker.signOut([app]);
     redirectResponse.resolve("https://dispatch.agent-native.com/sign-in");
@@ -1476,7 +1478,7 @@ describe("DesktopIdentityBroker", () => {
       clearLocalBroker: vi.fn(),
     });
 
-    const ceremony = broker.ensureAppSession(app.id);
+    const ceremony = broker.signIn(app.id);
     await vi.waitFor(() => expect(loadedUrl).not.toBe(""));
     const returnPath = new URL(loadedUrl).searchParams.get("return")!;
     const completion = new URL(returnPath, app.origin).toString();
