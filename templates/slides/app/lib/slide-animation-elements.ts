@@ -9,6 +9,14 @@ export interface AnimationTarget {
   elementPath?: number[];
 }
 
+export interface ResolvedAnimationTarget<
+  T extends AnimationTarget = AnimationTarget,
+> {
+  target: T;
+  element: Element;
+  key: string;
+}
+
 const INLINE_TAGS = new Set([
   "a",
   "abbr",
@@ -192,13 +200,43 @@ export function resolveSlideAnimationElement(
   root: Element,
   target: AnimationTarget,
 ): Element | null {
-  if (Array.isArray(target.elementPath) && target.elementPath.length > 0) {
-    const pathTarget = resolveElementPath(root, target.elementPath);
-    if (pathTarget) return pathTarget;
+  if (Array.isArray(target.elementPath)) {
+    // A supplied path is the identity of the target. Falling back to a
+    // legacy index after it goes stale can animate a different element while
+    // leaving the intended element visible.
+    return target.elementPath.length > 0
+      ? resolveElementPath(root, target.elementPath)
+      : null;
   }
 
   const legacyContainer = findLegacyAnimationContainer(root);
   return legacyContainer?.children.item(target.elementIndex) ?? null;
+}
+
+/**
+ * Resolve an ordered animation list as one validated unit. A null result
+ * means the list cannot be rendered faithfully - a missing or duplicate
+ * target must not become a phantom click step in the presentation player.
+ */
+export function resolveSlideAnimationTargets<T extends AnimationTarget>(
+  root: Element,
+  targets: readonly T[],
+): ResolvedAnimationTarget<T>[] | null {
+  const seen = new Set<string>();
+  const resolved: ResolvedAnimationTarget<T>[] = [];
+
+  for (const target of targets) {
+    const element = resolveSlideAnimationElement(root, target);
+    if (!element) return null;
+    const path = getElementPath(root, element);
+    if (!path) return null;
+    const key = animationElementKey(path);
+    if (seen.has(key)) return null;
+    seen.add(key);
+    resolved.push({ target, element, key });
+  }
+
+  return resolved;
 }
 
 export function getSlideAnimationTargetKey(

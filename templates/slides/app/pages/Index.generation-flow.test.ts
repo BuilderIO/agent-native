@@ -58,6 +58,9 @@ describe("new deck generation flow", () => {
     expect(titlePatchIndex).toBeGreaterThan(titleInstructionIndex);
     expect(sparseTitleInstructionIndex).toBeGreaterThan(titlePatchIndex);
     expect(addSlideInstructionIndex).toBeGreaterThan(titlePatchIndex);
+    expect(flow).toContain(
+      "Never use the deck id, run id, file id, or another opaque alphanumeric token as the title",
+    );
   });
 
   it("keeps presentation generation multi-slide and persisted", () => {

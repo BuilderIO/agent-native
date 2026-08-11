@@ -254,6 +254,37 @@ describe("applyOperation — patch-deck-fields", () => {
     });
     expect(deck.designSystemId).toBeNull();
   });
+
+  it("recovers an opaque title from the first slide", () => {
+    const deck = {
+      title: "Untitled Deck",
+      slides: [
+        {
+          content:
+            '<div class="fmd-slide"><div style="font-size: 54px;">Agent-Native Strategy</div></div>',
+        },
+      ],
+    };
+
+    applyOperation(deck, {
+      op: "patch-deck-fields",
+      fields: { title: "H3sVsnns-TEVUOpz9w" },
+    });
+
+    expect(deck.title).toBe("Agent-Native Strategy");
+  });
+
+  it("rejects an opaque title when no slide title is available", () => {
+    expect(() =>
+      applyOperation(
+        { title: "Untitled Deck", slides: [] },
+        {
+          op: "patch-deck-fields",
+          fields: { title: "H3sVsnns-TEVUOpz9w" },
+        },
+      ),
+    ).toThrow(/human-readable title/);
+  });
 });
 
 describe("source-imported deck structure", () => {
@@ -432,6 +463,18 @@ describe("resolveDeckColumnUpdates", () => {
     // deck list shows a truncated name once the JSON and column disagree.
     const burst = ["N", "Ne", "New", "New ", "New Name"].map(renameOp);
     expect(resolveDeckColumnUpdates(current, burst).title).toBe("New Name");
+  });
+
+  it("uses the title recovered while applying the operations", () => {
+    const operations: Operation[] = [
+      {
+        op: "patch-deck-fields",
+        fields: { title: "H3sVsnns-TEVUOpz9w" },
+      },
+    ];
+    expect(
+      resolveDeckColumnUpdates(current, operations, "Recovered").title,
+    ).toBe("Recovered");
   });
 
   it("takes the last designSystemId in a batch", () => {

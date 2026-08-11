@@ -137,7 +137,7 @@ function normalizeString(value: unknown, fallback: string): string {
 }
 
 function normalizeElementPath(value: unknown): number[] | undefined {
-  if (!Array.isArray(value)) return undefined;
+  if (!Array.isArray(value) || value.length === 0) return undefined;
   const path = value.filter(
     (part): part is number =>
       typeof part === "number" &&
@@ -155,6 +155,7 @@ function normalizeSlideAnimation(
   if (!isRecord(value)) return null;
 
   const elementPath = normalizeElementPath(value.elementPath);
+  if (value.elementPath !== undefined && !elementPath) return null;
   const rawElementIndex = value.elementIndex;
   const hasElementIndex =
     typeof rawElementIndex === "number" &&

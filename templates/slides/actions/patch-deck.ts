@@ -32,6 +32,10 @@ import {
   type SourceImportMetadata,
 } from "../server/lib/source-import.js";
 import { ASPECT_RATIO_VALUES } from "../shared/aspect-ratios.js";
+import {
+  assertHumanReadableDeckTitle,
+  repairGeneratedDeckTitle,
+} from "../shared/deck-title.js";
 
 // ---------------------------------------------------------------------------
 // Per-deck write lock — same pattern as add-slide.ts so all client and agent
@@ -66,6 +70,27 @@ export function withDeckLock<T>(
 // Operation schemas
 // ---------------------------------------------------------------------------
 
+const SlideAnimationSchema = z.object({
+  id: z.string().min(1).describe("Stable ID for this ordered reveal step"),
+  elementIndex: z
+    .number()
+    .int()
+    .min(0)
+    .describe(
+      "0-based legacy child index. Keep it paired with elementPath for compatibility.",
+    ),
+  elementPath: z
+    .array(z.number().int().min(0))
+    .min(1)
+    .optional()
+    .describe(
+      "Preferred 0-based child-index path from the outer .fmd-slide wrapper. Re-read final HTML after content edits.",
+    ),
+  type: z
+    .enum(["appear", "fade", "slide-up", "zoom"])
+    .describe("Animation used when this step is revealed"),
+});
+
 const SlideFieldsSchema = z.object({
   content: z.string().optional(),
   notes: z.string().optional(),
@@ -75,8 +100,16 @@ const SlideFieldsSchema = z.object({
   imageLoading: z.boolean().optional(),
   imagePrompt: z.string().optional(),
   excalidrawData: z.string().optional(),
-  transition: z.string().optional(),
-  animations: z.array(z.unknown()).optional(),
+  transition: z
+    .enum(["instant", "none", "fade", "slide", "zoom"])
+    .optional()
+    .describe("Transition used when entering this slide"),
+  animations: z
+    .array(SlideAnimationSchema)
+    .optional()
+    .describe(
+      "Complete ordered on-click reveal list. Include every intended target in order; unlisted elements remain visible. Use elementPath from the final HTML and 0-based indexes.",
+    ),
 });
 
 /** Update fields on a single existing slide */
@@ -372,7 +405,19 @@ export function applyOperation(deck: any, op: Operation): void {
 
     case "patch-deck-fields": {
       const { fields } = op;
-      if (fields.title !== undefined) deck.title = fields.title;
+      if (fields.title !== undefined) {
+        const repairedTitle = repairGeneratedDeckTitle(
+          fields.title,
+          slides[0]?.content,
+          deck.title,
+        );
+        if (repairedTitle) {
+          deck.title = repairedTitle;
+        } else {
+          assertHumanReadableDeckTitle(fields.title);
+          deck.title = fields.title;
+        }
+      }
       if ("designSystemId" in fields)
         deck.designSystemId = fields.designSystemId;
       if (fields.tweaks !== undefined) deck.tweaks = fields.tweaks;
@@ -393,6 +438,7 @@ export function applyOperation(deck: any, op: Operation): void {
 export function resolveDeckColumnUpdates(
   current: { title: string; designSystemId: string | null },
   operations: Operation[],
+  resolvedTitle?: string,
 ): { title: string; designSystemId: string | null } {
   const fieldOps = operations
     .filter(
@@ -403,7 +449,7 @@ export function resolveDeckColumnUpdates(
   const titleOp = fieldOps.find((op) => typeof op.fields.title === "string");
   const dsOp = fieldOps.find((op) => "designSystemId" in op.fields);
   return {
-    title: titleOp?.fields.title ?? current.title,
+    title: resolvedTitle ?? titleOp?.fields.title ?? current.title,
     designSystemId: dsOp
       ? (dsOp.fields.designSystemId ?? null)
       : current.designSystemId,
@@ -421,8 +467,11 @@ export default defineAction({
     "on different slides never overwrite each other's work. For a deck-wide " +
     "source restyle, set requireAllSourceSlides=true and send one patch-slide " +
     "operation with content for every imported slide in one call; the action " +
-    "rejects partial coverage. Then call get-deck with compact=true to verify " +
-    "the persisted slide IDs and count before reporting success.",
+    "rejects partial coverage. For animations, inspect the final slide HTML, " +
+    "then patch content and the complete ordered animations list together; " +
+    "validate every 0-based elementPath and do not invent one-based indexes. " +
+    "Then call get-deck with compact=true to verify the persisted slide IDs, " +
+    "count, and animation metadata before reporting success.",
   schema: z.object({
     deckId: z.string().describe("Deck ID"),
     requireAllSourceSlides: z
@@ -525,6 +574,13 @@ export default defineAction({
         resolveDeckColumnUpdates(
           { title: row.title, designSystemId: row.designSystemId },
           operations,
+          operations.some(
+            (operation) =>
+              operation.op === "patch-deck-fields" &&
+              operation.fields.title !== undefined,
+          ) && typeof deck.title === "string"
+            ? deck.title
+            : undefined,
         );
 
       let generationRecord:
