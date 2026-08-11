@@ -39,6 +39,17 @@ describe("dispatch Tailwind styles", () => {
       '@import "@agent-native/dispatch/styles/dispatch.css";',
     );
   });
+
+  it("keeps the full-page composer on the shared wide width contract", () => {
+    const stylesheet = fs.readFileSync(
+      path.join(packageRoot, "src/styles/dispatch.css"),
+      "utf-8",
+    );
+
+    expect(stylesheet).toMatch(
+      /\.dispatch-chat-panel \[data-agent-empty-state="centered"\] \.agent-composer-area \{[\s\S]*?max-width: min\(750px, 100%\);/,
+    );
+  });
 });
 
 describe("dispatch route shells", () => {

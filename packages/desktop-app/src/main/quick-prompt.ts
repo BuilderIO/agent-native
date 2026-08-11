@@ -115,7 +115,6 @@ function createQuickPromptWindow(): BrowserWindow {
     positionQuickPromptWindow(window);
     window.show();
     window.focus();
-    if (process.platform === "darwin") app.focus({ steal: true });
   });
 
   window.on("closed", () => {
@@ -141,7 +140,6 @@ function showQuickPrompt(): void {
   positionQuickPromptWindow(window);
   window.show();
   window.focus();
-  if (process.platform === "darwin") app.focus({ steal: true });
   debugQuickPrompt("quick prompt triggered", {
     accelerator: QUICK_PROMPT_ACCELERATOR,
   });

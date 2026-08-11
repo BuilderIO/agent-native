@@ -69,7 +69,7 @@ export default function GeneratingSlidePreview({
         <span className="size-1.5 rounded-full bg-primary" aria-hidden="true" />
         {t("raw.aiEditing")}
       </div>
-      <div className="absolute right-2 top-2 rounded-full bg-background/80 p-1.5 text-muted-foreground shadow-sm backdrop-blur">
+      <div className="absolute right-2 top-2 rounded-full bg-background/80 p-1.5 text-muted-foreground shadow-sm">
         <IconLoader2 className="size-3.5 animate-spin" aria-hidden="true" />
       </div>
     </div>

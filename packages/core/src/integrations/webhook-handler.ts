@@ -1351,7 +1351,7 @@ async function processIncomingMessage(
                 // leave a user-facing Slack reply empty.
                 maxOutputTokens: resolveMainChatMaxOutputTokens(resolvedModel),
                 // Explicitly resolve the normal chat default so an empty-final
-                // retry can step its reasoning effort down rather than
+                // retry can step its effort down rather than
                 // repeatedly letting the engine choose Medium.
                 reasoningEffort: normalizeReasoningEffortForRequest(
                   resolvedModel,

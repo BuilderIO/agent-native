@@ -5,7 +5,7 @@ import {
   emailToColor,
   emailToName,
 } from "@agent-native/core/client/collab";
-import { useSession, callAction } from "@agent-native/core/client/hooks";
+import { useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useOrg } from "@agent-native/core/client/org";
 import {
@@ -54,7 +54,7 @@ import {
   useSlideComments,
   type CommentThread,
 } from "@/hooks/use-slide-comments";
-import { getAspectRatioDims, type AspectRatio } from "@/lib/aspect-ratios";
+import { getAspectRatioDims } from "@/lib/aspect-ratios";
 import {
   deckAccessCheckKey,
   shouldShowDeckEditorSkeleton,
@@ -238,9 +238,6 @@ export default function DeckEditor() {
   const [pendingComment, setPendingComment] = useState<{
     quotedText: string;
   } | null>(null);
-  const imageGenButtonRef = useRef<HTMLButtonElement>(null);
-  const assetsButtonRef = useRef<HTMLButtonElement>(null);
-
   // Track which image src to replace
   const [replaceImageSrc, setReplaceImageSrc] = useState<string | null>(null);
 
@@ -1035,16 +1032,9 @@ export default function DeckEditor() {
           setReplaceImageSrc(null);
           setAssetLibraryOpen(true);
         }}
-        imageGenButtonRef={imageGenButtonRef}
-        assetsButtonRef={assetsButtonRef}
-        historyOpen={historyOpen}
         onShowHistory={() => setHistoryOpen(!historyOpen)}
         historyButtonRef={historyButtonRef}
         currentSlide={currentSlide}
-        onUpdateSlide={(updates, slideIdOverride) => {
-          const targetId = slideIdOverride ?? currentSlide?.id;
-          if (targetId) updateSlide(id, targetId, updates);
-        }}
         activeUsers={slideActiveUsers.filter((u) => u.email !== session?.email)}
         agentPresent={agentPresent}
         agentActive={agentActive}
@@ -1117,19 +1107,6 @@ export default function DeckEditor() {
             throw new Error(t("deckEditor.deckHasNoSlides"));
           }
           return exportDeckToGoogleSlides(deck.title, slides, deck.aspectRatio);
-        }}
-        aspectRatio={deck.aspectRatio}
-        onSetAspectRatio={(ratio: AspectRatio) => {
-          const previous = deck.aspectRatio;
-          // Optimistic UI: update local cache immediately so canvas resizes.
-          updateDeck(id, { aspectRatio: ratio });
-          callAction("update-deck-aspect-ratio", {
-            deckId: id,
-            aspectRatio: ratio,
-          }).catch((err) => {
-            console.error("Failed to set aspect ratio:", err);
-            updateDeck(id, { aspectRatio: previous });
-          });
         }}
         currentSlideId={currentSlide?.id}
         addSlideGenerating={addSlideGenerating}
@@ -1376,7 +1353,7 @@ export default function DeckEditor() {
       <ImageGenPanel
         open={imageGenOpen}
         onOpenChange={setImageGenOpen}
-        anchorRef={imageGenButtonRef}
+        anchorRef={historyButtonRef}
         referenceImageUrls={imageStyleReferenceUrls}
         slideContext={
           currentSlide
@@ -1394,7 +1371,7 @@ export default function DeckEditor() {
       <AssetLibraryPanel
         open={assetLibraryOpen}
         onOpenChange={setAssetLibraryOpen}
-        anchorRef={assetsButtonRef}
+        anchorRef={historyButtonRef}
         onSelectAsset={
           replaceImageSrc
             ? (newUrl) => {

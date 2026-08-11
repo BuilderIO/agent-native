@@ -48,11 +48,33 @@ export function readRecentReferences(
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return { items: [], readable: false };
     return {
-      items: parsed.filter(isRecentReference).slice(0, MAX_RECENT_REFERENCES),
+      items: parsed
+        .filter(isRecentReference)
+        .sort((first, second) => second.lastUsedAt - first.lastUsedAt)
+        .slice(0, MAX_RECENT_REFERENCES),
       readable: true,
     };
   } catch {
     return { items: [], readable: false };
+  }
+}
+
+export function forgetRecentReference(
+  kind: RecentReferenceKind,
+  storage:
+    | Pick<Storage, "getItem" | "setItem">
+    | null
+    | undefined = typeof window === "undefined" ? null : window.localStorage,
+): RecentReferencesResult {
+  const current = readRecentReferences(storage);
+  if (!storage || !current.readable) return current;
+
+  const next = current.items.filter((item) => item.kind !== kind);
+  try {
+    storage.setItem(RECENT_REFERENCES_STORAGE_KEY, JSON.stringify(next));
+    return { items: next, readable: true };
+  } catch {
+    return { items: current.items, readable: false };
   }
 }
 

@@ -663,6 +663,7 @@ const messages = {
       "除非移除，否則保留預設設計系統和參考投影片。搜尋其他投影片、匯入檔案，或準備好後繼續。",
     chooseAnotherDeck: "選擇其他投影片",
     noMatchingDecks: "找不到相符的投影片。",
+    googleSlidesImportLabel: "Slides",
     googleSlidesReferenceTitle: "Google Slides 投影片",
     googleSlidesReferenceConnect: "連接 Google Drive 以匯入 Slides 投影片。",
     googleSlidesReferenceChoose: "選擇 Google Slides 投影片",

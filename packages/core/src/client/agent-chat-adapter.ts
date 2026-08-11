@@ -148,6 +148,21 @@ const LARGE_INPUT_TOOL_NAMES = new Set([
 const MAX_HISTORY_LARGE_TOOL_ARGS_CHARS = 200_000;
 const STARTUP_RESPONSE_TIMEOUT_MS = 45_000;
 
+function dispatchTerminalChatUiCleanup(tabId: string | undefined): void {
+  if (typeof window === "undefined") return;
+
+  // Some terminal outcomes are synthesized by the adapter after recovery
+  // (for example, a completed tool whose final response timed out) and never
+  // pass through a terminal SSE frame. Clear both halves of the status UI so
+  // the wrap-up result cannot leave a preparation label or "Resuming" state.
+  window.dispatchEvent(
+    new CustomEvent("agent-chat:activity-clear", { detail: { tabId } }),
+  );
+  window.dispatchEvent(
+    new CustomEvent("agent-chat:stream-progress", { detail: { tabId } }),
+  );
+}
+
 // ── Background follow mode ──────────────────────────────────────────────────
 // For server-continued runs (dispatchMode starts with "background" or equals
 // "foreground-self-chain") the SERVER normally chains continuation chunks
@@ -4229,6 +4244,7 @@ export function createAgentChatAdapter(
         }
       } finally {
         if (typeof window !== "undefined") {
+          dispatchTerminalChatUiCleanup(tabId);
           window.dispatchEvent(
             new CustomEvent("agentNative.chatRunning", {
               detail: { isRunning: false, tabId },

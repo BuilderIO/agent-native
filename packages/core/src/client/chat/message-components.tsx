@@ -66,7 +66,6 @@ import { ThumbsFeedback } from "../observability/ThumbsFeedback.js";
 import { McpConnectionSuggestion } from "../resources/McpConnectionSuggestion.js";
 import type { ContentPart } from "../sse-event-processor.js";
 import {
-  humanizeToolName,
   isCallAgentToolCallShadowed,
   shadowedCallAgentToolCallIds,
 } from "../tool-display.js";
@@ -353,6 +352,17 @@ export function assistantMessageRunId(message: unknown): string | undefined {
       : undefined;
 }
 
+export function resolveAssistantRequestId(
+  message: unknown,
+  activeRun: { threadId: string; runId: string } | null,
+  threadId: string,
+): string | undefined {
+  return (
+    assistantMessageRunId(message) ||
+    (activeRun?.threadId === threadId ? activeRun.runId : undefined)
+  );
+}
+
 // ─── MessageBranchPicker ──────────────────────────────────────────────────────
 
 export function MessageBranchPicker() {
@@ -589,9 +599,11 @@ function UserMessageEditComposer() {
 export function MessageActionsMenu({
   showRevert,
   onRevert,
+  threadId = "",
 }: {
   showRevert?: boolean;
   onRevert?: () => void;
+  threadId?: string;
 } = {}) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
@@ -620,24 +632,23 @@ export function MessageActionsMenu({
 
   const handleCopyRequestId = useCallback(() => {
     const m = messageRuntime.getState();
-    // If the message carries no run id (e.g. the run is still in flight and
-    // this is the first message), fall back to the active-run state so a hung /
-    // mid-stream chat still surfaces a usable trace ID. Last resort is the
-    // assistant-ui local message id.
-    const runId =
-      assistantMessageRunId(m) ||
-      (typeof window !== "undefined" ? getActiveRun()?.runId : null) ||
-      m.id ||
-      "";
+    const runId = resolveAssistantRequestId(m, getActiveRun(), threadId);
+    if (!runId) {
+      setCopied("id-unavailable");
+      return;
+    }
     void writeClipboardText(runId).then((ok) => {
-      if (!ok) return;
+      if (!ok) {
+        setCopied("id-failed");
+        return;
+      }
       setCopied("id");
       setTimeout(() => {
         setCopied(null);
         setOpen(false);
       }, 1000);
     });
-  }, [messageRuntime]);
+  }, [messageRuntime, threadId]);
 
   const handleForkChat = useCallback(() => {
     setOpen(false);
@@ -697,7 +708,13 @@ export function MessageActionsMenu({
           ) : (
             <IconId className="h-3.5 w-3.5" />
           )}
-          {copied === "id" ? "Copied!" : "Copy Request ID"}
+          {copied === "id"
+            ? "Copied!"
+            : copied === "id-unavailable"
+              ? "Request ID unavailable"
+              : copied === "id-failed"
+                ? "Copy failed"
+                : "Copy Request ID"}
         </DropdownMenuItem>
         {showRevert && (
           <DropdownMenuItem onSelect={handleRevert}>
@@ -952,35 +969,6 @@ function missingFinalResponseWarningText(content: unknown): string | null {
     }
   }
   return null;
-}
-
-export function completedAssistantToolNamesAfterLastText(
-  content: readonly ContentPart[],
-): string[] {
-  let lastTextIndex = -1;
-  for (let index = content.length - 1; index >= 0; index -= 1) {
-    if (content[index]?.type === "text") {
-      lastTextIndex = index;
-      break;
-    }
-  }
-
-  const names = new Set<string>();
-  for (let index = lastTextIndex + 1; index < content.length; index += 1) {
-    const part = content[index];
-    if (
-      part?.type !== "tool-call" ||
-      part.activity === true ||
-      part.result === undefined ||
-      part.isError === true ||
-      part.outcome === "unknown" ||
-      isCallAgentToolCallShadowed(content, index)
-    ) {
-      continue;
-    }
-    names.add(humanizeToolName(part.toolName));
-  }
-  return [...names];
 }
 
 export function latestUserMessageText(messages: readonly unknown[]): string {
@@ -1481,31 +1469,6 @@ export function InlineRunErrorNotice({
   );
 }
 
-function AssistantCompletionProgress({
-  messageId,
-  toolNames,
-}: {
-  messageId: string;
-  toolNames: readonly string[];
-}) {
-  if (toolNames.length === 0) return null;
-  return (
-    <div
-      className="my-1 w-full text-[13px] text-muted-foreground"
-      role="status"
-      aria-live="polite"
-      data-testid="assistant-completion-progress"
-    >
-      <SmoothMarkdownText
-        text={`The agent completed these actions: ${toolNames.join(", ")}`}
-        streaming
-        resetKey={`assistant-completion-progress:${messageId}`}
-        statusType="running"
-      />
-    </div>
-  );
-}
-
 function MissingFinalResponseNotice({
   messageId,
   text,
@@ -1610,10 +1573,6 @@ export function AssistantMessage() {
     if (missingFinalResponseAnimationKey == null) return;
     setRevealedMissingFinalResponseKey(missingFinalResponseAnimationKey);
   }, [missingFinalResponseAnimationKey]);
-  const completedToolNames =
-    isLast && chatRunning && !hasCompletedCustomUi && Array.isArray(msg.content)
-      ? completedAssistantToolNamesAfterLastText(msg.content)
-      : [];
   const shouldHoldCompletionFooter =
     isLast &&
     ((missingFinalResponseCandidate && !showMissingFinalResponse) ||
@@ -1833,7 +1792,6 @@ export function AssistantMessage() {
                     <ToolActivityPresentation
                       toolName={part.toolName}
                       isRunning={part.status?.type === "running"}
-                      isActiveTail={part.toolCallId === activeTailToolCallId}
                       toolCallId={part.toolCallId}
                     >
                       {part.toolUI}
@@ -1850,12 +1808,6 @@ export function AssistantMessage() {
             }}
           </MessagePrimitive.GroupedParts>
         </ToolCallStackMotion>
-        {completedToolNames.length > 0 && !showInlineRunError && (
-          <AssistantCompletionProgress
-            messageId={msg.id}
-            toolNames={completedToolNames}
-          />
-        )}
         {showInlineRunError && messageRunError && (
           <InlineRunErrorNotice
             info={messageRunError}
@@ -1894,6 +1846,7 @@ export function AssistantMessage() {
             <MessageActionsMenu
               showRevert={showRestore && restoreState === "idle"}
               onRevert={handleRestore}
+              threadId={cpCtx?.threadId ?? ""}
             />
             {/* Regenerate button — only on the last assistant message, auto-disabled while running */}
             {isLast && (

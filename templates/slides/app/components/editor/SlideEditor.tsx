@@ -150,7 +150,7 @@ function ExcalidrawExitButton(props: { onExit: () => void; label: string }) {
         <Button
           variant="ghost"
           size="icon"
-          className="absolute right-3 top-3 z-20 h-8 w-8 cursor-pointer border border-border bg-popover/95 shadow-lg backdrop-blur"
+          className="absolute right-3 top-3 z-20 h-8 w-8 cursor-pointer border border-border bg-popover/95 shadow-lg"
           onClick={props.onExit}
           aria-label={props.label}
         >
@@ -652,7 +652,7 @@ function SameSlidePresenceIndicator({ users }: { users: CollabUser[] }) {
       ? `${users[0].name} is here`
       : `${users.length} others here`;
   return (
-    <div className="pointer-events-auto flex items-center gap-1.5 rounded-full border border-border bg-popover/95 py-1 pl-1 pr-2.5 text-xs text-popover-foreground shadow-lg backdrop-blur">
+    <div className="pointer-events-auto flex items-center gap-1.5 rounded-full border border-border bg-popover/95 py-1 pl-1 pr-2.5 text-xs text-popover-foreground shadow-lg">
       <div className="flex items-center">
         {visible.map((u) => (
           <SamePresenceAvatar key={u.email} user={u} />
@@ -4246,7 +4246,7 @@ export default function SlideEditor({
             </div>
           ) : (
             <div className="relative h-full bg-background">
-              <div className="absolute right-3 top-3 z-20 flex h-8 items-center gap-0.5 rounded-md border border-border bg-popover/95 px-1 shadow-lg backdrop-blur">
+              <div className="absolute right-3 top-3 z-20 flex h-8 items-center gap-0.5 rounded-md border border-border bg-popover/95 px-1 shadow-lg">
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
