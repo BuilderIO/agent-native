@@ -647,10 +647,15 @@ function SameSlidePresenceIndicator({ users }: { users: CollabUser[] }) {
   if (users.length === 0) return null;
   const visible = users.slice(0, 3);
   const overflow = users.length - visible.length;
+  const agentIsPresent = users.some(
+    (user) => user.email.trim().toLowerCase() === "agent@system",
+  );
   const label =
-    users.length === 1
-      ? `${users[0].name} is here`
-      : `${users.length} others here`;
+    agentIsPresent && users.length === 1
+      ? "AI editing"
+      : users.length === 1
+        ? `${users[0].name} is here`
+        : `${users.length} others here`;
   return (
     <div className="pointer-events-auto flex items-center gap-1.5 rounded-full border border-border bg-popover/95 py-1 pl-1 pr-2.5 text-xs text-popover-foreground shadow-lg">
       <div className="flex items-center">

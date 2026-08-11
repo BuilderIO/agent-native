@@ -1346,9 +1346,6 @@ export default function Index() {
                   <h3 className="text-sm font-medium text-muted-foreground group-hover:text-foreground/70">
                     {t("home.newDeck")}
                   </h3>
-                  <div className="mt-1 text-xs text-muted-foreground/70">
-                    {t("home.createDeckOrVisual")}
-                  </div>
                 </div>
               </button>
 
