@@ -552,6 +552,51 @@ describe("DatabaseView UI regressions", () => {
     ).toBeNull();
   });
 
+  it("clears the Add property handoff when backing out of Sources", async () => {
+    attachSourceMutation.mutateAsync.mockResolvedValue(databaseResponse);
+    await renderDatabaseView();
+
+    await act(async () => {
+      findButtonByText(container, "Add property")?.click();
+    });
+    await act(async () => {
+      findButtonByText(
+        document.body,
+        "editor.properties.connectASource",
+      )?.click();
+    });
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>('[aria-label="Back"]')
+        ?.click();
+    });
+
+    await act(async () => {
+      findButtonByText(container, "Sources")?.click();
+    });
+    await act(async () => {
+      findButtonByText(container, "Builder")?.click();
+    });
+    await act(async () => {
+      findButtonByText(container, "Test Space")?.click();
+    });
+    await act(async () => {
+      findButtonByText(container, "Article")?.click();
+    });
+    await act(async () => {
+      findButtonByText(container, "Attach")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(attachSourceMutation.mutateAsync).toHaveBeenCalledTimes(1);
+    expect(
+      document.body.querySelector(
+        'input[aria-label="editor.properties.searchPropertyTypes"]',
+      ),
+    ).toBeNull();
+  });
+
   it("returns from each successful source connection with Add property reopened", async () => {
     const connectedSource: ContentDatabaseSource = {
       id: "source-1",

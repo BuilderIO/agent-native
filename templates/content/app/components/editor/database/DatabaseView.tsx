@@ -940,6 +940,10 @@ function DatabaseTable({
     sourceHandoffActiveRef.current = false;
     setSettingsOpen(false);
   };
+  const changeDatabaseSettingsPanel = (panel: DatabaseSettingsPanel) => {
+    if (panel !== "source") sourceHandoffActiveRef.current = false;
+    setSettingsPanel(panel);
+  };
   const [savedViewConfig, setSavedViewConfig] =
     useState<ContentDatabaseViewConfig>(defaultDatabaseViewConfig());
   const [personalQueryDirty, setPersonalQueryDirty] = useState(false);
@@ -3015,7 +3019,7 @@ function DatabaseTable({
         hiddenCount={hiddenProperties.length}
         groupIds={toolbarGroups.map((group) => group.id)}
         onClose={closeDatabaseSettings}
-        onPanelChange={setSettingsPanel}
+        onPanelChange={changeDatabaseSettingsPanel}
         onAttachBuilderSource={async (model, relationshipMode) => {
           const result = await attachSource.mutateAsync({
             documentId: document.id,
