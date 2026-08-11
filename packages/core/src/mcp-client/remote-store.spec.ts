@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   addFirstPartyRemoteServer,
+  addOAuthRemoteServer,
   addRemoteServer,
   isFirstPartyRemoteEndpointTrusted,
   toHttpServerConfig,
@@ -43,6 +44,31 @@ describe("validateRemoteUrl", () => {
     });
     expect(validateRemoteUrl("http://example.com/mcp")).toMatchObject({
       ok: false,
+    });
+  });
+});
+
+describe("OAuth remote MCP metadata", () => {
+  it("rejects a server URL that differs from the credential resource", async () => {
+    await expect(
+      addOAuthRemoteServer("user", "user@example.com", {
+        name: "example",
+        url: "https://mcp.example.com/mcp/",
+        credentials: {
+          serverUrl: "https://mcp.example.com/mcp",
+          clientInformation: {
+            client_id: "example-client",
+            redirect_uris: ["https://app.example.com/callback"],
+          },
+          tokens: {
+            access_token: "<ACCESS_TOKEN>",
+            token_type: "bearer",
+          },
+        },
+      }),
+    ).resolves.toEqual({
+      ok: false,
+      error: "MCP server URL must match the OAuth credential resource URL",
     });
   });
 });

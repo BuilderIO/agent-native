@@ -16,6 +16,23 @@ describe("createSsrfSafeDispatcher", () => {
     });
   });
 
+  it("preserves optional dispatcher behavior when Node DNS is unavailable", async () => {
+    vi.doMock("node:dns", () => {
+      throw new Error("node:dns unavailable");
+    });
+    vi.resetModules();
+    try {
+      const mod = await import("./url-safety.js");
+      await expect(mod.createSsrfSafeDispatcher()).resolves.toBeNull();
+      await expect(
+        mod.createSsrfSafeDispatcher([], undefined, { required: true }),
+      ).rejects.toThrow(/dispatcher could not be loaded/);
+    } finally {
+      vi.doUnmock("node:dns");
+      vi.resetModules();
+    }
+  });
+
   it("allows a configured loopback hostname at its exact port through the real dispatcher", async () => {
     const server = createServer((_request, response) => {
       response.writeHead(200, { "content-type": "text/plain" });

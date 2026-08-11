@@ -252,6 +252,20 @@ export async function addOAuthRemoteServer(
 ): Promise<
   { ok: true; server: StoredRemoteMcpServer } | { ok: false; error: string }
 > {
+  const serverUrl = validateRemoteUrl(input.url);
+  const credentialResource = validateRemoteUrl(input.credentials.serverUrl);
+  if (
+    !serverUrl.ok ||
+    !serverUrl.url ||
+    !credentialResource.ok ||
+    !credentialResource.url ||
+    serverUrl.url.toString() !== credentialResource.url.toString()
+  ) {
+    return {
+      ok: false,
+      error: "MCP server URL must match the OAuth credential resource URL",
+    };
+  }
   const oauthSecretKey = `mcp_oauth:${shortId()}`;
   try {
     await saveMcpOAuthCredentials({

@@ -227,6 +227,7 @@ function normalizeAllowedPrivateOriginOriginKeys(
 export async function createSsrfSafeDispatcher(
   allowedPrivateOrigins: readonly string[] = [],
   destinationUrl?: string,
+  options: { required?: boolean } = {},
 ): Promise<unknown> {
   // Keep the undici import opaque to Vite/Rolldown. A literal dynamic import
   // makes browser builds try to resolve and bundle this server-only package.
@@ -237,10 +238,13 @@ export async function createSsrfSafeDispatcher(
     undici = await import(/* @vite-ignore */ undiciSpecifier);
     dnsModule = await import("node:dns");
   } catch (error) {
-    throw new Error(
-      "SSRF protection is unavailable because the server dispatcher could not be loaded.",
-      { cause: error },
-    );
+    if (options.required) {
+      throw new Error(
+        "SSRF protection is unavailable because the server dispatcher could not be loaded.",
+        { cause: error },
+      );
+    }
+    return null;
   }
 
   const { Agent } = undici;
@@ -255,9 +259,12 @@ export async function createSsrfSafeDispatcher(
       parsed.port || (parsed.protocol === "https:" ? "443" : "80");
   }
   if (!Agent || !lookup) {
-    throw new Error(
-      "SSRF protection is unavailable because the server dispatcher is incomplete.",
-    );
+    if (options.required) {
+      throw new Error(
+        "SSRF protection is unavailable because the server dispatcher is incomplete.",
+      );
+    }
+    return null;
   }
 
   return new Agent({
@@ -319,7 +326,8 @@ export async function createSsrfSafeDispatcher(
  *   1. Pre-flight DNS-aware private-address check (isBlockedExtensionUrlWithDns)
  *      on the initial URL and on every redirect hop.
  *   2. A connect-time dispatcher that re-checks the resolved IP at TCP-connect
- *      time (closes the DNS-rebinding TOCTOU) when undici is available.
+ *      time (closes the DNS-rebinding TOCTOU). This strict fetch path fails
+ *      closed when the server dispatcher is unavailable.
  *   3. Manual redirect handling — a public URL cannot 30x-redirect into the
  *      private network because each hop is re-validated before it is followed.
  *
@@ -394,6 +402,7 @@ export async function ssrfSafeFetch(
     fetchOpts.dispatcher = await createSsrfSafeDispatcher(
       options.allowedPrivateOrigins,
       currentUrl,
+      { required: true },
     );
 
     const response = await fetch(currentUrl, fetchOpts);
