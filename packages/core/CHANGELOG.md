@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.149.6
+
+### Patch Changes
+
+- 5cc6f6e: Sync the bundled frontend-design skill copies with the canonical `.agents/skills` source.
+
 ## 0.149.5
 
 ### Patch Changes
