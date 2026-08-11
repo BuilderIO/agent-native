@@ -433,6 +433,30 @@ describe("MCP OAuth client", () => {
     );
   });
 
+  it("stores a canonical resource URL in both identity and credential", async () => {
+    await saveMcpOAuthCredentials({
+      key: "mcp_oauth:test",
+      scope: "user",
+      scopeId: "alice@example.com",
+      credentials: {
+        ...credentials,
+        serverUrl: "https://mcp.example.com",
+      } as any,
+    });
+
+    expect(saveOAuthTokensMock).toHaveBeenCalledWith(
+      "mcp",
+      "mcp_oauth:test",
+      expect.objectContaining({
+        serverUrl: "https://mcp.example.com/",
+        oauthLifecycle: expect.objectContaining({
+          resource: "https://mcp.example.com/",
+        }),
+      }),
+      "user:alice@example.com",
+    );
+  });
+
   it("refreshes an expiring token and persists the replacement bundle", async () => {
     const expiring = {
       ...credentials,

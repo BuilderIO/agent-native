@@ -470,16 +470,20 @@ export async function saveMcpOAuthCredentials(options: {
   scopeId: string;
   credentials: McpOAuthCredentialBundle;
 }): Promise<void> {
-  checkedRemoteUrl(options.credentials.serverUrl, "server");
-  if (options.credentials.discoveryState) {
-    validateDiscoveryUrls(options.credentials.discoveryState);
+  const serverUrl = checkedRemoteUrl(
+    options.credentials.serverUrl,
+    "server",
+  ).toString();
+  const credentials = { ...options.credentials, serverUrl };
+  if (credentials.discoveryState) {
+    validateDiscoveryUrls(credentials.discoveryState);
   }
   await saveOAuthCredential(
     credentialIdentity({
       ...options,
-      serverUrl: options.credentials.serverUrl,
+      serverUrl,
     }),
-    options.credentials,
+    credentials,
     { legacyAccountKey: true },
   );
 }
