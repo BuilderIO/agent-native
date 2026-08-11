@@ -7,11 +7,14 @@
  * `agent_audit_log`; reads are scoped to the caller's identity in SQL (no
  * shares table — audit rows are never individually shared).
  */
-import { getDbExec, intType, isPostgres } from "../db/client.js";
+import { getDbExec, intType, isPostgres, type DbExec } from "../db/client.js";
 import {
   ensureColumnExists,
   ensureTableExists,
   ensureIndexExists,
+  pgColumnExists,
+  pgIndexExists,
+  pgTableExists,
 } from "../db/ddl-guard.js";
 import type {
   AuditEvent,
@@ -21,6 +24,221 @@ import type {
 
 let _initPromise: Promise<void> | undefined;
 
+const APPEND_ORDER_TABLE = "agent_audit_append_order";
+const APPEND_ORDER_TRIGGER = "agent_audit_assign_append_order";
+const APPEND_ORDER_UNIQUE_INDEX = "idx_audit_append_order_unique";
+const APPEND_ORDER_QUERY_INDEX = "idx_audit_created_append_order";
+
+async function postgresAppendOrderReady(client: DbExec): Promise<boolean> {
+  const probes = await Promise.all([
+    pgColumnExists("agent_audit_log", "append_order", client),
+    pgTableExists(APPEND_ORDER_TABLE, client, true),
+    pgIndexExists(APPEND_ORDER_UNIQUE_INDEX, client, true),
+    pgIndexExists(APPEND_ORDER_QUERY_INDEX, client, true),
+  ]);
+  if (probes.some((value) => value === undefined)) {
+    throw new Error(
+      "Could not probe the audit append-order schema; refusing to issue DDL",
+    );
+  }
+  if (probes.some((value) => value !== true)) return false;
+
+  const metadata = await client.execute(`
+    SELECT
+      EXISTS (
+        SELECT 1
+          FROM pg_trigger
+         WHERE tgname = '${APPEND_ORDER_TRIGGER}'
+           AND tgrelid = 'agent_audit_log'::regclass
+           AND NOT tgisinternal
+           AND tgenabled <> 'D'
+      ) AS trigger_ready,
+      EXISTS (
+        SELECT 1
+          FROM pg_attribute
+         WHERE attrelid = 'agent_audit_log'::regclass
+           AND attname = 'append_order'
+           AND attnotnull
+           AND NOT attisdropped
+      ) AS column_not_null
+  `);
+  const allocator = await client.execute(
+    `SELECT value FROM ${APPEND_ORDER_TABLE} WHERE id = 1`,
+  );
+  const state = metadata.rows[0];
+  return (
+    state?.trigger_ready === true &&
+    state?.column_not_null === true &&
+    allocator.rows.length === 1
+  );
+}
+
+async function ensurePostgresAppendOrder(client: DbExec): Promise<void> {
+  if (await postgresAppendOrderReady(client)) return;
+  if (!client.transaction) {
+    throw new Error(
+      "PostgreSQL audit append-order initialization requires a database transaction",
+    );
+  }
+
+  await client.transaction(async (tx) => {
+    await tx.execute("SET LOCAL lock_timeout = '3s'");
+    await tx.execute("SET LOCAL idle_in_transaction_session_timeout = '30s'");
+    // The lock closes the add-column -> trigger window for rolling old writers.
+    await tx.execute("LOCK TABLE agent_audit_log IN SHARE ROW EXCLUSIVE MODE");
+
+    await ensureTableExists(
+      APPEND_ORDER_TABLE,
+      `CREATE TABLE IF NOT EXISTS ${APPEND_ORDER_TABLE} (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        value BIGINT NOT NULL
+      )`,
+      { injectedClient: tx, dialectIsPostgres: true },
+    );
+    await ensureColumnExists(
+      "agent_audit_log",
+      "append_order",
+      "ALTER TABLE agent_audit_log ADD COLUMN IF NOT EXISTS append_order BIGINT",
+      { injectedClient: tx },
+    );
+
+    await tx.execute(`
+      CREATE OR REPLACE FUNCTION agent_audit_allocate_append_order()
+      RETURNS trigger
+      LANGUAGE plpgsql
+      AS $audit_append_order$
+      DECLARE
+        allocated BIGINT;
+      BEGIN
+        UPDATE ${APPEND_ORDER_TABLE}
+           SET value = value + 1
+         WHERE id = 1
+         RETURNING value INTO allocated;
+        IF allocated IS NULL THEN
+          RAISE EXCEPTION 'audit append-order allocator is not initialized';
+        END IF;
+        NEW.append_order := allocated;
+        RETURN NEW;
+      END;
+      $audit_append_order$
+    `);
+    await tx.execute(`
+      CREATE OR REPLACE TRIGGER ${APPEND_ORDER_TRIGGER}
+      BEFORE INSERT ON agent_audit_log
+      FOR EACH ROW
+      EXECUTE FUNCTION agent_audit_allocate_append_order()
+    `);
+
+    // PostgreSQL cannot recover true append order for historical ties. This
+    // migration rank is stable and database-owned; the live guarantee starts
+    // with rows inserted after this transaction commits.
+    await tx.execute(`
+      WITH base AS (
+        SELECT COALESCE(MAX(append_order), 0) AS value
+          FROM agent_audit_log
+      ), ranked AS (
+        SELECT agent_audit_log.ctid AS row_id,
+               base.value + ROW_NUMBER() OVER (
+                 ORDER BY agent_audit_log.created_at, agent_audit_log.ctid
+               ) AS value
+          FROM agent_audit_log
+          CROSS JOIN base
+         WHERE append_order IS NULL
+      )
+      UPDATE agent_audit_log AS audit
+         SET append_order = ranked.value
+        FROM ranked
+       WHERE audit.ctid = ranked.row_id
+    `);
+    await tx.execute(`
+      INSERT INTO ${APPEND_ORDER_TABLE} (id, value)
+      SELECT 1, COALESCE(MAX(append_order), 0) FROM agent_audit_log
+      ON CONFLICT (id) DO UPDATE
+        SET value = GREATEST(${APPEND_ORDER_TABLE}.value, excluded.value)
+    `);
+    await tx.execute(
+      "ALTER TABLE agent_audit_log ALTER COLUMN append_order SET NOT NULL",
+    );
+    await ensureIndexExists(
+      APPEND_ORDER_UNIQUE_INDEX,
+      `CREATE UNIQUE INDEX IF NOT EXISTS ${APPEND_ORDER_UNIQUE_INDEX} ON agent_audit_log (append_order)`,
+      { injectedClient: tx, dialectIsPostgres: true },
+    );
+    await ensureIndexExists(
+      APPEND_ORDER_QUERY_INDEX,
+      `CREATE INDEX IF NOT EXISTS ${APPEND_ORDER_QUERY_INDEX} ON agent_audit_log (created_at DESC, append_order DESC)`,
+      { injectedClient: tx, dialectIsPostgres: true },
+    );
+  });
+}
+
+async function ensureSqliteAppendOrder(client: DbExec): Promise<void> {
+  const initialize = async (tx: DbExec) => {
+    await tx.execute(`CREATE TABLE IF NOT EXISTS ${APPEND_ORDER_TABLE} (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      value INTEGER NOT NULL
+    )`);
+    const columns = await tx.execute({
+      sql: "PRAGMA table_info(agent_audit_log)",
+    });
+    if (!columns.rows.some((row) => row.name === "append_order")) {
+      await tx.execute(
+        "ALTER TABLE agent_audit_log ADD COLUMN append_order INTEGER",
+      );
+    }
+
+    // A rowid-ranked backfill preserves SQLite's database-owned legacy order.
+    await tx.execute(`
+      WITH base AS (
+        SELECT COALESCE(MAX(append_order), 0) AS value
+          FROM agent_audit_log
+      ), ranked AS MATERIALIZED (
+        SELECT rowid AS row_id,
+               base.value + ROW_NUMBER() OVER (ORDER BY rowid) AS value
+          FROM agent_audit_log
+          CROSS JOIN base
+         WHERE append_order IS NULL
+      )
+      UPDATE agent_audit_log
+         SET append_order = (
+           SELECT ranked.value FROM ranked WHERE ranked.row_id = agent_audit_log.rowid
+         )
+       WHERE append_order IS NULL
+    `);
+    await tx.execute(`
+      INSERT INTO ${APPEND_ORDER_TABLE} (id, value)
+      VALUES (1, (SELECT COALESCE(MAX(append_order), 0) FROM agent_audit_log))
+      ON CONFLICT (id) DO UPDATE
+        SET value = MAX(${APPEND_ORDER_TABLE}.value, excluded.value)
+    `);
+    await tx.execute(`
+      CREATE TRIGGER IF NOT EXISTS ${APPEND_ORDER_TRIGGER}
+      AFTER INSERT ON agent_audit_log
+      FOR EACH ROW WHEN NEW.append_order IS NULL
+      BEGIN
+        UPDATE ${APPEND_ORDER_TABLE} SET value = value + 1 WHERE id = 1;
+        SELECT CASE WHEN changes() = 0
+          THEN RAISE(ABORT, 'audit append-order allocator is not initialized') END;
+        UPDATE agent_audit_log
+           SET append_order = (SELECT value FROM ${APPEND_ORDER_TABLE} WHERE id = 1)
+         WHERE rowid = NEW.rowid;
+      END
+    `);
+    await tx.execute(
+      `CREATE UNIQUE INDEX IF NOT EXISTS ${APPEND_ORDER_UNIQUE_INDEX} ON agent_audit_log (append_order)`,
+    );
+    await tx.execute(
+      `CREATE INDEX IF NOT EXISTS ${APPEND_ORDER_QUERY_INDEX} ON agent_audit_log (created_at DESC, append_order DESC)`,
+    );
+  };
+
+  if (client.transaction) {
+    await client.transaction(initialize);
+  } else {
+    await initialize(client);
+  }
+}
+
 export async function ensureAuditTables(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
@@ -29,6 +247,7 @@ export async function ensureAuditTables(): Promise<void> {
         CREATE TABLE IF NOT EXISTS agent_audit_log (
           id TEXT PRIMARY KEY,
           created_at ${intType()} NOT NULL,
+          append_order ${intType()},
           action TEXT NOT NULL,
           caller TEXT NOT NULL,
           actor_kind TEXT NOT NULL,
@@ -104,6 +323,7 @@ export async function ensureAuditTables(): Promise<void> {
           "idx_audit_created",
           `CREATE INDEX IF NOT EXISTS idx_audit_created ON agent_audit_log (created_at)`,
         );
+        await ensurePostgresAppendOrder(client);
         return;
       }
 
@@ -131,6 +351,7 @@ export async function ensureAuditTables(): Promise<void> {
           // Index creation is best-effort; a racing boot may have created it.
         }
       }
+      await ensureSqliteAppendOrder(client);
     })().catch((err) => {
       // Allow a later call to retry if the first init failed.
       _initPromise = undefined;
@@ -306,7 +527,7 @@ export async function queryAuditEvents(
   const result = await client.execute({
     sql: `SELECT ${LIST_COLUMNS} FROM agent_audit_log
           WHERE ${where.join(" AND ")}
-          ORDER BY created_at DESC
+          ORDER BY created_at DESC, append_order DESC
           LIMIT ? OFFSET ?`,
     args: [...args, limit, offset],
   });
