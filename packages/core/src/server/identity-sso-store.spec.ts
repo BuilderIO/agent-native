@@ -130,6 +130,62 @@ describe("getIdentityHubUrl / isIdentitySsoEnabled", () => {
   });
 });
 
+describe("Desktop SSO Canary request classifiers", () => {
+  it("requires the dedicated Canary marker", () => {
+    expect(
+      store.isDesktopSsoCanaryUserAgent(
+        "Mozilla/5.0 AgentNativeDesktopSsoCanary/1.2.3",
+      ),
+    ).toBe(true);
+    expect(
+      store.isDesktopSsoCanaryUserAgent("Mozilla/5.0 AgentNativeDesktop/1.2.3"),
+    ).toBe(false);
+  });
+
+  it("accepts only canonical HTTPS Agent Native app origins", () => {
+    expect(
+      store.isCanonicalAgentNativeAppOrigin("https://mail.agent-native.com"),
+    ).toBe(true);
+    expect(
+      store.isCanonicalAgentNativeAppOrigin(
+        "https://dispatch.agent-native.com",
+      ),
+    ).toBe(true);
+    expect(
+      store.isCanonicalAgentNativeAppOrigin("https://unknown.agent-native.com"),
+    ).toBe(false);
+    expect(
+      store.isCanonicalAgentNativeAppOrigin("http://mail.agent-native.com"),
+    ).toBe(false);
+    expect(
+      store.isCanonicalAgentNativeAppOrigin(
+        "https://mail.agent-native.com.evil.example",
+      ),
+    ).toBe(false);
+  });
+
+  it("classifies the actual request host instead of a configured fallback", () => {
+    expect(
+      store.isCanonicalAgentNativeAppRequest("mail.agent-native.com", "https"),
+    ).toBe(true);
+    expect(
+      store.isCanonicalAgentNativeAppRequest(
+        "unknown.agent-native.com",
+        "https",
+      ),
+    ).toBe(false);
+    expect(
+      store.isCanonicalAgentNativeAppRequest("mail.agent-native.com", "http"),
+    ).toBe(false);
+    expect(
+      store.isCanonicalAgentNativeAppRequest(
+        "mail.agent-native.com",
+        undefined,
+      ),
+    ).toBe(false);
+  });
+});
+
 describe("CSRF state — single use + expiry", () => {
   it("a freshly minted state is consumable exactly once", async () => {
     const s = await store.createSsoState("/inbox");

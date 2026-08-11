@@ -27,7 +27,7 @@ import {
   type DesktopShortcutSettings,
   type DesktopShortcutUpsertRequest,
 } from "@shared/desktop-shortcuts";
-import type { UpdateStatus } from "@shared/ipc-channels";
+import type { DesktopIdentityStatus, UpdateStatus } from "@shared/ipc-channels";
 import {
   IconAlertCircle,
   IconArrowLeft,
@@ -510,6 +510,8 @@ export default function AppSettings({
   const [frameSettings, setFrameSettings] = useState<FrameSettings | null>(
     null,
   );
+  const [identityStatus, setIdentityStatus] =
+    useState<DesktopIdentityStatus>("idle");
   const [remoteStatus, setRemoteStatus] =
     useState<CodeAgentRemoteConnectorStatus | null>(null);
   const [remotePairUrl, setRemotePairUrl] = useState("");
@@ -572,6 +574,31 @@ export default function AppSettings({
       });
     }
   }, [onFrameSettingsChanged]);
+
+  useEffect(() => {
+    const identity = window.electronAPI?.identity;
+    if (!identity) return;
+    let active = true;
+    void identity.getStatus().then((status) => {
+      if (active) setIdentityStatus(status);
+    });
+    const unsubscribe = identity.onStatusChange((status) => {
+      if (active) setIdentityStatus(status);
+    });
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, []);
+
+  const handleWorkspaceSignOut = useCallback(async () => {
+    const signedOut = await window.electronAPI?.identity?.signOut();
+    if (signedOut) setIdentityStatus("sign-in-required");
+  }, []);
+
+  const handleWorkspaceSignIn = useCallback(async () => {
+    await window.electronAPI?.identity?.signIn();
+  }, []);
 
   const refreshProviderSettings = useCallback(async () => {
     const api = window.electronAPI?.codeAgents;
@@ -1400,6 +1427,44 @@ export default function AppSettings({
               <SettingsTabsPage
                 general={
                   <div className="w-full max-w-3xl space-y-8">
+                    {identityStatus !== "idle" ? (
+                      <SettingsGroup
+                        title="Workspace account"
+                        description="One Agent Native identity across first-party desktop apps. Provider connections remain separate."
+                      >
+                        <SettingsRow
+                          label="Agent Native workspace"
+                          description={
+                            identityStatus === "signed-in"
+                              ? "Signed in across eligible apps on this desktop."
+                              : identityStatus === "signing-in"
+                                ? "Finishing workspace sign-in…"
+                                : identityStatus === "failed"
+                                  ? "Workspace sign-in needs attention in an app."
+                                  : "Choose workspace sign-in for the active app. Ordinary app sign-in remains separate."
+                          }
+                          control={
+                            identityStatus === "signed-in" ? (
+                              <button
+                                type="button"
+                                className="settings-btn settings-btn--ghost"
+                                onClick={() => void handleWorkspaceSignOut()}
+                              >
+                                Sign out
+                              </button>
+                            ) : identityStatus === "signing-in" ? undefined : (
+                              <button
+                                type="button"
+                                className="settings-btn settings-btn--ghost"
+                                onClick={() => void handleWorkspaceSignIn()}
+                              >
+                                Sign in
+                              </button>
+                            )
+                          }
+                        />
+                      </SettingsGroup>
+                    ) : null}
                     <SettingsGroup
                       title="Software updates"
                       description="Keep Agent Native current."

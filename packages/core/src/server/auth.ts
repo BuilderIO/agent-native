@@ -174,10 +174,11 @@ import {
   resolveOAuthRedirectUri,
   isAllowedOAuthRedirectUri,
 } from "./google-oauth.js";
-// Pure env-read feature switch from a leaf module (no dependency back on
-// auth.ts), so the guard and the SSO route handler share one validator and
-// can never disagree about whether federated SSO is enabled.
-import { isIdentitySsoEnabled } from "./identity-sso-store.js";
+import {
+  isCanonicalAgentNativeAppRequest,
+  isDesktopSsoCanaryUserAgent,
+  isIdentitySsoEnabled,
+} from "./identity-sso-store.js";
 import { ensureCanonicalUserForLegacySession } from "./legacy-auth-migration.js";
 import { safeOAuthReturnUrl } from "./oauth-return-url.js";
 import {
@@ -2378,14 +2379,22 @@ function createAuthGuardFn(): (
     // definition, NOT yet signed in to THIS app) must bypass the blanket
     // 401-for-/_agent-native/*: they resolve / mint the browser session
     // themselves and verify a signature-bound, single-use, CSRF-stated
-    // hub token — not a cookie. This bypass is GATED on the opt-in env var
-    // so an unset `AGENT_NATIVE_IDENTITY_HUB_URL` is a true no-op (the
-    // guard's behaviour is byte-for-byte unchanged when SSO is off). The
-    // handler itself 404s when disabled as defence in depth.
+    // hub token — not a cookie. The handler fails closed with 404 unless
+    // direct web SSO is configured or this is the packaged SSO Canary on a
+    // canonical app origin. Keeping the bypass exact lets that request-scoped
+    // decision happen without exposing any other identity subpath.
+    const isIdentitySsoEntryPath =
+      p === "/_agent-native/identity/login" ||
+      p === "/_agent-native/identity/callback";
+    const isDesktopCanaryIdentityRequest =
+      isDesktopSsoCanaryUserAgent(getHeader(event, "user-agent")) &&
+      isCanonicalAgentNativeAppRequest(
+        getHeader(event, "host"),
+        getHeader(event, "x-forwarded-proto"),
+      );
     if (
-      isIdentitySsoEnabled() &&
-      (p === "/_agent-native/identity/login" ||
-        p === "/_agent-native/identity/callback")
+      isIdentitySsoEntryPath &&
+      (isIdentitySsoEnabled() || isDesktopCanaryIdentityRequest)
     ) {
       return;
     }
