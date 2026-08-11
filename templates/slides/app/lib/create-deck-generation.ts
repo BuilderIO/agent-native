@@ -108,11 +108,11 @@ export function isSourceImprovementRequest(
     /\bmake\b[\s\S]{0,40}\b(better|modern|professional|polished)\b/.test(
       normalized,
     );
-  const namesTheSource =
-    /\b(deck|presentation|slide|slides|pptx|pdf|source|file)\b/.test(
-      normalized,
-    );
-  return asksToImprove && namesTheSource;
+  // A source deck attachment is the object being improved even when the
+  // prompt uses an implicit phrase such as "make this prettier". Requiring a
+  // source noun here silently falls back to reference-only generation and can
+  // discard the uploaded deck's slide IDs and content.
+  return asksToImprove;
 }
 
 function describeUploadedFilesForAgent(

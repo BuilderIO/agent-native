@@ -1230,7 +1230,7 @@ function EmptyState() {
   return (
     <div className="flex flex-col items-center justify-center py-10 sm:py-14 text-center">
       <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#609FF8]/20 to-[#4080E0]/20 border border-[#609FF8]/20 flex items-center justify-center mb-6">
-        <IconComponents className="w-7 h-7 text-[#609FF8]" />
+        <IconComponents className="w-7 h-7 text-primary" />
       </div>
       <h2 className="text-xl font-semibold text-foreground mb-2">
         {t("designSystems.empty.title")}

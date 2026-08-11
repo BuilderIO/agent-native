@@ -1,6 +1,7 @@
 import type { BrowserWindow, MouseInputEvent, WebContents } from "electron";
 
-export const WINDOW_DRAG_REGION_HEIGHT = 20;
+export const WINDOW_DRAG_REGION_TOP = 20;
+export const WINDOW_DRAG_REGION_HEIGHT = 16;
 export const WINDOW_DRAG_THRESHOLD = 4;
 
 export interface WindowDragScreenPoint {
@@ -26,6 +27,7 @@ interface WindowDragTarget {
 
 interface WindowDragOptions {
   getCursorScreenPoint: () => WindowDragScreenPoint;
+  regionTop?: number;
   regionHeight?: number;
   threshold?: number;
 }
@@ -50,6 +52,7 @@ export function createWindowDragController(
   window: WindowDragTarget,
   {
     getCursorScreenPoint,
+    regionTop = WINDOW_DRAG_REGION_TOP,
     regionHeight = WINDOW_DRAG_REGION_HEIGHT,
     threshold = WINDOW_DRAG_THRESHOLD,
   }: WindowDragOptions,
@@ -74,7 +77,11 @@ export function createWindowDragController(
 
       const cursor = pointFromMouseInput(input, getCursorScreenPoint);
       const contentTop = window.getContentBounds().y;
-      if (cursor.y < contentTop || cursor.y >= contentTop + regionHeight) {
+      const regionTopEdge = contentTop + regionTop;
+      if (
+        cursor.y < regionTopEdge ||
+        cursor.y >= regionTopEdge + regionHeight
+      ) {
         return;
       }
 

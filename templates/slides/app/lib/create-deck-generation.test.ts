@@ -11,9 +11,26 @@ vi.mock("react-dom", () => ({
   flushSync: (callback: () => void) => callback(),
 }));
 
-import { startDeckGeneration } from "./create-deck-generation";
+import {
+  isSourceImprovementRequest,
+  startDeckGeneration,
+} from "./create-deck-generation";
 
 describe("startDeckGeneration", () => {
+  it("treats an implicit improvement prompt as source-preserving", () => {
+    expect(
+      isSourceImprovementRequest("Make this prettier", [
+        {
+          path: "/uploads/source.pptx",
+          originalName: "source.pptx",
+          filename: "source.pptx",
+          type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+          size: 1024,
+        },
+      ]),
+    ).toBe(true);
+  });
+
   it("keeps an ordinary attached PDF as agent reference material", async () => {
     const deck = {
       id: "deck-1",

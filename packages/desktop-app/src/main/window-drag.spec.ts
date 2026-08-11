@@ -5,6 +5,7 @@ import {
   createWindowDragController,
   installWindowDragController,
   WINDOW_DRAG_REGION_HEIGHT,
+  WINDOW_DRAG_REGION_TOP,
 } from "./window-drag.js";
 
 type EventListener = (...args: unknown[]) => void;
@@ -81,23 +82,23 @@ describe("window drag gesture", () => {
       type: "mouseDown",
       button: "left",
       globalX: 120,
-      globalY: 100 + WINDOW_DRAG_REGION_HEIGHT / 2,
+      globalY: 100 + WINDOW_DRAG_REGION_TOP + WINDOW_DRAG_REGION_HEIGHT / 2,
     });
     controller.handleBeforeMouseEvent(move, {
       type: "mouseMove",
       globalX: 127,
-      globalY: 115,
+      globalY: 135,
     });
     controller.handleBeforeMouseEvent(up, {
       type: "mouseUp",
       button: "left",
       globalX: 127,
-      globalY: 115,
+      globalY: 135,
     });
 
     expect(move.preventDefault).toHaveBeenCalledOnce();
     expect(up.preventDefault).toHaveBeenCalledOnce();
-    expect(window.setPosition).toHaveBeenCalledWith(47, 65, false);
+    expect(window.setPosition).toHaveBeenCalledWith(47, 67, false);
   });
 
   it("does not capture clicks outside the top region", () => {
@@ -111,7 +112,7 @@ describe("window drag gesture", () => {
       type: "mouseDown",
       button: "left",
       globalX: 120,
-      globalY: 120,
+      globalY: 119,
     });
     controller.handleBeforeMouseEvent(event, {
       type: "mouseMove",
@@ -146,12 +147,12 @@ describe("window drag gesture", () => {
       type: "mouseDown",
       button: "left",
       globalX: 120,
-      globalY: 110,
+      globalY: 128,
     });
     guest.emit("before-mouse-event", event, {
       type: "mouseMove",
       globalX: 127,
-      globalY: 115,
+      globalY: 135,
     });
 
     expect(event.preventDefault).toHaveBeenCalledOnce();
