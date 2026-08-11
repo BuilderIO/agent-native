@@ -1131,7 +1131,7 @@ const enUS = {
       s003: "Generate",
       s004: "Refine",
       s005: "All Apps",
-      s006: "Slide presentations for humans and agents",
+      s006: "Decks from your AI agent. On brand, editable, yours.",
       s007: "Generate branded slide decks from your AI agent, apply your own manual changes anytime, export anywhere.",
       s008: "Try It",
       s009: "How it works",
