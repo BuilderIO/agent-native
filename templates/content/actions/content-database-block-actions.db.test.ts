@@ -27,6 +27,7 @@ let createRow: typeof import("./add-database-item.js").default;
 let setProperty: typeof import("./set-document-property.js").default;
 let listBlocks: typeof import("./list-content-database-blocks.js").default;
 let mutateBlock: typeof import("./mutate-content-database-block.js").default;
+let compareAndSwapAdditionalBlocksField: typeof import("./_database-block-actions.js").compareAndSwapAdditionalBlocksField;
 
 const asOwner = <T>(run: () => Promise<T>) =>
   runWithRequestContext({ userEmail: OWNER }, run);
@@ -52,6 +53,9 @@ beforeAll(async () => {
   setProperty = (await import("./set-document-property.js")).default;
   listBlocks = (await import("./list-content-database-blocks.js")).default;
   mutateBlock = (await import("./mutate-content-database-block.js")).default;
+  compareAndSwapAdditionalBlocksField = (
+    await import("./_database-block-actions.js")
+  ).compareAndSwapAdditionalBlocksField;
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as any);
 }, 60_000);
@@ -481,5 +485,75 @@ describe("exact Content database block actions", () => {
       .from(schema.documents)
       .where(eq(schema.documents.id, state.target.rowDocumentId));
     expect(stored?.content).toBe("Editor won\nSibling");
+  });
+
+  it("rejects a stale additional-field write without overwriting the newer whole-field value", async () => {
+    const state = await fixture("Primary stays");
+    const added = await asOwner(() =>
+      configureProperty.run({
+        documentId: state.databaseDocumentId,
+        databaseId: state.databaseId,
+        name: "Concurrent notes",
+        type: "blocks",
+      }),
+    );
+    const additional = added.properties.find(
+      (property) => property.definition.name === "Concurrent notes",
+    )!;
+    await asOwner(() =>
+      setProperty.run({
+        databaseId: state.databaseId,
+        documentId: state.target.rowDocumentId,
+        propertyId: additional.definition.id,
+        value: "Agent read this\nSibling",
+        expectedBlocksFieldRevision: 0,
+      }),
+    );
+
+    await getDb()
+      .update(schema.documentBlockFieldContents)
+      .set({ content: "UI won\nSibling" })
+      .where(
+        and(
+          eq(
+            schema.documentBlockFieldContents.documentId,
+            state.target.rowDocumentId,
+          ),
+          eq(
+            schema.documentBlockFieldContents.propertyId,
+            additional.definition.id,
+          ),
+        ),
+      );
+
+    await expect(
+      compareAndSwapAdditionalBlocksField({
+        db: getDb(),
+        ownerEmail: OWNER,
+        documentId: state.target.rowDocumentId,
+        propertyId: additional.definition.id,
+        expectedContent: "Agent read this\nSibling",
+        expectedExists: true,
+        content: "Agent write\nSibling",
+        now: new Date().toISOString(),
+      }),
+    ).rejects.toMatchObject({ errorCode: "FIELD_REVISION_CONFLICT" });
+
+    const [stored] = await getDb()
+      .select({ content: schema.documentBlockFieldContents.content })
+      .from(schema.documentBlockFieldContents)
+      .where(
+        and(
+          eq(
+            schema.documentBlockFieldContents.documentId,
+            state.target.rowDocumentId,
+          ),
+          eq(
+            schema.documentBlockFieldContents.propertyId,
+            additional.definition.id,
+          ),
+        ),
+      );
+    expect(stored?.content).toBe("UI won\nSibling");
   });
 });

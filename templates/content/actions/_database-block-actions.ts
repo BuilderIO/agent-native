@@ -126,6 +126,7 @@ interface LoadedField {
   identity: BlocksFieldIdentity;
   ownerEmail: string;
   storageTarget: BlocksStorageTarget;
+  storageRowExists: boolean;
 }
 
 function contractError(
@@ -217,6 +218,7 @@ async function loadField(args: {
     parsePropertyOptions(definition.optionsJson),
   );
   let markdown: string;
+  let storageRowExists = true;
   if (storageTarget === "document_body") {
     markdown = row.document.content;
   } else {
@@ -235,6 +237,7 @@ async function loadField(args: {
           ),
         ),
       );
+    storageRowExists = field !== undefined;
     markdown = field?.content ?? "";
   }
   const identity = await readBlocksFieldIdentity({
@@ -250,6 +253,7 @@ async function loadField(args: {
     identity,
     ownerEmail: context.database.ownerEmail,
     storageTarget,
+    storageRowExists,
   };
 }
 
@@ -475,24 +479,65 @@ async function writeMarkdown(
     }
     return;
   }
-  await db
-    .insert(schema.documentBlockFieldContents)
-    .values({
-      id: nanoid(),
-      ownerEmail: loaded.ownerEmail,
-      documentId: target.rowDocumentId,
-      propertyId: target.propertyId,
-      content: markdown,
-      createdAt: now,
-      updatedAt: now,
-    })
-    .onConflictDoUpdate({
-      target: [
-        schema.documentBlockFieldContents.documentId,
-        schema.documentBlockFieldContents.propertyId,
-      ],
-      set: { content: markdown, updatedAt: now },
-    });
+  await compareAndSwapAdditionalBlocksField({
+    db,
+    ownerEmail: loaded.ownerEmail,
+    documentId: target.rowDocumentId,
+    propertyId: target.propertyId,
+    expectedContent: loaded.markdown,
+    expectedExists: loaded.storageRowExists,
+    content: markdown,
+    now,
+  });
+}
+
+export async function compareAndSwapAdditionalBlocksField(args: {
+  db: ReturnType<typeof getDb>;
+  ownerEmail: string;
+  documentId: string;
+  propertyId: string;
+  expectedContent: string;
+  expectedExists: boolean;
+  content: string;
+  now: string;
+}) {
+  const updated = args.expectedExists
+    ? await args.db
+        .update(schema.documentBlockFieldContents)
+        .set({ content: args.content, updatedAt: args.now })
+        .where(
+          and(
+            eq(schema.documentBlockFieldContents.documentId, args.documentId),
+            eq(schema.documentBlockFieldContents.propertyId, args.propertyId),
+            eq(schema.documentBlockFieldContents.content, args.expectedContent),
+          ),
+        )
+        .returning({ id: schema.documentBlockFieldContents.id })
+    : await args.db
+        .insert(schema.documentBlockFieldContents)
+        .values({
+          id: nanoid(),
+          ownerEmail: args.ownerEmail,
+          documentId: args.documentId,
+          propertyId: args.propertyId,
+          content: args.content,
+          createdAt: args.now,
+          updatedAt: args.now,
+        })
+        .onConflictDoNothing({
+          target: [
+            schema.documentBlockFieldContents.documentId,
+            schema.documentBlockFieldContents.propertyId,
+          ],
+        })
+        .returning({ id: schema.documentBlockFieldContents.id });
+  if (updated.length === 0) {
+    contractError(
+      "FIELD_REVISION_CONFLICT",
+      "The Blocks field changed before the mutation could commit.",
+      { propertyId: args.propertyId },
+    );
+  }
 }
 
 async function readExistingReceipt(
