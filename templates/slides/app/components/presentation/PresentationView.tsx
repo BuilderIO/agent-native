@@ -239,6 +239,12 @@ export default function PresentationView({
 
   const isShared = deckId.startsWith("__shared__/");
 
+  // Exit handlers read this instead of closing over `currentIndex` so the
+  // mount-only fullscreenchange listener still lands on the slide the user
+  // was viewing rather than wherever the deck opened.
+  const currentIndexRef = useRef(currentIndex);
+  currentIndexRef.current = currentIndex;
+
   useEffect(() => {
     setCurrentIndex((prev) => clampIndex(prev));
     setPrevIndex((prev) =>
@@ -348,7 +354,7 @@ export default function PresentationView({
       const token = deckId.replace("__shared__/", "");
       navigate(`/share/${token}`);
     } else {
-      navigate(`/deck/${deckId}`);
+      navigate(`/deck/${deckId}?slide=${currentIndexRef.current + 1}`);
     }
   }, [navigate, deckId, isShared]);
 
@@ -469,7 +475,7 @@ export default function PresentationView({
           const token = deckId.replace("__shared__/", "");
           navigate(`/share/${token}`);
         } else {
-          navigate(`/deck/${deckId}`);
+          navigate(`/deck/${deckId}?slide=${currentIndexRef.current + 1}`);
         }
       }
     };

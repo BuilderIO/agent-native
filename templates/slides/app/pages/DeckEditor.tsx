@@ -757,6 +757,55 @@ export default function DeckEditor() {
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [deck, id, activeSlideId, deleteSlideWithUndo, pinMode, drawMode]);
 
+  // Cmd/Ctrl+C then Cmd/Ctrl+V duplicates the current slide from the film
+  // strip, mirroring the Delete-key handler's safe zones so it doesn't steal
+  // the shortcut from text editing or canvas object copy/paste.
+  const copiedSlideIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!deck || !id || !activeSlideId) return;
+      if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
+      const key = e.key.toLowerCase();
+      if (key !== "c" && key !== "v") return;
+      if (pinMode || drawMode) return;
+      const isInsideSafeZone = (el: Element | null) => {
+        if (!el) return false;
+        if (el instanceof HTMLInputElement) return true;
+        if (el instanceof HTMLTextAreaElement) return true;
+        if (el instanceof HTMLElement) {
+          if (el.isContentEditable) return true;
+          if (el.closest("[contenteditable='true']")) return true;
+          if (el.closest("input, textarea, [role='textbox']")) return true;
+          if (el.closest("[data-pin-popover]")) return true;
+          if (el.closest(".agent-panel-root")) return true;
+        }
+        return false;
+      };
+      const target = e.target as Element | null;
+      if (isInsideSafeZone(target)) return;
+      if (isInsideSafeZone(document.activeElement)) return;
+      if (document.querySelector("[data-pin-popover]")) return;
+      // A selected canvas object already owns Cmd/Ctrl+C/V for its own
+      // copy/paste; slide-level duplicate only applies when nothing on the
+      // canvas is selected.
+      if (document.querySelector("[data-slide-element-selected='true']"))
+        return;
+      if (!canEdit) return;
+
+      if (key === "c") {
+        copiedSlideIdRef.current = activeSlideId;
+        return;
+      }
+      const copiedSlideId = copiedSlideIdRef.current;
+      if (!copiedSlideId) return;
+      if (!deck.slides.some((s) => s.id === copiedSlideId)) return;
+      e.preventDefault();
+      duplicateSlide(id, copiedSlideId);
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [deck, id, activeSlideId, duplicateSlide, canEdit, pinMode, drawMode]);
+
   // Resolve the active slide from URL/deck state. Imports replace slide IDs, so
   // keep this valid after deck contents change instead of only on first load.
   // Track the last URL ?slide param we processed so we can tell "the URL changed

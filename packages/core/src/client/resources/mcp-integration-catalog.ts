@@ -63,6 +63,13 @@ export interface DefaultMcpIntegration {
   brandAliases?: string[];
   aliases?: string[];
   keywords: string[];
+  /**
+   * Overrides `name` for prose intent matching in `findMcpIntegrationForText`
+   * when the display name is a common English word (e.g. "Box") that would
+   * otherwise false-positive on unrelated text. Leave unset unless the name
+   * itself is the ambiguous term; `brandAliases` still apply.
+   */
+  promptAliases?: string[];
 }
 
 export interface McpIntegrationFormDefaults {
@@ -771,6 +778,9 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
     docsUrl: "https://developer.box.com/guides/box-mcp",
     setupNoteKey: "mcpIntegrations.catalog.box.setupNote",
     keywords: ["files", "folders", "documents", "enterprise content"],
+    // "Box" alone collides with everyday nouns (text box, checkbox, bounding
+    // box), so require a qualified phrase before suggesting the connection.
+    promptAliases: ["Box.com", "Box files", "Box folder", "Box drive"],
   },
   {
     id: "builder-cms",
@@ -1105,9 +1115,10 @@ export function findMcpIntegrationForText(
     isMcpConnectionFailureText(normalizedText);
   if (!hasResourceIntent) return null;
   const matchesCanonicalName = (integration: DefaultMcpIntegration) =>
-    [integration.name, ...(integration.brandAliases ?? [])].some((alias) =>
-      textContainsTerm(normalizedText, alias),
-    );
+    [
+      ...(integration.promptAliases ?? [integration.name]),
+      ...(integration.brandAliases ?? []),
+    ].some((alias) => textContainsTerm(normalizedText, alias));
   const canonicalMatch = integrations.find(matchesCanonicalName);
   if (canonicalMatch) return canonicalMatch;
   return null;
