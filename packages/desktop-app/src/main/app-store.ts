@@ -484,7 +484,16 @@ export function getCodeAgentProviderSettingsStatus(): CodeAgentProviderSettings 
 export function loadFrameSettings(): FrameSettings {
   try {
     const raw = fs.readFileSync(getFrameStorePath(), "utf-8");
-    return { ...defaultFrameSettings(), ...JSON.parse(raw), mode: "prod" };
+    const stored = JSON.parse(raw) as Partial<FrameSettings> | null;
+    const settings = {
+      ...defaultFrameSettings(),
+      ...(stored ?? {}),
+      mode: "prod" as const,
+    };
+    if (stored?.mode !== "prod") {
+      writeJsonFileAtomic(getFrameStorePath(), settings);
+    }
+    return settings;
   } catch {
     return defaultFrameSettings();
   }

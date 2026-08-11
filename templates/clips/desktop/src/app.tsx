@@ -4843,19 +4843,28 @@ function SignInForm({
   serverUrl,
   onSignedIn,
   onUseBrowser,
+  onMagicLink,
+  magicLinkSentEmail,
+  onMagicLinkBack,
 }: {
   serverUrl: string;
   onSignedIn: () => Promise<void> | void;
-  onUseBrowser: () => void;
+  onUseBrowser: () => void | Promise<void>;
+  onMagicLink: (email: string) => Promise<void>;
+  magicLinkSentEmail: string | null;
+  onMagicLinkBack: () => void;
 }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [authMode, setAuthMode] = useState<"magic-link" | "password">(
+    "magic-link",
+  );
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const emailRef = useRef<HTMLInputElement | null>(null);
   useEffect(() => {
-    emailRef.current?.focus();
-  }, []);
+    if (!magicLinkSentEmail) emailRef.current?.focus();
+  }, [magicLinkSentEmail]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -4863,6 +4872,10 @@ function SignInForm({
     setError(null);
     setSubmitting(true);
     try {
+      if (authMode === "magic-link") {
+        await onMagicLink(email.trim());
+        return;
+      }
       // Post to the framework's Better Auth-backed email/password endpoint.
       // Production Tauri builds cannot rely on cross-origin cookies sticking,
       // so the desktop fetch interceptor stores the returned session token and
@@ -4892,37 +4905,29 @@ function SignInForm({
     }
   }
 
+  if (magicLinkSentEmail) {
+    return (
+      <div className="signin signin-success" aria-live="polite">
+        <div className="signin-title">Check your email</div>
+        <p className="signin-success-copy">
+          We sent a secure sign-in link to{" "}
+          <strong>{magicLinkSentEmail}</strong>.
+        </p>
+        <button
+          type="button"
+          className="signin-alt signin-mode-link"
+          onClick={onMagicLinkBack}
+        >
+          Back
+        </button>
+      </div>
+    );
+  }
+
   return (
     <form className="signin" onSubmit={onSubmit}>
-      <div className="signin-title">Sign in to Clips</div>
-      <input
-        ref={emailRef}
-        type="email"
-        autoComplete="email"
-        placeholder="Email"
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-        required
-      />
-      <input
-        type="password"
-        autoComplete="current-password"
-        placeholder="Password"
-        value={password}
-        onChange={(e) => setPassword(e.target.value)}
-        required
-      />
-      {error ? <div className="error-banner">{error}</div> : null}
-      <button
-        type="submit"
-        className="primary start"
-        disabled={submitting || !email || !password}
-      >
-        {submitting ? "Signing in…" : "Sign in"}
-      </button>
-      <div className="signin-divider">
-        <span>or</span>
-      </div>
+      <div className="signin-title">Welcome</div>
+      <div className="signin-subtitle">Create an account or sign in</div>
       <button
         type="button"
         className="signin-google"
@@ -4930,7 +4935,67 @@ function SignInForm({
         title="Opens your default browser to complete Google sign-in"
       >
         <GoogleIcon />
-        Continue with Google
+        Sign in with Google
+      </button>
+      <div className="signin-divider">
+        <span>or</span>
+      </div>
+      <input
+        ref={emailRef}
+        type="email"
+        autoComplete="email"
+        placeholder="you@example.com"
+        value={email}
+        onChange={(e) => {
+          setEmail(e.target.value);
+          setError(null);
+        }}
+        required
+      />
+      {authMode === "password" ? (
+        <input
+          type="password"
+          autoComplete="current-password"
+          placeholder="Password"
+          value={password}
+          onChange={(e) => {
+            setPassword(e.target.value);
+            setError(null);
+          }}
+          required
+        />
+      ) : null}
+      {error ? <div className="error-banner">{error}</div> : null}
+      <button
+        type="submit"
+        className="primary start"
+        disabled={
+          submitting ||
+          !email ||
+          (authMode === "password" && !password)
+        }
+      >
+        {submitting
+          ? authMode === "magic-link"
+            ? "Sending…"
+            : "Signing in…"
+          : authMode === "magic-link"
+            ? "Continue"
+            : "Sign in"}
+      </button>
+      <button
+        type="button"
+        className="signin-alt signin-mode-link"
+        onClick={() => {
+          setError(null);
+          setAuthMode((current) =>
+            current === "magic-link" ? "password" : "magic-link",
+          );
+        }}
+      >
+        {authMode === "magic-link"
+          ? "Use a password instead"
+          : "Use a sign-in link instead"}
       </button>
     </form>
   );

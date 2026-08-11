@@ -46,6 +46,14 @@ describe("desktop app mode defaults", () => {
     );
 
     expect(loadFrameSettings().mode).toBe("prod");
+    expect(
+      JSON.parse(
+        fs.readFileSync(
+          path.join(electronState.userData, "frame-config.json"),
+          "utf8",
+        ),
+      ).mode,
+    ).toBe("prod");
   });
 
   it("migrates implicit legacy dev defaults without changing custom choices", () => {
