@@ -66,7 +66,6 @@ import { ThumbsFeedback } from "../observability/ThumbsFeedback.js";
 import { McpConnectionSuggestion } from "../resources/McpConnectionSuggestion.js";
 import type { ContentPart } from "../sse-event-processor.js";
 import {
-  humanizeToolName,
   isCallAgentToolCallShadowed,
   shadowedCallAgentToolCallIds,
 } from "../tool-display.js";
@@ -972,35 +971,6 @@ function missingFinalResponseWarningText(content: unknown): string | null {
   return null;
 }
 
-export function completedAssistantToolNamesAfterLastText(
-  content: readonly ContentPart[],
-): string[] {
-  let lastTextIndex = -1;
-  for (let index = content.length - 1; index >= 0; index -= 1) {
-    if (content[index]?.type === "text") {
-      lastTextIndex = index;
-      break;
-    }
-  }
-
-  const names = new Set<string>();
-  for (let index = lastTextIndex + 1; index < content.length; index += 1) {
-    const part = content[index];
-    if (
-      part?.type !== "tool-call" ||
-      part.activity === true ||
-      part.result === undefined ||
-      part.isError === true ||
-      part.outcome === "unknown" ||
-      isCallAgentToolCallShadowed(content, index)
-    ) {
-      continue;
-    }
-    names.add(humanizeToolName(part.toolName));
-  }
-  return [...names];
-}
-
 export function latestUserMessageText(messages: readonly unknown[]): string {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
@@ -1499,31 +1469,6 @@ export function InlineRunErrorNotice({
   );
 }
 
-function AssistantCompletionProgress({
-  messageId,
-  toolNames,
-}: {
-  messageId: string;
-  toolNames: readonly string[];
-}) {
-  if (toolNames.length === 0) return null;
-  return (
-    <div
-      className="my-1 w-full text-[13px] text-muted-foreground"
-      role="status"
-      aria-live="polite"
-      data-testid="assistant-completion-progress"
-    >
-      <SmoothMarkdownText
-        text={`The agent completed these actions: ${toolNames.join(", ")}`}
-        streaming
-        resetKey={`assistant-completion-progress:${messageId}`}
-        statusType="running"
-      />
-    </div>
-  );
-}
-
 function MissingFinalResponseNotice({
   messageId,
   text,
@@ -1628,10 +1573,6 @@ export function AssistantMessage() {
     if (missingFinalResponseAnimationKey == null) return;
     setRevealedMissingFinalResponseKey(missingFinalResponseAnimationKey);
   }, [missingFinalResponseAnimationKey]);
-  const completedToolNames =
-    isLast && chatRunning && !hasCompletedCustomUi && Array.isArray(msg.content)
-      ? completedAssistantToolNamesAfterLastText(msg.content)
-      : [];
   const shouldHoldCompletionFooter =
     isLast &&
     ((missingFinalResponseCandidate && !showMissingFinalResponse) ||
@@ -1851,7 +1792,6 @@ export function AssistantMessage() {
                     <ToolActivityPresentation
                       toolName={part.toolName}
                       isRunning={part.status?.type === "running"}
-                      isActiveTail={part.toolCallId === activeTailToolCallId}
                       toolCallId={part.toolCallId}
                     >
                       {part.toolUI}
@@ -1868,12 +1808,6 @@ export function AssistantMessage() {
             }}
           </MessagePrimitive.GroupedParts>
         </ToolCallStackMotion>
-        {completedToolNames.length > 0 && !showInlineRunError && (
-          <AssistantCompletionProgress
-            messageId={msg.id}
-            toolNames={completedToolNames}
-          />
-        )}
         {showInlineRunError && messageRunError && (
           <InlineRunErrorNotice
             info={messageRunError}

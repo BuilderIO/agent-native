@@ -8,7 +8,6 @@ import {
   assistantMessageHasCompletedCustomUi,
   assistantMessageHasCustomUi,
   assistantMessageHasUnresolvedTool,
-  completedAssistantToolNamesAfterLastText,
   computeActiveTailToolCallId,
   getAssistantWorkSummaryDurationMs,
   getAssistantToolSummaryInfo,
@@ -435,30 +434,6 @@ describe("assistant completion notices", () => {
     expect(isMissingFinalResponseWarningText("The work is complete.")).toBe(
       false,
     );
-  });
-
-  it("lists completed tools after the latest assistant text in arrival order", () => {
-    expect(
-      completedAssistantToolNamesAfterLastText([
-        { type: "text", text: "I will inspect the workspace." },
-        {
-          type: "tool-call",
-          toolCallId: "call-1",
-          toolName: "view-screen",
-          argsText: "{}",
-          args: {},
-          result: "{}",
-        },
-        {
-          type: "tool-call",
-          toolCallId: "call-2",
-          toolName: "workspace-read",
-          argsText: "{}",
-          args: {},
-          result: "{}",
-        },
-      ]),
-    ).toEqual(["view screen", "workspace read"]);
   });
 });
 

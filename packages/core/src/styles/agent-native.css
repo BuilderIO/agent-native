@@ -986,18 +986,9 @@
 }
 
 /* Tool-call rows are rendered in several disclosure/grouping shapes as the
-   stream grows. Keep the motion wrapper layout-transparent, while its short
-   lived exit clones can travel from the visible stack into the summary row. */
+   stream grows. Keep the layout wrapper transparent. */
 .agent-tool-call-stack {
   display: contents;
-}
-
-.agent-tool-call-stack__exit {
-  box-sizing: border-box;
-  position: fixed;
-  z-index: 2;
-  pointer-events: none;
-  margin: 0 !important;
 }
 
 [data-agent-empty-state="centered"] {
@@ -1043,11 +1034,6 @@
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .agent-tool-call--entering > .agent-tool-call__content,
-  .agent-tool-call--stack-entering > .agent-tool-call__content {
-    animation: agent-tool-call-enter 220ms var(--ease-out-strong) both;
-  }
-
   .agent-tool-summary__label {
     display: inline-block;
   }
@@ -1081,18 +1067,6 @@
 
     100% {
       background-position: 14rem 0;
-    }
-  }
-
-  @keyframes agent-tool-call-enter {
-    from {
-      opacity: 0;
-      transform: translateY(0.375rem);
-    }
-
-    to {
-      opacity: 1;
-      transform: translateY(0);
     }
   }
 
