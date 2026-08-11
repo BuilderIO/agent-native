@@ -941,6 +941,7 @@ export default function EditorToolbar({
         activeUsers={activeUsers ?? []}
         agentPresent={agentPresent}
         agentActive={agentActive}
+        showAgentEditingDot={false}
         currentUserEmail={currentUserEmail}
         className="flex-shrink-0 mr-0.5"
       />

@@ -20,6 +20,8 @@ export interface PresenceBarProps {
   agentPresent?: boolean;
   /** Whether the agent is actively making edits right now. */
   agentActive?: boolean;
+  /** Whether to show the status dot beside the active agent label. */
+  showAgentEditingDot?: boolean;
   /** Current user's email (to exclude from the list). */
   currentUserEmail?: string;
   /** Max visible avatars before "+N" overflow. Default: 5 */
@@ -151,10 +153,12 @@ function AgentAvatar({
   active,
   onClick,
   isFollowing,
+  showAgentEditingDot,
 }: {
   active: boolean;
   onClick?: () => void;
   isFollowing?: boolean;
+  showAgentEditingDot: boolean;
 }) {
   injectStyles();
 
@@ -163,7 +167,7 @@ function AgentAvatar({
       style={{
         display: "flex",
         alignItems: "center",
-        gap: 4,
+        gap: active && !isFollowing && !showAgentEditingDot ? 0 : 4,
       }}
     >
       <div
@@ -193,7 +197,9 @@ function AgentAvatar({
       >
         A
       </div>
-      {active && !isFollowing && <AgentEditingChip />}
+      {active && !isFollowing && (
+        <AgentEditingChip showDot={showAgentEditingDot} />
+      )}
       {isFollowing && (
         <span
           style={{
@@ -216,13 +222,13 @@ function AgentAvatar({
   );
 }
 
-function AgentEditingChip() {
+function AgentEditingChip({ showDot }: { showDot: boolean }) {
   return (
     <span
       style={{
         display: "inline-flex",
         alignItems: "center",
-        gap: 4,
+        gap: showDot ? 4 : 0,
         height: 20,
         padding: "0 8px",
         borderRadius: 9999,
@@ -233,16 +239,18 @@ function AgentEditingChip() {
         whiteSpace: "nowrap",
       }}
     >
-      <span
-        style={{
-          width: 6,
-          height: 6,
-          borderRadius: "50%",
-          backgroundColor: AGENT_COLOR,
-          animation: "_anPresencePulse 2s infinite",
-          flexShrink: 0,
-        }}
-      />
+      {showDot && (
+        <span
+          style={{
+            width: 6,
+            height: 6,
+            borderRadius: "50%",
+            backgroundColor: AGENT_COLOR,
+            animation: "_anPresencePulse 2s infinite",
+            flexShrink: 0,
+          }}
+        />
+      )}
       AI editing
     </span>
   );
@@ -275,6 +283,7 @@ export function PresenceBar({
   activeUsers,
   agentPresent,
   agentActive,
+  showAgentEditingDot = true,
   currentUserEmail,
   maxVisible = 5,
   className,
@@ -313,6 +322,7 @@ export function PresenceBar({
             active={!!agentActive}
             onClick={onAvatarClick ? () => onAvatarClick(null) : undefined}
             isFollowing={isFollowingAgent}
+            showAgentEditingDot={showAgentEditingDot}
           />
         )}
         {visibleUsers.length > 0 && (

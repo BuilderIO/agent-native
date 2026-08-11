@@ -1136,9 +1136,9 @@ function ModelSelector({
   // The effort list is collapsed by default — it's a secondary
   // control most users don't touch, so it stays tucked behind a header that
   // reveals the current effort at a glance. Reset to collapsed on each open.
-  const [reasoningExpanded, setReasoningExpanded] = useState(false);
+  const [effortExpanded, setEffortExpanded] = useState(false);
   useEffect(() => {
-    if (open) setReasoningExpanded(false);
+    if (open) setEffortExpanded(false);
   }, [open]);
 
   // The optional image-model section follows the same collapsed-by-default
@@ -1466,11 +1466,11 @@ function ModelSelector({
               <div className="flex items-center hover:bg-accent/30">
                 <button
                   type="button"
-                  aria-expanded={reasoningExpanded}
-                  onClick={() => setReasoningExpanded((prev) => !prev)}
+                  aria-expanded={effortExpanded}
+                  onClick={() => setEffortExpanded((prev) => !prev)}
                   className="flex flex-1 min-w-0 items-center gap-1.5 px-2 py-1.5 cursor-pointer text-start"
                 >
-                  {reasoningExpanded ? (
+                  {effortExpanded ? (
                     <IconChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
                   ) : (
                     <IconChevronRight className="h-3 w-3 shrink-0 text-muted-foreground rtl:-scale-x-100" />
@@ -1478,14 +1478,14 @@ function ModelSelector({
                   <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide shrink-0">
                     Effort
                   </span>
-                  {!reasoningExpanded && (
+                  {!effortExpanded && (
                     <span className="text-[11px] text-muted-foreground/80 truncate">
                       {effortLabel(selectedEffort)}
                     </span>
                   )}
                 </button>
               </div>
-              {reasoningExpanded &&
+              {effortExpanded &&
                 effortOptions.map((option) => (
                   <button
                     key={option}
