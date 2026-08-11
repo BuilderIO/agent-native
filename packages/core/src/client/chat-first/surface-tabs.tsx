@@ -65,7 +65,12 @@ export function ChatFirstSurfaceTabs({
     <TooltipProvider delayDuration={400}>
       <div
         data-chat-first-surface-tabs
-        className="shrink-0 border-b border-border bg-card"
+        className={cn(
+          "min-w-0 border-b border-border bg-card",
+          tabs.length > 0
+            ? "shrink-0"
+            : "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden",
+        )}
       >
         {tabs.length > 0 ? (
           <div

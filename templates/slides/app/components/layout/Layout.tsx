@@ -15,7 +15,6 @@ import { cn } from "@/lib/utils";
 import { AgentWorkIndicator } from "./AgentWorkIndicator";
 import { Header } from "./Header";
 import {
-  getDeckChatScopeLabel,
   getEffectiveSlidesSidebarCollapsed,
   isSlidesEditorRoute,
   shouldShowSlidesAppSidebar,
@@ -50,26 +49,24 @@ export function Layout({ children }: LayoutProps) {
     useState<EditorSidebarOverride | null>(null);
   const { collapsed: sidebarCollapsed, setCollapsed: setSidebarCollapsed } =
     useSidebarCollapsed();
-  const { decks, getDeck, loading: decksLoading } = useDecks();
+  const { decks, loading: decksLoading } = useDecks();
   const isEmptyDecksState =
     location.pathname === "/" && !decksLoading && decks.length === 0;
 
   // Scope new chats to the deck the user is currently editing. The route
   // is `/deck/:id`; everywhere else (list, presentation) leaves
-  // scope null so chats stay in the general pool. Falling back to the
-  // raw deck id keeps the chat bound even before the deck object has
-  // streamed in — once the title arrives the badge updates in place.
+  // scope null so chats stay in the general pool. Keep the visible label
+  // semantic so an imported deck id never leaks into the composer chip.
   const deckScope = useMemo(() => {
     const match = location.pathname.match(/^\/deck\/([^/]+)/);
     const deckId = match?.[1];
     if (!deckId) return null;
-    const deck = getDeck(deckId);
     return {
       type: "deck" as const,
       id: deckId,
-      label: getDeckChatScopeLabel(deck?.title, t("agent.thisDeck")),
+      label: t("agent.thisDeck"),
     };
-  }, [location.pathname, getDeck, t]);
+  }, [location.pathname, t]);
 
   useEffect(() => {
     setSidebarOpen(false);

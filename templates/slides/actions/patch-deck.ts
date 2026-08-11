@@ -171,11 +171,51 @@ export function assertSourceImportOperationsPreserved(
   );
 }
 
+/**
+ * A deck-wide source restyle must be atomic from the agent's point of view:
+ * accepting a partial batch makes an apparently successful run indistinguishable
+ * from a run that quietly left the tail of the imported deck untouched.
+ */
+export function assertSourceImportSlidesCovered(
+  metadata: SourceImportMetadata | null,
+  operations: Operation[],
+  requireAllSourceSlides: boolean,
+): void {
+  if (!metadata || !requireAllSourceSlides) return;
+
+  const sourceSlideIds =
+    Array.isArray(metadata.slideIds) && metadata.slideIds.length > 0
+      ? metadata.slideIds
+      : metadata.slides.map((slide) => slide.id);
+  const patchedContentSlideIds = new Set(
+    operations.flatMap((operation) =>
+      operation.op === "patch-slide" && operation.fields.content !== undefined
+        ? [operation.slideId]
+        : [],
+    ),
+  );
+  const missingSlideIds = sourceSlideIds.filter(
+    (slideId) => !patchedContentSlideIds.has(slideId),
+  );
+  if (missingSlideIds.length === 0) return;
+
+  throw new Error(
+    `Deck-wide source restyle requires one content patch per imported slide. Missing ${missingSlideIds.length} slide(s): ${missingSlideIds.slice(0, 12).join(", ")}${missingSlideIds.length > 12 ? ", …" : ""}. Continue with every source slide ID in one patch-deck call before verifying with get-deck compact=true.`,
+  );
+}
+
 // The browser uses the full operation union above. Agents additionally use
 // this action for one bounded, deck-wide layout repair: one patch-slide per
-// slide in a single SQL transaction, followed by a fresh read for verification.
+// source slide in a single SQL transaction, followed by compact verification.
 const AgentPatchDeckInputSchema = z.object({
   deckId: z.string().describe("Deck ID"),
+  requireAllSourceSlides: z
+    .boolean()
+    .optional()
+    .default(false)
+    .describe(
+      "For a deck-wide source-import restyle, require one content patch for every imported slide before any write is committed.",
+    ),
   operations: z
     .array(
       z.union([
@@ -192,7 +232,7 @@ const AgentPatchDeckInputSchema = z.object({
     )
     .min(1)
     .describe(
-      "One patch-slide operation per slide that needs a structural HTML repair. Use patch-deck-fields only for a deck title change.",
+      "For a deck-wide source restyle, include one patch-slide operation with content for every existing source slide. Use patch-deck-fields only for a deck title change.",
     ),
 });
 
@@ -379,10 +419,19 @@ export default defineAction({
     "Granular deck patch used by the browser editor for concurrent-safe writes. " +
     "Each operation touches only the target slide or field — concurrent writers " +
     "on different slides never overwrite each other's work. For a deck-wide " +
-    "layout repair, send one patch-slide operation per affected slide in one " +
-    "call, then call get-deck to verify the persisted HTML before reporting success.",
+    "source restyle, set requireAllSourceSlides=true and send one patch-slide " +
+    "operation with content for every imported slide in one call; the action " +
+    "rejects partial coverage. Then call get-deck with compact=true to verify " +
+    "the persisted slide IDs and count before reporting success.",
   schema: z.object({
     deckId: z.string().describe("Deck ID"),
+    requireAllSourceSlides: z
+      .boolean()
+      .optional()
+      .default(false)
+      .describe(
+        "For a deck-wide source-import restyle, require one content patch for every imported slide before any write is committed.",
+      ),
     operations: z
       .array(OperationSchema)
       .min(1)
@@ -402,7 +451,12 @@ export default defineAction({
       ),
   }),
   agentInputSchema: AgentPatchDeckInputSchema,
-  run: async ({ deckId, operations, creativeContext }) => {
+  run: async ({
+    deckId,
+    operations,
+    requireAllSourceSlides,
+    creativeContext,
+  }) => {
     await assertAccess("deck", deckId, "editor");
 
     return withDeckLock(deckId, async () => {
@@ -436,6 +490,11 @@ export default defineAction({
 
       const sourceImport = sourceImportForDeck(deck.sourceImport);
       assertSourceImportOperationsPreserved(sourceImport, operations);
+      assertSourceImportSlidesCovered(
+        sourceImport,
+        operations,
+        requireAllSourceSlides,
+      );
       for (const op of operations) {
         if (
           op.op !== "patch-slide" ||

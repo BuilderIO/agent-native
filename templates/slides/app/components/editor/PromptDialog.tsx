@@ -89,7 +89,7 @@ interface PromptPopoverProps {
   placeholder?: string;
   onSkip?: () => void;
   skipLabel?: string;
-  onSubmit: (prompt: string, files: UploadedFile[]) => void;
+  onSubmit: (prompt: string, files: UploadedFile[]) => void | Promise<void>;
   loading?: boolean;
   anchorRef?: React.RefObject<HTMLElement | null>;
   centered?: boolean;
@@ -128,6 +128,7 @@ export default function PromptPopover({
 }: PromptPopoverProps) {
   const t = useT();
   const [uploading, setUploading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [promptText, setPromptText] = useState("");
   const [googleDocContext, setGoogleDocContext] = useState("");
   const [googleSlidesUrl, setGoogleSlidesUrl] = useState("");
@@ -222,16 +223,20 @@ export default function PromptPopover({
       if (files.length > 0 && onBeforeUpload?.(enrichedText, files) === false) {
         return;
       }
+      setSubmitting(true);
       try {
         const uploaded = await uploadFiles(files);
-        onSubmit(enrichedText, uploaded);
+        await onSubmit(enrichedText, uploaded);
+        setSubmitting(false);
       } catch (error) {
+        setSubmitting(false);
         toast.error(t("raw.uploadFailed"), {
           description:
             error instanceof Error
               ? error.message
               : t("raw.uploadAttachedFailed"),
         });
+        throw error;
       }
     },
     [googleDocContext, onBeforeUpload, onSubmit, uploadFiles, t],
@@ -294,6 +299,7 @@ export default function PromptPopover({
       setImportMode(null);
       setSelectedImportFile(null);
       setImportingSource(null);
+      setSubmitting(false);
     }
   }, [open]);
 
@@ -331,7 +337,7 @@ export default function PromptPopover({
       >
         <div className="flex items-center justify-between gap-3 px-4 pb-2.5 pt-3.5">
           <span className="text-sm font-medium text-foreground">{title}</span>
-          {onSkip && !importMode && (
+          {onSkip && !importMode && !submitting && (
             <button
               type="button"
               onClick={() => {
@@ -388,7 +394,9 @@ export default function PromptPopover({
                 attachmentsEnabled
                 maxDocumentAttachmentBytes={MAX_REFERENCE_FILE_BYTES}
                 documentAttachmentLimitLabel="Slides reference files"
-                disabled={loading || uploading || Boolean(importMode)}
+                disabled={
+                  loading || uploading || submitting || Boolean(importMode)
+                }
                 placeholder={placeholder}
                 onSubmit={handleSubmit}
                 onTextChange={setPromptText}
@@ -397,6 +405,17 @@ export default function PromptPopover({
                 initialTextKey={initialTextKey}
               />
             </div>
+
+            {submitting && (
+              <div
+                className="flex items-center gap-2 border-t border-border/60 px-4 py-2.5 text-xs text-muted-foreground"
+                role="status"
+                aria-live="polite"
+              >
+                <IconLoader2 className="size-3.5 animate-spin" />
+                <span>{t("raw.uploading")}</span>
+              </div>
+            )}
 
             {importEnabled && (
               <div className="border-t border-border/60 px-4 pb-3 pt-2.5">
@@ -409,7 +428,7 @@ export default function PromptPopover({
                     variant="ghost"
                     size="sm"
                     className="h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
-                    disabled={loading || uploading}
+                    disabled={loading || uploading || submitting}
                     onClick={() => chooseImportMode("pdf")}
                   >
                     <IconFileTypePdf className="size-3.5" />
@@ -420,18 +439,18 @@ export default function PromptPopover({
                     variant="ghost"
                     size="sm"
                     className="h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
-                    disabled={loading || uploading}
+                    disabled={loading || uploading || submitting}
                     onClick={() => chooseImportMode("google-slides")}
                   >
                     <IconBrandGoogle className="size-3.5" />
-                    {t("home.googleSlidesReferenceTitle")}
+                    {t("home.googleSlidesImportLabel")}
                   </Button>
                   <Button
                     type="button"
                     variant="ghost"
                     size="sm"
                     className="h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
-                    disabled={loading || uploading}
+                    disabled={loading || uploading || submitting}
                     onClick={() => chooseImportMode("pptx")}
                   >
                     <IconPresentation className="size-3.5" />

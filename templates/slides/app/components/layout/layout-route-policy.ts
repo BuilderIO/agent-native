@@ -6,13 +6,6 @@ export function shouldShowSlidesAppSidebar(pathname: string): boolean {
   return !isSlidesEditorRoute(pathname);
 }
 
-export function getDeckChatScopeLabel(
-  deckTitle: string | undefined,
-  untitledDeckLabel: string,
-): string {
-  return deckTitle === "Untitled Deck" ? untitledDeckLabel : deckTitle || "";
-}
-
 export function getEffectiveSlidesSidebarCollapsed({
   pathname,
   persistedCollapsed,

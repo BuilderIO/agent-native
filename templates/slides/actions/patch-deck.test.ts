@@ -4,6 +4,7 @@ import { buildSourceImportMetadata } from "../server/lib/source-import.js";
 import {
   applyOperation,
   assertSourceImportOperationsPreserved,
+  assertSourceImportSlidesCovered,
   resolveDeckColumnUpdates,
   withDeckLock,
   type Operation,
@@ -276,6 +277,52 @@ describe("source-imported deck structure", () => {
       ]),
     ).not.toThrow();
   });
+
+  it("rejects a partial deck-wide source restyle before writing", () => {
+    const metadata = buildSourceImportMetadata({
+      format: "pdf",
+      slides: [
+        { id: "s1", text: "one", notes: "", imageUrls: [], editableText: true },
+        { id: "s2", text: "two", notes: "", imageUrls: [], editableText: true },
+        {
+          id: "s3",
+          text: "three",
+          notes: "",
+          imageUrls: [],
+          editableText: true,
+        },
+      ],
+    });
+
+    expect(() =>
+      assertSourceImportSlidesCovered(
+        metadata,
+        [{ op: "patch-slide", slideId: "s1", fields: { content: "styled" } }],
+        true,
+      ),
+    ).toThrow("Missing 2 slide(s): s2, s3");
+  });
+
+  it("accepts complete content coverage for a deck-wide source restyle", () => {
+    const metadata = buildSourceImportMetadata({
+      format: "pdf",
+      slides: [
+        { id: "s1", text: "one", notes: "", imageUrls: [], editableText: true },
+        { id: "s2", text: "two", notes: "", imageUrls: [], editableText: true },
+      ],
+    });
+
+    expect(() =>
+      assertSourceImportSlidesCovered(
+        metadata,
+        [
+          { op: "patch-slide", slideId: "s1", fields: { content: "one" } },
+          { op: "patch-slide", slideId: "s2", fields: { content: "two" } },
+        ],
+        true,
+      ),
+    ).not.toThrow();
+  });
 });
 
 describe("patch-deck agent schema", () => {
@@ -303,6 +350,9 @@ describe("patch-deck agent schema", () => {
     expect(slidePatch.properties.slideId).toMatchObject({ type: "string" });
     expect(slidePatch.properties.fields.properties.content).toMatchObject({
       type: "string",
+    });
+    expect(parameters.properties.requireAllSourceSlides).toMatchObject({
+      type: "boolean",
     });
   });
 });

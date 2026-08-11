@@ -113,7 +113,7 @@ function describeUploadedFilesForAgent(
     "",
     "File handling rules:",
     importedSourceDeck
-      ? "- The imported source deck is the canonical source. Preserve its slide count, order, IDs, factual copy, notes, imagery, charts, tables, diagrams, and freeform objects while improving styling. Use update-slide on existing slide IDs; do not rebuild it with add-slide."
+      ? "- The imported source deck is the canonical source. Preserve its slide count, order, IDs, factual copy, notes, imagery, charts, tables, diagrams, and freeform objects while improving styling. For a deck-wide restyle, use one patch-deck call with requireAllSourceSlides=true; use update-slide only for a targeted one-slide edit. Do not rebuild it with add-slide."
       : `- PPTX files: call \`import-pptx --filePath \"<path>\" --deckId ${deckId}\` before adding or editing slides.`,
     importedSourceDeck
       ? "- For a PDF source, keep the original full-page image in every slide and add restrained design-system chrome around it without obscuring source content. Never OCR-reconstruct a source-faithful page from extracted text."
@@ -324,15 +324,16 @@ export async function startDeckGeneration({
         "Source-preserving improvement mode:",
         `- The target deck already contains ${importedSourceDeck.slideCount} imported source slides. Treat those slides as the user's complete source, not as inspiration for a new deck.`,
         "- Keep the exact source slide count, order, IDs, factual meaning, notes, images, charts, tables, diagrams, and freeform objects unless the user explicitly asks to change one of them.",
-        "- Read `get-deck` before editing, load the linked design system with `get-design-system`, then use one `update-slide` call per existing slide ID for bounded visual improvements. Keep every original `<img>` source and enough original factual copy for each slide; for PDF slides, use restrained design-system chrome around the page without obscuring it.",
+        "- Read `get-deck` once before editing to obtain every existing slide ID and source HTML, load the linked design system with `get-design-system`, then make a deck-wide restyle with one `patch-deck` call using `requireAllSourceSlides: true` and one `patch-slide` operation with `fields.content` for every source slide ID. Do not split a full-deck restyle into arbitrary batches or fall back to one-by-one `update-slide` calls; use `update-slide` only for a targeted one-slide edit. Keep every original `<img>` source and enough original factual copy for each slide; for PDF slides, use restrained design-system chrome around the page without obscuring it.",
         "- Do not call `add-slide`, delete slides, reorder slides, or replace source images with generic cards. Do not claim success until `get-deck` verifies the same slide IDs and count after the edits.",
+        '- After the patch succeeds, verify with `get-deck` using `compact: "true"` so only slide IDs, count, and previews are returned. Do not report an initial or partial pass, and do not leave any source slides for a later run.',
         "- If `get-deck` reports partial source fidelity or skipped images, stop and report the exact warning instead of claiming a reliable restyle.",
       ].join("\n")
     : "";
   const sourceModeInstructions = importedSourceDeck
     ? [
         "The request is an in-place visual improvement of an imported source deck. Make a coherent style pass across every existing slide while preserving all source content and media.",
-        "Do not use the new-deck add-slide workflow for this source-preserving request.",
+        "Do not use the new-deck add-slide workflow for this source-preserving request. Finish every source slide in this run; if patch-deck rejects incomplete coverage, continue with the returned missing IDs instead of reporting success with a partial deck.",
       ]
     : [
         "Start a `manage-progress` run so progress appears in the app header. Add the first slide as soon as it is ready, then continue one slide at a time so the editor visibly fills in.",

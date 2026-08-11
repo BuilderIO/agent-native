@@ -14,16 +14,20 @@ const flow = source.slice(
 );
 
 describe("new deck generation flow", () => {
-  it("persists and opens the empty editor before the agent asks dynamic questions", () => {
+  it("opens the generating editor before persistence and dynamic questions", () => {
     const persistIndex = flow.indexOf("await ensureDeckPersisted(deck.id)");
-    const openEditorIndex = flow.indexOf("navigate(`/deck/${deck.id}`");
+    const openEditorIndex = flow.indexOf(
+      "navigate(`/deck/${deck.id}?generating=1`",
+    );
     const askQuestionIndex = flow.indexOf("use the `ask-question` tool");
 
     expect(persistIndex).toBeGreaterThan(-1);
-    expect(openEditorIndex).toBeGreaterThan(persistIndex);
+    expect(openEditorIndex).toBeGreaterThan(-1);
+    expect(openEditorIndex).toBeLessThan(persistIndex);
     expect(askQuestionIndex).toBeGreaterThan(openEditorIndex);
     expect(flow).not.toContain("await askUserQuestion");
     expect(flow).toContain("prompt-specific question");
+    expect(flow).toContain("recoverFromGenerationSetupFailure");
   });
 
   it("marks generation intent before submitting the agent run", () => {
@@ -64,6 +68,12 @@ describe("new deck generation flow", () => {
     expect(flow).toContain(
       "Treat each successful add-slide result as confirmation",
     );
+  });
+
+  it("uses an atomic source-restyle patch and compact verification", () => {
+    expect(source).toContain("requireAllSourceSlides: true");
+    expect(source).toContain('verify with `get-deck` using `compact: "true"`');
+    expect(source).toContain("Do not report an initial or partial pass");
   });
 
   it("routes both prompt submit and prompt skip into the reference step", () => {

@@ -48,6 +48,11 @@ describe("ChatFirstSurfaceTabs", () => {
     const emptyState = container.querySelector<HTMLElement>(
       "[data-surface-empty-state]",
     );
+    const picker = container.querySelector<HTMLElement>(
+      "[data-chat-first-surface-tabs]",
+    );
+    expect(picker?.className).toContain("flex-1");
+    expect(picker?.className).toContain("overflow-hidden");
     expect(emptyState?.className).toContain("overflow-y-auto");
     expect(
       container.querySelectorAll("[data-chat-first-surface-app]"),

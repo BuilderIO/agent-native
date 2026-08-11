@@ -26,7 +26,8 @@ function deckDeepLink(deckId: string): string {
 
 export default defineAction({
   description:
-    "Get a specific deck with all slides. Returns full deck JSON including slide content. User-visible slide numbers are 1-based and match the UI: slide 1 is the first slide. Use slideId for edits.",
+    "Get a specific deck with all slides. Returns full deck JSON including slide content. User-visible slide numbers are 1-based and match the UI: slide 1 is the first slide. Use slideId for edits. After a mutation or for a large deck when only IDs, count, and previews are needed, pass compact=true to avoid retransmitting all slide HTML.",
+  timeoutMs: 60_000,
   schema: z.object({
     id: z.string().optional().describe("Deck ID (required)"),
     compact: z

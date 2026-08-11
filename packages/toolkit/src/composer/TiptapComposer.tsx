@@ -580,7 +580,7 @@ export interface TiptapComposerProps {
     references: Reference[],
     attachments?: ReadonlyArray<unknown>,
     options?: TiptapComposerSubmitOptions,
-  ) => void;
+  ) => void | Promise<void>;
   /** Return false to stop a submit before it enters the chat runtime. */
   onBeforeSubmit?: () => boolean | Promise<boolean>;
   /**
@@ -2651,7 +2651,13 @@ export function TiptapComposer({
       }
 
       if (onSubmit) {
-        onSubmit(text, references, attachments, { intent });
+        try {
+          await onSubmit(text, references, attachments, { intent });
+        } catch {
+          // Hosts own their submit errors. Keep the draft and attachments
+          // available for recovery when a host rejects the submission.
+          return;
+        }
         // Clear any pending attachments now that the host has them.
         void composerRuntime.clearAttachments().catch(() => {});
         if (!clearOnSubmit) {

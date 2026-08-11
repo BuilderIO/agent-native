@@ -1,23 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  getDeckChatScopeLabel,
   getEffectiveSlidesSidebarCollapsed,
   isSlidesEditorRoute,
   shouldShowSlidesAppSidebar,
 } from "./layout-route-policy";
 
 describe("Slides layout sidebar route policy", () => {
-  it("uses a contextual label for untitled deck chat scope", () => {
-    expect(getDeckChatScopeLabel("Untitled Deck", "This Deck")).toBe(
-      "This Deck",
-    );
-    expect(getDeckChatScopeLabel("Quarterly Review", "This Deck")).toBe(
-      "Quarterly Review",
-    );
-    expect(getDeckChatScopeLabel(undefined, "This Deck")).toBe("");
-  });
-
   it("recognizes only deck editor routes", () => {
     expect(isSlidesEditorRoute("/deck/deck-1")).toBe(true);
     expect(isSlidesEditorRoute("/deck/deck-1/")).toBe(true);
