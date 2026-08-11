@@ -8,6 +8,7 @@ import { callAction } from "@agent-native/core/client/hooks";
 import { isEmbedAuthActive } from "@agent-native/core/client/host";
 import { useOrg } from "@agent-native/core/client/org";
 import { subscribeSyncEvents } from "@agent-native/core/client/use-db-sync";
+import { DEFAULT_DECK_TITLE } from "@shared/deck-title";
 import { nanoid } from "nanoid";
 import {
   createContext,
@@ -1760,7 +1761,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       const insertIndex = decksRef.current.length;
       const newDeck: Deck = {
         id: nanoid(10),
-        title: title || "Untitled Deck",
+        title: title?.trim() || DEFAULT_DECK_TITLE,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         createdByMe: true,

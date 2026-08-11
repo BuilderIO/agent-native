@@ -151,43 +151,30 @@ Generated apps must follow the shared Agent-Native surface model:
 - Use the right `AgentSidebar` for contextual AI. Every button-triggered
   `sendToAgentChat` handoff should open or focus that sidebar and keep the user
   on the current domain page.
-- Use a sans-first SaaS hierarchy for the app shell. Choose a named visual
-  direction in `DESIGN.md` before styling: product mode, audience, palette
-  family, type treatment, composition, shape language, and anti-references.
-  One restrained editorial cue is welcome, but warm beige plus terracotta is
-  not the default and serif type belongs in content previews or a deliberate
-  brand moment rather than the whole tool.
-- Preserve existing brand tokens. For a new unbranded app, choose a
-  product-fitting palette family and compare sibling apps before reusing their
-  accent. Keep shared semantic tokens and Agent-Native behavior consistent
-  while varying the visual world, density, composition, and shape language.
-- Give the AgentSidebar a subtle surface or divider boundary so it is visually
-  distinct from the domain page without becoming a heavy panel wall.
 - Every AI-labeled button must actually call `sendToAgentChat` with bounded
-  context and `openSidebar: true`. Keep `submit: true` for direct execution and
-  `submit: false` only when the user should edit the staged prompt first. Label
-  deterministic local actions as local, preview, or analyze instead of AI.
-- Standalone apps that render `AgentSidebar` must keep one assistant-ui runtime
-  context. Pin the versions compatible with the installed core/toolkit peer
-  graph, and add Vite dedupe/aliases when linked or transitive packages resolve
-  duplicate assistant-ui modules. Verify a fresh AI handoff has no
-  `AssistantUiStaleIndexErrorBoundary` or stale-index console error.
+  context and `openSidebar: true`. Label deterministic local actions as local,
+  preview, or analyze instead of AI.
+- Never use sparkle, wand, magic, robot, or similar decorative AI icons. Use a
+  message or neutral action icon, or no icon when the button label is enough.
 - Make the left navigation describe domain destinations. Chat is a separate
   destination, not the label for every app page.
 - Start with one primary action and one compact state. Put setup choices,
   advanced inputs, diagnostics, and long explanations behind progressive
   disclosure or later workflow steps.
-- Never use sparkle, wand, magic, robot, or similar decorative AI icons. Use a
-  message or neutral action icon, or no icon when the button label is enough.
-- Before handoff, inspect the first viewport for text density, repeated cards,
-  unrelated forms, and generic helper copy. Remove what the user does not need
-  until the next decision.
-- Run a `distill`, `typeset`, `colorize`, `layout`, `polish`, and `audit` pass
-  as useful named reviews. Make one intervention at a time and commit the
-  chosen direction rather than averaging several options into generic SaaS.
-- For before/after or original/generated review, stack the source first and the
-  result second by default. Reserve side-by-side layouts for short content that
-  remains comfortable to scan at the target width.
+- Choose a named visual direction in `DESIGN.md` before styling and build to it.
+  Preserve existing brand tokens; a new unbranded app picks its own
+  product-fitting palette rather than inheriting a sibling app's accent.
+- Standalone apps that render `AgentSidebar` must keep one assistant-ui runtime
+  context. Pin the versions compatible with the installed core/toolkit peer
+  graph, and add Vite dedupe/aliases when linked or transitive packages resolve
+  duplicate assistant-ui modules. Verify a fresh AI handoff has no
+  `AssistantUiStaleIndexErrorBoundary` or stale-index console error.
+- Before handoff, inspect the first viewport and remove the text density,
+  repeated cards, unrelated forms, and generic helper copy the user does not
+  need until the next decision.
+
+In a local code-agent runtime, read `frontend-design` for the visual direction
+contract, aesthetic guidelines, and named review passes behind these rules.
 
 ## 1. Extract the workflow
 

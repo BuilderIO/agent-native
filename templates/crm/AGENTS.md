@@ -7,20 +7,11 @@ HubSpot/Salesforce lens; UI and agent share actions.
 
 - `crm` — read before CRM work: provider/credential boundaries, lists,
   enrichment, signals, dashboards, and Clips evidence.
-- Before building common workspace or agent UI, read `agent-native-toolkit`;
-  read `customizing-agent-native` when extending shared framework capabilities.
-
-Source of truth: `shared/crm-contract.ts` (vocabulary, field and write policy),
-`shared/crm-attributes.ts` (types), `server/lib/record-fields.ts` (the only
-sanctioned field-value write).
 
 ## Core model
 
-- **Typed attributes**, 17 types: text, number, checkbox, currency, date,
-  timestamp, rating, status, select, record-reference, actor-reference,
-  location, domain, email-address, phone-number, plus system-only interaction
-  and personal-name. Call `list-crm-attributes` first; never guess a slug or
-  type.
+- **Typed attributes**, 17 types, two of them system-only (interaction and
+  personal-name). Call `list-crm-attributes` first; never guess a slug or type.
 - **Managed options.** A status/select value must already exist as an option;
   writing an unknown one is a 422, never a silent auto-create.
 - **Values are bitemporal.** A change closes the current row and opens a new
@@ -80,3 +71,8 @@ sanctioned field-value write).
   slot, or scope is reported as itself, never as empty. Read a value back before
   reporting it done.
 - Recover from a recoverable error rather than abandoning the task.
+
+## Source Changes
+
+Before building common workspace or agent UI, read `agent-native-toolkit`; read
+`customizing-agent-native` before adapting shared UI.

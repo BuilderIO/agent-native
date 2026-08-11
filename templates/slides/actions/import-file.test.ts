@@ -313,6 +313,10 @@ describe("import-file PDF source extraction", () => {
       })),
     };
     mockGetDb.mockReturnValue(db);
+    mockReadUserUploadedFile.mockResolvedValue({
+      data: Buffer.from("%PDF-1.7\n"),
+      filename: "ZiVAULRxvgAN1alyiLem.pdf",
+    });
 
     const result = (await action.run({
       filePath: "source.pdf",
@@ -343,6 +347,7 @@ describe("import-file PDF source extraction", () => {
     });
     const updateCall = db.update.mock.results[0]?.value.set.mock.calls[0][0];
     const updatedDeck = JSON.parse(updateCall.data);
+    expect(updatedDeck.title).toBe("Imported File");
     const importedSlide = updatedDeck.slides[0];
     expect(importedSlide.content).toBe(
       '<div class="fmd-slide" data-fidelity="1"></div>',

@@ -649,6 +649,7 @@ const messages = {
     deckCount_other: "덱",
     createDeckOrVisual: "프레젠테이션 만들기",
     noMineDecks: "아직 내가 만든 덱이 없습니다.",
+    noDecksMatchSearch: "검색과 일치하는 덱이 없습니다.",
     deleteDeckTitle: "덱을 삭제할까요?",
     deleteDeckDescription:
       "이 덱과 모든 슬라이드가 영구적으로 삭제됩니다. 이 작업은 되돌릴 수 없습니다.",

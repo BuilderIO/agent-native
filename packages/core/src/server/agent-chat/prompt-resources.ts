@@ -25,7 +25,10 @@ import type {
 } from "../../shared/context-xray.js";
 import { discoverAgents } from "../agent-discovery.js";
 import { getRequestOrgId } from "../request-context.js";
-import { parseSkillFrontmatter } from "./skill-frontmatter.js";
+import {
+  isRuntimeVisibleScope,
+  parseSkillFrontmatter,
+} from "./skill-frontmatter.js";
 
 // ---------------------------------------------------------------------------
 // System-prompt resource loading: AGENTS.md, instructions/*.md, skills
@@ -722,7 +725,7 @@ async function loadResourceSkillsPromptBlock(
       if (!full?.content) continue;
       const meta = parseSkillFrontmatter(full.content);
       if (meta.userInvocable === false) continue;
-      if (meta.scope === "dev") continue;
+      if (!isRuntimeVisibleScope(meta.scope)) continue;
       const name = meta.name || getSkillNameFromPath(resource.path);
       if (!name || seen.has(name)) continue;
       seen.add(name);

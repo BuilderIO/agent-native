@@ -10,7 +10,7 @@ const source = readFileSync(
 );
 const flow = source.slice(
   source.indexOf("const handleCreateDeckWithPrompt"),
-  source.indexOf("const handleConfirmDelete"),
+  source.indexOf("const handlePromptSubmit"),
 );
 
 describe("new deck generation flow", () => {
@@ -44,7 +44,7 @@ describe("new deck generation flow", () => {
 
   it("requires a generated title before the first slide", () => {
     const titleInstructionIndex = flow.indexOf(
-      "After reading any requested or imported source material, but before adding the first slide",
+      "After reading any requested or attached reference material, but before adding the first slide",
     );
     const titlePatchIndex = flow.indexOf('"op": "patch-deck-fields"');
     const addSlideInstructionIndex = flow.indexOf(
@@ -73,10 +73,19 @@ describe("new deck generation flow", () => {
     );
   });
 
-  it("uses an atomic source-restyle patch and compact verification", () => {
-    expect(source).toContain("requireAllSourceSlides: true");
-    expect(source).toContain('verify with `get-deck` using `compact: "true"`');
-    expect(source).toContain("Do not report an initial or partial pass");
+  it("keeps ordinary attachments as reference material for a new deck", () => {
+    expect(flow).toContain(
+      "attached reference files must not seed it with imported slides",
+    );
+    expect(source).toContain(
+      "Attachments are context for the agent by default",
+    );
+    expect(flow).toContain("isSourceImprovementRequest");
+    expect(flow).toContain("importUploadedDeckIntoDeck");
+    expect(flow).toContain("Source-preserving improvement mode");
+    expect(flow).toContain(
+      "attached reference files must not seed it with imported slides",
+    );
   });
 
   it("routes both prompt submit and prompt skip into the reference step", () => {
@@ -129,6 +138,11 @@ describe("new deck generation flow", () => {
     expect(referenceImportFlow).toMatch(/callAction\(\s*"import-file"/);
     expect(referenceImportFlow).toContain('format: "pdf"');
     expect(referenceImportFlow).toContain("importIntoDeck: true");
+    expect(referenceImportFlow).toContain("setSelectedReferenceDeckId");
+    expect(referenceImportFlow).toContain(
+      "generationFiles = uploaded.filter((file) => file !== pdfReference)",
+    );
+    expect(referenceImportFlow).not.toContain("handleCreateDeckWithPrompt(");
     expect(referenceImportFlow).toContain(
       "The PDF reference deck could not be imported.",
     );

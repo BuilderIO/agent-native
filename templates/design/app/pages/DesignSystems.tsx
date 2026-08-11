@@ -12,6 +12,7 @@ import { VisibilityBadge } from "@agent-native/toolkit/sharing";
 import {
   IconCheckbox,
   IconChecks,
+  IconComponents,
   IconDots,
   IconPlus,
   IconPalette,
@@ -587,7 +588,7 @@ export default function DesignSystems() {
                             {!primaryColor &&
                               !secondaryColor &&
                               !accentColor && (
-                                <IconPalette className="w-8 h-8 text-muted-foreground/40" />
+                                <IconComponents className="w-8 h-8 text-muted-foreground/40" />
                               )}
                           </div>
                           <div className="p-4 pb-3">
@@ -1229,7 +1230,7 @@ function EmptyState() {
   return (
     <div className="flex flex-col items-center justify-center py-10 sm:py-14 text-center">
       <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#609FF8]/20 to-[#4080E0]/20 border border-[#609FF8]/20 flex items-center justify-center mb-6">
-        <IconPalette className="w-7 h-7 text-[#609FF8]" />
+        <IconComponents className="w-7 h-7 text-primary" />
       </div>
       <h2 className="text-xl font-semibold text-foreground mb-2">
         {t("designSystems.empty.title")}

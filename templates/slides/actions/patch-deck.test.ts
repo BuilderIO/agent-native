@@ -3,6 +3,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { buildSourceImportMetadata } from "../server/lib/source-import.js";
 import {
   applyOperation,
+  assertPatchedSlideAnimationsResolve,
   assertSourceImportOperationsPreserved,
   assertSourceImportSlidesCovered,
   isAgentPatchCaller,
@@ -353,6 +354,157 @@ describe("source-imported deck structure", () => {
           { op: "patch-slide", slideId: "s2", fields: { content: "two" } },
         ],
         true,
+      ),
+    ).not.toThrow();
+  });
+});
+
+describe("animation target validation", () => {
+  const content = `<div class="fmd-slide">
+    <div><h2>Title</h2></div>
+    <div><p>Body</p></div>
+  </div>`;
+
+  const animation = (overrides: Record<string, unknown> = {}) => ({
+    id: "reveal-title",
+    elementIndex: 0,
+    elementPath: [0, 0],
+    type: "fade" as const,
+    ...overrides,
+  });
+
+  const applyAndValidate = (deck: any, operations: Operation[]) => {
+    for (const operation of operations) {
+      applyOperation(deck, operation);
+    }
+    assertPatchedSlideAnimationsResolve(deck, operations);
+  };
+
+  it("accepts paths that resolve in the final slide HTML", () => {
+    expect(() =>
+      applyAndValidate(
+        {
+          slides: [{ id: "s1", content, animations: [animation()] }],
+        },
+        [
+          {
+            op: "patch-slide",
+            slideId: "s1",
+            fields: { content, animations: [animation()] },
+          },
+        ],
+      ),
+    ).not.toThrow();
+  });
+
+  it("rejects a stale path before persistence can accept it", () => {
+    expect(() =>
+      applyAndValidate(
+        {
+          slides: [
+            {
+              id: "s1",
+              content,
+              animations: [animation({ elementPath: [9, 9] })],
+            },
+          ],
+        },
+        [
+          {
+            op: "patch-slide",
+            slideId: "s1",
+            fields: {
+              content,
+              animations: [animation({ elementPath: [9, 9] })],
+            },
+          },
+        ],
+      ),
+    ).toThrow(/reveal-title.*does not resolve/);
+  });
+
+  it("rejects duplicate reveal targets instead of creating a phantom step", () => {
+    expect(() =>
+      applyAndValidate(
+        {
+          slides: [
+            {
+              id: "s1",
+              content,
+              animations: [
+                animation(),
+                animation({ id: "reveal-title-again" }),
+              ],
+            },
+          ],
+        },
+        [
+          {
+            op: "patch-slide",
+            slideId: "s1",
+            fields: {
+              animations: [
+                animation(),
+                animation({ id: "reveal-title-again" }),
+              ],
+            },
+          },
+        ],
+      ),
+    ).toThrow(/reveal-title-again.*duplicates target path 0.0/);
+  });
+
+  it("rejects elementIndex-only targets when an agent revises animations", () => {
+    expect(() =>
+      assertPatchedSlideAnimationsResolve(
+        {
+          slides: [
+            {
+              id: "s1",
+              content,
+              animations: [
+                {
+                  id: "legacy-target",
+                  elementIndex: 0,
+                  type: "fade" as const,
+                },
+              ],
+            },
+          ],
+        },
+        [
+          {
+            op: "patch-slide",
+            slideId: "s1",
+            fields: {
+              animations: [
+                {
+                  id: "legacy-target",
+                  elementIndex: 0,
+                  type: "fade",
+                },
+              ],
+            },
+          },
+        ],
+        { requireElementPaths: true },
+      ),
+    ).toThrow(/legacy-target.*missing elementPath/);
+  });
+
+  it("does not validate stale animation metadata for unrelated writes", () => {
+    expect(() =>
+      applyAndValidate(
+        {
+          slides: [
+            {
+              id: "s1",
+              content,
+              animations: [animation({ elementPath: [99] })],
+            },
+          ],
+        },
+        [{ op: "patch-slide", slideId: "s1", fields: { notes: "Updated" } }],
       ),
     ).not.toThrow();
   });

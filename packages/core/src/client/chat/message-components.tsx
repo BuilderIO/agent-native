@@ -89,6 +89,8 @@ import {
   FilesChangedSummary,
   ASSISTANT_VISIBLE_TOOL_CALL_LIMIT,
   ChatRunningContext,
+  ChatRunningRunIdContext,
+  ChatRunningTurnIdContext,
   ChatRunDurationContext,
   formatWorkedDuration,
   RanToolsSummary,
@@ -349,6 +351,18 @@ export function assistantMessageRunId(message: unknown): string | undefined {
     ? metadata.custom.runId
     : typeof metadata?.runId === "string"
       ? metadata.runId
+      : undefined;
+}
+
+/** Stable logical-turn identity shared by chained continuation run IDs. */
+export function assistantMessageTurnId(message: unknown): string | undefined {
+  const metadata = (message as { metadata?: unknown })?.metadata as
+    | { custom?: { turnId?: unknown }; turnId?: unknown }
+    | undefined;
+  return typeof metadata?.custom?.turnId === "string"
+    ? metadata.custom.turnId
+    : typeof metadata?.turnId === "string"
+      ? metadata.turnId
       : undefined;
 }
 
@@ -1104,19 +1118,40 @@ export function computeActiveTailToolCallId(
 export function shouldShowAssistantMessageFooter({
   isLast,
   chatRunning,
+  activeRunId,
+  messageRunId,
+  activeTurnId,
+  messageTurnId,
   hasRenderableContent,
   statusIsTerminal,
   hasUnresolvedTool,
 }: {
   isLast: boolean;
   chatRunning: boolean;
+  activeRunId?: string | null;
+  messageRunId?: string;
+  activeTurnId?: string | null;
+  messageTurnId?: string;
   hasRenderableContent: boolean;
   statusIsTerminal: boolean;
   hasUnresolvedTool?: boolean;
 }): boolean {
   if (!hasRenderableContent) return false;
+  const ownsActiveTurn =
+    activeTurnId != null &&
+    (messageTurnId == null || activeTurnId === messageTurnId);
+  // Keep the run-id comparison only for legacy messages that predate the
+  // turn-id metadata. Once either side has a logical-turn identity, absent
+  // turn evidence must not be treated as proof of a different run.
+  const ownsLegacyRun =
+    activeTurnId == null &&
+    messageTurnId == null &&
+    activeRunId != null &&
+    messageRunId != null &&
+    activeRunId === messageRunId;
+  const ownsActiveRun = isLast || ownsActiveTurn || ownsLegacyRun;
+  if (chatRunning && ownsActiveRun) return false;
   if (!isLast) return true;
-  if (chatRunning) return false;
   if (hasUnresolvedTool) return false;
   return statusIsTerminal;
 }
@@ -1506,6 +1541,8 @@ export function AssistantMessage() {
   const messageRuntime = useMessageRuntime();
   const thread = useThread();
   const chatRunning = React.useContext(ChatRunningContext);
+  const activeRunId = React.useContext(ChatRunningRunIdContext);
+  const activeTurnId = React.useContext(ChatRunningTurnIdContext);
   const lastRunDurationMs = React.useContext(ChatRunDurationContext);
   const msg = messageRuntime.getState();
   const persistedDurationMs = getAssistantRunDurationMs(msg);
@@ -1523,6 +1560,8 @@ export function AssistantMessage() {
     msg.content,
   );
   const hasCustomUi = assistantMessageHasCustomUi(msg.content);
+  const messageRunId = assistantMessageRunId(msg);
+  const messageTurnId = assistantMessageTurnId(msg);
   const serverRunActive = React.useContext(ServerRunActiveContext);
   const messageRunError = getRunErrorMetadata(msg);
   const messageActions = React.useContext(MessageActionsContext);
@@ -1586,6 +1625,10 @@ export function AssistantMessage() {
     shouldShowAssistantMessageFooter({
       isLast,
       chatRunning,
+      activeRunId,
+      messageRunId,
+      activeTurnId,
+      messageTurnId,
       hasRenderableContent,
       statusIsTerminal,
       hasUnresolvedTool,
@@ -1633,8 +1676,6 @@ export function AssistantMessage() {
     }
     wasRunningRef.current = chatRunning && isLast;
   }, [chatRunning, isComplete, isLast]);
-
-  const messageRunId = assistantMessageRunId(msg);
 
   const handleRestore = useCallback(async () => {
     if (restoreState === "idle" || restoreState === "error") {

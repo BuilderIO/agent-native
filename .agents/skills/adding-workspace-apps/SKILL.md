@@ -6,6 +6,7 @@ description: >-
   mounting and base paths, action-first data, and finishing a chat-template app.
   Use when asked to create, build, scaffold, or generate a new agent or app in a
   workspace.
+scope: dev
 ---
 
 # Adding Workspace Apps
