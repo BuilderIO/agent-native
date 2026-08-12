@@ -192,6 +192,7 @@ export default defineAction({
             scopes: connection.scopes,
             allowedApps: connection.allowedApps,
             allowedUsers: connection.allowedUsers ?? [],
+            allowedUserGroups: connection.allowedUserGroups ?? [],
             credentialRefs: existingRefs.map((ref) => ({
               key: ref.key,
               label: ref.label,

@@ -15,10 +15,8 @@ import {
   IconExternalLink,
   IconLoader2,
   IconPlayerPlay,
-  IconPlugConnected,
   IconPlus,
   IconRefresh,
-  IconRobot,
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router";
@@ -37,6 +35,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 
 type FactoryGraphResponse = {
@@ -1646,7 +1645,7 @@ function SettingsView({ t }: { t: ReturnType<typeof useT> }) {
       <SettingsGroup variant="soft">
         <SettingsRow
           label={t("factoryRoute.workspaceIntegrations")}
-          icon={<IconPlugConnected className="size-4" />}
+          description={t("settings.workspaceDescription")}
           control={
             <Button asChild type="button" variant="outline">
               <Link to={buildSettingsRoute("integrations")}>Manage</Link>
@@ -1655,7 +1654,7 @@ function SettingsView({ t }: { t: ReturnType<typeof useT> }) {
         />
         <SettingsRow
           label={t("factoryRoute.agentAccess")}
-          icon={<IconRobot className="size-4" />}
+          description={t("settings.agentDescription")}
           control={
             <Button asChild type="button" variant="outline">
               <Link to={buildSettingsRoute("agent")}>Manage</Link>
@@ -1664,14 +1663,12 @@ function SettingsView({ t }: { t: ReturnType<typeof useT> }) {
         />
       </SettingsGroup>
 
-      <SettingsGroup
-        variant="soft"
-        title={t("factoryRoute.automationFailureAlertsTitle")}
-      >
+      <SettingsGroup variant="soft">
         <SettingsRow
-          label={t("factoryRoute.automationFailureAlertsEnabled")}
+          label={t("factoryRoute.automationFailureAlertsTitle")}
+          description={t("factoryRoute.automationFailureAlertsDescription")}
           control={
-            <Checkbox
+            <Switch
               aria-label={t("factoryRoute.automationFailureAlertsEnabled")}
               checked={automationFailureAlertsEnabled}
               onCheckedChange={(checked) =>
@@ -1682,6 +1679,9 @@ function SettingsView({ t }: { t: ReturnType<typeof useT> }) {
         />
         <SettingsRow
           label={t("factoryRoute.automationFailureAlertEmail")}
+          description={t(
+            "factoryRoute.automationFailureAlertEmailPlaceholder",
+          )}
           control={
             <Input
               aria-label={t("factoryRoute.automationFailureAlertEmail")}
@@ -1699,6 +1699,7 @@ function SettingsView({ t }: { t: ReturnType<typeof useT> }) {
         />
         <SettingsRow
           label={t("factoryRoute.automationFailureEmailReadiness")}
+          description={t("factoryRoute.automationEmailReadinessHint")}
           control={
             <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
               {(query.data as TriageConfig | undefined)?.emailReadiness
@@ -1716,7 +1717,7 @@ function SettingsView({ t }: { t: ReturnType<typeof useT> }) {
         )}
       </SettingsGroup>
 
-      <div className="flex flex-wrap items-center justify-start gap-3">
+      <div className="flex flex-wrap items-center justify-end gap-3">
         {mutation.isError && (
           <p className="text-sm text-destructive" role="alert">
             {t("triage.settingsError")}
@@ -1795,66 +1796,42 @@ function SchedulerHealthStatus({
     health?.status === "stale" ||
     health?.status === "error" ||
     Boolean(health?.lastError);
+  const healthDescription = isError
+    ? `${t("factoryRoute.automationDiagnosticsLoadError")} ${error instanceof Error ? error.message : String(error)}`
+    : health?.lastError
+      ? `${t("factoryRoute.automationHealthErrorDetail")}: ${health.lastError}`
+      : health?.status === "stale"
+        ? t("factoryRoute.automationHealthStaleHint")
+        : hasNoHeartbeat
+          ? t("factoryRoute.automationHealthNoDataHint")
+          : undefined;
 
   return (
-    <section
-      aria-labelledby="factory-scheduler-health"
-      className="rounded-xl bg-card px-5 py-4 text-card-foreground shadow-sm sm:px-6"
-    >
-      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <h2
-            id="factory-scheduler-health"
-            className="text-sm font-medium text-muted-foreground"
-          >
-            {t("factoryRoute.automationHealthTitle")}
-          </h2>
-          <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium">
-            {healthLabel}
-          </span>
-        </div>
-        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-          {health?.lastCheckedAt && (
-            <span>
-              {t("factoryRoute.automationLastCheck")}:{" "}
-              {formatAutomationDate(health.lastCheckedAt)}
+    <SettingsGroup variant="soft">
+      <SettingsRow
+        label={t("factoryRoute.automationHealthTitle")}
+        description={hasDiagnostics ? healthDescription : undefined}
+        control={
+          <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-1">
+            <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium">
+              {healthLabel}
             </span>
-          )}
-          {health?.lastDispatchedAt && (
-            <span>
-              {t("factoryRoute.automationLastDispatch")}:{" "}
-              {formatAutomationDate(health.lastDispatchedAt)}
-            </span>
-          )}
-        </div>
-      </div>
-      {hasDiagnostics && (
-        <div className="mt-2 grid gap-1 text-xs">
-          {hasNoHeartbeat && (
-            <p className="text-muted-foreground">
-              {t("factoryRoute.automationHealthNoDataHint")}
-            </p>
-          )}
-          {health?.status === "stale" && (
-            <p className="text-destructive">
-              {t("factoryRoute.automationHealthStaleHint")}
-            </p>
-          )}
-          {health?.lastError && (
-            <p className="text-destructive">
-              {t("factoryRoute.automationHealthErrorDetail")}:{" "}
-              {health.lastError}
-            </p>
-          )}
-          {isError && (
-            <p className="text-destructive">
-              {t("factoryRoute.automationDiagnosticsLoadError")}{" "}
-              {error instanceof Error ? error.message : String(error)}
-            </p>
-          )}
-        </div>
-      )}
-    </section>
+            {health?.lastCheckedAt && (
+              <span className="text-xs text-muted-foreground">
+                {t("factoryRoute.automationLastCheck")}:{" "}
+                {formatAutomationDate(health.lastCheckedAt)}
+              </span>
+            )}
+            {health?.lastDispatchedAt && (
+              <span className="text-xs text-muted-foreground">
+                {t("factoryRoute.automationLastDispatch")}:{" "}
+                {formatAutomationDate(health.lastDispatchedAt)}
+              </span>
+            )}
+          </div>
+        }
+      />
+    </SettingsGroup>
   );
 }
 

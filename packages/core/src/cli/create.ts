@@ -2229,6 +2229,8 @@ export {
   normalizeCommunityWorkspaceAppDependencies as _normalizeCommunityWorkspaceAppDependencies,
   shouldSkipScaffoldEntry as _shouldSkipScaffoldEntry,
   tarExtractArgs as _tarExtractArgs,
+  extractTarball as _extractTarball,
+  materializeArchiveSymlinks as _materializeArchiveSymlinks,
   downloadGitHubSubdir as _downloadGitHubSubdir,
   findLocalTemplate as _findLocalTemplate,
   templateSourceName as _templateSourceName,
@@ -2306,9 +2308,7 @@ function archiveSymlinksForExtraction(tarPath: string): ArchiveSymlink[] {
   return listing.split(/\r?\n/).flatMap((line) => {
     if (!line.startsWith("l")) return [];
     const match = line.match(/\s(\S+)\s+->\s+(\S+)\s*$/);
-    return match
-      ? [{ archivePath: match[1]!, target: match[2]! }]
-      : [];
+    return match ? [{ archivePath: match[1]!, target: match[2]! }] : [];
   });
 }
 
@@ -2421,6 +2421,33 @@ function execFileBuffer(
   });
 }
 
+function extractTarball(
+  tarPath: string,
+  destDir: string,
+  options: {
+    skipAgentSymlinks?: boolean;
+    untrustedCommunityArchive?: boolean;
+  } = {},
+): void {
+  const symlinks =
+    options.skipAgentSymlinks || options.untrustedCommunityArchive
+      ? archiveSymlinksForExtraction(tarPath)
+      : [];
+  execFileSync(
+    "tar",
+    tarExtractArgs(tarPath, destDir, {
+      ...options,
+      additionalExcludes: symlinks.map((link) => link.archivePath),
+    }),
+    {
+      stdio: "pipe",
+    },
+  );
+  if (symlinks.length > 0) {
+    materializeArchiveSymlinks(destDir, symlinks);
+  }
+}
+
 async function downloadAndExtract(
   url: string,
   destDir: string,
@@ -2454,23 +2481,7 @@ async function downloadAndExtract(
     if (options.untrustedCommunityArchive) {
       validateCommunityArchive(tarPath);
     }
-    const symlinks =
-      options.skipAgentSymlinks || options.untrustedCommunityArchive
-        ? archiveSymlinksForExtraction(tarPath)
-        : [];
-    execFileSync(
-      "tar",
-      tarExtractArgs(tarPath, destDir, {
-        ...options,
-        additionalExcludes: symlinks.map((link) => link.archivePath),
-      }),
-      {
-      stdio: "pipe",
-      },
-    );
-    if (symlinks.length > 0) {
-      materializeArchiveSymlinks(destDir, symlinks);
-    }
+    extractTarball(tarPath, destDir, options);
   } finally {
     fs.unlinkSync(tarPath);
   }

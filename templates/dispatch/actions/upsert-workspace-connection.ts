@@ -5,6 +5,7 @@ import {
 } from "@agent-native/core/connections";
 import { isOrgMember } from "@agent-native/core/org";
 import {
+  assertWorkspaceUserGroupIds,
   normalizeWorkspaceConnectionAllowedUsers,
   upsertWorkspaceConnection,
   type WorkspaceConnectionStatus,
@@ -88,6 +89,13 @@ export async function assertWorkspaceConnectionAllowedUsers(
   return normalized;
 }
 
+export async function assertWorkspaceConnectionAllowedUserGroups(
+  allowedUserGroups: string[] | undefined,
+  orgId: string | null | undefined,
+): Promise<string[] | undefined> {
+  return assertWorkspaceUserGroupIds(allowedUserGroups, orgId);
+}
+
 export default defineAction({
   description:
     "Create or update a shared workspace integration connection and its app access list.",
@@ -128,6 +136,12 @@ export default defineAction({
       .describe(
         "Workspace member email addresses that may use this connection. Empty means all workspace members.",
       ),
+    allowedUserGroups: z
+      .array(z.string())
+      .optional()
+      .describe(
+        "Workspace user group IDs that may use this connection. Groups are unioned with selected people.",
+      ),
     credentialRefs: z
       .array(credentialRefSchema)
       .default([])
@@ -148,11 +162,17 @@ export default defineAction({
       args.allowedUsers,
       ctx?.orgId,
     );
+    const allowedUserGroups =
+      await assertWorkspaceConnectionAllowedUserGroups(
+        args.allowedUserGroups,
+        ctx?.orgId,
+      );
 
     return upsertWorkspaceConnection({
       ...args,
       status: args.status as WorkspaceConnectionStatus,
       allowedUsers,
+      allowedUserGroups,
       credentialRefs: normalizeCredentialRefs(args.credentialRefs, provider),
     });
   },

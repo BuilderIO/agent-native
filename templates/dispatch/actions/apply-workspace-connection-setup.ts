@@ -4,6 +4,7 @@ import { getWorkspaceConnection } from "@agent-native/core/workspace-connections
 import { z } from "zod";
 
 import upsertWorkspaceConnection, {
+  assertWorkspaceConnectionAllowedUserGroups,
   assertWorkspaceConnectionAllowedUsers,
 } from "./upsert-workspace-connection.js";
 
@@ -88,6 +89,10 @@ export default defineAction({
       .describe(
         "Workspace member email addresses allowed to use the connection.",
       ),
+    selectedUserGroups: z
+      .array(z.string())
+      .optional()
+      .describe("Workspace user group IDs allowed to use the connection."),
   }),
   run: async (args, ctx) => {
     const provider = getWorkspaceConnectionProvider(args.provider);
@@ -135,7 +140,8 @@ export default defineAction({
       : null;
     const userGrantMode =
       args.userGrantMode ??
-      (existingConnection?.allowedUsers?.length
+      (existingConnection?.allowedUsers?.length ||
+      existingConnection?.allowedUserGroups?.length
         ? "selected-users"
         : "all-users");
     const allowedUsers =
@@ -144,9 +150,25 @@ export default defineAction({
         : uniqueStrings(
             args.selectedUsers ?? existingConnection?.allowedUsers ?? [],
           );
-    if (userGrantMode === "selected-users" && allowedUsers.length === 0) {
+    const allowedUserGroups =
+      userGrantMode === "all-users"
+        ? []
+        : Array.from(
+            new Set(
+              (args.selectedUserGroups ??
+                existingConnection?.allowedUserGroups ??
+                [])
+                .map((groupId) => groupId.trim())
+                .filter(Boolean),
+            ),
+          );
+    if (
+      userGrantMode === "selected-users" &&
+      allowedUsers.length === 0 &&
+      allowedUserGroups.length === 0
+    ) {
       throw new Error(
-        "Choose at least one person or switch access to all workspace members.",
+        "Choose at least one person or group, or switch access to all workspace members.",
       );
     }
 
@@ -154,6 +176,11 @@ export default defineAction({
       allowedUsers,
       ctx?.orgId,
     );
+    const validatedAllowedUserGroups =
+      await assertWorkspaceConnectionAllowedUserGroups(
+        allowedUserGroups,
+        ctx?.orgId,
+      );
 
     return upsertWorkspaceConnection.run(
       {
@@ -167,6 +194,7 @@ export default defineAction({
         credentialRefs,
         allowedApps,
         allowedUsers: validatedAllowedUsers,
+        allowedUserGroups: validatedAllowedUserGroups,
       },
       ctx,
     );

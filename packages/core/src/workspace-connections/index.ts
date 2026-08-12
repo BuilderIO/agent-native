@@ -5,6 +5,19 @@ export {
 } from "./credential-key-aliases.js";
 
 export {
+  assertWorkspaceUserGroupIds,
+  assertWorkspaceUserGroupManager,
+  ensureWorkspaceUserGroupsTable,
+  listWorkspaceUserGroups,
+  listWorkspaceUserGroupsForOrg,
+  normalizeWorkspaceUserGroupIds,
+  upsertWorkspaceUserGroup,
+  workspaceUserGroupsIncludeUser,
+  type UpsertWorkspaceUserGroupInput,
+  type WorkspaceUserGroup,
+} from "./groups.js";
+
+export {
   deleteWorkspaceConnection,
   ensureWorkspaceConnectionsTable,
   getWorkspaceConnectionAppAccess,

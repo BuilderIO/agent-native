@@ -962,7 +962,11 @@ function CommentCard({
                       <IconMoodSmile className="h-3 w-3" /> React
                     </button>
                   </PopoverTrigger>
-                  <PopoverContent side="top" align="start" className="p-1 w-auto">
+                  <PopoverContent
+                    side="top"
+                    align="start"
+                    className="p-1 w-auto"
+                  >
                     <div className="flex gap-0.5">
                       {REACTION_EMOJIS.map((e) => (
                         <button
@@ -1023,42 +1027,40 @@ function CommentCard({
             {Object.entries(reactions).map(([emoji, users]) => {
               const mine =
                 !!currentUserEmail && users.includes(currentUserEmail);
-              return (
-                canComment ? (
-                  <button
-                    key={emoji}
-                    type="button"
-                    onClick={() => {
-                      if (!currentUserEmail) {
-                        onUnauthenticated?.("react");
-                        return;
-                      }
-                      setLocalJson(JSON.stringify(toggleEmoji(emoji)));
-                      onReact(comment.id, emoji);
-                    }}
-                    aria-pressed={mine}
-                    title={
-                      mine
-                        ? "Click to remove your reaction"
-                        : "Click to add your reaction"
+              return canComment ? (
+                <button
+                  key={emoji}
+                  type="button"
+                  onClick={() => {
+                    if (!currentUserEmail) {
+                      onUnauthenticated?.("react");
+                      return;
                     }
-                    className={cn(
-                      "text-[11px] rounded-full px-1.5 py-0.5 flex items-center gap-1 transition-colors",
-                      mine
-                        ? "bg-primary/15 border border-primary/40 text-primary hover:bg-primary/25"
-                        : "bg-accent border border-transparent hover:bg-accent/70",
-                    )}
-                  >
-                    {emoji} {users.length}
-                  </button>
-                ) : (
-                  <span
-                    key={emoji}
-                    className="text-[11px] rounded-full px-1.5 py-0.5 flex items-center gap-1 bg-accent border border-transparent"
-                  >
-                    {emoji} {users.length}
-                  </span>
-                )
+                    setLocalJson(JSON.stringify(toggleEmoji(emoji)));
+                    onReact(comment.id, emoji);
+                  }}
+                  aria-pressed={mine}
+                  title={
+                    mine
+                      ? "Click to remove your reaction"
+                      : "Click to add your reaction"
+                  }
+                  className={cn(
+                    "text-[11px] rounded-full px-1.5 py-0.5 flex items-center gap-1 transition-colors",
+                    mine
+                      ? "bg-primary/15 border border-primary/40 text-primary hover:bg-primary/25"
+                      : "bg-accent border border-transparent hover:bg-accent/70",
+                  )}
+                >
+                  {emoji} {users.length}
+                </button>
+              ) : (
+                <span
+                  key={emoji}
+                  className="text-[11px] rounded-full px-1.5 py-0.5 flex items-center gap-1 bg-accent border border-transparent"
+                >
+                  {emoji} {users.length}
+                </span>
               );
             })}
           </div>

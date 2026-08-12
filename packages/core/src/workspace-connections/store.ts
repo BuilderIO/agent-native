@@ -25,6 +25,10 @@ import {
   getRequestUserEmail,
 } from "../server/request-context.js";
 import { credentialKeyMatches } from "./credential-key-aliases.js";
+import {
+  normalizeWorkspaceUserGroupIds,
+  workspaceUserGroupsIncludeUser,
+} from "./groups.js";
 import { notifyWorkspaceConnectionLifecycle } from "./lifecycle.js";
 
 export type WorkspaceConnectionStatus =
@@ -54,6 +58,8 @@ export interface WorkspaceConnection {
   allowedApps: string[];
   /** Empty means every member of the owning workspace. */
   allowedUsers: string[];
+  /** Groups are unioned with allowedUsers; empty means no group restriction. */
+  allowedUserGroups?: string[];
   credentialRefs: WorkspaceConnectionCredentialRef[];
   ownerEmail: string;
   orgId: string | null;
@@ -118,6 +124,7 @@ export interface UpsertWorkspaceConnectionInput {
   config?: Record<string, unknown>;
   allowedApps?: string[];
   allowedUsers?: string[];
+  allowedUserGroups?: string[];
   credentialRefs?: WorkspaceConnectionCredentialRef[];
   lastCheckedAt?: Date | number | string | null;
   lastError?: string | null;
@@ -195,6 +202,7 @@ export interface WorkspaceConnectionForAppSummary {
   appAccess: WorkspaceConnectionAppAccess;
   allowedApps: string[];
   allowedUsers: string[];
+  allowedUserGroups?: string[];
   credentialRefs: WorkspaceConnectionPublicCredentialRef[];
   lastUsedAt: string | null;
   lastCheckedAt: string | null;
@@ -395,6 +403,12 @@ async function ensureWorkspaceConnectionColumns(
   await ensureColumn(
     client,
     table,
+    "allowed_user_groups_json",
+    "TEXT NOT NULL DEFAULT '[]'",
+  );
+  await ensureColumn(
+    client,
+    table,
     "credential_refs_json",
     "TEXT NOT NULL DEFAULT '[]'",
   );
@@ -489,6 +503,7 @@ export async function ensureWorkspaceConnectionsTable(): Promise<void> {
             config_json TEXT NOT NULL DEFAULT '{}',
             allowed_apps_json TEXT NOT NULL DEFAULT '[]',
             allowed_users_json TEXT NOT NULL DEFAULT '[]',
+            allowed_user_groups_json TEXT NOT NULL DEFAULT '[]',
             credential_refs_json TEXT NOT NULL DEFAULT '[]',
             owner_email TEXT NOT NULL DEFAULT '',
             org_id TEXT,
@@ -570,6 +585,11 @@ export async function ensureWorkspaceConnectionsTable(): Promise<void> {
           "workspace_connections",
           "allowed_users_json",
           `ALTER TABLE workspace_connections ADD COLUMN IF NOT EXISTS allowed_users_json TEXT NOT NULL DEFAULT '[]'`,
+        );
+        await ensureColumnExists(
+          "workspace_connections",
+          "allowed_user_groups_json",
+          `ALTER TABLE workspace_connections ADD COLUMN IF NOT EXISTS allowed_user_groups_json TEXT NOT NULL DEFAULT '[]'`,
         );
         await ensureColumnExists(
           "workspace_connections",
@@ -778,13 +798,46 @@ export function normalizeWorkspaceConnectionAllowedUsers(
   );
 }
 
-function workspaceConnectionIsAvailableToUser(
-  connection: Pick<SerializedWorkspaceConnection, "allowedUsers">,
+function workspaceConnectionHasDirectUserAccess(
+  connection: Pick<
+    SerializedWorkspaceConnection,
+    "allowedUsers" | "allowedUserGroups"
+  >,
   userEmail: string,
 ): boolean {
+  const allowedUserGroups = connection.allowedUserGroups ?? [];
   return (
-    connection.allowedUsers.length === 0 ||
+    (connection.allowedUsers.length === 0 &&
+      allowedUserGroups.length === 0) ||
     connection.allowedUsers.includes(userEmail)
+  );
+}
+
+async function filterWorkspaceConnectionsForUser(
+  connections: SerializedWorkspaceConnection[],
+  scope: ReturnType<typeof requireWorkspaceConnectionScope>,
+): Promise<SerializedWorkspaceConnection[]> {
+  return Promise.all(
+    connections.map(async (connection) => {
+      if (
+        workspaceConnectionHasDirectUserAccess(connection, scope.ownerEmail)
+      ) {
+        return connection;
+      }
+      if ((connection.allowedUserGroups?.length ?? 0) === 0) return null;
+      return (await workspaceUserGroupsIncludeUser(
+        scope.orgId,
+        connection.allowedUserGroups,
+        scope.ownerEmail,
+      ))
+        ? connection
+        : null;
+    }),
+  ).then((items) =>
+    items.filter(
+      (connection): connection is SerializedWorkspaceConnection =>
+        connection !== null,
+    ),
   );
 }
 
@@ -919,6 +972,9 @@ function parseRow(row: Record<string, unknown>): WorkspaceConnection {
     allowedUsers: normalizeWorkspaceConnectionAllowedUsers(
       safeJsonParse<unknown>(row.allowed_users_json, []),
     ),
+    allowedUserGroups: normalizeWorkspaceUserGroupIds(
+      safeJsonParse<unknown>(row.allowed_user_groups_json, []),
+    ),
     credentialRefs: normalizeCredentialRefs(
       safeJsonParse<unknown>(row.credential_refs_json, []),
     ),
@@ -962,6 +1018,9 @@ export function serializeWorkspaceConnection(
     allowedApps: normalizeStringArray(connection.allowedApps),
     allowedUsers: normalizeWorkspaceConnectionAllowedUsers(
       connection.allowedUsers,
+    ),
+    allowedUserGroups: normalizeWorkspaceUserGroupIds(
+      connection.allowedUserGroups,
     ),
     credentialRefs: normalizeCredentialRefs(connection.credentialRefs),
   };
@@ -1148,6 +1207,7 @@ function serializeConnectionForApp(
     appAccess,
     allowedApps: connection.allowedApps,
     allowedUsers: connection.allowedUsers,
+    allowedUserGroups: connection.allowedUserGroups ?? [],
     credentialRefs: publicCredentialRefs(
       connection.credentialRefs,
       "connection",
@@ -1485,8 +1545,9 @@ export async function resolveWorkspaceConnectionForApp({
     provider,
     includeDisabled: includeDisabled || Boolean(normalizedConnectionId),
   });
-  const userConnections = requestedConnections.filter((connection) =>
-    workspaceConnectionIsAvailableToUser(connection, scope.ownerEmail),
+  const userConnections = await filterWorkspaceConnectionsForUser(
+    requestedConnections,
+    scope,
   );
   const candidateConnections = normalizedConnectionId
     ? userConnections.filter(
@@ -1627,10 +1688,11 @@ export async function listWorkspaceConnections(
     scope,
     appId,
   );
-  return connections
-    .filter((connection) =>
-      workspaceConnectionIsAvailableToUser(connection, scope.ownerEmail),
-    )
+  const userConnections = await filterWorkspaceConnectionsForUser(
+    connections,
+    scope,
+  );
+  return userConnections
     .filter(
       (connection) =>
         connection.allowedApps.length === 0 ||
@@ -1682,6 +1744,10 @@ export async function upsertWorkspaceConnection(
     input.allowedUsers === undefined
       ? (existingConnection?.allowedUsers ?? [])
       : normalizeWorkspaceConnectionAllowedUsers(input.allowedUsers);
+  const allowedUserGroups =
+    input.allowedUserGroups === undefined
+      ? (existingConnection?.allowedUserGroups ?? [])
+      : normalizeWorkspaceUserGroupIds(input.allowedUserGroups);
   const credentialRefs = normalizeCredentialRefs(input.credentialRefs);
   const lastCheckedAt = millis(input.lastCheckedAt);
   const lastError = input.lastError ?? null;
@@ -1690,7 +1756,7 @@ export async function upsertWorkspaceConnection(
     sql: `UPDATE ${table}
       SET provider = ?, label = ?, account_id = ?, account_label = ?,
         status = ?, scopes_json = ?, config_json = ?, allowed_apps_json = ?,
-        allowed_users_json = ?,
+        allowed_users_json = ?, allowed_user_groups_json = ?,
         credential_refs_json = ?, updated_at = ?, last_checked_at = ?,
         last_error = ?
       WHERE id = ? AND ${where.sql}`,
@@ -1704,6 +1770,7 @@ export async function upsertWorkspaceConnection(
       JSON.stringify(config),
       JSON.stringify(allowedApps),
       JSON.stringify(allowedUsers),
+      JSON.stringify(allowedUserGroups),
       JSON.stringify(credentialRefs),
       now,
       lastCheckedAt,
@@ -1719,10 +1786,10 @@ export async function upsertWorkspaceConnection(
         sql: `INSERT INTO ${table}
           (id, provider, label, account_id, account_label, status,
             scopes_json, config_json, allowed_apps_json, allowed_users_json,
-            credential_refs_json,
+            allowed_user_groups_json, credential_refs_json,
             owner_email, org_id, created_at, updated_at, last_checked_at,
             last_error)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         args: [
           id,
           provider,
@@ -1734,6 +1801,7 @@ export async function upsertWorkspaceConnection(
           JSON.stringify(config),
           JSON.stringify(allowedApps),
           JSON.stringify(allowedUsers),
+          JSON.stringify(allowedUserGroups),
           JSON.stringify(credentialRefs),
           scope.ownerEmail,
           scope.orgId,

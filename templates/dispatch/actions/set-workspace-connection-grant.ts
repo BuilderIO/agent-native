@@ -100,6 +100,7 @@ export default defineAction({
       config: connection.config,
       allowedApps,
       allowedUsers: connection.allowedUsers ?? [],
+      allowedUserGroups: connection.allowedUserGroups ?? [],
       credentialRefs: connection.credentialRefs,
       lastCheckedAt: connection.lastCheckedAt,
       lastError: connection.lastError,

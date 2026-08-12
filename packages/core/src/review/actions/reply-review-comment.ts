@@ -41,7 +41,7 @@ export default defineAction({
       args.resourceType,
       args.resourceId,
       actionCtx,
-      "viewer",
+      "commenter",
     );
     const parent = await getReviewCommentById(args.commentId, scope, {
       bypassScope: true,

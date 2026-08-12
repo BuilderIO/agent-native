@@ -1198,7 +1198,7 @@ function LoadingSkeleton() {
         <div className="h-5 w-40 rounded-md bg-muted animate-pulse" />
         <div className="h-3 w-16 rounded bg-muted animate-pulse" />
       </div>
-                <div className="grid grid-cols-[repeat(auto-fit,minmax(230px,1fr))] gap-3">
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(230px,1fr))] gap-3">
         {Array.from({ length: 4 }).map((_, i) => (
           <div
             key={i}
