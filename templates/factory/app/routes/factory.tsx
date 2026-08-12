@@ -1699,7 +1699,7 @@ function SettingsView({ t }: { t: ReturnType<typeof useT> }) {
     <div className="mx-auto w-full max-w-3xl space-y-6 p-4 lg:p-6">
       <SettingsGroup>
         <SettingsRow
-          label="Workspace integrations"
+          label={t("factoryRoute.workspaceIntegrations")}
           icon={<IconPlugConnected className="size-4" />}
           control={
             <Button asChild type="button" variant="outline">
@@ -1708,11 +1708,11 @@ function SettingsView({ t }: { t: ReturnType<typeof useT> }) {
           }
         />
         <SettingsRow
-          label="Source routing"
+          label={t("factoryRoute.sourceRouting")}
           icon={
             <div
               className="flex items-center -space-x-1.5"
-              aria-label="Slack, GitHub, and Sentry"
+              aria-label={t("factoryRoute.sourceRoutingProviders")}
             >
               <span className="flex size-5 items-center justify-center rounded-full bg-background text-muted-foreground ring-1 ring-border">
                 <IconBrandSlack className="size-3.5" />
@@ -1732,7 +1732,7 @@ function SettingsView({ t }: { t: ReturnType<typeof useT> }) {
           }
           control={
             <FactorySourcePopover
-              label="Source routing"
+              label={t("factoryRoute.sourceRouting")}
               configured={sourceRoutingConfigured > 0}
               saving={mutation.isPending}
               onSave={saveSettings}
@@ -1865,7 +1865,7 @@ function SettingsView({ t }: { t: ReturnType<typeof useT> }) {
           }
         />
         <SettingsRow
-          label="Agent access"
+          label={t("factoryRoute.agentAccess")}
           icon={<IconRobot className="size-4" />}
           control={
             <Button asChild type="button" variant="outline">

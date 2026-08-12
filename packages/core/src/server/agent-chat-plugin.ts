@@ -530,6 +530,15 @@ export async function resolveFetchToolKeyAllowlist(
   return deps.getKeyAllowlist(keyName, "user", owner);
 }
 
+export function resolveHostedBuilderHandoff(
+  browserTools: Record<string, ActionEntry>,
+  canToggle: boolean,
+): Record<string, ActionEntry> {
+  if (canToggle) return {};
+  const connectBuilder = browserTools["connect-builder"];
+  return connectBuilder ? { "connect-builder": connectBuilder } : {};
+}
+
 export function createAgentChatPlugin(
   options?: AgentChatPluginOptions,
 ): NitroPluginDef {
@@ -795,6 +804,10 @@ export function createAgentChatPlugin(
         getOwner: () => getRequestRunContext()?.owner ?? getRequestUserEmail(),
         extensionTools: extensionToolsEnabled,
       });
+      const hostedBuilderHandoff = resolveHostedBuilderHandoff(
+        browserTools,
+        canToggle,
+      );
 
       // Auto-mount A2A protocol endpoints so every app is discoverable
       // and callable by other agents via the standard protocol.
@@ -1358,6 +1371,7 @@ export function createAgentChatPlugin(
           ...(browserTools["connect-file-storage"]
             ? ["connect-file-storage"]
             : []),
+          ...Object.keys(hostedBuilderHandoff),
         ]),
       ];
 
@@ -2915,6 +2929,7 @@ export function createAgentChatPlugin(
         ...chatScripts,
         ...(a2aAgentDelegationEnabled ? callAgentScript : {}),
         ...toolActions,
+        ...hostedBuilderHandoff,
       };
       const anonymousReadOnlyActions = attachToolSearch(
         filterReadOnlyActions(templateScripts),
