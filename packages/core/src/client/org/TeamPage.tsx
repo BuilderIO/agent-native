@@ -1020,12 +1020,15 @@ function MembersTableCard({
   }
 
   return (
-    <section className="overflow-hidden rounded-xl border border-border/70 bg-card text-card-foreground">
-      <div className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+    <section className="overflow-hidden rounded-xl bg-muted/20 p-1 text-card-foreground">
+      <div className="flex flex-col gap-3 rounded-lg bg-card px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h3 className="text-sm font-medium">{t("org.members")}</h3>
           <p className="text-xs text-muted-foreground">
             {t("org.memberCount", { count: totalMembers })}
+            {appRoles
+              ? ` · ${appRoles.label ?? appRoles.appId} can be assigned here`
+              : ""}
           </p>
         </div>
         {canInvite && !showInviteForm && (
@@ -1042,7 +1045,7 @@ function MembersTableCard({
         )}
       </div>
       {canInvite && showInviteForm && (
-        <div className="border-b border-border p-4">
+        <div className="rounded-lg bg-card p-4">
           <BulkInviteForm
             currentUserRole={currentUserRole}
             onClose={() => setShowInviteForm(false)}
@@ -1050,7 +1053,7 @@ function MembersTableCard({
         </div>
       )}
       {canManageGroups && members.length > 0 ? (
-        <div className="flex flex-col gap-3 bg-muted/25 px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-3 rounded-lg bg-muted/40 px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-2">
             <Checkbox
               checked={allMembersSelected}
@@ -1137,7 +1140,7 @@ function MembersTableCard({
           <ErrorText error={updateGroupMembers.error} />
         </div>
       ) : null}
-      <div className="divide-y divide-border/60 border-t border-border/60">
+      <div className="space-y-1 pt-1">
         {isLoadingMembers && members.length === 0 ? (
           <div role="status" aria-busy="true" aria-label="Loading members">
             {["w-44", "w-56", "w-64"].map((nameWidth) => (
@@ -1220,7 +1223,7 @@ function MemberPagination({
     hasNextPage && nextMemberOffset !== null && !isFetchingMembers;
 
   return (
-    <div className="flex flex-col gap-3 border-t border-border/60 px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
+    <div className="mt-1 flex flex-col gap-3 rounded-lg bg-card px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
       <p className="text-xs text-muted-foreground" aria-live="polite">
         {t("org.memberPageStatus", {
           page: currentPage,
@@ -1460,7 +1463,9 @@ function AppRoleControl({
         </SelectTrigger>
         <SelectContent>
           <SelectItem value={UNASSIGNED}>
-            {appRoles.defaultRole ? labelFor(appRoles.defaultRole) : "—"}
+            {appRoles.defaultRole
+              ? labelFor(appRoles.defaultRole)
+              : "Not assigned"}
           </SelectItem>
           {appRoles.roles.map((r) => (
             <SelectItem key={r} value={r}>
@@ -1480,7 +1485,7 @@ function AppRoleControl({
     </span>
   ) : (
     <span className="text-xs text-muted-foreground/70">
-      {appRoles.defaultRole ? labelFor(appRoles.defaultRole) : "—"}
+      {appRoles.defaultRole ? labelFor(appRoles.defaultRole) : "Not assigned"}
     </span>
   );
 
@@ -1536,7 +1541,7 @@ function MemberRow({
       (currentUserRole === "admin" && role === "member"));
 
   return (
-    <div className="flex flex-col gap-3 px-5 py-3.5 sm:flex-row sm:items-center">
+    <div className="flex flex-col gap-3 rounded-lg bg-card px-5 py-3.5 sm:flex-row sm:items-center">
       <div className="flex min-w-0 flex-1 items-center gap-3">
         {canSelect ? (
           <Checkbox

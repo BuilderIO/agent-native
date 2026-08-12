@@ -2840,6 +2840,8 @@ export interface AgentSettingsTabsOptions {
   usageAppId?: string | null;
   /** Optional progressive-disclosure link to the app's full metrics view. */
   usageViewAllHref?: string;
+  /** Optional app-owned replacement for the shared Organization tab. */
+  organizationContent?: React.ReactNode;
 }
 
 export interface AgentSettingsTabFactoryContext {
@@ -3750,6 +3752,7 @@ export function useAgentSettingsTabs(
   const agentAdditionalTabFactories = options.agentAdditionalTabFactories ?? [];
   const usageAppId = options.usageAppId ?? null;
   const usageViewAllHref = options.usageViewAllHref;
+  const organizationContent = options.organizationContent;
   const baseProps = useMemo<SettingsPanelProps>(
     () => ({
       isDevMode,
@@ -3877,7 +3880,7 @@ export function useAgentSettingsTabs(
         group: "workspace",
         content: (
           <div className="w-full">
-            <TeamPage showTitle={false} />
+            {organizationContent ?? <TeamPage showTitle={false} />}
           </div>
         ),
       },
@@ -3988,6 +3991,7 @@ export function useAgentSettingsTabs(
     additionalTabs,
     baseProps,
     extensionToolsEnabled,
+    organizationContent,
     usageAppId,
     usageViewAllHref,
   ]);

@@ -37,6 +37,15 @@ export default function SettingsRoute() {
   const agentSettingsTabs = useAgentSettingsTabs({
     usageAppId: "dispatch",
     usageViewAllHref: "/admin/metrics",
+    organizationContent: (
+      <div className="mx-auto w-full max-w-3xl">
+        <TeamPage
+          showTitle={false}
+          appRoles={dispatchAccessDescriptor}
+          createOrgDescription="Set up a team to share dispatch destinations and approvals with your colleagues."
+        />
+      </div>
+    ),
   });
   const settingsTabs = [
     ...agentSettingsTabs.filter((tab) => tab.id !== "integrations"),
@@ -174,15 +183,6 @@ export default function SettingsRoute() {
                 </Button>
               </CardContent>
             </Card>
-          </div>
-        }
-        team={
-          <div className="mx-auto w-full max-w-3xl">
-            <TeamPage
-              showTitle={false}
-              appRoles={dispatchAccessDescriptor}
-              createOrgDescription="Set up a team to share dispatch destinations and approvals with your colleagues."
-            />
           </div>
         }
         whatsNew={
