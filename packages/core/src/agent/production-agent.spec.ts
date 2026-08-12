@@ -9786,6 +9786,37 @@ describe("runAgentLoop endsTurn", () => {
     ]);
   });
 
+  it("keeps the turn running when the endsTurn action fails", async () => {
+    const { engine, streamCalls } = yieldEngine();
+    const run = vi.fn(async () => {
+      throw new Error("'options' must be a non-empty JSON array.");
+    });
+    const outcomes: AgentLoopOutcome[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "ask-question": {
+          ...actionEntry({ readOnly: false }),
+          endsTurn: true,
+          run,
+        },
+      },
+      send: () => {},
+      onOutcome: (outcome) => outcomes.push(outcome),
+      signal: new AbortController().signal,
+    });
+
+    // No card was rendered, so the run must not park on a nonexistent
+    // question — the model gets the error back and another step to fix it.
+    expect(streamCalls()).toBe(2);
+    expect(outcomes).toEqual([{ state: "completed" }]);
+  });
+
   it("leaves a turn running when the action is not marked endsTurn", async () => {
     const { engine, streamCalls } = yieldEngine();
     const run = vi.fn(async () => "asked");

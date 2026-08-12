@@ -470,8 +470,11 @@ export function createUrlTools(): Record<string, ActionEntry> {
         },
       },
       run: async (args) => {
+        // These must throw, not return an error string: `endsTurn` yields the
+        // turn on any non-error result, so a returned string would leave the
+        // run waiting on a question card that was never written.
         const question = String(args?.question ?? "").trim();
-        if (!question) return "Error: 'question' is required.";
+        if (!question) throw new Error("'question' is required.");
         const header = String(args?.header ?? "").trim();
         const allowMultiple = String(args?.allowMultiple ?? "") === "true";
         const allowFreeText = String(args?.allowFreeText ?? "true") !== "false";
@@ -480,10 +483,14 @@ export function createUrlTools(): Record<string, ActionEntry> {
         try {
           parsedOptions = JSON.parse(String(args?.options ?? "[]"));
         } catch {
-          return "Error: 'options' must be a JSON array of { label, value?, description?, recommended? }.";
+          throw new Error(
+            "'options' must be a JSON array of { label, value?, description?, recommended? }.",
+          );
         }
         if (!Array.isArray(parsedOptions) || parsedOptions.length === 0) {
-          return "Error: 'options' must be a non-empty JSON array of { label, value?, description?, recommended? }.";
+          throw new Error(
+            "'options' must be a non-empty JSON array of { label, value?, description?, recommended? }.",
+          );
         }
 
         type AskOption = {
@@ -519,7 +526,9 @@ export function createUrlTools(): Record<string, ActionEntry> {
           })
           .filter((opt): opt is AskOption => opt !== null);
         if (options.length === 0) {
-          return "Error: 'options' must contain at least one option with a label.";
+          throw new Error(
+            "'options' must contain at least one option with a label.",
+          );
         }
 
         // Shape must match the GuidedQuestionFlow renderer in

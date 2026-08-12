@@ -1094,7 +1094,11 @@ export function useGuidedQuestionFlow({
           prev &&
           guidedQuestionsFingerprint(prev.questions) ===
             guidedQuestionsFingerprint(data.questions) &&
-          prev.clientResolveId === data.clientResolveId
+          prev.clientResolveId === data.clientResolveId &&
+          // Two chats can ask a word-for-word identical question. Keeping the
+          // old payload would bind the new one to the wrong thread, hiding it
+          // in the chat that asked and re-showing it in the one that didn't.
+          prev.threadId === data.threadId
         ) {
           return prev;
         }
