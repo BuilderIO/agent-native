@@ -80,6 +80,7 @@ Coarse visibility lives on the resource itself; fine-grained grants live in a co
 When you share with a specific user or org, you pick a role:
 
 - **Viewer** — read only.
+- **Commenter** — read + add comments, but cannot edit the resource or manage shares.
 - **Editor** — read + write.
 - **Admin** — read + write + manage shares (can add/remove other people).
 
@@ -286,7 +287,7 @@ export const deckShares = createSharesTable("deck_shares");
         {
           name: "role",
           type: "enum",
-          note: "viewer | editor | admin",
+          note: "viewer | commenter | editor | admin",
         },
         {
           name: "created_by",

@@ -35,7 +35,7 @@ export default defineAction({
       .limit(1);
     if (!parent) throw new Error(`Comment not found: ${args.commentId}`);
 
-    await assertAccess("recording", parent.recordingId, "viewer");
+    await assertAccess("recording", parent.recordingId, "commenter");
 
     const authorEmail = getRequestUserEmail();
     if (!authorEmail) {

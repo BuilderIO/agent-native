@@ -14,8 +14,8 @@
  * dialog automatically — most templates never touch these directly.
  */
 
-import { IconX, IconHistory } from "@tabler/icons-react";
-import React, { useEffect, useMemo, useState } from "react";
+import { IconChevronDown, IconHistory, IconX } from "@tabler/icons-react";
+import React, { useEffect, useId, useMemo, useState } from "react";
 
 import { parseChangelog, type ChangelogEntry } from "../../changelog/parse.js";
 import {
@@ -274,6 +274,7 @@ export interface ChangelogSettingsCardProps {
   closeLabel?: string;
   emptyText?: string;
   viewAllLabel?: string;
+  collapseLabel?: string;
   className?: string;
 }
 
@@ -281,18 +282,20 @@ export function ChangelogSettingsCard({
   markdown,
   limit = 2,
   title = "What's new",
-  closeLabel = "Close",
   emptyText = "No updates yet.",
   viewAllLabel = "View all updates",
+  collapseLabel = "Show fewer updates",
   className,
 }: ChangelogSettingsCardProps) {
   const entries = useMemo(() => parseChangelog(markdown), [markdown]);
-  const [dialogOpen, setDialogOpen] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const bodyId = useId();
 
   if (entries.length === 0) return null;
 
   const shown = entries.slice(0, limit);
   const hasMore = entries.length > shown.length;
+  const visibleEntries = expanded ? entries : shown;
 
   return (
     <div
@@ -306,25 +309,34 @@ export function ChangelogSettingsCard({
         <h3 className="text-sm font-semibold">{title}</h3>
       </div>
       <div className="px-5 py-4">
-        <ChangelogEntries entries={shown} emptyText={emptyText} />
+        <div
+          id={bodyId}
+          className={cn(
+            "overflow-hidden transition-[max-height] duration-200 ease-[var(--ease-collapse)]",
+            expanded ? "max-h-96 overflow-y-auto pr-1" : "max-h-[9.5rem]",
+          )}
+        >
+          <ChangelogEntries entries={visibleEntries} emptyText={emptyText} />
+        </div>
         {hasMore && (
           <button
             type="button"
-            onClick={() => setDialogOpen(true)}
-            className="mt-4 text-sm font-medium text-foreground underline underline-offset-2"
+            onClick={() => setExpanded((value) => !value)}
+            aria-expanded={expanded}
+            aria-controls={bodyId}
+            className="mt-4 inline-flex items-center gap-1 text-sm font-medium text-foreground underline underline-offset-2"
           >
-            {viewAllLabel}
+            <span>{expanded ? collapseLabel : viewAllLabel}</span>
+            <IconChevronDown
+              className={cn(
+                "h-4 w-4 transition-transform duration-200 ease-[var(--ease-collapse)]",
+                expanded && "rotate-180",
+              )}
+              aria-hidden="true"
+            />
           </button>
         )}
       </div>
-      <ChangelogDialog
-        open={dialogOpen}
-        onOpenChange={setDialogOpen}
-        markdown={markdown}
-        title={title}
-        closeLabel={closeLabel}
-        emptyText={emptyText}
-      />
     </div>
   );
 }

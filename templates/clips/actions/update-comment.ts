@@ -35,7 +35,7 @@ export default defineAction({
       .limit(1);
     if (!existing) throw new Error(`Comment not found: ${args.id}`);
 
-    await assertAccess("recording", existing.recordingId, "viewer");
+    await assertAccess("recording", existing.recordingId, "commenter");
 
     if (!sameOwnerEmail(existing.authorEmail, userEmail)) {
       throw new ForbiddenError(

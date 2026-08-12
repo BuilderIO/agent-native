@@ -34,7 +34,7 @@ export default defineAction({
   }),
   run: async (args) => {
     const { deckId, slideId, content, quotedText, parentId } = args;
-    await assertAccess("deck", deckId, "viewer");
+    await assertAccess("deck", deckId, "commenter");
 
     const id = Math.random().toString(36).slice(2, 14);
     const threadId = args.threadId ?? id;

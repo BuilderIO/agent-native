@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const getSessionMock = vi.hoisted(() => vi.fn());
 const appStateGetMock = vi.hoisted(() => vi.fn());
 const appStatePutMock = vi.hoisted(() => vi.fn());
+const getOrgContextMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../deploy/route-discovery.js", () => ({
   getMissingDefaultPlugins: vi.fn(async () => []),
@@ -17,6 +18,10 @@ vi.mock("../application-state/store.js", () => ({
   appStatePut: (...args: any[]) => appStatePutMock(...args),
 }));
 
+vi.mock("../org/context.js", () => ({
+  getOrgContext: (...args: any[]) => getOrgContextMock(...args),
+}));
+
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -24,6 +29,7 @@ import {
 import {
   FIRST_RUN_ONBOARDING_COMPLETED_KEY,
   FIRST_RUN_ONBOARDING_COOKIE,
+  FIRST_RUN_ONBOARDING_ELIGIBLE_KEY,
 } from "../shared/first-run-onboarding.js";
 import { createOnboardingPlugin } from "./plugin.js";
 import {
@@ -99,6 +105,12 @@ describe("onboarding plugin routes", () => {
       email: "alice@example.com",
       orgId: "org-1",
     });
+    getOrgContextMock.mockResolvedValue({
+      email: "alice@example.com",
+      orgId: "org-1",
+      orgName: "Alice's workspace",
+      role: "owner",
+    });
     appStateGetMock.mockResolvedValue(null);
     appStatePutMock.mockResolvedValue(undefined);
   });
@@ -147,6 +159,10 @@ describe("onboarding plugin routes", () => {
     const nitroApp = createNitroApp();
     await createOnboardingPlugin({ skipDefaultSteps: true })(nitroApp);
 
+    appStateGetMock.mockImplementation(async (_sessionId, key) =>
+      key === FIRST_RUN_ONBOARDING_ELIGIBLE_KEY ? { orgId: "org-1" } : null,
+    );
+
     const pending = await dispatch(
       nitroApp,
       "/_agent-native/onboarding/first-run/status",
@@ -184,6 +200,30 @@ describe("onboarding plugin routes", () => {
       { requestSource: "agent" },
     );
     expect(finish.headers.get("set-cookie")).toContain(
+      `${FIRST_RUN_ONBOARDING_COOKIE}=`,
+    );
+  });
+
+  it("does not show first-run onboarding to a member of an existing organization", async () => {
+    getOrgContextMock.mockResolvedValue({
+      email: "alice@example.com",
+      orgId: "org-existing",
+      orgName: "Existing organization",
+      role: "member",
+    });
+    const nitroApp = createNitroApp();
+    await createOnboardingPlugin({ skipDefaultSteps: true })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/onboarding/first-run/status",
+      "GET",
+      { cookie: `${FIRST_RUN_ONBOARDING_COOKIE}=1` },
+    );
+
+    expect(result.body).toEqual({ firstRun: false });
+    expect(getOrgContextMock).toHaveBeenCalledOnce();
+    expect(result.headers.get("set-cookie")).toContain(
       `${FIRST_RUN_ONBOARDING_COOKIE}=`,
     );
   });

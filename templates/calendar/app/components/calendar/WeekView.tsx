@@ -274,6 +274,7 @@ const WeekEventCard = memo(function WeekEventCard({
   const li = layout.get(event.id) ?? {
     left: 0,
     width: 100,
+    indent: 0,
     col: 0,
     totalCols: 1,
     stackOrder: 0,
@@ -372,8 +373,8 @@ const WeekEventCard = memo(function WeekEventCard({
       }
       style={{
         ...style,
-        left: `calc(${li.left}% + ${li.col > 0 ? 2 : 0}px)`,
-        width: `calc(${li.width}% - ${li.col > 0 ? 4 : 2}px)`,
+        left: `calc(${li.left}% + ${li.indent}px)`,
+        width: `calc(${li.width}% - ${li.indent * 2 + 2}px)`,
         zIndex:
           isBeingDragged && isDragging
             ? 100

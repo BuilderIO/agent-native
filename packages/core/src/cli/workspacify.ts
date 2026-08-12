@@ -23,6 +23,11 @@
 import fs from "fs";
 import path from "path";
 
+import {
+  DEFAULT_WORKSPACE_SKILLS,
+  FRAMEWORK_TEMPLATE_SHARED_SKILLS,
+} from "./workspace-skill-policy.js";
+
 const POSTGRES_DEPENDENCY_VERSION = "^3.4.9";
 const REACT_ROUTER_BUILD_DEPENDENCIES = [
   "@react-router/dev",
@@ -143,6 +148,12 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
     }
   }
 
+  // Workspace-core owns framework skills. Keep only app-specific skill
+  // directories here, and expose the small inherited default set as symlinks
+  // so coding agents launched from this app see the same workspace guidance
+  // without another hard copy. Runtime agents inherit workspace-core directly.
+  linkInheritedWorkspaceSkills(opts);
+
   // 3) Templates document action commands from the framework repo layout.
   //    Workspace apps live under apps/<name>, so point every agent at the
   //    generated app directory instead.
@@ -171,6 +182,52 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
       exportName: "defaultAuthPlugin",
     });
     writeInheritedChatAgentChatPlugin(appDir, workspaceCoreName, opts.appName);
+  }
+}
+
+function linkInheritedWorkspaceSkills(opts: WorkspacifyOptions): void {
+  const appSkillsDir = path.join(opts.appDir, ".agents", "skills");
+  const workspaceSkillsDir = path.join(opts.workspaceRoot, ".agents", "skills");
+  if (!fs.existsSync(workspaceSkillsDir)) return;
+
+  fs.mkdirSync(appSkillsDir, { recursive: true });
+
+  for (const skill of FRAMEWORK_TEMPLATE_SHARED_SKILLS) {
+    const localPath = path.join(appSkillsDir, skill);
+    if (
+      fs.existsSync(localPath) ||
+      fs.lstatSync(localPath, { throwIfNoEntry: false })
+    ) {
+      fs.rmSync(localPath, { recursive: true, force: true });
+    }
+  }
+
+  for (const skill of DEFAULT_WORKSPACE_SKILLS) {
+    const inheritedPath = path.join(workspaceSkillsDir, skill);
+    if (!fs.existsSync(inheritedPath)) continue;
+
+    const linkPath = path.join(appSkillsDir, skill);
+    if (
+      fs.existsSync(linkPath) ||
+      fs.lstatSync(linkPath, { throwIfNoEntry: false })
+    ) {
+      fs.rmSync(linkPath, { recursive: true, force: true });
+    }
+
+    try {
+      fs.symlinkSync(
+        path.relative(appSkillsDir, inheritedPath),
+        linkPath,
+        "dir",
+      );
+    } catch (error) {
+      throw new Error(
+        `Could not link inherited workspace skill ${skill} into ${appSkillsDir}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+        { cause: error },
+      );
+    }
   }
 }
 

@@ -481,6 +481,11 @@ const messages = {
     lastRun: "आखिरी रन:",
     automationsDescription:
       "AI का उपयोग करके नए inbox emails को स्वतः process करने वाले नियम।",
+    allowAutomationSends: "Automations को emails अपने आप भेजने की अनुमति दें",
+    allowAutomationSendsDescription:
+      "डिफ़ॉल्ट रूप से बंद है। जब आप चाहते हैं कि automations हर बार approval मांगे बिना emails भेजें, तब इसे चालू करें।",
+    automationSendSettingSaveFailed:
+      "Automation email setting सहेजी नहीं जा सकी।",
     loadingModels: "मॉडल लोड हो रहे हैं",
     newRule: "नया नियम",
     noAutomationRules: "अभी कोई automation rules नहीं हैं।",

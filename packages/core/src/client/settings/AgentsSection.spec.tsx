@@ -128,4 +128,44 @@ describe("AgentsSection", () => {
     expect(text.toLowerCase()).not.toContain("not set");
     expect(text.toLowerCase()).toContain("workspace owner");
   });
+
+  it("does not expose shared-agent mutations to organization members", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request) => {
+        const url = String(input);
+        if (url.includes("/_agent-native/org/me")) {
+          return Response.json({
+            email: "member@acme.com",
+            orgId: "org-1",
+            orgName: "Acme",
+            role: "member",
+            orgs: [],
+            pendingInvitations: [],
+            domainMatches: [],
+            allowedDomain: "acme.com",
+          });
+        }
+        if (url.includes("/_agent-native/agents/probe")) {
+          return Response.json({ results: [] });
+        }
+        const detail = url.match(/\/resources\/([^?]+)$/);
+        if (detail) return Response.json({ content: contentById[detail[1]] });
+        return Response.json({ resources });
+      }),
+    );
+
+    await renderSection(root);
+
+    const buttons = Array.from(container.querySelectorAll("button"));
+    expect(buttons.map((button) => button.textContent?.trim())).not.toContain(
+      "Connect agent",
+    );
+    expect(buttons.map((button) => button.textContent?.trim())).not.toContain(
+      "Manage",
+    );
+    expect(container.textContent).toContain(
+      "Only workspace owners and admins can connect agents.",
+    );
+  });
 });

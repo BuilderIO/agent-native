@@ -11,6 +11,7 @@ import {
   computeActiveTailToolCallId,
   getAssistantWorkSummaryDurationMs,
   getAssistantToolSummaryInfo,
+  groupAssistantWorkParts,
   InlineRunErrorNotice,
   isAlwaysVisibleAssistantTool,
   isCollapsibleAssistantWorkPart,
@@ -841,6 +842,51 @@ describe("getAssistantToolSummaryInfo", () => {
         { type: "tool-call", toolName: "summarize", args: {} },
       ]),
     ).toEqual({ startIndex: -1, hiddenToolCount: 0 });
+  });
+});
+
+describe("groupAssistantWorkParts", () => {
+  it("keeps a shadowed call-agent row inside the surrounding work group", () => {
+    const parts = [
+      { type: "tool-call", toolName: "read-file" },
+      {
+        type: "tool-call",
+        toolCallId: "call-analytics",
+        toolName: "call-agent",
+        args: { agent: "analytics" },
+      },
+      {
+        type: "tool-call",
+        toolCallId: "agent-analytics",
+        toolName: "agent:Analytics",
+        args: {},
+      },
+      { type: "tool-call", toolName: "query" },
+    ] as const;
+
+    expect(
+      parts.map((part, index) => groupAssistantWorkParts(part, index, parts)),
+    ).toEqual([["group-work"], ["group-work"], ["group-work"], ["group-work"]]);
+  });
+
+  it("does not open a work group for a leading shadowed call-agent row", () => {
+    const parts = [
+      {
+        type: "tool-call",
+        toolCallId: "call-analytics",
+        toolName: "call-agent",
+        args: { agent: "analytics" },
+      },
+      {
+        type: "tool-call",
+        toolCallId: "agent-analytics",
+        toolName: "agent:Analytics",
+        args: {},
+      },
+    ] as const;
+
+    expect(groupAssistantWorkParts(parts[0], 0, parts)).toBeNull();
+    expect(groupAssistantWorkParts(parts[1], 1, parts)).toEqual(["group-work"]);
   });
 });
 

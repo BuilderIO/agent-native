@@ -5,16 +5,10 @@ import { fileURLToPath } from "node:url";
 
 import { getDbExec } from "@agent-native/core/db";
 import {
-  deleteAppSecret,
-  writeAppSecret,
-  type SecretScope,
-} from "@agent-native/core/secrets";
-import {
   ensureBuilderProject,
   getBuilderBranchProjectId,
   getRequestContext,
   isIntegrationCallerRequest,
-  resolveBuilderBranchProjectId,
   resolveBuilderCredentialsDetailed,
   runBuilderAgent,
 } from "@agent-native/core/server";
@@ -36,9 +30,6 @@ import {
 } from "./workspace-resources-store.js";
 
 const SETTINGS_KEY = "dispatch-app-creation-settings";
-const BUILDER_BRANCH_PROJECT_SECRET_KEY = "BUILDER_BRANCH_PROJECT_ID";
-const BUILDER_BRANCH_PROJECT_SECRET_DESCRIPTION =
-  "Builder project for cloud code-change branches (set in Dispatch)";
 const BUILDER_WORKSPACE_REPO_URL_ENV = "AGENT_NATIVE_WORKSPACE_REPO_URL";
 const DEFAULT_BUILDER_WORKSPACE_REPO_URL =
   "https://github.com/BuilderIO/builder-agent-native-workspace";
@@ -61,6 +52,7 @@ const AUTONOMOUS_WORKSPACE_APP_CREATION_CONTRACT = [
   "Autonomous Builder handoff contract:",
   "- This is a background implementation run launched by the turn-into-app workflow. Treat the source brief and latest user request as authorization to build the app now; do not return a proposal or wait for another turn.",
   "- Do not ask the user questions during the initial build and do not invoke a clarification, guided-question, or choice flow for a non-blocking decision.",
+  "- If the confirmed source brief describes a spreadsheet source-review or input/output confirmation surface, implement that review UI as part of the first-run app experience and seed it with the bounded candidates and mapping; keep the background build autonomous and do not send a question back from the Builder run.",
   "- When the source or a tool presents a recommended option, choose it and continue. When no recommendation is present, choose the most direct, conservative default supported by the source and normal Agent-Native conventions.",
   "- Resolve product, visual, copy, layout, route, data-model, dependency, and integration choices yourself. If an input is missing, use an empty state or clearly labeled representative sample so the workflow is demonstrable; never invent private facts or credentials.",
   "- Treat the source brief's unknowns and follow-up items as assumptions to record in the app README or a visible Assumptions / Review section, not as questions to send back to the user.",
@@ -74,6 +66,8 @@ const pendingBuilderProjectProvisioning = new Map<
 >();
 
 class AppCreationSettingsAuthorizationError extends Error {
+  statusCode = 403;
+
   constructor() {
     super(APP_CREATION_SETTINGS_AUTHORIZATION_MESSAGE);
     this.name = "AppCreationSettingsAuthorizationError";
@@ -252,16 +246,6 @@ function scopedSettingsKey(): string {
   const orgId = currentOrgId();
   if (orgId) return `${SETTINGS_KEY}:org:${orgId}`;
   return `${SETTINGS_KEY}:user:${currentOwnerEmail()}`;
-}
-
-function builderProjectSecretTarget(): {
-  scope: Extract<SecretScope, "org" | "workspace">;
-  scopeId: string;
-} | null {
-  const orgId = currentOrgId();
-  if (orgId) return { scope: "org", scopeId: orgId };
-  const email = currentOwnerEmail();
-  return email ? { scope: "workspace", scopeId: `solo:${email}` } : null;
 }
 
 function workspaceAppMetadataSettingsKey(): string {
@@ -1607,26 +1591,28 @@ function runScaffoldCli(input: {
 
 export async function getAppCreationSettings(): Promise<AppCreationSettings> {
   const envBuilderProjectId = getEnvBuilderProjectId();
-  const resolvedBuilderProjectId = await resolveBuilderBranchProjectId();
   const raw = await readSettingsRecord();
+  const hasSavedBuilderProjectId = Object.prototype.hasOwnProperty.call(
+    raw,
+    "builderProjectId",
+  );
   const savedBuilderProjectId =
     typeof raw?.builderProjectId === "string" && raw.builderProjectId.trim()
       ? raw.builderProjectId.trim()
       : null;
-  const builderProjectId = envBuilderProjectId || savedBuilderProjectId;
   const enableBuilder =
     process.env.ENABLE_BUILDER === "true" || process.env.ENABLE_BUILDER === "1";
-  const effectiveBuilderProjectId =
-    builderProjectId ||
-    resolvedBuilderProjectId ||
-    (enableBuilder ? getBuilderBranchProjectId() : null);
+  const effectiveBuilderProjectId = hasSavedBuilderProjectId
+    ? savedBuilderProjectId
+    : envBuilderProjectId ||
+      (enableBuilder ? getBuilderBranchProjectId() : null);
 
   return {
     builderProjectId: effectiveBuilderProjectId,
-    builderProjectIdSource: envBuilderProjectId
-      ? "env"
-      : savedBuilderProjectId
-        ? "dispatch"
+    builderProjectIdSource: hasSavedBuilderProjectId
+      ? "dispatch"
+      : envBuilderProjectId
+        ? "env"
         : effectiveBuilderProjectId
           ? "default"
           : "unset",
@@ -1647,20 +1633,10 @@ async function persistProvisionedBuilderProjectId(
   builderProjectId: string,
 ): Promise<void> {
   const raw = await readSettingsRecord();
-  const secretTarget = builderProjectSecretTarget();
 
   // This is an internal consequence of an authorized app-creation request,
   // not a user-controlled settings update. Persist the project before the
   // branch run so later members reuse the same Builder project.
-  if (secretTarget) {
-    await writeAppSecret({
-      key: BUILDER_BRANCH_PROJECT_SECRET_KEY,
-      scope: secretTarget.scope,
-      scopeId: secretTarget.scopeId,
-      value: builderProjectId,
-      description: BUILDER_BRANCH_PROJECT_SECRET_DESCRIPTION,
-    });
-  }
   await putSetting(scopedSettingsKey(), { ...raw, builderProjectId });
   await recordAudit({
     action: "settings.updated",
@@ -1711,28 +1687,6 @@ export async function setAppCreationSettings(input: {
   await assertCanManageAppCreationSettings();
   const builderProjectId = input.builderProjectId?.trim() || null;
   const raw = await readSettingsRecord();
-
-  // The credential store, not this settings row, is what
-  // `resolveBuilderBranchProjectId()` reads. Write it first: a saved setting
-  // whose secret never landed reports the project as configured while cloud
-  // code changes stay silently disabled.
-  const secretTarget = builderProjectSecretTarget();
-  if (secretTarget) {
-    const ref = {
-      key: BUILDER_BRANCH_PROJECT_SECRET_KEY,
-      scope: secretTarget.scope,
-      scopeId: secretTarget.scopeId,
-    };
-    if (builderProjectId) {
-      await writeAppSecret({
-        ...ref,
-        value: builderProjectId,
-        description: BUILDER_BRANCH_PROJECT_SECRET_DESCRIPTION,
-      });
-    } else {
-      await deleteAppSecret(ref);
-    }
-  }
 
   await putSetting(scopedSettingsKey(), { ...raw, builderProjectId });
   await recordAudit({

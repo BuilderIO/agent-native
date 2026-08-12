@@ -510,10 +510,11 @@ const messages = {
     },
     roles: {
       viewer: "مشاهد",
+      commenter: "معلّق",
       editor: "محرر",
       admin: "مسؤول",
     },
-    recordingViewer: {
+    recordingCommenter: {
       label: "معلّق",
       description: "يمكنه العرض والتعليق والتفاعل",
     },

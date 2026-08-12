@@ -96,8 +96,12 @@ const DEFAULT_COLORS = [
   "#14b8a6",
 ];
 
+// The agent sidebar overlays the main surface at z-index 70/80. Keep the
+// body-portaled chart tooltip below it so wide chat cannot be overpainted.
+const CHART_TOOLTIP_Z_INDEX = 60;
+
 const CHART_TOOLTIP_WRAPPER_STYLE: CSSProperties = {
-  zIndex: 280,
+  zIndex: CHART_TOOLTIP_Z_INDEX,
   pointerEvents: "none",
 };
 
@@ -1106,7 +1110,8 @@ export function ChartTooltip({
     <div
       ref={boxRef}
       role="tooltip"
-      className="fixed z-[280] min-w-40 max-w-[280px] rounded-md border border-border bg-card px-3 py-2 text-xs text-foreground shadow-lg pointer-events-none"
+      className="fixed min-w-40 max-w-[280px] rounded-md border border-border bg-card px-3 py-2 text-xs text-foreground shadow-lg pointer-events-none"
+      style={{ zIndex: CHART_TOOLTIP_Z_INDEX }}
     >
       {labelText && (
         <div className="mb-1.5 truncate font-medium text-foreground">

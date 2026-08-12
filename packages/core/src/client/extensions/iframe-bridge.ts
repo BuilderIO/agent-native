@@ -159,7 +159,12 @@ function isAllowedHeader(name: string): boolean {
 // can leak other users' rows in template tables that aren't in
 // SENSITIVE_SQL_RE.
 
-export type ExtensionBridgeRole = "owner" | "admin" | "editor" | "viewer";
+export type ExtensionBridgeRole =
+  | "owner"
+  | "admin"
+  | "editor"
+  | "commenter"
+  | "viewer";
 
 const READ_METHODS = new Set(["GET", "HEAD"]);
 
@@ -190,7 +195,8 @@ export interface BridgePolicyResult {
 /**
  * Decide whether the iframe is allowed to proxy this request given the
  * viewer's role on the extension. Authors (and owner/admin/editor in general)
- * keep the full bridge surface; viewers get a strictly read-only subset.
+ * keep the full bridge surface; commenters and viewers get a strictly
+ * read-only subset because extensions have no comment-specific bridge APIs.
  *
  * Called BEFORE the request leaves the parent — so a denial is local-only
  * and never reveals server state to the iframe.
@@ -216,7 +222,8 @@ export function checkBridgePolicy(
     return { ok: true };
   }
 
-  // From here on: role === "viewer". Lock down everything beyond reads.
+  // From here on: role === "commenter" or "viewer". Lock down everything
+  // beyond reads; extensions have no comment-specific bridge APIs.
   const upperMethod = method.toUpperCase();
 
   // SQL is denied for viewers entirely (defense-in-depth: dev mode bypasses

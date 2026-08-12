@@ -303,6 +303,7 @@ export function EmbeddedExtension({
           binding.role === "owner" ||
           binding.role === "admin" ||
           binding.role === "editor" ||
+          binding.role === "commenter" ||
           binding.role === "viewer"
             ? binding.role
             : "viewer";

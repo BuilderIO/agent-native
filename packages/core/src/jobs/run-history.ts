@@ -73,7 +73,7 @@ const TABLE = "automation_runs";
 const MAX_ERROR_LENGTH = 500;
 
 /**
- * Generous multiple of the runner's own 5 minute hard abort
+ * Generous multiple of the runner's own 10 minute hard abort
  * (BACKGROUND_RUN_HARD_TIMEOUT_MS). Past this, no run is still alive.
  */
 const RUN_LIVENESS_CEILING_MS = 15 * 60_000;

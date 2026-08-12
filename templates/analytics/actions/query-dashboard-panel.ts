@@ -18,6 +18,7 @@ export default defineAction({
   http: { method: "POST" },
   readOnly: true,
   agentTool: false,
+  grounding: true,
   run: async (args) => {
     const context = getCredentialContext();
     if (!context) {

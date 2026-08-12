@@ -108,6 +108,7 @@ import {
   isDispatchWorkspaceAppId,
   isWorkspaceAppVisibleInDefaultLaunchers,
   mergeChatFirstWorkspaceApps,
+  workspaceAppDirectHref,
   workspaceAppIdFromRoute,
   workspaceAppRoute,
   type WorkspaceAppSummary,
@@ -304,6 +305,10 @@ function localDispatchPath(pathname: string): string {
 
 export function isElectronEmbeddedSearch(search: string): boolean {
   return new URLSearchParams(search).get("electron") === "1";
+}
+
+export function shouldAutoCollapseDispatchSidebar(pathname: string): boolean {
+  return localDispatchPath(pathname).startsWith("/apps/");
 }
 
 function chatFirstPrimaryTabForPath(
@@ -534,16 +539,6 @@ function threadTitle(thread: ChatThreadSummary, fallback: string) {
   return thread.title || thread.preview || fallback;
 }
 
-function readChatHistoryIncludesExternal(): boolean {
-  if (typeof window === "undefined") return false;
-  try {
-    return localStorage.getItem(CHAT_HISTORY_SOURCE_KEY) === "all";
-  } catch {
-    // coercion-ok: localStorage is optional browser persistence.
-    return false;
-  }
-}
-
 function threadSourceIcon(platform: string | undefined): ReactNode {
   const normalized = platform?.trim().toLowerCase();
   if (!normalized) return null;
@@ -554,6 +549,16 @@ function threadSourceIcon(platform: string | undefined): ReactNode {
     return <IconBrandTelegram size={13} aria-hidden="true" />;
   }
   return <IconWorld size={13} aria-hidden="true" />;
+}
+
+function readChatHistoryIncludesExternal(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return localStorage.getItem(CHAT_HISTORY_SOURCE_KEY) === "all";
+  } catch {
+    // coercion-ok: localStorage is optional browser persistence.
+    return false;
+  }
 }
 
 function threadUpdatedAt(thread: ChatThreadSummary) {
@@ -595,6 +600,7 @@ function DispatchChatsSection({
     threads,
     activeThreadId,
     isLoading: chatsLoading,
+    threadsLoadError,
     createThread,
     switchThread,
     renameThread,
@@ -611,7 +617,7 @@ function DispatchChatsSection({
           (thread) => thread.messageCount > 0 || thread.id === activeThreadId,
         )
         .sort((a, b) => threadUpdatedAt(b) - threadUpdatedAt(a))
-        .slice(0, 15),
+        .slice(0, 8),
     [activeThreadId, threads],
   );
   const localPathname = localDispatchPath(location.pathname);
@@ -650,6 +656,16 @@ function DispatchChatsSection({
           : formatThreadAge(threadUpdatedAt(thread)),
     };
   });
+  const chatHistoryError = threadsLoadError ? (
+    <button
+      type="button"
+      onClick={() => void refreshThreads()}
+      className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-xs text-sidebar-foreground/65 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+    >
+      <span>Could not load chats</span>
+      <span className="font-medium">Retry</span>
+    </button>
+  ) : undefined;
 
   useEffect(() => {
     setIncludeExternal(readChatHistoryIncludesExternal());
@@ -802,6 +818,7 @@ function DispatchChatsSection({
             </div>
           }
           label={t("dispatch.sidebar.chats", { defaultValue: "Chats" })}
+          error={chatHistoryError}
           onSelect={(threadId) => openThread(threadId)}
           renameMaxLength={160}
           onRename={(threadId, title) => void renameThread(threadId, title)}
@@ -870,6 +887,7 @@ function DispatchChatsSection({
             showMore: t("dispatch.sidebar.chats"),
             showLess: t("dispatch.sidebar.chats"),
           }}
+          error={chatHistoryError}
           renameMaxLength={160}
           onRename={(threadId, title) => void renameThread(threadId, title)}
           labels={{
@@ -924,7 +942,7 @@ function DispatchChatsSection({
               ) : null}
             </>
           )}
-          className={cn("min-w-0", chatFirstMode && "px-2")}
+          className="min-w-0 px-2"
         />
       )}
     </div>
@@ -1348,7 +1366,9 @@ export function Layout({
   const isChatRoute =
     localPathname === "/chat" || localPathname.startsWith("/chat/");
   const chatFirstSurfaceScope = threadIdFromPath(localPathname) ?? "new";
-  const isWorkspaceAppRoute = localPathname.startsWith("/apps/");
+  const isWorkspaceAppRoute = shouldAutoCollapseDispatchSidebar(
+    location.pathname,
+  );
   const isWorkspaceAppHostRoute =
     isWorkspaceAppRoute &&
     typeof window !== "undefined" &&
@@ -1373,12 +1393,6 @@ export function Layout({
       `${url.pathname}${url.search}${url.hash}`,
     );
   }, [electronEmbedded, location.pathname, location.search]);
-  useEffect(() => {
-    if (!chatFirstMode || chatFirstEmbedded || localPathname !== "/overview") {
-      return;
-    }
-    navigate(dispatchNavLinkTarget("/chat"), { replace: true });
-  }, [chatFirstEmbedded, chatFirstMode, localPathname, navigate]);
   const [chatFirstAppLayout, setChatFirstAppLayout] =
     useState<ChatFirstAppLayoutPreference>(() => readChatFirstAppLayout());
   const chatFirstAppLayoutHydratedRef = useRef(false);
@@ -1565,6 +1579,13 @@ export function Layout({
       })
       .catch((cause: unknown) => {
         if (!cancelled) {
+          const directAppUrl = activeChatFirstAppRegistration
+            ? workspaceAppDirectHref(
+                activeChatFirstAppRegistration,
+                chatFirstEmbedPath,
+              )
+            : null;
+          if (directAppUrl) setChatFirstEmbedUrl(directAppUrl);
           setChatFirstEmbedError(
             cause instanceof Error
               ? cause.message
@@ -1629,6 +1650,7 @@ export function Layout({
       placement: ChatFirstAppSurfacePlacement = "side",
     ) => {
       if (placement === "side" && !chatFirstHasActiveChat) return;
+      setSidebarCollapsed(true);
       setChatFirstNotice(null);
       closeChatFirstSessionWatch();
       if (!isChatRoute) {
@@ -2028,6 +2050,11 @@ export function Layout({
   ]);
 
   useEffect(() => {
+    if (!isWorkspaceAppRoute) return;
+    setSidebarCollapsed(true);
+  }, [isWorkspaceAppRoute, localPathname]);
+
+  useEffect(() => {
     if (typeof window === "undefined" || isWorkspaceAppHostRoute) return;
     try {
       window.localStorage.setItem(
@@ -2140,10 +2167,10 @@ export function Layout({
           <ChatFirstAppPane
             app={app}
             status={
-              chatFirstEmbedError
-                ? "error"
-                : chatFirstEmbedUrl
-                  ? "ready"
+              chatFirstEmbedUrl
+                ? "ready"
+                : chatFirstEmbedError
+                  ? "error"
                   : chatFirstAppsQuery.isLoading
                     ? "loading"
                     : app

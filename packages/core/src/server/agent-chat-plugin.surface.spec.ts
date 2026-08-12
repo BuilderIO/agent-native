@@ -12,6 +12,7 @@ import {
   filterPromptActionsToSurface,
   filterRuntimeActionsToSurface,
   resolveProductionCodeExecutionForActionSurface,
+  resolveHostedBuilderHandoff,
   resolveInteractiveAgentRunOptions,
   shouldBlockInProductCodeEditingSurface,
 } from "./agent-chat-plugin.js";
@@ -283,6 +284,53 @@ describe("request-scoped action surface", () => {
     expect(source).toMatch(
       /baseSystemPrompt: filterFrameworkPromptToSurface\(\s*basePrompt,\s*prodActions,\s*payload\.allowedActionNames,/,
     );
+  });
+});
+
+describe("hosted Builder handoff surface", () => {
+  const connectBuilder = {
+    tool: { description: "Render the Builder handoff.", parameters: {} },
+    run: async () => "card",
+  };
+
+  it("promotes connect-builder only for hosted registries", () => {
+    expect(
+      resolveHostedBuilderHandoff({ "connect-builder": connectBuilder }, false),
+    ).toEqual({ "connect-builder": connectBuilder });
+    expect(
+      resolveHostedBuilderHandoff({ "connect-builder": connectBuilder }, true),
+    ).toEqual({});
+    expect(resolveHostedBuilderHandoff({}, false)).toEqual({});
+  });
+
+  it("wires the hosted handoff into the first-request and lean registries", () => {
+    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+      encoding: "utf-8",
+    });
+    expect(source).toMatch(
+      /const hostedBuilderHandoff = resolveHostedBuilderHandoff\(\s*browserTools,\s*canToggle,\s*\);/,
+    );
+
+    const initialNamesStart = source.indexOf(
+      "const effectiveInitialToolNames = [",
+    );
+    const initialNamesBlock = source.slice(
+      initialNamesStart,
+      initialNamesStart + 900,
+    );
+    expect(initialNamesBlock).toContain(
+      "...Object.keys(hostedBuilderHandoff),",
+    );
+
+    const leanEntriesStart = source.indexOf(
+      "const leanActionEntries: Record<string, ActionEntry> = {",
+    );
+    const leanEntriesBlock = source.slice(
+      leanEntriesStart,
+      leanEntriesStart + 700,
+    );
+    expect(leanEntriesBlock).toContain("...workspaceFileActions,");
+    expect(leanEntriesBlock).toContain("...hostedBuilderHandoff,");
   });
 });
 

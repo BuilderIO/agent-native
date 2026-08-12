@@ -118,6 +118,7 @@ describe("extension iframe bridge", () => {
 describe("checkBridgePolicy (audit H4)", () => {
   const owner = { role: "owner" as const, isAuthor: true };
   const editor = { role: "editor" as const, isAuthor: false };
+  const commenter = { role: "commenter" as const, isAuthor: false };
   const viewer = { role: "viewer" as const, isAuthor: false };
 
   it("authors and owners pass every helper", () => {
@@ -162,6 +163,30 @@ describe("checkBridgePolicy (audit H4)", () => {
     expect(execRes.ok).toBe(false);
     expect(execRes.error).toMatch(/dbExec/);
     expect(execRes.error).toMatch(/'viewer'/);
+  });
+
+  it("keeps commenters on the same read-only extension bridge as viewers", () => {
+    expect(
+      checkBridgePolicy(
+        "/_agent-native/extensions/sql/query",
+        "POST",
+        commenter,
+      ).ok,
+    ).toBe(false);
+    expect(
+      checkBridgePolicy(
+        "/_agent-native/extensions/data/extension-1/notes",
+        "POST",
+        commenter,
+      ).ok,
+    ).toBe(false);
+    expect(
+      checkBridgePolicy(
+        "/_agent-native/extensions/data/extension-1/notes",
+        "GET",
+        commenter,
+      ).ok,
+    ).toBe(true);
   });
 
   it("allows appAction for viewers and leaves action-level gates to the server", () => {

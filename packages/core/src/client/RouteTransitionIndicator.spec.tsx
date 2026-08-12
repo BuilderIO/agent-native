@@ -84,7 +84,11 @@ describe("RouteTransitionIndicator", () => {
     expect(indicator?.getAttribute("data-route-transition-target")).toBe(
       "/slow",
     );
-    expect(indicator?.textContent).toContain("/slow");
+    // The pathname stays a test/debug attribute. Rendering it as visible chrome
+    // read as a bug ("a spinner in the corner ... the spinner shows the new
+    // route"), so the user-facing surface is a top progress bar with no text.
+    expect(indicator?.textContent).toBe("");
+    expect(indicator?.className).toContain("top-0");
 
     act(() => {
       resolveLoader();

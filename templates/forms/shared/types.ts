@@ -137,7 +137,7 @@ export interface Form {
   settings: FormSettings;
   status: "draft" | "published" | "closed";
   /** Effective role of the current user on this form. */
-  role?: "owner" | "viewer" | "editor" | "admin";
+  role?: "owner" | "viewer" | "commenter" | "editor" | "admin";
   responseCount?: number;
   createdAt: string;
   updatedAt: string;

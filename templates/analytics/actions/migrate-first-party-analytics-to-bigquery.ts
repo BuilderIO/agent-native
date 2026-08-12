@@ -45,14 +45,14 @@ const migrationSchema = z.object({
     .max(750)
     .optional()
     .describe(
-      "Optional per-page limit used when mode is prepare; for an existing job, it can only increase the bounded batch size.",
+      "Optional per-page limit used when mode is prepare; for an existing job, it can only increase the bounded batch size. The durable worker then processes non-overlapping UTC time shards in parallel.",
     ),
   confirm: z.boolean().optional(),
 });
 
 export default defineAction({
   description:
-    "Production migration for the current Analytics organization. Run prepare to validate the configured BigQuery table, enter dual-write mode, and enqueue a durable single-flight worker. The worker uses bounded pages, a persisted cursor, a lease, and a database-pressure gate; it pauses instead of competing with live traffic. Call status or backfill to inspect progress, then call cutover with confirm=true only after the worker reports completed. New /track events stay in Postgres during dual-write, so a BigQuery outage does not silently lose live data. Cutover is the only step that stops first-party event and rollup writes to Postgres; public-key metadata, derived exception issues, and session-replay data remain in the SQL store.",
+    "Production migration for the current Analytics organization. Run prepare to validate the configured BigQuery table, enter dual-write mode, and enqueue a durable worker. The worker creates non-overlapping UTC time shards, processes the newest shards first with bounded parallel leases, persists per-shard cursors, and pauses on database pressure. Call status or backfill to inspect progress, then call cutover with confirm=true only after the worker reports completed. New /track events stay in Postgres during dual-write, so a BigQuery outage does not silently lose live data. Cutover is the only step that stops first-party event and rollup writes to Postgres; public-key metadata, derived exception issues, and session-replay data remain in the SQL store.",
   schema: migrationSchema,
   agentTool: false,
   needsApproval: ({ mode }) => mode === "cutover",

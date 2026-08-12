@@ -186,7 +186,6 @@ export function TaskList({
         <div className="flex min-h-0 flex-col gap-6 overflow-hidden">
           <ListViewHeader
             title={t("tasks.pageTitle")}
-            description={t("tasks.pageDescription")}
             isPending={isPending}
             showSelectToggle={hasTasks}
             selection={selection}

@@ -20,7 +20,7 @@ afterEach(() => {
 });
 
 describe("workspace provider OAuth", () => {
-  it("allows shared OAuth connections only for organization owners and admins", () => {
+  it("allows organization owners and admins to connect shared OAuth accounts", () => {
     expect(canConnectWorkspaceProviderOAuth("org-1", "owner")).toBe(true);
     expect(canConnectWorkspaceProviderOAuth("org-1", "admin")).toBe(true);
     expect(canConnectWorkspaceProviderOAuth("org-1", "member")).toBe(false);

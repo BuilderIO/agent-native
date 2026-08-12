@@ -191,6 +191,47 @@ describe("first-party BigQuery backend", () => {
     ]);
   });
 
+  it("keeps shard bounds disjoint while continuing from a shard cursor", async () => {
+    execute.mockResolvedValue({ rows: [] });
+
+    await expect(
+      backfillFirstPartyAnalyticsBatch(
+        { userEmail: "owner@example.com", orgId: "org_builder" },
+        JSON.stringify({
+          receivedAt: "2026-07-25T11:01:33.023Z",
+          id: "evt_last",
+        }),
+        25,
+        "builder-3b0a2.analytics.first_party_analytics_events_raw",
+        {
+          now: () => "2026-08-08T00:00:00.000Z",
+          rangeStart: {
+            receivedAt: "2026-07-25T00:00:00.000Z",
+            id: "",
+          },
+          rangeEnd: {
+            receivedAt: "2026-07-26T00:00:00.000Z",
+            id: "",
+          },
+          rangeEndInclusive: false,
+        },
+      ),
+    ).resolves.toMatchObject({ copied: 0, complete: true });
+
+    const [orgQuery] = execute.mock.calls[0] ?? [];
+    expect(orgQuery.sql).toContain("(received_at, id) < (?, ?)");
+    expect(orgQuery.sql).toContain("(received_at, id) > (?, ?)");
+    expect(orgQuery.args).toEqual([
+      "org_builder",
+      "2026-06-09T00:00:00.000Z",
+      "2026-07-26T00:00:00.000Z",
+      "",
+      "2026-07-25T11:01:33.023Z",
+      "evt_last",
+      25,
+    ]);
+  });
+
   it("keeps an oversized backfill request bounded", async () => {
     execute.mockResolvedValue({ rows: [] });
 

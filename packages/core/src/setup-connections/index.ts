@@ -60,6 +60,7 @@ export {
   listWorkspaceConnections,
   listWorkspaceConnectionsForApp,
   markWorkspaceConnectionUsed,
+  normalizeWorkspaceConnectionAllowedUsers,
   resolveWorkspaceConnectionCredentialForApp,
   resolveWorkspaceConnectionCredentialsForApp,
   resolveWorkspaceConnectionForApp,

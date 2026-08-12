@@ -40,8 +40,7 @@ export default defineAction({
       .limit(1);
     if (!existing) throw new Error(`Comment not found: ${args.id}`);
 
-    // Any signed-in viewer of the recording can resolve a comment.
-    await assertAccess("recording", existing.recordingId, "viewer");
+    await assertAccess("recording", existing.recordingId, "commenter");
     if (!getRequestUserEmail()) {
       throw new Error("Sign in required to resolve comments.");
     }

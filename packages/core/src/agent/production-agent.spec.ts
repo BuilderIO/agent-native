@@ -52,8 +52,10 @@ import {
   resolveFinalResponseGuardRequestText,
   resolveAgentRequestReasoningEffort,
   resolveSkillReferenceContent,
+  permanentPreconditionRemedy,
   runAgentLoop,
   runAgentLoopWithMainChatInternalContinuations,
+  runCompletionCallbackWithDatabaseRetry,
   shouldChainBackgroundContinuation,
   MAX_IDENTICAL_TOOL_CALLS,
   MAX_SAME_ERROR_ACROSS_ARGUMENTS,
@@ -67,6 +69,24 @@ import {
 import type { ActiveRun } from "./run-manager.js";
 import { attachToolSearch, searchToolRegistry } from "./tool-search.js";
 import type { AgentChatEvent, RunEvent } from "./types.js";
+
+describe("runCompletionCallbackWithDatabaseRetry", () => {
+  it("retries transient database failures before giving up the completion boundary", async () => {
+    const callback = vi
+      .fn()
+      .mockRejectedValueOnce({
+        code: "ECHECKOUTTIMEOUT",
+        message: "database checkout timed out",
+      })
+      .mockResolvedValue(undefined);
+    const sleep = vi.fn(async (_ms: number) => {});
+
+    await runCompletionCallbackWithDatabaseRetry(callback, { sleep });
+
+    expect(callback).toHaveBeenCalledTimes(2);
+    expect(sleep).toHaveBeenCalledWith(250);
+  });
+});
 
 function actionEntry(opts: {
   description?: string;
@@ -4824,8 +4844,11 @@ describe("runAgentLoop", () => {
     expect(readAction).toHaveBeenCalledTimes(1);
     expect(streamCalls).toBe(4);
     expect(events).toContainEqual({
-      type: "text",
-      text: "I stopped because the agent kept asking for the same read-only context it already had. Please send the request again if you want me to retry from a fresh turn.",
+      type: "error",
+      error:
+        "I stopped because the agent kept asking for the same read-only context it already had. Please send the request again if you want me to retry from a fresh turn.",
+      errorCode: "duplicate_read_only_tool",
+      recoverable: false,
     });
   });
 
@@ -4941,8 +4964,11 @@ describe("runAgentLoop", () => {
     expect(second.streamCalls).toBe(2);
     expect(third.streamCalls).toBe(1);
     expect(third.events).toContainEqual({
-      type: "text",
-      text: "I stopped because the agent kept asking for the same read-only context it already had. Please send the request again if you want me to retry from a fresh turn.",
+      type: "error",
+      error:
+        "I stopped because the agent kept asking for the same read-only context it already had. Please send the request again if you want me to retry from a fresh turn.",
+      errorCode: "duplicate_read_only_tool",
+      recoverable: false,
     });
   });
 
@@ -5540,8 +5566,10 @@ describe("runAgentLoop", () => {
       }),
     );
     expect(events).toContainEqual({
-      type: "text",
-      text: "Stop: password=[REDACTED]",
+      type: "error",
+      error: "Stop: password=[REDACTED]",
+      errorCode: "tool_failed",
+      recoverable: false,
     });
   });
 
@@ -6157,7 +6185,7 @@ describe("runAgentLoop", () => {
     // detail — that it stops quickly is the contract.
     expect(streamCalls).toBeLessThanOrEqual(MAX_IDENTICAL_TOOL_CALLS);
     expect(run.mock.calls.length).toBeLessThanOrEqual(MAX_IDENTICAL_TOOL_CALLS);
-    expect(events).toContainEqual(expect.objectContaining({ type: "text" }));
+    expect(events).toContainEqual(expect.objectContaining({ type: "error" }));
   });
 
   it("stops a turn whose tool keeps failing the same way under different arguments", async () => {
@@ -6349,16 +6377,16 @@ describe("runAgentLoop", () => {
         result: expect.stringContaining("Stopped after 3 identical errors"),
       }),
     );
+    // The raw provider error rides in `details`, never in `error`: the client
+    // and the resume loop both sniff `error` for transport words and would
+    // auto-continue the very spiral this stop ends.
     expect(events).toContainEqual(
       expect.objectContaining({
-        type: "text",
-        text: expect.stringContaining("failed 3 times"),
-      }),
-    );
-    expect(events).toContainEqual(
-      expect.objectContaining({
-        type: "text",
-        text: expect.stringContaining("DB failed"),
+        type: "error",
+        errorCode: "repeated_identical_tool_error",
+        recoverable: false,
+        error: expect.stringContaining("failed 3 times"),
+        details: expect.stringContaining("DB failed"),
       }),
     );
   });
@@ -6416,9 +6444,167 @@ describe("runAgentLoop", () => {
     );
     expect(events).toContainEqual(
       expect.objectContaining({
-        type: "text",
-        text: expect.stringContaining("failed 3 times"),
+        type: "error",
+        errorCode: "repeated_identical_tool_error",
+        error: expect.stringContaining("failed 3 times"),
       }),
+    );
+  });
+
+  it("classifies permanent preconditions and leaves recoverable failures alone", () => {
+    // Verbatim production strings that were retried until a breaker or the
+    // iteration cap fired.
+    for (const permanent of [
+      "Error running add-slide: Requires editor role on deck ZJshjrXhjx (have viewer)",
+      "Error running generate-slides-ai: Gemini API key not configured. Save GEMINI_API_KEY in settings.",
+      "Error running index-design-system-with-builder: Connect Builder.io before indexing a design system from Figma or code.",
+      "Error running get-local-plan-folder: Local plan folder preview is only available in local Plan runtime.",
+      "Plan mode blocked `update-extension`. Switch to Act mode after the user approves the plan, then retry the action.",
+      "no authenticated user",
+      "Error running call-agent: Error: The Analytics agent call failed. (SSRF blocked: refusing to fetch private/internal address (http://localhost:8088/a2a))",
+    ]) {
+      expect(permanentPreconditionRemedy(permanent)).not.toBeNull();
+    }
+
+    // Every one of these the model can act on. A false positive here kills a
+    // turn that would have succeeded, so they matter more than the list above.
+    for (const recoverable of [
+      "Error running query-agent-native-analytics: canceling statement due to statement timeout",
+      "Error running update-slide: Slide content changed since it was read. Call get-deck with this slideId again and rebase the patch.",
+      "Error running mutate-dashboard: mutation script does not support template literals",
+      "Invalid action parameters for update-extension: input must have required property 'id'. Received: {}. Expected: object",
+      "Error running provider-api-request: Staged dataset byte cap exceeded: this app already stores 49.9 MB (limit 50 MB). Delete older datasets before staging more data.",
+      "Error running bigquery: Not found: Dataset builder-3b0a2 was not found in location US",
+      'Error running run-sql: syntax error at or near "slect"',
+      "Error running run-sql: column deals.stage does not exist",
+    ]) {
+      expect(permanentPreconditionRemedy(recoverable)).toBeNull();
+    }
+  });
+
+  it("stops on the FIRST permanently-failing precondition instead of retrying it", async () => {
+    let streamCalls = 0;
+    const run = vi.fn(async () => {
+      throw new Error(
+        "Gemini API key not configured. Save GEMINI_API_KEY in settings.",
+      );
+    });
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: `gen-${streamCalls}`,
+              name: "generate-slides-ai",
+              // New arguments every attempt: the argument-keyed breaker never
+              // counts past one, which is why only content classification can
+              // stop this.
+              input: { prompt: `attempt ${streamCalls}` },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const events: AgentChatEvent[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "generate-slides-ai": { ...actionEntry({}), run },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(run).toHaveBeenCalledTimes(1);
+    const stop = events.find((e) => e.type === "error");
+    expect(stop).toMatchObject({
+      errorCode: "permanent_precondition",
+      recoverable: false,
+    });
+    // The remedy is the last thing the user reads.
+    expect((stop as { error: string }).error).toContain(
+      "Save GEMINI_API_KEY in settings",
+    );
+  });
+
+  it("terminates a source-sweep guard that keeps declining new arguments", async () => {
+    let streamCalls = 0;
+    const run = vi.fn(async () => "call data");
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: `sweep-${streamCalls}`,
+              name: "gong-calls",
+              // A fresh account every time: `noteRepeatedToolCall` mints a new
+              // key per call, so nothing but an error breaker can end this.
+              input: { company: `Account ${streamCalls}` },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const events: AgentChatEvent[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "sweep" }] }],
+      actions: { "gong-calls": { ...actionEntry({ readOnly: true }), run } },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    // 12 real calls exhaust the convergence budget; the declines that follow
+    // are bounded by the existing error breaker instead of running to
+    // maxIterations.
+    expect(streamCalls).toBeLessThan(25);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        errorCode: "repeated_tool_error_across_arguments",
+      }),
+    );
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "loop_limit" }),
     );
   });
 
@@ -7012,8 +7198,8 @@ describe("runAgentLoop", () => {
     // The agent should stop with a helpful message.
     expect(events).toContainEqual(
       expect.objectContaining({
-        type: "text",
-        text: expect.stringContaining("interrupted 2 time(s)"),
+        type: "error",
+        error: expect.stringContaining("interrupted 2 time(s)"),
       }),
     );
   });
@@ -7973,7 +8159,12 @@ describe("runAgentLoop", () => {
         isError: true,
         completedSideEffect: false,
       },
-      { type: "text", text: "BigQuery returned: nope" },
+      {
+        type: "error",
+        error: "BigQuery returned: nope",
+        errorCode: "bigquery_query_failed",
+        recoverable: false,
+      },
     ]);
     expect(outcomes).toEqual([
       {
@@ -10047,6 +10238,168 @@ describe("runAgentLoop", () => {
     expect(
       dangerEvents.some((event) => event.type === "approval_required"),
     ).toBe(true);
+  });
+});
+
+// ─── endsTurn (actions that hand control back to the user) ───────────────────
+
+describe("runAgentLoop endsTurn", () => {
+  /**
+   * Emits `ask-question` plus a second tool call in ONE assistant message, then
+   * a plain text completion on every later stream. The extra call reproduces the
+   * reported "it keeps asking questions": a second `ask-question` overwrites the
+   * first card before anyone can answer it.
+   */
+  const yieldEngine = (): {
+    engine: AgentEngine;
+    streamCalls: () => number;
+  } => {
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls === 1) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call" as const,
+                id: "ask-1",
+                name: "ask-question",
+                input: { question: "Which range?" },
+              },
+              {
+                type: "tool-call" as const,
+                id: "ask-2",
+                name: "ask-question",
+                input: { question: "Which grain?" },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield { type: "text-delta", text: "kept working" };
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "kept working" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    return { engine, streamCalls: () => streamCalls };
+  };
+
+  it("stops the turn after the action runs and skips later calls in the same message", async () => {
+    const { engine, streamCalls } = yieldEngine();
+    const run = vi.fn(async () => "asked");
+    const events: any[] = [];
+    const outcomes: AgentLoopOutcome[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "ask-question": {
+          ...actionEntry({ readOnly: false }),
+          endsTurn: true,
+          run,
+        },
+      },
+      send: (event) => events.push(event),
+      onOutcome: (outcome) => outcomes.push(outcome),
+      signal: new AbortController().signal,
+    });
+
+    // The first question ran; the second never did.
+    expect(run).toHaveBeenCalledOnce();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        id: "ask-2",
+        result: expect.stringContaining("Not executed"),
+      }),
+    );
+    // The model was never asked for another step.
+    expect(streamCalls()).toBe(1);
+    expect(events.some((event) => event.type === "done")).toBe(false);
+    expect(events.some((event) => event.text === "kept working")).toBe(false);
+    expect(outcomes).toEqual([
+      {
+        state: "input_required",
+        code: "awaiting_user_input",
+        message: "Waiting for your answer before continuing.",
+      },
+    ]);
+  });
+
+  it("keeps the turn running when the endsTurn action fails", async () => {
+    const { engine, streamCalls } = yieldEngine();
+    const run = vi.fn(async () => {
+      throw new Error("'options' must be a non-empty JSON array.");
+    });
+    const outcomes: AgentLoopOutcome[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "ask-question": {
+          ...actionEntry({ readOnly: false }),
+          endsTurn: true,
+          run,
+        },
+      },
+      send: () => {},
+      onOutcome: (outcome) => outcomes.push(outcome),
+      signal: new AbortController().signal,
+    });
+
+    // No card was rendered, so the run must not park on a nonexistent
+    // question — the model gets the error back and another step to fix it.
+    expect(streamCalls()).toBe(2);
+    expect(outcomes).toEqual([{ state: "completed" }]);
+  });
+
+  it("leaves a turn running when the action is not marked endsTurn", async () => {
+    const { engine, streamCalls } = yieldEngine();
+    const run = vi.fn(async () => "asked");
+    const outcomes: AgentLoopOutcome[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "ask-question": { ...actionEntry({ readOnly: false }), run },
+      },
+      send: () => {},
+      onOutcome: (outcome) => outcomes.push(outcome),
+      signal: new AbortController().signal,
+    });
+
+    expect(run).toHaveBeenCalledTimes(2);
+    expect(streamCalls()).toBe(2);
+    expect(outcomes).toEqual([{ state: "completed" }]);
   });
 });
 
