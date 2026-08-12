@@ -1576,6 +1576,90 @@ export const runAnalyticsMigrations = runMigrations(
       ON analytics_event_volume_usage (updated_at)`,
       },
     },
+    {
+      version: 142,
+      name: "analytics-bigquery-backfill-shards",
+      sql: {
+        postgres: `CREATE TABLE IF NOT EXISTS analytics_bigquery_backfill_shards (
+      shard_id TEXT PRIMARY KEY,
+      job_id TEXT,
+      org_id TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      table_ref TEXT NOT NULL,
+      start_at TEXT NOT NULL,
+      start_id TEXT NOT NULL DEFAULT '',
+      end_at TEXT NOT NULL,
+      end_id TEXT NOT NULL DEFAULT '',
+      end_inclusive BOOLEAN NOT NULL DEFAULT FALSE,
+      batch_size INTEGER NOT NULL DEFAULT 250,
+      backfill_cursor TEXT,
+      backfill_cursor_at TEXT,
+      backfill_cursor_id TEXT,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'running', 'completed')),
+      copied_count INTEGER NOT NULL DEFAULT 0,
+      lease_token TEXT,
+      lease_expires_at TEXT,
+      next_run_at TEXT NOT NULL DEFAULT (now()::text),
+      last_error TEXT,
+      completed_at TEXT,
+      updated_at TEXT NOT NULL DEFAULT (now()::text)
+    );
+    CREATE INDEX IF NOT EXISTS analytics_bigquery_backfill_shards_due_idx
+      ON analytics_bigquery_backfill_shards (status, next_run_at, lease_expires_at, updated_at);
+    CREATE INDEX IF NOT EXISTS analytics_bigquery_backfill_shards_scope_time_idx
+      ON analytics_bigquery_backfill_shards (org_id, owner_email, start_at, end_at)`,
+        sqlite: `CREATE TABLE IF NOT EXISTS analytics_bigquery_backfill_shards (
+      shard_id TEXT PRIMARY KEY,
+      job_id TEXT,
+      org_id TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      table_ref TEXT NOT NULL,
+      start_at TEXT NOT NULL,
+      start_id TEXT NOT NULL DEFAULT '',
+      end_at TEXT NOT NULL,
+      end_id TEXT NOT NULL DEFAULT '',
+      end_inclusive INTEGER NOT NULL DEFAULT 0,
+      batch_size INTEGER NOT NULL DEFAULT 250,
+      backfill_cursor TEXT,
+      backfill_cursor_at TEXT,
+      backfill_cursor_id TEXT,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'running', 'completed')),
+      copied_count INTEGER NOT NULL DEFAULT 0,
+      lease_token TEXT,
+      lease_expires_at TEXT,
+      next_run_at TEXT NOT NULL DEFAULT (datetime('now')),
+      last_error TEXT,
+      completed_at TEXT,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS analytics_bigquery_backfill_shards_due_idx
+      ON analytics_bigquery_backfill_shards (status, next_run_at, lease_expires_at, updated_at);
+    CREATE INDEX IF NOT EXISTS analytics_bigquery_backfill_shards_scope_time_idx
+      ON analytics_bigquery_backfill_shards (org_id, owner_email, start_at, end_at)`,
+      },
+    },
+    {
+      version: 143,
+      name: "analytics-bigquery-backfill-shard-columns",
+      sql: {
+        postgres: `ALTER TABLE analytics_bigquery_backfill_shards ADD COLUMN IF NOT EXISTS job_id TEXT;
+        ALTER TABLE analytics_bigquery_backfill_shards ADD COLUMN IF NOT EXISTS start_id TEXT NOT NULL DEFAULT '';
+        ALTER TABLE analytics_bigquery_backfill_shards ADD COLUMN IF NOT EXISTS end_id TEXT NOT NULL DEFAULT '';
+        ALTER TABLE analytics_bigquery_backfill_shards ADD COLUMN IF NOT EXISTS end_inclusive BOOLEAN NOT NULL DEFAULT FALSE;
+        ALTER TABLE analytics_bigquery_backfill_shards ADD COLUMN IF NOT EXISTS backfill_cursor_at TEXT;
+        ALTER TABLE analytics_bigquery_backfill_shards ADD COLUMN IF NOT EXISTS backfill_cursor_id TEXT;
+        CREATE INDEX IF NOT EXISTS analytics_bigquery_backfill_shards_job_due_idx
+          ON analytics_bigquery_backfill_shards (job_id, status, next_run_at, lease_expires_at, start_at);`,
+        sqlite: `ALTER TABLE analytics_bigquery_backfill_shards ADD COLUMN IF NOT EXISTS job_id TEXT;
+        ALTER TABLE analytics_bigquery_backfill_shards ADD COLUMN IF NOT EXISTS start_id TEXT NOT NULL DEFAULT '';
+        ALTER TABLE analytics_bigquery_backfill_shards ADD COLUMN IF NOT EXISTS end_id TEXT NOT NULL DEFAULT '';
+        ALTER TABLE analytics_bigquery_backfill_shards ADD COLUMN IF NOT EXISTS end_inclusive INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE analytics_bigquery_backfill_shards ADD COLUMN IF NOT EXISTS backfill_cursor_at TEXT;
+        ALTER TABLE analytics_bigquery_backfill_shards ADD COLUMN IF NOT EXISTS backfill_cursor_id TEXT;
+        CREATE INDEX IF NOT EXISTS analytics_bigquery_backfill_shards_job_due_idx
+          ON analytics_bigquery_backfill_shards (job_id, status, next_run_at, lease_expires_at, start_at);`,
+      },
+    },
   ],
   { table: "analytics_migrations" },
 );

@@ -8,6 +8,7 @@ import {
   ForbiddenError,
   currentAccess,
   resolveAccess,
+  roleSatisfies,
 } from "@agent-native/core/sharing";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
@@ -660,6 +661,11 @@ export default defineAction({
       if (!access) throw new Error(`Plan ${args.planId} not found`);
       if ((access.resource as typeof schema.plans.$inferSelect).deletedAt) {
         throw new ForbiddenError(`Plan ${args.planId} not found`);
+      }
+      if (!roleSatisfies(access.role, "commenter")) {
+        throw new ForbiddenError(
+          "Commenting on this plan requires commenter access or higher.",
+        );
       }
     } else {
       await assertPlanEditor(args.planId);

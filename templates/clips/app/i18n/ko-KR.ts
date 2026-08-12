@@ -508,10 +508,11 @@ const messages = {
     },
     roles: {
       viewer: "뷰어",
+      commenter: "댓글 작성자",
       editor: "편집자",
       admin: "관리자",
     },
-    recordingViewer: {
+    recordingCommenter: {
       label: "댓글 작성자",
       description: "보고 댓글을 달고 반응할 수 있습니다",
     },

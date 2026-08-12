@@ -64,12 +64,27 @@ export interface AgentNativeInstructionsConfig {
   development?: string;
 }
 
+export interface AgentNativeTranslationsConfig {
+  /**
+   * Locales the app intentionally ships translations for. `en-US` is the
+   * default source locale; additional locales are opt-in.
+   */
+  locales?: string[];
+}
+
+export interface AgentNativeChangelogConfig {
+  /** Whether agents should create and surface user-facing changelog entries. */
+  enabled?: boolean;
+}
+
 export interface AgentNativeConfig {
   version?: typeof AGENT_NATIVE_CONFIG_VERSION;
   onboarding?: AgentNativeOnboardingConfig;
   runtime?: AgentNativeRuntimeConfig;
   diagnostics?: AgentNativeDiagnosticsConfig;
   instructions?: AgentNativeInstructionsConfig;
+  translations?: AgentNativeTranslationsConfig;
+  changelog?: AgentNativeChangelogConfig;
 }
 
 export interface AgentNativeConfigContext {
@@ -121,6 +136,8 @@ export function normalizeAgentNativeConfig(
   const runtimeValue = input.runtime;
   const diagnosticsValue = input.diagnostics;
   const instructionsValue = input.instructions;
+  const translationsValue = input.translations;
+  const changelogValue = input.changelog;
 
   const normalized: AgentNativeConfig = {
     ...(input.version === undefined
@@ -157,6 +174,20 @@ export function normalizeAgentNativeConfig(
     normalized.instructions = normalizeInstructionsConfig(
       instructionsValue,
       `${source}.instructions`,
+    );
+  }
+
+  if (translationsValue !== undefined) {
+    normalized.translations = normalizeTranslationsConfig(
+      translationsValue,
+      `${source}.translations`,
+    );
+  }
+
+  if (changelogValue !== undefined) {
+    normalized.changelog = normalizeChangelogConfig(
+      changelogValue,
+      `${source}.changelog`,
     );
   }
 
@@ -225,6 +256,28 @@ export function mergeAgentNativeConfigs(
         ? {
             ...base.instructions,
             ...override.instructions,
+          }
+        : undefined,
+    translations:
+      base.translations || override.translations
+        ? {
+            ...base.translations,
+            ...override.translations,
+            ...(override.translations?.locales === undefined &&
+            base.translations?.locales === undefined
+              ? {}
+              : {
+                  locales:
+                    override.translations?.locales ??
+                    base.translations?.locales,
+                }),
+          }
+        : undefined,
+    changelog:
+      base.changelog || override.changelog
+        ? {
+            ...base.changelog,
+            ...override.changelog,
           }
         : undefined,
   };
@@ -366,6 +419,41 @@ function normalizeInstructionsConfig(
     );
   }
   return result;
+}
+
+function normalizeTranslationsConfig(
+  value: unknown,
+  source: string,
+): AgentNativeTranslationsConfig {
+  if (!isRecord(value)) {
+    throw new Error(`${source} must be an object`);
+  }
+  const locales = value.locales;
+  if (locales === undefined) return {};
+  if (
+    !Array.isArray(locales) ||
+    locales.some((locale) => typeof locale !== "string")
+  ) {
+    throw new Error(`${source}.locales must be an array of locale codes`);
+  }
+  const normalized = locales.map((locale) => locale.trim());
+  if (normalized.some((locale) => !locale)) {
+    throw new Error(`${source}.locales must contain non-empty locale codes`);
+  }
+  return { locales: [...new Set(normalized)] };
+}
+
+function normalizeChangelogConfig(
+  value: unknown,
+  source: string,
+): AgentNativeChangelogConfig {
+  if (!isRecord(value)) {
+    throw new Error(`${source} must be an object`);
+  }
+  if (value.enabled !== undefined && typeof value.enabled !== "boolean") {
+    throw new Error(`${source}.enabled must be a boolean`);
+  }
+  return value.enabled === undefined ? {} : { enabled: value.enabled };
 }
 
 function normalizeRelativeFilePath(value: string, source: string): string {

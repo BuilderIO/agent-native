@@ -20,7 +20,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { assetPreviewSources } from "@/lib/asset-preview-sources";
-import { assetMediaUrl } from "@/lib/asset-urls";
+import { assetMediaUrl, triggerAssetDownload } from "@/lib/asset-urls";
 
 export type PreviewAsset = {
   id: string;
@@ -93,12 +93,21 @@ export function AssetPreviewDialog({
             Boolean(asset.mimeType?.startsWith("video/"));
           const videoSrc = assetPreviewSources(asset)[0];
           const downloadAsset = () => {
+            const startDownload = (url: string | undefined) => {
+              if (!triggerAssetDownload(url)) {
+                toast.error(t("assetDetail.downloadFailed"));
+              }
+            };
+            const downloadUrl = assetMediaUrl(asset.downloadUrl);
+            if (downloadUrl) {
+              startDownload(downloadUrl);
+              return;
+            }
             // Synthetic starter-preset assets aren't database rows, so
             // export-asset can't resolve them; download the source directly.
             if (isStarterPreviewAsset(asset)) {
               const directUrl = assetPreviewSources(asset)[0];
-              if (directUrl) window.location.href = directUrl;
-              else toast.error(t("assetDetail.downloadFailed"));
+              startDownload(directUrl);
               return;
             }
             exportAsset.mutate(
@@ -107,8 +116,7 @@ export function AssetPreviewDialog({
                 onSuccess: (result: any) => {
                   const url =
                     assetMediaUrl(result?.downloadUrl) ?? result?.downloadUrl;
-                  if (url) window.location.href = url;
-                  else toast.error(t("assetDetail.downloadFailed"));
+                  startDownload(url);
                 },
                 onError: () => toast.error(t("assetDetail.downloadFailed")),
               },

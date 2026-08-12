@@ -36,6 +36,7 @@ import {
   type LocalePreference,
   type LocalizationPreference,
 } from "../localization/shared.js";
+import { injectedAgentNativeConfig } from "./app-config.js";
 import { setClientAppState } from "./application-state.js";
 import { callAction } from "./use-action.js";
 import { cn } from "./utils.js";
@@ -248,16 +249,45 @@ function readHydrationPayload(): LocaleHydrationPayload {
 function resolveInitialState(args: {
   initialLocale?: LocaleCode;
   initialPreference?: LocalizationPreference | LocalePreference;
+  sourceLocale: LocaleCode;
+  supportedLocales: readonly LocaleCode[];
 }): { locale: LocaleCode; preference: LocalePreference } {
   const hydration = readHydrationPayload();
   const preference = normalizeLocalizationPreference(
     args.initialPreference ?? hydration.preference ?? readStoredPreference(),
   ).locale;
-  const locale =
+  const requestedLocale =
     args.initialLocale ??
     hydration.locale ??
     resolveLocaleFromPreference(preference, browserLanguageCandidates());
+  const locale = args.supportedLocales.includes(requestedLocale)
+    ? requestedLocale
+    : args.sourceLocale;
   return { locale, preference };
+}
+
+function resolveSupportedLocales(args: {
+  catalog?: AgentNativeI18nCatalog;
+  sourceLocale: LocaleCode;
+}): readonly LocaleCode[] {
+  const configured = injectedAgentNativeConfig().translations?.locales;
+  const candidates = configured ??
+    args.catalog?.supportedLocales ?? [args.sourceLocale];
+  const supported = candidates.filter((locale): locale is LocaleCode =>
+    (SUPPORTED_LOCALES as readonly string[]).includes(locale),
+  );
+  return [
+    args.sourceLocale,
+    ...supported.filter((locale) => locale !== args.sourceLocale),
+  ].filter((locale, index, all) => all.indexOf(locale) === index);
+}
+
+function resolveSupportedLocale(
+  locale: LocaleCode,
+  supportedLocales: readonly LocaleCode[],
+  sourceLocale: LocaleCode,
+): LocaleCode {
+  return supportedLocales.includes(locale) ? locale : sourceLocale;
 }
 
 function normalizeLoadedMessages(value: unknown): LocaleMessages | null {
@@ -317,11 +347,20 @@ export function AgentNativeI18nProvider({
   const sourceLocale = catalog?.sourceLocale ?? DEFAULT_LOCALE;
   const sourceMessages = catalog?.messages ?? {};
   const loadMessages = catalog?.loadMessages;
-  const supportedLocales = catalog?.supportedLocales ?? SUPPORTED_LOCALES;
+  const supportedLocales = useMemo(
+    () => resolveSupportedLocales({ catalog, sourceLocale }),
+    [catalog, sourceLocale],
+  );
   const hydration = readHydrationPayload();
   const initialState = useMemo(
-    () => resolveInitialState({ initialLocale, initialPreference }),
-    [initialLocale, initialPreference],
+    () =>
+      resolveInitialState({
+        initialLocale,
+        initialPreference,
+        sourceLocale,
+        supportedLocales,
+      }),
+    [initialLocale, initialPreference, sourceLocale, supportedLocales],
   );
   const [preference, setPreferenceState] = useState<LocalePreference>(
     initialState.preference,
@@ -367,8 +406,10 @@ export function AgentNativeI18nProvider({
       preference === "system"
         ? resolveLocaleFromCandidates(browserLanguageCandidates())
         : preference;
-    setLocale(nextLocale);
-  }, [preference]);
+    setLocale(
+      resolveSupportedLocale(nextLocale, supportedLocales, sourceLocale),
+    );
+  }, [preference, sourceLocale, supportedLocales]);
 
   useEffect(() => {
     let cancelled = false;
@@ -414,6 +455,7 @@ export function AgentNativeI18nProvider({
     locale,
     namespace,
     sourceLocale,
+    supportedLocales,
   ]);
 
   useEffect(() => {

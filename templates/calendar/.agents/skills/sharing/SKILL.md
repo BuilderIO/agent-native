@@ -31,6 +31,7 @@ Visibility is coarse. Explicit share grants are fine-grained (per user or per or
 ### Roles on a share grant
 
 - **`viewer`** — read only.
+- **`commenter`** — read + add comments, but cannot edit the resource or manage shares.
 - **`editor`** — read + write.
 - **`admin`** — read + write + manage shares. Does NOT replace the single `owner_email` on the resource.
 

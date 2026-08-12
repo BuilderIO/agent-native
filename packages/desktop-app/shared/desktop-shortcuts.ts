@@ -170,23 +170,6 @@ export function formatDesktopShortcutAccelerator(
     .join("+");
 }
 
-export function isMacAppHideShortcut(input: {
-  key?: string;
-  code?: string;
-  meta?: boolean;
-  control?: boolean;
-  alt?: boolean;
-  shift?: boolean;
-}): boolean {
-  return (
-    input.meta === true &&
-    input.control !== true &&
-    input.alt !== true &&
-    input.shift !== true &&
-    (input.key?.toLowerCase() === "h" || input.code?.toLowerCase() === "keyh")
-  );
-}
-
 export function shortcutOpenPathForBinding(
   binding: Pick<DesktopShortcutBinding, "app" | "view">,
 ): string {

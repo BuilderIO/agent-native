@@ -2,14 +2,16 @@
 
 import { readFileSync } from "node:fs";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   AgentChatSurface,
+  deferAgentPanelOverlayOpen,
   getAgentPanelShortcutHints,
   getActiveTabScrollDelta,
   getAgentPanelChatTabGroups,
   normalizeAgentPanelModeForSurface,
+  resolveAgentPanelFullViewAction,
   resolveAgentPanelChatSurface,
   shouldAllowAgentChatSurfaceSettingsMode,
   shouldDefaultAgentChatSurfacePageNewChatButton,
@@ -200,6 +202,25 @@ describe("AgentPanel mode and full-view visibility", () => {
     expect(shouldShowAgentPanelFullViewAction("/agent", "chat")).toBe(false);
   });
 
+  it("prefers the app-owned chat route when a full-view callback is supplied", () => {
+    expect(
+      resolveAgentPanelFullViewAction(
+        "/settings/agent",
+        () => {},
+        "chat",
+        true,
+      ),
+    ).toEqual({ kind: "callback" });
+    expect(
+      resolveAgentPanelFullViewAction(
+        "/settings/agent",
+        undefined,
+        "chat",
+        true,
+      ),
+    ).toEqual({ kind: "link", href: "/settings/agent" });
+  });
+
   it("hides the full-view action when the sidebar is already on that route", () => {
     expect(
       shouldShowAgentPanelFullViewAction("/agent", "chat", true, "/agent"),
@@ -235,6 +256,35 @@ describe("AgentPanel shortcut hints", () => {
 });
 
 describe("AgentPanel header overflow actions", () => {
+  it("closes the menu before opening a sibling overlay", () => {
+    const requestAnimationFrame = window.requestAnimationFrame;
+    const frames: Array<() => void> = [];
+    window.requestAnimationFrame = ((callback: FrameRequestCallback) => {
+      frames.push(() => callback(0));
+      return frames.length;
+    }) as typeof window.requestAnimationFrame;
+
+    try {
+      const event = { preventDefault: vi.fn() };
+      const events: string[] = [];
+
+      deferAgentPanelOverlayOpen(
+        event,
+        () => events.push("menu closed"),
+        () => events.push("overlay opened"),
+      );
+
+      expect(event.preventDefault).toHaveBeenCalledOnce();
+      expect(events).toEqual(["menu closed"]);
+      expect(frames).toHaveLength(1);
+
+      frames[0]!();
+      expect(events).toEqual(["menu closed", "overlay opened"]);
+    } finally {
+      window.requestAnimationFrame = requestAnimationFrame;
+    }
+  });
+
   it("keeps width and full-view actions out of the icon row", () => {
     const source = readFileSync("src/client/AgentPanel.tsx", {
       encoding: "utf8",
@@ -257,8 +307,10 @@ describe("AgentPanel header overflow actions", () => {
     expect(overflowMenu).toContain(
       "<DropdownMenuShortcut>{widenChatHint}</DropdownMenuShortcut>",
     );
-    expect(overflowMenu).toContain("setTimeout(() => toggleHistory(), 0)");
+    expect(overflowMenu.match(/deferAgentPanelOverlayOpen/g)).toHaveLength(2);
     expect(overflowMenu).toContain('t("agentPanel.openFullView")');
+    expect(overflowMenu).toContain("onSelect={onFullViewRequest}");
+    expect(source).toContain("onFullViewRequest={onFullscreenRequest}");
     expect(overflowMenu).not.toContain("fullscreenHint");
     expect(overflowMenu).not.toContain("onSelect={onToggleFullscreen}");
   });

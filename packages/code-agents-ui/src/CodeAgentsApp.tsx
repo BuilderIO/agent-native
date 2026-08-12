@@ -310,6 +310,7 @@ export interface CodeAgentsAppProps {
     activeTab?: ChatFirstPrimaryTab;
     onNewChat?: () => void;
     onOpenChats?: () => void;
+    onOpenAllApps?: () => void;
     onOpenIntegrations: () => void;
     onOpenScheduled: () => void;
   };
@@ -2142,7 +2143,7 @@ export default function CodeAgentsApp({
         {chatFirstMode ? (
           <div className="code-agents-window-drag-region" aria-hidden="true" />
         ) : null}
-        <div className="code-agents-nav-list" aria-label="Agent navigation">
+        <div className="code-agents-rail-scroll">
           {chatFirstMode ? (
             <ChatFirstPrimaryNavigation
               onNewChat={() => {
@@ -2155,106 +2156,109 @@ export default function CodeAgentsApp({
               onOpenScheduled={() => chatFirstNavigation?.onOpenScheduled()}
               onSearch={openSearchPanel}
               activeTab={chatFirstNavigation?.activeTab}
+              stickyNewChat
             />
           ) : (
-            <>
-              <button
-                type="button"
-                className={`code-agents-nav-link${
-                  !chatFirstMode &&
-                  !searchPanelOpen &&
-                  !mobilePanelOpen &&
-                  !selectedRunId &&
-                  (!chatFirstMode || chatFirstMainKind === "code")
-                    ? " code-agents-nav-link--active"
-                    : ""
-                }`}
-                style={
-                  chatFirstMode
-                    ? { color: "hsl(var(--sidebar-foreground) / 0.8)" }
-                    : undefined
-                }
-                onClick={openSelectedGoal}
-                aria-pressed={
-                  !chatFirstMode &&
-                  !searchPanelOpen &&
-                  !mobilePanelOpen &&
-                  !selectedRunId &&
-                  (!chatFirstMode || chatFirstMainKind === "code")
-                }
-              >
-                <IconPlus size={15} strokeWidth={1.8} />
-                <span>New chat</span>
-              </button>
-              {railNavigationSlot}
-              <button
-                type="button"
-                className={`code-agents-nav-link${
-                  !chatFirstMode && searchPanelOpen
-                    ? " code-agents-nav-link--active"
-                    : ""
-                }`}
-                style={
-                  chatFirstMode
-                    ? { color: "hsl(var(--sidebar-foreground) / 0.8)" }
-                    : undefined
-                }
-                onClick={openSearchPanel}
-                aria-pressed={searchPanelOpen}
-              >
-                <IconSearch size={15} strokeWidth={1.8} />
-                <span>Search</span>
-              </button>
-              {host.getRemoteConnectorStatus && (
-                <MobileRailItem
-                  status={remoteConnectorStatus}
-                  error={remoteConnectorError}
-                  active={mobilePanelOpen}
-                  onOpen={openMobilePanel}
-                />
-              )}
-              {hostMetadata?.computerControl && (
-                <ComputerAccessRailItem
-                  metadata={hostMetadata}
-                  onOpen={() => setComputerSetupOpen(true)}
-                />
-              )}
-            </>
+            <div className="code-agents-nav-list" aria-label="Agent navigation">
+              <>
+                <button
+                  type="button"
+                  className={`code-agents-nav-link${
+                    !chatFirstMode &&
+                    !searchPanelOpen &&
+                    !mobilePanelOpen &&
+                    !selectedRunId &&
+                    (!chatFirstMode || chatFirstMainKind === "code")
+                      ? " code-agents-nav-link--active"
+                      : ""
+                  }`}
+                  style={
+                    chatFirstMode
+                      ? { color: "hsl(var(--sidebar-foreground) / 0.8)" }
+                      : undefined
+                  }
+                  onClick={openSelectedGoal}
+                  aria-pressed={
+                    !chatFirstMode &&
+                    !searchPanelOpen &&
+                    !mobilePanelOpen &&
+                    !selectedRunId &&
+                    (!chatFirstMode || chatFirstMainKind === "code")
+                  }
+                >
+                  <IconPlus size={15} strokeWidth={1.8} />
+                  <span>New chat</span>
+                </button>
+                {railNavigationSlot}
+                <button
+                  type="button"
+                  className={`code-agents-nav-link${
+                    !chatFirstMode && searchPanelOpen
+                      ? " code-agents-nav-link--active"
+                      : ""
+                  }`}
+                  style={
+                    chatFirstMode
+                      ? { color: "hsl(var(--sidebar-foreground) / 0.8)" }
+                      : undefined
+                  }
+                  onClick={openSearchPanel}
+                  aria-pressed={searchPanelOpen}
+                >
+                  <IconSearch size={15} strokeWidth={1.8} />
+                  <span>Search</span>
+                </button>
+                {host.getRemoteConnectorStatus && (
+                  <MobileRailItem
+                    status={remoteConnectorStatus}
+                    error={remoteConnectorError}
+                    active={mobilePanelOpen}
+                    onOpen={openMobilePanel}
+                  />
+                )}
+                {hostMetadata?.computerControl && (
+                  <ComputerAccessRailItem
+                    metadata={hostMetadata}
+                    onOpen={() => setComputerSetupOpen(true)}
+                  />
+                )}
+              </>
+            </div>
           )}
+
+          {railWorkspaceSlot}
+
+          <ChatFirstChatHistory
+            items={railItems}
+            activeId={selectedRunId}
+            label={
+              chatFirstNavigation?.onOpenChats ? (
+                <button
+                  type="button"
+                  className="text-start text-[11px] font-medium text-sidebar-foreground/50 hover:text-sidebar-foreground/75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  onClick={chatFirstNavigation.onOpenChats}
+                >
+                  Chats
+                </button>
+              ) : undefined
+            }
+            headerAction={
+              <CodeAgentsChatHistoryHeaderActions
+                hasUnread={runs.some((run) => unreadRunIds.has(run.id))}
+                onMarkAllRead={markAllRunsRead}
+              />
+            }
+            loading={loading}
+            loadingLabel={<RunListSkeleton />}
+            emptyLabel="No chats yet."
+            onSelect={handleRailSelect}
+            onOpen={handleRailOpen}
+            onTogglePin={handleRailTogglePin}
+            onRename={handleRailRename}
+            renderAdditionalRowActions={handleRailAdditionalRowActions}
+            className="code-agents-run-list"
+          />
         </div>
-
-        {railWorkspaceSlot}
-
-        <ChatFirstChatHistory
-          items={railItems}
-          activeId={selectedRunId}
-          label={
-            chatFirstNavigation?.onOpenChats ? (
-              <button
-                type="button"
-                className="text-start text-[11px] font-medium text-sidebar-foreground/50 hover:text-sidebar-foreground/75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                onClick={chatFirstNavigation.onOpenChats}
-              >
-                Chats
-              </button>
-            ) : undefined
-          }
-          headerAction={
-            <CodeAgentsChatHistoryHeaderActions
-              hasUnread={runs.some((run) => unreadRunIds.has(run.id))}
-              onMarkAllRead={markAllRunsRead}
-            />
-          }
-          loading={loading}
-          loadingLabel={<RunListSkeleton />}
-          emptyLabel="No chats yet."
-          onSelect={handleRailSelect}
-          onOpen={handleRailOpen}
-          onTogglePin={handleRailTogglePin}
-          onRename={handleRailRename}
-          renderAdditionalRowActions={handleRailAdditionalRowActions}
-          className="code-agents-run-list"
-        />
         {railFooterSlot ? (
           <div className="code-agents-rail-footer">{railFooterSlot}</div>
         ) : null}

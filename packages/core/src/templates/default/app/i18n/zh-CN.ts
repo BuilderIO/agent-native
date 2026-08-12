@@ -266,6 +266,8 @@ const messages = {
     publicDescription: "使用链接登录的任何人都可以查看",
     viewer: "Viewer",
     viewerDescription: "可以查看",
+    commenter: "评论者",
+    commenterDescription: "可以查看并添加评论",
     editor: "Editor",
     editorDescription: "可以编辑",
     admin: "管理员",

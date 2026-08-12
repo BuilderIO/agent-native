@@ -578,6 +578,13 @@ function DocumentEditorBody({
   // Shared with DocumentToolbar via the same localStorage key — both read it.
   const [autoSync] = useLocalStorage(`notion-auto-sync:${documentId}`, false);
   const isLocalFileDocument = document.source?.mode === "local-files";
+  const canComment =
+    !isLocalFileDocument &&
+    (document.canComment ??
+      (document.accessRole === "owner" ||
+        document.accessRole === "admin" ||
+        document.accessRole === "editor" ||
+        document.accessRole === "commenter"));
   const canDelete =
     !isLocalFileDocument &&
     !document.database?.systemRole &&
@@ -1466,7 +1473,7 @@ function DocumentEditorBody({
   const [utilityPanel, setUtilityPanel] = useState<DocumentUtilityPanel>(null);
   const activeThreadId = hoveredThreadId ?? selectedThreadId;
   const { data: threads, isLoading: commentsLoading } = useComments(
-    canEdit && !isLocalFileDocument ? documentId : null,
+    !isLocalFileDocument ? documentId : null,
   );
   const hasUtilityRailSpace = useMinViewportWidth(1024);
   const showDesktopUtilityPanel = utilityPanel !== null && hasUtilityRailSpace;
@@ -1655,6 +1662,8 @@ function DocumentEditorBody({
       onSelectedThreadChange={setSelectedThreadId}
       onHoveredThreadChange={setHoveredThreadId}
       currentUserEmail={session?.email}
+      canComment={canComment}
+      canResolve={canEdit}
       alignToAnchors={hasUtilityRailSpace}
       forceVisible
     />
@@ -1770,7 +1779,7 @@ function DocumentEditorBody({
             onDelete={handleDeleteDocument}
             utilityPanel={utilityPanel}
             onUtilityPanelChange={handleUtilityPanelChange}
-            showCommentsControl={editorCanEdit && !isLocalFileDocument}
+            showCommentsControl={canComment && !isLocalFileDocument}
             onOpenBreadcrumbItem={handleOpenToolbarBreadcrumb}
           />
 
@@ -1994,16 +2003,12 @@ function DocumentEditorBody({
                           localFilePath={
                             isLocalFileDocument ? document.source?.path : null
                           }
-                          onComment={
-                            editorCanEdit && !isLocalFileDocument
-                              ? handleComment
-                              : undefined
-                          }
+                          onComment={canComment ? handleComment : undefined}
                           commentThreads={threads ?? []}
                           activeThreadId={activeThreadId}
                           pendingHighlight={pendingComment?.range ?? null}
                           onActivateThread={
-                            editorCanEdit && !isLocalFileDocument
+                            !isLocalFileDocument
                               ? activateCommentThread
                               : undefined
                           }

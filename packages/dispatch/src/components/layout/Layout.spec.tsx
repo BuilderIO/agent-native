@@ -11,6 +11,7 @@ import {
   formatThreadAge,
   isElectronEmbeddedSearch,
   NavContent,
+  shouldAutoCollapseDispatchSidebar,
 } from "./Layout";
 
 const clientState = vi.hoisted(() => ({
@@ -125,6 +126,15 @@ describe("Electron control-plane mode", () => {
     expect(isElectronEmbeddedSearch("?electron=1")).toBe(true);
     expect(isElectronEmbeddedSearch("?electron=0")).toBe(false);
     expect(isElectronEmbeddedSearch("?chatFirst=1")).toBe(false);
+  });
+});
+
+describe("Dispatch workspace app sidebar", () => {
+  it("auto-collapses for app host routes but not the app catalog", () => {
+    expect(shouldAutoCollapseDispatchSidebar("/apps/mail")).toBe(true);
+    expect(shouldAutoCollapseDispatchSidebar("/apps/mail/settings")).toBe(true);
+    expect(shouldAutoCollapseDispatchSidebar("/apps")).toBe(false);
+    expect(shouldAutoCollapseDispatchSidebar("/chat")).toBe(false);
   });
 });
 

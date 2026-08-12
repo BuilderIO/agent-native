@@ -199,6 +199,15 @@ function canEditRole(role: string | undefined) {
   return role === "owner" || role === "admin" || role === "editor";
 }
 
+function canCommentRole(role: string | undefined) {
+  return (
+    role === "owner" ||
+    role === "admin" ||
+    role === "editor" ||
+    role === "commenter"
+  );
+}
+
 function strongerRole(current: ShareRole | null, next: ShareRole): ShareRole {
   if (!current || ROLE_RANK[next] > ROLE_RANK[current]) return next;
   return current;
@@ -423,6 +432,7 @@ function serializeDocument(
     visibility: doc.visibility,
     accessRole,
     canView,
+    canComment: canCommentRole(accessRole),
     canEdit: canEditRole(accessRole),
     canManage: canManageRole(accessRole),
     databaseMembership: membership

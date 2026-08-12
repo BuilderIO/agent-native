@@ -44,7 +44,7 @@ export default defineAction({
       if (!existing) throw new Error(`Comment not found: ${args.commentId}`);
 
       if (attempt === 0) {
-        await assertAccess("recording", existing.recordingId, "viewer");
+        await assertAccess("recording", existing.recordingId, "commenter");
       }
 
       const previousJson = existing.emojiReactionsJson;

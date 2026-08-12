@@ -8,11 +8,15 @@ const electronState = vi.hoisted(() => {
   const ipcHandlers = new Map<string, Handler>();
   const windows: MockBrowserWindow[] = [];
   let shortcutHandler: (() => void) | undefined;
+  let focusedWindow: MockBrowserWindow | null = null;
 
   class MockBrowserWindow {
     private readonly onceHandlers = new Map<string, Handler>();
+    private readonly eventHandlers = new Map<string, Handler>();
     private visible = false;
     private destroyed = false;
+
+    static getFocusedWindow = vi.fn(() => focusedWindow);
 
     readonly setAlwaysOnTop = vi.fn();
     readonly setVisibleOnAllWorkspaces = vi.fn();
@@ -22,9 +26,12 @@ const electronState = vi.hoisted(() => {
     readonly show = vi.fn(() => {
       this.visible = true;
     });
-    readonly focus = vi.fn();
+    readonly focus = vi.fn(() => {
+      focusedWindow = this;
+    });
     readonly hide = vi.fn(() => {
       this.visible = false;
+      if (focusedWindow === this) focusedWindow = null;
     });
     readonly isVisible = vi.fn(() => this.visible);
     readonly isDestroyed = vi.fn(() => this.destroyed);
@@ -34,7 +41,9 @@ const electronState = vi.hoisted(() => {
     readonly once = vi.fn((event: string, handler: Handler) => {
       this.onceHandlers.set(event, handler);
     });
-    readonly on = vi.fn();
+    readonly on = vi.fn((event: string, handler: Handler) => {
+      this.eventHandlers.set(event, handler);
+    });
 
     constructor() {
       windows.push(this);
@@ -43,12 +52,17 @@ const electronState = vi.hoisted(() => {
     emitOnce(event: string): void {
       this.onceHandlers.get(event)?.();
     }
+
+    emit(event: string): void {
+      this.eventHandlers.get(event)?.();
+    }
   }
 
   return {
     app: {
       isReady: vi.fn(() => true),
       focus: vi.fn(),
+      hide: vi.fn(),
       on: vi.fn(),
     },
     BrowserWindow: MockBrowserWindow,
@@ -64,7 +78,9 @@ const electronState = vi.hoisted(() => {
       handle: vi.fn((channel: string, handler: Handler) => {
         ipcHandlers.set(channel, handler);
       }),
-      on: vi.fn(),
+      on: vi.fn((channel: string, handler: Handler) => {
+        ipcHandlers.set(channel, handler);
+      }),
     },
     screen: {
       getCursorScreenPoint: vi.fn(() => ({ x: 0, y: 0 })),
@@ -73,11 +89,13 @@ const electronState = vi.hoisted(() => {
       })),
     },
     getShortcutHandler: () => shortcutHandler,
-    getWindow: () => windows[0],
+    getWindow: () => windows[windows.length - 1],
     reset: () => {
       ipcHandlers.clear();
       windows.length = 0;
       shortcutHandler = undefined;
+      focusedWindow = null;
+      MockBrowserWindow.getFocusedWindow.mockClear();
     },
   };
 });
@@ -104,7 +122,103 @@ describe("Quick Prompt focus behavior", () => {
     appStore.loadQuickPromptPreferences.mockReturnValue({ enabled: true });
   });
 
-  it("focuses only the prompt on launch and focuses the app after submit", async () => {
+  it("restores the previously focused window instead of the main app on dismiss", async () => {
+    vi.resetModules();
+    const { registerQuickPromptIpc, registerQuickPromptShortcut } =
+      await import("./quick-prompt.js");
+
+    registerQuickPromptIpc({
+      createCodeAgentRun: vi.fn(),
+      sendOpenRequestToRenderer: vi.fn(),
+    });
+    registerQuickPromptShortcut();
+
+    electronState.getShortcutHandler()?.();
+    const promptWindow = electronState.getWindow();
+    expect(promptWindow?.show).toHaveBeenCalled();
+    expect(promptWindow?.focus).toHaveBeenCalled();
+    expect(electronState.app.focus).not.toHaveBeenCalled();
+
+    electronState.getShortcutHandler()?.();
+    expect(promptWindow?.hide).toHaveBeenCalled();
+    if (process.platform === "darwin") {
+      expect(electronState.app.hide).toHaveBeenCalledTimes(1);
+    } else {
+      expect(electronState.app.hide).not.toHaveBeenCalled();
+    }
+    expect(electronState.app.focus).not.toHaveBeenCalled();
+
+    electronState.getShortcutHandler()?.();
+    electronState.ipcMain.handlers.get(IPC.QUICK_PROMPT_DISMISS)?.();
+    expect(promptWindow?.hide).toHaveBeenCalledTimes(2);
+    if (process.platform === "darwin") {
+      expect(electronState.app.hide).toHaveBeenCalledTimes(2);
+    }
+  });
+
+  it("keeps the main app focused when the prompt was opened from it", async () => {
+    vi.resetModules();
+    const { registerQuickPromptIpc, registerQuickPromptShortcut } =
+      await import("./quick-prompt.js");
+    const mainWindow = new electronState.BrowserWindow();
+    mainWindow.show();
+    mainWindow.focus();
+
+    registerQuickPromptIpc({
+      createCodeAgentRun: vi.fn(),
+      sendOpenRequestToRenderer: vi.fn(),
+    });
+    registerQuickPromptShortcut();
+
+    electronState.getShortcutHandler()?.();
+    const promptWindow = electronState.getWindow();
+    electronState.getShortcutHandler()?.();
+
+    expect(promptWindow?.hide).toHaveBeenCalled();
+    expect(electronState.app.hide).not.toHaveBeenCalled();
+    expect(mainWindow.focus).toHaveBeenCalledTimes(2);
+  });
+
+  it("hides when the native prompt window loses focus", async () => {
+    vi.resetModules();
+    const { registerQuickPromptIpc, registerQuickPromptShortcut } =
+      await import("./quick-prompt.js");
+
+    registerQuickPromptIpc({
+      createCodeAgentRun: vi.fn(),
+      sendOpenRequestToRenderer: vi.fn(),
+    });
+    registerQuickPromptShortcut();
+
+    electronState.getShortcutHandler()?.();
+    const promptWindow = electronState.getWindow();
+    promptWindow?.emit("blur");
+
+    expect(promptWindow?.hide).toHaveBeenCalled();
+    expect(electronState.app.hide).not.toHaveBeenCalled();
+  });
+
+  it("does not resurrect after dismissal before ready-to-show", async () => {
+    vi.resetModules();
+    const { registerQuickPromptIpc, registerQuickPromptShortcut } =
+      await import("./quick-prompt.js");
+
+    registerQuickPromptIpc({
+      createCodeAgentRun: vi.fn(),
+      sendOpenRequestToRenderer: vi.fn(),
+    });
+    registerQuickPromptShortcut();
+
+    electronState.getShortcutHandler()?.();
+    const promptWindow = electronState.getWindow();
+    electronState.getShortcutHandler()?.();
+    promptWindow?.emitOnce("ready-to-show");
+
+    expect(promptWindow?.isVisible()).toBe(false);
+    expect(promptWindow?.focus).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the intentional app focus handoff after submit", async () => {
     vi.resetModules();
     const { registerQuickPromptIpc, registerQuickPromptShortcut } =
       await import("./quick-prompt.js");
@@ -127,15 +241,7 @@ describe("Quick Prompt focus behavior", () => {
       sendOpenRequestToRenderer,
     });
     registerQuickPromptShortcut();
-
     electronState.getShortcutHandler()?.();
-    const promptWindow = electronState.getWindow();
-    expect(promptWindow?.show).toHaveBeenCalled();
-    expect(promptWindow?.focus).toHaveBeenCalled();
-    expect(electronState.app.focus).not.toHaveBeenCalled();
-
-    promptWindow?.emitOnce("ready-to-show");
-    expect(electronState.app.focus).not.toHaveBeenCalled();
 
     const submit = electronState.ipcMain.handlers.get(IPC.QUICK_PROMPT_SUBMIT);
     const result = await submit?.(undefined, { prompt: "Investigate this" });
@@ -149,6 +255,6 @@ describe("Quick Prompt focus behavior", () => {
       },
       { stealFocus: true },
     );
-    expect(promptWindow?.hide).toHaveBeenCalled();
+    expect(electronState.getWindow()?.hide).toHaveBeenCalled();
   });
 });

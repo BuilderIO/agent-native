@@ -176,11 +176,6 @@ export default function WorkspaceAppCatchAllRoute() {
               <span className="font-mono text-foreground">{app.path}</span>{" "}
               {t("dispatch.pages.appBuildingSuffix")}
             </p>
-            {app.branchName ? (
-              <p className="text-xs text-muted-foreground">
-                {t("dispatch.pages.branch", { branch: app.branchName })}
-              </p>
-            ) : null}
             {app.builderUrl ? (
               <Button asChild>
                 <a
@@ -191,7 +186,9 @@ export default function WorkspaceAppCatchAllRoute() {
                   target="_blank"
                   rel="noreferrer"
                 >
-                  {t("dispatch.pages.openBuilderBranch")}
+                  {t("dispatch.pages.openBuilderBranch", {
+                    defaultValue: "Open in Builder",
+                  })}
                   <IconArrowUpRight size={15} className="ml-1.5" />
                 </a>
               </Button>

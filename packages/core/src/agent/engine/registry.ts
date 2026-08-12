@@ -741,16 +741,25 @@ async function apiKeyBelongsToDifferentProvider(
   return false;
 }
 
+type CredentialResolutionMode = "explicit" | "automatic";
+
 async function engineCreateConfigForEntry(
   entry: AgentEngineEntry,
   apiKey: string | undefined,
   extra?: Record<string, unknown>,
-  preferResolvedCredential = false,
+  credentialResolution: CredentialResolutionMode = "explicit",
   apiKeyEnvVar?: string,
   credentialIdentity?: BuilderCredentialLookupIdentity,
 ): Promise<Record<string, unknown>> {
   const safeExtra = { ...(extra ?? {}) };
   let matchingApiKey = apiKey;
+  if (
+    matchingApiKey === undefined &&
+    typeof safeExtra.apiKey === "string" &&
+    safeExtra.apiKey.trim()
+  ) {
+    matchingApiKey = safeExtra.apiKey;
+  }
   // A declared provenance settles the question without inspecting values: a
   // credential issued for another provider's env var is never this entry's
   // key, so drop it on explicit branches too. Value comparison below cannot
@@ -762,15 +771,15 @@ async function engineCreateConfigForEntry(
   ) {
     matchingApiKey = undefined;
   }
-  // Automatic engine selection must also select that engine's credential.
-  // Callers historically passed one untagged "active" key before the registry
-  // chose an engine, which could hand an Anthropic key to an app-default
-  // OpenAI engine (or vice versa). Explicit engineOption branches retain their
-  // paired key. Automatic branches replace only a key proven to belong to a
-  // different configured provider; opaque caller-supplied keys keep the public
-  // `ResolveEngineConfig.apiKey` contract.
+  // Engine selection must also select that engine's credential. Callers
+  // historically passed one untagged "active" key before the registry chose
+  // an engine, which could hand an Anthropic key to an OpenAI engine (or vice
+  // versa). Explicit engine options can also arrive without a key when the
+  // owner resolver missed a shared vault row, so resolve those missing keys at
+  // this construction boundary too. Opaque caller-supplied keys remain intact
+  // unless they are proven to belong to another configured provider.
   if (
-    preferResolvedCredential &&
+    (credentialResolution === "automatic" || matchingApiKey === undefined) &&
     entry.name !== "builder" &&
     entry.requiredEnvVars.length > 0
   ) {
@@ -797,8 +806,8 @@ async function engineCreateConfigForEntry(
     if (matchingApiKey === undefined || suppliedKeyBelongsElsewhere) {
       // Keep deploy-only credentials implicit so provider SDKs retain their
       // established env-fallback behavior. Scoped credentials must be passed
-      // explicitly. A proven different-provider key is replaced or cleared;
-      // an opaque caller-supplied key is preserved by the branch above.
+      // explicitly. Automatic selection replaces a proven
+      // different-provider key; an opaque explicit key is left untouched.
       matchingApiKey =
         resolvedMatchingCredential && !matchingCredentialUsesDeployFallback
           ? resolvedMatchingCredential
@@ -1075,7 +1084,7 @@ export async function resolveEngine(
         entry,
         apiKey,
         engineConfig,
-        false,
+        "explicit",
         apiKeyEnvVar,
         credentialIdentity,
       ),
@@ -1095,7 +1104,7 @@ export async function resolveEngine(
         entry,
         apiKey,
         undefined,
-        false,
+        "explicit",
         apiKeyEnvVar,
         credentialIdentity,
       ),
@@ -1113,7 +1122,7 @@ export async function resolveEngine(
           entry,
           apiKey,
           undefined,
-          true,
+          "automatic",
           apiKeyEnvVar,
           credentialIdentity,
         ),
@@ -1135,7 +1144,7 @@ export async function resolveEngine(
           entry,
           apiKey,
           undefined,
-          true,
+          "automatic",
           apiKeyEnvVar,
           credentialIdentity,
         ),
@@ -1178,7 +1187,7 @@ export async function resolveEngine(
           stripInlineApiKeyConfig(
             storedConfig as Record<string, unknown> | undefined,
           ),
-          true,
+          "automatic",
           apiKeyEnvVar,
           credentialIdentity,
         ),
@@ -1192,7 +1201,7 @@ export async function resolveEngine(
         detectedFromUser,
         apiKey,
         undefined,
-        true,
+        "automatic",
         apiKeyEnvVar,
         credentialIdentity,
       ),
@@ -1209,7 +1218,7 @@ export async function resolveEngine(
         detected,
         apiKey,
         undefined,
-        true,
+        "automatic",
         apiKeyEnvVar,
         credentialIdentity,
       ),
@@ -1228,7 +1237,7 @@ export async function resolveEngine(
       anthropicEntry,
       apiKey,
       undefined,
-      true,
+      "automatic",
       apiKeyEnvVar,
       credentialIdentity,
     ),

@@ -4,6 +4,11 @@ import {
   useSession,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import {
+  FIRST_RUN_ONBOARDING_STATUS_RESOLVED_EVENT,
+  fetchFirstRunOnboardingStatus,
+  isFirstRunOnboardingEnabled,
+} from "@agent-native/core/client/onboarding";
 import { buildSignInReturnHref } from "@agent-native/core/client/ui";
 import {
   useSetHeaderActions,
@@ -353,6 +358,8 @@ export default function Index() {
 
   const initialPrompt = searchParams.get("initialPrompt")?.trim() ?? "";
   const onboardingPreview = searchParams.get("onboarding") === "preview";
+  const firstRunOnboardingEnabled =
+    onboardingPreview || isFirstRunOnboardingEnabled();
   const openInitialPrompt = useCallback(() => {
     if (!initialPrompt || initialPromptConsumedRef.current) return;
     initialPromptConsumedRef.current = true;
@@ -371,40 +378,41 @@ export default function Index() {
 
   useEffect(() => {
     if (!initialPrompt || initialPromptConsumedRef.current) return;
-    const firstRunActive =
-      onboardingPreview ||
-      (typeof document !== "undefined" &&
-        document.cookie
-          .split(";")
-          .some((part) => part.trim().startsWith("agent-native-first-run=")));
     const handleFirstRunCompleted = () => openInitialPrompt();
+    const handleFirstRunStatusResolved = (event: Event) => {
+      const firstRun =
+        (event as CustomEvent<{ firstRun?: unknown }>).detail?.firstRun ===
+        true;
+      if (!firstRun) openInitialPrompt();
+    };
+
+    if (!firstRunOnboardingEnabled) {
+      openInitialPrompt();
+      return;
+    }
+
     window.addEventListener(
       "agent-native:first-run-completed",
       handleFirstRunCompleted,
     );
-    let fallbackTimer: number | undefined;
-    if (!firstRunActive) {
+    window.addEventListener(
+      FIRST_RUN_ONBOARDING_STATUS_RESOLVED_EVENT,
+      handleFirstRunStatusResolved,
+    );
+    void fetchFirstRunOnboardingStatus().catch(() => {
       openInitialPrompt();
-    } else {
-      // A landing link can open in a tab where the first-run marker exists but
-      // the onboarding surface is not mounted. Do not leave the prompt waiting
-      // forever in that case, while still giving the real onboarding overlay
-      // time to load and dispatch its completion event.
-      fallbackTimer = window.setTimeout(() => {
-        const firstRunSurface = document.querySelector(
-          "[data-onboarding-screen], [data-onboarding-loading]",
-        );
-        if (!firstRunSurface) openInitialPrompt();
-      }, 2500);
-    }
+    });
     return () => {
       window.removeEventListener(
         "agent-native:first-run-completed",
         handleFirstRunCompleted,
       );
-      if (fallbackTimer !== undefined) window.clearTimeout(fallbackTimer);
+      window.removeEventListener(
+        FIRST_RUN_ONBOARDING_STATUS_RESOLVED_EVENT,
+        handleFirstRunStatusResolved,
+      );
     };
-  }, [initialPrompt, onboardingPreview, openInitialPrompt]);
+  }, [firstRunOnboardingEnabled, initialPrompt, openInitialPrompt]);
 
   const setDeckFilter = useCallback(
     (value: string) => {
@@ -774,6 +782,7 @@ export default function Index() {
       sourceModeInstructions,
       "If the user asked for a specific slide count, keep going sequentially until that count is reached unless a tool error blocks you. If no explicit count was given (including when the guided slide-count question was skipped), infer the count from the distinct topics/sections implied by the request — one slide per section plus a title and closing slide — and add slides for every section before considering the deck done. Do not stop at an arbitrary round number (e.g. 10) if sections remain uncovered, and never call `generate-slides-ai` for this flow; it is a legacy single-shot helper capped at 10 slides.",
       "Every slide is rendered into a fixed native canvas (default 16:9 is 960x540 CSS pixels, with 740x380px available inside standard 80px 110px padding). Keep the main content within that fit budget; split dense source material across more slides instead of packing it tightly. Never use zoom, transform: scale(), clipping, or scroll overflow to hide content overflow, and keep body text at least 16px.",
+      "When no reference deck or hydrated design system is available, use a restrained, content-first visual language. Do not invent colorful cards, boxes, or decorative rectangles behind or over text; add a colored shape only when it has a clear semantic role and leaves the text unobscured. Prefer typography, spacing, alignment, and one restrained accent.",
       "Each slide's --content must be full HTML. Slide HTML templates are in your AGENTS.md.",
       "Do NOT use create-deck (the deck already exists). Do NOT call db-schema, the resources tool, or search-files.",
     ].join("\n");
@@ -1361,51 +1370,41 @@ export default function Index() {
       ) : (
         <>
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center">
-              <ToggleGroup
-                type="single"
-                value={deckFilter}
-                onValueChange={(value) => value && setDeckFilter(value)}
-                className="w-fit rounded-lg border border-border bg-card p-0.5"
-                size="sm"
+            <ToggleGroup
+              type="single"
+              value={deckFilter}
+              onValueChange={(value) => value && setDeckFilter(value)}
+              className="w-fit rounded-lg border border-border bg-card p-0.5"
+              size="sm"
+            >
+              <ToggleGroupItem
+                value="all"
+                aria-label={t("home.showAllDecks")}
+                className="h-7 rounded-md px-3 text-xs data-[state=on]:bg-accent"
               >
-                <ToggleGroupItem
-                  value="all"
-                  aria-label={t("home.showAllDecks")}
-                  className="h-7 rounded-md px-3 text-xs data-[state=on]:bg-accent"
-                >
-                  <IconStack2 className="me-1.5 h-3.5 w-3.5" />
-                  {t("home.all")}
-                </ToggleGroupItem>
-                <ToggleGroupItem
-                  value="mine"
-                  aria-label={t("home.showMineDecks")}
-                  className="h-7 rounded-md px-3 text-xs data-[state=on]:bg-accent"
-                >
-                  <IconUserCircle className="me-1.5 h-3.5 w-3.5" />
-                  {t("home.mine")}
-                </ToggleGroupItem>
-              </ToggleGroup>
-              <label className="flex h-8 w-full items-center gap-2 rounded-lg border border-border bg-card px-2.5 text-muted-foreground sm:w-60">
-                <IconSearch className="size-3.5 shrink-0" aria-hidden="true" />
-                <Input
-                  type="search"
-                  value={deckSearch}
-                  onChange={(event) => setDeckSearch(event.target.value)}
-                  placeholder={t("root.searchDecks")}
-                  aria-label={t("root.searchDecks")}
-                  className="h-7 min-w-0 flex-1 border-0 bg-transparent p-0 text-xs shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
-                />
-              </label>
-            </div>
-            <span className="text-xs text-muted-foreground/70">
-              {deckFilter === "mine" || normalizedDeckSearch
-                ? `${visibleDecks.length} of ${decks.length}`
-                : visibleDecks.length}{" "}
-              {t("home.deckCount", {
-                count: visibleDecks.length,
-              })}
-            </span>
+                <IconStack2 className="me-1.5 h-3.5 w-3.5" />
+                {t("home.all")}
+              </ToggleGroupItem>
+              <ToggleGroupItem
+                value="mine"
+                aria-label={t("home.showMineDecks")}
+                className="h-7 rounded-md px-3 text-xs data-[state=on]:bg-accent"
+              >
+                <IconUserCircle className="me-1.5 h-3.5 w-3.5" />
+                {t("home.mine")}
+              </ToggleGroupItem>
+            </ToggleGroup>
+            <label className="flex h-8 w-full items-center gap-2 rounded-lg border border-border bg-card px-2.5 text-muted-foreground sm:w-60">
+              <IconSearch className="size-3.5 shrink-0" aria-hidden="true" />
+              <Input
+                type="search"
+                value={deckSearch}
+                onChange={(event) => setDeckSearch(event.target.value)}
+                placeholder={t("root.searchDecks")}
+                aria-label={t("root.searchDecks")}
+                className="h-7 min-w-0 flex-1 border-0 bg-transparent p-0 text-xs shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+              />
+            </label>
           </div>
           <div className="deck-grid-container">
             <div className="deck-grid grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">

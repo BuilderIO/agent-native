@@ -84,6 +84,18 @@ describe("new deck generation flow", () => {
     );
   });
 
+  it("keeps unreferenced decks content-first instead of inventing text-covering boxes", () => {
+    expect(flow).toContain(
+      "When no reference deck or hydrated design system is available",
+    );
+    expect(flow).toContain(
+      "Do not invent colorful cards, boxes, or decorative rectangles behind or over text",
+    );
+    expect(flow).toContain(
+      "leaves the text unobscured. Prefer typography, spacing, alignment, and one restrained accent.",
+    );
+  });
+
   it("keeps ordinary attachments as reference material for a new deck", () => {
     expect(flow).toContain(
       "attached reference files must not seed it with imported slides",

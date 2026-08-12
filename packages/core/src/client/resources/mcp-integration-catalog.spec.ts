@@ -12,6 +12,7 @@ import {
   isCustomMcpIntegrationEnabled,
   isMcpIntegrationCatalogAvailable,
   isMcpConnectionFailureText,
+  isMcpConnectionSuggestionText,
   mcpIntegrationAuthLabel,
   mergeDefaultMcpIntegrations,
   resolveMcpIntegrationScope,
@@ -343,6 +344,26 @@ describe("MCP integration catalog", () => {
       true,
     );
     expect(isMcpConnectionFailureText("I can read it now")).toBe(false);
+  });
+
+  it("recognizes agent-authored setup requests without matching positive status text", () => {
+    expect(isMcpConnectionSuggestionText("Please connect HubSpot")).toBe(true);
+    expect(
+      isMcpConnectionSuggestionText(
+        "I need you to authorize HubSpot before I can pull the deals.",
+      ),
+    ).toBe(true);
+    expect(isMcpConnectionSuggestionText("Can you connect HubSpot?")).toBe(
+      true,
+    );
+    expect(isMcpConnectionSuggestionText("HubSpot access is required")).toBe(
+      true,
+    );
+    expect(isMcpConnectionSuggestionText("HubSpot requires access")).toBe(true);
+    expect(
+      isMcpConnectionSuggestionText("I don't have access to HubSpot yet."),
+    ).toBe(true);
+    expect(isMcpConnectionSuggestionText("HubSpot is connected")).toBe(false);
   });
 
   it("matches exact display brands and branded aliases only", () => {

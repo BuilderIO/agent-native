@@ -505,10 +505,11 @@ const messages = {
     },
     roles: {
       viewer: "Viewer",
+      commenter: "Commenter",
       editor: "Editor",
       admin: "Admin",
     },
-    recordingViewer: {
+    recordingCommenter: {
       label: "Commenter",
       description: "Can view, comment, and react",
     },

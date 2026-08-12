@@ -339,7 +339,7 @@ describe("CreateAppFlow", () => {
       });
     });
     const branchLink = Array.from(container.querySelectorAll("a")).find(
-      (candidate) => candidate.textContent?.includes("Open Builder branch"),
+      (candidate) => candidate.textContent?.includes("Open in Builder"),
     );
     expect(branchLink?.getAttribute("href")).toBe(
       "https://branch.example.test",

@@ -30,10 +30,7 @@ export function FieldsPage() {
 
   return (
     <div className="mx-auto flex h-full min-h-0 w-full max-w-5xl flex-col gap-6 overflow-hidden p-4 md:p-6">
-      <PageHeader
-        title={t("fields.pageTitle")}
-        description={t("fields.pageDescription")}
-      />
+      <PageHeader title={t("fields.pageTitle")} />
 
       <FieldsList
         activeFieldId={activeFieldId}
