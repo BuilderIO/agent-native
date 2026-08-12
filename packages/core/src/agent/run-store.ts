@@ -2693,14 +2693,46 @@ export async function getCurrentTurnEventsForThread(
 }
 
 /**
+ * Rows one pass will reap. Each costs ~5-10 serial round trips (reconcile,
+ * transactional reap plus recovery, terminal-event append), and this sweep now
+ * runs ahead of `processRecurringJobs` on the shared durable tick — so an
+ * unbounded first pass against a backlog spends the platform wall before jobs
+ * get any. Production carried 1,216 stale rows while nothing periodic reaped
+ * them, so the first tick after that fix lands on exactly such a backlog.
+ * A truncated pass is drained by the next tick (60s durable, 20s in-process),
+ * never dropped — `truncated` is what stops a partial sweep being reported as
+ * a clean one.
+ */
+const REAP_ALL_STALE_BATCH_LIMIT = 200;
+
+export interface StaleRunReapResult {
+  /** Rows this pass reaped. */
+  reaped: number;
+  /**
+   * Rows whose reap threw. Separate from `reaped` because a pass where every
+   * row failed must not read as "nothing was stale" — those were the same
+   * number before, and the caller's own `null`-vs-`0` distinction is worthless
+   * while the per-row failures underneath it are coerced away.
+   */
+  failed: number;
+  /** More stale rows remain than the batch cap; the next tick continues. */
+  truncated: boolean;
+}
+
+/**
  * Expire any "running" rows whose heartbeat is stale — producer died.
  * Safe to call at server startup on multi-isolate deployments: only rows
  * without a fresh heartbeat get reaped, so runs owned by OTHER live
  * isolates (which keep heartbeating) are left alone.
  */
-export async function reapAllStaleRuns(): Promise<number> {
+export async function reapAllStaleRuns(): Promise<StaleRunReapResult> {
+  const nothingStale: StaleRunReapResult = {
+    reaped: 0,
+    failed: 0,
+    truncated: false,
+  };
   await ensureRunTables();
-  if (!(await hasRunningRuns())) return 0;
+  if (!(await hasRunningRuns())) return nothingStale;
   const client = getDbExec();
   const now = Date.now();
   // Background-dispatched runs use the wider window; everything else 15s. The
@@ -2712,13 +2744,23 @@ export async function reapAllStaleRuns(): Promise<number> {
   // server startup across possibly-multiple isolates, so a sibling isolate's
   // still-alive, in-flight run must not be reaped just because THIS isolate
   // just booted and has no heartbeat history for it.
-  const stale = await client.execute({
+  // One row over the cap is how a truncated pass is detected without a second
+  // COUNT query against the same predicate.
+  const scanned = await client.execute({
     sql: `SELECT id FROM agent_runs
           WHERE status = 'running'
             AND ${livenessBasisSql()} < ${backgroundAwareStaleCutoffSql()}
-            AND ${inFlightGraceSql()}`,
+            AND ${inFlightGraceSql()}
+          ORDER BY started_at ASC
+          LIMIT ${REAP_ALL_STALE_BATCH_LIMIT + 1}`,
     args: [now, now, now],
   });
+  const truncated = scanned.rows.length > REAP_ALL_STALE_BATCH_LIMIT;
+  const stale = {
+    rows: truncated
+      ? scanned.rows.slice(0, REAP_ALL_STALE_BATCH_LIMIT)
+      : scanned.rows,
+  };
   for (const row of stale.rows) {
     const id = (row as { id?: unknown }).id;
     if (typeof id === "string") {
@@ -2737,11 +2779,16 @@ export async function reapAllStaleRuns(): Promise<number> {
   // already found stale; on an idle app `hasRunningRuns` returns before any of
   // this, so the 20s fast sweep (agent-chat-plugin.ts) costs one probe.
   let reapedCount = 0;
+  let failedCount = 0;
   for (const row of stale.rows) {
     const id = (row as { id?: unknown }).id;
     if (typeof id !== "string") continue;
-    const reaped = await reapSingleStaleRun(id).catch(() => false);
-    if (reaped) reapedCount += 1;
+    try {
+      if (await reapSingleStaleRun(id)) reapedCount += 1;
+    } catch (error) {
+      failedCount += 1;
+      console.error(`[run-store] stale reap failed for run ${id}:`, error);
+    }
   }
   for (const row of stale.rows) {
     const id = (row as { id?: unknown }).id;
@@ -2753,7 +2800,7 @@ export async function reapAllStaleRuns(): Promise<number> {
       );
     }
   }
-  return reapedCount;
+  return { reaped: reapedCount, failed: failedCount, truncated };
 }
 
 const RUN_OUTCOME_DAY_MS = 86_400_000;
