@@ -535,6 +535,12 @@ export default function ShareRoute() {
   const canReshareLink =
     (viewerRole === "viewer" || viewerRole === "commenter") &&
     (recording?.visibility === "public" || recording?.visibility === "org");
+  // A plain viewer only gets a copy-link control: it must not trigger
+  // `list-resource-shares` (any read access is enough to call it, and its
+  // response includes every individually-shared principal's email) and must
+  // not surface the raw video download/open action independent of
+  // `enableDownloads`.
+  const viewerReshareOnly = canReshareLink && !viewerCanEdit;
   const viewerCanOpenDashboard = Boolean(
     dataQ.data?.data?.viewer?.canOpenDashboard,
   );
@@ -897,6 +903,10 @@ export default function ShareRoute() {
   const canDownloadRecording = Boolean(
     recording.enableDownloads && recording.videoUrl && !isLoomEmbedBacked,
   );
+  // Loom-backed clips only ever get an "open player" link (not a raw
+  // download), so they're exempt from the enableDownloads gate here.
+  const shareVideoUrl =
+    canDownloadRecording || isLoomEmbedBacked ? recording.videoUrl : null;
 
   return (
     <div className="flex min-h-screen max-w-full flex-col overflow-x-hidden bg-background text-foreground lg:h-screen lg:flex-row lg:overflow-hidden">
@@ -999,11 +1009,12 @@ export default function ShareRoute() {
                 recordingTitle={recording.title}
                 initialVisibility={recording.visibility}
                 initialRole={viewerIsOwner ? "owner" : undefined}
-                videoUrl={recording.videoUrl}
+                videoUrl={shareVideoUrl}
                 thumbnailUrl={recording.thumbnailUrl}
                 animatedThumbnailUrl={recording.animatedThumbnailUrl}
                 isLoomRecording={isLoomEmbedBacked}
                 hasPassword={Boolean(recording.hasPassword)}
+                viewerReshareOnly={viewerReshareOnly}
               >
                 <Button size="sm" className="shrink-0 gap-1.5">
                   {recording.visibility !== "public" ? (
