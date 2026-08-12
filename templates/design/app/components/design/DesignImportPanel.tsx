@@ -1,5 +1,6 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
+import { Docs } from "@agent-native/core/shared";
 import { parseFigmaFileKey } from "@shared/figma-url";
 import {
   IconBrandFigma,
@@ -696,7 +697,7 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
               <p className="text-[11px] leading-snug text-muted-foreground">
                 {t("designEditor.import.visualEditGuidance")}{" "}
                 <a
-                  href="/docs/template-design"
+                  href={Docs.templateDesign()}
                   target="_blank"
                   rel="noreferrer"
                   className="font-medium text-foreground underline-offset-2 hover:underline"

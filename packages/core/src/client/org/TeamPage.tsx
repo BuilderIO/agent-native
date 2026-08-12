@@ -67,6 +67,7 @@ import {
 import type { AppRolesDescriptor } from "../../org/app-roles.js";
 import type { DomainMatchOrg } from "../../org/types.js";
 import type { WorkspaceUserGroup } from "../../workspace-connections/groups.js";
+import { Docs } from "../../shared/docs-url.js";
 import {
   Dialog,
   DialogContent,
@@ -2061,7 +2062,10 @@ function DomainSettingsSection({
       description={
         <OrganizationDescription
           help={`Anyone who signs up with an email at this domain joins the organization automatically. Only your own email domain (${ownDomain || "—"}) can be used; free email providers are not allowed.`}
-          docsUrl="https://www.builder.io/c/docs/agent-native-authentication?utm_source=agent-native&utm_medium=product&utm_campaign=organization_settings&utm_content=domain_auto_join"
+          docsUrl={Docs.organizationsTeams({
+            campaign: "organization_settings",
+            content: "domain_auto_join",
+          })}
         >
           Automatically add members with your work email.
         </OrganizationDescription>
@@ -2195,7 +2199,10 @@ function WorkspaceUrlSettingsSection({
       description={
         <OrganizationDescription
           help="Members who land on another deployment can be sent to this workspace URL instead of an empty app."
-          docsUrl="https://www.builder.io/c/docs/agent-native-deployment?utm_source=agent-native&utm_medium=product&utm_campaign=organization_settings&utm_content=workspace_url"
+          docsUrl={Docs.deployment({
+            campaign: "organization_settings",
+            content: "workspace_url",
+          })}
         >
           Send members to this workspace from another deployment.
         </OrganizationDescription>
@@ -2325,7 +2332,10 @@ function AuthProviderSettingsSection({
         description={
           <OrganizationDescription
             help="Require Google sign-in for every member. Enabling this revokes current sessions and rejects future password or non-Google sign-ins."
-            docsUrl="https://www.builder.io/c/docs/agent-native-authentication?utm_source=agent-native&utm_medium=product&utm_campaign=organization_settings&utm_content=organization_sign_in"
+            docsUrl={Docs.authSocialProviders({
+              campaign: "organization_settings",
+              content: "organization_sign_in",
+            })}
           >
             Choose how members sign in.
           </OrganizationDescription>

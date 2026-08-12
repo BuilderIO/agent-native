@@ -12,6 +12,7 @@ import {
 import { oauthRedirectUri } from "@agent-native/core/client/host";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { useOrgRole } from "@agent-native/core/client/org";
+import { Docs } from "@agent-native/core/shared";
 import {
   getDefaultMcpIntegrations,
   McpIntegrationLogo,
@@ -1903,7 +1904,7 @@ function FirstPartyAnalyticsCard() {
                 each one happened.
               </p>
               <a
-                href="https://www.agent-native.com/docs/tracking#error-capture"
+                href={Docs.trackingErrors()}
                 target="_blank"
                 rel="noreferrer"
                 className="mt-2 inline-flex items-center gap-1 font-medium text-primary hover:underline"

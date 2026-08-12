@@ -9,6 +9,7 @@ import {
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
 
+import { Docs } from "../shared/docs-url.js";
 import { getWorkspaceAppIdValidationError } from "../shared/workspace-app-id.js";
 import { sendToAgentChat } from "./agent-chat.js";
 import { agentNativePath, appBasePath } from "./api-path.js";
@@ -79,8 +80,7 @@ const ERROR_FAILURE_REASONS = new Set([
   "builder-not-connected",
   "credential-store-unavailable",
 ]);
-const LOCAL_APP_DOCS_URL =
-  "https://agent-native.com/docs/multi-app-workspace#adding-a-new-app";
+const LOCAL_APP_DOCS_URL = Docs.multiAppAdding();
 
 function isErrorFailureReason(reason: string | null): boolean {
   return !!reason && ERROR_FAILURE_REASONS.has(reason);

@@ -54,6 +54,7 @@ import React, {
 
 import { PROVIDER_ENV_PLACEHOLDERS } from "../../agent/engine/provider-env-vars.js";
 import { buildSettingsRoute } from "../../navigation/index.js";
+import { Docs } from "../../shared/docs-url.js";
 import {
   saveAgentEngineProviderSettings,
   setAgentEngineProvider,
@@ -3179,7 +3180,10 @@ function SettingsPanelContent({
                     <ManualSetupCard
                       title="Set up manually"
                       hint="Deploy manually to Netlify, Vercel, Cloudflare, or any Nitro-supported target."
-                      docsUrl="https://www.builder.io/c/docs/agent-native-deployment?utm_source=agent-native&utm_medium=product&utm_campaign=onboarding&utm_content=deployment_settings"
+                      docsUrl={Docs.deployment({
+                        campaign: "onboarding",
+                        content: "deployment_settings",
+                      })}
                       dim={connected}
                       bare
                       popover
@@ -3226,7 +3230,10 @@ function SettingsPanelContent({
                     <ManualSetupCard
                       title="Set up manually"
                       hint="Set DATABASE_URL in your .env to connect a supported database."
-                      docsUrl="https://www.builder.io/c/docs/agent-native-database?utm_source=agent-native&utm_medium=product&utm_campaign=onboarding&utm_content=database_settings"
+                      docsUrl={Docs.database({
+                        campaign: "onboarding",
+                        content: "database_settings",
+                      })}
                       dim={connected}
                       bare
                       popover
@@ -3273,7 +3280,10 @@ function SettingsPanelContent({
                     <ManualSetupCard
                       title="Set up manually"
                       hint="Use an S3-compatible bucket with a stable public URL for durable chat attachments."
-                      docsUrl="https://www.builder.io/c/docs/agent-native-file-uploads?utm_source=agent-native&utm_medium=product&utm_campaign=onboarding&utm_content=file_upload_settings"
+                      docsUrl={Docs.fileUploads({
+                        campaign: "onboarding",
+                        content: "file_upload_settings",
+                      })}
                       dim={connected}
                       bare
                       popover
@@ -3322,7 +3332,10 @@ function SettingsPanelContent({
                     <ManualSetupCard
                       title="Set up manually"
                       hint="Configure Better Auth and optional Google or GitHub providers."
-                      docsUrl="https://www.builder.io/c/docs/agent-native-authentication?utm_source=agent-native&utm_medium=product&utm_campaign=onboarding&utm_content=authentication_settings"
+                      docsUrl={Docs.authentication({
+                        campaign: "onboarding",
+                        content: "authentication_settings",
+                      })}
                       dim={connected}
                       bare
                       popover
@@ -3461,7 +3474,10 @@ function SettingsPanelContent({
               />
               <ManualSetupCard
                 hint="Deploy manually to Netlify, Vercel, Cloudflare, or any Nitro-supported target."
-                docsUrl="https://www.builder.io/c/docs/agent-native-deployment?utm_source=agent-native&utm_medium=product&utm_campaign=onboarding&utm_content=deployment_settings"
+                docsUrl={Docs.deployment({
+                  campaign: "onboarding",
+                  content: "deployment_settings",
+                })}
                 dim={connected}
               />
             </div>
@@ -3493,7 +3509,10 @@ function SettingsPanelContent({
               />
               <ManualSetupCard
                 hint="Set DATABASE_URL in your .env to connect Neon, Supabase, Turso, any Postgres/SQLite database, or local PGlite with pglite:./data/pglite."
-                docsUrl="https://www.builder.io/c/docs/agent-native-database?utm_source=agent-native&utm_medium=product&utm_campaign=onboarding&utm_content=database_settings"
+                docsUrl={Docs.database({
+                  campaign: "onboarding",
+                  content: "database_settings",
+                })}
                 dim={connected}
               />
             </div>
@@ -3525,7 +3544,10 @@ function SettingsPanelContent({
               />
               <ManualSetupCard
                 hint="Object storage keeps uploaded files durable and their URLs reusable throughout the thread. Connect Builder or use an S3-compatible bucket below."
-                docsUrl="https://www.builder.io/c/docs/agent-native-file-uploads?utm_source=agent-native&utm_medium=product&utm_campaign=onboarding&utm_content=file_upload_settings"
+                docsUrl={Docs.fileUploads({
+                  campaign: "onboarding",
+                  content: "file_upload_settings",
+                })}
                 dim={connected}
               >
                 <FileStorageSettingsForm />
@@ -3559,7 +3581,10 @@ function SettingsPanelContent({
               />
               <ManualSetupCard
                 hint="Configure Better Auth with BETTER_AUTH_SECRET and optional Google/GitHub OAuth providers."
-                docsUrl="https://www.builder.io/c/docs/agent-native-authentication?utm_source=agent-native&utm_medium=product&utm_campaign=onboarding&utm_content=authentication_settings"
+                docsUrl={Docs.authentication({
+                  campaign: "onboarding",
+                  content: "authentication_settings",
+                })}
                 dim={connected}
               />
             </div>

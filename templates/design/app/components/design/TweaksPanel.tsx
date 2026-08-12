@@ -1,4 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { Docs } from "@agent-native/core/shared";
 import { VisualTweakControl } from "@agent-native/toolkit/design-tweaks";
 import type { TweakDefinition } from "@shared/api";
 import {
@@ -80,7 +81,7 @@ export function TweaksPanelContent({
       >
         {t("designEditor.tweaksHelp")}{" "}
         <a
-          href="/docs/template-design#tweaks"
+          href={Docs.templateDesign()}
           target="_blank"
           rel="noreferrer"
           className="font-medium text-foreground/80 underline-offset-2 hover:text-foreground hover:underline"

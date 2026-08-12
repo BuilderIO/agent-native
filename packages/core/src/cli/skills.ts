@@ -15,6 +15,7 @@ import {
   MCP_LEGACY_ROUTE_PREFIX,
   MCP_PUBLIC_ROUTE_PREFIX,
 } from "../mcp/route-paths.js";
+import { Docs } from "../shared/docs-url.js";
 import {
   buildAppSkillPack,
   ensureAppSkill,
@@ -2446,8 +2447,7 @@ function prVisualRecapWorkflowDisplayPath(): string {
   return path.join(".github", "workflows", "pr-visual-recap.yml");
 }
 
-const PR_VISUAL_RECAP_DOCS_URL =
-  "https://www.agent-native.com/docs/pr-visual-recap";
+const PR_VISUAL_RECAP_DOCS_URL = Docs.prVisualRecap();
 
 function prVisualRecapInstallCommand(): string {
   return "npx @agent-native/core@latest skills add visual-recap --with-github-action";
