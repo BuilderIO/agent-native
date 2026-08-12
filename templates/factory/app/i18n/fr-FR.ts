@@ -196,6 +196,7 @@ const messages = {
     auditClearBug: "Bug avéré",
     auditUxImpact: "Impact UX",
     auditOwnerArea: "Domaine responsable",
+    auditGuardsLabel: "Gardes",
     automationsTitle: "Automatisations",
     automationsDescription: "Planifiez et exécutez les prompts de la factory.",
     automationsLoading: "Chargement des automatisations...",
@@ -251,6 +252,14 @@ const messages = {
       "Impossible de charger les diagnostics Factory. Vérifiez l’accès, le déploiement et les migrations de la base de données, puis réessayez.",
     automationEmailReadinessHint:
       "L’e-mail utilise le coffre Dispatch de l’organisation. Configurez-y un fournisseur si l’état n’est pas prêt.",
+    rulesTitle: "Règles",
+    shadowLabel: "Shadow",
+    rulesGuidance:
+      "Utilisez des prompts pour la classification ; gardez la sécurité dans des gardes structurées.",
+    ruleNameLabel: "Nom",
+    defaultFactoryLabel: "Factory par défaut",
+    savedFactoryLabel: "Factory enregistrée",
+    saveRule: "Enregistrer la règle",
   },
   factoryCanvas: {
     dragHint: "Faites glisser les nœuds pour remodeler la factory",

@@ -186,6 +186,7 @@ const messages = {
     auditClearBug: "明確なバグ",
     auditUxImpact: "UXへの影響",
     auditOwnerArea: "担当領域",
+    auditGuardsLabel: "ガード",
     automationsTitle: "自動化",
     automationsDescription:
       "Factory のプロンプトをスケジュールして実行します。",
@@ -240,6 +241,14 @@ const messages = {
       "Factory の診断を読み込めませんでした。アクセス権、デプロイ、データベース移行を確認して再試行してください。",
     automationEmailReadinessHint:
       "メールは組織の Dispatch 保管庫を使用します。準備ができていない場合は、そこでプロバイダーを設定してください。",
+    rulesTitle: "ルール",
+    shadowLabel: "シャドウ",
+    rulesGuidance:
+      "分類にはプロンプトを使い、安全性は構造化ガードで保ってください。",
+    ruleNameLabel: "名前",
+    defaultFactoryLabel: "既定の Factory",
+    savedFactoryLabel: "保存済みの Factory",
+    saveRule: "ルールを保存",
   },
   factoryCanvas: {
     dragHint: "ノードをドラッグしてファクトリーの形を整えます",

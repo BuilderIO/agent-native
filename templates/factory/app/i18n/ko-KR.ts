@@ -185,6 +185,7 @@ const messages = {
     auditClearBug: "명확한 버그",
     auditUxImpact: "UX 영향",
     auditOwnerArea: "담당 영역",
+    auditGuardsLabel: "가드",
     automationsTitle: "자동화",
     automationsDescription: "Factory 프롬프트를 예약하고 실행합니다.",
     automationsLoading: "자동화를 불러오는 중...",
@@ -236,6 +237,14 @@ const messages = {
       "Factory 진단을 불러올 수 없습니다. 액세스, 배포, 데이터베이스 마이그레이션을 확인한 후 다시 시도하세요.",
     automationEmailReadinessHint:
       "이메일은 조직의 Dispatch 볼트를 사용합니다. 준비되지 않았다면 그곳에서 제공업체를 구성하세요.",
+    rulesTitle: "규칙",
+    shadowLabel: "섀도",
+    rulesGuidance:
+      "분류에는 프롬프트를 사용하고, 안전성은 구조화된 가드로 지키세요.",
+    ruleNameLabel: "이름",
+    defaultFactoryLabel: "기본 Factory",
+    savedFactoryLabel: "저장된 Factory",
+    saveRule: "규칙 저장",
   },
   factoryCanvas: {
     dragHint: "노드를 끌어 팩토리 모양을 조정하세요",

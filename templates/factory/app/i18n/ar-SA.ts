@@ -179,6 +179,7 @@ const messages = {
     auditClearBug: "خلل واضح",
     auditUxImpact: "تأثير تجربة المستخدم",
     auditOwnerArea: "مجال المسؤولية",
+    auditGuardsLabel: "الضوابط",
     automationsTitle: "الأتمتة",
     automationsDescription: "جدولة مطالبات المصنع وتشغيلها.",
     automationsLoading: "جارٍ تحميل الأتمتة...",
@@ -230,6 +231,13 @@ const messages = {
       "تعذر تحميل تشخيصات Factory. تحقق من الوصول والنشر وترحيلات قاعدة البيانات ثم حاول مرة أخرى.",
     automationEmailReadinessHint:
       "يستخدم البريد خزنة Dispatch الخاصة بالمؤسسة. كوّن مزودًا هناك إذا لم تكن الحالة جاهزة.",
+    rulesTitle: "القواعد",
+    shadowLabel: "الظل",
+    rulesGuidance: "استخدم المطالبات للتصنيف؛ وحافظ على الأمان عبر ضوابط منظمة.",
+    ruleNameLabel: "الاسم",
+    defaultFactoryLabel: "Factory الافتراضي",
+    savedFactoryLabel: "Factory المحفوظ",
+    saveRule: "حفظ القاعدة",
   },
   factoryCanvas: {
     dragHint: "اسحب العقد لإعادة تشكيل المصنع",

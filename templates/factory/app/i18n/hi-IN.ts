@@ -181,6 +181,7 @@ const messages = {
     auditClearBug: "स्पष्ट बग",
     auditUxImpact: "UX प्रभाव",
     auditOwnerArea: "जिम्मेदारी का क्षेत्र",
+    auditGuardsLabel: "गार्ड्स",
     automationsTitle: "ऑटोमेशन",
     automationsDescription: "Factory प्रॉम्प्ट शेड्यूल और रन करें।",
     automationsLoading: "ऑटोमेशन लोड हो रहे हैं...",
@@ -232,6 +233,14 @@ const messages = {
       "Factory डायग्नोस्टिक्स लोड नहीं हो सके। पहुँच, डिप्लॉयमेंट और डेटाबेस माइग्रेशन जाँचें, फिर दोबारा प्रयास करें।",
     automationEmailReadinessHint:
       "ईमेल संगठन के Dispatch वॉल्ट का उपयोग करता है। तैयार न होने पर वहाँ प्रदाता कॉन्फ़िगर करें।",
+    rulesTitle: "नियम",
+    shadowLabel: "शैडो",
+    rulesGuidance:
+      "वर्गीकरण के लिए prompts का उपयोग करें; सुरक्षा को structured guards में रखें।",
+    ruleNameLabel: "नाम",
+    defaultFactoryLabel: "डिफ़ॉल्ट Factory",
+    savedFactoryLabel: "सहेजा गया Factory",
+    saveRule: "नियम सेव करें",
   },
   factoryCanvas: {
     dragHint: "फ़ैक्टरी का आकार बदलने के लिए नोड खींचें",

@@ -387,7 +387,9 @@ function AuditDecisionFacts({ event }: { event: FactoryAuditEvent | null }) {
       {ownerArea && (
         <AuditFact label={t("factoryRoute.auditOwnerArea")} value={ownerArea} />
       )}
-      {guards && <AuditFact label="Guards" value={guards} />}
+      {guards && (
+        <AuditFact label={t("factoryRoute.auditGuardsLabel")} value={guards} />
+      )}
     </div>
   );
 }

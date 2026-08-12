@@ -14,6 +14,8 @@ export const DEFAULT_WORKSPACE_SKILLS = [
   "customizing-agent-native",
   "delegate-to-agent",
   "frontend-design",
+  "turn-into-app",
+  "turn-into-skill",
   "real-time-sync",
   "secrets",
   "security",

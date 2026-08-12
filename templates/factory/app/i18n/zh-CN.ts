@@ -175,6 +175,7 @@ const messages = {
     auditClearBug: "明确的缺陷",
     auditUxImpact: "用户体验影响",
     auditOwnerArea: "负责领域",
+    auditGuardsLabel: "守卫",
     automationsTitle: "自动化",
     automationsDescription: "安排并运行工厂提示词。",
     automationsLoading: "正在加载自动化...",
@@ -226,6 +227,13 @@ const messages = {
       "无法加载 Factory 诊断信息。请检查访问权限、部署和数据库迁移，然后重试。",
     automationEmailReadinessHint:
       "电子邮件使用组织的 Dispatch 密钥库。如果尚未就绪，请在那里配置服务商。",
+    rulesTitle: "规则",
+    shadowLabel: "影子",
+    rulesGuidance: "使用提示词进行分类；用结构化守卫保持安全。",
+    ruleNameLabel: "名称",
+    defaultFactoryLabel: "默认工厂",
+    savedFactoryLabel: "已保存的工厂",
+    saveRule: "保存规则",
   },
   factoryCanvas: {
     dragHint: "拖动节点来调整工厂形状",

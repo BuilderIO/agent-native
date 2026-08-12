@@ -465,7 +465,9 @@ export default function FactoryRoute() {
                     </h2>
                   </div>
                   <div className="flex min-w-0 items-center text-xs text-muted-foreground">
-                    {factory.virtual ? "Default factory" : "Saved factory"}
+                    {factory.virtual
+                      ? t("factoryRoute.defaultFactoryLabel")
+                      : t("factoryRoute.savedFactoryLabel")}
                   </div>
                   <div className="text-xs text-muted-foreground">
                     v{factory.graphVersion}
@@ -1511,7 +1513,9 @@ function RulesView({ t }: { t: ReturnType<typeof useT> }) {
     <div className="grid gap-4 p-4 lg:grid-cols-[280px_minmax(0,1fr)] lg:p-6">
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Rules</CardTitle>
+          <CardTitle className="text-base">
+            {t("factoryRoute.rulesTitle")}
+          </CardTitle>
           <p className="text-sm text-muted-foreground">
             {t("factoryRoute.rulesDescription")}
           </p>
@@ -1537,7 +1541,9 @@ function RulesView({ t }: { t: ReturnType<typeof useT> }) {
               onClick={() => selectRule(rule)}
             >
               <span className="min-w-0 truncate">{rule.name}</span>
-              <span className="text-xs text-muted-foreground">Shadow</span>
+              <span className="text-xs text-muted-foreground">
+                {t("factoryRoute.shadowLabel")}
+              </span>
             </Button>
           ))}
         </CardContent>
@@ -1549,13 +1555,15 @@ function RulesView({ t }: { t: ReturnType<typeof useT> }) {
               {t("factoryRoute.editRule")}
             </CardTitle>
             <p className="mt-1 text-sm text-muted-foreground">
-              Use prompts for classification; keep safety in structured guards.
+              {t("factoryRoute.rulesGuidance")}
             </p>
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-1.5">
-            <Label htmlFor="factory-rule-name">Name</Label>
+            <Label htmlFor="factory-rule-name">
+              {t("factoryRoute.ruleNameLabel")}
+            </Label>
             <Input
               id="factory-rule-name"
               value={name}
@@ -1593,7 +1601,7 @@ function RulesView({ t }: { t: ReturnType<typeof useT> }) {
             disabled={!name.trim() || !prompt.trim() || saveMutation.isPending}
           >
             {saveMutation.isPending && <IconLoader2 className="animate-spin" />}
-            Save rule
+            {t("factoryRoute.saveRule")}
           </Button>
         </CardContent>
       </Card>

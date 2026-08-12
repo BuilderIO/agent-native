@@ -187,6 +187,7 @@ const messages = {
     auditClearBug: "Clear bug",
     auditUxImpact: "UX impact",
     auditOwnerArea: "Owner area",
+    auditGuardsLabel: "Guards",
     automationsTitle: "Automations",
     automationsDescription: "Schedule and run Factory prompts.",
     automationsLoading: "Loading automations...",
@@ -238,6 +239,14 @@ const messages = {
       "Could not load Factory diagnostics. Check access, deployment, and database migrations, then try again.",
     automationEmailReadinessHint:
       "Email uses the organization Dispatch vault. Configure a provider there if this is not ready.",
+    rulesTitle: "Rules",
+    shadowLabel: "Shadow",
+    rulesGuidance:
+      "Use prompts for classification; keep safety in structured guards.",
+    ruleNameLabel: "Name",
+    defaultFactoryLabel: "Default factory",
+    savedFactoryLabel: "Saved factory",
+    saveRule: "Save rule",
   },
   factoryCanvas: {
     dragHint: "Drag to arrange",

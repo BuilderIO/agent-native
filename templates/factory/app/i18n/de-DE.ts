@@ -190,6 +190,7 @@ const messages = {
     auditClearBug: "Klarer Fehler",
     auditUxImpact: "UX-Auswirkung",
     auditOwnerArea: "Verantwortungsbereich",
+    auditGuardsLabel: "Guards",
     automationsTitle: "Automatisierungen",
     automationsDescription: "Factory-Prompts planen und ausführen.",
     automationsLoading: "Automatisierungen werden geladen...",
@@ -244,6 +245,14 @@ const messages = {
       "Factory-Diagnosen konnten nicht geladen werden. Prüfe Zugriff, Deployment und Datenbankmigrationen und versuche es erneut.",
     automationEmailReadinessHint:
       "E-Mail verwendet den Dispatch-Tresor der Organisation. Konfiguriere dort einen Anbieter, wenn dies nicht bereit ist.",
+    rulesTitle: "Regeln",
+    shadowLabel: "Shadow",
+    rulesGuidance:
+      "Verwende Prompts für die Klassifizierung; halte die Sicherheit in strukturierten Guards.",
+    ruleNameLabel: "Name",
+    defaultFactoryLabel: "Standard-Factory",
+    savedFactoryLabel: "Gespeicherte Factory",
+    saveRule: "Regel speichern",
   },
   factoryCanvas: {
     dragHint: "Ziehe Knoten, um die Factory neu zu gestalten",

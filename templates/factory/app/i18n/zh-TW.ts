@@ -175,6 +175,7 @@ const messages = {
     auditClearBug: "明確的錯誤",
     auditUxImpact: "使用者體驗影響",
     auditOwnerArea: "負責範圍",
+    auditGuardsLabel: "守衛",
     automationsTitle: "自動化",
     automationsDescription: "排程並執行工廠提示詞。",
     automationsLoading: "正在載入自動化...",
@@ -226,6 +227,13 @@ const messages = {
       "無法載入 Factory 診斷資訊。請檢查存取權限、部署和資料庫移轉，然後再試一次。",
     automationEmailReadinessHint:
       "電子郵件使用組織的 Dispatch 金庫。如果尚未就緒，請在那裡設定提供者。",
+    rulesTitle: "規則",
+    shadowLabel: "陰影",
+    rulesGuidance: "使用提示詞進行分類；用結構化守衛維持安全。",
+    ruleNameLabel: "名稱",
+    defaultFactoryLabel: "預設工廠",
+    savedFactoryLabel: "已儲存的工廠",
+    saveRule: "儲存規則",
   },
   factoryCanvas: {
     dragHint: "拖曳節點以調整工廠形狀",

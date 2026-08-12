@@ -2,14 +2,12 @@ import { resolveCredential } from "@agent-native/core/credentials";
 import type { CredentialContext } from "@agent-native/core/credentials";
 import { readAppSecret, type SecretRef } from "@agent-native/core/secrets";
 import {
-  getWorkspaceConnectionAppAccess,
-  listWorkspaceConnectionGrants,
   listWorkspaceConnections,
   resolveWorkspaceConnectionForApp,
   type SerializedWorkspaceConnection,
-  type SerializedWorkspaceConnectionGrant,
   type WorkspaceConnectionAppAccessMode,
   type WorkspaceConnectionCredentialRef,
+  type WorkspaceConnectionForApp,
 } from "@agent-native/core/workspace-connections";
 
 import type { BrainSourceProvider } from "../../shared/types.js";
@@ -82,12 +80,11 @@ function normalizeCredentialKey(key: string) {
   return key.trim().toUpperCase();
 }
 
-function credentialRefsForConnection(
-  connection: SerializedWorkspaceConnection,
-  grants: SerializedWorkspaceConnectionGrant[],
-) {
-  const grant = grants.find((entry) => entry.connectionId === connection.id);
-  return [...(grant?.credentialRefs ?? []), ...connection.credentialRefs];
+function credentialRefsForConnection(connection: WorkspaceConnectionForApp) {
+  return [
+    ...(connection.explicitGrant?.credentialRefs ?? []),
+    ...connection.credentialRefs,
+  ];
 }
 
 function refMatchesKey(ref: WorkspaceConnectionCredentialRef, key: string) {
@@ -172,22 +169,6 @@ async function readFirstSecretCandidate(
   return {};
 }
 
-function connectionStatusMessage(connection: SerializedWorkspaceConnection) {
-  switch (connection.status) {
-    case "checking":
-      return `${connection.label} is still checking health.`;
-    case "needs_reauth":
-      return `${connection.label} needs to be reauthorized before Brain can use it.`;
-    case "error":
-      return `${connection.label} is in an error state before Brain can use it.`;
-    case "disabled":
-      return `${connection.label} is disabled.`;
-    case "connected":
-    default:
-      return `${connection.label} is connected.`;
-  }
-}
-
 function missingCredentialMessage(
   provider: string,
   key: string,
@@ -266,16 +247,12 @@ async function resolveWorkspaceConnectionCredential({
   provenance: SourceCredentialProvenance;
 } | null> {
   let connections: SerializedWorkspaceConnection[] = [];
-  let grants: SerializedWorkspaceConnectionGrant[] = [];
   try {
-    [connections, grants] = await Promise.all([
-      listWorkspaceConnections({
-        provider,
-        appId: APP_ID,
-        includeDisabled: true,
-      }),
-      listWorkspaceConnectionGrants({ provider, appId: APP_ID }),
-    ]);
+    connections = await listWorkspaceConnections({
+      provider,
+      appId: APP_ID,
+      includeDisabled: true,
+    });
   } catch (err) {
     checked.push({
       source: "workspace_connection",
@@ -306,36 +283,50 @@ async function resolveWorkspaceConnectionCredential({
   }
 
   for (const connection of providerConnections) {
-    const access = getWorkspaceConnectionAppAccess(connection, APP_ID, grants);
-    if (!access.available) {
+    let resolved;
+    try {
+      resolved = await resolveWorkspaceConnectionForApp({
+        appId: APP_ID,
+        provider,
+        connectionId: connection.id,
+        includeDisabled: true,
+        requireConnected: true,
+      });
+    } catch (err) {
       checked.push({
         source: "workspace_connection",
         key,
-        status: "not_granted",
-        message: access.reason,
+        status: "error",
+        message: `Workspace connection lookup failed: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
         connectionId: connection.id,
         connectionLabel: connection.label,
-        grantId: access.grantId,
-        appAccessMode: access.mode,
       });
       continue;
     }
 
-    if (connection.status !== "connected") {
+    if (!resolved.available || !resolved.connection || !resolved.appAccess) {
+      const status =
+        resolved.appAccess?.available && resolved.connection
+          ? "unhealthy"
+          : "not_granted";
       checked.push({
         source: "workspace_connection",
         key,
-        status: "unhealthy",
-        message: connectionStatusMessage(connection),
+        status,
+        message: resolved.reason,
         connectionId: connection.id,
         connectionLabel: connection.label,
-        grantId: access.grantId,
-        appAccessMode: access.mode,
+        grantId: resolved.appAccess?.grantId ?? null,
+        appAccessMode: resolved.appAccess?.mode,
       });
       continue;
     }
 
-    const matchingRefs = credentialRefsForConnection(connection, grants).filter(
+    const access = resolved.appAccess;
+    const connectionResult = resolved.connection;
+    const matchingRefs = credentialRefsForConnection(connectionResult).filter(
       (ref) => refMatchesKey(ref, key),
     );
     if (matchingRefs.length === 0) {
@@ -343,12 +334,13 @@ async function resolveWorkspaceConnectionCredential({
         source: "workspace_connection",
         key,
         status: "missing",
-        message: `${connection.label} is granted to Brain but does not reference ${key}.`,
-        connectionId: connection.id,
-        connectionLabel: connection.label,
+        message: `${connectionResult.label} is granted to Brain but does not reference ${key}.`,
+        connectionId: connectionResult.id,
+        connectionLabel: connectionResult.label,
         grantId: access.grantId,
         appAccessMode: access.mode,
       });
+      continue;
     }
 
     for (const ref of matchingRefs) {
@@ -358,9 +350,9 @@ async function resolveWorkspaceConnectionCredential({
           source: "workspace_connection",
           key,
           status: "missing",
-          message: `${connection.label} references ${ref.key}, but its scope is unavailable in this request.`,
-          connectionId: connection.id,
-          connectionLabel: connection.label,
+          message: `${connectionResult.label} references ${ref.key}, but its scope is unavailable in this request.`,
+          connectionId: connectionResult.id,
+          connectionLabel: connectionResult.label,
           grantId: access.grantId,
           appAccessMode: access.mode,
         });
@@ -373,10 +365,10 @@ async function resolveWorkspaceConnectionCredential({
           source: "workspace_connection",
           key,
           status: "available",
-          message: `${key} is available through ${connection.label}.`,
+          message: `${key} is available through ${connectionResult.label}.`,
           scope: found.ref.scope,
-          connectionId: connection.id,
-          connectionLabel: connection.label,
+          connectionId: connectionResult.id,
+          connectionLabel: connectionResult.label,
           grantId: access.grantId,
           appAccessMode: access.mode,
         });
@@ -387,8 +379,8 @@ async function resolveWorkspaceConnectionCredential({
             key,
             provider,
             scope: found.ref.scope,
-            connectionId: connection.id,
-            connectionLabel: connection.label,
+            connectionId: connectionResult.id,
+            connectionLabel: connectionResult.label,
             grantId: access.grantId,
             appAccessMode: access.mode,
             credentialRefLabel: ref.label,
@@ -401,10 +393,10 @@ async function resolveWorkspaceConnectionCredential({
         key,
         status: found.error ? "error" : "missing",
         message: found.error
-          ? `${connection.label} credential lookup failed: ${found.error}`
-          : `${connection.label} references ${ref.key}, but no vault value was found.`,
-        connectionId: connection.id,
-        connectionLabel: connection.label,
+          ? `${connectionResult.label} credential lookup failed: ${found.error}`
+          : `${connectionResult.label} references ${ref.key}, but no vault value was found.`,
+        connectionId: connectionResult.id,
+        connectionLabel: connectionResult.label,
         grantId: access.grantId,
         appAccessMode: access.mode,
       });
