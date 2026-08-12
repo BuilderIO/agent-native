@@ -1,4 +1,4 @@
-import { defineAppRoles } from "@agent-native/core";
+import { defineAppRoles } from "@agent-native/core/org";
 import {
   registerPackageActions,
   type NitroPluginDef,

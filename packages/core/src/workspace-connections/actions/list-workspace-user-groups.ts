@@ -4,7 +4,7 @@ import { defineAction } from "../../action.js";
 import {
   assertWorkspaceUserGroupManager,
   listWorkspaceUserGroupsForOrg,
-} from "../index.js";
+} from "../groups.js";
 
 export default defineAction({
   description:

@@ -755,8 +755,7 @@ function WorkspaceGroupsCard({ groups }: { groups: WorkspaceUserGroup[] }) {
                     <AlertDialogCancel>{t("org.cancel")}</AlertDialogCancel>
                     <AlertDialogAction
                       disabled={deleteGroup.isPending}
-                      onClick={(event) => {
-                        event.preventDefault();
+                      onClick={() => {
                         setDeleteError(null);
                         deleteGroup.mutate(
                           { id: group.id },

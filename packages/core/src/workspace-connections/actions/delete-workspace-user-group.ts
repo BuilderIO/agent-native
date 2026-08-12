@@ -4,9 +4,9 @@ import { defineAction } from "../../action.js";
 import {
   assertWorkspaceUserGroupManager,
   deleteWorkspaceUserGroup,
-  listWorkspaceConnections,
   listWorkspaceUserGroupsForOrg,
-} from "../index.js";
+} from "../groups.js";
+import { listWorkspaceConnections } from "../store.js";
 
 export default defineAction({
   description:

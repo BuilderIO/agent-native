@@ -1651,6 +1651,7 @@ function ConnectionForm({
   grantApps,
   groups,
   canManageGroups,
+  canManageAllApps,
   saving,
   onChange,
   onClose,
@@ -1664,6 +1665,7 @@ function ConnectionForm({
   grantApps: GrantApp[];
   groups: WorkspaceUserGroup[];
   canManageGroups: boolean;
+  canManageAllApps: boolean;
   saving: boolean;
   onChange: (form: ConnectionFormState) => void;
   onClose: () => void;
@@ -1780,26 +1782,42 @@ function ConnectionForm({
           </div>
 
           <div className="rounded-md bg-muted/30 p-3">
-            <div className="flex items-center justify-between gap-3">
+            {canManageAllApps ? (
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-sm font-medium">
+                    {t("integrations.accessMode")}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {form.allApps
+                      ? t("integrations.allAppsCanReuseConnection")
+                      : t("integrations.onlySelectedAppsCanReuseConnection")}
+                  </div>
+                </div>
+                <Switch
+                  checked={form.allApps}
+                  onCheckedChange={(checked) =>
+                    onChange({ ...form, allApps: checked })
+                  }
+                  aria-label={t("integrations.grantAllWorkspaceAppsAria")}
+                />
+              </div>
+            ) : (
               <div>
                 <div className="text-sm font-medium">
-                  {t("integrations.accessMode")}
+                  {t("integrations.dispatchOnlyAccess", {
+                    defaultValue: "Dispatch only",
+                  })}
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  {form.allApps
-                    ? t("integrations.allAppsCanReuseConnection")
-                    : t("integrations.onlySelectedAppsCanReuseConnection")}
+                  {t("integrations.dispatchOnlyAccessDescription", {
+                    defaultValue:
+                      "You can manage connections for Dispatch. Organization admins can share them with other apps.",
+                  })}
                 </div>
               </div>
-              <Switch
-                checked={form.allApps}
-                onCheckedChange={(checked) =>
-                  onChange({ ...form, allApps: checked })
-                }
-                aria-label={t("integrations.grantAllWorkspaceAppsAria")}
-              />
-            </div>
-            {!form.allApps ? (
+            )}
+            {!form.allApps && canManageAllApps ? (
               <div className="mt-3 flex flex-wrap gap-2">
                 {grantApps.map((app) => {
                   const AppIcon = app.icon;
@@ -2093,6 +2111,7 @@ function SetupWizard({
   grantApps,
   groups,
   canManageGroups,
+  canManageAllApps,
   loading,
   saving,
   onStepChange,
@@ -2111,6 +2130,7 @@ function SetupWizard({
   grantApps: GrantApp[];
   groups: WorkspaceUserGroup[];
   canManageGroups: boolean;
+  canManageAllApps: boolean;
   loading: boolean;
   saving: boolean;
   onStepChange: (step: number) => void;
@@ -2177,7 +2197,10 @@ function SetupWizard({
     }
     return Array.from(map.values());
   }, [grantApps, plan?.suggestedApps]);
-  const selectedAppLabels = suggestedGrantApps
+  const availableGrantApps = canManageAllApps
+    ? suggestedGrantApps
+    : suggestedGrantApps.filter((app) => app.id.toLowerCase() === "dispatch");
+  const selectedAppLabels = availableGrantApps
     .filter((app) => selectedApps.includes(app.id))
     .map((app) => app.label);
   const accessSummary =
@@ -2348,7 +2371,7 @@ function SetupWizard({
                   </div>
 
                   <div className="grid gap-2">
-                    <div className="flex items-center gap-3 px-4 py-3.5">
+                    <div className="flex items-center gap-3 rounded-lg bg-muted/30 px-4 py-3.5">
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-medium text-foreground">
                           {accessSummary}
@@ -2359,110 +2382,114 @@ function SetupWizard({
                       </div>
                     </div>
 
-                    <details className="group rounded-lg bg-muted/30">
-                      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-medium text-foreground marker:hidden">
-                        <span>{t("integrations.appGrants")}</span>
-                        <IconChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
-                      </summary>
-                      <div className="grid gap-3 px-4 pb-4">
-                        <div className="flex items-center justify-between gap-4 rounded-md bg-muted/40 px-3 py-3">
-                          <div className="min-w-0">
-                            <p className="text-sm font-medium text-foreground">
-                              {t("integrations.allApps")}
-                            </p>
-                            <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
-                              {t("integrations.allAppsDescription")}
-                            </p>
-                          </div>
-                          <Switch
-                            checked={form.grantMode === "all-apps"}
-                            onCheckedChange={(checked) =>
-                              onChange({
-                                ...form,
-                                grantMode: checked
-                                  ? "all-apps"
-                                  : "selected-apps",
-                                selectedApps: checked
-                                  ? []
-                                  : selectedApps.length > 0
-                                    ? selectedApps
-                                    : suggestedGrantApps
-                                        .filter((app) => app.recommended)
-                                        .slice(0, 1)
-                                        .map((app) => app.id),
-                              })
-                            }
-                            aria-label={t(
-                              "integrations.grantAllWorkspaceAppsAria",
-                            )}
-                          />
-                        </div>
-
-                        {form.grantMode === "selected-apps" ? (
-                          <div className="grid gap-3">
-                            <p className="text-xs text-muted-foreground">
-                              {t("integrations.chooseOneApp")}
-                            </p>
-                            <div className="grid gap-2 sm:grid-cols-2">
-                              {suggestedGrantApps.map((app) => {
-                                const AppIcon = app.icon;
-                                const selected = selectedApps.includes(app.id);
-                                return (
-                                  <Label
-                                    key={app.id}
-                                    htmlFor={`setup-app-${app.id}`}
-                                    className="flex min-h-11 cursor-pointer items-center justify-between gap-3 rounded-lg bg-muted/40 px-3 py-2 transition-colors hover:bg-muted/60"
-                                  >
-                                    <span className="flex min-w-0 items-center gap-2">
-                                      <AppIcon
-                                        size={14}
-                                        className="text-muted-foreground"
-                                      />
-                                      <span className="truncate text-sm font-medium">
-                                        {app.label}
-                                      </span>
-                                      {app.recommended ? (
-                                        <Pill className="h-5 border-border bg-muted px-1.5 text-[11px]">
-                                          {t("integrations.suggested")}
-                                        </Pill>
-                                      ) : null}
-                                    </span>
-                                    <Checkbox
-                                      id={`setup-app-${app.id}`}
-                                      checked={selected}
-                                      onCheckedChange={(checked) =>
-                                        onChange({
-                                          ...form,
-                                          selectedApps: checked
-                                            ? Array.from(
-                                                new Set([
-                                                  ...selectedApps,
-                                                  app.id,
-                                                ]),
-                                              )
-                                            : selectedApps.filter(
-                                                (appId) => appId !== app.id,
-                                              ),
-                                        })
-                                      }
-                                      aria-label={t(
-                                        "integrations.appGrantAria",
-                                        {
-                                          action: selected
-                                            ? t("integrations.remove")
-                                            : t("integrations.grant"),
-                                          app: app.label,
-                                        },
-                                      )}
-                                    />
-                                  </Label>
-                                );
-                              })}
+                    {canManageAllApps ? (
+                      <details className="group rounded-lg bg-muted/30">
+                        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-medium text-foreground marker:hidden">
+                          <span>{t("integrations.appGrants")}</span>
+                          <IconChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
+                        </summary>
+                        <div className="grid gap-3 px-4 pb-4">
+                          <div className="flex items-center justify-between gap-4 rounded-md bg-muted/40 px-3 py-3">
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium text-foreground">
+                                {t("integrations.allApps")}
+                              </p>
+                              <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
+                                {t("integrations.allAppsDescription")}
+                              </p>
                             </div>
+                            <Switch
+                              checked={form.grantMode === "all-apps"}
+                              onCheckedChange={(checked) =>
+                                onChange({
+                                  ...form,
+                                  grantMode: checked
+                                    ? "all-apps"
+                                    : "selected-apps",
+                                  selectedApps: checked
+                                    ? []
+                                    : selectedApps.length > 0
+                                      ? selectedApps
+                                      : suggestedGrantApps
+                                          .filter((app) => app.recommended)
+                                          .slice(0, 1)
+                                          .map((app) => app.id),
+                                })
+                              }
+                              aria-label={t(
+                                "integrations.grantAllWorkspaceAppsAria",
+                              )}
+                            />
                           </div>
-                        ) : null}
-                      </div>
-                    </details>
+
+                          {form.grantMode === "selected-apps" ? (
+                            <div className="grid gap-3">
+                              <p className="text-xs text-muted-foreground">
+                                {t("integrations.chooseOneApp")}
+                              </p>
+                              <div className="grid gap-2 sm:grid-cols-2">
+                                {availableGrantApps.map((app) => {
+                                  const AppIcon = app.icon;
+                                  const selected = selectedApps.includes(
+                                    app.id,
+                                  );
+                                  return (
+                                    <Label
+                                      key={app.id}
+                                      htmlFor={`setup-app-${app.id}`}
+                                      className="flex min-h-11 cursor-pointer items-center justify-between gap-3 rounded-lg bg-muted/40 px-3 py-2 transition-colors hover:bg-muted/60"
+                                    >
+                                      <span className="flex min-w-0 items-center gap-2">
+                                        <AppIcon
+                                          size={14}
+                                          className="text-muted-foreground"
+                                        />
+                                        <span className="truncate text-sm font-medium">
+                                          {app.label}
+                                        </span>
+                                        {app.recommended ? (
+                                          <Pill className="h-5 border-border bg-muted px-1.5 text-[11px]">
+                                            {t("integrations.suggested")}
+                                          </Pill>
+                                        ) : null}
+                                      </span>
+                                      <Checkbox
+                                        id={`setup-app-${app.id}`}
+                                        checked={selected}
+                                        onCheckedChange={(checked) =>
+                                          onChange({
+                                            ...form,
+                                            selectedApps: checked
+                                              ? Array.from(
+                                                  new Set([
+                                                    ...selectedApps,
+                                                    app.id,
+                                                  ]),
+                                                )
+                                              : selectedApps.filter(
+                                                  (appId) => appId !== app.id,
+                                                ),
+                                          })
+                                        }
+                                        aria-label={t(
+                                          "integrations.appGrantAria",
+                                          {
+                                            action: selected
+                                              ? t("integrations.remove")
+                                              : t("integrations.grant"),
+                                            app: app.label,
+                                          },
+                                        )}
+                                      />
+                                    </Label>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
+                      </details>
+                    ) : null}
                   </div>
                   <UserAccessControl
                     allUsers={form.userGrantMode === "all-users"}
@@ -2670,8 +2697,8 @@ export default function WorkspaceIntegrationsRoute() {
   const queryClient = useQueryClient();
   const { canManageOrg } = useOrgRole();
   const { data: dispatchAppRole } = useAppRoles("dispatch");
-  const canManageConnections =
-    canManageOrg || dispatchAppRole?.canManage === true;
+  const isDispatchAppAdmin = dispatchAppRole?.myRole === "admin";
+  const canManageConnections = canManageOrg || isDispatchAppAdmin;
   const [form, setForm] = useState<ConnectionFormState | null>(null);
   const [setupWizard, setSetupWizard] = useState<SetupWizardState | null>(null);
   const [setupStep, setSetupStep] = useState(0);
@@ -2780,9 +2807,20 @@ export default function WorkspaceIntegrationsRoute() {
   useEffect(() => {
     if (!setupWizard || !setupPlanQuery.data) return;
     if (setupFormKey === currentSetupKey) return;
-    setSetupForm(setupFormFromPlan(setupPlanQuery.data, setupWizard.mode));
+    const nextForm = setupFormFromPlan(setupPlanQuery.data, setupWizard.mode);
+    if (!canManageOrg) {
+      nextForm.grantMode = "selected-apps";
+      nextForm.selectedApps = ["dispatch"];
+    }
+    setSetupForm(nextForm);
     setSetupFormKey(currentSetupKey);
-  }, [currentSetupKey, setupFormKey, setupPlanQuery.data, setupWizard]);
+  }, [
+    canManageOrg,
+    currentSetupKey,
+    setupFormKey,
+    setupPlanQuery.data,
+    setupWizard,
+  ]);
 
   function openSetup(provider: WorkspaceConnectionProvider) {
     if (!canManageConnections) return;
@@ -2833,7 +2871,7 @@ export default function WorkspaceIntegrationsRoute() {
   function canManageConnection(connection: WorkspaceConnection): boolean {
     return (
       canManageOrg ||
-      (dispatchAppRole?.canManage === true &&
+      (isDispatchAppAdmin &&
         connection.allowedApps.length === 1 &&
         connection.allowedApps[0]?.toLowerCase() === "dispatch")
     );
@@ -2845,10 +2883,12 @@ export default function WorkspaceIntegrationsRoute() {
   ): boolean {
     return (
       canManageOrg ||
-      (dispatchAppRole?.canManage === true &&
-        appId === "dispatch" &&
+      (isDispatchAppAdmin &&
+        appId.toLowerCase() === "dispatch" &&
         connection.allowedApps.length > 0 &&
-        connection.allowedApps.includes("dispatch"))
+        connection.allowedApps.some(
+          (allowedApp) => allowedApp.toLowerCase() === "dispatch",
+        ))
     );
   }
 
@@ -2889,6 +2929,13 @@ export default function WorkspaceIntegrationsRoute() {
     } else if (!canManageConnections) {
       return;
     }
+    if (
+      !canManageOrg &&
+      (form.allApps ||
+        form.selectedApps.some((appId) => appId.toLowerCase() !== "dispatch"))
+    ) {
+      return;
+    }
     try {
       const provider = providersById.get(form.provider);
       const credentialRefs = normalizeCredentialRefs(
@@ -2924,6 +2971,15 @@ export default function WorkspaceIntegrationsRoute() {
   async function applySetupWizard() {
     if (!setupForm) return;
     if (!canManageConnections) return;
+    if (
+      !canManageOrg &&
+      (setupForm.grantMode === "all-apps" ||
+        setupForm.selectedApps.some(
+          (appId) => appId.toLowerCase() !== "dispatch",
+        ))
+    ) {
+      return;
+    }
     try {
       await applySetup.mutateAsync({
         connectionId: setupForm.connectionId,
@@ -3180,10 +3236,22 @@ export default function WorkspaceIntegrationsRoute() {
                     statusClassName: connected
                       ? "text-emerald-600 dark:text-emerald-400"
                       : "text-muted-foreground",
-                    actionLabel: connected ? "Manage" : "Connect",
+                    actionLabel: connected
+                      ? canManageConnection(active[0])
+                        ? "Manage"
+                        : personalIntegrations.has(provider.id)
+                          ? "Connect for me"
+                          : "Admin only"
+                      : "Connect",
+                    disabled:
+                      !connected &&
+                      !canManageConnections &&
+                      !personalIntegrations.has(provider.id),
                     onAction: () =>
                       connected
-                        ? openEdit(active[0])
+                        ? canManageConnection(active[0])
+                          ? openEdit(active[0])
+                          : openProviderConnection(provider)
                         : openProviderConnection(provider),
                   };
                 })}
@@ -3274,9 +3342,17 @@ export default function WorkspaceIntegrationsRoute() {
 
             <section>
               <div className="mb-3 flex items-center justify-between gap-3">
-                <h2 className="text-sm font-semibold text-foreground">
-                  {t("integrations.connectedAccounts")}
-                </h2>
+                <div>
+                  <h2 className="text-sm font-semibold text-foreground">
+                    {t("integrations.connectedAccounts")}
+                  </h2>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    {t("integrations.sharedConnectionsDescription", {
+                      defaultValue:
+                        "Saved provider connections that your apps can use.",
+                    })}
+                  </p>
+                </div>
               </div>
               {connections.length === 0 && !connectionsQuery.isLoading ? (
                 <div className="rounded-lg bg-muted/30 px-6 py-12 text-center">
@@ -3285,7 +3361,7 @@ export default function WorkspaceIntegrationsRoute() {
                     className="mx-auto text-muted-foreground"
                   />
                   <p className="mt-3 text-sm font-medium text-foreground">
-                    {t("integrations.noSharedAccountsYet")}
+                    {t("integrations.noSharedConnectionsYet")}
                   </p>
                   <p className="mx-auto mt-1 max-w-md text-sm leading-5 text-muted-foreground">
                     {t("integrations.emptyConnectedAccountsDescription")}
@@ -3331,6 +3407,7 @@ export default function WorkspaceIntegrationsRoute() {
         grantApps={grantApps}
         groups={groups}
         canManageGroups={canManageOrg}
+        canManageAllApps={canManageOrg}
         loading={setupPlanQuery.isLoading}
         saving={applySetup.isPending}
         onStepChange={setSetupStep}
@@ -3351,6 +3428,7 @@ export default function WorkspaceIntegrationsRoute() {
         grantApps={grantApps}
         groups={groups}
         canManageGroups={canManageOrg}
+        canManageAllApps={canManageOrg}
         saving={upsertConnection.isPending}
         onChange={setForm}
         onClose={() => setForm(null)}
@@ -3380,7 +3458,7 @@ export default function WorkspaceIntegrationsRoute() {
                 providerChoice.provider.id,
                 providerChoice.provider.label,
               )}
-              showWorkspaceOption
+              showWorkspaceOption={canManageConnections}
               onPersonal={() => {
                 setPersonalIntegrationId(providerChoice.personalIntegration.id);
                 setProviderChoice(null);

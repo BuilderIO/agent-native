@@ -1,6 +1,5 @@
 import { defineAction } from "@agent-native/core";
 import {
-  assertWorkspaceUserGroupManager,
   getWorkspaceConnection,
   revokeWorkspaceConnectionGrant,
   upsertWorkspaceConnection,
@@ -58,7 +57,6 @@ export default defineAction({
       ),
   }),
   run: async (args, ctx) => {
-    await assertWorkspaceUserGroupManager(ctx?.orgId, ctx?.userEmail);
     const connection = await getWorkspaceConnection(args.connectionId);
     if (!connection) {
       throw new Error(`Workspace connection "${args.connectionId}" not found.`);
