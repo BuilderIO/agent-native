@@ -181,6 +181,16 @@ export default function ClipsTemplate() {
             />
           </div>
         </div>
+
+        <div
+          id="try-with-ai"
+          className="mx-auto mt-10 max-w-3xl scroll-mt-24 lg:mt-12"
+        >
+          <h2 className="mb-4 text-2xl font-bold tracking-tight sm:text-3xl">
+            Paste this into Claude, ChatGPT, or Cursor:
+          </h2>
+          <CliCopy value={AI_PROMPT} location="landing_page_prompt" multiline />
+        </div>
       </section>
 
       {/* By the numbers */}
@@ -200,12 +210,6 @@ export default function ClipsTemplate() {
               </div>
             </div>
           ))}
-        </div>
-        <div id="try-with-ai" className="mx-auto mt-8 max-w-3xl scroll-mt-24">
-          <p className="mb-3 text-sm font-medium text-[var(--fg)]">
-            Paste this into Claude, ChatGPT, or Cursor:
-          </p>
-          <CliCopy value={AI_PROMPT} location="landing_page_prompt" multiline />
         </div>
       </section>
 
