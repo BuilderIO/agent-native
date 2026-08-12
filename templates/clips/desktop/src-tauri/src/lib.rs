@@ -6,6 +6,7 @@
 
 mod accessibility;
 mod adhoc_meetings_watcher;
+mod call_activity;
 mod capture_audio_bus;
 mod capture_graph;
 mod clips;
