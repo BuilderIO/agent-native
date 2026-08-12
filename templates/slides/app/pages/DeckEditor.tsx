@@ -170,14 +170,17 @@ export default function DeckEditor() {
   const [addSlideGenerating, setAddSlideGenerating] = useState(false);
   const [generatingSlideSelected, setGeneratingSlideSelected] = useState(false);
   const { generating } = useAgentGenerating();
-  // Only auto-clear addSlideGenerating once we've actually observed a run
-  // start and finish. This lives here (not in EditorSidebar) because the
-  // sidebar rail unmounts on narrow viewports when the user closes it — a
-  // ref living there would forget an in-progress run and never clear the
-  // flag, leaving New slide disabled for the rest of the session.
+  // Dedicated instance (not the `generating` one above, which reflects ANY
+  // agent chat activity) so an unrelated concurrent run can't be mistaken
+  // for this one finishing and clear the flag early. Owning the submit call
+  // here — instead of in EditorSidebar, which unmounts when the rail closes
+  // on narrow viewports — keeps both the run-scoping and the completion
+  // tracking correct across a remount.
+  const { generating: addSlideAgentGenerating, submit: addSlideAgentSubmit } =
+    useAgentGenerating();
   const sawAddSlideAgentGeneratingRef = useRef(false);
   useEffect(() => {
-    if (generating) {
+    if (addSlideAgentGenerating) {
       sawAddSlideAgentGeneratingRef.current = true;
       return;
     }
@@ -185,7 +188,7 @@ export default function DeckEditor() {
       sawAddSlideAgentGeneratingRef.current = false;
       setAddSlideGenerating(false);
     }
-  }, [addSlideGenerating, generating]);
+  }, [addSlideGenerating, addSlideAgentGenerating]);
   // Generation intent can arrive after this route mounts because the user
   // answers pre-generation questions from the empty editor.
   const wasNewDeckCreation = useRef(searchParams.get("generating") === "1");
@@ -1208,6 +1211,7 @@ export default function DeckEditor() {
                   onAddEmptySlide={canEdit ? handleAddEmptySlide : undefined}
                   onAwaitAddSlidePersisted={() => flushDeckSave(id)}
                   onRemoveFailedSlide={(slideId) => deleteSlide(id, slideId)}
+                  addSlideAgentSubmit={addSlideAgentSubmit}
                   addSlideGenerating={addSlideGenerating}
                   onAddSlideGeneratingChange={setAddSlideGenerating}
                   onSelectSlide={(slideId) => {

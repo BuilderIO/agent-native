@@ -34,7 +34,6 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import type { Slide } from "@/context/DeckContext";
-import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import { getAspectRatioDims, type AspectRatio } from "@/lib/aspect-ratios";
 import { TAB_ID } from "@/lib/tab-id";
 
@@ -72,6 +71,10 @@ interface EditorSidebarProps {
   /** Removes a blank placeholder slide whose persistence ultimately failed,
    *  so a flaky save doesn't leave a stray empty slide in the deck. */
   onRemoveFailedSlide?: (slideId: string) => void;
+  /** Submits the add-slide agent request. Owned by the parent (rather than
+   *  this component's own useAgentGenerating() call) so the run stays
+   *  correctly scoped and trackable across a sidebar remount. */
+  addSlideAgentSubmit: (message: string, context: string) => void;
 }
 
 const DECK_FIT_STATE_KEYS = [
@@ -340,9 +343,9 @@ export default function EditorSidebar({
   onAddSlideGeneratingChange,
   onAwaitAddSlidePersisted,
   onRemoveFailedSlide,
+  addSlideAgentSubmit,
 }: EditorSidebarProps) {
   const t = useT();
-  const { submit: agentSubmit } = useAgentGenerating();
   const [describeSlideId, setDescribeSlideId] = useState<string | null>(null);
   const [describeAnchorEl, setDescribeAnchorEl] =
     useState<HTMLButtonElement | null>(null);
@@ -587,7 +590,7 @@ export default function EditorSidebar({
               toast.error(t("editorSidebar.newSlideSaveFailed"));
               return;
             }
-            agentSubmit(message, context);
+            addSlideAgentSubmit(message, context);
           }}
         />
       )}
