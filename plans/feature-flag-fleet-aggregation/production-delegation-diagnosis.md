@@ -213,6 +213,28 @@ authorized-scope:
 allowed-mutations: [artifact-write, branch, commit, push, pull-request, deploy]
 write-targets:
   artifacts: [plans/feature-flag-fleet-aggregation/production-delegation-diagnosis.md]
+test-resources:
+  - id: feature-flag-domain-delegation-preview-suite
+    kind: preview
+    surface: isolated Netlify branch previews for Analytics, Dispatch, and one additional feature-flag target
+    ownership-marker: codex/feature-flag-domain-delegation
+    baseline: no preview deploys for this task branch before Work
+    allowed-actions: [create, update, exercise, delete]
+    cleanup-trigger: after tester-owned acceptance
+    cleanup-method: delete the task branch preview deploys through Netlify
+    cleanup-proof: independently read back that no deploy preview remains for the task branch
+    shared-impact: none
+    isolation: branch-preview
+    ownership: task-created
+    production-data: false
+    customer-data: false
+    cost: none
+    boundary-evidence: [Netlify deploy context is deploy-preview or branch-deploy, branch equals codex/feature-flag-domain-delegation, preview databases use task branch isolation]
+    max-lifetime-minutes: 1440
+    declared-at: 2026-08-12T16:52:20Z
+    expires-at: 2026-08-13T16:52:20Z
+    status: declared
+    phase: work
 governing-artifact:
   path: plans/feature-flag-fleet-aggregation/production-delegation-diagnosis.md
   revision: work-r1
@@ -287,3 +309,35 @@ Do not mutate production roles again, do not synchronize database-local org IDs,
 and do not add the fix to OAuth PR #2602. After this control-plane repair is
 accepted, re-evaluate what specific production flag or acceptance step #2602
 actually requires; its current diff does not itself establish that dependency.
+
+## Frozen hosted acceptance script
+
+Persona: An independent Builder.io workspace administrator managing feature flags from Analytics.
+
+Starting state: Isolated branch previews for Analytics, Dispatch, and one additional target app use the same verified workspace domain but deliberately different app-local organization IDs. The tester owns a disposable admin identity and no production data is present.
+
+Disposable test data: One registered default-off flag and a distinctive tester email rule, both confined to the preview databases.
+
+H1. Sign in to the isolated Analytics preview and open Feature flags.
+    Functional expectation: The fleet loads without a directory error; Dispatch and the additional target are visible, and Dispatch's `desktop.workspace-sso` flag appears Off.
+    Visual expectation: Per-app states and any safe diagnostic reasons are readable without clipping or secret/error-body disclosure.
+    Evidence: Initial fleet screenshot plus preview network status for the directory and list actions.
+
+H2. On the additional target, choose Enable for me.
+    Functional expectation: The mutation succeeds even though Analytics and the target use different local organization IDs, and read-back shows the tester's email rule persisted in the target.
+    Visual expectation: The control returns to a clear enabled state without a contradictory error.
+    Evidence: Before/after screenshots and target-local read-back of the persisted rule.
+
+H3. Exercise an isolated member or same-email account outside the mapped target organization.
+    Functional expectation: Listing or mutation is denied and no targeting rules are disclosed or changed.
+    Visual expectation: Analytics shows a truthful forbidden state rather than an unreachable or successful state.
+    Evidence: Denial screenshot plus unchanged target-local rule read-back.
+
+H4. Exercise one safe unreachable target condition in the isolated previews.
+    Functional expectation: Analytics reports a fixed safe class such as timeout or network and does not reflect response bodies, host details, or secrets.
+    Visual expectation: The reason remains concise and legible.
+    Evidence: Error-state screenshot and relevant sanitized network/log observation.
+
+Regression checks: A Dispatch caller that identifies itself still removes Dispatch from its own directory result; wrong domain, audience, scope, signature, or nonce remains denied through automated evidence bound to the same head.
+
+Cleanup: Remove the disposable email rule and preview identity/data, then delete the task-owned preview deploys and independently prove their absence.
