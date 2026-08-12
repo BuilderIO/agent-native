@@ -1,5 +1,12 @@
+import { readFileSync } from "node:fs";
+
 import type { AgentLoopFinalResponseGuardContext } from "@agent-native/core/server";
 import { describe, expect, it, vi } from "vitest";
+
+const adhocAnalysisSkill = readFileSync(
+  new URL("../../.agents/skills/adhoc-analysis/SKILL.md", import.meta.url),
+  "utf8",
+);
 
 const { agentChatPluginOptions, representativeAnalyticsActions } = vi.hoisted(
   () => ({
@@ -70,6 +77,17 @@ import {
 } from "./agent-chat";
 
 describe("Analytics agent Plan mode policy", () => {
+  it("routes one-off stacked charts through the live embed path", () => {
+    expect(adhocAnalysisSkill).toMatch(/use the live\s+`\/chart` embed/);
+    expect(adhocAnalysisSkill).toMatch(
+      /Do not call\s+`generate-chart` for a one-off chat result/,
+    );
+    expect(adhocAnalysisSkill).toContain("config.stacked: true");
+    expect(adhocAnalysisSkill).not.toContain(
+      "call `generate-chart` before formatting the report",
+    );
+  });
+
   it("recovers a silent background dashboard run before the long chunk timeout", () => {
     expect(ANALYTICS_BACKGROUND_RUN_NO_PROGRESS_TIMEOUT_MS).toBe(3 * 60_000);
   });

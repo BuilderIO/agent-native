@@ -3165,11 +3165,14 @@ fn is_recording_segment_path(path: &Path) -> bool {
 }
 
 fn orphan_recording_id(path: &Path) -> Option<String> {
+    if is_recording_segment_path(path) {
+        return None;
+    }
     let stem = path.file_stem().and_then(|value| value.to_str())?;
-    let (prefix, value) = if let Some(value) = stem.strip_prefix("rewind-") {
-        ("rewind", value)
+    let value = if let Some(value) = stem.strip_prefix("rewind-") {
+        value
     } else if let Some(value) = stem.strip_prefix("clips-fullscreen-") {
-        ("fullscreen", value)
+        value
     } else {
         return None;
     };
@@ -3177,7 +3180,6 @@ fn orphan_recording_id(path: &Path) -> Option<String> {
     if recording_id.is_empty() || suffix.is_empty() || !suffix.chars().all(|v| v.is_ascii_digit()) {
         return None;
     }
-    let _ = prefix;
     Some(recording_id.to_string())
 }
 
@@ -3446,6 +3448,21 @@ pub async fn native_fullscreen_recover_orphaned_uploads(
     app: AppHandle,
     server_url: String,
 ) -> Result<NativeOrphanedRecordingRecoveryResult, String> {
+    let native_recording_active = app
+        .try_state::<NativeFullscreenRecordingState>()
+        .is_some_and(|state| {
+            state
+                .inner
+                .lock()
+                .map(|recording| recording.is_some())
+                .unwrap_or(false)
+        });
+    if native_recording_active || crate::rewind_clip::is_active(&app) {
+        return Ok(NativeOrphanedRecordingRecoveryResult {
+            recovered: 0,
+            skipped: 0,
+        });
+    }
     let fallback_server_url = server_url.trim_end_matches('/').to_string();
     let worker_app = app.clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
@@ -3457,6 +3474,70 @@ pub async fn native_fullscreen_recover_orphaned_uploads(
         let _ = app.emit("clips:pending-uploads-changed", ());
     }
     Ok(result)
+}
+
+#[cfg(test)]
+mod orphan_recovery_tests {
+    use super::*;
+
+    #[test]
+    fn recognizes_recording_ids_without_treating_segments_as_new_clips() {
+        assert_eq!(
+            orphan_recording_id(Path::new("rewind-dvDBh5T8t4FU-1723456789012.mp4")),
+            Some("dvDBh5T8t4FU".into())
+        );
+        assert_eq!(
+            orphan_recording_id(Path::new("clips-fullscreen-e4esSx9NZCZa-1234.mov")),
+            Some("e4esSx9NZCZa".into())
+        );
+        assert!(is_recording_segment_path(Path::new(
+            "clips-fullscreen-e4esSx9NZCZa-1234-seg2.mp4"
+        )));
+        assert!(
+            orphan_recording_id(Path::new("clips-fullscreen-e4esSx9NZCZa-1234-seg2.mp4")).is_none()
+        );
+        assert!(orphan_recording_id(Path::new("unrelated.mp4")).is_none());
+    }
+
+    #[test]
+    fn intent_sidecars_round_trip_and_map_back_to_media() {
+        let root = std::env::temp_dir().join(format!(
+            "clips-recovery-intent-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let media = root.join("rewind-recording-123.mp4");
+        persist_recording_intent(
+            &media,
+            "recording-123",
+            "https://clips.example.test",
+            MP4_RECORDING_MIME_TYPE,
+            Some(1280),
+            Some(720),
+            true,
+            true,
+            false,
+            false,
+            true,
+        )
+        .unwrap();
+        let intent_path = recording_intent_path(&media);
+        assert!(intent_path.exists());
+        assert_eq!(
+            recording_path_from_intent(&intent_path),
+            Some(media.clone())
+        );
+        let intent = read_recording_intent(&media).unwrap().unwrap();
+        assert_eq!(intent.recording_id, "recording-123");
+        assert_eq!(intent.server_url, "https://clips.example.test");
+        assert!(intent.custom_pipeline);
+        remove_recording_intent(&media);
+        assert!(!intent_path.exists());
+        let _ = std::fs::remove_dir_all(root);
+    }
 }
 
 #[tauri::command]
