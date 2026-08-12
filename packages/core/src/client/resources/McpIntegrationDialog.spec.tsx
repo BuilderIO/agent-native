@@ -139,6 +139,37 @@ describe("McpIntegrationDialog", () => {
     );
   });
 
+  it("quick-connects catalog integrations personally by default", () => {
+    const context7 = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "context7",
+    )!;
+    const onCreateMcpServer = vi.fn().mockResolvedValue(undefined);
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <McpIntegrationDialog
+            open
+            onOpenChange={() => {}}
+            quickConnectIntegrationId="context7"
+            defaultScope="org"
+            canCreateOrgMcp
+            hasOrg
+            onCreateMcpServer={onCreateMcpServer}
+            integrations={[context7]}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(document.body.textContent).not.toContain(
+      "Who should be able to use this connection?",
+    );
+    expect(onCreateMcpServer).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: "user" }),
+    );
+  });
+
   it("does not show organization scope to a member", () => {
     const linear = DEFAULT_MCP_INTEGRATIONS.find(
       (integration) => integration.id === "linear",

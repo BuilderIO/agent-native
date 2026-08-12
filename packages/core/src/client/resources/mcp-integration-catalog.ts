@@ -1160,6 +1160,59 @@ export function isMcpConnectionFailureText(text: string): boolean {
   );
 }
 
+/**
+ * Agent responses need a stronger signal than a provider name alone before
+ * they create an actionable card. This intentionally accepts both an
+ * imperative ("connect HubSpot") and a blocked-work explanation ("HubSpot
+ * access is required"), while avoiding positive status text such as
+ * "HubSpot is connected".
+ */
+export function isMcpConnectionSuggestionText(text: string): boolean {
+  const normalized = text.trim();
+  if (!normalized) return false;
+
+  const hasConnectionAction = /\b(?:connect|authorize|link)\b/i.test(
+    normalized,
+  );
+  const hasConnectionNeed =
+    /\b(?:please|need(?:s)?|required?|requires?|must|should|unable|can(?:not|'t|’t)|could(?: not|n't|n’t)|don't|do not|no|without|before|continue|access|account|workspace)\b/i.test(
+      normalized,
+    );
+  const isImperativeConnectionAction =
+    /^\s*(?:please\s+)?(?:connect|authorize|link)\b/i.test(normalized);
+  const isConnectionQuestion =
+    /^\s*(?:can|could|would)\s+you\s+(?:please\s+)?(?:connect|authorize|link)\b/i.test(
+      normalized,
+    );
+  const hasMissingConnection =
+    /\b(?:isn't|is not|aren't|are not|hasn't|has not|not|never)\s+(?:currently\s+)?connected\b/i.test(
+      normalized,
+    ) ||
+    /\b(?:no|without)\s+(?:a\s+)?(?:connection|access)\b/i.test(normalized);
+  const hasMissingAccess =
+    /\b(?:don't|do not|cannot|can't|unable)\b[\s\S]{0,80}\baccess\b/i.test(
+      normalized,
+    );
+  const hasRequiredConnection =
+    /\b(?:connection|access)\b[\s\S]{0,60}\b(?:required|needed|missing|unavailable)\b/i.test(
+      normalized,
+    );
+  const hasRequiredAccess =
+    /\b(?:need(?:s)?|require(?:s|d)?|must\s+have)\b[\s\S]{0,40}\b(?:access|connection|authorization)\b/i.test(
+      normalized,
+    );
+
+  return (
+    (hasConnectionAction && hasConnectionNeed) ||
+    isImperativeConnectionAction ||
+    isConnectionQuestion ||
+    hasMissingConnection ||
+    hasMissingAccess ||
+    hasRequiredConnection ||
+    hasRequiredAccess
+  );
+}
+
 export function createMcpIntegrationFormDefaults(
   integration?: DefaultMcpIntegration | null,
 ): McpIntegrationFormDefaults {

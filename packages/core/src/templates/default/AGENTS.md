@@ -55,6 +55,21 @@ cross-cutting work and `self-modifying-code` when changing app source.
 - A missing or unreadable value must stay distinguishable from success. Throw or
   return an explicit error instead of silently falling back to an empty value.
 
+## Lightweight defaults
+
+Apps are English-only and do not generate changelog entries by default. If an
+app needs more locales or user-facing release notes, opt in from
+`agent-native.config.ts`:
+
+```ts
+import { defineAgentNativeConfig } from "@agent-native/core";
+
+export default defineAgentNativeConfig({
+  translations: { locales: ["en-US", "fr-FR"] },
+  changelog: { enabled: true },
+});
+```
+
 ## Application state
 
 Use the existing `application_state` helpers for navigation and selection. Keep
@@ -92,5 +107,5 @@ private package internals.
 ## Verification
 
 Match checks to the change: run the existing focused tests, typecheck, and
-formatter. For a user-facing template change, record a changelog entry from
-the app with `agent-native changelog add` when appropriate.
+formatter. Add a changelog entry only when `changelog.enabled` is true in the
+app's `agent-native.config.ts`.

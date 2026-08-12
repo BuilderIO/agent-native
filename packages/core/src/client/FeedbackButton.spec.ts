@@ -48,6 +48,33 @@ describe("resolveFeedbackUrl", () => {
     );
   });
 
+  it("routes legacy first-party feedback pages through the popover form", () => {
+    const formUrl =
+      "https://forms.agent-native.com/f/agent-native-feedback/_16ewV";
+
+    vi.stubEnv("VITE_AGENT_NATIVE_FEEDBACK_URL", "/feedback");
+    expect(resolveFeedbackUrl(undefined, "www.agent-native.com")).toBe(formUrl);
+    expect(
+      resolveFeedbackUrl(
+        "https://www.agent-native.com/feedback",
+        "example.com",
+      ),
+    ).toBe(formUrl);
+    expect(resolveFeedbackUrl("/feedback", "www.agent-native.com")).toBe(
+      formUrl,
+    );
+  });
+
+  it("hides invalid configured targets instead of rendering a dead trigger", () => {
+    expect(
+      resolveFeedbackUrl(
+        "https://www.agent-native.com/not-feedback",
+        "example.com",
+      ),
+    ).toBeNull();
+    expect(resolveFeedbackUrl("/feedback", "example.com")).toBeNull();
+  });
+
   it("allows callers to provide or explicitly disable a URL", () => {
     vi.stubEnv(
       "VITE_AGENT_NATIVE_FEEDBACK_URL",

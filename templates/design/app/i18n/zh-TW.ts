@@ -1274,6 +1274,8 @@ const messages = {
     otherSourcesDescription: "從網站、程式碼、檔案或現有設計系統連接。",
     chooseSourcePrompt: "選擇一個來源進行設定",
     continue: "繼續生成",
+    starting: "正在啟動…",
+    githubIndexStarted: "GitHub 索引已開始",
     title: "設定您的設計系統",
     description:
       "透過 Builder DSI 連接 Figma、程式碼和選用的 design.md 指引。脈絡越多，代理得到的系統越準確。",
@@ -1327,6 +1329,8 @@ const messages = {
       enterGithub: "在新增之前輸入 GitHub 儲存庫 URL。",
       githubUrl:
         "使用完整的 GitHub 儲存庫 URL，例如 https://github.com/org/repo。",
+      githubIndex:
+        "無法啟動 GitHub 索引。請檢查 Builder 連線和儲存庫存取權限。",
       noSources: "在生成設計系統之前至少新增一個來源。",
     },
     sections: {

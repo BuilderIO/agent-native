@@ -503,10 +503,11 @@ const messages = {
     },
     roles: {
       viewer: "दर्शक",
+      commenter: "टिप्पणीकार",
       editor: "संपादक",
       admin: "व्यवस्थापक",
     },
-    recordingViewer: {
+    recordingCommenter: {
       label: "टिप्पणीकार",
       description: "देख, टिप्पणी और प्रतिक्रिया कर सकते हैं",
     },

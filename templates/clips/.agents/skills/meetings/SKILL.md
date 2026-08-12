@@ -69,7 +69,7 @@ Calendar events fire a desktop notification **1 minute before** the meeting star
 
 ## Adhoc Zoom / Teams detection (desktop)
 
-When meetings are enabled, the Clips desktop app also watches for native Zoom (`us.zoom.xos` / `us.zoom.ZoomClips`) and Microsoft Teams (`com.microsoft.teams` / `com.microsoft.teams2`) becoming frontmost. After a short dwell (~9s) it creates an adhoc meeting via `create-meeting` (`source: "adhoc"`) and shows the same Granola-style popup (`type: "adhoc"`, subtitle "Take notes?"). Auto transcription mode also emits `meetings:start-transcription` with reason `adhoc-auto`. Detection skips when a meeting is already being transcribed, when Manual mode has the meeting widget disabled, and soft-skips shortly after a calendar reminder for the same platform.
+When meetings are enabled, the Clips desktop app also watches for native Zoom (`us.zoom.xos` / `us.zoom.ZoomClips`) and Microsoft Teams (`com.microsoft.teams` / `com.microsoft.teams2`) becoming frontmost. After a short dwell (~9s), and only while that same platform holds a live audio input, it creates an adhoc meeting via `create-meeting` (`source: "adhoc"`) and shows the same Granola-style popup (`type: "adhoc"`, subtitle "Take notes?"). Auto transcription mode also emits `meetings:start-transcription` with reason `adhoc-auto`. Detection skips when a meeting is already being transcribed, when Manual mode has the meeting widget disabled, and soft-skips shortly after a calendar reminder for the same platform. The microphone check reads CoreAudio per-process input state, which is macOS 14+; where the OS cannot answer, detection falls back to dwell alone rather than going silent.
 
 ## Actions
 

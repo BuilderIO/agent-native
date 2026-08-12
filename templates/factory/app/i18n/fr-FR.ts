@@ -135,6 +135,11 @@ const messages = {
     newFactoryDescription:
       "Décrivez le travail que cette factory transforme en résultats livrés.",
     selectFactory: "Sélectionner une factory",
+    backToFactories: "Retour aux factories",
+    workspaceIntegrations: "Intégrations de l’espace de travail",
+    sourceRouting: "Routage des sources",
+    sourceRoutingProviders: "Slack, GitHub et Sentry",
+    agentAccess: "Accès de l’agent",
     askAI: "Interroger l’IA de la factory",
     factoryViews: "Vues de la factory",
     observeFirst: "Observer d’abord · mode shadow",
@@ -143,6 +148,8 @@ const messages = {
     mapHint:
       "Cliquez sur une étape ou une route pour l’inspecter. Double-cliquez sur une étape pour commenter.",
     unsavedChanges: "Modifications visuelles non enregistrées",
+    factoryListDescription:
+      "Choisissez une factory pour examiner son objectif, son flux, ses automatisations et son activité récente. Créez-en une depuis un graphe vierge minimal pour définir un nouveau parcours de revue.",
     inboxTitle: "Boîte de réception des observations",
     inboxDescription:
       "Les éléments observés entrent dans la factory avant le travail autonome.",
@@ -152,6 +159,7 @@ const messages = {
     rulesDescription:
       "Chaque règle reste en mode shadow jusqu’à sa promotion volontaire.",
     editRule: "Modifier la règle de triage",
+    editFlow: "Modifier le flux",
     settingsDescription:
       "Connectez Slack, GitHub et Sentry. Les automatisations peuvent lancer un travail contrôlé et afficher leurs prompts et exécutions ci-dessous.",
     blueprintTitle: "Mode plan.",
@@ -188,6 +196,7 @@ const messages = {
     auditClearBug: "Bug avéré",
     auditUxImpact: "Impact UX",
     auditOwnerArea: "Domaine responsable",
+    auditGuardsLabel: "Gardes",
     automationsTitle: "Automatisations",
     automationsDescription: "Planifiez et exécutez les prompts de la factory.",
     automationsLoading: "Chargement des automatisations...",
@@ -243,6 +252,14 @@ const messages = {
       "Impossible de charger les diagnostics Factory. Vérifiez l’accès, le déploiement et les migrations de la base de données, puis réessayez.",
     automationEmailReadinessHint:
       "L’e-mail utilise le coffre Dispatch de l’organisation. Configurez-y un fournisseur si l’état n’est pas prêt.",
+    rulesTitle: "Règles",
+    shadowLabel: "Shadow",
+    rulesGuidance:
+      "Utilisez des prompts pour la classification ; gardez la sécurité dans des gardes structurées.",
+    ruleNameLabel: "Nom",
+    defaultFactoryLabel: "Factory par défaut",
+    savedFactoryLabel: "Factory enregistrée",
+    saveRule: "Enregistrer la règle",
   },
   factoryCanvas: {
     dragHint: "Faites glisser les nœuds pour remodeler la factory",

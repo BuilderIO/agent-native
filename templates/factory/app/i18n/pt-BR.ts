@@ -132,6 +132,11 @@ const messages = {
     newFactoryDescription:
       "Descreva o trabalho que esta fábrica transforma em resultados entregues.",
     selectFactory: "Selecionar fábrica",
+    backToFactories: "Voltar para as fábricas",
+    workspaceIntegrations: "Integrações do espaço de trabalho",
+    sourceRouting: "Roteamento de fontes",
+    sourceRoutingProviders: "Slack, GitHub e Sentry",
+    agentAccess: "Acesso do agente",
     askAI: "Perguntar à IA da fábrica",
     factoryViews: "Visualizações da fábrica",
     observeFirst: "Observar primeiro · modo sombra",
@@ -140,6 +145,8 @@ const messages = {
     mapHint:
       "Clique em uma etapa ou rota para inspecioná-la. Clique duas vezes em uma etapa para comentar.",
     unsavedChanges: "Alterações visuais não salvas",
+    factoryListDescription:
+      "Escolha uma fábrica para revisar seu propósito, fluxo, automações e atividade recente. Inicie uma nova a partir de um grafo em branco mínimo quando quiser definir um novo caminho de revisão.",
     inboxTitle: "Caixa de entrada de observações",
     inboxDescription:
       "Evidências entrando na fábrica antes do trabalho autônomo.",
@@ -149,6 +156,7 @@ const messages = {
     rulesDescription:
       "Cada regra permanece no modo sombra até ser promovida deliberadamente.",
     editRule: "Editar regra de triagem",
+    editFlow: "Editar fluxo",
     settingsDescription:
       "Conecte Slack, GitHub e Sentry. As automações podem iniciar trabalho governado e mostrar seus prompts e execuções abaixo.",
     blueprintTitle: "Modo blueprint.",
@@ -184,6 +192,7 @@ const messages = {
     auditClearBug: "Bug claro",
     auditUxImpact: "Impacto de UX",
     auditOwnerArea: "Área responsável",
+    auditGuardsLabel: "Guards",
     automationsTitle: "Automações",
     automationsDescription: "Agende e execute prompts da fábrica.",
     automationsLoading: "Carregando automações...",
@@ -237,6 +246,14 @@ const messages = {
       "Não foi possível carregar os diagnósticos do Factory. Verifique acesso, implantação e migrações do banco de dados e tente novamente.",
     automationEmailReadinessHint:
       "O e-mail usa o cofre Dispatch da organização. Configure um provedor lá se não estiver pronto.",
+    rulesTitle: "Regras",
+    shadowLabel: "Shadow",
+    rulesGuidance:
+      "Use prompts para classificação; mantenha a segurança em guards estruturados.",
+    ruleNameLabel: "Nome",
+    defaultFactoryLabel: "Factory padrão",
+    savedFactoryLabel: "Factory salva",
+    saveRule: "Salvar regra",
   },
   factoryCanvas: {
     dragHint: "Arraste os nós para remodelar a fábrica",

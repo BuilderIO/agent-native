@@ -39,7 +39,7 @@ import { cn } from "@/lib/utils";
 // ---------------------------------------------------------------------------
 
 export type Visibility = "private" | "org" | "public";
-export type Role = "viewer" | "editor" | "admin";
+export type Role = "viewer" | "commenter" | "editor" | "admin";
 
 export interface RoleCopy {
   label: string;
@@ -77,6 +77,7 @@ export const VIS_META: Record<Visibility, { Icon: typeof IconLock }> = {
 
 export const ROLE_OPTIONS: Array<{ value: Role; label: string }> = [
   { value: "viewer", label: "Viewer" },
+  { value: "commenter", label: "Commenter" },
   { value: "editor", label: "Editor" },
   { value: "admin", label: "Admin" },
 ];

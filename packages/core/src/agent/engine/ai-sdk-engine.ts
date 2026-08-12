@@ -528,6 +528,11 @@ class AISDKEngine implements AgentEngine {
       // A step can finish having announced a tool call it never delivered.
       // Assemble it from its deltas, or report it in-band, rather than ending
       // the turn as if the model never asked for it.
+      for (const part of assistantContent) {
+        if (part.type === "tool-call") {
+          observeStreamedToolInput(toolInputs, part);
+        }
+      }
       for (const recovered of finalizeStreamedToolInputs(
         toolInputs,
         assistantContent.flatMap((part) =>

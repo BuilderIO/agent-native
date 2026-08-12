@@ -1,5 +1,36 @@
 # @agent-native/agent-browser-extension
 
+## 0.1.91
+
+### Patch Changes
+
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+  - @agent-native/core@0.153.0
+
 ## 0.1.90
 
 ### Patch Changes

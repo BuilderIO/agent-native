@@ -119,9 +119,7 @@ describe("manage-jobs tool", () => {
   describe("create", () => {
     it("validates required fields", async () => {
       const out = JSON.parse(await run({ action: "create", name: "x" }));
-      expect(out.error).toMatch(
-        /name, schedule, and instructions are required/,
-      );
+      expect(out.error).toMatch(/name and instructions are required/);
       expect(resourcePutMock).not.toHaveBeenCalled();
     });
 
@@ -162,6 +160,20 @@ describe("manage-jobs tool", () => {
       // Default runAs is "creator" unless explicitly "shared".
       expect(meta.runAs).toBe("creator");
       expect(meta.nextRun).toBeTruthy();
+    });
+
+    it("defaults a new job to an hourly cadence", async () => {
+      const out = JSON.parse(
+        await run({
+          action: "create",
+          name: "hourly-default",
+          instructions: "Check for changed work.",
+        }),
+      );
+
+      expect(out.schedule).toBe("0 * * * *");
+      const { meta } = parseJobFrontmatter(resourcePutMock.mock.calls[0][2]);
+      expect(meta.schedule).toBe("0 * * * *");
     });
 
     it("binds an app-owned job to the app that created it", async () => {

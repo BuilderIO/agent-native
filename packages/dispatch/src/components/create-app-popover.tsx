@@ -319,7 +319,7 @@ export function CreateAppFlow({
         </div>
         <Button asChild className="w-full sm:w-auto">
           <a href={branchUrl} target="_blank" rel="noreferrer">
-            Open Builder branch <IconArrowUpRight aria-hidden="true" />
+            Open in Builder <IconArrowUpRight aria-hidden="true" />
           </a>
         </Button>
       </div>
@@ -583,7 +583,7 @@ export function CreateAppFlow({
                 rel="noreferrer"
                 className="inline-flex items-center gap-1 font-medium text-foreground underline"
               >
-                Open branch <IconArrowUpRight className="h-3 w-3" />
+                Open in Builder <IconArrowUpRight className="h-3 w-3" />
               </a>
             ) : null}
           </div>

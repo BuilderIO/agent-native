@@ -1,5 +1,21 @@
 # @agent-native/dispatch
 
+## 0.24.1
+
+### Patch Changes
+
+- b3b4580: Align Dispatch app-row actions with shared open-in-new-tab and add-app menus.
+- b3b4580: Add workspace group management and Dispatch-scoped administrator access controls.
+- b3b4580: Hide untracked and confusing creation metadata from app settings popovers.
+- b3b4580: Make pending workspace apps full-width, hide branch IDs, and link directly to Builder.
+- b3b4580: Collapse the Dispatch sidebar when a workspace app opens in its embedded app surface.
+- b3b4580: Show workspace app error documents in the Dispatch iframe when embed-session setup fails.
+- b3b4580: Make spreadsheet-backed app creation preserve bounded source provenance and require confirmation when workbook formatting or candidate inputs and outputs are ambiguous.
+- b3b4580: Clarify personal MCP connections, workspace provider access, and legacy credential key scope.
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+  - @agent-native/toolkit@0.14.1
+
 ## 0.24.0
 
 ### Minor Changes

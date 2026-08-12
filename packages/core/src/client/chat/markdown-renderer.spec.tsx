@@ -4,8 +4,12 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { splitMarkdownBlocks } from "../../shared/markdown-block-split.js";
 import {
+  loadMarkdown,
   markdownComponents,
+  onMarkdownReady,
+  SmoothMarkdownText,
   useSmoothStreamingText,
 } from "./markdown-renderer.js";
 
@@ -100,5 +104,48 @@ describe("useSmoothStreamingText", () => {
     expect(wrapper).not.toBeNull();
     expect(wrapper?.querySelector("table")).not.toBeNull();
     expect(wrapper?.querySelector("th")?.textContent).toBe("Column");
+  });
+
+  it("keeps completed live markdown blocks memoized while the tail streams", async () => {
+    await new Promise<void>((resolve) => {
+      loadMarkdown();
+      onMarkdownReady(resolve);
+    });
+
+    const text =
+      "### Heading\n\nA paragraph with **bold** text.\n\n| A | B |\n| - | - |\n| 1 | 2 |\n\nLive tail";
+    const split = splitMarkdownBlocks(text);
+    expect(split.completedBlocks.length).toBeGreaterThan(0);
+    act(() => {
+      root.render(
+        <SmoothMarkdownText
+          text={text}
+          streaming
+          resetKey="stable-live-response"
+          statusType="running"
+          animateStreaming={false}
+        />,
+      );
+    });
+
+    const live = container.querySelector("[data-streaming='true']");
+    expect(live?.querySelector("h3")).not.toBeNull();
+    expect(live?.querySelector("table")).not.toBeNull();
+    expect(live?.textContent).toContain("Live tail");
+
+    act(() => {
+      root.render(
+        <SmoothMarkdownText
+          text={text}
+          streaming={false}
+          resetKey="stable-live-response"
+          statusType="complete"
+        />,
+      );
+    });
+
+    expect(container.querySelector("[data-streaming='true']")).toBeNull();
+    expect(container.querySelector("h3")).not.toBeNull();
+    expect(container.querySelector("table")).not.toBeNull();
   });
 });

@@ -149,7 +149,7 @@ describe("update-comment", () => {
     expect(mockAssertAccess).toHaveBeenCalledWith(
       "recording",
       "recording-1",
-      "viewer",
+      "commenter",
     );
     expect(state.rows[0]?.content).toBe("Original text");
   });
@@ -174,7 +174,7 @@ describe("update-comment", () => {
     expect(mockAssertAccess).toHaveBeenCalledWith(
       "recording",
       "recording-1",
-      "viewer",
+      "commenter",
     );
     expect(mockWriteAppState).toHaveBeenCalledWith("refresh-signal", {
       ts: expect.any(Number),

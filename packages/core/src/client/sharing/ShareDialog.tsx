@@ -497,7 +497,12 @@ function RoleSelect({ controller }: { controller: ShareDialogController }) {
       options={controller.invite.roleOptions}
       value={controller.invite.role}
       onChange={(value) => {
-        if (value === "viewer" || value === "editor" || value === "admin") {
+        if (
+          value === "viewer" ||
+          value === "commenter" ||
+          value === "editor" ||
+          value === "admin"
+        ) {
           controller.invite.setRole(value);
         }
       }}

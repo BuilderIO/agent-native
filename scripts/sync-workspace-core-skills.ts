@@ -12,6 +12,11 @@ import {
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import {
+  DEFAULT_WORKSPACE_SKILLS,
+  FRAMEWORK_TEMPLATE_SHARED_SKILLS,
+} from "../packages/core/src/cli/workspace-skill-policy.js";
+
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const rootDir = join(scriptDir, "..");
 const sourceDir = join(rootDir, ".agents", "skills");
@@ -47,141 +52,32 @@ const headlessTemplateSkillsDir = join(
   "skills",
 );
 
-const workspaceSkillIncludes = [
-  "a2a-protocol",
-  "actions",
-  "agent-native-docs",
-  "agent-native-toolkit",
-  "agent-page",
-  "adding-a-feature",
-  "adding-workspace-apps",
-  "address-feedback",
-  "audit-log",
-  "authentication",
-  "automations",
-  "browser-sessions",
-  "capture-learnings",
-  "changelog",
-  "client-methods",
-  "client-side-routing",
-  "composable-mini-apps",
-  "context-awareness",
-  "context-xray",
-  "create-skill",
-  "customizing-agent-native",
-  "data-programs",
-  "delegate-to-agent",
-  "extension-points",
-  "extensions",
-  "external-agents",
-  "frontend-design",
-  "feature-flags",
-  "generative-ui",
-  "harness-agents",
-  "internationalization",
-  "integration-webhooks",
-  "mvp-followup",
-  "native-navigation",
-  "observability",
-  "onboarding",
-  "performance",
-  "portability",
-  "qa",
-  "real-time-collab",
-  "real-time-sync",
-  "recurring-jobs",
-  "reliable-mutations",
-  "secrets",
-  "security",
-  "self-modifying-code",
-  "server-plugins",
-  "shadcn-ui",
-  "sharing",
-  "storing-data",
-  "tracking",
-  "turn-into-app",
-  "turn-into-skill",
-  "upgrade-agent-native",
-  "visual-answer",
-  "voice-transcription",
-  "workspace-conventions",
-  "writing-agent-instructions",
-];
+const workspaceSkillIncludes = [...DEFAULT_WORKSPACE_SKILLS];
 
 // These are shared framework/best-practice skills that generated/default apps
 // and first-party templates often copy locally. Keep them byte-for-byte
 // canonical so generated apps, workspaces, and this repo do not learn different
 // architectural rules.
-const templateSharedSkillIncludes = [
-  "actions",
-  "agent-native-docs",
-  "agent-native-toolkit",
-  "adding-a-feature",
-  "capture-learnings",
-  "client-methods",
-  "create-skill",
-  "customizing-agent-native",
-  "delegate-to-agent",
-  "frontend-design",
-  "feature-flags",
-  "integration-webhooks",
-  "internationalization",
-  "onboarding",
-  "performance",
-  "real-time-collab",
-  "real-time-sync",
-  "security",
-  "self-modifying-code",
-  "shadcn-ui",
-  "secrets",
-  "storing-data",
-  "sharing",
-  "turn-into-app",
-  "turn-into-skill",
-  "upgrade-agent-native",
-];
+const templateSharedSkillIncludes = [...DEFAULT_WORKSPACE_SKILLS];
 
 const requiredTemplateSharedSkills: Record<string, string[]> = {
   chat: ["agent-native-docs"],
 };
 
 /** Copied into every first-party template that uses shared skills. */
-const requiredAllTemplateSharedSkills = [
-  "agent-native-docs",
-  "agent-native-toolkit",
-  "customizing-agent-native",
-  "feature-flags",
-  "sharing",
-  "storing-data",
-  "turn-into-app",
-  "turn-into-skill",
-  "upgrade-agent-native",
-];
+const requiredAllTemplateSharedSkills = [...DEFAULT_WORKSPACE_SKILLS];
 
-const requiredDefaultTemplateSharedSkills = [
-  "agent-native-toolkit",
-  "customizing-agent-native",
-  "feature-flags",
-  "integration-webhooks",
-  "internationalization",
-  "onboarding",
-  "secrets",
-  "turn-into-app",
-  "turn-into-skill",
-  "upgrade-agent-native",
-];
+const requiredDefaultTemplateSharedSkills = [...DEFAULT_WORKSPACE_SKILLS];
 
 const requiredHeadlessTemplateSharedSkills = [
   "actions",
   "agent-native-docs",
   "agent-native-toolkit",
   "customizing-agent-native",
-  "feature-flags",
-  "integration-webhooks",
+  "delegate-to-agent",
   "secrets",
-  "turn-into-app",
-  "turn-into-skill",
-  "upgrade-agent-native",
+  "security",
+  "storing-data",
 ];
 
 const actionFirstInstructionFiles = [
@@ -265,8 +161,9 @@ const requiredRegistryConventionSkills = [
   "customizing-agent-native",
 ];
 
-// Repo-maintenance workflows are useful in this repository, but generated
-// workspaces should not inherit branch/PR shipping behavior from our monorepo.
+// Skills outside workspaceSkillIncludes are opt-in. Repo-maintenance workflows
+// are useful in this repository, but generated workspaces should not inherit
+// branch/PR shipping behavior from our monorepo.
 //
 // The trailing entries are symlinks under `.agents/skills/`, not real
 // directories: five point into `skills/` (shipped through the plugin
@@ -293,8 +190,10 @@ const workspaceSkillExcludes = [
 ];
 
 const check = process.argv.includes("--check");
-const includeSet = new Set(workspaceSkillIncludes);
 const excludeSet = new Set(workspaceSkillExcludes);
+const staleTemplateSharedSkills = FRAMEWORK_TEMPLATE_SHARED_SKILLS.filter(
+  (skill) => !templateSharedSkillIncludes.includes(skill),
+);
 
 // `Dirent.isDirectory()` reflects the entry's own type and returns false for
 // a symlink-to-directory (several root skills — visual-recap, visual-edit,
@@ -339,9 +238,6 @@ function relSkillFiles(skillName) {
 
 function assertCategorized() {
   const sourceSkills = listSkillDirs(sourceDir);
-  const unknown = sourceSkills.filter(
-    (skill) => !includeSet.has(skill) && !excludeSet.has(skill),
-  );
   const missing = workspaceSkillIncludes.filter(
     (skill) => !sourceSkills.includes(skill),
   );
@@ -353,11 +249,6 @@ function assertCategorized() {
   );
 
   const errors = [];
-  if (unknown.length > 0) {
-    errors.push(
-      `Uncategorized root skills: ${unknown.join(", ")}. Add each one to workspaceSkillIncludes or workspaceSkillExcludes.`,
-    );
-  }
   if (missing.length > 0) {
     errors.push(
       `Included skills missing from ${sourceDir}: ${missing.join(", ")}`,
@@ -618,6 +509,42 @@ function checkTemplateSharedSkillsInSync() {
   forEachExistingTemplateSharedSkill((label, skill, targetSkillDir) => {
     checkSkillDirInSync(label, skill, targetSkillDir);
   });
+  checkNoStaleTemplateSharedSkills();
+}
+
+function forEachTemplateSkillsDir(fn) {
+  fn(
+    "packages/core/src/templates/default/.agents/skills",
+    defaultTemplateSkillsDir,
+  );
+  fn(
+    "packages/core/src/templates/headless/.agents/skills",
+    headlessTemplateSkillsDir,
+  );
+  for (const template of listTemplateDirs()) {
+    fn(
+      `templates/${template}/.agents/skills`,
+      join(templatesDir, template, ".agents", "skills"),
+    );
+  }
+}
+
+function checkNoStaleTemplateSharedSkills() {
+  const extra = [];
+  forEachTemplateSkillsDir((label, skillsDir) => {
+    for (const skill of staleTemplateSharedSkills) {
+      if (existsSync(join(skillsDir, skill))) {
+        extra.push(`${label}/${skill}`);
+      }
+    }
+  });
+  if (extra.length > 0) {
+    throw new Error(
+      `Optional framework skills are still copied into templates:\n${extra.join(
+        "\n",
+      )}\n\nRun: pnpm sync:workspace-skills`,
+    );
+  }
 }
 
 function copySkill(skill, targetSkillDir) {
@@ -643,6 +570,11 @@ function syncWorkspaceCoreSkills() {
 function syncTemplateSharedSkills() {
   forEachExistingTemplateSharedSkill((_template, skill, targetSkillDir) => {
     copySkill(skill, targetSkillDir);
+  });
+  forEachTemplateSkillsDir((_label, skillsDir) => {
+    for (const skill of staleTemplateSharedSkills) {
+      rmSync(join(skillsDir, skill), { recursive: true, force: true });
+    }
   });
 }
 

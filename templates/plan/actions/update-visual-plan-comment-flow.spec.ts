@@ -55,6 +55,16 @@ vi.mock("@agent-native/core/sharing", () => {
   }
   return {
     ForbiddenError,
+    roleSatisfies: (actual: string, minimum: string) => {
+      const rank: Record<string, number> = {
+        viewer: 1,
+        commenter: 2,
+        editor: 3,
+        admin: 4,
+        owner: 5,
+      };
+      return (rank[actual] ?? 0) >= (rank[minimum] ?? 0);
+    },
     currentAccess: () => ({ userEmail: request.email }),
     resolveAccess: (...args: unknown[]) => resolveAccessMock(...args),
   };
@@ -216,7 +226,10 @@ beforeEach(() => {
   notifyPlanCommentRecipientsMock.mockReset();
   notifyPlanCommentRecipientsMock.mockResolvedValue(undefined);
   resolveAccessMock.mockReset();
-  resolveAccessMock.mockResolvedValue({ resource: { id: "plan_1" } });
+  resolveAccessMock.mockResolvedValue({
+    role: "commenter",
+    resource: { id: "plan_1" },
+  });
   createPlanVersionSnapshotMock.mockReset();
   createPlanVersionSnapshotMock.mockResolvedValue({ created: true });
   delete process.env.AUTH_MODE;

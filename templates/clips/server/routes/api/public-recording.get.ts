@@ -524,6 +524,11 @@ export default defineEventHandler(async (event) => {
             viewerRole === "owner" ||
             viewerRole === "admin" ||
             viewerRole === "editor",
+          canComment:
+            viewerRole === "owner" ||
+            viewerRole === "admin" ||
+            viewerRole === "editor" ||
+            viewerRole === "commenter",
           isOwner: viewerRole === "owner",
           role: viewerRole ?? "viewer",
           canOpenDashboard,
