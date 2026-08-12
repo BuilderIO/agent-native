@@ -313,6 +313,7 @@ const messages = {
       addPropertyLink: "新增 {{name}} 連結",
       addPropertyPerson: "新增 {{name}} 人",
       addPropertyType: "新增 {{type}} 屬性",
+      connectASource: "連接資料來源",
       addQuoted: '新增"{{value}}"',
       backToColumnMenu: "返回排序與篩選",
       cancel: "取消",
