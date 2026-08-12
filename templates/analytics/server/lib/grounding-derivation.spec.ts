@@ -1,12 +1,25 @@
+import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+
+import { generateActionRegistryForProject } from "@agent-native/core/vite";
 import { describe, expect, it } from "vitest";
 
-import actionsRegistry from "../../.generated/actions-registry";
 import getDataProgram from "../../actions/get-data-program";
 import {
   deriveGroundingActionNames,
   hasDataQueryAttempt,
   registerGroundingActions,
 } from "./real-data-actions";
+
+const projectRoot = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../..",
+);
+
+generateActionRegistryForProject(projectRoot);
+const { default: actionsRegistry } = await import(
+  `${pathToFileURL(path.join(projectRoot, ".generated/actions-registry.ts")).href}?cacheBust=${Date.now()}`
+);
 
 // The hand-maintained DATA_QUERY_ACTIONS allowlist is gone, so no file in this
 // template names these actions any more. They are defined in
