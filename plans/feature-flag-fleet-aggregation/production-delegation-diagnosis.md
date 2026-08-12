@@ -193,8 +193,8 @@ Required evidence:
   for a Dispatch caller that explicitly identifies itself.
 - Regression tests proving target-local org IDs still scope rollout storage,
   evaluation, and audit records.
-- Tester-owned real-interface acceptance in an isolated multi-app hosted
-  preview, because this changes an authorization boundary. The tester must use
+- Tester-owned real-interface acceptance in an isolated multi-app local dev
+  environment, because this changes an authorization boundary. The tester must use
   two distinct local org IDs and exercise the actual Analytics UI and target
   action routes.
 - Current production smoke after integration is observational follow-through,
@@ -213,10 +213,31 @@ authorized-scope:
 allowed-mutations: [artifact-write, branch, commit, push, pull-request, deploy]
 write-targets:
   artifacts: [plans/feature-flag-fleet-aggregation/production-delegation-diagnosis.md]
-test-resources: []
+test-resources:
+  - id: feature-flag-domain-delegation-local-suite
+    kind: server
+    surface: isolated local Analytics, Dispatch, and Content dev runtimes on ports 4310 through 4312
+    ownership-marker: feature-flag-domain-delegation-local-suite
+    baseline: ports unused and task-local databases absent before Work
+    allowed-actions: [create, update, exercise, delete]
+    cleanup-trigger: after tester-owned acceptance
+    cleanup-method: stop task-owned runtimes and remove only the task-local runtime directory
+    cleanup-proof: independently confirm ports are closed and the exact task-local runtime directory is absent
+    shared-impact: none
+    isolation: local-runtime
+    ownership: task-created
+    production-data: false
+    customer-data: false
+    cost: none
+    boundary-evidence: [explicit localhost ports, databases and identities created under one task-local temporary directory, no production URLs or credentials]
+    max-lifetime-minutes: 240
+    declared-at: 2026-08-12T17:05:00Z
+    expires-at: 2026-08-12T21:05:00Z
+    status: declared
+    phase: work
 governing-artifact:
   path: plans/feature-flag-fleet-aggregation/production-delegation-diagnosis.md
-  revision: work-r1
+  revision: work-r2
 architecture-fingerprint:
   outcome: Make Analytics administer target-local flags using verified cross-app workspace identity rather than foreign database IDs
   shipping-surfaces:
@@ -246,12 +267,12 @@ architecture-fingerprint:
       - Core translates only a verified domain into receiver-local org context and preserves all JWT and local-role checks.
       - Analytics verifies a versioned cross-app acknowledgement without equating sender and receiver local org IDs.
       - Dispatch is visible to whole-fleet clients and self-filtering remains correct for ordinary callers.
-      - A tester-owned hosted multi-app story passes with deliberately different local org IDs.
+      - A tester-owned local multi-app dev-server story passes with deliberately different local org IDs.
     acceptance-policy:
       modality: real-interface
       independence: required
       custody: tester-owned
-      interface: isolated hosted Analytics plus at least Dispatch and one other target app
+      interface: isolated local dev servers for Analytics, Dispatch, and one other target app
       rationale: This is cross-service authorization; independent acceptance must prove both legitimate access and tenant denial through the real interfaces.
   risk-strategy:
     kind: system-ready
@@ -271,13 +292,13 @@ architecture-grounding:
   direct-evidence: [production Analytics and Neon observations on 2026-08-12, cited repository source, current PR 2602 diff and metadata]
   inferences: [forbidden entries arise from local-ID mismatch; unreachable entries have multiple causes; Alice likely needs the Dispatch desktop workspace SSO flag]
   unresolved-owner-questions: []
-delegation-ceiling: [read-only investigation, bounded technical review, tester-owned hosted acceptance]
+delegation-ceiling: [read-only investigation, bounded technical review, tester-owned local acceptance]
 acceptance-state:
-  status: blocked
-  summary: Implementation, focused verification, and independent review pass; tester-owned hosted acceptance is blocked because no isolated Analytics/Dispatch acceptance workspace exists.
-  blockers: [Ordinary Netlify PR previews share deployed database configuration; the trusted acceptance registry has no Analytics/Dispatch workspace; the independent tester cannot acquire a compatible isolated hosted browser capsule until that infrastructure exists.]
+  status: pending
+  summary: Implementation, focused verification, and independent review pass; tester-owned local dev-server acceptance is now authorized and pending.
+  blockers: [tester-owned local multi-app real-interface acceptance]
   last-land-packet: null
-ledger-revision: feature-flag-production-delegation-work-r1
+ledger-revision: feature-flag-production-delegation-work-r2
 status: active
 ```
 
@@ -289,18 +310,18 @@ and do not add the fix to OAuth PR #2602. After this control-plane repair is
 accepted, re-evaluate what specific production flag or acceptance step #2602
 actually requires; its current diff does not itself establish that dependency.
 
-## Frozen hosted acceptance script
+## Frozen local acceptance script
 
 Persona: An independent Builder.io workspace administrator managing feature flags from Analytics.
 
-Starting state: Isolated branch previews for Analytics, Dispatch, and one additional target app use the same verified workspace domain but deliberately different app-local organization IDs. The tester owns a disposable admin identity and no production data is present.
+Starting state: Isolated local dev servers for Analytics, Dispatch, and Content use the same verified workspace domain but deliberately different app-local organization IDs. The tester owns disposable identities and no production data is present.
 
-Disposable test data: One registered default-off flag and a distinctive tester email rule, both confined to the preview databases.
+Disposable test data: One registered default-off flag and distinctive tester identities/rules, all confined to task-local databases.
 
-H1. Sign in to the isolated Analytics preview and open Feature flags.
+H1. Open the isolated Analytics dev server as the disposable admin and open Feature flags.
     Functional expectation: The fleet loads without a directory error; Dispatch and the additional target are visible, and Dispatch's `desktop.workspace-sso` flag appears Off.
     Visual expectation: Per-app states and any safe diagnostic reasons are readable without clipping or secret/error-body disclosure.
-    Evidence: Initial fleet screenshot plus preview network status for the directory and list actions.
+    Evidence: Initial fleet screenshot plus local network status for the directory and list actions.
 
 H2. On the additional target, choose Enable for me.
     Functional expectation: The mutation succeeds even though Analytics and the target use different local organization IDs, and read-back shows the tester's email rule persisted in the target.
@@ -317,18 +338,18 @@ H4. Exercise an isolated same-email account outside the mapped target organizati
     Visual expectation: Analytics shows a truthful forbidden state rather than an unreachable or successful state.
     Evidence: Cross-organization denial screenshot plus unchanged target-local rule read-back.
 
-H5. Exercise one safe unreachable target condition in the isolated previews.
+H5. Exercise one safe unreachable target condition in the isolated local runtimes.
     Functional expectation: Analytics reports a fixed safe class such as timeout or network and does not reflect response bodies, host details, or secrets.
     Visual expectation: The reason remains concise and legible.
     Evidence: Error-state screenshot and relevant sanitized network/log observation.
 
 Regression checks: A Dispatch caller that identifies itself still removes Dispatch from its own directory result; wrong domain, audience, scope, signature, or nonce remains denied through automated evidence bound to the same head.
 
-Cleanup: Remove the disposable email rule and preview identity/data, then delete the task-owned preview deploys and independently prove their absence.
+Cleanup: Stop the task-owned runtimes and remove the task-local databases/runtime directory, then independently prove the ports and directory are absent.
 
-## Hosted acceptance environment finding
+## Superseded hosted acceptance environment finding
 
-The frozen H1-H5 script is not currently executable without expanding the
+The previously frozen hosted H1-H5 script was not executable without expanding the
 repository's trusted-acceptance infrastructure. The ordinary Netlify PR-preview
 workflow explicitly disables isolated Neon preview databases and uses shared
 Netlify database configuration. Those previews therefore cannot satisfy the
@@ -337,9 +358,12 @@ trusted-acceptance registry currently declares Calendar/Content and Tasks
 workspaces only; it has no Analytics/Dispatch/third-target workspace.
 
 The independent tester offered PTY and local image evidence but no independently
-acquirable hosted-browser handle without a compatible capsule recipe. Work fails
-closed here: no preview was exercised, no disposable identity or flag rule was
+acquirable hosted-browser handle without a compatible capsule recipe. Work failed
+closed there: no preview was exercised, no disposable identity or flag rule was
 created, and no cleanup is required. The unblock condition is a protected,
 task-isolated trusted-acceptance workspace for Analytics, Dispatch, and one
 feature-flag target, with disposable databases/auth identities and tester-local
-browser acquisition.
+browser acquisition. Alice explicitly replaced that environment requirement on
+2026-08-12: isolated local dev servers are sufficient. The frozen assertions,
+tester-owned independence, real UI/action routes, and disposable-data boundary
+remain unchanged.
