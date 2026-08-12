@@ -213,28 +213,7 @@ authorized-scope:
 allowed-mutations: [artifact-write, branch, commit, push, pull-request, deploy]
 write-targets:
   artifacts: [plans/feature-flag-fleet-aggregation/production-delegation-diagnosis.md]
-test-resources:
-  - id: feature-flag-domain-delegation-preview-suite
-    kind: preview
-    surface: isolated Netlify branch previews for Analytics, Dispatch, and one additional feature-flag target
-    ownership-marker: codex/feature-flag-domain-delegation
-    baseline: no preview deploys for this task branch before Work
-    allowed-actions: [create, update, exercise, delete]
-    cleanup-trigger: after tester-owned acceptance
-    cleanup-method: delete the task branch preview deploys through Netlify
-    cleanup-proof: independently read back that no deploy preview remains for the task branch
-    shared-impact: none
-    isolation: branch-preview
-    ownership: task-created
-    production-data: false
-    customer-data: false
-    cost: none
-    boundary-evidence: [Netlify deploy context is deploy-preview or branch-deploy, branch equals codex/feature-flag-domain-delegation, preview databases use task branch isolation]
-    max-lifetime-minutes: 1440
-    declared-at: 2026-08-12T16:52:20Z
-    expires-at: 2026-08-13T16:52:20Z
-    status: declared
-    phase: work
+test-resources: []
 governing-artifact:
   path: plans/feature-flag-fleet-aggregation/production-delegation-diagnosis.md
   revision: work-r1
@@ -294,9 +273,9 @@ architecture-grounding:
   unresolved-owner-questions: []
 delegation-ceiling: [read-only investigation, bounded technical review, tester-owned hosted acceptance]
 acceptance-state:
-  status: pending
-  summary: Implementation and focused verification pass; independent review and tester-owned hosted acceptance are pending.
-  blockers: [independent technical review, tester-owned hosted acceptance]
+  status: blocked
+  summary: Implementation, focused verification, and independent review pass; tester-owned hosted acceptance is blocked because no isolated Analytics/Dispatch acceptance workspace exists.
+  blockers: [Ordinary Netlify PR previews share deployed database configuration; the trusted acceptance registry has no Analytics/Dispatch workspace; the independent tester cannot acquire a compatible isolated hosted browser capsule until that infrastructure exists.]
   last-land-packet: null
 ledger-revision: feature-flag-production-delegation-work-r1
 status: active
@@ -346,3 +325,21 @@ H5. Exercise one safe unreachable target condition in the isolated previews.
 Regression checks: A Dispatch caller that identifies itself still removes Dispatch from its own directory result; wrong domain, audience, scope, signature, or nonce remains denied through automated evidence bound to the same head.
 
 Cleanup: Remove the disposable email rule and preview identity/data, then delete the task-owned preview deploys and independently prove their absence.
+
+## Hosted acceptance environment finding
+
+The frozen H1-H5 script is not currently executable without expanding the
+repository's trusted-acceptance infrastructure. The ordinary Netlify PR-preview
+workflow explicitly disables isolated Neon preview databases and uses shared
+Netlify database configuration. Those previews therefore cannot satisfy the
+no-production-data, no-shared-impact test-resource boundary. The protected
+trusted-acceptance registry currently declares Calendar/Content and Tasks
+workspaces only; it has no Analytics/Dispatch/third-target workspace.
+
+The independent tester offered PTY and local image evidence but no independently
+acquirable hosted-browser handle without a compatible capsule recipe. Work fails
+closed here: no preview was exercised, no disposable identity or flag rule was
+created, and no cleanup is required. The unblock condition is a protected,
+task-isolated trusted-acceptance workspace for Analytics, Dispatch, and one
+feature-flag target, with disposable databases/auth identities and tester-local
+browser acquisition.
