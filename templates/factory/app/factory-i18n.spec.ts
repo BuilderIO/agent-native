@@ -45,7 +45,10 @@ describe("Factory i18n catalog", () => {
   it("keeps the Factory route keys aligned across shipped locales", async () => {
     for (const [locale, messages] of Object.entries(localeMessages)) {
       for (const key of requiredKeys) {
-        expect(readKey(messages, key), `${locale} missing ${key}`).toBeDefined();
+        expect(
+          readKey(messages, key),
+          `${locale} missing ${key}`,
+        ).toBeDefined();
       }
     }
 

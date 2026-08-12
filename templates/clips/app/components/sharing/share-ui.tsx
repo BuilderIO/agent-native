@@ -178,6 +178,7 @@ export function GeneralAccessSelect({
   isPending,
   onChange,
   publicDescription,
+  showDescription = true,
 }: {
   visibility: Visibility;
   canManage: boolean;
@@ -185,6 +186,7 @@ export function GeneralAccessSelect({
   onChange: (next: Visibility) => void;
   /** Override for the "public" visibility description (e.g. Clips comment hint). */
   publicDescription?: string;
+  showDescription?: boolean;
 }) {
   const t = useT();
   const meta = VIS_META[visibility];
@@ -222,7 +224,12 @@ export function GeneralAccessSelect({
               ))}
             </SelectContent>
           </Select>
-          <div className="mt-0.5 text-xs text-muted-foreground">
+          <div
+            className={cn(
+              "mt-0.5 text-xs text-muted-foreground",
+              !showDescription && "sr-only",
+            )}
+          >
             {description}
           </div>
         </div>
@@ -244,14 +251,13 @@ export function MakePublicCard({
 }) {
   const t = useT();
   return (
-    <div className="rounded-md border border-border bg-muted/40 px-3 py-2.5">
-      <p className="text-xs text-muted-foreground">
-        {t("shareUi.restrictedLinkDescription")}
-      </p>
+    <div className="flex items-center justify-end gap-2 rounded-md bg-muted/40 px-3 py-2">
+      <p className="sr-only">{t("shareUi.restrictedLinkDescription")}</p>
       <Button
         type="button"
+        variant="outline"
         size="sm"
-        className="mt-2 h-7"
+        className="h-7"
         onClick={onMakePublic}
         disabled={isPending}
       >

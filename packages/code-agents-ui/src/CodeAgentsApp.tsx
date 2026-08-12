@@ -1025,7 +1025,7 @@ export default function CodeAgentsApp({
   }, [host]);
 
   const loadRemoteConnectorStatus = useCallback(async () => {
-    if (!host.getRemoteConnectorStatus) return;
+    if (!isActive || !host.getRemoteConnectorStatus) return;
     try {
       const result = await withHostCallTimeout(
         host.getRemoteConnectorStatus(),
@@ -1036,10 +1036,10 @@ export default function CodeAgentsApp({
     } catch (err) {
       setRemoteConnectorError(err instanceof Error ? err.message : String(err));
     }
-  }, [host]);
+  }, [host, isActive]);
 
   const loadHostMetadata = useCallback(async () => {
-    if (!host.getHostMetadata) return;
+    if (!isActive || !host.getHostMetadata) return;
     try {
       const result = await host.getHostMetadata();
       setHostMetadata(result);
@@ -1049,7 +1049,7 @@ export default function CodeAgentsApp({
         error: err instanceof Error ? err.message : String(err),
       });
     }
-  }, [host]);
+  }, [host, isActive]);
 
   const runComputerSetupAction = useCallback(
     async (action: CodeAgentComputerSetupAction) => {

@@ -217,6 +217,77 @@ describe("server/auth", () => {
       );
     });
 
+    it("carries signup attribution into the delayed verification request", async () => {
+      vi.stubEnv("NODE_ENV", "development");
+      vi.stubEnv("RESEND_API_KEY", "resend-example-key");
+      const secret = "test-magic-link-attribution-secret";
+      const signInMagicLink = vi.fn(async () => ({ status: true }));
+      vi.doMock("./better-auth-instance.js", () => ({
+        getAuthSecret: vi.fn(() => secret),
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signInMagicLink,
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
+        isLocalDatabase: () => true,
+        isPostgres: () => false,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        describeDbError: (error: unknown) => String(error),
+      }));
+      const { autoMountAuth } = await import("./auth.js");
+      const { readMagicLinkSignupAttribution } =
+        await import("./magic-link-attribution.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const handler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/magic-link",
+      )?.[1];
+      const firstTouch = encodeURIComponent(
+        JSON.stringify({ ref: "external", utm_campaign: "launch" }),
+      );
+      await expect(
+        handler(
+          createJsonPostEvent(
+            "/_agent-native/auth/magic-link",
+            { email: "new@example.com", callbackURL: "/welcome" },
+            { cookie: `an_aid=anon_123; an_ft=${firstTouch}` },
+          ),
+        ),
+      ).resolves.toEqual({ ok: true });
+
+      const request = signInMagicLink.mock.calls[0]?.[0];
+      const callback = new URL(request.body.newUserCallbackURL);
+      expect(callback.searchParams.get("return")).toBe("/welcome");
+      const token = callback.searchParams.get("signup_attribution");
+      expect(token).toBeTruthy();
+
+      const verification = new URL(
+        "http://localhost/_agent-native/auth/ba/magic-link/verify?token=mail-token",
+      );
+      verification.searchParams.set("newUserCallbackURL", callback.toString());
+      expect(
+        readMagicLinkSignupAttribution(verification.toString(), secret),
+      ).toEqual({
+        attribution: {
+          referral_source: "external",
+          referral_campaign: "launch",
+          utm_campaign: "launch",
+        },
+        anonymousId: "anon_123",
+      });
+    });
+
     it("promotes tracking callbacks that Better Auth cannot accept relatively", async () => {
       vi.stubEnv("NODE_ENV", "development");
       vi.stubEnv("RESEND_API_KEY", "resend-example-key");
