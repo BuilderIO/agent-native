@@ -9,7 +9,7 @@ import {
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
 
-import { Docs } from "../shared/docs-url.js";
+import { docsUrl } from "../shared/docs-url.js";
 import { getWorkspaceAppIdValidationError } from "../shared/workspace-app-id.js";
 import { sendToAgentChat } from "./agent-chat.js";
 import { agentNativePath, appBasePath } from "./api-path.js";
@@ -80,7 +80,9 @@ const ERROR_FAILURE_REASONS = new Set([
   "builder-not-connected",
   "credential-store-unavailable",
 ]);
-const LOCAL_APP_DOCS_URL = Docs.multiAppAdding();
+const LOCAL_APP_DOCS_URL = docsUrl("multi-app-workspace", {
+  hash: "adding-a-new-app",
+});
 
 function isErrorFailureReason(reason: string | null): boolean {
   return !!reason && ERROR_FAILURE_REASONS.has(reason);

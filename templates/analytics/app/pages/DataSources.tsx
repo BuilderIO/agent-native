@@ -12,7 +12,7 @@ import {
 import { oauthRedirectUri } from "@agent-native/core/client/host";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { useOrgRole } from "@agent-native/core/client/org";
-import { Docs } from "@agent-native/core/shared";
+import { docsUrl } from "@agent-native/core/shared";
 import {
   getDefaultMcpIntegrations,
   McpIntegrationLogo,
@@ -1904,7 +1904,7 @@ function FirstPartyAnalyticsCard() {
                 each one happened.
               </p>
               <a
-                href={Docs.trackingErrors()}
+                href={docsUrl("tracking", { hash: "posthog-error-tracking" })}
                 target="_blank"
                 rel="noreferrer"
                 className="mt-2 inline-flex items-center gap-1 font-medium text-primary hover:underline"

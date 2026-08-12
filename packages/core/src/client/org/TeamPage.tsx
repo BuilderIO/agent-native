@@ -66,8 +66,8 @@ import {
 // database code into the browser bundle.
 import type { AppRolesDescriptor } from "../../org/app-roles.js";
 import type { DomainMatchOrg } from "../../org/types.js";
+import { docsUrl } from "../../shared/docs-url.js";
 import type { WorkspaceUserGroup } from "../../workspace-connections/groups.js";
-import { Docs, docsUrl } from "../../shared/docs-url.js";
 import {
   Dialog,
   DialogContent,
@@ -2332,9 +2332,10 @@ function AuthProviderSettingsSection({
         description={
           <OrganizationDescription
             help="Require Google sign-in for every member. Enabling this revokes current sessions and rejects future password or non-Google sign-ins."
-            docsUrl={Docs.authSocialProviders({
+            docsUrl={docsUrl("authentication", {
               campaign: "organization_settings",
               content: "organization_sign_in",
+              hash: "social-providers",
             })}
           >
             Choose how members sign in.

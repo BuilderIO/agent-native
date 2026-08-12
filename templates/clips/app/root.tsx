@@ -19,7 +19,7 @@ import {
 } from "@agent-native/core/client/navigation";
 import { getThemeInitScript } from "@agent-native/core/client/ui";
 import { resolveLocaleFromRequest } from "@agent-native/core/server";
-import { Docs } from "@agent-native/core/shared";
+import { docsUrl } from "@agent-native/core/shared";
 import {
   IconHierarchy2,
   IconCheck,
@@ -226,7 +226,9 @@ const CLIPS_COMMAND_DOCS = [
     title: "Use the Chrome extension for browser logs",
     description:
       "Record a browser tab with redacted console logs, JavaScript exceptions, and fetch/XHR diagnostics.",
-    href: Docs.templateClipsBrowserLogs(),
+    href: docsUrl("template-clips-capture-everywhere", {
+      hash: "browser-logs-with-the-chrome-extension",
+    }),
     keywords: [
       "logs",
       "browser logs",

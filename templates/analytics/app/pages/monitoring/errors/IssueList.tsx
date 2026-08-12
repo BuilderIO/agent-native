@@ -1,5 +1,5 @@
 import { CodeSurface } from "@agent-native/core/blocks";
-import { Docs } from "@agent-native/core/shared";
+import { docsUrl } from "@agent-native/core/shared";
 import {
   IconAlertTriangle,
   IconBug,
@@ -29,7 +29,9 @@ import {
   useStatusLabel,
 } from "./utils";
 
-const ERROR_CAPTURE_DOCS_URL = Docs.trackingErrors();
+const ERROR_CAPTURE_DOCS_URL = docsUrl("tracking", {
+  hash: "posthog-error-tracking",
+});
 
 const ERROR_CAPTURE_SNIPPET = `// Agent Native templates already call configureTracking().
 import { configureTracking, captureException } from "@agent-native/core/client/observability";

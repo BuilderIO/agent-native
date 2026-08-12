@@ -29,7 +29,6 @@ export { injectDocumentMarkup } from "./html-document.js";
 export { withBuilderUtmTrackingParams } from "./builder-link-tracking.js";
 export {
   AGENT_NATIVE_DOCS_ORIGIN,
-  Docs,
   docsUrl,
   type DocsUrlOptions,
 } from "./docs-url.js";

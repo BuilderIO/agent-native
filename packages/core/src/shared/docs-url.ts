@@ -1,12 +1,10 @@
 /**
  * Absolute links into the public Agent-Native docs site.
  *
- * Prefer `docsUrl("content-slug")` at call sites so the path is visible inline
- * (`docsUrl("template-design")` → `/docs/template-design`). Use named `Docs.*`
- * helpers only when the target is awkward to spell at the call site — a hash
- * that does not match the nearby label, or a slug that would otherwise be easy
- * to get wrong. Relative `/docs/...` paths resolve against the app origin and
- * 404 — always use this helper for outbound docs links.
+ * Call `docsUrl("content-slug")` at call sites so the path is visible inline
+ * (`docsUrl("template-design")` → `/docs/template-design`). Relative
+ * `/docs/...` paths resolve against the app origin and 404 — always use this
+ * helper for outbound docs links.
  */
 
 export const AGENT_NATIVE_DOCS_ORIGIN = "https://www.agent-native.com";
@@ -51,41 +49,3 @@ export function docsUrl(slug: string, options: DocsUrlOptions = {}): string {
   }
   return url.toString();
 }
-
-/**
- * Named helpers for docs targets that are hard to infer from a bare slug —
- * non-obvious hashes or slug/name mismatches. Prefer `docsUrl("slug")` for
- * everything else.
- */
-export const Docs = {
-  authLocalDev: (options?: DocsUrlOptions) =>
-    docsUrl("authentication", {
-      ...options,
-      hash: "local-development-sign-in",
-    }),
-  authSocialProviders: (options?: DocsUrlOptions) =>
-    docsUrl("authentication", { ...options, hash: "social-providers" }),
-  multiAppAdding: (options?: DocsUrlOptions) =>
-    docsUrl("multi-app-workspace", { ...options, hash: "adding-a-new-app" }),
-  agentResourcesSkills: (options?: DocsUrlOptions) =>
-    docsUrl("agent-resources", { ...options, hash: "skills" }),
-  trackingErrors: (options?: DocsUrlOptions) =>
-    docsUrl("tracking", { ...options, hash: "posthog-error-tracking" }),
-  trackingSessionReplay: (options?: DocsUrlOptions) =>
-    docsUrl("tracking", { ...options, hash: "session-replay" }),
-  templateClipsBrowserLogs: (options?: DocsUrlOptions) =>
-    docsUrl("template-clips-capture-everywhere", {
-      ...options,
-      hash: "browser-logs-with-the-chrome-extension",
-    }),
-  templateClipsRewind: (options?: DocsUrlOptions) =>
-    docsUrl("template-clips-capture-everywhere", {
-      ...options,
-      hash: "rewind-quick-save",
-    }),
-  templatePlanLocalFiles: (options?: DocsUrlOptions) =>
-    docsUrl("template-plan-local-and-desktop", {
-      ...options,
-      hash: "local-files",
-    }),
-} as const;
