@@ -726,7 +726,7 @@ const enUS = {
       s056: "$18-25/mo per user",
       s057: "$12-15/mo per user",
       s058: "Free & open source",
-      s059: "Start now",
+      s059: "Need to see more first?",
       s060: "Choose what to capture, then start recording in Clips.",
       s061: "Read the docs",
       s062: "View all apps",

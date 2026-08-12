@@ -1,8 +1,7 @@
 import { useLocale, useT } from "@agent-native/core/client/i18n";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Link } from "react-router";
 
-import { ClipsQuickStart } from "../components/ClipsQuickStart";
 import { sitePathForLocale } from "../components/docs-locale";
 import { TemplateDocsLink } from "../components/template-docs";
 import { templates, trackEvent } from "../components/TemplateCard";
@@ -41,6 +40,24 @@ const template = templates.find((t) => t.slug === "clips")!;
 const AI_PROMPT =
   "Watch https://clips.agent-native.com/share/B0AgxdvzuZ7H. Tell me the most impactful way I could be using agent-native clips in my own work projects this week.";
 
+const CLIP_PREVIEWS = [
+  {
+    title: "Introducing Agent-Native Clips",
+    href: "https://clips.agent-native.com/share/B0AgxdvzuZ7H",
+    thumbnail: "/clips/B0AgxdvzuZ7H.jpg",
+  },
+  {
+    title: "Show Claude how to perform a task",
+    href: "https://clips.agent-native.com/share/U1f0uKYYKGF2",
+    thumbnail: "/clips/U1f0uKYYKGF2.jpg",
+  },
+  {
+    title: "Record browser workflows with Clips",
+    href: "https://clips.agent-native.com/share/1J2KR4ryo2Wg",
+    thumbnail: "/clips/1J2KR4ryo2Wg.jpg",
+  },
+];
+
 const COMPARISON_ROWS = [
   {
     feature: "Can AI read it?",
@@ -61,6 +78,84 @@ const COMPARISON_ROWS = [
     alternatives: "Select partners.",
   },
 ];
+
+function ClipPreviewSlider() {
+  const sliderRef = useRef<HTMLDivElement>(null);
+
+  function scroll(direction: -1 | 1) {
+    const slider = sliderRef.current;
+    if (!slider) return;
+    slider.scrollBy({
+      left: direction * slider.clientWidth * 0.8,
+      behavior: "smooth",
+    });
+  }
+
+  return (
+    <div className="mx-auto max-w-5xl text-left">
+      <div className="mb-4 flex justify-end gap-2">
+        <button
+          type="button"
+          aria-label="Previous clip"
+          onClick={() => scroll(-1)}
+          className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-[var(--docs-border)] text-[var(--fg)] transition hover:border-[var(--fg-secondary)]"
+        >
+          <span aria-hidden>←</span>
+        </button>
+        <button
+          type="button"
+          aria-label="Next clip"
+          onClick={() => scroll(1)}
+          className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-[var(--docs-border)] text-[var(--fg)] transition hover:border-[var(--fg-secondary)]"
+        >
+          <span aria-hidden>→</span>
+        </button>
+      </div>
+      <div
+        ref={sliderRef}
+        className="flex snap-x snap-mandatory gap-4 overflow-x-auto pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      >
+        {CLIP_PREVIEWS.map((clip) => (
+          <a
+            key={clip.href}
+            href={clip.href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="group min-w-[82%] snap-start overflow-hidden rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline sm:min-w-[46%] lg:min-w-[31%]"
+            onClick={() =>
+              trackEvent("view clip preview", {
+                clip: clip.href,
+                location: "landing_page_cta",
+              })
+            }
+          >
+            <div className="relative aspect-video overflow-hidden border-b border-[var(--docs-border)] bg-black">
+              <img
+                src={clip.thumbnail}
+                alt=""
+                loading="lazy"
+                decoding="async"
+                className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.02]"
+              />
+              <span className="absolute inset-0 flex items-center justify-center">
+                <span className="flex h-12 w-12 items-center justify-center rounded-full bg-black/75 text-xl text-white shadow-lg transition group-hover:scale-105">
+                  <span className="ml-0.5" aria-hidden>
+                    ▶
+                  </span>
+                </span>
+              </span>
+            </div>
+            <div className="p-4">
+              <h3 className="m-0 text-base font-semibold leading-snug">
+                {clip.title}
+              </h3>
+            </div>
+          </a>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function CliCopy({
   value = template.cliCommand,
@@ -621,11 +716,8 @@ export default function ClipsTemplate() {
         <h2 className="mb-3 text-2xl font-bold tracking-tight">
           {t("templateLanding.clips.s059")}
         </h2>
-        <p className="mx-auto mb-8 max-w-lg text-base text-[var(--fg-secondary)]">
-          {t("templateLanding.clips.s060")}
-        </p>
-        <ClipsQuickStart />
-        <div className="template-detail-cta-actions mt-6 flex flex-col items-stretch justify-center gap-3 sm:flex-row sm:items-center sm:gap-4">
+        <ClipPreviewSlider />
+        <div className="template-detail-cta-actions mt-8 flex flex-col items-stretch justify-center gap-3 sm:flex-row sm:items-center sm:gap-4">
           <TemplateDocsLink
             template={template}
             location="landing_page_cta"
