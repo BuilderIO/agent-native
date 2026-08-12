@@ -524,11 +524,14 @@ export default function RecordingPage() {
   const canDownloadRecording = Boolean(
     recording?.enableDownloads && recording.videoUrl && !isLoomEmbedBacked,
   );
-  // Mirrors the /share/:shareId reshare restriction: a plain viewer must not
-  // trigger `list-resource-shares` (any read access is enough to call it,
-  // and its response includes every individually-shared principal's email)
-  // or see a raw video download/open action independent of `enableDownloads`.
-  const viewerReshareOnly = role === "viewer";
+  // Mirrors the /share/:shareId reshare restriction (same public/org scope):
+  // a plain viewer of a public or org clip must not trigger
+  // `list-resource-shares` (any read access is enough to call it, and its
+  // response includes every individually-shared principal's email) or see a
+  // raw video download/open action independent of `enableDownloads`.
+  const viewerReshareOnly =
+    role === "viewer" &&
+    (recording?.visibility === "public" || recording?.visibility === "org");
   const shareVideoUrl =
     canDownloadRecording || isLoomEmbedBacked
       ? (recording?.videoUrl ?? null)
