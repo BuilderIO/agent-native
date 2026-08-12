@@ -78,6 +78,11 @@ pub(crate) fn call_app_uses_microphone(bundle_ids: &[String]) -> Option<bool> {
         return None;
     }
 
+    // Set when a target bundle is found but its running-input state can't be
+    // read. Distinct from "no target bundle is running at all" — the caller's
+    // None/Some(false) contract depends on not conflating the two.
+    let mut matched_bundle_with_unreadable_input = false;
+
     for process in processes {
         let mut bundle_address = AudioObjectPropertyAddress {
             mSelector: kAudioProcessPropertyBundleID,
@@ -125,10 +130,17 @@ pub(crate) fn call_app_uses_microphone(bundle_ids: &[String]) -> Option<bool> {
                 NonNull::new((&mut input_running as *mut u32).cast::<c_void>())?,
             )
         };
-        if input_status == kAudioHardwareNoError && input_running != 0 {
+        if input_status != kAudioHardwareNoError {
+            matched_bundle_with_unreadable_input = true;
+            continue;
+        }
+        if input_running != 0 {
             return Some(true);
         }
     }
 
+    if matched_bundle_with_unreadable_input {
+        return None;
+    }
     Some(false)
 }
