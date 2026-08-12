@@ -217,6 +217,7 @@ interface DeckContextType {
     afterIndex?: number,
     options?: { persistence?: "debounced" | "immediate" },
   ) => string;
+  flushDeckSave: (deckId: string) => Promise<void>;
   updateSlide: (
     deckId: string,
     slideId: string,
@@ -467,6 +468,23 @@ function drainPendingDeckOps(deckId: string): Promise<void> {
   inFlightSaveChains.set(deckId, next);
   notifySaveListeners();
   return next;
+}
+
+/**
+ * Wait for a deck's in-flight save(s) to fully settle, including any
+ * follow-up drain chained by immediateFlushRequests for ops queued while a
+ * save was already running. Used when a caller must not proceed (e.g. firing
+ * an agent request against a slide) until an "immediate" persistence op has
+ * actually reached the server.
+ */
+async function flushDeckSave(deckId: string): Promise<void> {
+  let previous: Promise<void> | undefined;
+  for (let i = 0; i < 5; i++) {
+    const active = inFlightSaveChains.get(deckId);
+    if (!active || active === previous) return;
+    previous = active;
+    await active;
+  }
 }
 
 function enqueueDeckOp(
@@ -2327,6 +2345,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         refreshOpenDeck: refetchOpenDeckIfChanged,
         getDeck,
         addSlide,
+        flushDeckSave,
         updateSlide,
         deleteSlide,
         duplicateSlide,

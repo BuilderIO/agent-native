@@ -64,6 +64,10 @@ interface EditorSidebarProps {
   /** True while an agent add-slide request is in flight. */
   addSlideGenerating?: boolean;
   onAddSlideGeneratingChange?: (generating: boolean) => void;
+  /** Resolves once a just-inserted blank slide has actually reached the
+   *  server, so the agent's update-slide request can't race the add-slide
+   *  persistence. */
+  onAwaitAddSlidePersisted?: () => Promise<void>;
 }
 
 const DECK_FIT_STATE_KEYS = [
@@ -330,6 +334,7 @@ export default function EditorSidebar({
   onAddEmptySlide,
   addSlideGenerating = false,
   onAddSlideGeneratingChange,
+  onAwaitAddSlidePersisted,
 }: EditorSidebarProps) {
   const t = useT();
   const { generating: agentGenerating, submit: agentSubmit } =
@@ -569,8 +574,9 @@ export default function EditorSidebar({
           activeSlideIndex={describeSlideIndex}
           slideCount={slides.length}
           targetSlideId={describeSlideId}
-          agentSubmit={(message, context) => {
+          agentSubmit={async (message, context) => {
             onAddSlideGeneratingChange?.(true);
+            await onAwaitAddSlidePersisted?.();
             agentSubmit(message, context);
           }}
         />

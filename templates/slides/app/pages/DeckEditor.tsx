@@ -158,6 +158,7 @@ export default function DeckEditor() {
     duplicateSlide,
     duplicateDeck,
     addSlide,
+    flushDeckSave,
     reorderSlides,
     markDeckDirty,
     undo,
@@ -1178,6 +1179,7 @@ export default function DeckEditor() {
                   deckId={id}
                   deckTitle={deck.title}
                   onAddEmptySlide={canEdit ? handleAddEmptySlide : undefined}
+                  onAwaitAddSlidePersisted={() => flushDeckSave(id)}
                   addSlideGenerating={addSlideGenerating}
                   onAddSlideGeneratingChange={setAddSlideGenerating}
                   onSelectSlide={(slideId) => {
