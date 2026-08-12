@@ -49,6 +49,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { buildEmailPreviewMarkup } from "../../../shared/email-preview";
 import { isLoomEmbedUrl } from "../../../shared/loom";
 import { withShareAttribution } from "../../../shared/share-attribution";
+import { preferredThumbnailVariant } from "../../../shared/share-meta";
 
 function absoluteAppUrl(path: string): string {
   if (typeof window === "undefined") return "";
@@ -59,7 +60,7 @@ export interface ShareRecordingPopoverProps {
   recordingId: string;
   recordingTitle?: string;
   initialVisibility?: Visibility | null;
-  initialRole?: "owner" | "admin" | "editor" | "viewer";
+  initialRole?: "owner" | "admin" | "editor" | "commenter" | "viewer";
   videoUrl?: string | null;
   thumbnailUrl?: string | null;
   animatedThumbnailUrl?: string | null;
@@ -183,7 +184,7 @@ function ShareRecordingContent({
   recordingId: string;
   recordingTitle?: string;
   initialVisibility?: Visibility | null;
-  initialRole?: "owner" | "admin" | "editor" | "viewer";
+  initialRole?: "owner" | "admin" | "editor" | "commenter" | "viewer";
   videoUrl?: string | null;
   thumbnailUrl?: string | null;
   animatedThumbnailUrl?: string | null;
@@ -273,9 +274,9 @@ function ShareRecordingContent({
             sharesQuery={sharesQuery}
             canManage={canManage}
             roleCopy={{
-              viewer: {
-                label: t("shareUi.recordingViewer.label"),
-                description: t("shareUi.recordingViewer.description"),
+              commenter: {
+                label: t("shareUi.recordingCommenter.label"),
+                description: t("shareUi.recordingCommenter.description"),
               },
             }}
           />
@@ -336,10 +337,13 @@ function LinkTab({
   const isLoomRecording = isLoomRecordingProp || isLoomEmbedUrl(videoUrl);
   const emailPreviewThumbnailUrl = useMemo(() => {
     if (!isPublic || hasPassword !== false || !sharesLoaded) return null;
-    const candidate = animatedThumbnailUrl || thumbnailUrl;
-    if (!candidate) return null;
+    const variant = preferredThumbnailVariant({
+      thumbnailUrl,
+      animatedThumbnailUrl,
+    });
+    if (!variant) return null;
 
-    const query = animatedThumbnailUrl ? "?animated=1" : "";
+    const query = variant === "animated" ? "?animated=1" : "";
     return absoluteAppUrl(
       `/api/thumbnail/${encodeURIComponent(recordingId)}${query}`,
     );

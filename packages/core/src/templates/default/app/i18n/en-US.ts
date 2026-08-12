@@ -164,7 +164,7 @@ const messages = {
       appBuildingSuffix:
         "after its branch is merged and the workspace deploy finishes.",
       branch: "Branch: {{branch}}",
-      openBuilderBranch: "Open Builder branch",
+      openBuilderBranch: "Open in Builder",
       openingApp: "Opening {{name}}",
       redirectingTo: "Redirecting to",
       openApp: "Open app",
@@ -276,6 +276,8 @@ const messages = {
     publicDescription: "Anyone signed in with the link can view",
     viewer: "Viewer",
     viewerDescription: "Can view",
+    commenter: "Commenter",
+    commenterDescription: "Can view and add comments",
     editor: "Editor",
     editorDescription: "Can edit",
     admin: "Admin",

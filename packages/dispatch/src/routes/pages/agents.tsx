@@ -15,6 +15,7 @@ import {
 import { DispatchShell } from "../../components/dispatch-shell";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
+import { Skeleton } from "../../components/ui/skeleton";
 import { Switch } from "../../components/ui/switch";
 
 export function meta() {
@@ -123,9 +124,11 @@ function DispatchMcpAccessPanel() {
                 : t("dispatch.pages.selectedApps")}
             </div>
             <div className="text-xs text-muted-foreground">
-              {isLoading
-                ? t("dispatch.pages.loading")
-                : t("dispatch.pages.grantedCount", { count: grantedCount })}
+              {isLoading ? (
+                <Skeleton className="h-3 w-16" />
+              ) : (
+                t("dispatch.pages.grantedCount", { count: grantedCount })
+              )}
             </div>
           </div>
           <Switch

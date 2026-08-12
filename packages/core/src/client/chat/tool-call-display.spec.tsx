@@ -1493,7 +1493,7 @@ describe("ToolCallDisplay native renderers", () => {
       thoughtButtons.map((button) => button.getAttribute("aria-expanded")),
     ).toEqual(["false", "true"]);
     expect(container.textContent).not.toContain("First thought");
-    expect(container.textContent).not.toContain("Current thought");
+    expect(container.textContent).toContain("Current thought");
 
     act(() => {
       root.render(
@@ -1611,14 +1611,14 @@ describe("ReasoningCell", () => {
     expect(shimmer?.textContent).toBe("Thinking");
   });
 
-  it("smoothly reveals reasoning text while streaming and completes it when done", () => {
+  it("shows the latest reasoning chunk immediately while streaming", () => {
     const text = "Weighing options carefully.";
 
     act(() => {
       root.render(<ReasoningCell text={text} isStreaming />);
     });
 
-    expect(container.textContent).not.toContain(text);
+    expect(container.textContent).toContain(text);
 
     act(() => {
       root.render(<ReasoningCell text={text} isStreaming={false} />);

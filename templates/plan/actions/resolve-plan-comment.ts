@@ -7,6 +7,7 @@ import {
   ForbiddenError,
   currentAccess,
   resolveAccess,
+  roleSatisfies,
 } from "@agent-native/core/sharing";
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
@@ -126,7 +127,7 @@ export default defineAction({
       );
     }
 
-    // Viewer-level access is sufficient for status changes (mirrors update-visual-plan).
+    // Commenter-level access is sufficient for status changes.
     const access = await resolveAccess(
       "plan",
       args.planId,
@@ -135,6 +136,11 @@ export default defineAction({
     if (!access) throw new Error(`Plan ${args.planId} not found`);
     if ((access.resource as typeof schema.plans.$inferSelect).deletedAt) {
       throw new ForbiddenError(`Plan ${args.planId} not found`);
+    }
+    if (!roleSatisfies(access.role, "commenter")) {
+      throw new ForbiddenError(
+        "Commenting on this plan requires commenter access or higher.",
+      );
     }
 
     const db = getDb();

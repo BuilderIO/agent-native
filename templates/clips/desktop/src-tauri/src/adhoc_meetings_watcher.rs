@@ -1,10 +1,10 @@
 //! Granola-style adhoc Zoom / Teams detection.
 //!
 //! Polls the frontmost macOS app every few seconds. When Zoom or Teams stays
-//! frontmost for a short dwell window, creates a meeting row via
-//! `create-meeting`, and silently starts transcription when the user has
-//! explicitly selected Auto mode. Ask/manual mode stays quiet because a
-//! frontmost Zoom window is not reliable evidence of an active call.
+//! frontmost for a short dwell window *and* that app is holding a live audio
+//! input, creates a meeting row via `create-meeting` and shows the same
+//! meeting-notification overlay used for calendar reminders — with
+//! `type: "adhoc"`.
 //!
 //! Reuses `MeetingsWatcherState` session (server URL + cookie + auth token)
 //! so the popover only needs to push credentials once.
@@ -130,6 +130,50 @@ fn match_vc_bundle(bundle: &str) -> Option<(&'static str, &'static str)> {
         .map(|(_, platform, title)| (*platform, *title))
 }
 
+/// Bundle ids belonging to one platform, lowercased for CoreAudio comparison.
+///
+/// Scoped to the frontmost platform rather than every call app: Teams sitting
+/// in a call must not vouch for a Zoom window that is merely open.
+fn bundles_for_platform(platform: &str) -> Vec<String> {
+    STRONG_VC_BUNDLES
+        .iter()
+        .filter(|(_, candidate, _)| *candidate == platform)
+        .map(|(bundle_id, _, _)| bundle_id.to_lowercase())
+        .collect()
+}
+
+/// Whether a live-input reading should veto a dwell-confirmed detection.
+///
+/// Only an explicit `Some(false)` blocks. `None` means the OS declined to
+/// answer — `kAudioProcessPropertyIsRunningInput` is macOS 14+ — and treating
+/// that as "no call" would leave every older machine detecting nothing at all,
+/// which is the failure mode this whole branch exists to undo.
+fn mic_vetoes_detection(mic_running: Option<bool>) -> bool {
+    mic_running == Some(false)
+}
+
+/// What a dwell-confirmed detection is allowed to do under the current mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct AdhocNotificationPlan {
+    /// Surface the meeting-notification overlay so the user can accept.
+    show_widget: bool,
+    /// Begin transcription without waiting for a click.
+    auto_start: bool,
+}
+
+/// Ask must surface the overlay. Collapsing this gate to `mode == Auto` is the
+/// regression that shipped in b00c38db4: Ask is the shipped default, so ad-hoc
+/// detection produced neither a prompt nor a capture and went silently dead.
+fn adhoc_notification_plan(config: &crate::config::FeatureConfig) -> AdhocNotificationPlan {
+    let auto_start = config.meeting_transcription_mode == MeetingTranscriptionMode::Auto;
+    AdhocNotificationPlan {
+        show_widget: config.show_meeting_widget_enabled
+            || config.meeting_transcription_mode == MeetingTranscriptionMode::Ask
+            || auto_start,
+        auto_start,
+    }
+}
+
 async fn tick_once(app: &AppHandle, client: &reqwest::Client) -> Result<(), String> {
     let config = feature_config(app);
     if !config.meetings_enabled {
@@ -158,7 +202,7 @@ async fn tick_macos(
     let front = crate::util::frontmost_bundle_id();
     let matched = front.as_deref().and_then(match_vc_bundle);
 
-    let Some((platform, _title)) = matched else {
+    let Some((platform, title)) = matched else {
         // VC app left front — clear session dedupe so a later re-focus can
         // fire again (cooldown still applies).
         clear_session_if_left(app, None);
@@ -174,7 +218,22 @@ async fn tick_macos(
         return Ok(());
     }
 
-    if config.meeting_transcription_mode != MeetingTranscriptionMode::Auto {
+    if config.meeting_transcription_mode == MeetingTranscriptionMode::Manual
+        && !config.show_meeting_widget_enabled
+    {
+        reset_dwell(app);
+        return Ok(());
+    }
+
+    // Frontmost dwell alone also matches Zoom parked on a second monitor or
+    // opened to check a schedule — the reason prompting was muted in the first
+    // place. A live input stream is what separates an app being open from a
+    // call being underway. `None` means the OS could not answer (the property
+    // is macOS 14+), so fall back to dwell-only rather than going silently
+    // dead on older systems.
+    let call_bundles = bundles_for_platform(platform);
+    let mic_running = crate::call_activity::call_app_uses_microphone(&call_bundles);
+    if mic_vetoes_detection(mic_running) {
         reset_dwell(app);
         return Ok(());
     }
@@ -249,14 +308,44 @@ async fn tick_macos(
         }
     };
 
-    let _ = app.emit(
-        "meetings:start-transcription",
-        serde_json::json!({
-            "meetingId": meeting_id,
-            "joinUrl": null,
-            "reason": "adhoc-auto",
-        }),
-    );
+    let AdhocNotificationPlan {
+        show_widget,
+        auto_start,
+    } = adhoc_notification_plan(config);
+
+    if show_widget {
+        let app_clone = app.clone();
+        let id_clone = meeting_id.clone();
+        let title_clone = title.to_string();
+        let platform_clone = platform.to_string();
+        let scheduled_start = chrono::Utc::now().to_rfc3339();
+        tauri::async_runtime::spawn(async move {
+            let _ = crate::notifications::notify_meeting_starting(
+                app_clone,
+                id_clone,
+                title_clone,
+                0,
+                None,
+                Some(scheduled_start),
+                None,
+                Some(platform_clone),
+                Some(auto_start),
+                Some("adhoc".to_string()),
+            )
+            .await;
+        });
+    }
+
+    if auto_start {
+        let _ = app.emit(
+            "meetings:start-transcription",
+            serde_json::json!({
+                "meetingId": meeting_id,
+                "joinUrl": null,
+                "reason": "adhoc-auto",
+            }),
+        );
+    }
 
     Ok(())
 }
@@ -264,6 +353,69 @@ async fn tick_macos(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn config_with(
+        mode: MeetingTranscriptionMode,
+        show_meeting_widget_enabled: bool,
+    ) -> crate::config::FeatureConfig {
+        crate::config::FeatureConfig {
+            meeting_transcription_mode: mode,
+            show_meeting_widget_enabled,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn platform_bundles_do_not_vouch_for_each_other() {
+        let zoom = bundles_for_platform("zoom");
+        assert!(zoom.contains(&"us.zoom.xos".to_string()));
+        assert!(zoom.contains(&"us.zoom.zoomclips".to_string()));
+        assert!(!zoom.iter().any(|id| id.contains("teams")));
+
+        let teams = bundles_for_platform("teams");
+        assert!(teams.contains(&"com.microsoft.teams2".to_string()));
+        assert!(!teams.iter().any(|id| id.contains("zoom")));
+
+        assert!(bundles_for_platform("webex").is_empty());
+    }
+
+    #[test]
+    fn an_unreadable_microphone_does_not_veto_detection() {
+        // Only a definite "not in a call" blocks. Collapsing None into false
+        // would make ad-hoc detection dead on macOS 13, where the CoreAudio
+        // property does not exist — the exact silent-death this branch undoes.
+        assert!(mic_vetoes_detection(Some(false)));
+        assert!(!mic_vetoes_detection(Some(true)));
+        assert!(!mic_vetoes_detection(None));
+    }
+
+    #[test]
+    fn ask_mode_prompts_without_auto_starting() {
+        // The b00c38db4 regression: Ask is the shipped default, so if this
+        // stops surfacing the overlay, ad-hoc detection is dead for everyone
+        // who never opened Settings.
+        let plan = adhoc_notification_plan(&config_with(MeetingTranscriptionMode::Ask, false));
+        assert!(plan.show_widget);
+        assert!(!plan.auto_start);
+    }
+
+    #[test]
+    fn auto_mode_prompts_and_starts() {
+        let plan = adhoc_notification_plan(&config_with(MeetingTranscriptionMode::Auto, false));
+        assert!(plan.show_widget);
+        assert!(plan.auto_start);
+    }
+
+    #[test]
+    fn manual_mode_stays_silent_only_when_the_widget_is_disabled() {
+        let hidden = adhoc_notification_plan(&config_with(MeetingTranscriptionMode::Manual, false));
+        assert!(!hidden.show_widget);
+        assert!(!hidden.auto_start);
+
+        let shown = adhoc_notification_plan(&config_with(MeetingTranscriptionMode::Manual, true));
+        assert!(shown.show_widget);
+        assert!(!shown.auto_start);
+    }
 
     #[test]
     fn dismissal_refreshes_the_existing_cooldown_and_clears_dwell() {

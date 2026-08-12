@@ -1,5 +1,11 @@
 # @agent-native/creative-context
 
+## 0.6.5
+
+### Patch Changes
+
+- b3b4580: Normalize commenter access to the read-only creative-context role contract.
+
 ## 0.6.4
 
 ### Patch Changes

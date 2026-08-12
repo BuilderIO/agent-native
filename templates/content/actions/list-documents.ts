@@ -3,7 +3,11 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
-import { ROLE_RANK, type ShareRole } from "@agent-native/core/sharing";
+import {
+  ROLE_RANK,
+  roleSatisfies,
+  type ShareRole,
+} from "@agent-native/core/sharing";
 import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
@@ -31,6 +35,10 @@ type EffectiveRole = "owner" | ShareRole;
 
 function canEditRole(role: EffectiveRole) {
   return role === "owner" || role === "admin" || role === "editor";
+}
+
+function canCommentRole(role: EffectiveRole) {
+  return roleSatisfies(role, "commenter");
 }
 
 function canManageRole(role: EffectiveRole) {
@@ -331,6 +339,7 @@ export default defineAction({
           ? serializeDatabaseMembership(databaseMembership)
           : undefined,
         accessRole,
+        canComment: canCommentRole(accessRole),
         canEdit: canEditRole(accessRole),
         canManage: canManageRole(accessRole),
         createdAt: d.createdAt,

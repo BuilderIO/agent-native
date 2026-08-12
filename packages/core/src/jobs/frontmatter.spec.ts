@@ -33,6 +33,8 @@ describe("job resource frontmatter", () => {
       deliveryThreadRef: "1785343277.030909",
       deliveryTenantId: "T012345",
       model: "claude-sonnet-4-5",
+      maxIterations: 32,
+      maxRunInputTokens: 1_000_000,
       mcpTools: ["mcp__calendar__list_events"],
     };
 

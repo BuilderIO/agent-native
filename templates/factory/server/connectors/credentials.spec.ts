@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   readAppSecret: vi.fn(),
   resolveCredential: vi.fn(),
+  resolveWorkspaceConnectionCredentialForApp: vi.fn(),
   resolveOrgIdForEmail: vi.fn(),
   select: vi.fn(),
 }));
@@ -16,6 +17,10 @@ vi.mock("@agent-native/core/org", () => ({
 }));
 vi.mock("@agent-native/core/secrets", () => ({
   readAppSecret: mocks.readAppSecret,
+}));
+vi.mock("@agent-native/core/workspace-connections", () => ({
+  resolveWorkspaceConnectionCredentialForApp:
+    mocks.resolveWorkspaceConnectionCredentialForApp,
 }));
 vi.mock("../db/index.js", () => ({
   getDb: () => ({ select: mocks.select }),
@@ -31,6 +36,10 @@ describe("resolveConnectorSecret", () => {
     vi.unstubAllEnvs();
     mocks.readAppSecret.mockResolvedValue(null);
     mocks.resolveCredential.mockResolvedValue(undefined);
+    mocks.resolveWorkspaceConnectionCredentialForApp.mockResolvedValue({
+      available: false,
+      value: undefined,
+    });
     mocks.resolveOrgIdForEmail.mockResolvedValue("active-org");
     mocks.select.mockReturnValue({
       from: () => ({
@@ -63,5 +72,30 @@ describe("resolveConnectorSecret", () => {
         orgId: "active-org",
       }),
     ).resolves.toBe("deployment-value");
+  });
+
+  it("prefers an app-granted provider connection for known source keys", async () => {
+    mocks.resolveWorkspaceConnectionCredentialForApp.mockResolvedValue({
+      available: true,
+      value: "connected-slack-token",
+    });
+
+    await expect(
+      resolveConnectorSecret("SLACK_BOT_TOKEN", userEmail, {
+        orgId: "active-org",
+      }),
+    ).resolves.toBe("connected-slack-token");
+    expect(
+      mocks.resolveWorkspaceConnectionCredentialForApp,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appId: "factory",
+        provider: "slack",
+        key: "SLACK_BOT_TOKEN",
+        userEmail,
+        orgId: "active-org",
+      }),
+    );
+    expect(mocks.readAppSecret).not.toHaveBeenCalled();
   });
 });

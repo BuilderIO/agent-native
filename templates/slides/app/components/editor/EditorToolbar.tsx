@@ -74,6 +74,8 @@ interface EditorToolbarProps {
    *  edit affordances disabled, matching Google Slides' viewer experience.
    *  Defaults to true for backward compatibility. */
   canEdit?: boolean;
+  /** Whether the user may create and manage comments without editing slides. */
+  canComment?: boolean;
   onTitleChange: (title: string) => void;
   slideCount: number;
   currentSlideIndex: number;
@@ -185,6 +187,7 @@ export default function EditorToolbar({
   addSlideGenerating = false,
   onAddSlideGeneratingChange,
   canEdit = true,
+  canComment = canEdit,
 }: EditorToolbarProps) {
   const t = useT();
   // Public decks default to the read-only presentation URL so recipients do
@@ -385,17 +388,17 @@ export default function EditorToolbar({
           run: onToggleDrawMode,
         });
       }
-      if (onTogglePinMode) {
-        commands.push({
-          id: "pin-comments",
-          group: "slideTools",
-          label: t("editorToolbar.pinComments"),
-          keywords: ["comment", "pin"],
-          icon: IconPin,
-          active: pinMode,
-          run: onTogglePinMode,
-        });
-      }
+    }
+    if (canComment && onTogglePinMode) {
+      commands.push({
+        id: "pin-comments",
+        group: "slideTools",
+        label: t("editorToolbar.pinComments"),
+        keywords: ["comment", "pin"],
+        icon: IconPin,
+        active: pinMode,
+        run: onTogglePinMode,
+      });
     }
     if (onToggleComments) {
       commands.push({
@@ -498,6 +501,7 @@ export default function EditorToolbar({
     return commands;
   }, [
     animationsOpen,
+    canComment,
     canEdit,
     commentsOpen,
     currentSlide,
@@ -673,74 +677,70 @@ export default function EditorToolbar({
               </>
             )}
 
-            {canEdit &&
-              (onToggleAnimations ||
-                onToggleTweaks ||
-                onToggleDrawMode ||
-                onTogglePinMode) && (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuLabel>
-                    {t("editorToolbar.slideTools")}
-                  </DropdownMenuLabel>
-                  <DropdownMenuGroup>
-                    {currentSlide && onToggleAnimations && (
-                      <DropdownMenuItem
-                        onSelect={onToggleAnimations}
-                        className={
-                          animationsOpen
-                            ? "bg-accent text-accent-foreground"
-                            : undefined
-                        }
-                      >
-                        <IconBolt className="size-4" />
-                        {t("editorToolbar.elementAnimations")}
-                      </DropdownMenuItem>
-                    )}
-                    {onToggleTweaks && (
-                      <DropdownMenuItem
-                        onSelect={onToggleTweaks}
-                        className={
-                          tweaksOpen
-                            ? "bg-accent text-accent-foreground"
-                            : undefined
-                        }
-                      >
-                        <IconAdjustments className="size-4" />
-                        {t("editorToolbar.tweaks")}
-                      </DropdownMenuItem>
-                    )}
-                    {onToggleDrawMode && (
-                      <DropdownMenuItem
-                        onSelect={onToggleDrawMode}
-                        data-toolbar-draw-button
-                        className={
-                          drawMode
-                            ? "bg-accent text-accent-foreground"
-                            : undefined
-                        }
-                      >
-                        <IconPencilPlus className="size-4" />
-                        {t("editorToolbar.drawOnSlide")}
-                      </DropdownMenuItem>
-                    )}
-                    {onTogglePinMode && (
-                      <DropdownMenuItem
-                        onSelect={onTogglePinMode}
-                        data-toolbar-pin-button
-                        className={
-                          pinMode
-                            ? "bg-accent text-accent-foreground"
-                            : undefined
-                        }
-                      >
-                        <IconPin className="size-4" />
-                        {t("editorToolbar.pinComments")}
-                      </DropdownMenuItem>
-                    )}
-                  </DropdownMenuGroup>
-                </>
-              )}
+            {((canEdit &&
+              (onToggleAnimations || onToggleTweaks || onToggleDrawMode)) ||
+              (canComment && onTogglePinMode)) && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuLabel>
+                  {t("editorToolbar.slideTools")}
+                </DropdownMenuLabel>
+                <DropdownMenuGroup>
+                  {canEdit && currentSlide && onToggleAnimations && (
+                    <DropdownMenuItem
+                      onSelect={onToggleAnimations}
+                      className={
+                        animationsOpen
+                          ? "bg-accent text-accent-foreground"
+                          : undefined
+                      }
+                    >
+                      <IconBolt className="size-4" />
+                      {t("editorToolbar.elementAnimations")}
+                    </DropdownMenuItem>
+                  )}
+                  {canEdit && onToggleTweaks && (
+                    <DropdownMenuItem
+                      onSelect={onToggleTweaks}
+                      className={
+                        tweaksOpen
+                          ? "bg-accent text-accent-foreground"
+                          : undefined
+                      }
+                    >
+                      <IconAdjustments className="size-4" />
+                      {t("editorToolbar.tweaks")}
+                    </DropdownMenuItem>
+                  )}
+                  {canEdit && onToggleDrawMode && (
+                    <DropdownMenuItem
+                      onSelect={onToggleDrawMode}
+                      data-toolbar-draw-button
+                      className={
+                        drawMode
+                          ? "bg-accent text-accent-foreground"
+                          : undefined
+                      }
+                    >
+                      <IconPencilPlus className="size-4" />
+                      {t("editorToolbar.drawOnSlide")}
+                    </DropdownMenuItem>
+                  )}
+                  {canComment && onTogglePinMode && (
+                    <DropdownMenuItem
+                      onSelect={onTogglePinMode}
+                      data-toolbar-pin-button
+                      className={
+                        pinMode ? "bg-accent text-accent-foreground" : undefined
+                      }
+                    >
+                      <IconPin className="size-4" />
+                      {t("editorToolbar.pinComments")}
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuGroup>
+              </>
+            )}
 
             {onToggleComments && (
               <>
@@ -825,7 +825,7 @@ export default function EditorToolbar({
           resourceId={deckId}
           resourceTitle={deckTitle}
           roleCopy={{
-            viewer: {
+            commenter: {
               label: t("editorToolbar.commenterRoleLabel"),
               description: t("editorToolbar.commenterRoleDescription"),
             },

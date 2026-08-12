@@ -47,7 +47,12 @@ export interface DesignFile {
   updatedAt: string;
 }
 
-export type DesignAccessRole = "owner" | "admin" | "editor" | "viewer";
+export type DesignAccessRole =
+  | "owner"
+  | "admin"
+  | "editor"
+  | "commenter"
+  | "viewer";
 
 export interface DesignData {
   id: string;

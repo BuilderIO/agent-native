@@ -24,7 +24,12 @@ import {
 } from "@tabler/icons-react";
 import { nanoid } from "nanoid";
 import { useState, useCallback, useRef, useEffect } from "react";
-import { useParams, useSearchParams, useNavigate } from "react-router";
+import {
+  useBlocker,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from "react-router";
 import { toast } from "sonner";
 
 import { SlideCommentsPanel } from "@/components/comments/SlideCommentsPanel";
@@ -40,8 +45,23 @@ import ImageGenPanel from "@/components/editor/ImageGenPanel";
 import { QuestionFlow } from "@/components/editor/QuestionFlow";
 import SlideEditor from "@/components/editor/SlideEditor";
 import { TweaksPanel } from "@/components/editor/TweaksPanel";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { deckIdFromPathname, useDecks } from "@/context/DeckContext";
+import {
+  deckIdFromPathname,
+  hasUnsavedDeckChanges,
+  useDecks,
+  useSaveState,
+} from "@/context/DeckContext";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import { useDeckDesignSystem } from "@/hooks/use-deck-design-system";
 import { useDeckPresence } from "@/hooks/use-deck-presence";
@@ -65,6 +85,10 @@ import {
   shouldShowNewDeckGeneratingProgress,
 } from "@/lib/generation-state";
 import { isMissingUploadProviderError } from "@/lib/image-drop-to-agent";
+import {
+  shouldBlockPendingDeckNavigation,
+  usePendingDeckUnloadGuard,
+} from "@/lib/pending-deck-changes";
 import { imageFileLooksSupported } from "@/lib/slide-image-replacement";
 import {
   insertDroppedImageIntoSlideHtml,
@@ -165,8 +189,34 @@ export default function DeckEditor() {
     loadError,
   } = useDecks();
   const [activeSlideId, setActiveSlideId] = useState<string | null>(null);
+  const [inlineEditActive, setInlineEditActive] = useState(false);
   const [addSlideGenerating, setAddSlideGenerating] = useState(false);
   const [generatingSlideSelected, setGeneratingSlideSelected] = useState(false);
+  const { hasUnsavedChanges: hasUnsavedSave } = useSaveState();
+  const hasPendingDeckEdits =
+    inlineEditActive || (id ? hasUnsavedDeckChanges(id) : hasUnsavedSave);
+  usePendingDeckUnloadGuard(hasPendingDeckEdits);
+  const pendingDeckNavigationBlocker = useBlocker(
+    useCallback(
+      ({ currentLocation, nextLocation }) =>
+        shouldBlockPendingDeckNavigation({
+          hasPendingEdits: hasPendingDeckEdits,
+          currentPathname: currentLocation.pathname,
+          nextPathname: nextLocation.pathname,
+        }),
+      [hasPendingDeckEdits],
+    ),
+  );
+  const pendingDeckNavigationWarningOpen =
+    pendingDeckNavigationBlocker.state === "blocked";
+  const keepEditingAfterNavigationAttempt = useCallback(() => {
+    if (pendingDeckNavigationBlocker.state !== "blocked") return;
+    pendingDeckNavigationBlocker.reset();
+  }, [pendingDeckNavigationBlocker]);
+  const leaveWithPendingDeckChanges = useCallback(() => {
+    if (pendingDeckNavigationBlocker.state !== "blocked") return;
+    pendingDeckNavigationBlocker.proceed();
+  }, [pendingDeckNavigationBlocker]);
   const { generating } = useAgentGenerating();
   // Generation intent can arrive after this route mounts because the user
   // answers pre-generation questions from the empty editor.
@@ -253,7 +303,7 @@ export default function DeckEditor() {
   // get the full editor. Only assume edit access while the role is still
   // loading when `createdByMe` already confirms ownership — otherwise a
   // viewer would briefly see (and could click) edit affordances.
-  const { canEdit } = useDeckRole(id, deck?.createdByMe === true);
+  const { canEdit, canComment } = useDeckRole(id, deck?.createdByMe === true);
   const isNewDeckGenerating = shouldShowNewDeckGeneratingProgress({
     generating,
     isNewDeckCreation: wasNewDeckCreation.current,
@@ -1005,6 +1055,7 @@ export default function DeckEditor() {
         deckId={id}
         deckTitle={deck.title}
         canEdit={canEdit}
+        canComment={canComment}
         onTitleChange={(title) => updateDeck(id, { title })}
         slideCount={deck.slides.length}
         currentSlideIndex={currentIndex >= 0 ? currentIndex : 0}
@@ -1228,7 +1279,11 @@ export default function DeckEditor() {
                 options,
               )
             }
-            onInlineEditStart={() => markDeckDirty(id)}
+            onInlineEditStart={() => {
+              setInlineEditActive(true);
+              markDeckDirty(id);
+            }}
+            onInlineEditEnd={() => setInlineEditActive(false)}
             onGenerateImage={() => setImageGenOpen(true)}
             onOpenAssetLibrary={(src) => {
               setReplaceImageSrc(src);
@@ -1257,6 +1312,7 @@ export default function DeckEditor() {
             }
             recentEdits={deckRecentEdits}
             onComment={(quotedText) => {
+              if (!canComment) return;
               setPendingComment({ quotedText });
               setSidePanel("comments");
             }}
@@ -1284,6 +1340,7 @@ export default function DeckEditor() {
           <SlideCommentsPanel
             deckId={id}
             slideId={currentSlide?.id ?? null}
+            canComment={canComment}
             pendingComment={pendingComment}
             onPendingDone={() => setPendingComment(null)}
             onClose={() => {
@@ -1365,6 +1422,30 @@ export default function DeckEditor() {
         canRestore={canEdit}
         anchorRef={historyButtonRef}
       />
+
+      <AlertDialog open={pendingDeckNavigationWarningOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("deckEditor.unsavedChangesTitle")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("deckEditor.unsavedChangesDescription")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={keepEditingAfterNavigationAttempt}>
+              {t("deckEditor.keepEditing")}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={leaveWithPendingDeckChanges}
+            >
+              {t("deckEditor.leaveWithoutSaving")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

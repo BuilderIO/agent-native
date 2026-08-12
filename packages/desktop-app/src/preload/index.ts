@@ -275,6 +275,12 @@ const electronAPI = {
       ipcRenderer.invoke(IPC.CLIPBOARD_WRITE_TEXT, text),
   },
 
+  /** Open a validated URL in the user's system browser. */
+  shell: {
+    openExternal: (url: string): Promise<void> =>
+      ipcRenderer.invoke(IPC.SHELL_OPEN_EXTERNAL, url),
+  },
+
   /** Local dev frame settings */
   frame: {
     load: (): Promise<FrameSettings> => ipcRenderer.invoke(IPC.FRAME_LOAD),

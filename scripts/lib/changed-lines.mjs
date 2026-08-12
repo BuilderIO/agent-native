@@ -13,6 +13,15 @@ import { execFileSync } from "node:child_process";
 
 const DIFF_BASE_ENV = ["GUARD_DIFF_BASE", "GITHUB_BASE_REF"];
 
+/**
+ * Exit code a guard uses for "I could not run", as distinct from 0 (checked,
+ * clean) and 1 (checked, violations). Without a third code every diff-scoped
+ * guard has to pick between lying about a pass and failing the build on a
+ * shallow clone, and all four picked the lie. `run-guards.ts` renders this as
+ * SKIPPED and refuses to print "All checks passed" when any guard used it.
+ */
+export const GUARD_EXIT_COULD_NOT_RUN = 2;
+
 /** Resolve the ref to diff against: explicit env, then origin/main, then main. */
 export function resolveDiffBase(cwd) {
   for (const name of DIFF_BASE_ENV) {
@@ -45,6 +54,25 @@ export function addedLines(cwd, { includeWorkingTree = true } = {}) {
   const diff = git(args, cwd);
   if (diff === null) return null;
   return parseUnifiedDiff(diff, cwd);
+}
+
+/**
+ * `addedLines`, but a guard that cannot scope itself exits instead of
+ * continuing. Every diff-scoped guard used to hand-roll this and every one of
+ * them printed a paragraph saying "this is NOT a pass" and then exited 0 —
+ * the exact coercion CLAUDE.md's flagship rule bans, in the scripts that
+ * enforce it. The caller gets a Map or it gets nothing.
+ */
+export function requireAddedLines(cwd, guardName, options) {
+  const added = addedLines(cwd, options);
+  if (added !== null) return added;
+  console.error(
+    `${guardName}: could not determine which lines this branch added ` +
+      "(no GUARD_DIFF_BASE/GITHUB_BASE_REF, no origin/main or main ref, or " +
+      "git diff failed), so the check did not run.\n" +
+      "  Fix with:  git fetch origin main   (or set GUARD_DIFF_BASE=<ref>)",
+  );
+  process.exit(GUARD_EXIT_COULD_NOT_RUN);
 }
 
 function parseUnifiedDiff(diff, cwd) {

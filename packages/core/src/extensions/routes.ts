@@ -254,6 +254,9 @@ async function dispatch(
     // viewer is NOT the author. The role is plumbed through to gate
     // dangerous bridge helpers in iframe-bridge.ts (audit H4).
     const isAuthor = extension.ownerEmail === userEmail;
+    // Commenters can read shared extensions, but the iframe bridge has no
+    // comment-specific capability; map them to its read-only viewer role.
+    const renderRole = access.role === "commenter" ? "viewer" : access.role;
 
     const html = buildExtensionHtml(
       extension.content,
@@ -264,7 +267,7 @@ async function dispatch(
         authorEmail: extension.ownerEmail,
         viewerEmail: userEmail,
         isAuthor,
-        role: access.role,
+        role: renderRole,
       },
     );
     // Security headers per render. `frame-ancestors` in the CSP must be set as

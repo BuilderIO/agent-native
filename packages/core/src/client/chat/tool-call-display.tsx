@@ -61,7 +61,6 @@ import { ActionChatUiSurface } from "./action-chat-ui-surface.js";
 import {
   SmoothMarkdownText,
   HighlightedCodeBlock,
-  useSmoothStreamingText,
 } from "./markdown-renderer.js";
 import { resolveToolRenderer } from "./tool-render-registry.js";
 import {
@@ -1510,7 +1509,6 @@ const WorkSummaryContentContext = React.createContext(false);
 export function ReasoningCell({
   text,
   isStreaming = false,
-  resetKey,
   defaultOpen,
   autoCollapse = false,
   collapseWhenReplaced = false,
@@ -1518,7 +1516,7 @@ export function ReasoningCell({
 }: {
   text: string;
   isStreaming?: boolean;
-  /** Stable identity used to restart the reveal when a new reasoning part mounts. */
+  /** Stable identity retained for callers; reasoning renders chunk-natively. */
   resetKey?: string;
   defaultOpen?: boolean;
   /** Animate closed when a live reasoning segment finishes during a run. */
@@ -1538,11 +1536,10 @@ export function ReasoningCell({
   const wasStreamingRef = useRef(isStreaming);
   const wasReplacedRef = useRef(collapseWhenReplaced);
   const trimmed = text.trim();
-  const visibleText = useSmoothStreamingText(
-    trimmed,
-    isStreaming,
-    resetKey ?? "reasoning",
-  );
+  // Reasoning is already a compact live status surface. Rendering the latest
+  // chunk directly avoids a second character-level queue that can lag behind
+  // the model and make the surrounding chat look like it is jumping.
+  const visibleText = trimmed;
 
   useEffect(() => {
     if (autoCollapse && wasStreamingRef.current && !isStreaming) {

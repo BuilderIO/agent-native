@@ -379,6 +379,7 @@ export default function RecordingPage() {
     | "owner"
     | "admin"
     | "editor"
+    | "commenter"
     | "viewer"
     | undefined;
   const comments = playerDataQ.data?.comments ?? [];
@@ -391,6 +392,11 @@ export default function RecordingPage() {
   const transcriptCleanup = playerDataQ.data?.transcript?.cleanup ?? null;
   const ctas = playerDataQ.data?.ctas ?? [];
   const canEdit = role === "owner" || role === "admin" || role === "editor";
+  const canComment =
+    role === "owner" ||
+    role === "admin" ||
+    role === "editor" ||
+    role === "commenter";
   useEffect(() => {
     if (!canEdit && (panel === "insights" || panel === "settings")) {
       setPanel("comments");
@@ -1051,11 +1057,7 @@ export default function RecordingPage() {
         <p className="text-sm text-muted-foreground mb-4 max-w-md text-center">
           {failureReason}
         </p>
-        {isFailure &&
-        !storageSetupFailure &&
-        detail &&
-        role &&
-        role !== "viewer" ? (
+        {isFailure && !storageSetupFailure && detail && role && canEdit ? (
           <div className="mb-4 w-full max-w-xl rounded-md border border-border bg-card p-4 text-start shadow-sm">
             <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
               {t("recordingPage.details")}
@@ -1254,6 +1256,7 @@ export default function RecordingPage() {
             currentMs={currentMs}
             currentUserEmail={session?.email}
             enableComments={recording.enableComments}
+            canComment={canComment}
             onSeek={(ms) => playerRef.current?.seek(ms)}
             queryKey={[
               "action",
@@ -1615,7 +1618,7 @@ export default function RecordingPage() {
                   onCommentClick={openCommentsPanel}
                   className="h-full w-full rounded-none sm:rounded-xl"
                 />
-                {commentOpen ? (
+                {commentOpen && canComment ? (
                   <TimestampedCommentBar
                     recordingId={recording.id}
                     atMs={commentAtMs}
@@ -1667,21 +1670,24 @@ export default function RecordingPage() {
                     </NavLink>
                   ) : null}
                   <div className="flex flex-wrap items-center gap-2">
-                    <TimestampedCommentButton
-                      enableComments={recording.enableComments}
-                      className="shrink-0"
-                      onOpen={() => {
-                        if (isCompactLayout) {
-                          openCommentsPanel();
-                          return;
-                        }
-                        setCommentAtMs(resolvePlaybackMs());
-                        setCommentOpen(true);
-                      }}
-                    />
+                    {canComment ? (
+                      <TimestampedCommentButton
+                        enableComments={recording.enableComments}
+                        canComment={canComment}
+                        className="shrink-0"
+                        onOpen={() => {
+                          if (isCompactLayout) {
+                            openCommentsPanel();
+                            return;
+                          }
+                          setCommentAtMs(resolvePlaybackMs());
+                          setCommentOpen(true);
+                        }}
+                      />
+                    ) : null}
                     {recording.enableReactions ? (
                       <ReactionsTray
-                        disabled={!recording.enableReactions}
+                        disabled={!recording.enableReactions || !canComment}
                         onReact={(emoji) => {
                           tracking.reportReaction(emoji);
                           const liveMs = resolvePlaybackMs();
