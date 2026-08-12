@@ -1,6 +1,34 @@
 import type { H3Event } from "h3";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
+const resolverMocks = vi.hoisted(() => ({
+  getSetting: vi.fn(),
+  getRequestOrgId: vi.fn(),
+  getRequestUserEmail: vi.fn(),
+  resolveSecret: vi.fn(),
+}));
+
+vi.mock("../settings/store.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../settings/store.js")>();
+  return {
+    ...actual,
+    getSetting: (...args: unknown[]) => resolverMocks.getSetting(...args),
+  };
+});
+
+vi.mock("./request-context.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./request-context.js")>();
+  return {
+    ...actual,
+    getRequestOrgId: () => resolverMocks.getRequestOrgId(),
+    getRequestUserEmail: () => resolverMocks.getRequestUserEmail(),
+  };
+});
+
+vi.mock("./credential-provider.js", () => ({
+  resolveSecret: (...args: unknown[]) => resolverMocks.resolveSecret(...args),
+}));
+
 import {
   appendBuilderConnectToken,
   buildBuilderCliAuthUrl,
@@ -29,6 +57,7 @@ import {
   resolveBuilderCallbackReturnUrl,
   resolveBuilderPreviewRelayParentOrigin,
   resolveBuilderPreviewRelayTargetOrigin,
+  resolveBuilderBranchProjectId,
   runBuilderAgent,
   signBuilderConnectToken,
   signBuilderCallbackState,
@@ -752,6 +781,17 @@ describe("Builder callback CSRF state", () => {
   });
 
   describe("Builder branch project configuration", () => {
+    beforeEach(() => {
+      resolverMocks.getSetting.mockReset();
+      resolverMocks.getRequestOrgId.mockReset();
+      resolverMocks.getRequestUserEmail.mockReset();
+      resolverMocks.resolveSecret.mockReset();
+      resolverMocks.getSetting.mockResolvedValue(null);
+      resolverMocks.getRequestOrgId.mockReturnValue(undefined);
+      resolverMocks.getRequestUserEmail.mockReturnValue(undefined);
+      resolverMocks.resolveSecret.mockResolvedValue(null);
+    });
+
     it("does not default to a workspace-specific project id", () => {
       delete process.env.DISPATCH_BUILDER_PROJECT_ID;
       delete process.env.BUILDER_BRANCH_PROJECT_ID;
@@ -769,6 +809,88 @@ describe("Builder callback CSRF state", () => {
 
       expect(getBuilderBranchProjectId()).toBe("project-123");
       expect(isBuilderBranchingEnabled()).toBe(true);
+    });
+
+    it("uses the org-scoped Dispatch setting before env or secret fallbacks", async () => {
+      resolverMocks.getRequestOrgId.mockReturnValue("org-123");
+      resolverMocks.getSetting.mockResolvedValue({
+        builderProjectId: " dispatch-project ",
+      });
+      process.env.BUILDER_BRANCH_PROJECT_ID = "env-project";
+
+      await expect(resolveBuilderBranchProjectId()).resolves.toBe(
+        "dispatch-project",
+      );
+      expect(resolverMocks.getSetting).toHaveBeenCalledWith(
+        "dispatch-app-creation-settings:org:org-123",
+      );
+      expect(resolverMocks.resolveSecret).not.toHaveBeenCalled();
+    });
+
+    it("uses the authenticated user-scoped Dispatch setting without an org", async () => {
+      resolverMocks.getRequestUserEmail.mockReturnValue("user@example.test");
+      resolverMocks.getSetting.mockResolvedValue({
+        builderProjectId: "user-project",
+      });
+
+      await expect(resolveBuilderBranchProjectId()).resolves.toBe(
+        "user-project",
+      );
+      expect(resolverMocks.getSetting).toHaveBeenCalledWith(
+        "dispatch-app-creation-settings:user:user@example.test",
+      );
+    });
+
+    it("treats an explicit null or empty Dispatch project as disabled", async () => {
+      resolverMocks.getRequestOrgId.mockReturnValue("org-123");
+      process.env.BUILDER_BRANCH_PROJECT_ID = "stale-env-project";
+      resolverMocks.resolveSecret.mockResolvedValue("stale-secret-project");
+
+      resolverMocks.getSetting.mockResolvedValue({ builderProjectId: null });
+      await expect(resolveBuilderBranchProjectId()).resolves.toBe("");
+
+      resolverMocks.getSetting.mockResolvedValue({ builderProjectId: "  " });
+      await expect(resolveBuilderBranchProjectId()).resolves.toBe("");
+      expect(resolverMocks.resolveSecret).not.toHaveBeenCalled();
+    });
+
+    it("fails closed when the scoped Dispatch setting cannot be read", async () => {
+      resolverMocks.getRequestOrgId.mockReturnValue("org-123");
+      resolverMocks.getSetting.mockRejectedValue(new Error("settings down"));
+      process.env.BUILDER_BRANCH_PROJECT_ID = "stale-env-project";
+      resolverMocks.resolveSecret.mockResolvedValue("stale-secret-project");
+
+      await expect(resolveBuilderBranchProjectId()).resolves.toBe("");
+      expect(resolverMocks.resolveSecret).not.toHaveBeenCalled();
+    });
+
+    it("keeps legacy fallbacks when no scoped Dispatch row exists", async () => {
+      resolverMocks.getRequestOrgId.mockReturnValue("org-123");
+      resolverMocks.resolveSecret.mockImplementation(async (key: string) =>
+        key === "BUILDER_BRANCH_PROJECT_ID" ? " secret-project " : null,
+      );
+
+      await expect(resolveBuilderBranchProjectId()).resolves.toBe(
+        "secret-project",
+      );
+      expect(resolverMocks.getSetting).toHaveBeenCalledWith(
+        "dispatch-app-creation-settings:org:org-123",
+      );
+      expect(resolverMocks.resolveSecret).toHaveBeenCalledWith(
+        "DISPATCH_BUILDER_PROJECT_ID",
+      );
+      expect(resolverMocks.resolveSecret).toHaveBeenCalledWith(
+        "BUILDER_BRANCH_PROJECT_ID",
+      );
+    });
+
+    it("keeps the env fallback when the request has no org or user context", async () => {
+      process.env.BUILDER_BRANCH_PROJECT_ID = "env-project";
+
+      await expect(resolveBuilderBranchProjectId()).resolves.toBe(
+        "env-project",
+      );
+      expect(resolverMocks.getSetting).not.toHaveBeenCalled();
     });
   });
 
