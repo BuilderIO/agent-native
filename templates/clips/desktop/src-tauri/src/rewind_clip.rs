@@ -136,6 +136,8 @@ pub(crate) fn rewind_clip_prepare(
     let sources = screen_memory::rewind_clip_sources(&app);
     let output = artifact_path(&app, &artifact_label)?;
     #[cfg(target_os = "macos")]
+    let recovery_intent = (server_url.clone(), recording_id.clone());
+    #[cfg(target_os = "macos")]
     let shared_sink = match screen_memory::prepare_shared_clip_sink(
         &app,
         output,
@@ -167,6 +169,29 @@ pub(crate) fn rewind_clip_prepare(
         );
         release_temporary_audio(&app, temporary_audio);
         return Err(not_compatible("shared Rewind Clip sinks require macOS"));
+    }
+    #[cfg(target_os = "macos")]
+    if let (Some(server_url), Some(recording_id)) = recovery_intent {
+        if !server_url.trim().is_empty() && !recording_id.trim().is_empty() {
+            let (width, height) = shared_sink.dimensions();
+            if let Err(error) = native_screen::persist_recording_intent(
+                shared_sink.path(),
+                &recording_id,
+                &server_url,
+                native_screen::MP4_RECORDING_MIME_TYPE,
+                Some(width),
+                Some(height),
+                include_mic || include_system_audio,
+                include_mic,
+                include_system_audio,
+                has_camera,
+                true,
+            ) {
+                shared_sink.cancel();
+                release_temporary_audio(&app, temporary_audio);
+                return Err(error);
+            }
+        }
     }
     let response_sources = sources.clone();
     let mut active = state.0.lock().map_err(|error| error.to_string())?;

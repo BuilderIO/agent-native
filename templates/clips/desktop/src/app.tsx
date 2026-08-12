@@ -2703,6 +2703,29 @@ export function App() {
     loadPendingUploads();
   }, [loadPendingUploads, popoverVisible]);
 
+  useEffect(() => {
+    let cancelled = false;
+    void invoke<{ recovered: number }>(
+      "native_fullscreen_recover_orphaned_uploads",
+      { serverUrl },
+    )
+      .then((result) => {
+        if (!cancelled && result.recovered > 0) {
+          return loadPendingUploads();
+        }
+        return undefined;
+      })
+      .catch((error) => {
+        console.warn(
+          "[clips-tray] orphaned recording recovery lookup failed:",
+          error,
+        );
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [loadPendingUploads, serverUrl]);
+
   // ---- persist selections -------------------------------------------------
 
   useEffect(() => saveString(MODE_KEY, mode), [mode]);
