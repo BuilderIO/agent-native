@@ -40,11 +40,19 @@ vi.mock("@/components/ui/popover", () => ({
   PopoverContent: ({
     children,
     onCloseAutoFocus,
+    onEscapeKeyDown,
   }: {
     children: ReactNode;
     onCloseAutoFocus?: (event: Event) => void;
+    onEscapeKeyDown?: (event: KeyboardEvent) => void;
   }) => (
     <div>
+      <button
+        data-escape-key-down
+        onClick={() => {
+          onEscapeKeyDown?.(new KeyboardEvent("keydown", { key: "Escape" }));
+        }}
+      />
       <button
         data-close-auto-focus
         onClick={(clickEvent) => {
@@ -261,6 +269,41 @@ describe("BubbleToolbar", () => {
     act(() => closeAutoFocus.click());
 
     expect(closeAutoFocus.dataset.prevented).toBe("false");
+  });
+
+  it("returns focus to the editor when Escape closes the text-style menu", async () => {
+    editorElement = document.createElement("div");
+    toolbarElement = document.createElement("div");
+    document.body.append(editorElement, toolbarElement);
+    editor = new Editor({
+      element: editorElement,
+      extensions: [StarterKit],
+      content: "<p>Selected paragraph</p>",
+    });
+    editor.commands.setTextSelection({ from: 1, to: 9 });
+
+    root = createRoot(toolbarElement);
+    act(() => root!.render(<BubbleToolbar editor={editor!} />));
+    const trigger = toolbarElement.querySelector<HTMLButtonElement>(
+      'button[aria-label="editor.slash.turnInto: editor.slash.text"]',
+    )!;
+    trigger.focus();
+
+    const escapeKeyDown = toolbarElement.querySelector<HTMLButtonElement>(
+      "button[data-escape-key-down]",
+    )!;
+    const closeAutoFocus = toolbarElement.querySelector<HTMLButtonElement>(
+      "button[data-close-auto-focus]",
+    )!;
+    await act(async () => {
+      escapeKeyDown.click();
+      closeAutoFocus.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(closeAutoFocus.dataset.prevented).toBe("true");
+    expect(editor.isFocused).toBe(true);
+    expect(document.activeElement).toBe(editor.view.dom);
   });
 
   it.each([5, 6] as const)(

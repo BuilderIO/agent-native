@@ -121,6 +121,7 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
   const [textStyleOpen, setTextStyleOpen] = useState(false);
   const textStyleSelection = useRef<{ from: number; to: number } | null>(null);
   const textStyleApplied = useRef(false);
+  const restoreEditorFocusOnClose = useRef(false);
   const [textStyle, setTextStyle] = useState<TextStyle>(() =>
     activeTextStyle(editor),
   );
@@ -439,6 +440,7 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
                   onOpenChange={(open) => {
                     if (open) {
                       textStyleApplied.current = false;
+                      restoreEditorFocusOnClose.current = false;
                       const { from, to } = editor.state.selection;
                       if (from !== to)
                         textStyleSelection.current = { from, to };
@@ -461,9 +463,21 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
                     align="start"
                     sideOffset={24}
                     className="w-44 p-1"
+                    onEscapeKeyDown={() => {
+                      restoreEditorFocusOnClose.current = true;
+                    }}
                     onCloseAutoFocus={(event) => {
-                      if (textStyleApplied.current) event.preventDefault();
+                      if (
+                        textStyleApplied.current ||
+                        restoreEditorFocusOnClose.current
+                      ) {
+                        event.preventDefault();
+                      }
+                      if (restoreEditorFocusOnClose.current) {
+                        editor.commands.focus();
+                      }
                       textStyleApplied.current = false;
+                      restoreEditorFocusOnClose.current = false;
                     }}
                   >
                     <div className="px-2 py-1 text-xs font-medium text-muted-foreground">
