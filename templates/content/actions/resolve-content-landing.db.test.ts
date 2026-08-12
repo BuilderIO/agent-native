@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -14,6 +15,13 @@ const TEST_DB_PATH = join(
   `content-landing-${process.pid}-${Date.now()}.sqlite`,
 );
 const WELCOME_TITLE = "Welcome to Agent-Native Content";
+
+function initialWelcomeDocumentId(userEmail: string) {
+  const digest = createHash("sha256")
+    .update(userEmail.trim().toLowerCase())
+    .digest("hex");
+  return `content_welcome_${digest.slice(0, 32)}`;
+}
 
 type Schema = typeof import("../server/db/schema.js");
 let getDb: () => any;
@@ -201,6 +209,23 @@ describe("resolve-content-landing", () => {
       .where(eq(schema.documents.id, first.documentId));
     expect(original.trashedAt).toBe(trashedAt);
   });
+
+  it("advances past an inaccessible deterministic ID collision", async () => {
+    const userEmail = "landing-collision-target@example.com";
+    const collidingDocumentId = initialWelcomeDocumentId(userEmail);
+    await createPersonalDocument(
+      "landing-collision-owner@example.com",
+      collidingDocumentId,
+    );
+
+    const result = await runWithRequestContext({ userEmail }, () =>
+      resolveContentLandingAction.run({}),
+    );
+
+    expect(result).toMatchObject({ resolution: "welcome-created" });
+    expect(result.documentId).not.toBe(collidingDocumentId);
+  });
+
   it("converges concurrent root invocations on one private welcome page", async () => {
     const userEmail = "landing-concurrent@example.com";
     const resolve = () =>

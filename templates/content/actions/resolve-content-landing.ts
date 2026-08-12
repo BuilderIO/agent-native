@@ -48,6 +48,30 @@ function welcomeGeneration(state: Record<string, unknown>): number {
   return candidate.generation;
 }
 
+function isUniqueConstraintError(error: unknown): boolean {
+  let current: unknown = error;
+  const seen = new Set<unknown>();
+  while (current && typeof current === "object" && !seen.has(current)) {
+    seen.add(current);
+    const candidate = current as {
+      code?: unknown;
+      message?: unknown;
+      cause?: unknown;
+    };
+    const code = String(candidate.code ?? "");
+    const message = String(candidate.message ?? "");
+    if (
+      code === "23505" ||
+      code.includes("SQLITE_CONSTRAINT") ||
+      /unique constraint|unique violation|duplicate key/i.test(message)
+    ) {
+      return true;
+    }
+    current = candidate.cause;
+  }
+  return false;
+}
+
 async function resolveWelcomeState(): Promise<ContentWelcomePageState> {
   while (true) {
     const current = await readAppState(CONTENT_WELCOME_PAGE_STATE_KEY);
@@ -150,6 +174,12 @@ async function resolveWelcome(userEmail: string): Promise<{
         };
       }
       if (raced.status === "unavailable") continue;
+      if (isUniqueConstraintError(error)) {
+        await compareAndSetAppState(CONTENT_WELCOME_PAGE_STATE_KEY, state, {
+          generation: state.generation + 1,
+        });
+        continue;
+      }
       throw error;
     }
   }
