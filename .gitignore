@@ -131,3 +131,6 @@ packages/core/corpus.tmp-*/
 # Local output of `preview-dashboard-report.ts` — contains real internal
 # analytics data and is meant for local inspection only, never committed.
 .report-preview/
+
+# Local pnpm store (used for cached dependencies)
+.pnpm-store/
