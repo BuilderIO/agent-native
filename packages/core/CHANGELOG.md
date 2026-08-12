@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.153.7
+
+### Patch Changes
+
+- 518ebf0: Align stale-run recovery persistence tests with the normalized terminal reason written by the reaper.
+
 ## 0.153.6
 
 ### Patch Changes
