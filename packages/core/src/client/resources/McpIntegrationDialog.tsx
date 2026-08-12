@@ -658,48 +658,49 @@ export function McpIntegrationDialog({
                 )}
                 <IntegrationGrid
                   items={filteredIntegrations.map((integration) => {
-                  const connected = connectedUrls.has(
-                    compareUrl(integration.url),
-                  );
-                  const setupOnly = requiresMcpIntegrationSetup(integration);
-                  const apiFallback = getMcpIntegrationApiFallback(integration);
-                  return {
-                    id: integration.id,
-                    name: integration.name,
-                    description: t(integration.descriptionKey),
-                    logo: (
-                      <McpIntegrationLogo
-                        name={integration.name}
-                        logoUrl={integration.logoUrl}
-                        integrationId={integration.id}
-                        className="size-7 rounded-md"
-                        imageClassName="size-full p-1"
-                      />
-                    ),
-                    status: connected
-                      ? t("mcpIntegrations.connected")
-                      : setupOnly
-                        ? t("mcpIntegrations.status.setupRequired")
-                        : undefined,
-                    statusClassName: connected
-                      ? "text-emerald-600 dark:text-emerald-400"
-                      : "text-muted-foreground",
-                    actionLabel: connected
-                      ? "Manage"
-                      : setupOnly && apiFallback
-                        ? t("mcpIntegrations.useApiToken")
+                    const connected = connectedUrls.has(
+                      compareUrl(integration.url),
+                    );
+                    const setupOnly = requiresMcpIntegrationSetup(integration);
+                    const apiFallback =
+                      getMcpIntegrationApiFallback(integration);
+                    return {
+                      id: integration.id,
+                      name: integration.name,
+                      description: t(integration.descriptionKey),
+                      logo: (
+                        <McpIntegrationLogo
+                          name={integration.name}
+                          logoUrl={integration.logoUrl}
+                          integrationId={integration.id}
+                          className="size-7 rounded-md"
+                          imageClassName="size-full p-1"
+                        />
+                      ),
+                      status: connected
+                        ? t("mcpIntegrations.connected")
                         : setupOnly
-                          ? t("mcpIntegrations.viewSetup")
-                          : t("mcpIntegrations.connect"),
-                    disabled: connected || busy,
-                    onAction: () => {
-                      if (connected) {
-                        openForm(integration);
-                        return;
-                      }
-                      selectCatalogConnection(integration);
-                    },
-                  };
+                          ? t("mcpIntegrations.status.setupRequired")
+                          : undefined,
+                      statusClassName: connected
+                        ? "text-emerald-600 dark:text-emerald-400"
+                        : "text-muted-foreground",
+                      actionLabel: connected
+                        ? "Manage"
+                        : setupOnly && apiFallback
+                          ? t("mcpIntegrations.useApiToken")
+                          : setupOnly
+                            ? t("mcpIntegrations.viewSetup")
+                            : t("mcpIntegrations.connect"),
+                      disabled: connected || busy,
+                      onAction: () => {
+                        if (connected) {
+                          openForm(integration);
+                          return;
+                        }
+                        selectCatalogConnection(integration);
+                      },
+                    };
                   })}
                 />
                 {filteredIntegrations.length === 0 && (

@@ -14,6 +14,10 @@ import type {
   OnboardingStepStatus,
 } from "../../onboarding/types.js";
 import { agentNativePath } from "../api-path.js";
+import {
+  dispatchFirstRunOnboardingStatus,
+  fetchFirstRunOnboardingStatus,
+} from "./first-run-status.js";
 
 export interface UseOnboardingResult {
   steps: OnboardingStepStatus[];
@@ -65,16 +69,18 @@ export function useOnboarding(
           ? "/_agent-native/onboarding/steps?preview=1"
           : "/_agent-native/onboarding/steps",
       );
+      const firstRunPromise = preview
+        ? Promise.resolve(true).then((value) => {
+            dispatchFirstRunOnboardingStatus(value);
+            return value;
+          })
+        : fetchFirstRunOnboardingStatus();
       const [stepsRes, dismissRes, profileRes, firstRunRes] = await Promise.all(
         [
           fetch(stepsUrl),
           fetch(agentNativePath("/_agent-native/onboarding/dismissed")),
           fetch(agentNativePath("/_agent-native/onboarding/profile")),
-          preview
-            ? Promise.resolve(null)
-            : fetch(
-                agentNativePath("/_agent-native/onboarding/first-run/status"),
-              ),
+          firstRunPromise,
         ],
       );
       if (!mountedRef.current) return;
@@ -92,13 +98,7 @@ export function useOnboarding(
       if (preview) {
         setFirstRun(true);
       } else {
-        if (!firstRunRes || !firstRunRes.ok) {
-          throw new Error(`first-run status: ${firstRunRes?.status ?? 500}`);
-        }
-        const firstRunData = (await firstRunRes.json()) as {
-          firstRun?: boolean;
-        };
-        setFirstRun(firstRunData.firstRun === true);
+        setFirstRun(firstRunRes === true);
       }
 
       if (dismissRes.ok) {

@@ -5381,7 +5381,8 @@ const exactEnglishDebtOverrides: Partial<
       manualImportNoFiles: "Markdownファイルが選択されていません",
       manualImportFileLimit:
         ".mdと.markdownファイルのみがインポートされます。フォルダーからのインポートは100ファイル、400万文字までです。",
-      manualImportBlocked: "Brainのプライバシーポリシーによりブロックされました。",
+      manualImportBlocked:
+        "Brainのプライバシーポリシーによりブロックされました。",
       archiveSource: "ソースをアーカイブ",
       archiveSourceTitle: "このソースをアーカイブしますか？",
     },
@@ -6237,8 +6238,7 @@ const exactEnglishDebtOverrides: Partial<
       manualImportNoFiles: "Nenhum arquivo Markdown selecionado",
       manualImportFileLimit:
         "Somente arquivos .md e .markdown são importados. As importações de pastas estão limitadas a 100 arquivos e 4 milhões de caracteres.",
-      manualImportBlocked:
-        "Bloqueado pela política de privacidade do Brain.",
+      manualImportBlocked: "Bloqueado pela política de privacidade do Brain.",
       archiveSource: "Arquivar fonte",
       archiveSourceTitle: "Arquivar esta fonte?",
     },

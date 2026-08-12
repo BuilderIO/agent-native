@@ -723,7 +723,7 @@ async function tryCreateDefaultOrg(
       // already exists, so do not turn a marker-write failure into a false
       // zero-membership result or retry that creates another org.
       warnAgent({
-        severity: "warning",
+        severity: "advisory",
         code: "first-run-onboarding-eligibility-unreadable",
         message:
           `Auto-created organization ${orgId} for ${email}, but could not persist ` +

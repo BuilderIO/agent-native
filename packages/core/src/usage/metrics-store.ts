@@ -240,10 +240,18 @@ async function resolveScope(
   }
 
   const placeholders = selectedEmails.map(() => "?").join(", ");
+  const orgScope = orgId
+    ? { where: "org_id = ?", args: [orgId] }
+    : { where: "", args: [] };
   return {
     ownerScope: {
-      where: `LOWER(owner_email) IN (${placeholders})`,
-      args: selectedEmails.map((email) => email.toLowerCase()),
+      where: [orgScope.where, `LOWER(owner_email) IN (${placeholders})`]
+        .filter(Boolean)
+        .join(" AND "),
+      args: [
+        ...orgScope.args,
+        ...selectedEmails.map((email) => email.toLowerCase()),
+      ],
     },
     selectedUserEmail,
     members: availableMembers,

@@ -4,6 +4,11 @@ import {
   useSession,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import {
+  FIRST_RUN_ONBOARDING_STATUS_RESOLVED_EVENT,
+  fetchFirstRunOnboardingStatus,
+  isFirstRunOnboardingEnabled,
+} from "@agent-native/core/client/onboarding";
 import { buildSignInReturnHref } from "@agent-native/core/client/ui";
 import {
   useSetHeaderActions,
@@ -353,6 +358,8 @@ export default function Index() {
 
   const initialPrompt = searchParams.get("initialPrompt")?.trim() ?? "";
   const onboardingPreview = searchParams.get("onboarding") === "preview";
+  const firstRunOnboardingEnabled =
+    onboardingPreview || isFirstRunOnboardingEnabled();
   const openInitialPrompt = useCallback(() => {
     if (!initialPrompt || initialPromptConsumedRef.current) return;
     initialPromptConsumedRef.current = true;
@@ -371,40 +378,45 @@ export default function Index() {
 
   useEffect(() => {
     if (!initialPrompt || initialPromptConsumedRef.current) return;
-    const firstRunActive =
-      onboardingPreview ||
-      (typeof document !== "undefined" &&
-        document.cookie
-          .split(";")
-          .some((part) => part.trim().startsWith("agent-native-first-run=")));
     const handleFirstRunCompleted = () => openInitialPrompt();
+    const handleFirstRunStatusResolved = (event: Event) => {
+      const firstRun =
+        (event as CustomEvent<{ firstRun?: unknown }>).detail?.firstRun ===
+        true;
+      if (!firstRun) openInitialPrompt();
+    };
+
+    if (!firstRunOnboardingEnabled) {
+      openInitialPrompt();
+      return;
+    }
+
     window.addEventListener(
       "agent-native:first-run-completed",
       handleFirstRunCompleted,
     );
-    let fallbackTimer: number | undefined;
-    if (!firstRunActive) {
+    window.addEventListener(
+      FIRST_RUN_ONBOARDING_STATUS_RESOLVED_EVENT,
+      handleFirstRunStatusResolved,
+    );
+    void fetchFirstRunOnboardingStatus().catch(() => {
       openInitialPrompt();
-    } else {
-      // A landing link can open in a tab where the first-run marker exists but
-      // the onboarding surface is not mounted. Do not leave the prompt waiting
-      // forever in that case, while still giving the real onboarding overlay
-      // time to load and dispatch its completion event.
-      fallbackTimer = window.setTimeout(() => {
-        const firstRunSurface = document.querySelector(
-          "[data-onboarding-screen], [data-onboarding-loading]",
-        );
-        if (!firstRunSurface) openInitialPrompt();
-      }, 2500);
-    }
+    });
     return () => {
       window.removeEventListener(
         "agent-native:first-run-completed",
         handleFirstRunCompleted,
       );
-      if (fallbackTimer !== undefined) window.clearTimeout(fallbackTimer);
+      window.removeEventListener(
+        FIRST_RUN_ONBOARDING_STATUS_RESOLVED_EVENT,
+        handleFirstRunStatusResolved,
+      );
     };
-  }, [initialPrompt, onboardingPreview, openInitialPrompt]);
+  }, [
+    firstRunOnboardingEnabled,
+    initialPrompt,
+    openInitialPrompt,
+  ]);
 
   const setDeckFilter = useCallback(
     (value: string) => {

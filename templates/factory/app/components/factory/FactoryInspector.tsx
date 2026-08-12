@@ -255,10 +255,7 @@ export function FactoryInspector({
               size="sm"
               className="h-8 px-2 text-xs"
             >
-              <a
-                href={auditHref}
-                aria-label={t("factoryRoute.auditTitle")}
-              >
+              <a href={auditHref} aria-label={t("factoryRoute.auditTitle")}>
                 Activity
                 <IconArrowRight className="size-3.5" />
               </a>

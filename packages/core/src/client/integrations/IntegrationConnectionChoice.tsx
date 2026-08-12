@@ -1,8 +1,4 @@
-import {
-  IconLoader2,
-  IconUser,
-  IconUsersGroup,
-} from "@tabler/icons-react";
+import { IconLoader2, IconUser, IconUsersGroup } from "@tabler/icons-react";
 import type { ReactNode } from "react";
 
 export interface IntegrationConnectionChoiceProps {

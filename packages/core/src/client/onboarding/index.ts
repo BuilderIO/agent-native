@@ -5,6 +5,12 @@
  */
 
 export { useOnboarding, type UseOnboardingResult } from "./use-onboarding.js";
+export { isFirstRunOnboardingEnabled } from "./first-run-enabled.js";
+export {
+  dispatchFirstRunOnboardingStatus,
+  fetchFirstRunOnboardingStatus,
+  FIRST_RUN_ONBOARDING_STATUS_RESOLVED_EVENT,
+} from "./first-run-status.js";
 export {
   useOnboardingPreviewMode,
   ONBOARDING_PREVIEW_STORAGE_KEY,

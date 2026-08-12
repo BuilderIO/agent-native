@@ -2002,10 +2002,7 @@ function FactorySourcePopover({
 
 function FactorySettingsSkeleton({ t }: { t: ReturnType<typeof useT> }) {
   return (
-    <div
-      className="space-y-6"
-      aria-label={t("triage.loading")}
-    >
+    <div className="space-y-6" aria-label={t("triage.loading")}>
       {Array.from({ length: 2 }).map((_, index) => (
         <div
           key={index}
