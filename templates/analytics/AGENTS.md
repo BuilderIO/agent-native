@@ -48,6 +48,10 @@ Read the relevant skill before deeper work:
   sibling-invocable because this app owns schema, source selection, and tools.
   Prefer natural-language delegation; shaped reads are stable contracts, not
   delegation workarounds.
+- Analytics owns first-party product usage, app/template events, agent-native
+  signups, conversions, and other curated product metrics. Answer sibling-app
+  delegations with the built-in source and query catalog; sibling agents should
+  send a natural-language question, never SQL.
 - For open-ended delegated requests, choose a safe default and label partial.
 - Data integrity first. Never invent numbers, dimensions, filters, or source
   semantics; only present values you actually retrieved, and state uncertainty.

@@ -139,6 +139,16 @@ describe("Analytics agent Plan mode policy", () => {
     expect(BUILT_IN_FIRST_PARTY_SOURCE_GUIDANCE).toContain("analytics_events");
   });
 
+  it("advertises Analytics as the owner for curated first-party product metrics", () => {
+    expect(ANALYTICS_CROSS_APP_ROUTING_GUIDANCE).toContain(
+      "agent-native signups",
+    );
+    expect(ANALYTICS_CROSS_APP_ROUTING_GUIDANCE).toContain(
+      "built-in first-party source and query catalog",
+    );
+    expect(ANALYTICS_CROSS_APP_ROUTING_GUIDANCE).toContain("call-agent");
+  });
+
   it("discovers incident sessions without requiring a JavaScript error count", () => {
     expect(ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE).toContain(
       "Do not require hasErrors=true for this initial lookup",
