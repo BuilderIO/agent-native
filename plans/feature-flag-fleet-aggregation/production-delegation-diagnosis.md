@@ -233,7 +233,7 @@ test-resources:
     max-lifetime-minutes: 240
     declared-at: 2026-08-12T17:05:00Z
     expires-at: 2026-08-12T21:05:00Z
-    status: declared
+    status: cleaned
     phase: work
 governing-artifact:
   path: plans/feature-flag-fleet-aggregation/production-delegation-diagnosis.md
@@ -295,8 +295,8 @@ architecture-grounding:
 delegation-ceiling: [read-only investigation, bounded technical review, tester-owned local acceptance]
 acceptance-state:
   status: pending
-  summary: Implementation, focused verification, and independent review pass; tester-owned local dev-server acceptance is now authorized and pending.
-  blockers: [tester-owned local multi-app real-interface acceptance]
+  summary: The isolated local dev-server functional story passes through Analytics and receiver action routes; independent visual acceptance remains unavailable because the tester has no browser-capable localhost surface.
+  blockers: [tester-owned visual acceptance through an independently acquirable localhost browser]
   last-land-packet: null
 ledger-revision: feature-flag-production-delegation-work-r2
 status: active
@@ -344,6 +344,17 @@ H5. Exercise one safe unreachable target condition in the isolated local runtime
     Evidence: Error-state screenshot and relevant sanitized network/log observation.
 
 Regression checks: A Dispatch caller that identifies itself still removes Dispatch from its own directory result; wrong domain, audience, scope, signature, or nonce remains denied through automated evidence bound to the same head.
+
+### Local execution result
+
+Supplemental developer verification passed on 2026-08-12 against isolated task-local databases with Analytics, Dispatch, and Clips organization IDs deliberately different:
+
+- Analytics returned Dispatch and Clips from the local directory as `ready`, including Dispatch's default-off `desktop.workspace-sso` flag and Clips's three registered flags.
+- Analytics `enable-for-current-user` persisted `dev@local.test` on Clips `uploadRetryResume`; the version-2 acknowledgement returned `scope.orgId = clips-org-local` and `scope.orgDomain = builder.test`, and a fresh Analytics read showed `enabledForCurrentUser: true`.
+- A mapped target member and a same-email user belonging only to another target-local organization both received HTTP 403 from the real Clips mutation action. The successful test rule was then reset to off.
+- Unavailable built-in targets remained classified with fixed safe reasons such as `timeout` or `network`; no response body or secret was reflected.
+- The shared in-app browser loaded the real Analytics Feature flags URL, but its snapshot interface failed. The independent tester separately confirmed it has no browser-capable localhost interface, so this is functional developer evidence, not a claim of independent visual acceptance.
+- Cleanup completed after verification: ports 8088, 8092, and 8094 were confirmed closed, and the exact task-local runtime directory was moved to Trash and confirmed absent from `/tmp`.
 
 Cleanup: Stop the task-owned runtimes and remove the task-local databases/runtime directory, then independently prove the ports and directory are absent.
 

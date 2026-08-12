@@ -143,7 +143,9 @@ const orgAppsHandler = defineEventHandler(
     const apps: DiscoveredAppLike[] = await runWithRequestContext(
       { userEmail: verified.email, orgId: localOrg.orgId },
       async () => {
-        const discovered = await discoverAgents();
+        const discovered = await discoverAgents(undefined, {
+          preferLocalUrls: process.env.AUTH_DISABLED === "1",
+        });
         return discovered.map((a) => ({
           id: a.id,
           name: a.name,
