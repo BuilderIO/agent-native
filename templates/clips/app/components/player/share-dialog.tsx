@@ -125,6 +125,7 @@ export function ShareRecordingPopover({
           animatedThumbnailUrl={animatedThumbnailUrl}
           isLoomRecording={isLoomRecording}
           hasPassword={hasPassword}
+          reserveCloseButton
         />
       </PopoverContent>
     </Popover>
@@ -183,6 +184,7 @@ function ShareRecordingContent({
   thumbnailUrl,
   animatedThumbnailUrl,
   isLoomRecording = false,
+  reserveCloseButton = false,
   hasPassword,
 }: {
   recordingId: string;
@@ -193,6 +195,7 @@ function ShareRecordingContent({
   thumbnailUrl?: string | null;
   animatedThumbnailUrl?: string | null;
   isLoomRecording?: boolean;
+  reserveCloseButton?: boolean;
   hasPassword?: boolean;
 }) {
   const t = useT();
