@@ -61,6 +61,12 @@ const messages = {
     unpinChat: "Unpin chat",
     pinChat: "Pin chat",
     archiveChat: "Archive chat",
+    deleteChat: "Delete chat",
+    deleteChatConfirmAction: "Delete",
+    deleteChatConfirmCancel: "Cancel",
+    deleteChatConfirmDescription:
+      "This permanently deletes the chat and its message history — the agent won't remember this conversation. This can't be undone.",
+    deleteChatConfirmTitle: "Delete chat?",
     planSection: "Plan",
     newPlan: "New plan",
     signInCreatePlan: "Sign in to create a plan",
@@ -151,6 +157,7 @@ const messages = {
   raw: {
     sidebar: {
       archiveChatFailed: "Could not archive chat.",
+      deleteChatFailed: "Could not delete chat.",
       renameChatFailed: "Could not rename chat.",
     },
     canvas: {

@@ -1297,6 +1297,7 @@ function AnalyticsChatsSection({
     switchThread,
     pinThread,
     archiveThread,
+    deleteThread,
     renameThread,
     refreshThreads,
   } = useChatThreads(undefined, ANALYTICS_CHAT_STORAGE_KEY, undefined, {
@@ -1381,6 +1382,19 @@ function AnalyticsChatsSection({
     }
   }
 
+  async function handleDeleteThread(threadId: string) {
+    const wasActive =
+      threadId === activeThreadId || threadId === persistedAnalyticsThreadId();
+    const deleted = await deleteThread(threadId);
+    if (!deleted) {
+      toast.error(t("chat.deleteFailed"));
+      return;
+    }
+    if (wasActive) {
+      await handleNewChat();
+    }
+  }
+
   function handleRenameThread(threadId: string, title: string) {
     void renameThread(threadId, title).then((renamed) => {
       if (!renamed) toast.error(t("chat.renameFailed"));
@@ -1431,7 +1445,8 @@ function AnalyticsChatsSection({
             if (thread) void pinThread(threadId, !thread.pinnedAt);
           }}
           onRename={handleRenameThread}
-          onDelete={(threadId) => void handleArchiveThread(threadId)}
+          onArchive={(threadId) => void handleArchiveThread(threadId)}
+          onDelete={(threadId) => void handleDeleteThread(threadId)}
           labels={{
             options: (item) =>
               t("chat.optionsFor", { title: item.titleText ?? "" }),
@@ -1440,7 +1455,12 @@ function AnalyticsChatsSection({
             rename: t("chat.renameChat"),
             pin: t("chat.pinChat"),
             unpin: t("chat.unpinChat"),
-            delete: t("chat.archiveChat"),
+            archive: t("chat.archiveChat"),
+            delete: t("chat.deleteChat"),
+            deleteConfirmTitle: t("chat.deleteChatConfirmTitle"),
+            deleteConfirmDescription: t("chat.deleteChatConfirmDescription"),
+            deleteConfirmAction: t("chat.deleteChatConfirmAction"),
+            deleteConfirmCancel: t("chat.deleteChatConfirmCancel"),
           }}
           className="min-w-0"
         />

@@ -352,6 +352,13 @@ const enUS = {
     unpinChat: "Unpin chat",
     archiveChat: "Archive chat",
     archiveFailed: "Couldn't archive chat",
+    deleteChat: "Delete chat",
+    deleteChatConfirmTitle: "Delete chat?",
+    deleteChatConfirmDescription:
+      "This permanently deletes the chat and its message history — the agent won't remember this conversation. This can't be undone.",
+    deleteChatConfirmAction: "Delete",
+    deleteChatConfirmCancel: "Cancel",
+    deleteFailed: "Couldn't delete chat",
     suggestionArrGrowth: "What's driving ARR growth this quarter?",
     suggestionChurn: "Show me churn trends over the last 6 months",
     suggestionAnomalies: "Analyze the HubSpot Sales dashboard for anomalies",

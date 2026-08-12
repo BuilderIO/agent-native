@@ -294,6 +294,14 @@ describe("ChatHistoryList", () => {
     act(() => {
       (archiveItem as HTMLButtonElement).click();
     });
+    expect(onDelete).not.toHaveBeenCalled();
+    const confirmButton = Array.from(
+      document.body.querySelectorAll("button"),
+    ).find((el) => el.textContent === "Delete");
+    expect(confirmButton).toBeDefined();
+    act(() => {
+      confirmButton!.click();
+    });
     expect(onDelete).toHaveBeenCalledWith("thread-1");
 
     render();
@@ -323,6 +331,61 @@ describe("ChatHistoryList", () => {
       pinnedTrigger!.click();
     });
     expect(container.textContent).toContain(labels.unpin);
+  });
+
+  it("supports a reversible archive action alongside permanent delete, gated by confirmation", () => {
+    const onArchive = vi.fn();
+    const onDelete = vi.fn();
+    const items: ChatHistoryItem[] = [
+      item({ id: "thread-1", title: "First chat" }),
+    ];
+    act(() => {
+      root.render(
+        <ChatHistoryList
+          items={items}
+          onSelect={() => {}}
+          onArchive={onArchive}
+          onDelete={onDelete}
+        />,
+      );
+    });
+
+    const trigger = container.querySelector<HTMLButtonElement>(
+      ".an-chat-history-row__menu-trigger",
+    );
+    act(() => {
+      trigger!.click();
+    });
+
+    const archiveItem = Array.from(
+      container.querySelectorAll(".an-chat-history-row__menu-item"),
+    ).find((el) => el.textContent?.includes("Archive"));
+    act(() => {
+      (archiveItem as HTMLButtonElement).click();
+    });
+    expect(onArchive).toHaveBeenCalledWith("thread-1");
+    expect(onDelete).not.toHaveBeenCalled();
+
+    act(() => {
+      trigger!.click();
+    });
+    const deleteItem = Array.from(
+      container.querySelectorAll(".an-chat-history-row__menu-item"),
+    ).find((el) => el.textContent?.includes("Delete"));
+    act(() => {
+      (deleteItem as HTMLButtonElement).click();
+    });
+    expect(onDelete).not.toHaveBeenCalled();
+    expect(document.body.textContent).toContain("Delete chat?");
+
+    const cancelButton = Array.from(
+      document.body.querySelectorAll("button"),
+    ).find((el) => el.textContent === "Cancel");
+    act(() => {
+      cancelButton!.click();
+    });
+    expect(onDelete).not.toHaveBeenCalled();
+    expect(document.body.textContent).not.toContain("Delete chat?");
   });
 
   it("supports inline rename via the row action menu", () => {

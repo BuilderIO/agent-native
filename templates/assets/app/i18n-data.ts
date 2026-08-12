@@ -689,6 +689,13 @@ const enUS = {
     copyShareLink: "Copy share link",
     archiveChat: "Archive chat",
     archiveFailed: "Could not archive chat.",
+    deleteChat: "Delete chat",
+    deleteChatConfirmTitle: "Delete chat?",
+    deleteChatConfirmDescription:
+      "This permanently deletes the chat and its message history — the agent won't remember this conversation. This can't be undone.",
+    deleteChatConfirmAction: "Delete",
+    deleteChatConfirmCancel: "Cancel",
+    deleteFailed: "Could not delete chat.",
     renameFailed: "Could not rename chat.",
     shareLinkFailed: "Could not create a share link.",
     shareLinkCopied: "Chat share link copied.",

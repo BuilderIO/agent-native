@@ -2055,19 +2055,72 @@ describe("useChatThreads", () => {
       await Promise.resolve();
     });
 
-    let deletePromise: Promise<void>;
+    let deletePromise: Promise<boolean>;
     await act(async () => {
       deletePromise = hook!.deleteThread("thread-1");
       hook!.switchThread("thread-2");
       await Promise.resolve();
     });
+    let deleted = false;
     await act(async () => {
       resolveDelete!(jsonResponse({ ok: true }));
-      await deletePromise!;
+      deleted = await deletePromise!;
       await Promise.resolve();
     });
 
+    expect(deleted).toBe(true);
     expect(hook!.activeThreadId).toBe("thread-2");
+  });
+
+  it("returns false and keeps the thread when the delete request fails", async () => {
+    const threads: ChatThreadSummary[] = [
+      {
+        id: "thread-1",
+        title: "Delete candidate",
+        preview: "old preview",
+        messageCount: 1,
+        createdAt: 1,
+        updatedAt: 2,
+        scope: null,
+      },
+    ];
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads });
+      }
+      if (url === "/chat/threads/thread-1" && init?.method === "DELETE") {
+        return new Response(JSON.stringify({ error: "nope" }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "delete-failure-test", null, {
+        autoCreate: false,
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    let deleted = true;
+    await act(async () => {
+      deleted = await hook!.deleteThread("thread-1");
+    });
+
+    expect(deleted).toBe(false);
+    expect(hook!.threads.map((t) => t.id)).toEqual(["thread-1"]);
   });
 
   it("keeps a newer user rename when an earlier rename fails and refreshes stale data", async () => {

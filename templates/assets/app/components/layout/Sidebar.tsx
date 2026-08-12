@@ -130,6 +130,7 @@ function AssetsChatsSection({ open }: { open: boolean }) {
     switchThread,
     pinThread,
     archiveThread,
+    deleteThread,
     renameThread,
     createThreadShareLink,
     refreshThreads,
@@ -216,6 +217,19 @@ function AssetsChatsSection({ open }: { open: boolean }) {
     }
   }
 
+  async function handleDeleteThread(threadId: string) {
+    const wasActive =
+      threadId === activeThreadId || threadId === persistedActiveThreadId();
+    const deleted = await deleteThread(threadId);
+    if (!deleted) {
+      toast.error(t("chat.deleteFailed"));
+      return;
+    }
+    if (wasActive) {
+      await handleNewChat();
+    }
+  }
+
   async function handleCopyShareLink(threadId: string) {
     const link = await createThreadShareLink(threadId);
     if (!link?.url) {
@@ -267,7 +281,8 @@ function AssetsChatsSection({ open }: { open: boolean }) {
           }}
           onRename={handleRenameThread}
           renameMaxLength={160}
-          onDelete={(threadId) => void handleArchiveThread(threadId)}
+          onArchive={(threadId) => void handleArchiveThread(threadId)}
+          onDelete={(threadId) => void handleDeleteThread(threadId)}
           renderAdditionalRowActions={(item, closeMenu) => (
             <button
               type="button"
@@ -289,7 +304,12 @@ function AssetsChatsSection({ open }: { open: boolean }) {
             rename: t("chat.renameChat"),
             pin: t("chat.pinChat"),
             unpin: t("chat.unpinChat"),
-            delete: t("chat.archiveChat"),
+            archive: t("chat.archiveChat"),
+            delete: t("chat.deleteChat"),
+            deleteConfirmTitle: t("chat.deleteChatConfirmTitle"),
+            deleteConfirmDescription: t("chat.deleteChatConfirmDescription"),
+            deleteConfirmAction: t("chat.deleteChatConfirmAction"),
+            deleteConfirmCancel: t("chat.deleteChatConfirmCancel"),
           }}
           className="min-w-0"
         />

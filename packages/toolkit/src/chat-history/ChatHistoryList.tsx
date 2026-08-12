@@ -1,4 +1,5 @@
 import {
+  IconArchive,
   IconDots,
   IconPencil,
   IconPinned,
@@ -8,6 +9,16 @@ import {
 } from "@tabler/icons-react";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "../ui/alert-dialog.js";
 import { cn } from "../utils.js";
 
 /** A single row in a chat history list. Purely data — no fetching, no
@@ -44,7 +55,16 @@ export interface ChatHistoryListLabels {
   rename: string;
   pin: string;
   unpin: string;
+  /** Presence of `onArchive` on the list shows this as a reversible action,
+   * distinct from the permanent `delete`. */
+  archive: string;
   delete: string;
+  /** Confirmation dialog shown before `onDelete` fires, since deleting a
+   * chat is permanent. */
+  deleteConfirmTitle: string | ((item: ChatHistoryItem) => string);
+  deleteConfirmDescription: string | ((item: ChatHistoryItem) => string);
+  deleteConfirmAction: string;
+  deleteConfirmCancel: string;
 }
 
 export interface ChatHistoryListProps {
@@ -63,7 +83,11 @@ export interface ChatHistoryListProps {
   onRename?: (id: string, nextTitle: string) => void;
   /** Optional character limit for the inline rename input. */
   renameMaxLength?: number;
-  /** Presence enables the "Delete" row action. */
+  /** Presence enables a reversible "Archive" row action, rendered above the
+   * permanent "Delete" action. */
+  onArchive?: (id: string) => void;
+  /** Presence enables the "Delete" row action. Fires only after the user
+   * confirms in the built-in destructive confirmation dialog. */
   onDelete?: (id: string) => void;
   /** Escape hatch: fully custom row action menu content, replacing the
    * built-in rename/pin/delete items. Still gated by the trigger button,
@@ -115,7 +139,13 @@ const DEFAULT_LABELS: ChatHistoryListLabels = {
   rename: "Rename",
   pin: "Pin to top",
   unpin: "Unpin from top",
+  archive: "Archive",
   delete: "Delete",
+  deleteConfirmTitle: "Delete chat?",
+  deleteConfirmDescription:
+    "This permanently deletes the chat and its message history. This can't be undone.",
+  deleteConfirmAction: "Delete",
+  deleteConfirmCancel: "Cancel",
 };
 
 /**
@@ -140,6 +170,7 @@ export function ChatHistoryList({
   onTogglePin,
   onRename,
   renameMaxLength,
+  onArchive,
   onDelete,
   renderRowActions,
   renderAdditionalRowActions,
@@ -165,10 +196,25 @@ export function ChatHistoryList({
       rename: labels?.rename ?? DEFAULT_LABELS.rename,
       pin: labels?.pin ?? DEFAULT_LABELS.pin,
       unpin: labels?.unpin ?? DEFAULT_LABELS.unpin,
+      archive: labels?.archive ?? DEFAULT_LABELS.archive,
       delete: labels?.delete ?? DEFAULT_LABELS.delete,
+      deleteConfirmTitle:
+        labels?.deleteConfirmTitle ?? DEFAULT_LABELS.deleteConfirmTitle,
+      deleteConfirmDescription:
+        labels?.deleteConfirmDescription ??
+        DEFAULT_LABELS.deleteConfirmDescription,
+      deleteConfirmAction:
+        labels?.deleteConfirmAction ?? DEFAULT_LABELS.deleteConfirmAction,
+      deleteConfirmCancel:
+        labels?.deleteConfirmCancel ?? DEFAULT_LABELS.deleteConfirmCancel,
     }),
     [
+      labels?.archive,
       labels?.delete,
+      labels?.deleteConfirmAction,
+      labels?.deleteConfirmCancel,
+      labels?.deleteConfirmDescription,
+      labels?.deleteConfirmTitle,
       labels?.options,
       labels?.pin,
       labels?.rename,
@@ -238,6 +284,7 @@ export function ChatHistoryList({
                       onTogglePin={onTogglePin}
                       onRename={onRename}
                       renameMaxLength={renameMaxLength}
+                      onArchive={onArchive}
                       onDelete={onDelete}
                       renderRowActions={renderRowActions}
                       renderAdditionalRowActions={renderAdditionalRowActions}
@@ -262,6 +309,7 @@ type ChatHistoryRowProps = {
   onTogglePin?: (id: string) => void;
   onRename?: (id: string, nextTitle: string) => void;
   renameMaxLength?: number;
+  onArchive?: (id: string) => void;
   onDelete?: (id: string) => void;
   renderRowActions?: (item: ChatHistoryItem) => React.ReactNode;
   renderAdditionalRowActions?: (
@@ -279,6 +327,7 @@ const ChatHistoryRow = React.memo(function ChatHistoryRow({
   onTogglePin,
   onRename,
   renameMaxLength,
+  onArchive,
   onDelete,
   renderRowActions,
   renderAdditionalRowActions,
@@ -287,12 +336,14 @@ const ChatHistoryRow = React.memo(function ChatHistoryRow({
   const [isRenaming, setIsRenaming] = useState(false);
   const [draftTitle, setDraftTitle] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const renameInputRef = useRef<HTMLInputElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
   const hasMenu = Boolean(
     onTogglePin ||
     onRename ||
+    onArchive ||
     onDelete ||
     renderRowActions ||
     renderAdditionalRowActions,
@@ -351,6 +402,14 @@ const ChatHistoryRow = React.memo(function ChatHistoryRow({
     typeof labels.renameInput === "function"
       ? labels.renameInput(item)
       : labels.renameInput;
+  const deleteConfirmTitle =
+    typeof labels.deleteConfirmTitle === "function"
+      ? labels.deleteConfirmTitle(item)
+      : labels.deleteConfirmTitle;
+  const deleteConfirmDescription =
+    typeof labels.deleteConfirmDescription === "function"
+      ? labels.deleteConfirmDescription(item)
+      : labels.deleteConfirmDescription;
 
   return (
     <div
@@ -462,6 +521,20 @@ const ChatHistoryRow = React.memo(function ChatHistoryRow({
                       <span>{item.pinned ? labels.unpin : labels.pin}</span>
                     </button>
                   )}
+                  {onArchive && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="an-chat-history-row__menu-item"
+                      onClick={() => {
+                        setMenuOpen(false);
+                        onArchive(item.id);
+                      }}
+                    >
+                      <IconArchive size={13} strokeWidth={1.8} />
+                      <span>{labels.archive}</span>
+                    </button>
+                  )}
                   {renderAdditionalRowActions?.(item, () => setMenuOpen(false))}
                   {onDelete && (
                     <button
@@ -470,7 +543,7 @@ const ChatHistoryRow = React.memo(function ChatHistoryRow({
                       className="an-chat-history-row__menu-item an-chat-history-row__menu-item--danger"
                       onClick={() => {
                         setMenuOpen(false);
-                        onDelete(item.id);
+                        setConfirmDeleteOpen(true);
                       }}
                     >
                       <IconTrash size={13} strokeWidth={1.8} />
@@ -482,6 +555,33 @@ const ChatHistoryRow = React.memo(function ChatHistoryRow({
             </div>
           )}
         </div>
+      )}
+      {onDelete && (
+        <AlertDialog
+          open={confirmDeleteOpen}
+          onOpenChange={setConfirmDeleteOpen}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>{deleteConfirmTitle}</AlertDialogTitle>
+              <AlertDialogDescription>
+                {deleteConfirmDescription}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>{labels.deleteConfirmCancel}</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                onClick={() => {
+                  setConfirmDeleteOpen(false);
+                  onDelete(item.id);
+                }}
+              >
+                {labels.deleteConfirmAction}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       )}
     </div>
   );

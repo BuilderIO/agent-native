@@ -1012,13 +1012,16 @@ export function useChatThreads(
   );
 
   const removeThread = useCallback(
-    async (id: string) => {
+    async (id: string): Promise<boolean> => {
       try {
-        await fetch(`${apiUrl}/threads/${encodeURIComponent(id)}`, {
+        const res = await fetch(`${apiUrl}/threads/${encodeURIComponent(id)}`, {
           method: "DELETE",
         });
+        if (!res.ok) return false;
         emitThreadsUpdated();
-      } catch {}
+      } catch {
+        return false;
+      }
       clearUserRenamedThread(id);
       optimisticThreadScopesRef.current.delete(id);
       setThreads((prev) => prev.filter((t) => t.id !== id));
@@ -1034,6 +1037,7 @@ export function useChatThreads(
           createThread();
         }
       }
+      return true;
     },
     [apiUrl, clearUserRenamedThread, createThread],
   );

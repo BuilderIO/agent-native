@@ -21,6 +21,13 @@ const messages = {
     archiveFailed: "Archive Failed",
     chats: "Chats",
     composerPlaceholder: "Ask the agent...",
+    deleteChat: "Delete Chat",
+    deleteChatConfirmAction: "Delete",
+    deleteChatConfirmCancel: "Cancel",
+    deleteChatConfirmDescription:
+      "This permanently deletes the chat and its message history — the agent won't remember this conversation. This can't be undone.",
+    deleteChatConfirmTitle: "Delete chat?",
+    deleteFailed: "Delete Failed",
     emptyState: "Ask me anything",
     heroDescription: "Ask the agent to inspect, explain, or change this app.",
     heroTitle: "How can I help?",

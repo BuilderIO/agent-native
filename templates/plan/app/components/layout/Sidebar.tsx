@@ -163,6 +163,7 @@ function PlanChatsSection({
     switchThread,
     pinThread,
     archiveThread,
+    deleteThread,
     renameThread,
     refreshThreads,
   } = useChatThreads(undefined, PLAN_CHAT_STORAGE_KEY, undefined, {
@@ -244,6 +245,19 @@ function PlanChatsSection({
     }
   }
 
+  async function handleDeleteThread(threadId: string) {
+    const wasActive =
+      threadId === activeThreadId || threadId === persistedActiveThreadId();
+    const deleted = await deleteThread(threadId);
+    if (!deleted) {
+      toast.error(t("raw.sidebar.deleteChatFailed"));
+      return;
+    }
+    if (wasActive) {
+      await handleNewChat();
+    }
+  }
+
   function handleRenameThread(threadId: string, title: string) {
     void renameThread(threadId, title).then((renamed) => {
       if (!renamed) toast.error(t("raw.sidebar.renameChatFailed"));
@@ -273,7 +287,8 @@ function PlanChatsSection({
             if (thread) void pinThread(threadId, !thread.pinnedAt);
           }}
           onRename={handleRenameThread}
-          onDelete={(threadId) => void handleArchiveThread(threadId)}
+          onArchive={(threadId) => void handleArchiveThread(threadId)}
+          onDelete={(threadId) => void handleDeleteThread(threadId)}
           labels={{
             options: (item) => `${t("sidebar.chats")}: ${item.titleText ?? ""}`,
             renameInput: (item) =>
@@ -281,7 +296,12 @@ function PlanChatsSection({
             rename: t("sidebar.renameChat"),
             pin: t("sidebar.pinChat"),
             unpin: t("sidebar.unpinChat"),
-            delete: t("sidebar.archiveChat"),
+            archive: t("sidebar.archiveChat"),
+            delete: t("sidebar.deleteChat"),
+            deleteConfirmTitle: t("sidebar.deleteChatConfirmTitle"),
+            deleteConfirmDescription: t("sidebar.deleteChatConfirmDescription"),
+            deleteConfirmAction: t("sidebar.deleteChatConfirmAction"),
+            deleteConfirmCancel: t("sidebar.deleteChatConfirmCancel"),
           }}
           className="min-w-0"
         />
