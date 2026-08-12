@@ -399,9 +399,11 @@ describe("listWorkspaceApps", () => {
             name: "Todo Board",
           }),
       ),
-    ).rejects.toThrow(
-      "Only organization owners and admins can update app creation settings.",
-    );
+    ).rejects.toMatchObject({
+      message:
+        "Only organization owners and admins can update app creation settings.",
+      statusCode: 403,
+    });
     expect(
       mocks.settings.get("workspace-app-metadata:org:org-123"),
     ).toBeUndefined();

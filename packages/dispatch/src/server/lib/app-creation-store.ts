@@ -74,6 +74,8 @@ const pendingBuilderProjectProvisioning = new Map<
 >();
 
 class AppCreationSettingsAuthorizationError extends Error {
+  statusCode = 403;
+
   constructor() {
     super(APP_CREATION_SETTINGS_AUTHORIZATION_MESSAGE);
     this.name = "AppCreationSettingsAuthorizationError";
