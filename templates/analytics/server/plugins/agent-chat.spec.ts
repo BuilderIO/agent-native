@@ -14,6 +14,7 @@ const { agentChatPluginOptions, representativeAnalyticsActions } = vi.hoisted(
     representativeAnalyticsActions: {
       "query-agent-native-analytics": {
         readOnly: true,
+        grounding: true,
         tool: {
           description: "Query first-party analytics",
           parameters: { type: "object", properties: {} },
@@ -22,6 +23,7 @@ const { agentChatPluginOptions, representativeAnalyticsActions } = vi.hoisted(
       },
       bigquery: {
         readOnly: true,
+        grounding: true,
         tool: {
           description: "Query BigQuery",
           parameters: { type: "object", properties: {} },
@@ -30,8 +32,27 @@ const { agentChatPluginOptions, representativeAnalyticsActions } = vi.hoisted(
       },
       "hubspot-records": {
         readOnly: true,
+        grounding: true,
         tool: {
           description: "Read HubSpot records",
+          parameters: { type: "object", properties: {} },
+        },
+        run: async () => "ok",
+      },
+      // A shipped source action the guard's retired name list never named.
+      prometheus: {
+        readOnly: true,
+        grounding: true,
+        tool: {
+          description: "Query Prometheus",
+          parameters: { type: "object", properties: {} },
+        },
+        run: async () => "ok",
+      },
+      "list-data-dictionary": {
+        readOnly: true,
+        tool: {
+          description: "Browse metric definitions",
           parameters: { type: "object", properties: {} },
         },
         run: async () => "ok",
@@ -355,6 +376,44 @@ function guardContext(params: {
 }
 
 describe("realDataFinalGuard", () => {
+  it("accepts a grounded answer from a source action no name list ever enumerated", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "How many sessions did we record in the last 24 hours?",
+        draftText:
+          "We recorded 41,208 sessions in the last 24 hours, from Prometheus (24h range, 1m step).",
+        toolResults: [
+          {
+            name: "prometheus",
+            isError: false,
+            content:
+              '{"resultType":"matrix","data":{"result":[{"values":[]}]}}',
+          },
+        ],
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("still rejects a metric answer whose only tool call was a metadata read", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "How many sessions did we record in the last 24 hours?",
+        draftText: "We recorded 41,208 sessions in the last 24 hours.",
+        toolResults: [
+          {
+            name: "list-data-dictionary",
+            isError: false,
+            content: '{"entries":[{"name":"p95_latency"}]}',
+          },
+        ],
+      }),
+    );
+
+    expect(result).not.toBeNull();
+  });
+
   it("retries a dashboard build that pauses after creating an extension shell", () => {
     const result = realDataFinalGuard(
       guardContext({

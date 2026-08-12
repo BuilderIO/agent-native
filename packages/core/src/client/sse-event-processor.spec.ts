@@ -3374,6 +3374,40 @@ describe("SSE event processor error classification", () => {
     });
   });
 
+  it("keeps narration from earlier steps when a later draft is cleared", async () => {
+    // A `clear` is the server retrying the CURRENT draft, which always resumes
+    // after the last completed tool. Splicing every text part wiped multi-step
+    // narration from the whole turn, which users reported as "it deleted its
+    // reply and started over".
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          { type: "text", text: "Step 1: reading the schema." },
+          { type: "tool_start", tool: "query", input: { sql: "select 1" } },
+          { type: "tool_done", tool: "query", result: "1" },
+          { type: "text", text: "Step 2: rejected draft." },
+          { type: "clear" },
+          { type: "text", text: "Step 2: corrected answer." },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+      ),
+    );
+
+    expect(results.at(-1)).toEqual({
+      content: [
+        { type: "text", text: "Step 1: reading the schema." },
+        expect.objectContaining({
+          type: "tool-call",
+          toolName: "query",
+          result: "1",
+        }),
+        { type: "text", text: "Step 2: corrected answer." },
+      ],
+    });
+  });
+
   it("keeps materialized pending tool calls across clear events", async () => {
     const results = await drain(
       readSSEStream(

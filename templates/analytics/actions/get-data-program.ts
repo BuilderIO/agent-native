@@ -22,6 +22,7 @@ export default defineAction({
   }),
   http: { method: "GET" },
   readOnly: true,
+  grounding: true,
   run: async (args) => {
     const ctx = getCredentialContext();
     if (!ctx) throw new Error("No authenticated context for get-data-program.");

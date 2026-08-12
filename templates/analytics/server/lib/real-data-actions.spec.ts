@@ -20,8 +20,31 @@ import {
   looksLikeAnalyticsDataRequest,
   needsCorpusWorkflowForCoverageSensitiveRequest,
   needsSourceRecordBodyWorkflowForCoverageSensitiveRequest,
+  registerGroundingActions,
   stripInjectedAnalyticsGuardContext,
 } from "./real-data-actions";
+
+// These tests exercise the predicates, not the derivation: the agent-chat
+// plugin is what reads `grounding: true` off the shipped action definitions.
+registerGroundingActions([
+  "account-deep-dive",
+  "bigquery",
+  "get-session-replay-summary",
+  "get-session-replay-timeline",
+  "gong-calls",
+  "gong-native-insights",
+  "hubspot-deals",
+  "hubspot-records",
+  "jira-search",
+  "list-error-issues",
+  "list-session-recordings",
+  "prometheus",
+  "provider-api-request",
+  "provider-corpus-job",
+  "query-agent-native-analytics",
+  "query-staged-dataset",
+  "slack-messages",
+]);
 
 describe("real data action classification", () => {
   it("treats unstructured source records as real analytics evidence", () => {
