@@ -5335,6 +5335,7 @@ function Setup({
   const [rewindSettingsOpen, setRewindSettingsOpen] = useState(false);
   const [rewindActivityOpen, setRewindActivityOpen] = useState(false);
   const [rewindMemoryOpen, setRewindMemoryOpen] = useState(false);
+  const [rewindSearchOpen, setRewindSearchOpen] = useState(false);
   const [rewindPrivacyOpen, setRewindPrivacyOpen] = useState(false);
   const [rewindAgentSetupOpen, setRewindAgentSetupOpen] = useState(false);
   const [rewindHandoffOpen, setRewindHandoffOpen] = useState(false);
@@ -7168,13 +7169,47 @@ function Setup({
             label="Rewind"
             description={rewindStatusPresentation.title}
             control={
-              <button
-                type="button"
-                className="secondary"
-                onClick={() => onOpenRewind?.()}
+              <DesktopSettingsPopover
+                title="Rewind settings"
+                open={rewindSettingsOpen}
+                onOpenChange={setRewindSettingsOpen}
+                side="left"
+                contentClassName="rewind-settings-launcher"
+                trigger={
+                  <button type="button" className="secondary">
+                    Manage
+                  </button>
+                }
               >
-                Open Rewind settings
-              </button>
+                <Setup
+                  surface="rewind"
+                  recordingActive={recordingActive}
+                  promptRewindEnable={false}
+                  initial={initial}
+                  serverUrl={serverUrl}
+                  signedInAs={signedInAs}
+                  voiceShortcut={voiceShortcut}
+                  voiceCustomShortcut={voiceCustomShortcut}
+                  popoverCustomShortcut={popoverCustomShortcut}
+                  recordCustomShortcut={recordCustomShortcut}
+                  voiceMode={voiceMode}
+                  voiceProvider={voiceProvider}
+                  voiceInstructions={voiceInstructions}
+                  shortcutRegistrationError={shortcutRegistrationError}
+                  onVoiceShortcutChange={onVoiceShortcutChange}
+                  onVoiceCustomShortcutChange={onVoiceCustomShortcutChange}
+                  onPopoverCustomShortcutChange={onPopoverCustomShortcutChange}
+                  onRecordCustomShortcutChange={onRecordCustomShortcutChange}
+                  onVoiceModeChange={onVoiceModeChange}
+                  onVoiceProviderChange={onVoiceProviderChange}
+                  onVoiceInstructionsChange={onVoiceInstructionsChange}
+                  onConnect={onConnect}
+                  rewindAgentPromptCopied={rewindAgentPromptCopied}
+                  onCopyRewindAgentPrompt={onCopyRewindAgentPrompt}
+                  onOpenRewindDocs={onOpenRewindDocs}
+                  onCancel={() => setRewindSettingsOpen(false)}
+                />
+              </DesktopSettingsPopover>
             }
           />
           <DesktopSettingsRow
