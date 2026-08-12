@@ -693,3 +693,51 @@ describe("resolveElementNudgeIntent", () => {
     ).toEqual({ kind: "translate", dx: 8, dy: 0 });
   });
 });
+
+/**
+ * Regression: a running-app screen (fusion / localhost) stores its ROUTE URL in
+ * `design_files.content`, not markup. Projecting that string finds no nodes, so
+ * every arrow key silently degraded to a blind translate — writing left/top on a
+ * flow child, the exact operation this module exists to avoid. The caller must
+ * feed the live DOM snapshot instead.
+ */
+describe("resolveElementNudgeIntent on a running-app screen", () => {
+  const ROUTE_URL = "https://design.example.com/builder-preview/design-1/about";
+
+  it("degrades to a blind translate when handed the stored route URL", () => {
+    expect(
+      resolveElementNudgeIntent({
+        content: ROUTE_URL,
+        selectedElement: elementInfoFor("alpha"),
+        direction: "right",
+        largeStep: false,
+      }),
+    ).toEqual({ kind: "translate", dx: 1, dy: 0 });
+  });
+
+  it("resolves a real reorder once the live snapshot is supplied instead", () => {
+    expect(orderAfterNudge(ROW_SCREEN, "alpha", "right")).toEqual([
+      "beta",
+      "alpha",
+      "gamma",
+    ]);
+  });
+
+  it("suppresses the nudge on a flow child the snapshot can see", () => {
+    // Without the snapshot this returned a translate, which is what put an
+    // inline left/top onto a flex child in the embedded Builder Design tab.
+    expect(orderAfterNudge(ROW_SCREEN, "beta", "up")).toEqual({ kind: "none" });
+  });
+
+  it("carries the snapshot forward as the reorder's base content", () => {
+    const intent = resolveElementNudgeIntent({
+      content: ROW_SCREEN,
+      selectedElement: elementInfoFor("alpha"),
+      direction: "right",
+      largeStep: false,
+    });
+    // The caller applies its moveNode to `intent.content`; if that were the
+    // route URL the patch would overwrite the screen's stored route.
+    expect(intent).toMatchObject({ kind: "reorder", content: ROW_SCREEN });
+  });
+});

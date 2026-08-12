@@ -5,6 +5,12 @@ import {
   type AgentChatMessage,
   type SendToAgentChatAndConfirmResult,
 } from "@agent-native/core/client/agent-chat";
+import {
+  isEmbedAuthActive,
+  sendToBuilderChat,
+} from "@agent-native/core/client/host";
+
+import { isEmbedChromeRequested } from "./embed-chrome";
 
 export const DESIGN_CHAT_STORAGE_KEY = "design";
 
@@ -58,6 +64,22 @@ export async function sendDesignSourceHandoffAndConfirm(
   opts: AgentChatMessage,
   options?: { timeoutMs?: number },
 ): Promise<DesignSourceHandoffResult> {
+  // A host that framed only the canvas owns the chat, so `submit` is its call,
+  // not the caller's. No ack to wait on: delivery is evidenced by the host's
+  // composer filling in front of the user.
+  if (isEmbedAuthActive() && isEmbedChromeRequested()) {
+    const posted = sendToBuilderChat({
+      message: opts.message,
+      context: opts.context,
+      submit: false,
+    });
+    return {
+      target: "host",
+      delivered: posted,
+      ...(posted ? {} : { reason: "host-post-failed" }),
+    };
+  }
+
   const hostDelivery = sendMcpAppHostMessage({
     message: opts.message,
     context: opts.context,

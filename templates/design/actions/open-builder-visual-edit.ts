@@ -1,0 +1,189 @@
+/**
+ * The builder-host counterpart to `open-visual-edit`: same handoff shape
+ * (synthetic principal, single-use embed ticket), but Builder already owns the
+ * running container, so there is no connect/boot preamble here.
+ */
+
+import crypto from "node:crypto";
+
+import { defineAction } from "@agent-native/core";
+import { writeAppState } from "@agent-native/core/application-state";
+import { signEmbedSessionToken } from "@agent-native/core/server";
+import {
+  getRequestContext,
+  runWithRequestContext,
+} from "@agent-native/core/server/request-context";
+import { z } from "zod";
+
+import { builderPreviewProxyPath } from "../server/handlers/builder-preview-proxy.js";
+import { findOrCreateBuilderHostDesign } from "../server/lib/builder-host-design.js";
+import {
+  builderHostDesignPath,
+  builderHostEmbedScope,
+  builderHostEmbedUrl,
+  BUILDER_HOST_EMBED_TTL_SECONDS,
+} from "../server/lib/builder-host-embed.js";
+import {
+  DEFAULT_FUSION_SCREEN_HEIGHT,
+  DEFAULT_FUSION_SCREEN_WIDTH,
+  upsertFusionScreens,
+} from "../server/lib/fusion-screens.js";
+import { parseBuilderPreviewUrl } from "../shared/builder-preview-url.js";
+
+const BUILDER_HOST_PRINCIPAL_DOMAIN = "builder-host.agent-native.invalid";
+
+/**
+ * Stable owner partition for designs opened from Builder's Design tab; never
+ * installed as a browser session. Keyed on the branch, so every Builder
+ * teammate opening it lands on the same design rather than a private copy.
+ */
+export function builderHostPrincipal(key: {
+  builderOrgId: string;
+  projectId: string;
+  branchName: string;
+}): string {
+  const id = crypto
+    .createHash("sha256")
+    .update(`${key.builderOrgId}\u0000${key.projectId}\u0000${key.branchName}`)
+    .digest("hex")
+    .slice(0, 24);
+  return `builder+${id}@${BUILDER_HOST_PRINCIPAL_DOMAIN}`;
+}
+
+const routeSchema = z.object({
+  path: z.string().min(1),
+  title: z.string().optional(),
+});
+
+export default defineAction({
+  description:
+    "Open a running Builder Fusion branch in Design overview mode as " +
+    "URL-backed screens. Used by the builder.io embedded Design tab; the " +
+    "container is already running, so this only resolves the design for the " +
+    "branch and places screens at the given preview URL.",
+  schema: z.object({
+    previewUrl: z
+      .string()
+      .describe(
+        "Builder container preview URL. Must be a recognized Builder preview host.",
+      ),
+    builderOrgId: z.string().min(1).describe("Builder organization id."),
+    projectId: z.string().min(1).describe("Builder project id."),
+    branchName: z
+      .string()
+      .min(1)
+      .describe("Builder branch backing this design."),
+    contentId: z
+      .string()
+      .nullable()
+      .optional()
+      .describe(
+        "Builder content id the tab was opened from, when there is one.",
+      ),
+    title: z
+      .string()
+      .optional()
+      .describe(
+        "Title for a newly created design. Defaults to the branch name.",
+      ),
+    routes: z
+      .array(routeSchema)
+      .optional()
+      .describe(
+        "Routes to place as screens. Defaults to the preview URL's path.",
+      ),
+    appOrigin: z
+      .string()
+      .optional()
+      .describe(
+        "This app's public origin, used to build absolute screen URLs. Supplied by the partner route from the request.",
+      ),
+    width: z.number().positive().optional(),
+    height: z.number().positive().optional(),
+  }),
+  run: async (args) => {
+    // Validate before any write: a bad preview URL must fail loudly rather than
+    // create an empty design that reads as a broken container.
+    const preview = parseBuilderPreviewUrl(args.previewUrl);
+    const previewOrigin = preview.origin;
+    const key = {
+      builderOrgId: args.builderOrgId,
+      projectId: args.projectId,
+      branchName: args.branchName,
+    };
+
+    const requestedRoutes = args.routes?.length
+      ? args.routes
+      : [{ path: preview.pathname || "/" }];
+    const paths = [...new Set(requestedRoutes.map((route) => route.path))];
+
+    const runForPrincipal = async () => {
+      const { designId, created } = await findOrCreateBuilderHostDesign({
+        key: { ...key, contentId: args.contentId ?? null },
+        previewUrl: previewOrigin,
+        title: args.title,
+      });
+
+      // Same-origin via the proxy, and absolute: the canvas resolves a screen
+      // src with `new URL(src)`, which throws on a bare path and silently falls
+      // back to rendering it as inline content.
+      const proxyBase = args.appOrigin
+        ? new URL(builderPreviewProxyPath(designId), args.appOrigin).toString()
+        : builderPreviewProxyPath(designId);
+
+      const { screens, placedFrames } = await upsertFusionScreens({
+        designId,
+        previewUrl: proxyBase,
+        paths,
+        width: args.width ?? DEFAULT_FUSION_SCREEN_WIDTH,
+        height: args.height ?? DEFAULT_FUSION_SCREEN_HEIGHT,
+      });
+
+      const urlPath = builderHostDesignPath(designId, screens[0]?.fileId);
+      await writeAppState("visual-edit", {
+        designId,
+        source: "builder-host",
+        ...key,
+        previewUrl: previewOrigin,
+        urlPath,
+        screens,
+        updatedAt: new Date().toISOString(),
+      });
+
+      // The session resolves to the principal, which owns this design, so
+      // `resolveAccess` grants owner without the design being public.
+      const embedToken = signEmbedSessionToken({
+        ownerEmail: builderHostPrincipal(key),
+        targetPath: urlPath,
+        scope: builderHostEmbedScope(designId),
+        ttlSeconds: BUILDER_HOST_EMBED_TTL_SECONDS,
+      });
+
+      const result = {
+        designId,
+        created,
+        urlPath,
+        previewUrl: previewOrigin,
+        screenCount: screens.length,
+        screens,
+        placedFrames,
+      };
+      // Non-enumerable so generic serialization of action output cannot copy
+      // the bearer into model-visible text.
+      Object.defineProperty(result, "embedUrl", {
+        value: builderHostEmbedUrl(urlPath, embedToken),
+        enumerable: false,
+      });
+      return result as typeof result & { embedUrl: string };
+    };
+
+    return runWithRequestContext(
+      {
+        ...(getRequestContext() ?? {}),
+        userEmail: builderHostPrincipal(key),
+        orgId: undefined,
+      },
+      runForPrincipal,
+    );
+  },
+});

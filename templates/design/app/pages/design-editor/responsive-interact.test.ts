@@ -157,8 +157,11 @@ describe("responsive Interact wiring", () => {
   });
 
   it("routes every Interact request into the responsive view", () => {
-    expect(source).toContain("enterSingleScreen(screenId)");
+    expect(source).toContain("enterSingleScreen(screenId");
     expect(source).toContain("enterSingleScreen(activeFileId)");
+    // Only an explicit mode from an embedding host differs; every other entry
+    // into a focused screen is still Interact.
+    expect(source).toContain('options?.mode ?? "interact"');
     expect(source).toContain("resolveModeChangeView({");
     // Interact is the only mode that lives on a focused screen, so the bottom
     // toolbar's tools and mode tabs are hidden while it owns the surface.

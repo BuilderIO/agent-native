@@ -74,6 +74,19 @@ export function normalizeDesignTool(value: unknown): DesignTool | null {
     : null;
 }
 
+const DESIGN_EDITOR_MODES = new Set<EditorMode>([
+  "annotate",
+  "edit",
+  "interact",
+]);
+
+export function normalizeDesignMode(value: unknown): EditorMode | null {
+  return typeof value === "string" &&
+    DESIGN_EDITOR_MODES.has(value as EditorMode)
+    ? (value as EditorMode)
+    : null;
+}
+
 export function isSingleScreenAnnotationTool(tool: DesignTool): boolean {
   return tool === "draw" || tool === "comment";
 }

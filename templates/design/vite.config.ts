@@ -2,6 +2,8 @@ import { agentNative } from "@agent-native/core/vite";
 import { reactRouter } from "@react-router/dev/vite";
 import { defineConfig } from "vite";
 
+import { builderPreviewDevAssets } from "./vite-plugins/builder-preview-dev-assets";
+
 const reactRouterPlugins = reactRouter as unknown as () => any[];
 const agentNativePlugins = agentNative as unknown as (
   options?: Parameters<typeof agentNative>[0],
@@ -9,6 +11,7 @@ const agentNativePlugins = agentNative as unknown as (
 
 export default defineConfig({
   plugins: [
+    builderPreviewDevAssets(),
     ...reactRouterPlugins(),
     ...agentNativePlugins({
       // shiki only runs in AssistantChat's useEffect — keep it out of the

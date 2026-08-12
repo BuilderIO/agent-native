@@ -137,7 +137,10 @@ import {
 } from "@shared/responsive-classes";
 import { createElementReviewAnchor } from "@shared/review-anchor";
 import { readDesignReviewSummary } from "@shared/review-summary";
-import { normalizeDesignSourceType } from "@shared/source-mode";
+import {
+  isRunningAppSourceType,
+  normalizeDesignSourceType,
+} from "@shared/source-mode";
 import { sourceContentHash } from "@shared/source-workspace";
 import {
   IconArrowLeft,
@@ -434,6 +437,10 @@ import {
   sendToDesignAgentChatAndConfirm,
 } from "@/lib/agent-chat";
 import {
+  builderSelectionChip,
+  sendBuilderSelectionContext,
+} from "@/lib/builder-host-chat";
+import {
   acknowledgeClipboardContentMutation,
   publishClipboardContentMutation,
   type ClipboardContentLineage,
@@ -470,6 +477,7 @@ import {
   type DesignSaveOutboxEntry,
 } from "@/lib/design-save-outbox";
 import { DESIGN_UI_TOGGLE_EVENT } from "@/lib/design-ui-events";
+import { isEmbedChromeRequested } from "@/lib/embed-chrome";
 import { resolveFigmaPasteImportCall } from "@/lib/figma-clipboard";
 import {
   canCopyFigmaSvgToClipboard,
@@ -558,6 +566,8 @@ import {
   isClientRenderedMountShell,
   isCodeLayerNodeRuntimeOnly,
   liveDeleteSelectorGroups,
+  liveNudgeReorderHandoff,
+  nudgeBaseContentForScreen,
   preferredCodeLayerSelector,
   refreshElementInfoFromContent,
   refreshSelectedLayerIdsFromContent,
@@ -565,6 +575,7 @@ import {
   renameFilenamePreservingExtension,
   resolveCodeLayerNodeFromBridge,
   resolveCodeLayerNodeFromElementInfo,
+  resolveSelectedCodeLayerNode,
   runtimeLayerStateHandoffMode,
   type SelectedLayerTarget,
   shouldDeleteThroughLiveScreen,
@@ -892,6 +903,7 @@ import {
   isSingleScreenAnnotationTool,
   MOVE_GROUP_TOOL_PRESENTATIONS,
   normalizeDesignLeftPanel,
+  normalizeDesignMode,
   normalizeDesignTool,
   resolveModeChangeView,
   shouldAutoEnableDrawOverlay,
@@ -1159,9 +1171,46 @@ const INITIAL_GENERATION_DISABLED_LEFT_PANELS = new Set<DesignLeftPanel>([
   "code",
 ]);
 
+/**
+ * What the host's chat should call the selected element. Prefers the source
+ * component name, since that is what the coding agent has to go find.
+ */
+function describeSelectionForHost(element: ElementInfo): {
+  label: string;
+  detail: string;
+} {
+  const text = element.textContent?.trim();
+  const label =
+    element.provenance?.component ||
+    element.componentName ||
+    (text ? text.slice(0, 60) : "") ||
+    element.tagName.toLowerCase();
+  // A minted runtime node id means nothing to a coding agent, so it is the
+  // last resort behind anything that points at source.
+  const provenance = element.provenance;
+  const sourceFile = provenance?.sourceFile
+    ? `${provenance.sourceFile}${provenance.line ? `:${provenance.line}` : ""}`
+    : null;
+  const classSelector = element.classes?.length
+    ? `${element.tagName.toLowerCase()}.${element.classes.slice(0, 2).join(".")}`
+    : null;
+  const detail =
+    sourceFile ??
+    classSelector ??
+    element.selector ??
+    element.tagName.toLowerCase();
+  return { label, detail };
+}
+
+/** The host supplies the chat, so the editor's own agent surface is noise. */
+const HOST_EMBEDDED_HIDDEN_LEFT_PANELS: ReadonlySet<DesignLeftPanel> = new Set([
+  "agent",
+]);
+
 function DesignWorkspaceRail({
   activePanel,
   disabledPanels,
+  hiddenPanels,
   motionOpen,
   motionDisabled,
   projectMenu,
@@ -1170,6 +1219,7 @@ function DesignWorkspaceRail({
 }: {
   activePanel: DesignLeftPanel;
   disabledPanels?: ReadonlySet<DesignLeftPanel>;
+  hiddenPanels?: ReadonlySet<DesignLeftPanel>;
   motionOpen?: boolean;
   motionDisabled?: boolean;
   projectMenu: ReactNode;
@@ -1236,6 +1286,7 @@ function DesignWorkspaceRail({
       <div className="mb-5 h-px w-8 bg-border/70" />
       <div className="flex min-h-0 flex-1 flex-col items-center gap-4">
         {items.map((item) => {
+          if (hiddenPanels?.has(item.panel)) return null;
           const active = item.panel === activePanel;
           const disabled = disabledPanels?.has(item.panel) ?? false;
           return (
@@ -2111,6 +2162,17 @@ function DesignEditor() {
   const appStateVersion = useChangeVersion("app-state");
   const browserTabId = getBrowserTabId();
   const embedded = isEmbedAuthActive();
+  const hostOwnsChrome = embedded && !isEmbedChromeRequested();
+  // Framed by a host that supplies the chat but not the canvas chrome: our
+  // rails stay, our agent surface does not.
+  const hostEmbeddedEditor = embedded && !hostOwnsChrome;
+  useEffect(() => {
+    if (!hostEmbeddedEditor) return;
+    setActiveLeftPanel((panel) =>
+      HOST_EMBEDDED_HIDDEN_LEFT_PANELS.has(panel) ? "file" : panel,
+    );
+  }, [hostEmbeddedEditor]);
+
   const designChatScope = useMemo(
     () => (id ? ({ type: "design" as const, id } as const) : null),
     [id],
@@ -2183,6 +2245,22 @@ function DesignEditor() {
   const [selectedElement, setSelectedElement] = useState<ElementInfo | null>(
     null,
   );
+  // The host's chat is the only chat here, so a canvas selection has to reach
+  // its composer to be usable as context.
+  const hostSelectionChipRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!hostEmbeddedEditor) return;
+    if (!selectedElement) {
+      hostSelectionChipRef.current = null;
+      return;
+    }
+    const chip = builderSelectionChip(
+      describeSelectionForHost(selectedElement),
+    );
+    if (hostSelectionChipRef.current === chip) return;
+    hostSelectionChipRef.current = chip;
+    sendBuilderSelectionContext(describeSelectionForHost(selectedElement));
+  }, [hostEmbeddedEditor, selectedElement]);
   // Committed selection for synchronous reads in the echo-loop guard. Synced
   // during render (not an effect) so it has no lag on any setSelectedElement path.
   const selectedElementRef = useRef(selectedElement);
@@ -6725,7 +6803,9 @@ function DesignEditor() {
         setActiveTool("move");
         setDrawMode(false);
         setPinMode(false);
-        setMode("interact");
+        // Single view is the Interact surface unless the caller names another
+        // mode, which is how a host opens a screen with editing chrome live.
+        setMode(normalizeDesignMode(command.mode) ?? "interact");
         if (commandZoom === null) {
           setScreenZoom(FOCUSED_SCREEN_ZOOM);
         }
@@ -9306,6 +9386,40 @@ function DesignEditor() {
     () => buildCodeLayerProjection(activeProjectionContent),
     [activeProjectionContent],
   );
+  /**
+   * The active screen's live-DOM projection, or null when the screen carries
+   * its own source. Mirrors the eligibility rule `codeLayerModelsByFile` uses
+   * to decide which tree the Layers panel renders, so selection resolution and
+   * the panel agree on one set of node ids.
+   */
+  const activeRuntimeCodeLayerProjection = useMemo(() => {
+    const fileId = activeFile?.id;
+    if (!fileId) return null;
+    const snapshot = runtimeLayerSnapshotsById[fileId];
+    if (!snapshot) return null;
+    // Derived locally rather than from `designSourceType`/`overviewScreenById`,
+    // which are declared further down this component and would be in the
+    // temporal dead zone here.
+    const eligible = shouldUseRuntimeLayerProjection({
+      screen: overviewScreens.find((screen) => screen.id === fileId),
+      fallbackSourceType:
+        normalizeDesignSourceType(designDataJson.sourceType as unknown) ??
+        normalizeDesignSourceType(designDataJson.sourceMode as unknown) ??
+        "inline",
+      // Eligibility follows the persisted route URL, not the projection
+      // content, which may already be a live snapshot.
+      content: files.find((file) => file.id === fileId)?.content ?? "",
+    });
+    if (!eligible) return null;
+    const projection = buildCodeLayerProjection(snapshot.html);
+    return projection.nodes.length > 0 ? projection : null;
+  }, [
+    activeFile?.id,
+    designDataJson,
+    files,
+    overviewScreens,
+    runtimeLayerSnapshotsById,
+  ]);
   const activeMotionTimeline = motionTimelineResult?.timelines?.[0] ?? null;
   const activeMotionHydrationFingerprint = activeFile?.id
     ? motionTimelineFingerprint(activeFile.id, activeMotionTimeline)
@@ -9363,13 +9477,19 @@ function DesignEditor() {
     motionTracksDirty,
   ]);
 
-  const selectedCodeLayerNode = useMemo(() => {
-    if (!selectedElement) return null;
-    return resolveCodeLayerNodeFromElementInfo(
+  const selectedCodeLayerNode = useMemo(
+    () =>
+      resolveSelectedCodeLayerNode({
+        selectedElement,
+        sourceProjection: activeCodeLayerProjection,
+        runtimeProjection: activeRuntimeCodeLayerProjection,
+      }),
+    [
       activeCodeLayerProjection,
+      activeRuntimeCodeLayerProjection,
       selectedElement,
-    );
-  }, [activeCodeLayerProjection, selectedElement]);
+    ],
+  );
   const selectedElementLayerId = selectedCodeLayerNode?.id ?? null;
   // Shared node-id resolution for the current selection's motion tracks —
   // used by "Copy animation" (item 2d), motionKeyframeState (item 11), and
@@ -13476,7 +13596,7 @@ function DesignEditor() {
       // into the live DOM and queue it, exactly like a canvas gesture
       // (handleVisualStyleChange delegates here with runtimeApplied set
       // because its gesture already moved the live DOM).
-      if (activeCanvasSourceType === "localhost") {
+      if (isRunningAppSourceType(activeCanvasSourceType)) {
         const targetInfo = options.elementInfo ?? selectedElement ?? undefined;
         // Breakpoint-scoped writes are excluded for the same reason as the
         // base path below (Item 5, edit-flash): the agent persists them as a
@@ -14383,7 +14503,7 @@ function DesignEditor() {
       );
       if (entries.length === 0) return false;
       const nodeId = selectedElement.sourceId;
-      if (activeCanvasSourceType === "localhost") {
+      if (isRunningAppSourceType(activeCanvasSourceType)) {
         recordPendingVisualStyleEdit(
           activeFile.id,
           selectedCanvasSelector ?? selectedElement.selector ?? "",
@@ -14840,7 +14960,7 @@ function DesignEditor() {
       });
       if (!canEditDesign) return false;
       if (!activeFile) return false;
-      if (activeCanvasSourceType === "localhost") {
+      if (isRunningAppSourceType(activeCanvasSourceType)) {
         recordPendingLiveStructureEdit(
           activeFile.id,
           selector,
@@ -15107,7 +15227,7 @@ function DesignEditor() {
     ) => {
       if (!canEditDesign) return;
       if (!activeFile) return;
-      if (activeCanvasSourceType === "localhost") {
+      if (isRunningAppSourceType(activeCanvasSourceType)) {
         recordPendingLiveTextEdit(
           activeFile.id,
           selector,
@@ -15251,7 +15371,7 @@ function DesignEditor() {
       const screenSourceType =
         normalizeDesignSourceType(overviewScreen?.sourceType) ??
         designSourceType;
-      if (screenSourceType === "localhost") {
+      if (isRunningAppSourceType(screenSourceType)) {
         recordPendingVisualStyleEdit(
           screenId,
           selector,
@@ -15361,7 +15481,7 @@ function DesignEditor() {
       const screenSourceType =
         normalizeDesignSourceType(overviewScreen?.sourceType) ??
         designSourceType;
-      if (screenSourceType === "localhost") {
+      if (isRunningAppSourceType(screenSourceType)) {
         recordPendingLiveStructureEdit(
           screenId,
           selector,
@@ -15613,7 +15733,7 @@ function DesignEditor() {
       const screenSourceType =
         normalizeDesignSourceType(overviewScreen?.sourceType) ??
         designSourceType;
-      if (screenSourceType === "localhost") {
+      if (isRunningAppSourceType(screenSourceType)) {
         recordPendingLiveTextEdit(
           screenId,
           selector,
@@ -18894,7 +19014,7 @@ function DesignEditor() {
       const screenSourceType =
         normalizeDesignSourceType(screen.sourceType) ?? designSourceType;
 
-      if (screenSourceType === "localhost") {
+      if (isRunningAppSourceType(screenSourceType)) {
         const snapshot = runtimeLayerSnapshotsById[screenId];
         if (!snapshot) {
           toast.error(t("designEditor.toasts.reactSourceAnchorsLoading"));
@@ -20872,15 +20992,84 @@ function DesignEditor() {
 
       if (!selectedElement?.selector) return;
 
+      // A running-app screen's stored content is its route URL, not markup, so
+      // projecting it finds no nodes and every arrow key degrades to a blind
+      // translate — the wrong operation on a flow child, and the exact case
+      // resolveElementNudgeIntent exists to catch.
+      const nudgeBaseContent = nudgeBaseContentForScreen({
+        isRunningApp: isRunningAppSourceType(activeCanvasSourceType),
+        runtimeSnapshotHtml: activeFile?.id
+          ? runtimeLayerSnapshotsById[activeFile.id]?.html
+          : null,
+        liveSnapshotHtml: activeFile?.id
+          ? liveScreenSnapshotsById[activeFile.id]?.html
+          : null,
+        sourceContent: activeFile ? getFreshActiveContent() : "",
+      });
+
       const intent = resolveElementNudgeIntent({
-        content: activeFile ? getFreshActiveContent() : "",
+        content: nudgeBaseContent,
         selectedElement,
         direction,
         largeStep,
         amounts: nudgeAmounts,
       });
+      // TEMP-NUDGE-DIAG: remove once the running-app nudge path is confirmed.
+      {
+        const diagProjection = buildCodeLayerProjection(nudgeBaseContent);
+        const diagNode = resolveCodeLayerNodeFromElementInfo(
+          diagProjection,
+          selectedElement,
+        );
+        const diagParent = diagNode?.parentId
+          ? diagProjection.nodes.find((n) => n.id === diagNode.parentId)
+          : null;
+        console.log("[nudge]", {
+          activeCanvasSourceType,
+          isRunningApp: isRunningAppSourceType(activeCanvasSourceType),
+          baseContentLength: nudgeBaseContent.length,
+          intentKind: intent.kind,
+          // Did we find the node in the snapshot at all?
+          nodeResolved: Boolean(diagNode),
+          nodeTag: diagNode?.tag,
+          // What the flow detection actually sees on the PARENT:
+          parentTag: diagParent?.tag,
+          parentInlineDisplay: diagParent?.style?.display,
+          parentClasses: diagParent?.classes?.slice(0, 12),
+          parentChildCount: diagParent?.children?.length,
+          // vs what the browser actually rendered:
+          renderedParentDisplay: selectedElement.parentDisplay,
+          computedPosition: selectedElement.computedStyles?.position,
+        });
+      }
       if (intent.kind === "none") return;
       if (intent.kind === "reorder") {
+        // The stored content is a URL for a running-app screen, so patching it
+        // would overwrite the screen's route with markup. Queue the move as a
+        // pending edit for the Apply pass instead, exactly like a live
+        // drag-reorder, which needs the anchor as a SELECTOR rather than the
+        // projection node id the intent carries.
+        if (isRunningAppSourceType(activeCanvasSourceType)) {
+          if (!activeFile?.id) return;
+          const handoff = liveNudgeReorderHandoff({
+            content: intent.content,
+            anchorNodeId: intent.anchorNodeId,
+            placement: intent.placement,
+          });
+          if (!handoff) return;
+          recordPendingLiveStructureEdit(
+            activeFile.id,
+            selectedElement.selector,
+            handoff.anchorSelector,
+            handoff.placement,
+            selectedElement,
+            {
+              sourceId: selectedElement.sourceId,
+              anchorSourceId: handoff.anchorSourceId,
+            },
+          );
+          return;
+        }
         const patch = applyVisualEdit(intent.content, {
           kind: "moveNode",
           target: { nodeId: intent.targetNodeId },
@@ -20923,6 +21112,7 @@ function DesignEditor() {
       });
     },
     [
+      activeCanvasSourceType,
       activeFile,
       applyLocalContentUpdate,
       boardFileId,
@@ -20934,8 +21124,11 @@ function DesignEditor() {
       getFreshActiveContent,
       handleGeometryCommit,
       hideSelectionChromeForNudge,
+      liveScreenSnapshotsById,
       overviewScreens,
       overviewSelectedScreenIds,
+      recordPendingLiveStructureEdit,
+      runtimeLayerSnapshotsById,
       selectedElement,
       selectedLayerIdsState,
     ],
@@ -22564,7 +22757,9 @@ function DesignEditor() {
   const enterSingleScreen = useCallback(
     // Focusing a screen means the responsive interactive view — there is no
     // single-screen Edit view. The infinite canvas is where editing happens.
-    (fileId?: string | null) => {
+    // An embedding host that drives the editor can name a different mode.
+    (fileId?: string | null, options?: { mode?: EditorMode }) => {
+      const entryMode = options?.mode ?? "interact";
       const targetFileId = fileId ?? activeFileId;
       const targetScreen = targetFileId
         ? overviewScreens.find((screen) => screen.id === targetFileId)
@@ -22609,7 +22804,7 @@ function DesignEditor() {
         // The early return used to swallow a requested mode change, so
         // re-clicking a screen after closing Interact left it in whatever
         // mode it had drifted to instead of reopening the responsive view.
-        setMode("interact");
+        setMode(entryMode);
         setInteractDeviceName(nextInteractDevice.name);
         setInteractDeviceSize({
           width: nextInteractDevice.width,
@@ -22642,7 +22837,7 @@ function DesignEditor() {
         if (fileId) setActiveFileId(fileId);
         setDrawMode(false);
         setPinMode(false);
-        setMode("interact");
+        setMode(entryMode);
         setSelectedElement(null);
         setHoveredElement(null);
         setActiveTool("move");
@@ -22899,12 +23094,16 @@ function DesignEditor() {
       setSelectedLayerIdsState([]);
       // Only two views exist: the infinite canvas (editing) and the responsive
       // interactive view. Picking a screen from the Screens list means "go look
-      // at this running screen", so it lands in the responsive view.
-      enterSingleScreen(screenId);
+      // at this running screen", so it lands in the responsive view — except
+      // for a host-embedded editor, where switching screens must not silently
+      // drop the user out of editing.
+      enterSingleScreen(screenId, hostEmbeddedEditor ? { mode } : undefined);
     },
     [
       clearPendingOverviewLayerSelectionTimer,
       enterSingleScreen,
+      hostEmbeddedEditor,
+      mode,
       overviewSelectedScreenIds,
     ],
   );
@@ -23653,7 +23852,7 @@ function DesignEditor() {
 
   useDesignHotkeys({
     enabled:
-      !embedded &&
+      !hostOwnsChrome &&
       !responsiveInteractActive &&
       !(pendingQuestions && pendingQuestions.length > 0),
     shouldHandleEvent: shouldHandleEditorHotkey,
@@ -24086,6 +24285,18 @@ function DesignEditor() {
       ),
     [designSourceType, overviewScreens],
   );
+  const screenRoutesById = useMemo(() => {
+    const metadataByFileId = getDesignDataRecord(
+      designDataJson,
+      "screenMetadata",
+    );
+    const routes: Record<string, string> = {};
+    for (const [fileId, entry] of Object.entries(metadataByFileId ?? {})) {
+      const path = (entry as { path?: unknown })?.path;
+      if (typeof path === "string" && path) routes[fileId] = path;
+    }
+    return routes;
+  }, [designDataJson]);
   const showPendingVisualStyleApply = useMemo(
     () =>
       shouldShowPendingVisualStyleApply({
@@ -24116,15 +24327,19 @@ function DesignEditor() {
         localhostConnectionId: activeOverviewScreen?.connectionId,
         edits: pendingVisualStyleEdits,
         liveEdits: pendingLiveNonStyleEdits,
+        audience: hostEmbeddedEditor ? "coding-agent" : "design-agent",
+        screenRoutes: screenRoutesById,
       }),
     [
       activeFile?.filename,
       activeFile?.id,
       activeOverviewScreen?.connectionId,
       design?.title,
+      hostEmbeddedEditor,
       id,
       pendingLiveNonStyleEdits,
       pendingVisualStyleEdits,
+      screenRoutesById,
     ],
   );
   const handleApplyPendingVisualStylesWithAgent = useCallback(async () => {
@@ -27060,16 +27275,15 @@ function DesignEditor() {
       inScreenGradientEditNodeId,
     );
     if (!target) return null;
-    const pendingStateEdit =
-      activeCanvasSourceType === "localhost"
-        ? pendingVisualStyleEdits.find(
-            (edit) =>
-              edit.screenId === target.screenId &&
-              edit.interactionState === target.state &&
-              (edit.sourceId === target.nodeId ||
-                edit.selector === selectedCanvasSelector),
-          )
-        : undefined;
+    const pendingStateEdit = isRunningAppSourceType(activeCanvasSourceType)
+      ? pendingVisualStyleEdits.find(
+          (edit) =>
+            edit.screenId === target.screenId &&
+            edit.interactionState === target.state &&
+            (edit.sourceId === target.nodeId ||
+              edit.selector === selectedCanvasSelector),
+        )
+      : undefined;
     return {
       ...target,
       selector: selectedCanvasSelector,
@@ -28797,19 +29011,43 @@ function DesignEditor() {
       const owner = codeLayerOwnerByNodeId.get(layerId);
       const node = owner?.node;
       if (!owner || !node) return;
+      // Same case as BUG-LOCK-HIDE-LIVE-SNAPSHOT in handleToggleLayerLocked:
+      // for a running-app screen the stored content is a bare route URL, and
+      // `node` came from the RUNTIME projection. Writing into the URL is worse
+      // than a no-op here — setCodeLayerAttributeInHtml indexes by raw source
+      // offsets, so it splices the attribute into the middle of the URL and
+      // destroys the screen's src. Re-resolve against the live snapshot by the
+      // one id that is stable across both projections.
+      const renameLiveSnapshot = liveScreenSnapshotsById[owner.fileId];
+      const renameNodeIdAttr = node.dataAttributes["data-agent-native-node-id"];
+      const renameLiveNode =
+        renameLiveSnapshot && renameNodeIdAttr
+          ? buildCodeLayerProjection(renameLiveSnapshot.html).nodes.find(
+              (candidate) =>
+                candidate.dataAttributes["data-agent-native-node-id"] ===
+                renameNodeIdAttr,
+            )
+          : undefined;
       const sourceFile = files.find((file) => file.id === owner.fileId);
       const sourceContent =
-        owner.fileId === activeFile?.id
+        renameLiveSnapshot?.html ??
+        (owner.fileId === activeFile?.id
           ? getFreshActiveContent()
-          : (sourceFile?.content ?? "");
-      if (!sourceContent) return;
+          : (sourceFile?.content ?? ""));
+      const renameTargetNode = renameLiveSnapshot ? renameLiveNode : node;
+      if (!sourceContent || !renameTargetNode) return;
       const nextContent = setCodeLayerAttributeInHtml(
         sourceContent,
-        node,
+        renameTargetNode,
         "data-agent-native-layer-name",
         name,
       );
       if (!nextContent || nextContent === sourceContent) return;
+      if (renameLiveSnapshot) {
+        updateLiveScreenSnapshotContent(owner.fileId, nextContent);
+        syncLiveScreenSnapshotPreview(owner.fileId, nextContent);
+        return;
+      }
       applyFileContentUpdate(owner.fileId, nextContent, {
         refreshPreview: false,
       });
@@ -28825,11 +29063,14 @@ function DesignEditor() {
       getFreshActiveContent,
       getScreenContent,
       id,
+      liveScreenSnapshotsById,
       overviewScreens,
       queryClient,
       renameScreenMutation,
       serverFiles,
+      syncLiveScreenSnapshotPreview,
       t,
+      updateLiveScreenSnapshotContent,
     ],
   );
 
@@ -30622,12 +30863,14 @@ function DesignEditor() {
     <div className="shrink-0 border-b border-border bg-[var(--design-editor-panel-bg)] px-2 py-1.5">
       <div className="flex min-h-8 items-center gap-1">
         <div className="flex min-w-0 flex-1 items-center gap-1">
-          <DesignCollaboratorsMenu
-            collaborators={designCollaborators}
-            followingEmail={followingEmail}
-            label={t("designEditor.collaborators")}
-            onAvatarClick={handleAvatarClick}
-          />
+          {hostEmbeddedEditor ? null : (
+            <DesignCollaboratorsMenu
+              collaborators={designCollaborators}
+              followingEmail={followingEmail}
+              label={t("designEditor.collaborators")}
+              onAvatarClick={handleAvatarClick}
+            />
+          )}
         </div>
 
         {/* Not shrink-0: the signed-out CTA ("Sign up free to save") is a
@@ -30656,7 +30899,7 @@ function DesignEditor() {
             </Button>
           ) : null}
           <Popover
-            open={publishWaitlistPopoverOpen}
+            open={hostEmbeddedEditor ? false : publishWaitlistPopoverOpen}
             onOpenChange={(open) => {
               setPublishWaitlistPopoverOpen(open);
               setPublishWaitlistPopoverView("actions");
@@ -30671,7 +30914,10 @@ function DesignEditor() {
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="h-8 cursor-pointer gap-1 rounded-md px-2 text-foreground hover:bg-accent hover:text-foreground"
+                    className={cn(
+                      "h-8 cursor-pointer gap-1 rounded-md px-2 text-foreground hover:bg-accent hover:text-foreground",
+                      hostEmbeddedEditor && "hidden",
+                    )}
                     aria-label={"Preview or publish app" /* i18n-ignore */}
                   >
                     <IconPlayerPlay className="size-5" />
@@ -30774,7 +31020,7 @@ function DesignEditor() {
             </PopoverContent>
           </Popover>
 
-          {canRenderAuthenticatedShare ? (
+          {hostEmbeddedEditor ? null : canRenderAuthenticatedShare ? (
             <ShareButton
               resourceType="design"
               resourceId={id}
@@ -30936,10 +31182,15 @@ function DesignEditor() {
       )}
       {/* Main canvas area */}
       <div className="flex-1 flex overflow-hidden relative">
-        {!embedded && !uiHidden ? (
+        {!hostOwnsChrome && !uiHidden ? (
           <div className="relative flex min-h-0 shrink-0 bg-[var(--design-editor-panel-bg)]">
             <DesignWorkspaceRail
               activePanel={activeLeftPanel}
+              hiddenPanels={
+                hostEmbeddedEditor
+                  ? HOST_EMBEDDED_HIDDEN_LEFT_PANELS
+                  : undefined
+              }
               disabledPanels={
                 initialGenerationChromeLimited
                   ? INITIAL_GENERATION_DISABLED_LEFT_PANELS
@@ -30947,7 +31198,7 @@ function DesignEditor() {
               }
               motionOpen={motionDockOpen}
               motionDisabled={!activeFile}
-              projectMenu={projectMenu}
+              projectMenu={hostEmbeddedEditor ? null : projectMenu}
               onMotionToggle={() => setMotionDockOpenAnimated(!motionDockOpen)}
               onPanelChange={setActiveLeftPanel}
             />
@@ -31192,7 +31443,7 @@ function DesignEditor() {
             Escape hotkey gate): its canvas tools and mode tabs belong to the
             infinite canvas, and ResponsiveInteractBar's Close is the way
             back. */}
-        {!embedded &&
+        {!hostOwnsChrome &&
           !uiHidden &&
           !responsiveInteractActive &&
           designBottomToolbarMode === "editor" &&
@@ -31219,7 +31470,7 @@ function DesignEditor() {
             />
           )}
 
-        {!embedded && keyboardShortcutsOpen ? (
+        {!hostOwnsChrome && keyboardShortcutsOpen ? (
           <KeyboardShortcutsPanel
             onClose={handleCloseKeyboardShortcuts}
             nudgeAmounts={editorPreferences.nudge}
@@ -31548,7 +31799,7 @@ function DesignEditor() {
                     <ReadOnlyDesignBanner
                       pinMode={pinMode}
                       onCommentPin={
-                        !embedded &&
+                        !hostOwnsChrome &&
                         !uiHidden &&
                         designBottomToolbarMode === "commenter"
                           ? handlePinToolToggle
@@ -32205,7 +32456,7 @@ function DesignEditor() {
         )}
 
         {/* Right rail */}
-        {!embedded && !uiHidden && !initialGenerationChromeLimited ? (
+        {!hostOwnsChrome && !uiHidden && !initialGenerationChromeLimited ? (
           <div
             ref={rightSidebarContentRef}
             className="relative hidden h-full min-h-0 shrink-0 flex-col border-l border-[var(--design-editor-panel-divider-color)] bg-[var(--design-editor-panel-bg)] md:flex"
@@ -32296,7 +32547,7 @@ function DesignEditor() {
         ) : null}
       </div>
 
-      {!embedded &&
+      {!hostOwnsChrome &&
       !uiHidden &&
       !initialGenerationChromeLimited &&
       mode === "edit" ? (
@@ -32479,7 +32730,7 @@ function DesignEditor() {
           closing. Canvas remains visible above.
           Preview-only scrubbing fires a motion-preview postMessage to the
           canvas iframe; track/duration edits autosave through apply-motion-edit. */}
-      {!embedded && activeFile && motionDockMounted ? (
+      {!hostOwnsChrome && activeFile && motionDockMounted ? (
         <MotionDock
           tracks={motionTracks}
           durationMs={motionDurationMs}

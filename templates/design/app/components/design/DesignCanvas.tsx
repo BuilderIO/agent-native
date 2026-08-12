@@ -1401,27 +1401,27 @@ export function DesignCanvas({
   );
   const onExternalContentSnapshotRef = useRef(onExternalContentSnapshot);
   const isEmbeddedFrame = Boolean(embeddedFrame);
-  // Resolve the URL to render in the iframe:
-  // 1. When sourceType === "fusion" and fusionUrl is set, prefer the explicit
-  //    Builder-hosted URL over whatever is in `content` (which may still be the
-  //    original inline HTML).
-  // 2. Otherwise fall back to the content-based URL detection (handles the case
-  //    where the branch URL has been written into the design file content, or
-  //    where the localhost URL is the file content).
+  // The screen's own URL wins: it carries the route path and may address the
+  // container through a same-origin proxy. `fusionUrl` only covers fusion
+  // screens whose content is still the original inline HTML.
   const rawExternalPreviewUrl = useMemo(() => {
+    const contentUrl = getExternalPreviewUrl(renderedContent);
+    if (contentUrl) return contentUrl;
     if (sourceType === "fusion" && fusionUrl) {
       try {
         const url = new URL(fusionUrl);
         url.hash = "";
         return url.toString();
       } catch {
-        // fall through to content detection below
+        // coercion-ok: an unparseable URL has no frame to render; the screen
+        // falls back to its own content, as it did before any fusion linkage.
+        return null;
       }
     }
-    return getExternalPreviewUrl(renderedContent);
+    return null;
   }, [fusionUrl, renderedContent, sourceType]);
   const runtimeLayerSnapshotEnabled =
-    sourceType === "localhost" &&
+    (sourceType === "localhost" || sourceType === "fusion") &&
     Boolean(rawExternalPreviewUrl) &&
     Boolean(onRuntimeLayerSnapshot);
   const activeExternalSnapshotHtml =
@@ -1605,6 +1605,52 @@ export function DesignCanvas({
   zoomRef.current = zoom;
   runtimeReplacementContentRef.current = runtimeReplacementContent;
   runtimeReplacementKeyRef.current = runtimeReplacementKey;
+
+  // A container proxied through this app's own origin has no dev-server bridge
+  // to register the editor chrome with, so it is installed into the document
+  // directly — the one thing a cross-origin preview can never allow.
+  const sameOriginExternalPreview = useMemo(() => {
+    if (!externalPreviewUrl || typeof window === "undefined") return false;
+    try {
+      return (
+        new URL(externalPreviewUrl, window.location.href).origin ===
+        window.location.origin
+      );
+    } catch {
+      // coercion-ok: an unparseable URL is not same-origin, so the bridge is
+      // left to the cross-origin path rather than injected blind.
+      return false;
+    }
+  }, [externalPreviewUrl]);
+  const installSameOriginBridge = useCallback(() => {
+    if (!sameOriginExternalPreview || !includeLiveEditEditorChrome) return;
+    const frame = iframeRef.current;
+    const doc = frame?.contentDocument;
+    if (!doc?.head) return;
+    // The initial about:blank is replaced by the real navigation, and a bridge
+    // installed there keeps running against a document with no elements left.
+    if (doc.URL.startsWith("about:")) return;
+    const installed = doc.documentElement.dataset.agentNativeBridgeKey;
+    if (installed === liveEditBridgeKey) return;
+    // The bridge binds document-wide listeners once. A different script means a
+    // fresh document, never a second copy layered over the first.
+    if (installed) {
+      frame?.contentWindow?.location.reload();
+      return;
+    }
+    doc.documentElement.dataset.agentNativeBridgeKey = liveEditBridgeKey;
+    doc.head.appendChild(
+      doc.createRange().createContextualFragment(liveEditBridgeScript),
+    );
+  }, [
+    includeLiveEditEditorChrome,
+    liveEditBridgeKey,
+    liveEditBridgeScript,
+    sameOriginExternalPreview,
+  ]);
+  useEffect(() => {
+    installSameOriginBridge();
+  }, [installSameOriginBridge]);
 
   useEffect(() => {
     onExternalContentSnapshotRef.current = onExternalContentSnapshot;
@@ -2354,6 +2400,12 @@ export function DesignCanvas({
     usesLiveEditEditorBridge &&
     Boolean(externalPreviewUrl) &&
     readyIframeDocumentIdentity !== iframeDocumentIdentity;
+  // A proxied container paints its own app immediately, so without this the
+  // canvas looks ready while hover, selection and layers are still dead.
+  const sameOriginBridgePending =
+    sameOriginExternalPreview &&
+    includeLiveEditEditorChrome &&
+    readyIframeDocumentIdentity !== iframeDocumentIdentity;
 
   // Listen for messages from the iframe
   useEffect(() => {
@@ -2402,16 +2454,11 @@ export function DesignCanvas({
         e.data?.type === "agent-native:editor-chrome-ready"
           ? lateLiveEditReadyRecoveryRef.current
           : null;
-      // For fusion sources the Builder-hosted app is cross-origin, so the strict
-      // `origin === parentOrigin` check can never match. We still require window
-      // identity (the message must come from our own iframe window, not any
-      // arbitrary cross-origin frame), AND we validate the message origin
-      // against a Builder-host allowlist (the configured fusionUrl origin or the
-      // *.builder.io family) before relaxing the origin check. If the origin is
-      // not on the allowlist we keep the strict check so a hostile frame that
-      // somehow shares our window reference still can't be trusted.
+      // A cross-origin fusion frame can never satisfy `origin === parentOrigin`,
+      // so trust there rests on window identity plus a Builder-host allowlist.
+      // A proxied one is same-origin and takes the strict path unchanged.
       const trustedCurrentFrame =
-        sourceType === "fusion"
+        sourceType === "fusion" && e.origin !== window.location.origin
           ? iframeWindow !== null &&
             e.source === iframeWindow &&
             isAllowedFusionOrigin(e.origin, fusionUrl)
@@ -4444,6 +4491,7 @@ export function DesignCanvas({
             readOnly,
           })}
           data-design-preview-iframe
+          onLoad={installSameOriginBridge}
           {...{
             [SESSION_REPLAY_IFRAME_ATTRIBUTE]: !externalPreviewUrl
               ? ""
@@ -4561,6 +4609,7 @@ export function DesignCanvas({
       ) : null}
       {waitingForEditableExternalSnapshot ||
       waitingForLiveEditBridge ||
+      sameOriginBridgePending ||
       liveEditDocumentPending ? (
         <div className="pointer-events-auto absolute inset-0 z-10 flex items-center justify-center bg-background/85 px-4 text-center text-sm text-muted-foreground">
           {waitingForLiveEditBridge &&
@@ -4597,7 +4646,7 @@ export function DesignCanvas({
                 {"Retry" /* i18n-ignore local dev bridge retry button */}
               </Button>
             </div>
-          ) : waitingForLiveEditBridge ? (
+          ) : waitingForLiveEditBridge || sameOriginBridgePending ? (
             <div className="max-w-[28rem] rounded-md border bg-card px-4 py-3 shadow-sm">
               {
                 "Preparing live editor..." /* i18n-ignore transient localhost live-edit bridge loading state */

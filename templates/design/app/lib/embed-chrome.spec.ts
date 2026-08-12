@@ -1,0 +1,36 @@
+// @vitest-environment happy-dom
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+
+import {
+  _resetEmbedChromeForTests,
+  isEmbedChromeRequested,
+} from "./embed-chrome";
+
+function setUrl(href: string): void {
+  window.history.replaceState(null, "", href);
+}
+
+describe("isEmbedChromeRequested", () => {
+  beforeEach(() => {
+    _resetEmbedChromeForTests();
+    window.sessionStorage.clear();
+  });
+
+  afterEach(() => {
+    setUrl("/");
+  });
+
+  it("is off for an embed that did not ask for chrome", () => {
+    setUrl("/visual-edit/d1?editorView=overview");
+    expect(isEmbedChromeRequested()).toBe(false);
+  });
+
+  it("survives the editor rewriting its own URL", () => {
+    setUrl("/visual-edit/d1?editorView=overview&embedChrome=1");
+    expect(isEmbedChromeRequested()).toBe(true);
+
+    _resetEmbedChromeForTests();
+    setUrl("/design/d1?view=overview&zoom=33");
+    expect(isEmbedChromeRequested()).toBe(true);
+  });
+});

@@ -84,7 +84,9 @@ describe("live style runtime history", () => {
 
   it("routes localhost forward styles and undo/redo through the shared targeted helper", () => {
     const forwardSection = editorSource.slice(
-      editorSource.indexOf('if (activeCanvasSourceType === "localhost")'),
+      editorSource.indexOf(
+        "if (isRunningAppSourceType(activeCanvasSourceType))",
+      ),
       editorSource.indexOf(
         "// Base every patch off the freshest known content",
       ),
