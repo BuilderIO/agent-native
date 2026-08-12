@@ -12,11 +12,11 @@ import {
 import { oauthRedirectUri } from "@agent-native/core/client/host";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { useOrgRole } from "@agent-native/core/client/org";
-import { docsUrl } from "@agent-native/core/shared";
 import {
   getDefaultMcpIntegrations,
   McpIntegrationLogo,
 } from "@agent-native/core/client/resources";
+import { docsUrl } from "@agent-native/core/shared";
 import {
   IconCheck,
   IconChevronDown,
