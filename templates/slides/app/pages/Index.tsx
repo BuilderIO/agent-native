@@ -412,11 +412,7 @@ export default function Index() {
         handleFirstRunStatusResolved,
       );
     };
-  }, [
-    firstRunOnboardingEnabled,
-    initialPrompt,
-    openInitialPrompt,
-  ]);
+  }, [firstRunOnboardingEnabled, initialPrompt, openInitialPrompt]);
 
   const setDeckFilter = useCallback(
     (value: string) => {

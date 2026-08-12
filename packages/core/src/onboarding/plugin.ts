@@ -21,6 +21,7 @@ import {
 } from "h3";
 
 import { appStateGet, appStatePut } from "../application-state/store.js";
+import { getOrgContext } from "../org/context.js";
 import { getSession } from "../server/auth.js";
 import {
   awaitBootstrap,
@@ -33,7 +34,6 @@ import {
   FIRST_RUN_ONBOARDING_COOKIE,
   FIRST_RUN_ONBOARDING_ELIGIBLE_KEY,
 } from "../shared/first-run-onboarding.js";
-import { getOrgContext } from "../org/context.js";
 import { getOnboardingAppProfile } from "./app-profile.js";
 import { registerDefaultOnboardingSteps } from "./default-steps.js";
 import { listOnboardingSteps } from "./registry.js";
@@ -323,8 +323,7 @@ export function createOnboardingPlugin(
             FIRST_RUN_ONBOARDING_ELIGIBLE_KEY,
           );
           const firstRun =
-            orgContext.orgId !== null &&
-            eligible?.orgId === orgContext.orgId;
+            orgContext.orgId !== null && eligible?.orgId === orgContext.orgId;
           if (!firstRun) {
             deleteCookie(event, FIRST_RUN_ONBOARDING_COOKIE, { path: "/" });
           }

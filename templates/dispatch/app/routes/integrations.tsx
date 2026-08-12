@@ -1626,6 +1626,21 @@ function SetupWizard({
     }
     return Array.from(map.values());
   }, [grantApps, plan?.suggestedApps]);
+  const selectedAppLabels = suggestedGrantApps
+    .filter((app) => selectedApps.includes(app.id))
+    .map((app) => app.label);
+  const accessSummary =
+    form?.grantMode === "all-apps"
+      ? t("integrations.allApps")
+      : t("integrations.selectedApps");
+  const accessSummaryDescription =
+    form?.grantMode === "all-apps"
+      ? t("integrations.everyWorkspaceAppCanReuse")
+      : selectedAppLabels.length > 0
+        ? t("integrations.selectedAppsCanReuse", {
+            apps: selectedAppLabels.join(", "),
+          })
+        : t("integrations.chooseOneApp");
 
   return (
     <Modal
@@ -1777,104 +1792,127 @@ function SetupWizard({
                 <div className="grid gap-5">
                   <div>
                     <h2 className="text-lg font-semibold tracking-[-0.02em] text-foreground">
-                      {t("integrations.accessMode")}
+                      {t("integrations.access")}
                     </h2>
-                    <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                      {t("integrations.selectedAppsDescription")}
-                    </p>
                   </div>
 
-                  <div className="flex items-center justify-between gap-4 rounded-lg border border-border px-4 py-3.5">
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-foreground">
-                        {t("integrations.allApps")}
-                      </p>
-                      <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
-                        {t("integrations.allAppsDescription")}
-                      </p>
-                    </div>
-                    <Switch
-                      checked={form.grantMode === "all-apps"}
-                      onCheckedChange={(checked) =>
-                        onChange({
-                          ...form,
-                          grantMode: checked ? "all-apps" : "selected-apps",
-                          selectedApps: checked
-                            ? []
-                            : selectedApps.length > 0
-                              ? selectedApps
-                              : suggestedGrantApps
-                                  .filter((app) => app.recommended)
-                                  .slice(0, 1)
-                                  .map((app) => app.id),
-                        })
-                      }
-                      aria-label={t("integrations.grantAllWorkspaceAppsAria")}
-                    />
-                  </div>
-
-                  {form.grantMode === "selected-apps" ? (
-                    <div className="grid gap-3">
-                      <div>
+                  <div className="rounded-lg border border-border">
+                    <div className="flex items-center gap-3 px-4 py-3.5">
+                      <div className="min-w-0 flex-1">
                         <p className="text-sm font-medium text-foreground">
-                          {t("integrations.appGrants")}
+                          {accessSummary}
                         </p>
-                        <p className="mt-0.5 text-xs text-muted-foreground">
-                          {t("integrations.chooseOneApp")}
+                        <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
+                          {accessSummaryDescription}
                         </p>
-                      </div>
-                      <div className="grid gap-2 sm:grid-cols-2">
-                        {suggestedGrantApps.map((app) => {
-                          const AppIcon = app.icon;
-                          const selected = selectedApps.includes(app.id);
-                          return (
-                            <Label
-                              key={app.id}
-                              htmlFor={`setup-app-${app.id}`}
-                              className="flex min-h-11 cursor-pointer items-center justify-between gap-3 rounded-lg border px-3 py-2 transition-colors hover:bg-accent/30"
-                            >
-                              <span className="flex min-w-0 items-center gap-2">
-                                <AppIcon
-                                  size={14}
-                                  className="text-muted-foreground"
-                                />
-                                <span className="truncate text-sm font-medium">
-                                  {app.label}
-                                </span>
-                                {app.recommended ? (
-                                  <Pill className="h-5 border-border bg-muted px-1.5 text-[11px]">
-                                    {t("integrations.suggested")}
-                                  </Pill>
-                                ) : null}
-                              </span>
-                              <Checkbox
-                                id={`setup-app-${app.id}`}
-                                checked={selected}
-                                onCheckedChange={(checked) =>
-                                  onChange({
-                                    ...form,
-                                    selectedApps: checked
-                                      ? Array.from(
-                                          new Set([...selectedApps, app.id]),
-                                        )
-                                      : selectedApps.filter(
-                                          (appId) => appId !== app.id,
-                                        ),
-                                  })
-                                }
-                                aria-label={t("integrations.appGrantAria", {
-                                  action: selected
-                                    ? t("integrations.remove")
-                                    : t("integrations.grant"),
-                                  app: app.label,
-                                })}
-                              />
-                            </Label>
-                          );
-                        })}
                       </div>
                     </div>
-                  ) : null}
+
+                    <details className="group border-t border-border">
+                      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-medium text-foreground marker:hidden">
+                        <span>{t("integrations.appGrants")}</span>
+                        <IconChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
+                      </summary>
+                      <div className="grid gap-3 border-t border-border/70 px-4 py-3.5">
+                        <div className="flex items-center justify-between gap-4 rounded-md border border-border/70 px-3 py-3">
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-foreground">
+                              {t("integrations.allApps")}
+                            </p>
+                            <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
+                              {t("integrations.allAppsDescription")}
+                            </p>
+                          </div>
+                          <Switch
+                            checked={form.grantMode === "all-apps"}
+                            onCheckedChange={(checked) =>
+                              onChange({
+                                ...form,
+                                grantMode: checked
+                                  ? "all-apps"
+                                  : "selected-apps",
+                                selectedApps: checked
+                                  ? []
+                                  : selectedApps.length > 0
+                                    ? selectedApps
+                                    : suggestedGrantApps
+                                        .filter((app) => app.recommended)
+                                        .slice(0, 1)
+                                        .map((app) => app.id),
+                              })
+                            }
+                            aria-label={t(
+                              "integrations.grantAllWorkspaceAppsAria",
+                            )}
+                          />
+                        </div>
+
+                        {form.grantMode === "selected-apps" ? (
+                          <div className="grid gap-3">
+                            <p className="text-xs text-muted-foreground">
+                              {t("integrations.chooseOneApp")}
+                            </p>
+                            <div className="grid gap-2 sm:grid-cols-2">
+                              {suggestedGrantApps.map((app) => {
+                                const AppIcon = app.icon;
+                                const selected = selectedApps.includes(app.id);
+                                return (
+                                  <Label
+                                    key={app.id}
+                                    htmlFor={`setup-app-${app.id}`}
+                                    className="flex min-h-11 cursor-pointer items-center justify-between gap-3 rounded-lg border px-3 py-2 transition-colors hover:bg-accent/30"
+                                  >
+                                    <span className="flex min-w-0 items-center gap-2">
+                                      <AppIcon
+                                        size={14}
+                                        className="text-muted-foreground"
+                                      />
+                                      <span className="truncate text-sm font-medium">
+                                        {app.label}
+                                      </span>
+                                      {app.recommended ? (
+                                        <Pill className="h-5 border-border bg-muted px-1.5 text-[11px]">
+                                          {t("integrations.suggested")}
+                                        </Pill>
+                                      ) : null}
+                                    </span>
+                                    <Checkbox
+                                      id={`setup-app-${app.id}`}
+                                      checked={selected}
+                                      onCheckedChange={(checked) =>
+                                        onChange({
+                                          ...form,
+                                          selectedApps: checked
+                                            ? Array.from(
+                                                new Set([
+                                                  ...selectedApps,
+                                                  app.id,
+                                                ]),
+                                              )
+                                            : selectedApps.filter(
+                                                (appId) => appId !== app.id,
+                                              ),
+                                        })
+                                      }
+                                      aria-label={t(
+                                        "integrations.appGrantAria",
+                                        {
+                                          action: selected
+                                            ? t("integrations.remove")
+                                            : t("integrations.grant"),
+                                          app: app.label,
+                                        },
+                                      )}
+                                    />
+                                  </Label>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
+                    </details>
+                  </div>
                 </div>
               ) : null}
             </>
