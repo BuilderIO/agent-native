@@ -2430,6 +2430,42 @@ describe("run manager soft timeout", () => {
     consoleError.mockRestore();
   });
 
+  it("does not advertise a continuation when completion persistence fails before handoff", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    const events: AgentChatEvent[] = [];
+    const run = startRun(
+      "run-completion-boundary-failed",
+      "thread-completion-boundary-failed",
+      async (send) => {
+        send({ type: "text", text: "partial response" });
+        send({ type: "auto_continue", reason: "stream_ended" });
+      },
+      async () => {
+        throw new Error("thread_data write failed");
+      },
+      { softTimeoutMs: 0 },
+    );
+    run.subscribers.add((event) => events.push(event.event));
+
+    await run.finalized;
+
+    expect(events).toContainEqual({
+      type: "error",
+      error: "Agent response could not be saved.",
+    });
+    expect(events).not.toContainEqual({
+      type: "auto_continue",
+      reason: "stream_ended",
+    });
+    expect(setRunTerminalReason).toHaveBeenCalledWith(
+      "run-completion-boundary-failed",
+      "completion_error",
+    );
+    consoleError.mockRestore();
+  });
+
   it("normalizes missing SQL abort reasons to user aborts", async () => {
     vi.mocked(getRunAbortState).mockResolvedValue({ aborted: true });
     let abortReason: unknown;

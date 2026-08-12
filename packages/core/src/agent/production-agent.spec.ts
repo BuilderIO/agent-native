@@ -51,6 +51,7 @@ import {
   resolveSkillReferenceContent,
   runAgentLoop,
   runAgentLoopWithMainChatInternalContinuations,
+  runCompletionCallbackWithDatabaseRetry,
   shouldChainBackgroundContinuation,
   MAX_IDENTICAL_TOOL_CALLS,
   MAX_SAME_ERROR_ACROSS_ARGUMENTS,
@@ -64,6 +65,24 @@ import {
 import type { ActiveRun } from "./run-manager.js";
 import { attachToolSearch, searchToolRegistry } from "./tool-search.js";
 import type { AgentChatEvent, RunEvent } from "./types.js";
+
+describe("runCompletionCallbackWithDatabaseRetry", () => {
+  it("retries transient database failures before giving up the completion boundary", async () => {
+    const callback = vi
+      .fn()
+      .mockRejectedValueOnce({
+        code: "ECHECKOUTTIMEOUT",
+        message: "database checkout timed out",
+      })
+      .mockResolvedValue(undefined);
+    const sleep = vi.fn(async (_ms: number) => {});
+
+    await runCompletionCallbackWithDatabaseRetry(callback, { sleep });
+
+    expect(callback).toHaveBeenCalledTimes(2);
+    expect(sleep).toHaveBeenCalledWith(250);
+  });
+});
 
 function actionEntry(opts: {
   description?: string;

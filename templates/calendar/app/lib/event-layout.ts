@@ -4,6 +4,7 @@ import { addDays, parseISO, startOfDay } from "date-fns";
 export interface TimedEventLayout {
   left: number;
   width: number;
+  indent: number;
   col: number;
   totalCols: number;
   stackOrder: number;
@@ -20,18 +21,16 @@ interface EventEntry {
   inputOrder: number;
 }
 
-const TEXT_REGION_MINUTES = 45;
 const MIN_VISIBLE_EVENT_MINUTES = 15;
+const OVERLAP_INDENT_PX = 16;
 
 function overlaps(a: EventBounds, b: EventBounds): boolean {
   return a.start < b.end && b.start < a.end;
 }
 
 /**
- * Pack timed events into columns while reserving horizontal space only when
- * the event labels can collide. An event may span unused columns when another
- * event is present there at a different time, which keeps long events readable
- * without wasting the column width needed for genuinely simultaneous labels.
+ * Pack timed events into shallow overlap layers. Later events stay wide enough
+ * to read while their inset exposes the boundary of the event underneath.
  */
 export function computeTimedEventLayout(
   dayEvents: readonly CalendarEvent[],
@@ -66,52 +65,34 @@ export function computeTimedEventLayout(
     return a.inputOrder - b.inputOrder;
   });
 
-  const textOverlaps = (a: EventBounds, b: EventBounds): boolean => {
-    const aTextEnd = Math.min(a.start + TEXT_REGION_MINUTES * 60 * 1000, a.end);
-    const bTextEnd = Math.min(b.start + TEXT_REGION_MINUTES * 60 * 1000, b.end);
-    return a.start < bTextEnd && b.start < aTextEnd;
-  };
-
-  // Place labels side by side only when their visible text regions overlap.
-  const columns: EventEntry[][] = [];
+  // Put overlapping events into the first layer that is free at their start.
+  // Reusing finished layers keeps chained overlaps from creating empty gaps.
+  const overlapLayers: EventEntry[][] = [];
   const eventColumns = new Map<CalendarEvent, number>();
 
   for (const entry of sorted) {
-    let column = columns.findIndex((columnEntries) =>
-      columnEntries.every(
-        (placed) => !textOverlaps(placed.bounds, entry.bounds),
-      ),
+    let column = overlapLayers.findIndex((layerEntries) =>
+      layerEntries.every((placed) => !overlaps(placed.bounds, entry.bounds)),
     );
 
     if (column === -1) {
-      column = columns.length;
-      columns.push([]);
+      column = overlapLayers.length;
+      overlapLayers.push([]);
     }
 
-    columns[column].push(entry);
+    overlapLayers[column].push(entry);
     eventColumns.set(entry.event, column);
   }
 
-  const totalCols = columns.length;
+  const totalCols = overlapLayers.length;
 
   for (const [stackOrder, entry] of sorted.entries()) {
     const col = eventColumns.get(entry.event)!;
-    let span = 1;
-
-    // A column to the right is available when it has no event that overlaps
-    // this card in time. Label-only collisions do not need to block expansion.
-    for (let candidate = col + 1; candidate < totalCols; candidate++) {
-      if (
-        columns[candidate].some((other) => overlaps(other.bounds, entry.bounds))
-      ) {
-        break;
-      }
-      span++;
-    }
 
     result.set(entry.event.id, {
-      left: (col / totalCols) * 100,
-      width: (span / totalCols) * 100,
+      left: 0,
+      width: 100,
+      indent: col * OVERLAP_INDENT_PX,
       col,
       totalCols,
       stackOrder,

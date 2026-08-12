@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.24.3
+
+### Patch Changes
+
+- 405e17e: Gate connected-agent mutations to workspace owners and admins instead of issuing failed shared-resource writes for organization members.
+
 ## 0.24.2
 
 ### Patch Changes

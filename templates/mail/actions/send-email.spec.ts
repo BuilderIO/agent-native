@@ -79,6 +79,11 @@ vi.mock("./helpers.js", () => ({
 import action from "./send-email";
 
 const OWNER = "sharon@builder.io";
+const SEND_ARGS = {
+  to: "recipient@example.com",
+  subject: "A test message",
+  body: "Body",
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -110,6 +115,64 @@ afterEach(() => {
 });
 
 describe("send-email action", () => {
+  it("requires approval for interactive sends", async () => {
+    mocks.getUserSetting.mockResolvedValue({ allowAutomationSends: true });
+
+    expect(typeof action.needsApproval).toBe("function");
+    if (typeof action.needsApproval !== "function") return;
+
+    await expect(
+      action.needsApproval(SEND_ARGS, {
+        caller: "tool",
+        userEmail: OWNER,
+      }),
+    ).resolves.toBe(true);
+  });
+
+  it("requires approval for automations unless the owner opts in", async () => {
+    expect(typeof action.needsApproval).toBe("function");
+    if (typeof action.needsApproval !== "function") return;
+
+    await expect(
+      action.needsApproval(SEND_ARGS, {
+        caller: "automation",
+        userEmail: OWNER,
+      }),
+    ).resolves.toBe(true);
+
+    mocks.getUserSetting.mockResolvedValue({ allowAutomationSends: true });
+
+    await expect(
+      action.needsApproval(SEND_ARGS, {
+        caller: "automation",
+        userEmail: OWNER,
+      }),
+    ).resolves.toBe(false);
+  });
+
+  it("fails closed when automation settings are malformed", async () => {
+    mocks.getUserSetting.mockResolvedValue({ allowAutomationSends: "yes" });
+
+    expect(typeof action.needsApproval).toBe("function");
+    if (typeof action.needsApproval !== "function") return;
+
+    await expect(
+      action.needsApproval(SEND_ARGS, {
+        caller: "automation",
+        userEmail: OWNER,
+      }),
+    ).resolves.toBe(true);
+  });
+
+  it("blocks a direct automation run when the owner has not opted in", async () => {
+    await expect(
+      action.run(SEND_ARGS, { caller: "automation", userEmail: OWNER }),
+    ).rejects.toThrow(
+      "Automation email sending is disabled. Enable it in Mail settings to send automatically.",
+    );
+    expect(mocks.gmailSendMessage).not.toHaveBeenCalled();
+  });
+
   it("refreshes the Mail workspace after a connected Gmail send", async () => {
     const result = await action.run({
       to: "recipient@example.com",

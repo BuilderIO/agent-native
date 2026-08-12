@@ -36,6 +36,8 @@ import {
   IconStackBack,
   IconStackFront,
   IconUnderline,
+  IconZoomIn,
+  IconZoomOut,
 } from "@tabler/icons-react";
 import type { ReactNode } from "react";
 
@@ -150,6 +152,7 @@ export function SlideContextToolbar({
   objectSelectionCount = 0,
   onAlignObjects,
   onDistributeObjects,
+  zoomControls,
 }: {
   snapshot: SlideStyleSnapshot | null;
   background: string | undefined;
@@ -164,6 +167,13 @@ export function SlideContextToolbar({
   objectSelectionCount?: number;
   onAlignObjects?: (alignment: SlideObjectAlignment) => void;
   onDistributeObjects?: (distribution: SlideObjectDistribution) => void;
+  zoomControls?: {
+    value: number;
+    onZoomOut: () => void;
+    onZoomIn: () => void;
+    canZoomOut: boolean;
+    canZoomIn: boolean;
+  };
 }) {
   const t = useT();
   const documentColors = tokenPalette(designSystem, t).map(
@@ -912,6 +922,46 @@ export function SlideContextToolbar({
               )}
             </PopoverContent>
           </Popover>
+        </>
+      )}
+      {zoomControls && (
+        <>
+          <div className={TOOLBAR_DIVIDER} />
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className={MENU_BUTTON_CLASS}
+                onClick={zoomControls.onZoomOut}
+                disabled={!zoomControls.canZoomOut}
+                aria-label={t("raw.zoomOut")}
+              >
+                <IconZoomOut className="size-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{t("raw.zoomOut")}</TooltipContent>
+          </Tooltip>
+          <span className="w-11 shrink-0 text-center text-xs tabular-nums text-muted-foreground">
+            {zoomControls.value}%
+          </span>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className={MENU_BUTTON_CLASS}
+                onClick={zoomControls.onZoomIn}
+                disabled={!zoomControls.canZoomIn}
+                aria-label={t("raw.zoomIn")}
+              >
+                <IconZoomIn className="size-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{t("raw.zoomIn")}</TooltipContent>
+          </Tooltip>
         </>
       )}
     </div>

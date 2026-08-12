@@ -344,6 +344,23 @@ describe("MCP integration catalog", () => {
       true,
     );
     expect(isMcpConnectionFailureText("I can read it now")).toBe(false);
+    expect(
+      findMcpIntegrationForText(
+        "Add a text box and connect it to the shape below",
+      ),
+    ).toBeNull();
+    expect(
+      findMcpIntegrationForText("Let's create a bounding box for this design"),
+    ).toBeNull();
+    expect(
+      findMcpIntegrationForText("Connect Box.com to import my files")?.id,
+    ).toBe("box");
+    expect(
+      findMcpIntegrationForText("Connect my Box folders to this workspace")?.id,
+    ).toBe("box");
+    expect(
+      findMcpIntegrationForText("Connect a Box file to this workspace")?.id,
+    ).toBe("box");
   });
 
   it("recognizes agent-authored setup requests without matching positive status text", () => {
@@ -368,11 +385,11 @@ describe("MCP integration catalog", () => {
 
   it("matches exact display brands and branded aliases only", () => {
     for (const integration of DEFAULT_MCP_INTEGRATIONS) {
+      const term = integration.promptAliases?.[0] ?? integration.name;
       expect(
-        findMcpIntegrationForText(
-          `Connect ${integration.name} to this workspace`,
-          [integration],
-        )?.id,
+        findMcpIntegrationForText(`Connect ${term} to this workspace`, [
+          integration,
+        ])?.id,
       ).toBe(integration.id);
     }
 

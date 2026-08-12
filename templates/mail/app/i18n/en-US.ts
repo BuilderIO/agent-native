@@ -478,6 +478,11 @@ const messages = {
     lastRun: "Last run:",
     automationsDescription:
       "Rules that automatically process new inbox emails using AI.",
+    allowAutomationSends: "Allow automations to send emails automatically",
+    allowAutomationSendsDescription:
+      "Off by default. Turn this on when you want automations to send emails without asking for approval each time.",
+    automationSendSettingSaveFailed:
+      "Could not save the automation email setting.",
     loadingModels: "Loading models",
     newRule: "New rule",
     noAutomationRules: "No automation rules yet.",
