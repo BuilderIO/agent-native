@@ -488,6 +488,32 @@ export async function removeRemoteServer(
   const removed = existing.find((s) => s.id === id);
   const next = existing.filter((s) => s.id !== id);
   if (next.length === existing.length) return false;
+  if (removed?.oauthSecretKey) {
+    try {
+      const result = await revokeMcpOAuthCredentials({
+        key: removed.oauthSecretKey,
+        scope,
+        scopeId,
+        serverUrl: removed.url,
+      });
+      if (result.local === "replaced") {
+        console.warn(
+          `[mcp-client] MCP OAuth credentials changed while removing ${removed.name}; the server was kept so the newer connection remains manageable.`,
+        );
+        return false;
+      }
+      if (result.remote === "failed") {
+        console.warn(
+          `[mcp-client] MCP OAuth revocation failed for ${removed.name}; local credentials were removed.`,
+        );
+      }
+    } catch (err: any) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[mcp-client] Failed to delete MCP OAuth credentials ${removed.oauthSecretKey}: ${err?.message ?? err}`,
+      );
+    }
+  }
   if (next.length === 0) {
     if (scope === "user") {
       await deleteUserSetting(scopeId, SETTINGS_KEY);
@@ -511,26 +537,6 @@ export async function removeRemoteServer(
       // eslint-disable-next-line no-console
       console.warn(
         `[mcp-client] Failed to delete MCP header secret ${removed.headerSecretKey}: ${err?.message ?? err}`,
-      );
-    }
-  }
-  if (removed?.oauthSecretKey) {
-    try {
-      const result = await revokeMcpOAuthCredentials({
-        key: removed.oauthSecretKey,
-        scope,
-        scopeId,
-        serverUrl: removed.url,
-      });
-      if (result.remote === "failed") {
-        console.warn(
-          `[mcp-client] MCP OAuth revocation failed for ${removed.name}; local credentials were removed.`,
-        );
-      }
-    } catch (err: any) {
-      // eslint-disable-next-line no-console
-      console.warn(
-        `[mcp-client] Failed to delete MCP OAuth credentials ${removed.oauthSecretKey}: ${err?.message ?? err}`,
       );
     }
   }

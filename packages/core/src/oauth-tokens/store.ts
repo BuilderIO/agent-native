@@ -1,5 +1,6 @@
 import { getDbExec, isPostgres, intType } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
+import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import {
   encryptSecretValue,
   decryptSecretValue,
@@ -117,6 +118,7 @@ async function ensureTable(): Promise<void> {
         await client.execute(
           `UPDATE ${table} SET revision = updated_at WHERE revision IS NULL`,
         );
+        await widenIntColumnsToBigInt("oauth_tokens", ["updated_at"], client);
         return;
       }
 

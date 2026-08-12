@@ -7,6 +7,7 @@ const oauthMocks = vi.hoisted(() => ({
 }));
 const getUserSettingMock = vi.hoisted(() => vi.fn());
 const putUserSettingMock = vi.hoisted(() => vi.fn());
+const deleteUserSettingMock = vi.hoisted(() => vi.fn());
 
 vi.mock("./oauth-client.js", () => ({
   deleteMcpOAuthCredentials: oauthMocks.delete,
@@ -16,7 +17,7 @@ vi.mock("./oauth-client.js", () => ({
 }));
 
 vi.mock("../settings/user-settings.js", () => ({
-  deleteUserSetting: vi.fn(),
+  deleteUserSetting: deleteUserSettingMock,
   getUserSetting: getUserSettingMock,
   putUserSetting: putUserSettingMock,
 }));
@@ -26,6 +27,7 @@ import {
   addOAuthRemoteServer,
   addRemoteServer,
   isFirstPartyRemoteEndpointTrusted,
+  removeRemoteServer,
   toHttpServerConfig,
   toHttpServerConfigAsync,
   validateRemoteUrl,
@@ -107,6 +109,31 @@ describe("OAuth remote MCP metadata", () => {
         servers: [expect.objectContaining({ url: "https://mcp.example.com/" })],
       }),
     );
+  });
+
+  it("keeps the server manageable when OAuth custody is concurrently replaced", async () => {
+    getUserSettingMock.mockResolvedValueOnce({
+      servers: [
+        {
+          id: "mcps_oauth",
+          name: "example",
+          url: "https://mcp.example.com/",
+          oauthSecretKey: "mcp_oauth:test",
+          createdAt: 1,
+        },
+      ],
+    });
+    oauthMocks.revoke.mockResolvedValueOnce({
+      remote: "not_attempted",
+      local: "replaced",
+    });
+
+    await expect(
+      removeRemoteServer("user", "user@example.com", "mcps_oauth"),
+    ).resolves.toBe(false);
+
+    expect(deleteUserSettingMock).not.toHaveBeenCalled();
+    expect(putUserSettingMock).not.toHaveBeenCalled();
   });
 
   it("rejects a server URL that differs from the credential resource", async () => {
