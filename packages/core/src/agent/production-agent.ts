@@ -5435,9 +5435,6 @@ export async function runAgentLoop(opts: {
     const runToolCall = async (
       toolCall: import("./engine/types.js").EngineToolCallPart,
     ): Promise<EngineContentPart> => {
-      // Counted before any journal/cache short-circuit: serving a repeat from
-      // cache still means the model is asking the same question again.
-      noteRepeatedToolCall(toolCall.name, toolCall.input);
       const actionEntry = actions[toolCall.name];
       const placeholderNormalization = actionEntry
         ? normalizeOptionalToolPlaceholders(
@@ -5457,6 +5454,11 @@ export async function runAgentLoop(opts: {
       if (jsonStringCoercion.changed) {
         toolCall = { ...toolCall, input: jsonStringCoercion.input };
       }
+      // Count after the same normalization that is persisted in the journal:
+      // a model can send a JSON-encoded object/array, while the action and
+      // ledger both see the coerced value. Serving a repeat from cache still
+      // counts as asking the same question again.
+      noteRepeatedToolCall(toolCall.name, toolCall.input);
       const toolInputNormalized =
         placeholderNormalization.changed || jsonStringCoercion.changed;
       const wireToolInput = JSON.stringify(toolCall.input ?? {});
