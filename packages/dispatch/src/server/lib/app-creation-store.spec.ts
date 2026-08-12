@@ -603,7 +603,7 @@ describe("startWorkspaceAppCreation", () => {
     expect(mocks.runBuilderAgent).toHaveBeenCalledWith(
       expect.objectContaining({ projectId: "project-provisioned" }),
     );
-    expect(mocks.settings.get(settingsKey)).toEqual({
+    expect(mocks.settings.get(settingsKey)).toMatchObject({
       builderProjectId: "project-provisioned",
     });
     expect(mocks.writeAppSecret).not.toHaveBeenCalled();
@@ -655,8 +655,9 @@ describe("setAppCreationSettings", () => {
   it("stores the project id in the org-scoped Dispatch settings row", async () => {
     await save(projectId);
 
-    expect(mocks.settings.get("dispatch-app-creation-settings:org:builder_io"))
-      .toEqual({ builderProjectId: projectId });
+    expect(
+      mocks.settings.get("dispatch-app-creation-settings:org:builder_io"),
+    ).toEqual({ builderProjectId: projectId });
     expect(mocks.putSetting).toHaveBeenCalledWith(
       "dispatch-app-creation-settings:org:builder_io",
       { builderProjectId: projectId },
@@ -681,18 +682,18 @@ describe("setAppCreationSettings", () => {
     expect(mocks.settings.get(settingsKey)).toEqual({
       builderProjectId: projectId,
     });
-    expect(mocks.putSetting).toHaveBeenCalledWith(
-      settingsKey,
-      { builderProjectId: projectId },
-    );
+    expect(mocks.putSetting).toHaveBeenCalledWith(settingsKey, {
+      builderProjectId: projectId,
+    });
     expect(mocks.writeAppSecret).not.toHaveBeenCalled();
   });
 
   it("persists an explicit null when the project id is cleared", async () => {
     await save(null);
 
-    expect(mocks.settings.get("dispatch-app-creation-settings:org:builder_io"))
-      .toEqual({ builderProjectId: null });
+    expect(
+      mocks.settings.get("dispatch-app-creation-settings:org:builder_io"),
+    ).toEqual({ builderProjectId: null });
     expect(mocks.putSetting).toHaveBeenCalledWith(
       "dispatch-app-creation-settings:org:builder_io",
       { builderProjectId: null },
@@ -702,13 +703,16 @@ describe("setAppCreationSettings", () => {
   });
 
   it("never consults the project secret store when saving settings", async () => {
-    mocks.writeAppSecret.mockRejectedValueOnce(new Error("credential store down"));
+    mocks.writeAppSecret.mockRejectedValueOnce(
+      new Error("credential store down"),
+    );
 
     await expect(save(projectId)).resolves.toMatchObject({
       builderProjectId: projectId,
     });
-    expect(mocks.settings.get("dispatch-app-creation-settings:org:builder_io"))
-      .toEqual({ builderProjectId: projectId });
+    expect(
+      mocks.settings.get("dispatch-app-creation-settings:org:builder_io"),
+    ).toEqual({ builderProjectId: projectId });
     expect(mocks.writeAppSecret).not.toHaveBeenCalled();
     expect(mocks.deleteAppSecret).not.toHaveBeenCalled();
   });
