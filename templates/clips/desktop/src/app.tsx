@@ -1,7 +1,10 @@
+import * as PopoverPrimitive from "@radix-ui/react-popover";
 import {
   IconAlertTriangle,
   IconArrowLeft,
   IconCalendarEvent,
+  IconCheck,
+  IconChevronDown,
   IconCircleCheck,
   IconCopy,
   IconDownload,
@@ -24,6 +27,7 @@ import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 import {
+  type ReactElement,
   type ReactNode,
   type RefObject,
   useCallback,
@@ -796,6 +800,10 @@ function measurePopoverHeight(el: HTMLElement): number {
   // by the current viewport height.
   let lowestBottom = rect.bottom;
   for (const child of Array.from(el.querySelectorAll<HTMLElement>("*"))) {
+    // Floating settings layers are intentionally independent of the native
+    // window size. Their content can scroll inside the layer without changing
+    // the tray popover underneath it.
+    if (child.closest('[data-popover-overlay="true"]')) continue;
     const childStyle = window.getComputedStyle(child);
     if (childStyle.display === "none") continue;
     const childRect = child.getBoundingClientRect();
@@ -2625,6 +2633,7 @@ export function App() {
   const appRef = useRef<HTMLDivElement | null>(null);
   usePopoverAutoSize(appRef, {
     disabled:
+      popoverView === "rewind-settings" ||
       (popoverView !== "settings" && !popoverVisible) ||
       isRecording ||
       recordingFlowActive,
@@ -5322,6 +5331,12 @@ function Setup({
   const [url, setUrl] = useState(initial ?? DEFAULT_URL);
   const [readinessOpen, setReadinessOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState<SettingsTabId>("general");
+  const [rewindSettingsOpen, setRewindSettingsOpen] = useState(false);
+  const [rewindActivityOpen, setRewindActivityOpen] = useState(false);
+  const [rewindMemoryOpen, setRewindMemoryOpen] = useState(false);
+  const [rewindPrivacyOpen, setRewindPrivacyOpen] = useState(false);
+  const [rewindAgentSetupOpen, setRewindAgentSetupOpen] = useState(false);
+  const [rewindHandoffOpen, setRewindHandoffOpen] = useState(false);
   const featureConfig = useFeatureConfig();
   const updateStatus = useUpdateStatus();
   const voiceEnabled = featureConfig?.voiceEnabled !== false;
@@ -7597,6 +7612,113 @@ function Setup({
         </main>
       </div>
     </div>
+  );
+}
+
+function DesktopSettingsPopover({
+  title,
+  trigger,
+  children,
+  open,
+  onOpenChange,
+  side = "left",
+  contentClassName,
+}: {
+  title: string;
+  trigger: ReactElement;
+  children: ReactNode;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  side?: "bottom" | "left" | "right" | "top";
+  contentClassName?: string;
+}) {
+  return (
+    <PopoverPrimitive.Root open={open} onOpenChange={onOpenChange}>
+      <PopoverPrimitive.Trigger asChild>{trigger}</PopoverPrimitive.Trigger>
+      <PopoverPrimitive.Content
+        side={side}
+        align="start"
+        sideOffset={10}
+        collisionPadding={12}
+        className={`desktop-settings-popover ${contentClassName ?? ""}`}
+        data-popover-overlay="true"
+      >
+        <div className="desktop-settings-popover-header">
+          <PopoverPrimitive.Title className="desktop-settings-popover-title">
+            {title}
+          </PopoverPrimitive.Title>
+          <PopoverPrimitive.Close
+            type="button"
+            className="desktop-settings-popover-close"
+            aria-label={`Close ${title}`}
+          >
+            <IconX size={15} stroke={1.9} />
+          </PopoverPrimitive.Close>
+        </div>
+        {children}
+      </PopoverPrimitive.Content>
+    </PopoverPrimitive.Root>
+  );
+}
+
+function RewindChoicePopover({
+  title,
+  value,
+  options,
+  onChange,
+  disabled = false,
+}: {
+  title: string;
+  value: string;
+  options: Array<{ value: string; label: string }>;
+  onChange: (value: string) => void;
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const selectedOption =
+    options.find((option) => option.value === value)?.label ?? value;
+
+  return (
+    <DesktopSettingsPopover
+      title={title}
+      open={open}
+      onOpenChange={setOpen}
+      side="bottom"
+      trigger={
+        <button
+          type="button"
+          className="rewind-setting-trigger"
+          disabled={disabled}
+          aria-haspopup="listbox"
+          aria-expanded={open}
+        >
+          <span>{selectedOption}</span>
+          <IconChevronDown size={15} stroke={1.8} aria-hidden="true" />
+        </button>
+      }
+    >
+      <div className="rewind-choice-list" role="listbox" aria-label={title}>
+        {options.map((option) => {
+          const selected = option.value === value;
+          return (
+            <button
+              type="button"
+              role="option"
+              aria-selected={selected}
+              className={`rewind-choice-option ${selected ? "is-selected" : ""}`}
+              key={option.value}
+              onClick={() => {
+                onChange(option.value);
+                setOpen(false);
+              }}
+            >
+              <span>{option.label}</span>
+              {selected ? <IconCheck size={15} stroke={2.1} /> : null}
+            </button>
+          );
+        })}
+      </div>
+    </DesktopSettingsPopover>
   );
 }
 
