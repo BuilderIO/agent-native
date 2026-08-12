@@ -1,5 +1,36 @@
 # @agent-native/skills
 
+## 0.2.531
+
+### Patch Changes
+
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+  - @agent-native/core@0.153.0
+
 ## 0.2.530
 
 ### Patch Changes
