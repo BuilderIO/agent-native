@@ -179,6 +179,7 @@ describe("mountA2A auth", () => {
     delete process.env.URL;
     delete process.env.DEPLOY_URL;
     delete process.env.BETTER_AUTH_URL;
+    delete process.env.APP_BASE_PATH;
     const cardConfig = {
       ...config,
       publicSkillsOnly: true,
