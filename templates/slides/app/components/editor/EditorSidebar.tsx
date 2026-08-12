@@ -69,6 +69,9 @@ interface EditorSidebarProps {
    *  server, so the agent's update-slide request can't race the add-slide
    *  persistence. */
   onAwaitAddSlidePersisted?: () => Promise<void>;
+  /** Removes a blank placeholder slide whose persistence ultimately failed,
+   *  so a flaky save doesn't leave a stray empty slide in the deck. */
+  onRemoveFailedSlide?: (slideId: string) => void;
 }
 
 const DECK_FIT_STATE_KEYS = [
@@ -336,10 +339,10 @@ export default function EditorSidebar({
   addSlideGenerating = false,
   onAddSlideGeneratingChange,
   onAwaitAddSlidePersisted,
+  onRemoveFailedSlide,
 }: EditorSidebarProps) {
   const t = useT();
-  const { generating: agentGenerating, submit: agentSubmit } =
-    useAgentGenerating();
+  const { submit: agentSubmit } = useAgentGenerating();
   const [describeSlideId, setDescribeSlideId] = useState<string | null>(null);
   const [describeAnchorEl, setDescribeAnchorEl] =
     useState<HTMLButtonElement | null>(null);
@@ -351,22 +354,6 @@ export default function EditorSidebar({
     >(),
   );
   const writeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Only auto-clear addSlideGenerating once we've actually observed a run
-  // start and finish. Without sawAgentGeneratingRef, this would fire while
-  // onAwaitAddSlidePersisted() is still pending below (agentGenerating is
-  // still false at that point), re-enabling New slide mid-save.
-  const sawAgentGeneratingRef = useRef(false);
-  useEffect(() => {
-    if (agentGenerating) {
-      sawAgentGeneratingRef.current = true;
-      return;
-    }
-    if (addSlideGenerating && sawAgentGeneratingRef.current) {
-      sawAgentGeneratingRef.current = false;
-      onAddSlideGeneratingChange?.(false);
-    }
-  }, [addSlideGenerating, agentGenerating, onAddSlideGeneratingChange]);
 
   const aiEditedSlideIds = new Set(
     (recentEdits ?? [])
@@ -592,6 +579,11 @@ export default function EditorSidebar({
             } catch (error) {
               console.error("Failed to persist new slide:", error);
               onAddSlideGeneratingChange?.(false);
+              // The popover already closed (AddSlidePopover doesn't wait on
+              // this async callback), so the typed prompt is gone either
+              // way — remove the orphaned blank placeholder rather than
+              // leaving a stray empty slide the user never asked for.
+              onRemoveFailedSlide?.(describeSlideId);
               toast.error(t("editorSidebar.newSlideSaveFailed"));
               return;
             }

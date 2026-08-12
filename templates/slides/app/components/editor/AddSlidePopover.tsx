@@ -236,6 +236,7 @@ export function AddSlidePopover({
   return createPortal(
     <div
       ref={panelRef}
+      data-add-slide-popover
       className="fixed w-[min(420px,calc(100vw-24px))] rounded-xl border border-border bg-popover shadow-2xl shadow-black/60 z-[200] p-3"
       style={{
         top,

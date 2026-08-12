@@ -37,6 +37,7 @@ import EditorToolbar from "@/components/editor/EditorToolbar";
 import GeneratingSlidePreview from "@/components/editor/GeneratingSlidePreview";
 import HistoryPanel from "@/components/editor/HistoryPanel";
 import ImageGenPanel from "@/components/editor/ImageGenPanel";
+import { isInsidePortaledLayer } from "@/components/editor/PromptDialog";
 import { QuestionFlow } from "@/components/editor/QuestionFlow";
 import SlideEditor from "@/components/editor/SlideEditor";
 import { TweaksPanel } from "@/components/editor/TweaksPanel";
@@ -169,6 +170,22 @@ export default function DeckEditor() {
   const [addSlideGenerating, setAddSlideGenerating] = useState(false);
   const [generatingSlideSelected, setGeneratingSlideSelected] = useState(false);
   const { generating } = useAgentGenerating();
+  // Only auto-clear addSlideGenerating once we've actually observed a run
+  // start and finish. This lives here (not in EditorSidebar) because the
+  // sidebar rail unmounts on narrow viewports when the user closes it — a
+  // ref living there would forget an in-progress run and never clear the
+  // flag, leaving New slide disabled for the rest of the session.
+  const sawAddSlideAgentGeneratingRef = useRef(false);
+  useEffect(() => {
+    if (generating) {
+      sawAddSlideAgentGeneratingRef.current = true;
+      return;
+    }
+    if (addSlideGenerating && sawAddSlideAgentGeneratingRef.current) {
+      sawAddSlideAgentGeneratingRef.current = false;
+      setAddSlideGenerating(false);
+    }
+  }, [addSlideGenerating, generating]);
   // Generation intent can arrive after this route mounts because the user
   // answers pre-generation questions from the empty editor.
   const wasNewDeckCreation = useRef(searchParams.get("generating") === "1");
@@ -780,13 +797,23 @@ export default function DeckEditor() {
           if (el.closest("[contenteditable='true']")) return true;
           if (el.closest("input, textarea, [role='textbox']")) return true;
           if (el.closest("[data-pin-popover]")) return true;
+          if (el.closest("[data-add-slide-popover]")) return true;
           if (el.closest(".agent-panel-root")) return true;
+          if (el.closest("[role='dialog'], [role='alertdialog']")) return true;
+          if (isInsidePortaledLayer(el)) return true;
         }
         return false;
       };
       if (isInsideSafeZone(e.target as Element | null)) return;
       if (isInsideSafeZone(document.activeElement)) return;
       if (document.querySelector("[data-pin-popover]")) return;
+      if (document.querySelector("[data-add-slide-popover]")) return;
+      // A dialog/sheet/menu/popover owning focus elsewhere in the DOM (not
+      // just under the event target) still shouldn't let this document-level
+      // shortcut duplicate the slide underneath it.
+      if (document.querySelector("[role='dialog'], [role='alertdialog']"))
+        return;
+      if (document.querySelector("[data-radix-popper-content-wrapper]")) return;
       if (document.querySelector("[data-slide-element-selected='true']"))
         return;
 
@@ -1180,6 +1207,7 @@ export default function DeckEditor() {
                   deckTitle={deck.title}
                   onAddEmptySlide={canEdit ? handleAddEmptySlide : undefined}
                   onAwaitAddSlidePersisted={() => flushDeckSave(id)}
+                  onRemoveFailedSlide={(slideId) => deleteSlide(id, slideId)}
                   addSlideGenerating={addSlideGenerating}
                   onAddSlideGeneratingChange={setAddSlideGenerating}
                   onSelectSlide={(slideId) => {
