@@ -62,6 +62,7 @@ function serverUrlsMatch(stored: string, canonical: string): boolean {
   try {
     return canonicalServerUrl(stored) === canonical;
   } catch {
+    // coercion-ok: an invalid stored URL is an explicit identity mismatch.
     return false;
   }
 }
