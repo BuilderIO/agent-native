@@ -173,6 +173,26 @@ describe("toA2aUrl", () => {
 });
 
 describe("buildOrgAppsResponse", () => {
+  it("keeps Dispatch for whole-fleet callers that do not request self-filtering", () => {
+    const res = buildOrgAppsResponse({
+      org: "acme.com",
+      apps: [
+        {
+          id: "dispatch",
+          name: "Dispatch",
+          url: "https://dispatch.agent-native.com",
+        },
+        {
+          id: "analytics",
+          name: "Analytics",
+          url: "https://analytics.agent-native.com",
+        },
+      ],
+    });
+
+    expect(res.apps.map((app) => app.id)).toEqual(["analytics", "dispatch"]);
+  });
+
   it("shapes the response, drops self + non-http, dedupes, and sorts", () => {
     const res = buildOrgAppsResponse({
       org: "acme.com",

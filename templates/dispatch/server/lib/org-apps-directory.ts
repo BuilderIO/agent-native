@@ -283,9 +283,8 @@ export interface DiscoveredAppLike {
  * `list-connected-agents` and the `call-agent` delegation path use. It is
  * already allow-list-respecting (hidden first-party templates are excluded
  * from `BUILTIN_AGENTS` unless `defaultAgent`), so no second filter is
- * needed here; we only drop entries without a usable absolute http(s) URL
- * and Dispatch itself (a caller does not need to discover the directory it
- * just called).
+ * needed here; we only drop entries without a usable absolute http(s) URL.
+ * Callers that identify themselves may also request self-filtering.
  */
 export function buildOrgAppsResponse(input: {
   org: string;

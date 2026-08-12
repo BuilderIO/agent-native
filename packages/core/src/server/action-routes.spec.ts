@@ -4,6 +4,7 @@ import type { ActionEntry } from "../agent/production-agent.js";
 
 const mockNotifyActionChange = vi.hoisted(() => vi.fn());
 const mockResolveOrgIdForEmail = vi.hoisted(() => vi.fn());
+const mockResolveOrgByDomain = vi.hoisted(() => vi.fn());
 const mockGetSession = vi.hoisted(() => vi.fn(async () => null));
 const mockGetOrgContext = vi.hoisted(() =>
   vi.fn(async () => ({ orgId: undefined })),
@@ -59,6 +60,7 @@ vi.mock("../org/context.js", () => ({
   resolveOrgIdForEmail: (...args: unknown[]) =>
     mockResolveOrgIdForEmail(...args),
   getOrgContext: (...args: unknown[]) => mockGetOrgContext(...args),
+  resolveOrgByDomain: (...args: unknown[]) => mockResolveOrgByDomain(...args),
 }));
 
 vi.mock("./auth.js", () => ({
@@ -88,6 +90,11 @@ describe("mountActionRoutes", () => {
     delete process.env.AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION;
     mockNotifyActionChange.mockReset();
     mockResolveOrgIdForEmail.mockReset();
+    mockResolveOrgByDomain.mockReset();
+    mockResolveOrgByDomain.mockResolvedValue({
+      orgId: "receiver-org",
+      orgName: "Builder.io",
+    });
     mockGetSession.mockReset();
     mockGetSession.mockResolvedValue(null);
     mockGetOrgContext.mockReset();
@@ -1291,6 +1298,7 @@ describe("mountActionRoutes", () => {
     mockVerifyA2ATokenWithClaims.mockResolvedValue({
       email: "admin@example.com",
       orgId: "org-1",
+      orgDomain: "builder.io",
       jti: "request-1",
       issuer: "https://analytics.example",
       scope: ["flags:read"],
@@ -1324,12 +1332,13 @@ describe("mountActionRoutes", () => {
     expect(context).toMatchObject({
       caller: "a2a",
       userEmail: "admin@example.com",
-      orgId: "org-1",
+      orgId: "receiver-org",
       networkProtocol: "a2a",
       networkId: "request-1",
       networkPeer: "https://analytics.example",
     });
     expect(getOwnerFromEvent).not.toHaveBeenCalled();
+    expect(mockResolveOrgByDomain).toHaveBeenCalledWith("builder.io");
   });
 
   it("recognizes a scope-only delegation in a space-separated scope claim", async () => {
@@ -1337,6 +1346,7 @@ describe("mountActionRoutes", () => {
     mockVerifyA2ATokenWithClaims.mockResolvedValue({
       email: "admin@example.com",
       orgId: "org-1",
+      orgDomain: "builder.io",
       jti: "request-scope-only",
       scope: ["other:read", "flags:read"],
     });
@@ -1367,7 +1377,7 @@ describe("mountActionRoutes", () => {
     expect(context).toMatchObject({
       caller: "a2a",
       userEmail: "admin@example.com",
-      orgId: "org-1",
+      orgId: "receiver-org",
     });
     expect(mockVerifyA2ATokenWithClaims).toHaveBeenCalledOnce();
     expect(getOwnerFromEvent).not.toHaveBeenCalled();
@@ -1448,6 +1458,7 @@ describe("mountActionRoutes", () => {
     mockVerifyA2ATokenWithClaims.mockResolvedValue({
       email: "writer@example.com",
       orgId: "org-2",
+      orgDomain: "builder.io",
       jti: "request-2",
       scope: ["flags:write"],
     });
@@ -1479,7 +1490,7 @@ describe("mountActionRoutes", () => {
     expect(context).toMatchObject({
       caller: "a2a",
       userEmail: "writer@example.com",
-      orgId: "org-2",
+      orgId: "receiver-org",
     });
   });
 
@@ -1509,6 +1520,35 @@ describe("mountActionRoutes", () => {
       }),
     ).rejects.toMatchObject({ statusCode: 401 });
     expect(getOwnerFromEvent).not.toHaveBeenCalled();
+  });
+
+  it("hard-rejects a verified delegation whose domain has no local organization", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    mockVerifyA2ATokenWithClaims.mockResolvedValue({
+      email: "admin@example.com",
+      orgId: "sender-org",
+      orgDomain: "outside.example",
+      jti: "request-unknown-domain",
+      scope: ["flags:read"],
+    });
+    mockResolveOrgByDomain.mockResolvedValue(null);
+    const mounted: Array<{ path: string; handler: any }> = [];
+    mountActionRoutes(
+      { use: (path: string, handler: any) => mounted.push({ path, handler }) },
+      { "list-feature-flags": { run: vi.fn() } as any },
+    );
+
+    await expect(
+      mounted[0].handler({
+        _method: "POST",
+        _headers: {
+          authorization: `Bearer ${fakeUnsignedJwt({ scope: "flags:read" })}`,
+        },
+        context: {},
+        req: { json: async () => ({}) },
+      }),
+    ).rejects.toMatchObject({ statusCode: 401 });
+    expect(mockResolveOrgByDomain).toHaveBeenCalledWith("outside.example");
   });
 
   it("runs the action scoped to actionRouteAuth.resolveCaller and skips getOwnerFromEvent", async () => {

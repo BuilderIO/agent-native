@@ -165,7 +165,6 @@ const orgAppsHandler = defineEventHandler(
     const body = buildOrgAppsResponse({
       org: orgLabel,
       apps,
-      selfId: SELF_APP_ID,
     });
 
     // Short, cacheable, read-only. Private (per-org) so shared caches must

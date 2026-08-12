@@ -41,6 +41,11 @@ vi.mock("../permissions.js", () => ({
     requireFeatureFlagManagerMock(...args),
 }));
 
+const getOrgDomainMock = vi.fn();
+vi.mock("../../org/context.js", () => ({
+  getOrgDomain: (...args: any[]) => getOrgDomainMock(...args),
+}));
+
 const defaultFeatureFlagRulesMock = vi.fn();
 const getFeatureFlagRulesMock = vi.fn();
 const evaluateFeatureFlagRulesMock = vi.fn();
@@ -76,6 +81,7 @@ beforeEach(() => {
     email: "admin@example.com",
     orgId: "org-1",
   });
+  getOrgDomainMock.mockResolvedValue("builder.io");
   defaultFeatureFlagRulesMock.mockReturnValue({
     version: 1,
     mode: "off",
@@ -175,15 +181,27 @@ describe("feature flag action contracts", () => {
       expect.any(Function),
     );
     expect(result).toEqual({
-      contractVersion: 1,
+      contractVersion: 2,
       status: "ready",
       key: "new-editor",
       rules: expect.objectContaining({
         updatedAt: expect.any(Number),
         updatedBy: "admin@example.com",
       }),
-      scope: { orgId: "org-1" },
+      scope: { orgId: "org-1", orgDomain: "builder.io" },
     });
+  });
+
+  it("fails before persistence when the local organization has no verified domain", async () => {
+    getOrgDomainMock.mockResolvedValue(null);
+
+    await expect(
+      setAction.run(
+        { operation: "off", key: "new-editor" },
+        { caller: "a2a", userEmail: "admin@example.com", orgId: "org-1" },
+      ),
+    ).rejects.toThrow("organization domain is unavailable");
+    expect(mutateFeatureFlagRulesMock).not.toHaveBeenCalled();
   });
 
   it("does not narrow a globally-on flag when enabling the current user", async () => {

@@ -13,7 +13,7 @@ import { verifyA2ATokenWithClaims } from "../a2a-claims.js";
 import { isAgentActionStopError } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { declaresFeatureFlagDelegation } from "../feature-flags/a2a-action-route.js";
-import { resolveOrgIdForEmail } from "../org/context.js";
+import { resolveOrgByDomain, resolveOrgIdForEmail } from "../org/context.js";
 import { readBody } from "../server/h3-helpers.js";
 import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
 import {
@@ -85,9 +85,11 @@ async function resolveFeatureFlagA2ACaller(event: any, actionName: string) {
   const claims = await verifyA2ATokenWithClaims(token, event);
   if (!claims || !claims.scope.includes(required))
     throw new Error("Invalid feature flag delegation");
+  const localOrg = await resolveOrgByDomain(claims.orgDomain);
+  if (!localOrg) throw new Error("Invalid feature flag delegation");
   return {
     owner: claims.email,
-    orgId: claims.orgId,
+    orgId: localOrg.orgId,
     anonymous: false,
     delegationJti: claims.jti,
     delegationIssuer: claims.issuer,
