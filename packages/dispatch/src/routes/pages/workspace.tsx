@@ -892,6 +892,22 @@ function GlobalContextSection({
   resources: any[];
   isLoading: boolean;
 }) {
+  const restoreStarter = useActionMutation(
+    "restore-starter-workspace-resources",
+    {
+      onSuccess: (result: any) => {
+        const restored = result?.restored?.length ?? 0;
+        const existing = result?.existing?.length ?? 0;
+        toast.success(
+          restored > 0
+            ? `Restored ${restored} starter resource${restored === 1 ? "" : "s"}`
+            : `Starter resources already present (${existing})`,
+        );
+      },
+      onError: (err) => toast.error(String(err)),
+    },
+  );
+
   if (isLoading && resources.length === 0) {
     return (
       <section className="space-y-3">
@@ -929,21 +945,6 @@ function GlobalContextSection({
     (item) => !byPath.has(item.path),
   ).map((item) => item.path);
   const presentCount = STARTER_GLOBAL_CONTEXT.length - missingPaths.length;
-  const restoreStarter = useActionMutation(
-    "restore-starter-workspace-resources",
-    {
-      onSuccess: (result: any) => {
-        const restored = result?.restored?.length ?? 0;
-        const existing = result?.existing?.length ?? 0;
-        toast.success(
-          restored > 0
-            ? `Restored ${restored} starter resource${restored === 1 ? "" : "s"}`
-            : `Starter resources already present (${existing})`,
-        );
-      },
-      onError: (err) => toast.error(String(err)),
-    },
-  );
 
   return (
     <section className="space-y-3">

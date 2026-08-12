@@ -599,6 +599,7 @@ export function createAgentChatPlugin(
       // `externalAgents` into `mcp`. A2A reads the same object, so the
       // connector policy cannot diverge between the two external surfaces.
       const mcpOptions = resolveAgentChatMcpOptions(options);
+      const backgroundMcpTools = options?.backgroundMcpTools ?? "requested";
 
       // Build the four assembled system prompt strings. These are static for the
       // lifetime of this plugin instance — examples come from options once at
@@ -659,14 +660,15 @@ export function createAgentChatPlugin(
         job?: RecurringJobContext,
       ): Promise<Record<string, ActionEntry>> => {
         const requested = job?.meta.mcpTools ?? [];
-        if (requested.length === 0) return {};
+        if (requested.length === 0 && backgroundMcpTools !== "all") return {};
         // Background action suppliers may be async so event-triggered and
         // scheduled runs can await lazy MCP hydration on serverless cold
         // starts. Runs without requested MCP tools still skip this work.
         await ensureMcpInitialized();
-        const entries = mcpToolsToActionEntries(mcpManager, {
-          toolNames: requested,
-        });
+        const entries = mcpToolsToActionEntries(
+          mcpManager,
+          backgroundMcpTools === "all" ? {} : { toolNames: requested },
+        );
         const missing = requested.filter((toolName) => !entries[toolName]);
         if (missing.length > 0) {
           throw new Error(

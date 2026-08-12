@@ -52,6 +52,8 @@ export interface WorkspaceConnection {
   scopes: string[];
   config: Record<string, unknown>;
   allowedApps: string[];
+  /** Empty means every member of the owning workspace. */
+  allowedUsers?: string[];
   credentialRefs: WorkspaceConnectionCredentialRef[];
   ownerEmail: string;
   orgId: string | null;
@@ -115,6 +117,7 @@ export interface UpsertWorkspaceConnectionInput {
   scopes?: string[];
   config?: Record<string, unknown>;
   allowedApps?: string[];
+  allowedUsers?: string[];
   credentialRefs?: WorkspaceConnectionCredentialRef[];
   lastCheckedAt?: Date | number | string | null;
   lastError?: string | null;
@@ -385,6 +388,12 @@ async function ensureWorkspaceConnectionColumns(
   await ensureColumn(
     client,
     table,
+    "allowed_users_json",
+    "TEXT NOT NULL DEFAULT '[]'",
+  );
+  await ensureColumn(
+    client,
+    table,
     "credential_refs_json",
     "TEXT NOT NULL DEFAULT '[]'",
   );
@@ -478,6 +487,7 @@ export async function ensureWorkspaceConnectionsTable(): Promise<void> {
             scopes_json TEXT NOT NULL DEFAULT '[]',
             config_json TEXT NOT NULL DEFAULT '{}',
             allowed_apps_json TEXT NOT NULL DEFAULT '[]',
+            allowed_users_json TEXT NOT NULL DEFAULT '[]',
             credential_refs_json TEXT NOT NULL DEFAULT '[]',
             owner_email TEXT NOT NULL DEFAULT '',
             org_id TEXT,
@@ -554,6 +564,11 @@ export async function ensureWorkspaceConnectionsTable(): Promise<void> {
           "workspace_connections",
           "allowed_apps_json",
           `ALTER TABLE workspace_connections ADD COLUMN IF NOT EXISTS allowed_apps_json TEXT NOT NULL DEFAULT '[]'`,
+        );
+        await ensureColumnExists(
+          "workspace_connections",
+          "allowed_users_json",
+          `ALTER TABLE workspace_connections ADD COLUMN IF NOT EXISTS allowed_users_json TEXT NOT NULL DEFAULT '[]'`,
         );
         await ensureColumnExists(
           "workspace_connections",
@@ -754,6 +769,16 @@ function normalizeStringArray(value: unknown): string[] {
     .filter(Boolean);
 }
 
+function normalizeUserEmails(value: unknown): string[] {
+  return Array.from(
+    new Set(
+      normalizeStringArray(value)
+        .map((email) => email.toLowerCase())
+        .filter((email) => email.includes("@")),
+    ),
+  );
+}
+
 function normalizeRequiredString(value: unknown, label: string): string {
   const normalized = typeof value === "string" ? value.trim() : "";
   if (!normalized) {
@@ -882,6 +907,9 @@ function parseRow(row: Record<string, unknown>): WorkspaceConnection {
     allowedApps: normalizeStringArray(
       safeJsonParse<unknown>(row.allowed_apps_json, []),
     ),
+    allowedUsers: normalizeUserEmails(
+      safeJsonParse<unknown>(row.allowed_users_json, []),
+    ),
     credentialRefs: normalizeCredentialRefs(
       safeJsonParse<unknown>(row.credential_refs_json, []),
     ),
@@ -923,6 +951,7 @@ export function serializeWorkspaceConnection(
     scopes: normalizeStringArray(connection.scopes),
     config: sanitizeConfig(connection.config),
     allowedApps: normalizeStringArray(connection.allowedApps),
+    allowedUsers: normalizeUserEmails(connection.allowedUsers),
     credentialRefs: normalizeCredentialRefs(connection.credentialRefs),
   };
 }
@@ -1352,7 +1381,11 @@ export async function listWorkspaceConnectionProviderCatalogForApp({
   includeConnections = "all",
 }: ListWorkspaceConnectionProviderCatalogForAppOptions): Promise<WorkspaceConnectionProviderCatalogForApp> {
   const [connections, grants] = await Promise.all([
-    listWorkspaceConnections({ provider, includeDisabled }),
+    listWorkspaceConnections({
+      provider,
+      appId,
+      includeDisabled,
+    }),
     listWorkspaceConnectionGrants({ provider, appId }),
   ]);
   const providers = listWorkspaceConnectionProviders({
@@ -1410,7 +1443,11 @@ export async function listWorkspaceConnectionsForApp({
     "listWorkspaceConnectionsForApp appId",
   );
   const [connections, grants] = await Promise.all([
-    listWorkspaceConnections({ provider, includeDisabled }),
+    listWorkspaceConnections({
+      provider,
+      appId: normalizedAppId,
+      includeDisabled,
+    }),
     listWorkspaceConnectionGrants({ provider, appId: normalizedAppId }),
   ]);
 
@@ -1433,6 +1470,7 @@ export async function resolveWorkspaceConnectionForApp({
   const normalizedConnectionId = connectionId?.trim();
   const requestedConnections = await listWorkspaceConnections({
     provider,
+    appId: normalizedAppId,
     includeDisabled: includeDisabled || Boolean(normalizedConnectionId),
   });
   const candidateConnections = normalizedConnectionId
@@ -1576,6 +1614,10 @@ export async function listWorkspaceConnections(
   );
   return connections.filter(
     (connection) =>
+      (connection.allowedUsers?.length ?? 0) === 0 ||
+      (connection.allowedUsers ?? []).includes(scope.ownerEmail.toLowerCase()),
+  ).filter(
+    (connection) =>
       connection.allowedApps.length === 0 ||
       connection.allowedApps.includes(appId) ||
       grantedConnectionIds.has(connection.id),
@@ -1618,6 +1660,7 @@ export async function upsertWorkspaceConnection(
   const scopes = normalizeStringArray(input.scopes);
   const config = sanitizeConfig(input.config);
   const allowedApps = normalizeStringArray(input.allowedApps);
+  const allowedUsers = normalizeUserEmails(input.allowedUsers);
   const credentialRefs = normalizeCredentialRefs(input.credentialRefs);
   const lastCheckedAt = millis(input.lastCheckedAt);
   const lastError = input.lastError ?? null;
@@ -1626,6 +1669,7 @@ export async function upsertWorkspaceConnection(
     sql: `UPDATE ${table}
       SET provider = ?, label = ?, account_id = ?, account_label = ?,
         status = ?, scopes_json = ?, config_json = ?, allowed_apps_json = ?,
+        allowed_users_json = ?,
         credential_refs_json = ?, updated_at = ?, last_checked_at = ?,
         last_error = ?
       WHERE id = ? AND ${where.sql}`,
@@ -1638,6 +1682,7 @@ export async function upsertWorkspaceConnection(
       JSON.stringify(scopes),
       JSON.stringify(config),
       JSON.stringify(allowedApps),
+      JSON.stringify(allowedUsers),
       JSON.stringify(credentialRefs),
       now,
       lastCheckedAt,
@@ -1652,10 +1697,11 @@ export async function upsertWorkspaceConnection(
       await client.execute({
         sql: `INSERT INTO ${table}
           (id, provider, label, account_id, account_label, status,
-            scopes_json, config_json, allowed_apps_json, credential_refs_json,
+            scopes_json, config_json, allowed_apps_json, allowed_users_json,
+            credential_refs_json,
             owner_email, org_id, created_at, updated_at, last_checked_at,
             last_error)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         args: [
           id,
           provider,
@@ -1666,6 +1712,7 @@ export async function upsertWorkspaceConnection(
           JSON.stringify(scopes),
           JSON.stringify(config),
           JSON.stringify(allowedApps),
+          JSON.stringify(allowedUsers),
           JSON.stringify(credentialRefs),
           scope.ownerEmail,
           scope.orgId,

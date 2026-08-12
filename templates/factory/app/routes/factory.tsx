@@ -529,8 +529,8 @@ export default function FactoryRoute() {
             </Card>
           ) : (
             <div className="grid w-full max-w-5xl gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
-              <div className="h-[420px] animate-pulse rounded-xl border bg-muted/40" />
-              <div className="h-[420px] animate-pulse rounded-xl border bg-muted/40" />
+              <div className="h-[420px] animate-pulse rounded-xl bg-card shadow-sm" />
+              <div className="h-[420px] animate-pulse rounded-xl bg-card shadow-sm" />
             </div>
           )}
         </main>
@@ -651,8 +651,8 @@ export default function FactoryRoute() {
             onOpenFlow={() => setActiveTab("map")}
           />
         ) : activeTab === "map" ? (
-          <div className="grid min-h-full gap-0 xl:grid-cols-[minmax(0,1fr)_360px]">
-            <section className="min-w-0 p-4 lg:p-6">
+          <div className="grid min-h-full gap-4 p-4 lg:p-6 xl:grid-cols-[minmax(0,1fr)_360px]">
+            <section className="min-w-0 rounded-xl bg-card p-4 shadow-sm lg:p-6">
               <FactoryCanvas
                 graph={graph}
                 nodeMetrics={graphData?.nodeMetrics}
@@ -985,7 +985,7 @@ function AutomationsView({
               </p>
             ) : (
               <div
-                className="divide-y"
+                className="grid gap-1.5 p-2"
                 role="tablist"
                 aria-label={t("factoryRoute.automationsTitle")}
               >
@@ -997,7 +997,7 @@ function AutomationsView({
                     role="tab"
                     aria-selected={activeAutomationId === automation.id}
                     aria-controls="factory-automation-panel"
-                    className={`w-full cursor-pointer p-4 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${activeAutomationId === automation.id ? "bg-muted/60" : ""}`}
+                    className={`w-full cursor-pointer rounded-lg bg-muted/20 p-4 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${activeAutomationId === automation.id ? "bg-muted/60" : ""}`}
                     onClick={() => selectAutomation(automation.id)}
                   >
                     <span className="block truncate text-sm font-medium">
@@ -1024,7 +1024,7 @@ function AutomationsView({
               : undefined
           }
         >
-          <CardHeader className="border-b sm:flex-row sm:items-center sm:justify-between">
+          <CardHeader className="sm:flex-row sm:items-center sm:justify-between">
             <div>
               <CardTitle className="text-base">
                 {t("factoryRoute.automationEditorTitle")}
@@ -1081,7 +1081,7 @@ function AutomationsView({
                         setDraft({ ...draft, model: event.target.value })
                       }
                       disabled={modelsLoading && modelOptions.length === 0}
-                      className="h-9 rounded-md border bg-background px-3 text-sm"
+                      className="h-9 rounded-md border bg-card px-3 text-sm"
                     >
                       <option value="auto">{autoModelLabel}</option>
                       {draft.model &&
@@ -1160,7 +1160,7 @@ function AutomationsView({
                     {t("factoryRoute.promptEditorHint")}
                   </p>
                 </div>
-                <div className="border-t pt-5">
+                <div className="rounded-lg bg-muted/20 p-3 shadow-sm">
                   <h3 className="text-sm font-medium">
                     {t("factoryRoute.pastRuns")}
                   </h3>
@@ -1169,12 +1169,12 @@ function AutomationsView({
                       {t("factoryRoute.pastRunsEmpty")}
                     </p>
                   ) : (
-                    <div className="mt-3 divide-y rounded-md border">
+                    <div className="mt-3 grid gap-2">
                       {(draft.runs ?? draft.pastRuns ?? []).map(
                         (run, index) => (
                           <div
                             key={run.id ?? `${draft.id}-run-${index}`}
-                            className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm"
+                            className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-card px-3 py-2 text-sm shadow-sm"
                           >
                             <span className="font-medium">
                               {run.status ?? "-"}
@@ -1287,7 +1287,7 @@ function InboxView({ t }: { t: ReturnType<typeof useT> }) {
   return (
     <div className="grid gap-4 p-4 lg:grid-cols-[minmax(0,1.3fr)_minmax(320px,.7fr)] lg:p-6">
       <Card>
-        <CardHeader className="gap-3 border-b sm:flex-row sm:items-end sm:justify-between">
+        <CardHeader className="gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <CardTitle className="text-base">Review</CardTitle>
             <p className="mt-1 text-sm text-muted-foreground">
@@ -1331,14 +1331,14 @@ function InboxView({ t }: { t: ReturnType<typeof useT> }) {
               {t("triage.empty")}
             </p>
           ) : (
-            <div className="divide-y">
+            <div className="grid gap-1.5 p-2">
               {normalizedItems.map((item) => {
                 const id = item.itemId ?? item.id ?? "";
                 return (
                   <button
                     key={id}
                     type="button"
-                    className={`grid w-full gap-3 p-4 text-left transition-colors hover:bg-muted/50 sm:grid-cols-[1.1fr_.7fr_.9fr_1.6fr] ${selectedId === id ? "bg-muted/60" : ""}`}
+                    className={`grid w-full gap-3 rounded-lg bg-muted/20 p-4 text-left transition-colors hover:bg-muted/50 sm:grid-cols-[1.1fr_.7fr_.9fr_1.6fr] ${selectedId === id ? "bg-muted/60" : ""}`}
                     onClick={() => selectItem(id)}
                   >
                     <span className="min-w-0">
@@ -1435,13 +1435,13 @@ function InboxView({ t }: { t: ReturnType<typeof useT> }) {
                   {selectedItem.decisionSummary}
                 </p>
               )}
-              <div className="border-t pt-4">
+              <div className="rounded-lg bg-muted/20 p-3 shadow-sm">
                 <p className="text-sm font-medium">{t("triage.decisions")}</p>
                 {selectedItem.decisions?.length ? (
                   selectedItem.decisions.map((decision) => (
                     <div
                       key={decision.decisionId}
-                      className="mt-3 space-y-3 rounded-md border p-3"
+                      className="mt-3 space-y-3 rounded-lg bg-card p-3 shadow-sm"
                     >
                       <p className="text-sm">
                         {decision.summary ?? decision.reason}
@@ -1606,18 +1606,6 @@ function RulesView({ t }: { t: ReturnType<typeof useT> }) {
 }
 
 function SettingsView({ t }: { t: ReturnType<typeof useT> }) {
-  const [workspace, setWorkspace] = useState<"primary" | "secondary">(
-    "primary",
-  );
-  const [channelId, setChannelId] = useState("");
-  const [channelName, setChannelName] = useState("");
-  const [repository, setRepository] = useState("");
-  const [polling, setPolling] = useState(false);
-  const [githubPolling, setGithubPolling] = useState(false);
-  const [sentryPolling, setSentryPolling] = useState(false);
-  const [sentryOrgSlug, setSentryOrgSlug] = useState("");
-  const [sentryProjectSlug, setSentryProjectSlug] = useState("");
-  const [sentryEnvironment, setSentryEnvironment] = useState("");
   const [automationFailureAlertsEnabled, setAutomationFailureAlertsEnabled] =
     useState(true);
   const [automationFailureAlertEmail, setAutomationFailureAlertEmail] =
@@ -1633,16 +1621,6 @@ function SettingsView({ t }: { t: ReturnType<typeof useT> }) {
   useEffect(() => {
     const data = query.data as TriageConfig | undefined;
     if (!data) return;
-    setWorkspace(data.slackWorkspace ?? "primary");
-    setChannelId(data.slackChannelId ?? "");
-    setChannelName(data.slackChannelName ?? "");
-    setRepository(data.repository ?? "");
-    setPolling(data.pollingEnabled ?? false);
-    setGithubPolling(data.githubPollingEnabled ?? false);
-    setSentryPolling(data.sentryPollingEnabled ?? false);
-    setSentryOrgSlug(data.sentryOrgSlug ?? "");
-    setSentryProjectSlug(data.sentryProjectSlug ?? "");
-    setSentryEnvironment(data.sentryEnvironment ?? "");
     setAutomationFailureAlertsEnabled(
       data.automationFailureAlertsEnabled ?? true,
     );
@@ -1651,33 +1629,12 @@ function SettingsView({ t }: { t: ReturnType<typeof useT> }) {
 
   const saveSettings = () => {
     mutation.mutate({
-      slackWorkspace: workspace,
-      slackChannelId: channelId,
-      slackChannelName: channelName,
-      repository,
-      pollingEnabled: polling,
-      githubPollingEnabled: githubPolling,
-      sentryPollingEnabled: sentryPolling,
-      sentryOrgSlug,
-      sentryProjectSlug,
-      sentryEnvironment,
       automationFailureAlertsEnabled,
       ...(automationFailureAlertEmail.trim()
         ? { automationFailureAlertEmail: automationFailureAlertEmail.trim() }
         : {}),
     });
   };
-
-  const slackConfigured = Boolean(channelId.trim() || channelName.trim());
-  const githubConfigured = Boolean(repository.trim());
-  const sentryConfigured = Boolean(
-    sentryOrgSlug.trim() || sentryProjectSlug.trim(),
-  );
-  const sourceRoutingConfigured = [
-    slackConfigured,
-    githubConfigured,
-    sentryConfigured,
-  ].filter(Boolean).length;
 
   if (query.isLoading) {
     return (
@@ -1689,7 +1646,7 @@ function SettingsView({ t }: { t: ReturnType<typeof useT> }) {
 
   return (
     <div className="mx-auto w-full max-w-3xl space-y-6 p-4 lg:p-6">
-      <SettingsGroup>
+      <SettingsGroup variant="soft">
         <SettingsRow
           label={t("factoryRoute.workspaceIntegrations")}
           icon={<IconPlugConnected className="size-4" />}
@@ -1697,163 +1654,6 @@ function SettingsView({ t }: { t: ReturnType<typeof useT> }) {
             <Button asChild type="button" variant="outline">
               <Link to={buildSettingsRoute("integrations")}>Manage</Link>
             </Button>
-          }
-        />
-        <SettingsRow
-          label={t("factoryRoute.sourceRouting")}
-          icon={
-            <div
-              className="flex items-center -space-x-1.5"
-              aria-label={t("factoryRoute.sourceRoutingProviders")}
-            >
-              <span className="flex size-5 items-center justify-center rounded-full bg-background text-muted-foreground ring-1 ring-border">
-                <IconBrandSlack className="size-3.5" />
-              </span>
-              <span className="flex size-5 items-center justify-center rounded-full bg-background text-muted-foreground ring-1 ring-border">
-                <IconBrandGithub className="size-3.5" />
-              </span>
-              <span className="flex size-5 items-center justify-center rounded-full bg-background text-muted-foreground ring-1 ring-border">
-                <IconBug className="size-3.5" />
-              </span>
-            </div>
-          }
-          status={
-            <span className="text-xs text-muted-foreground">
-              {sourceRoutingConfigured}/3 configured
-            </span>
-          }
-          control={
-            <FactorySourcePopover
-              label={t("factoryRoute.sourceRouting")}
-              configured={sourceRoutingConfigured > 0}
-              saving={mutation.isPending}
-              onSave={saveSettings}
-            >
-              <div className="grid gap-3">
-                <div className="grid gap-3 rounded-lg bg-muted/35 p-3">
-                  <div className="flex items-center gap-2 text-xs font-medium">
-                    <IconBrandSlack className="size-4 text-muted-foreground" />
-                    Slack
-                  </div>
-                  <label className="grid gap-1.5 text-xs font-medium text-foreground">
-                    {t("triage.slackWorkspace")}
-                    <select
-                      aria-label={t("triage.slackWorkspace")}
-                      value={workspace}
-                      onChange={(event) =>
-                        setWorkspace(
-                          event.target.value as "primary" | "secondary",
-                        )
-                      }
-                      className="h-9 w-full rounded-md border bg-background px-3 text-sm"
-                    >
-                      <option value="primary">primary</option>
-                      <option value="secondary">secondary</option>
-                    </select>
-                  </label>
-                  <label className="grid gap-1.5 text-xs font-medium text-foreground">
-                    {t("triage.slackChannelId")}
-                    <Input
-                      aria-label={t("triage.slackChannelId")}
-                      value={channelId}
-                      onChange={(event) => setChannelId(event.target.value)}
-                      placeholder={t("triage.slackChannelPlaceholder")}
-                    />
-                  </label>
-                  <label className="grid gap-1.5 text-xs font-medium text-foreground">
-                    {t("triage.slackChannelName")}
-                    <Input
-                      aria-label={t("triage.slackChannelName")}
-                      value={channelName}
-                      onChange={(event) => setChannelName(event.target.value)}
-                      placeholder={t("triage.slackChannelNamePlaceholder")}
-                    />
-                  </label>
-                  <label className="flex items-center justify-between gap-3 text-xs font-medium text-foreground">
-                    {t("triage.enablePolling")}
-                    <Checkbox
-                      aria-label={t("triage.enablePolling")}
-                      checked={polling}
-                      onCheckedChange={(checked) =>
-                        setPolling(checked === true)
-                      }
-                    />
-                  </label>
-                </div>
-                <div className="grid gap-3 rounded-lg bg-muted/35 p-3">
-                  <div className="flex items-center gap-2 text-xs font-medium">
-                    <IconBrandGithub className="size-4 text-muted-foreground" />
-                    GitHub
-                  </div>
-                  <label className="grid gap-1.5 text-xs font-medium text-foreground">
-                    {t("triage.repository")}
-                    <Input
-                      aria-label={t("triage.repository")}
-                      value={repository}
-                      onChange={(event) => setRepository(event.target.value)}
-                      placeholder={t("triage.repositoryPlaceholder")}
-                    />
-                  </label>
-                  <label className="flex items-center justify-between gap-3 text-xs font-medium text-foreground">
-                    {t("triage.enableGithubPolling")}
-                    <Checkbox
-                      aria-label={t("triage.enableGithubPolling")}
-                      checked={githubPolling}
-                      onCheckedChange={(checked) =>
-                        setGithubPolling(checked === true)
-                      }
-                    />
-                  </label>
-                </div>
-                <div className="grid gap-3 rounded-lg bg-muted/35 p-3">
-                  <div className="flex items-center gap-2 text-xs font-medium">
-                    <IconBug className="size-4 text-muted-foreground" />
-                    Sentry
-                  </div>
-                  <label className="grid gap-1.5 text-xs font-medium text-foreground">
-                    {t("triage.sentryOrgSlug")}
-                    <Input
-                      aria-label={t("triage.sentryOrgSlug")}
-                      value={sentryOrgSlug}
-                      onChange={(event) => setSentryOrgSlug(event.target.value)}
-                      placeholder={t("triage.sentryOrgPlaceholder")}
-                    />
-                  </label>
-                  <label className="grid gap-1.5 text-xs font-medium text-foreground">
-                    {t("triage.sentryProjectSlug")}
-                    <Input
-                      aria-label={t("triage.sentryProjectSlug")}
-                      value={sentryProjectSlug}
-                      onChange={(event) =>
-                        setSentryProjectSlug(event.target.value)
-                      }
-                      placeholder={t("triage.sentryProjectPlaceholder")}
-                    />
-                  </label>
-                  <label className="grid gap-1.5 text-xs font-medium text-foreground">
-                    {t("triage.sentryEnvironment")}
-                    <Input
-                      aria-label={t("triage.sentryEnvironment")}
-                      value={sentryEnvironment}
-                      onChange={(event) =>
-                        setSentryEnvironment(event.target.value)
-                      }
-                      placeholder={t("triage.sentryEnvironmentPlaceholder")}
-                    />
-                  </label>
-                  <label className="flex items-center justify-between gap-3 text-xs font-medium text-foreground">
-                    {t("triage.enableSentryPolling")}
-                    <Checkbox
-                      aria-label={t("triage.enableSentryPolling")}
-                      checked={sentryPolling}
-                      onCheckedChange={(checked) =>
-                        setSentryPolling(checked === true)
-                      }
-                    />
-                  </label>
-                </div>
-              </div>
-            </FactorySourcePopover>
           }
         />
         <SettingsRow
@@ -1867,7 +1667,10 @@ function SettingsView({ t }: { t: ReturnType<typeof useT> }) {
         />
       </SettingsGroup>
 
-      <SettingsGroup title={t("factoryRoute.automationFailureAlertsTitle")}>
+      <SettingsGroup
+        variant="soft"
+        title={t("factoryRoute.automationFailureAlertsTitle")}
+      >
         <SettingsRow
           label={t("factoryRoute.automationFailureAlertsEnabled")}
           control={
@@ -1900,7 +1703,7 @@ function SettingsView({ t }: { t: ReturnType<typeof useT> }) {
         <SettingsRow
           label={t("factoryRoute.automationFailureEmailReadiness")}
           control={
-            <span className="rounded-full border px-2.5 py-1 text-xs font-medium text-muted-foreground">
+            <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
               {(query.data as TriageConfig | undefined)?.emailReadiness
                 ?.status ?? "unknown"}
             </span>
@@ -1943,59 +1746,16 @@ function SettingsView({ t }: { t: ReturnType<typeof useT> }) {
   );
 }
 
-function FactorySourcePopover({
-  label,
-  configured,
-  saving,
-  onSave,
-  children,
-}: {
-  label: string;
-  configured: boolean;
-  saving: boolean;
-  onSave: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <Button type="button" variant={configured ? "outline" : "default"}>
-          {configured ? "Manage" : "Configure"}
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent
-        align="end"
-        sideOffset={6}
-        className="w-[min(420px,calc(100vw-2rem))] p-4"
-      >
-        <div className="space-y-4">
-          <p className="text-sm font-medium text-foreground">{label}</p>
-          {children}
-          <div className="flex justify-end">
-            <Button type="button" onClick={onSave} disabled={saving}>
-              {saving && <IconLoader2 className="animate-spin" />}
-              Save
-            </Button>
-          </div>
-        </div>
-      </PopoverContent>
-    </Popover>
-  );
-}
-
 function FactorySettingsSkeleton({ t }: { t: ReturnType<typeof useT> }) {
   return (
     <div className="space-y-6" aria-label={t("triage.loading")}>
       {Array.from({ length: 2 }).map((_, index) => (
-        <div
-          key={index}
-          className="overflow-hidden rounded-xl border border-border/70 bg-card"
-        >
-          <div className="divide-y divide-border/60">
+        <div key={index} className="grid gap-2">
+          <div className="grid gap-2">
             {Array.from({ length: index === 0 ? 5 : 3 }).map((_, rowIndex) => (
               <div
                 key={rowIndex}
-                className="flex min-h-20 items-center justify-between gap-4 px-5 py-4 sm:px-6"
+                className="flex min-h-20 items-center justify-between gap-4 rounded-xl bg-card px-5 py-4 shadow-sm sm:px-6"
               >
                 <div className="h-3.5 w-36 animate-pulse rounded bg-muted" />
                 <div className="h-9 w-24 animate-pulse rounded bg-muted" />
@@ -2042,7 +1802,7 @@ function SchedulerHealthStatus({
   return (
     <section
       aria-labelledby="factory-scheduler-health"
-      className="rounded-xl border border-border/70 bg-card px-5 py-4 text-card-foreground sm:px-6"
+      className="rounded-xl bg-card px-5 py-4 text-card-foreground shadow-sm sm:px-6"
     >
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
         <div className="flex flex-wrap items-center gap-2">
@@ -2052,7 +1812,7 @@ function SchedulerHealthStatus({
           >
             {t("factoryRoute.automationHealthTitle")}
           </h2>
-          <span className="rounded-full border px-2 py-0.5 text-xs font-medium">
+          <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium">
             {healthLabel}
           </span>
         </div>

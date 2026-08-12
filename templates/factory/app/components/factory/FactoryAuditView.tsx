@@ -143,12 +143,12 @@ export function FactoryAuditView({
               </div>
             </CardHeader>
             <CardContent className="p-0">
-              <div className="divide-y">
+              <div className="grid gap-1.5 p-2">
                 {runs.map((run) => (
                   <button
                     key={run.id}
                     type="button"
-                    className={`w-full cursor-pointer p-3 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${selectedRun?.id === run.id ? "bg-muted/60" : ""}`}
+                    className={`w-full cursor-pointer rounded-lg bg-muted/20 p-3 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${selectedRun?.id === run.id ? "bg-muted/60" : ""}`}
                     onClick={() => selectRun(run.id)}
                   >
                     <div className="flex items-center justify-between gap-3">
@@ -173,7 +173,7 @@ export function FactoryAuditView({
           </Card>
 
           <Card>
-            <CardHeader className="border-b px-4 py-3">
+            <CardHeader className="px-4 py-3">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
                   <CardTitle className="truncate text-base">
@@ -238,7 +238,7 @@ function AuditRunDetail({ run }: { run: FactoryAuditRun }) {
       </div>
 
       {run.error && (
-        <div className="mt-4 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm">
+        <div className="mt-4 rounded-md bg-destructive/5 p-3 text-sm">
           <p className="font-medium text-destructive">
             {t("factoryRoute.auditRunError")}
           </p>
@@ -254,11 +254,11 @@ function AuditRunDetail({ run }: { run: FactoryAuditRun }) {
           </span>
         </div>
         {groups.length === 0 ? (
-          <p className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
+          <p className="rounded-md bg-muted/20 p-4 text-sm text-muted-foreground">
             {t("factoryRoute.auditNoEvents")}
           </p>
         ) : (
-          <div className="overflow-hidden rounded-md border">
+          <div className="grid gap-1.5">
             {groups.map((group) => (
               <AuditItemRow key={group.key} group={group} />
             ))}
@@ -277,8 +277,8 @@ function AuditItemRow({ group }: { group: AuditItemGroup }) {
     group.sourceUrl ?? group.events.find((event) => event.sourceUrl)?.sourceUrl;
 
   return (
-    <details className="group border-b last:border-b-0">
-      <summary className="flex cursor-pointer list-none items-center gap-3 px-3 py-3 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+    <details className="group rounded-lg bg-muted/20">
+      <summary className="flex cursor-pointer list-none items-center gap-3 rounded-lg px-3 py-3 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
         <AuditSourceIcon source={group.source} />
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium">{group.title}</p>
@@ -294,7 +294,7 @@ function AuditItemRow({ group }: { group: AuditItemGroup }) {
         <AuditStatus status={group.status} compact />
         <IconChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform duration-200 ease-[var(--ease-collapse)] group-open:rotate-180 motion-reduce:transition-none" />
       </summary>
-      <div className="border-t bg-muted/20 px-4 pb-4 pt-3">
+      <div className="bg-muted/20 px-4 pb-4 pt-3">
         <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
           <div>
             <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
@@ -308,7 +308,7 @@ function AuditItemRow({ group }: { group: AuditItemGroup }) {
           <AuditDecisionFacts event={decision} />
         </div>
 
-        <div className="mt-4 border-t border-border/70 pt-3">
+        <div className="mt-4 rounded-md bg-background/40 p-3">
           <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
             Trace
           </p>
@@ -333,7 +333,7 @@ function AuditItemRow({ group }: { group: AuditItemGroup }) {
         </div>
 
         {(group.itemId || sourceLink) && (
-          <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-border/70 pt-3 text-xs">
+          <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 bg-background/40 px-3 py-3 text-xs">
             {group.itemId && (
               <a
                 href={`/factory?tab=inbox&itemId=${encodeURIComponent(group.itemId)}`}

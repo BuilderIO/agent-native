@@ -85,7 +85,7 @@ export function FactoryInspector({
   }
 
   return (
-    <aside className="flex min-h-0 flex-col border-l bg-muted/10">
+    <aside className="flex min-h-0 flex-col rounded-xl bg-card shadow-sm">
       <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-4">
         {!selectedNode && !selectedEdge ? (
           <CanvasInspector
@@ -129,7 +129,7 @@ export function FactoryInspector({
                       .value as FactoryCanvasNode["provider"],
                   })
                 }
-                className="h-9 rounded-md border bg-background px-3 text-sm"
+                className="h-9 rounded-md border bg-card px-3 text-sm"
               >
                 <option value="factory">Factory</option>
                 <option value="slack">Slack</option>
@@ -151,7 +151,7 @@ export function FactoryInspector({
                 placeholder={t("factoryInspector.optional")}
               />
             </div>
-            <div className="rounded-lg border bg-muted/25 p-3">
+            <div className="rounded-lg bg-muted/25 p-3 shadow-sm">
               <p className="text-xs font-medium">
                 {t("factoryInspector.connectStep")}
               </p>
@@ -163,7 +163,7 @@ export function FactoryInspector({
                   aria-label={t("factoryInspector.targetStep")}
                   value={connectTarget}
                   onChange={(event) => setConnectTarget(event.target.value)}
-                  className="h-9 min-w-0 flex-1 rounded-md border bg-background px-3 text-sm"
+                  className="h-9 min-w-0 flex-1 rounded-md border bg-card px-3 text-sm"
                 >
                   <option value="">{t("factoryInspector.chooseTarget")}</option>
                   {outgoingTargets.map((node) => (
@@ -226,7 +226,7 @@ export function FactoryInspector({
           </>
         )}
 
-        <section className="rounded-lg border bg-muted/20 px-3 py-3">
+        <section className="rounded-lg bg-muted/20 px-3 py-3 shadow-sm">
           <p className="text-xs font-medium">{t("factoryRoute.auditTitle")}</p>
           <p className="mt-1 text-xs leading-5 text-muted-foreground">
             {t("factoryRoute.auditDescription")}
@@ -260,23 +260,20 @@ export function FactoryInspector({
         </section>
       </div>
 
-      <div className="border-t bg-muted/15 p-4">
-        <Button
-          type="button"
-          className="w-full"
-          disabled={!dirty || saving}
-          onClick={onSave}
-        >
-          {saving
-            ? t("factoryInspector.savingGraph")
-            : dirty
-              ? t("factoryInspector.saveGraph")
-              : t("factoryInspector.savedGraph")}
-        </Button>
-        <p className="mt-2 text-center text-[11px] text-muted-foreground">
-          {t("factoryInspector.saveNote")}
-        </p>
-      </div>
+      {(dirty || saving) && (
+        <div className="bg-muted/15 p-4">
+          <Button
+            type="button"
+            className="w-full"
+            disabled={saving}
+            onClick={onSave}
+          >
+            {saving
+              ? t("factoryInspector.savingGraph")
+              : t("factoryInspector.saveGraph")}
+          </Button>
+        </div>
+      )}
     </aside>
   );
 }
