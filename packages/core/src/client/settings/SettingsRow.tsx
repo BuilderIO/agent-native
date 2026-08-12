@@ -7,6 +7,8 @@ export interface SettingsGroupProps {
   id?: string;
   title?: string;
   description?: string;
+  /** Use a soft card surface when separators would add unnecessary chrome. */
+  variant?: "default" | "soft";
   className?: string;
   children: ReactNode;
 }
@@ -20,6 +22,7 @@ export function SettingsGroup({
   id,
   title,
   description,
+  variant = "default",
   className,
   children,
 }: SettingsGroupProps) {
@@ -37,8 +40,17 @@ export function SettingsGroup({
           )}
         </header>
       )}
-      <div className="overflow-hidden rounded-xl border border-border/70 bg-card text-card-foreground">
-        <div className="divide-y divide-border/60">{children}</div>
+      <div
+        className={cn(
+          "text-card-foreground",
+          variant === "soft"
+            ? "rounded-xl bg-card p-1 shadow-sm"
+            : "overflow-hidden rounded-xl border border-border/70 bg-card",
+        )}
+      >
+        <div className={variant === "soft" ? "grid gap-1" : "divide-y divide-border/60"}>
+          {children}
+        </div>
       </div>
     </section>
   );
