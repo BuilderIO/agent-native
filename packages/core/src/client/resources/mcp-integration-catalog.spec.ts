@@ -354,6 +354,13 @@ describe("MCP integration catalog", () => {
     expect(
       findMcpIntegrationForText("Connect Box.com to import my files")?.id,
     ).toBe("box");
+    expect(
+      findMcpIntegrationForText("Connect my Box folders to this workspace")
+        ?.id,
+    ).toBe("box");
+    expect(
+      findMcpIntegrationForText("Connect a Box file to this workspace")?.id,
+    ).toBe("box");
   });
 
   it("matches exact display brands and branded aliases only", () => {

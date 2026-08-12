@@ -780,7 +780,14 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
     keywords: ["files", "folders", "documents", "enterprise content"],
     // "Box" alone collides with everyday nouns (text box, checkbox, bounding
     // box), so require a qualified phrase before suggesting the connection.
-    promptAliases: ["Box.com", "Box files", "Box folder", "Box drive"],
+    promptAliases: [
+      "Box.com",
+      "Box file",
+      "Box files",
+      "Box folder",
+      "Box folders",
+      "Box drive",
+    ],
   },
   {
     id: "builder-cms",
