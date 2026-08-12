@@ -3779,6 +3779,53 @@ describe("SSE event processor error classification", () => {
     expect(terminal?.status).toEqual({ type: "incomplete", reason: "error" });
     expect(terminal?.metadata?.custom?.runError?.recoverable).toBe(true);
   });
+
+  it("does not auto-continue a repeat-guard stop whose message names a tool that matches the transient message sniff", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    // The guard interpolates the looping tool's name, and 17 shipped actions
+    // are named `*connection*` — enough to match the "connection" sniff and
+    // auto-continue the exact loop this event exists to break.
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "error",
+            error:
+              "Stopped because `list-workspace-connections` was called 8 times with identical arguments without making progress.",
+            errorCode: "repeated_tool_call",
+            recoverable: false,
+          },
+        ]),
+        [],
+        { value: 0 },
+        "tab-repeat-guard",
+      ),
+    );
+
+    const terminal = results.at(-1) as
+      | {
+          status?: { type: string; reason: string };
+          metadata?: { custom?: { runError?: { errorCode?: string } } };
+        }
+      | undefined;
+    expect(terminal?.status).toEqual({ type: "incomplete", reason: "error" });
+    expect(terminal?.metadata?.custom?.runError?.errorCode).toBe(
+      "repeated_tool_call",
+    );
+  });
 });
 
 describe("SSE event processor tool id matching", () => {

@@ -6088,7 +6088,7 @@ describe("runAgentLoop", () => {
       "Error running add-slide: Requires editor role on deck ZJshjrXhjx (have viewer)",
       "Error running generate-slides-ai: Gemini API key not configured. Save GEMINI_API_KEY in settings.",
       "Error running index-design-system-with-builder: Connect Builder.io before indexing a design system from Figma or code.",
-      "Error running get-local-plan-folder: Local plan folder preview is only available in local Plan runtime.",
+      "Error running connect-google-calendar: Connect Google Calendar in settings first.",
       "Plan mode blocked `update-extension`. Switch to Act mode after the user approves the plan, then retry the action.",
       "no authenticated user",
       "Error running call-agent: Error: The Analytics agent call failed. (SSRF blocked: refusing to fetch private/internal address (http://localhost:8088/a2a))",
@@ -6107,6 +6107,14 @@ describe("runAgentLoop", () => {
       "Error running bigquery: Not found: Dataset builder-3b0a2 was not found in location US",
       'Error running run-sql: syntax error at or near "slect"',
       "Error running run-sql: column deals.stage does not exist",
+      // Network failures. The canonical retryable error must never read as a
+      // "connect X first" setup instruction.
+      "Error running warehouse-query: failed to connect to the warehouse before the deadline",
+      "Error running warehouse-query: could not connect to host db-1 before timeout",
+      "Error running warehouse-query: Connect timed out, retry first",
+      // Retention windows, fixed by narrowing the range and asking again.
+      "Error running list-session-recordings: Data is only available from the last 90 days",
+      "Error running gong-calls: transcripts are only available in the last 12 months",
     ]) {
       expect(permanentPreconditionRemedy(recoverable)).toBeNull();
     }
@@ -6171,9 +6179,78 @@ describe("runAgentLoop", () => {
       errorCode: "permanent_precondition",
       recoverable: false,
     });
-    // The remedy is the last thing the user reads.
-    expect((stop as { error: string }).error).toContain(
+    // Raw tool error in `details`, remedy in `message` — the shape every other
+    // terminal stop uses, and the one `TerminalActionStop` documents.
+    expect((stop as { details: string }).details).toContain(
       "Save GEMINI_API_KEY in settings",
+    );
+    expect((stop as { error: string }).error).not.toContain("GEMINI_API_KEY");
+    expect((stop as { error: string }).error).toContain(
+      "needs a setup step outside this turn",
+    );
+  });
+
+  // A model iterating ids that each genuinely 404 is not repeating a failure —
+  // it is making progress. Normalizing digits out of the breaker key merged
+  // them into one and ended the sweep at item six.
+  it("counts per-item not-found errors as distinct failures", async () => {
+    const ITEMS = 7;
+    let streamCalls = 0;
+    const run = vi.fn(async (input: { id: number }) => {
+      throw new Error(`Record ${input.id} not found`);
+    });
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls > ITEMS) {
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text" as const, text: "None of them exist." }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: `fetch-${streamCalls}`,
+              name: "fetch-record",
+              input: { id: 40 + streamCalls },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const events: AgentChatEvent[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "sweep" }] }],
+      actions: { "fetch-record": { ...actionEntry({ readOnly: true }), run } },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(run).toHaveBeenCalledTimes(ITEMS);
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "error" }),
     );
   });
 

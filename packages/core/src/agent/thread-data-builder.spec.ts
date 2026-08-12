@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
 
 import {
@@ -54,6 +56,39 @@ describe("buildAssistantMessage", () => {
     const message = buildAssistantMessage(events, "run-clear");
 
     expect(message?.content).toEqual([
+      expect.objectContaining({
+        type: "tool-call",
+        toolName: "query",
+        result: "1",
+      }),
+      { type: "text", text: "Corrected answer" },
+    ]);
+  });
+
+  // The live client stops clearing at the last completed tool call, so this
+  // narration survives the retry on screen. A rebuild that splices it anyway
+  // makes it vanish on reload — visible loss, and only after the user leaves.
+  it("keeps narration from before the last completed tool call", () => {
+    const events: RunEvent[] = [
+      { seq: 0, event: { type: "text", text: "Checked the schema." } },
+      {
+        seq: 1,
+        event: {
+          type: "tool_start",
+          tool: "query",
+          input: { sql: "select 1" },
+        },
+      },
+      { seq: 2, event: { type: "tool_done", tool: "query", result: "1" } },
+      { seq: 3, event: { type: "text", text: "Rejected draft" } },
+      { seq: 4, event: { type: "clear" } },
+      { seq: 5, event: { type: "text", text: "Corrected answer" } },
+    ];
+
+    const message = buildAssistantMessage(events, "run-clear-scoped");
+
+    expect(message?.content).toEqual([
+      { type: "text", text: "Checked the schema." },
       expect.objectContaining({
         type: "tool-call",
         toolName: "query",
@@ -1914,5 +1949,77 @@ describe("upsertUserMessage", () => {
       text: expect.stringContaining("Important notes"),
     });
     expect(storedAtt.metadata).toBeUndefined();
+  });
+});
+
+/**
+ * The rebuild path re-implements two pieces of the live SSE client because the
+ * dependency cannot go the other way. A comment asking the next author to keep
+ * them in sync is what already failed: the client copy was rescoped and this
+ * one was not, so narration survived live and vanished on reload. These read
+ * both sources and fail on the drift itself.
+ */
+describe("live-client twins", () => {
+  const sourceOf = (relativePath: string): string =>
+    readFileSync(new URL(relativePath, import.meta.url), "utf8");
+
+  const functionBody = (source: string, name: string): string => {
+    const start = source.indexOf(`function ${name}(`);
+    expect(start, `${name} not found`).toBeGreaterThan(-1);
+    const open = source.indexOf("{", start);
+    let depth = 0;
+    for (let i = open; i < source.length; i++) {
+      if (source[i] === "{") depth++;
+      else if (source[i] === "}" && --depth === 0) {
+        return source
+          .slice(open + 1, i)
+          .replace(/\/\/[^\n]*/g, "")
+          .replace(/\s+/g, " ")
+          .trim();
+      }
+    }
+    throw new Error(`unterminated body for ${name}`);
+  };
+
+  const stringConst = (source: string, name: string): string => {
+    const match = new RegExp(`\\b${name}\\s*=\\s*\n?\\s*"([^"]*)"`).exec(
+      source,
+    );
+    expect(match, `${name} not found`).not.toBeNull();
+    return match![1]!;
+  };
+
+  it("keeps clearAssistantDraftContent identical to the live client copy", () => {
+    expect(
+      functionBody(
+        sourceOf("./thread-data-builder.ts"),
+        "clearAssistantDraftContent",
+      ),
+    ).toBe(
+      functionBody(
+        sourceOf("../client/sse-event-processor.ts"),
+        "clearAssistantDraftContent",
+      ),
+    );
+  });
+
+  it("keeps the interrupted-tool-result marker identical across all three copies", () => {
+    const client = stringConst(
+      sourceOf("../client/sse-event-processor.ts"),
+      "INTERRUPTED_TOOL_RESULT",
+    );
+
+    expect(
+      stringConst(
+        sourceOf("./thread-data-builder.ts"),
+        "INTERRUPTED_TOOL_RESULT",
+      ),
+    ).toBe(client);
+    expect(
+      stringConst(
+        sourceOf("./production-agent.ts"),
+        "INTERRUPTED_TOOL_RESULT_MARKER",
+      ),
+    ).toBe(client);
   });
 });

@@ -1951,6 +1951,146 @@ describe("createAgentChatAdapter", () => {
     expect(last.content.at(-1).text).toBe("analysis complete");
   });
 
+  it("bounds a progressing loop_limit chain at the work-boundary ceiling, not the transient one", async () => {
+    // Every round completes a DIFFERENT tool at a server work boundary —
+    // nothing failed, so the transient ceiling (12) is the wrong unit and used
+    // to kill this turn at round 13. MAX_LOOP_LIMIT_CONTINUATIONS (25) is the
+    // boundary that binds instead.
+    vi.useFakeTimers();
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let postCount = 0;
+    const fetchSpy = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method !== "POST") {
+        return jsonResponse({ active: false, status: "idle" });
+      }
+      postCount += 1;
+      const tool = `read-file-${postCount}`;
+      return sseResponse([
+        { type: "tool_start", tool, input: { path: `src/${postCount}.ts` } },
+        { type: "tool_done", tool, result: `contents of ${postCount}` },
+        { type: "loop_limit", maxIterations: 400 },
+      ]);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-loop-limit-ceiling",
+      threadId: "thread-loop-limit-ceiling",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          { role: "user", content: [{ type: "text", text: "audit the repo" }] },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(300_000);
+    const results = await promise;
+
+    expect(postCount).toBe(26);
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:run-error",
+        detail: expect.objectContaining({
+          details: expect.stringContaining("loop_limit_continuations: 26"),
+        }),
+      }),
+    );
+    const last = results.at(-1) as any;
+    expect(last.content.at(-1).text).toContain(
+      "reached the limit on how many times it can be automatically continued",
+    );
+  });
+
+  it("keeps a loop_limit chain going when an earlier round left an unresolved Preparing card", async () => {
+    // `visibleContent` accumulates across a loop_limit chain, so an activity
+    // card left unresolved in round 1 used to make every later text-only round
+    // produce the same `preparing X` signature and die as "stuck preparing the
+    // X action" while the model was streaming genuinely new prose.
+    vi.useFakeTimers();
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let postCount = 0;
+    const fetchSpy = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method !== "POST") {
+        return jsonResponse({ active: false, status: "idle" });
+      }
+      postCount += 1;
+      if (postCount === 1) {
+        return sseResponse([
+          {
+            type: "activity",
+            label: "Preparing create-extension action",
+            tool: "create-extension",
+          },
+          { type: "text", text: "Starting the review." },
+          { type: "loop_limit", maxIterations: 400 },
+        ]);
+      }
+      if (postCount <= 5) {
+        return sseResponse([
+          { type: "text", text: `Section ${postCount} of the review.` },
+          { type: "loop_limit", maxIterations: 400 },
+        ]);
+      }
+      return sseResponse([
+        { type: "text", text: "Review done." },
+        { type: "done" },
+      ]);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-loop-limit-preparing",
+      threadId: "thread-loop-limit-preparing",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          { role: "user", content: [{ type: "text", text: "review this" }] },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(120_000);
+    const results = await promise;
+
+    expect(postCount).toBe(6);
+    const last = results.at(-1) as any;
+    const text = JSON.stringify(last.content);
+    expect(text).toContain("Review done.");
+    expect(text).not.toContain("stuck preparing");
+  });
+
   it("replays a failed prior-turn tool call as a failure, not a success", async () => {
     // "I tried something repeatedly and it repeatedly failed": without
     // `isError` the next turn sees the failed call as an ordinary result whose
@@ -2054,6 +2194,46 @@ describe("createAgentChatAdapter", () => {
 
     const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
     expect(JSON.stringify(body.structuredHistory).length).toBeLessThan(400_000);
+  });
+
+  it("prices object tool results by what the request actually carries", async () => {
+    // Action results are objects, not strings. `String(result)` prices every
+    // one of them at 15 chars ("[object Object]"), so a turn of large object
+    // results again survived the trim while older prose was evicted for it.
+    const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-object-result-cost",
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "the original ask" }],
+          },
+          {
+            role: "assistant",
+            content: Array.from({ length: 6 }, (_, i) => ({
+              type: "tool-call",
+              toolCallId: `call-${i}`,
+              toolName: "query-rows",
+              args: { sql: "select 1" },
+              result: { rows: [{ col: "y".repeat(13_000) }] },
+            })),
+          },
+          { role: "user", content: [{ type: "text", text: "now do it" }] },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    const body = fetchSpy.mock.calls[0][1].body as string;
+    expect(body).toContain("now do it");
+    expect(body).not.toContain("the original ask");
   });
 
   it("preserves structured tool history when auto-continuing after a transient error", async () => {

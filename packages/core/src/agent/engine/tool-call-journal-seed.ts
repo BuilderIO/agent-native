@@ -47,6 +47,31 @@ export type PriorTurnToolCallJournalRead =
     }
   | { status: "unreadable"; error: string };
 
+const LEDGER_READ_RETRY_MS = 250;
+
+/**
+ * `unreadable` ends the turn with a stop the user sees, so a single pool
+ * timeout or connection blip must not produce one. One retry, because the
+ * failures worth surviving are transient and the caller is holding the whole
+ * turn open while we wait.
+ */
+async function readCurrentTurnEventsWithRetry(
+  threadId: string,
+  turnId?: string,
+): Promise<AgentChatEvent[]> {
+  try {
+    return await getCurrentTurnEventsForThread(threadId, turnId);
+  } catch (err) {
+    console.warn(
+      `[tool-call-journal] per-turn ledger read failed for thread ${threadId}, retrying once: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+    await new Promise((resolve) => setTimeout(resolve, LEDGER_READ_RETRY_MS));
+    return await getCurrentTurnEventsForThread(threadId, turnId);
+  }
+}
+
 /**
  * Tool-call journal hard-block (resume safety). Snapshot the per-turn journal
  * ONCE here, before any tool runs in this chunk, so it reflects only PRIOR
@@ -83,7 +108,7 @@ export async function loadPriorTurnToolCallJournal(
   }
   let priorEvents: AgentChatEvent[];
   try {
-    priorEvents = await getCurrentTurnEventsForThread(threadId, turnId);
+    priorEvents = await readCurrentTurnEventsWithRetry(threadId, turnId);
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
     console.warn(

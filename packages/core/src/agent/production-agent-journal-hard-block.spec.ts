@@ -580,6 +580,39 @@ describe("tool-call journal hard-block", () => {
     );
   });
 
+  // One pool timeout is not an unreadable ledger. Without the retry, a single
+  // blip ended the turn before its first iteration with a stop the user sees
+  // and the client will not auto-continue.
+  it("survives a single ledger read blip on a continuation", async () => {
+    currentTurnEventsMock
+      .mockRejectedValueOnce(new Error("neon: connection lost"))
+      .mockResolvedValue([]);
+    const action = makeWriteAction();
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine: singleToolEngine("send-email", { to: "a@b.com" }),
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [
+        {
+          role: "user",
+          content: [{ type: "text", text: AGENT_INTERNAL_CONTINUE_PROMPT }],
+        },
+      ],
+      actions: { "send-email": action },
+      send: (e) => events.push(e),
+      signal: new AbortController().signal,
+      threadId: "thread-ledger-blip",
+    });
+
+    expect(action.run).toHaveBeenCalledOnce();
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ errorCode: "tool_call_journal_unreadable" }),
+    );
+  });
+
   it("runs a FRESH turn normally when the ledger read fails", async () => {
     currentTurnEventsMock.mockRejectedValue(new Error("neon: connection lost"));
     const action = makeWriteAction();

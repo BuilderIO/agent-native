@@ -12,6 +12,7 @@ import { ANALYTICS_CONNECTOR_CATALOG } from "../lib/analytics-connector-catalog"
 import { credentialProviderConfigs } from "../lib/credential-keys";
 import { isProductionServerlessRuntime } from "../lib/production-serverless-runtime.js";
 import {
+  deriveGroundingActionNames,
   draftClaimsAnalyticsMetrics,
   failedDataQueryAttemptMessage,
   hasDashboardConstructionAttempt,
@@ -35,21 +36,7 @@ import {
 // Which actions return real data-source evidence is a fact each action states
 // on itself (`grounding: true`). Reading it off the definitions here is what
 // keeps the response guard from drifting behind a newly shipped source action.
-registerGroundingActions(
-  Object.entries(actionsRegistry)
-    .filter(([, module]) => {
-      // Action modules reach the registry either as the module namespace or as
-      // an already-unwrapped definition, the same two shapes
-      // `loadActionsFromStaticRegistry` normalizes.
-      const candidate = module as
-        | { grounding?: boolean; default?: { grounding?: boolean } }
-        | undefined;
-      return (
-        candidate?.grounding === true || candidate?.default?.grounding === true
-      );
-    })
-    .map(([name]) => name),
-);
+registerGroundingActions(deriveGroundingActionNames(actionsRegistry));
 
 const ANALYTICS_BACKGROUND_RUN_SOFT_TIMEOUT_MS = 13 * 60_000;
 // A background job may legitimately spend minutes inside a provider/tool call,
