@@ -512,6 +512,9 @@ const messages = {
     noAi: "无 AI",
     duplicateCurrentSlide: "复制当前幻灯片",
     promptPlaceholder: "描述你想要的幻灯片...",
+    newSlide: "새 슬라이드",
+    closeAddSlides: "닫기",
+    describeThisSlide: "이 슬라이드를 설명하세요",
   },
   presentation: {
     loadFailed: "이 프레젠테이션을 불러오지 못했습니다.",

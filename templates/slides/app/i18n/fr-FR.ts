@@ -534,6 +534,9 @@ const messages = {
     noAi: "sin AI",
     duplicateCurrentSlide: "Duplicar diapositiva actual",
     promptPlaceholder: "Describe las diapositivas que quieres...",
+    newSlide: "Nouvelle diapositive",
+    closeAddSlides: "Fermer",
+    describeThisSlide: "Décrivez cette diapositive",
   },
   presentation: {
     loadFailed: "Impossible de charger cette présentation.",

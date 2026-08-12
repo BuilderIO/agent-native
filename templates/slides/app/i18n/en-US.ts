@@ -519,6 +519,9 @@ const messages = {
     noAi: "no AI",
     duplicateCurrentSlide: "Duplicate current slide",
     promptPlaceholder: "Describe the slides you want...",
+    newSlide: "New slide",
+    closeAddSlides: "Close",
+    describeThisSlide: "Describe this slide",
   },
   presentation: {
     loadFailed: "Could not load this presentation.",

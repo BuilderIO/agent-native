@@ -531,6 +531,9 @@ const messages = {
     noAi: "sin AI",
     duplicateCurrentSlide: "Duplicar diapositiva actual",
     promptPlaceholder: "Describe las diapositivas que quieres...",
+    newSlide: "شريحة جديدة",
+    closeAddSlides: "إغلاق",
+    describeThisSlide: "صف هذه الشريحة",
   },
   presentation: {
     loadFailed: "تعذّر تحميل هذا العرض التقديمي.",

@@ -507,6 +507,9 @@ const messages = {
     noAi: "无 AI",
     duplicateCurrentSlide: "复制当前幻灯片",
     promptPlaceholder: "描述你想要的幻灯片...",
+    newSlide: "新建幻灯片",
+    closeAddSlides: "关闭",
+    describeThisSlide: "描述这张幻灯片",
   },
   presentation: {
     loadFailed: "无法加载此演示文稿。",

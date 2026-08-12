@@ -757,6 +757,54 @@ export default function DeckEditor() {
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [deck, id, activeSlideId, deleteSlideWithUndo, pinMode, drawMode]);
 
+  // Command/Ctrl+C then Command/Ctrl+V on the slide rail duplicates the
+  // selected slide directly below itself. Only claims the shortcut when no
+  // slide element is selected — SlideEditor owns Cmd+C/V for object copy/paste
+  // in that case.
+  const copiedSlideIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!deck || !id || !canEdit) return;
+      if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
+      const key = e.key.toLowerCase();
+      if (key !== "c" && key !== "v") return;
+      if (pinMode || drawMode) return;
+
+      const isInsideSafeZone = (el: Element | null) => {
+        if (!el) return false;
+        if (el instanceof HTMLInputElement) return true;
+        if (el instanceof HTMLTextAreaElement) return true;
+        if (el instanceof HTMLElement) {
+          if (el.isContentEditable) return true;
+          if (el.closest("[contenteditable='true']")) return true;
+          if (el.closest("input, textarea, [role='textbox']")) return true;
+          if (el.closest("[data-pin-popover]")) return true;
+          if (el.closest(".agent-panel-root")) return true;
+        }
+        return false;
+      };
+      if (isInsideSafeZone(e.target as Element | null)) return;
+      if (isInsideSafeZone(document.activeElement)) return;
+      if (document.querySelector("[data-pin-popover]")) return;
+      if (document.querySelector("[data-slide-element-selected='true']"))
+        return;
+
+      if (key === "c") {
+        if (!activeSlideId) return;
+        copiedSlideIdRef.current = activeSlideId;
+        return;
+      }
+
+      const copiedId = copiedSlideIdRef.current;
+      if (!copiedId || !deck.slides.some((s) => s.id === copiedId)) return;
+      e.preventDefault();
+      const newId = duplicateSlide(id, copiedId);
+      if (newId) setActiveSlideId(newId);
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [deck, id, canEdit, activeSlideId, duplicateSlide, pinMode, drawMode]);
+
   // Resolve the active slide from URL/deck state. Imports replace slide IDs, so
   // keep this valid after deck contents change instead of only on first load.
   // Track the last URL ?slide param we processed so we can tell "the URL changed
@@ -989,9 +1037,9 @@ export default function DeckEditor() {
 
   const handleAddEmptySlide = () => {
     const activeIdx = deck.slides.findIndex((s) => s.id === activeSlideId);
-    setActiveSlideId(
-      addSlide(id, "blank", activeIdx >= 0 ? activeIdx : undefined),
-    );
+    const newId = addSlide(id, "blank", activeIdx >= 0 ? activeIdx : undefined);
+    setActiveSlideId(newId);
+    return newId;
   };
 
   return (
@@ -1006,7 +1054,6 @@ export default function DeckEditor() {
         deckTitle={deck.title}
         canEdit={canEdit}
         onTitleChange={(title) => updateDeck(id, { title })}
-        slideCount={deck.slides.length}
         currentSlideIndex={currentIndex >= 0 ? currentIndex : 0}
         sidebarOpen={sidebarOpen}
         onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
@@ -1092,13 +1139,6 @@ export default function DeckEditor() {
           }
           return exportDeckToGoogleSlides(deck.title, slides, deck.aspectRatio);
         }}
-        currentSlideId={currentSlide?.id}
-        addSlideGenerating={addSlideGenerating}
-        onAddSlideGeneratingChange={setAddSlideGenerating}
-        onAddEmptySlide={handleAddEmptySlide}
-        onDuplicateCurrentSlide={
-          currentSlide ? () => duplicateSlide(id, currentSlide.id) : undefined
-        }
       />
 
       {/* Full-width host for the slide's contextual style toolbar: it spans the
@@ -1126,6 +1166,10 @@ export default function DeckEditor() {
                   slides={deck.slides}
                   activeSlideId={currentSlide?.id || ""}
                   deckId={id}
+                  deckTitle={deck.title}
+                  onAddEmptySlide={canEdit ? handleAddEmptySlide : undefined}
+                  addSlideGenerating={addSlideGenerating}
+                  onAddSlideGeneratingChange={setAddSlideGenerating}
                   onSelectSlide={(slideId) => {
                     setGeneratingSlideSelected(false);
                     setActiveSlideId(slideId);
@@ -1204,17 +1248,6 @@ export default function DeckEditor() {
             contextToolbarLeading={
               canEdit ? (
                 <EditorActionCluster
-                  deckId={id}
-                  deckTitle={deck.title}
-                  currentSlideId={currentSlide.id}
-                  slideCount={deck.slides.length}
-                  currentSlideIndex={currentIndex >= 0 ? currentIndex : 0}
-                  addSlideGenerating={addSlideGenerating}
-                  onAddSlideGeneratingChange={setAddSlideGenerating}
-                  onAddEmptySlide={handleAddEmptySlide}
-                  onDuplicateCurrentSlide={() =>
-                    duplicateSlide(id, currentSlide.id)
-                  }
                   textBoxMode={textBoxMode}
                   onToggleTextBoxMode={toggleTextBoxMode}
                 />

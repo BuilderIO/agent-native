@@ -515,6 +515,9 @@ const messages = {
     noAi: "无 AI",
     duplicateCurrentSlide: "复制当前幻灯片",
     promptPlaceholder: "描述你想要的幻灯片...",
+    newSlide: "新しいスライド",
+    closeAddSlides: "閉じる",
+    describeThisSlide: "このスライドを説明してください",
   },
   presentation: {
     loadFailed: "このプレゼンテーションを読み込めませんでした。",

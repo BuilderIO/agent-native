@@ -75,7 +75,6 @@ interface EditorToolbarProps {
    *  Defaults to true for backward compatibility. */
   canEdit?: boolean;
   onTitleChange: (title: string) => void;
-  slideCount: number;
   currentSlideIndex: number;
   sidebarOpen: boolean;
   onToggleSidebar: () => void;
@@ -128,16 +127,6 @@ interface EditorToolbarProps {
   onExportPptx?: () => Promise<void> | void;
   /** Create the deck in the user's Google Drive as native Google Slides */
   onExportGoogleSlides?: () => Promise<GoogleSlidesExportResult>;
-  /** Insert a blank slide after the current one */
-  onAddEmptySlide?: () => void;
-  /** Duplicate the current slide */
-  onDuplicateCurrentSlide?: () => void;
-  /** Id of the current slide, so an agent add-slide lands in the right place */
-  currentSlideId?: string;
-  /** True while an agent add-slide request is in flight */
-  addSlideGenerating?: boolean;
-  /** Called when an agent add-slide request is submitted */
-  onAddSlideGeneratingChange?: (generating: boolean) => void;
 }
 
 const TOOLBAR_ICON_BUTTON_CLASS =
@@ -148,7 +137,6 @@ export default function EditorToolbar({
   deckId,
   deckTitle,
   onTitleChange,
-  slideCount,
   currentSlideIndex,
   sidebarOpen,
   onToggleSidebar,
@@ -179,11 +167,6 @@ export default function EditorToolbar({
   onExportPdf,
   onExportPptx,
   onExportGoogleSlides,
-  onAddEmptySlide,
-  onDuplicateCurrentSlide,
-  currentSlideId,
-  addSlideGenerating = false,
-  onAddSlideGeneratingChange,
   canEdit = true,
 }: EditorToolbarProps) {
   const t = useT();
@@ -557,21 +540,12 @@ export default function EditorToolbar({
         <TooltipContent>{t("editorToolbar.toggleSlideList")}</TooltipContent>
       </Tooltip>
 
-      {/* Add slide and the text-box tool live at the head of the contextual
-       * toolbar below. That row is desktop-only and needs a slide to mount on,
-       * so keep a fallback here for narrow screens and empty decks. */}
+      {/* The text-box tool lives at the head of the contextual toolbar below.
+       * That row is desktop-only, so keep a fallback here for narrow screens
+       * and empty decks. */}
       {canEdit && (
         <EditorActionCluster
           className={contextToolbarVisible ? "lg:hidden" : undefined}
-          deckId={deckId}
-          deckTitle={deckTitle}
-          currentSlideId={currentSlideId}
-          slideCount={slideCount}
-          currentSlideIndex={currentSlideIndex}
-          addSlideGenerating={addSlideGenerating}
-          onAddSlideGeneratingChange={onAddSlideGeneratingChange}
-          onAddEmptySlide={onAddEmptySlide}
-          onDuplicateCurrentSlide={onDuplicateCurrentSlide}
           textBoxMode={textBoxMode}
           onToggleTextBoxMode={onToggleTextBoxMode}
         />

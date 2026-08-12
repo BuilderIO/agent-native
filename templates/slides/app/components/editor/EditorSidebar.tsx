@@ -17,19 +17,23 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import { hashSlideContent, type DeckFitState } from "@shared/slide-fit";
-import { useRef, useEffect } from "react";
+import { IconPlus } from "@tabler/icons-react";
+import { useRef, useEffect, useState } from "react";
 import { useCallback } from "react";
 
 import SlideRenderer from "@/components/deck/SlideRenderer";
 import type { SlideOverflowInfo } from "@/components/deck/SlideRenderer";
+import { AddSlidePopover } from "@/components/editor/AddSlidePopover";
 import { AiEditingMarker } from "@/components/editor/AiEditingMarker";
 import GeneratingSlidePreview from "@/components/editor/GeneratingSlidePreview";
+import { Button } from "@/components/ui/button";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import type { Slide } from "@/context/DeckContext";
+import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import { getAspectRatioDims, type AspectRatio } from "@/lib/aspect-ratios";
 import { TAB_ID } from "@/lib/tab-id";
 
@@ -39,6 +43,7 @@ interface EditorSidebarProps {
   slides: Slide[];
   activeSlideId: string;
   deckId: string;
+  deckTitle: string;
   onSelectSlide: (id: string) => void;
   /** Viewer-role decks get thumbnails only: no add, duplicate, or delete. */
   readOnly?: boolean;
@@ -54,6 +59,11 @@ interface EditorSidebarProps {
   generatingSlide?: { index: number };
   generatingSlideSelected?: boolean;
   onSelectGeneratingSlide?: () => void;
+  /** Inserts a blank slide directly below the active slide and returns its id. */
+  onAddEmptySlide?: () => string | undefined;
+  /** True while an agent add-slide request is in flight. */
+  addSlideGenerating?: boolean;
+  onAddSlideGeneratingChange?: (generating: boolean) => void;
 }
 
 const DECK_FIT_STATE_KEYS = [
@@ -307,6 +317,7 @@ export default function EditorSidebar({
   slides,
   activeSlideId,
   deckId,
+  deckTitle,
   onSelectSlide,
   readOnly = false,
   slidePresence,
@@ -316,7 +327,15 @@ export default function EditorSidebar({
   generatingSlide,
   generatingSlideSelected = false,
   onSelectGeneratingSlide,
+  onAddEmptySlide,
+  addSlideGenerating = false,
+  onAddSlideGeneratingChange,
 }: EditorSidebarProps) {
+  const t = useT();
+  const { submit: agentSubmit } = useAgentGenerating();
+  const [describeSlideId, setDescribeSlideId] = useState<string | null>(null);
+  const [describeAnchorEl, setDescribeAnchorEl] =
+    useState<HTMLButtonElement | null>(null);
   const slideButtonRefs = useRef(new Map<string, HTMLButtonElement>());
   const measurementsRef = useRef(
     new Map<
@@ -392,6 +411,11 @@ export default function EditorSidebar({
   }, [deckId, aspectRatio]);
 
   useEffect(() => {
+    setDescribeSlideId(null);
+    setDescribeAnchorEl(null);
+  }, [deckId]);
+
+  useEffect(() => {
     return () => {
       if (writeTimerRef.current) clearTimeout(writeTimerRef.current);
       for (const key of DECK_FIT_STATE_KEYS) {
@@ -411,9 +435,26 @@ export default function EditorSidebar({
       } else {
         slideButtonRefs.current.delete(slideId);
       }
+      // The new-slide prompt anchors to the just-created slide's thumbnail,
+      // which doesn't exist yet at click time — pick it up as soon as it mounts.
+      if (node && slideId === describeSlideId) {
+        setDescribeAnchorEl(node);
+      }
     },
-    [],
+    [describeSlideId],
   );
+
+  const handleNewSlideClick = useCallback(() => {
+    const newId = onAddEmptySlide?.();
+    if (newId) {
+      setDescribeAnchorEl(null);
+      setDescribeSlideId(newId);
+    }
+  }, [onAddEmptySlide]);
+
+  const describeSlideIndex = describeSlideId
+    ? slides.findIndex((s) => s.id === describeSlideId)
+    : -1;
 
   // Arrow key navigation for slides
   useEffect(() => {
@@ -454,6 +495,21 @@ export default function EditorSidebar({
 
   return (
     <div className="flex h-full min-h-0 w-48 flex-shrink-0 flex-col bg-background sm:w-52">
+      {!readOnly && onAddEmptySlide && (
+        <div className="shrink-0 p-2 pb-0">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="w-full justify-center gap-1.5"
+            onClick={handleNewSlideClick}
+            disabled={addSlideGenerating}
+          >
+            <IconPlus className="size-4" />
+            {t("editorSidebar.newSlide")}
+          </Button>
+        </div>
+      )}
       <div className="relative min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain p-2">
         <SortableContext
           items={slides.map((s) => s.id)}
@@ -488,6 +544,29 @@ export default function EditorSidebar({
           />
         )}
       </div>
+      {describeSlideId && describeSlideIndex !== -1 && describeAnchorEl && (
+        <AddSlidePopover
+          open
+          onOpenChange={(open) => {
+            if (!open) {
+              setDescribeSlideId(null);
+              setDescribeAnchorEl(null);
+            }
+          }}
+          anchorRef={{ current: describeAnchorEl }}
+          placement="right"
+          deckId={deckId}
+          deckTitle={deckTitle}
+          activeSlideId={describeSlideId}
+          activeSlideIndex={describeSlideIndex}
+          slideCount={slides.length}
+          targetSlideId={describeSlideId}
+          agentSubmit={(message, context) => {
+            onAddSlideGeneratingChange?.(true);
+            agentSubmit(message, context);
+          }}
+        />
+      )}
     </div>
   );
 }

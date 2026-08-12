@@ -514,6 +514,9 @@ const messages = {
     noAi: "AI नहीं",
     duplicateCurrentSlide: "वर्तमान स्लाइड डुप्लिकेट करें",
     promptPlaceholder: "बताएं कि आपको कैसी स्लाइड चाहिए...",
+    newSlide: "नई स्लाइड",
+    closeAddSlides: "बंद करें",
+    describeThisSlide: "इस स्लाइड का वर्णन करें",
   },
   presentation: {
     loadFailed: "यह प्रस्तुति लोड नहीं हो सकी।",

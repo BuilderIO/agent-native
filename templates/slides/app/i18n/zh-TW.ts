@@ -502,6 +502,9 @@ const messages = {
     noAi: "無 AI",
     duplicateCurrentSlide: "複製目前幻燈片",
     promptPlaceholder: "描述你想要的幻燈片...",
+    newSlide: "新增投影片",
+    closeAddSlides: "關閉",
+    describeThisSlide: "描述這張投影片",
   },
   presentation: {
     loadFailed: "無法載入此簡報。",

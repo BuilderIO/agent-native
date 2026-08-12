@@ -526,6 +526,9 @@ const messages = {
     noAi: "sin AI",
     duplicateCurrentSlide: "Duplicar diapositiva actual",
     promptPlaceholder: "Describe las diapositivas que quieres...",
+    newSlide: "Neue Folie",
+    closeAddSlides: "Schließen",
+    describeThisSlide: "Beschreibe diese Folie",
   },
   presentation: {
     loadFailed: "Diese Präsentation konnte nicht geladen werden.",

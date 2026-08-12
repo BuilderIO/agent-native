@@ -100,7 +100,6 @@ describe("<EditorToolbar>", () => {
           deckId="deck-1"
           deckTitle="Test deck"
           onTitleChange={vi.fn()}
-          slideCount={0}
           currentSlideIndex={0}
           sidebarOpen={true}
           onToggleSidebar={vi.fn()}
