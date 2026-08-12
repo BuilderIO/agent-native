@@ -41,32 +41,80 @@ export async function lockPrimaryBlocksFields(
   db: ContentDb,
   documentId: string,
 ): Promise<PrimaryBlocksField[]> {
-  const memberships = await db
-    .select({ id: schema.contentDatabaseItems.id })
-    .from(schema.contentDatabaseItems)
-    .where(eq(schema.contentDatabaseItems.documentId, documentId));
+  return (
+    (await lockPrimaryBlocksFieldsForDocuments(db, [documentId])).get(
+      documentId,
+    ) ?? []
+  );
+}
+
+export async function lockPrimaryBlocksFieldsForDocuments(
+  db: ContentDb,
+  documentIds: string[],
+): Promise<Map<string, PrimaryBlocksField[]>> {
+  const uniqueDocumentIds = [...new Set(documentIds)];
+  const memberships: Array<{
+    id: string;
+    documentId: string;
+  }> = [];
+  for (const documentIdGroup of groups(uniqueDocumentIds, 90)) {
+    memberships.push(
+      ...(await db
+        .select({
+          id: schema.contentDatabaseItems.id,
+          documentId: schema.contentDatabaseItems.documentId,
+        })
+        .from(schema.contentDatabaseItems)
+        .where(
+          inArray(schema.contentDatabaseItems.documentId, documentIdGroup),
+        )),
+    );
+  }
   const membershipIds = memberships.map((membership) => membership.id);
   await lockDatabaseMemberships(db, membershipIds);
-  if (membershipIds.length === 0) return [];
+  if (membershipIds.length === 0) return new Map();
 
-  const fields = await db
-    .select({
-      propertyId: schema.contentDatabases.primaryBlocksPropertyId,
-      ownerEmail: schema.contentDatabases.ownerEmail,
-    })
-    .from(schema.contentDatabaseItems)
-    .innerJoin(
-      schema.contentDatabases,
-      eq(schema.contentDatabases.id, schema.contentDatabaseItems.databaseId),
-    )
-    .where(inArray(schema.contentDatabaseItems.id, membershipIds));
-  return [
-    ...new Map(
-      fields.flatMap((field) =>
-        field.propertyId ? [[field.propertyId, field.ownerEmail] as const] : [],
-      ),
-    ),
-  ].map(([propertyId, ownerEmail]) => ({ propertyId, ownerEmail }));
+  const fields: Array<{
+    documentId: string;
+    propertyId: string | null;
+    ownerEmail: string;
+  }> = [];
+  for (const membershipIdGroup of groups(membershipIds, 90)) {
+    fields.push(
+      ...(await db
+        .select({
+          documentId: schema.contentDatabaseItems.documentId,
+          propertyId: schema.contentDatabases.primaryBlocksPropertyId,
+          ownerEmail: schema.contentDatabases.ownerEmail,
+        })
+        .from(schema.contentDatabaseItems)
+        .innerJoin(
+          schema.contentDatabases,
+          eq(
+            schema.contentDatabases.id,
+            schema.contentDatabaseItems.databaseId,
+          ),
+        )
+        .where(inArray(schema.contentDatabaseItems.id, membershipIdGroup))),
+    );
+  }
+  const fieldsByDocument = new Map<string, Map<string, string>>();
+  for (const field of fields) {
+    if (!field.propertyId) continue;
+    const documentFields =
+      fieldsByDocument.get(field.documentId) ?? new Map<string, string>();
+    documentFields.set(field.propertyId, field.ownerEmail);
+    fieldsByDocument.set(field.documentId, documentFields);
+  }
+  return new Map(
+    [...fieldsByDocument].map(([id, documentFields]) => [
+      id,
+      [...documentFields].map(([propertyId, ownerEmail]) => ({
+        propertyId,
+        ownerEmail,
+      })),
+    ]),
+  );
 }
 
 async function loadStoredIdentity(

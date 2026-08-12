@@ -49,6 +49,7 @@ let getDocumentAction: typeof import("./get-document.js").default;
 let configureDocumentPropertyAction: typeof import("./configure-document-property.js").default;
 let addDatabaseItemAction: typeof import("./add-database-item.js").default;
 let removeDatabaseItemsAction: typeof import("./remove-database-items.js").default;
+let deleteDocumentPropertyAction: typeof import("./delete-document-property.js").default;
 
 const OWNER = "owner@example.com";
 
@@ -77,6 +78,8 @@ beforeAll(async () => {
   ).default;
   addDatabaseItemAction = (await import("./add-database-item.js")).default;
   removeDatabaseItemsAction = (await import("./remove-database-items.js"))
+    .default;
+  deleteDocumentPropertyAction = (await import("./delete-document-property.js"))
     .default;
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as any);
@@ -995,6 +998,84 @@ describe("database Blocks field identity sidecar", () => {
     expect(afterRemoval).toEqual([
       expect.objectContaining({ propertyId: secondPropertyId, revision: 3 }),
     ]);
+  });
+
+  it("preserves a shared body and surviving identity when one primary property is deleted", async () => {
+    const first = await createDatabaseRow();
+    const second = await createDatabaseRow();
+    const db = getDb();
+    const now = new Date().toISOString();
+    const firstPropertyId = await propertyUtils.seedDefaultBlocksField({
+      databaseId: first.databaseId,
+      ownerEmail: OWNER,
+      orgId: null,
+      now,
+    });
+    const secondPropertyId = await propertyUtils.seedDefaultBlocksField({
+      databaseId: second.databaseId,
+      ownerEmail: OWNER,
+      orgId: null,
+      now,
+    });
+    const rowDocumentId = `delete_shared_primary_${counter}`;
+    await db.insert(schema.documents).values({
+      id: rowDocumentId,
+      ownerEmail: OWNER,
+      title: "Shared row",
+      content: "Before",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.contentDatabaseItems).values([
+      {
+        id: `delete_first_${counter}`,
+        ownerEmail: OWNER,
+        databaseId: first.databaseId,
+        documentId: rowDocumentId,
+        position: 0,
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: `delete_second_${counter}`,
+        ownerEmail: OWNER,
+        databaseId: second.databaseId,
+        documentId: rowDocumentId,
+        position: 0,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      updateDocumentAction.run({ id: rowDocumentId, content: "Shared body" }),
+    );
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      deleteDocumentPropertyAction.run({
+        documentId: rowDocumentId,
+        databaseId: first.databaseId,
+        propertyId: firstPropertyId,
+      }),
+    );
+
+    const [rowDocument] = await db
+      .select({ content: schema.documents.content })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, rowDocumentId));
+    expect(rowDocument?.content).toBe("Shared body");
+    const identities = await db
+      .select()
+      .from(schema.documentBlockFields)
+      .where(eq(schema.documentBlockFields.documentId, rowDocumentId));
+    expect(identities).toEqual([
+      expect.objectContaining({ propertyId: secondPropertyId, revision: 1 }),
+    ]);
+    const surviving = await identityUtils.readBlocksFieldIdentity({
+      documentId: rowDocumentId,
+      propertyId: secondPropertyId,
+      markdown: "Shared body",
+    });
+    expect(surviving.identityStatus).toBe("materialized");
   });
 });
 
