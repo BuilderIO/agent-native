@@ -154,6 +154,7 @@ export default defineAction({
       access.role === "owner" ||
       access.role === "admin" ||
       access.role === "editor";
+    const canCommentRecording = canEditRecording || access.role === "commenter";
     // This action is on a 1-3s poll from the player, so every read here shares
     // one Promise.all instead of adding serial round-trips.
     const [
@@ -306,6 +307,7 @@ export default defineAction({
 
     return {
       role: access.role,
+      canComment: canCommentRecording,
       viewCount,
       agentViewCount,
       recording: {

@@ -1055,6 +1055,7 @@ export default function DeckEditor() {
         deckId={id}
         deckTitle={deck.title}
         canEdit={canEdit}
+        canComment={canComment}
         onTitleChange={(title) => updateDeck(id, { title })}
         slideCount={deck.slides.length}
         currentSlideIndex={currentIndex >= 0 ? currentIndex : 0}

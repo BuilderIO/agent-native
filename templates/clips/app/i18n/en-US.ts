@@ -509,7 +509,7 @@ const messages = {
       editor: "Editor",
       admin: "Admin",
     },
-    recordingViewer: {
+    recordingCommenter: {
       label: "Commenter",
       description: "Can view, comment, and react",
     },

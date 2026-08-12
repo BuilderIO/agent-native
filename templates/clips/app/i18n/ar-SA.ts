@@ -514,7 +514,7 @@ const messages = {
       editor: "محرر",
       admin: "مسؤول",
     },
-    recordingViewer: {
+    recordingCommenter: {
       label: "معلّق",
       description: "يمكنه العرض والتعليق والتفاعل",
     },

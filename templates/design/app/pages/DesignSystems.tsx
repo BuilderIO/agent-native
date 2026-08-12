@@ -503,14 +503,8 @@ export default function DesignSystems() {
                   </div>
                 </div>
               ) : null}
-              <section aria-labelledby="your-design-systems-heading">
-                <h2
-                  id="your-design-systems-heading"
-                  className="mb-4 text-base font-semibold text-foreground"
-                >
-                  {t("designSystems.yoursTitle")}
-                </h2>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              <section aria-label={t("designSystems.yoursTitle")}>
+                <div className="grid grid-cols-[repeat(auto-fit,minmax(230px,1fr))] gap-3">
                   {/* New design system card */}
                   <Link
                     to="/design-systems/setup"
@@ -521,13 +515,10 @@ export default function DesignSystems() {
                         <IconPlus className="w-6 h-6 text-muted-foreground/70 group-hover:text-muted-foreground" />
                       </div>
                     </div>
-                    <div className="p-4">
+                    <div className="p-3">
                       <h3 className="font-medium text-sm text-muted-foreground group-hover:text-foreground/70">
                         {t("designSystems.actions.new")}
                       </h3>
-                      <div className="text-xs text-muted-foreground/70 mt-1">
-                        {t("designSystems.newCardDescription")}
-                      </div>
                     </div>
                   </Link>
 
@@ -1207,7 +1198,7 @@ function LoadingSkeleton() {
         <div className="h-5 w-40 rounded-md bg-muted animate-pulse" />
         <div className="h-3 w-16 rounded bg-muted animate-pulse" />
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                <div className="grid grid-cols-[repeat(auto-fit,minmax(230px,1fr))] gap-3">
         {Array.from({ length: 4 }).map((_, i) => (
           <div
             key={i}

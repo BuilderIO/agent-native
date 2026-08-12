@@ -493,7 +493,7 @@ const messages = {
       editor: "编辑",
       admin: "行政",
     },
-    recordingViewer: {
+    recordingCommenter: {
       label: "评论者",
       description: "可以查看、评论和回应",
     },

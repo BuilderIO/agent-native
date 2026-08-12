@@ -2267,14 +2267,17 @@ function tarExtractArgs(
   options: {
     skipAgentSymlinks?: boolean;
     untrustedCommunityArchive?: boolean;
+    additionalExcludes?: string[];
   } = {},
 ): string[] {
-  const excludes = options.skipAgentSymlinks
-    ? FIRST_PARTY_TARBALL_SYMLINK_EXCLUDES.flatMap((pattern) => [
-        "--exclude",
-        pattern,
-      ])
-    : [];
+  const excludePatterns = [
+    ...(options.skipAgentSymlinks ? FIRST_PARTY_TARBALL_SYMLINK_EXCLUDES : []),
+    ...(options.additionalExcludes ?? []),
+  ];
+  const excludes = [...new Set(excludePatterns)].flatMap((pattern) => [
+    "--exclude",
+    pattern,
+  ]);
   const safeOwnership = options.untrustedCommunityArchive
     ? ["--no-same-owner", "--no-same-permissions"]
     : [];
@@ -2287,6 +2290,112 @@ function tarExtractArgs(
     "-C",
     destDir,
   ];
+}
+
+interface ArchiveSymlink {
+  archivePath: string;
+  target: string;
+}
+
+function archiveSymlinksForExtraction(tarPath: string): ArchiveSymlink[] {
+  const listing = execFileSync("tar", ["tvzf", tarPath], {
+    encoding: "utf-8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  return listing.split(/\r?\n/).flatMap((line) => {
+    if (!line.startsWith("l")) return [];
+    const match = line.match(/\s(\S+)\s+->\s+(\S+)\s*$/);
+    return match
+      ? [{ archivePath: match[1]!, target: match[2]! }]
+      : [];
+  });
+}
+
+function archivePathAfterStrip(archivePath: string): string {
+  const parts = archivePath.split("/");
+  return parts.length > 1 ? parts.slice(1).join("/") : archivePath;
+}
+
+function isPathWithin(root: string, candidate: string): boolean {
+  const relative = path.relative(root, candidate);
+  return (
+    relative === "" ||
+    (!relative.startsWith(`..${path.sep}`) &&
+      relative !== ".." &&
+      !path.isAbsolute(relative))
+  );
+}
+
+function materializeArchiveSymlinks(
+  destDir: string,
+  symlinks: ArchiveSymlink[],
+): void {
+  const links = new Map(
+    symlinks.map((link) => [archivePathAfterStrip(link.archivePath), link]),
+  );
+  const active = new Set<string>();
+
+  const materialize = (relativeLinkPath: string): void => {
+    const link = links.get(relativeLinkPath);
+    if (!link) return;
+    if (active.has(relativeLinkPath)) {
+      throw new Error(
+        `Cannot materialize cyclic archive symlink "${relativeLinkPath}".`,
+      );
+    }
+
+    const linkPath = path.resolve(destDir, relativeLinkPath);
+    if (!isPathWithin(path.resolve(destDir), linkPath)) {
+      throw new Error(
+        `Cannot materialize archive symlink outside the extraction directory: "${relativeLinkPath}".`,
+      );
+    }
+    if (fs.existsSync(linkPath)) return;
+
+    const resolvedTarget = path.resolve(path.dirname(linkPath), link.target);
+    if (!isPathWithin(path.resolve(destDir), resolvedTarget)) {
+      throw new Error(
+        `Archive symlink "${relativeLinkPath}" points outside the extraction directory.`,
+      );
+    }
+
+    active.add(relativeLinkPath);
+    try {
+      const targetRelativePath = path.relative(
+        path.resolve(destDir),
+        resolvedTarget,
+      );
+      if (links.has(targetRelativePath) && !fs.existsSync(resolvedTarget)) {
+        materialize(targetRelativePath);
+      }
+      if (!fs.existsSync(resolvedTarget)) {
+        throw new Error(
+          `Archive symlink "${relativeLinkPath}" points to a missing target.`,
+        );
+      }
+
+      fs.mkdirSync(path.dirname(linkPath), { recursive: true });
+      const targetStat = fs.statSync(resolvedTarget);
+      if (targetStat.isDirectory()) {
+        copyDir(resolvedTarget, linkPath, undefined, {
+          materializeSymlinks: true,
+        });
+      } else {
+        fs.copyFileSync(resolvedTarget, linkPath);
+      }
+    } finally {
+      active.delete(relativeLinkPath);
+    }
+  };
+
+  // Resolve deeper links first so links such as `.claude/skills` see the
+  // regularized skill directories they point at.
+  for (const relativeLinkPath of [...links.keys()].sort(
+    (a, b) => b.length - a.length,
+  )) {
+    materialize(relativeLinkPath);
+  }
 }
 
 function execFileBuffer(
@@ -2345,9 +2454,23 @@ async function downloadAndExtract(
     if (options.untrustedCommunityArchive) {
       validateCommunityArchive(tarPath);
     }
-    execFileSync("tar", tarExtractArgs(tarPath, destDir, options), {
+    const symlinks =
+      options.skipAgentSymlinks || options.untrustedCommunityArchive
+        ? archiveSymlinksForExtraction(tarPath)
+        : [];
+    execFileSync(
+      "tar",
+      tarExtractArgs(tarPath, destDir, {
+        ...options,
+        additionalExcludes: symlinks.map((link) => link.archivePath),
+      }),
+      {
       stdio: "pipe",
-    });
+      },
+    );
+    if (symlinks.length > 0) {
+      materializeArchiveSymlinks(destDir, symlinks);
+    }
   } finally {
     fs.unlinkSync(tarPath);
   }
@@ -3777,7 +3900,7 @@ function copyDir(
   src: string,
   dest: string,
   root?: string,
-  opts?: { skipExisting?: boolean },
+  opts?: { skipExisting?: boolean; materializeSymlinks?: boolean },
 ): void {
   const resolvedRoot = root ?? path.resolve(src);
   const skipExisting = opts?.skipExisting ?? false;
@@ -3795,7 +3918,10 @@ function copyDir(
     if (entry.isSymbolicLink()) {
       const target = fs.readlinkSync(srcPath);
       const resolvedTarget = path.resolve(path.dirname(srcPath), target);
-      if (resolvedTarget.startsWith(resolvedRoot)) {
+      if (
+        !opts?.materializeSymlinks &&
+        isPathWithin(resolvedRoot, resolvedTarget)
+      ) {
         fs.symlinkSync(target, destPath);
       } else {
         try {

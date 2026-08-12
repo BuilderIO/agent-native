@@ -518,6 +518,7 @@ export default function ShareRoute() {
     | "owner"
     | "admin"
     | "editor"
+    | "commenter"
     | "viewer"
     | undefined;
   const viewerCanEdit =
@@ -525,6 +526,11 @@ export default function ShareRoute() {
     viewerRole === "owner" ||
     viewerRole === "admin" ||
     viewerRole === "editor";
+  const viewerCanComment =
+    viewerRole === "owner" ||
+    viewerRole === "admin" ||
+    viewerRole === "editor" ||
+    viewerRole === "commenter";
   const viewerIsOwner = Boolean(dataQ.data?.data?.viewer?.isOwner);
   const viewerCanOpenDashboard = Boolean(
     dataQ.data?.data?.viewer?.canOpenDashboard,
@@ -1048,6 +1054,7 @@ export default function ShareRoute() {
             <div className="flex max-w-full flex-col items-stretch gap-2 sm:items-end">
               {recording.enableReactions ? (
                 <ReactionsTray
+                  disabled={!viewerCanComment}
                   onReact={(emoji) => {
                     if (!session) {
                       requireSignIn("react");
@@ -1182,6 +1189,7 @@ export default function ShareRoute() {
               currentMs={currentMs}
               currentUserEmail={session?.email}
               enableComments={recording.enableComments}
+              canComment={viewerCanComment}
               onSeek={(ms) => playerRef.current?.seek(ms)}
               onUnauthenticated={requireSignIn}
               queryKey={[

@@ -74,6 +74,8 @@ interface EditorToolbarProps {
    *  edit affordances disabled, matching Google Slides' viewer experience.
    *  Defaults to true for backward compatibility. */
   canEdit?: boolean;
+  /** Whether the user may create and manage comments without editing slides. */
+  canComment?: boolean;
   onTitleChange: (title: string) => void;
   slideCount: number;
   currentSlideIndex: number;
@@ -185,6 +187,7 @@ export default function EditorToolbar({
   addSlideGenerating = false,
   onAddSlideGeneratingChange,
   canEdit = true,
+  canComment = canEdit,
 }: EditorToolbarProps) {
   const t = useT();
   // Public decks default to the read-only presentation URL so recipients do
@@ -385,17 +388,17 @@ export default function EditorToolbar({
           run: onToggleDrawMode,
         });
       }
-      if (onTogglePinMode) {
-        commands.push({
-          id: "pin-comments",
-          group: "slideTools",
-          label: t("editorToolbar.pinComments"),
-          keywords: ["comment", "pin"],
-          icon: IconPin,
-          active: pinMode,
-          run: onTogglePinMode,
-        });
-      }
+    }
+    if (canComment && onTogglePinMode) {
+      commands.push({
+        id: "pin-comments",
+        group: "slideTools",
+        label: t("editorToolbar.pinComments"),
+        keywords: ["comment", "pin"],
+        icon: IconPin,
+        active: pinMode,
+        run: onTogglePinMode,
+      });
     }
     if (onToggleComments) {
       commands.push({
@@ -498,6 +501,7 @@ export default function EditorToolbar({
     return commands;
   }, [
     animationsOpen,
+    canComment,
     canEdit,
     commentsOpen,
     currentSlide,
@@ -673,18 +677,16 @@ export default function EditorToolbar({
               </>
             )}
 
-            {canEdit &&
-              (onToggleAnimations ||
-                onToggleTweaks ||
-                onToggleDrawMode ||
-                onTogglePinMode) && (
+            {((canEdit &&
+              (onToggleAnimations || onToggleTweaks || onToggleDrawMode)) ||
+              (canComment && onTogglePinMode)) && (
                 <>
                   <DropdownMenuSeparator />
                   <DropdownMenuLabel>
                     {t("editorToolbar.slideTools")}
                   </DropdownMenuLabel>
                   <DropdownMenuGroup>
-                    {currentSlide && onToggleAnimations && (
+                    {canEdit && currentSlide && onToggleAnimations && (
                       <DropdownMenuItem
                         onSelect={onToggleAnimations}
                         className={
@@ -697,7 +699,7 @@ export default function EditorToolbar({
                         {t("editorToolbar.elementAnimations")}
                       </DropdownMenuItem>
                     )}
-                    {onToggleTweaks && (
+                    {canEdit && onToggleTweaks && (
                       <DropdownMenuItem
                         onSelect={onToggleTweaks}
                         className={
@@ -710,7 +712,7 @@ export default function EditorToolbar({
                         {t("editorToolbar.tweaks")}
                       </DropdownMenuItem>
                     )}
-                    {onToggleDrawMode && (
+                    {canEdit && onToggleDrawMode && (
                       <DropdownMenuItem
                         onSelect={onToggleDrawMode}
                         data-toolbar-draw-button
@@ -724,7 +726,7 @@ export default function EditorToolbar({
                         {t("editorToolbar.drawOnSlide")}
                       </DropdownMenuItem>
                     )}
-                    {onTogglePinMode && (
+                    {canComment && onTogglePinMode && (
                       <DropdownMenuItem
                         onSelect={onTogglePinMode}
                         data-toolbar-pin-button

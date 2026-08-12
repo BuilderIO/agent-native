@@ -1677,15 +1677,16 @@ export default function RecordingPage() {
                     {canComment ? (
                       <TimestampedCommentButton
                         enableComments={recording.enableComments}
-                      className="shrink-0"
-                      onOpen={() => {
-                        if (isCompactLayout) {
-                          openCommentsPanel();
-                          return;
-                        }
-                        setCommentAtMs(resolvePlaybackMs());
-                        setCommentOpen(true);
-                      }}
+                        canComment={canComment}
+                        className="shrink-0"
+                        onOpen={() => {
+                          if (isCompactLayout) {
+                            openCommentsPanel();
+                            return;
+                          }
+                          setCommentAtMs(resolvePlaybackMs());
+                          setCommentOpen(true);
+                        }}
                       />
                     ) : null}
                     {recording.enableReactions ? (

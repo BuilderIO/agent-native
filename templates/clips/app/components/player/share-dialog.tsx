@@ -60,7 +60,7 @@ export interface ShareRecordingPopoverProps {
   recordingId: string;
   recordingTitle?: string;
   initialVisibility?: Visibility | null;
-  initialRole?: "owner" | "admin" | "editor" | "viewer";
+  initialRole?: "owner" | "admin" | "editor" | "commenter" | "viewer";
   videoUrl?: string | null;
   thumbnailUrl?: string | null;
   animatedThumbnailUrl?: string | null;
@@ -184,7 +184,7 @@ function ShareRecordingContent({
   recordingId: string;
   recordingTitle?: string;
   initialVisibility?: Visibility | null;
-  initialRole?: "owner" | "admin" | "editor" | "viewer";
+  initialRole?: "owner" | "admin" | "editor" | "commenter" | "viewer";
   videoUrl?: string | null;
   thumbnailUrl?: string | null;
   animatedThumbnailUrl?: string | null;
@@ -275,8 +275,8 @@ function ShareRecordingContent({
             canManage={canManage}
             roleCopy={{
               commenter: {
-                label: t("shareUi.recordingViewer.label"),
-                description: t("shareUi.recordingViewer.description"),
+                label: t("shareUi.recordingCommenter.label"),
+                description: t("shareUi.recordingCommenter.description"),
               },
             }}
           />

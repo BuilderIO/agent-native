@@ -521,7 +521,7 @@ const messages = {
       editor: "Editor",
       admin: "Administrador",
     },
-    recordingViewer: {
+    recordingCommenter: {
       label: "Comentarista",
       description: "Pode ver, comentar e reagir",
     },

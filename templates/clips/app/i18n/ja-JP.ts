@@ -519,7 +519,7 @@ const messages = {
       editor: "エディタ",
       admin: "管理者",
     },
-    recordingViewer: {
+    recordingCommenter: {
       label: "コメント投稿者",
       description: "視聴、コメント、リアクションができます",
     },
