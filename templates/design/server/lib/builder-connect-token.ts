@@ -140,7 +140,13 @@ export async function verifyBuilderConnectToken(
     jti: typeof payload.jti === "string" && payload.jti ? payload.jti : null,
   };
 
-  if (claims.jti) {
+  // A token with no `jti` has nothing to consume, so it would stay replayable
+  // for its whole TTL — every replay mints another embed session.
+  if (!claims.jti) {
+    throw new BuilderConnectTokenError("token is missing a jti");
+  }
+
+  {
     const now = options.now?.() ?? Date.now();
     for (const [jti, expiresAt] of seenJtis) {
       if (expiresAt <= now) seenJtis.delete(jti);

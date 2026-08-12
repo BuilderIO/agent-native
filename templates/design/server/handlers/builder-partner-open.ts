@@ -15,7 +15,7 @@ import {
   setResponseStatus,
 } from "h3";
 
-import openBuilderVisualEdit from "../../actions/open-builder-visual-edit.js";
+import { openBuilderVisualEdit } from "../../actions/open-builder-visual-edit.js";
 import {
   BuilderConnectTokenError,
   BuilderPartnerNotConfiguredError,
@@ -123,7 +123,7 @@ export const builderPartnerOpen = defineEventHandler(async (event) => {
   // The branch identity comes from the signed claims; only the preview URL is
   // caller-supplied, and the action validates it against the host allowlist.
   const result = await runWithRequestContext({}, () =>
-    openBuilderVisualEdit.run({
+    openBuilderVisualEdit({
       previewUrl: String(body?.previewUrl ?? ""),
       builderOrgId: claims.builderOrgId,
       projectId: claims.projectId,

@@ -29291,6 +29291,16 @@ function DesignEditor() {
           : (sourceFile?.content ?? ""));
       const renameTargetNode = renameLiveSnapshot ? renameLiveNode : node;
       if (!sourceContent || !renameTargetNode) return;
+      // A running-app screen with no live snapshot leaves `sourceContent` as the
+      // route URL. Splicing an attribute into that by source offset destroys the
+      // screen's src, so refuse instead — a fusion screen never populates
+      // `liveScreenSnapshotsById`, only the runtime projection.
+      if (isStandaloneHttpUrl(sourceContent)) {
+        toast.error(t("designEditor.patchProof.snapshotNotLoaded"), {
+          duration: 4000,
+        });
+        return;
+      }
       const nextContent = setCodeLayerAttributeInHtml(
         sourceContent,
         renameTargetNode,

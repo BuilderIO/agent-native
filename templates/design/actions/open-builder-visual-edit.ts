@@ -2,11 +2,16 @@
  * The builder-host counterpart to `open-visual-edit`: same handoff shape
  * (synthetic principal, single-use embed ticket), but Builder already owns the
  * running container, so there is no connect/boot preamble here.
+ *
+ * Deliberately NOT a `defineAction`: it takes the branch identity as input and
+ * mints an embed token for the principal derived from it, so exposing it on the
+ * action surface would let any authenticated caller skip the partner route's
+ * signed-token check and mint a session for a branch they named themselves.
+ * The verified-claims boundary is `server/handlers/builder-partner-open.ts`.
  */
 
 import crypto from "node:crypto";
 
-import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { signEmbedSessionToken } from "@agent-native/core/server";
 import {
@@ -50,58 +55,65 @@ export function builderHostPrincipal(key: {
   return `builder+${id}@${BUILDER_HOST_PRINCIPAL_DOMAIN}`;
 }
 
+/**
+ * Root-relative only: `upsertFusionScreens` resolves each path against the
+ * preview base, so an absolute URL here would place a screen outside the
+ * validated container origin.
+ */
 const routeSchema = z.object({
-  path: z.string().min(1),
+  path: z
+    .string()
+    .min(1)
+    .refine((path) => path.startsWith("/") && !path.startsWith("//"), {
+      message: "Route path must be root-relative.",
+    })
+    .refine((path) => !/[[:*]/.test(path), {
+      message: "Route path must not contain a dynamic segment.",
+    }),
   title: z.string().optional(),
 });
 
-export default defineAction({
-  description:
-    "Open a running Builder Fusion branch in Design overview mode as " +
-    "URL-backed screens. Used by the builder.io embedded Design tab; the " +
-    "container is already running, so this only resolves the design for the " +
-    "branch and places screens at the given preview URL.",
-  schema: z.object({
-    previewUrl: z
-      .string()
-      .describe(
-        "Builder container preview URL. Must be a recognized Builder preview host.",
-      ),
-    builderOrgId: z.string().min(1).describe("Builder organization id."),
-    projectId: z.string().min(1).describe("Builder project id."),
-    branchName: z
-      .string()
-      .min(1)
-      .describe("Builder branch backing this design."),
-    contentId: z
-      .string()
-      .nullable()
-      .optional()
-      .describe(
-        "Builder content id the tab was opened from, when there is one.",
-      ),
-    title: z
-      .string()
-      .optional()
-      .describe(
-        "Title for a newly created design. Defaults to the branch name.",
-      ),
-    routes: z
-      .array(routeSchema)
-      .optional()
-      .describe(
-        "Routes to place as screens. Defaults to the preview URL's path.",
-      ),
-    appOrigin: z
-      .string()
-      .optional()
-      .describe(
-        "This app's public origin, used to build absolute screen URLs. Supplied by the partner route from the request.",
-      ),
-    width: z.number().positive().optional(),
-    height: z.number().positive().optional(),
-  }),
-  run: async (args) => {
+export const openBuilderVisualEditSchema = z.object({
+  previewUrl: z
+    .string()
+    .describe(
+      "Builder container preview URL. Must be a recognized Builder preview host.",
+    ),
+  builderOrgId: z.string().min(1).describe("Builder organization id."),
+  projectId: z.string().min(1).describe("Builder project id."),
+  branchName: z.string().min(1).describe("Builder branch backing this design."),
+  contentId: z
+    .string()
+    .nullable()
+    .optional()
+    .describe("Builder content id the tab was opened from, when there is one."),
+  title: z
+    .string()
+    .optional()
+    .describe("Title for a newly created design. Defaults to the branch name."),
+  routes: z
+    .array(routeSchema)
+    .optional()
+    .describe(
+      "Routes to place as screens. Defaults to the preview URL's path.",
+    ),
+  appOrigin: z
+    .string()
+    .optional()
+    .describe(
+      "This app's public origin, used to build absolute screen URLs. Supplied by the partner route from the request.",
+    ),
+  width: z.number().positive().optional(),
+  height: z.number().positive().optional(),
+});
+
+export type OpenBuilderVisualEditArgs = z.input<
+  typeof openBuilderVisualEditSchema
+>;
+
+export async function openBuilderVisualEdit(input: OpenBuilderVisualEditArgs) {
+  const args = openBuilderVisualEditSchema.parse(input);
+  {
     // Validate before any write: a bad preview URL must fail loudly rather than
     // create an empty design that reads as a broken container.
     const preview = parseBuilderPreviewUrl(args.previewUrl);
@@ -185,5 +197,5 @@ export default defineAction({
       },
       runForPrincipal,
     );
-  },
-});
+  }
+}

@@ -161,5 +161,16 @@ export async function findOrCreateBuilderHostDesign(args: {
     );
   }
 
+  // The linkage lives in `designs.data`, so there is no unique constraint to
+  // claim it: two concurrent first-opens of the same branch each create a
+  // design. Re-reading after the write converges both callers on the same
+  // deterministic winner rather than handing teammates separate documents.
+  if (created) {
+    const winner = await findBuilderHostDesignId(key);
+    if (winner && winner !== designId) {
+      return { designId: winner, created: false, fusionApp };
+    }
+  }
+
   return { designId, created, fusionApp };
 }

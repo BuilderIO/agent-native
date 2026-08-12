@@ -25,6 +25,15 @@ describe("isEmbedChromeRequested", () => {
     expect(isEmbedChromeRequested()).toBe(false);
   });
 
+  it("does not leak the flag to a different embed in the same tab", () => {
+    setUrl("/visual-edit/d1?embedChrome=1");
+    expect(isEmbedChromeRequested()).toBe(true);
+
+    _resetEmbedChromeForTests();
+    setUrl("/visual-edit/d2?editorView=overview");
+    expect(isEmbedChromeRequested()).toBe(false);
+  });
+
   it("survives the editor rewriting its own URL", () => {
     setUrl("/visual-edit/d1?editorView=overview&embedChrome=1");
     expect(isEmbedChromeRequested()).toBe(true);

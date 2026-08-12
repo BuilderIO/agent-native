@@ -23,8 +23,14 @@ import { getDb, schema } from "../db/index.js";
 
 export const BUILDER_PREVIEW_PROXY_PREFIX = "/builder-preview";
 
-/** Framing and transport headers that must not be copied from upstream. */
+/**
+ * Framing, credential and transport headers that must not be copied from
+ * upstream. `set-cookie` above all: the container is external, and forwarding
+ * its cookies would let it write or shadow this origin's own session cookies.
+ */
 const DROPPED_UPSTREAM_HEADERS = new Set([
+  "set-cookie",
+  "set-cookie2",
   "content-security-policy",
   "content-security-policy-report-only",
   "x-frame-options",

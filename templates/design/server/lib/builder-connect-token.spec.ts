@@ -204,10 +204,9 @@ describe("verifyBuilderConnectToken", () => {
     ).resolves.toBeTruthy();
   });
 
-  it("accepts a token with no jti rather than failing closed on it", async () => {
-    const claims = await verifyBuilderConnectToken(
-      await mint({}, { jti: null }),
-    );
-    expect(claims.jti).toBeNull();
+  it("rejects a token with no jti, which would stay replayable for its TTL", async () => {
+    await expect(
+      verifyBuilderConnectToken(await mint({}, { jti: null })),
+    ).rejects.toThrow(/jti/);
   });
 });

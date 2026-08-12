@@ -6,7 +6,19 @@
 
 const EMBED_CHROME_QUERY_PARAM = "embedChrome";
 
-const STORAGE_KEY = "agent-native:embed-chrome";
+const STORAGE_KEY_PREFIX = "agent-native:embed-chrome:";
+
+/**
+ * Scoped to the design being framed: a single origin-wide key would let one
+ * canvas-only embed leave the flag set for the next, host-owned embed in the
+ * same tab, which would then render rails its URL never asked for.
+ */
+function storageKey(win: Window): string {
+  const match = /\/(?:visual-edit|design)\/([^/?#]+)/.exec(
+    win.location.pathname,
+  );
+  return `${STORAGE_KEY_PREFIX}${match?.[1] ?? "unscoped"}`;
+}
 
 let requested: boolean | null = null;
 
@@ -32,7 +44,7 @@ export function isEmbedChromeRequested(): boolean {
   if (readFromUrl(window)) {
     requested = true;
     try {
-      window.sessionStorage?.setItem(STORAGE_KEY, "1");
+      window.sessionStorage?.setItem(storageKey(window), "1");
     } catch {
       // coercion-ok: sandboxed hosts refuse session storage; the module-level
       // value still covers the single-page boot path.
@@ -40,7 +52,7 @@ export function isEmbedChromeRequested(): boolean {
     return true;
   }
   try {
-    requested = window.sessionStorage?.getItem(STORAGE_KEY) === "1";
+    requested = window.sessionStorage?.getItem(storageKey(window)) === "1";
   } catch {
     requested = false;
   }

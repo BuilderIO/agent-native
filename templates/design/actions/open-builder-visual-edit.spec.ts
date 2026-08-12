@@ -36,7 +36,10 @@ vi.mock("../server/lib/fusion-screens.js", () => ({
   upsertFusionScreens: mocks.upsertFusionScreens,
 }));
 
-import action, { builderHostPrincipal } from "./open-builder-visual-edit.js";
+import {
+  builderHostPrincipal,
+  openBuilderVisualEdit,
+} from "./open-builder-visual-edit.js";
 
 const validArgs = {
   previewUrl: "https://branch-x.builderio.xyz/dashboard",
@@ -122,7 +125,7 @@ describe("open-builder-visual-edit", () => {
   });
 
   it("places a screen for the preview URL's own path by default", async () => {
-    const result = await action.run(validArgs);
+    const result = await openBuilderVisualEdit(validArgs);
     expect(mocks.upsertFusionScreens.mock.calls[0]![0].paths).toEqual([
       "/dashboard",
     ]);
@@ -131,7 +134,7 @@ describe("open-builder-visual-edit", () => {
   });
 
   it("runs as the branch principal, not the caller", async () => {
-    await action.run(validArgs);
+    await openBuilderVisualEdit(validArgs);
     const [ctx] = mocks.runWithRequestContext.mock.calls[0]!;
     expect(ctx.userEmail).toBe(
       builderHostPrincipal({
@@ -144,7 +147,7 @@ describe("open-builder-visual-edit", () => {
   });
 
   it("stores the origin, dropping path and query", async () => {
-    await action.run({
+    await openBuilderVisualEdit({
       ...validArgs,
       previewUrl: "https://branch-x.builderio.xyz/a/b?c=1#d",
     });
@@ -154,21 +157,24 @@ describe("open-builder-visual-edit", () => {
   });
 
   it("bases screens on this app's own origin so the canvas frames them same-origin", async () => {
-    await action.run({ ...validArgs, appOrigin: "https://design.example.com" });
+    await openBuilderVisualEdit({
+      ...validArgs,
+      appOrigin: "https://design.example.com",
+    });
     expect(mocks.upsertFusionScreens.mock.calls[0]![0].previewUrl).toBe(
       "https://design.example.com/builder-preview/design-1/",
     );
   });
 
   it("falls back to an origin-relative proxy base when the origin is unknown", async () => {
-    await action.run(validArgs);
+    await openBuilderVisualEdit(validArgs);
     expect(mocks.upsertFusionScreens.mock.calls[0]![0].previewUrl).toBe(
       "/builder-preview/design-1/",
     );
   });
 
   it("signs a session for the owning principal, bound to the visual-edit path", async () => {
-    await action.run(validArgs);
+    await openBuilderVisualEdit(validArgs);
     expect(mocks.signEmbedSessionToken).toHaveBeenCalledWith({
       ownerEmail: expect.stringMatching(/^builder\+/),
       targetPath:
@@ -179,19 +185,19 @@ describe("open-builder-visual-edit", () => {
   });
 
   it("does not mint a capability scope, which would block design-doc writes", async () => {
-    await action.run(validArgs);
+    await openBuilderVisualEdit(validArgs);
     const { scope } = mocks.signEmbedSessionToken.mock.calls[0]![0];
     expect(scope.startsWith("capability:")).toBe(false);
   });
 
   it("targets the visual-edit surface, never the ordinary design link", async () => {
-    await action.run(validArgs);
+    await openBuilderVisualEdit(validArgs);
     const { targetPath } = mocks.signEmbedSessionToken.mock.calls[0]![0];
     expect(targetPath.startsWith("/visual-edit/")).toBe(true);
   });
 
   it("returns a replayable embed URL — an iframe src is re-requested on reload", async () => {
-    const result = await action.run(validArgs);
+    const result = await openBuilderVisualEdit(validArgs);
     const url = new URL(result.embedUrl, "http://x.invalid");
     expect(url.pathname).toBe("/visual-edit/design-1");
     expect(url.searchParams.get("__an_embed_token")).toBe("embed-token-abc");
@@ -201,13 +207,13 @@ describe("open-builder-visual-edit", () => {
   });
 
   it("keeps the embed URL non-enumerable so it cannot be serialized out", async () => {
-    const result = await action.run(validArgs);
+    const result = await openBuilderVisualEdit(validArgs);
     expect(Object.keys(result)).not.toContain("embedUrl");
     expect(JSON.stringify(result)).not.toContain("embed-token-abc");
   });
 
   it("dedupes repeated route paths", async () => {
-    await action.run({
+    await openBuilderVisualEdit({
       ...validArgs,
       routes: [{ path: "/" }, { path: "/settings" }, { path: "/" }],
     });
@@ -217,9 +223,28 @@ describe("open-builder-visual-edit", () => {
     ]);
   });
 
+  it("rejects a route that would place a screen off the container origin", async () => {
+    await expect(
+      openBuilderVisualEdit({
+        ...validArgs,
+        routes: [{ path: "https://evil.example/" }],
+      }),
+    ).rejects.toThrow(/root-relative/);
+    expect(mocks.upsertFusionScreens).not.toHaveBeenCalled();
+  });
+
+  it("rejects a dynamic route, which has no single URL to render", async () => {
+    await expect(
+      openBuilderVisualEdit({
+        ...validArgs,
+        routes: [{ path: "/blog/[slug]" }],
+      }),
+    ).rejects.toThrow(/dynamic segment/);
+  });
+
   it("rejects a preview URL outside the allowlist before any write", async () => {
     await expect(
-      action.run({ ...validArgs, previewUrl: "https://evil.com/" }),
+      openBuilderVisualEdit({ ...validArgs, previewUrl: "https://evil.com/" }),
     ).rejects.toThrow(/not a recognized Builder preview host/);
     expect(mocks.runWithRequestContext).not.toHaveBeenCalled();
     expect(mocks.findOrCreateBuilderHostDesign).not.toHaveBeenCalled();
@@ -228,7 +253,7 @@ describe("open-builder-visual-edit", () => {
 
   it("rejects a non-https preview URL before any write", async () => {
     await expect(
-      action.run({
+      openBuilderVisualEdit({
         ...validArgs,
         previewUrl: "http://branch-x.builderio.xyz/",
       }),
@@ -242,12 +267,12 @@ describe("open-builder-visual-edit", () => {
       created: false,
       fusionApp: {},
     });
-    const result = await action.run(validArgs);
+    const result = await openBuilderVisualEdit(validArgs);
     expect(result.created).toBe(false);
   });
 
   it("records the visual-edit context for the agent", async () => {
-    await action.run(validArgs);
+    await openBuilderVisualEdit(validArgs);
     const [stateKey, payload] = mocks.writeAppState.mock.calls[0]!;
     expect(stateKey).toBe("visual-edit");
     expect(payload).toMatchObject({
