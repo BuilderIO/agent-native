@@ -140,6 +140,55 @@ describe("resolve-content-landing", () => {
     });
   });
 
+  it("keeps a renamed welcome page as the user's landing page", async () => {
+    const userEmail = "landing-renamed@example.com";
+    const first = await runWithRequestContext({ userEmail }, () =>
+      resolveContentLandingAction.run({}),
+    );
+    await getDb()
+      .update(schema.documents)
+      .set({ title: "My renamed start page" })
+      .where(eq(schema.documents.id, first.documentId));
+
+    const second = await runWithRequestContext({ userEmail }, () =>
+      resolveContentLandingAction.run({}),
+    );
+
+    expect(second).toEqual({
+      documentId: first.documentId,
+      resolution: "welcome-reused",
+    });
+  });
+
+  it("replaces a trashed welcome page without restoring it", async () => {
+    const userEmail = "landing-trashed-welcome@example.com";
+    const first = await runWithRequestContext({ userEmail }, () =>
+      resolveContentLandingAction.run({}),
+    );
+    const trashedAt = new Date().toISOString();
+    await getDb()
+      .update(schema.documents)
+      .set({ trashedAt })
+      .where(eq(schema.documents.id, first.documentId));
+
+    const [second, concurrent] = await Promise.all([
+      runWithRequestContext({ userEmail }, () =>
+        resolveContentLandingAction.run({}),
+      ),
+      runWithRequestContext({ userEmail }, () =>
+        resolveContentLandingAction.run({}),
+      ),
+    ]);
+
+    expect(second.documentId).not.toBe(first.documentId);
+    expect(concurrent.documentId).toBe(second.documentId);
+    const [original] = await getDb()
+      .select({ trashedAt: schema.documents.trashedAt })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, first.documentId));
+    expect(original.trashedAt).toBe(trashedAt);
+  });
+
   it("converges concurrent root invocations on one private welcome page", async () => {
     const userEmail = "landing-concurrent@example.com";
     const resolve = () =>
