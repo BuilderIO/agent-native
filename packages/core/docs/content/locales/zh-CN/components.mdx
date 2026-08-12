@@ -206,11 +206,11 @@ import { PromptComposer } from "@agent-native/core/client/composer";
 使用 `@agent-native/core/client/conversation` 进行转录样式渲染
 在完整代理运行时之外。
 
-| API                                             | 何时使用                             |
-| ----------------------------------------------- | ------------------------------------ |
-| `<AgentConversation>`                           | 呈现标准化代理消息列表。             |
-| `<AgentConversationMessageView>`                | 渲染一条标准化消息。                 |
-| `normalizeCodeAgentTranscriptForConversation()` | 将代码代理转录事件转换为对话消息。   |
+| API                                             | 何时使用                           |
+| ----------------------------------------------- | ---------------------------------- |
+| `<AgentConversation>`                           | 呈现标准化代理消息列表。           |
+| `<AgentConversationMessageView>`                | 渲染一条标准化消息。               |
+| `normalizeCodeAgentTranscriptForConversation()` | 将代码代理转录事件转换为对话消息。 |
 
 这一层有意做到数据优先：您拥有消息的来源，并且
 渲染器拥有一致的降价、附件、通知、工件和

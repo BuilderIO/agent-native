@@ -107,16 +107,10 @@ describe("hosted Builder handoff surface", () => {
 
   it("promotes connect-builder only for hosted registries", () => {
     expect(
-      resolveHostedBuilderHandoff(
-        { "connect-builder": connectBuilder },
-        false,
-      ),
+      resolveHostedBuilderHandoff({ "connect-builder": connectBuilder }, false),
     ).toEqual({ "connect-builder": connectBuilder });
     expect(
-      resolveHostedBuilderHandoff(
-        { "connect-builder": connectBuilder },
-        true,
-      ),
+      resolveHostedBuilderHandoff({ "connect-builder": connectBuilder }, true),
     ).toEqual({});
     expect(resolveHostedBuilderHandoff({}, false)).toEqual({});
   });
@@ -143,7 +137,10 @@ describe("hosted Builder handoff surface", () => {
     const leanEntriesStart = source.indexOf(
       "const leanActionEntries: Record<string, ActionEntry> = {",
     );
-    const leanEntriesBlock = source.slice(leanEntriesStart, leanEntriesStart + 700);
+    const leanEntriesBlock = source.slice(
+      leanEntriesStart,
+      leanEntriesStart + 700,
+    );
     expect(leanEntriesBlock).toContain("...hostedBuilderHandoff,");
   });
 });

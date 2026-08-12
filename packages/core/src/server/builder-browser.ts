@@ -8,13 +8,13 @@ import {
 import type { H3Event } from "h3";
 import { getHeader } from "h3";
 
+import { getSetting } from "../settings/store.js";
 import { applyBuilderUtmTrackingParams } from "../shared/builder-link-tracking.js";
 import {
   getAuthSecret,
   resolveSignupTrackingIdentity,
 } from "./better-auth-instance.js";
 import { getAppBasePath, getOrigin } from "./google-oauth.js";
-import { getSetting } from "../settings/store.js";
 import { getRequestOrgId, getRequestUserEmail } from "./request-context.js";
 
 const DEFAULT_BUILDER_APP_HOST = "https://builder.io";
@@ -836,9 +836,7 @@ type DispatchBuilderProjectResolution =
   | { status: "present"; projectId: string | null }
   | { status: "unreadable" };
 
-async function resolveDispatchBuilderProjectId(): Promise<
-  DispatchBuilderProjectResolution
-> {
+async function resolveDispatchBuilderProjectId(): Promise<DispatchBuilderProjectResolution> {
   const orgId = getRequestOrgId()?.trim();
   const userEmail = orgId ? undefined : getRequestUserEmail()?.trim();
   const scopedKey = orgId
@@ -865,7 +863,8 @@ async function resolveDispatchBuilderProjectId(): Promise<
 export async function resolveBuilderBranchProjectId(): Promise<string> {
   const dispatchProject = await resolveDispatchBuilderProjectId();
   if (dispatchProject.status === "unreadable") return "";
-  if (dispatchProject.status === "present") return dispatchProject.projectId ?? "";
+  if (dispatchProject.status === "present")
+    return dispatchProject.projectId ?? "";
 
   const envProjectId = getConfiguredBuilderBranchProjectId();
   if (envProjectId) return envProjectId;
