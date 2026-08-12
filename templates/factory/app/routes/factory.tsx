@@ -1681,9 +1681,11 @@ function SettingsView({ t }: { t: ReturnType<typeof useT> }) {
   const sentryConfigured = Boolean(
     sentryOrgSlug.trim() || sentryProjectSlug.trim(),
   );
-  const sourceRoutingConfigured =
-    [slackConfigured, githubConfigured, sentryConfigured].filter(Boolean)
-      .length;
+  const sourceRoutingConfigured = [
+    slackConfigured,
+    githubConfigured,
+    sentryConfigured,
+  ].filter(Boolean).length;
 
   if (query.isLoading) {
     return (
@@ -1997,20 +1999,13 @@ function FactorySettingsSkeleton({ t }: { t: ReturnType<typeof useT> }) {
           key={index}
           className="overflow-hidden rounded-xl border border-border/70 bg-card"
         >
-          <div className="space-y-2 border-b border-border/60 px-5 py-4">
-            <div className="h-4 w-32 animate-pulse rounded bg-muted" />
-            <div className="h-3 w-3/4 animate-pulse rounded bg-muted" />
-          </div>
           <div className="divide-y divide-border/60">
             {Array.from({ length: index === 0 ? 5 : 3 }).map((_, rowIndex) => (
               <div
                 key={rowIndex}
                 className="flex min-h-20 items-center justify-between gap-4 px-5 py-4 sm:px-6"
               >
-                <div className="space-y-2">
-                  <div className="h-3.5 w-36 animate-pulse rounded bg-muted" />
-                  <div className="h-3 w-48 animate-pulse rounded bg-muted" />
-                </div>
+                <div className="h-3.5 w-36 animate-pulse rounded bg-muted" />
                 <div className="h-9 w-24 animate-pulse rounded bg-muted" />
               </div>
             ))}

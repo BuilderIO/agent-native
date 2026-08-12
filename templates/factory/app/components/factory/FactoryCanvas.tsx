@@ -278,7 +278,9 @@ export function FactoryCanvas({
 
       <div
         ref={viewportRef}
-        className={preview ? "h-[360px] overflow-hidden" : "h-[560px] overflow-auto"}
+        className={
+          preview ? "h-[360px] overflow-hidden" : "h-[560px] overflow-auto"
+        }
       >
         <div
           data-factory-canvas
@@ -342,44 +344,45 @@ export function FactoryCanvas({
               })}
             </svg>
 
-            {!preview && graph.edges.map((edge) => {
-              const source = nodesById.get(edge.source);
-              const target = nodesById.get(edge.target);
-              if (!source || !target) return null;
-              const x1 = source.position.x + NODE_WIDTH;
-              const y1 = source.position.y + NODE_HEIGHT / 2;
-              const x2 = target.position.x;
-              const y2 = target.position.y + NODE_HEIGHT / 2;
-              const middle = x1 + (x2 - x1) / 2;
-              const path = `M ${x1} ${y1} C ${middle} ${y1}, ${middle} ${y2}, ${x2} ${y2}`;
-              return (
-                <button
-                  key={`${edge.id}-hitbox`}
-                  type="button"
-                  aria-label={t("factoryCanvas.selectRoute", {
-                    route: edge.label || edge.id,
-                  })}
-                  className="absolute inset-0 z-[1] block cursor-pointer bg-transparent text-left"
-                  style={{
-                    clipPath: "none",
-                    pointerEvents: "none",
-                  }}
-                    onClick={() => onSelectEdge?.(edge.id)}
-                >
-                  <span
-                    className="pointer-events-auto absolute h-4 w-full -translate-y-1/2 bg-transparent"
+            {!preview &&
+              graph.edges.map((edge) => {
+                const source = nodesById.get(edge.source);
+                const target = nodesById.get(edge.target);
+                if (!source || !target) return null;
+                const x1 = source.position.x + NODE_WIDTH;
+                const y1 = source.position.y + NODE_HEIGHT / 2;
+                const x2 = target.position.x;
+                const y2 = target.position.y + NODE_HEIGHT / 2;
+                const middle = x1 + (x2 - x1) / 2;
+                const path = `M ${x1} ${y1} C ${middle} ${y1}, ${middle} ${y2}, ${x2} ${y2}`;
+                return (
+                  <button
+                    key={`${edge.id}-hitbox`}
+                    type="button"
+                    aria-label={t("factoryCanvas.selectRoute", {
+                      route: edge.label || edge.id,
+                    })}
+                    className="absolute inset-0 z-[1] block cursor-pointer bg-transparent text-left"
                     style={{
-                      left: `${Math.min(x1, x2)}px`,
-                      top: `${Math.min(y1, y2)}px`,
-                      width: `${Math.abs(x2 - x1)}px`,
-                      transform: `rotate(${Math.atan2(y2 - y1, x2 - x1)}rad)`,
-                      transformOrigin: "left center",
+                      clipPath: "none",
+                      pointerEvents: "none",
                     }}
-                  />
-                  <span className="sr-only">{path}</span>
-                </button>
-              );
-            })}
+                    onClick={() => onSelectEdge?.(edge.id)}
+                  >
+                    <span
+                      className="pointer-events-auto absolute h-4 w-full -translate-y-1/2 bg-transparent"
+                      style={{
+                        left: `${Math.min(x1, x2)}px`,
+                        top: `${Math.min(y1, y2)}px`,
+                        width: `${Math.abs(x2 - x1)}px`,
+                        transform: `rotate(${Math.atan2(y2 - y1, x2 - x1)}rad)`,
+                        transformOrigin: "left center",
+                      }}
+                    />
+                    <span className="sr-only">{path}</span>
+                  </button>
+                );
+              })}
 
             {graph.nodes.map((node) => {
               const selected = selectedNodeId === node.id;
