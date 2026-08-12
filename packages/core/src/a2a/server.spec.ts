@@ -175,6 +175,10 @@ describe("mountA2A auth", () => {
   // caller needs both exact direct reads and message-only writes so it can
   // choose delegation without learning a mutation schema.
   it("shows a verified caller its direct and delegated capabilities", async () => {
+    delete process.env.APP_URL;
+    delete process.env.URL;
+    delete process.env.DEPLOY_URL;
+    delete process.env.BETTER_AUTH_URL;
     const cardConfig = {
       ...config,
       publicSkillsOnly: true,
