@@ -25,6 +25,11 @@ import type {
   UIEvent as ReactUIEvent,
 } from "react";
 
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@agent-native/toolkit/ui";
 import { writeClipboardText } from "../clipboard.js";
 import {
   Popover,
@@ -72,8 +77,8 @@ export interface ShareButtonProps {
   shareUrlLabel?: string;
   /** Optional helper text for the primary copyable link section. */
   shareUrlDescription?: ReactNode;
-  /** Where to render share links in the popover. Defaults to the bottom,
-   *  matching the historical Google-Docs-style share dialog. */
+  /** Where to render share links in the popover. Defaults to the top,
+   *  keeping the copyable link as the primary share action. */
   shareUrlPlacement?: "top" | "bottom";
   /** Whether to render copyable share URL fields. Defaults to true. */
   showShareLinks?: boolean;
@@ -393,7 +398,11 @@ function SharePanel(
     (Boolean(props.shareUrl) ||
       Boolean(props.shareUrlPlaceholder) ||
       Boolean(props.secondaryShareUrl));
-  const shareUrlPlacement = props.shareUrlPlacement ?? "bottom";
+  const shareUrlPlacement = props.shareUrlPlacement ?? "top";
+  const [advancedOpen, setAdvancedOpen] = useState(!showShareLinks);
+  useEffect(() => {
+    setAdvancedOpen(!showShareLinks);
+  }, [resourceId, showShareLinks]);
   const extraTabs = props.shareTabs?.tabs ?? [];
   const hasTabs = extraTabs.length > 0;
   const shareTabLabel = props.shareTabs?.shareLabel ?? "Share link";

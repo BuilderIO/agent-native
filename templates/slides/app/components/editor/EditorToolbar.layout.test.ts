@@ -30,6 +30,12 @@ describe("EditorToolbar layout contract", () => {
     );
   });
 
+  it("pushes the top-right actions to the row edge when the style toolbar moves below", () => {
+    expect(editorToolbarSource).toContain(
+      '<div className="ml-auto flex-shrink-0">',
+    );
+  });
+
   it("lets the wide contextual toolbar scroll instead of clipping rare overflow", () => {
     expect(globalCssSource).toContain(
       ".deck-editor-context-toolbar-host {\n  min-width: 0;\n  overflow: auto;\n}",
