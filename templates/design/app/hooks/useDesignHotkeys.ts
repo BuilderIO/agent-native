@@ -308,6 +308,9 @@ function isFocusableChromeTarget(target: EventTarget | null) {
   if (target === document.body || target === document.documentElement) {
     return false;
   }
+  // A layer row is a selection surface, not focus chrome — clicking one leaves
+  // focus on its button, and Figma traverses siblings from there.
+  if (target.closest("[data-layer-row-button]")) return false;
   return Boolean(
     target.closest(
       [

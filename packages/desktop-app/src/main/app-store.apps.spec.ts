@@ -34,9 +34,30 @@ describe("desktop app mode defaults", () => {
     const apps = loadApps();
 
     expect(apps.length).toBeGreaterThan(0);
+    expect(apps.some((app) => app.id === "chat")).toBe(false);
     expect(apps.every((app) => app.mode === "prod")).toBe(true);
     expect(loadFrameSettings().mode).toBe("prod");
     expect(loadDesktopAppPreferences().appModeDefaultsVersion).toBe(1);
+  });
+
+  it("removes the generic chat starter from an existing desktop config", () => {
+    const initialApps = loadApps();
+    fs.writeFileSync(
+      path.join(electronState.userData, "app-config.json"),
+      JSON.stringify([
+        ...initialApps,
+        {
+          ...initialApps[0],
+          id: "chat",
+          name: "Chat",
+          isBuiltIn: true,
+        },
+      ]),
+    );
+
+    const migrated = loadApps();
+
+    expect(migrated.some((app) => app.id === "chat")).toBe(false);
   });
 
   it("ignores a legacy dev frame mode", () => {
@@ -81,6 +102,26 @@ describe("desktop app mode defaults", () => {
     );
     expect(migrated.find((app) => app.id === customApp.id)?.mode).toBe("dev");
     expect(loadDesktopAppPreferences().appModeDefaultsVersion).toBe(1);
+  });
+
+  it("preserves explicit custom workspace SSO opt-in in the persisted app config", () => {
+    const initialApps = loadApps();
+    const customApp = {
+      ...initialApps[0],
+      id: "custom-workspace-app",
+      name: "Custom workspace app",
+      isBuiltIn: false,
+      workspaceSso: true,
+      mode: "prod" as const,
+    };
+    fs.writeFileSync(
+      path.join(electronState.userData, "app-config.json"),
+      JSON.stringify([customApp]),
+    );
+
+    expect(
+      loadApps().find((app) => app.id === customApp.id)?.workspaceSso,
+    ).toBe(true);
   });
 
   it("normalizes legacy harness flags before recording the mode migration", () => {

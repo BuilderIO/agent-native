@@ -4,11 +4,18 @@ Slides is an agent-native deck editor. The agent creates, edits, imports,
 exports, styles, shares, and navigates decks through actions and shared SQL
 state.
 
-Detailed deck, slide-editing, image, design-system, and export workflows live in
-`.agents/skills/`.
+## Skills
 
-Before building common workspace or agent UI, read `agent-native-toolkit` and
-`customizing-agent-native` for the public kit and configure/eject seams.
+Read the relevant skill before deeper work:
+
+- `create-deck` for new decks, reference decks, workspace defaults, outlines.
+- `slide-editing` for targeted slide changes; covers fit, density, and overflow.
+- `deck-management` for organization, sharing, import/export, and metadata.
+- `slide-images` and `image-generation-via-a2a` for image work.
+- `design-systems` for per-source design-system actions.
+- `creative-context` for cross-app source reuse, pinned packs, provenance, and
+  context opt-out.
+- `analytics-data-for-decks` for delegated data requests.
 
 ## Core Rules
 
@@ -17,9 +24,8 @@ Before building common workspace or agent UI, read `agent-native-toolkit` and
 - Never hardcode secrets or private/customer data; use vault/OAuth/runtime
   configuration and fake placeholders in examples.
 - Use actions for deck lifecycle, slide edits, imports, exports, images, design
-  systems, and sharing. Do not write deck/slide rows directly.
-- In dev, call actions with `pnpm action <name>`; in production, use native
-  tools. Read the action schema if a parameter is unclear.
+  systems, and sharing. Do not write deck/slide rows directly. Read the action
+  schema if a parameter is unclear.
 - Use `view-screen` before editing when the active deck, selected slide, or
   current layout is unclear.
 - Preserve deck structure and visual consistency. Prefer focused slide edits over
@@ -34,7 +40,6 @@ Before building common workspace or agent UI, read `agent-native-toolkit` and
 - Preserve freeform objects and their `data-slide-object-id` values. They are
   absolutely positioned `.fmd-slide` children; keep generated flex/grid in
   normal flow and mint ids only for duplicates. Use styled HTML, not inline SVG.
-- Read `slide-editing` before creating slides; it covers fit, density, and overflow.
 - Follow linked design-system tokens; read `design-systems` for per-source actions.
 - Import/export actions are shortcuts, not capability limits. For exact Google
   Drive API needs, use `provider-api-catalog`, `provider-api-docs`, and
@@ -53,15 +58,15 @@ Before building common workspace or agent UI, read `agent-native-toolkit` and
   default. Let that specialist use its own instructions, skills, sources, and
   tools. Direct action invocation is only for an exact bounded read with a
   fully known schema; never use it as a workaround for slow or failed A2A.
-- For data requests, read `.agents/skills/analytics-data-for-decks/SKILL.md` and
-  delegate via Analytics over A2A; do not write SQL or call providers directly.
+- For data requests, read `analytics-data-for-decks` and delegate via Analytics
+  over A2A; do not write SQL or call providers directly.
 - When the user names no reference deck or design system, call
   `get-workspace-defaults` first so a bare "make a deck about X" is still on
   brand.
-- Before generation, follow `.agents/skills/creative-context/SKILL.md`: explicit
-  request/current deck, then pinned/current pack, then narrow library search.
-  Respect `contextMode: "off"`. Submit governed context through the Context tab
-  or `manage-context-membership`; reuse only its opaque clone reference.
+- Before generation, follow `creative-context`: explicit request/current deck,
+  then pinned/current pack, then narrow library search. Respect
+  `contextMode: "off"`. Submit governed context through the Context tab or
+  `manage-context-membership`; reuse only its opaque clone reference.
 
 ## Persistence Model
 
@@ -91,15 +96,7 @@ Deck data lives in SQL and all writes go through server-side actions. Read
   PPTX and have the user import it into Google Slides. Creating a native Google
   Slides file directly requires a separate Google Slides API batchUpdate path.
 
-## Skills
+## Source Changes
 
-Read the relevant skill before deeper work:
-
-- `create-deck` for new decks, reference decks, workspace defaults, outlines.
-- `slide-editing` for targeted slide changes.
-- `deck-management` for organization, sharing, import/export, and metadata.
-- `slide-images` and `image-generation-via-a2a` for image work.
-- `design-systems`, `frontend-design`, `shadcn-ui`, and `actions` as needed.
-- `creative-context` for cross-app source reuse, pinned packs, provenance, and
-  context opt-out.
-- `analytics-data-for-decks` for delegated data.
+Before building common workspace or agent UI, read `agent-native-toolkit`; read
+`customizing-agent-native` before adapting shared UI.

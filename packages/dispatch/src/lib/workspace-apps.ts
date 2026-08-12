@@ -27,8 +27,35 @@ export interface WorkspaceAppSummary {
   archived?: boolean;
 }
 
+export function isDispatchWorkspaceAppId(appId: string): boolean {
+  return appId.trim().toLowerCase() === "dispatch";
+}
+
+export function isDefaultWorkspaceAppHiddenId(appId: string): boolean {
+  const normalized = appId.trim().toLowerCase();
+  return normalized === "chat" || isDispatchWorkspaceAppId(normalized);
+}
+
+export function isWorkspaceAppVisibleInDefaultLaunchers(
+  app: Pick<WorkspaceAppSummary, "id" | "isDispatch">,
+): boolean {
+  return !app.isDispatch && !isDefaultWorkspaceAppHiddenId(app.id);
+}
+
 export function workspaceAppRoute(appId: string): string {
   return `/apps/${encodeURIComponent(appId)}`;
+}
+
+export function workspaceAppIdFromRoute(pathname: string): string | null {
+  const match = pathname.match(/^\/apps\/([^/]+)(?:\/|$)/);
+  if (!match) return null;
+  try {
+    const appId = decodeURIComponent(match[1]).trim();
+    return appId || null;
+  } catch {
+    // coercion-ok: malformed app routes are inactive, not app ids.
+    return null;
+  }
 }
 
 export function workspaceAppHref(app: WorkspaceAppSummary): string | null {
@@ -41,6 +68,16 @@ export function workspaceAppHref(app: WorkspaceAppSummary): string | null {
       : null;
   }
   return app.path || app.url || null;
+}
+
+export function workspaceAppEmbedTarget(
+  app: Pick<WorkspaceAppSummary, "path" | "url">,
+): { path?: string; url?: string } {
+  const url = app.url?.trim();
+  if (url) return { url };
+
+  const path = app.path.trim();
+  return path.startsWith("/") ? { path } : path ? { url: path } : {};
 }
 
 export function isPendingBuilderHref(app: WorkspaceAppSummary): boolean {

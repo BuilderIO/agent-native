@@ -272,6 +272,12 @@ function ShareRecordingContent({
             resourceUrl={absoluteAppUrl(`/r/${recordingId}`)}
             sharesQuery={sharesQuery}
             canManage={canManage}
+            roleCopy={{
+              viewer: {
+                label: t("shareUi.recordingViewer.label"),
+                description: t("shareUi.recordingViewer.description"),
+              },
+            }}
           />
         </TabsContent>
 

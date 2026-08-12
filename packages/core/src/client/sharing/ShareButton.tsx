@@ -103,6 +103,8 @@ export interface ShareButtonProps {
   visibilityCopy?: Partial<
     Record<Visibility, { label?: string; description?: string }>
   >;
+  /** Optional template-specific labels and descriptions for share roles. */
+  roleCopy?: Partial<Record<Role, { label?: string; description?: string }>>;
   /** Optional label for the explicit per-person access list. */
   peopleAccessLabel?: ReactNode;
   /** Optional label for the coarse visibility control. */
@@ -210,6 +212,20 @@ const ROLE_OPTIONS: Array<{ value: Role; label: string; description: string }> =
     },
   ];
 
+function roleMeta(
+  role: Role,
+  copy?: ShareButtonProps["roleCopy"],
+): (typeof ROLE_OPTIONS)[number] {
+  const base =
+    ROLE_OPTIONS.find((option) => option.value === role) ?? ROLE_OPTIONS[0];
+  const override = copy?.[role];
+  return {
+    ...base,
+    label: override?.label ?? base.label,
+    description: override?.description ?? base.description,
+  };
+}
+
 type SharePopoverInteractOutsideEvent = Parameters<
   NonNullable<
     ComponentPropsWithoutRef<typeof PopoverContent>["onInteractOutside"]
@@ -311,6 +327,10 @@ function SharePanel(
     setRole,
     notifyPeople,
     setNotifyPeople,
+    shareMessage,
+    setShareMessage,
+    messageOpen,
+    setMessageOpen,
     shareError,
     setShareError,
     suggestionsOpen,
@@ -428,7 +448,11 @@ function SharePanel(
               suggestions={memberSuggestions}
               search={memberSearch}
             />
-            <RoleSelect value={role} onChange={setRole} />
+            <RoleSelect
+              value={role}
+              onChange={setRole}
+              roleCopy={props.roleCopy}
+            />
             <button
               type="button"
               onClick={handleAdd}
@@ -447,15 +471,40 @@ function SharePanel(
             </div>
           ) : null}
           {hasInviteEmail ? (
-            <label className="inline-flex items-center gap-2 text-xs text-muted-foreground">
-              <input
-                type="checkbox"
-                checked={notifyPeople}
-                onChange={(e) => setNotifyPeople(e.target.checked)}
-                className="h-4 w-4 rounded border-input accent-primary"
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-muted-foreground">
+              <label className="inline-flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={notifyPeople}
+                  onChange={(e) => setNotifyPeople(e.target.checked)}
+                  className="h-4 w-4 rounded border-input accent-primary"
+                />
+                Notify people
+              </label>
+              {notifyPeople ? (
+                <button
+                  type="button"
+                  aria-expanded={messageOpen}
+                  onClick={() => setMessageOpen(!messageOpen)}
+                  className="rounded-sm px-1 py-0.5 font-medium text-foreground underline decoration-border underline-offset-2 transition-colors hover:bg-accent hover:text-accent-foreground"
+                >
+                  {messageOpen ? "Hide message" : "Add a message"}
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+          {hasInviteEmail && notifyPeople && messageOpen ? (
+            <div className="rounded-md border border-border/70 bg-muted/20 p-2.5">
+              <textarea
+                aria-label="Message"
+                placeholder="Add a short note (optional)"
+                value={shareMessage}
+                onChange={(event) => setShareMessage(event.target.value)}
+                maxLength={500}
+                rows={3}
+                className="w-full resize-y rounded-md border border-input bg-card px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background"
               />
-              Notify people
-            </label>
+            </div>
           ) : null}
         </div>
       ) : null}
@@ -492,10 +541,11 @@ function SharePanel(
                 onChange={(r) => handleChangeRole(s, r)}
                 disabled={inFlight.has(keyOf(s))}
                 plain
+                roleCopy={props.roleCopy}
               />
             ) : (
               <span className="text-xs text-muted-foreground">
-                {cap(s.role)}
+                {roleMeta(s.role, props.roleCopy).label}
               </span>
             )}
             {canManage ? (
@@ -1059,9 +1109,12 @@ function RoleSelect(props: {
   /** When true, render as inline text + chevron (no border / bg) — matches
    *  the per-person role picker in Google Docs. */
   plain?: boolean;
+  roleCopy?: ShareButtonProps["roleCopy"];
 }) {
-  const current =
-    ROLE_OPTIONS.find((o) => o.value === props.value) ?? ROLE_OPTIONS[0];
+  const current = roleMeta(props.value, props.roleCopy);
+  const options = ROLE_OPTIONS.map((option) =>
+    roleMeta(option.value, props.roleCopy),
+  );
   return (
     <Select.Root
       value={props.value}
@@ -1095,7 +1148,7 @@ function RoleSelect(props: {
           sideOffset={4}
         >
           <Select.Viewport>
-            <SelectItems items={ROLE_OPTIONS} />
+            <SelectItems items={options} />
           </Select.Viewport>
         </Select.Content>
       </Select.Portal>
@@ -1178,9 +1231,6 @@ function keyOf(s: Share): string {
   return `${s.principalType}:${s.principalId}`;
 }
 
-function cap(s: string): string {
-  return s.charAt(0).toUpperCase() + s.slice(1);
-}
 function initials(s: string): string {
   const name = s.split("@")[0] ?? s;
   return (name[0] ?? "?").toUpperCase();

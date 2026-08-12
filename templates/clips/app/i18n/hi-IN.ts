@@ -506,6 +506,10 @@ const messages = {
       editor: "संपादक",
       admin: "व्यवस्थापक",
     },
+    recordingViewer: {
+      label: "टिप्पणीकार",
+      description: "देख, टिप्पणी और प्रतिक्रिया कर सकते हैं",
+    },
   },
   quickAsk: {
     title: "इस मीटिंग के बारे में पूछें",
@@ -1530,10 +1534,6 @@ Clips में उपयोगकर्ताओं को दिखने व�
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (स्थानीयकृत)",
     connectGoogleCalendar: "Connect Google Calendar (स्थानीयकृत)",
-    googleMayShowWarning: "Google एक्सेस की समीक्षा करें",
-    googleNotVerifiedTitle: "कनेक्ट करने से पहले ऐप सत्यापित करें",
-    googleWarningBeforeAdvanced:
-      "पुष्टि करें कि ऐप का नाम और मांगा गया Calendar एक्सेस उस Clips डिप्लॉयमेंट से मेल खाते हैं जिस पर आप भरोसा करते हैं। यदि Google असत्यापित ऐप की चेतावनी दिखाए या पहचान अपरिचित लगे, तो रुकें और अपने वर्कस्पेस एडमिन से संपर्क करें।",
     desktopReminder:
       "Connect Google Calendar, keep Clips Desktop open, then click Start notes from the reminder or the menu bar when your meeting begins. (स्थानीयकृत)",
     getDesktopApp: "Get desktop app (स्थानीयकृत)",

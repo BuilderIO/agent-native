@@ -323,7 +323,7 @@ describe("run store", () => {
     expect(insert?.args[0]).toBe("run-abort");
     expect(insert?.args[1]).toBe(0);
     expect(typeof insert?.args[2]).toBe("number");
-    expect(insert?.args[3]).toBe('{"type":"done"}');
+    expect(insert?.args[3]).toBe('{"type":"done","reason":"user"}');
   });
 
   it("persists a reason-shaped terminal event for a recovery abort", async () => {
@@ -345,10 +345,17 @@ describe("run store", () => {
       type: "auto_continue",
       reason: "run_timeout",
     });
-    expect(terminalEventForAbortReason(undefined)).toEqual({ type: "done" });
-    expect(terminalEventForAbortReason("user")).toEqual({ type: "done" });
+    expect(terminalEventForAbortReason(undefined)).toEqual({
+      type: "done",
+      reason: "user",
+    });
+    expect(terminalEventForAbortReason("user")).toEqual({
+      type: "done",
+      reason: "user",
+    });
     expect(terminalEventForAbortReason("user_stuck_retry")).toEqual({
       type: "done",
+      reason: "user",
     });
     // The displacing writer already recorded the row's real terminal state.
     expect(terminalEventForAbortReason("displaced")).toEqual({ type: "done" });

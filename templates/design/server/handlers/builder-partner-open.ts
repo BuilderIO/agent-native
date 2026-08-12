@@ -39,6 +39,7 @@ function isAllowedBrowserOrigin(origin: string | undefined): boolean {
     const url = new URL(origin);
     host = url.hostname.toLowerCase();
     protocol = url.protocol;
+    // coercion-ok: an unparsable origin is not on the allowlist.
   } catch {
     return false;
   }
@@ -97,6 +98,7 @@ export const builderPartnerOpen = defineEventHandler(async (event) => {
     return { error: "Origin is not allowed to open a Builder design." };
   }
 
+  // coercion-ok: an unreadable body has no token, which the verify below rejects loudly.
   const body = (await readBody(event).catch(() => null)) as {
     token?: unknown;
     previewUrl?: unknown;

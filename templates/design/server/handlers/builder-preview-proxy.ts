@@ -54,6 +54,7 @@ export function designIdFromProxyReferer(
   let path: string;
   try {
     path = new URL(referer).pathname;
+    // coercion-ok: an unparsable referer names no design.
   } catch {
     return null;
   }
@@ -64,6 +65,7 @@ export function designIdFromProxyReferer(
   if (!segment) return null;
   try {
     return decodeURIComponent(segment);
+    // coercion-ok: an undecodable segment names no design.
   } catch {
     return null;
   }
@@ -87,6 +89,7 @@ async function upstreamOriginFor(designId: string): Promise<string | null> {
     // Re-validate on read: a linkage written before the allowlist tightened
     // must not become a proxy target now.
     return parseBuilderPreviewUrl(app.previewUrl).origin;
+    // coercion-ok: failing the allowlist means no upstream, which is a 404.
   } catch {
     return null;
   }

@@ -36,7 +36,6 @@ Before writing the skill, answer these:
    or application state (see the **adding-a-feature** skill). Most skills are
    about how to touch one or more of these correctly.
 3. **When should it trigger?** — Describe the situations in natural language.
-   Be slightly pushy — over-triggering is better than under-triggering.
 4. **Does it involve context awareness?** — Does the agent need to know what the
    user is looking at? If so, reference the `navigation` application-state key and
    the `view-screen` action pattern. See the **context-awareness** skill.
@@ -151,44 +150,21 @@ description: >-
 - Workflow/generator skills: verb-noun (`create-skill`, `capture-learnings`).
 - The directory name must match the `name` in frontmatter.
 
-## Skill Scope (runtime vs dev)
+## Frontmatter Fields
 
-An optional `scope` frontmatter field controls which agent loads the skill:
+| Field         | Required | Value                                         |
+| ------------- | -------- | --------------------------------------------- |
+| `name`        | yes      | Hyphen-case, matches the directory name        |
+| `description` | yes      | What the skill covers AND when it triggers     |
+| `scope`       | no       | `both` (default) \| `runtime` \| `dev`         |
 
-- `both` (default when omitted) — loaded by connected repo agents and the
-  in-app runtime agent. Use for any skill both audiences should follow.
-- `runtime` — loaded only by the in-app runtime agent.
-- `dev` — meant for the human's coding agent (e.g. Claude Code) only. **Excluded
-  from the runtime agent everywhere**: not in the system-prompt skills block and
-  not in `docs-search` results.
-
-Use `scope: dev` for internal-only skills that should guide connected repo
-agents such as Codex or Claude Code, but should not affect the deployed
-production agent. Do not use `metadata.internal` for runtime visibility; that
-field is catalog/package metadata and is intentionally not treated as
-production exclusion.
-
-```markdown
----
-name: release-checklist
-description: >-
-  Steps for cutting a release. Use when preparing or publishing a new version.
-scope: dev
----
-```
-
-Leave `scope` off for normal skills — the default (`both`) keeps them loading at
-runtime, so this is fully backward compatible. To make a dev-only skill visible
-to your coding agent but hidden from the runtime agent, mark it `scope: dev` and
-optionally mirror it under `.claude/skills/<name>/SKILL.md` (Claude Code reads
-`.claude/skills/` independently of the runtime's `.agents/skills/`).
+For how to word a `description` and which `scope` a skill should get, follow
+**writing-agent-instructions** — it owns those rules.
 
 ## Tips
 
-- **Keep descriptions under 40 words** — they load into context on every
-  conversation. State what the skill does AND when to trigger it.
 - **Keep SKILL.md lean (under ~500 lines)** — move detailed content to
-  `references/` files (progressive disclosure).
+  `references/` files.
 - **Use standard markdown headings** — no XML tags or custom formats.
 
 ## Anti-Patterns
@@ -198,8 +174,6 @@ optionally mirror it under `.claude/skills/<name>/SKILL.md` (Claude Code reads
 - **Introducing databases** — data lives in SQL via Drizzle (see **storing-data**).
 - **Ignoring sync** — if a skill creates data, mention wiring `useDbSync` /
   `useActionQuery` so the UI updates (see **real-time-sync**).
-- **Vague descriptions** — "Helps with development" won't trigger. Be specific
-  about _when_.
 - **Pure documentation** — skills should guide action, not just explain concepts.
 
 ## File Structure

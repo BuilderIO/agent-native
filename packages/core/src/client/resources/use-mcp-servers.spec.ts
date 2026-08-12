@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   formatMcpServerError,
+  formatMcpServersLoadError,
   getMcpUrlValidationError,
   useReconnectMcpServer,
 } from "./use-mcp-servers.js";
@@ -37,6 +38,21 @@ describe("MCP server UI helpers", () => {
   it("converts raw HTML errors into endpoint guidance", () => {
     expect(formatMcpServerError("<html><body>Not MCP</body></html>")).toBe(
       "That URL returned a web page instead of an MCP response. Check that you pasted the Streamable HTTP endpoint, often ending in /mcp.",
+    );
+  });
+
+  it("turns unauthenticated list failures into a recovery instruction", () => {
+    expect(formatMcpServersLoadError(new Error("Failed to load (401)"))).toBe(
+      "Sign in to a workspace app, then retry loading agent integrations.",
+    );
+    expect(
+      formatMcpServersLoadError(
+        new Error(
+          "Open a signed-in workspace app before managing MCP connections.",
+        ),
+      ),
+    ).toBe(
+      "Sign in to a workspace app, then retry loading agent integrations.",
     );
   });
 

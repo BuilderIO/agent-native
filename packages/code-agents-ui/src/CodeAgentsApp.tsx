@@ -18,6 +18,7 @@ import {
   ChatFirstChatHistory,
   ChatFirstPrimaryNavigation,
   type ChatFirstOpenAppDetail,
+  type ChatFirstPrimaryTab,
 } from "@agent-native/core/client/chat-first";
 import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import {
@@ -296,6 +297,8 @@ export interface CodeAgentsAppProps {
   chatFirstMode?: boolean;
   /** Selected primary chat kind in the opt-in chat-first shell. */
   chatFirstMainKind?: "agent" | "code";
+  /** Keep the chat-first navigation rail in its compact icon-only state. */
+  railCollapsed?: boolean;
   /** Hide host transport-unavailable copy while the chat-first shell is booting. */
   suppressChatFirstUnavailableNotice?: boolean;
   /** Select the primary chat kind in the opt-in chat-first shell. */
@@ -304,6 +307,9 @@ export interface CodeAgentsAppProps {
   renderChatFirstMainSurface?: ReactNode;
   /** Navigation callbacks for the shared chat-first rail. */
   chatFirstNavigation?: {
+    activeTab?: ChatFirstPrimaryTab;
+    onNewChat?: () => void;
+    onOpenChats?: () => void;
     onOpenIntegrations: () => void;
     onOpenScheduled: () => void;
   };
@@ -584,6 +590,7 @@ export default function CodeAgentsApp({
   activeChatFirstSurfaceKind,
   chatFirstMode = false,
   chatFirstMainKind = "code",
+  railCollapsed = false,
   suppressChatFirstUnavailableNotice = false,
   onChatFirstMainKindChange,
   renderChatFirstMainSurface,
@@ -2118,9 +2125,18 @@ export default function CodeAgentsApp({
     Boolean(selectedRun);
 
   return (
-    <section className="code-agents-surface" aria-label="Agent workspace">
+    <section
+      className={`code-agents-surface${
+        chatFirstMode && railCollapsed
+          ? " code-agents-surface--rail-collapsed"
+          : ""
+      }`}
+      aria-label="Agent workspace"
+    >
       <aside
-        className="code-agents-rail"
+        className={`code-agents-rail${
+          chatFirstMode && railCollapsed ? " code-agents-rail--collapsed" : ""
+        }`}
         aria-label="Agent chats and navigation"
       >
         {chatFirstMode ? (
@@ -2129,12 +2145,16 @@ export default function CodeAgentsApp({
         <div className="code-agents-nav-list" aria-label="Agent navigation">
           {chatFirstMode ? (
             <ChatFirstPrimaryNavigation
-              onNewChat={openSelectedGoal}
+              onNewChat={() => {
+                chatFirstNavigation?.onNewChat?.();
+                openSelectedGoal();
+              }}
               onOpenIntegrations={() =>
                 chatFirstNavigation?.onOpenIntegrations()
               }
               onOpenScheduled={() => chatFirstNavigation?.onOpenScheduled()}
               onSearch={openSearchPanel}
+              activeTab={chatFirstNavigation?.activeTab}
             />
           ) : (
             <>
@@ -2208,6 +2228,17 @@ export default function CodeAgentsApp({
         <ChatFirstChatHistory
           items={railItems}
           activeId={selectedRunId}
+          label={
+            chatFirstNavigation?.onOpenChats ? (
+              <button
+                type="button"
+                className="text-start text-[11px] font-medium text-sidebar-foreground/50 hover:text-sidebar-foreground/75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={chatFirstNavigation.onOpenChats}
+              >
+                Chats
+              </button>
+            ) : undefined
+          }
           headerAction={
             <CodeAgentsChatHistoryHeaderActions
               hasUnread={runs.some((run) => unreadRunIds.has(run.id))}
@@ -2861,17 +2892,6 @@ function ProjectFolderPicker({
             </SelectGroup>
           </SelectContent>
         </Select>
-        {canChoose && (
-          <button
-            type="button"
-            className="code-agents-icon-button"
-            onClick={onChoose}
-            title="Add folder"
-            aria-label="Add folder"
-          >
-            <IconFolderPlus size={15} strokeWidth={1.8} />
-          </button>
-        )}
       </div>
       <p className="code-agents-project-path" title={active?.path}>
         {active?.path ?? "Runs use the selected folder as cwd."}
@@ -3140,8 +3160,7 @@ function getProviderGate(metadata: CodeAgentHostMetadata | null): {
   if (metadata?.llmProvider?.configured === false) {
     return {
       blocked: true,
-      description:
-        "Connect Builder.io (free tier available), sign in with ChatGPT or Claude, or add an API key.",
+      description: "Connect Builder.io or add custom keys to start coding.",
     };
   }
   return {
@@ -3175,7 +3194,7 @@ function ProviderGateNotice({
       onPrimaryAction={onConnectBuilder}
       localRuntimeActionLabel="Sign in with ChatGPT"
       onConnectLocalRuntime={onConnectLocalRuntime}
-      secondaryActionLabel="API keys"
+      secondaryActionLabel="Custom keys"
       onOpenSettings={onOpenSettings}
     />
   );
@@ -4221,7 +4240,7 @@ function RunDetailCard({
           title="Provider needed"
           description={
             builderConnectMessage ??
-            "Connect Builder.io (free tier available), sign in with ChatGPT or Claude, or add your own API key."
+            "Connect Builder.io or add custom keys to continue coding."
           }
           primaryActionLabel={
             builderConnecting ? "Waiting..." : "Connect Builder.io"
@@ -4234,7 +4253,7 @@ function RunDetailCard({
               ? () => onConnectLocalRuntime(localRuntimeEngine)
               : undefined
           }
-          secondaryActionLabel="API keys"
+          secondaryActionLabel="Custom keys"
           onOpenSettings={onOpenSettings}
         />
       )}

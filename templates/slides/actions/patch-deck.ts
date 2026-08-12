@@ -31,6 +31,7 @@ import {
   sourceImportForDeck,
   type SourceImportMetadata,
 } from "../server/lib/source-import.js";
+import { assertSlideAnimationsResolve } from "../server/lib/validate-slide-animations.js";
 import { ASPECT_RATIO_VALUES } from "../shared/aspect-ratios.js";
 import {
   assertHumanReadableDeckTitle,
@@ -84,11 +85,13 @@ const SlideAnimationSchema = z.object({
     .min(1)
     .optional()
     .describe(
-      "Preferred 0-based child-index path from the outer .fmd-slide wrapper. Re-read final HTML after content edits.",
+      "Preferred 0-based child-index path from the outer .fmd-slide wrapper. Required for agent-created or content-revised animations; re-read final HTML after content edits.",
     ),
   type: z
     .enum(["appear", "fade", "slide-up", "zoom"])
-    .describe("Animation used when this step is revealed"),
+    .describe(
+      "Animation used when this step is revealed. Supported semantics: appear (immediate reveal), fade (opacity), slide-up (subtle upward motion), zoom (subtle scale). Do not invent other types.",
+    ),
 });
 
 const SlideFieldsSchema = z.object({
@@ -432,6 +435,89 @@ export function applyOperation(deck: any, op: Operation): void {
 }
 
 /**
+ * Agent content rewrites must not inherit click-reveal paths implicitly. A
+ * caller that wants to revise both HTML and reveals sends `animations` in the
+ * same patch, including the complete ordered list. Source-preserving edits are
+ * the exception: they retain imported reveal metadata unless the caller opts
+ * into an explicit source rewrite.
+ */
+export function clearOmittedAnimationsForAgentContentPatches(
+  deck: any,
+  operations: readonly Operation[],
+  options?: { sourceImport?: SourceImportMetadata | null },
+): void {
+  const explicitAnimationSlideIds = new Set(
+    operations.flatMap((operation) =>
+      operation.op === "patch-slide" &&
+      operation.fields.animations !== undefined
+        ? [operation.slideId]
+        : [],
+    ),
+  );
+  const sourceSlideIds = new Set(
+    options?.sourceImport?.slideIds ??
+      options?.sourceImport?.slides.map((slide) => slide.id) ??
+      [],
+  );
+  const slideIds = new Set(
+    operations.flatMap((operation) =>
+      operation.op === "patch-slide" &&
+      operation.fields.content !== undefined &&
+      operation.fields.animations === undefined &&
+      !explicitAnimationSlideIds.has(operation.slideId) &&
+      (operation.preserveSource === false ||
+        !sourceSlideIds.has(operation.slideId))
+        ? [operation.slideId]
+        : [],
+    ),
+  );
+  if (!slideIds.size) return;
+
+  for (const slide of Array.isArray(deck.slides) ? deck.slides : []) {
+    if (slideIds.has(slide?.id) && Array.isArray(slide.animations)) {
+      delete slide.animations;
+    }
+  }
+}
+
+/**
+ * Content and animation metadata are one contract. Validate only slides whose
+ * content or animation list changed so unrelated note/title writes do not
+ * resurrect old metadata failures, while any edit that can stale a path is
+ * rejected before persistence.
+ */
+export function assertPatchedSlideAnimationsResolve(
+  deck: any,
+  operations: readonly Operation[],
+  options?: { requireElementPaths?: boolean },
+): void {
+  const slideIdsToValidate = new Set(
+    operations.flatMap((operation) =>
+      operation.op === "patch-slide" &&
+      (operation.fields.content !== undefined ||
+        operation.fields.animations !== undefined)
+        ? [operation.slideId]
+        : [],
+    ),
+  );
+  if (slideIdsToValidate.size === 0) return;
+
+  const slides: any[] = Array.isArray(deck.slides) ? deck.slides : [];
+  for (const slideId of slideIdsToValidate) {
+    const slide = slides.find((candidate) => candidate?.id === slideId);
+    if (!slide || !Array.isArray(slide.animations) || !slide.animations.length)
+      continue;
+
+    assertSlideAnimationsResolve({
+      slideId,
+      content: typeof slide.content === "string" ? slide.content : "",
+      animations: slide.animations,
+      requireElementPaths: options?.requireElementPaths,
+    });
+  }
+}
+
+/**
  * Resolve the last operation in a sequence. For example, when typing a new name
  * this will be the latest name of the deck in a sequence of keystrokes.
  */
@@ -580,6 +666,14 @@ export default defineAction({
       for (const op of operations) {
         applyOperation(deck, op);
       }
+      if (isAgentCaller) {
+        clearOmittedAnimationsForAgentContentPatches(deck, operations, {
+          sourceImport,
+        });
+      }
+      assertPatchedSlideAnimationsResolve(deck, operations, {
+        requireElementPaths: isAgentCaller,
+      });
 
       const now = new Date().toISOString();
       deck.updatedAt = now;

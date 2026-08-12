@@ -6,6 +6,7 @@ import { dispatchActions } from "../../actions/index.js";
 const INITIAL_TOOL_NAMES = [
   "view-screen",
   "list-workspace-apps",
+  "update-workspace-app-metadata",
   "list-connected-agents",
   "ask_app",
   "open_app",
@@ -65,6 +66,7 @@ Use the standard workspace primitives:
 - Hosted/connected A2A neighbors such as Analytics and Content come from the available-apps context or list-connected-agents. list-workspace-apps only inventories apps mounted inside this workspace deployment; never use a missing row there to conclude that a connected agent is unavailable.
 - When answering whether a mounted workspace app exposes an agent card or A2A endpoint, call list-workspace-apps with includeAgentCards=true. If you have not requested that probe, absence of agent-card fields means unchecked, not unavailable.
 - When creating a new workspace app, create a separate app under apps/<app-id> with apps/<app-id>/package.json including a concise generated description, mount it at /<app-id>, use relative /<app-id> links, never hardcode localhost or dev ports, use shadcn/ui with @tabler/icons-react rather than lucide-react, and ensure the React Router client entry preserves APP_BASE_PATH/VITE_APP_BASE_PATH via appBasePath(). There is no separate workspace app registry to edit.
+- When a user asks to rename an existing workspace app or change its Dispatch title/description, call update-workspace-app-metadata with the existing appId from list-workspace-apps. This is a metadata-only edit — never call start-workspace-app-creation, which creates a new app and Builder branch.
 - When an explicit app-creation request already includes a source brief or a concrete repeatable workflow, call start-workspace-app-creation without asking non-blocking product or UX questions. Choose recommended defaults, let the Builder handoff record assumptions, and ask only for authorization, credentials, a destructive action, an ambiguous target workspace, or a genuinely missing workflow.
 - If the chat template is used, treat it as scaffolding only: the finished app must be branded as the requested app with its own home screen/navigation/package metadata/manifest, and must not leave visible "Chat", "Starter", "Blank app", or "New app" UI behind.
 - Treat first-party apps such as Mail, Calendar, Analytics, Brain, Assets, and Dispatch as existing hosted/connected neighbors available through links and A2A/default connected agents. Do not create wrapper apps, child apps, nested routes, or cloned template copies just to give a new app access to them; build only the genuinely new workflow and delegate cross-app work to those existing apps.

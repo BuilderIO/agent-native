@@ -26,6 +26,8 @@ import {
   userMessageTextBeforeAssistant,
   isHiddenUserMessage,
   assistantMessageRunId,
+  assistantMessageTurnId,
+  assistantMessageWasUserStopped,
   resolveAssistantRequestId,
 } from "./message-components.js";
 import { runErrorKey } from "./run-recovery.js";
@@ -60,6 +62,23 @@ describe("assistant request ID resolution", () => {
       ),
     ).toBeUndefined();
     expect(assistantMessageRunId({ id: "local-message-id" })).toBeUndefined();
+  });
+
+  it("reads the stable logical turn ID from assistant metadata", () => {
+    expect(
+      assistantMessageTurnId({
+        metadata: { custom: { turnId: "turn-1" } },
+      }),
+    ).toBe("turn-1");
+  });
+
+  it("recognizes a persisted user stop marker", () => {
+    expect(
+      assistantMessageWasUserStopped({
+        metadata: { custom: { userStopped: true } },
+      }),
+    ).toBe(true);
+    expect(assistantMessageWasUserStopped({})).toBe(false);
   });
 });
 
@@ -144,7 +163,7 @@ describe("shouldShowAssistantMessageFooter", () => {
     ).toBe(false);
   });
 
-  it("keeps completed historical assistant controls visible while chat work runs", () => {
+  it("keeps unrelated historical assistant controls while chat work runs", () => {
     expect(
       shouldShowAssistantMessageFooter({
         isLast: false,
@@ -153,6 +172,48 @@ describe("shouldShowAssistantMessageFooter", () => {
         statusIsTerminal: true,
       }),
     ).toBe(true);
+  });
+
+  it("hides historical controls when they belong to the active run", () => {
+    expect(
+      shouldShowAssistantMessageFooter({
+        isLast: false,
+        chatRunning: true,
+        activeRunId: "run-active",
+        messageRunId: "run-active",
+        hasRenderableContent: true,
+        statusIsTerminal: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("hides historical controls across continuation run IDs in the same turn", () => {
+    expect(
+      shouldShowAssistantMessageFooter({
+        isLast: false,
+        chatRunning: true,
+        activeRunId: "run-successor",
+        messageRunId: "run-original",
+        activeTurnId: "turn-shared",
+        messageTurnId: "turn-shared",
+        hasRenderableContent: true,
+        statusIsTerminal: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("does not treat missing turn metadata as a different turn", () => {
+    expect(
+      shouldShowAssistantMessageFooter({
+        isLast: false,
+        chatRunning: true,
+        activeRunId: "run-same",
+        messageRunId: "run-same",
+        activeTurnId: "turn-current",
+        hasRenderableContent: true,
+        statusIsTerminal: true,
+      }),
+    ).toBe(false);
   });
 });
 
@@ -205,6 +266,18 @@ describe("shouldShowMissingFinalResponse", () => {
         statusIsTerminal: true,
         hasAssistantText: false,
         hasUnresolvedTool: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("stays hidden after the user explicitly stops the run", () => {
+    expect(
+      shouldShowMissingFinalResponse({
+        isCurrentTurnRunning: false,
+        statusIsTerminal: true,
+        hasAssistantText: false,
+        hasUnresolvedTool: false,
+        userStoppedRun: true,
       }),
     ).toBe(false);
   });

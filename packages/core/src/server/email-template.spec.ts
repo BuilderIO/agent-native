@@ -1,8 +1,19 @@
 import { describe, expect, it } from "vitest";
 
-import { emailLink, renderEmail } from "./email-template.js";
+import { emailLink, emailQuote, renderEmail } from "./email-template.js";
 
 describe("renderEmail", () => {
+  it("renders user-authored quotes as escaped message blocks", () => {
+    const { html, text } = renderEmail({
+      heading: "A deck was shared with you",
+      paragraphs: [emailQuote("Review <this>\nwhen you can.")],
+    });
+
+    expect(html).toContain("Review &lt;this&gt;<br />when you can.");
+    expect(html).not.toContain("Review <this>");
+    expect(text).toContain("Review <this>\nwhen you can.");
+  });
+
   it("uses a CID-backed brand header with a text fallback", () => {
     const { html } = renderEmail({
       brandName: "Clips",

@@ -48,7 +48,8 @@ const messages = {
   },
   agent: {
     emptyState: "Pergunte qualquer coisa sobre suas apresentações",
-    thisDeck: "Este deck",
+    thisSlide: "Este slide",
+    currentSelection: "Seleção atual",
     suggestionPitch: "Crie um pitch de 10 slides a partir deste doc",
     suggestionBrand: "Aplique nossa marca a este deck",
     suggestionHero: "Gere uma imagem hero para este slide",
@@ -205,6 +206,8 @@ const messages = {
     usingDesignSystem: "Usando {{title}}",
     usingLinkedDesignSystem: "Usando um sistema de design vinculado",
     viewOnly: "Somente visualização",
+    commenterRoleLabel: "Comentarista",
+    commenterRoleDescription: "Pode visualizar e adicionar comentários",
     slideSettings: "Configurações do slide",
     layout: "Layout",
     background: "Plano de fundo",
@@ -438,6 +441,10 @@ const messages = {
     order: "Ordem",
     bringToFront: "Trazer para frente",
     sendToBack: "Enviar para trás",
+    copyStyle: "Copiar estilo",
+    pasteStyle: "Colar estilo",
+    copy: "Copiar",
+    paste: "Colar",
   },
   animations: {
     appear: "Aparecer",
@@ -673,6 +680,7 @@ const messages = {
     deckCount_other: "decks",
     createDeckOrVisual: "Criar uma apresentação",
     noMineDecks: "Nenhum deck criado por você ainda.",
+    noDecksMatchSearch: "Nenhum deck corresponde à sua busca.",
     deleteDeckTitle: "Excluir deck?",
     deleteDeckDescription:
       "Isso excluirá permanentemente este deck e todos os seus slides. Esta ação não pode ser desfeita.",

@@ -16,6 +16,7 @@ function readFromUrl(win: Window): boolean {
       EMBED_CHROME_QUERY_PARAM,
     );
     return value === "1" || value === "true";
+    // coercion-ok: an unparsable URL cannot be carrying the flag.
   } catch {
     return false;
   }
@@ -33,8 +34,8 @@ export function isEmbedChromeRequested(): boolean {
     try {
       window.sessionStorage?.setItem(STORAGE_KEY, "1");
     } catch {
-      // Sandboxed hosts can refuse session storage; the module-level value
-      // still covers the single-page boot path.
+      // coercion-ok: sandboxed hosts refuse session storage; the module-level
+      // value still covers the single-page boot path.
     }
     return true;
   }

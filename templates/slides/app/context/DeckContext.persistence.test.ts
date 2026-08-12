@@ -1,4 +1,5 @@
 import { _resetSyncTransportRegistryForTests } from "@agent-native/core/client/use-db-sync";
+import { DEFAULT_DECK_TITLE } from "@shared/deck-title";
 // @vitest-environment happy-dom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
@@ -288,6 +289,7 @@ describe("DeckContext deck creation persistence", () => {
         noDefaultSlides: true,
       }).id;
     });
+    expect(result.current.getDeck(deckId)?.title).toBe(DEFAULT_DECK_TITLE);
 
     let settled = false;
     const persisted = result.current
@@ -427,7 +429,7 @@ describe("DeckContext deck creation persistence", () => {
     act(() => {
       window.dispatchEvent(
         new KeyboardEvent("keydown", {
-          key: "z",
+          key: "Z",
           metaKey: true,
           shiftKey: true,
         }),
@@ -436,6 +438,70 @@ describe("DeckContext deck creation persistence", () => {
 
     await waitFor(() =>
       expect(result.current.getDeck("shared-deck")?.slides).toHaveLength(1),
+    );
+  });
+
+  it("skips unchanged slide commits so one undo reaches the prior state", async () => {
+    window.history.pushState({}, "", "/deck/shared-deck");
+    const { setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck({
+      id: "shared-deck",
+      title: "Shared Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<div>Original</div>",
+          notes: "",
+          layout: "content",
+        },
+      ],
+    });
+
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    act(() => {
+      result.current.updateSlide("shared-deck", "slide-1", {
+        content: "<div>Edited</div>",
+      });
+    });
+    await waitFor(() =>
+      expect(result.current.getDeck("shared-deck")?.slides[0]?.content).toBe(
+        "<div>Edited</div>",
+      ),
+    );
+
+    // Editor blur/selection paths can emit the current HTML again. It must not
+    // become a second invisible history entry.
+    act(() => {
+      result.current.updateSlide("shared-deck", "slide-1", {
+        content: "<div>Edited</div>",
+      });
+    });
+
+    act(() => {
+      result.current.undo();
+    });
+    await waitFor(() =>
+      expect(result.current.getDeck("shared-deck")?.slides[0]?.content).toBe(
+        "<div>Original</div>",
+      ),
+    );
+
+    act(() => {
+      result.current.redo();
+    });
+    await waitFor(() =>
+      expect(result.current.getDeck("shared-deck")?.slides[0]?.content).toBe(
+        "<div>Edited</div>",
+      ),
     );
   });
 

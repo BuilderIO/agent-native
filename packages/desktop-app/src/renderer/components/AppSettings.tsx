@@ -12,11 +12,13 @@ import {
   type SettingsTabItem,
 } from "@agent-native/core/client/settings";
 import { Switch } from "@agent-native/toolkit/ui/switch";
-import type { AppConfig, FrameSettings } from "@shared/app-registry";
 import {
+  getDesktopVisibleApps,
   generateAppId,
   getDesktopTemplateGatewayAppUrl,
   isDefaultDesktopTemplateDevTarget,
+  type AppConfig,
+  type FrameSettings,
 } from "@shared/app-registry";
 import {
   formatDesktopShortcutAccelerator,
@@ -27,7 +29,7 @@ import {
   type DesktopShortcutSettings,
   type DesktopShortcutUpsertRequest,
 } from "@shared/desktop-shortcuts";
-import type { UpdateStatus } from "@shared/ipc-channels";
+import type { DesktopIdentityStatus, UpdateStatus } from "@shared/ipc-channels";
 import {
   IconAlertCircle,
   IconArrowLeft,
@@ -72,6 +74,11 @@ interface AppSettingsProps {
   onFrameSettingsChanged?: (settings: FrameSettings) => void;
   onCodeAgentProvidersChanged?: () => void;
 }
+
+type WorkspaceSsoAppConfig = AppConfig & {
+  /** Explicit opt-in for a non-built-in app that implements Agent Native SSO. */
+  workspaceSso?: boolean;
+};
 
 type RemoteStatusTone = "ok" | "pending" | "offline" | "error";
 type UpdateStatusTone = "ok" | "pending" | "ready" | "offline" | "error";
@@ -455,7 +462,7 @@ function SoftwareUpdateCard() {
             onClick={handleInstall}
           >
             <IconRefresh size={14} />
-            Relaunch
+            Restart to update
           </button>
         ) : canDownload ? (
           <button
@@ -510,6 +517,8 @@ export default function AppSettings({
   const [frameSettings, setFrameSettings] = useState<FrameSettings | null>(
     null,
   );
+  const [identityStatus, setIdentityStatus] =
+    useState<DesktopIdentityStatus>("idle");
   const [remoteStatus, setRemoteStatus] =
     useState<CodeAgentRemoteConnectorStatus | null>(null);
   const [remotePairUrl, setRemotePairUrl] = useState("");
@@ -528,15 +537,23 @@ export default function AppSettings({
   const [shortcutSettings, setShortcutSettings] =
     useState<DesktopShortcutSettings | null>(null);
   const [shortcutDraft, setShortcutDraft] = useState<ShortcutDraft>(() =>
-    defaultShortcutDraft(apps),
+    defaultShortcutDraft(getDesktopVisibleApps(apps)),
   );
   const [shortcutMessage, setShortcutMessage] = useState<string | null>(null);
   const [shortcutSaving, setShortcutSaving] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
   const closingTimerRef = useRef<number | null>(null);
+  const visibleApps = useMemo(() => getDesktopVisibleApps(apps), [apps]);
   const shortcutTargetApps = useMemo(
-    () => apps.filter((app) => app.enabled !== false),
-    [apps],
+    () => visibleApps.filter((app) => app.enabled !== false),
+    [visibleApps],
+  );
+  const visibleShortcutBindings = useMemo(
+    () =>
+      (shortcutSettings?.bindings ?? []).filter((binding) =>
+        visibleApps.some((app) => app.id === binding.app),
+      ),
+    [shortcutSettings, visibleApps],
   );
 
   useEffect(
@@ -572,6 +589,31 @@ export default function AppSettings({
       });
     }
   }, [onFrameSettingsChanged]);
+
+  useEffect(() => {
+    const identity = window.electronAPI?.identity;
+    if (!identity) return;
+    let active = true;
+    void identity.getStatus().then((status) => {
+      if (active) setIdentityStatus(status);
+    });
+    const unsubscribe = identity.onStatusChange((status) => {
+      if (active) setIdentityStatus(status);
+    });
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, []);
+
+  const handleWorkspaceSignOut = useCallback(async () => {
+    const signedOut = await window.electronAPI?.identity?.signOut();
+    if (signedOut) setIdentityStatus("sign-in-required");
+  }, []);
+
+  const handleWorkspaceSignIn = useCallback(async () => {
+    await window.electronAPI?.identity?.signIn();
+  }, []);
 
   const refreshProviderSettings = useCallback(async () => {
     const api = window.electronAPI?.codeAgents;
@@ -609,13 +651,15 @@ export default function AppSettings({
     setShortcutDraft((current) => {
       if (
         current.app &&
-        apps.some((app) => app.id === current.app && app.enabled !== false)
+        visibleApps.some(
+          (app) => app.id === current.app && app.enabled !== false,
+        )
       ) {
         return current;
       }
-      return { ...current, app: defaultShortcutDraft(apps).app };
+      return { ...current, app: defaultShortcutDraft(visibleApps).app };
     });
-  }, [apps]);
+  }, [visibleApps]);
 
   const refreshRemoteStatus = useCallback(async () => {
     const api = window.electronAPI?.codeAgents;
@@ -754,7 +798,7 @@ export default function AppSettings({
       );
       setShortcutSettings(result.settings);
       if (result.ok) {
-        setShortcutDraft(defaultShortcutDraft(apps));
+        setShortcutDraft(defaultShortcutDraft(visibleApps));
       }
       setShortcutMessage(result.error ?? null);
     } catch (err) {
@@ -762,7 +806,7 @@ export default function AppSettings({
     } finally {
       setShortcutSaving(false);
     }
-  }, [apps, shortcutDraft]);
+  }, [shortcutDraft, visibleApps]);
 
   const handleShortcutRemove = useCallback(async (id: string) => {
     const api = window.electronAPI?.shortcuts;
@@ -811,19 +855,19 @@ export default function AppSettings({
     async (mode: "dev" | "prod") => {
       if (!window.electronAPI?.appConfig) return;
       let latest = apps;
-      for (const app of apps) {
+      for (const app of visibleApps) {
         if ((app.mode ?? "prod") !== mode) {
           latest = await window.electronAPI.appConfig.update(app.id, { mode });
         }
       }
       onAppsChanged(latest);
     },
-    [apps, onAppsChanged],
+    [apps, onAppsChanged, visibleApps],
   );
 
   const allMode: "dev" | "prod" | null = (() => {
     const modes = new Set<"dev" | "prod">(
-      apps.map((a) => (a.mode ?? "prod") as "dev" | "prod"),
+      visibleApps.map((a) => (a.mode ?? "prod") as "dev" | "prod"),
     );
     return modes.size === 1 ? (modes.values().next().value ?? null) : null;
   })();
@@ -856,7 +900,9 @@ export default function AppSettings({
     [editingId, onAppsChanged],
   );
 
-  const editingApp = editingId ? apps.find((a) => a.id === editingId) : null;
+  const editingApp = editingId
+    ? visibleApps.find((a) => a.id === editingId)
+    : null;
   const remoteCopy = remoteStatusCopy(remoteStatus);
   const normalizedShortcut = normalizeDesktopShortcutAccelerator(
     shortcutDraft.accelerator,
@@ -1081,7 +1127,7 @@ export default function AppSettings({
               </div>
             </div>
             <SettingsGroup>
-              {apps.map((app) => (
+              {visibleApps.map((app) => (
                 <SettingsRow
                   key={app.id}
                   label={app.name}
@@ -1272,7 +1318,7 @@ export default function AppSettings({
                       type="button"
                       className="settings-btn settings-btn--ghost settings-shortcut-cancel"
                       onClick={() =>
-                        setShortcutDraft(defaultShortcutDraft(apps))
+                        setShortcutDraft(defaultShortcutDraft(visibleApps))
                       }
                     >
                       Cancel
@@ -1291,13 +1337,13 @@ export default function AppSettings({
               description="Enable, edit, or remove shortcuts already registered on this Mac."
             >
               <div className="settings-shortcut-list">
-                {(shortcutSettings?.bindings ?? []).length === 0 ? (
+                {visibleShortcutBindings.length === 0 ? (
                   <div className="settings-shortcut-empty">
                     No desktop shortcuts configured.
                   </div>
                 ) : (
-                  shortcutSettings?.bindings.map((binding) => {
-                    const targetApp = apps.find(
+                  visibleShortcutBindings.map((binding) => {
+                    const targetApp = visibleApps.find(
                       (app) => app.id === binding.app,
                     );
                     const registration = shortcutRegistrations.get(binding.id);
@@ -1400,6 +1446,44 @@ export default function AppSettings({
               <SettingsTabsPage
                 general={
                   <div className="w-full max-w-3xl space-y-8">
+                    {identityStatus !== "idle" ? (
+                      <SettingsGroup
+                        title="Workspace account"
+                        description="One Agent Native identity across first-party desktop apps. Provider connections remain separate."
+                      >
+                        <SettingsRow
+                          label="Agent Native workspace"
+                          description={
+                            identityStatus === "signed-in"
+                              ? "Signed in across eligible apps on this desktop."
+                              : identityStatus === "signing-in"
+                                ? "Finishing workspace sign-in…"
+                                : identityStatus === "failed"
+                                  ? "Workspace sign-in needs attention in an app."
+                                  : "Choose workspace sign-in for the active app. Ordinary app sign-in remains separate."
+                          }
+                          control={
+                            identityStatus === "signed-in" ? (
+                              <button
+                                type="button"
+                                className="settings-btn settings-btn--ghost"
+                                onClick={() => void handleWorkspaceSignOut()}
+                              >
+                                Sign out
+                              </button>
+                            ) : identityStatus === "signing-in" ? undefined : (
+                              <button
+                                type="button"
+                                className="settings-btn settings-btn--ghost"
+                                onClick={() => void handleWorkspaceSignIn()}
+                              >
+                                Sign in
+                              </button>
+                            )
+                          }
+                        />
+                      </SettingsGroup>
+                    ) : null}
                     <SettingsGroup
                       title="Software updates"
                       description="Keep Agent Native current."
@@ -1858,11 +1942,23 @@ export function AppEditForm({
   onSave: (app: AppConfig) => void;
   onCancel: () => void;
 }) {
+  const workspaceSsoApp = app as WorkspaceSsoAppConfig | undefined;
   const [name, setName] = useState(app?.name ?? "");
   const [url, setUrl] = useState(app?.url ?? "");
   const [devUrl, setDevUrl] = useState(app?.devUrl ?? "");
   const [devCommand, setDevCommand] = useState(app?.devCommand ?? "");
   const [description, setDescription] = useState(app?.description ?? "");
+  const [workspaceSso, setWorkspaceSso] = useState(
+    workspaceSsoApp?.workspaceSso === true,
+  );
+  const canUseWorkspaceSso = (() => {
+    try {
+      return app?.mode !== "dev" && new URL(url.trim()).protocol === "https:";
+    } catch (error) {
+      void error;
+      return false;
+    }
+  })();
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -1870,7 +1966,7 @@ export function AppEditForm({
     const trimmedDevUrl = devUrl.trim();
     if (!name.trim() || (!trimmedUrl && !trimmedDevUrl)) return;
 
-    onSave({
+    const nextApp: WorkspaceSsoAppConfig = {
       id: app?.id ?? generateAppId(),
       name: name.trim(),
       icon: app?.icon ?? "Globe",
@@ -1883,7 +1979,9 @@ export function AppEditForm({
       isBuiltIn: app?.isBuiltIn ?? false,
       enabled: app?.enabled ?? true,
       mode: app?.mode ?? (trimmedUrl ? "prod" : "dev"),
-    });
+      ...(app?.isBuiltIn ? {} : { workspaceSso }),
+    };
+    onSave(nextApp);
   }
 
   return (
@@ -1945,6 +2043,27 @@ export function AppEditForm({
             placeholder="What does this app do?"
           />
         </label>
+
+        {!app?.isBuiltIn ? (
+          <div className="flex items-center justify-between gap-4 py-1">
+            <div className="min-w-0">
+              <div className="text-[11px] font-medium uppercase tracking-[0.3px] text-muted-foreground">
+                Workspace sign-in
+              </div>
+              <div className="settings-field-hint">
+                {canUseWorkspaceSso
+                  ? "Use only for an app that implements the Agent Native identity endpoints. Arbitrary sites stay isolated."
+                  : "Set this app to Prod with an HTTPS production URL first."}
+              </div>
+            </div>
+            <Switch
+              checked={workspaceSso}
+              onCheckedChange={setWorkspaceSso}
+              disabled={!canUseWorkspaceSso}
+              aria-label="Enable workspace sign-in for this app"
+            />
+          </div>
+        ) : null}
 
         <div className="settings-form-actions">
           <button

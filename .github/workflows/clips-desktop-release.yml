@@ -204,11 +204,19 @@ jobs:
           /usr/libexec/PlistBuddy -c "Print :NSCameraUsageDescription" "$INFO" >/dev/null
           /usr/libexec/PlistBuddy -c "Print :NSMicrophoneUsageDescription" "$INFO" >/dev/null
           /usr/libexec/PlistBuddy -c "Print :NSScreenCaptureUsageDescription" "$INFO" >/dev/null
+          /usr/libexec/PlistBuddy -c "Print :NSCalendarsUsageDescription" "$INFO" >/dev/null
+          /usr/libexec/PlistBuddy -c "Print :NSCalendarsFullAccessUsageDescription" "$INFO" >/dev/null
+          /usr/libexec/PlistBuddy -c "Print :NSSpeechRecognitionUsageDescription" "$INFO" >/dev/null
           /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$INFO" | grep -qx 'com.clips.tray'
+          /usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$INFO" | grep -qx 'Clips'
+          VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$INFO")
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-].*)?$ ]]
+          /usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$INFO" >/dev/null
 
           ENTITLEMENTS=$(codesign -d --entitlements :- "$APP_PATH" 2>/dev/null)
           grep -q '<key>com.apple.security.device.camera</key>' <<< "$ENTITLEMENTS"
           grep -q '<key>com.apple.security.device.audio-input</key>' <<< "$ENTITLEMENTS"
+          codesign --verify --deep --strict --verbose=2 "$APP_PATH"
 
   publish-release:
     needs: build-tauri

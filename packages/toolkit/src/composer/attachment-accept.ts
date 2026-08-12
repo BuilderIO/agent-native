@@ -4,9 +4,13 @@ const BASE_DOCUMENT_ATTACHMENT_ACCEPT = [
   "application/pdf",
   "application/vnd.openxmlformats-officedocument.presentationml.presentation",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.ms-excel",
   ".pdf",
   ".pptx",
   ".docx",
+  ".xlsx",
+  ".xls",
 ];
 
 export const PROMPT_DOCUMENT_ATTACHMENT_ACCEPT =

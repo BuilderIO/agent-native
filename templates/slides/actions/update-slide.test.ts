@@ -145,6 +145,24 @@ beforeEach(() => {
 
 describe("update-slide", () => {
   it("applies the edit, bumps deck updatedAt, persists, and notifies clients", async () => {
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<div>Old</div>",
+          animations: [
+            {
+              id: "old-reveal",
+              elementIndex: 0,
+              elementPath: [0],
+              type: "fade",
+            },
+          ],
+        },
+      ],
+    });
     const result = await action.run({
       deckId: "deck-1",
       slideId: "slide-1",
@@ -165,6 +183,7 @@ describe("update-slide", () => {
     expect(lastUpdateSet).toBeDefined();
     const deck = JSON.parse(lastUpdateSet!.data as string);
     expect(deck.slides[0].content).toBe("<div>New</div>");
+    expect(deck.slides[0].animations).toBeUndefined();
     expect(deck.updatedAt).not.toBe("2026-01-01T00:00:00.000Z");
     expect(lastUpdateSet!.updatedAt).toBe(deck.updatedAt);
     // The broadcast now carries the changed slideId + agent actor (backwards-
@@ -210,6 +229,142 @@ describe("update-slide", () => {
     expect(result.ok).toBe(true);
     const deck = JSON.parse(lastUpdateSet!.data as string);
     expect(deck.slides[0].content).toBe("<div>Fresh</div>");
+  });
+
+  it("rejects an empty legacy find before mutating the deck", async () => {
+    await expect(
+      action.run({
+        deckId: "deck-1",
+        slideId: "slide-1",
+        find: "",
+        replace: "Fresh",
+      }),
+    ).rejects.toThrow("find must not be empty");
+
+    expect(lastUpdateSet).toBeUndefined();
+    expect(mockNotifyClients).not.toHaveBeenCalled();
+  });
+
+  it("does not persist or clear animations for an optional no-op edit", async () => {
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<div>Old</div>",
+          animations: [{ id: "reveal-1", elementPath: [0] }],
+        },
+      ],
+    });
+
+    const result = (await action.run({
+      deckId: "deck-1",
+      slideId: "slide-1",
+      edits: [{ find: "Missing", replace: "Never written", required: false }],
+    })) as Record<string, unknown>;
+
+    expect(result).toMatchObject({ ok: true, applied: false });
+    expect(lastUpdateSet).toBeUndefined();
+    expect(mockNotifyClients).not.toHaveBeenCalled();
+  });
+
+  it("does not treat formatter output as an applied optional edit", async () => {
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<div>Old</div>",
+          animations: [{ id: "reveal-1", elementPath: [0] }],
+        },
+      ],
+    });
+
+    const result = (await action.run({
+      deckId: "deck-1",
+      slideId: "slide-1",
+      format: true,
+      edits: [{ find: "Missing", replace: "Never written", required: false }],
+    })) as Record<string, unknown>;
+
+    expect(result).toMatchObject({ ok: true, applied: false });
+    expect(lastUpdateSet).toBeUndefined();
+    expect(
+      JSON.parse(mockDeckRow!.data as string).slides[0].animations,
+    ).toEqual([{ id: "reveal-1", elementPath: [0] }]);
+  });
+
+  it("applies ordered code-style edits atomically and returns the new hash", async () => {
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<div><h1>Old</h1><p>Keep</p></div>",
+        },
+      ],
+    });
+
+    const result = (await action.run({
+      deckId: "deck-1",
+      slideId: "slide-1",
+      edits: [
+        { find: ">Old<", replace: ">New<", expectedMatches: 1 },
+        {
+          op: "insert-before",
+          marker: "<p>",
+          content: "<strong>Added</strong>",
+          expectedMatches: 1,
+        },
+      ],
+    })) as Record<string, unknown>;
+
+    expect(result).toMatchObject({ ok: true, applied: true });
+    expect(result.contentHash).toMatch(/^[0-9a-f]+$/);
+    const deck = JSON.parse(lastUpdateSet!.data as string);
+    expect(deck.slides[0].content).toBe(
+      "<div><h1>New</h1><strong>Added</strong><p>Keep</p></div>",
+    );
+  });
+
+  it("does not write a partial edit list when a later edit fails", async () => {
+    await expect(
+      action.run({
+        deckId: "deck-1",
+        slideId: "slide-1",
+        edits: [
+          { find: "Old", replace: "New" },
+          { find: "Missing", replace: "Never written" },
+        ],
+      }),
+    ).rejects.toThrow("replace found no matches");
+    expect(lastUpdateSet).toBeUndefined();
+  });
+
+  it("rejects a patch based on stale slide source", async () => {
+    await expect(
+      action.run({
+        deckId: "deck-1",
+        slideId: "slide-1",
+        baseContentHash: "fnv1a-stale",
+        edits: [{ find: "Old", replace: "New" }],
+      }),
+    ).rejects.toThrow("changed since it was read");
+    expect(lastUpdateSet).toBeUndefined();
+  });
+
+  it("persists formatted multiline HTML when requested", async () => {
+    const result = await action.run({
+      deckId: "deck-1",
+      slideId: "slide-1",
+      format: true,
+      edits: [{ find: "Old", replace: "New" }],
+    });
+
+    expect(result).toMatchObject({ ok: true, applied: true });
+    const deck = JSON.parse(lastUpdateSet!.data as string);
+    expect(deck.slides[0].content).toContain("\n");
+    expect(deck.slides[0].content).toContain("New");
   });
 
   it("rejects source-preserving edits that drop imported images", async () => {

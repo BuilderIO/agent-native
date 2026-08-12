@@ -1,5 +1,108 @@
 # @agent-native/core
 
+## 0.152.1
+
+### Patch Changes
+
+- 2f4a788: Keep an `ask-question` card in the chat that asked it, and end the turn once it renders instead of letting the agent keep working over an unanswered question.
+
+## 0.152.0
+
+### Minor Changes
+
+- aa17e22: Support bounded XLS/XLSX workbook previews as source context for `/make-into-app` and allow Excel workbooks in the shared composer attachment flow.
+
+### Patch Changes
+
+- aa17e22: Use absolute same-origin callback URLs for email authentication links so hosted Better Auth verification accepts callbacks with query parameters.
+- aa17e22: Automatically continue agent runs when completed tool work is followed by no final assistant response.
+- aa17e22: Use Plan's blue accent for generated app icons instead of a disabled-looking gray.
+- aa17e22: Use pin order as the default chat-first app order until apps are manually rearranged.
+- aa17e22: Keep Desktop agent integrations on the Connections tab after settings remounts and provide sign-in guidance with retry recovery when the workspace session is unavailable.
+- aa17e22: Open hosted Google sign-in directly without the obsolete preflight notice.
+- aa17e22: Stop advertising generated apps as installable browser desktop apps.
+- aa17e22: Move legacy auth sessions and OAuth token storage into release-time migrations so production request handlers do not attempt schema changes.
+- aa17e22: Hide the current Dispatch app from the shared app switcher while keeping other workspace apps available.
+- aa17e22: fix: keep the local development sign-in button aligned with server availability
+- aa17e22: Accept human-friendly names when creating workspace apps and normalize them into URL-safe ids.
+- aa17e22: Run the agent tool approval schema during production release migrations.
+- aa17e22: Keep cross-app discovery and delegation available in lean agent-chat surfaces.
+- aa17e22: Keep completed Dispatch app handoffs in the chat-first app pane instead of rendering a nested app shell inside the conversation.
+- aa17e22: fix: hide the workspace handoff notice during local development
+- aa17e22: Recover embedded workspace apps when their one-time session expires and keep account name editing available while profile data loads.
+- aa17e22: Harden cross-app SSO with bound PKCE authorization codes and fail-closed app registration.
+- aa17e22: Revalidate stale sessions after logout so private app surfaces return to sign-in.
+- aa17e22: Add chat sharing to the Agent sidebar overflow menu while keeping chats private by default.
+- aa17e22: Allow shareable resources to customize role labels and descriptions without changing persisted role values.
+- aa17e22: Keep active chat progress visible and add a clear default composer placeholder.
+- Updated dependencies [aa17e22]
+  - @agent-native/toolkit@0.14.0
+
+## 0.151.2
+
+### Patch Changes
+
+- 42db301: Sync the bundled template copies of the `frontend-design` skill with the canonical version, so scaffolded apps get the guidance about confirming Tabler icon names before importing them.
+
+## 0.151.1
+
+### Patch Changes
+
+- 31fdef9: Rework the Key Concepts doc for clarity: reordered "What Agent Native includes" into a table right after the five rules, removed em dashes and rhetorical questions throughout, added missing context around the SQL stores and action examples, and translated into all 10 locales.
+
+## 0.151.0
+
+### Minor Changes
+
+- 62a17be: Add the authenticated, nonce-only completion route used by packaged Desktop clients during cross-app identity federation.
+
+  Let Dispatch register rollout-gated identity routes on its primary auth guard so security checks remain unconditional while the capability is default-off.
+
+## 0.150.0
+
+### Minor Changes
+
+- 7c5888c: Store chat attachments as durable object-storage references and surface Builder/custom storage setup during onboarding.
+
+### Patch Changes
+
+- 7c5888c: Keep sandboxed extension chat messages draft-only unless a user action explicitly submits them.
+- 7c5888c: Keep email and magic-link callbacks with tracking parameters compatible with Better Auth.
+- 7c5888c: Keep queued agent-chat messages when stopping an active response.
+- 7c5888c: Keep Clips Desktop sessions active for 90 days between sign-ins.
+- 7c5888c: Open new workspace app requests in a fresh coding chat and guide missing AI setup through Builder or custom keys.
+- 7c5888c: Keep intentional chat stops neutral instead of showing missing-final-response warnings.
+- Updated dependencies [7c5888c]
+  - @agent-native/toolkit@0.13.10
+
+## 0.149.6
+
+### Patch Changes
+
+- 5cc6f6e: Sync the bundled frontend-design skill copies with the canonical `.agents/skills` source.
+
+## 0.149.5
+
+### Patch Changes
+
+- a426c4f: Make Chat-first New chat, Integrations, and Scheduled navigation behave as selected tabs across Dispatch and Desktop, with Integrations promoted out of Settings into a full-page surface.
+- a426c4f: Retry transient reads from encrypted public-upload private blob handles so newly uploaded references are available before import begins.
+- a426c4f: Pin the Tiptap dependency family in fresh scaffolds so generated builds use the tested versions together.
+
+## 0.149.4
+
+### Patch Changes
+
+- 86a9c74: Declare `includedFiles: ["**"]` on the emitted `agent-native-recurring-jobs` Netlify scheduled function so publishing no longer fails with "outside the supported packaging slice"; its entry imports `node:crypto`, and the deploy packager only accepts an omitted `includedFiles` for import-free scheduled functions.
+
+## 0.149.3
+
+### Patch Changes
+
+- 44ac2c4: Support Cloudflare D1 when initializing Better Auth.
+- 44ac2c4: Prevent chat turns from getting stuck after active-run conflicts or delayed progress persistence, and keep completion controls synchronized with terminal state.
+- 44ac2c4: Require an explicit Slack mention for each channel agent turn so ordinary thread replies do not retrigger work.
+
 ## 0.149.2
 
 ### Patch Changes

@@ -374,6 +374,8 @@ const messages = {
         "डिफ़ॉल्ट रूप से निजी. लोगों को आमंत्रित करें, अपने संगठन के साथ साझा करें, या लिंक वाले किसी भी व्यक्ति की समीक्षा के लिए सार्वजनिक सेट करें।",
       peopleAccess: "{{noun}} पहुंच वाले लोग",
       generalAccess: "सामान्य {{noun}} पहुंच",
+      commenterRoleLabel: "टिप्पणीकार",
+      commenterRoleDescription: "देख और टिप्पणियाँ जोड़ सकते हैं",
       shareAria: "साझा करें {{noun}}",
       share: "साझा करें {{noun}}",
       shareThis: "इसे साझा करें {{noun}}",

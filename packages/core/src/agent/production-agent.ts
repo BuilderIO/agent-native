@@ -33,9 +33,9 @@ import {
   updateRunProgress,
 } from "../progress/registry.js";
 import {
-  getFrontmatterValue,
-  parseFrontmatter,
-} from "../resources/metadata.js";
+  isRuntimeVisibleScope,
+  parseSkillFrontmatter,
+} from "../server/agent-chat/skill-frontmatter.js";
 import {
   canUseDeployCredentialFallbackForRequest,
   getProviderCredentialAuthFailure,
@@ -150,6 +150,7 @@ import {
   isHostedRuntime,
   resolveRunSoftTimeoutMs,
   resolveRunToolTimeoutCeilingMs,
+  endsAfterCompletedToolWithoutAssistantFinal,
 } from "./run-manager.js";
 import type { ActiveRun } from "./run-manager.js";
 import {
@@ -738,6 +739,14 @@ export interface ActionEntry {
         args: any,
         ctx?: import("../action.js").ActionRunContext,
       ) => boolean | Promise<boolean>);
+  /**
+   * The action hands control back to the user: once it succeeds the loop stops
+   * the turn instead of asking the model for another step, and any remaining
+   * tool calls in the same assistant message do not execute. Only for actions
+   * whose whole purpose is to wait on a human (`ask-question`) — telling the
+   * model to stop in the tool result does not make it stop.
+   */
+  endsTurn?: boolean;
   /** Which framework tool group contributed this action. Set by the framework,
    *  never by an app: apps own their action names, and a tagged action is one
    *  the app can switch off wholesale through `frameworkTools`. Tagged actions
@@ -1859,9 +1868,9 @@ function escapeReferenceAttribute(value: string): string {
 }
 
 function isRuntimeVisibleSkillContent(content: string): boolean {
-  const frontmatter = parseFrontmatter(content);
-  const scope = getFrontmatterValue(frontmatter, "scope")?.trim().toLowerCase();
-  return scope !== "dev";
+  // Route through the shared normalizer so an unrecognized `scope:` stays
+  // invisible here too. A local `!== "dev"` check silently readmits it.
+  return isRuntimeVisibleScope(parseSkillFrontmatter(content).scope);
 }
 
 export async function resolveSkillReferenceContent(
@@ -5228,6 +5237,23 @@ export async function runAgentLoop(opts: {
 
     let requestedActionStop: { message: string; errorCode?: string } | null =
       null;
+    // An `endsTurn` action ran and handed control to the user. Distinct from
+    // `requestedActionStop`, which also covers failure stops that must not
+    // suppress the remaining tool calls.
+    let turnYieldedToUser = false;
+
+    // Called by every path that completes a tool call successfully — a fresh
+    // invocation, a journal replay, a ledger recovery. A replayed
+    // `ask-question` that skipped this would let the resumed run ask a second
+    // time over the card the user is already looking at.
+    const noteToolCallSucceeded = (actionEntry: ActionEntry) => {
+      if (actionEntry.endsTurn !== true) return;
+      turnYieldedToUser = true;
+      requestedActionStop ??= {
+        message: "Waiting for your answer before continuing.",
+        errorCode: "awaiting-user-input",
+      };
+    };
 
     const noteRepeatedToolCall = (toolName: string, input: unknown) => {
       const key = toolCallCacheKey(toolName, input);
@@ -5624,6 +5650,7 @@ export async function runAgentLoop(opts: {
             completedSideEffect: true,
           });
           recordToolResult(result, false);
+          noteToolCallSucceeded(actionEntry);
           return {
             type: "tool-result" as const,
             toolCallId: toolCall.id,
@@ -5681,6 +5708,7 @@ export async function runAgentLoop(opts: {
               ...(actionEntry.chatUI ? { chatUI: actionEntry.chatUI } : {}),
             });
             recordToolResult(result, false);
+            noteToolCallSucceeded(actionEntry);
             return {
               type: "tool-result" as const,
               toolCallId: toolCall.id,
@@ -5756,433 +5784,475 @@ export async function runAgentLoop(opts: {
         input: toolCall.input as Record<string, string>,
       });
 
-      const toolCallSchemaError = toolCallErrors.get(toolCall.id);
-      if (toolCallSchemaError && !toolInputNormalized) {
-        const result = finalizeToolErrorResult(
-          toolInputSchemaErrorResult(
-            toolCall.name,
-            toolCallSchemaError.input,
-            toolCallSchemaError.error,
-            actionEntry?.tool.parameters,
-          ),
-        );
-        send({
-          type: "tool_done",
-          id: toolCall.id,
-          tool: toolCall.name,
-          input: toolCall.input as Record<string, unknown>,
-          result,
-          isError: true,
-          completedSideEffect: false,
-        });
-        recordToolResult(result, true);
-        return {
-          type: "tool-result" as const,
-          toolCallId: toolCall.id,
-          toolName: toolCall.name,
-          toolInput: wireToolInput,
-          content: result,
-          isError: true,
-        };
-      }
+      let toolDoneEmitted = false;
+      const emitToolDone = (
+        event: Extract<AgentChatEvent, { type: "tool_done" }>,
+      ) => {
+        send(event);
+        toolDoneEmitted = true;
+      };
 
-      const rawToolInputError = validateRawToolInput(
-        actionEntry,
-        toolCall.input,
-      );
-      if (rawToolInputError) {
-        const result = finalizeToolErrorResult(
-          toolInputSchemaErrorResult(
-            toolCall.name,
-            toolCall.input,
-            rawToolInputError,
-            actionEntry.tool.parameters,
-          ),
-        );
-        send({
-          type: "tool_done",
-          id: toolCall.id,
-          tool: toolCall.name,
-          input: toolCall.input as Record<string, unknown>,
-          result,
-          isError: true,
-          completedSideEffect: false,
-        });
-        recordToolResult(result, true);
-        return {
-          type: "tool-result" as const,
-          toolCallId: toolCall.id,
-          toolName: toolCall.name,
-          toolInput: wireToolInput,
-          content: result,
-          isError: true,
-        };
-      }
+      // Every tool_start must have exactly one matching tool_done. Keeping the
+      // whole post-start path inside this finally block turns unexpected
+      // synchronous failures in validation, cache handling, or future branches
+      // into an explicit tool error instead of leaving run-manager's in-flight
+      // counter latched forever.
+      try {
+        const toolCallSchemaError = toolCallErrors.get(toolCall.id);
+        if (toolCallSchemaError && !toolInputNormalized) {
+          const result = finalizeToolErrorResult(
+            toolInputSchemaErrorResult(
+              toolCall.name,
+              toolCallSchemaError.input,
+              toolCallSchemaError.error,
+              actionEntry?.tool.parameters,
+            ),
+          );
+          emitToolDone({
+            type: "tool_done",
+            id: toolCall.id,
+            tool: toolCall.name,
+            input: toolCall.input as Record<string, unknown>,
+            result,
+            isError: true,
+            completedSideEffect: false,
+          });
+          recordToolResult(result, true);
+          return {
+            type: "tool-result" as const,
+            toolCallId: toolCall.id,
+            toolName: toolCall.name,
+            toolInput: wireToolInput,
+            content: result,
+            isError: true,
+          };
+        }
 
-      // dedupe: false opts a read-only tool out of the guard entirely — the
-      // cacheKey stays null so it never gets skipped-as-duplicate and never
-      // populates the cache (see the success handler below, which also
-      // leaves dedupe:false results uncached and un-cleared).
-      const cacheKey =
-        actionEntry.readOnly === true && actionEntry.dedupe !== false
-          ? toolCallCacheKey(toolCall.name, toolCall.input)
-          : null;
-      if (cacheKey && readOnlyToolResultCache.has(cacheKey)) {
-        const previousResult = readOnlyToolResultCache.get(cacheKey) ?? "";
-        // `contextMessages` (not `messages`) is what the model actually sees
-        // this iteration — context-xray eviction/summarization and
-        // observational-memory trimming can drop the earlier result from
-        // view even though it's still cached here. Only strike-count the
-        // repeat when the model could have looked back and found it itself.
-        const visible = isCachedToolResultVisibleInContext(
-          contextMessages,
-          toolCall,
-          previousResult,
+        const rawToolInputError = validateRawToolInput(
+          actionEntry,
+          toolCall.input,
         );
-        let result: string;
-        if (visible) {
-          const repeats = (duplicateReadOnlyToolCalls.get(cacheKey) ?? 0) + 1;
-          duplicateReadOnlyToolCalls.set(cacheKey, repeats);
-          result = visibleDuplicateReadOnlyToolResult(toolCall.name);
-          if (repeats >= 3) {
-            requestedActionStop ??= {
-              message:
-                "I stopped because the agent kept asking for the same read-only context it already had. Please send the request again if you want me to retry from a fresh turn.",
-              errorCode: "duplicate_read_only_tool",
-            };
-          }
-        } else {
-          // The earlier result was trimmed out of the model's visible
-          // context — this isn't a repetitive loop, the model legitimately
-          // can't see the answer anymore. Re-serve it in full and don't
-          // count a strike.
-          duplicateReadOnlyToolCalls.set(cacheKey, 0);
-          result = resurfacedDuplicateReadOnlyToolResult(
-            toolCall.name,
+        if (rawToolInputError) {
+          const result = finalizeToolErrorResult(
+            toolInputSchemaErrorResult(
+              toolCall.name,
+              toolCall.input,
+              rawToolInputError,
+              actionEntry.tool.parameters,
+            ),
+          );
+          emitToolDone({
+            type: "tool_done",
+            id: toolCall.id,
+            tool: toolCall.name,
+            input: toolCall.input as Record<string, unknown>,
+            result,
+            isError: true,
+            completedSideEffect: false,
+          });
+          recordToolResult(result, true);
+          return {
+            type: "tool-result" as const,
+            toolCallId: toolCall.id,
+            toolName: toolCall.name,
+            toolInput: wireToolInput,
+            content: result,
+            isError: true,
+          };
+        }
+
+        // dedupe: false opts a read-only tool out of the guard entirely — the
+        // cacheKey stays null so it never gets skipped-as-duplicate and never
+        // populates the cache (see the success handler below, which also
+        // leaves dedupe:false results uncached and un-cleared).
+        const cacheKey =
+          actionEntry.readOnly === true && actionEntry.dedupe !== false
+            ? toolCallCacheKey(toolCall.name, toolCall.input)
+            : null;
+        if (cacheKey && readOnlyToolResultCache.has(cacheKey)) {
+          const previousResult = readOnlyToolResultCache.get(cacheKey) ?? "";
+          // `contextMessages` (not `messages`) is what the model actually sees
+          // this iteration — context-xray eviction/summarization and
+          // observational-memory trimming can drop the earlier result from
+          // view even though it's still cached here. Only strike-count the
+          // repeat when the model could have looked back and found it itself.
+          const visible = isCachedToolResultVisibleInContext(
+            contextMessages,
+            toolCall,
             previousResult,
           );
+          let result: string;
+          if (visible) {
+            const repeats = (duplicateReadOnlyToolCalls.get(cacheKey) ?? 0) + 1;
+            duplicateReadOnlyToolCalls.set(cacheKey, repeats);
+            result = visibleDuplicateReadOnlyToolResult(toolCall.name);
+            if (repeats >= 3) {
+              requestedActionStop ??= {
+                message:
+                  "I stopped because the agent kept asking for the same read-only context it already had. Please send the request again if you want me to retry from a fresh turn.",
+                errorCode: "duplicate_read_only_tool",
+              };
+            }
+          } else {
+            // The earlier result was trimmed out of the model's visible
+            // context — this isn't a repetitive loop, the model legitimately
+            // can't see the answer anymore. Re-serve it in full and don't
+            // count a strike.
+            duplicateReadOnlyToolCalls.set(cacheKey, 0);
+            result = resurfacedDuplicateReadOnlyToolResult(
+              toolCall.name,
+              previousResult,
+            );
+          }
+          emitToolDone({
+            type: "tool_done",
+            id: toolCall.id,
+            tool: toolCall.name,
+            input: toolCall.input as Record<string, unknown>,
+            result,
+            completedSideEffect: false,
+          });
+          recordToolResult(result, false);
+          return {
+            type: "tool-result" as const,
+            toolCallId: toolCall.id,
+            toolName: toolCall.name,
+            toolInput: wireToolInput,
+            content: result,
+          };
         }
-        send({
-          type: "tool_done",
-          id: toolCall.id,
-          tool: toolCall.name,
-          input: toolCall.input as Record<string, unknown>,
-          result,
-          completedSideEffect: false,
-        });
-        recordToolResult(result, false);
-        return {
-          type: "tool-result" as const,
-          toolCallId: toolCall.id,
-          toolName: toolCall.name,
-          toolInput: wireToolInput,
-          content: result,
-        };
-      }
 
-      if (
-        opts.executionMode === "plan" &&
-        !isPlanModeToolCallAllowed(toolCall.name, toolCall.input, actionEntry)
-      ) {
-        const result = planModeBlockedMessage(toolCall.name);
-        send({
-          type: "tool_done",
-          id: toolCall.id,
-          tool: toolCall.name,
-          input: toolCall.input as Record<string, unknown>,
-          result,
-          isError: true,
-          completedSideEffect: false,
-        });
-        recordToolResult(result, true);
-        return {
-          type: "tool-result" as const,
-          toolCallId: toolCall.id,
-          toolName: toolCall.name,
-          toolInput: wireToolInput,
-          content: result,
-          isError: true,
-        };
-      }
-
-      let result: string;
-      let isError = false;
-      let mcpApp:
-        | import("../mcp-client/app-result.js").AgentMcpAppPayload
-        | undefined;
-      let toolResultImages:
-        | import("./engine/types.js").EngineToolResultImagePart[]
-        | undefined;
-      try {
-        // The run may have been aborted while we waited above for an
-        // interrupted tool's ledger result (the wait can poll for minutes).
-        // Re-check before invoking the action: starting it now would spawn a
-        // fresh zombie execution — a duplicate side effect / double charge —
-        // which the ledger-recovery path exists to prevent. The Promise.race
-        // "Run aborted" leg below only rejects AFTER the action is invoked, so
-        // it cannot guard this. Throw here instead, handled like any abort.
-        if (signal.aborted) {
-          throw new Error("Run aborted");
+        if (
+          opts.executionMode === "plan" &&
+          !isPlanModeToolCallAllowed(toolCall.name, toolCall.input, actionEntry)
+        ) {
+          const result = planModeBlockedMessage(toolCall.name);
+          emitToolDone({
+            type: "tool_done",
+            id: toolCall.id,
+            tool: toolCall.name,
+            input: toolCall.input as Record<string, unknown>,
+            result,
+            isError: true,
+            completedSideEffect: false,
+          });
+          recordToolResult(result, true);
+          return {
+            type: "tool-result" as const,
+            toolCallId: toolCall.id,
+            toolName: toolCall.name,
+            toolInput: wireToolInput,
+            content: result,
+            isError: true,
+          };
         }
-        const timeoutSignal = AbortSignal.timeout(toolTimeoutMs);
-        const actionUserEmail = opts.ownerEmail ?? getRequestUserEmail();
-        const actionOrgId = opts.orgId ?? getRequestOrgId() ?? null;
-        const actionContext = {
-          send,
-          userEmail: actionUserEmail ?? undefined,
-          orgId: actionOrgId,
-          appId: opts.appId,
-          caller: opts.actionCaller ?? "tool",
-          automation: opts.automation,
-          networkProtocol: opts.networkProtocol,
-          networkId: opts.networkId,
-          networkPeer: opts.networkPeer,
-          delegationDepth: opts.delegationDepth,
-          visitedApps: opts.visitedApps,
-          attachments: opts.attachments,
-          signal,
-          // Audit attribution: the action name + the agent thread/turn that
-          // triggered this call, so a mutation can be traced to its run.
-          actionName: toolCall.name,
-          ...(wasApproved ? { approvedToolCallKey: approvalKey } : {}),
-          ...(opts.threadId ? { threadId: opts.threadId } : {}),
-          ...(opts.runId ? { runId: opts.runId } : {}),
-          ...(opts.turnId ? { turnId: opts.turnId } : {}),
-        };
-        const requestContext = getRequestContext();
-        const invokeAction = () =>
-          actionEntry.run(
-            toolCall.input as Record<string, string>,
-            actionContext,
+
+        let result: string;
+        let isError = false;
+        let mcpApp:
+          | import("../mcp-client/app-result.js").AgentMcpAppPayload
+          | undefined;
+        let toolResultImages:
+          | import("./engine/types.js").EngineToolResultImagePart[]
+          | undefined;
+        try {
+          // The run may have been aborted while we waited above for an
+          // interrupted tool's ledger result (the wait can poll for minutes).
+          // Re-check before invoking the action: starting it now would spawn a
+          // fresh zombie execution — a duplicate side effect / double charge —
+          // which the ledger-recovery path exists to prevent. The Promise.race
+          // "Run aborted" leg below only rejects AFTER the action is invoked, so
+          // it cannot guard this. Throw here instead, handled like any abort.
+          if (signal.aborted) {
+            throw new Error("Run aborted");
+          }
+          const timeoutSignal = AbortSignal.timeout(toolTimeoutMs);
+          const actionUserEmail = opts.ownerEmail ?? getRequestUserEmail();
+          const actionOrgId = opts.orgId ?? getRequestOrgId() ?? null;
+          const actionContext = {
+            send,
+            userEmail: actionUserEmail ?? undefined,
+            orgId: actionOrgId,
+            appId: opts.appId,
+            caller: opts.actionCaller ?? "tool",
+            automation: opts.automation,
+            networkProtocol: opts.networkProtocol,
+            networkId: opts.networkId,
+            networkPeer: opts.networkPeer,
+            delegationDepth: opts.delegationDepth,
+            visitedApps: opts.visitedApps,
+            attachments: opts.attachments,
+            signal,
+            // Audit attribution: the action name + the agent thread/turn that
+            // triggered this call, so a mutation can be traced to its run.
+            actionName: toolCall.name,
+            ...(wasApproved ? { approvedToolCallKey: approvalKey } : {}),
+            ...(opts.threadId ? { threadId: opts.threadId } : {}),
+            ...(opts.runId ? { runId: opts.runId } : {}),
+            ...(opts.turnId ? { turnId: opts.turnId } : {}),
+          };
+          const requestContext = getRequestContext();
+          const invokeAction = () =>
+            actionEntry.run(
+              toolCall.input as Record<string, string>,
+              actionContext,
+            );
+          // Keep a reference to the action promise so we can attach a zombie-
+          // detection continuation AFTER Promise.race abandons it on run abort.
+          // The promise itself is not awaited here — Promise.race owns the await.
+          const actionPromise = Promise.resolve(
+            runWithRequestContext(
+              {
+                ...(requestContext ?? {}),
+                ...(actionUserEmail ? { userEmail: actionUserEmail } : {}),
+                ...(actionOrgId ? { orgId: actionOrgId } : {}),
+                ...(requestContext?.run ? { run: requestContext.run } : {}),
+              },
+              invokeAction,
+            ),
           );
-        // Keep a reference to the action promise so we can attach a zombie-
-        // detection continuation AFTER Promise.race abandons it on run abort.
-        // The promise itself is not awaited here — Promise.race owns the await.
-        const actionPromise = Promise.resolve(
-          runWithRequestContext(
-            {
-              ...(requestContext ?? {}),
-              ...(actionUserEmail ? { userEmail: actionUserEmail } : {}),
-              ...(actionOrgId ? { orgId: actionOrgId } : {}),
-              ...(requestContext?.run ? { run: requestContext.run } : {}),
-            },
-            invokeAction,
-          ),
-        );
 
-        // When the run is aborted (soft-timeout / user cancel) while this tool
-        // call is in flight, Promise.race below will throw "Run aborted" and the
-        // action's promise becomes a zombie — it keeps running but its result is
-        // never returned to the loop. If the zombie eventually resolves, write
-        // the result to the durable ledger keyed by (threadId, toolKey) so the
-        // next continuation chunk can recover it instead of re-executing the
-        // side effect.
-        if (opts.threadId && !actionEntry.readOnly) {
-          const ledgerThreadId = opts.threadId;
-          const ledgerToolKey = toolCallCacheKey(toolCall.name, toolCall.input);
-          actionPromise
-            .then((zombieRaw: unknown) => {
-              const zombieMcp = isMcpActionResult(zombieRaw) ? zombieRaw : null;
-              if (
-                zombieMcp &&
-                zombieMcp.raw &&
-                typeof zombieMcp.raw === "object" &&
-                (zombieMcp.raw as Record<string, unknown>).isError === true
-              ) {
+          // When the run is aborted (soft-timeout / user cancel) while this tool
+          // call is in flight, Promise.race below will throw "Run aborted" and the
+          // action's promise becomes a zombie — it keeps running but its result is
+          // never returned to the loop. If the zombie eventually resolves, write
+          // the result to the durable ledger keyed by (threadId, toolKey) so the
+          // next continuation chunk can recover it instead of re-executing the
+          // side effect.
+          if (opts.threadId && !actionEntry.readOnly) {
+            const ledgerThreadId = opts.threadId;
+            const ledgerToolKey = toolCallCacheKey(
+              toolCall.name,
+              toolCall.input,
+            );
+            actionPromise
+              .then((zombieRaw: unknown) => {
+                const zombieMcp = isMcpActionResult(zombieRaw)
+                  ? zombieRaw
+                  : null;
+                if (
+                  zombieMcp &&
+                  zombieMcp.raw &&
+                  typeof zombieMcp.raw === "object" &&
+                  (zombieMcp.raw as Record<string, unknown>).isError === true
+                ) {
+                  return;
+                }
+                const zombieText = zombieMcp ? zombieMcp.text : zombieRaw;
+                const zombieStr =
+                  typeof zombieText === "string"
+                    ? zombieText
+                    : JSON.stringify(zombieText, null, 2);
+                void writeLedgerEntry(ledgerThreadId, ledgerToolKey, zombieStr);
+              })
+              .catch(() => {
+                // Action errored in the zombie — no result to ledger.
+              });
+          }
+
+          const raw = await Promise.race([
+            actionPromise,
+            new Promise<never>((_, reject) => {
+              timeoutSignal.addEventListener("abort", () =>
+                reject(
+                  new Error(
+                    `Tool call timed out after ${toolTimeoutMs / 1000} seconds`,
+                  ),
+                ),
+              );
+            }),
+            // Stop waiting on the tool when the run itself is aborted (e.g. the
+            // run-manager soft timeout, or a user cancel). Without this leg the
+            // loop blocks on an in-flight tool for up to TOOL_TIMEOUT_MS after
+            // the run signal has already fired.
+            new Promise<never>((_, reject) => {
+              if (signal.aborted) {
+                reject(new Error("Run aborted"));
                 return;
               }
-              const zombieText = zombieMcp ? zombieMcp.text : zombieRaw;
-              const zombieStr =
-                typeof zombieText === "string"
-                  ? zombieText
-                  : JSON.stringify(zombieText, null, 2);
-              void writeLedgerEntry(ledgerThreadId, ledgerToolKey, zombieStr);
-            })
-            .catch(() => {
-              // Action errored in the zombie — no result to ledger.
-            });
-        }
-
-        const raw = await Promise.race([
-          actionPromise,
-          new Promise<never>((_, reject) => {
-            timeoutSignal.addEventListener("abort", () =>
-              reject(
-                new Error(
-                  `Tool call timed out after ${toolTimeoutMs / 1000} seconds`,
-                ),
-              ),
-            );
-          }),
-          // Stop waiting on the tool when the run itself is aborted (e.g. the
-          // run-manager soft timeout, or a user cancel). Without this leg the
-          // loop blocks on an in-flight tool for up to TOOL_TIMEOUT_MS after
-          // the run signal has already fired.
-          new Promise<never>((_, reject) => {
-            if (signal.aborted) {
-              reject(new Error("Run aborted"));
-              return;
+              signal.addEventListener(
+                "abort",
+                () => reject(new Error("Run aborted")),
+                { once: true },
+              );
+            }),
+          ]);
+          const mcpResult = isMcpActionResult(raw) ? raw : null;
+          const rawForAgent = mcpResult ? mcpResult.text : raw;
+          if (
+            mcpResult &&
+            mcpResult.raw &&
+            typeof mcpResult.raw === "object" &&
+            (mcpResult.raw as Record<string, unknown>).isError === true
+          ) {
+            isError = true;
+          }
+          mcpApp = mcpResult?.mcpApp;
+          // Demo mode is browser-local presentation state. The agent and MCP
+          // layers always receive the real, access-scoped tool result.
+          let resultForAgent: unknown = rawForAgent;
+          // Vision images for the model: MCP tools return standard `image`
+          // content parts; first-party actions opt in via the well-known
+          // `_agentImages` result field (stripped from the JSON the model
+          // reads). The images array
+          // never touches the ledger — only the compact text notes appended
+          // below are persisted.
+          let imageNotes: string[] = [];
+          if (mcpResult) {
+            const mcpImages = extractMcpToolResultImages(mcpResult.raw);
+            if (mcpImages.length > 0) toolResultImages = mcpImages;
+          } else {
+            const extracted =
+              extractAgentImagesFromActionResult(resultForAgent);
+            resultForAgent = extracted.value;
+            imageNotes = extracted.notes;
+            if (extracted.images.length > 0) {
+              toolResultImages = extracted.images;
             }
-            signal.addEventListener(
-              "abort",
-              () => reject(new Error("Run aborted")),
-              { once: true },
+          }
+          if (toolResultImages) {
+            imageNotes = [
+              ...describeToolResultImages(toolResultImages),
+              ...imageNotes,
+            ];
+          }
+          let resultStr =
+            typeof resultForAgent === "string"
+              ? resultForAgent
+              : JSON.stringify(resultForAgent, null, 2);
+          if (resultStr.length > toolMaxResultChars) {
+            const truncated = resultStr.slice(0, toolMaxResultChars);
+            resultStr = `${truncated}\n\n...[truncated — full result was ${resultStr.length.toLocaleString()} chars; only first ${toolMaxResultChars.toLocaleString()} shown]`;
+          }
+          // Image notes go after truncation so they always survive into the
+          // persisted result string (the durable record that an image existed).
+          if (imageNotes.length > 0) {
+            resultStr = `${resultStr}\n\n${imageNotes.join("\n")}`;
+          }
+          result = resultStr;
+          if (toolCall.name === TOOL_SEARCH_ACTION_NAME && !isError) {
+            const added = expandActiveTools(
+              extractToolSearchResultNames(rawForAgent),
             );
-          }),
-        ]);
-        const mcpResult = isMcpActionResult(raw) ? raw : null;
-        const rawForAgent = mcpResult ? mcpResult.text : raw;
-        if (
-          mcpResult &&
-          mcpResult.raw &&
-          typeof mcpResult.raw === "object" &&
-          (mcpResult.raw as Record<string, unknown>).isError === true
-        ) {
+            if (added.length > 0) {
+              result += `\n\nLoaded matching tool schemas for next step: ${added.join(", ")}`;
+            }
+          }
+        } catch (err: any) {
+          if (isAgentActionStopError(err)) {
+            const message =
+              sanitizeToolErrorValue(err.message) ||
+              `Stopped after ${toolCall.name} failed.`;
+            result = sanitizeToolErrorValue(err.toolResult || message);
+            requestedActionStop ??= {
+              message,
+              ...(err.errorCode ? { errorCode: err.errorCode } : {}),
+            };
+          } else {
+            const message = sanitizeToolErrorValue(err);
+            result = `Error running ${toolCall.name}: ${message}${rateLimitRecoveryHint(message)}`;
+          }
           isError = true;
         }
-        mcpApp = mcpResult?.mcpApp;
-        // Demo mode is browser-local presentation state. The agent and MCP
-        // layers always receive the real, access-scoped tool result.
-        let resultForAgent: unknown = rawForAgent;
-        // Vision images for the model: MCP tools return standard `image`
-        // content parts; first-party actions opt in via the well-known
-        // `_agentImages` result field (stripped from the JSON the model
-        // reads). The images array
-        // never touches the ledger — only the compact text notes appended
-        // below are persisted.
-        let imageNotes: string[] = [];
-        if (mcpResult) {
-          const mcpImages = extractMcpToolResultImages(mcpResult.raw);
-          if (mcpImages.length > 0) toolResultImages = mcpImages;
-        } else {
-          const extracted = extractAgentImagesFromActionResult(resultForAgent);
-          resultForAgent = extracted.value;
-          imageNotes = extracted.notes;
-          if (extracted.images.length > 0) {
-            toolResultImages = extracted.images;
+        if (isError) {
+          result = finalizeToolErrorResult(result);
+        }
+
+        // Side-channel warnings raised anywhere inside the action's call stack
+        // (see `action-warnings.ts`). Drained here rather than in the success
+        // branch so an action that warns and then throws still surfaces it, and
+        // so nothing stays pending to bleed into a later tool's result.
+        const agentWarnings = drainAgentWarnings();
+        if (agentWarnings.length > 0) {
+          result = `${result}\n\n${formatAgentWarningsForToolResult(agentWarnings)}`;
+        }
+
+        // Auto-refresh the UI after a successful mutating tool call. Any call
+        // that isn't read-only — by its own per-call Plan-mode effect, else the
+        // action's readOnly flag — is assumed to mutate. The client's useDbSync
+        // listener sees a change event with source:"action" and invalidates
+        // ["action"] queries so list-* / get-* refetch. This makes refresh after
+        // agent writes reliable without the model needing to remember to call
+        // `refresh-screen` itself.
+        if (!isError) {
+          try {
+            const { actionCallIsReadOnly, notifyActionChangeInBackground } =
+              await import("../server/action-change.js");
+            if (!actionCallIsReadOnly(actionEntry, toolCall.input, false)) {
+              const owner =
+                opts.ownerEmail ?? getRequestUserEmail() ?? undefined;
+              const orgId = opts.orgId ?? getRequestOrgId() ?? undefined;
+              notifyActionChangeInBackground({
+                actionName: toolCall.name,
+                ...(owner ? { owner } : {}),
+                ...(orgId ? { orgId } : {}),
+              });
+            }
+          } catch (error) {
+            // poll module may be unavailable in non-server contexts — keep the
+            // tool result, but make the failed background refresh observable.
+            console.warn(
+              "Could not notify the action-change poller after a tool call",
+              error,
+            );
           }
         }
-        if (toolResultImages) {
-          imageNotes = [
-            ...describeToolResultImages(toolResultImages),
-            ...imageNotes,
-          ];
-        }
-        let resultStr =
-          typeof resultForAgent === "string"
-            ? resultForAgent
-            : JSON.stringify(resultForAgent, null, 2);
-        if (resultStr.length > toolMaxResultChars) {
-          const truncated = resultStr.slice(0, toolMaxResultChars);
-          resultStr = `${truncated}\n\n...[truncated — full result was ${resultStr.length.toLocaleString()} chars; only first ${toolMaxResultChars.toLocaleString()} shown]`;
-        }
-        // Image notes go after truncation so they always survive into the
-        // persisted result string (the durable record that an image existed).
-        if (imageNotes.length > 0) {
-          resultStr = `${resultStr}\n\n${imageNotes.join("\n")}`;
-        }
-        result = resultStr;
-        if (toolCall.name === TOOL_SEARCH_ACTION_NAME && !isError) {
-          const added = expandActiveTools(
-            extractToolSearchResultNames(rawForAgent),
-          );
-          if (added.length > 0) {
-            result += `\n\nLoaded matching tool schemas for next step: ${added.join(", ")}`;
+
+        emitToolDone({
+          type: "tool_done",
+          id: toolCall.id,
+          tool: toolCall.name,
+          input: toolCall.input as Record<string, unknown>,
+          result,
+          ...(isError ? { isError: true } : {}),
+          ...(isError
+            ? { completedSideEffect: false }
+            : actionEntry.readOnly !== true
+              ? { completedSideEffect: true }
+              : {}),
+          ...(mcpApp ? { mcpApp } : {}),
+          ...(actionEntry.chatUI ? { chatUI: actionEntry.chatUI } : {}),
+        });
+        recordToolResult(result, isError);
+        if (!isError) {
+          noteToolCallSucceeded(actionEntry);
+          if (cacheKey) {
+            readOnlyToolResultCache.set(cacheKey, result);
+          } else if (actionEntry.readOnly !== true) {
+            // A genuine write invalidates all cached reads. A dedupe:false
+            // read-only tool also has a null cacheKey (see above) but must NOT
+            // clear the cache — it isn't a write and other tools' cached reads
+            // are still valid.
+            readOnlyToolResultCache.clear();
+            duplicateReadOnlyToolCalls.clear();
           }
         }
-      } catch (err: any) {
-        if (isAgentActionStopError(err)) {
-          const message =
-            sanitizeToolErrorValue(err.message) ||
-            `Stopped after ${toolCall.name} failed.`;
-          result = sanitizeToolErrorValue(err.toolResult || message);
-          requestedActionStop ??= {
-            message,
-            ...(err.errorCode ? { errorCode: err.errorCode } : {}),
-          };
-        } else {
-          const message = sanitizeToolErrorValue(err);
-          result = `Error running ${toolCall.name}: ${message}${rateLimitRecoveryHint(message)}`;
-        }
-        isError = true;
-      }
-      if (isError) {
-        result = finalizeToolErrorResult(result);
-      }
-
-      // Side-channel warnings raised anywhere inside the action's call stack
-      // (see `action-warnings.ts`). Drained here rather than in the success
-      // branch so an action that warns and then throws still surfaces it, and
-      // so nothing stays pending to bleed into a later tool's result.
-      const agentWarnings = drainAgentWarnings();
-      if (agentWarnings.length > 0) {
-        result = `${result}\n\n${formatAgentWarningsForToolResult(agentWarnings)}`;
-      }
-
-      // Auto-refresh the UI after a successful mutating tool call. Any call
-      // that isn't read-only — by its own per-call Plan-mode effect, else the
-      // action's readOnly flag — is assumed to mutate. The client's useDbSync
-      // listener sees a change event with source:"action" and invalidates
-      // ["action"] queries so list-* / get-* refetch. This makes refresh after
-      // agent writes reliable without the model needing to remember to call
-      // `refresh-screen` itself.
-      if (!isError) {
-        try {
-          const { actionCallIsReadOnly, notifyActionChangeInBackground } =
-            await import("../server/action-change.js");
-          if (!actionCallIsReadOnly(actionEntry, toolCall.input, false)) {
-            const owner = opts.ownerEmail ?? getRequestUserEmail() ?? undefined;
-            const orgId = opts.orgId ?? getRequestOrgId() ?? undefined;
-            notifyActionChangeInBackground({
-              actionName: toolCall.name,
-              ...(owner ? { owner } : {}),
-              ...(orgId ? { orgId } : {}),
-            });
-          }
-        } catch {
-          // poll module may be unavailable in non-server contexts — ignore
-        }
-      }
-
-      send({
-        type: "tool_done",
-        id: toolCall.id,
-        tool: toolCall.name,
-        input: toolCall.input as Record<string, unknown>,
-        result,
-        ...(isError ? { isError: true } : {}),
-        ...(isError
-          ? { completedSideEffect: false }
-          : actionEntry.readOnly !== true
-            ? { completedSideEffect: true }
+        return {
+          type: "tool-result" as const,
+          toolCallId: toolCall.id,
+          toolName: toolCall.name,
+          toolInput: wireToolInput,
+          content: result,
+          ...(isError ? { isError } : {}),
+          ...(!isError && toolResultImages && toolResultImages.length > 0
+            ? { images: toolResultImages }
             : {}),
-        ...(mcpApp ? { mcpApp } : {}),
-        ...(actionEntry.chatUI ? { chatUI: actionEntry.chatUI } : {}),
-      });
-      recordToolResult(result, isError);
-      if (!isError) {
-        if (cacheKey) {
-          readOnlyToolResultCache.set(cacheKey, result);
-        } else if (actionEntry.readOnly !== true) {
-          // A genuine write invalidates all cached reads. A dedupe:false
-          // read-only tool also has a null cacheKey (see above) but must NOT
-          // clear the cache — it isn't a write and other tools' cached reads
-          // are still valid.
-          readOnlyToolResultCache.clear();
-          duplicateReadOnlyToolCalls.clear();
+        };
+      } finally {
+        if (!toolDoneEmitted) {
+          const result = `Error running ${toolCall.name}: tool execution ended before returning a result.`;
+          emitToolDone({
+            type: "tool_done",
+            id: toolCall.id,
+            tool: toolCall.name,
+            input: toolCall.input as Record<string, unknown>,
+            result,
+            isError: true,
+            completedSideEffect: false,
+          });
+          recordToolResult(result, true);
         }
       }
-      return {
-        type: "tool-result" as const,
-        toolCallId: toolCall.id,
-        toolName: toolCall.name,
-        toolInput: wireToolInput,
-        content: result,
-        ...(isError ? { isError } : {}),
-        ...(!isError && toolResultImages && toolResultImages.length > 0
-          ? { images: toolResultImages }
-          : {}),
-      };
     };
 
     type ParallelBatchKind = "read" | "parallel-write";
@@ -6216,7 +6286,50 @@ export async function runAgentLoop(opts: {
       toolResultParts.push(...(await Promise.all(batch.map(runToolCall))));
     };
 
+    // An `endsTurn` action already handed control to the user, so the rest of
+    // this assistant message belongs to a turn that is over. Report those calls
+    // as not executed rather than running them: a second `ask-question` would
+    // overwrite the first one's card before anyone could answer it.
+    const skipToolCallAfterYield = (
+      toolCall: import("./engine/types.js").EngineToolCallPart,
+    ): EngineContentPart => {
+      const result =
+        `Not executed: ${toolCall.name} was called after an action that ends the turn. ` +
+        `The turn is paused for the user's answer — call it again on a later turn if still needed.`;
+      send({
+        type: "tool_start",
+        id: toolCall.id,
+        tool: toolCall.name,
+        input: toolCall.input as Record<string, string>,
+      });
+      send({
+        type: "tool_done",
+        id: toolCall.id,
+        tool: toolCall.name,
+        input: toolCall.input as Record<string, unknown>,
+        result,
+        completedSideEffect: false,
+      });
+      toolResultHistory.push({
+        name: toolCall.name,
+        content: result,
+        isError: false,
+      });
+      return {
+        type: "tool-result" as const,
+        toolCallId: toolCall.id,
+        toolName: toolCall.name,
+        toolInput: JSON.stringify(toolCall.input ?? {}),
+        content: result,
+      };
+    };
+
     for (const toolCall of toolCallParts) {
+      if (turnYieldedToUser) {
+        await flushParallelBatch();
+        toolResultParts.push(skipToolCallAfterYield(toolCall));
+        continue;
+      }
       const batchKind = getParallelBatchKind(toolCall);
       if (batchKind) {
         if (parallelBatchKind && parallelBatchKind !== batchKind) {
@@ -6340,6 +6453,12 @@ export async function runAgentLoop(opts: {
     reportOutcome({
       state: "input_required",
       code: "needs_approval",
+      message: terminalActionStop.message,
+    });
+  } else if (terminalActionStop?.errorCode === "awaiting-user-input") {
+    reportOutcome({
+      state: "input_required",
+      code: "awaiting_user_input",
       message: terminalActionStop.message,
     });
   } else if (terminalActionStop) {
@@ -6522,30 +6641,6 @@ export function lastUnfinishedPreparingActionToolFromEvents(
     }
   }
   return latest?.tool;
-}
-
-function endsAfterCompletedToolWithoutAssistantFinal(run: ActiveRun): boolean {
-  let completedToolAfterLastAssistantText = false;
-  for (const { event } of run.events) {
-    if (event.type === "text" && event.text.trim().length > 0) {
-      completedToolAfterLastAssistantText = false;
-      continue;
-    }
-    if (event.type === "tool_done" && event.isError !== true) {
-      completedToolAfterLastAssistantText = true;
-      continue;
-    }
-    if (
-      event.type === "clear" ||
-      event.type === "error" ||
-      event.type === "missing_api_key" ||
-      event.type === "auto_continue" ||
-      event.type === "loop_limit"
-    ) {
-      completedToolAfterLastAssistantText = false;
-    }
-  }
-  return completedToolAfterLastAssistantText;
 }
 
 function lastUnfinishedPreparingActionTool(run: ActiveRun): string | undefined {

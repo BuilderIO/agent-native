@@ -4,6 +4,8 @@ const messages = {
   ...messagesByLocale["hi-IN"],
   designEditor: {
     ...messagesByLocale["hi-IN"].designEditor,
+    commenterRoleLabel: "टिप्पणीकार",
+    commenterRoleDescription: "समीक्षा टिप्पणियाँ देख और जोड़ सकते हैं",
     nodeRewrite: {
       composerTitle: "चयन के बारे में पूछें या बदलें",
       send: "भेजें",

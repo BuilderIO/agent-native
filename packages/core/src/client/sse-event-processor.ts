@@ -7,6 +7,7 @@ import {
   LLM_MISSING_CREDENTIALS_MESSAGE,
 } from "../agent/engine/credential-errors.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
+import { emitChatFirstOpenApp } from "./chat-first.js";
 import { formatChatErrorText, normalizeChatError } from "./error-format.js";
 import {
   humanizeToolLabelText,
@@ -306,6 +307,8 @@ export interface SSEStreamOptions {
   noProgressTimeoutMs?: number;
   /** Reader-local counterpart to `noProgressTimeoutMs` for action preparation. */
   actionPreparationStallTimeoutMs?: number;
+  /** Mark the adapter's final `done` snapshot terminal before it is yielded. */
+  markTerminalResults?: boolean;
   /**
    * Optional caller-owned preparation watchdog state. Passing the same object
    * across reconnect reads keeps a stuck action preparation from getting a
@@ -361,6 +364,23 @@ function isMeaningfulProgressEvent(
   }
   if (ev.type === "activity" && isPreparingActionActivity(ev)) {
     if (options?.durableBackgroundRun === true) return true;
+    return actionPreparationProgress === true;
+  }
+  return true;
+}
+
+/**
+ * The browser's durable liveness cursor must mirror the server's
+ * `last_progress_at` predicate. The stream watchdog intentionally has a
+ * broader background policy, so it cannot be reused for this cursor: raw
+ * keepalives and repeated zero-byte preparation are not proof of real work.
+ */
+function isDurableProgressEvent(
+  ev: SSEEvent,
+  actionPreparationProgress?: boolean,
+): boolean {
+  if (ev.type === "stream_keepalive" || ev.type === "clear") return false;
+  if (ev.type === "activity" && isPreparingActionActivity(ev)) {
     return actionPreparationProgress === true;
   }
   return true;
@@ -1227,6 +1247,51 @@ function shouldDispatchStreamProgress(
   return true;
 }
 
+function emitFirstPartyOpenAppHandoff(ev: SSEEvent): void {
+  if (ev.type !== "tool_done" || (ev.tool ?? "unknown") !== "open_app") {
+    return;
+  }
+  if (ev.isError === true) return;
+  if (!ev.result?.trim()) {
+    console.warn(
+      "[chat-first] open_app completed without a readable result; no app pane opened",
+    );
+    return;
+  }
+
+  let result: Record<string, unknown>;
+  try {
+    const parsed: unknown = JSON.parse(ev.result);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      console.warn(
+        "[chat-first] open_app completed without a readable result; no app pane opened",
+      );
+      return;
+    }
+    result = parsed as Record<string, unknown>;
+  } catch {
+    // coercion-ok: unreadable tool output must not be treated as a successful handoff.
+    console.warn(
+      "[chat-first] open_app completed without a readable result; no app pane opened",
+    );
+    return;
+  }
+
+  const readString = (value: unknown): string | undefined =>
+    typeof value === "string" && value.trim() ? value : undefined;
+  const delivery = emitChatFirstOpenApp({
+    app: readString(result.app ?? result.appId ?? result.application),
+    path: readString(result.path ?? result.targetPath),
+    url: readString(result.url ?? result.href),
+    view: readString(result.view),
+  });
+  if (!delivery.delivered) {
+    console.warn(
+      `[chat-first] open_app was completed but not delivered (${delivery.reason ?? "unknown"})`,
+    );
+  }
+}
+
 /**
  * Process a single SSE event and update the content accumulator.
  * Returns: "continue" to keep going, "done" to stop, or a yield-ready result.
@@ -1539,6 +1604,7 @@ export function processEvent(
     if (findCompletedToolCallIndex(content, ev.id) >= 0) {
       return { action: "continue" };
     }
+    emitFirstPartyOpenAppHandoff(ev);
     if (typeof window !== "undefined") {
       window.dispatchEvent(
         new CustomEvent("agent-native:tool-done", {
@@ -1877,6 +1943,7 @@ export function processEvent(
     // a wrap-up marker. Clear any preparation label before inspecting pending
     // tools so both success and interrupted-terminal paths settle the UI.
     dispatchActivityClear(tabId);
+    const userStoppedRun = ev.reason === "user";
     const interruptedTools = pendingToolNames(content);
     const allInterruptedTools = [
       ...interruptedTools.running,
@@ -1884,6 +1951,16 @@ export function processEvent(
     ];
     if (allInterruptedTools.length > 0) {
       settleInterruptedToolCalls(content, undefined, { includeActivity: true });
+      if (userStoppedRun) {
+        return {
+          action: "done",
+          result: {
+            content: contentSnapshot(content),
+            status: { type: "complete" as const, reason: "stop" as const },
+            metadata: { custom: { userStopped: true } },
+          } as ChatModelRunResult,
+        };
+      }
       const message = interruptedToolMessage(interruptedTools);
       const runError = {
         message,
@@ -1908,6 +1985,16 @@ export function processEvent(
           content: contentSnapshot(content),
           status: { type: "incomplete" as const, reason: "error" as const },
           metadata: { custom: { runError } },
+        } as ChatModelRunResult,
+      };
+    }
+    if (userStoppedRun) {
+      return {
+        action: "done",
+        result: {
+          content: contentSnapshot(content),
+          status: { type: "complete" as const, reason: "stop" as const },
+          metadata: { custom: { userStopped: true } },
         } as ChatModelRunResult,
       };
     }
@@ -1973,7 +2060,7 @@ export async function* readSSEStream(
   content: ContentPart[],
   toolCallCounter: { value: number },
   tabId: string | undefined,
-  onSeq?: (seq: number) => void,
+  onSeq?: (seq: number, isProgress?: boolean) => void,
   runId?: string | null,
   options?: SSEStreamOptions,
 ): AsyncGenerator<ChatModelRunResult> {
@@ -2091,14 +2178,23 @@ export async function* readSSEStream(
           ev,
           now,
         );
-        if (isMeaningfulProgressEvent(ev, actionPreparationProgress, options)) {
+        const meaningfulProgress = isMeaningfulProgressEvent(
+          ev,
+          actionPreparationProgress,
+          options,
+        );
+        const durableProgress = isDurableProgressEvent(
+          ev,
+          actionPreparationProgress,
+        );
+        if (meaningfulProgress) {
           sawProgressEvent = true;
           lastMeaningfulEventAt = now;
         }
 
         // Track sequence number for reconnection
         if (ev.seq !== undefined && onSeq) {
-          onSeq(ev.seq);
+          onSeq(ev.seq, durableProgress);
         }
 
         if (ev.type === "clear") {
@@ -2132,9 +2228,22 @@ export async function* readSSEStream(
           processEventState,
         );
 
-        if (result) {
+        const terminalResult =
+          result &&
+          options?.markTerminalResults === true &&
+          action === "done" &&
+          result.status == null
+            ? {
+                ...result,
+                status: {
+                  type: "complete" as const,
+                  reason: "stop" as const,
+                },
+              }
+            : result;
+        if (terminalResult) {
           await paceRenderUpdate();
-          yield withStreamMetadata(result);
+          yield withStreamMetadata(terminalResult);
         }
         if (
           hasStalledPreparingAction(
@@ -2208,7 +2317,7 @@ export async function readSSEStreamRaw(
   toolCallCounter: { value: number },
   tabId: string | undefined,
   onUpdate: (content: ContentPart[]) => void,
-  onSeq?: (seq: number) => void,
+  onSeq?: (seq: number, isProgress?: boolean) => void,
   options?: SSEStreamOptions,
 ): Promise<void> {
   const reader = body.getReader();
@@ -2282,13 +2391,22 @@ export async function readSSEStreamRaw(
           ev,
           now,
         );
-        if (isMeaningfulProgressEvent(ev, actionPreparationProgress, options)) {
+        const meaningfulProgress = isMeaningfulProgressEvent(
+          ev,
+          actionPreparationProgress,
+          options,
+        );
+        const durableProgress = isDurableProgressEvent(
+          ev,
+          actionPreparationProgress,
+        );
+        if (meaningfulProgress) {
           sawProgressEvent = true;
           lastMeaningfulEventAt = now;
         }
 
         if (ev.seq !== undefined && onSeq) {
-          onSeq(ev.seq);
+          onSeq(ev.seq, durableProgress);
         }
 
         if (ev.type === "clear") {

@@ -306,11 +306,13 @@ export default function PromptPopover({
   if (!open) return null;
 
   const importEnabled = Boolean(onImport && importFromLabel);
-  const importFromCopy = importFromLabel?.trim().toLowerCase().startsWith("or ")
-    ? importFromLabel.trim()
-    : importFromLabel
-      ? `or ${importFromLabel.trim().toLowerCase()}`
-      : "";
+  const normalizedImportFromLabel = importFromLabel
+    ?.trim()
+    .replace(/^or\s+/i, "")
+    .toLowerCase();
+  const importFromCopy = normalizedImportFromLabel
+    ? `Or ${normalizedImportFromLabel}`
+    : "";
   const importModeLabel =
     importMode === "google-slides"
       ? t("home.googleSlidesReferenceTitle")

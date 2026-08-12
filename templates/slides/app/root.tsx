@@ -33,6 +33,10 @@ import {
 } from "react-router";
 import type { LinksFunction } from "react-router";
 
+import {
+  getEditorCommands,
+  type EditorCommandGroup,
+} from "@/components/editor/editor-command-model";
 import { Layout as AppLayout } from "@/components/layout/Layout";
 import { FirstDeckOnboardingFlow } from "@/components/onboarding/FirstDeckOnboardingFlow";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
@@ -159,7 +163,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
           dangerouslySetInnerHTML={{ __html: LOCALE_INIT_SCRIPT }}
         />
         <link rel="icon" type="image/svg+xml" href={appPath("/favicon.svg")} />
-        <link rel="manifest" href={appPath("/manifest.json")} />
         <meta name="theme-color" content="#EC4899" />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta
@@ -202,6 +205,17 @@ function AppContent() {
   const navigate = useNavigate();
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   const location = useLocation();
+  const editorCommands = getEditorCommands();
+  const editorCommandGroups: Array<{
+    id: EditorCommandGroup;
+    heading: string;
+  }> = [
+    { id: "media", heading: t("editorToolbar.media") },
+    { id: "slideTools", heading: t("editorToolbar.slideTools") },
+    { id: "comments", heading: t("editorToolbar.comments") },
+    { id: "deck", heading: t("editorExport.exportAndDuplicate") },
+    { id: "other", heading: t("editorToolbar.more") },
+  ];
 
   const isBare =
     BARE_ROUTES.has(location.pathname) ||
@@ -236,6 +250,34 @@ function AppContent() {
             {t("settings.openAgentSettings")}
           </CommandMenu.Item>
         </CommandMenu.Group>
+        {editorCommandGroups.map((group) => {
+          const commands = editorCommands.filter(
+            (command) => command.group === group.id,
+          );
+          if (commands.length === 0) return null;
+          return (
+            <CommandMenu.Group key={group.id} heading={group.heading}>
+              {commands.map((command) => {
+                const Icon = command.icon;
+                return (
+                  <CommandMenu.Item
+                    key={command.id}
+                    onSelect={command.run}
+                    keywords={command.keywords}
+                    className={
+                      command.active
+                        ? "bg-accent text-accent-foreground"
+                        : undefined
+                    }
+                  >
+                    {Icon ? <Icon size={16} /> : null}
+                    {command.label}
+                  </CommandMenu.Item>
+                );
+              })}
+            </CommandMenu.Group>
+          );
+        })}
         <CommandMenu.Group heading={t("root.commandAppearance")}>
           <CommandMenu.Item
             onSelect={() => setTheme(isDark ? "light" : "dark")}

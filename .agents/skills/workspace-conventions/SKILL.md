@@ -6,6 +6,7 @@ description: >-
   blob storage, env and secrets, agent scratch files, and Dispatch Resources.
   Use when working across workspace apps, storing files or credentials, or
   looking up framework APIs.
+scope: dev
 ---
 
 # Workspace Conventions
@@ -16,25 +17,14 @@ resources, or looking up framework APIs.
 
 ## Framework Docs Lookup
 
-Version-matched Agent Native docs ship with `@agent-native/core` in
-`node_modules/@agent-native/core/docs`. A source-only corpus of core and
-first-party template patterns ships in `node_modules/@agent-native/core/corpus`.
+Read `agent-native-docs` for the lookup workflow (`framework-search` first, then
+the focused `docs-search` / `source-search` readers, and the `rg` fallback).
 
-- From an app directory, use `pnpm action docs-search --query "<topic>"`,
-  `pnpm action docs-search --slug <slug>`, or `pnpm action docs-search --list`.
-  Use `pnpm action source-search --query "<pattern>"` or
-  `pnpm action source-search --path <path>` when source examples matter.
-- If the action runner is unavailable, read
-  `node_modules/@agent-native/core/docs/AGENTS.md` and search
-  `node_modules/@agent-native/core/docs/content/` directly with `rg`. Search
-  `node_modules/@agent-native/core/corpus/` for source examples.
-- For advanced workspace features, start with `workspace`, `multi-app-workspace`,
-  `a2a-protocol`, `pure-agent-apps`, `automations`, `recurring-jobs`,
-  `external-agents`, `mcp-protocol`, `feature-flags`, `sharing`, and `security`.
+The workspace-specific slugs it does not list are `workspace`,
+`multi-app-workspace`, and `feature-flags`. Use package docs for framework APIs,
+the package corpus for reusable framework/template patterns, and this
+`AGENTS.md` plus `.agents/skills/` for workspace-specific conventions.
 
-Use package docs for framework APIs, the package corpus for reusable
-framework/template patterns, and this `AGENTS.md` plus `.agents/skills/` for
-workspace-specific conventions.
 Before building common workspace or agent UI, read `agent-native-toolkit` to
 inventory existing public kits and installed package seams. Read
 `customizing-agent-native` before adapting shared UI. Use the supported

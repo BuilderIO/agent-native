@@ -54,6 +54,9 @@ pnpm action list-decks
 # Get a specific deck with all slides
 pnpm action get-deck --id=<deckId>
 
+# Get one slide's full HTML without loading the rest of the deck
+pnpm action get-deck --id=<deckId> --slideId=<slideId> --compact=false
+
 # See what the user is looking at
 pnpm action view-screen
 ```
@@ -61,7 +64,9 @@ pnpm action view-screen
 **From actions:**
 
 - `list-decks` -- list all decks (returns id, title, slide count, timestamps)
-- `get-deck` -- get a single deck with full data
+- `get-deck` -- get a single deck; Slides chat calls are compact by default.
+  Pass `slideId` for one targeted slide (full HTML by default), or use
+  `compact=false` when a full deck read is actually needed
 
 ## Writing Decks
 

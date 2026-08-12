@@ -21,6 +21,7 @@ import {
   isConditionalFieldVisible,
   sanitizeConditionalValues as sanitizeVisibleValues,
 } from "../../shared/conditional.js";
+import { scrubPageUrl } from "../../shared/page-url.js";
 import {
   cleanSubmitterEmail,
   publicSubmitterEmail,
@@ -226,7 +227,7 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
     meta?.chatSessionIds,
   ]);
   const activeRunId = cleanMetaText(meta?.activeRunId);
-  const pageUrl = cleanMetaText(meta?.pageUrl);
+  const pageUrl = scrubPageUrl(meta?.pageUrl);
   const clientSurface = cleanClientSurface(meta?.clientSurface);
 
   await db.insert(schema.responses).values({

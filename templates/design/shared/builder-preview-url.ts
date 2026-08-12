@@ -77,6 +77,7 @@ export function isBuilderPreviewUrl(raw: unknown): boolean {
   try {
     parseBuilderPreviewUrl(raw);
     return true;
+    // coercion-ok: "does not parse" is what this predicate reports as false.
   } catch {
     return false;
   }

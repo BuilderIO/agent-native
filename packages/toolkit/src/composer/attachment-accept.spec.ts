@@ -19,4 +19,14 @@ describe("attachment accept lists", () => {
     expect(accept).toContain("image/svg+xml");
     expect(accept).toContain(".svg");
   });
+
+  it("allows Excel workbooks in both composer paths", () => {
+    for (const accept of [
+      PROMPT_DOCUMENT_ATTACHMENT_ACCEPT,
+      CHAT_DOCUMENT_ATTACHMENT_ACCEPT,
+    ]) {
+      expect(accept.split(",")).toContain(".xlsx");
+      expect(accept.split(",")).toContain(".xls");
+    }
+  });
 });

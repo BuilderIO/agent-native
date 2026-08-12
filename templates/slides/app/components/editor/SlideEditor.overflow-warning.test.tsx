@@ -30,17 +30,18 @@ describe("SlideEditor layout overflow warning", () => {
     const status = screen.getByRole("status");
     expect(status.className).toContain("text-foreground");
     expect(status.className).toContain("border-foreground/40");
-    // The old banner sat on the slide and covered its text; it now floats
-    // above the canvas with an outline instead of a filled surface.
-    expect(status.className).not.toContain("bg-amber-950/95");
     expect(status.className).toContain("-top-12");
     expect(screen.getByText("Layout overflows by 59px")).toBeTruthy();
   });
 
   it("can be dismissed until the slide content changes", () => {
-    expect(source).toContain("!isOverflowWarningDismissed");
-    expect(source).toContain("setIsOverflowWarningDismissed(false)");
-    expect(source).toContain("setIsOverflowWarningDismissed(true)");
+    expect(source).toContain(
+      "dismissedOverflowWarningKey !== overflowWarningKey",
+    );
+    expect(source).toContain(
+      "setDismissedOverflowWarningKey(overflowWarningKey)",
+    );
+    expect(source).toContain("hashSlideContent(slide.content)");
   });
 
   it("keeps its controls from triggering canvas interactions", () => {

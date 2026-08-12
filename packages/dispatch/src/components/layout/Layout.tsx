@@ -55,6 +55,7 @@ import {
   type ChatFirstAppItem,
   type ChatFirstCopy,
   type ChatFirstEmbedTarget,
+  type ChatFirstPrimaryTab,
 } from "@agent-native/core/client/chat-first";
 import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import {
@@ -101,9 +102,14 @@ import {
 import { Link, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
+import { isEmbedSessionExpiredMessage } from "../../lib/embed-session-recovery";
 import { cn } from "../../lib/utils";
 import {
+  isDispatchWorkspaceAppId,
+  isWorkspaceAppVisibleInDefaultLaunchers,
   mergeChatFirstWorkspaceApps,
+  workspaceAppIdFromRoute,
+  workspaceAppRoute,
   type WorkspaceAppSummary,
 } from "../../lib/workspace-apps";
 import { AppIcon } from "../app-icon";
@@ -294,6 +300,35 @@ function localDispatchPath(pathname: string): string {
     return pathname.slice(basePath.length) || "/";
   }
   return pathname;
+}
+
+export function isElectronEmbeddedSearch(search: string): boolean {
+  return new URLSearchParams(search).get("electron") === "1";
+}
+
+function chatFirstPrimaryTabForPath(
+  pathname: string,
+): ChatFirstPrimaryTab | undefined {
+  if (pathname === "/chat" || pathname.startsWith("/chat/")) {
+    return "new-chat";
+  }
+  if (
+    pathname === "/integrations" ||
+    pathname.startsWith("/integrations/") ||
+    pathname === "/admin/integrations" ||
+    pathname.startsWith("/admin/integrations/")
+  ) {
+    return "integrations";
+  }
+  if (
+    pathname === "/automations" ||
+    pathname.startsWith("/automations/") ||
+    pathname === "/admin/automations" ||
+    pathname.startsWith("/admin/automations/")
+  ) {
+    return "scheduled";
+  }
+  return undefined;
 }
 
 function dispatchNavLinkTarget(path: string): string {
@@ -543,6 +578,8 @@ function DispatchChatsSection({
   chatFirstMode?: boolean;
   chatFirstEmbedded?: boolean;
   chatFirstNavigation?: {
+    activeTab?: ChatFirstPrimaryTab;
+    onNewChat?: () => void;
     onOpenIntegrations: () => void;
     onOpenScheduled: () => void;
   };
@@ -683,13 +720,17 @@ function DispatchChatsSection({
       )}
     >
       {showNewChat && chatFirstNavigation ? (
-        <nav className="space-y-0.5 px-0 py-2">
+        <nav className="space-y-0.5 px-2 py-2">
           <ChatFirstPrimaryNavigation
             copy={chatFirstCopy}
-            onNewChat={() => void handleNewChat()}
+            onNewChat={() => {
+              chatFirstNavigation.onNewChat?.();
+              void handleNewChat();
+            }}
             onOpenIntegrations={chatFirstNavigation.onOpenIntegrations}
             onOpenScheduled={chatFirstNavigation.onOpenScheduled}
             onSearch={openCommandMenu}
+            activeTab={chatFirstNavigation.activeTab}
           />
         </nav>
       ) : null}
@@ -816,7 +857,7 @@ function DispatchChatsSection({
               ) : null}
             </>
           )}
-          className="min-w-0"
+          className="min-w-0 px-2"
         />
       ) : (
         <ChatHistoryRail
@@ -883,7 +924,7 @@ function DispatchChatsSection({
               ) : null}
             </>
           )}
-          className="min-w-0"
+          className={cn("min-w-0", chatFirstMode && "px-2")}
         />
       )}
     </div>
@@ -904,6 +945,8 @@ export function NavContent({
   chatFirstAppsLoading = false,
   chatFirstAppsError,
   chatFirstActiveAppId,
+  chatFirstActivePrimaryTab,
+  onChatFirstNewChat,
   onChatFirstAppOpen,
   onChatFirstAppsRetry,
 }: {
@@ -920,6 +963,8 @@ export function NavContent({
   chatFirstAppsLoading?: boolean;
   chatFirstAppsError?: string | null;
   chatFirstActiveAppId?: string;
+  chatFirstActivePrimaryTab?: ChatFirstPrimaryTab;
+  onChatFirstNewChat?: () => void;
   onChatFirstAppOpen?: (app: ChatFirstAppItem) => void;
   onChatFirstAppsRetry?: () => void;
 }) {
@@ -1149,7 +1194,7 @@ export function NavContent({
     <div
       className={cn("py-2", collapsed ? "flex justify-center px-1" : "px-3")}
     >
-      <OrgSwitcher compact={collapsed} reserveSpace />
+      <OrgSwitcher compact={collapsed} reserveSpace currentAppId="dispatch" />
     </div>
   );
   const sidebarFooterActions = (
@@ -1169,9 +1214,12 @@ export function NavContent({
           collapsed ? "justify-center px-0" : "px-4",
         )}
       >
-        <div
+        <Link
+          to={dispatchNavLinkTarget("/overview")}
+          aria-label={`${DISPATCH_SIDEBAR_LABEL} overview`}
+          data-dispatch-logo
           className={cn(
-            "flex items-center",
+            "flex items-center rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring",
             collapsed ? "justify-center" : "gap-2",
           )}
         >
@@ -1207,7 +1255,7 @@ export function NavContent({
               </div>
             </div>
           )}
-        </div>
+        </Link>
       </div>
 
       {chatFirstMode ? (
@@ -1219,6 +1267,8 @@ export function NavContent({
               chatFirstMode
               chatFirstEmbedded={chatFirstEmbedded}
               chatFirstNavigation={{
+                activeTab: chatFirstActivePrimaryTab,
+                onNewChat: onChatFirstNewChat,
                 onOpenIntegrations: () => {
                   navigate(dispatchNavLinkTarget("/admin/integrations"));
                   onNavigate?.();
@@ -1290,6 +1340,11 @@ export function Layout({
     }
   });
   const localPathname = localDispatchPath(location.pathname);
+  const [electronEmbedded] = useState(() =>
+    typeof window !== "undefined"
+      ? isElectronEmbeddedSearch(window.location.search)
+      : false,
+  );
   const isChatRoute =
     localPathname === "/chat" || localPathname.startsWith("/chat/");
   const chatFirstSurfaceScope = threadIdFromPath(localPathname) ?? "new";
@@ -1307,6 +1362,23 @@ export function Layout({
   const chatFirstMode =
     extensions?.chatFirst === true || chatFirstPreference || chatFirstEmbedded;
   const chatFirstHasActiveChat = chatFirstSurfaceScope !== "new";
+  useEffect(() => {
+    if (!electronEmbedded || typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    if (isElectronEmbeddedSearch(url.search)) return;
+    url.searchParams.set("electron", "1");
+    window.history.replaceState(
+      window.history.state,
+      "",
+      `${url.pathname}${url.search}${url.hash}`,
+    );
+  }, [electronEmbedded, location.pathname, location.search]);
+  useEffect(() => {
+    if (!chatFirstMode || chatFirstEmbedded || localPathname !== "/overview") {
+      return;
+    }
+    navigate(dispatchNavLinkTarget("/chat"), { replace: true });
+  }, [chatFirstEmbedded, chatFirstMode, localPathname, navigate]);
   const [chatFirstAppLayout, setChatFirstAppLayout] =
     useState<ChatFirstAppLayoutPreference>(() => readChatFirstAppLayout());
   const chatFirstAppLayoutHydratedRef = useRef(false);
@@ -1350,7 +1422,9 @@ export function Layout({
   const chatFirstAppItems = useMemo<ChatFirstAppItem[]>(
     () =>
       chatFirstAppRegistrations
-        .filter((app) => app.enabled)
+        .filter(
+          (app) => app.enabled && isWorkspaceAppVisibleInDefaultLaunchers(app),
+        )
         .map((app) => ({
           id: app.id,
           name: app.name ?? app.id,
@@ -1371,6 +1445,7 @@ export function Layout({
     null,
   );
   const [chatFirstEmbedAttempt, setChatFirstEmbedAttempt] = useState(0);
+  const chatFirstAppFrameRef = useRef<HTMLIFrameElement>(null);
   const [chatFirstNotice, setChatFirstNotice] = useState<string | null>(null);
   const chatFirstSessionWatch = useChatFirstSessionWatch();
   const chatFirstSurfaceTabs = useChatFirstSurfaceTabs(chatFirstSurfaceScope);
@@ -1410,6 +1485,19 @@ export function Layout({
     isChatRoute &&
     activeChatFirstSurfaceTab?.kind === "app" &&
     activeChatFirstSurfaceTab.placement === "main";
+  const chatFirstAppSelected =
+    chatFirstMode && activeChatFirstSurfaceTab?.kind === "app";
+  const chatFirstActivePrimaryTab = chatFirstAppSelected
+    ? activeChatFirstSurfaceTab?.kind === "app" &&
+      activeChatFirstSurfaceTab.appId === "dispatch"
+      ? chatFirstPrimaryTabForPath(activeChatFirstSurfaceTab.path ?? "")
+      : undefined
+    : chatFirstPrimaryTabForPath(localPathname);
+  const chatFirstActiveAppId = isWorkspaceAppRoute
+    ? (workspaceAppIdFromRoute(localPathname) ?? undefined)
+    : chatFirstAppSelected && activeChatFirstSurfaceTab?.kind === "app"
+      ? activeChatFirstSurfaceTab.appId
+      : undefined;
   const activeChatFirstAppRegistration = useMemo(
     () =>
       activeChatFirstSurfaceTab?.kind === "app" &&
@@ -1496,6 +1584,23 @@ export function Layout({
     createChatFirstEmbedSession.mutateAsync,
     isChatRoute,
   ]);
+
+  useEffect(() => {
+    if (!chatFirstMode || !isChatRoute || !activeChatFirstApp) return;
+
+    const handleEmbedSessionExpired = (event: MessageEvent) => {
+      if (
+        !isEmbedSessionExpiredMessage(event, chatFirstAppFrameRef.current, null)
+      )
+        return;
+      setChatFirstEmbedAttempt((attempt) => attempt + 1);
+    };
+
+    window.addEventListener("message", handleEmbedSessionExpired);
+    return () =>
+      window.removeEventListener("message", handleEmbedSessionExpired);
+  }, [activeChatFirstApp, chatFirstMode, isChatRoute]);
+
   const persistChatFirstPane = useCallback(
     (pane: DispatchChatFirstPane | null) => {
       setChatFirstPane(pane);
@@ -1507,6 +1612,17 @@ export function Layout({
     },
     [],
   );
+  useEffect(() => {
+    if (!chatFirstMode || isChatRoute) return;
+    persistChatFirstPane(null);
+    closeChatFirstSessionWatch();
+    chatFirstSurfaceTabsStore.closeAll();
+  }, [
+    chatFirstMode,
+    chatFirstSurfaceTabsStore,
+    isChatRoute,
+    persistChatFirstPane,
+  ]);
   const openChatFirstPane = useCallback(
     (
       pane: DispatchChatFirstPane,
@@ -1639,6 +1755,19 @@ export function Layout({
         setChatFirstNotice(chatFirstResolutionMessage(resolution.reason));
         return;
       }
+      if (isDispatchWorkspaceAppId(resolution.target.appId)) {
+        closeChatFirstSessionWatch();
+        chatFirstSurfaceTabsStore.closeAll();
+        setChatFirstSurfacePanelOpen(false);
+        persistChatFirstPane(null);
+        if (resolution.target.path) {
+          navigateWithAgentChatViewTransition(
+            navigate,
+            dispatchNavLinkTarget(resolution.target.path),
+          );
+        }
+        return;
+      }
       openChatFirstPane(resolution.target);
     },
     [
@@ -1646,7 +1775,12 @@ export function Layout({
       chatFirstAppsQuery.isError,
       chatFirstAppsQuery.isLoading,
       chatFirstGrantedAppsQuery.isLoading,
+      chatFirstSurfaceTabsStore,
+      closeChatFirstSessionWatch,
       openChatFirstPane,
+      navigate,
+      persistChatFirstPane,
+      setChatFirstSurfacePanelOpen,
     ],
   );
   const chatHomeHandoffActive = useAgentChatHomeHandoff({
@@ -1977,13 +2111,14 @@ export function Layout({
         chatOnly
         dynamicSuggestions={false}
         suggestions={[]}
+        suppressInlineOpenApp={chatFirstMode}
         emptyStateDisplay="hidden"
         composerPlaceholder={t(
           "dispatch.pages.chatFirstSessionMessagePlaceholder",
         )}
       />
     ),
-    [t],
+    [chatFirstMode, t],
   );
 
   const renderChatFirstSurfaceTab = useCallback(
@@ -2020,9 +2155,11 @@ export function Layout({
             onRetry={() => setChatFirstEmbedAttempt((value) => value + 1)}
             renderEmbed={({ url, title }: ChatFirstEmbedTarget) => (
               <iframe
+                key={`${url}:${chatFirstEmbedAttempt}`}
                 data-dispatch-chat-first-app-frame
                 src={url}
                 title={title ?? chatFirstCopy("appUnavailable")}
+                ref={chatFirstAppFrameRef}
                 referrerPolicy="no-referrer"
                 allow="clipboard-read; clipboard-write"
                 className="h-full w-full border-0 bg-background"
@@ -2111,6 +2248,29 @@ export function Layout({
 
   if (CHROMELESS_PATHS.some((path) => localPathname === path)) {
     return <>{children}</>;
+  }
+
+  if (electronEmbedded) {
+    return (
+      <DispatchExtensionsContext.Provider value={extensions}>
+        <HeaderActionsProvider>
+          <div
+            data-dispatch-electron-control-plane
+            className="flex h-screen w-full overflow-hidden bg-background"
+          >
+            <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
+              <Header showAgentToggle={false} />
+              <InvitationBanner />
+              <main className="flex-1 overflow-y-auto">
+                <div className="mx-auto max-w-7xl space-y-10 px-4 py-6 sm:px-6">
+                  {children}
+                </div>
+              </main>
+            </div>
+          </div>
+        </HeaderActionsProvider>
+      </DispatchExtensionsContext.Provider>
+    );
   }
 
   if (isWorkspaceAppHostRoute) {
@@ -2305,14 +2465,18 @@ export function Layout({
                   ? chatFirstCopy("appsLoadError")
                   : null
               }
-              chatFirstActiveAppId={
-                activeChatFirstSurfaceTab?.kind === "app"
-                  ? activeChatFirstSurfaceTab.appId
-                  : undefined
-              }
-              onChatFirstAppOpen={(app) =>
-                openChatFirstPane({ appId: app.id }, "main")
-              }
+              chatFirstActiveAppId={chatFirstActiveAppId}
+              chatFirstActivePrimaryTab={chatFirstActivePrimaryTab}
+              onChatFirstNewChat={() => {
+                closeChatFirstSessionWatch();
+                chatFirstSurfaceTabsStore.closeAll();
+                setChatFirstSurfacePanelOpen(false);
+              }}
+              onChatFirstAppOpen={(app) => {
+                if (isDispatchWorkspaceAppId(app.id)) return;
+                setSidebarCollapsed(true);
+                navigate(dispatchNavLinkTarget(workspaceAppRoute(app.id)));
+              }}
               onChatFirstAppsRetry={() => void chatFirstAppsQuery.refetch()}
               collapsible
               onCollapsedChange={setSidebarCollapsed}
@@ -2345,13 +2509,15 @@ export function Layout({
                       ? chatFirstCopy("appsLoadError")
                       : null
                   }
-                  chatFirstActiveAppId={
-                    activeChatFirstSurfaceTab?.kind === "app"
-                      ? activeChatFirstSurfaceTab.appId
-                      : undefined
-                  }
+                  chatFirstActiveAppId={chatFirstActiveAppId}
+                  chatFirstActivePrimaryTab={chatFirstActivePrimaryTab}
+                  onChatFirstNewChat={() => {
+                    closeChatFirstSessionWatch();
+                    chatFirstSurfaceTabsStore.closeAll();
+                    setChatFirstSurfacePanelOpen(false);
+                  }}
                   onChatFirstAppOpen={(app) =>
-                    openChatFirstPane({ appId: app.id }, "main")
+                    navigate(dispatchNavLinkTarget(workspaceAppRoute(app.id)))
                   }
                   onChatFirstAppsRetry={() => void chatFirstAppsQuery.refetch()}
                   onNavigate={() => setMobileOpen(false)}

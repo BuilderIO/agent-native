@@ -117,7 +117,8 @@ export async function verifyBuilderConnectToken(
       payload = verified.payload;
       break;
     } catch {
-      // Next secret.
+      // coercion-ok: try the next secret during rotation; the loop throws a
+      // typed error once every candidate has failed.
     }
   }
   if (!payload) {
