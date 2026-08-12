@@ -430,11 +430,11 @@ export default function FactoryRoute() {
               </CardContent>
             </Card>
           ) : factoryListQuery.isLoading ? (
-            <div className="overflow-hidden rounded-xl border border-border/70 bg-card">
+            <div className="grid gap-2">
               {Array.from({ length: 4 }).map((_, index) => (
                 <div
                   key={`factory-skeleton-${index}`}
-                  className="grid gap-3 border-b border-border px-3 py-3 last:border-b-0 md:grid-cols-[minmax(0,2fr)_minmax(120px,0.8fr)_minmax(70px,auto)_auto] md:items-center"
+                  className="grid gap-3 rounded-xl bg-card px-3 py-3 shadow-sm md:grid-cols-[minmax(0,2fr)_minmax(120px,0.8fr)_minmax(70px,auto)_auto] md:items-center"
                 >
                   <div className="min-w-0 space-y-2">
                     <div className="h-4 w-2/3 animate-pulse rounded bg-muted" />
@@ -446,11 +446,11 @@ export default function FactoryRoute() {
               ))}
             </div>
           ) : (
-            <div className="overflow-hidden rounded-xl border border-border/70 bg-card">
+            <div className="grid gap-2">
               {factoryList.map((factory) => (
                 <div
                   key={factory.id}
-                  className="group grid cursor-pointer gap-3 border-b border-border px-3 py-3 last:border-b-0 hover:bg-accent/25 md:grid-cols-[minmax(0,2fr)_minmax(120px,0.8fr)_minmax(70px,auto)_auto] md:items-center"
+                  className="group grid cursor-pointer gap-3 rounded-xl bg-card px-3 py-3 shadow-sm transition-colors hover:bg-accent/25 md:grid-cols-[minmax(0,2fr)_minmax(120px,0.8fr)_minmax(70px,auto)_auto] md:items-center"
                   role="button"
                   tabIndex={0}
                   onClick={() => openFactory(factory.id, { tab: "overview" })}
@@ -496,7 +496,7 @@ export default function FactoryRoute() {
   if (!graph) {
     return (
       <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
-        <header className="shrink-0 border-b bg-background px-2 sm:px-4 lg:px-6">
+        <header className="shrink-0 bg-background px-2 sm:px-4 lg:px-6">
           <div className="flex h-14 items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-1 sm:gap-2">
               <Button
@@ -540,7 +540,7 @@ export default function FactoryRoute() {
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
-      <header className="shrink-0 border-b bg-background">
+      <header className="shrink-0 bg-background">
         <div className="flex h-14 items-center justify-between gap-3 px-2 sm:px-4 lg:px-6">
           <div className="flex min-w-0 items-center gap-1 sm:gap-2">
             <Button

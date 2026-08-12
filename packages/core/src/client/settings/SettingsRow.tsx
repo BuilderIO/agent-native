@@ -48,7 +48,11 @@ export function SettingsGroup({
             : "overflow-hidden rounded-xl border border-border/70 bg-card",
         )}
       >
-        <div className={variant === "soft" ? "grid gap-1" : "divide-y divide-border/60"}>
+        <div
+          className={
+            variant === "soft" ? "grid gap-1" : "divide-y divide-border/60"
+          }
+        >
           {children}
         </div>
       </div>
