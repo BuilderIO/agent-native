@@ -1910,6 +1910,230 @@ body[data-clips-route="recording-pill"] #root {
   padding-bottom: 18px;
 }
 
+/* Settings detail stays inside the existing tray window. The content is a
+   floating layer, so changing a choice never becomes a native window resize. */
+.desktop-settings-popover {
+  z-index: 80;
+  width: min(360px, calc(100vw - 24px));
+  max-height: min(680px, calc(100vh - 24px));
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--fg);
+  box-shadow: var(--shadow-md);
+  outline: none;
+  transform-origin: var(--radix-popover-content-transform-origin);
+}
+
+.desktop-settings-popover[data-state="open"] {
+  animation: feedback-popover-in 120ms ease-out;
+}
+
+.desktop-settings-popover[data-state="closed"] {
+  animation: feedback-popover-out 90ms ease-out;
+}
+
+.desktop-settings-popover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.desktop-settings-popover-title {
+  min-width: 0;
+  color: var(--fg);
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.desktop-settings-popover-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  flex: 0 0 auto;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+
+.desktop-settings-popover-close:hover {
+  background: var(--surface-hover);
+  color: var(--fg);
+}
+
+.desktop-settings-popover-close:focus-visible,
+.rewind-setting-trigger:focus-visible,
+.rewind-choice-option:focus-visible,
+.rewind-manage-button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--brand-ring);
+}
+
+.desktop-settings-popover > .setup {
+  width: auto;
+  max-height: none;
+  padding: 0;
+  overflow: visible;
+  border-radius: 0;
+  background: transparent;
+}
+
+.desktop-settings-popover > .setup > .setup-header {
+  display: none;
+}
+
+.desktop-settings-popover > .rewind-settings-surface,
+.desktop-settings-popover > .rewind-memory-surface {
+  gap: 12px;
+  padding-bottom: 2px;
+}
+
+.rewind-settings-launcher {
+  width: min(430px, calc(100vw - 24px));
+}
+
+.rewind-memory-launcher {
+  width: min(430px, calc(100vw - 24px));
+}
+
+.rewind-popover-content {
+  width: min(380px, calc(100vw - 24px));
+}
+
+.rewind-setting-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 142px;
+  min-height: 34px;
+  padding: 7px 9px 7px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--fg);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  text-align: left;
+}
+
+.rewind-setting-trigger:hover:not(:disabled) {
+  border-color: var(--fg-muted);
+  background: var(--surface-hover);
+}
+
+.rewind-setting-trigger:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+}
+
+.rewind-choice-list {
+  display: grid;
+  gap: 3px;
+}
+
+.rewind-choice-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  min-height: 34px;
+  padding: 8px 9px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+  font-size: 12px;
+  text-align: left;
+}
+
+.rewind-choice-option:hover,
+.rewind-choice-option.is-selected {
+  background: var(--surface-hover);
+  color: var(--fg);
+}
+
+.rewind-choice-option.is-selected {
+  border-color: var(--border);
+}
+
+.rewind-settings-section {
+  display: grid;
+  min-width: 0;
+}
+
+.rewind-setting-copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.rewind-setting-copy > span {
+  overflow: hidden;
+  color: var(--fg-muted);
+  font-size: 10.5px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rewind-setting-row--action {
+  grid-template-columns: minmax(0, 1fr) auto;
+  min-height: 58px;
+}
+
+.rewind-manage-button {
+  width: auto;
+  min-width: 72px;
+  padding: 7px 10px;
+  font-size: 11px;
+}
+
+.rewind-popover-stack {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.rewind-popover-hint {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.rewind-popover-setting-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.rewind-popover-setting-row:last-child {
+  border-bottom: none;
+}
+
+.rewind-popover-setting-row .rewind-setting-trigger {
+  width: 150px;
+}
+
 .rewind-search-row {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;

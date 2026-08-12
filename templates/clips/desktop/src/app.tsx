@@ -3750,8 +3750,6 @@ export function App() {
           rewindAgentPromptCopied={rewindAgentPromptCopied}
           onCopyRewindAgentPrompt={copyRewindAgentPrompt}
           onOpenRewindDocs={openRewindDocs}
-          onOpenRewind={() => setPopoverView("rewind-settings")}
-          onOpenMemory={() => setPopoverView("memory")}
           onCancel={() => {
             setPromptRewindEnable(false);
             setPopoverView(
@@ -3799,11 +3797,6 @@ export function App() {
           rewindAgentPromptCopied={rewindAgentPromptCopied}
           onCopyRewindAgentPrompt={copyRewindAgentPrompt}
           onOpenRewindDocs={openRewindDocs}
-          onOpenRewind={() => {
-            setPromptRewindEnable(false);
-            setRewindSettingsReturnView("settings");
-            setPopoverView("rewind-settings");
-          }}
           onCancel={() => setPopoverView("recorder")}
         />
       </div>
@@ -5294,8 +5287,6 @@ function Setup({
   rewindAgentPromptCopied,
   onCopyRewindAgentPrompt,
   onOpenRewindDocs,
-  onOpenRewind,
-  onOpenMemory,
   onCancel,
   onSignOut,
 }: {
@@ -5324,8 +5315,6 @@ function Setup({
   rewindAgentPromptCopied: boolean;
   onCopyRewindAgentPrompt: () => void;
   onOpenRewindDocs: () => void;
-  onOpenRewind?: () => void;
-  onOpenMemory?: () => void;
   onCancel?: () => void;
   onSignOut?: () => void;
 }) {
@@ -5407,7 +5396,6 @@ function Setup({
   const [rewindEgressEvents, setRewindEgressEvents] = useState<
     RewindEgressEvent[]
   >([]);
-  const [rewindEgressOpen, setRewindEgressOpen] = useState(false);
   const [rewindLocalQuery, setRewindLocalQuery] = useState("");
   const [rewindLocalResult, setRewindLocalResult] =
     useState<RewindLocalAskResult | null>(null);
@@ -6336,17 +6324,7 @@ function Setup({
       excludedAppGroups.length === 0
         ? "No apps excluded"
         : `${excludedAppGroups.length} app${excludedAppGroups.length === 1 ? "" : "s"} excluded`;
-    const retentionLabel =
-      screenMemory.retentionHours === 24 ? "24 hours" : "8 hours";
     const storageLabel = formatStorageBytes(screenMemory.maxBytes);
-    const agentRetentionLabel =
-      screenMemory.agentClipRetention === "24-hours"
-        ? "Delete after 24 hours"
-        : screenMemory.agentClipRetention === "7-days"
-          ? "Delete after 7 days"
-          : screenMemory.agentClipRetention === "30-days"
-            ? "Delete after 30 days"
-            : "Keep forever";
 
     return (
       <div className="setup popover-view rewind-settings-surface">
@@ -6833,6 +6811,61 @@ function Setup({
                       ))
                     )}
                   </div>
+                </DesktopSettingsPopover>
+              </div>
+              <div className="rewind-setting-row rewind-setting-row--action">
+                <div className="rewind-setting-copy">
+                  <SettingLabel
+                    label="Manual search"
+                    hint="Search retained local evidence without asking an agent."
+                  />
+                  <span>Find and replay a source moment</span>
+                </div>
+                <DesktopSettingsPopover
+                  title="Manual search"
+                  open={rewindSearchOpen}
+                  onOpenChange={setRewindSearchOpen}
+                  side="bottom"
+                  contentClassName="rewind-memory-launcher"
+                  trigger={
+                    <button
+                      type="button"
+                      className="secondary rewind-manage-button"
+                    >
+                      Search
+                    </button>
+                  }
+                >
+                  <Setup
+                    surface="memory"
+                    recordingActive={recordingActive}
+                    promptRewindEnable={false}
+                    initial={initial}
+                    serverUrl={serverUrl}
+                    signedInAs={signedInAs}
+                    voiceShortcut={voiceShortcut}
+                    voiceCustomShortcut={voiceCustomShortcut}
+                    popoverCustomShortcut={popoverCustomShortcut}
+                    recordCustomShortcut={recordCustomShortcut}
+                    voiceMode={voiceMode}
+                    voiceProvider={voiceProvider}
+                    voiceInstructions={voiceInstructions}
+                    shortcutRegistrationError={shortcutRegistrationError}
+                    onVoiceShortcutChange={onVoiceShortcutChange}
+                    onVoiceCustomShortcutChange={onVoiceCustomShortcutChange}
+                    onPopoverCustomShortcutChange={
+                      onPopoverCustomShortcutChange
+                    }
+                    onRecordCustomShortcutChange={onRecordCustomShortcutChange}
+                    onVoiceModeChange={onVoiceModeChange}
+                    onVoiceProviderChange={onVoiceProviderChange}
+                    onVoiceInstructionsChange={onVoiceInstructionsChange}
+                    onConnect={onConnect}
+                    rewindAgentPromptCopied={rewindAgentPromptCopied}
+                    onCopyRewindAgentPrompt={onCopyRewindAgentPrompt}
+                    onOpenRewindDocs={onOpenRewindDocs}
+                    onCancel={() => setRewindSearchOpen(false)}
+                  />
                 </DesktopSettingsPopover>
               </div>
               <div className="rewind-setting-row rewind-setting-row--action">
