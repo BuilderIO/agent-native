@@ -13,6 +13,7 @@ describe("document export", () => {
     const markdown = "Alpha\nBeta";
     const blocksFields = [
       {
+        databaseId: "database-1",
         propertyId: "content",
         name: "Content",
         position: 0,
@@ -24,6 +25,7 @@ describe("document export", () => {
         }),
       },
       {
+        databaseId: "database-1",
         propertyId: "notes",
         name: "Notes",
         position: 1,

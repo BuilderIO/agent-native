@@ -1,6 +1,8 @@
 import { docToNfm, nfmToDoc, type PMNode } from "./nfm.js";
 
 export const BLOCKS_FIELD_IDENTITY_VERSION = 1;
+export const BLOCK_TOMBSTONE_REVISION_WINDOW = 20;
+export const MAX_BLOCK_TOMBSTONES_PER_FIELD = 500;
 
 export type BlocksFieldIdentityStatus = "legacy" | "materialized" | "stale";
 
@@ -439,7 +441,10 @@ export function reconcileBlocksFieldIdentity(args: {
       );
       if (recoveredIndex !== undefined) {
         previous = previousDeleted[recoveredIndex];
-        if (previous) recoveredIds.add(previous.id);
+        if (previous) {
+          recoveredIds.add(previous.id);
+          recoverable.delete(`${snapshot.kind}\0${snapshot.contentHash}`);
+        }
       }
     }
     let id = previous?.id ?? snapshot.preferredId ?? args.createId();
@@ -470,15 +475,26 @@ export function reconcileBlocksFieldIdentity(args: {
       deletedAtRevision: nextRevision,
       recoveredAtRevision: null,
     }));
-  const retainedTombstones = previousDeleted.filter(
-    (block) => !recoveredIds.has(block.id),
-  );
+  const oldestRecoverableRevision =
+    nextRevision - BLOCK_TOMBSTONE_REVISION_WINDOW;
+  const retainedTombstones = [...previousDeleted, ...deletedNow]
+    .filter(
+      (block) =>
+        !recoveredIds.has(block.id) &&
+        block.deletedAtRevision !== null &&
+        block.deletedAtRevision > oldestRecoverableRevision,
+    )
+    .sort(
+      (left, right) =>
+        (right.deletedAtRevision ?? 0) - (left.deletedAtRevision ?? 0),
+    )
+    .slice(0, MAX_BLOCK_TOMBSTONES_PER_FIELD);
 
   return {
     fieldId: args.previous.fieldId,
     revision: nextRevision,
     contentHash: blocksContentHash(args.markdown),
-    blocks: [...nextBlocks, ...retainedTombstones, ...deletedNow],
+    blocks: [...nextBlocks, ...retainedTombstones],
   };
 }
 

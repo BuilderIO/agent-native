@@ -17,6 +17,13 @@ import {
   isPrimaryBlocksField,
 } from "../shared/properties.js";
 
+vi.mock("@agent-native/creative-context/server", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/creative-context/server")
+  >()),
+  getGenerationCreativeContext: vi.fn(async () => null),
+}));
+
 // A unique on-disk SQLite file in the OS temp dir, removed after the run. Kept
 // out of the repo working tree and isolated from the process-wide getDbExec
 // singleton other test files share.
@@ -33,6 +40,7 @@ let identityUtils: typeof import("./_blocks-field-identity.js");
 let databaseUtils: typeof import("./_database-utils.js");
 let createInlineContentDatabaseAction: typeof import("./create-inline-content-database.js").default;
 let updateDocumentAction: typeof import("./update-document.js").default;
+let editDocumentAction: typeof import("./edit-document.js").default;
 let createContentDatabaseAction: typeof import("./create-content-database.js").default;
 let createContentDatabaseModule: typeof import("./create-content-database.js");
 let getContentDatabaseAction: typeof import("./get-content-database.js").default;
@@ -55,6 +63,7 @@ beforeAll(async () => {
     await import("./create-inline-content-database.js")
   ).default;
   updateDocumentAction = (await import("./update-document.js")).default;
+  editDocumentAction = (await import("./edit-document.js")).default;
   createContentDatabaseModule = await import("./create-content-database.js");
   createContentDatabaseAction = createContentDatabaseModule.default;
   getContentDatabaseAction = (await import("./get-content-database.js"))
@@ -896,6 +905,13 @@ describe("database Blocks field identity sidecar", () => {
     await runWithRequestContext({ userEmail: OWNER }, () =>
       updateDocumentAction.run({ id: rowDocumentId, content: "After" }),
     );
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      editDocumentAction.run({
+        id: rowDocumentId,
+        find: "After",
+        replace: "After edited",
+      }),
+    );
     const beforeRemoval = await db
       .select()
       .from(schema.documentBlockFields)
@@ -906,10 +922,28 @@ describe("database Blocks field identity sidecar", () => {
       ),
     ).toEqual(
       new Map([
-        [firstPropertyId, 1],
-        [secondPropertyId, 1],
+        [firstPropertyId, 2],
+        [secondPropertyId, 2],
       ]),
     );
+
+    const [rowDocument] = await db
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, rowDocumentId));
+    const exportedProperties = await runWithRequestContext(
+      { userEmail: OWNER },
+      () => propertyUtils.listPropertiesForAllDocumentDatabases(rowDocument),
+    );
+    expect(
+      new Set(
+        exportedProperties
+          .filter((property) =>
+            isPrimaryBlocksField(property.definition.options),
+          )
+          .map((property) => property.definition.databaseId),
+      ),
+    ).toEqual(new Set([first.databaseId, second.databaseId]));
 
     await runWithRequestContext({ userEmail: OWNER }, () =>
       removeDatabaseItemsAction.run({
@@ -922,7 +956,7 @@ describe("database Blocks field identity sidecar", () => {
       .from(schema.documentBlockFields)
       .where(eq(schema.documentBlockFields.documentId, rowDocumentId));
     expect(afterRemoval).toEqual([
-      expect.objectContaining({ propertyId: secondPropertyId, revision: 1 }),
+      expect.objectContaining({ propertyId: secondPropertyId, revision: 2 }),
     ]);
   });
 });
