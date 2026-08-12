@@ -1038,6 +1038,7 @@ fn materialize(
     label: &str,
     include_mic: bool,
     include_system_audio: bool,
+    recovery: Option<(&str, &str, bool)>,
 ) -> Result<FinalizedNativeArtifact, String> {
     let active = take_active(state)?;
     let mut intervals = active.intervals.clone();
@@ -1112,10 +1113,25 @@ fn materialize(
         }
         let output = artifact_path(app, label)?;
         let audio = select_audio(&active.sources, include_mic, include_system_audio)?;
-        native_screen::materialize_mp4_slices_exact(&slices, &output, audio)?;
         let first = first_segment
             .as_ref()
             .ok_or_else(|| "no Rewind media selected".to_string())?;
+        if let Some((server_url, recording_id, has_camera)) = recovery {
+            native_screen::persist_recording_intent(
+                &output,
+                recording_id,
+                server_url,
+                native_screen::MP4_RECORDING_MIME_TYPE,
+                first.width,
+                first.height,
+                include_mic || include_system_audio,
+                include_mic,
+                include_system_audio,
+                has_camera,
+                true,
+            )?;
+        }
+        native_screen::materialize_mp4_slices_exact(&slices, &output, audio)?;
         Ok(FinalizedNativeArtifact::rewind_mp4(
             output,
             duration_ms,
@@ -1314,6 +1330,7 @@ pub(crate) async fn rewind_clip_stop_and_upload(
         &recording_id,
         include_mic,
         include_system_audio,
+        Some((&server_url, &recording_id, has_camera)),
     )?;
     native_screen::upload_finalized_native_artifact(
         &app,
@@ -1390,6 +1407,7 @@ pub(crate) async fn rewind_clip_stop_and_save(
         &folder_name,
         include_mic,
         include_system_audio,
+        None,
     )?;
     native_screen::save_finalized_native_artifact_to_local_export(
         &app,
