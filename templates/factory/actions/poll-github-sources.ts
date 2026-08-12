@@ -110,9 +110,7 @@ export default defineAction({
           sourceChanged,
           "received",
         );
-        const updatedAt = sourceChanged
-          ? now
-          : (existing?.updatedAt ?? now);
+        const updatedAt = sourceChanged ? now : (existing?.updatedAt ?? now);
         const lastSeenAt = sourceChanged
           ? issue.updatedAt
           : (existing?.lastSeenAt ?? issue.updatedAt);
@@ -189,9 +187,7 @@ export default defineAction({
           sourceChanged,
           "pr_observed",
         );
-        const updatedAt = sourceChanged
-          ? now
-          : (existing?.updatedAt ?? now);
+        const updatedAt = sourceChanged ? now : (existing?.updatedAt ?? now);
         const lastSeenAt = sourceChanged
           ? pullRequest.updatedAt
           : (existing?.lastSeenAt ?? pullRequest.updatedAt);

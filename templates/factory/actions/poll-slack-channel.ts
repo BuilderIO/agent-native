@@ -85,9 +85,7 @@ export default defineAction({
           sourceChanged,
           "received",
         );
-        const updatedAt = sourceChanged
-          ? now
-          : (existing?.updatedAt ?? now);
+        const updatedAt = sourceChanged ? now : (existing?.updatedAt ?? now);
         const sourceLastSeenAt =
           typeof envelope.metadata?.messageTs === "string"
             ? envelope.metadata.messageTs

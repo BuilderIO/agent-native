@@ -15,8 +15,9 @@ describe("triage review state", () => {
     };
 
     expect(hasTriageSourceChanged(snapshot, snapshot)).toBe(false);
-    expect(statusAfterTriageSourceUpdate("shadow_decided", false, "received"))
-      .toBe("shadow_decided");
+    expect(
+      statusAfterTriageSourceUpdate("shadow_decided", false, "received"),
+    ).toBe("shadow_decided");
   });
 
   it("reopens an item when the source evidence changes", () => {
@@ -32,7 +33,8 @@ describe("triage review state", () => {
         lastSeenAt: "2026-08-12T13:00:00.000Z",
       }),
     ).toBe(true);
-    expect(statusAfterTriageSourceUpdate("needs_manual", true, "received"))
-      .toBe("received");
+    expect(
+      statusAfterTriageSourceUpdate("needs_manual", true, "received"),
+    ).toBe("received");
   });
 });

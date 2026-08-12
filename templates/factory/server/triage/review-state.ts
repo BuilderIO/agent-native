@@ -18,7 +18,8 @@ export function hasTriageSourceChanged(
     (next.summary !== undefined && existing.summary !== next.summary) ||
     (next.sourceUrl !== undefined && existing.sourceUrl !== next.sourceUrl) ||
     (next.coverage !== undefined && existing.coverage !== next.coverage) ||
-    (next.lastSeenAt !== undefined && existing.lastSeenAt !== next.lastSeenAt) ||
+    (next.lastSeenAt !== undefined &&
+      existing.lastSeenAt !== next.lastSeenAt) ||
     (next.headSha !== undefined && existing.headSha !== next.headSha)
   );
 }

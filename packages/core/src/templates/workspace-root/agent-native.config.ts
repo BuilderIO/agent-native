@@ -6,4 +6,3 @@ export default defineAgentNativeConfig({
   translations: { locales: ["en-US"] },
   changelog: { enabled: false },
 });
-

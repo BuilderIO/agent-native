@@ -119,9 +119,7 @@ describe("manage-jobs tool", () => {
   describe("create", () => {
     it("validates required fields", async () => {
       const out = JSON.parse(await run({ action: "create", name: "x" }));
-      expect(out.error).toMatch(
-        /name and instructions are required/,
-      );
+      expect(out.error).toMatch(/name and instructions are required/);
       expect(resourcePutMock).not.toHaveBeenCalled();
     });
 

@@ -184,6 +184,11 @@ describe("WorkspaceTemplateCard", () => {
       document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
     ).find((item) => item.textContent?.includes("Add app"));
     expect(addItem).not.toBeUndefined();
+    const settingsMenu = document.querySelector<HTMLElement>('[role="menu"]');
+    expect(settingsMenu?.className).toContain("w-48");
+    expect(settingsMenu?.className).toContain("bg-popover");
+    expect(settingsMenu?.className).toContain("shadow-md");
+    expect(addItem?.querySelector("svg")).not.toBeNull();
     await act(async () => addItem?.click());
     expect(document.body.textContent).toContain("Choose the URL-safe id");
     expect(

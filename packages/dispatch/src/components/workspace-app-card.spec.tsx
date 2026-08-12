@@ -92,6 +92,11 @@ describe("WorkspaceAppCard", () => {
     expect(newTabItem).not.toBeUndefined();
     expect(newTabItem?.getAttribute("href")).toBe("/analytics");
     expect(newTabItem?.getAttribute("target")).toBe("_blank");
+    const openMenu = document.querySelector<HTMLElement>('[role="menu"]');
+    expect(openMenu?.className).toContain("w-48");
+    expect(openMenu?.className).toContain("bg-popover");
+    expect(openMenu?.className).toContain("shadow-md");
+    expect(newTabItem?.querySelector("svg")).not.toBeNull();
 
     const settingsButton = container.querySelector<HTMLButtonElement>(
       'button[aria-label="Settings for Analytics"]',
@@ -183,6 +188,11 @@ describe("WorkspaceAppCard", () => {
       document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
     ).find((item) => item.textContent?.includes("Agent resources"));
     expect(resourcesItem).not.toBeUndefined();
+    const settingsMenu = document.querySelector<HTMLElement>('[role="menu"]');
+    expect(settingsMenu?.className).toContain("w-48");
+    expect(settingsMenu?.className).toContain("bg-popover");
+    expect(settingsMenu?.className).toContain("shadow-md");
+    expect(document.querySelectorAll('[role="menuitem"] svg').length).toBe(4);
 
     await act(async () => resourcesItem?.click());
 

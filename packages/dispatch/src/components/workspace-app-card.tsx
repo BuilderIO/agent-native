@@ -1,3 +1,4 @@
+import { APP_ACTION_MENU_CONTENT_CLASS } from "@agent-native/core/client/chat-first";
 import {
   useActionMutation,
   useActionQuery,
@@ -393,19 +394,22 @@ function WorkspaceAppSettings({
         </TooltipTrigger>
         <TooltipContent>App settings</TooltipContent>
       </Tooltip>
-      <DropdownMenuContent align="end" className="w-72">
+      <DropdownMenuContent
+        align="end"
+        className={APP_ACTION_MENU_CONTENT_CLASS}
+      >
         <DropdownMenuItem onSelect={onEdit}>
-          <IconEdit size={14} className="mr-2" />
+          <IconEdit size={14} aria-hidden="true" />
           Edit details
         </DropdownMenuItem>
         {!isPending && !isArchived ? (
           <>
             <DropdownMenuItem onSelect={onKeys}>
-              <IconKey size={14} className="mr-2" />
+              <IconKey size={14} aria-hidden="true" />
               Manage keys
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={onResources}>
-              <IconFileText size={14} className="mr-2" />
+              <IconFileText size={14} aria-hidden="true" />
               Agent resources
             </DropdownMenuItem>
           </>
@@ -415,17 +419,17 @@ function WorkspaceAppSettings({
             onSelect={onRemovePending}
             className="text-destructive focus:text-destructive"
           >
-            <IconTrash size={14} className="mr-2" />
+            <IconTrash size={14} aria-hidden="true" />
             Remove from list
           </DropdownMenuItem>
         ) : isArchived ? (
           <DropdownMenuItem onSelect={onUnarchive}>
-            <IconEye size={14} className="mr-2" />
+            <IconEye size={14} aria-hidden="true" />
             Restore to list
           </DropdownMenuItem>
         ) : (
           <DropdownMenuItem onSelect={onArchive}>
-            <IconEyeOff size={14} className="mr-2" />
+            <IconEyeOff size={14} aria-hidden="true" />
             Hide from list
           </DropdownMenuItem>
         )}

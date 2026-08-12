@@ -13,9 +13,9 @@ describe("parsePorcelain", () => {
   });
 
   it("skips the old path of a rename so `git add` never gets a dead path", () => {
-    expect(parsePorcelain(z("R  new/path.ts", "old/path.ts", "?? added.ts"))).toEqual(
-      ["new/path.ts", "added.ts"],
-    );
+    expect(
+      parsePorcelain(z("R  new/path.ts", "old/path.ts", "?? added.ts")),
+    ).toEqual(["new/path.ts", "added.ts"]);
   });
 
   it("returns nothing for a clean tree", () => {

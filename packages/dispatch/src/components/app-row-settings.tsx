@@ -1,3 +1,4 @@
+import { APP_ACTION_MENU_CONTENT_CLASS } from "@agent-native/core/client/chat-first";
 import { IconPlus, IconSettings } from "@tabler/icons-react";
 
 import { Button } from "./ui/button";
@@ -39,9 +40,12 @@ export function AppRowSettings({
         </TooltipTrigger>
         <TooltipContent>App settings</TooltipContent>
       </Tooltip>
-      <DropdownMenuContent align="end" className="min-w-40">
+      <DropdownMenuContent
+        align="end"
+        className={APP_ACTION_MENU_CONTENT_CLASS}
+      >
         <DropdownMenuItem onSelect={onAddApp}>
-          <IconPlus size={14} className="mr-2" />
+          <IconPlus size={14} aria-hidden="true" />
           {addAppLabel}
         </DropdownMenuItem>
       </DropdownMenuContent>

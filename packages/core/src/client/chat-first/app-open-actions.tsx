@@ -6,8 +6,15 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@agent-native/toolkit/ui/dropdown-menu";
-import { IconChevronDown, IconPlus } from "@tabler/icons-react";
+import {
+  IconAppWindow,
+  IconChevronDown,
+  IconExternalLink,
+  IconPlus,
+} from "@tabler/icons-react";
 import type { ReactNode } from "react";
+
+export const APP_ACTION_MENU_CONTENT_CLASS = "w-48";
 
 export interface AppOpenActionLabels {
   addApp: string;
@@ -114,29 +121,35 @@ export function AppOpenActions({
           </DropdownMenuTrigger>
           <DropdownMenuContent
             align="end"
-            className="min-w-40 bg-background shadow-lg"
+            className={APP_ACTION_MENU_CONTENT_CLASS}
           >
             {onAddApp ? (
               <DropdownMenuItem onSelect={onAddApp}>
-                <IconPlus size={14} className="mr-2" />
+                <IconPlus size={14} aria-hidden="true" />
                 {labels.addApp}
               </DropdownMenuItem>
             ) : null}
             {showInlineOption && href && onOpenInline ? (
               <DropdownMenuItem onSelect={onOpenInline}>
+                <IconAppWindow size={14} aria-hidden="true" />
                 {labels.openInline}
               </DropdownMenuItem>
             ) : null}
             {canOfferNewTab && href ? (
               <DropdownMenuItem asChild>
                 <a href={href ?? undefined} target="_blank" rel="noreferrer">
+                  <IconExternalLink size={14} aria-hidden="true" />
                   {labels.openInNewTab}
                 </a>
               </DropdownMenuItem>
             ) : null}
             {menuItems?.map((item) => (
               <DropdownMenuItem key={item.id} onSelect={item.onSelect}>
-                {item.icon ? <span className="mr-2">{item.icon}</span> : null}
+                {item.icon ? (
+                  <span className="shrink-0 text-muted-foreground">
+                    {item.icon}
+                  </span>
+                ) : null}
                 {item.label}
               </DropdownMenuItem>
             ))}

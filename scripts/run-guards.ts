@@ -195,7 +195,6 @@ function printResult(result: GuardResult) {
   console.error(`[guards] ${status} ${result.name} (${elapsed})`);
 }
 
-
 function printHelp() {
   console.log(`Usage: tsx scripts/run-guards.ts [options]
 

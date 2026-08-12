@@ -145,6 +145,9 @@ function describe(files) {
   return `chore: publish branch work in ${head}${scopes.length > 3 ? ", …" : ""} (${files.length} files)`;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(process.argv[1]).href
+) {
   main();
 }

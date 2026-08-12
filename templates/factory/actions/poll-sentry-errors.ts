@@ -117,9 +117,7 @@ export default defineAction({
           sourceChanged,
           "received",
         );
-        const updatedAt = sourceChanged
-          ? now
-          : (existing?.updatedAt ?? now);
+        const updatedAt = sourceChanged ? now : (existing?.updatedAt ?? now);
         const lastSeenAt = sourceChanged
           ? issue.lastSeen
           : (existing?.lastSeenAt ?? issue.lastSeen);
