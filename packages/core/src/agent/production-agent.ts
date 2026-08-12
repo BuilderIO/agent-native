@@ -766,12 +766,51 @@ export interface AgentActionSurfaceDetails {
   availableActionNames: readonly string[];
 }
 
+function hasOwn(
+  value: unknown,
+  propertyName: string,
+): value is Record<string, unknown> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    Object.prototype.hasOwnProperty.call(value, propertyName)
+  );
+}
+
+/** Read a persisted allowlist while preserving legacy absence and failing
+ * closed when the field is present but malformed. */
+export function readPersistedAllowedActionNames(
+  value: unknown,
+): string[] | undefined {
+  if (!hasOwn(value, "allowedActionNames")) return undefined;
+  const names = value.allowedActionNames;
+  if (
+    !Array.isArray(names) ||
+    !names.every((name) => typeof name === "string")
+  ) {
+    return [];
+  }
+  return [...new Set(names)];
+}
+
+/** Read a nested persisted action surface. An absent envelope is legacy;
+ * a present but invalid envelope is an explicit empty surface. */
+export function readPersistedActionSurface(
+  value: unknown,
+  propertyName: string,
+): string[] | undefined {
+  if (!hasOwn(value, propertyName)) return undefined;
+  return readPersistedAllowedActionNames(value[propertyName]) ?? [];
+}
+
 export function filterActionsByAllowedNames(
   actions: Record<string, ActionEntry>,
   allowedActionNames: readonly string[],
 ): Record<string, ActionEntry> {
   const allowedNames = [...new Set(allowedActionNames)];
-  const unknownNames = allowedNames.filter((name) => !actions[name]);
+  const unknownNames = allowedNames.filter(
+    (name) => !Object.prototype.hasOwnProperty.call(actions, name),
+  );
   if (unknownNames.length > 0) {
     throw new Error(
       `resolveActionSurface returned unknown action name(s): ${unknownNames.join(", ")}`,
@@ -8006,23 +8045,21 @@ export function createProductionAgentHandler(
     const availableRequestActions = getRequestActions();
     let surfacedRequestActions = availableRequestActions;
     if (options.resolveActionSurface) {
-      const persistedSurface =
-        isBackgroundWorker &&
-        body.__resolvedActionSurface &&
-        Array.isArray(body.__resolvedActionSurface.allowedActionNames)
-          ? body.__resolvedActionSurface
-          : null;
-      const surface = persistedSurface
-        ? { allowedActionNames: persistedSurface.allowedActionNames }
-        : await options.resolveActionSurface({
-            event,
-            ownerEmail,
-            orgId: getRequestOrgId() ?? null,
-            threadId,
-            mode: requestMode,
-            internalContinuation: Boolean(internalContinuation),
-            availableActionNames: Object.keys(availableRequestActions),
-          });
+      const persistedActionNames = isBackgroundWorker
+        ? readPersistedActionSurface(body, "__resolvedActionSurface")
+        : undefined;
+      const surface =
+        persistedActionNames !== undefined
+          ? { allowedActionNames: persistedActionNames }
+          : await options.resolveActionSurface({
+              event,
+              ownerEmail,
+              orgId: getRequestOrgId() ?? null,
+              threadId,
+              mode: requestMode,
+              internalContinuation: Boolean(internalContinuation),
+              availableActionNames: Object.keys(availableRequestActions),
+            });
       surfacedRequestActions = filterActionsByAllowedNames(
         availableRequestActions,
         surface.allowedActionNames,

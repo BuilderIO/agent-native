@@ -127,8 +127,13 @@ vi.mock("../db/client.js", () => ({
 
 // ── app_state (task records + thread reverse-lookup) ──────────────────────
 const appState = new Map<string, any>();
-const requestContexts: Array<{ userEmail?: string; orgId?: string }> = [];
-let activeRequestContext: { userEmail?: string; orgId?: string } | undefined;
+type MockRequestContext = {
+  userEmail?: string;
+  orgId?: string;
+  run?: { allowedActionNames?: readonly string[] };
+};
+const requestContexts: MockRequestContext[] = [];
+let activeRequestContext: MockRequestContext | undefined;
 
 function requireMockRequestContext(): void {
   if (!activeRequestContext?.userEmail) {
@@ -279,6 +284,21 @@ vi.mock("../agent/production-agent.js", () => ({
     );
   },
   filterInitialEngineTools: fakeFilterInitialEngineTools,
+  readPersistedAllowedActionNames: (value: unknown) => {
+    if (
+      typeof value !== "object" ||
+      value === null ||
+      !Object.prototype.hasOwnProperty.call(value, "allowedActionNames")
+    ) {
+      return undefined;
+    }
+    const names = (value as { allowedActionNames?: unknown })
+      .allowedActionNames;
+    return Array.isArray(names) &&
+      names.every((name) => typeof name === "string")
+      ? [...new Set(names)]
+      : [];
+  },
   resolveAgentRequestReasoningEffort: ({ model }: { model: string }) =>
     model === "gpt-5.6" ? "medium" : undefined,
   resolveMainChatMaxOutputTokens: (model: string) =>
@@ -321,7 +341,7 @@ vi.mock("../org/context.js", () => ({
 
 vi.mock("./request-context.js", () => ({
   getRequestUserEmail: () => activeRequestContext?.userEmail,
-  getRequestRunContext: () => undefined,
+  getRequestRunContext: () => activeRequestContext?.run,
   runWithRequestContext: (ctx: any, fn: () => any) => {
     const previous = activeRequestContext;
     activeRequestContext = ctx;
@@ -518,6 +538,68 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
       expect.objectContaining({ denied: expect.any(Object) }),
     );
   });
+
+  it("restores the persisted surface inside the durable agent loop context", async () => {
+    let observedAllowedActionNames: readonly string[] | undefined;
+    runAgentLoopMock.mockImplementation(async () => {
+      observedAllowedActionNames =
+        activeRequestContext?.run?.allowedActionNames;
+    });
+    await seedTask("surface-context", undefined, ["allowed"]);
+
+    await processAgentTeamRun({
+      taskId: "surface-context",
+      mode: "start",
+      resolveConfig: async () => ({
+        ...resolveConfig(),
+        actions: {
+          allowed: {
+            tool: { description: "Allowed", parameters: {} },
+            run: async () => "allowed",
+          },
+        },
+      }),
+    });
+
+    expect(runAgentLoopMock).toHaveBeenCalledTimes(1);
+    expect(observedAllowedActionNames).toEqual(["allowed"]);
+  });
+
+  it("treats a malformed persisted sub-agent surface as an empty allowlist", async () => {
+    actionsToEngineToolsMock.mockImplementation((actions: any) =>
+      Object.keys(actions).map((name) => ({ name })),
+    );
+    runAgentLoopMock.mockImplementation(async () => {});
+    await seedTask("malformed-surface");
+    const queued = queueRows.find((row) => row.task_id === "malformed-surface");
+    if (!queued) throw new Error("missing malformed-surface queue row");
+    queued.payload = JSON.stringify({
+      description: "do the thing",
+      turnId: "run-task-malformed-surface",
+      allowedActionNames: null,
+    });
+    let resolvedAllowedActionNames: unknown;
+
+    await processAgentTeamRun({
+      taskId: "malformed-surface",
+      mode: "start",
+      resolveConfig: async ({ payload }) => {
+        resolvedAllowedActionNames = payload.allowedActionNames;
+        return {
+          ...resolveConfig(),
+          actions: {
+            denied: {
+              tool: { description: "Denied", parameters: {} },
+              run: async () => "denied",
+            },
+          },
+        };
+      },
+    });
+
+    expect(resolvedAllowedActionNames).toEqual([]);
+    expect(actionsToEngineToolsMock).toHaveBeenCalledWith({});
+  }, 20_000);
 
   it("fails closed if a persisted sub-agent action no longer exists", async () => {
     await seedTask("missing-surface", undefined, ["removed"]);

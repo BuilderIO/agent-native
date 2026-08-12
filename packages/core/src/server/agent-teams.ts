@@ -28,6 +28,7 @@ import {
   actionsToEngineTools,
   filterActionsByAllowedNames,
   filterInitialEngineTools,
+  readPersistedAllowedActionNames,
   resolveAgentRequestReasoningEffort,
 } from "../agent/production-agent.js";
 import {
@@ -1680,11 +1681,25 @@ export async function processAgentTeamRun(
 ): Promise<{ ok: boolean; skipped?: string }> {
   const claimed = await claimAgentTeamRun(opts.taskId);
   if (!claimed) return { ok: true, skipped: "already-claimed-or-missing" };
+  const persistedAllowedActionNames = readPersistedAllowedActionNames(
+    claimed.payload,
+  );
+  const payload =
+    persistedAllowedActionNames === undefined
+      ? claimed.payload
+      : {
+          ...claimed.payload,
+          allowedActionNames: persistedAllowedActionNames,
+        };
 
   return await runWithRequestContext(
     {
       userEmail: claimed.ownerEmail ?? undefined,
       orgId: claimed.orgId ?? undefined,
+      run:
+        persistedAllowedActionNames === undefined
+          ? undefined
+          : { allowedActionNames: persistedAllowedActionNames },
     },
     async () => {
       const task = await loadTask(opts.taskId);
@@ -1700,7 +1715,6 @@ export async function processAgentTeamRun(
         return { ok: true, skipped: "task-terminal" };
       }
 
-      const payload = claimed.payload;
       const ownerEmail = claimed.ownerEmail ?? getRequestUserEmail() ?? "";
       const orgId = claimed.orgId;
       const turnId = payload.turnId || taskRunId(opts.taskId);
@@ -1708,12 +1722,12 @@ export async function processAgentTeamRun(
       let config: AgentTeamRunConfig;
       try {
         config = await opts.resolveConfig({ payload, ownerEmail, orgId });
-        if (payload.allowedActionNames) {
+        if (persistedAllowedActionNames !== undefined) {
           config = {
             ...config,
             actions: filterActionsByAllowedNames(
               config.actions,
-              payload.allowedActionNames,
+              persistedAllowedActionNames,
             ),
           };
         }
@@ -1862,7 +1876,14 @@ export async function processAgentTeamRun(
               }
             };
             await runWithRequestContext(
-              { userEmail: ownerEmail || undefined, orgId: orgId ?? undefined },
+              {
+                userEmail: ownerEmail || undefined,
+                orgId: orgId ?? undefined,
+                run:
+                  persistedAllowedActionNames === undefined
+                    ? undefined
+                    : { allowedActionNames: persistedAllowedActionNames },
+              },
               // Record THIS sub-agent's own delegation depth as the ambient
               // depth for the duration of its agent loop. If a tool call from
               // within the loop reaches `spawnTask` (even with the team tool not

@@ -34,6 +34,8 @@ import {
   createPlanModeActionRegistry,
   createProductionAgentHandler,
   preloadPlanModeEngineTools,
+  readPersistedActionSurface,
+  readPersistedAllowedActionNames,
   isPlanModeToolCallAllowed,
   isCachedToolResultVisibleInContext,
   isContextTooLongError,
@@ -1731,6 +1733,44 @@ describe("filterActionsByAllowedNames", () => {
         ),
       ),
     ).toEqual(["two", "one"]);
+  });
+
+  it("rejects inherited object properties as unknown actions", () => {
+    expect(() =>
+      filterActionsByAllowedNames({ allowed: actionEntry({}) }, [
+        "constructor",
+      ]),
+    ).toThrow(
+      "resolveActionSurface returned unknown action name(s): constructor",
+    );
+  });
+
+  it("distinguishes absent persisted surfaces from malformed ones", () => {
+    expect(readPersistedAllowedActionNames({})).toBeUndefined();
+    expect(
+      readPersistedAllowedActionNames({
+        allowedActionNames: null,
+      }),
+    ).toEqual([]);
+    expect(
+      readPersistedActionSurface({}, "__resolvedActionSurface"),
+    ).toBeUndefined();
+    expect(
+      readPersistedActionSurface(
+        { __resolvedActionSurface: { allowedActionNames: "invalid" } },
+        "__resolvedActionSurface",
+      ),
+    ).toEqual([]);
+    expect(
+      readPersistedActionSurface(
+        {
+          __resolvedActionSurface: {
+            allowedActionNames: ["allowed", "allowed"],
+          },
+        },
+        "__resolvedActionSurface",
+      ),
+    ).toEqual(["allowed"]);
   });
 
   it("keeps tool-search scoped to the filtered request registry", async () => {
