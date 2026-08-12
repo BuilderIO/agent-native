@@ -1910,7 +1910,7 @@ function SetupWizard({
           </div>
 
           {loading ? (
-            <div className="rounded-lg border border-dashed px-6 py-10 text-center text-sm text-muted-foreground">
+            <div className="rounded-lg bg-muted/30 px-6 py-10 text-center text-sm text-muted-foreground">
               {t("integrations.loadingSetupPlan")}
             </div>
           ) : null}
@@ -1937,7 +1937,7 @@ function SetupWizard({
               {isProviderStep ? (
                 <div className="grid gap-6">
                   <div className="flex items-center gap-3">
-                    <span className="flex size-10 shrink-0 items-center justify-center rounded-lg border border-border bg-card">
+                    <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted/40">
                       {logoForProvider(provider.id, provider.label)}
                     </span>
                     <div className="min-w-0">
@@ -1957,7 +1957,7 @@ function SetupWizard({
                     required
                   />
 
-                  <details className="group rounded-lg border border-border/70">
+                  <details className="group rounded-lg bg-muted/30">
                     <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3.5 py-3 text-sm font-medium text-foreground marker:hidden">
                       <span>
                         {t(
@@ -1968,7 +1968,7 @@ function SetupWizard({
                       </span>
                       <IconChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
                     </summary>
-                    <div className="grid gap-3 border-t border-border/70 px-3.5 py-3.5 sm:grid-cols-2">
+                    <div className="grid gap-3 px-3.5 pb-3.5 sm:grid-cols-2">
                       <TextField
                         label={t("integrations.accountLabel")}
                         value={form.accountLabel}

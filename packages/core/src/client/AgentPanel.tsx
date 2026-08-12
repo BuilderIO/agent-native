@@ -114,6 +114,7 @@ import type {
   MultiTabAssistantChatProps,
 } from "./MultiTabAssistantChat.js";
 import { isFirstRunOnboardingEnabled } from "./onboarding/first-run-enabled.js";
+import { useFirstRunOnboardingGateOwnsSurface } from "./onboarding/first-run-startup-gate.js";
 import { useOnboardingPreviewMode } from "./onboarding/use-preview-mode.js";
 import { recoverFromStaleChunkError } from "./route-chunk-recovery.js";
 import { withBuilderConnectTrackingParams } from "./settings/useBuilderStatus.js";
@@ -855,8 +856,11 @@ function AgentPanelInner({
   const location = useLocation();
   const mounted = useClientOnly();
   const onboardingPreviewMode = useOnboardingPreviewMode();
+  const firstRunOnboardingGateOwnsSurface =
+    useFirstRunOnboardingGateOwnsSurface();
   const showFirstRunOnboarding =
-    SHOW_FIRST_RUN_ONBOARDING || onboardingPreviewMode;
+    !firstRunOnboardingGateOwnsSurface &&
+    (SHOW_FIRST_RUN_ONBOARDING || onboardingPreviewMode);
   const insideAgentSidebar = React.useContext(AgentSidebarOnboardingContext);
   const isFirstRunOnboardingSurface =
     showFirstRunOnboarding && !insideAgentSidebar;
@@ -3045,7 +3049,10 @@ export function AgentSidebar({
   suppressFirstRunOnboarding = false,
 }: AgentSidebarProps) {
   const onboardingPreviewMode = useOnboardingPreviewMode();
+  const firstRunOnboardingGateOwnsSurface =
+    useFirstRunOnboardingGateOwnsSurface();
   const showFirstRunOnboarding =
+    !firstRunOnboardingGateOwnsSurface &&
     !suppressFirstRunOnboarding &&
     (SHOW_FIRST_RUN_ONBOARDING || onboardingPreviewMode);
   const initialWidth = defaultSidebarWidth ?? sidebarWidth ?? 380;

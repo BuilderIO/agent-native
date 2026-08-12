@@ -712,12 +712,8 @@ export function McpIntegrationDialog({
                       },
                     };
                   })}
+                  emptyLabel={t("mcpIntegrations.noMatches")}
                 />
-                {filteredIntegrations.length === 0 && (
-                  <div className="rounded-md border border-dashed border-border p-6 text-center text-[12px] text-muted-foreground">
-                    {t("mcpIntegrations.noMatches")}
-                  </div>
-                )}
               </div>
             </div>
           </>
@@ -1004,7 +1000,9 @@ export function McpIntegrationDialog({
                     </button>
                   )}
                 </div>
-              ) : selected?.authMode === "oauth" ? (
+              ) : !selected &&
+                customAuthMode === "oauth" ? null : selected?.authMode ===
+                "oauth" ? (
                 <button
                   type="button"
                   onClick={() => connectWithOAuth(selected)}

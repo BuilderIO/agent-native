@@ -12,6 +12,10 @@ export {
   FIRST_RUN_ONBOARDING_STATUS_RESOLVED_EVENT,
 } from "./first-run-status.js";
 export {
+  FirstRunOnboardingStartupGate,
+  useFirstRunOnboardingGateOwnsSurface,
+} from "./first-run-startup-gate.js";
+export {
   useOnboardingPreviewMode,
   ONBOARDING_PREVIEW_STORAGE_KEY,
   ONBOARDING_PREVIEW_QUERY_PARAM,

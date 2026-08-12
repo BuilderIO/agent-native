@@ -276,9 +276,20 @@ instructions, and application state.
 - Data loads use layout-matching `Skeleton` geometry, not a generic "Loading..."
   label; reserve `Spinner` for brief mutations, uploads, and progress actions.
 - For any user-facing UI change — including screenshot feedback, copy or density
-  cleanup, settings, and control placement — read `frontend-design`. Keep the
-  default surface high-information and low-chrome: do not add persistent controls
-  or explanatory copy without a specific user need.
+  cleanup, settings, and control placement — read `frontend-design`.
+- Default surface density is a hard default, not a judgment call. Do not add a
+  page title that repeats the nav item or route, a description or subtitle under
+  any title, an eyebrow, a breadcrumb beside a back arrow, a count/stat strip
+  over content already on screen, or an About section in settings. A card, panel,
+  tab, settings group, or row gets a title or a description, never both;
+  explanation goes in a tooltip, a `Manage` popover, or a menu. Rendering a
+  user's own stored `description` is content, not chrome — keep it, and render
+  nothing when it is empty. Prose props are always optional; never
+  `description: string`. `guard:no-default-chrome` checks lines this branch adds,
+  and `templates/forms/` is the reference implementation. This is the repo's
+  most-repeated correction (`text-heavy-ui`), so it is stated as a default you
+  apply rather than a tradeoff you weigh: if the user wants one of these, they
+  will ask.
 - Use the `frontend-design`, `shadcn-ui`, `client-side-routing`,
   `native-navigation`, `real-time-sync`, and `delegate-to-agent` skills for
   details.

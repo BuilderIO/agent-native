@@ -774,11 +774,7 @@ export function normalizeWorkspaceConnectionAllowedUsers(
   value: unknown,
 ): string[] {
   return Array.from(
-    new Set(
-      normalizeStringArray(value)
-        .map((email) => email.toLowerCase())
-        .filter((email) => email.includes("@")),
-    ),
+    new Set(normalizeStringArray(value).map((email) => email.toLowerCase())),
   );
 }
 
@@ -1484,16 +1480,19 @@ export async function resolveWorkspaceConnectionForApp({
     "resolveWorkspaceConnectionForApp appId",
   );
   const normalizedConnectionId = connectionId?.trim();
+  const scope = requireWorkspaceConnectionScope();
   const requestedConnections = await listWorkspaceConnections({
     provider,
-    appId: normalizedAppId,
     includeDisabled: includeDisabled || Boolean(normalizedConnectionId),
   });
+  const userConnections = requestedConnections.filter((connection) =>
+    workspaceConnectionIsAvailableToUser(connection, scope.ownerEmail),
+  );
   const candidateConnections = normalizedConnectionId
-    ? requestedConnections.filter(
+    ? userConnections.filter(
         (connection) => connection.id === normalizedConnectionId,
       )
-    : requestedConnections;
+    : userConnections;
   const grants = await listWorkspaceConnectionGrants({
     provider,
     appId: normalizedAppId,
@@ -1629,12 +1628,8 @@ export async function listWorkspaceConnections(
     appId,
   );
   return connections
-    .filter(
-      (connection) =>
-        (connection.allowedUsers?.length ?? 0) === 0 ||
-        (connection.allowedUsers ?? []).includes(
-          scope.ownerEmail.toLowerCase(),
-        ),
+    .filter((connection) =>
+      workspaceConnectionIsAvailableToUser(connection, scope.ownerEmail),
     )
     .filter(
       (connection) =>

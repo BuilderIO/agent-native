@@ -96,37 +96,44 @@ const PATTERNS = [
   // Measured for the first time on 2026-08-12, after three prose rewrites of the
   // same rule (c497c859fa, 061896a301, 44ac2c4acf) shipped with no key at all.
   // That is why the 2026-08-09 attempt could delete its own concrete rules nine
-  // minutes after writing them and no number moved. Baseline that day, deduped
-  // by message: 07-20: 7 · 07-27: 2 · 08-03: 28 · 08-10: 15 (3 days) — 50 in
-  // class over 14 days, which ranks this 3rd of 10 under the counting below.
+  // minutes after writing them and no number moved. Baseline the day the key
+  // landed: 51 · 28 over the two weeks to 2026-08-12, total 79 — the largest row
+  // in this table, and the only correction in it never previously counted.
   // Windowing is by file mtime, so read a sample of matches, not just the count:
-  // a resumed session re-enters the window and a quiet fortnight cannot be
-  // distinguished from a vocabulary change.
+  // a resumed session re-enters the window, a quiet fortnight cannot be told
+  // apart from a vocabulary change, and roughly one match in ten is an untagged
+  // subagent brief that `humanText` below does not recognize yet.
   {
     key: "text-heavy-ui",
     label: "Told the UI has too much text / chrome upfront",
-    fixedBy: "guard:no-default-chrome + .agents/skills/frontend-design (2026-08-12)",
+    fixedBy:
+      "guard:no-default-chrome + .agents/skills/frontend-design (2026-08-12)",
     re: /\b(too much (text|copy|chrome)|too many (words|titles|headers|labels|sections)|so much text|text[ -]?heavy|text overload|(less|fewer|way less|trim the|bloated with|unnecessary) (text|copy)|too (wordy|verbose)|too keen to add|descriptions? everywhere|remove (the|that) (descriptions?|titles?|headers?|breadcrumbs?|eyebrows?|subtitles?|blurb|subtext|copy|top bar|bottom row)|(we|i) don'?t need (the|these|those|that|all|an?)[^.!?]{0,50}\b(text|titles?|headers?|sections?|descriptions?|eyebrows?|labels?|rows?|blocks?|copy|line|about)|don'?t show the (sub ?text|description|title)|eyebrows?\b|overwhelming|clutter(ed)?\b|too busy|in your face|minimal u[ix]|less info upfront|progressive disclosure)/i,
   },
 ];
 
 /**
- * Both harnesses replay machine-authored text through the user role: subagent
- * briefs, delegation envelopes, ambient UI state, watchdog transcripts. A
- * `startsWith("<")` test misses all of it, because these arrive appended to a
- * real message or wrapped in Codex's "Files mentioned by the user" preamble.
- * Counting them inflates every pattern in the table — a subagent brief that
- * says "reduces text overload" is not the user asking for anything.
+ * Both harnesses replay machine-authored text through the user role. Two kinds
+ * arrive, and conflating them is how a pattern count lies in both directions.
  *
- * `humanText` strips the envelopes, then judges what the human actually typed.
- * It returns null when nothing is left, so "machine-only" and "user said
- * nothing" stay the same answer and a stripped-to-empty message is never
- * counted as friction.
+ * AUTHORED — a subagent brief, delegation envelope, or watchdog transcript. No
+ * human typed it. A brief that says "reduces text overload" is not the user
+ * asking for anything, and counting it inflated this table by roughly a third
+ * before these filters existed. Drop the whole message.
+ *
+ * ATTACHED — ambient UI state, a pasted screenshot, injected skill bodies:
+ * wrappers around text the user really did type. The user's sharpest UI
+ * corrections arrive with an `<image>` attached, so dropping these loses the
+ * signal being measured. Strip the wrapper and keep the remainder.
+ *
+ * Never returns text a human did not type, and never returns "" — "machine
+ * only" and "user said nothing" must stay the same answer, so a message that
+ * strips to empty is not counted as friction.
  */
-const MACHINE_BLOCK =
-  /<(subagent_notification|codex_delegation|in-app-browser-context|user_message_metadata|environment_context|user_instructions|turn_aborted|task-notification|system-reminder|skill)\b[\s\S]*?(<\/\1>|$)/g;
-const MACHINE_PREFIX =
-  /^\s*(The following is the Codex agent history|Claude here\s*[—-]\s*watchdog)/i;
+const AUTHORED_BY_AGENT =
+  /<(subagent_notification|codex_delegation)\b|^\s*(The following is the Codex agent history|Claude here\s*[—-]\s*watchdog)/i;
+const ATTACHED_BLOCK =
+  /<(in-app-browser-context|user_message_metadata|environment_context|user_instructions|turn_aborted|task-notification|system-reminder|skill|image)\b[\s\S]*?(<\/\1>|\/>|$)/g;
 
 const args = process.argv.slice(2);
 const weeks = Number(valueOf("--weeks") ?? 8);
@@ -215,10 +222,13 @@ async function scan(file, read) {
 }
 
 function humanText(raw) {
-  const text = String(raw ?? "").replace(MACHINE_BLOCK, " ");
-  if (MACHINE_PREFIX.test(text)) return null;
-  const trimmed = text.replace(/\s+/g, " ").trim();
-  return trimmed.length > 2 ? trimmed : null;
+  const raw_ = String(raw ?? "");
+  if (AUTHORED_BY_AGENT.test(raw_)) return null;
+  const text = raw_.replace(ATTACHED_BLOCK, " ").replace(/\s+/g, " ").trim();
+  // A message that is still nothing but markup after stripping is machinery
+  // whose wrapper this script does not know yet — not a quiet user.
+  if (!text || text.startsWith("<")) return null;
+  return text.length > 2 ? text : null;
 }
 
 function claudeMessage(entry) {

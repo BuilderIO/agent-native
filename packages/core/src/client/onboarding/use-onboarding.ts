@@ -47,20 +47,21 @@ export interface UseOnboardingResult {
 }
 
 export function useOnboarding(
-  options: { preview?: boolean } = {},
+  options: { preview?: boolean; initialFirstRun?: boolean } = {},
 ): UseOnboardingResult {
   const preview = options.preview === true;
+  const initialFirstRun = options.initialFirstRun === true;
   const [steps, setSteps] = useState<OnboardingStepStatus[]>([]);
   const [profile, setProfile] = useState<OnboardingAppProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [dismissed, setDismissed] = useState(false);
-  const [firstRun, setFirstRun] = useState(preview);
+  const [firstRun, setFirstRun] = useState(preview || initialFirstRun);
   const mountedRef = useRef(true);
 
   useEffect(() => {
-    setFirstRun(preview);
-  }, [preview]);
+    setFirstRun(preview || initialFirstRun);
+  }, [initialFirstRun, preview]);
 
   const fetchAll = useCallback(async () => {
     try {

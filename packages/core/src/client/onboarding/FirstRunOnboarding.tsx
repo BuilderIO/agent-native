@@ -67,14 +67,17 @@ const BUILDER_MORE_SERVICES = [
 export interface FirstRunOnboardingProps {
   /** Test hook; generated apps use the public Vite flag instead. */
   skipIntegrations?: boolean;
+  /** The shared startup gate has already resolved this account as eligible. */
+  initialFirstRun?: boolean;
 }
 
 export function FirstRunOnboarding({
   skipIntegrations = shouldSkipFirstRunIntegrations(),
+  initialFirstRun = false,
 }: FirstRunOnboardingProps = {}) {
   const previewMode = useOnboardingPreviewMode();
   const { firstRun, loading, error, profile, completeFirstRun } = useOnboarding(
-    { preview: previewMode },
+    { preview: previewMode, initialFirstRun },
   );
   const [screen, setScreen] = useState<FirstRunScreen>("intro");
   const [extensionIndex, setExtensionIndex] = useState(0);
