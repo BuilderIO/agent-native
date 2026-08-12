@@ -6146,7 +6146,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             //
             // Reported, never swallowed, and never fatal to the job sweep: a
             // reap failure must not take recurring jobs down with it, and
-            // `null` must stay distinguishable from "reaped nothing".
+            // `null` must stay distinguishable from "reaped nothing". The
+            // result carries `failed` and `truncated` for the same reason one
+            // level down — a pass where every row threw, and a pass that hit
+            // the batch cap, both used to be reportable as a clean sweep.
             const { reapAllStaleRuns } = await import("../agent/run-store.js");
             const staleRunsReaped = await reapAllStaleRuns().catch(
               (error: unknown) => {
