@@ -53,7 +53,7 @@ export interface WorkspaceConnection {
   config: Record<string, unknown>;
   allowedApps: string[];
   /** Empty means every member of the owning workspace. */
-  allowedUsers?: string[];
+  allowedUsers: string[];
   credentialRefs: WorkspaceConnectionCredentialRef[];
   ownerEmail: string;
   orgId: string | null;
@@ -194,6 +194,7 @@ export interface WorkspaceConnectionForAppSummary {
   grantScope: "all-apps" | "selected-apps";
   appAccess: WorkspaceConnectionAppAccess;
   allowedApps: string[];
+  allowedUsers: string[];
   credentialRefs: WorkspaceConnectionPublicCredentialRef[];
   lastUsedAt: string | null;
   lastCheckedAt: string | null;
@@ -769,7 +770,9 @@ function normalizeStringArray(value: unknown): string[] {
     .filter(Boolean);
 }
 
-function normalizeUserEmails(value: unknown): string[] {
+export function normalizeWorkspaceConnectionAllowedUsers(
+  value: unknown,
+): string[] {
   return Array.from(
     new Set(
       normalizeStringArray(value)
@@ -907,7 +910,7 @@ function parseRow(row: Record<string, unknown>): WorkspaceConnection {
     allowedApps: normalizeStringArray(
       safeJsonParse<unknown>(row.allowed_apps_json, []),
     ),
-    allowedUsers: normalizeUserEmails(
+    allowedUsers: normalizeWorkspaceConnectionAllowedUsers(
       safeJsonParse<unknown>(row.allowed_users_json, []),
     ),
     credentialRefs: normalizeCredentialRefs(
@@ -951,7 +954,9 @@ export function serializeWorkspaceConnection(
     scopes: normalizeStringArray(connection.scopes),
     config: sanitizeConfig(connection.config),
     allowedApps: normalizeStringArray(connection.allowedApps),
-    allowedUsers: normalizeUserEmails(connection.allowedUsers),
+    allowedUsers: normalizeWorkspaceConnectionAllowedUsers(
+      connection.allowedUsers,
+    ),
     credentialRefs: normalizeCredentialRefs(connection.credentialRefs),
   };
 }
@@ -1136,6 +1141,7 @@ function serializeConnectionForApp(
       connection.allowedApps.length === 0 ? "all-apps" : "selected-apps",
     appAccess,
     allowedApps: connection.allowedApps,
+    allowedUsers: connection.allowedUsers,
     credentialRefs: publicCredentialRefs(
       connection.credentialRefs,
       "connection",
@@ -1612,16 +1618,20 @@ export async function listWorkspaceConnections(
     scope,
     appId,
   );
-  return connections.filter(
-    (connection) =>
-      (connection.allowedUsers?.length ?? 0) === 0 ||
-      (connection.allowedUsers ?? []).includes(scope.ownerEmail.toLowerCase()),
-  ).filter(
-    (connection) =>
-      connection.allowedApps.length === 0 ||
-      connection.allowedApps.includes(appId) ||
-      grantedConnectionIds.has(connection.id),
-  );
+  return connections
+    .filter(
+      (connection) =>
+        (connection.allowedUsers?.length ?? 0) === 0 ||
+        (connection.allowedUsers ?? []).includes(
+          scope.ownerEmail.toLowerCase(),
+        ),
+    )
+    .filter(
+      (connection) =>
+        connection.allowedApps.length === 0 ||
+        connection.allowedApps.includes(appId) ||
+        grantedConnectionIds.has(connection.id),
+    );
 }
 
 export async function getWorkspaceConnection(
@@ -1654,13 +1664,19 @@ export async function upsertWorkspaceConnection(
   const scope = requireWorkspaceConnectionScope();
   const where = scopedWhere(scope);
   const id = input.id?.trim() || randomUUID();
+  const existingConnection = input.id?.trim()
+    ? await getWorkspaceConnection(id)
+    : null;
   const now = Date.now();
   const label = input.label?.trim() || input.accountLabel?.trim() || provider;
   const status = normalizeStatus(input.status);
   const scopes = normalizeStringArray(input.scopes);
   const config = sanitizeConfig(input.config);
   const allowedApps = normalizeStringArray(input.allowedApps);
-  const allowedUsers = normalizeUserEmails(input.allowedUsers);
+  const allowedUsers =
+    input.allowedUsers === undefined
+      ? (existingConnection?.allowedUsers ?? [])
+      : normalizeWorkspaceConnectionAllowedUsers(input.allowedUsers);
   const credentialRefs = normalizeCredentialRefs(input.credentialRefs);
   const lastCheckedAt = millis(input.lastCheckedAt);
   const lastError = input.lastError ?? null;

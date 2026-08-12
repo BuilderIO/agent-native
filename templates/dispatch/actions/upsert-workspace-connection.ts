@@ -91,6 +91,12 @@ export default defineAction({
       .array(z.string())
       .default([])
       .describe("App IDs that may use this connection. Empty means all apps."),
+    allowedUsers: z
+      .array(z.string())
+      .default([])
+      .describe(
+        "Workspace member email addresses that may use this connection. Empty means all workspace members.",
+      ),
     credentialRefs: z
       .array(credentialRefSchema)
       .default([])

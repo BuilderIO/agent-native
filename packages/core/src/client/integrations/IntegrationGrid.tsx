@@ -34,7 +34,7 @@ export function IntegrationGrid({
     return (
       <div
         className={cn(
-          "rounded-xl border border-dashed border-border px-5 py-8 text-center text-xs text-muted-foreground",
+          "rounded-xl bg-muted/30 px-5 py-8 text-center text-xs text-muted-foreground",
           className,
         )}
       >
@@ -46,7 +46,7 @@ export function IntegrationGrid({
   return (
     <div
       className={cn(
-        "grid gap-x-8 overflow-hidden rounded-xl border border-border/70 bg-card px-4",
+        "grid gap-2 overflow-hidden rounded-xl bg-muted/20 p-2",
         "sm:grid-cols-2",
         className,
       )}
@@ -54,9 +54,9 @@ export function IntegrationGrid({
       {items.map((item) => (
         <article
           key={item.id}
-          className="flex min-w-0 items-center gap-3 border-b border-border/60 py-3.5 last:border-b-0 sm:[&:nth-last-child(2)]:border-b-0"
+          className="flex min-w-0 items-center gap-3 rounded-lg bg-muted/35 px-3 py-3.5"
         >
-          <span className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border/70 bg-background text-foreground">
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-background/80 text-foreground">
             {item.logo}
           </span>
           <div className="min-w-0 flex-1">

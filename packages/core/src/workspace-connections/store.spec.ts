@@ -155,6 +155,7 @@ describe("workspace connection store", () => {
           scopes: [],
           config: {},
           allowedApps: [],
+          allowedUsers: [],
           credentialRefs: [
             {
               key: "SLACK_BOT_TOKEN",
@@ -179,6 +180,7 @@ describe("workspace connection store", () => {
           scopes: [],
           config: {},
           allowedApps: ["dispatch"],
+          allowedUsers: [],
           credentialRefs: [],
           ownerEmail: "alice@example.com",
           orgId: "org-1",
@@ -239,6 +241,7 @@ describe("workspace connection store", () => {
           scopes: [],
           config: {},
           allowedApps: ["brain"],
+          allowedUsers: [],
           credentialRefs: [],
           ownerEmail: "alice@example.com",
           orgId: "org-1",

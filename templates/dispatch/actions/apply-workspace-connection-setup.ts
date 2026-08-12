@@ -73,6 +73,16 @@ export default defineAction({
     credentialRefs: z.array(credentialRefSchema).default([]),
     grantMode: z.enum(["all-apps", "selected-apps"]).default("selected-apps"),
     selectedApps: z.array(z.string()).default([]),
+    userGrantMode: z
+      .enum(["all-users", "selected-users"])
+      .default("all-users")
+      .describe(
+        "Whether every workspace member or only selected members may use the connection.",
+      ),
+    selectedUsers: z
+      .array(z.string())
+      .default([])
+      .describe("Workspace member email addresses allowed to use the connection."),
   }),
   run: async (args) => {
     const provider = getWorkspaceConnectionProvider(args.provider);
@@ -115,6 +125,13 @@ export default defineAction({
     if (args.grantMode === "selected-apps" && allowedApps.length === 0) {
       throw new Error("Choose at least one app or switch access to all apps.");
     }
+    const allowedUsers =
+      args.userGrantMode === "all-users" ? [] : uniqueStrings(args.selectedUsers);
+    if (args.userGrantMode === "selected-users" && allowedUsers.length === 0) {
+      throw new Error(
+        "Choose at least one person or switch access to all workspace members.",
+      );
+    }
 
     return upsertWorkspaceConnection.run({
       id: args.connectionId,
@@ -126,6 +143,7 @@ export default defineAction({
       scopes: uniqueStrings(args.scopes),
       credentialRefs,
       allowedApps,
+      allowedUsers,
     });
   },
 });

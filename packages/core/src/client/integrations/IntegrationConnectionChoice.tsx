@@ -24,7 +24,7 @@ export function IntegrationConnectionChoice({
       <header className="flex min-h-16 items-center border-b border-border px-6 sm:px-10">
         <div className="flex min-w-0 items-center gap-3">
           {logo ? (
-            <span className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border/70 bg-card text-foreground">
+            <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-muted/50 text-foreground">
               {logo}
             </span>
           ) : null}
@@ -65,7 +65,7 @@ export function IntegrationConnectionChoice({
                 type="button"
                 onClick={onWorkspace}
                 disabled={busy}
-                className="flex min-h-12 items-center gap-3 rounded-lg border border-border bg-background px-4 py-3 text-left text-foreground transition-[background-color,border-color] hover:border-foreground/25 hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-wait disabled:opacity-60"
+                className="flex min-h-12 items-center gap-3 rounded-lg bg-muted/50 px-4 py-3 text-left text-foreground transition-colors hover:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-wait disabled:opacity-60"
               >
                 <IconUsersGroup className="size-4 shrink-0 text-muted-foreground" />
                 <span className="min-w-0 flex-1 text-sm font-medium">

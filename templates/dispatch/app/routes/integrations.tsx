@@ -9,6 +9,10 @@ import {
   IntegrationGrid,
 } from "@agent-native/core/client/integrations";
 import {
+  useShareOrgMemberSearch,
+  type ShareOrgMember,
+} from "@agent-native/core/client/sharing";
+import {
   McpIntegrationDialog,
   McpIntegrationLogo,
   getDefaultMcpIntegrations,
@@ -172,6 +176,7 @@ interface WorkspaceConnection {
   scopes: string[];
   config: Record<string, unknown>;
   allowedApps: string[];
+  allowedUsers?: string[];
   credentialRefs: WorkspaceConnectionCredentialRef[];
   createdAt: string;
   updatedAt: string;
@@ -269,6 +274,8 @@ interface ConnectionFormState {
   credentialRefs: WorkspaceConnectionCredentialRef[];
   allApps: boolean;
   selectedApps: string[];
+  allUsers: boolean;
+  selectedUsers: string[];
 }
 
 interface WorkspaceConnectionSetupPlanCredential {
@@ -310,6 +317,7 @@ interface WorkspaceConnectionSetupPlan {
     | "status"
     | "scopes"
     | "allowedApps"
+    | "allowedUsers"
     | "credentialRefs"
     | "lastError"
   > | null;
@@ -333,6 +341,8 @@ interface SetupWizardFormState {
   credentialRefs: WorkspaceConnectionCredentialRef[];
   grantMode: "all-apps" | "selected-apps";
   selectedApps: string[];
+  userGrantMode: "all-users" | "selected-users";
+  selectedUsers: string[];
 }
 
 interface ProviderChoice {
@@ -630,6 +640,8 @@ function formFromConnection(
           : [],
     allApps: connection.allowedApps.length === 0,
     selectedApps: connection.allowedApps,
+    allUsers: (connection.allowedUsers?.length ?? 0) === 0,
+    selectedUsers: connection.allowedUsers ?? [],
   };
 }
 
@@ -657,6 +669,11 @@ function setupFormFromPlan(
       : normalizeCredentialRefs(plan.suggestedCredentialRefs, plan.provider),
     grantMode: plan.grantRecommendation.accessMode,
     selectedApps,
+    userGrantMode:
+      connection && (connection.allowedUsers?.length ?? 0) > 0
+        ? "selected-users"
+        : "all-users",
+    selectedUsers: connection?.allowedUsers ?? [],
   };
 }
 

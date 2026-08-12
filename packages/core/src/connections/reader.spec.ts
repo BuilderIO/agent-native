@@ -317,6 +317,7 @@ function workspaceConnectionForApp(
     scopes: [],
     config: {},
     allowedApps: ["brain"],
+    allowedUsers: [],
     credentialRefs: [
       {
         key: "SLACK_BOT_TOKEN",

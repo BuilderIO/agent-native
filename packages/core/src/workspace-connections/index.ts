@@ -17,6 +17,7 @@ export {
   markWorkspaceConnectionUsed,
   resolveWorkspaceConnectionForApp,
   revokeWorkspaceConnectionGrant,
+  normalizeWorkspaceConnectionAllowedUsers,
   serializeWorkspaceConnectionGrant,
   serializeWorkspaceConnection,
   summarizeWorkspaceConnectionProviderForApp,

@@ -99,6 +99,7 @@ export default defineAction({
       scopes: connection.scopes,
       config: connection.config,
       allowedApps,
+      allowedUsers: connection.allowedUsers ?? [],
       credentialRefs: connection.credentialRefs,
       lastCheckedAt: connection.lastCheckedAt,
       lastError: connection.lastError,

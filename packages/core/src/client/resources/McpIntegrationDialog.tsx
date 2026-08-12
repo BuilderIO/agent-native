@@ -143,6 +143,9 @@ export function McpIntegrationDialog({
   const [url, setUrl] = useState("");
   const [description, setDescription] = useState("");
   const [headersText, setHeadersText] = useState("");
+  const [customAuthMode, setCustomAuthMode] = useState<"oauth" | "headers">(
+    "oauth",
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<TestResult | null>(null);
@@ -211,6 +214,7 @@ export function McpIntegrationDialog({
     setUrl(initialDefaults.url);
     setDescription(initialDefaults.description);
     setHeadersText(initialDefaults.headersText);
+    setCustomAuthMode(initialIntegration ? "headers" : "oauth");
     setBusy(false);
     setError(null);
     setTestResult(null);
@@ -256,6 +260,7 @@ export function McpIntegrationDialog({
     setUrl(defaults.url);
     setDescription(defaults.description);
     setHeadersText(defaults.headersText);
+    setCustomAuthMode(integration ? "headers" : "oauth");
     setError(null);
     setTestResult(null);
     setMode("form");
@@ -631,26 +636,28 @@ export function McpIntegrationDialog({
                 })}
               </DialogDescription>
             </DialogHeader>
-            <div className="flex shrink-0 flex-col gap-3 px-7 pb-5 sm:flex-row">
-              <label className="relative min-w-0 flex-1">
-                <IconSearch className="pointer-events-none absolute start-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-                <input
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  className="h-9 w-full rounded-md border border-border bg-background pe-3 ps-8 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-ring"
-                  placeholder={t("mcpIntegrations.searchPlaceholder")}
-                />
-              </label>
-              <button
-                type="button"
-                onClick={() => openForm(null)}
-                className={cn(
-                  "inline-flex h-9 items-center justify-center gap-1.5 rounded-md border border-border bg-background px-3 text-[12px] font-medium text-foreground hover:bg-accent",
-                  !customIntegrationEnabled && "hidden",
-                )}
-              >
-                {t("mcpIntegrations.addYourOwn")}
-              </button>
+            <div className="shrink-0 px-7 pb-5 sm:px-10">
+              <div className="mx-auto flex w-full max-w-5xl flex-col gap-3 sm:flex-row">
+                <label className="relative min-w-0 flex-1">
+                  <IconSearch className="pointer-events-none absolute start-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                  <input
+                    value={query}
+                    onChange={(event) => setQuery(event.target.value)}
+                    className="h-9 w-full rounded-md border border-border bg-background pe-3 ps-8 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-ring"
+                    placeholder={t("mcpIntegrations.searchPlaceholder")}
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={() => openForm(null)}
+                  className={cn(
+                    "inline-flex h-9 items-center justify-center gap-1.5 rounded-md border border-border bg-background px-3 text-[12px] font-medium text-foreground hover:bg-accent",
+                    !customIntegrationEnabled && "hidden",
+                  )}
+                >
+                  {t("mcpIntegrations.addYourOwn")}
+                </button>
+              </div>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto px-7 pb-10 pt-7 sm:px-10">
               <div className="mx-auto w-full max-w-5xl">
@@ -756,7 +763,7 @@ export function McpIntegrationDialog({
               <div className="mx-auto max-w-2xl space-y-3">
                 {renderScopeSelector()}
                 {selected?.setupNoteKey && !selectedRequiresSetup ? (
-                  <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
+                  <div className="rounded-md bg-muted/40 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
                     {t(selected.setupNoteKey)}
                   </div>
                 ) : null}
@@ -790,7 +797,46 @@ export function McpIntegrationDialog({
                     ) : null}
                   </div>
                 )}
-                {!selectedRequiresSetup && (
+                    {!selected && (
+                      <div className="flex items-center justify-between gap-3 rounded-md bg-muted/30 px-3 py-2 text-[11px]">
+                        <span className="text-muted-foreground">
+                          {customAuthMode === "oauth"
+                            ? t(
+                                /* i18n-key-ignore */
+                                "mcpIntegrations.customOAuthDefault",
+                                { defaultValue: "Sign in with OAuth" },
+                              )
+                            : t(
+                                /* i18n-key-ignore */
+                                "mcpIntegrations.customHeadersMode",
+                                { defaultValue: "Use an API key" },
+                              )}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCustomAuthMode((current) =>
+                              current === "oauth" ? "headers" : "oauth",
+                            );
+                            clearFeedback();
+                          }}
+                          className="font-medium text-foreground underline underline-offset-2 hover:text-muted-foreground"
+                        >
+                          {customAuthMode === "oauth"
+                            ? t(
+                                /* i18n-key-ignore */
+                                "mcpIntegrations.useApiKeyInstead",
+                                { defaultValue: "Use an API key instead" },
+                              )
+                            : t(
+                                /* i18n-key-ignore */
+                                "mcpIntegrations.useOAuthInstead",
+                                { defaultValue: "Use OAuth instead" },
+                              )}
+                        </button>
+                      </div>
+                    )}
+                    {!selectedRequiresSetup && (
                   <>
                     {selected?.authMode === "oauth" && (
                       <div className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-[11px] leading-relaxed text-primary">
@@ -842,7 +888,9 @@ export function McpIntegrationDialog({
                         )}
                       />
                     </label>
-                    {selected?.authMode !== "oauth" && (
+                    {(selected
+                      ? selected.authMode !== "oauth"
+                      : customAuthMode === "headers") && (
                       <label className="block">
                         <span className="mb-1 block text-[10px] font-medium text-muted-foreground">
                           {t("mcpIntegrations.headers")}
@@ -914,7 +962,7 @@ export function McpIntegrationDialog({
                   {t("mcpIntegrations.test")}
                 </button>
               )}
-              {!selected ? (
+              {!selected && customAuthMode === "oauth" ? (
                 <button
                   type="button"
                   onClick={connectCustomWithOAuth}

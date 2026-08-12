@@ -294,6 +294,7 @@ export {
   listWorkspaceConnectionProviderCatalogForApp,
   listWorkspaceConnectionGrants,
   listWorkspaceConnections,
+  normalizeWorkspaceConnectionAllowedUsers,
   resolveWorkspaceConnectionCredentialForApp,
   resolveWorkspaceConnectionCredentialsForApp,
   revokeWorkspaceConnectionGrant,
