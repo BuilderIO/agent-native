@@ -7,18 +7,24 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { buildSettingsRoute } from "@agent-native/core/client/navigation";
 import { SettingsGroup, SettingsRow } from "@agent-native/core/client/settings";
 import {
   IconAlertCircle,
   IconArrowLeft,
+  IconBrandGithub,
+  IconBrandSlack,
+  IconBug,
   IconExternalLink,
   IconLoader2,
   IconPlayerPlay,
+  IconPlugConnected,
   IconPlus,
   IconRefresh,
+  IconRobot,
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router";
+import { Link, useSearchParams } from "react-router";
 
 import { FactoryAuditView } from "@/components/factory/FactoryAuditView";
 import {
@@ -412,14 +418,7 @@ export default function FactoryRoute() {
       <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-background">
         <section className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-6 p-4 lg:p-6">
           <div className="flex flex-wrap items-end justify-between gap-4">
-            <div className="max-w-2xl space-y-2">
-              <h1 className="text-2xl font-semibold tracking-tight">
-                Factories
-              </h1>
-              <p className="text-sm leading-6 text-muted-foreground">
-                {t("factoryRoute.factoryListDescription")}
-              </p>
-            </div>
+            <h1 className="text-2xl font-semibold tracking-tight">Factories</h1>
             <div className="flex items-center gap-2">
               <Button type="button" size="sm" onClick={startNewFactory}>
                 <IconPlus className="size-4" />
@@ -447,7 +446,6 @@ export default function FactoryRoute() {
                 >
                   <div className="min-w-0 space-y-2">
                     <div className="h-4 w-2/3 animate-pulse rounded bg-muted" />
-                    <div className="h-3 w-4/5 animate-pulse rounded bg-muted" />
                   </div>
                   <div className="h-4 w-24 animate-pulse rounded bg-muted" />
                   <div className="h-4 w-12 animate-pulse rounded bg-muted" />
@@ -474,9 +472,6 @@ export default function FactoryRoute() {
                     <h2 className="truncate text-sm font-medium">
                       {factory.name}
                     </h2>
-                    <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                      {factory.description || "No description yet."}
-                    </p>
                   </div>
                   <div className="flex min-w-0 items-center text-xs text-muted-foreground">
                     {factory.virtual ? "Default factory" : "Saved factory"}
@@ -656,6 +651,7 @@ export default function FactoryRoute() {
             graph={graph}
             t={t}
             metrics={graphData?.metrics}
+            nodeMetrics={graphData?.nodeMetrics}
             onOpenReview={() => setActiveTab("inbox")}
             onOpenAutomations={() => setActiveTab("automations")}
             onOpenActivity={() => setActiveTab("audit")}
@@ -665,25 +661,6 @@ export default function FactoryRoute() {
         ) : activeTab === "map" ? (
           <div className="grid min-h-full gap-0 xl:grid-cols-[minmax(0,1fr)_360px]">
             <section className="min-w-0 p-4 lg:p-6">
-              <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-                <span className="text-xs font-medium text-muted-foreground">
-                  Flow
-                </span>
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <Metric
-                    label={t("factoryRoute.metricSignals")}
-                    value={graphData?.metrics.totalItems ?? 0}
-                  />
-                  <Metric
-                    label={t("factoryRoute.metricDecisions")}
-                    value={graphData?.metrics.decisions ?? 0}
-                  />
-                  <Metric
-                    label={t("factoryRoute.metricRuns")}
-                    value={graphData?.metrics.runs ?? 0}
-                  />
-                </div>
-              </div>
               <FactoryCanvas
                 graph={graph}
                 nodeMetrics={graphData?.nodeMetrics}
@@ -700,14 +677,11 @@ export default function FactoryRoute() {
                   });
                 }}
               />
-              <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
-                <span>{t("factoryRoute.mapHint")}</span>
-                {dirty && (
-                  <span className="text-amber-700 dark:text-amber-300">
-                    {t("factoryRoute.unsavedChanges")}
-                  </span>
-                )}
-              </div>
+              {dirty && (
+                <p className="mt-3 text-xs text-amber-700 dark:text-amber-300">
+                  {t("factoryRoute.unsavedChanges")}
+                </p>
+              )}
             </section>
             <FactoryInspector
               graph={graph}
@@ -778,6 +752,7 @@ function OverviewView({
   graph,
   t,
   metrics,
+  nodeMetrics,
   onOpenReview,
   onOpenAutomations,
   onOpenActivity,
@@ -787,6 +762,7 @@ function OverviewView({
   graph: FactoryCanvasGraph;
   t: ReturnType<typeof useT>;
   metrics?: FactoryGraphResponse["metrics"];
+  nodeMetrics?: Record<string, number>;
   onOpenReview: () => void;
   onOpenAutomations: () => void;
   onOpenActivity: () => void;
@@ -821,6 +797,18 @@ function OverviewView({
           </CardContent>
         </Card>
       </div>
+
+      <Card className="border-0 bg-muted/20 shadow-none">
+        <CardHeader className="flex-row items-center justify-between gap-3 px-4 pb-0 pt-4">
+          <CardTitle className="text-base">Flow</CardTitle>
+          <Button type="button" variant="ghost" size="sm" onClick={onOpenFlow}>
+            {t("factoryRoute.editFlow")}
+          </Button>
+        </CardHeader>
+        <CardContent className="p-3">
+          <FactoryCanvas graph={graph} nodeMetrics={nodeMetrics} preview />
+        </CardContent>
+      </Card>
 
       <Card>
         <CardContent className="flex flex-col gap-4 p-4 lg:flex-row lg:items-center lg:justify-between">
@@ -866,17 +854,6 @@ function OverviewView({
         </CardContent>
       </Card>
     </div>
-  );
-}
-
-function Metric({ label, value }: { label: string; value: number }) {
-  return (
-    <span className="rounded-md border bg-card px-2.5 py-1.5">
-      <span className="font-medium text-foreground">
-        {value.toLocaleString()}
-      </span>{" "}
-      {label}
-    </span>
   );
 }
 
