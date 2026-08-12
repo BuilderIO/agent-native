@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.153.3
+
+### Patch Changes
+
+- 99ba6a1: Keep workspace-file actions available in the lean hosted agent action surface.
+
 ## 0.153.2
 
 ### Patch Changes
