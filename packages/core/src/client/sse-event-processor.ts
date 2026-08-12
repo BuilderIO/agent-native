@@ -838,6 +838,12 @@ function isAutoRecoverableError(ev: SSEEvent, errMsg: string): boolean {
   }
 
   if (ev.recoverable === true) return true;
+  // An explicit flag outranks the message sniff below, which exists only for
+  // events that carry no flag at all. The repeat guards stop a turn with
+  // `recoverable: false` and a message that names the looping tool, so a stop
+  // on `list-workspace-connections` matched the "connection" sniff and
+  // auto-continued the very loop it was emitted to break.
+  if (ev.recoverable === false) return false;
 
   if (msg.includes("daily gateway request cap")) return false;
 
