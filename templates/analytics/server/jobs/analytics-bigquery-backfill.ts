@@ -639,6 +639,14 @@ async function scheduleShardRetry(
     timeoutMs: 5_000,
     maxAttempts: 1,
   });
+  await db.execute({
+    sql: `UPDATE ${JOB_TABLE}
+             SET last_error = ?, updated_at = ?
+           WHERE id = ? AND status <> 'completed'`,
+    args: [error.slice(0, 1_000), new Date().toISOString(), shard.jobId],
+    timeoutMs: 5_000,
+    maxAttempts: 1,
+  });
 }
 
 async function runClaimedShard(
