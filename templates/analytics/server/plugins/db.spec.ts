@@ -255,13 +255,19 @@ describe("analytics db.ts wires ensureAdditiveColumns after runMigrations", () =
     expect(shardEntry).toContain("sqlite:");
     for (const column of [
       "shard_id",
+      "job_id",
       "org_id",
       "owner_email",
       "table_ref",
       "start_at",
+      "start_id",
       "end_at",
+      "end_id",
+      "end_inclusive",
       "batch_size",
       "backfill_cursor",
+      "backfill_cursor_at",
+      "backfill_cursor_id",
       "status",
       "copied_count",
       "lease_token",
@@ -282,6 +288,22 @@ describe("analytics db.ts wires ensureAdditiveColumns after runMigrations", () =
     );
     expect(shardEntry).not.toContain("ALTER TABLE");
     expect(shardEntry).not.toContain("FROM analytics_events");
+
+    const shardColumnsEntryStart = dbTsSource.indexOf("version: 143,");
+    const shardColumnsEntryEnd = dbTsSource.indexOf(
+      "\n    },",
+      shardColumnsEntryStart,
+    );
+    const shardColumnsEntry = dbTsSource.slice(
+      shardColumnsEntryStart,
+      shardColumnsEntryEnd,
+    );
+    expect(shardColumnsEntry).toContain(
+      "analytics-bigquery-backfill-shard-columns",
+    );
+    expect(shardColumnsEntry).toContain(
+      "analytics_bigquery_backfill_shards_job_due_idx",
+    );
   });
 
   it("does not serialize foreground rollup ingest behind historical backfill", () => {

@@ -2885,7 +2885,7 @@ export default function WorkspaceIntegrationsRoute() {
       canManageOrg ||
       (isDispatchAppAdmin &&
         appId.toLowerCase() === "dispatch" &&
-        connection.allowedApps.length > 0 &&
+        connection.allowedApps.length > 1 &&
         connection.allowedApps.some(
           (allowedApp) => allowedApp.toLowerCase() === "dispatch",
         ))

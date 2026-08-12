@@ -122,6 +122,9 @@ const enUS = {
     accountIdPlaceholder: "team or account id",
     scopesPlaceholder: "channels:history, search",
     accessMode: "Access mode",
+    dispatchOnlyAccess: "Dispatch only",
+    dispatchOnlyAccessDescription:
+      "You can manage connections for Dispatch. Organization admins can share them with other apps.",
     allAppsCanReuseConnection: "All workspace apps can reuse this connection",
     onlySelectedAppsCanReuseConnection:
       "Only selected apps can reuse this connection",
@@ -207,6 +210,8 @@ const enUS = {
     providersAvailable_one: "{{count}} provider available",
     providersAvailable_other: "{{count}} providers available",
     connectedAccounts: "Shared connections",
+    sharedConnectionsDescription:
+      "Saved provider connections that your apps can use.",
     noSharedConnectionsYet: "No shared connections yet",
     savedConnectionCount_one: "{{count}} saved connection",
     savedConnectionCount_other: "{{count}} saved connections",
@@ -1036,6 +1041,9 @@ export const messagesByLocale = {
         accountIdPlaceholder: "team or account id",
         scopesPlaceholder: "channels:history, search",
         accessMode: "访问模式",
+        dispatchOnlyAccess: "仅限 Dispatch",
+        dispatchOnlyAccessDescription:
+          "你可以管理 Dispatch 的连接。组织管理员可以将连接共享给其他应用。",
         allAppsCanReuseConnection: "所有工作区应用都可以复用此连接",
         onlySelectedAppsCanReuseConnection: "只有选中的应用可以复用此连接",
         grantAllWorkspaceAppsAria: "将此连接授权给所有工作区应用",
@@ -1117,6 +1125,7 @@ export const messagesByLocale = {
         providersAvailable_one: "{{count}} 个提供商可用",
         providersAvailable_other: "{{count}} 个提供商可用",
         connectedAccounts: "共享连接",
+        sharedConnectionsDescription: "你的应用可以使用的已保存提供商连接。",
         noSharedConnectionsYet: "还没有共享连接",
         savedConnectionCount_one: "{{count}} 个已保存连接",
         savedConnectionCount_other: "{{count}} 个已保存连接",
@@ -1426,6 +1435,9 @@ export const messagesByLocale = {
         accountIdPlaceholder: "team or account id",
         scopesPlaceholder: "channels:history, search",
         accessMode: "Modo de acceso",
+        dispatchOnlyAccess: "Solo Dispatch",
+        dispatchOnlyAccessDescription:
+          "Puedes gestionar las conexiones de Dispatch. Los administradores de la organización pueden compartirlas con otras apps.",
         allAppsCanReuseConnection:
           "Todas las apps del espacio de trabajo pueden reutilizar esta conexión",
         onlySelectedAppsCanReuseConnection:
@@ -1522,6 +1534,8 @@ export const messagesByLocale = {
         providersAvailable_other: "{{count}} proveedores disponibles",
         providersAvailable_many: "{{count}} proveedores disponibles",
         connectedAccounts: "Conexiones compartidas",
+        sharedConnectionsDescription:
+          "Conexiones de proveedores guardadas que tus apps pueden usar.",
         noSharedConnectionsYet: "Aún no hay conexiones compartidas",
         savedConnectionCount_one: "{{count}} conexión guardada",
         savedConnectionCount_other: "{{count}} conexiones guardadas",
@@ -1844,6 +1858,9 @@ export const messagesByLocale = {
         accountIdPlaceholder: "team or account id",
         scopesPlaceholder: "channels:history, search",
         accessMode: "Mode d’accès",
+        dispatchOnlyAccess: "Dispatch uniquement",
+        dispatchOnlyAccessDescription:
+          "Vous pouvez gérer les connexions pour Dispatch. Les administrateurs de l’organisation peuvent les partager avec d’autres apps.",
         allAppsCanReuseConnection:
           "Toutes les apps de l’espace de travail peuvent réutiliser cette connexion",
         onlySelectedAppsCanReuseConnection:
@@ -1942,6 +1959,8 @@ export const messagesByLocale = {
         providersAvailable_other: "{{count}} fournisseurs disponibles",
         providersAvailable_many: "{{count}} fournisseurs disponibles",
         connectedAccounts: "Connexions partagées",
+        sharedConnectionsDescription:
+          "Connexions fournisseur enregistrées que vos apps peuvent utiliser.",
         noSharedConnectionsYet: "Aucune connexion partagée pour l’instant",
         savedConnectionCount_one: "{{count}} connexion enregistrée",
         savedConnectionCount_other: "{{count}} connexions enregistrées",
@@ -2263,6 +2282,9 @@ export const messagesByLocale = {
         accountIdPlaceholder: "team or account id",
         scopesPlaceholder: "channels:history, search",
         accessMode: "Zugriffsmodus",
+        dispatchOnlyAccess: "Nur Dispatch",
+        dispatchOnlyAccessDescription:
+          "Du kannst Verbindungen für Dispatch verwalten. Organisationsadministratoren können sie mit anderen Apps teilen.",
         allAppsCanReuseConnection:
           "Alle Workspace-Apps können diese Verbindung wiederverwenden",
         onlySelectedAppsCanReuseConnection:
@@ -2354,6 +2376,8 @@ export const messagesByLocale = {
         providersAvailable_one: "{{count}} Anbieter verfügbar",
         providersAvailable_other: "{{count}} Anbieter verfügbar",
         connectedAccounts: "Geteilte Verbindungen",
+        sharedConnectionsDescription:
+          "Gespeicherte Anbieter-Verbindungen, die deine Apps verwenden können.",
         noSharedConnectionsYet: "Noch keine gemeinsamen Verbindungen",
         savedConnectionCount_one: "{{count}} gespeicherte Verbindung",
         savedConnectionCount_other: "{{count}} gespeicherte Verbindungen",
@@ -2670,6 +2694,9 @@ export const messagesByLocale = {
         accountIdPlaceholder: "team or account id",
         scopesPlaceholder: "channels:history, search",
         accessMode: "アクセスモード",
+        dispatchOnlyAccess: "Dispatch のみ",
+        dispatchOnlyAccessDescription:
+          "Dispatch の接続を管理できます。組織管理者は他のアプリと共有できます。",
         allAppsCanReuseConnection:
           "すべてのワークスペースアプリがこの接続を再利用できます",
         onlySelectedAppsCanReuseConnection:
@@ -2760,6 +2787,8 @@ export const messagesByLocale = {
         providersAvailable_one: "{{count}} 件のプロバイダーが利用可能",
         providersAvailable_other: "{{count}} 件のプロバイダーが利用可能",
         connectedAccounts: "共有接続",
+        sharedConnectionsDescription:
+          "アプリで使用できる保存済みのプロバイダー接続。",
         noSharedConnectionsYet: "共有接続はまだありません",
         savedConnectionCount_one: "{{count}} 件の保存済み接続",
         savedConnectionCount_other: "{{count}} 件の保存済み接続",
@@ -3072,6 +3101,9 @@ export const messagesByLocale = {
         accountIdPlaceholder: "team or account id",
         scopesPlaceholder: "channels:history, search",
         accessMode: "접근 모드",
+        dispatchOnlyAccess: "Dispatch 전용",
+        dispatchOnlyAccessDescription:
+          "Dispatch의 연결을 관리할 수 있습니다. 조직 관리자는 다른 앱과 공유할 수 있습니다.",
         allAppsCanReuseConnection:
           "모든 워크스페이스 앱이 이 연결을 재사용할 수 있습니다",
         onlySelectedAppsCanReuseConnection:
@@ -3159,6 +3191,8 @@ export const messagesByLocale = {
         providersAvailable_one: "공급자 {{count}}개 사용 가능",
         providersAvailable_other: "공급자 {{count}}개 사용 가능",
         connectedAccounts: "공유 연결",
+        sharedConnectionsDescription:
+          "앱에서 사용할 수 있는 저장된 공급자 연결입니다.",
         noSharedConnectionsYet: "아직 공유 연결이 없습니다",
         savedConnectionCount_one: "저장된 연결 {{count}}개",
         savedConnectionCount_other: "저장된 연결 {{count}}개",
@@ -3471,6 +3505,9 @@ export const messagesByLocale = {
         accountIdPlaceholder: "team or account id",
         scopesPlaceholder: "channels:history, search",
         accessMode: "Modo de acesso",
+        dispatchOnlyAccess: "Somente Dispatch",
+        dispatchOnlyAccessDescription:
+          "Você pode gerenciar conexões do Dispatch. Administradores da organização podem compartilhá-las com outros apps.",
         allAppsCanReuseConnection:
           "Todos os apps do workspace podem reutilizar esta conexão",
         onlySelectedAppsCanReuseConnection:
@@ -3565,6 +3602,8 @@ export const messagesByLocale = {
         providersAvailable_other: "{{count}} provedores disponíveis",
         providersAvailable_many: "{{count}} provedores disponíveis",
         connectedAccounts: "Conexões compartilhadas",
+        sharedConnectionsDescription:
+          "Conexões de provedores salvas que seus apps podem usar.",
         noSharedConnectionsYet: "Ainda não há conexões compartilhadas",
         savedConnectionCount_one: "{{count}} conexão salva",
         savedConnectionCount_other: "{{count}} conexões salvas",
@@ -3883,6 +3922,9 @@ export const messagesByLocale = {
         accountIdPlaceholder: "team or account id",
         scopesPlaceholder: "channels:history, search",
         accessMode: "पहुंच मोड",
+        dispatchOnlyAccess: "केवल Dispatch",
+        dispatchOnlyAccessDescription:
+          "आप Dispatch के कनेक्शन प्रबंधित कर सकते हैं। संगठन व्यवस्थापक इन्हें अन्य ऐप्स के साथ साझा कर सकते हैं।",
         allAppsCanReuseConnection:
           "सभी कार्यस्थान ऐप्स इस कनेक्शन का फिर से उपयोग कर सकते हैं",
         onlySelectedAppsCanReuseConnection:
@@ -3968,6 +4010,8 @@ export const messagesByLocale = {
         providersAvailable_one: "{{count}} प्रदाता उपलब्ध",
         providersAvailable_other: "{{count}} प्रदाता उपलब्ध",
         connectedAccounts: "साझा कनेक्शन",
+        sharedConnectionsDescription:
+          "सहेजे गए प्रदाता कनेक्शन जिन्हें आपके ऐप्स इस्तेमाल कर सकते हैं।",
         noSharedConnectionsYet: "अभी कोई साझा कनेक्शन नहीं",
         savedConnectionCount_one: "{{count}} सहेजा गया कनेक्शन",
         savedConnectionCount_other: "{{count}} सहेजे गए कनेक्शन",
@@ -4281,6 +4325,9 @@ export const messagesByLocale = {
         accountIdPlaceholder: "team or account id",
         scopesPlaceholder: "channels:history, search",
         accessMode: "وضع الوصول",
+        dispatchOnlyAccess: "Dispatch فقط",
+        dispatchOnlyAccessDescription:
+          "يمكنك إدارة اتصالات Dispatch. يستطيع مسؤولو المؤسسة مشاركتها مع تطبيقات أخرى.",
         allAppsCanReuseConnection:
           "يمكن لكل تطبيقات مساحة العمل إعادة استخدام هذا الاتصال",
         onlySelectedAppsCanReuseConnection:
@@ -4387,6 +4434,8 @@ export const messagesByLocale = {
         providersAvailable_two: "{{count}} مزوّدين متاحين",
         providersAvailable_zero: "{{count}} مزوّدين متاحين",
         connectedAccounts: "الاتصالات المشتركة",
+        sharedConnectionsDescription:
+          "اتصالات موفري الخدمة المحفوظة التي يمكن لتطبيقاتك استخدامها.",
         noSharedConnectionsYet: "لا توجد اتصالات مشتركة بعد",
         savedConnectionCount_one: "{{count}} اتصال محفوظ",
         savedConnectionCount_other: "{{count}} اتصالات محفوظة",

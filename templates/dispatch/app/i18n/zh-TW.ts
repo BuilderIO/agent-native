@@ -114,6 +114,9 @@ const messages = {
     accountIdPlaceholder: "團隊或帳號 ID",
     scopesPlaceholder: "channels:history, search",
     accessMode: "存取模式",
+    dispatchOnlyAccess: "僅限 Dispatch",
+    dispatchOnlyAccessDescription:
+      "你可以管理 Dispatch 的連線。組織管理員可以與其他應用程式共用這些連線。",
     allAppsCanReuseConnection: "所有工作區應用都可以複用此連線",
     onlySelectedAppsCanReuseConnection: "只有選取的應用可以複用此連線",
     grantAllWorkspaceAppsAria: "將此連線授權給所有工作區應用",
@@ -193,6 +196,7 @@ const messages = {
     providersAvailable_one: "{{count}} 個提供者可用",
     providersAvailable_other: "{{count}} 個提供者可用",
     connectedAccounts: "已連線帳戶",
+    sharedConnectionsDescription: "你的應用程式可以使用的已儲存提供者連線。",
     noSharedConnectionsYet: "還沒有共用連線",
     savedConnectionCount_one: "{{count}} 個已儲存連線",
     savedConnectionCount_other: "{{count}} 個已儲存連線",

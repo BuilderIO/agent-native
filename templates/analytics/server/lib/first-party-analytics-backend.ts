@@ -1210,6 +1210,7 @@ function backfillBranchSql(
   rangeStart: FirstPartyAnalyticsBackfillCursor | null,
   rangeEnd: FirstPartyAnalyticsBackfillCursor | null,
   rangeEndInclusive: boolean,
+  order: "ASC" | "DESC" = "ASC",
 ): {
   sql: string;
   args: unknown[];
@@ -1236,7 +1237,7 @@ function backfillBranchSql(
       FROM analytics_events
       WHERE ${predicate}
         AND ${filters.join("\n        AND ")}${cursorSql ? `\n        AND ${cursorSql}` : ""}
-      ORDER BY received_at ASC, id ASC LIMIT ?`,
+      ORDER BY received_at ${order}, id ${order} LIMIT ?`,
     args: [
       ...predicateArgs,
       lookbackStart,
@@ -1288,14 +1289,10 @@ export async function getFirstPartyAnalyticsBackfillHighWaterMark(
       null,
       null,
       false,
+      "DESC",
     );
     const result = await db.execute({
-      sql: scoped.sql
-        .replace("SELECT id, received_at", "SELECT id, received_at")
-        .replace(
-          "ORDER BY received_at ASC, id ASC LIMIT ?",
-          "ORDER BY received_at DESC, id DESC LIMIT ?",
-        ),
+      sql: scoped.sql,
       args: [...scoped.args, 1],
       timeoutMs: 20_000,
       maxAttempts: 1,

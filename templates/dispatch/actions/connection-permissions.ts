@@ -64,10 +64,12 @@ export async function assertWorkspaceConnectionGrantManager(
   accessMode: "all-apps" | "selected-apps" | undefined,
 ): Promise<void> {
   const normalizedAppId = appId?.trim().toLowerCase();
+  const normalizedAllowedApps = normalizeAppIds(connection.allowedApps);
   const canEditOnlyDispatchGrant =
     normalizedAppId === DISPATCH_APP_ID &&
     accessMode !== "all-apps" &&
-    !(connection.allowedApps.length === 0 && !granted);
+    normalizedAllowedApps.includes(DISPATCH_APP_ID) &&
+    (granted || normalizedAllowedApps.length > 1);
   await assertWorkspaceConnectionManager(
     ctx,
     canEditOnlyDispatchGrant ? [DISPATCH_APP_ID] : [],

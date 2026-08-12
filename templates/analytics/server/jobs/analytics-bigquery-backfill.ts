@@ -167,7 +167,7 @@ function rowToJob(row: Record<string, unknown>): BigQueryBackfillJob {
     );
   }
   return {
-    id: stringValue(row, "shard_id", "id"),
+    id: stringValue(row, "id", "shard_id"),
     orgId: stringValue(row, "org_id", "orgId"),
     ownerEmail: stringValue(row, "owner_email", "ownerEmail"),
     table: stringValue(row, "table_ref", "tableRef"),
@@ -209,7 +209,7 @@ function rowToShard(row: Record<string, unknown>): BigQueryBackfillShard {
     );
   }
   return {
-    id: stringValue(row, "id"),
+    id: stringValue(row, "shard_id", "id"),
     jobId: stringValue(row, "job_id", "jobId"),
     orgId: stringValue(row, "org_id", "orgId"),
     ownerEmail: stringValue(row, "owner_email", "ownerEmail"),
@@ -272,11 +272,15 @@ async function getNextFirstPartyAnalyticsBigQueryBackfillJob(
                  lease_expires_at, next_run_at, last_error, completed_at,
                  updated_at
             FROM ${JOB_TABLE}
-           WHERE status IN ('pending', 'running')
-             AND next_run_at <= ?
+           WHERE next_run_at <= ?
+             AND (
+               status = 'pending'
+               OR (status = 'running' AND lease_expires_at IS NOT NULL
+                   AND lease_expires_at <= ?)
+             )
            ORDER BY updated_at ASC
            LIMIT 1`,
-    args: [now],
+    args: [now, now],
     timeoutMs: 3_000,
     maxAttempts: 1,
   });
@@ -292,13 +296,20 @@ function parseJobCursor(
     const parsed = JSON.parse(
       cursor,
     ) as Partial<FirstPartyAnalyticsBackfillCursor>;
-    return typeof parsed.receivedAt === "string" &&
-      parsed.receivedAt &&
-      typeof parsed.id === "string"
-      ? { receivedAt: parsed.receivedAt, id: parsed.id }
-      : null;
-  } catch {
-    return null;
+    if (
+      typeof parsed.receivedAt !== "string" ||
+      !parsed.receivedAt ||
+      typeof parsed.id !== "string"
+    ) {
+      throw new Error("cursor fields are missing");
+    }
+    return { receivedAt: parsed.receivedAt, id: parsed.id };
+  } catch (error) {
+    throw new Error(
+      `The durable BigQuery backfill cursor is invalid: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
   }
 }
 
@@ -344,7 +355,7 @@ function initialShardCursor(
   );
 }
 
-function shardRanges(
+export function buildBackfillShardRanges(
   job: BigQueryBackfillJob,
   now: string,
 ): Array<{
@@ -394,11 +405,17 @@ async function finalizeCoordinatorIfComplete(
   if (remaining !== 0) return false;
 
   const summaryResult = await db.execute({
-    sql: `SELECT COALESCE(SUM(copied_count), 0) AS copied_count,
-                 end_at, end_id
+    sql: `SELECT COALESCE(SUM(copied_count), 0) AS copied_count
+            FROM ${SHARD_TABLE}
+           WHERE job_id = ?`,
+    args: [job.id],
+    timeoutMs: 5_000,
+    maxAttempts: 1,
+  });
+  const endpointResult = await db.execute({
+    sql: `SELECT end_at, end_id
             FROM ${SHARD_TABLE}
            WHERE job_id = ?
-           GROUP BY end_at, end_id
            ORDER BY end_at DESC, end_id DESC
            LIMIT 1`,
     args: [job.id],
@@ -406,15 +423,16 @@ async function finalizeCoordinatorIfComplete(
     maxAttempts: 1,
   });
   const summary = rowFromResult(summaryResult);
-  const endAt = stringValue(summary ?? {}, "end_at", "endAt");
-  const endId = stringValue(summary ?? {}, "end_id", "endId");
+  const endpoint = rowFromResult(endpointResult);
+  const endAt = stringValue(endpoint ?? {}, "end_at", "endAt");
+  const endId = stringValue(endpoint ?? {}, "end_id", "endId");
   const cursor = endAt
     ? JSON.stringify({ receivedAt: endAt, id: endId })
     : job.cursor;
   await db.execute({
     sql: `UPDATE ${JOB_TABLE}
              SET status = 'completed', backfill_cursor = ?,
-                 copied_count = ?, lease_token = NULL, lease_expires_at = NULL,
+                 copied_count = copied_count + ?, lease_token = NULL, lease_expires_at = NULL,
                  next_run_at = ?, last_error = NULL, completed_at = ?, updated_at = ?
            WHERE id = ? AND status <> 'completed'`,
     args: [
@@ -437,7 +455,7 @@ async function ensureBackfillShards(
 ): Promise<void> {
   if (job.status === "completed") return;
   const existing = await db.execute({
-    sql: `SELECT id FROM ${SHARD_TABLE} WHERE job_id = ? LIMIT 1`,
+    sql: `SELECT shard_id FROM ${SHARD_TABLE} WHERE job_id = ? LIMIT 1`,
     args: [job.id],
     timeoutMs: 5_000,
     maxAttempts: 1,
@@ -445,7 +463,7 @@ async function ensureBackfillShards(
   if (rowFromResult(existing)) return;
 
   const now = new Date().toISOString();
-  for (const range of shardRanges(job, now)) {
+  for (const range of buildBackfillShardRanges(job, now)) {
     const id = `${job.id}:${range.start.receivedAt}:${range.start.id}:${range.end.receivedAt}`;
     await db.execute({
       sql: `INSERT INTO ${SHARD_TABLE} (
@@ -456,7 +474,7 @@ async function ensureBackfillShards(
               next_run_at, last_error, completed_at, updated_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL,
                       'pending', 0, NULL, NULL, ?, NULL, NULL, ?)
-            ON CONFLICT (id) DO NOTHING`,
+            ON CONFLICT (shard_id) DO NOTHING`,
       args: [
         id,
         job.id,
@@ -480,6 +498,7 @@ async function ensureBackfillShards(
 
 async function claimNextShard(
   db: Executor,
+  coordinatorId: string,
   now: string,
 ): Promise<BigQueryBackfillShard | null> {
   if (!db.transaction) {
@@ -494,8 +513,9 @@ async function claimNextShard(
                    batch_size, backfill_cursor_at, backfill_cursor_id,
                    status, copied_count, lease_token, lease_expires_at,
                    next_run_at, updated_at
-              FROM ${SHARD_TABLE}
-             WHERE next_run_at <= ?
+             FROM ${SHARD_TABLE}
+             WHERE job_id = ?
+               AND next_run_at <= ?
                AND (
                  status = 'pending'
                  OR (status = 'running' AND lease_expires_at IS NOT NULL
@@ -503,7 +523,7 @@ async function claimNextShard(
                )
              ORDER BY start_at DESC, start_id DESC, updated_at ASC
              LIMIT 1`,
-      args: [now, now],
+      args: [coordinatorId, now, now],
       timeoutMs: 3_000,
       maxAttempts: 1,
     });
@@ -513,7 +533,7 @@ async function claimNextShard(
       sql: `UPDATE ${SHARD_TABLE}
                SET status = 'running', lease_token = ?, lease_expires_at = ?,
                    updated_at = ?
-             WHERE shard_id = ? AND next_run_at <= ?
+             WHERE shard_id = ? AND job_id = ? AND next_run_at <= ?
                AND (
                  status = 'pending'
                  OR (status = 'running' AND lease_expires_at IS NOT NULL
@@ -524,6 +544,7 @@ async function claimNextShard(
         leaseExpiresAt,
         now,
         stringValue(candidate, "shard_id", "id"),
+        coordinatorId,
         now,
         now,
       ],
@@ -553,13 +574,19 @@ async function finishShard(
         result.nextCursor,
       ) as Partial<FirstPartyAnalyticsBackfillCursor>;
       if (
-        typeof parsed.receivedAt === "string" &&
-        typeof parsed.id === "string"
+        typeof parsed.receivedAt !== "string" ||
+        !parsed.receivedAt ||
+        typeof parsed.id !== "string"
       ) {
-        nextCursor = { receivedAt: parsed.receivedAt, id: parsed.id };
+        throw new Error("cursor fields are missing");
       }
-    } catch {
-      throw new Error("BigQuery backfill returned an invalid shard cursor");
+      nextCursor = { receivedAt: parsed.receivedAt, id: parsed.id };
+    } catch (error) {
+      throw new Error(
+        `BigQuery backfill returned an invalid shard cursor: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
     }
   }
   const now = new Date().toISOString();
@@ -652,6 +679,17 @@ export async function acquireDedicatedFirstPartyAnalyticsBackfillLease(
     throw new Error("Dedicated BigQuery backfill requires an organization");
   }
   const id = jobId(scope.orgId);
+  const sharded = await executor().execute({
+    sql: `SELECT shard_id FROM ${SHARD_TABLE} WHERE job_id = ? LIMIT 1`,
+    args: [id],
+    timeoutMs: 5_000,
+    maxAttempts: 1,
+  });
+  if (rowFromResult(sharded)) {
+    throw new Error(
+      "The sharded BigQuery backfill owns this migration; use the durable scheduled worker",
+    );
+  }
   const token = randomUUID();
   const now = new Date().toISOString();
   const leaseExpiresAt = new Date(
@@ -854,7 +892,7 @@ export async function runFirstPartyAnalyticsBigQueryBackfillOnce(): Promise<BigQ
     const claimed = (
       await Promise.all(
         Array.from({ length: parallelism() }, () =>
-          claimNextShard(db, new Date().toISOString()),
+          claimNextShard(db, coordinator.id, new Date().toISOString()),
         ),
       )
     ).filter((shard): shard is BigQueryBackfillShard => shard !== null);
