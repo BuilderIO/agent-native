@@ -2150,6 +2150,11 @@ function SetupWizard({
     provider,
     credentialRefs,
   );
+  const visiblePlanWarnings = (plan?.warnings ?? []).filter(
+    (warning) =>
+      !warning.startsWith("Missing required credential refs:") ||
+      missingCredentialRefs.length > 0,
+  );
   const hasCredentialStep = Boolean(
     provider &&
     (provider.credentialKeys.length > 0 || credentialRefs.length > 0),
@@ -2262,9 +2267,9 @@ function SetupWizard({
 
           {!loading && form && provider ? (
             <>
-              {plan?.warnings.length ? (
+              {visiblePlanWarnings.length ? (
                 <div className="grid gap-2">
-                  {plan.warnings.map((warning) => (
+                  {visiblePlanWarnings.map((warning) => (
                     <div
                       key={warning}
                       className="flex items-start gap-2 rounded-md border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400"
