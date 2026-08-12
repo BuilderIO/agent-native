@@ -77,6 +77,13 @@ export interface GuidedQuestionPayload {
    * promise with the answer instead of forwarding it to the agent chat.
    */
   clientResolveId?: string;
+  /**
+   * Chat thread that asked. Set by the agent's `ask-question` tool. A payload
+   * carrying this only renders in that conversation; one without it (app code
+   * calling {@link askUserQuestion}, deterministic writes) is not thread-bound
+   * and renders wherever the flow is mounted.
+   */
+  threadId?: string;
 }
 
 const OTHER_OPTION_PREFIX = "__other__:";
@@ -973,6 +980,13 @@ export interface UseGuidedQuestionFlowOptions {
    * (which it almost always does — see `sessionBrowserTabId`).
    */
   browserTabId?: string;
+  /**
+   * The conversation this flow is mounted in. Agent-written payloads name the
+   * thread that asked, and a pending question belongs to that conversation
+   * only — the application-state key is per browser tab, so without this the
+   * same card follows the user into every other chat in the tab.
+   */
+  threadId?: string;
   queryKey?: readonly unknown[];
   refetchInterval?: number | false;
   submitMessage?: string;
@@ -984,10 +998,25 @@ export interface UseGuidedQuestionFlowOptions {
   buildSkipContext?: () => string;
 }
 
+/**
+ * Whether a stored payload belongs to the conversation currently on screen.
+ * Payloads with no `threadId` are not thread-bound and always match.
+ */
+function payloadBelongsToThread(
+  payload: GuidedQuestionPayload,
+  threadId: string | undefined,
+): boolean {
+  const asker =
+    typeof payload.threadId === "string" ? payload.threadId.trim() : "";
+  if (!asker) return true;
+  return asker === (threadId ?? "").trim();
+}
+
 export function useGuidedQuestionFlow({
   enabled = true,
   stateKey = "show-questions",
   browserTabId,
+  threadId,
   queryKey = ["show-questions"],
   refetchInterval = false,
   submitMessage = "Here are my answers — go ahead.",
@@ -1065,7 +1094,11 @@ export function useGuidedQuestionFlow({
           prev &&
           guidedQuestionsFingerprint(prev.questions) ===
             guidedQuestionsFingerprint(data.questions) &&
-          prev.clientResolveId === data.clientResolveId
+          prev.clientResolveId === data.clientResolveId &&
+          // Two chats can ask a word-for-word identical question. Keeping the
+          // old payload would bind the new one to the wrong thread, hiding it
+          // in the chat that asked and re-showing it in the one that didn't.
+          prev.threadId === data.threadId
         ) {
           return prev;
         }
@@ -1075,6 +1108,12 @@ export function useGuidedQuestionFlow({
       setPayload(null);
     }
   }, [data]);
+
+  // A question asked in another conversation stays in application state — the
+  // user can still answer it by going back to that chat — but it must not
+  // render here.
+  const visiblePayload =
+    payload && payloadBelongsToThread(payload, threadId) ? payload : null;
 
   const clear = useCallback(() => {
     setPayload(null);
@@ -1090,15 +1129,16 @@ export function useGuidedQuestionFlow({
     (answers: GuidedQuestionAnswers) => {
       // Client-initiated question (askUserQuestion): resolve the caller's
       // promise with the answer instead of forwarding it to the agent chat.
-      const resolveId = payload?.clientResolveId;
+      const resolveId = visiblePayload?.clientResolveId;
       if (resolveId) {
-        const firstId = payload?.questions?.[0]?.id ?? "q1";
+        const firstId = visiblePayload?.questions?.[0]?.id ?? "q1";
         resolveClientQuestion(resolveId, extractSingleAnswer(answers, firstId));
         clear();
         return;
       }
       const formattedAnswers = formatGuidedAnswersForAgent(answers);
-      const resolvedSubmitMessage = payload?.submitMessage ?? submitMessage;
+      const resolvedSubmitMessage =
+        visiblePayload?.submitMessage ?? submitMessage;
       const context =
         buildSubmitContext?.({ answers, formattedAnswers }) ??
         defaultGuidedSubmitContext(formattedAnswers);
@@ -1109,31 +1149,31 @@ export function useGuidedQuestionFlow({
       });
       clear();
     },
-    [buildSubmitContext, clear, payload, submitMessage],
+    [buildSubmitContext, clear, visiblePayload, submitMessage],
   );
 
   const handleSkip = useCallback(() => {
-    const resolveId = payload?.clientResolveId;
+    const resolveId = visiblePayload?.clientResolveId;
     if (resolveId) {
       resolveClientQuestion(resolveId, null);
       clear();
       return;
     }
     sendToAgentChat({
-      message: payload?.skipMessage ?? skipMessage,
+      message: visiblePayload?.skipMessage ?? skipMessage,
       context: buildSkipContext?.(),
       submit: true,
     });
     clear();
-  }, [buildSkipContext, clear, payload, skipMessage]);
+  }, [buildSkipContext, clear, visiblePayload, skipMessage]);
 
   return {
-    payload,
-    questions: payload?.questions ?? null,
-    title: payload?.title,
-    description: payload?.description,
-    skipLabel: payload?.skipLabel,
-    submitLabel: payload?.submitLabel,
+    payload: visiblePayload,
+    questions: visiblePayload?.questions ?? null,
+    title: visiblePayload?.title,
+    description: visiblePayload?.description,
+    skipLabel: visiblePayload?.skipLabel,
+    submitLabel: visiblePayload?.submitLabel,
     clear,
     handleSubmit,
     handleSkip,

@@ -739,6 +739,14 @@ export interface ActionEntry {
         args: any,
         ctx?: import("../action.js").ActionRunContext,
       ) => boolean | Promise<boolean>);
+  /**
+   * The action hands control back to the user: once it succeeds the loop stops
+   * the turn instead of asking the model for another step, and any remaining
+   * tool calls in the same assistant message do not execute. Only for actions
+   * whose whole purpose is to wait on a human (`ask-question`) — telling the
+   * model to stop in the tool result does not make it stop.
+   */
+  endsTurn?: boolean;
   /** Which framework tool group contributed this action. Set by the framework,
    *  never by an app: apps own their action names, and a tagged action is one
    *  the app can switch off wholesale through `frameworkTools`. Tagged actions
@@ -5229,6 +5237,23 @@ export async function runAgentLoop(opts: {
 
     let requestedActionStop: { message: string; errorCode?: string } | null =
       null;
+    // An `endsTurn` action ran and handed control to the user. Distinct from
+    // `requestedActionStop`, which also covers failure stops that must not
+    // suppress the remaining tool calls.
+    let turnYieldedToUser = false;
+
+    // Called by every path that completes a tool call successfully — a fresh
+    // invocation, a journal replay, a ledger recovery. A replayed
+    // `ask-question` that skipped this would let the resumed run ask a second
+    // time over the card the user is already looking at.
+    const noteToolCallSucceeded = (actionEntry: ActionEntry) => {
+      if (actionEntry.endsTurn !== true) return;
+      turnYieldedToUser = true;
+      requestedActionStop ??= {
+        message: "Waiting for your answer before continuing.",
+        errorCode: "awaiting-user-input",
+      };
+    };
 
     const noteRepeatedToolCall = (toolName: string, input: unknown) => {
       const key = toolCallCacheKey(toolName, input);
@@ -5625,6 +5650,7 @@ export async function runAgentLoop(opts: {
             completedSideEffect: true,
           });
           recordToolResult(result, false);
+          noteToolCallSucceeded(actionEntry);
           return {
             type: "tool-result" as const,
             toolCallId: toolCall.id,
@@ -5682,6 +5708,7 @@ export async function runAgentLoop(opts: {
               ...(actionEntry.chatUI ? { chatUI: actionEntry.chatUI } : {}),
             });
             recordToolResult(result, false);
+            noteToolCallSucceeded(actionEntry);
             return {
               type: "tool-result" as const,
               toolCallId: toolCall.id,
@@ -6188,6 +6215,7 @@ export async function runAgentLoop(opts: {
         });
         recordToolResult(result, isError);
         if (!isError) {
+          noteToolCallSucceeded(actionEntry);
           if (cacheKey) {
             readOnlyToolResultCache.set(cacheKey, result);
           } else if (actionEntry.readOnly !== true) {
@@ -6258,7 +6286,50 @@ export async function runAgentLoop(opts: {
       toolResultParts.push(...(await Promise.all(batch.map(runToolCall))));
     };
 
+    // An `endsTurn` action already handed control to the user, so the rest of
+    // this assistant message belongs to a turn that is over. Report those calls
+    // as not executed rather than running them: a second `ask-question` would
+    // overwrite the first one's card before anyone could answer it.
+    const skipToolCallAfterYield = (
+      toolCall: import("./engine/types.js").EngineToolCallPart,
+    ): EngineContentPart => {
+      const result =
+        `Not executed: ${toolCall.name} was called after an action that ends the turn. ` +
+        `The turn is paused for the user's answer — call it again on a later turn if still needed.`;
+      send({
+        type: "tool_start",
+        id: toolCall.id,
+        tool: toolCall.name,
+        input: toolCall.input as Record<string, string>,
+      });
+      send({
+        type: "tool_done",
+        id: toolCall.id,
+        tool: toolCall.name,
+        input: toolCall.input as Record<string, unknown>,
+        result,
+        completedSideEffect: false,
+      });
+      toolResultHistory.push({
+        name: toolCall.name,
+        content: result,
+        isError: false,
+      });
+      return {
+        type: "tool-result" as const,
+        toolCallId: toolCall.id,
+        toolName: toolCall.name,
+        toolInput: JSON.stringify(toolCall.input ?? {}),
+        content: result,
+      };
+    };
+
     for (const toolCall of toolCallParts) {
+      if (turnYieldedToUser) {
+        await flushParallelBatch();
+        toolResultParts.push(skipToolCallAfterYield(toolCall));
+        continue;
+      }
       const batchKind = getParallelBatchKind(toolCall);
       if (batchKind) {
         if (parallelBatchKind && parallelBatchKind !== batchKind) {
@@ -6382,6 +6453,12 @@ export async function runAgentLoop(opts: {
     reportOutcome({
       state: "input_required",
       code: "needs_approval",
+      message: terminalActionStop.message,
+    });
+  } else if (terminalActionStop?.errorCode === "awaiting-user-input") {
+    reportOutcome({
+      state: "input_required",
+      code: "awaiting_user_input",
       message: terminalActionStop.message,
     });
   } else if (terminalActionStop) {
