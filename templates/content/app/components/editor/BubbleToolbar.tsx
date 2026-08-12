@@ -465,6 +465,7 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
                     className="w-44 p-1"
                     onEscapeKeyDown={() => {
                       restoreEditorFocusOnClose.current = true;
+                      window.setTimeout(() => editor.commands.focus(), 0);
                     }}
                     onCloseAutoFocus={(event) => {
                       if (
