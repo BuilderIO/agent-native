@@ -294,9 +294,9 @@ architecture-grounding:
   unresolved-owner-questions: []
 delegation-ceiling: [read-only investigation, bounded technical review, tester-owned local acceptance]
 acceptance-state:
-  status: pending
-  summary: The isolated local dev-server functional story passes through Analytics and receiver action routes; independent visual acceptance remains unavailable because the tester has no browser-capable localhost surface.
-  blockers: [tester-owned visual acceptance through an independently acquirable localhost browser]
+  status: mixed
+  summary: The isolated local dev-server functional and desktop visual story passes; visual QA found a severe unreadable flag-card layout at a 768px viewport.
+  blockers: [responsive flag-card layout at narrow desktop and tablet widths]
   last-land-packet: null
 ledger-revision: feature-flag-production-delegation-work-r2
 status: active
@@ -355,6 +355,12 @@ Supplemental developer verification passed on 2026-08-12 against isolated task-l
 - Unavailable built-in targets remained classified with fixed safe reasons such as `timeout` or `network`; no response body or secret was reflected.
 - The shared in-app browser loaded the real Analytics Feature flags URL, but its snapshot interface failed. The independent tester separately confirmed it has no browser-capable localhost interface, so this is functional developer evidence, not a claim of independent visual acceptance.
 - Cleanup completed after verification: ports 8088, 8092, and 8094 were confirmed closed, and the exact task-local runtime directory was moved to Trash and confirmed absent from `/tmp`.
+
+### Visual QA result
+
+Same-context Chrome visual QA was explicitly accepted by Alice on 2026-08-12 and executed through the real Analytics UI at the current branch head. The desktop story passed: fleet states were legible, Clips and Dispatch flags rendered with clear state badges and controls, `Enable for me` changed the test flag to `Targeted` with `You have access`, the action menu and confirmation dialog stacked correctly, and the UI reset the disposable flag to off without console warnings or errors.
+
+The responsive result failed at a 768 x 900 viewport. With the persistent sidebar consuming part of the width, each flag row retained its desktop columns: the flag name and description collapsed into a very narrow strip with near letter-by-letter wrapping while the action buttons kept their full width. Controls remained operable, but the content was not reasonably readable. This is a visual acceptance defect rather than an authorization failure. The in-app browser could navigate to the page but its snapshot operation failed; Chrome supplied the functional and screenshot evidence. Cleanup was repeated after the visual pass, with all three ports closed and the restored task-local fixture directory moved back to Trash.
 
 Cleanup: Stop the task-owned runtimes and remove the task-local databases/runtime directory, then independently prove the ports and directory are absent.
 
