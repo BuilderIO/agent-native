@@ -430,10 +430,11 @@ function orderAfterNudge(
   content: string,
   nodeId: string,
   direction: "up" | "right" | "down" | "left",
+  parentDisplay?: string,
 ): string[] | { kind: string } {
   const intent = resolveElementNudgeIntent({
     content,
-    selectedElement: elementInfoFor(nodeId),
+    selectedElement: elementInfoFor(nodeId, "div", parentDisplay),
     direction,
     largeStep: false,
   });
@@ -453,6 +454,15 @@ function orderAfterNudge(
       byId.get(childId)?.dataAttributes["data-agent-native-node-id"] ?? "?",
   );
 }
+
+const BLOCK_STACK = [
+  "<!doctype html><html><body>",
+  '<section data-agent-native-node-id="stack">',
+  '<div data-agent-native-node-id="alpha">Alpha</div>',
+  '<div data-agent-native-node-id="beta">Beta</div>',
+  "</section>",
+  "</body></html>",
+].join("");
 
 const ROW_SCREEN = `<!doctype html><html><body>
   <section data-agent-native-node-id="row" style="display:flex;flex-direction:row">
@@ -533,21 +543,14 @@ describe("resolveElementNudgeIntent", () => {
     ).toEqual({ kind: "translate", dx: 1, dy: 0 });
   });
 
-  it("translates a free-placed child of a plain block container", () => {
-    const content = `<!doctype html><html><body>
-      <section data-agent-native-node-id="stack">
-        <div data-agent-native-node-id="alpha">Alpha</div>
-        <div data-agent-native-node-id="beta">Beta</div>
-      </section>
-    </body></html>`;
-    expect(
-      resolveElementNudgeIntent({
-        content,
-        selectedElement: elementInfoFor("alpha"),
-        direction: "down",
-        largeStep: true,
-      }),
-    ).toEqual({ kind: "translate", dx: 0, dy: 10 });
+  it("reorders a child of a plain block container down the block axis", () => {
+    // Block children stack in DOM order, so ArrowDown moves the child past its
+    // sibling. This previously translated, which under `position: static` is a
+    // no-op the user sees as "nothing happens".
+    expect(orderAfterNudge(BLOCK_STACK, "alpha", "down")).toEqual([
+      "beta",
+      "alpha",
+    ]);
   });
 
   it("translates rather than swallowing the key when the node cannot be resolved", () => {
@@ -561,7 +564,7 @@ describe("resolveElementNudgeIntent", () => {
     ).toEqual({ kind: "translate", dx: 1, dy: 0 });
   });
 
-  it("does nothing when rendered CSS says the parent is a flow container the parser cannot see", () => {
+  it("reorders when rendered CSS says the parent is a flow container the parser cannot see", () => {
     const content = `<!doctype html><html><body>
       <section data-agent-native-node-id="row" class="row">
         <div data-agent-native-node-id="alpha">Alpha</div>
@@ -569,15 +572,13 @@ describe("resolveElementNudgeIntent", () => {
       </section>
     </body></html>`;
     // `.row { display: flex }` lives in a stylesheet, so describeFlowContainer
-    // sees no container — but the bridge reports the rendered display.
-    expect(
-      resolveElementNudgeIntent({
-        content,
-        selectedElement: elementInfoFor("alpha", "div", "flex"),
-        direction: "right",
-        largeStep: false,
-      }),
-    ).toEqual({ kind: "none" });
+    // sees no container — but the bridge reports the rendered display, which is
+    // the only source that knows. This used to swallow the key; now the arrow
+    // does the useful thing and moves the child through its siblings.
+    expect(orderAfterNudge(content, "alpha", "right", "flex")).toEqual([
+      "beta",
+      "alpha",
+    ]);
   });
 
   it("still translates an absolute child whose parent renders as flex", () => {

@@ -21245,34 +21245,6 @@ function DesignEditor() {
         largeStep,
         amounts: nudgeAmounts,
       });
-      // TEMP-NUDGE-DIAG: remove once the running-app nudge path is confirmed.
-      {
-        const diagProjection = buildCodeLayerProjection(nudgeBaseContent);
-        const diagNode = resolveCodeLayerNodeFromElementInfo(
-          diagProjection,
-          nudgeTarget,
-        );
-        const diagParent = diagNode?.parentId
-          ? diagProjection.nodes.find((n) => n.id === diagNode.parentId)
-          : null;
-        console.log("[nudge]", {
-          activeCanvasSourceType,
-          isRunningApp: isRunningAppSourceType(activeCanvasSourceType),
-          baseContentLength: nudgeBaseContent.length,
-          intentKind: intent.kind,
-          // Did we find the node in the snapshot at all?
-          nodeResolved: Boolean(diagNode),
-          nodeTag: diagNode?.tag,
-          // What the flow detection actually sees on the PARENT:
-          parentTag: diagParent?.tag,
-          parentInlineDisplay: diagParent?.style?.display,
-          parentClasses: diagParent?.classes?.slice(0, 12),
-          parentChildCount: diagParent?.children?.length,
-          // vs what the browser actually rendered:
-          renderedParentDisplay: nudgeTarget.parentDisplay,
-          computedPosition: nudgeTarget.computedStyles?.position,
-        });
-      }
       if (intent.kind === "none") return;
       if (intent.kind === "reorder") {
         // The stored content is a URL for a running-app screen, so patching it
@@ -24624,6 +24596,15 @@ function DesignEditor() {
       const structureEdits = pendingLiveNonStyleEdits.filter(
         (edit): edit is PendingLiveStructureEdit => edit.kind === "structure",
       );
+      // Source verification rewrites local files over the localhost bridge, so
+      // it needs a connection id a fusion screen never has — without this split
+      // one nudge refuses the whole Apply, style and text edits included.
+      const locallyVerifiableStructureEdits = structureEdits.filter((edit) =>
+        Boolean(
+          overviewScreens.find((screen) => screen.id === edit.screenId)
+            ?.connectionId,
+        ),
+      );
       const structureAcks = structureEdits
         .filter((edit) => Boolean(edit.requestId))
         .map((edit) => ({
@@ -24646,7 +24627,7 @@ function DesignEditor() {
         }, 50);
       };
 
-      if (structureEdits.length === 0) {
+      if (locallyVerifiableStructureEdits.length === 0) {
         const delivery = await sendDesignSourceHandoffAndConfirm(
           {
             message: t("designEditor.pendingVisualStyles.agentMessage"),
@@ -24674,7 +24655,7 @@ function DesignEditor() {
       const session: PendingStructureVerificationSession = {
         requestId,
         cancelled: false,
-        edits: structureEdits,
+        edits: locallyVerifiableStructureEdits,
         sources: [],
       };
       pendingStructureVerificationSessionRef.current = session;
@@ -24685,7 +24666,7 @@ function DesignEditor() {
         string,
         { connectionId: string; path: string }
       >();
-      for (const edit of structureEdits) {
+      for (const edit of locallyVerifiableStructureEdits) {
         const connectionId = overviewScreens.find(
           (screen) => screen.id === edit.screenId,
         )?.connectionId;
@@ -29411,6 +29392,15 @@ function DesignEditor() {
           ? getFreshActiveContent()
           : (sourceFile?.content ?? ""));
       const targetNode = liveSnapshot ? liveNode : node;
+      // A running-app screen with no live snapshot leaves `sourceContent` as
+      // the route URL. setCodeLayerAttributeInHtml splices by source offset, so
+      // writing into it destroys the screen's src (same case as
+      // handleLayerRename). Keep the state as a client-side override — the same
+      // outcome as the unresolved-node paths above — rather than corrupt it.
+      if (isStandaloneHttpUrl(sourceContent)) {
+        applyLayerStatePreview(layerScreenId, layerId, "locked", locked);
+        return;
+      }
       if (sourceContent && targetNode) {
         const nextContent = setCodeLayerAttributeInHtml(
           sourceContent,
@@ -29514,6 +29504,11 @@ function DesignEditor() {
           ? getFreshActiveContent()
           : (sourceFile?.content ?? ""));
       const targetNode = liveSnapshot ? liveNode : node;
+      // Same URL-corruption guard as handleToggleLayerLocked above.
+      if (isStandaloneHttpUrl(sourceContent)) {
+        applyLayerStatePreview(layerScreenId, layerId, "hidden", hidden);
+        return;
+      }
       if (sourceContent && targetNode) {
         const nextContent = setCodeLayerAttributeInHtml(
           sourceContent,
