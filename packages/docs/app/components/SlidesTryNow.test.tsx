@@ -51,4 +51,31 @@ describe("SlidesTryNow", () => {
     );
     expect(screen.queryByText(/crawl-design-reference/)).toBeNull();
   });
+
+  it("extracts only selected dropdown values rather than all option texts", () => {
+    render(
+      <AgentNativeI18nProvider
+        catalog={docsI18nCatalog}
+        initialLocale="en-US"
+        initialPreference="en-US"
+        persistPreference={false}
+      >
+        <SlidesTryNow />
+      </AgentNativeI18nProvider>,
+    );
+
+    const submitLink = screen.getByRole("link", { name: "Generate my deck" });
+    fireEvent.click(submitLink);
+
+    const href = submitLink.getAttribute("href") || "";
+    const url = new URL(href);
+    const initialPrompt = url.searchParams.get("initialPrompt") || "";
+
+    expect(initialPrompt).toContain("B2B sales pitch");
+    expect(initialPrompt).toContain("brief");
+    expect(initialPrompt).not.toContain("capital raise");
+    expect(initialPrompt).not.toContain("offering memorandum");
+    expect(initialPrompt).not.toContain("minimal");
+    expect(initialPrompt).not.toContain("thorough");
+  });
 });

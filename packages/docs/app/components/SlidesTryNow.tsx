@@ -48,6 +48,29 @@ function replaceSubjectPlaceholder(editor: HTMLDivElement, subject: string) {
   }
 }
 
+export function extractPromptText(node: Node): string {
+  if (node.nodeType === Node.TEXT_NODE) {
+    return node.textContent || "";
+  }
+  if (node.nodeType === Node.ELEMENT_NODE) {
+    const element = node as HTMLElement;
+    if (element.tagName === "SELECT") {
+      const select = element as HTMLSelectElement;
+      const selectedOption = select.options[select.selectedIndex];
+      return selectedOption ? selectedOption.text : select.value;
+    }
+    if (element.tagName === "BR") {
+      return "\n";
+    }
+    let result = "";
+    for (const child of Array.from(element.childNodes)) {
+      result += extractPromptText(child);
+    }
+    return result;
+  }
+  return "";
+}
+
 function appendStyleGuideTarget(editor: HTMLDivElement) {
   editor.append(document.createElement("br"), document.createElement("br"));
   const target = document.createElement("span");
@@ -339,11 +362,7 @@ export function SlidesTryNow() {
             className="inline-flex items-center gap-2 rounded-xl bg-black px-6 py-3 text-sm font-medium text-white transition hover:bg-gray-800 dark:bg-white dark:text-black dark:hover:bg-gray-200"
             onClick={(event) => {
               const promptText = editorRef.current
-                ? (
-                    editorRef.current.innerText ||
-                    editorRef.current.textContent ||
-                    ""
-                  ).trim()
+                ? extractPromptText(editorRef.current).trim()
                 : "";
               const targetUrl = `https://slides.agent-native.com/?initialPrompt=${encodeURIComponent(promptText)}`;
               event.currentTarget.href = targetUrl;
