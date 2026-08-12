@@ -12,7 +12,10 @@ import { Link, useNavigate } from "react-router";
 
 import type { ConnectedAppSummary } from "../lib/other-apps";
 import { cn } from "../lib/utils";
-import type { WorkspaceAppSummary } from "../lib/workspace-apps";
+import {
+  isWorkspaceAppVisibleInDefaultLaunchers,
+  type WorkspaceAppSummary,
+} from "../lib/workspace-apps";
 import { ActionQueryError } from "./action-query-error";
 import {
   APP_LIST_GRID_CLASS,
@@ -115,6 +118,7 @@ function CommandPanel() {
           selectedEffort={selectedEffort}
           selectedEngine={selectedEngine}
           selectedModel={selectedModel}
+          rootClassName="bg-card"
           onEffortChange={onEffortChange}
           onModelChange={onModelChange}
           onSubmit={(text) => send(text)}
@@ -161,7 +165,9 @@ function AppsPanel({
 }) {
   const t = useT();
   const [showPending, setShowPending] = useState(false);
-  const visibleApps = apps.filter((app) => !app.isDispatch && !app.archived);
+  const visibleApps = apps.filter(
+    (app) => isWorkspaceAppVisibleInDefaultLaunchers(app) && !app.archived,
+  );
   const activeApps = visibleApps.filter((app) => app.status !== "pending");
   const pendingApps = visibleApps.filter((app) => app.status === "pending");
   const otherAppEntries = mergeOtherAppEntries({

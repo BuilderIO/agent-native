@@ -2321,6 +2321,80 @@ describe("run manager soft timeout", () => {
     );
   });
 
+  it("auto-continues a foreground run that ends after completed tool work", async () => {
+    const events: AgentChatEvent[] = [];
+    const run = startRun(
+      "run-foreground-tool-only",
+      "thread-foreground-tool-only",
+      async (send) => {
+        await Promise.resolve();
+        send({
+          type: "tool_done",
+          tool: "provider-api-request",
+          id: "call-1",
+          input: {},
+          result: '{"ok":true}',
+          completedSideEffect: false,
+        });
+        send({ type: "done" });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    run.subscribers.add((event) => events.push(event.event));
+
+    await run.finalized;
+
+    expect(events).toEqual([
+      expect.objectContaining({ type: "tool_done" }),
+      { type: "auto_continue", reason: "stream_ended" },
+    ]);
+    expect(events).not.toContainEqual({ type: "done" });
+    expect(run.status).toBe("completed");
+    expect(setRunTerminalReason).toHaveBeenCalledWith(
+      "run-foreground-tool-only",
+      "stream_ended",
+    );
+  });
+
+  it("keeps a completed custom UI tool result terminal", async () => {
+    const events: AgentChatEvent[] = [];
+    const run = startRun(
+      "run-foreground-custom-ui",
+      "thread-foreground-custom-ui",
+      async (send) => {
+        await Promise.resolve();
+        send({
+          type: "tool_done",
+          tool: "render-inline-extension",
+          id: "call-ui",
+          input: {},
+          result: '{"rendered":true}',
+          chatUI: { renderer: "core.inline-extension" },
+        });
+        send({ type: "done" });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    run.subscribers.add((event) => events.push(event.event));
+
+    await run.finalized;
+
+    expect(events).toEqual([
+      expect.objectContaining({ type: "tool_done" }),
+      { type: "done" },
+    ]);
+    expect(events).not.toContainEqual({
+      type: "auto_continue",
+      reason: "stream_ended",
+    });
+    expect(setRunTerminalReason).toHaveBeenCalledWith(
+      "run-foreground-custom-ui",
+      "done",
+    );
+  });
+
   it("marks runs errored when completion persistence fails", async () => {
     const consoleError = vi
       .spyOn(console, "error")

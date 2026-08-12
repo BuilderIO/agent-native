@@ -104,4 +104,30 @@ describe("filterOtherApps", () => {
       },
     ]);
   });
+
+  it("hides the generic chat starter from connected app launchers", () => {
+    expect(
+      filterOtherApps(
+        [
+          {
+            id: "chat",
+            name: "Chat",
+            url: "https://chat.agent-native.com",
+          },
+          {
+            id: "mail",
+            name: "Mail",
+            url: "https://mail.agent-native.com",
+          },
+        ],
+        [],
+      ),
+    ).toEqual([
+      {
+        id: "mail",
+        name: "Mail",
+        url: "https://mail.agent-native.com",
+      },
+    ]);
+  });
 });

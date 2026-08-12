@@ -3041,6 +3041,11 @@ const enUS = {
     agent: "Agent",
     settings: "Settings",
   },
+  landing: {
+    previousPageUnavailable:
+      "Your previous page is no longer available, so we opened Welcome.",
+    saveFailed: "Your place could not be saved",
+  },
   team: {
     metaTitle: "Workspace access - Content",
     pageTitle: "Workspace access",
@@ -8959,11 +8964,63 @@ const commentMessagesByLocale = {
   "ar-SA": { unanchored: "التمييز غير متاح" },
 } satisfies Partial<Record<LocaleCode, Partial<typeof enUS.comments>>>;
 
+const landingMessagesByLocale = {
+  "zh-CN": {
+    previousPageUnavailable: "您之前的页面已不可用，因此我们打开了欢迎页面。",
+    saveFailed: "无法保存您的位置",
+  },
+  "zh-TW": {
+    previousPageUnavailable: "您先前的頁面已無法使用，因此我們開啟了歡迎頁面。",
+    saveFailed: "無法儲存您的位置",
+  },
+  "es-ES": {
+    previousPageUnavailable:
+      "Tu página anterior ya no está disponible, así que abrimos la página de bienvenida.",
+    saveFailed: "No se pudo guardar tu ubicación",
+  },
+  "fr-FR": {
+    previousPageUnavailable:
+      "Votre page précédente n’est plus disponible. Nous avons donc ouvert la page de bienvenue.",
+    saveFailed: "Votre emplacement n’a pas pu être enregistré",
+  },
+  "de-DE": {
+    previousPageUnavailable:
+      "Deine vorherige Seite ist nicht mehr verfügbar. Daher wurde die Willkommensseite geöffnet.",
+    saveFailed: "Deine Position konnte nicht gespeichert werden",
+  },
+  "ja-JP": {
+    previousPageUnavailable:
+      "前回のページを利用できないため、ようこそページを開きました。",
+    saveFailed: "現在位置を保存できませんでした",
+  },
+  "ko-KR": {
+    previousPageUnavailable:
+      "이전 페이지를 더 이상 사용할 수 없어 시작 페이지를 열었습니다.",
+    saveFailed: "현재 위치를 저장하지 못했습니다",
+  },
+  "pt-BR": {
+    previousPageUnavailable:
+      "Sua página anterior não está mais disponível, então abrimos a página de boas-vindas.",
+    saveFailed: "Não foi possível salvar sua localização",
+  },
+  "hi-IN": {
+    previousPageUnavailable:
+      "आपका पिछला पेज अब उपलब्ध नहीं है, इसलिए हमने स्वागत पेज खोल दिया है।",
+    saveFailed: "आपकी जगह सेव नहीं की जा सकी",
+  },
+  "ar-SA": {
+    previousPageUnavailable:
+      "لم تعد صفحتك السابقة متاحة، لذلك فتحنا صفحة الترحيب.",
+    saveFailed: "تعذر حفظ موضعك",
+  },
+} satisfies Record<Exclude<LocaleCode, "en-US">, typeof enUS.landing>;
+
 function mergeMessages(overrides: PartialMessages): Messages {
   return {
     root: { ...enUS.root, ...overrides.root },
     theme: { ...enUS.theme, ...overrides.theme },
     navigation: { ...enUS.navigation, ...overrides.navigation },
+    landing: { ...enUS.landing, ...overrides.landing },
     team: { ...enUS.team, ...overrides.team },
     settings: { ...enUS.settings, ...overrides.settings },
     chat: { ...enUS.chat, ...overrides.chat },
@@ -9061,6 +9118,7 @@ function mergeMessagesForLocale(
   return {
     ...base,
     comments: { ...base.comments, ...commentMessagesByLocale[locale] },
+    landing: { ...base.landing, ...landingMessagesByLocale[locale] },
     root: { ...base.root, ...rawLiteralOverrides.root },
     team: { ...base.team, ...rawLiteralOverrides.team },
     settings: { ...base.settings, ...rawLiteralOverrides.settings },

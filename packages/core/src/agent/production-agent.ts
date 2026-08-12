@@ -150,6 +150,7 @@ import {
   isHostedRuntime,
   resolveRunSoftTimeoutMs,
   resolveRunToolTimeoutCeilingMs,
+  endsAfterCompletedToolWithoutAssistantFinal,
 } from "./run-manager.js";
 import type { ActiveRun } from "./run-manager.js";
 import {
@@ -6563,30 +6564,6 @@ export function lastUnfinishedPreparingActionToolFromEvents(
     }
   }
   return latest?.tool;
-}
-
-function endsAfterCompletedToolWithoutAssistantFinal(run: ActiveRun): boolean {
-  let completedToolAfterLastAssistantText = false;
-  for (const { event } of run.events) {
-    if (event.type === "text" && event.text.trim().length > 0) {
-      completedToolAfterLastAssistantText = false;
-      continue;
-    }
-    if (event.type === "tool_done" && event.isError !== true) {
-      completedToolAfterLastAssistantText = true;
-      continue;
-    }
-    if (
-      event.type === "clear" ||
-      event.type === "error" ||
-      event.type === "missing_api_key" ||
-      event.type === "auto_continue" ||
-      event.type === "loop_limit"
-    ) {
-      completedToolAfterLastAssistantText = false;
-    }
-  }
-  return completedToolAfterLastAssistantText;
 }
 
 function lastUnfinishedPreparingActionTool(run: ActiveRun): string | undefined {

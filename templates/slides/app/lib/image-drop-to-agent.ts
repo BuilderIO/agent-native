@@ -20,11 +20,13 @@ export type ImageDropAgentPayload =
   | {
       kind: "hosted";
       message: string;
+      context: string;
       referenceImagePaths: string[];
     }
   | {
       kind: "inline";
       message: string;
+      context: string;
       images: string[];
     };
 
@@ -52,21 +54,18 @@ export function buildImageDropAgentPayload(args: {
     args.intent.trim().length > 0
       ? args.intent.trim()
       : "Use this image on the current slide.";
-  const lines = [intentLine];
+  const contextLines: string[] = [];
   if (args.contextHint && args.contextHint.trim().length > 0) {
-    lines.push(args.contextHint.trim());
+    contextLines.push(args.contextHint.trim());
   }
-  lines.push(`Filename: ${args.filename}`);
+  contextLines.push(`Filename: ${args.filename}`);
 
   if (args.upload.ok && args.upload.url) {
-    lines.splice(
-      lines.length - 1,
-      0,
-      `Image URL (already uploaded): ${args.upload.url}`,
-    );
+    contextLines.push(`Image URL (already uploaded): ${args.upload.url}`);
     return {
       kind: "hosted",
-      message: lines.join("\n\n"),
+      message: intentLine,
+      context: contextLines.join("\n\n"),
       referenceImagePaths: [args.upload.url],
     };
   }
@@ -81,18 +80,19 @@ export function buildImageDropAgentPayload(args: {
   if (!isMissingUploadProviderError(args.upload.status, args.upload.error)) {
     // Unexpected upload failure — still try the inline path so the user can
     // keep working, but tell the agent the hosted upload didn't land.
-    lines.push(
+    contextLines.push(
       "Hosted upload failed; the image is attached inline as a data URL. Call upload-image on it before placing it on the slide if a durable URL is required.",
     );
   } else {
-    lines.push(
+    contextLines.push(
       "No file upload provider is configured, so the image is attached inline as a data URL. Call upload-image to obtain a hosted URL before inserting it into slide HTML.",
     );
   }
 
   return {
     kind: "inline",
-    message: lines.join("\n\n"),
+    message: intentLine,
+    context: contextLines.join("\n\n"),
     images: [args.dataUrl],
   };
 }

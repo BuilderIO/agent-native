@@ -108,11 +108,19 @@ export function isSourceImprovementRequest(
     /\bmake\b[\s\S]{0,40}\b(better|modern|professional|polished|prett\w*)\b/.test(
       normalized,
     );
+  const asksToPreserveSource =
+    /(?:\b(turn|convert|transform)\b[\s\S]{0,50}\b(into|to)\b[\s\S]{0,30}\b(deck|presentation|slides?)\b|\b(create|build|make|generate)\b[\s\S]{0,80}\b(deck|presentation|slides?)\b[\s\S]{0,80}\bfrom\b)/.test(
+      normalized,
+    ) &&
+    /\b(copy|slide[- ]for[- ]slide|preserv\w*|same order|before\s*\/?\s*after|placeholder\w*|out of order)\b/.test(
+      normalized,
+    );
   // A source deck attachment is the object being improved even when the
-  // prompt uses an implicit phrase such as "make this prettier". Requiring a
-  // source noun here silently falls back to reference-only generation and can
-  // discard the uploaded deck's slide IDs and content.
-  return asksToImprove;
+  // prompt uses an implicit phrase such as "make this prettier" or asks to
+  // copy and restyle it. Requiring a source noun here silently falls back to
+  // reference-only generation and can discard the uploaded deck's slide IDs
+  // and content.
+  return asksToImprove || asksToPreserveSource;
 }
 
 function describeUploadedFilesForAgent(
@@ -365,7 +373,7 @@ export async function startDeckGeneration({
     : [
         "This is a new deck. Keep it empty until generation begins; attached reference files must not seed it with imported slides.",
         "Start a `manage-progress` run so progress appears in the app header. Add the first slide as soon as it is ready, then continue one slide at a time so the editor visibly fills in.",
-        `After reading any requested or attached reference material, but before adding the first slide, choose a concise, specific deck title from the user's request and source material. Never use the deck id, run id, file id, or another opaque alphanumeric token as the title. Call \`patch-deck\` with \`deckId: \"${deckId}\"\` and \`operations: [{ \"op\": \"patch-deck-fields\", \"fields\": { \"title\": \"<generated title>\" } }]\`. Include only \`title\` in \`fields\`; omit all other optional fields. Never leave a generated deck named \"Untitled Deck\" or another placeholder.`,
+        `After reading any requested or attached reference material, but before adding the first slide, choose a concise, specific deck title from the user's request and source material. Never use the deck id, run id, file id, uploaded filename, or another opaque alphanumeric token as the title. Do not reuse a generic placeholder like "Untitled scene" when the content or reference context gives you a better title. Call \`patch-deck\` with \`deckId: \"${deckId}\"\` and \`operations: [{ \"op\": \"patch-deck-fields\", \"fields\": { \"title\": \"<generated title>\" } }]\`. Include only \`title\` in \`fields\`; omit all other optional fields. Never leave a generated deck named \"Untitled Deck\" or another placeholder.`,
         "If the user asks for a standalone visual, diagram, hero, one-pager, poster, or a couple of visuals, create only the requested one/few polished visual slides. Do not pad the result into a full presentation.",
         "If the request is for a presentation or deck and does not explicitly ask for one slide, infer a coherent multi-slide outline from the scope and keep adding slides until that outline is complete. Do not stop after the first slide just because the prompt has few explicit instructions.",
         `Add slides ONE AT A TIME using the \`add-slide\` action with --deckId=${deckId}. Wait for each \`add-slide\` result before calling it again; do not batch or parallelize slide writes.`,

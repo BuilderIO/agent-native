@@ -475,7 +475,9 @@ export function buildExtensionHtml(
 	        type: 'agent-native-send-to-chat',
 	        message: text,
 	        context: options.context,
-	        submit: options.submit !== false,
+	        // Extension code can run polling and error handlers without a user
+	        // gesture; submitting is opt-in for an explicit user action.
+	        submit: options.submit === true,
 	        openSidebar: options.openSidebar !== false,
 	      }, '*');
 	      return { ok: true };

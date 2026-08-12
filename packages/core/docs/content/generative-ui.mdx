@@ -222,12 +222,17 @@ Generated UI can send a visible prompt or result back into the current app chat:
 `agentNative.chat.send(message, options)` is also available as
 `sendToAgentChat(message, options)`.
 
+For generated extensions, chat messages are draft-only unless `submit: true` is
+passed explicitly. Use that opt-in only from a user-triggered Apply or Submit
+action. Do not call either helper from polling, refresh, or error handlers; use
+`agentNative.ui.output` or application state for passive results.
+
 Options:
 
 | Option        | Default | Effect                                           |
 | ------------- | ------- | ------------------------------------------------ |
 | `context`     | none    | hidden context appended to the submitted message |
-| `submit`      | `true`  | `false` pre-fills/reviews instead of auto-submit |
+| `submit`      | `false` | `true` auto-submits; `false` pre-fills/reviews   |
 | `openSidebar` | `true`  | opens the agent sidebar when the message is sent |
 
 This is the same app chat bridge used by normal UI components, so generated

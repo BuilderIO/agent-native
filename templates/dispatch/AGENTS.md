@@ -68,6 +68,12 @@ Read the relevant skill before deeper work:
   permalink before diagnosing it. It resolves child links to the parent thread,
   preserves attachments and related URLs, and reports whether pagination is
   complete. Never treat an unreadable Slack thread as an empty one.
+- For usage investigations, use `list-dispatch-usage-metrics` with the smallest
+  useful scope (`me` or `workspace`), lookback, and optional `userEmail` filter.
+  Treat prompt attribution as evidence with gaps: `not-captured` and
+  `unavailable` are not zero usage or a reason to guess. Use `view-screen` on
+  `/admin/metrics` to keep the agent's analysis aligned with the visible scope
+  and selected user.
 
 ## Application State
 
@@ -76,6 +82,9 @@ Read the relevant skill before deeper work:
 - On Thread Debug, `navigation.threadDebugMode`, `sourceId`,
   `inspectSourceId`, `ownerEmail`, `failureStatus`, `range`, `query`, `runId`,
   and `threadId` expose the visible failure or thread filters and selection.
+- On Metrics, `navigation.usageScope` exposes whether the visible usage view is
+  personal or workspace-wide, and `navigation.usageUserEmail` exposes the
+  selected workspace member filter.
 - `navigate` moves the UI to setup, vault, integrations, resources, routing,
   approval, and operator surfaces.
 

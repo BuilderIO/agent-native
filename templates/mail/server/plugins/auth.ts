@@ -36,16 +36,6 @@ export default createAuthPlugin({
     runLocalCommand:
       "npx @agent-native/core@latest create my-mail-app --template mail",
   },
-  googleSignInNotice: {
-    host: "mail.agent-native.com",
-    title: "Google may show a warning",
-    body: [
-      "You'll see this screen because this demo uses Agent-Native's Google app, not a Google-reviewed public app.",
-      "It's safe to continue: click Advanced, then “Go to … (unsafe)” to finish signing in.",
-    ],
-    continueLabel: "Continue to Google",
-    cancelLabel: "Run locally",
-  },
   // Gmail Pub/Sub push notifications POST here from Google's servers — no
   // user session. The handler itself verifies the OIDC token when
   // GMAIL_PUSH_AUDIENCE is configured.

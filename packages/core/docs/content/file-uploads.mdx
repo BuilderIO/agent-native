@@ -1,6 +1,6 @@
 ---
 title: "File Uploads"
-description: "Configure file upload storage — SQL fallback for dev, Builder.io or custom providers for production."
+description: "Configure durable file upload storage — Builder.io or custom object storage for production."
 ---
 
 # File Uploads
@@ -15,9 +15,9 @@ The provider resolution order is:
 
 1. **User-registered providers** — custom providers registered via `registerFileUploadProvider()`
 2. **Builder.io provider** — built-in, activates automatically when Builder.io is connected
-3. **SQL fallback** — stores files as base64 in the database (fine for dev, not for production)
+3. **No provider** — the upload is rejected and the chat renders a storage setup CTA; binary data is never persisted in SQL
 
-<Diagram id="doc-block-hq5uvx" title="Provider resolution order" summary="uploadFile() picks the first configured provider in order. The SQL fallback always exists so uploads work with zero setup.">
+<Diagram id="doc-block-hq5uvx" title="Provider resolution order" summary="uploadFile() picks the first configured provider in order. Without one, the upload fails closed so binary data is never persisted in SQL.">
 
 ```html
 <div class="diagram-upload">
@@ -47,8 +47,8 @@ The provider resolution order is:
     <div class="diagram-step">
       <span class="diagram-pill warn">3</span>
       <div class="diagram-node">
-        SQL fallback<br /><small class="diagram-muted"
-          >base64 in DB — dev only</small
+        No provider<br /><small class="diagram-muted"
+          >setup CTA — no binary persistence</small
         >
       </div>
     </div>
@@ -94,15 +94,13 @@ Dispatches to the first configured provider in resolution order. Check the activ
 
 </Endpoint>
 
-## Default: SQL Fallback {#sql-fallback}
+## Storage required for durable uploads {#storage-required}
 
-When no provider is configured, files are stored as base64 data in the SQL database via the resources system. This works out of the box for local development but is not recommended for production — large files bloat the database and there's no CDN.
-
-A one-time warning is logged when the fallback is used.
+When no provider is configured, `uploadFile()` returns `null` and the multipart route returns `503`. Chat attachments remain available only for the current request, the agent receives a storage setup hint, and the transcript stores a setup marker instead of the binary payload. This fail-closed behavior keeps SQL small and makes the missing configuration visible.
 
 ## Builder.io Hosting {#builder-hosting}
 
-When your app is connected to Builder.io, file uploads are automatically routed to Builder's asset hosting. Builder.io's free tier includes this managed storage. Files are served from a CDN with no configuration needed. This is the recommended production setup.
+When your app is connected to Builder.io, file uploads are automatically routed to Builder's asset hosting. Builder.io's free tier includes this managed storage. Files are served from a CDN with no configuration needed, and the durable URL is stored in the chat thread so later turns can reuse it. This is the recommended production setup.
 
 ## Custom Providers {#custom-providers}
 
@@ -159,7 +157,7 @@ interface FileUploadInput {
   data: Uint8Array | Buffer; // File contents
   filename?: string; // Original filename
   mimeType?: string; // MIME type, e.g. "image/png"
-  ownerEmail?: string; // For per-user scoping in fallback
+  ownerEmail?: string; // For request-scoped provider credentials
 }
 
 interface FileUploadResult {
@@ -183,7 +181,7 @@ const result = await uploadFile({
 if (result) {
   // Provider handled it — result.url is the public URL
 } else {
-  // No provider configured — handle SQL fallback yourself, or skip
+  // No provider configured — show the storage setup CTA, or skip
 }
 ```
 

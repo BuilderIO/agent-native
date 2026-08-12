@@ -270,17 +270,51 @@ function InviteTab({
             <RoleSelect controller={controller} />
           </div>
           {controller.invite.showNotifyPeople ? (
-            <label className="inline-flex items-center gap-2 text-xs text-muted-foreground">
-              <input
-                type="checkbox"
-                checked={controller.invite.notifyPeople}
-                onChange={(event) =>
-                  controller.invite.setNotifyPeople(event.currentTarget.checked)
-                }
-                className="h-4 w-4 rounded border-input accent-primary"
-              />
-              {controller.labels.notifyPeople}
-            </label>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-muted-foreground">
+              <label className="inline-flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={controller.invite.notifyPeople}
+                  onChange={(event) =>
+                    controller.invite.setNotifyPeople(
+                      event.currentTarget.checked,
+                    )
+                  }
+                  className="h-4 w-4 rounded border-input accent-primary"
+                />
+                {controller.labels.notifyPeople}
+              </label>
+              {controller.invite.notifyPeople ? (
+                <ActionButton
+                  type="button"
+                  emphasis="ghost"
+                  aria-expanded={controller.invite.messageOpen}
+                  onPress={() =>
+                    controller.invite.setMessageOpen(
+                      !controller.invite.messageOpen,
+                    )
+                  }
+                  className="!h-auto !rounded-sm !px-1 !py-0.5 text-xs font-medium !text-foreground underline decoration-border underline-offset-2 hover:!bg-accent hover:!text-accent-foreground active:!scale-100"
+                >
+                  {controller.invite.messageOpen
+                    ? controller.labels.hideMessage
+                    : controller.labels.addMessage}
+                </ActionButton>
+              ) : null}
+            </div>
+          ) : null}
+          {controller.invite.showNotifyPeople &&
+          controller.invite.notifyPeople &&
+          controller.invite.messageOpen ? (
+            <TextArea
+              aria-label={controller.labels.addMessage}
+              placeholder={controller.labels.messagePlaceholder}
+              value={controller.invite.message}
+              onChange={(value) => controller.invite.setMessage(value)}
+              maxLength={500}
+              rows={3}
+              className="min-h-20 resize-y text-sm"
+            />
           ) : null}
         </div>
       ) : null}

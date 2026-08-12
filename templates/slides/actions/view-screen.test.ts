@@ -144,10 +144,34 @@ describe("view-screen", () => {
 
     const result = await action.run({});
 
+    expect(result).toContain("selectionSlideId: slide-a");
     expect(result).toContain("mode: box-selected");
     expect(result).toContain('selector=[data-slide-object-id="object-1"]');
     expect(result).toContain("objectId: object-1");
     expect(result).toContain('runtimeSelector: [data-builder-id="b-7"]');
+  });
+
+  it("does not surface a selection from a different slide", async () => {
+    mockRows = [
+      {
+        id: "deck-1",
+        title: "Quarterly Review",
+        data: JSON.stringify({
+          title: "Quarterly Review",
+          slides: [{ id: "slide-a", layout: "blank", content: "<p>A</p>" }],
+        }),
+      },
+    ];
+    navigationState = { view: "editor", deckId: "deck-1", slideIndex: 0 };
+    slidesSelectionState = {
+      slideId: "slide-b",
+      mode: "single",
+      items: [{ selector: '[data-builder-id="b-8"]' }],
+    };
+
+    const result = await action.run({});
+
+    expect(result).not.toContain("### Current visual selection");
   });
 
   it("filters the list to decks created by the current user without reading deck bodies", async () => {

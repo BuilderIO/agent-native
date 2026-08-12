@@ -1,5 +1,7 @@
 import {
   DESKTOP_DEFAULT_APPS,
+  getDesktopVisibleApps,
+  isDesktopAppVisible,
   type AppDefinition,
   type AppConfig,
   type FrameSettings,
@@ -193,9 +195,11 @@ export default function App() {
       });
   }, []);
 
-  const enabledApps = apps.filter((a) => a.enabled);
-  const enabledAppIdsKey = enabledApps.map((a) => a.id).join(",");
-  const appDefs = enabledApps.map(toAppDefinition);
+  const visibleEnabledApps = getDesktopVisibleApps(
+    apps.filter((app) => app.enabled),
+  );
+  const enabledAppIdsKey = visibleEnabledApps.map((a) => a.id).join(",");
+  const appDefs = visibleEnabledApps.map(toAppDefinition);
 
   const [activeSidebarAppId, setActiveSidebarAppId] = useState("");
   const [activeChatFirstAppId, setActiveChatFirstAppId] = useState("");
@@ -206,12 +210,12 @@ export default function App() {
 
   // Initialize tabs when apps load
   useEffect(() => {
-    if (enabledApps.length === 0) return;
-    const enabledIds = new Set(enabledApps.map((app) => app.id));
+    if (visibleEnabledApps.length === 0) return;
+    const enabledIds = new Set(visibleEnabledApps.map((app) => app.id));
     setAppTabs((prev) => {
       // Only init tabs for apps that don't have tabs yet
       const next = { ...prev };
-      for (const app of enabledApps) {
+      for (const app of visibleEnabledApps) {
         if (!next[app.id]) {
           const tab = createTab(app);
           next[app.id] = { tabs: [tab], activeTabId: tab.id };
@@ -230,10 +234,10 @@ export default function App() {
     });
     setActiveSidebarAppId((prev) => {
       if (prev === CODE_AGENTS_SURFACE_ID && showCodeAgentsTab) return prev;
-      if (prev && enabledApps.find((a) => a.id === prev)) return prev;
+      if (prev && visibleEnabledApps.find((a) => a.id === prev)) return prev;
       if (showCodeAgentsTab && chatFirstMode) return CODE_AGENTS_SURFACE_ID;
       // Pick from `appDefs` (AppDefinition) so the placeholder check works —
-      // `enabledApps` is AppConfig[] and has no `placeholder` field, so the
+      // `visibleEnabledApps` is AppConfig[] and has no `placeholder` field, so the
       // old `"placeholder" in a` check was a no-op.
       const def = appDefs.find((a) => !a.placeholder) ?? appDefs[0];
       return def?.id ?? "";
@@ -281,7 +285,9 @@ export default function App() {
     (appId: string, options: { ensureTab?: boolean } = {}) => {
       if (!appId) return;
       const { ensureTab = true } = options;
-      const app = enabledApps.find((candidate) => candidate.id === appId);
+      const app = visibleEnabledApps.find(
+        (candidate) => candidate.id === appId,
+      );
       if (ensureTab && appId !== CODE_AGENTS_SURFACE_ID && app) {
         setAppTabs((prev) => {
           const appState = prev[appId];
@@ -296,7 +302,7 @@ export default function App() {
       setMountedAppIds((prev) => markAppMounted(prev, appId));
       setActiveSidebarAppId(appId);
     },
-    [enabledApps],
+    [visibleEnabledApps],
   );
 
   const handleAddApp = useCallback(
@@ -358,6 +364,49 @@ export default function App() {
     [],
   );
 
+  const handleAppRemoval = useCallback(
+    async (appId: string) => {
+      const api = window.electronAPI?.appConfig;
+      const app = apps.find((candidate) => candidate.id === appId);
+      if (!api || !app) return;
+
+      const updated = app.isBuiltIn
+        ? await api.update(appId, { enabled: false })
+        : await api.remove(appId);
+      setApps(updated);
+      setAppTabs((current) => {
+        if (!(appId in current)) return current;
+        const next = { ...current };
+        delete next[appId];
+        return next;
+      });
+      setMountedAppIds((current) => {
+        if (!current.has(appId)) return current;
+        const next = new Set(current);
+        next.delete(appId);
+        return next;
+      });
+      setActiveChatFirstAppId((current) => (current === appId ? "" : current));
+      setChatFirstPreviewRequest((current) =>
+        current?.appId === appId ? undefined : current,
+      );
+      setChatFirstPreviewStatus((current) =>
+        current?.appId === appId ? undefined : current,
+      );
+      setActiveSidebarAppId((current) => {
+        if (current !== appId) return current;
+        if (showCodeAgentsTab && chatFirstMode) {
+          return CODE_AGENTS_SURFACE_ID;
+        }
+        return (
+          updated.find((candidate) => candidate.enabled)?.id ??
+          CODE_AGENTS_SURFACE_ID
+        );
+      });
+    },
+    [apps, chatFirstMode, showCodeAgentsTab],
+  );
+
   const handleSidebarAppContextMenu = useCallback(
     async (appId: string) => {
       const api = window.electronAPI?.appConfig;
@@ -376,14 +425,9 @@ export default function App() {
         setApps(updated);
         return;
       }
-      const app = apps.find((candidate) => candidate.id === appId);
-      if (!app) return;
-      const updated = app.isBuiltIn
-        ? await api.update(appId, { enabled: false })
-        : await api.remove(appId);
-      setApps(updated);
+      await handleAppRemoval(appId);
     },
-    [apps],
+    [apps, handleAppRemoval],
   );
 
   const handleSidebarAppSave = useCallback(async (app: AppConfig) => {
@@ -437,8 +481,12 @@ export default function App() {
 
       const appId = request.app?.trim();
       if (!appId) return true;
-      const targetApp = enabledApps.find((app) => app.id === appId);
-      if (!targetApp) return !loading;
+      const targetApp = visibleEnabledApps.find((app) => app.id === appId);
+      if (!targetApp) {
+        const configuredApp = apps.find((app) => app.id === appId);
+        if (configuredApp && !isDesktopAppVisible(configuredApp)) return false;
+        return !loading;
+      }
 
       const urlPath = safeDesktopOpenPath(request.path);
       if (
@@ -492,7 +540,14 @@ export default function App() {
       });
       return true;
     },
-    [activateApp, chatFirstMode, enabledApps, loading, showCodeAgentsTab],
+    [
+      activateApp,
+      apps,
+      chatFirstMode,
+      loading,
+      showCodeAgentsTab,
+      visibleEnabledApps,
+    ],
   );
 
   useEffect(() => {
@@ -588,7 +643,9 @@ export default function App() {
         const next = prevAppState.tabs.filter((t) => t.id !== tabId);
 
         if (next.length === 0) {
-          const app = enabledApps.find((a) => a.id === activeSidebarAppId);
+          const app = visibleEnabledApps.find(
+            (a) => a.id === activeSidebarAppId,
+          );
           if (app) {
             const replacementTab = createTab(app);
             return {
@@ -618,7 +675,7 @@ export default function App() {
         };
       });
     },
-    [activeSidebarAppId, appTabs, enabledApps],
+    [activeSidebarAppId, appTabs, visibleEnabledApps],
   );
 
   const handleTabTitleChange = useCallback(
@@ -630,7 +687,9 @@ export default function App() {
         const tab = appState.tabs.find((t) => t.id === tabId);
         if (!tab) return prev;
 
-        const app = enabledApps.find((candidate) => candidate.id === appId);
+        const app = visibleEnabledApps.find(
+          (candidate) => candidate.id === appId,
+        );
         const nextTitle = getTabDisplayTitle(title, app?.name ?? tab.title);
         if (tab.title === nextTitle) return prev;
 
@@ -645,13 +704,13 @@ export default function App() {
         };
       });
     },
-    [enabledApps],
+    [visibleEnabledApps],
   );
 
   const handleReopenTab = useCallback(() => {
     const entry = closedTabsRef.current.pop();
     if (!entry) return;
-    if (!enabledApps.some((app) => app.id === entry.appId)) return;
+    if (!visibleEnabledApps.some((app) => app.id === entry.appId)) return;
 
     activateApp(entry.appId, { ensureTab: false });
     setAppTabs((prev) => {
@@ -665,10 +724,10 @@ export default function App() {
         },
       };
     });
-  }, [activateApp, enabledApps]);
+  }, [activateApp, visibleEnabledApps]);
 
   const handleNewTab = useCallback(() => {
-    const app = enabledApps.find((a) => a.id === activeSidebarAppId);
+    const app = visibleEnabledApps.find((a) => a.id === activeSidebarAppId);
     if (!app) return;
     const tab = createTab(app);
     activateApp(activeSidebarAppId, { ensureTab: false });
@@ -686,7 +745,7 @@ export default function App() {
         },
       };
     });
-  }, [activateApp, activeSidebarAppId, enabledApps]);
+  }, [activateApp, activeSidebarAppId, visibleEnabledApps]);
 
   const handleCopyCurrentUrl = useCallback(async () => {
     const currentUrl = webviewRefs.current
@@ -965,7 +1024,7 @@ export default function App() {
     appDef: AppDefinition;
     isActive: boolean;
   }[] = [];
-  for (const app of enabledApps) {
+  for (const app of visibleEnabledApps) {
     if (app.id !== activeSidebarAppId && !mountedAppIds.has(app.id)) {
       continue;
     }
@@ -1058,7 +1117,8 @@ export default function App() {
           tabs={currentAppTabs?.tabs ?? []}
           activeTabId={currentAppTabs?.activeTabId ?? ""}
           appName={
-            enabledApps.find((app) => app.id === activeSidebarAppId)?.name ?? ""
+            visibleEnabledApps.find((app) => app.id === activeSidebarAppId)
+              ?.name ?? ""
           }
           onTabSelect={handleTabSelect}
           onTabClose={handleTabClose}
@@ -1121,6 +1181,9 @@ export default function App() {
                 onOpenSettings={() => setShowSettings(true)}
                 onCreateApp={() => setShowAddApp(true)}
                 onChatFirstAppCreated={handleChatFirstAppCreated}
+                onChatFirstAppRemove={(app) => {
+                  void handleAppRemoval(app.id);
+                }}
                 onChatFirstAppSelectionChange={
                   handleChatFirstAppSelectionChange
                 }

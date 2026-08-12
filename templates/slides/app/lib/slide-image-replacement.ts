@@ -4,6 +4,14 @@ interface ReplaceOptions {
   alt?: string;
 }
 
+export interface SlideImageDropPosition {
+  x: number;
+  y: number;
+}
+
+const DROPPED_IMAGE_WIDTH = 320;
+const DROPPED_IMAGE_HEIGHT = 180;
+
 interface PlaceholderTarget {
   index: number | null;
   label: string;
@@ -51,6 +59,13 @@ function serializeFragment(doc: Document): string {
 
 function cleanAlt(value: string | undefined): string {
   return (value || "Uploaded image").replace(/\s+/g, " ").trim();
+}
+
+function createSlideObjectId(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+  return `slide-object-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
 function hasStyleProperty(style: string, property: string): boolean {
@@ -185,6 +200,52 @@ export function insertImageIntoSlideHtml(
     );
   }
   root.insertBefore(img, root.firstChild);
+  return serializeFragment(doc);
+}
+
+/** Insert a desktop drop as a durable, independently movable canvas object. */
+export function insertDroppedImageIntoSlideHtml(
+  content: string,
+  newSrc: string,
+  options: ReplaceOptions & { position?: SlideImageDropPosition } = {},
+): string {
+  const doc = parseFragment(content);
+  const img = doc.createElement("img");
+  const position = options.position ?? {
+    x: 640,
+    y: 360,
+  };
+  const left = Math.max(0, Math.round(position.x - DROPPED_IMAGE_WIDTH / 2));
+  const top = Math.max(0, Math.round(position.y - DROPPED_IMAGE_HEIGHT / 2));
+
+  img.setAttribute("src", newSrc);
+  img.setAttribute("alt", cleanAlt(options.alt));
+  img.setAttribute("data-slide-object-id", createSlideObjectId());
+  img.className = "fmd-img-uploaded";
+  img.setAttribute(
+    "style",
+    `position: absolute; left: ${left}px; top: ${top}px; width: ${DROPPED_IMAGE_WIDTH}px; height: ${DROPPED_IMAGE_HEIGHT}px; max-width: none; max-height: none; margin: 0; border-radius: 8px; object-fit: contain; box-sizing: border-box; z-index: 1;`,
+  );
+
+  const slideRoot = doc.body.querySelector<HTMLElement>(".fmd-slide");
+  if (slideRoot) {
+    if (!hasStyleProperty(slideRoot.getAttribute("style") ?? "", "position")) {
+      slideRoot.setAttribute(
+        "style",
+        `${(slideRoot.getAttribute("style") ?? "").trim().replace(/;+\s*$/, "")}; position: relative;`.replace(
+          /^;\s*/,
+          "",
+        ),
+      );
+    }
+    slideRoot.appendChild(img);
+  } else {
+    // Markdown-backed slides keep their source text. Appending a raw image tag
+    // lets ReactMarkdown preserve the text while the slide canvas supplies the
+    // positioned containing block at render time.
+    doc.body.append(doc.createTextNode("\n\n"), img);
+  }
+
   return serializeFragment(doc);
 }
 

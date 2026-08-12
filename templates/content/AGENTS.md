@@ -59,6 +59,8 @@ Read the relevant skill before deeper work:
 - `creative-context` — `contextMode`, `selectedContextId`, `currentPackId`,
   `pinnedPackId`. Follow the `creative-context` reuse ladder before generating,
   and respect `contextMode: "off"` without silently restoring a pack.
+- `content-last-location-v1` — the last successfully loaded Page. The UI and
+  landing resolver own this state; do not write it from agent workflows.
 - Use actions for full document content and comment context.
 
 ## Actions
@@ -73,6 +75,7 @@ Read the relevant skill before deeper work:
 | `get-document` | One document with full content |
 | `pull-document` | Flush live collab state, then read (external edits) |
 | `create-document` | Create a page, optionally under a parent |
+| `resolve-content-landing` | Restore the caller's last authorized page or ensure their private Personal welcome page |
 | `edit-document` | Find/replace edit — preferred for small changes |
 | `update-document` | Full rewrite of title, content, or description |
 | `delete-document` | Move a page and its children to Trash |

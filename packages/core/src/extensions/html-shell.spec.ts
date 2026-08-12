@@ -101,6 +101,8 @@ describe("buildExtensionHtml", () => {
 
     expect(html).toContain("function sendToChat(message, options)");
     expect(html).toContain("type: 'agent-native-send-to-chat'");
+    expect(html).toContain("submit: options.submit === true");
+    expect(html).not.toContain("submit: options.submit !== false");
     expect(html).toContain("sendToChat: sendToChat");
     expect(html).toContain("send: sendToChat");
     expect(html).toContain("window.sendToAgentChat = sendToChat");
@@ -214,6 +216,22 @@ describe("extension iframe sandbox attribute (CI guard)", () => {
       for (const sandbox of sandboxMatches) {
         expect(sandbox).not.toContain("allow-same-origin");
       }
+    });
+  }
+});
+
+describe("extension chat submission policy (CI guard)", () => {
+  const HOST_SUBMISSION_GUARDS = [
+    ["ExtensionViewer.tsx", "submit: message.submit === true"],
+    ["EmbeddedExtension.tsx", "submit: (message as any).submit === true"],
+    ["InlineExtensionFrame.tsx", "submit: (message as any).submit === true"],
+  ] as const;
+
+  for (const [file, guard] of HOST_SUBMISSION_GUARDS) {
+    it(`${file} requires explicit submission opt-in`, () => {
+      const text = readFileSync(join(CLIENT_DIR, file), "utf8");
+      expect(text).toContain(guard);
+      expect(text).not.toContain(guard.replace("=== true", "!== false"));
     });
   }
 });

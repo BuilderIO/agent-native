@@ -1,5 +1,17 @@
 # @agent-native/toolkit
 
+## 0.14.0
+
+### Minor Changes
+
+- aa17e22: Support bounded XLS/XLSX workbook previews as source context for `/make-into-app` and allow Excel workbooks in the shared composer attachment flow.
+
+## 0.13.10
+
+### Patch Changes
+
+- 7c5888c: Make chat history rail overflow actions replace timestamps without layout shifts.
+
 ## 0.13.9
 
 ### Patch Changes

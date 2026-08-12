@@ -33,6 +33,10 @@ const messages = {
     agent: "代理",
     settings: "設定",
   },
+  landing: {
+    previousPageUnavailable: "您先前的頁面已無法使用，因此我們開啟了歡迎頁面。",
+    saveFailed: "無法儲存您的位置",
+  },
   team: {
     metaTitle: "工作區存取 - Content",
     pageTitle: "工作區存取",

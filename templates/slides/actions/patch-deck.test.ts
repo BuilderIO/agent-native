@@ -6,7 +6,9 @@ import {
   assertPatchedSlideAnimationsResolve,
   assertSourceImportOperationsPreserved,
   assertSourceImportSlidesCovered,
+  clearOmittedAnimationsForAgentContentPatches,
   isAgentPatchCaller,
+  OperationSchema,
   resolveDeckColumnUpdates,
   withDeckLock,
   type Operation,
@@ -507,6 +509,103 @@ describe("animation target validation", () => {
       ),
     ).not.toThrow();
   });
+
+  it("clears omitted animations when an agent revises slide content", () => {
+    const deck = {
+      slides: [{ id: "s1", content, animations: [animation()] }],
+    };
+    const operations: Operation[] = [
+      {
+        op: "patch-slide",
+        slideId: "s1",
+        fields: { content: '<div class="fmd-slide"><div>New</div></div>' },
+      },
+    ];
+
+    for (const operation of operations) applyOperation(deck, operation);
+    clearOmittedAnimationsForAgentContentPatches(deck, operations);
+
+    expect(deck.slides[0].animations).toBeUndefined();
+  });
+
+  it("preserves imported animations for source-preserving content patches", () => {
+    const sourceImport = buildSourceImportMetadata({
+      format: "pptx",
+      slides: [
+        {
+          id: "s1",
+          text: "Imported slide text",
+          notes: "",
+          imageUrls: [],
+          editableText: true,
+        },
+      ],
+    });
+    const animations = [animation()];
+    const deck = {
+      sourceImport,
+      slides: [{ id: "s1", content, animations }],
+    };
+    const operations: Operation[] = [
+      {
+        op: "patch-slide",
+        slideId: "s1",
+        fields: { content },
+      },
+    ];
+
+    for (const operation of operations) applyOperation(deck, operation);
+    clearOmittedAnimationsForAgentContentPatches(deck, operations, {
+      sourceImport,
+    });
+
+    expect(deck.slides[0].animations).toEqual(animations);
+  });
+
+  it("does not clear a separate explicit animation patch", () => {
+    const animations = [animation()];
+    const deck = {
+      slides: [{ id: "s1", content, animations }],
+    };
+    const operations: Operation[] = [
+      {
+        op: "patch-slide",
+        slideId: "s1",
+        fields: { content: '<div class="fmd-slide"><div>New</div></div>' },
+      },
+      {
+        op: "patch-slide",
+        slideId: "s1",
+        fields: { animations },
+      },
+    ];
+
+    for (const operation of operations) applyOperation(deck, operation);
+    clearOmittedAnimationsForAgentContentPatches(deck, operations);
+
+    expect(deck.slides[0].animations).toEqual(animations);
+  });
+
+  it("keeps an explicit complete animation list with revised content", () => {
+    const nextContent =
+      '<div class="fmd-slide"><div><h2>New title</h2></div></div>';
+    const nextAnimations = [animation({ elementPath: [0, 0] })];
+    const deck = {
+      slides: [{ id: "s1", content, animations: [animation()] }],
+    };
+    const operations: Operation[] = [
+      {
+        op: "patch-slide",
+        slideId: "s1",
+        fields: { content: nextContent, animations: nextAnimations },
+      },
+    ];
+
+    for (const operation of operations) applyOperation(deck, operation);
+    clearOmittedAnimationsForAgentContentPatches(deck, operations);
+
+    expect(deck.slides[0].animations).toEqual(nextAnimations);
+  });
 });
 
 describe("isAgentPatchCaller", () => {
@@ -552,6 +651,52 @@ describe("patch-deck agent schema", () => {
     expect(parameters.properties.requireAllSourceSlides).toMatchObject({
       type: "boolean",
     });
+  });
+
+  // An untyped `animations` array sends callers probing a live deck to learn
+  // the shape, and hides that the field is a whole-list replacement.
+  it("spells out the animation entry shape and its replace semantics", () => {
+    const parameters = patchDeckAction.tool.parameters as any;
+    const slidePatch = parameters.properties.operations.items.anyOf.find(
+      (operation: any) => operation.properties?.op?.const === "patch-slide",
+    );
+    const animations = slidePatch.properties.fields.properties.animations;
+
+    expect(animations.description).toMatch(/complete ordered/i);
+    expect(animations.items.properties.type.enum).toEqual([
+      "appear",
+      "fade",
+      "slide-up",
+      "zoom",
+    ]);
+    expect(animations.items.properties).toHaveProperty("id");
+    expect(animations.items.properties).toHaveProperty("elementIndex");
+    expect(animations.items.properties).toHaveProperty("elementPath");
+  });
+
+  // Pins the compatibility boundary rather than endorsing it. The editor
+  // re-sends a slide's whole stored array on every animation edit, and
+  // `normalizeSlideAnimation` in shared/api.ts still reads entries that this
+  // schema rejects, so a deck holding one can no longer be saved from the
+  // panel. If that gap is ever closed, this expectation is what changes.
+  it("rejects stored entries that predate the required id/elementIndex/type", () => {
+    const pathOnlyEntry = OperationSchema.safeParse({
+      op: "patch-slide",
+      slideId: "s1",
+      fields: { animations: [{ elementPath: [0, 2], type: "fade" }] },
+    });
+    const fullyFormedEntry = OperationSchema.safeParse({
+      op: "patch-slide",
+      slideId: "s1",
+      fields: {
+        animations: [
+          { id: "a1", elementIndex: 2, elementPath: [0, 2], type: "fade" },
+        ],
+      },
+    });
+
+    expect(pathOnlyEntry.success).toBe(false);
+    expect(fullyFormedEntry.success).toBe(true);
   });
 });
 

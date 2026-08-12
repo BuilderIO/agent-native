@@ -11,6 +11,14 @@ const GENERATED_TITLE_PLACEHOLDERS = new Set([
   "your name",
 ]);
 
+const IMPORTED_TITLE_PLACEHOLDERS = new Set([
+  "untitled deck",
+  "untitled file",
+  "untitled presentation",
+  "untitled scene",
+  "untitled slide",
+]);
+
 /**
  * Generated deck ids should never become user-facing titles. Keep this
  * deliberately narrow so normal titles with spaces and punctuation remain
@@ -63,6 +71,15 @@ function plainText(value: string): string {
     .trim();
 }
 
+function plainTextLines(value: string): string[] {
+  return decodeHtmlEntities(
+    value.replace(/<br\s*\/?>/gi, "\n").replace(/<[^>]+>/gi, "\n"),
+  )
+    .split(/\r?\n/)
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+}
+
 function usableCandidate(value: string): string | null {
   const candidate = plainText(value).replace(/^[•●▪‣\-\s]+/, "");
   if (!candidate || candidate.length > 140) return null;
@@ -101,6 +118,17 @@ export function deriveDeckTitleFromSlideContent(
     if (text) candidates.push({ score: fontSize, text });
   }
 
+  const fallbackLines = plainTextLines(content);
+  if (fallbackLines.length > 1) {
+    for (const line of fallbackLines) {
+      const text = usableCandidate(line);
+      if (text) {
+        candidates.push({ score: 1, text });
+        break;
+      }
+    }
+  }
+
   return candidates.sort((a, b) => b.score - a.score)[0]?.text ?? null;
 }
 
@@ -124,6 +152,34 @@ export function repairGeneratedDeckTitle(
       ? existingTitle
       : null)
   );
+}
+
+/**
+ * Imported files often fall back to filenames when they do not have a
+ * meaningful title in their own metadata. Prefer the first slide's content
+ * when it can produce a real deck title; otherwise keep a human-readable
+ * fallback instead of a source filename placeholder.
+ */
+export function resolveImportedDeckTitle(
+  requestedTitle: unknown,
+  firstSlideContent: unknown,
+): string {
+  if (typeof requestedTitle === "string") {
+    const title = requestedTitle.trim();
+    const opaqueTitle = isOpaqueDeckTitle(requestedTitle);
+    if (
+      title &&
+      !opaqueTitle &&
+      !IMPORTED_TITLE_PLACEHOLDERS.has(title.toLowerCase())
+    ) {
+      return title;
+    }
+  }
+
+  const derivedTitle = deriveDeckTitleFromSlideContent(firstSlideContent);
+  if (derivedTitle) return derivedTitle;
+
+  return "Imported File";
 }
 
 export function assertHumanReadableDeckTitle(title: string): void {

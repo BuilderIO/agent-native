@@ -26,6 +26,7 @@ import { useLocation, useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
 import DeckCard from "@/components/deck/DeckCard";
+import { DeckEditorSkeleton } from "@/components/editor/DeckEditorSkeleton";
 import {
   NewDeckReferenceStep,
   type ImportedReference,
@@ -271,6 +272,7 @@ export default function Index() {
   } | null>(null);
   const [showNewDeckReferenceStep, setShowNewDeckReferenceStep] =
     useState(false);
+  const [isStartingNewDeck, setIsStartingNewDeck] = useState(false);
   const [recentReferences, setRecentReferences] = useState<RecentReference[]>(
     [],
   );
@@ -544,11 +546,15 @@ export default function Index() {
       : undefined;
     let deck: ReturnType<typeof createDeck> | undefined;
     flushSync(() => {
+      setIsStartingNewDeck(true);
       deck = createDeck(undefined, {
         designSystemId: selectedDesignSystem?.id ?? null,
       });
     });
-    if (!deck) return;
+    if (!deck) {
+      setIsStartingNewDeck(false);
+      return;
+    }
     navigate(`/deck/${deck.id}`);
   };
 
@@ -588,12 +594,20 @@ export default function Index() {
       : undefined;
     let deck: ReturnType<typeof createDeck> | undefined;
     flushSync(() => {
+      // Commit the destination-shaped shell before navigating. React Router
+      // keeps the current outlet mounted while a cold route chunk loads, and
+      // showing the deck grid during that handoff makes the route indicator
+      // look like a second app.
+      setIsStartingNewDeck(true);
       deck = createDeck(undefined, {
         noDefaultSlides: true,
         designSystemId: selectedDesignSystem?.id ?? null,
       });
     });
-    if (!deck) return;
+    if (!deck) {
+      setIsStartingNewDeck(false);
+      return;
+    }
     const deckId = deck.id;
     setNewDeckPromptOpen(false);
 
@@ -735,7 +749,7 @@ export default function Index() {
           "Start a `manage-progress` run so progress appears in the app header. Add the first slide as soon as it is ready, then continue one slide at a time so the editor visibly fills in.",
           "After reading any requested or attached reference material, but before adding the first slide, choose a concise, specific deck title from the user's request and source material. Never use the deck id, run id, file id, or another opaque alphanumeric token as the title. Call `patch-deck` with `deckId: \"" +
             deckId +
-            '\"` and `operations: [{ "op": "patch-deck-fields", "fields": { "title": "<generated title>" } }]`. Include only `title` in `fields`; omit all other optional fields. Never leave a generated deck named "Untitled Deck" or another placeholder.',
+            '\"` and `operations: [{ "op": "patch-deck-fields", "fields": { "title": "<generated title>" } }]`. Include only `title` in `fields`; omit all other optional fields. Never leave a generated deck named "Untitled Deck" or another placeholder, and do not reuse the uploaded filename or a generic label like "Untitled scene" when the content can describe the deck better.',
           "If the user asks for a standalone visual, diagram, hero, one-pager, poster, or a couple of visuals, create only the requested one/few polished visual slides. Do not pad the result into a full presentation.",
           "If the request is for a presentation or deck and does not explicitly ask for one slide, infer a coherent multi-slide outline from the scope and keep adding slides until that outline is complete. Do not stop after the first slide just because the prompt has few explicit instructions.",
           "Add slides ONE AT A TIME using the `add-slide` action with --deckId=" +
@@ -1289,6 +1303,17 @@ export default function Index() {
       [openNewDeck, t],
     ),
   );
+
+  if (isStartingNewDeck) {
+    return (
+      <div
+        className="fixed inset-0 z-[300] min-h-screen bg-background"
+        data-testid="new-deck-loading"
+      >
+        <DeckEditorSkeleton label={t("deckEditor.lookingForDeck")} />
+      </div>
+    );
+  }
 
   return (
     <main className="min-w-0 flex-1 overflow-y-auto px-4 pb-6 pt-0 sm:px-6 sm:pb-10">

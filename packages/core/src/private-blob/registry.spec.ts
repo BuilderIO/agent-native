@@ -118,6 +118,64 @@ describe("private blob registry", () => {
     });
   });
 
+  it("retries transient public-upload reads after upload propagation delays", async () => {
+    const registry = await freshRegistry();
+    let uploadedInput: FileUploadInput | null = null;
+    uploadFileMock.mockImplementation(async (input: FileUploadInput) => {
+      uploadedInput = input;
+      return {
+        url: "https://cdn.example.test/private/replay.bin",
+        provider: "builder",
+        id: "asset-1",
+      };
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(null, { status: 404 }))
+      .mockResolvedValueOnce(new Response(null, { status: 503 }))
+      .mockImplementationOnce(
+        async () => new Response(uploadedInput?.data ?? new Uint8Array()),
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 404 }))
+      .mockResolvedValueOnce(new Response(null, { status: 503 }))
+      .mockImplementationOnce(
+        async () => new Response(uploadedInput?.data ?? new Uint8Array()),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    vi.useFakeTimers();
+
+    const putPromise = registry.putPrivateBlob({
+      data: new TextEncoder().encode("hello"),
+    });
+    await vi.advanceTimersByTimeAsync(1_000);
+    const handle = await putPromise;
+    const readPromise = registry.readPrivateBlob(handle!);
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    await expect(readPromise).resolves.toMatchObject({ handle });
+    expect(fetchMock).toHaveBeenCalledTimes(6);
+  });
+
+  it("does not return a reference for non-transient public-upload failures", async () => {
+    const registry = await freshRegistry();
+    uploadFileMock.mockResolvedValue({
+      url: "https://cdn.example.test/private/replay.bin",
+      provider: "builder",
+      id: "asset-1",
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response(null, { status: 403 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      registry.putPrivateBlob({
+        data: new TextEncoder().encode("hello"),
+      }),
+    ).rejects.toThrow("Private blob public-upload read failed (403)");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("can disable the encrypted public-upload fallback for local SQL storage", async () => {
     const registry = await freshRegistry();
     registry.setPrivateBlobPublicUploadFallbackEnabled(false);

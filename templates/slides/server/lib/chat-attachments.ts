@@ -158,11 +158,15 @@ function stripForwardedAttachmentData(
 ): AgentChatAttachment {
   const next = { ...attachment };
   // Keep visual data for the current model turn so uploaded screenshots remain
-  // available for vision analysis; non-visual files only need their path/URL.
+  // available for vision analysis. Keep non-visual bytes until core's shared
+  // pre-upload boundary has created the durable public object-storage URL;
+  // `slidesUploadPath` is a private import handle, not a chat attachment URL.
   const inlineImage = isVisualAttachment(attachment)
     ? decodeDataUrl(attachment.data)
     : null;
-  if (!inlineImage || inlineImage.bytes.length > MAX_INLINE_IMAGE_BYTES) {
+  if (!inlineImage && (saved.url || !attachment.data)) {
+    delete next.data;
+  } else if (inlineImage && inlineImage.bytes.length > MAX_INLINE_IMAGE_BYTES) {
     delete next.data;
   }
   (next as any).slidesUploadPath = saved.path;

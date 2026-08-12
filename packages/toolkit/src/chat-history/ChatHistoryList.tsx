@@ -358,6 +358,8 @@ const ChatHistoryRow = React.memo(function ChatHistoryRow({
         "an-chat-history-row",
         active && "an-chat-history-row--active",
         item.pinned && "an-chat-history-row--pinned",
+        hasMenu && "an-chat-history-row--has-menu",
+        menuOpen && "an-chat-history-row--menu-open",
         isRenaming && "an-chat-history-row--renaming",
         item.disabled && "an-chat-history-row--disabled",
       )}

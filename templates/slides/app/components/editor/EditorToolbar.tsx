@@ -590,12 +590,12 @@ export default function EditorToolbar({
         value={deckTitle}
         onChange={(e) => onTitleChange(e.target.value)}
         style={{ width: `${titleInputWidth}px` }}
-        className="min-w-0 max-w-[500px] flex-shrink bg-transparent text-sm font-medium text-foreground/90 outline-none focus:text-foreground"
+        className="min-w-0 max-w-[500px] shrink-0 bg-transparent text-sm font-medium text-foreground/90 outline-none focus:text-foreground"
         spellCheck={false}
       />
 
       {/* Spacer */}
-      <div className="flex-1 min-w-2" />
+      <div className="w-2 shrink-0" />
 
       <div
         ref={onWideContextToolbarSlotChange}
@@ -770,6 +770,13 @@ export default function EditorToolbar({
             )}
 
             <DropdownMenuSeparator />
+            <DropdownMenuGroup>
+              <DropdownMenuItem onSelect={onShowHistory}>
+                <IconHistory className="size-4" />
+                {t("editorToolbar.savedVersions")}
+              </DropdownMenuItem>
+            </DropdownMenuGroup>
+            <DropdownMenuSeparator />
             <ExportMenu
               ref={exportMenuRef}
               inline
@@ -794,10 +801,6 @@ export default function EditorToolbar({
                 ? t("editorToolbar.importing")
                 : t("editorToolbar.importFile")}
             </DropdownMenuItem>
-            <DropdownMenuItem onSelect={onShowHistory}>
-              <IconHistory className="size-4" />
-              {t("editorToolbar.savedVersions")}
-            </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
               onSelect={() => setTheme(isDark ? "light" : "dark")}
@@ -821,6 +824,12 @@ export default function EditorToolbar({
           resourceType="deck"
           resourceId={deckId}
           resourceTitle={deckTitle}
+          roleCopy={{
+            viewer: {
+              label: t("editorToolbar.commenterRoleLabel"),
+              description: t("editorToolbar.commenterRoleDescription"),
+            },
+          }}
           shareUrl={primaryShareLink.url}
           shareUrlLabel={primaryShareLink.label}
           shareUrlDescription={primaryShareLink.description}
