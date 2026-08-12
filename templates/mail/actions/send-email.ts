@@ -145,7 +145,10 @@ export default defineAction({
   run: async (args, ctx) => {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");
-    if (ctx?.caller === "automation" && (await requiresEmailSendApproval(ctx))) {
+    if (
+      ctx?.caller === "automation" &&
+      (await requiresEmailSendApproval(ctx))
+    ) {
       throw new Error(
         "Automation email sending is disabled. Enable it in Mail settings to send automatically.",
       );
