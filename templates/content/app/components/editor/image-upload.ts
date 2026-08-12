@@ -21,6 +21,82 @@ function isAudioFile(file: File): boolean {
 
 type MediaUploadKind = "image" | "video" | "audio";
 
+const IMAGE_LOAD_TIMEOUT_MS = 15_000;
+
+export class ImageRenderError extends Error {
+  constructor() {
+    super("Image could not be loaded.");
+    this.name = "ImageRenderError";
+  }
+}
+
+export function waitForImageLoad(
+  src: string,
+  createImage: () => HTMLImageElement = () => new Image(),
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const image = createImage();
+    const timeout = window.setTimeout(() => {
+      cleanup();
+      reject(new ImageRenderError());
+    }, IMAGE_LOAD_TIMEOUT_MS);
+
+    function cleanup() {
+      window.clearTimeout(timeout);
+      image.onload = null;
+      image.onerror = null;
+    }
+
+    image.onload = () => {
+      cleanup();
+      resolve();
+    };
+    image.onerror = () => {
+      cleanup();
+      reject(new ImageRenderError());
+    };
+    image.src = src;
+  });
+}
+
+interface ImageUploadAttributes {
+  src?: string;
+  uploadId: string | null;
+}
+
+export async function completeImageFileUpload({
+  file,
+  updateAttributes,
+  upload = uploadImageFile,
+  load = waitForImageLoad,
+}: {
+  file: File;
+  updateAttributes: (attributes: ImageUploadAttributes) => void;
+  upload?: (file: File) => Promise<string>;
+  load?: (src: string) => Promise<void>;
+}): Promise<string> {
+  const src = await upload(file);
+  await load(src);
+  updateAttributes({ src, uploadId: null });
+  return src;
+}
+
+export function createMediaUploadId(kind: MediaUploadKind): string {
+  const random =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : Math.random().toString(36).slice(2);
+  return `${kind}-upload-${random}`;
+}
+
+export function createImagePickerId(): string {
+  const random =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : Math.random().toString(36).slice(2);
+  return `image-picker-${random}`;
+}
+
 function mediaUploadLabel(kind: MediaUploadKind) {
   if (kind === "image") return "Image";
   if (kind === "video") return "Video";

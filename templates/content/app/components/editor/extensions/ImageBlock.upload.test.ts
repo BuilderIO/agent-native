@@ -6,7 +6,7 @@ import {
   completeImageFileUpload,
   ImageRenderError,
   waitForImageLoad,
-} from "./ImageBlock";
+} from "../image-upload";
 
 describe("image node-view upload completion", () => {
   const file = new File(["image-bytes"], "diagram.png", {
@@ -33,6 +33,7 @@ describe("image node-view upload completion", () => {
     expect(events).toEqual(["uploaded", "loaded", "updated"]);
     expect(updateAttributes).toHaveBeenCalledWith({
       src: "https://cdn.example.com/diagram.png",
+      uploadId: null,
     });
   });
 

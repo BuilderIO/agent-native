@@ -3,6 +3,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  createImagePickerId,
+  createMediaUploadId,
   getAudioFiles,
   getImageFiles,
   getVideoFiles,
@@ -14,6 +16,13 @@ import {
 describe("image uploads", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it("creates operation ids for pending media uploads", () => {
+    expect(createImagePickerId()).toMatch(/^image-picker-/);
+    expect(createMediaUploadId("image")).toMatch(/^image-upload-/);
+    expect(createMediaUploadId("video")).toMatch(/^video-upload-/);
+    expect(createMediaUploadId("audio")).toMatch(/^audio-upload-/);
   });
 
   it("uploads image files through the framework file-upload endpoint", async () => {
