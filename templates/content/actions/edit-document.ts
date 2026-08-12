@@ -257,10 +257,11 @@ export default defineAction({
         )
         .where(eq(schema.contentDatabaseItems.documentId, id));
       const primaryFieldsById = new Map<string, string>(
-        primaryBlocksFields.flatMap((field) =>
-          field.propertyId
-            ? [[field.propertyId, field.ownerEmail] as const]
-            : [],
+        primaryBlocksFields.flatMap(
+          (field: { propertyId: string | null; ownerEmail: string }) =>
+            field.propertyId
+              ? [[field.propertyId, field.ownerEmail] as const]
+              : [],
         ),
       );
       for (const [propertyId, ownerEmail] of primaryFieldsById) {
