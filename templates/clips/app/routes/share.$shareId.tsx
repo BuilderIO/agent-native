@@ -532,6 +532,9 @@ export default function ShareRoute() {
     viewerRole === "editor" ||
     viewerRole === "commenter";
   const viewerIsOwner = Boolean(dataQ.data?.data?.viewer?.isOwner);
+  const canReshareLink =
+    (viewerRole === "viewer" || viewerRole === "commenter") &&
+    (recording?.visibility === "public" || recording?.visibility === "org");
   const viewerCanOpenDashboard = Boolean(
     dataQ.data?.data?.viewer?.canOpenDashboard,
   );
@@ -990,7 +993,7 @@ export default function ShareRoute() {
                 onDeleted={() => navigate("/library", { replace: true })}
               />
             ) : null}
-            {viewerCanEdit ? (
+            {viewerCanEdit || canReshareLink ? (
               <ShareRecordingPopover
                 recordingId={recording.id}
                 recordingTitle={recording.title}

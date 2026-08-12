@@ -72,6 +72,13 @@ export interface ShareRecordingPopoverProps {
   animatedThumbnailUrl?: string | null;
   isLoomRecording?: boolean;
   hasPassword?: boolean;
+  /**
+   * Restricts the dialog to a bare copy-link control for viewers who can
+   * reshare a public/org clip's link but have no edit access: it skips
+   * `list-resource-shares` (which returns every individually-shared
+   * principal's email to any reader) and hides the Invite tab entirely.
+   */
+  viewerReshareOnly?: boolean;
   /** Trigger element rendered as the popover anchor (usually the Share button). */
   children: ReactNode;
   open?: boolean;
@@ -103,6 +110,7 @@ export function ShareRecordingPopover({
   animatedThumbnailUrl,
   isLoomRecording = false,
   hasPassword,
+  viewerReshareOnly = false,
   children,
   open,
   onOpenChange,
@@ -125,6 +133,7 @@ export function ShareRecordingPopover({
           animatedThumbnailUrl={animatedThumbnailUrl}
           isLoomRecording={isLoomRecording}
           hasPassword={hasPassword}
+          viewerReshareOnly={viewerReshareOnly}
         />
       </PopoverContent>
     </Popover>
@@ -148,6 +157,7 @@ export function ShareRecordingDialog({
   open,
   onOpenChange,
   hasPassword,
+  viewerReshareOnly = false,
 }: ShareRecordingDialogProps) {
   const t = useT();
   return (
@@ -168,6 +178,7 @@ export function ShareRecordingDialog({
           animatedThumbnailUrl={animatedThumbnailUrl}
           isLoomRecording={isLoomRecording}
           hasPassword={hasPassword}
+          viewerReshareOnly={viewerReshareOnly}
           reserveCloseButton
         />
       </DialogContent>
@@ -186,6 +197,7 @@ function ShareRecordingContent({
   isLoomRecording = false,
   reserveCloseButton = false,
   hasPassword,
+  viewerReshareOnly = false,
 }: {
   recordingId: string;
   recordingTitle?: string;
@@ -197,20 +209,34 @@ function ShareRecordingContent({
   isLoomRecording?: boolean;
   reserveCloseButton?: boolean;
   hasPassword?: boolean;
+  viewerReshareOnly?: boolean;
 }) {
   const t = useT();
-  const sharesQuery = useActionQuery<SharesResponse>("list-resource-shares", {
-    resourceType: "recording",
-    resourceId: recordingId,
-  });
+  const sharesQuery = useActionQuery<SharesResponse>(
+    "list-resource-shares",
+    { resourceType: "recording", resourceId: recordingId },
+    { enabled: !viewerReshareOnly },
+  );
 
-  const data = sharesQuery.data;
+  const data = viewerReshareOnly ? undefined : sharesQuery.data;
   const role = data?.role ?? initialRole;
   const canManage = role === "owner" || role === "admin";
+  // Editors could always see (read-only) who a clip is shared with; only
+  // gate the Invite tab's mutation controls behind canManage. Commenters are
+  // grouped with plain viewers here -- neither can manage shares.
+  const canViewShares =
+    role === "owner" || role === "admin" || role === "editor";
   const visibility =
     (data?.visibility as Visibility | null | undefined) ??
     initialVisibility ??
     null;
+  // A plain viewer/commenter can't produce a working embed for a non-public
+  // clip (they have no way to make it public), so don't dangle the tab in
+  // front of them only to show an "ask the owner" dead end. Owner/admin/
+  // editor keep it regardless of visibility since they can flip to public
+  // from inside it.
+  const canEmbed = canViewShares || visibility === "public";
+  const tabCount = 1 + (canViewShares ? 1 : 0) + (canEmbed ? 1 : 0);
 
   // Attribution `via` must be a stable non-PII id, never an email. The only
   // owner id available client-side is the *current* session's userId, which is
@@ -234,19 +260,31 @@ function ShareRecordingContent({
         defaultValue="link"
         className={cn("min-w-0 px-4 py-3", reserveCloseButton && "pe-12")}
       >
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList
+          className={`grid w-full ${
+            tabCount === 3
+              ? "grid-cols-3"
+              : tabCount === 2
+                ? "grid-cols-2"
+                : "grid-cols-1"
+          }`}
+        >
           <TabsTrigger value="link" className="gap-1.5">
             <IconLink size={14} />
             {t("shareDialog.link")}
           </TabsTrigger>
-          <TabsTrigger value="invite" className="gap-1.5">
-            <IconMail size={14} />
-            {t("shareDialog.invite")}
-          </TabsTrigger>
-          <TabsTrigger value="embed" className="gap-1.5">
-            <IconCode size={14} />
-            {t("shareDialog.embed")}
-          </TabsTrigger>
+          {canViewShares ? (
+            <TabsTrigger value="invite" className="gap-1.5">
+              <IconMail size={14} />
+              {t("shareDialog.invite")}
+            </TabsTrigger>
+          ) : null}
+          {canEmbed ? (
+            <TabsTrigger value="embed" className="gap-1.5">
+              <IconCode size={14} />
+              {t("shareDialog.embed")}
+            </TabsTrigger>
+          ) : null}
         </TabsList>
 
         <TabsContent value="link" className="mt-3">
@@ -262,34 +300,39 @@ function ShareRecordingContent({
             animatedThumbnailUrl={animatedThumbnailUrl}
             isLoomRecording={isLoomRecording}
             hasPassword={hasPassword}
+            canViewShares={canViewShares}
           />
         </TabsContent>
 
-        <TabsContent value="invite" className="mt-3">
-          <SharePeopleTab
-            resourceType="recording"
-            resourceId={recordingId}
-            resourceUrl={absoluteAppUrl(`/r/${recordingId}`)}
-            sharesQuery={sharesQuery}
-            canManage={canManage}
-            roleCopy={{
-              commenter: {
-                label: t("shareUi.recordingCommenter.label"),
-                description: t("shareUi.recordingCommenter.description"),
-              },
-            }}
-          />
-        </TabsContent>
+        {canViewShares ? (
+          <TabsContent value="invite" className="mt-3">
+            <SharePeopleTab
+              resourceType="recording"
+              resourceId={recordingId}
+              resourceUrl={absoluteAppUrl(`/r/${recordingId}`)}
+              sharesQuery={sharesQuery}
+              canManage={canManage}
+              roleCopy={{
+                commenter: {
+                  label: t("shareUi.recordingCommenter.label"),
+                  description: t("shareUi.recordingCommenter.description"),
+                },
+              }}
+            />
+          </TabsContent>
+        ) : null}
 
-        <TabsContent value="embed" className="mt-3">
-          <ClipsEmbedConfigurator
-            recordingId={recordingId}
-            sharesQuery={sharesQuery}
-            visibility={visibility}
-            canManage={canManage}
-            ownerViaId={ownerViaId}
-          />
-        </TabsContent>
+        {canEmbed ? (
+          <TabsContent value="embed" className="mt-3">
+            <ClipsEmbedConfigurator
+              recordingId={recordingId}
+              sharesQuery={sharesQuery}
+              visibility={visibility}
+              canManage={canManage}
+              ownerViaId={ownerViaId}
+            />
+          </TabsContent>
+        ) : null}
       </Tabs>
     </>
   );
@@ -311,6 +354,7 @@ function LinkTab({
   animatedThumbnailUrl,
   isLoomRecording: isLoomRecordingProp,
   hasPassword,
+  canViewShares,
 }: {
   recordingId: string;
   recordingTitle?: string;
@@ -323,6 +367,7 @@ function LinkTab({
   animatedThumbnailUrl?: string | null;
   isLoomRecording?: boolean;
   hasPassword?: boolean;
+  canViewShares: boolean;
 }) {
   const t = useT();
   const { setResourceVisibility, isPending } = useResourceVisibilityMutation(
@@ -460,21 +505,23 @@ function LinkTab({
 
   return (
     <div className="space-y-4">
-      {visibility ? (
-        <GeneralAccessSelect
-          visibility={visibility}
-          canManage={canManage}
-          isPending={visibilityPending}
-          onChange={(next) => setResourceVisibility(next)}
-          publicDescription={t("shareDialog.publicDescription")}
-          showDescription={false}
-        />
-      ) : (
-        <div className="space-y-2" aria-hidden>
-          <div className="h-3 w-24 animate-pulse rounded bg-muted" />
-          <div className="h-12 w-full animate-pulse rounded bg-muted" />
-        </div>
-      )}
+      {canViewShares ? (
+        visibility ? (
+          <GeneralAccessSelect
+            visibility={visibility}
+            canManage={canManage}
+            isPending={visibilityPending}
+            onChange={(next) => setResourceVisibility(next)}
+            publicDescription={t("shareDialog.publicDescription")}
+            showDescription={false}
+          />
+        ) : (
+          <div className="space-y-2" aria-hidden>
+            <div className="h-3 w-24 animate-pulse rounded bg-muted" />
+            <div className="h-12 w-full animate-pulse rounded bg-muted" />
+          </div>
+        )
+      ) : null}
 
       <CopyField
         label={
