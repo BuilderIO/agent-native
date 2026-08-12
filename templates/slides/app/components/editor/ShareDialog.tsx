@@ -6,6 +6,7 @@ import {
   IconCheck,
   IconLoader2,
   IconExternalLink,
+  IconChevronDown,
 } from "@tabler/icons-react";
 import { useState, type ReactNode } from "react";
 
@@ -86,7 +87,7 @@ export default function ShareDialog({ deck, children }: ShareDialogProps) {
       <PopoverTrigger asChild>{children}</PopoverTrigger>
       <PopoverContent
         align="end"
-        className="w-[420px] bg-card border-border p-4"
+        className="w-[min(420px,calc(100vw-2rem))] bg-card border-border p-4"
       >
         {showCloudUpgrade || isLocal ? (
           <CloudUpgrade
@@ -104,35 +105,37 @@ export default function ShareDialog({ deck, children }: ShareDialogProps) {
                 <IconShare2 className="w-4 h-4 text-[#609FF8]" />
                 {t("share.title")}
               </div>
-              <div className="text-muted-foreground text-xs mt-0.5">
-                {t("share.description", { title: deck.title })}
-              </div>
             </div>
 
             <div className="space-y-4">
               {!shareUrl ? (
                 <>
-                  <div className="bg-muted/50 rounded-lg p-3 border border-border">
-                    <h4 className="text-sm font-medium text-foreground/90 mb-2">
+                  <details className="group rounded-md border border-border bg-muted/30">
+                    <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2.5 text-sm font-medium [&::-webkit-details-marker]:hidden">
                       {t("share.whatGetsShared")}
-                    </h4>
-                    <ul className="text-xs text-muted-foreground space-y-1">
-                      <li>
-                        {t("share.slideContent", {
-                          count: deck.slides.length,
-                        })}
-                      </li>
-                      <li>{t("share.presentationView")}</li>
-                    </ul>
-                    <h4 className="text-sm font-medium text-foreground/90 mt-3 mb-2">
-                      {t("share.whatStaysPrivate")}
-                    </h4>
-                    <ul className="text-xs text-muted-foreground space-y-1">
-                      <li>{t("share.speakerNotes")}</li>
-                      <li>{t("share.otherPresentations")}</li>
-                      <li>{t("share.editingAccess")}</li>
-                    </ul>
-                  </div>
+                      <IconChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
+                    </summary>
+                    <div className="space-y-3 border-t border-border px-3 py-3 text-xs text-muted-foreground">
+                      <ul className="space-y-1">
+                        <li>
+                          {t("share.slideContent", {
+                            count: deck.slides.length,
+                          })}
+                        </li>
+                        <li>{t("share.presentationView")}</li>
+                      </ul>
+                      <div>
+                        <h4 className="mb-1 font-medium text-foreground/90">
+                          {t("share.whatStaysPrivate")}
+                        </h4>
+                        <ul className="space-y-1">
+                          <li>{t("share.speakerNotes")}</li>
+                          <li>{t("share.otherPresentations")}</li>
+                          <li>{t("share.editingAccess")}</li>
+                        </ul>
+                      </div>
+                    </div>
+                  </details>
 
                   {error && (
                     <p className="text-xs text-red-400 bg-red-400/10 px-3 py-2 rounded-lg">
@@ -194,7 +197,7 @@ export default function ShareDialog({ deck, children }: ShareDialogProps) {
                     {t("share.openSharedLink")}
                   </a>
 
-                  <p className="text-[11px] text-muted-foreground/70 text-center">
+                  <p className="sr-only text-[11px] text-muted-foreground/70 text-center">
                     {t("share.anyoneWithLink")}
                   </p>
                 </>

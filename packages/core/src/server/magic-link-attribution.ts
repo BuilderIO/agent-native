@@ -122,6 +122,7 @@ export function decodeMagicLinkSignupAttribution(
       ...(anonymousId ? { anonymousId } : {}),
     };
   } catch {
+    // coercion-ok: malformed signed input is distinct from absent context.
     return null;
   }
 }
@@ -153,6 +154,7 @@ export function readMagicLinkSignupAttribution(
       now,
     );
   } catch {
+    // coercion-ok: malformed request input is distinct from absent context.
     return null;
   }
 }

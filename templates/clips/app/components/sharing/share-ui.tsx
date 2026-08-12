@@ -251,8 +251,14 @@ export function MakePublicCard({
 }) {
   const t = useT();
   return (
-    <div className="flex items-center justify-end gap-2 rounded-md bg-muted/40 px-3 py-2">
+    <div className="flex items-center justify-between gap-2 rounded-md bg-muted/40 px-3 py-2">
       <p className="sr-only">{t("shareUi.restrictedLinkDescription")}</p>
+      <IconLock
+        aria-hidden
+        size={14}
+        strokeWidth={1.8}
+        className="text-muted-foreground"
+      />
       <Button
         type="button"
         variant="outline"

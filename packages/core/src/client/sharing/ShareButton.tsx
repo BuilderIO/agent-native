@@ -1,3 +1,8 @@
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@agent-native/toolkit/ui";
 import * as Select from "@radix-ui/react-select";
 import {
   IconLock,
@@ -25,11 +30,6 @@ import type {
   UIEvent as ReactUIEvent,
 } from "react";
 
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@agent-native/toolkit/ui";
 import { writeClipboardText } from "../clipboard.js";
 import {
   Popover,
@@ -402,7 +402,7 @@ function SharePanel(
   const [advancedOpen, setAdvancedOpen] = useState(!showShareLinks);
   useEffect(() => {
     setAdvancedOpen(!showShareLinks);
-  }, [resourceId, showShareLinks]);
+  }, [props.resourceId, showShareLinks]);
   const extraTabs = props.shareTabs?.tabs ?? [];
   const hasTabs = extraTabs.length > 0;
   const shareTabLabel = props.shareTabs?.shareLabel ?? "Share link";
@@ -440,152 +440,193 @@ function SharePanel(
 
       {showShareLinks && shareUrlPlacement === "top" ? shareLinks : null}
 
-      {canManage ? (
-        <div className="mb-4 space-y-2">
-          <div className="flex items-stretch gap-2">
-            <MemberAutocomplete
-              value={inviteEmail}
-              open={suggestionsOpen}
-              onOpenChange={setSuggestionsOpen}
-              onValueChange={(next) => {
-                onInviteEmailChange(next);
-                if (shareError) setShareError(null);
-              }}
-              onSelectMember={(member) => {
-                onInviteEmailChange(member.email);
-                setSuggestionsOpen(false);
-                if (shareError) setShareError(null);
-              }}
-              onSubmit={handleAdd}
-              placeholder={
-                policy.requireOrgMemberForUserShares
-                  ? "Add people from your organization"
-                  : "Add people by email"
-              }
-              suggestions={memberSuggestions}
-              search={memberSearch}
-            />
-            <RoleSelect
-              value={role}
-              onChange={setRole}
-              roleCopy={props.roleCopy}
-              allowedRoles={props.allowedRoles}
-            />
-            <button
-              type="button"
-              onClick={handleAdd}
-              disabled={!hasInviteEmail}
-              className={BUTTON_PRIMARY_SM}
-            >
-              Add
-            </button>
-          </div>
-          {shareError ? (
-            <div
-              role="alert"
-              className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
-            >
-              {shareError}
-            </div>
-          ) : null}
-          {hasInviteEmail ? (
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-muted-foreground">
-              <label className="inline-flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={notifyPeople}
-                  onChange={(e) => setNotifyPeople(e.target.checked)}
-                  className="h-4 w-4 rounded border-input accent-primary"
-                />
-                Notify people
-              </label>
-              {notifyPeople ? (
-                <button
-                  type="button"
-                  aria-expanded={messageOpen}
-                  onClick={() => setMessageOpen(!messageOpen)}
-                  className="rounded-sm px-1 py-0.5 font-medium text-foreground underline decoration-border underline-offset-2 transition-colors hover:bg-accent hover:text-accent-foreground"
-                >
-                  {messageOpen ? "Hide message" : "Add a message"}
-                </button>
-              ) : null}
-            </div>
-          ) : null}
-          {hasInviteEmail && notifyPeople && messageOpen ? (
-            <div className="rounded-md border border-border/70 bg-muted/20 p-2.5">
-              <textarea
-                aria-label="Message"
-                placeholder="Add a short note (optional)"
-                value={shareMessage}
-                onChange={(event) => setShareMessage(event.target.value)}
-                maxLength={500}
-                rows={3}
-                className="w-full resize-y rounded-md border border-input bg-card px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background"
-              />
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-
-      <div className="mb-2 text-sm font-semibold">{peopleAccessLabel}</div>
-      <ul className="mb-4 flex flex-col gap-1 list-none p-0 m-0">
-        {data?.ownerEmail ? (
-          <li className="flex items-center gap-3 px-1 py-1.5 text-sm">
-            <Avatar label={displayName(data.ownerEmail, knownMembers)} />
-            <span className="flex-1 min-w-0 truncate">
-              {displayName(data.ownerEmail, knownMembers)}
-            </span>
-            <span className="text-xs text-muted-foreground">Owner</span>
-          </li>
-        ) : null}
-        {shares.map((s) => (
-          <li
-            key={keyOf(s)}
-            className={cn(
-              "flex items-center gap-3 px-1 py-1.5 text-sm",
-              inFlight.has(keyOf(s)) && "opacity-60",
-            )}
+      <Collapsible
+        open={advancedOpen}
+        onOpenChange={setAdvancedOpen}
+        className="mb-4 overflow-hidden rounded-md border border-border"
+      >
+        <CollapsibleTrigger asChild>
+          <button
+            type="button"
+            className="flex min-h-10 w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm font-medium transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
           >
-            <Avatar
-              label={principalLabel(s, knownMembers)}
-              org={s.principalType === "org"}
-            />
-            <span className="flex-1 min-w-0 truncate">
-              {principalLabel(s, knownMembers)}
-            </span>
-            {canManage ? (
-              <RoleSelect
-                value={s.role}
-                onChange={(r) => handleChangeRole(s, r)}
-                disabled={inFlight.has(keyOf(s))}
-                plain
-                roleCopy={props.roleCopy}
-                allowedRoles={props.allowedRoles}
+            <span className="flex min-w-0 items-center gap-2 truncate">
+              <IconUsersGroup
+                aria-hidden
+                size={15}
+                strokeWidth={1.8}
+                className="shrink-0 text-muted-foreground"
               />
-            ) : (
-              <span className="text-xs text-muted-foreground">
-                {roleMeta(s.role, props.roleCopy).label}
-              </span>
-            )}
+              {canManage ? "Manage access" : peopleAccessLabel}
+            </span>
+            <IconChevronDown
+              aria-hidden
+              size={16}
+              strokeWidth={1.8}
+              className={cn(
+                "shrink-0 text-muted-foreground transition-transform",
+                advancedOpen && "rotate-180",
+              )}
+            />
+          </button>
+        </CollapsibleTrigger>
+        <CollapsibleContent className="border-t border-border px-3 py-3">
+          <div className="space-y-4">
             {canManage ? (
-              <button
-                type="button"
-                aria-label="Remove"
-                onClick={() => handleRemove(s)}
-                disabled={inFlight.has(keyOf(s))}
-                className={BUTTON_GHOST_ICON}
-              >
-                <IconTrash size={14} />
-              </button>
+              <div className="space-y-2">
+                <div className="flex items-stretch gap-2">
+                  <MemberAutocomplete
+                    value={inviteEmail}
+                    open={suggestionsOpen}
+                    onOpenChange={setSuggestionsOpen}
+                    onValueChange={(next) => {
+                      onInviteEmailChange(next);
+                      if (shareError) setShareError(null);
+                    }}
+                    onSelectMember={(member) => {
+                      onInviteEmailChange(member.email);
+                      setSuggestionsOpen(false);
+                      if (shareError) setShareError(null);
+                    }}
+                    onSubmit={handleAdd}
+                    placeholder={
+                      policy.requireOrgMemberForUserShares
+                        ? "Add people from your organization"
+                        : "Add people by email"
+                    }
+                    suggestions={memberSuggestions}
+                    search={memberSearch}
+                  />
+                  <RoleSelect
+                    value={role}
+                    onChange={setRole}
+                    roleCopy={props.roleCopy}
+                    allowedRoles={props.allowedRoles}
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAdd}
+                    disabled={!hasInviteEmail}
+                    className={BUTTON_PRIMARY_SM}
+                  >
+                    Add
+                  </button>
+                </div>
+                {shareError ? (
+                  <div
+                    role="alert"
+                    className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+                  >
+                    {shareError}
+                  </div>
+                ) : null}
+                {hasInviteEmail ? (
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-muted-foreground">
+                    <label className="inline-flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={notifyPeople}
+                        onChange={(e) => setNotifyPeople(e.target.checked)}
+                        className="h-4 w-4 rounded border-input accent-primary"
+                      />
+                      Notify people
+                    </label>
+                    {notifyPeople ? (
+                      <button
+                        type="button"
+                        aria-expanded={messageOpen}
+                        onClick={() => setMessageOpen(!messageOpen)}
+                        className="rounded-sm px-1 py-0.5 font-medium text-foreground underline decoration-border underline-offset-2 transition-colors hover:bg-accent hover:text-accent-foreground"
+                      >
+                        {messageOpen ? "Hide message" : "Add a message"}
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
+                {hasInviteEmail && notifyPeople && messageOpen ? (
+                  <div className="rounded-md border border-border/70 bg-muted/20 p-2.5">
+                    <textarea
+                      aria-label="Message"
+                      placeholder="Add a short note (optional)"
+                      value={shareMessage}
+                      onChange={(event) => setShareMessage(event.target.value)}
+                      maxLength={500}
+                      rows={3}
+                      className="w-full resize-y rounded-md border border-input bg-card px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background"
+                    />
+                  </div>
+                ) : null}
+              </div>
             ) : null}
-          </li>
-        ))}
-        {!shares.length && !data?.ownerEmail ? (
-          <li className="px-1 py-1.5 text-sm text-muted-foreground">
-            No one has access yet.
-          </li>
-        ) : null}
-      </ul>
+
+            <div>
+              <div className="mb-2 text-sm font-semibold">
+                {peopleAccessLabel}
+              </div>
+              <ul className="flex flex-col gap-1 list-none p-0 m-0">
+                {data?.ownerEmail ? (
+                  <li className="flex items-center gap-3 px-1 py-1.5 text-sm">
+                    <Avatar
+                      label={displayName(data.ownerEmail, knownMembers)}
+                    />
+                    <span className="flex-1 min-w-0 truncate">
+                      {displayName(data.ownerEmail, knownMembers)}
+                    </span>
+                    <span className="text-xs text-muted-foreground">Owner</span>
+                  </li>
+                ) : null}
+                {shares.map((s) => (
+                  <li
+                    key={keyOf(s)}
+                    className={cn(
+                      "flex items-center gap-3 px-1 py-1.5 text-sm",
+                      inFlight.has(keyOf(s)) && "opacity-60",
+                    )}
+                  >
+                    <Avatar
+                      label={principalLabel(s, knownMembers)}
+                      org={s.principalType === "org"}
+                    />
+                    <span className="flex-1 min-w-0 truncate">
+                      {principalLabel(s, knownMembers)}
+                    </span>
+                    {canManage ? (
+                      <RoleSelect
+                        value={s.role}
+                        onChange={(r) => handleChangeRole(s, r)}
+                        disabled={inFlight.has(keyOf(s))}
+                        plain
+                        roleCopy={props.roleCopy}
+                        allowedRoles={props.allowedRoles}
+                      />
+                    ) : (
+                      <span className="text-xs text-muted-foreground">
+                        {roleMeta(s.role, props.roleCopy).label}
+                      </span>
+                    )}
+                    {canManage ? (
+                      <button
+                        type="button"
+                        aria-label="Remove"
+                        onClick={() => handleRemove(s)}
+                        disabled={inFlight.has(keyOf(s))}
+                        className={BUTTON_GHOST_ICON}
+                      >
+                        <IconTrash size={14} />
+                      </button>
+                    ) : null}
+                  </li>
+                ))}
+                {!shares.length && !data?.ownerEmail ? (
+                  <li className="px-1 py-1.5 text-sm text-muted-foreground">
+                    No one has access yet.
+                  </li>
+                ) : null}
+              </ul>
+            </div>
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
 
       <div className="mb-2 text-sm font-semibold">{generalAccessLabel}</div>
       <div className="mb-4 flex items-center gap-3">
@@ -604,7 +645,7 @@ function SharePanel(
             allowPublic={policy.allowPublic}
           />
           <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-            <span>{meta.description}</span>
+            <span className="sr-only">{meta.description}</span>
             {visibility === "org" && props.hideInSearchControl ? (
               <AdvancedAccessPopover
                 control={props.hideInSearchControl}
