@@ -444,6 +444,53 @@ describe("tool-call journal hard-block", () => {
     );
   });
 
+  it("uses the persisted normalized input for repeat counts", async () => {
+    currentTurnEventsMock.mockResolvedValue(
+      Array.from({ length: MAX_IDENTICAL_TOOL_CALLS - 1 }, () => ({
+        type: "tool_start",
+        tool: "write-config",
+        input: { config: { a: 1 } },
+      })),
+    );
+    const action: ActionEntry = {
+      tool: {
+        description: "A config write action",
+        parameters: {
+          type: "object",
+          properties: { config: { type: "object" } },
+        },
+      },
+      readOnly: false,
+      run: vi.fn(async () => "fresh-execution-result"),
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      // The model sends the same object as a JSON string; action execution and
+      // the journal normalize it to the object form before recording the call.
+      engine: singleToolEngine("write-config", { config: '{"a":1}' }),
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: { "write-config": action },
+      send: (e) => events.push(e),
+      signal: new AbortController().signal,
+      threadId: "thread-repeat-normalized-input",
+    });
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        errorCode: "repeated_tool_call",
+        recoverable: false,
+      }),
+    );
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "done" }),
+    );
+  });
+
   it("counts identical tool errors from earlier chunks of the same turn", async () => {
     currentTurnEventsMock.mockResolvedValue([
       { type: "tool_start", tool: "flaky-write", input: { id: "row-1" } },
