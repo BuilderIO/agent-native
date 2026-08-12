@@ -473,17 +473,32 @@ function drainPendingDeckOps(deckId: string): Promise<void> {
 /**
  * Wait for a deck's in-flight save(s) to fully settle, including any
  * follow-up drain chained by immediateFlushRequests for ops queued while a
- * save was already running. Used when a caller must not proceed (e.g. firing
- * an agent request against a slide) until an "immediate" persistence op has
- * actually reached the server.
+ * save was already running, and any requeued retry after a failed attempt.
+ * Used when a caller must not proceed (e.g. firing an agent request against
+ * a slide) until an "immediate" persistence op has actually reached the
+ * server. Throws if the save ultimately fails after retries exhaust, since
+ * `drainPendingDeckOps` swallows save errors internally to drive its own
+ * retry loop and its promise always resolves regardless of outcome.
  */
 async function flushDeckSave(deckId: string): Promise<void> {
-  let previous: Promise<void> | undefined;
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < 40; i++) {
     const active = inFlightSaveChains.get(deckId);
-    if (!active || active === previous) return;
-    previous = active;
-    await active;
+    if (active) {
+      await active;
+      continue;
+    }
+    if (failedSaveDecks.has(deckId)) {
+      throw new Error(
+        `Failed to save deck ${deckId} after ${MAX_DECK_SAVE_RETRIES} attempts`,
+      );
+    }
+    if (pendingOpsQueue.has(deckId) || pendingSaves.has(deckId)) {
+      // A failed op was requeued for retry, or a debounced save is armed;
+      // wait for it to actually run rather than declaring success early.
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      continue;
+    }
+    return;
   }
 }
 

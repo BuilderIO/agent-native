@@ -507,6 +507,8 @@ const messages = {
     generatingSlide: "正在生成幻灯片",
     uploadFailed: "上传失败",
     uploadAttachedFileFailed: "无法上传附加文件。",
+    newSlideSaveFailed:
+      "새 슬라이드를 저장하지 못했습니다. 다시 시도해 주세요.",
     addSlides: "添加幻灯片",
     addEmptySlide: "添加空白幻灯片",
     noAi: "无 AI",

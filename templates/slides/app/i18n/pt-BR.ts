@@ -520,6 +520,8 @@ const messages = {
     generatingSlide: "Generando diapositiva",
     uploadFailed: "Error al subir",
     uploadAttachedFileFailed: "No se pudo subir el archivo adjunto.",
+    newSlideSaveFailed:
+      "Não foi possível salvar o novo slide. Tente novamente.",
     addSlides: "Añadir diapositivas",
     addEmptySlide: "Añadir diapositiva vacía",
     noAi: "sin AI",

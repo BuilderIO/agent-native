@@ -521,6 +521,8 @@ const messages = {
     generatingSlide: "Generando diapositiva",
     uploadFailed: "Error al subir",
     uploadAttachedFileFailed: "No se pudo subir el archivo adjunto.",
+    newSlideSaveFailed:
+      "Die neue Folie konnte nicht gespeichert werden. Bitte versuche es erneut.",
     addSlides: "Añadir diapositivas",
     addEmptySlide: "Añadir diapositiva vacía",
     noAi: "sin AI",

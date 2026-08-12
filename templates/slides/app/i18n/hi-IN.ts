@@ -509,6 +509,7 @@ const messages = {
     generatingSlide: "स्लाइड जनरेट हो रही है",
     uploadFailed: "अपलोड विफल",
     uploadAttachedFileFailed: "संलग्न फ़ाइल अपलोड नहीं हो सकी।",
+    newSlideSaveFailed: "नई स्लाइड सहेजी नहीं जा सकी। कृपया पुनः प्रयास करें।",
     addSlides: "स्लाइड जोड़ें",
     addEmptySlide: "खाली स्लाइड जोड़ें",
     noAi: "AI नहीं",

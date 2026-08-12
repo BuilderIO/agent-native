@@ -20,6 +20,7 @@ import { hashSlideContent, type DeckFitState } from "@shared/slide-fit";
 import { IconPlus } from "@tabler/icons-react";
 import { useRef, useEffect, useState } from "react";
 import { useCallback } from "react";
+import { toast } from "sonner";
 
 import SlideRenderer from "@/components/deck/SlideRenderer";
 import type { SlideOverflowInfo } from "@/components/deck/SlideRenderer";
@@ -351,8 +352,18 @@ export default function EditorSidebar({
   );
   const writeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Only auto-clear addSlideGenerating once we've actually observed a run
+  // start and finish. Without sawAgentGeneratingRef, this would fire while
+  // onAwaitAddSlidePersisted() is still pending below (agentGenerating is
+  // still false at that point), re-enabling New slide mid-save.
+  const sawAgentGeneratingRef = useRef(false);
   useEffect(() => {
-    if (addSlideGenerating && !agentGenerating) {
+    if (agentGenerating) {
+      sawAgentGeneratingRef.current = true;
+      return;
+    }
+    if (addSlideGenerating && sawAgentGeneratingRef.current) {
+      sawAgentGeneratingRef.current = false;
       onAddSlideGeneratingChange?.(false);
     }
   }, [addSlideGenerating, agentGenerating, onAddSlideGeneratingChange]);
@@ -576,7 +587,14 @@ export default function EditorSidebar({
           targetSlideId={describeSlideId}
           agentSubmit={async (message, context) => {
             onAddSlideGeneratingChange?.(true);
-            await onAwaitAddSlidePersisted?.();
+            try {
+              await onAwaitAddSlidePersisted?.();
+            } catch (error) {
+              console.error("Failed to persist new slide:", error);
+              onAddSlideGeneratingChange?.(false);
+              toast.error(t("editorSidebar.newSlideSaveFailed"));
+              return;
+            }
             agentSubmit(message, context);
           }}
         />

@@ -497,6 +497,7 @@ const messages = {
     generatingSlide: "正在生成幻燈片",
     uploadFailed: "上傳失敗",
     uploadAttachedFileFailed: "無法上傳附加檔案。",
+    newSlideSaveFailed: "無法儲存新投影片,請重試。",
     addSlides: "新增幻燈片",
     addEmptySlide: "新增空白幻燈片",
     noAi: "無 AI",

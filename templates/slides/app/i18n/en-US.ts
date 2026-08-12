@@ -514,6 +514,7 @@ const messages = {
     generatingSlide: "Generating slide",
     uploadFailed: "Upload failed",
     uploadAttachedFileFailed: "Could not upload the attached file.",
+    newSlideSaveFailed: "Couldn't save the new slide. Please try again.",
     addSlides: "Add slides",
     addEmptySlide: "Add empty slide",
     noAi: "no AI",
