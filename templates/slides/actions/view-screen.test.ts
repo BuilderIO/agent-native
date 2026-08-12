@@ -244,6 +244,8 @@ describe("view-screen", () => {
     expect(result).toContain(
       "Overflow detected on 1 slide(s): slide 1 (225px vertical, 0px horizontal).",
     );
-    expect(result).not.toContain("All 2 slides fit their measured content area.");
+    expect(result).not.toContain(
+      "All 2 slides fit their measured content area.",
+    );
   });
 });
