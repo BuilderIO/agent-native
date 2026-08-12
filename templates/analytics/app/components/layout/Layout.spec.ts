@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
 
 import {
@@ -18,6 +20,29 @@ describe("Analytics layout sidebar route policy", () => {
     expect(isAnalyticsSessionsRoute("/dashboards/revenue")).toBe(false);
     expect(shouldDefaultOpenAnalyticsSidebar("/dashboards/revenue")).toBe(
       false,
+    );
+  });
+
+  it("keeps sidebar navigation scrolling separate from its pinned footer", () => {
+    const source = readFileSync(
+      new URL("./Sidebar.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain(
+      'className="flex min-h-0 flex-1 flex-col overflow-hidden py-2"',
+    );
+    expect(source).toContain(
+      'className="min-h-0 flex-1 grid min-w-0 items-start overflow-x-hidden overflow-y-auto px-2 text-sm font-medium lg:px-4 space-y-1"',
+    );
+    expect(source).toContain(
+      'className="shrink-0 min-w-0 px-2 pt-2 text-sm font-medium lg:px-4"',
+    );
+    expect(source).not.toContain(
+      'className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden py-2"',
+    );
+    expect(source).not.toContain(
+      'className="mt-auto min-w-0 px-2 pt-2 text-sm font-medium lg:px-4"',
     );
   });
 });

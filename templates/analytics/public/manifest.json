@@ -3,7 +3,6 @@
   "short_name": "Analytics",
   "description": "Analytics dashboard",
   "start_url": ".",
-  "display": "standalone",
   "background_color": "#111111",
   "theme_color": "#F59E0B",
   "icons": [

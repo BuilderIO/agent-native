@@ -718,6 +718,8 @@ const messages = {
       finishAccount:
         "Termina de crear tu cuenta, luego regresa y generaremos el enlace.",
       generalAccess: "Acceso general {{noun}}",
+      commenterRoleLabel: "Comentarista",
+      commenterRoleDescription: "Puede ver y añadir comentarios",
       hostedCopy:
         "Este {{noun}} local tiene una copia alojada para compartir. Abra el {{noun}} alojado para gestionar el acceso.",
       linkCopied: "Enlace para compartir copiado",

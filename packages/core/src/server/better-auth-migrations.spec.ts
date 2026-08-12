@@ -77,4 +77,15 @@ describe("Better Auth migrations", () => {
       sqlite: expect.stringContaining("created_at INTEGER NOT NULL DEFAULT 0"),
     });
   });
+
+  it("provisions the legacy sessions table for release-time OAuth flows", () => {
+    const sessions = BETTER_AUTH_MIGRATIONS.find(
+      (migration) => migration.name === "legacy-auth-sessions-table",
+    );
+    expect(sessions?.version).toBe(3);
+    expect(sessions?.sql).toMatchObject({
+      postgres: expect.stringContaining("created_at BIGINT NOT NULL"),
+      sqlite: expect.stringContaining("created_at INTEGER NOT NULL"),
+    });
+  });
 });

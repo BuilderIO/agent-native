@@ -1,11 +1,12 @@
-import type { Document } from "@shared/api";
-import { useEffect } from "react";
+import { useActionMutation } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
+import type { ContentLandingResult } from "@shared/content-landing";
+import { useCallback, useEffect, useRef } from "react";
 import { useNavigate } from "react-router";
+import { toast } from "sonner";
 
-import { EmptyState } from "@/components/EmptyState";
 import { QueryErrorState } from "@/components/QueryErrorState";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useDocuments } from "@/hooks/use-documents";
 
 const SEO_TITLE = "Content - Open Source, agent-friendly Obsidian alternative";
 const SEO_DESCRIPTION =
@@ -46,36 +47,45 @@ function DocumentSkeleton() {
 }
 
 export default function IndexRoute() {
+  const t = useT();
   const navigate = useNavigate();
-  const documentsQuery = useDocuments();
-  const documents: Document[] = documentsQuery.data ?? [];
-  const isLoading = documentsQuery.isLoading;
+  const startedRef = useRef(false);
+  const resolveLanding = useActionMutation<
+    ContentLandingResult,
+    Record<string, never>
+  >("resolve-content-landing");
 
-  // Auto-select the first favorite, or the first document if no favorites
-  useEffect(() => {
-    if (documents && documents.length > 0) {
-      const openableDocuments = documents.filter(
-        (document) => document.source?.kind !== "folder",
-      );
-      const firstFavorite = openableDocuments.find((d) => d.isFavorite);
-      const target = firstFavorite ?? openableDocuments[0];
-      if (!target) return;
-      navigate(`/page/${target.id}`, { replace: true });
+  const openLanding = useCallback(async () => {
+    if (startedRef.current) return;
+    startedRef.current = true;
+    try {
+      const result = await resolveLanding.mutateAsync({});
+      if (result.fallbackReason === "saved-document-unavailable") {
+        toast.info(t("landing.previousPageUnavailable"));
+      }
+      navigate(`/page/${result.documentId}`, { replace: true });
+    } catch (error) {
+      // Keep the typed mutation error available to QueryErrorState. Retrying
+      // starts a fresh resolver attempt rather than pretending arrival worked.
+      console.error("Failed to resolve the Content landing page", error);
     }
-  }, [documents, navigate]);
+  }, [navigate, resolveLanding, t]);
 
-  // While loading, or when we have documents but haven't navigated yet,
-  // show a skeleton instead of the "no page selected" empty state.
-  const showSkeleton = isLoading || (documents && documents.length > 0);
+  useEffect(() => {
+    void openLanding();
+  }, [openLanding]);
 
-  if (showSkeleton) return <DocumentSkeleton />;
-  if (documentsQuery.isError) {
+  if (resolveLanding.isError) {
     return (
       <QueryErrorState
-        onRetry={() => void documentsQuery.refetch()}
-        retrying={documentsQuery.isFetching}
+        onRetry={() => {
+          resolveLanding.reset();
+          startedRef.current = false;
+          void openLanding();
+        }}
+        retrying={resolveLanding.isPending}
       />
     );
   }
-  return <EmptyState />;
+  return <DocumentSkeleton />;
 }

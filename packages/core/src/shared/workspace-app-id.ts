@@ -38,6 +38,17 @@ export function isValidWorkspaceAppIdFormat(appId: string): boolean {
   return /^[a-z][a-z0-9-]*$/.test(appId);
 }
 
+/** Convert a human-friendly app name into the URL-safe workspace app id form. */
+export function normalizeWorkspaceAppId(appId: string): string {
+  return appId
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .replace(/^[^a-z]+/, "")
+    .slice(0, 64);
+}
+
 export function getWorkspaceAppIdValidationError(appId: string): string | null {
   if (RESERVED_WORKSPACE_APP_IDS.has(appId)) {
     return `App name "${appId}" conflicts with a reserved workspace route. Choose a different name.`;

@@ -184,7 +184,7 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.agent-native.com
 整个模型依赖于一些故意的小保证：
 
 - **短暂的签名令牌。**身份断言是 `A2A_SECRET` 签名的 JWT，具有 **≤ 2 分钟** 到期时间和 `scope: "identity"`。它授权单次登录，并且不能长时间重播或重新用于 API/A2A 访问。
-- **严格的 `redirect_uri` 白名单。** 默认情况下，调度仅重定向到 `*.agent-native.com` 或本地主机。任意、方案相关 (`//host`) 和跨域重定向目标都会被拒绝，因此权限无法转变为开放重定向或令牌渗透预言机。
+- **与应用绑定的严格 `redirect_uri` 允许列表。** 每个规范应用 ID 都映射到一个精确的生产源和回调路径；localhost 仍可用于开发。未知子域、不匹配的应用 ID、任意路径和跨源目标都会被拒绝。
 - **从经过验证的令牌仅通过电子邮件加入。** 跨越信任边界的*唯一*事物是签名令牌中经过验证的电子邮件。该应用程序不接受来自线路的用户 ID、角色、组织成员资格或任何特权状态 - 它从匹配的帐户在本地派生所有内容。
 - **仅添加身份写入。**链接可以不受影响地重复使用现有的同一电子邮件帐户，也可以插入一个新帐户。此路径上不会发生任何身份行的更新、重命名、重新指向或删除。
 - **默认情况下关闭。**如果取消设置 `AGENT_NATIVE_IDENTITY_HUB_URL`，则整个功能将处于惰性状态。
@@ -260,7 +260,7 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.yourcompany.com
 
 **重定向允许列表。** 集线器（调度）在发出令牌之前验证授权端点上的 `redirect_uri`。允许名单在`templates/dispatch/server/lib/identity-sso.ts`中配置：
 
-- **默认值：** 仅 `*.agent-native.com` 和 localhost（`DEFAULT_ALLOWED_HOST_SUFFIXES` 常量）。
+- **默认值：** 仅允许精确注册的 Agent Native 应用 ID/源对和 localhost（`CANONICAL_IDENTITY_SSO_APP_ORIGINS`）。
 - **扩展它：**在 Dispatch 部署上设置 `IDENTITY_SSO_ALLOWED_HOST_SUFFIXES` 环境变量，并使用逗号分隔的其他主机后缀列表：
 
   ```bash
@@ -321,3 +321,8 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.agent-native.com
 - [Dispatch](/docs/dispatch) — 工作区身份授权和路由中心。
 - [Security & Data Scoping](/docs/security) - 仅附加数据写入和每个帐户范围。
 - [Multi-App Workspaces](/docs/multi-app-workspace) — 统一的单源部署，完全避免跨域 SSO。
+
+Dispatch 的 `desktop.workspace-sso` 标志默认关闭且只控制可用性；身份验证、签名、nonce、来源、回调、会话和撤销检查始终强制执行。标志关闭或无法读取时，Desktop 不会更改逐应用登录、退出或设置。
+User-Agent 中的 Canary 标记仅是可用性提示，不是远程证明；身份验证和授权均不信任该标记。
+规范托管应用无需为每个应用配置身份中心环境变量，即可识别打包版 Desktop SSO Canary 的请求。普通浏览器和自托管应用仍需设置 `AGENT_NATIVE_IDENTITY_HUB_URL`。稳定版 Desktop 在后续版本获得单独批准之前不会初始化代理。
+Canary 不会拦截匿名用户进入应用登录页的导航。用户必须在 Desktop 设置中为当前活动的已注册应用明确选择工作区登录；普通应用登录仍是默认路径。

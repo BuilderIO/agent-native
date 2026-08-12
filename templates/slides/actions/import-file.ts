@@ -28,7 +28,10 @@ import {
   DEFAULT_ASPECT_RATIO,
   type AspectRatio,
 } from "../shared/aspect-ratios.js";
-import { isOpaqueDeckTitle } from "../shared/deck-title.js";
+import {
+  isOpaqueDeckTitle,
+  resolveImportedDeckTitle,
+} from "../shared/deck-title.js";
 import { readUserUploadedFile } from "./_uploaded-files.js";
 import { withDeckLock } from "./patch-deck.js";
 
@@ -182,17 +185,18 @@ export default defineAction({
                 presentation.slides[0].heightEmu,
               )
             : undefined;
-        await appendDeckSlides(
+        const importedTitle = await appendDeckSlides(
           deckId,
           title,
           slides,
           "import-file:pptx",
           aspectRatio,
           sourceImport,
+          pptxResults[0]?.sourceText,
         );
         return {
           format: "pptx",
-          title,
+          title: importedTitle,
           slideCount: slides.length,
           theme: presentation.theme,
           deckId,
@@ -241,10 +245,18 @@ export default defineAction({
           layout: "content",
           notes: "",
         }));
-        await appendDeckSlides(deckId, title, slides, "import-file:docx");
+        const importedTitle = await appendDeckSlides(
+          deckId,
+          title,
+          slides,
+          "import-file:docx",
+          undefined,
+          undefined,
+          doc.text,
+        );
         return {
           format: "docx",
-          title,
+          title: importedTitle,
           sectionCount: doc.sections.length,
           slideCount: slides.length,
           textLength: doc.text.length,
@@ -520,18 +532,19 @@ async function importPdfPagesWithFidelity(args: {
     slides: imported.map((entry) => entry.snapshot),
   });
 
-  await appendDeckSlides(
+  const importedTitle = await appendDeckSlides(
     deckId,
     title,
     slides,
     "import-file:pdf",
     aspectRatio,
     sourceImport,
+    imported[0]?.snapshot.text,
   );
 
   return {
     format: "pdf",
-    title,
+    title: importedTitle,
     pageCount: slides.length,
     slideCount: slides.length,
     aspectRatio,
@@ -674,7 +687,8 @@ async function appendDeckSlides(
   source: string,
   aspectRatio?: AspectRatio,
   sourceImport?: ReturnType<typeof buildSourceImportMetadata>,
-) {
+  titleSource?: unknown,
+): Promise<string> {
   await assertAccess("deck", deckId, "editor");
 
   // Read-modify-write under the shared per-deck lock used by patch-deck /
@@ -682,6 +696,7 @@ async function appendDeckSlides(
   // with another import or an editor/agent slide mutation on the same deck
   // could read stale data and clobber the other write when both save the
   // whole decks.data blob back.
+  let resolvedTitle = title;
   const now = await withDeckLock(deckId, async () => {
     const db = getDb();
     const existing = await db
@@ -706,7 +721,10 @@ async function appendDeckSlides(
     // had no slides yet, otherwise resizing the canvas mid-deck would distort
     // every slide already on it.
     const hadExistingSlides = previousSlides.length > 0;
-    const nextTitle = hadExistingSlides ? (existing[0].title ?? title) : title;
+    const nextTitle = hadExistingSlides
+      ? (existing[0].title ?? title)
+      : resolveImportedDeckTitle(title, titleSource ?? slides[0]?.content);
+    resolvedTitle = nextTitle;
     const nextSourceImport = sourceImport
       ? mergeSourceImportMetadata(
           sourceImportForDeck(previousData.sourceImport),
@@ -736,6 +754,7 @@ async function appendDeckSlides(
 
   notifyClients(deckId);
   await writeAppState("refresh-signal", { ts: now, source });
+  return resolvedTitle;
 }
 
 function safeParseDeckData(raw: string): Record<string, unknown> {

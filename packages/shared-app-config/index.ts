@@ -53,6 +53,8 @@ export interface AppConfig {
   enabled: boolean;
   /** Whether to load the dev or production URL. Default: "prod" */
   mode?: "dev" | "prod";
+  /** Explicitly opt a custom production app into Desktop workspace SSO. */
+  workspaceSso?: boolean;
 }
 
 /** Frame UI port */

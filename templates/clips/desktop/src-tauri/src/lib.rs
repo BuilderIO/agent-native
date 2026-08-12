@@ -553,6 +553,8 @@ pub fn run() {
             // otherwise skips Rust destructors — make sure a live
             // `screencapture` fallback child doesn't survive us.
             if let tauri::RunEvent::Exit = _event {
+                whisper_speech::shutdown(_app_handle);
+                native_speech::shutdown();
                 let state = _app_handle.state::<native_screen::NativeFullscreenRecordingState>();
                 native_screen::kill_active_screencapture_child(&state);
             }

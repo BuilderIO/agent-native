@@ -555,9 +555,13 @@ export default function DesignSystemSetup() {
       }. Present a summary for review.`,
     );
 
+    const message =
+      parts[0] ?? "Set up a design system from the selected sources.";
+    const context = parts.slice(1).join("\n");
     openAgentSidebar();
     sendToDesignAgentChat({
-      message: parts.join("\n"),
+      message,
+      context,
       submit: true,
       newTab: true,
     });

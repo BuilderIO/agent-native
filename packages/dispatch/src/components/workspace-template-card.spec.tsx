@@ -130,7 +130,7 @@ describe("WorkspaceTemplateCard", () => {
       Object.getOwnPropertyDescriptor(
         HTMLInputElement.prototype,
         "value",
-      )?.set?.call(input, "sales-ops");
+      )?.set?.call(input, "Sales Ops");
       input.dispatchEvent(new Event("input", { bubbles: true }));
     });
 

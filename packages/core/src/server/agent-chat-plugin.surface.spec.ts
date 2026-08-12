@@ -229,6 +229,20 @@ describe("framework tool gating — wiring guards", () => {
   });
 });
 
+describe("lean workspace-app surface — wiring guards", () => {
+  it("keeps cross-app discovery and delegation available when enabled", () => {
+    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+      encoding: "utf-8",
+    });
+
+    expect(source).toContain(
+      "...(a2aAgentDelegationEnabled ? callAgentScript : {}),",
+    );
+    expect(source).toContain('generateActionsPrompt(callAgentScript, "tool")');
+    expect(source).toContain("leanActionsPrompt");
+  });
+});
+
 describe("delegated agent run policy — wiring guards", () => {
   it("forwards non-default delegated budgets to MCP ask_app", () => {
     const source = readFileSync("src/server/agent-chat-plugin.ts", {

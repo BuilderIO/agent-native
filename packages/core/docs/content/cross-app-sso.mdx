@@ -7,7 +7,9 @@ description: "Sign in once across every hosted agent-native app via identity fed
 
 Each hosted app at `*.agent-native.com` runs its own deployment with its **own separate user store**. `mail.agent-native.com` and `calendar.agent-native.com` do not share a database, a session table, or a cookie domain. So "sign in once, use every app" cannot be a shared cookie — it has to be **identity federation**, with [Dispatch](/docs/dispatch) acting as the identity authority for the workspace.
 
-This is the same trust primitive [A2A](/docs/a2a-protocol) and [External Agents](/docs/external-agents) already use — an `A2A_SECRET`-signed JWT verified at the request boundary — applied to the human sign-in path instead of agent-to-agent calls.
+The browser flow uses a short-lived authorization code with PKCE. Dispatch
+returns the `A2A_SECRET`-signed identity assertion only through a server-to-server
+exchange, so a reusable JWT never appears in a browser URL.
 
 <Callout tone="info">
 
@@ -35,6 +37,12 @@ cookie**. Each separately hosted app still creates and owns its own local
 session. Dispatch proves the user's identity at the app's front door, and the
 app then continues with its normal local auth and access checks.
 
+The packaged Desktop Canary is deliberately more explicit: it never intercepts
+anonymous app sign-in navigation. The user chooses workspace sign-in once in
+Desktop Settings; Desktop then provisions every currently eligible registered
+app and lazily provisions a later eligible webview. Ordinary app sign-in remains
+the default path when that action is not chosen or the flag is unavailable.
+
 For a product walkthrough, record this exact sequence: sign in once in
 Dispatch, open two other hosted apps, show that neither asks for credentials,
 then sign out of one app and show that the other app's session is independent.
@@ -54,7 +62,9 @@ This makes the rollout safe even though it logs people out. **Logout is expected
 
 ## How it works {#how-it-works}
 
-The flow is a standard authorize → signed-token → callback redirect, with email as the only thing that crosses the trust boundary.
+The flow is a standard authorize → one-time code → server-to-server exchange →
+callback redirect, with email as the only identity attribute that crosses the
+trust boundary.
 
 <Diagram id="doc-block-137b24q" title="Identity federation flow" summary={"Dispatch authenticates the human and returns a short-lived signed assertion of one thing — the verified email. The app links by email and mints its own local session."}>
 
@@ -75,12 +85,12 @@ The flow is a standard authorize → signed-token → callback redirect, with em
   </div>
   <div class="diagram-step">
     <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-    <span class="diagram-pill accent">302 + signed JWT</span>
+    <span class="diagram-pill accent">302 + one-time code</span>
   </div>
   <div class="diagram-card" data-rough>
     <strong>App callback</strong
     ><small class="diagram-muted"
-      >verify signature · scope:identity · exp &le; 2 min</small
+      >redeem server-side · verify assertion · exp &le; 2 min</small
     ><span class="diagram-pill ok">JIT-link by email</span
     ><span class="diagram-pill ok">mint local session</span>
   </div>
@@ -120,14 +130,25 @@ The flow is a standard authorize → signed-token → callback redirect, with em
 
    ```http
    GET https://dispatch.agent-native.com/_agent-native/identity/authorize
-       ?app=<requesting-app>
+       ?response_type=code
+       &app=<requesting-app>
+       &client_id=<registered-client>
        &redirect_uri=<app-callback-url>
        &state=<csrf-state>
+       &code_challenge=<S256-challenge>
+       &code_challenge_method=S256
    ```
 
-   `redirect_uri` is this app's own `GET /_agent-native/identity/callback` route — the route that receives the signed token in step 3.
+   `redirect_uri` is this app's own `GET /_agent-native/identity/callback` route — the route that receives the one-time code in step 3. The app keeps the PKCE verifier in a callback-scoped HttpOnly cookie.
 
-<Endpoint id="doc-block-1wojo41" title="Identity authorize endpoint" method="GET" path="/_agent-native/identity/authorize" summary="Dispatch (identity authority) authenticates the human and redirects back with a signed identity token" auth="Dispatch session (interactive login if none)" params={[
+<Endpoint id="doc-block-1wojo41" title="Identity authorize endpoint" method="GET" path="/_agent-native/identity/authorize" summary="Dispatch (identity authority) authenticates the human and redirects back with a one-time authorization code" auth="Dispatch session (interactive login if none)" params={[
+  {
+    "name": "response_type",
+    "in": "query",
+    "type": "string",
+    "required": true,
+    "description": "Must be `code`."
+  },
   {
     "name": "app",
     "in": "query",
@@ -136,11 +157,32 @@ The flow is a standard authorize → signed-token → callback redirect, with em
     "description": "The requesting app identifier."
   },
   {
+    "name": "client_id",
+    "in": "query",
+    "type": "string",
+    "required": true,
+    "description": "The exact client ID registered for the requesting app."
+  },
+  {
     "name": "redirect_uri",
     "in": "query",
     "type": "string",
     "required": true,
-    "description": "App callback URL. Validated against a strict allowlist (`*.agent-native.com` or localhost by default)."
+    "description": "App callback URL. Canonical apps must match an exact registered app ID, origin, and callback path; localhost is allowed for development."
+  },
+  {
+    "name": "code_challenge",
+    "in": "query",
+    "type": "string",
+    "required": true,
+    "description": "The S256 PKCE challenge for the callback-scoped verifier."
+  },
+  {
+    "name": "code_challenge_method",
+    "in": "query",
+    "type": "string",
+    "required": true,
+    "description": "Must be `S256`."
   },
   {
     "name": "state",
@@ -152,11 +194,11 @@ The flow is a standard authorize → signed-token → callback redirect, with em
 ]} responses={[
   {
     "status": "302",
-    "description": "Redirects to `redirect_uri` carrying a short-lived `A2A_SECRET`-signed identity JWT (`scope: \"identity\"`, `exp` ≤ 2 minutes) plus the original `state`."
+    "description": "Redirects to `redirect_uri` carrying a short-lived, one-time authorization code plus the original `state`."
   },
   {
     "status": "400",
-    "description": "`redirect_uri` failed allowlist validation (cross-origin, scheme-relative `//host`, or unlisted suffix)."
+    "description": "`app` and `redirect_uri` failed allowlist validation (mismatched app, cross-origin, scheme-relative `//host`, or unlisted host)."
   }
 ]}>
 
@@ -164,7 +206,14 @@ The flow is a standard authorize → signed-token → callback redirect, with em
 
 2. **Dispatch authenticates the human.** If the user already has a Dispatch session, this is transparent. If not, Dispatch shows its own normal login (email/password, Google, etc. — see [Authentication](/docs/authentication)). Dispatch is just a regular agent-native app here; it is not running a special auth mode.
 
-3. **Dispatch → App (signed identity token).** Dispatch validates `redirect_uri` against a strict allowlist and 302-redirects back to the app's `redirect_uri` carrying a short-lived **`A2A_SECRET`-signed identity JWT**. The token's claims are intentionally minimal:
+3. **Dispatch → App (code, then server exchange).** Dispatch validates the
+   exact app registration and 302-redirects back with a short-lived,
+   one-time **authorization code**. The app server immediately posts that code,
+   the original state, and its PKCE verifier to
+   `/_agent-native/identity/token`. Dispatch atomically consumes the code and
+   returns the short-lived `A2A_SECRET`-signed identity assertion in that
+   server-to-server response. The browser never receives the assertion. Its
+   claims are intentionally minimal:
 
    | Claim        | Meaning                                                  |
    | ------------ | -------------------------------------------------------- |
@@ -175,7 +224,10 @@ The flow is a standard authorize → signed-token → callback redirect, with em
    | `scope`      | Always `"identity"` — this token authorizes sign-in only |
    | `exp`        | **≤ 2 minutes** from issue                               |
 
-4. **App verifies and JIT-links by email.** The app's `GET /_agent-native/identity/callback` route verifies the token signature with its own `A2A_SECRET`, checks `scope: "identity"` and `exp`, then performs **just-in-time linking strictly by verified email**:
+4. **App verifies and JIT-links by email.** The app's callback verifies the
+   server-to-server assertion with its own `A2A_SECRET`, checks the exact
+   authority, client, callback, `scope: "identity"`, `jti`, and `exp`, then
+   performs **just-in-time linking strictly by verified email**:
    - If a local user with that email exists → reuse it unchanged.
    - If not → create a local user for that email.
 
@@ -183,7 +235,7 @@ The flow is a standard authorize → signed-token → callback redirect, with em
 
 ### Opting in {#opt-in}
 
-An app participates **only** when this environment variable is set on its deployment:
+An app's ordinary web sign-in participates **only** when this environment variable is set on its deployment:
 
 ```bash
 AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.agent-native.com
@@ -196,11 +248,21 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.agent-native.com
 
 The whole model rests on a few deliberately small guarantees:
 
-- **Short-lived signed token.** The identity assertion is an `A2A_SECRET`-signed JWT with a **≤ 2-minute** expiry and `scope: "identity"`. It authorizes a single sign-in and cannot be replayed for long or repurposed for API/A2A access.
-- **Strict `redirect_uri` allowlist.** Dispatch only ever redirects to `*.agent-native.com` or localhost by default. Arbitrary, scheme-relative (`//host`), and cross-origin redirect targets are rejected, so the authority can't be turned into an open-redirect or token-exfiltration oracle.
-- **Email-only join from a verified token.** The _only_ thing that crosses the trust boundary is the verified email in a signed token. The app does not accept a user id, role, org membership, or any privileged state from the wire — it derives everything locally from the matched account.
+- **One-time code + PKCE.** The browser carries only a short-lived,
+  single-use authorization code. The callback-scoped HttpOnly verifier cookie,
+  exact app binding, and atomic code consumption prevent a stolen redirect from
+  being redeemed by another client.
+- **Server-only signed assertion.** The identity assertion is an
+  `A2A_SECRET`-signed JWT with a **≤ 2-minute** expiry and `scope: "identity"`.
+  It is returned only from the server-to-server token exchange and is never
+  placed in a browser URL.
+- **Strict app-bound `redirect_uri` allowlist.** Every canonical app ID maps to one exact production origin and callback path; localhost remains available for development. Unknown subdomains, mismatched app IDs, arbitrary paths, scheme-relative (`//host`), and cross-origin targets are rejected, so the authority can't become a token-exfiltration oracle.
+- **Email-only join from a verified assertion.** The _only_ identity attribute
+  that crosses the trust boundary is the verified email. The app does not
+  accept a user id, role, org membership, or any privileged state from the
+  wire — it derives everything locally from the matched account.
 - **Additive-only identity writes.** Linking either reuses an existing same-email account untouched or inserts a new one. No update, rename, repoint, or delete of identity rows ever happens on this path.
-- **Off by default.** With `AGENT_NATIVE_IDENTITY_HUB_URL` unset the entire feature is inert.
+- **Off by default.** With `AGENT_NATIVE_IDENTITY_HUB_URL` unset, ordinary browser federation is inert. The separately gated packaged Desktop path is described below.
 
 <Callout id="doc-block-18qhl3m" tone="success">
 
@@ -216,7 +278,7 @@ The just-in-time link is a single decision keyed entirely on the verified email:
 <div class="diagram-jit">
   <div class="diagram-node" data-rough>
     Verified email<br /><small class="diagram-muted"
-      >from signed identity JWT</small
+      >from server-verified identity assertion</small
     >
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
@@ -265,6 +327,35 @@ The just-in-time link is a single decision keyed entirely on the verified email:
 
 </Diagram>
 
+## Packaged Desktop workspace {#desktop-workspace}
+
+The signed Agent Native Desktop SSO Canary uses this same federation flow as the
+ordinary sign-in front door for canonical first-party apps. A dedicated
+Electron partition holds the Dispatch authority session; each target app still
+mints its own local session, and Desktop transfers only that app's allowlisted
+session cookie into its isolated `persist:app-<id>` partition. One explicit
+Settings action provisions every currently eligible app; a later eligible
+webview is provisioned lazily when it loads. Arbitrary third-party sites remain
+isolated. A custom workspace app is eligible only when Desktop config sets
+`workspaceSso: true`, the production URL is exact HTTPS, and Dispatch has an
+exact server-side registration.
+
+Dispatch registers the default-off `desktop.workspace-sso` rollout flag. The
+flag controls whether Desktop may begin the ceremony; it does not authorize a
+user or weaken nonce, signature, origin, callback, app-binding, cookie,
+revocation, or credential-custody checks. With the flag Off or unavailable,
+Desktop leaves ordinary per-app sign-in, sign-out, and Settings unchanged.
+Canonical hosted apps recognize the packaged Desktop request without requiring
+`AGENT_NATIVE_IDENTITY_HUB_URL` on every deployment; ordinary web browsers and
+self-hosted apps still require that explicit configuration.
+Stable Desktop builds do not initialize the broker until a later release is
+separately approved.
+The Canary user-agent marker is an availability hint, not remote attestation;
+the server cannot infer code signature from HTTP. No authentication or
+authorization decision trusts it. Supervised acceptance therefore binds the
+tested client through the signed artifact's exact commit, manifest, hashes, and
+notarization evidence.
+
 ## Self-hosting {#self-hosting}
 
 Any Dispatch deployment can serve as the identity hub — you are not limited to `dispatch.agent-native.com`. Set `AGENT_NATIVE_IDENTITY_HUB_URL` on each client app to point at your Dispatch instance:
@@ -273,21 +364,18 @@ Any Dispatch deployment can serve as the identity hub — you are not limited to
 AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.yourcompany.com
 ```
 
-**Redirect allowlist.** The hub (Dispatch) validates `redirect_uri` on the authorize endpoint before issuing a token. The allowlist is configured in `templates/dispatch/server/lib/identity-sso.ts`:
+**Redirect allowlist.** The hub (Dispatch) validates `redirect_uri` on the authorize endpoint before issuing a code. The allowlist is configured in `templates/dispatch/server/lib/identity-sso.ts`:
 
-- **Default:** `*.agent-native.com` and localhost only (the `DEFAULT_ALLOWED_HOST_SUFFIXES` constant).
-- **Extending it:** set the `IDENTITY_SSO_ALLOWED_HOST_SUFFIXES` environment variable on the Dispatch deployment with a comma-separated list of additional host suffixes:
+- **Default:** exact registered Agent Native app ID, client ID, origin, and callback pairs (`CANONICAL_IDENTITY_SSO_APP_ORIGINS`).
+- **Custom workspace apps:** set `IDENTITY_SSO_APP_REGISTRY_JSON` on Dispatch with exact registrations. Every entry must include the app ID, client ID, exact HTTPS origin, fixed callback path, and `identity-sso` capability:
 
   ```bash
-  # Allow yourcompany.com subdomains in addition to the defaults
-  IDENTITY_SSO_ALLOWED_HOST_SUFFIXES=".yourcompany.com,.staging.yourcompany.com"
+  IDENTITY_SSO_APP_REGISTRY_JSON='[{"appId":"workspace-reports","clientId":"workspace-reports","origin":"https://reports.yourcompany.com","callbackPath":"/_agent-native/identity/callback","capabilities":["identity-sso"]}]'
   ```
 
-  Each entry is normalized to a dot-prefixed suffix (`.yourcompany.com`), so a suffix check is both sufficient and the least footgun-prone — no per-app list to keep in sync. Entries that would match everything (empty or just `.`) are filtered out.
+- **Localhost** is allowed only for local development, with the exact callback path and app/client binding. Remote HTTP hubs and custom origins are rejected; production must use HTTPS.
 
-- **Localhost** is always allowed for local development of client-side apps regardless of `IDENTITY_SSO_ALLOWED_HOST_SUFFIXES`.
-
-Without `IDENTITY_SSO_ALLOWED_HOST_SUFFIXES`, a self-hosted Dispatch can only issue tokens to apps on `*.agent-native.com`. Set the env var on your Dispatch deployment to unlock other domains.
+Without an exact custom registry entry, a self-hosted Dispatch can only issue codes to the canonical registered app origins.
 
 ## Canary rollout runbook {#canary-rollout}
 

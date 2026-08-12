@@ -26,11 +26,19 @@ function loadSearchIndex(locale: string): Promise<SearchEntry[]> {
   const pending = pendingIndexes.get(locale);
   if (pending) return pending;
 
-  const promise = buildSearchIndexAsync(locale).then((index) => {
-    cachedIndexes.set(locale, index);
-    pendingIndexes.delete(locale);
-    return index;
-  });
+  const promise = Promise.resolve()
+    .then(() => buildSearchIndexAsync(locale))
+    .then((index) => {
+      cachedIndexes.set(locale, index);
+      pendingIndexes.delete(locale);
+      return index;
+    })
+    .catch((error) => {
+      // A stale or unavailable document chunk must not poison retries for the
+      // rest of the session with the same rejected promise.
+      pendingIndexes.delete(locale);
+      throw error;
+    });
   pendingIndexes.set(locale, promise);
   return promise;
 }
@@ -118,6 +126,8 @@ export function SearchModal({
   const [query, setQuery] = useState("");
   const [activeIdx, setActiveIdx] = useState(0);
   const [index, setIndex] = useState<SearchEntry[]>([]);
+  const [indexError, setIndexError] = useState<unknown>(null);
+  const [retryCount, setRetryCount] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const modalRef = useRef<HTMLDivElement>(null);
   const activeItemRef = useRef<HTMLButtonElement>(null);
@@ -161,16 +171,26 @@ export function SearchModal({
     const cached = getCachedSearchIndex(locale);
     if (cached) {
       setIndex(cached);
+      setIndexError(null);
       return;
     }
     setIndex([]);
-    void loadSearchIndex(locale).then((loaded) => {
-      if (!cancelled) setIndex(loaded);
-    });
+    setIndexError(null);
+    void loadSearchIndex(locale)
+      .then((loaded) => {
+        if (cancelled) return;
+        setIndex(loaded);
+        setIndexError(null);
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        console.error("Docs search index failed to load", error);
+        setIndexError(error);
+      });
     return () => {
       cancelled = true;
     };
-  }, [locale, open]);
+  }, [locale, open, retryCount]);
 
   // Focus management: save focus before open, restore on close
   useEffect(() => {
@@ -358,7 +378,18 @@ export function SearchModal({
               </button>
             </div>
           )}
-          {query.trim() === "" ? (
+          {indexError ? (
+            <div className="px-4 py-8 text-center text-sm text-[var(--fg-secondary)]">
+              <p className="mb-3">{t("search.loadError")}</p>
+              <button
+                type="button"
+                onClick={() => setRetryCount((count) => count + 1)}
+                className="inline-flex items-center rounded-md border border-[var(--docs-border)] px-3 py-1.5 text-xs text-[var(--fg)] transition hover:border-[var(--fg-secondary)]"
+              >
+                {t("search.retry")}
+              </button>
+            </div>
+          ) : query.trim() === "" ? (
             <div className="px-4 py-8 text-center text-sm text-[var(--fg-secondary)]">
               {t("search.empty")}
             </div>

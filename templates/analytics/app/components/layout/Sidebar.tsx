@@ -2261,8 +2261,8 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               </span>
             </Link>
           </div>
-          <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden py-2">
-            <nav className="grid min-w-0 items-start px-2 text-sm font-medium lg:px-4 space-y-1">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden py-2">
+            <nav className="min-h-0 flex-1 grid min-w-0 items-start overflow-x-hidden overflow-y-auto px-2 text-sm font-medium lg:px-4 space-y-1">
               {/* Ask section */}
               <div className="order-1 group/section min-w-0 space-y-1">
                 <div
@@ -2576,7 +2576,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               </div>
             </nav>
 
-            <div className="mt-auto min-w-0 px-2 pt-2 text-sm font-medium lg:px-4">
+            <div className="shrink-0 min-w-0 px-2 pt-2 text-sm font-medium lg:px-4">
               <nav className="grid min-w-0 items-start space-y-1 pb-1">
                 {bottomItems.map((item) => {
                   const Icon = item.icon;

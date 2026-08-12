@@ -10,7 +10,7 @@ const analyticsMocks = vi.hoisted(() => ({
 }));
 vi.mock("./analytics.js", () => analyticsMocks);
 
-import { useSession } from "./use-session.js";
+import { notifySessionInvalidated, useSession } from "./use-session.js";
 
 let container: HTMLDivElement;
 let root: Root;
@@ -203,6 +203,58 @@ describe("useSession", () => {
     expect(container.textContent).toBe("signed-outsigned-out");
     expect(analyticsMocks.trackSessionStatus).toHaveBeenCalledOnce();
     expect(analyticsMocks.trackSessionStatus).toHaveBeenCalledWith(false);
+  });
+
+  it("revalidates a cached session after logout invalidates it", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          userId: "user-4",
+          email: "logout@example.com",
+          name: "Logout",
+          orgId: "org-4",
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse({ error: "Not authenticated" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await renderConsumers(["first"]);
+    expect(container.textContent).toBe("logout@example.com");
+
+    await act(async () => {
+      notifySessionInvalidated();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(container.textContent).toBe("signed-out");
+  });
+
+  it("revalidates a cached session when the browser regains focus", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          userId: "user-5",
+          email: "focus@example.com",
+          name: "Focus",
+          orgId: "org-5",
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse({ error: "Not authenticated" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await renderConsumers(["first"]);
+    expect(container.textContent).toBe("focus@example.com");
+
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(container.textContent).toBe("signed-out");
   });
 });
 

@@ -1,21 +1,37 @@
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   IconActivity,
   IconAlertTriangle,
+  IconArrowUpRight,
   IconApps,
   IconChartBar,
-  IconClockHour4,
   IconCoin,
   IconMessages,
   IconUsersGroup,
 } from "@tabler/icons-react";
 import { useMemo, useState, type ReactNode } from "react";
+import { Link, useSearchParams } from "react-router";
+import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
 
 import { DispatchShell } from "../../components/dispatch-shell";
 import { Alert, AlertDescription, AlertTitle } from "../../components/ui/alert";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+} from "../../components/ui/chart";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../../components/ui/select";
 import { Skeleton } from "../../components/ui/skeleton";
 import { cn } from "../../lib/utils";
 
@@ -41,6 +57,11 @@ interface UserUsageMetric extends UsageMetricBucket {
   chatMessages: number;
   lastChatAt: number | null;
   topApp: string | null;
+  role: string | null;
+}
+
+interface UsageUserOption {
+  email: string;
   role: string | null;
 }
 
@@ -78,6 +99,13 @@ interface RecentUsageMetric {
   inputTokens: number;
   outputTokens: number;
   costCents: number;
+  prompt: string | null;
+  promptSource: "thread" | "thread-preview" | "not-captured" | "unavailable";
+  threadId: string | null;
+  runId: string | null;
+  taskId: string | null;
+  sourcePlatform: string | null;
+  sourceId: string | null;
 }
 
 interface UsageBillingMode {
@@ -91,6 +119,9 @@ interface UsageBillingMode {
 
 interface DispatchUsageMetrics {
   billing?: UsageBillingMode;
+  viewScope?: "me" | "workspace";
+  selectedUserEmail?: string | null;
+  availableUsers?: UsageUserOption[];
   sinceDays: number;
   access: {
     viewerEmail: string;
@@ -185,6 +216,39 @@ function timeAgo(timestamp: number | null): string {
   if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
   if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
   return `${Math.floor(diff / 86_400_000)}d ago`;
+}
+
+function formatTrendDate(value: string): string {
+  const date = new Date(`${value}T12:00:00`);
+  return date.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function completeTrendRows(rows: DailyUsageMetric[]): DailyUsageMetric[] {
+  if (rows.length < 2) return rows;
+  const byDate = new Map(rows.map((row) => [row.date, row]));
+  const start = new Date(`${rows[0].date}T12:00:00`);
+  const end = new Date(`${rows[rows.length - 1].date}T12:00:00`);
+  const completed: DailyUsageMetric[] = [];
+  for (
+    const cursor = start;
+    cursor <= end;
+    cursor.setDate(cursor.getDate() + 1)
+  ) {
+    const date = cursor.toISOString().slice(0, 10);
+    completed.push(
+      byDate.get(date) ?? {
+        date,
+        costCents: 0,
+        calls: 0,
+        chatCalls: 0,
+        activeUsers: 0,
+      },
+    );
+  }
+  return completed;
 }
 
 function displayApp(value: string | null | undefined): string {
@@ -307,6 +371,274 @@ function LoadingMetrics() {
   );
 }
 
+function ScopeSelector({
+  value,
+  onChange,
+}: {
+  value: "me" | "workspace";
+  onChange: (value: "me" | "workspace") => void;
+}) {
+  return (
+    <div className="flex rounded-md bg-card p-0.5" aria-label="Usage scope">
+      {(
+        [
+          ["me", "My usage"],
+          ["workspace", "Workspace"],
+        ] as const
+      ).map(([scope, label]) => (
+        <Button
+          key={scope}
+          type="button"
+          variant={value === scope ? "secondary" : "ghost"}
+          size="sm"
+          className="h-7 px-3 text-xs"
+          aria-pressed={value === scope}
+          onClick={() => onChange(scope)}
+        >
+          {label}
+        </Button>
+      ))}
+    </div>
+  );
+}
+
+function UserSelector({
+  value,
+  users,
+  onChange,
+}: {
+  value: string | null;
+  users: UsageUserOption[];
+  onChange: (value: string | null) => void;
+}) {
+  return (
+    <Select
+      value={value ?? "all"}
+      onValueChange={(nextValue) =>
+        onChange(nextValue === "all" ? null : nextValue)
+      }
+    >
+      <SelectTrigger
+        className="h-8 w-[210px] text-xs"
+        aria-label="Filter usage by user"
+      >
+        <SelectValue placeholder="All users" />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectGroup>
+          <SelectItem value="all">All users</SelectItem>
+          {users.map((user) => (
+            <SelectItem key={user.email} value={user.email}>
+              {user.email}
+            </SelectItem>
+          ))}
+        </SelectGroup>
+      </SelectContent>
+    </Select>
+  );
+}
+
+function UsageTrend({
+  rows,
+  billing,
+}: {
+  rows: DailyUsageMetric[];
+  billing: UsageBillingMode;
+}) {
+  const chartData = completeTrendRows(rows).map((row) => ({
+    ...row,
+    spend: displayAmountFromCostCents(row.costCents, billing),
+  }));
+
+  return (
+    <Panel
+      title={
+        billing.unit === "builder-credits"
+          ? "Credit usage trend"
+          : "Usage trend"
+      }
+      icon={<IconChartBar size={16} />}
+      action={
+        <div className="hidden items-center gap-3 text-[11px] text-muted-foreground sm:flex">
+          <span className="flex items-center gap-1.5">
+            <span className="size-2 rounded-full bg-[hsl(var(--dispatch-brand-blue))]" />
+            {billing.shortLabel}
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="size-2 rounded-full bg-muted-foreground" />
+            Calls
+          </span>
+        </div>
+      }
+    >
+      {chartData.length === 0 ? (
+        <div className="flex min-h-56 items-center justify-center rounded-md border border-dashed px-4 text-sm text-muted-foreground">
+          No usage in this window yet.
+        </div>
+      ) : (
+        <ChartContainer
+          config={{
+            spend: {
+              label: billing.shortLabel,
+              color: "hsl(var(--dispatch-brand-blue))",
+            },
+            calls: {
+              label: "Calls",
+              color: "hsl(var(--muted-foreground))",
+            },
+          }}
+          className="h-[280px] w-full aspect-auto"
+        >
+          <AreaChart
+            data={chartData}
+            margin={{ top: 8, right: 8, left: 12, bottom: 0 }}
+          >
+            <defs>
+              <linearGradient id="usage-trend-fill" x1="0" y1="0" x2="0" y2="1">
+                <stop
+                  offset="0%"
+                  stopColor="var(--color-spend)"
+                  stopOpacity={0.24}
+                />
+                <stop
+                  offset="100%"
+                  stopColor="var(--color-spend)"
+                  stopOpacity={0}
+                />
+              </linearGradient>
+            </defs>
+            <CartesianGrid
+              vertical={false}
+              stroke="hsl(var(--border))"
+              strokeDasharray="3 3"
+            />
+            <XAxis
+              dataKey="date"
+              stroke="hsl(var(--muted-foreground))"
+              fontSize={11}
+              axisLine={false}
+              tickLine={false}
+              tickMargin={8}
+              minTickGap={28}
+              tickFormatter={formatTrendDate}
+            />
+            <YAxis
+              yAxisId="spend"
+              stroke="hsl(var(--muted-foreground))"
+              fontSize={11}
+              axisLine={false}
+              tickLine={false}
+              tickMargin={8}
+              width={50}
+              tickFormatter={(value) =>
+                billing.unit === "builder-credits"
+                  ? formatCredits(Number(value))
+                  : formatSpend(Number(value), billing)
+              }
+            />
+            <YAxis yAxisId="calls" orientation="right" hide />
+            <ChartTooltip
+              cursor={false}
+              content={
+                <ChartTooltipContent
+                  labelFormatter={(value) => formatTrendDate(String(value))}
+                  formatter={(value, name) => [
+                    name === "spend"
+                      ? billing.unit === "builder-credits"
+                        ? formatCredits(Number(value))
+                        : formatSpend(Number(value), billing)
+                      : `${formatNumber(Number(value))} calls`,
+                    name === "spend" ? billing.shortLabel : "Calls",
+                  ]}
+                />
+              }
+            />
+            <Area
+              yAxisId="spend"
+              dataKey="spend"
+              type="monotone"
+              stroke="var(--color-spend)"
+              strokeWidth={2}
+              fill="url(#usage-trend-fill)"
+              fillOpacity={1}
+              dot={false}
+              activeDot={{ r: 4, strokeWidth: 2 }}
+              isAnimationActive={false}
+            />
+            <Area
+              yAxisId="calls"
+              dataKey="calls"
+              type="monotone"
+              stroke="var(--color-calls)"
+              strokeWidth={1.5}
+              fill="none"
+              dot={false}
+              activeDot={{ r: 3, strokeWidth: 2 }}
+              isAnimationActive={false}
+            />
+          </AreaChart>
+        </ChartContainer>
+      )}
+    </Panel>
+  );
+}
+
+function ReviewUsageButton({
+  metrics,
+  billing,
+}: {
+  metrics: DispatchUsageMetrics;
+  billing: UsageBillingMode;
+}) {
+  function reviewUsage() {
+    const topApps = metrics.byApp
+      .slice(0, 5)
+      .map(
+        (row) =>
+          `${displayApp(row.key)}: ${formatSpend(row.costCents, billing)} / ${row.calls} calls`,
+      )
+      .join("; ");
+    const topLabels = metrics.byLabel
+      .slice(0, 5)
+      .map(
+        (row) =>
+          `${row.label}: ${formatSpend(row.costCents, billing)} / ${row.calls} calls`,
+      )
+      .join("; ");
+    const recentPrompts = metrics.recent
+      .slice(0, 8)
+      .map((row) => {
+        const prompt = row.prompt
+          ? row.prompt.slice(0, 180)
+          : "prompt not captured";
+        return `${timeAgo(row.createdAt)} | ${displayApp(row.app)} | ${row.label} | ${prompt}`;
+      })
+      .join("\n");
+
+    sendToAgentChat({
+      message:
+        "Review this LLM usage and explain where the spend is going. Identify repeated, background, or unexpectedly expensive work, cite the strongest evidence, and suggest concrete fixes. Call out missing attribution instead of guessing.",
+      context: [
+        `Dispatch usage scope: ${metrics.viewScope === "workspace" ? "workspace" : "my account"}.`,
+        `Lookback: ${metrics.sinceDays} days. Viewer: ${metrics.access.viewerEmail}.`,
+        `Total: ${formatSpend(metrics.totals.costCents, billing)}, ${metrics.totals.calls} calls, ${metrics.totals.chatCalls} chat calls, ${formatTokens(metrics.totals.inputTokens + metrics.totals.outputTokens)} input/output tokens.`,
+        `Top apps: ${topApps || "none"}.`,
+        `Top work types: ${topLabels || "none"}.`,
+        `Recent prompt evidence (bounded to the latest 8 rows):\n${recentPrompts || "none"}`,
+      ].join("\n"),
+      submit: true,
+      openSidebar: true,
+      chatTarget: "local",
+    });
+  }
+
+  return (
+    <Button type="button" variant="outline" size="sm" onClick={reviewUsage}>
+      Ask agent
+    </Button>
+  );
+}
+
 function AppSpendRows({
   rows,
   billing,
@@ -355,40 +687,6 @@ function AppSpendRows({
                 ),
               }}
             />
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function DailyActivity({ rows }: { rows: DailyUsageMetric[] }) {
-  const max = Math.max(
-    1,
-    rows.reduce((value, row) => Math.max(value, row.calls), 0),
-  );
-  if (rows.length === 0) {
-    return (
-      <div className="rounded-lg border border-dashed px-4 py-8 text-sm text-muted-foreground">
-        No activity in this window.
-      </div>
-    );
-  }
-  return (
-    <div className="flex h-44 items-end gap-1">
-      {rows.map((row) => (
-        <div
-          key={row.date}
-          className="group flex min-w-0 flex-1 flex-col items-center gap-2"
-        >
-          <div className="relative flex h-36 w-full items-end rounded-sm bg-muted/60">
-            <div
-              className="w-full rounded-sm bg-foreground transition group-hover:bg-primary"
-              style={{ height: `${Math.max(4, (row.calls / max) * 100)}%` }}
-            />
-          </div>
-          <div className="hidden text-[10px] text-muted-foreground sm:block">
-            {row.date.slice(5)}
           </div>
         </div>
       ))}
@@ -588,52 +886,49 @@ function RecentTable({
   if (rows.length === 0) {
     return (
       <div className="rounded-lg border border-dashed px-4 py-8 text-sm text-muted-foreground">
-        No recent LLM calls.
+        No prompts or LLM calls in this window.
       </div>
     );
   }
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full min-w-[760px] text-left text-xs">
-        <thead>
-          <tr className="border-b text-muted-foreground">
-            <th className="px-2 py-2 font-medium">When</th>
-            <th className="px-2 py-2 font-medium">User</th>
-            <th className="px-2 py-2 font-medium">App</th>
-            <th className="px-2 py-2 font-medium">Label</th>
-            <th className="px-2 py-2 font-medium">Model</th>
-            <th className="px-2 py-2 text-right font-medium">
-              {billing.shortLabel}
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.slice(0, 10).map((row) => (
-            <tr key={row.id} className="border-b last:border-0">
-              <td className="px-2 py-3 text-muted-foreground">
-                {timeAgo(row.createdAt)}
-              </td>
-              <td className="max-w-56 px-2 py-3">
-                <div className="truncate text-foreground">{row.ownerEmail}</div>
-              </td>
-              <td className="px-2 py-3 text-muted-foreground">
-                {displayApp(row.app)}
-              </td>
-              <td className="px-2 py-3">
-                <Badge variant="outline">{row.label}</Badge>
-              </td>
-              <td className="max-w-48 px-2 py-3">
-                <div className="truncate text-muted-foreground">
-                  {row.model}
-                </div>
-              </td>
-              <td className="px-2 py-3 text-right tabular-nums">
-                {formatSpend(row.costCents, billing)}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div className="divide-y">
+      {rows.slice(0, 10).map((row) => (
+        <article key={row.id} className="-mx-1 px-1 py-3 first:pt-0 last:pb-0">
+          <div className="flex items-start justify-between gap-4">
+            <p className="min-w-0 whitespace-pre-wrap text-sm leading-6 text-foreground">
+              {row.prompt ||
+                (row.promptSource === "unavailable"
+                  ? "Prompt unavailable - linked thread data could not be read."
+                  : "Prompt not captured for this call.")}
+            </p>
+            <span className="shrink-0 text-xs text-muted-foreground">
+              {timeAgo(row.createdAt)}
+            </span>
+          </div>
+          <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+            <Badge variant="outline">{displayApp(row.app)}</Badge>
+            <Badge variant="secondary">{row.label}</Badge>
+            <span>{row.model}</span>
+            <span aria-hidden="true">·</span>
+            <span>{formatSpend(row.costCents, billing)}</span>
+            {row.ownerEmail ? (
+              <>
+                <span aria-hidden="true">·</span>
+                <span className="max-w-64 truncate">{row.ownerEmail}</span>
+              </>
+            ) : null}
+            {row.threadId ? (
+              <Link
+                to={`/admin/thread-debug?threadId=${encodeURIComponent(row.threadId)}`}
+                className="inline-flex items-center gap-1 rounded-md border px-2 py-0.5 font-medium text-foreground transition-colors hover:bg-muted"
+              >
+                Inspect thread
+                <IconArrowUpRight size={12} />
+              </Link>
+            ) : null}
+          </div>
+        </article>
+      ))}
     </div>
   );
 }
@@ -641,9 +936,30 @@ function RecentTable({
 export default function MetricsRoute() {
   const t = useT();
   const [sinceDays, setSinceDays] = useState(30);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const scope: "me" | "workspace" =
+    searchParams.get("scope") === "workspace" ? "workspace" : "me";
+  const userEmail =
+    scope === "workspace" ? searchParams.get("user") || null : null;
+
+  function setScope(nextScope: "me" | "workspace") {
+    const next = new URLSearchParams(searchParams);
+    if (nextScope === "me") next.delete("scope");
+    else next.set("scope", nextScope);
+    if (nextScope === "me") next.delete("user");
+    setSearchParams(next, { replace: true });
+  }
+
+  function setUserEmail(nextUserEmail: string | null) {
+    const next = new URLSearchParams(searchParams);
+    if (nextUserEmail) next.set("user", nextUserEmail);
+    else next.delete("user");
+    setSearchParams(next, { replace: true });
+  }
+
   const { data, isLoading, error } = useActionQuery(
     "list-dispatch-usage-metrics",
-    { sinceDays },
+    { sinceDays, scope, userEmail: userEmail ?? undefined },
   );
   const metrics = data as DispatchUsageMetrics | undefined;
   const billing = metrics?.billing ?? USD_BILLING;
@@ -668,12 +984,33 @@ export default function MetricsRoute() {
     >
       <div className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="text-sm text-muted-foreground">
-            {metrics?.access.scope === "organization"
-              ? `${metrics.access.totalUsers} workspace users`
-              : `${metrics?.access.totalUsers ?? 0} signed-in users`}
+          <div>
+            <div className="text-sm font-medium text-foreground">
+              {metrics?.selectedUserEmail
+                ? `${metrics.selectedUserEmail}'s usage`
+                : scope === "workspace"
+                  ? "Workspace usage"
+                  : "Your usage"}
+            </div>
+            <div className="mt-0.5 text-xs text-muted-foreground">
+              {metrics?.selectedUserEmail
+                ? "Filtered to this workspace member"
+                : scope === "workspace"
+                  ? `${metrics?.access.totalUsers ?? 0} users with access`
+                  : metrics?.access.viewerEmail || "Signed-in account"}
+            </div>
           </div>
-          <RangeSelector value={sinceDays} onChange={setSinceDays} />
+          <div className="flex flex-wrap items-center gap-2">
+            <ScopeSelector value={scope} onChange={setScope} />
+            {scope === "workspace" && metrics ? (
+              <UserSelector
+                value={metrics.selectedUserEmail ?? userEmail}
+                users={metrics.availableUsers ?? []}
+                onChange={setUserEmail}
+              />
+            ) : null}
+            <RangeSelector value={sinceDays} onChange={setSinceDays} />
+          </div>
         </div>
 
         {error ? (
@@ -692,6 +1029,15 @@ export default function MetricsRoute() {
 
         {metrics ? (
           <>
+            <UsageTrend rows={metrics.daily} billing={billing} />
+
+            <div className="flex items-center justify-between gap-3 border-y py-3">
+              <span className="text-sm text-muted-foreground">
+                Review this usage with the agent
+              </span>
+              <ReviewUsageButton metrics={metrics} billing={billing} />
+            </div>
+
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
               <MetricCard
                 label={billing.label}
@@ -725,21 +1071,29 @@ export default function MetricsRoute() {
               />
             </div>
 
-            <div className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.65fr)]">
-              <Panel
-                title={
-                  billing.unit === "builder-credits"
-                    ? "Credit Spend By App"
-                    : "Spend By App"
-                }
-                icon={<IconChartBar size={16} />}
-              >
-                <AppSpendRows rows={metrics.byApp} billing={billing} />
-              </Panel>
-              <Panel title="Daily Activity" icon={<IconClockHour4 size={16} />}>
-                <DailyActivity rows={metrics.daily} />
-              </Panel>
-            </div>
+            <Panel
+              title={
+                billing.unit === "builder-credits"
+                  ? "Credit spend by app"
+                  : "Spend by app"
+              }
+              icon={<IconApps size={16} />}
+            >
+              <AppSpendRows rows={metrics.byApp} billing={billing} />
+            </Panel>
+
+            <Panel
+              title="Recent prompts"
+              icon={<IconMessages size={16} />}
+              action={
+                <span className="text-xs text-muted-foreground">
+                  Latest {Math.min(metrics.recent.length, 10)} of{" "}
+                  {metrics.recent.length}
+                </span>
+              }
+            >
+              <RecentTable rows={metrics.recent} billing={billing} />
+            </Panel>
 
             <Panel title="Access By App" icon={<IconApps size={16} />}>
               <AppAccessTable rows={metrics.appAccess} billing={billing} />
@@ -765,10 +1119,6 @@ export default function MetricsRoute() {
                 />
               </Panel>
             </div>
-
-            <Panel title="Recent LLM Calls" icon={<IconActivity size={16} />}>
-              <RecentTable rows={metrics.recent} billing={billing} />
-            </Panel>
           </>
         ) : null}
       </div>

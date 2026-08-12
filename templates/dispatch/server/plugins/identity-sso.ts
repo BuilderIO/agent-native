@@ -1,90 +1,56 @@
 /**
- * `/_agent-native/identity/authorize` — Dispatch as the cross-app identity
- * AUTHORITY ("Sign in with Agent-Native").
+ * Dispatch identity authority routes.
  *
- * Flow (single-endpoint, no code-exchange — see "Why no /token" below):
+ * Browser flow:
+ *   1. Client -> /authorize?response_type=code&code_challenge=...
+ *   2. Dispatch authenticates the existing user and redirects with `code` and
+ *      the caller's opaque `state`.
+ *   3. Client server -> /token with code + state + PKCE verifier.
+ *   4. Dispatch atomically consumes the code and returns a short-lived signed
+ *      identity assertion server-to-server.
  *
- *   1. A first-party client app (mail, calendar, …) redirects an
- *      unauthenticated visitor here with:
- *        ?app=<id>&redirect_uri=<https url>&state=<opaque>
- *
- *   2. We validate `redirect_uri` against the strict allowlist
- *      (`isAllowedRedirectUri`). An invalid/forbidden value is rejected
- *      with 400 BEFORE any session work — an attacker-controlled
- *      `redirect_uri` must never receive a token. This is the single most
- *      important control on this endpoint.
- *
- *   3. We resolve the EXISTING Dispatch Better Auth session (`getSession`).
- *      - Not logged in -> 302 to the sign-in href minted by the framework's
- *        `signInJourney`, carrying this authorize path as an opaque
- *        continuation. The framework serves Dispatch's normal login form,
- *        and on success resumes the continuation, re-entering THIS handler
- *        authenticated. No new login UI; we reuse Dispatch's exact
- *        existing auth flow.
- *      - Logged in  -> mint + redirect (step 4).
- *
- *   4. Mint a SHORT-LIVED signed identity JWT using the EXISTING A2A signer
- *      (`signA2AToken`, HS256 over the shared `A2A_SECRET`). Claims are
- *      exactly: sub=email, email, name?, org_domain?, scope:"identity",
- *      aud=redirect_uri, redirect_uri, jti, short exp (<= 5 min). 302 to
- *      `redirect_uri` with the token and the caller's UNTOUCHED `state`
- *      appended as query params.
- *
- * Why no `/token` code-exchange endpoint:
- *   The token is already (a) short-lived (<=2 min exp), (b) signature-
- *   verified against the shared A2A secret, and (c) only ever delivered to
- *   an allowlisted first-party https host. Adding a code + exchange
- *   endpoint would add surface (a second unauthenticated route, a code
- *   store) without changing the trust model, since the redirect target is
- *   already constrained. We therefore sign directly and return via the
- *   redirect query — the simplest secure flow.
- *
- * Replay protection:
- *   The short `exp` (<=2 min) + random `jti` + the caller's `state`
- *   echo-check (the client MUST verify `state` it generated) bound the
- *   replay window. We intentionally do NOT add a Dispatch-side jti store:
- *   the core MCP connect-store jti helpers are not importable from a public
- *   `@agent-native/core` subpath, and a bespoke store would be net-new
- *   surface for a token whose window is already <=2 min and single-origin.
- *   This is documented as the chosen trade-off.
- *
- * Auth-guard reachability:
- *   `/_agent-native/*` is 401'd by the core auth guard when there is no
- *   session, which would break the logged-OUT bounce. So this plugin
- *   registers the exact path `/_agent-native/identity/authorize` as a
- *   `publicPath` via a second `createAuthPlugin({ publicPaths })` call.
- *   When two `createAuthPlugin` calls run in the same server boot on the
- *   same Nitro app, the framework APPENDS publicPaths to the live guard
- *   config (it does not clobber Dispatch's googleOnly/marketing/onboarding
- *   — verified in packages/core/src/server/auth.ts). The path is matched
- *   exactly (or as a `/`-segment prefix), so ONLY the authorize endpoint
- *   becomes public; any future `/_agent-native/identity/*` route stays
- *   protected. The handler then resolves the session ITSELF (exactly the
- *   `/_agent-native/open` pattern) — public-path only means "guard does not
- *   pre-empt", not "no auth": logged-out users are still bounced to login,
- *   and a token is only minted for a real session.
+ * The browser never receives a JWT, password, or reusable identity assertion.
+ * The default-off Desktop flag still gates only the packaged Canary path;
+ * ordinary browser federation remains controlled by the client's explicit
+ * identity-hub configuration.
  */
 
 import { signA2AToken } from "@agent-native/core/a2a";
-import { getOrgDomain } from "@agent-native/core/org";
 import {
-  createAuthPlugin,
-  getH3App,
-  getSession,
-} from "@agent-native/core/server";
+  getFeatureFlagRules,
+  isFeatureFlagEnabled,
+  normalizeFeatureFlagRules,
+} from "@agent-native/core/feature-flags";
+import { getOrgDomain } from "@agent-native/core/org";
+import { getH3App, getSession } from "@agent-native/core/server";
 import { signInJourney } from "@agent-native/core/shared";
-import { defineEventHandler, getMethod } from "h3";
+import { defineEventHandler, getHeader, getMethod, readBody } from "h3";
 import type { H3Event } from "h3";
 
+import { DESKTOP_WORKSPACE_SSO_FLAG } from "../../shared/feature-flags.js";
 import {
+  IDENTITY_AUTHORIZATION_CODE_TTL_MS,
+  IDENTITY_SCOPE,
+  IDENTITY_SSO_TOKEN_PATH,
   IDENTITY_TOKEN_TTL,
   buildIdentityClaims,
   buildRedirectLocation,
-  isAllowedRedirectUri,
+  consumeIdentityAuthorizationCode,
+  createIdentityAuthorizationCode,
+  isValidSsoState,
+  normalizeIdentityAuthority,
+  resolveIdentitySsoApp,
 } from "../lib/identity-sso.js";
 
-/** Exact path. Registered as a publicPath so the guard does not 401 it. */
+const AVAILABILITY_PATH = "/_agent-native/identity/availability";
 const AUTHORIZE_PATH = "/_agent-native/identity/authorize";
+const DESKTOP_SSO_CANARY_USER_AGENT = /AgentNativeDesktopSsoCanary\//i;
+
+export function isDesktopWorkspaceSsoRequest(
+  userAgent: string | undefined,
+): boolean {
+  return DESKTOP_SSO_CANARY_USER_AGENT.test(userAgent ?? "");
+}
 
 function getRequestUrl(event: H3Event): string {
   return (event as any).node?.req?.url ?? (event as any).path ?? "/";
@@ -93,32 +59,97 @@ function getRequestUrl(event: H3Event): string {
 function jsonResponse(body: unknown, status: number): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Cache-Control": "private, no-store",
+      "Content-Type": "application/json",
+      "Referrer-Policy": "no-referrer",
+    },
   });
 }
 
 function redirect(location: string): Response {
-  // Native web Response — matches the redirect style used by the core
-  // /open + auth routes (avoids h3 v2 sendRedirect behavior differences).
-  return new Response("", { status: 302, headers: { Location: location } });
+  return new Response("", {
+    status: 302,
+    headers: {
+      Location: location,
+      "Cache-Control": "no-store",
+      "Referrer-Policy": "no-referrer",
+    },
+  });
 }
 
-/**
- * Resolve the org domain for the active org, best-effort. A missing org
- * just yields a token with no `org_domain` claim (still a valid identity).
- */
+function resolveAuthority(): string | null {
+  return normalizeIdentityAuthority(
+    process.env.APP_URL || process.env.BETTER_AUTH_URL,
+  );
+}
+
+function bodyString(body: unknown, key: string): string | null {
+  if (!body || typeof body !== "object") return null;
+  const value = (body as Record<string, unknown>)[key];
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
 async function resolveOrgDomain(
   orgId: string | undefined,
 ): Promise<string | undefined> {
   if (!orgId) return undefined;
   try {
     return (await getOrgDomain(orgId)) ?? undefined;
-  } catch {
+  } catch (error) {
+    void error;
     return undefined;
   }
 }
 
-const authorizeHandler = defineEventHandler(
+export async function canAttemptWorkspaceSso(): Promise<boolean> {
+  const stored = await getFeatureFlagRules(
+    DESKTOP_WORKSPACE_SSO_FLAG.key,
+    {},
+  ).catch(() => null);
+  if (!stored) return false;
+  const rules = normalizeFeatureFlagRules(stored);
+  if (rules.mode === "off") return false;
+  if (rules.mode === "on") return true;
+  return (
+    rules.emails.length > 0 || rules.orgIds.length > 0 || rules.percentage > 0
+  );
+}
+
+export async function isWorkspaceSsoEnabledForSession(
+  session: Awaited<ReturnType<typeof getSession>>,
+): Promise<boolean> {
+  if (!session?.email) return false;
+  return isFeatureFlagEnabled(DESKTOP_WORKSPACE_SSO_FLAG, {
+    userEmail: session.email,
+    userKey: session.email,
+    orgId: session.orgId,
+  }).catch(() => false);
+}
+
+export const availabilityHandler = defineEventHandler(
+  async (event: H3Event): Promise<Response> => {
+    const method = getMethod(event);
+    if (method !== "GET" && method !== "HEAD") {
+      return jsonResponse({ error: "Method not allowed" }, 405);
+    }
+    const session = await getSession(event).catch(() => null);
+    const isDesktopRequest = isDesktopWorkspaceSsoRequest(
+      getHeader(event, "user-agent"),
+    );
+    // Anonymous availability is only a Canary hint used by an explicit
+    // Desktop settings action. Ordinary browser requests never get a positive
+    // answer here, so this endpoint cannot become an anonymous auto-login.
+    const available = session?.email
+      ? await isWorkspaceSsoEnabledForSession(session)
+      : isDesktopRequest
+        ? await canAttemptWorkspaceSso()
+        : false;
+    return jsonResponse({ available }, 200);
+  },
+);
+
+export const authorizeHandler = defineEventHandler(
   async (event: H3Event): Promise<Response> => {
     const method = getMethod(event);
     if (method !== "GET" && method !== "HEAD") {
@@ -129,45 +160,66 @@ const authorizeHandler = defineEventHandler(
     let search: URLSearchParams;
     try {
       search = new URL(rawUrl, "http://an.invalid").searchParams;
-    } catch {
+    } catch (error) {
+      void error;
       search = new URLSearchParams();
     }
 
     const redirectUri = search.get("redirect_uri");
+    const appId = search.get("app");
+    const clientId = search.get("client_id");
     const state = search.get("state");
+    const responseType = search.get("response_type");
+    const codeChallenge = search.get("code_challenge");
+    const codeChallengeMethod = search.get("code_challenge_method");
+    const isDesktopRequest = isDesktopWorkspaceSsoRequest(
+      getHeader(event, "user-agent"),
+    );
 
-    // ---- Control 1: redirect_uri allowlist (BEFORE any session work) ----
-    // An attacker-supplied redirect_uri must never reach the mint path.
-    if (!isAllowedRedirectUri(redirectUri)) {
+    // Validate every browser-controlled protocol parameter before resolving a
+    // Dispatch session or constructing a continuation URL.
+    const registration = resolveIdentitySsoApp(appId, clientId, redirectUri);
+    if (
+      !registration ||
+      responseType !== "code" ||
+      !isValidSsoState(state) ||
+      !isValidSsoState(codeChallenge) ||
+      codeChallengeMethod !== "S256"
+    ) {
       return jsonResponse(
         {
-          error: "invalid_redirect_uri",
+          error: "invalid_authorization_request",
           error_description:
-            "redirect_uri must be an absolute https URL on an allowed " +
-            "first-party host (a localhost http URL is allowed for " +
-            "local development).",
+            "The app, client, callback, state, or PKCE binding is not registered.",
         },
         400,
       );
     }
-    // Narrowed to string by isAllowedRedirectUri.
     const safeRedirectUri = redirectUri as string;
+    const safeAppId = appId as string;
+    const safeClientId = clientId as string;
+    const safeState = state as string;
+    const safeCodeChallenge = codeChallenge as string;
+    const authority = resolveAuthority();
+    if (!authority) {
+      return jsonResponse(
+        {
+          error: "identity_unavailable",
+          error_description: "Dispatch identity authority is not configured.",
+        },
+        503,
+      );
+    }
 
-    // ---- Resolve the EXISTING Dispatch session --------------------------
+    if (isDesktopRequest && !(await canAttemptWorkspaceSso())) {
+      return jsonResponse({ error: "not_found" }, 404);
+    }
+
     const session = await getSession(event).catch(() => null);
-
     if (!session?.email) {
-      // Logged out: bounce through the framework's one sign-in journey,
-      // preserving the FULL authorize path as the continuation so we
-      // re-enter here authenticated.
       const queryStart = rawUrl.indexOf("?");
       const authorizePathWithQuery =
         AUTHORIZE_PATH + (queryStart >= 0 ? rawUrl.slice(queryStart) : "");
-      // No basePath: this route is registered at the bare, unprefixed path
-      // (see the getH3App().use below), so base-path containment would
-      // reject its own authorize URL on a base-path deploy. The pathname is
-      // a compile-time constant; only the query is request-derived, and
-      // signInJourney validates that.
       const { signInHref } = signInJourney({ at: authorizePathWithQuery });
       if (!signInHref) {
         return jsonResponse(
@@ -182,69 +234,147 @@ const authorizeHandler = defineEventHandler(
       return redirect(signInHref);
     }
 
-    // ---- Mint the short-lived identity token ----------------------------
+    if (isDesktopRequest && !(await isWorkspaceSsoEnabledForSession(session))) {
+      return jsonResponse({ error: "not_found" }, 404);
+    }
     if (!process.env.A2A_SECRET) {
-      // Without a shared secret, no first-party app could verify the token.
       return jsonResponse(
         {
           error: "identity_unavailable",
-          error_description:
-            "This Dispatch deployment has no A2A_SECRET configured, so " +
-            "identity tokens cannot be signed.",
+          error_description: "Dispatch identity signing is not configured.",
         },
         503,
       );
     }
 
-    const orgDomain = await resolveOrgDomain(session.orgId);
-    const claims = buildIdentityClaims({
-      email: session.email,
-      name: session.name,
-      orgDomain,
-    });
-
-    let token: string;
+    let code: string;
     try {
-      // Reuse the EXISTING signer. `sub`/`org_domain` are set by the
-      // signer from (email, orgDomain) and CANNOT be overridden via
-      // extraClaims (the signer spreads them last), so the extra
-      // identity claims here can never spoof identity.
-      token = await signA2AToken(session.email, orgDomain, undefined, {
-        preferGlobalSecret: true,
-        // jose treats a number as an absolute Unix ts; pass the duration
-        // string ("2m") so exp is `now + 2m`.
-        expiresIn: IDENTITY_TOKEN_TTL,
-        extraClaims: {
-          email: claims.email,
-          ...(claims.name ? { name: claims.name } : {}),
-          scope: claims.scope,
-          aud: safeRedirectUri,
-          redirect_uri: safeRedirectUri,
-          jti: claims.jti,
-        },
+      code = await createIdentityAuthorizationCode({
+        state: safeState,
+        appId: safeAppId,
+        clientId: safeClientId,
+        redirectUri: safeRedirectUri,
+        authority,
+        codeChallenge: safeCodeChallenge,
+        email: session.email,
+        name: session.name,
+        orgDomain: await resolveOrgDomain(session.orgId),
       });
-    } catch {
+    } catch (error) {
+      void error;
       return jsonResponse(
         {
-          error: "sign_failed",
-          error_description: "Failed to mint identity token.",
+          error: "identity_unavailable",
+          error_description: "Could not create a one-time sign-in code.",
         },
-        500,
+        503,
       );
     }
 
-    return redirect(buildRedirectLocation(safeRedirectUri, token, state));
+    return redirect(buildRedirectLocation(safeRedirectUri, code, safeState));
   },
 );
 
-/**
- * Dispatch identity-SSO plugin. Mounts the authorize route and registers
- * its exact path as a public path so the core auth guard does not 401 the
- * logged-out bounce. The `createAuthPlugin({ publicPaths })` call is
- * additive — it appends to the live guard config without disturbing the
- * primary Dispatch auth plugin's googleOnly/marketing/onboarding config.
- */
+export const tokenHandler = defineEventHandler(
+  async (event: H3Event): Promise<Response> => {
+    if (getMethod(event) !== "POST") {
+      return jsonResponse({ error: "Method not allowed" }, 405);
+    }
+    const body = await readBody(event).catch((error) => {
+      // coercion-ok: unreadable request bodies are rejected as invalid requests below.
+      void error;
+      return null;
+    });
+    const grantType = bodyString(body, "grant_type");
+    const code = bodyString(body, "code");
+    const state = bodyString(body, "state");
+    const appId = bodyString(body, "app_id");
+    const clientId = bodyString(body, "client_id");
+    const redirectUri = bodyString(body, "redirect_uri");
+    const codeVerifier = bodyString(body, "code_verifier");
+    if (
+      grantType !== "authorization_code" ||
+      !code ||
+      !state ||
+      !appId ||
+      !clientId ||
+      !redirectUri ||
+      !codeVerifier
+    ) {
+      return jsonResponse({ error: "invalid_token_request" }, 400);
+    }
+
+    const registration = resolveIdentitySsoApp(appId, clientId, redirectUri);
+    if (!registration) {
+      return jsonResponse({ error: "invalid_token_request" }, 400);
+    }
+    const authority = resolveAuthority();
+    if (!authority || !process.env.A2A_SECRET) {
+      return jsonResponse({ error: "identity_unavailable" }, 503);
+    }
+
+    const identity = await consumeIdentityAuthorizationCode({
+      code,
+      state,
+      appId,
+      clientId,
+      redirectUri,
+      authority,
+      codeVerifier,
+    }).catch((error) => {
+      // coercion-ok: an unreadable authorization code is handled as invalid_grant below.
+      void error;
+      return null;
+    });
+    if (!identity) return jsonResponse({ error: "invalid_grant" }, 400);
+
+    const claims = buildIdentityClaims({
+      email: identity.email,
+      name: identity.name,
+      orgDomain: identity.orgDomain,
+    });
+    let assertion: string;
+    try {
+      assertion = await signA2AToken(
+        identity.email,
+        identity.orgDomain,
+        undefined,
+        {
+          preferGlobalSecret: true,
+          expiresIn: IDENTITY_TOKEN_TTL,
+          audience: redirectUri,
+          extraClaims: {
+            email: claims.email,
+            ...(claims.name ? { name: claims.name } : {}),
+            scope: IDENTITY_SCOPE,
+            jti: identity.jti,
+            redirect_uri: redirectUri,
+            identity_client_id: clientId,
+            identity_authority: authority,
+          },
+        },
+      );
+    } catch (error) {
+      void error;
+      return jsonResponse({ error: "sign_failed" }, 500);
+    }
+
+    // This response is server-to-server. It is never redirected through the
+    // browser and is intentionally not rendered or logged.
+    return jsonResponse(
+      {
+        assertion,
+        token_type: "identity-assertion",
+        expires_in: Math.floor(IDENTITY_AUTHORIZATION_CODE_TTL_MS / 1_000),
+      },
+      200,
+    );
+  },
+);
+
+/** Mount the authority and token endpoints. */
 export default async (nitroApp: any) => {
+  getH3App(nitroApp).use(AVAILABILITY_PATH, availabilityHandler);
   getH3App(nitroApp).use(AUTHORIZE_PATH, authorizeHandler);
-  return createAuthPlugin({ publicPaths: [AUTHORIZE_PATH] })(nitroApp);
+  getH3App(nitroApp).use(IDENTITY_SSO_TOKEN_PATH, tokenHandler);
 };
