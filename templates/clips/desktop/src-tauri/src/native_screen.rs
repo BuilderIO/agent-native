@@ -1,5 +1,6 @@
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
 use std::fs::File;
 use std::io::{ErrorKind, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
@@ -567,6 +568,7 @@ impl SharedClipSink {
             cancel_clip_live_upload(&live);
         }
         self.sink.cancel();
+        remove_recording_intent(&self.path);
     }
 
     /// Use when Add previous 30s/5m switches to Rewind's exact local
@@ -578,6 +580,7 @@ impl SharedClipSink {
             cancel_clip_live_upload(&live);
         }
         self.sink.cancel();
+        remove_recording_intent(&self.path);
         if let Some(config) = self.upload_reset.take() {
             let Some((server_url, recording_id, auth_token, cookie)) = config.validated()? else {
                 return Ok(());
@@ -1035,6 +1038,26 @@ struct SavedNativeRecording {
     corrupt: bool,
 }
 
+/// Written as soon as a remote recording starts. If the process dies before
+/// the normal stop path can write SavedNativeRecording, this small sidecar is
+/// enough for the next startup to promote the media file into the same retry
+/// queue instead of leaving an invisible orphan on disk.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct NativeRecordingIntent {
+    recording_id: String,
+    server_url: String,
+    mime_type: String,
+    width: Option<u32>,
+    height: Option<u32>,
+    has_audio: bool,
+    mic_captured: bool,
+    system_audio_captured: bool,
+    has_camera: bool,
+    custom_pipeline: bool,
+    saved_at: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PendingNativeRecording {
@@ -1052,6 +1075,13 @@ pub struct PendingNativeRecording {
     last_error: Option<String>,
     retry_count: u32,
     corrupt: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeOrphanedRecordingRecoveryResult {
+    recovered: u32,
+    skipped: u32,
 }
 
 #[derive(Serialize)]
@@ -1360,6 +1390,33 @@ fn start_native_session_locked(
     })
 }
 
+#[cfg(target_os = "macos")]
+fn persist_active_recording_intent(
+    session: &NativeFullscreenSession,
+    recording_id: &str,
+    server_url: Option<&str>,
+    has_camera: bool,
+) {
+    let Some(server_url) = server_url.filter(|value| !value.trim().is_empty()) else {
+        return;
+    };
+    if let Err(error) = persist_recording_intent(
+        &session.path,
+        recording_id,
+        server_url,
+        session.mime_type,
+        session.width,
+        session.height,
+        session.restart.include_audio || session.restart.capture_system_audio,
+        session.restart.mic_captured_in_file,
+        session.restart.capture_system_audio,
+        has_camera,
+        session.custom_pipeline,
+    ) {
+        eprintln!("[clips-tray] native recording recovery intent unavailable: {error}");
+    }
+}
+
 /// Phase 1 of the warm/begin start. Starts ScreenCaptureKit capture with the
 /// recording output DEFERRED so the microphone pipeline warms up (its first
 /// sample lands ~1s after capture begins) without that silent second being
@@ -1554,6 +1611,12 @@ pub async fn native_fullscreen_recording_begin(
                         include_audio,
                         has_camera.unwrap_or(false),
                     );
+                    persist_active_recording_intent(
+                        session,
+                        &recording_id,
+                        server_url.as_deref(),
+                        has_camera.unwrap_or(false),
+                    );
                 }
             }
             return Ok(info);
@@ -1643,6 +1706,12 @@ pub async fn native_fullscreen_recording_begin(
             auth_token.as_deref(),
             cookie.as_deref(),
             include_audio,
+            has_camera.unwrap_or(false),
+        );
+        persist_active_recording_intent(
+            session,
+            &recording_id,
+            server_url.as_deref(),
             has_camera.unwrap_or(false),
         );
 
@@ -2659,8 +2728,10 @@ fn discard_session(session: &mut NativeFullscreenSession) {
     }
     let _ = finalize_active_backend(session, false);
     for segment in &session.segments {
+        remove_recording_intent(segment);
         let _ = std::fs::remove_file(segment);
     }
+    remove_recording_intent(&session.path);
     let _ = std::fs::remove_file(&session.path);
 }
 
@@ -3424,6 +3495,108 @@ fn now_iso() -> String {
     Utc::now().to_rfc3339()
 }
 
+fn recording_intent_path(path: &Path) -> PathBuf {
+    let file_name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("recording");
+    path.with_file_name(format!("{file_name}.intent.json"))
+}
+
+fn recording_path_from_intent(path: &Path) -> Option<PathBuf> {
+    let file_name = path.file_name()?.to_str()?;
+    let recording_name = file_name.strip_suffix(".intent.json")?;
+    Some(path.with_file_name(recording_name))
+}
+
+/// Persist only non-secret recording facts. The auth token and cookie remain
+/// in the normal session state, so a crash cannot turn this recovery marker
+/// into a credentials file.
+pub(crate) fn persist_recording_intent(
+    path: &Path,
+    recording_id: &str,
+    server_url: &str,
+    mime_type: &str,
+    width: Option<u32>,
+    height: Option<u32>,
+    has_audio: bool,
+    mic_captured: bool,
+    system_audio_captured: bool,
+    has_camera: bool,
+    custom_pipeline: bool,
+) -> Result<(), String> {
+    if recording_id.trim().is_empty() || server_url.trim().is_empty() {
+        return Err("recording recovery intent requires a recording ID and server URL".into());
+    }
+    let parent = path
+        .parent()
+        .ok_or_else(|| format!("recording path has no parent: {}", path.display()))?;
+    std::fs::create_dir_all(parent)
+        .map_err(|error| format!("recording recovery directory unavailable: {error}"))?;
+    let intent = NativeRecordingIntent {
+        recording_id: recording_id.to_string(),
+        server_url: server_url.trim_end_matches('/').to_string(),
+        mime_type: mime_type.to_string(),
+        width,
+        height,
+        has_audio,
+        mic_captured,
+        system_audio_captured,
+        has_camera,
+        custom_pipeline,
+        saved_at: now_iso(),
+    };
+    let data = serde_json::to_vec_pretty(&intent)
+        .map_err(|error| format!("recording recovery intent encode failed: {error}"))?;
+    let destination = recording_intent_path(path);
+    let temporary = destination.with_file_name(format!(
+        ".{}.tmp",
+        destination
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or("recording.intent.json")
+    ));
+    std::fs::write(&temporary, data)
+        .map_err(|error| format!("recording recovery intent write failed: {error}"))?;
+    if let Err(error) = std::fs::rename(&temporary, &destination) {
+        let _ = std::fs::remove_file(&temporary);
+        return Err(format!("recording recovery intent finalize failed: {error}"));
+    }
+    Ok(())
+}
+
+pub(crate) fn remove_recording_intent(path: &Path) {
+    let intent_path = recording_intent_path(path);
+    if let Err(error) = std::fs::remove_file(&intent_path) {
+        if error.kind() != ErrorKind::NotFound {
+            eprintln!(
+                "[clips-tray] recording recovery intent cleanup failed for {}: {error}",
+                intent_path.display()
+            );
+        }
+    }
+}
+
+fn read_recording_intent(path: &Path) -> Result<Option<NativeRecordingIntent>, String> {
+    let intent_path = recording_intent_path(path);
+    let data = match std::fs::read(&intent_path) {
+        Ok(data) => data,
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(format!(
+                "recording recovery intent read failed for {}: {error}",
+                intent_path.display()
+            ));
+        }
+    };
+    serde_json::from_slice(&data).map(Some).map_err(|error| {
+        format!(
+            "recording recovery intent decode failed for {}: {error}",
+            intent_path.display()
+        )
+    })
+}
+
 fn describe_recording_path(path: &Path) -> String {
     let exists = path.exists();
     let size = std::fs::metadata(path).map(|m| m.len()).ok();
@@ -3840,7 +4013,13 @@ fn write_saved_recording_metadata(
     let path = saved_recording_metadata_path(app, &saved.recording_id)?;
     let data = serde_json::to_vec_pretty(saved)
         .map_err(|e| format!("pending recording metadata encode failed: {e}"))?;
-    std::fs::write(path, data).map_err(|e| format!("pending recording metadata write failed: {e}"))
+    std::fs::write(path, data)
+        .map_err(|e| format!("pending recording metadata write failed: {e}"))?;
+    remove_recording_intent(&saved.file_path);
+    for segment_path in &saved.segment_paths {
+        remove_recording_intent(segment_path);
+    }
+    Ok(())
 }
 
 fn read_saved_recording_metadata_path(path: &Path) -> Result<SavedNativeRecording, String> {
@@ -3872,6 +4051,10 @@ fn clear_saved_recording(app: &AppHandle, saved: &SavedNativeRecording) -> Resul
         if segment_path != &saved.file_path {
             remove_saved_file(segment_path, "pending recording segment")?;
         }
+    }
+    remove_recording_intent(&saved.file_path);
+    for segment_path in &saved.segment_paths {
+        remove_recording_intent(segment_path);
     }
     let path = saved_recording_metadata_path(app, &saved.recording_id)?;
     remove_saved_file(&path, "pending recording metadata")
