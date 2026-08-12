@@ -303,6 +303,34 @@ postgresSuite("migrate-content-database-rows PostgreSQL locking", () => {
     }
   });
 
+  it("materializes distinct fields concurrently without global block-ID contention", async () => {
+    const seed = await fixture();
+    const markdown = '<registry-block blockId="shared-preferred-id" />';
+    try {
+      const states = await Promise.all(
+        ["first", "second"].map((suffix) =>
+          getDb().transaction((tx: any) =>
+            blocksFieldIdentity.persistBlocksFieldIdentity({
+              db: tx,
+              ownerEmail: OWNER,
+              documentId: seed.documentId,
+              propertyId: `${suffix}_${seed.documentId}`,
+              previousMarkdown: "",
+              markdown,
+              expectedRevision: 0,
+              now: new Date().toISOString(),
+            }),
+          ),
+        ),
+      );
+
+      expect(states).toHaveLength(2);
+      expect(states[0]?.blocks[0]?.id).not.toBe(states[1]?.blocks[0]?.id);
+    } finally {
+      await cleanupFixture(seed);
+    }
+  });
+
   it("rejects stale plans before requesting an editor flush", async () => {
     const seed = await fixture();
     try {

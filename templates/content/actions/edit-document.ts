@@ -17,7 +17,10 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { persistBlocksFieldIdentity } from "./_blocks-field-identity.js";
+import {
+  lockPrimaryBlocksFields,
+  persistBlocksFieldIdentity,
+} from "./_blocks-field-identity.js";
 
 interface TextEdit {
   find: string;
@@ -238,38 +241,17 @@ export default defineAction({
     const db = getDb();
     const now = new Date().toISOString();
     await db.transaction(async (tx: any) => {
+      const primaryBlocksFields = await lockPrimaryBlocksFields(tx, id);
       await tx
         .update(schema.documents)
         .set({ content, updatedAt: now })
         .where(eq(schema.documents.id, id));
-      const primaryBlocksFields = await tx
-        .select({
-          propertyId: schema.contentDatabases.primaryBlocksPropertyId,
-          ownerEmail: schema.contentDatabases.ownerEmail,
-        })
-        .from(schema.contentDatabaseItems)
-        .innerJoin(
-          schema.contentDatabases,
-          eq(
-            schema.contentDatabases.id,
-            schema.contentDatabaseItems.databaseId,
-          ),
-        )
-        .where(eq(schema.contentDatabaseItems.documentId, id));
-      const primaryFieldsById = new Map<string, string>(
-        primaryBlocksFields.flatMap(
-          (field: { propertyId: string | null; ownerEmail: string }) =>
-            field.propertyId
-              ? [[field.propertyId, field.ownerEmail] as const]
-              : [],
-        ),
-      );
-      for (const [propertyId, ownerEmail] of primaryFieldsById) {
+      for (const field of primaryBlocksFields) {
         await persistBlocksFieldIdentity({
           db: tx as unknown as ReturnType<typeof getDb>,
-          ownerEmail,
+          ownerEmail: field.ownerEmail,
           documentId: id,
-          propertyId,
+          propertyId: field.propertyId,
           previousMarkdown: existing.content ?? "",
           markdown: content,
           now,

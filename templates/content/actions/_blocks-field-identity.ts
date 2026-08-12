@@ -11,8 +11,14 @@ import {
   type BlocksFieldIdentity,
   type StoredBlocksFieldIdentity,
 } from "../shared/blocks-field-identity.js";
+import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 
 type ContentDb = ReturnType<typeof getDb>;
+
+export interface PrimaryBlocksField {
+  propertyId: string;
+  ownerEmail: string;
+}
 
 function nanoid(size = 12): string {
   const chars =
@@ -29,6 +35,38 @@ function groups<T>(values: T[], size: number): T[][] {
     result.push(values.slice(index, index + size));
   }
   return result;
+}
+
+export async function lockPrimaryBlocksFields(
+  db: ContentDb,
+  documentId: string,
+): Promise<PrimaryBlocksField[]> {
+  const memberships = await db
+    .select({ id: schema.contentDatabaseItems.id })
+    .from(schema.contentDatabaseItems)
+    .where(eq(schema.contentDatabaseItems.documentId, documentId));
+  const membershipIds = memberships.map((membership) => membership.id);
+  await lockDatabaseMemberships(db, membershipIds);
+  if (membershipIds.length === 0) return [];
+
+  const fields = await db
+    .select({
+      propertyId: schema.contentDatabases.primaryBlocksPropertyId,
+      ownerEmail: schema.contentDatabases.ownerEmail,
+    })
+    .from(schema.contentDatabaseItems)
+    .innerJoin(
+      schema.contentDatabases,
+      eq(schema.contentDatabases.id, schema.contentDatabaseItems.databaseId),
+    )
+    .where(inArray(schema.contentDatabaseItems.id, membershipIds));
+  return [
+    ...new Map(
+      fields.flatMap((field) =>
+        field.propertyId ? [[field.propertyId, field.ownerEmail] as const] : [],
+      ),
+    ),
+  ].map(([propertyId, ownerEmail]) => ({ propertyId, ownerEmail }));
 }
 
 async function loadStoredIdentity(
@@ -320,15 +358,34 @@ export async function persistBlocksFieldIdentity(args: {
 export async function deleteBlocksFieldIdentity(args: {
   db: ContentDb;
   documentId?: string;
+  documentIds?: string[];
   propertyId?: string;
+  propertyIds?: string[];
 }): Promise<void> {
-  if (!args.documentId && !args.propertyId) return;
+  if (
+    !args.documentId &&
+    !args.documentIds?.length &&
+    !args.propertyId &&
+    !args.propertyIds?.length
+  ) {
+    return;
+  }
   const clauses = [];
   if (args.documentId) {
     clauses.push(eq(schema.documentBlockFields.documentId, args.documentId));
   }
+  if (args.documentIds?.length) {
+    clauses.push(
+      inArray(schema.documentBlockFields.documentId, args.documentIds),
+    );
+  }
   if (args.propertyId) {
     clauses.push(eq(schema.documentBlockFields.propertyId, args.propertyId));
+  }
+  if (args.propertyIds?.length) {
+    clauses.push(
+      inArray(schema.documentBlockFields.propertyId, args.propertyIds),
+    );
   }
   const fields = await args.db
     .select({ id: schema.documentBlockFields.id })

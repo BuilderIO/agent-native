@@ -42,6 +42,46 @@ describe("Blocks field identity", () => {
     expect(first.identityStatus).toBe("legacy");
   });
 
+  it("field-scopes identical preferred and generated IDs at first materialization", () => {
+    const markdown = '<registry-block blockId="shared-id" />';
+    const first = materializeLegacyBlocksFieldIdentity({
+      documentId: "doc-1",
+      propertyId: "content",
+      markdown,
+    });
+    const second = materializeLegacyBlocksFieldIdentity({
+      documentId: "doc-1",
+      propertyId: "notes",
+      markdown,
+    });
+
+    expect(first.blocks[0]?.id).not.toBe(second.blocks[0]?.id);
+
+    const firstInserted = reconcileBlocksFieldIdentity({
+      documentId: "doc-1",
+      propertyId: "content",
+      previous: materializeLegacyBlocksFieldIdentity({
+        documentId: "doc-1",
+        propertyId: "content",
+        markdown: "",
+      }),
+      markdown: "New block",
+      createId: () => "same-generated-id",
+    });
+    const secondInserted = reconcileBlocksFieldIdentity({
+      documentId: "doc-1",
+      propertyId: "notes",
+      previous: materializeLegacyBlocksFieldIdentity({
+        documentId: "doc-1",
+        propertyId: "notes",
+        markdown: "",
+      }),
+      markdown: "New block",
+      createId: () => "same-generated-id",
+    });
+    expect(firstInserted.blocks[0]?.id).not.toBe(secondInserted.blocks[0]?.id);
+  });
+
   it("preserves IDs through edit, reorder, insertion, split, and merge rules", () => {
     const createId = idFactory();
     const initial = materializeLegacyBlocksFieldIdentity({

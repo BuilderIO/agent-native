@@ -179,6 +179,10 @@ function deterministicBlockId(
   )}`;
 }
 
+function fieldScopedBlockId(fieldId: string, candidateId: string): string {
+  return `block_${hashString(fieldId)}_${hashString(candidateId)}`;
+}
+
 function publicIdentity(
   stored: StoredBlocksFieldIdentity,
   identityStatus: BlocksFieldIdentityStatus,
@@ -225,7 +229,9 @@ export function legacyBlocksFieldIdentity(args: {
   const idByPath = new Map<string, string>();
   const usedIds = new Set<string>();
   const blocks: StoredBlocksFieldBlock[] = snapshots.map((snapshot) => {
-    const preferred = snapshot.preferredId;
+    const preferred = snapshot.preferredId
+      ? fieldScopedBlockId(fieldId, snapshot.preferredId)
+      : null;
     const id =
       preferred && !usedIds.has(preferred)
         ? preferred
@@ -447,8 +453,15 @@ export function reconcileBlocksFieldIdentity(args: {
         }
       }
     }
-    let id = previous?.id ?? snapshot.preferredId ?? args.createId();
-    while (usedIds.has(id) && id !== previous?.id) id = args.createId();
+    let id =
+      previous?.id ??
+      fieldScopedBlockId(
+        args.previous.fieldId,
+        snapshot.preferredId ?? args.createId(),
+      );
+    while (usedIds.has(id) && id !== previous?.id) {
+      id = fieldScopedBlockId(args.previous.fieldId, args.createId());
+    }
     usedIds.add(id);
     idByPath.set(snapshot.path, id);
     return {

@@ -41,6 +41,7 @@ let databaseUtils: typeof import("./_database-utils.js");
 let createInlineContentDatabaseAction: typeof import("./create-inline-content-database.js").default;
 let updateDocumentAction: typeof import("./update-document.js").default;
 let editDocumentAction: typeof import("./edit-document.js").default;
+let setDocumentPropertyAction: typeof import("./set-document-property.js").default;
 let createContentDatabaseAction: typeof import("./create-content-database.js").default;
 let createContentDatabaseModule: typeof import("./create-content-database.js");
 let getContentDatabaseAction: typeof import("./get-content-database.js").default;
@@ -64,6 +65,8 @@ beforeAll(async () => {
   ).default;
   updateDocumentAction = (await import("./update-document.js")).default;
   editDocumentAction = (await import("./edit-document.js")).default;
+  setDocumentPropertyAction = (await import("./set-document-property.js"))
+    .default;
   createContentDatabaseModule = await import("./create-content-database.js");
   createContentDatabaseAction = createContentDatabaseModule.default;
   getContentDatabaseAction = (await import("./get-content-database.js"))
@@ -854,6 +857,31 @@ describe("database Blocks field identity sidecar", () => {
     expect(field.revision).toBe(1);
   });
 
+  it("allows concurrent first materialization of distinct fields with the same preferred ID", async () => {
+    const { documentId } = await createDatabaseRow();
+    const db = getDb();
+    const markdown = '<registry-block blockId="shared-preferred-id" />';
+    const attempts = await Promise.all(
+      ["first", "second"].map((suffix) =>
+        db.transaction((tx: any) =>
+          identityUtils.persistBlocksFieldIdentity({
+            db: tx,
+            ownerEmail: OWNER,
+            documentId,
+            propertyId: `${suffix}_${documentId}`,
+            previousMarkdown: "",
+            markdown,
+            expectedRevision: 0,
+            now: new Date().toISOString(),
+          }),
+        ),
+      ),
+    );
+
+    expect(attempts).toHaveLength(2);
+    expect(attempts[0]?.blocks[0]?.id).not.toBe(attempts[1]?.blocks[0]?.id);
+  });
+
   it("revisions every primary membership and cleans up only the removed database", async () => {
     const first = await createDatabaseRow();
     const second = await createDatabaseRow();
@@ -912,6 +940,15 @@ describe("database Blocks field identity sidecar", () => {
         replace: "After edited",
       }),
     );
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      setDocumentPropertyAction.run({
+        documentId: rowDocumentId,
+        databaseId: first.databaseId,
+        propertyId: firstPropertyId,
+        value: "After set through one membership",
+        expectedBlocksFieldRevision: 2,
+      }),
+    );
     const beforeRemoval = await db
       .select()
       .from(schema.documentBlockFields)
@@ -922,8 +959,8 @@ describe("database Blocks field identity sidecar", () => {
       ),
     ).toEqual(
       new Map([
-        [firstPropertyId, 2],
-        [secondPropertyId, 2],
+        [firstPropertyId, 3],
+        [secondPropertyId, 3],
       ]),
     );
 
@@ -956,7 +993,7 @@ describe("database Blocks field identity sidecar", () => {
       .from(schema.documentBlockFields)
       .where(eq(schema.documentBlockFields.documentId, rowDocumentId));
     expect(afterRemoval).toEqual([
-      expect.objectContaining({ propertyId: secondPropertyId, revision: 2 }),
+      expect.objectContaining({ propertyId: secondPropertyId, revision: 3 }),
     ]);
   });
 });
@@ -1005,9 +1042,11 @@ describe("cascade cleanup of block-field content on delete (finding 7)", () => {
 
   it("deletes block-field rows by property id when a database is deleted", async () => {
     const { databaseId, documentId } = await createDatabaseRow();
+    const survivorDatabase = await createDatabaseRow();
     const db = getDb();
     const now = new Date().toISOString();
     const propertyId = `def_${databaseId}`;
+    const survivorDocumentId = `survivor_${databaseId}`;
     await db.insert(schema.documentPropertyDefinitions).values({
       id: propertyId,
       ownerEmail: OWNER,
@@ -1027,6 +1066,32 @@ describe("cascade cleanup of block-field content on delete (finding 7)", () => {
       content: "orphan-me",
       now,
     });
+    await db.insert(schema.documents).values({
+      id: survivorDocumentId,
+      ownerEmail: OWNER,
+      title: "Surviving row",
+      content: "survives",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.contentDatabaseItems).values({
+      id: `survivor_item_${databaseId}`,
+      ownerEmail: OWNER,
+      databaseId: survivorDatabase.databaseId,
+      documentId: survivorDocumentId,
+      position: 0,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await identityUtils.persistBlocksFieldIdentity({
+      db,
+      ownerEmail: OWNER,
+      documentId: survivorDocumentId,
+      propertyId,
+      previousMarkdown: "",
+      markdown: "historical field",
+      now,
+    });
 
     // documentId is the database PAGE document → hits the database-delete branch.
     await databaseUtils.deleteDatabaseDataForDocument(documentId, OWNER);
@@ -1036,6 +1101,16 @@ describe("cascade cleanup of block-field content on delete (finding 7)", () => {
       .from(schema.documentBlockFieldContents)
       .where(eq(schema.documentBlockFieldContents.propertyId, propertyId));
     expect(remaining).toHaveLength(0);
+    const [survivor] = await db
+      .select({ id: schema.documents.id })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, survivorDocumentId));
+    expect(survivor?.id).toBe(survivorDocumentId);
+    const remainingIdentity = await db
+      .select()
+      .from(schema.documentBlockFields)
+      .where(eq(schema.documentBlockFields.propertyId, propertyId));
+    expect(remainingIdentity).toHaveLength(0);
   });
 });
 

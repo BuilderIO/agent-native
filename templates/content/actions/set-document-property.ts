@@ -12,7 +12,10 @@ import {
   parsePropertyOptions,
   type DocumentPropertyType,
 } from "../shared/properties.js";
-import { persistBlocksFieldIdentity } from "./_blocks-field-identity.js";
+import {
+  lockPrimaryBlocksFields,
+  persistBlocksFieldIdentity,
+} from "./_blocks-field-identity.js";
 import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import { resolveContentDocumentAccess } from "./_content-document-access.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
@@ -93,7 +96,10 @@ export default defineAction({
         parsePropertyOptions(definition.optionsJson),
       );
       await db.transaction(async (tx) => {
-        await lockDatabaseMemberships(tx, [membership.id]);
+        const primaryBlocksFields = await lockPrimaryBlocksFields(
+          tx as unknown as ReturnType<typeof getDb>,
+          documentId,
+        );
         const [lockedDefinition] = await tx
           .select()
           .from(schema.documentPropertyDefinitions)
@@ -168,16 +174,33 @@ export default defineAction({
               set: { content, updatedAt: now },
             });
         }
-        await persistBlocksFieldIdentity({
-          db: tx as unknown as ReturnType<typeof getDb>,
-          ownerEmail: database.ownerEmail,
-          documentId,
-          propertyId,
-          previousMarkdown: previousContent,
-          markdown: content,
-          expectedRevision: expectedBlocksFieldRevision,
-          now,
-        });
+        const identityFields =
+          target === "document_body"
+            ? primaryBlocksFields
+            : [{ propertyId, ownerEmail: database.ownerEmail }];
+        if (
+          target === "document_body" &&
+          !identityFields.some((field) => field.propertyId === propertyId)
+        ) {
+          throw new Error(
+            "Primary Blocks membership changed before the operation completed.",
+          );
+        }
+        for (const field of identityFields) {
+          await persistBlocksFieldIdentity({
+            db: tx as unknown as ReturnType<typeof getDb>,
+            ownerEmail: field.ownerEmail,
+            documentId,
+            propertyId: field.propertyId,
+            previousMarkdown: previousContent,
+            markdown: content,
+            expectedRevision:
+              field.propertyId === propertyId
+                ? expectedBlocksFieldRevision
+                : undefined,
+            now,
+          });
+        }
       });
       return {
         documentId,
