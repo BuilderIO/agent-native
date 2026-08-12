@@ -638,30 +638,22 @@ export async function mergeCoreSharingActions(
     [
       "list-workspace-user-groups",
       () =>
-        import(
-          "../workspace-connections/actions/list-workspace-user-groups.js"
-        ),
+        import("../workspace-connections/actions/list-workspace-user-groups.js"),
     ],
     [
       "upsert-workspace-user-group",
       () =>
-        import(
-          "../workspace-connections/actions/upsert-workspace-user-group.js"
-        ),
+        import("../workspace-connections/actions/upsert-workspace-user-group.js"),
     ],
     [
       "bulk-update-workspace-user-groups",
       () =>
-        import(
-          "../workspace-connections/actions/bulk-update-workspace-user-groups.js"
-        ),
+        import("../workspace-connections/actions/bulk-update-workspace-user-groups.js"),
     ],
     [
       "delete-workspace-user-group",
       () =>
-        import(
-          "../workspace-connections/actions/delete-workspace-user-group.js"
-        ),
+        import("../workspace-connections/actions/delete-workspace-user-group.js"),
     ],
     // Transactional email catalog - mounted everywhere so Dispatch can ask any
     // app what it sends without that app opting in.

@@ -21,7 +21,9 @@ export default defineAction({
   run: async (args, ctx) => {
     await assertWorkspaceUserGroupManager(ctx?.orgId, ctx?.userEmail);
     return updateWorkspaceUserGroupMembers({
-      ...args,
+      id: args.groupId,
+      memberEmails: args.memberEmails,
+      operation: args.operation,
       orgId: ctx?.orgId,
     });
   },

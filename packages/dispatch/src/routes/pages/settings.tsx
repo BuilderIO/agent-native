@@ -26,6 +26,7 @@ import {
 } from "../../components/ui/card";
 import { Label } from "../../components/ui/label";
 import { Switch } from "../../components/ui/switch";
+import { dispatchAccessDescriptor } from "../../shared/app-roles.js";
 
 export function meta() {
   return [{ title: "Settings - Dispatch" }];
@@ -179,6 +180,7 @@ export default function SettingsRoute() {
           <div className="mx-auto w-full max-w-3xl">
             <TeamPage
               showTitle={false}
+              appRoles={dispatchAccessDescriptor}
               createOrgDescription="Set up a team to share dispatch destinations and approvals with your colleagues."
             />
           </div>

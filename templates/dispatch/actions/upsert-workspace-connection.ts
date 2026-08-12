@@ -12,6 +12,8 @@ import {
 } from "@agent-native/core/workspace-connections";
 import { z } from "zod";
 
+import { assertWorkspaceConnectionManager } from "./connection-permissions.js";
+
 const statusSchema = z.enum([
   "connected",
   "checking",
@@ -151,6 +153,7 @@ export default defineAction({
     lastError: z.string().nullable().optional(),
   }),
   run: async (args, ctx) => {
+    await assertWorkspaceConnectionManager(ctx, args.allowedApps);
     const provider = getWorkspaceConnectionProvider(args.provider);
     if (!provider) {
       throw new Error(

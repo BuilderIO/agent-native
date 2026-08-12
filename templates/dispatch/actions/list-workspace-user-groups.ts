@@ -1,5 +1,8 @@
 import { defineAction } from "@agent-native/core";
-import { listWorkspaceUserGroupsForOrg } from "@agent-native/core/workspace-connections";
+import {
+  assertWorkspaceUserGroupManager,
+  listWorkspaceUserGroupsForOrg,
+} from "@agent-native/core/workspace-connections";
 import { z } from "zod";
 
 export default defineAction({
@@ -9,6 +12,7 @@ export default defineAction({
   http: { method: "GET" },
   readOnly: true,
   run: async (_args, ctx) => {
+    await assertWorkspaceUserGroupManager(ctx?.orgId, ctx?.userEmail);
     if (!ctx?.orgId) return [];
     return listWorkspaceUserGroupsForOrg(ctx.orgId);
   },

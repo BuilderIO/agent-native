@@ -8,6 +8,8 @@ import {
 } from "@agent-native/core/workspace-connections";
 import { z } from "zod";
 
+import { assertWorkspaceConnectionGrantManager } from "./connection-permissions.js";
+
 const httpBoolean = z.preprocess((value) => {
   if (typeof value !== "string") return value;
   const normalized = value.trim().toLowerCase();
@@ -61,6 +63,13 @@ export default defineAction({
     if (!connection) {
       throw new Error(`Workspace connection "${args.connectionId}" not found.`);
     }
+    await assertWorkspaceConnectionGrantManager(
+      ctx,
+      connection,
+      args.appId,
+      args.granted,
+      args.accessMode,
+    );
 
     let allowedApps = connection.allowedApps;
     if (args.accessMode === "all-apps") {

@@ -11,6 +11,8 @@ import {
   AlertDialogTrigger,
 } from "@agent-native/toolkit/ui/alert-dialog";
 import { Button as ToolkitButton } from "@agent-native/toolkit/ui/button";
+import { Checkbox } from "@agent-native/toolkit/ui/checkbox";
+import { Input } from "@agent-native/toolkit/ui/input";
 import {
   Pagination,
   PaginationContent,
@@ -48,6 +50,7 @@ import {
   IconUsersGroup,
   IconHelpCircle,
   IconExternalLink,
+  IconSearch,
 } from "@tabler/icons-react";
 import {
   forwardRef,
@@ -63,6 +66,14 @@ import {
 // database code into the browser bundle.
 import type { AppRolesDescriptor } from "../../org/app-roles.js";
 import type { DomainMatchOrg } from "../../org/types.js";
+import type { WorkspaceUserGroup } from "../../workspace-connections/groups.js";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../components/ui/dialog.js";
 import {
   Popover,
   PopoverContent,
@@ -77,6 +88,8 @@ import {
 import { useT } from "../i18n.js";
 import { SettingsGroup, SettingsRow } from "../settings/SettingsRow.js";
 import { SettingsSkeleton } from "../settings/SettingsSkeleton.js";
+import { useShareOrgMemberSearch } from "../sharing/share-controller-helpers.js";
+import { useActionMutation, useActionQuery } from "../use-action.js";
 import { cn } from "../utils.js";
 import {
   useOrg,
@@ -464,6 +477,323 @@ interface PendingInviteListItem {
   role: string;
 }
 
+function WorkspaceGroupEditor({
+  open,
+  group,
+  onClose,
+}: {
+  open: boolean;
+  group: WorkspaceUserGroup | null;
+  onClose: () => void;
+}) {
+  const t = useT();
+  const [name, setName] = useState("");
+  const [members, setMembers] = useState<string[]>([]);
+  const [search, setSearch] = useState("");
+  const memberSearch = useShareOrgMemberSearch(search, open, { limit: 100 });
+  const saveGroup = useActionMutation("upsert-workspace-user-group");
+  const selected = useMemo(
+    () => new Set(members.map((email) => email.toLowerCase())),
+    [members],
+  );
+
+  useEffect(() => {
+    if (!open) return;
+    setName(group?.name ?? "");
+    setMembers(group?.memberEmails ?? []);
+    setSearch("");
+  }, [group, open]);
+
+  const searchMembers = memberSearch.members.map((member) => ({
+    email: member.email.toLowerCase(),
+    name: member.name,
+  }));
+  const selectedMembersNotInSearch = members
+    .map((email) => email.toLowerCase())
+    .filter((email) => !searchMembers.some((member) => member.email === email))
+    .map((email) => ({ email, name: undefined }));
+  const visibleMembers = [...selectedMembersNotInSearch, ...searchMembers];
+
+  function toggleMember(email: string, checked: boolean) {
+    const normalized = email.trim().toLowerCase();
+    setMembers((current) =>
+      checked
+        ? Array.from(new Set([...current, normalized]))
+        : current.filter((value) => value !== normalized),
+    );
+  }
+
+  function save() {
+    const trimmedName = name.trim();
+    if (!trimmedName || saveGroup.isPending) return;
+    saveGroup.mutate(
+      {
+        ...(group?.id ? { id: group.id } : {}),
+        name: trimmedName,
+        memberEmails: members,
+      },
+      { onSuccess: onClose },
+    );
+  }
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next && !saveGroup.isPending) onClose();
+      }}
+    >
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>
+            {group
+              ? t("org.editGroup", { defaultValue: "Edit group" })
+              : t("org.createGroup", { defaultValue: "Create group" })}
+          </DialogTitle>
+        </DialogHeader>
+        <div className="grid gap-4">
+          <div className="grid gap-1.5">
+            <label
+              htmlFor="workspace-group-name"
+              className="text-xs font-medium"
+            >
+              {t("org.groupName", { defaultValue: "Group name" })}
+            </label>
+            <Input
+              id="workspace-group-name"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              placeholder="Rev Ops"
+              autoFocus
+            />
+          </div>
+          <div className="grid gap-2">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-xs font-medium">
+                {t("org.groupMembers", { defaultValue: "People" })}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {members.length}
+              </span>
+            </div>
+            <div className="relative">
+              <IconSearch className="pointer-events-none absolute start-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder={t("org.searchPeople", {
+                  defaultValue: "Search people",
+                })}
+                aria-label={t("org.searchPeople", {
+                  defaultValue: "Search people",
+                })}
+                className="ps-9"
+              />
+            </div>
+            <div className="max-h-64 overflow-y-auto rounded-md bg-muted/30 p-1">
+              {memberSearch.isLoading ? (
+                <div className="px-3 py-6 text-center text-xs text-muted-foreground">
+                  {t("org.loadingPeople", { defaultValue: "Loading people…" })}
+                </div>
+              ) : visibleMembers.length > 0 ? (
+                visibleMembers.map((member) => (
+                  <label
+                    key={member.email}
+                    htmlFor={`workspace-group-member-${member.email}`}
+                    className="flex cursor-pointer items-center justify-between gap-3 rounded px-3 py-2 hover:bg-background"
+                  >
+                    <span className="min-w-0 truncate text-sm">
+                      {member.name || member.email}
+                    </span>
+                    <Checkbox
+                      id={`workspace-group-member-${member.email}`}
+                      checked={selected.has(member.email)}
+                      onCheckedChange={(value) =>
+                        toggleMember(member.email, value === true)
+                      }
+                      aria-label={member.email}
+                    />
+                  </label>
+                ))
+              ) : (
+                <div className="px-3 py-6 text-center text-xs text-muted-foreground">
+                  {t("org.noPeopleFound", { defaultValue: "No people found" })}
+                </div>
+              )}
+            </div>
+            {memberSearch.hasMore ? (
+              <Button
+                type="button"
+                onClick={memberSearch.loadMore}
+                disabled={memberSearch.isLoadingMore}
+                className="w-fit text-xs text-muted-foreground"
+              >
+                {t("org.loadMorePeople", { defaultValue: "Load more" })}
+              </Button>
+            ) : null}
+          </div>
+          <ErrorText
+            error={
+              memberSearch.error ? new Error("Could not load people.") : null
+            }
+          />
+          <ErrorText error={saveGroup.error} />
+        </div>
+        <DialogFooter>
+          <Button
+            type="button"
+            onClick={onClose}
+            className="text-muted-foreground"
+          >
+            {t("org.cancel")}
+          </Button>
+          <Button
+            type="button"
+            intent="primary"
+            emphasis="solid"
+            disabled={!name.trim() || saveGroup.isPending}
+            onClick={save}
+            className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+          >
+            {saveGroup.isPending ? (
+              <IconLoader2 size={14} className="animate-spin" />
+            ) : (
+              t("org.saveGroup", { defaultValue: "Save group" })
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function WorkspaceGroupsCard({ groups }: { groups: WorkspaceUserGroup[] }) {
+  const t = useT();
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editingGroup, setEditingGroup] = useState<WorkspaceUserGroup | null>(
+    null,
+  );
+  const [deleteError, setDeleteError] = useState<unknown>(null);
+  const deleteGroup = useActionMutation("delete-workspace-user-group");
+
+  function openEditor(group: WorkspaceUserGroup | null) {
+    setEditingGroup(group);
+    setEditorOpen(true);
+  }
+
+  return (
+    <section className="overflow-hidden rounded-xl bg-card text-card-foreground">
+      <div className="flex items-center justify-between gap-3 px-5 py-4">
+        <h3 className="text-sm font-medium">
+          {t("org.groups", { defaultValue: "Groups" })}
+        </h3>
+        <Button
+          type="button"
+          intent="primary"
+          emphasis="solid"
+          onClick={() => openEditor(null)}
+          className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+        >
+          <IconPlus size={14} />
+          {t("org.newGroup", { defaultValue: "New group" })}
+        </Button>
+      </div>
+      <div className="grid gap-1 px-3 pb-3">
+        {groups.length > 0 ? (
+          groups.map((group) => (
+            <div
+              key={group.id}
+              className="flex items-center gap-3 rounded-lg bg-muted/35 px-3 py-2.5"
+            >
+              <IconUsersGroup className="size-4 shrink-0 text-muted-foreground" />
+              <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                {group.name}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {group.memberEmails.length}
+              </span>
+              <Button
+                type="button"
+                onClick={() => openEditor(group)}
+                aria-label={t("org.editGroupAria", {
+                  defaultValue: "Edit group {{name}}",
+                  name: group.name,
+                })}
+                className="rounded p-1 text-muted-foreground hover:bg-background hover:text-foreground"
+              >
+                <IconPencil size={14} />
+              </Button>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    type="button"
+                    intent="danger"
+                    emphasis="ghost"
+                    aria-label={t("org.deleteGroupAria", {
+                      defaultValue: "Delete group {{name}}",
+                      name: group.name,
+                    })}
+                    className="rounded p-1 text-muted-foreground hover:bg-background hover:text-destructive"
+                  >
+                    <IconTrash size={14} />
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>
+                      {t("org.deleteGroup", { defaultValue: "Delete group?" })}
+                    </AlertDialogTitle>
+                    <AlertDialogDescription>
+                      {t("org.deleteGroupConfirm", {
+                        defaultValue:
+                          "People will keep their workspace access, but this group can no longer be used for connection access.",
+                      })}
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <ErrorText error={deleteError} />
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>{t("org.cancel")}</AlertDialogCancel>
+                    <AlertDialogAction
+                      disabled={deleteGroup.isPending}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        setDeleteError(null);
+                        deleteGroup.mutate(
+                          { id: group.id },
+                          {
+                            onError: setDeleteError,
+                          },
+                        );
+                      }}
+                    >
+                      {deleteGroup.isPending
+                        ? t("org.deleting", { defaultValue: "Deleting…" })
+                        : t("org.delete", { defaultValue: "Delete" })}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </div>
+          ))
+        ) : (
+          <p className="px-2 py-3 text-sm text-muted-foreground">
+            {t("org.noGroups", { defaultValue: "No groups yet" })}
+          </p>
+        )}
+        <ErrorText error={deleteError} />
+      </div>
+      <WorkspaceGroupEditor
+        open={editorOpen}
+        group={editingGroup}
+        onClose={() => {
+          setEditorOpen(false);
+          setEditingGroup(null);
+        }}
+      />
+    </section>
+  );
+}
+
 function MembersCard({ appRoles }: { appRoles?: AppRolesDescriptor }) {
   const t = useT();
   const { data: org } = useOrg();
@@ -476,6 +806,12 @@ function MembersCard({ appRoles }: { appRoles?: AppRolesDescriptor }) {
   } = useOrgMembers(memberOffset);
   const { data: invitationsData } = useOrgInvitations();
   const switchOrg = useSwitchOrg();
+  const isOwnerOrAdmin = org?.role === "owner" || org?.role === "admin";
+  const groupsQuery = useActionQuery<WorkspaceUserGroup[]>(
+    "list-workspace-user-groups",
+    {},
+    { enabled: isOwnerOrAdmin },
+  );
 
   useEffect(() => {
     setMemberOffset(0);
@@ -505,7 +841,6 @@ function MembersCard({ appRoles }: { appRoles?: AppRolesDescriptor }) {
   if (!org?.orgId) return null;
 
   const isOwner = org.role === "owner";
-  const isOwnerOrAdmin = isOwner || org.role === "admin";
   const members = membersData?.members ?? [];
   const totalMembers = membersData?.totalCount ?? 0;
   const pendingInvites = invitationsData?.invitations ?? [];
@@ -578,11 +913,17 @@ function MembersCard({ appRoles }: { appRoles?: AppRolesDescriptor }) {
         currentUserEmail={org.email}
         currentUserRole={org.role ?? null}
         appRoles={appRoles}
+        groups={groupsQuery.data ?? []}
+        canManageGroups={isOwnerOrAdmin}
         memberOffset={memberOffset}
         hasNextPage={membersData?.hasMore === true}
         nextMemberOffset={membersData?.nextOffset ?? null}
         onMemberPageChange={setMemberOffset}
       />
+
+      {isOwnerOrAdmin && (
+        <WorkspaceGroupsCard groups={groupsQuery.data ?? []} />
+      )}
 
       {isOwner && <DangerZoneCard orgName={org.orgName ?? ""} />}
     </div>
@@ -598,6 +939,8 @@ function MembersTableCard({
   currentUserEmail,
   currentUserRole,
   appRoles,
+  groups,
+  canManageGroups,
   memberOffset,
   hasNextPage,
   nextMemberOffset,
@@ -611,6 +954,8 @@ function MembersTableCard({
   currentUserEmail: string;
   currentUserRole: string | null;
   appRoles?: AppRolesDescriptor;
+  groups: WorkspaceUserGroup[];
+  canManageGroups: boolean;
   memberOffset: number;
   hasNextPage: boolean;
   nextMemberOffset: number | null;
@@ -618,7 +963,14 @@ function MembersTableCard({
 }) {
   const t = useT();
   const [showInviteForm, setShowInviteForm] = useState(false);
+  const [selectedEmails, setSelectedEmails] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [bulkActionKey, setBulkActionKey] = useState(0);
   const canInvite = currentUserRole === "owner" || currentUserRole === "admin";
+  const updateGroupMembers = useActionMutation(
+    "bulk-update-workspace-user-groups",
+  );
   const { data: appRoleData } = useAppRoles(appRoles?.appId);
   const appRoleByEmail = new Map(
     (appRoleData?.assignments ?? []).map((a) => [
@@ -626,6 +978,47 @@ function MembersTableCard({
       a.role,
     ]),
   );
+  const selectedCount = selectedEmails.size;
+  const allMembersSelected =
+    members.length > 0 &&
+    members.every((member) => selectedEmails.has(member.email));
+
+  useEffect(() => {
+    setSelectedEmails(new Set());
+  }, [memberOffset, members]);
+
+  function toggleSelected(email: string, checked: boolean) {
+    setSelectedEmails((current) => {
+      const next = new Set(current);
+      if (checked) next.add(email);
+      else next.delete(email);
+      return next;
+    });
+  }
+
+  function applyBulkAction(value: string) {
+    const [operation, groupId] = value.split(":");
+    if (
+      (operation !== "add" && operation !== "remove") ||
+      !groupId ||
+      selectedEmails.size === 0
+    ) {
+      return;
+    }
+    updateGroupMembers.mutate(
+      {
+        groupId,
+        memberEmails: Array.from(selectedEmails),
+        operation,
+      },
+      {
+        onSuccess: () => {
+          setSelectedEmails(new Set());
+          setBulkActionKey((key) => key + 1);
+        },
+      },
+    );
+  }
 
   return (
     <section className="overflow-hidden rounded-xl border border-border/70 bg-card text-card-foreground">
@@ -657,6 +1050,94 @@ function MembersTableCard({
           />
         </div>
       )}
+      {canManageGroups && members.length > 0 ? (
+        <div className="flex flex-col gap-3 bg-muted/25 px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-2">
+            <Checkbox
+              checked={allMembersSelected}
+              onCheckedChange={(value) => {
+                if (value === true) {
+                  setSelectedEmails(
+                    new Set(members.map((member) => member.email)),
+                  );
+                } else {
+                  setSelectedEmails(new Set());
+                }
+              }}
+              aria-label={t("org.selectPage", { defaultValue: "Select page" })}
+            />
+            <span className="text-xs text-muted-foreground">
+              {selectedCount > 0
+                ? t("org.selectedMembers", {
+                    defaultValue: "{{count}} selected",
+                    count: selectedCount,
+                  })
+                : t("org.selectMembers", {
+                    defaultValue: "Select people to edit groups",
+                  })}
+            </span>
+          </div>
+          {selectedCount > 0 && groups.length > 0 ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <Select
+                key={`add-${bulkActionKey}`}
+                onValueChange={applyBulkAction}
+                disabled={updateGroupMembers.isPending}
+              >
+                <SelectTrigger className="h-8 w-auto min-w-36 border-0 bg-background text-xs">
+                  <SelectValue
+                    placeholder={t("org.addToGroup", {
+                      defaultValue: "Add to group",
+                    })}
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {groups.map((group) => (
+                    <SelectItem key={group.id} value={`add:${group.id}`}>
+                      {group.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select
+                key={`remove-${bulkActionKey}`}
+                onValueChange={applyBulkAction}
+                disabled={updateGroupMembers.isPending}
+              >
+                <SelectTrigger className="h-8 w-auto min-w-36 border-0 bg-background text-xs">
+                  <SelectValue
+                    placeholder={t("org.removeFromGroup", {
+                      defaultValue: "Remove from group",
+                    })}
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {groups.map((group) => (
+                    <SelectItem key={group.id} value={`remove:${group.id}`}>
+                      {group.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                type="button"
+                onClick={() => setSelectedEmails(new Set())}
+                className="text-xs text-muted-foreground"
+              >
+                {t("org.clearSelection", { defaultValue: "Clear" })}
+              </Button>
+            </div>
+          ) : null}
+          {selectedCount > 0 && groups.length === 0 ? (
+            <span className="text-xs text-muted-foreground">
+              {t("org.createGroupForBulk", {
+                defaultValue: "Create a group below first",
+              })}
+            </span>
+          ) : null}
+          <ErrorText error={updateGroupMembers.error} />
+        </div>
+      ) : null}
       <div className="divide-y divide-border/60 border-t border-border/60">
         {isLoadingMembers && members.length === 0 ? (
           <div role="status" aria-busy="true" aria-label="Loading members">
@@ -689,6 +1170,9 @@ function MembersTableCard({
                 appRoles={appRoles}
                 appRole={appRoleByEmail.get(m.email.toLowerCase()) ?? null}
                 canManageAppRoles={Boolean(appRoleData?.canManage)}
+                canSelect={canManageGroups}
+                selected={selectedEmails.has(m.email)}
+                onSelect={(checked) => toggleSelected(m.email, checked)}
               />
             ))}
             {pendingInvites.map((inv) => (
@@ -1022,6 +1506,9 @@ function MemberRow({
   appRoles,
   appRole,
   canManageAppRoles,
+  canSelect = false,
+  selected = false,
+  onSelect,
 }: {
   email: string;
   role: string;
@@ -1030,6 +1517,9 @@ function MemberRow({
   appRoles?: AppRolesDescriptor;
   appRole?: string | null;
   canManageAppRoles?: boolean;
+  canSelect?: boolean;
+  selected?: boolean;
+  onSelect?: (checked: boolean) => void;
 }) {
   const t = useT();
   const removeMember = useRemoveMember();
@@ -1049,6 +1539,13 @@ function MemberRow({
   return (
     <div className="flex flex-col gap-3 px-5 py-3.5 sm:flex-row sm:items-center">
       <div className="flex min-w-0 flex-1 items-center gap-3">
+        {canSelect ? (
+          <Checkbox
+            checked={selected}
+            onCheckedChange={(value) => onSelect?.(value === true)}
+            aria-label={`Select ${email}`}
+          />
+        ) : null}
         <div className="flex size-8 shrink-0 items-center justify-center rounded-full border border-border bg-background text-xs font-medium text-muted-foreground">
           {memberInitials(email)}
         </div>

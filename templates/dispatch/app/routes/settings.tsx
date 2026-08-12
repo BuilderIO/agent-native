@@ -23,6 +23,7 @@ import { Link } from "react-router";
 import { messagesByLocale } from "@/i18n-data";
 
 import changelog from "../../CHANGELOG.md?raw";
+import { dispatchAccessDescriptor } from "../../shared/app-roles";
 
 export function meta() {
   return [{ title: messagesByLocale["en-US"].routeTitles.settings }];
@@ -160,6 +161,7 @@ export default function SettingsRoute() {
         <div className="mx-auto w-full max-w-3xl">
           <TeamPage
             showTitle={false}
+            appRoles={dispatchAccessDescriptor}
             createOrgDescription="Set up a team to share dispatch destinations and approvals with your colleagues."
           />
         </div>

@@ -6,6 +6,7 @@ import {
 } from "@agent-native/core/workspace-connections";
 import { z } from "zod";
 
+import { assertWorkspaceConnectionManager } from "./connection-permissions.js";
 import upsertWorkspaceConnection, {
   assertWorkspaceConnectionAllowedUserGroups,
   assertWorkspaceConnectionAllowedUsers,
@@ -139,6 +140,7 @@ export default defineAction({
 
     const allowedApps =
       args.grantMode === "all-apps" ? [] : uniqueStrings(args.selectedApps);
+    await assertWorkspaceConnectionManager(ctx, allowedApps);
     if (args.grantMode === "selected-apps" && allowedApps.length === 0) {
       throw new Error("Choose at least one app or switch access to all apps.");
     }

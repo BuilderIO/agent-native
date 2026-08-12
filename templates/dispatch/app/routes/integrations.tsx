@@ -8,6 +8,7 @@ import {
   IntegrationConnectionChoice,
   IntegrationGrid,
 } from "@agent-native/core/client/integrations";
+import { useAppRoles, useOrgRole } from "@agent-native/core/client/org";
 import {
   McpIntegrationDialog,
   McpIntegrationLogo,
@@ -851,6 +852,8 @@ function ConnectionRow({
   onDelete,
   onToggleGrant,
   grantPending,
+  canManage,
+  canManageGrant,
 }: {
   connection: WorkspaceConnection;
   provider?: WorkspaceConnectionProvider;
@@ -862,6 +865,8 @@ function ConnectionRow({
   onDelete: () => void;
   onToggleGrant: (appId: string, granted: boolean) => void;
   grantPending: boolean;
+  canManage: boolean;
+  canManageGrant: (appId: string) => boolean;
 }) {
   const t = useT();
   const Icon = iconForProvider(connection.provider);
@@ -906,34 +911,41 @@ function ConnectionRow({
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-1.5">
-              {needsRepair ? (
+            {canManage ? (
+              <div className="flex items-center gap-1.5">
+                {needsRepair ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={onRepair}
+                  >
+                    <IconRefresh size={14} />
+                    {t("integrations.repair")}
+                  </Button>
+                ) : null}
                 <Button
                   type="button"
-                  variant="outline"
+                  variant="ghost"
                   size="sm"
-                  onClick={onRepair}
+                  onClick={onEdit}
                 >
-                  <IconRefresh size={14} />
-                  {t("integrations.repair")}
+                  <IconEdit size={14} />
+                  {t("integrations.edit")}
                 </Button>
-              ) : null}
-              <Button type="button" variant="ghost" size="sm" onClick={onEdit}>
-                <IconEdit size={14} />
-                {t("integrations.edit")}
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                onClick={onDelete}
-                aria-label={`${t("integrations.delete")} ${connection.label}`}
-                title={`${t("integrations.delete")} ${connection.label}`}
-                className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-              >
-                <IconTrash size={14} />
-              </Button>
-            </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={onDelete}
+                  aria-label={`${t("integrations.delete")} ${connection.label}`}
+                  title={`${t("integrations.delete")} ${connection.label}`}
+                  className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                >
+                  <IconTrash size={14} />
+                </Button>
+              </div>
+            ) : null}
           </div>
 
           <div className="dispatch-connection-meta-grid grid gap-x-6 gap-y-3">
@@ -1023,7 +1035,7 @@ function ConnectionRow({
                   </div>
                   <Switch
                     checked={granted}
-                    disabled={grantPending}
+                    disabled={grantPending || !canManageGrant(app.id)}
                     onCheckedChange={(checked) =>
                       onToggleGrant(app.id, checked)
                     }
@@ -1156,6 +1168,7 @@ function UserAccessControl({
   selectedUsers,
   selectedUserGroups,
   groups,
+  canManageGroups,
   onChange,
   onManageGroups,
   onEditGroup,
@@ -1164,6 +1177,7 @@ function UserAccessControl({
   selectedUsers: string[];
   selectedUserGroups: string[];
   groups: WorkspaceUserGroup[];
+  canManageGroups: boolean;
   onChange: (next: {
     allUsers: boolean;
     selectedUsers: string[];
@@ -1288,89 +1302,91 @@ function UserAccessControl({
 
         {!allUsers ? (
           <div className="grid gap-4">
-            <div className="grid gap-2">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                    {t("integrations.groups")}
-                  </p>
-                  <p className="mt-0.5 text-xs text-muted-foreground">
-                    {t("integrations.groupsDescription")}
-                  </p>
+            {canManageGroups ? (
+              <div className="grid gap-2">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      {t("integrations.groups")}
+                    </p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {t("integrations.groupsDescription")}
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={onManageGroups}
+                    className="h-7 px-2 text-xs"
+                  >
+                    <IconPlus size={13} />
+                    {t("integrations.newGroup")}
+                  </Button>
                 </div>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={onManageGroups}
-                  className="h-7 px-2 text-xs"
-                >
-                  <IconPlus size={13} />
-                  {t("integrations.newGroup")}
-                </Button>
-              </div>
-              {groups.length > 0 ? (
-                <div className="grid gap-1">
-                  {groups.map((group) => {
-                    const checked = selectedGroupSet.has(group.id);
-                    return (
-                      <div
-                        key={group.id}
-                        className="flex items-center gap-1 rounded-md bg-background/60 px-1 py-1 transition-colors hover:bg-accent/30"
-                      >
-                        <Label
-                          htmlFor={`connection-group-${group.id}`}
-                          className="flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-3 px-2 py-1"
+                {groups.length > 0 ? (
+                  <div className="grid gap-1">
+                    {groups.map((group) => {
+                      const checked = selectedGroupSet.has(group.id);
+                      return (
+                        <div
+                          key={group.id}
+                          className="flex items-center gap-1 rounded-md bg-background/60 px-1 py-1 transition-colors hover:bg-accent/30"
                         >
-                          <span className="flex min-w-0 items-center gap-2">
-                            <IconUsersGroup
-                              size={14}
-                              className="shrink-0 text-muted-foreground"
-                            />
-                            <span className="truncate text-sm font-medium">
-                              {group.name}
+                          <Label
+                            htmlFor={`connection-group-${group.id}`}
+                            className="flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-3 px-2 py-1"
+                          >
+                            <span className="flex min-w-0 items-center gap-2">
+                              <IconUsersGroup
+                                size={14}
+                                className="shrink-0 text-muted-foreground"
+                              />
+                              <span className="truncate text-sm font-medium">
+                                {group.name}
+                              </span>
+                              <Pill className="border-0 bg-muted px-1.5 text-[11px] text-muted-foreground">
+                                {group.memberEmails.length}
+                              </Pill>
                             </span>
-                            <Pill className="border-0 bg-muted px-1.5 text-[11px] text-muted-foreground">
-                              {group.memberEmails.length}
-                            </Pill>
-                          </span>
-                          <Checkbox
-                            id={`connection-group-${group.id}`}
-                            checked={checked}
-                            onCheckedChange={(value) =>
-                              toggleGroup(group.id, value === true)
-                            }
-                            aria-label={group.name}
-                          />
-                        </Label>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="size-7 shrink-0"
-                          onClick={() => onEditGroup(group)}
-                          aria-label={t("integrations.editGroupAria", {
-                            name: group.name,
-                          })}
-                        >
-                          <IconEdit size={13} />
-                        </Button>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  onClick={onManageGroups}
-                  className="h-auto justify-start rounded-md bg-background/60 px-3 py-2 text-xs text-muted-foreground"
-                >
-                  <IconPlus size={13} />
-                  {t("integrations.createGroupCta")}
-                </Button>
-              )}
-            </div>
+                            <Checkbox
+                              id={`connection-group-${group.id}`}
+                              checked={checked}
+                              onCheckedChange={(value) =>
+                                toggleGroup(group.id, value === true)
+                              }
+                              aria-label={group.name}
+                            />
+                          </Label>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="size-7 shrink-0"
+                            onClick={() => onEditGroup(group)}
+                            aria-label={t("integrations.editGroupAria", {
+                              name: group.name,
+                            })}
+                          >
+                            <IconEdit size={13} />
+                          </Button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={onManageGroups}
+                    className="h-auto justify-start rounded-md bg-background/60 px-3 py-2 text-xs text-muted-foreground"
+                  >
+                    <IconPlus size={13} />
+                    {t("integrations.createGroupCta")}
+                  </Button>
+                )}
+              </div>
+            ) : null}
 
             <div className="grid gap-2">
               <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -1634,6 +1650,7 @@ function ConnectionForm({
   providers,
   grantApps,
   groups,
+  canManageGroups,
   saving,
   onChange,
   onClose,
@@ -1646,6 +1663,7 @@ function ConnectionForm({
   providers: WorkspaceConnectionProvider[];
   grantApps: GrantApp[];
   groups: WorkspaceUserGroup[];
+  canManageGroups: boolean;
   saving: boolean;
   onChange: (form: ConnectionFormState) => void;
   onClose: () => void;
@@ -1820,6 +1838,7 @@ function ConnectionForm({
             selectedUsers={form.selectedUsers}
             selectedUserGroups={form.selectedUserGroups}
             groups={groups}
+            canManageGroups={canManageGroups}
             onManageGroups={onManageGroups}
             onEditGroup={onEditGroup}
             onChange={({ allUsers, selectedUsers, selectedUserGroups }) =>
@@ -2073,6 +2092,7 @@ function SetupWizard({
   providers,
   grantApps,
   groups,
+  canManageGroups,
   loading,
   saving,
   onStepChange,
@@ -2090,6 +2110,7 @@ function SetupWizard({
   providers: WorkspaceConnectionProvider[];
   grantApps: GrantApp[];
   groups: WorkspaceUserGroup[];
+  canManageGroups: boolean;
   loading: boolean;
   saving: boolean;
   onStepChange: (step: number) => void;
@@ -2448,6 +2469,7 @@ function SetupWizard({
                     selectedUsers={selectedUsers}
                     selectedUserGroups={selectedUserGroups}
                     groups={groups}
+                    canManageGroups={canManageGroups}
                     onManageGroups={onManageGroups}
                     onEditGroup={onEditGroup}
                     onChange={({
@@ -2646,6 +2668,10 @@ function ConnectionDeleteImpact({
 export default function WorkspaceIntegrationsRoute() {
   const t = useT();
   const queryClient = useQueryClient();
+  const { canManageOrg } = useOrgRole();
+  const { data: dispatchAppRole } = useAppRoles("dispatch");
+  const canManageConnections =
+    canManageOrg || dispatchAppRole?.canManage === true;
   const [form, setForm] = useState<ConnectionFormState | null>(null);
   const [setupWizard, setSetupWizard] = useState<SetupWizardState | null>(null);
   const [setupStep, setSetupStep] = useState(0);
@@ -2673,7 +2699,11 @@ export default function WorkspaceIntegrationsRoute() {
     includeAgentCards: false,
     audience: "all",
   });
-  const groupsQuery = useActionQuery("list-workspace-user-groups", {});
+  const groupsQuery = useActionQuery(
+    "list-workspace-user-groups",
+    {},
+    { enabled: canManageOrg },
+  );
   const setupPlanQuery = useActionQuery<WorkspaceConnectionSetupPlan>(
     "plan-workspace-connection-setup",
     {
@@ -2755,6 +2785,7 @@ export default function WorkspaceIntegrationsRoute() {
   }, [currentSetupKey, setupFormKey, setupPlanQuery.data, setupWizard]);
 
   function openSetup(provider: WorkspaceConnectionProvider) {
+    if (!canManageConnections) return;
     setSetupWizard({ mode: "setup", providerId: provider.id });
     setSetupStep(0);
     setSetupForm(null);
@@ -2767,6 +2798,7 @@ export default function WorkspaceIntegrationsRoute() {
       setProviderChoice({ provider, personalIntegration });
       return;
     }
+    if (!canManageConnections) return;
     if (providerHasOAuth(provider)) {
       startWorkspaceProviderOAuth(provider);
       return;
@@ -2775,6 +2807,7 @@ export default function WorkspaceIntegrationsRoute() {
   }
 
   function openRepair(connection: WorkspaceConnection) {
+    if (!canManageConnection(connection)) return;
     setSetupWizard({
       mode: "repair",
       providerId: connection.provider,
@@ -2786,16 +2819,41 @@ export default function WorkspaceIntegrationsRoute() {
   }
 
   function openEdit(connection: WorkspaceConnection) {
+    if (!canManageConnection(connection)) return;
     setForm(
       formFromConnection(connection, providersById.get(connection.provider)),
     );
   }
 
   function openGroupEditor(group: WorkspaceUserGroup | null = null) {
+    if (!canManageOrg) return;
     setGroupEditor({ group });
   }
 
+  function canManageConnection(connection: WorkspaceConnection): boolean {
+    return (
+      canManageOrg ||
+      (dispatchAppRole?.canManage === true &&
+        connection.allowedApps.length === 1 &&
+        connection.allowedApps[0]?.toLowerCase() === "dispatch")
+    );
+  }
+
+  function canManageConnectionGrant(
+    connection: WorkspaceConnection,
+    appId: string,
+  ): boolean {
+    return (
+      canManageOrg ||
+      (dispatchAppRole?.canManage === true &&
+        appId === "dispatch" &&
+        connection.allowedApps.length > 0 &&
+        connection.allowedApps.includes("dispatch"))
+    );
+  }
+
   async function handleSaveGroup(name: string, memberEmails: string[]) {
+    if (!canManageOrg) return;
     try {
       await upsertGroup.mutateAsync({
         id: groupEditor?.group?.id,
@@ -2823,6 +2881,14 @@ export default function WorkspaceIntegrationsRoute() {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!form) return;
+    if (form.id) {
+      const existing = connections.find(
+        (connection) => connection.id === form.id,
+      );
+      if (existing && !canManageConnection(existing)) return;
+    } else if (!canManageConnections) {
+      return;
+    }
     try {
       const provider = providersById.get(form.provider);
       const credentialRefs = normalizeCredentialRefs(
@@ -2857,6 +2923,7 @@ export default function WorkspaceIntegrationsRoute() {
 
   async function applySetupWizard() {
     if (!setupForm) return;
+    if (!canManageConnections) return;
     try {
       await applySetup.mutateAsync({
         connectionId: setupForm.connectionId,
@@ -2899,6 +2966,7 @@ export default function WorkspaceIntegrationsRoute() {
     appId: string,
     granted: boolean,
   ) {
+    if (!canManageConnectionGrant(connection, appId)) return;
     const previous =
       queryClient.getQueryData<WorkspaceConnectionsResponse>(
         CONNECTION_QUERY_KEY,
@@ -2977,6 +3045,7 @@ export default function WorkspaceIntegrationsRoute() {
 
   async function confirmDelete() {
     if (!deleteTarget) return;
+    if (!canManageConnection(deleteTarget)) return;
     const previous =
       queryClient.getQueryData<WorkspaceConnectionsResponse>(
         CONNECTION_QUERY_KEY,
@@ -3233,6 +3302,10 @@ export default function WorkspaceIntegrationsRoute() {
                       grants={data.grants}
                       groups={groups}
                       grantPending={setGrant.isPending}
+                      canManage={canManageConnection(connection)}
+                      canManageGrant={(appId) =>
+                        canManageConnectionGrant(connection, appId)
+                      }
                       onEdit={() => openEdit(connection)}
                       onRepair={() => openRepair(connection)}
                       onDelete={() => setDeleteTarget(connection)}
@@ -3257,6 +3330,7 @@ export default function WorkspaceIntegrationsRoute() {
         providers={providers}
         grantApps={grantApps}
         groups={groups}
+        canManageGroups={canManageOrg}
         loading={setupPlanQuery.isLoading}
         saving={applySetup.isPending}
         onStepChange={setSetupStep}
@@ -3276,6 +3350,7 @@ export default function WorkspaceIntegrationsRoute() {
         providers={providers}
         grantApps={grantApps}
         groups={groups}
+        canManageGroups={canManageOrg}
         saving={upsertConnection.isPending}
         onChange={setForm}
         onClose={() => setForm(null)}
