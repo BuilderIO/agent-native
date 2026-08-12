@@ -69,6 +69,60 @@ const MIN_IMAGE_WIDTH = 160;
 const MAX_AGENT_IMAGE_DIMENSION = 1600;
 const ALT_TEXT_CONTEXT_WORD_LIMIT = 250;
 const DEFAULT_ASSETS_PICKER_URL = "https://assets.agent-native.com/picker";
+const IMAGE_LOAD_TIMEOUT_MS = 15_000;
+
+export class ImageRenderError extends Error {
+  constructor() {
+    super("Image could not be loaded.");
+    this.name = "ImageRenderError";
+  }
+}
+
+export function waitForImageLoad(
+  src: string,
+  createImage: () => HTMLImageElement = () => new Image(),
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const image = createImage();
+    const timeout = window.setTimeout(() => {
+      cleanup();
+      reject(new ImageRenderError());
+    }, IMAGE_LOAD_TIMEOUT_MS);
+
+    function cleanup() {
+      window.clearTimeout(timeout);
+      image.onload = null;
+      image.onerror = null;
+    }
+
+    image.onload = () => {
+      cleanup();
+      resolve();
+    };
+    image.onerror = () => {
+      cleanup();
+      reject(new ImageRenderError());
+    };
+    image.src = src;
+  });
+}
+
+export async function completeImageFileUpload({
+  file,
+  updateAttributes,
+  upload = uploadImageFile,
+  load = waitForImageLoad,
+}: {
+  file: File;
+  updateAttributes: (attributes: { src: string }) => void;
+  upload?: (file: File) => Promise<string>;
+  load?: (src: string) => Promise<void>;
+}): Promise<string> {
+  const src = await upload(file);
+  await load(src);
+  updateAttributes({ src });
+  return src;
+}
 
 interface PickedAssetImagePayload {
   url?: unknown;
@@ -514,6 +568,7 @@ export function ImageBlock({
   const [lightboxZoomed, setLightboxZoomed] = useState(false);
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [isGeneratingAlt, setIsGeneratingAlt] = useState(false);
+  const [isFileUploadPending, setIsFileUploadPending] = useState(false);
   const [imageLoadFailed, setImageLoadFailed] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const altInputRef = useRef<HTMLInputElement>(null);
@@ -524,7 +579,7 @@ export function ImageBlock({
   const isEditable = editor.isEditable;
   const src = node.attrs.src as string;
   const alt = (node.attrs.alt as string) || "";
-  const isUploading = Boolean(node.attrs.uploadId);
+  const isUploading = Boolean(node.attrs.uploadId) || isFileUploadPending;
   const width = normalizedImageWidth(node.attrs.width);
   const activeWidth = dragWidth ?? width;
   const controlsVisible = isEditable && (isHovered || selected);
@@ -767,13 +822,20 @@ export function ImageBlock({
     if (!file) return;
 
     const toastId = toast.loading(t("editor.media.uploadingImage"));
+    setIsFileUploadPending(true);
     try {
-      const nextSrc = await uploadImageFile(file);
-      updateAttributes({ src: nextSrc });
+      await completeImageFileUpload({ file, updateAttributes });
       setSourcePanelOpen(false);
       toast.success(t("editor.media.imageAdded"), { id: toastId });
     } catch (error) {
-      toast.error(imageUploadErrorMessage(error), { id: toastId });
+      toast.error(
+        error instanceof ImageRenderError
+          ? t("editor.media.imageBroken")
+          : imageUploadErrorMessage(error),
+        { id: toastId },
+      );
+    } finally {
+      setIsFileUploadPending(false);
     }
   }
 
