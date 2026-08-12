@@ -58,6 +58,14 @@ function canonicalServerUrl(value: string): string {
   return checkedRemoteUrl(value, "server").toString();
 }
 
+function serverUrlsMatch(stored: string, canonical: string): boolean {
+  try {
+    return canonicalServerUrl(stored) === canonical;
+  } catch {
+    return false;
+  }
+}
+
 function guardedOAuthFetch(): GuardedFetch {
   const allowedPrivateOrigins = (
     process.env[MCP_OAUTH_PRIVATE_ORIGINS_ENV] ?? ""
@@ -506,8 +514,7 @@ export async function readMcpOAuthCredentials(options: {
   });
   if (state.kind === "missing" || state.kind === "malformed") return null;
   const parsed = state.credential;
-  if (parsed.serverUrl !== serverUrl) return null;
-  if (!validateRemoteUrl(parsed.serverUrl).ok) return null;
+  if (!serverUrlsMatch(parsed.serverUrl, serverUrl)) return null;
   if (parsed.discoveryState) {
     try {
       validateDiscoveryUrls(parsed.discoveryState);
@@ -515,7 +522,7 @@ export async function readMcpOAuthCredentials(options: {
       return null;
     }
   }
-  return parsed;
+  return { ...parsed, serverUrl };
 }
 
 export async function getMcpOAuthConnectionState(options: {
@@ -530,7 +537,8 @@ export async function getMcpOAuthConnectionState(options: {
     {
       allowLegacy: true,
       legacyAccountKey: true,
-      validateCredential: (credential) => credential.serverUrl === serverUrl,
+      validateCredential: (credential) =>
+        serverUrlsMatch(credential.serverUrl, serverUrl),
     },
   );
 }
@@ -551,7 +559,7 @@ export async function deleteMcpOAuthCredentials(options: {
     allowLegacy: true,
     legacyAccountKey: true,
     validateCredential: (credential: McpOAuthCredentialBundle) =>
-      credential.serverUrl === serverUrl,
+      serverUrlsMatch(credential.serverUrl, serverUrl),
   });
   return result.local === "deleted";
 }
@@ -567,7 +575,8 @@ export async function revokeMcpOAuthCredentials(options: {
   return revokeOAuthCredential<McpOAuthCredentialBundle>(identity, {
     allowLegacy: true,
     legacyAccountKey: true,
-    validateCredential: (credential) => credential.serverUrl === serverUrl,
+    validateCredential: (credential) =>
+      serverUrlsMatch(credential.serverUrl, serverUrl),
     revoke: async ({ credential }) => {
       const endpoint = (
         credential.discoveryState?.authorizationServerMetadata as
@@ -618,7 +627,8 @@ export async function getMcpOAuthAccessToken(options: {
     {
       allowLegacy: true,
       legacyAccountKey: true,
-      validateCredential: (credential) => credential.serverUrl === serverUrl,
+      validateCredential: (credential) =>
+        serverUrlsMatch(credential.serverUrl, serverUrl),
       expirySkewMs: TOKEN_EXPIRY_SKEW_MS,
       refresh: async ({ credential: credentials }) => {
         const refreshToken = credentials.tokens.refresh_token;

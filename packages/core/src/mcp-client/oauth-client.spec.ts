@@ -691,7 +691,7 @@ describe("MCP OAuth client", () => {
   it("uses one canonical server URL across reads, access, and deletion", async () => {
     const rootCredentials = {
       ...credentials,
-      serverUrl: "https://mcp.example.com/",
+      serverUrl: "https://mcp.example.com",
     };
     getOAuthTokensMock.mockResolvedValue(rootCredentials);
     deleteOAuthTokensIfRevisionMock.mockResolvedValue(true);
