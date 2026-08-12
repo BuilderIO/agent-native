@@ -44,7 +44,10 @@ export function EditorActionCluster({
             aria-label={t("editorToolbar.addTextBox")}
             aria-pressed={textBoxMode}
             aria-keyshortcuts="T"
-            className={cn(BUTTON_CLASS, textBoxMode ? ACTIVE_CLASS : IDLE_CLASS)}
+            className={cn(
+              BUTTON_CLASS,
+              textBoxMode ? ACTIVE_CLASS : IDLE_CLASS,
+            )}
           >
             <IconTextSize className="size-4" />
           </button>
