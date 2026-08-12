@@ -85,23 +85,7 @@ export function FactoryInspector({
   }
 
   return (
-    <aside className="flex min-h-0 flex-col border-l bg-background">
-      <div className="flex items-start justify-between gap-3 border-b px-4 py-4">
-        <div className="min-w-0">
-          <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
-            {t("factoryInspector.title")}
-          </p>
-          <h2 className="mt-1 truncate text-base font-semibold">
-            {selectedNode?.label ?? selectedEdge?.label ?? graph.name}
-          </h2>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">
-            {selectedNode?.description ??
-              selectedEdge?.condition ??
-              graph.description}
-          </p>
-        </div>
-      </div>
-
+    <aside className="flex min-h-0 flex-col border-l bg-muted/10">
       <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-4">
         {!selectedNode && !selectedEdge ? (
           <CanvasInspector

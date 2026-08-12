@@ -75,9 +75,6 @@ export function IntegrationConnectionChoice({
             ) : null}
           </div>
 
-          <p className="mt-5 text-xs leading-5 text-muted-foreground">
-            You can change this later in Integrations.
-          </p>
         </div>
       </main>
     </div>
