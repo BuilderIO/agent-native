@@ -14,7 +14,7 @@ import {
   IconWorld,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 
 import {
   Avatar as UserAvatar,
@@ -136,34 +136,19 @@ export function useResourceVisibilityMutation(
 }
 
 // ---------------------------------------------------------------------------
-// Header (title + owner)
+// Compact section labels
 // ---------------------------------------------------------------------------
 
-export function ShareCardHeader({
-  title,
-  ownerEmail,
-  reserveCloseButton = false,
+export function ShareSectionLabel({
+  children,
+  className,
 }: {
-  title: string;
-  ownerEmail?: string | null;
-  reserveCloseButton?: boolean;
+  children: ReactNode;
+  className?: string;
 }) {
-  const t = useT();
   return (
-    <div
-      className={cn(
-        "min-w-0 border-b border-border px-4 pb-3 pt-3",
-        reserveCloseButton && "pe-12",
-      )}
-    >
-      <div className="min-w-0 truncate text-sm font-semibold" title={title}>
-        {title}
-      </div>
-      {ownerEmail ? (
-        <div className="mt-0.5 truncate text-xs text-muted-foreground">
-          {t("shareUi.owner", { email: ownerEmail })}
-        </div>
-      ) : null}
+    <div className={cn("text-xs font-medium text-muted-foreground", className)}>
+      {children}
     </div>
   );
 }
@@ -197,9 +182,9 @@ export function GeneralAccessSelect({
 
   return (
     <div>
-      <div className="mb-2 text-xs font-semibold">
+      <ShareSectionLabel className="mb-2">
         {t("shareUi.generalAccess")}
-      </div>
+      </ShareSectionLabel>
       <div className="flex items-center gap-3">
         <span
           aria-hidden
@@ -245,9 +230,11 @@ export function GeneralAccessSelect({
 export function MakePublicCard({
   isPending,
   onMakePublic,
+  secondaryAction,
 }: {
   isPending: boolean;
   onMakePublic: () => void;
+  secondaryAction?: ReactNode;
 }) {
   const t = useT();
   return (
@@ -259,16 +246,21 @@ export function MakePublicCard({
         strokeWidth={1.8}
         className="text-muted-foreground"
       />
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        className="h-7"
-        onClick={onMakePublic}
-        disabled={isPending}
-      >
-        {isPending ? t("shareUi.makingPublic") : t("shareUi.makePublicAndCopy")}
-      </Button>
+      <div className="flex items-center gap-2">
+        {secondaryAction}
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-7"
+          onClick={onMakePublic}
+          disabled={isPending}
+        >
+          {isPending
+            ? t("shareUi.makingPublic")
+            : t("shareUi.makePublicAndCopy")}
+        </Button>
+      </div>
     </div>
   );
 }
@@ -297,9 +289,9 @@ export function CopyField({
   return (
     <div>
       {label ? (
-        <div className="mb-1 text-xs font-medium text-muted-foreground">
+        <ShareSectionLabel className="mb-1">
           {label}
-        </div>
+        </ShareSectionLabel>
       ) : null}
       <div className="flex items-stretch gap-2">
         <Input

@@ -27,7 +27,6 @@ import {
   CopyField,
   GeneralAccessSelect,
   MakePublicCard,
-  ShareCardHeader,
   SharePeopleTab,
   copyToClipboard,
   useResourceVisibilityMutation,
@@ -51,6 +50,7 @@ import {
 } from "@/components/ui/popover";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { cn } from "@/lib/utils";
 
 import { buildEmailPreviewMarkup } from "../../../shared/email-preview";
 import { isLoomEmbedUrl } from "../../../shared/loom";
@@ -168,7 +168,6 @@ export function ShareRecordingDialog({
           animatedThumbnailUrl={animatedThumbnailUrl}
           isLoomRecording={isLoomRecording}
           hasPassword={hasPassword}
-          reserveCloseButton
         />
       </DialogContent>
     </Dialog>
@@ -184,7 +183,6 @@ function ShareRecordingContent({
   thumbnailUrl,
   animatedThumbnailUrl,
   isLoomRecording = false,
-  reserveCloseButton = false,
   hasPassword,
 }: {
   recordingId: string;
@@ -195,7 +193,6 @@ function ShareRecordingContent({
   thumbnailUrl?: string | null;
   animatedThumbnailUrl?: string | null;
   isLoomRecording?: boolean;
-  reserveCloseButton?: boolean;
   hasPassword?: boolean;
 }) {
   const t = useT();
@@ -228,19 +225,12 @@ function ShareRecordingContent({
           absoluteAppUrl(`/share/${recordingId}`),
           ownerViaId,
         );
-  const titleText = recordingTitle
-    ? t("shareDialog.shareTitle", { title: recordingTitle })
-    : t("shareDialog.shareRecording");
-
   return (
     <>
-      <ShareCardHeader
-        title={titleText}
-        ownerEmail={data?.ownerEmail}
-        reserveCloseButton={reserveCloseButton}
-      />
-
-      <Tabs defaultValue="link" className="min-w-0 px-4 py-3">
+      <Tabs
+        defaultValue="link"
+        className={cn("min-w-0 px-4 py-3", reserveCloseButton && "pe-12")}
+      >
         <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="link" className="gap-1.5">
             <IconLink size={14} />
@@ -441,6 +431,25 @@ function LinkTab({
     ? t("shareDialog.agentPrompt", { agentContextUrl: agentLink })
     : "";
   const [agentDetailsOpen, setAgentDetailsOpen] = useState(false);
+  const showMakePublic = sharesLoaded && !isPublic && canManage;
+  const downloadButton = videoUrl ? (
+    <Button
+      variant="outline"
+      size="sm"
+      className={isLoomRecording ? "gap-1.5" : undefined}
+      onClick={() => window.open(videoUrl, "_blank", "noopener,noreferrer")}
+    >
+      {isLoomRecording ? (
+        <>
+          <IconExternalLink className="h-4 w-4" />
+          {t("shareDialog.openPlayer")}
+        </>
+      ) : (
+        t("recordRoute.downloadRecording")
+      )}
+    </Button>
+  ) : null;
+  const moveDownloadIntoMakePublicRow = showMakePublic && Boolean(videoUrl);
 
   useEffect(() => {
     if (isPublic) setAgentDetailsOpen(false);
@@ -540,9 +549,12 @@ function LinkTab({
         </Collapsible>
       ) : null}
 
-      {sharesLoaded && !isPublic && canManage ? (
+      {showMakePublic ? (
         <MakePublicCard
           isPending={isPending}
+          secondaryAction={
+            moveDownloadIntoMakePublicRow ? downloadButton : undefined
+          }
           onMakePublic={() =>
             setResourceVisibility("public", {
               onSuccess: () => copyToClipboard(shareUrl),
@@ -551,7 +563,9 @@ function LinkTab({
         />
       ) : null}
 
-      {emailPreviewThumbnailUrl || videoUrl || animatedThumbnailUrl ? (
+      {emailPreviewThumbnailUrl ||
+      animatedThumbnailUrl ||
+      (videoUrl && !moveDownloadIntoMakePublicRow) ? (
         <div className="flex flex-wrap gap-2">
           {emailPreviewThumbnailUrl ? (
             <Button
@@ -571,25 +585,7 @@ function LinkTab({
               {t("shareDialog.gifPreview")}
             </Button>
           ) : null}
-          {videoUrl ? (
-            <Button
-              variant="outline"
-              size="sm"
-              className={isLoomRecording ? "gap-1.5" : undefined}
-              onClick={() =>
-                window.open(videoUrl, "_blank", "noopener,noreferrer")
-              }
-            >
-              {isLoomRecording ? (
-                <>
-                  <IconExternalLink className="h-4 w-4" />
-                  {t("shareDialog.openPlayer")}
-                </>
-              ) : (
-                t("recordRoute.downloadRecording")
-              )}
-            </Button>
-          ) : null}
+          {!moveDownloadIntoMakePublicRow ? downloadButton : null}
         </div>
       ) : null}
     </div>
