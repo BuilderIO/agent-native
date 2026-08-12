@@ -24,7 +24,7 @@
  *
  * APP-LIST SOURCE — Dispatch's existing connected-apps registry.
  * -------------------------------------------------------------
- * Dispatch already has a connected-apps concept: `discoverAgents("dispatch")`
+ * Dispatch already has a connected-apps concept: `discoverAgents()`
  * from `@agent-native/core/server/agent-discovery` (the same source
  * `list-connected-agents` and the `call-agent` delegation path use). It
  * returns the allow-listed first-party apps with their prod URLs PLUS any
@@ -143,7 +143,7 @@ const orgAppsHandler = defineEventHandler(
     const apps: DiscoveredAppLike[] = await runWithRequestContext(
       { userEmail: verified.email, orgId: localOrg.orgId },
       async () => {
-        const discovered = await discoverAgents(SELF_APP_ID);
+        const discovered = await discoverAgents();
         return discovered.map((a) => ({
           id: a.id,
           name: a.name,

@@ -241,10 +241,9 @@ describe("buildOrgAppsResponse", () => {
     // excludes hidden templates. Assert no hidden first-party slug leaks.
     const { getBuiltinAgents } =
       await import("@agent-native/core/server/agent-discovery");
-    const builtins = getBuiltinAgents("dispatch");
+    const builtins = getBuiltinAgents();
     const res = buildOrgAppsResponse({
       org: "acme.com",
-      selfId: "dispatch",
       apps: builtins.map((a) => ({
         id: a.id,
         name: a.name,
@@ -265,11 +264,12 @@ describe("buildOrgAppsResponse", () => {
       "starter",
     ];
     const ids = new Set(res.apps.map((a) => a.id));
+    expect(ids.has("dispatch")).toBe(true);
     for (const slug of HIDDEN_SLUGS) {
       expect(ids.has(slug)).toBe(false);
     }
-    // dispatch (self) is excluded; every entry has a valid a2aUrl.
-    expect(ids.has("dispatch")).toBe(false);
+    // Whole-fleet clients retain Dispatch; every entry has a valid a2aUrl.
+    expect(ids.has("dispatch")).toBe(true);
     for (const a of res.apps) {
       expect(a.a2aUrl.endsWith("/_agent-native/a2a")).toBe(true);
       expect(/^https?:\/\//.test(a.url)).toBe(true);

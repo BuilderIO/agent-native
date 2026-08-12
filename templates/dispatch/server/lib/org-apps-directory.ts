@@ -278,7 +278,7 @@ export interface DiscoveredAppLike {
 
 /**
  * Shape the discovered-agent list into the directory response. The input is
- * Dispatch's EXISTING connected-apps registry — `discoverAgents("dispatch")`
+ * Dispatch's EXISTING connected-apps registry — `discoverAgents()`
  * from `@agent-native/core/server/agent-discovery`, the same source
  * `list-connected-agents` and the `call-agent` delegation path use. It is
  * already allow-list-respecting (hidden first-party templates are excluded

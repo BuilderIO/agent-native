@@ -216,7 +216,7 @@ write-targets:
 test-resources:
   - id: feature-flag-domain-delegation-local-suite
     kind: server
-    surface: isolated local Analytics, Dispatch, and Content dev runtimes on ports 4310 through 4312
+    surface: isolated local Analytics, Dispatch, and Content dev runtimes on ports 8088, 8092, and 8083
     ownership-marker: feature-flag-domain-delegation-local-suite
     baseline: ports unused and task-local databases absent before Work
     allowed-actions: [create, update, exercise, delete]
