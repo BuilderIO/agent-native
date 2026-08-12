@@ -73,6 +73,7 @@ import {
   actionsToEngineTools,
   executeAgentToolCall,
   filterActionsByAllowedNames,
+  readPersistedActionSurface,
   toolCallCacheKey,
   getActiveRunForThreadAsync,
   abortRunDurably,
@@ -6149,21 +6150,14 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             // helper expands that owner into the same user/org AsyncLocalStorage
             // context the foreground request uses, so credential and data scoping
             // stay aligned.
-            const persistedSurface = workerBody.__resolvedActionSurface as
-              | Record<string, unknown>
-              | undefined;
-            const persistedOrgId =
-              persistedSurface &&
-              typeof persistedSurface === "object" &&
-              Object.prototype.hasOwnProperty.call(persistedSurface, "orgId")
-                ? typeof persistedSurface.orgId === "string"
-                  ? persistedSurface.orgId
-                  : null
-                : undefined;
+            const persistedSurface = readPersistedActionSurface(
+              workerBody,
+              "__resolvedActionSurface",
+            );
             await seedBackgroundAgentRunOwnerContext(
               event,
               prepared.runId,
-              persistedOrgId,
+              persistedSurface?.orgId,
             );
             return await invokeAgentChatHandler(event);
           } catch (err: any) {

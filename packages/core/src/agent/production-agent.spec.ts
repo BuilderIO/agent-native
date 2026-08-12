@@ -1760,17 +1760,46 @@ describe("filterActionsByAllowedNames", () => {
         { __resolvedActionSurface: { allowedActionNames: "invalid" } },
         "__resolvedActionSurface",
       ),
-    ).toEqual([]);
+    ).toEqual({ orgId: null, allowedActionNames: [] });
+    expect(
+      readPersistedActionSurface(
+        { __resolvedActionSurface: { allowedActionNames: ["allowed"] } },
+        "__resolvedActionSurface",
+      ),
+    ).toEqual({ orgId: null, allowedActionNames: [] });
     expect(
       readPersistedActionSurface(
         {
           __resolvedActionSurface: {
+            orgId: 42,
+            allowedActionNames: ["allowed"],
+          },
+        },
+        "__resolvedActionSurface",
+      ),
+    ).toEqual({ orgId: null, allowedActionNames: [] });
+    expect(
+      readPersistedActionSurface(
+        {
+          __resolvedActionSurface: {
+            orgId: "org-123",
             allowedActionNames: ["allowed", "allowed"],
           },
         },
         "__resolvedActionSurface",
       ),
-    ).toEqual(["allowed"]);
+    ).toEqual({ orgId: "org-123", allowedActionNames: ["allowed"] });
+    expect(
+      readPersistedActionSurface(
+        {
+          __resolvedActionSurface: {
+            orgId: null,
+            allowedActionNames: ["allowed"],
+          },
+        },
+        "__resolvedActionSurface",
+      ),
+    ).toEqual({ orgId: null, allowedActionNames: ["allowed"] });
   });
 
   it("keeps tool-search scoped to the filtered request registry", async () => {

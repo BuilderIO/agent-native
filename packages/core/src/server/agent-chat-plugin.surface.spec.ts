@@ -106,6 +106,16 @@ describe("interactive agent run options", () => {
 });
 
 describe("request-scoped action surface", () => {
+  it("restores the durable worker org from the validated persisted surface", () => {
+    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+      encoding: "utf-8",
+    });
+
+    expect(source).toMatch(
+      /const persistedSurface = readPersistedActionSurface\(\s*workerBody,\s*"__resolvedActionSurface",\s*\);[\s\S]*?seedBackgroundAgentRunOwnerContext\([\s\S]*?persistedSurface\?\.orgId,/,
+    );
+  });
+
   it("removes guidance for actions omitted from the request surface", () => {
     const prompt = [
       "Keep this general guidance.",

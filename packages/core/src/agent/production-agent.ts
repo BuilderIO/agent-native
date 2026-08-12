@@ -793,14 +793,31 @@ export function readPersistedAllowedActionNames(
   return [...new Set(names)];
 }
 
+export interface PersistedActionSurface {
+  orgId: string | null;
+  allowedActionNames: string[];
+}
+
 /** Read a nested persisted action surface. An absent envelope is legacy;
- * a present but invalid envelope is an explicit empty surface. */
+ * a present but invalid envelope is an explicit org-less, empty surface. */
 export function readPersistedActionSurface(
   value: unknown,
   propertyName: string,
-): string[] | undefined {
+): PersistedActionSurface | undefined {
   if (!hasOwn(value, propertyName)) return undefined;
-  return readPersistedAllowedActionNames(value[propertyName]) ?? [];
+  const surface = value[propertyName];
+  const allowedActionNames = readPersistedAllowedActionNames(surface) ?? [];
+  if (!hasOwn(surface, "orgId")) {
+    return { orgId: null, allowedActionNames: [] };
+  }
+  const orgId = surface.orgId;
+  if (
+    orgId !== null &&
+    (typeof orgId !== "string" || orgId.trim().length === 0)
+  ) {
+    return { orgId: null, allowedActionNames: [] };
+  }
+  return { orgId, allowedActionNames };
 }
 
 export function filterActionsByAllowedNames(
@@ -8045,12 +8062,12 @@ export function createProductionAgentHandler(
     const availableRequestActions = getRequestActions();
     let surfacedRequestActions = availableRequestActions;
     if (options.resolveActionSurface) {
-      const persistedActionNames = isBackgroundWorker
+      const persistedSurface = isBackgroundWorker
         ? readPersistedActionSurface(body, "__resolvedActionSurface")
         : undefined;
       const surface =
-        persistedActionNames !== undefined
-          ? { allowedActionNames: persistedActionNames }
+        persistedSurface !== undefined
+          ? persistedSurface
           : await options.resolveActionSurface({
               event,
               ownerEmail,
