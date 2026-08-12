@@ -205,6 +205,8 @@ const messages = {
     usingDesignSystem: "Using {{title}}",
     usingLinkedDesignSystem: "Using a linked design system",
     viewOnly: "View only",
+    commenterRoleLabel: "Commenter",
+    commenterRoleDescription: "Can view and add comments",
     slideSettings: "Slide settings",
     layout: "Layout",
     background: "Background",

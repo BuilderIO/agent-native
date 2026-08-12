@@ -123,6 +123,19 @@ describe("resolve-content-landing", () => {
     expect(result.documentId).not.toBe(deletedDocumentId);
   });
 
+  it("does not select an arbitrary existing document for a fresh landing", async () => {
+    const userEmail = "landing-existing-page@example.com";
+    const existingDocumentId = "landing-existing-page";
+    await createPersonalDocument(userEmail, existingDocumentId);
+
+    const result = await runWithRequestContext({ userEmail }, () =>
+      resolveContentLandingAction.run({}),
+    );
+
+    expect(result).toMatchObject({ resolution: "welcome-created" });
+    expect(result.documentId).not.toBe(existingDocumentId);
+  });
+
   it("reuses the welcome page when the request email is not canonical", async () => {
     const userEmail = "  Landing.MixedCase@Example.com ";
 
@@ -188,7 +201,6 @@ describe("resolve-content-landing", () => {
       .where(eq(schema.documents.id, first.documentId));
     expect(original.trashedAt).toBe(trashedAt);
   });
-
   it("converges concurrent root invocations on one private welcome page", async () => {
     const userEmail = "landing-concurrent@example.com";
     const resolve = () =>

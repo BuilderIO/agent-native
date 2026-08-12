@@ -21,7 +21,7 @@ describe("BinaryDocumentAttachmentAdapter", () => {
     });
 
     await expect(adapter.add({ file })).rejects.toThrow(
-      '"large.pdf" is 4.0 MB — PDFs are capped at 4 MB',
+      '"large.pdf" is 4.0 MB - documents are capped at 4 MB to stay within message limits. Please reduce the file size or split it into smaller parts.',
     );
   });
 });

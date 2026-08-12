@@ -8,7 +8,6 @@ export type ContentLastLocationState = {
 export type ContentWelcomePageState = {
   generation: number;
 };
-
 export type ContentLandingResolution =
   | "restored"
   | "welcome-created"

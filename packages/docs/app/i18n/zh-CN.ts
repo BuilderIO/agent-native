@@ -60,6 +60,8 @@ const zhCN = {
     dialogLabel: "搜索文档",
     placeholder: "搜索文档...",
     empty: "输入内容以搜索所有文档",
+    loadError: "搜索加载失败。请重试。",
+    retry: "重试",
     noResults: "未找到“{{query}}”的结果",
     browseAllDocs: "浏览全部文档",
     navigate: "导航",

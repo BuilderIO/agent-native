@@ -201,6 +201,8 @@ const messages = {
     usingDesignSystem: "正在使用 {{title}}",
     usingLinkedDesignSystem: "正在使用已关联的设计系统",
     viewOnly: "仅查看",
+    commenterRoleLabel: "评论者",
+    commenterRoleDescription: "可以查看并添加评论",
     slideSettings: "幻灯片设置",
     layout: "布局",
     background: "背景",

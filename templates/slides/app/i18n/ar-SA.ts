@@ -208,6 +208,8 @@ const messages = {
     usingDesignSystem: "يتم استخدام {{title}}",
     usingLinkedDesignSystem: "يتم استخدام نظام تصميم مرتبط",
     viewOnly: "عرض فقط",
+    commenterRoleLabel: "معلّق",
+    commenterRoleDescription: "يمكنه العرض وإضافة التعليقات",
     slideSettings: "إعدادات الشريحة",
     layout: "التخطيط",
     background: "الخلفية",

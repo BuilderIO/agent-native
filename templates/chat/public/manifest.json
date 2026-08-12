@@ -3,7 +3,6 @@
   "short_name": "Chat",
   "description": "Chat-first agent-native app ready to customize",
   "start_url": ".",
-  "display": "standalone",
   "background_color": "#111111",
   "theme_color": "#18181B",
   "icons": [

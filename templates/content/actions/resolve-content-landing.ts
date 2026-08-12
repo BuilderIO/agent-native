@@ -61,7 +61,6 @@ async function resolveWelcomeState(): Promise<ContentWelcomePageState> {
     }
   }
 }
-
 function savedDocumentId(state: Record<string, unknown> | null): string | null {
   const candidate = state as ContentLastLocationState | null;
   return typeof candidate?.documentId === "string" && candidate.documentId

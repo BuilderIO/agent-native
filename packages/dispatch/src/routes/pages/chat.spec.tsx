@@ -16,11 +16,16 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
     return <>{props.composerSlot as ReactNode}</>;
   },
   markAgentChatHomeHandoff: vi.fn(),
+  readChatFirstMode: () => true,
   navigateWithAgentChatViewTransition: (
     navigate: (path: string) => void,
     path: string,
   ) => navigate(path),
   sendToAgentChat: vi.fn(),
+}));
+
+vi.mock("../../components/layout/Layout", () => ({
+  useDispatchExtensions: () => undefined,
 }));
 
 vi.mock("@agent-native/core/client/api-path", () => ({
@@ -74,6 +79,7 @@ describe("Dispatch ChatRoute", () => {
       centerComposerWhenEmpty: true,
       composerLayoutVariant: "hero",
       composerPlaceholder: "Ask Dispatch...",
+      suppressInlineOpenApp: true,
     });
     expect(container.textContent).toContain("Chat across your apps");
   });
@@ -105,6 +111,10 @@ describe("Dispatch ChatRoute", () => {
     );
     expect(clientState.surfaceProps).not.toHaveProperty(
       "composerLayoutVariant",
+    );
+    expect(clientState.surfaceProps).toHaveProperty(
+      "suppressInlineOpenApp",
+      true,
     );
     expect(container.textContent).not.toContain("Chat across your apps");
   });

@@ -104,6 +104,26 @@ describe("desktop app mode defaults", () => {
     expect(loadDesktopAppPreferences().appModeDefaultsVersion).toBe(1);
   });
 
+  it("preserves explicit custom workspace SSO opt-in in the persisted app config", () => {
+    const initialApps = loadApps();
+    const customApp = {
+      ...initialApps[0],
+      id: "custom-workspace-app",
+      name: "Custom workspace app",
+      isBuiltIn: false,
+      workspaceSso: true,
+      mode: "prod" as const,
+    };
+    fs.writeFileSync(
+      path.join(electronState.userData, "app-config.json"),
+      JSON.stringify([customApp]),
+    );
+
+    expect(
+      loadApps().find((app) => app.id === customApp.id)?.workspaceSso,
+    ).toBe(true);
+  });
+
   it("normalizes legacy harness flags before recording the mode migration", () => {
     const initialApps = loadApps();
     const legacyApps = [

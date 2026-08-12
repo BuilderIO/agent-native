@@ -32,6 +32,8 @@ export interface NavigationState {
   query?: string;
   runId?: string;
   threadId?: string;
+  usageScope?: "me" | "workspace";
+  usageUserEmail?: string;
 }
 
 export function useNavigationState(extensions?: DispatchExtensionConfig) {
@@ -175,6 +177,16 @@ export function buildDispatchNavigationState(
     if (query) state.query = query;
     if (runId) state.runId = runId;
     if (selectedThreadId) state.threadId = selectedThreadId;
+  }
+
+  if (state.view === "metrics") {
+    const params = new URLSearchParams(search);
+    const usageScope = params.get("scope");
+    const usageUserEmail = params.get("user");
+    if (usageScope === "me" || usageScope === "workspace") {
+      state.usageScope = usageScope;
+    }
+    if (usageUserEmail) state.usageUserEmail = usageUserEmail;
   }
 
   return state;

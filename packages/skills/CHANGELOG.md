@@ -1,5 +1,67 @@
 # @agent-native/skills
 
+## 0.2.529
+
+### Patch Changes
+
+- Updated dependencies [aa17e22]
+- Updated dependencies [aa17e22]
+- Updated dependencies [aa17e22]
+- Updated dependencies [aa17e22]
+- Updated dependencies [aa17e22]
+- Updated dependencies [aa17e22]
+- Updated dependencies [aa17e22]
+- Updated dependencies [aa17e22]
+- Updated dependencies [aa17e22]
+- Updated dependencies [aa17e22]
+- Updated dependencies [aa17e22]
+- Updated dependencies [aa17e22]
+- Updated dependencies [aa17e22]
+- Updated dependencies [aa17e22]
+- Updated dependencies [aa17e22]
+- Updated dependencies [aa17e22]
+- Updated dependencies [aa17e22]
+- Updated dependencies [aa17e22]
+- Updated dependencies [aa17e22]
+- Updated dependencies [aa17e22]
+- Updated dependencies [aa17e22]
+- Updated dependencies [aa17e22]
+  - @agent-native/core@0.152.0
+
+## 0.2.528
+
+### Patch Changes
+
+- Updated dependencies [42db301]
+  - @agent-native/core@0.151.2
+
+## 0.2.527
+
+### Patch Changes
+
+- Updated dependencies [31fdef9]
+  - @agent-native/core@0.151.1
+
+## 0.2.526
+
+### Patch Changes
+
+- Updated dependencies [62a17be]
+  - @agent-native/core@0.151.0
+
+## 0.2.525
+
+### Patch Changes
+
+- Updated dependencies [7c5888c]
+- Updated dependencies [7c5888c]
+- Updated dependencies [7c5888c]
+- Updated dependencies [7c5888c]
+- Updated dependencies [7c5888c]
+- Updated dependencies [7c5888c]
+- Updated dependencies [7c5888c]
+  - @agent-native/core@0.150.0
+
 ## 0.2.524
 
 ### Patch Changes

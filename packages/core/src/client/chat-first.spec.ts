@@ -125,6 +125,23 @@ describe("chat-first preference", () => {
       }),
     ).toEqual(["calendar", "design", "mail"]);
   });
+
+  it("uses pin order by default and preserves an explicit app order", () => {
+    const appIds = ["mail", "calendar", "design", "clips"];
+
+    expect(
+      orderChatFirstAppIds(appIds, {
+        pinnedIds: ["calendar", "mail", "missing"],
+        orderedIds: ["stale"],
+      }),
+    ).toEqual(["calendar", "mail", "design", "clips"]);
+    expect(
+      orderChatFirstAppIds(appIds, {
+        pinnedIds: ["calendar", "mail"],
+        orderedIds: ["mail", "design", "calendar", "clips"],
+      }),
+    ).toEqual(["mail", "calendar", "design", "clips"]);
+  });
 });
 
 describe("chat-first app target resolution", () => {

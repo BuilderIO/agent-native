@@ -436,6 +436,8 @@ const messages = {
     ...designTemplateFeatureOverrides["zh-TW"].designEditor,
     ...responsiveInteractOverrides["zh-TW"].designEditor,
     askAgent: "詢問代理",
+    commenterRoleLabel: "評論者",
+    commenterRoleDescription: "可以檢視並新增審閱評論",
     nodeRewrite: {
       composerTitle: "詢問或變更所選內容",
       send: "傳送",

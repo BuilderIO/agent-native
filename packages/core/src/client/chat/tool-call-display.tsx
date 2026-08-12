@@ -77,6 +77,7 @@ export const ChatRunningTurnIdContext = React.createContext<string | null>(
   null,
 );
 export const ChatRunDurationContext = React.createContext<number | null>(null);
+export const SuppressInlineOpenAppContext = React.createContext(false);
 export const ASSISTANT_VISIBLE_TOOL_CALL_LIMIT = 3;
 /**
  * Keeps the tool-call stack layout-transparent. Tool-entry motion is disabled
@@ -774,6 +775,7 @@ function ToolCallDisplayGeneric({
   approval?: { approvalKey: string; dismissed?: boolean };
   repeatCount?: number;
 }) {
+  const suppressInlineOpenApp = React.useContext(SuppressInlineOpenAppContext);
   const isRawCallAgent = toolName === "call-agent";
   const isAgentCall = toolName.startsWith("agent:") || isRawCallAgent;
   const [expanded, setExpanded] = useState(isAgentCall);
@@ -943,7 +945,9 @@ function ToolCallDisplayGeneric({
 
   return (
     <div className="group/tool my-0.5 w-full overflow-hidden">
-      {mcpApp && <McpAppRenderer app={mcpApp} className="mb-1.5" />}
+      {mcpApp && !(suppressInlineOpenApp && toolName === "open_app") && (
+        <McpAppRenderer app={mcpApp} className="mb-1.5" />
+      )}
       <button
         type="button"
         onClick={() => canExpand && setExpanded(!isExpanded)}

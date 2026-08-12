@@ -4,14 +4,14 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - codex/desktop-workspace-sso-flagged
+      - main
 
 permissions:
   contents: read
 
 jobs:
   build-signed-macos-canary:
-    if: github.ref == 'refs/heads/codex/desktop-workspace-sso-flagged'
+    if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
     runs-on: macos-latest
     timeout-minutes: 60
     steps:
