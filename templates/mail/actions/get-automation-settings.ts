@@ -4,6 +4,10 @@ import { getUserSetting } from "@agent-native/core/settings";
 import { z } from "zod";
 
 import { resolveAutomationModelSettings } from "../server/lib/automation-model.js";
+import {
+  allowsAutomationSends,
+  type MailAutomationSettings,
+} from "../server/lib/automation-settings.js";
 
 export default defineAction({
   description:
@@ -15,10 +19,17 @@ export default defineAction({
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("Unauthenticated");
 
-    const data = (await getUserSetting(ownerEmail, "automation-settings")) as {
-      engine?: string;
-      model?: string;
-    } | null;
-    return resolveAutomationModelSettings(ownerEmail, data);
+    const data = (await getUserSetting(
+      ownerEmail,
+      "automation-settings",
+    )) as MailAutomationSettings | null;
+    const modelSettings = await resolveAutomationModelSettings(
+      ownerEmail,
+      data,
+    );
+    return {
+      ...modelSettings,
+      allowAutomationSends: allowsAutomationSends(data),
+    };
   },
 });

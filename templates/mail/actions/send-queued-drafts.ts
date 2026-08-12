@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import type { ActionRunContext } from "@agent-native/core/action";
 import { z } from "zod";
 
 import {
@@ -8,6 +9,7 @@ import {
   releaseQueuedDraftClaim,
   type QueuedEmailDraft,
 } from "../server/lib/queued-drafts.js";
+import { requiresEmailSendApproval } from "../server/lib/automation-settings.js";
 import sendEmailAction from "./send-email.js";
 
 function extractSentMessageId(result: unknown): string | undefined {
@@ -95,6 +97,8 @@ export default defineAction({
       .optional()
       .describe("Maximum drafts to send when all=true"),
   }),
+  needsApproval: (_args, ctx?: ActionRunContext) =>
+    requiresEmailSendApproval(ctx),
   run: async (args) => {
     let ids: string[] = [];
 

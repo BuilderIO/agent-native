@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import type { ActionRunContext } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { emit } from "@agent-native/core/event-bus";
 import { setOAuthDisplayName } from "@agent-native/core/oauth-tokens";
@@ -32,6 +33,7 @@ import {
   resolveComposeAttachments,
   splitReplyQuote,
 } from "../server/lib/outgoing-email.js";
+import { requiresEmailSendApproval } from "../server/lib/automation-settings.js";
 import { resolveGoogleSenderIdentity } from "../server/lib/sender-identity.js";
 import { markdownPreviewSnippet } from "../shared/markdown.js";
 import type { UserSettings } from "../shared/types.js";
@@ -109,7 +111,7 @@ const attachmentSchema = z.object({
 
 export default defineAction({
   description:
-    "Send an email via Gmail. IMPORTANT: Never call this unless the user explicitly asks to send — always draft first and show the content to the user for review before sending.",
+    "Send an email via Gmail. Interactive sends require approval. Automation-triggered sends require the owner to opt in through Mail settings; otherwise they remain approval-gated.",
   schema: z.object({
     to: z.string().describe("Recipient email(s), comma-separated"),
     subject: z.string().describe("Email subject"),
@@ -135,13 +137,11 @@ export default defineAction({
         "Files to attach. Each entry must reference a previously-uploaded file by its server-side `filename`. The upload must have been created via the media-upload endpoint before calling this action.",
       ),
   }),
-  // Human-in-the-loop gate: actually sending an email is outward-facing and
-  // hard to undo, so the agent can never send without a human approving the
-  // specific call. The loop pauses with `approval_required`; the user approves
-  // before the message goes out. Drafting/queueing is unaffected — only the
-  // real send is gated. This is the canonical (and intentionally rare) use of
-  // `needsApproval` in the framework.
-  needsApproval: true,
+  // Interactive sends stay human-approved. Event-triggered automations may
+  // opt out through the owner's Mail Automation settings, which are read from
+  // trusted action context rather than from tool input.
+  needsApproval: (_args, ctx?: ActionRunContext) =>
+    requiresEmailSendApproval(ctx),
   run: async (args) => {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");
