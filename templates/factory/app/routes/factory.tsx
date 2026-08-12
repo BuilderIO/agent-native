@@ -1679,9 +1679,7 @@ function SettingsView({ t }: { t: ReturnType<typeof useT> }) {
         />
         <SettingsRow
           label={t("factoryRoute.automationFailureAlertEmail")}
-          description={t(
-            "factoryRoute.automationFailureAlertEmailPlaceholder",
-          )}
+          description={t("factoryRoute.automationFailureAlertEmailPlaceholder")}
           control={
             <Input
               aria-label={t("factoryRoute.automationFailureAlertEmail")}
@@ -1790,12 +1788,6 @@ function SchedulerHealthStatus({
     !isError &&
     (!health || health.status === "no-data") &&
     !health?.lastCheckedAt;
-  const hasDiagnostics =
-    isError ||
-    hasNoHeartbeat ||
-    health?.status === "stale" ||
-    health?.status === "error" ||
-    Boolean(health?.lastError);
   const healthDescription = isError
     ? `${t("factoryRoute.automationDiagnosticsLoadError")} ${error instanceof Error ? error.message : String(error)}`
     : health?.lastError
@@ -1810,7 +1802,9 @@ function SchedulerHealthStatus({
     <SettingsGroup variant="soft">
       <SettingsRow
         label={t("factoryRoute.automationHealthTitle")}
-        description={hasDiagnostics ? healthDescription : undefined}
+        description={
+          healthDescription ?? t("factoryRoute.automationHealthDescription")
+        }
         control={
           <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-1">
             <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium">

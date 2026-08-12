@@ -22,7 +22,6 @@ import {
   IconComponents,
   IconCheck,
   IconExternalLink,
-  IconChevronDown,
 } from "@tabler/icons-react";
 import { useState, useCallback, useRef, useMemo, useEffect } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
@@ -38,7 +37,6 @@ import {
   pollDecodeJobStatus,
   type DecodeJobStatus,
 } from "@/lib/builder-design-system-upload";
-import { cn } from "@/lib/utils";
 
 interface GitHubLink {
   id: string;
@@ -69,6 +67,20 @@ interface BuilderIndexResult {
   instructions?: string;
 }
 
+interface BuilderIndexInput {
+  projectName?: string;
+  description?: string;
+  githubRepoUrl?: string;
+  connectedProjectId?: string;
+  codeFiles?: Array<{
+    filename: string;
+    content: string;
+    mimeType?: string;
+    encoding?: "utf8" | "base64";
+  }>;
+  designMd?: string;
+}
+
 export default function DesignSystemSetup() {
   const t = useT();
   const navigate = useNavigate();
@@ -88,7 +100,7 @@ export default function DesignSystemSetup() {
   const [notes, setNotes] = useState("");
   const [customInstructions, setCustomInstructions] = useState("");
   const [validationError, setValidationError] = useState<string | null>(null);
-  const [sourcePanel, setSourcePanel] = useState<"figma" | "other">("figma");
+  const [sourcePanel, setSourcePanel] = useState<"figma" | "other">("other");
   const [otherSource, setOtherSource] = useState<OtherSource | null>(null);
 
   const docInputRef = useRef<HTMLInputElement>(null);
@@ -105,6 +117,10 @@ export default function DesignSystemSetup() {
     designSystems: Array<{ id: string; title: string }>;
   }>("list-design-systems");
   const updateSystemMutation = useActionMutation("update-design-system");
+  const indexSystemMutation = useActionMutation<
+    BuilderIndexResult,
+    BuilderIndexInput
+  >("index-design-system-with-builder");
 
   const existingProjects = designsData?.designs ?? [];
   const existingSystems = designSystemsData?.designSystems ?? [];
@@ -223,11 +239,13 @@ export default function DesignSystemSetup() {
       existingProjects.some((project) => project.id === sourceId);
     if (!sourceExists) return;
     setSelectedProjectId(sourceId);
+    setSourcePanel("other");
+    setOtherSource("existing");
     appliedSourceIdRef.current = sourceId;
   }, [sourceId, existingProjects, existingSystems]);
 
   const hasAnySources = useMemo(() => {
-    return (
+    return Boolean(
       companyInfo.trim() ||
       websiteUrl.trim() ||
       websiteUrls.length > 0 ||
@@ -260,7 +278,7 @@ export default function DesignSystemSetup() {
 
   const selectOtherSource = useCallback((source: OtherSource) => {
     setSourcePanel("other");
-    setOtherSource((current) => (current === source ? null : source));
+    setOtherSource(source);
   }, []);
 
   const addWebsiteUrl = useCallback(() => {
@@ -424,6 +442,47 @@ export default function DesignSystemSetup() {
     const normalizedGithubLinks = pendingGithubUrl
       ? [...githubLinks, { id: "pending", url: pendingGithubUrl }]
       : githubLinks;
+
+    const isSingleGithubSource =
+      normalizedGithubLinks.length === 1 &&
+      normalizedWebsiteUrls.length === 0 &&
+      codeFiles.length === 0 &&
+      !builderIndexResult &&
+      docFiles.length === 0 &&
+      imageFiles.length === 0 &&
+      assets.length === 0 &&
+      !selectedProjectId;
+
+    if (isSingleGithubSource) {
+      const githubRepoUrl = normalizedGithubLinks[0]?.url;
+      if (!githubRepoUrl) return;
+
+      setValidationError(null);
+      try {
+        const result = await indexSystemMutation.mutateAsync({
+          projectName: companyInfo.trim() || undefined,
+          description:
+            [notes.trim(), customInstructions.trim()]
+              .filter(Boolean)
+              .join("\n\n") || undefined,
+          githubRepoUrl,
+        });
+        toast.success(t("designSystemSetup.githubIndexStarted"));
+        navigate(
+          result.localDesignSystemId
+            ? `/design-systems?designSystemId=${encodeURIComponent(result.localDesignSystemId)}`
+            : "/design-systems",
+        );
+      } catch (error) {
+        setValidationError(
+          error instanceof Error
+            ? error.message
+            : t("designSystemSetup.errors.githubIndex"),
+        );
+      }
+      return;
+    }
+
     const readableCodeFiles = codeFiles.filter((f) => f.textContent);
     const designMdFiles = readableCodeFiles.filter(isDesignMdFile);
     const builderCodeFiles = readableCodeFiles.filter(
@@ -586,7 +645,10 @@ export default function DesignSystemSetup() {
     navigate,
     t,
     updateSystemMutation,
+    indexSystemMutation,
   ]);
+
+  const isSubmitting = builderIndexing || indexSystemMutation.isPending;
 
   useSetPageTitle(
     <div className="flex items-center gap-2 min-w-0">
@@ -607,10 +669,18 @@ export default function DesignSystemSetup() {
     <Button
       size="sm"
       onClick={handleContinue}
-      aria-disabled={!hasAnySources}
-      className="cursor-pointer aria-disabled:opacity-50"
+      disabled={!hasAnySources || isSubmitting}
+      aria-busy={isSubmitting}
+      className="cursor-pointer"
     >
-      {t("designSystemSetup.continue")}
+      {isSubmitting ? (
+        <>
+          <Spinner className="size-3.5" />
+          {t("designSystemSetup.starting")}
+        </>
+      ) : (
+        t("designSystemSetup.continue")
+      )}
     </Button>,
   );
 

@@ -108,6 +108,7 @@ function parseProviderErrorPayload(
 
     if (!errorCode && !message) return null;
     return { message, errorCode };
+    // coercion-ok: invalid provider payloads are expected and fall back to the raw error text
   } catch {
     return null;
   }
