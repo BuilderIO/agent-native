@@ -27,7 +27,7 @@ import {
   type ReactNode,
 } from "react";
 
-import { Docs, docsUrl } from "../../shared/docs-url.js";
+import { docsUrl } from "../../shared/docs-url.js";
 import {
   MCP_CONNECT_GUIDES,
   MCP_CONNECT_MCP_URL_TEMPLATE,
@@ -148,7 +148,7 @@ export const AGENT_RESOURCE_DOCS_HREF: Record<ResourceView, string> = {
   instructions: docsUrl("agent-resources", { hash: "agents-md" }),
   agents: docsUrl("agent-resources", { hash: "custom-agents" }),
   memory: docsUrl("agent-resources", { hash: "memory" }),
-  skills: Docs.skillsGuide(),
+  skills: docsUrl("skills-guide"),
   learnings: docsUrl("agent-resources", { hash: "memory" }),
   "remote-agents": docsUrl("agent-resources", {
     hash: "remote-vs-custom-agents",
@@ -468,8 +468,8 @@ interface AccessUrls {
 }
 
 export const AGENT_ACCESS_DOCS_HREF = {
-  mcp: Docs.mcpProtocol(),
-  a2a: Docs.a2aProtocol(),
+  mcp: docsUrl("mcp-protocol"),
+  a2a: docsUrl("a2a-protocol"),
 } as const;
 
 interface CopyFieldProps {

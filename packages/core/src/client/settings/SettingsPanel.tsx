@@ -54,7 +54,7 @@ import React, {
 
 import { PROVIDER_ENV_PLACEHOLDERS } from "../../agent/engine/provider-env-vars.js";
 import { buildSettingsRoute } from "../../navigation/index.js";
-import { Docs } from "../../shared/docs-url.js";
+import { docsUrl } from "../../shared/docs-url.js";
 import {
   saveAgentEngineProviderSettings,
   setAgentEngineProvider,
@@ -3180,7 +3180,7 @@ function SettingsPanelContent({
                     <ManualSetupCard
                       title="Set up manually"
                       hint="Deploy manually to Netlify, Vercel, Cloudflare, or any Nitro-supported target."
-                      docsUrl={Docs.deployment({
+                      docsUrl={docsUrl("deployment", {
                         campaign: "onboarding",
                         content: "deployment_settings",
                       })}
@@ -3230,7 +3230,7 @@ function SettingsPanelContent({
                     <ManualSetupCard
                       title="Set up manually"
                       hint="Set DATABASE_URL in your .env to connect a supported database."
-                      docsUrl={Docs.database({
+                      docsUrl={docsUrl("database", {
                         campaign: "onboarding",
                         content: "database_settings",
                       })}
@@ -3280,7 +3280,7 @@ function SettingsPanelContent({
                     <ManualSetupCard
                       title="Set up manually"
                       hint="Use an S3-compatible bucket with a stable public URL for durable chat attachments."
-                      docsUrl={Docs.fileUploads({
+                      docsUrl={docsUrl("file-uploads", {
                         campaign: "onboarding",
                         content: "file_upload_settings",
                       })}
@@ -3332,7 +3332,7 @@ function SettingsPanelContent({
                     <ManualSetupCard
                       title="Set up manually"
                       hint="Configure Better Auth and optional Google or GitHub providers."
-                      docsUrl={Docs.authentication({
+                      docsUrl={docsUrl("authentication", {
                         campaign: "onboarding",
                         content: "authentication_settings",
                       })}
@@ -3474,7 +3474,7 @@ function SettingsPanelContent({
               />
               <ManualSetupCard
                 hint="Deploy manually to Netlify, Vercel, Cloudflare, or any Nitro-supported target."
-                docsUrl={Docs.deployment({
+                docsUrl={docsUrl("deployment", {
                   campaign: "onboarding",
                   content: "deployment_settings",
                 })}
@@ -3509,7 +3509,7 @@ function SettingsPanelContent({
               />
               <ManualSetupCard
                 hint="Set DATABASE_URL in your .env to connect Neon, Supabase, Turso, any Postgres/SQLite database, or local PGlite with pglite:./data/pglite."
-                docsUrl={Docs.database({
+                docsUrl={docsUrl("database", {
                   campaign: "onboarding",
                   content: "database_settings",
                 })}
@@ -3544,7 +3544,7 @@ function SettingsPanelContent({
               />
               <ManualSetupCard
                 hint="Object storage keeps uploaded files durable and their URLs reusable throughout the thread. Connect Builder or use an S3-compatible bucket below."
-                docsUrl={Docs.fileUploads({
+                docsUrl={docsUrl("file-uploads", {
                   campaign: "onboarding",
                   content: "file_upload_settings",
                 })}
@@ -3581,7 +3581,7 @@ function SettingsPanelContent({
               />
               <ManualSetupCard
                 hint="Configure Better Auth with BETTER_AUTH_SECRET and optional Google/GitHub OAuth providers."
-                docsUrl={Docs.authentication({
+                docsUrl={docsUrl("authentication", {
                   campaign: "onboarding",
                   content: "authentication_settings",
                 })}

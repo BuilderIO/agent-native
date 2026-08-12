@@ -1,4 +1,4 @@
-import { Docs } from "../../shared/docs-url.js";
+import { docsUrl } from "../../shared/docs-url.js";
 
 export const HELP = `npx @agent-native/core@latest skills
 
@@ -71,7 +71,7 @@ write those files.
 When installing visual-recap interactively, the CLI offers to add the optional PR
 Visual Recap GitHub Action. Pass --with-github-action to write it directly, then
 run "npx @agent-native/core@latest recap setup" / "npx @agent-native/core@latest recap doctor" to configure and
-verify GitHub Actions. Docs: ${Docs.prVisualRecap()}.
+verify GitHub Actions. Docs: ${docsUrl("pr-visual-recap")}.
 
 The status/update commands inspect copied Agent Native skill folders and refresh
 their instruction files from the current @agent-native/core package. In generated

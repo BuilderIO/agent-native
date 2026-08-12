@@ -67,7 +67,7 @@ import {
 import type { AppRolesDescriptor } from "../../org/app-roles.js";
 import type { DomainMatchOrg } from "../../org/types.js";
 import type { WorkspaceUserGroup } from "../../workspace-connections/groups.js";
-import { Docs } from "../../shared/docs-url.js";
+import { Docs, docsUrl } from "../../shared/docs-url.js";
 import {
   Dialog,
   DialogContent,
@@ -2062,7 +2062,7 @@ function DomainSettingsSection({
       description={
         <OrganizationDescription
           help={`Anyone who signs up with an email at this domain joins the organization automatically. Only your own email domain (${ownDomain || "—"}) can be used; free email providers are not allowed.`}
-          docsUrl={Docs.organizationsTeams({
+          docsUrl={docsUrl("organizations-teams-permissions", {
             campaign: "organization_settings",
             content: "domain_auto_join",
           })}
@@ -2199,7 +2199,7 @@ function WorkspaceUrlSettingsSection({
       description={
         <OrganizationDescription
           help="Members who land on another deployment can be sent to this workspace URL instead of an empty app."
-          docsUrl={Docs.deployment({
+          docsUrl={docsUrl("deployment", {
             campaign: "organization_settings",
             content: "workspace_url",
           })}

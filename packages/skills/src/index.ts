@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { Docs } from "@agent-native/core/shared";
+import { docsUrl } from "@agent-native/core/shared";
 
 import { resolveAppForSkill, type BuiltInAppMcp } from "./built-in-apps.js";
 import { registerMcpServer } from "./connect.js";
@@ -1593,7 +1593,7 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-const PR_VISUAL_RECAP_DOCS_URL = Docs.prVisualRecap();
+const PR_VISUAL_RECAP_DOCS_URL = docsUrl("pr-visual-recap");
 
 function prVisualRecapWorkflowPath(baseDir: string): string {
   return path.join(baseDir, ".github", "workflows", "pr-visual-recap.yml");

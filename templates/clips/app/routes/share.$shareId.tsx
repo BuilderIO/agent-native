@@ -8,7 +8,7 @@ import {
 import { useSession, getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { buildSignInReturnHref } from "@agent-native/core/client/ui";
-import { Docs } from "@agent-native/core/shared";
+import { docsUrl } from "@agent-native/core/shared";
 import {
   IconAlertTriangle,
   IconArrowLeft,
@@ -290,7 +290,7 @@ const STORAGE_KEY_PREFIX = "clips-share-pw-";
 const CLIPS_SOURCE_URL =
   "https://github.com/BuilderIO/agent-native/tree/main/templates/clips";
 const CLIPS_TEMPLATE_URL = "https://www.agent-native.com/templates/clips";
-const CLIPS_AGENT_DOCS_URL = Docs.templateClipsSharing();
+const CLIPS_AGENT_DOCS_URL = docsUrl("template-clips-sharing-and-teams");
 const UPLOAD_STUCK_TIMEOUT_MS = 5 * 60 * 1000;
 const PROCESSING_STUCK_TIMEOUT_MS = 12 * 60 * 1000;
 const READY_MEDIA_SETTLE_POLL_MS = 20 * 1000;

@@ -18,7 +18,7 @@ import { useState, useCallback, useMemo } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 
 import { extensionPath, isExtensionPathname } from "../../extensions/path.js";
-import { Docs } from "../../shared/docs-url.js";
+import { docsUrl } from "../../shared/docs-url.js";
 import { sendToAgentChat } from "../agent-chat.js";
 import { agentNativePath } from "../api-path.js";
 import {
@@ -933,7 +933,7 @@ export function ExtensionsSidebarSection() {
                     {copy.open}
                   </Link>
                   <a
-                    href={Docs.extensions()}
+                    href={docsUrl("extensions")}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="inline-flex h-8 items-center rounded-md px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
@@ -975,7 +975,7 @@ export function ExtensionsSidebarSection() {
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <a
-                        href={Docs.extensions()}
+                        href={docsUrl("extensions")}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"

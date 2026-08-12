@@ -15,7 +15,7 @@ import type {
   OnboardingAppProfile,
   OnboardingCapability,
 } from "../../onboarding/types.js";
-import { Docs } from "../../shared/docs-url.js";
+import { docsUrl } from "../../shared/docs-url.js";
 import { appPath } from "../api-path.js";
 import {
   Tooltip,
@@ -473,7 +473,7 @@ export function FirstRunOnboarding({
               in <code className="rounded bg-muted px-1">.env</code> to make
               that provider available to everyone using this app.{" "}
               <a
-                href={Docs.environmentVariables()}
+                href={docsUrl("environment-variables")}
                 target="_blank"
                 rel="noreferrer"
                 className="inline-flex items-center gap-1 text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"

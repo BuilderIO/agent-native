@@ -1,10 +1,12 @@
 /**
  * Absolute links into the public Agent-Native docs site.
  *
- * Product UI and templates should call `docsUrl` / `Docs` instead of hardcoding
- * `https://www.agent-native.com/docs/...` strings so slug renames and UTM
- * conventions stay in one place. Relative `/docs/...` paths resolve against the
- * app origin and 404 — always use this helper for outbound docs links.
+ * Prefer `docsUrl("content-slug")` at call sites so the path is visible inline
+ * (`docsUrl("template-design")` → `/docs/template-design`). Use named `Docs.*`
+ * helpers only when the target is awkward to spell at the call site — a hash
+ * that does not match the nearby label, or a slug that would otherwise be easy
+ * to get wrong. Relative `/docs/...` paths resolve against the app origin and
+ * 404 — always use this helper for outbound docs links.
  */
 
 export const AGENT_NATIVE_DOCS_ORIGIN = "https://www.agent-native.com";
@@ -50,14 +52,12 @@ export function docsUrl(slug: string, options: DocsUrlOptions = {}): string {
   return url.toString();
 }
 
-/** Named entry points for common product-UI docs targets. */
+/**
+ * Named helpers for docs targets that are hard to infer from a bare slug —
+ * non-obvious hashes or slug/name mismatches. Prefer `docsUrl("slug")` for
+ * everything else.
+ */
 export const Docs = {
-  home: (options?: DocsUrlOptions) => docsUrl("getting-started", options),
-  deployment: (options?: DocsUrlOptions) => docsUrl("deployment", options),
-  database: (options?: DocsUrlOptions) => docsUrl("database", options),
-  fileUploads: (options?: DocsUrlOptions) => docsUrl("file-uploads", options),
-  authentication: (options?: DocsUrlOptions) =>
-    docsUrl("authentication", options),
   authLocalDev: (options?: DocsUrlOptions) =>
     docsUrl("authentication", {
       ...options,
@@ -65,33 +65,14 @@ export const Docs = {
     }),
   authSocialProviders: (options?: DocsUrlOptions) =>
     docsUrl("authentication", { ...options, hash: "social-providers" }),
-  environmentVariables: (options?: DocsUrlOptions) =>
-    docsUrl("environment-variables", options),
-  extensions: (options?: DocsUrlOptions) => docsUrl("extensions", options),
-  organizationsTeams: (options?: DocsUrlOptions) =>
-    docsUrl("organizations-teams-permissions", options),
-  multiAppWorkspace: (options?: DocsUrlOptions) =>
-    docsUrl("multi-app-workspace", options),
   multiAppAdding: (options?: DocsUrlOptions) =>
     docsUrl("multi-app-workspace", { ...options, hash: "adding-a-new-app" }),
-  agentResources: (options?: DocsUrlOptions) =>
-    docsUrl("agent-resources", options),
   agentResourcesSkills: (options?: DocsUrlOptions) =>
     docsUrl("agent-resources", { ...options, hash: "skills" }),
-  skillsGuide: (options?: DocsUrlOptions) => docsUrl("skills-guide", options),
-  mcpProtocol: (options?: DocsUrlOptions) => docsUrl("mcp-protocol", options),
-  a2aProtocol: (options?: DocsUrlOptions) => docsUrl("a2a-protocol", options),
-  messaging: (channel?: string, options?: DocsUrlOptions) =>
-    docsUrl("messaging", channel ? { ...options, hash: channel } : options),
-  tracking: (options?: DocsUrlOptions) => docsUrl("tracking", options),
   trackingErrors: (options?: DocsUrlOptions) =>
     docsUrl("tracking", { ...options, hash: "posthog-error-tracking" }),
   trackingSessionReplay: (options?: DocsUrlOptions) =>
     docsUrl("tracking", { ...options, hash: "session-replay" }),
-  templateClips: (options?: DocsUrlOptions) =>
-    docsUrl("template-clips", options),
-  templateClipsSharing: (options?: DocsUrlOptions) =>
-    docsUrl("template-clips-sharing-and-teams", options),
   templateClipsBrowserLogs: (options?: DocsUrlOptions) =>
     docsUrl("template-clips-capture-everywhere", {
       ...options,
@@ -102,14 +83,9 @@ export const Docs = {
       ...options,
       hash: "rewind-quick-save",
     }),
-  templatePlan: (options?: DocsUrlOptions) => docsUrl("template-plan", options),
   templatePlanLocalFiles: (options?: DocsUrlOptions) =>
     docsUrl("template-plan-local-and-desktop", {
       ...options,
       hash: "local-files",
     }),
-  templateDesign: (options?: DocsUrlOptions) =>
-    docsUrl("template-design", options),
-  prVisualRecap: (options?: DocsUrlOptions) =>
-    docsUrl("pr-visual-recap", options),
 } as const;

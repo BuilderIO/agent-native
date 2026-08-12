@@ -23,7 +23,7 @@ import {
   ErrorReportActions,
   type ErrorReportDebugItem,
 } from "@agent-native/core/client/ui";
-import { Docs } from "@agent-native/core/shared";
+import { Docs, docsUrl } from "@agent-native/core/shared";
 import {
   useSetHeaderActions,
   useSetPageTitle,
@@ -389,7 +389,7 @@ const ENABLE_PLAN_STATUS_FEATURE = false;
 const GITHUB_LIGHT_CANVAS_BACKGROUND = "#ffffff";
 const GITHUB_DARK_CANVAS_BACKGROUND = "#0d1117";
 const LOCAL_PLAN_OWNER_EMAIL = "local@agent-native.local";
-const PLAN_DOCS_URL = Docs.templatePlan();
+const PLAN_DOCS_URL = docsUrl("template-plan");
 const LOCAL_FILES_DOCS_URL = Docs.templatePlanLocalFiles();
 const AUTO_DEV_COMMENT_EMAILS = new Set(["dev@local.test", "dev@local"]);
 const CURRENT_USER_FALLBACK_NAME = "You";

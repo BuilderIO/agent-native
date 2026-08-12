@@ -25,21 +25,18 @@ describe("docsUrl", () => {
     );
   });
 
-  it("exposes named Docs helpers for product surfaces", () => {
-    expect(Docs.authentication()).toBe(
-      `${AGENT_NATIVE_DOCS_ORIGIN}/docs/authentication`,
-    );
+  it("keeps named Docs helpers for non-obvious slug/hash targets", () => {
     expect(Docs.trackingErrors()).toBe(
       `${AGENT_NATIVE_DOCS_ORIGIN}/docs/tracking#posthog-error-tracking`,
-    );
-    expect(Docs.messaging("slack")).toBe(
-      `${AGENT_NATIVE_DOCS_ORIGIN}/docs/messaging#slack`,
     );
     expect(Docs.templateClipsBrowserLogs()).toBe(
       `${AGENT_NATIVE_DOCS_ORIGIN}/docs/template-clips-capture-everywhere#browser-logs-with-the-chrome-extension`,
     );
     expect(Docs.templatePlanLocalFiles()).toBe(
       `${AGENT_NATIVE_DOCS_ORIGIN}/docs/template-plan-local-and-desktop#local-files`,
+    );
+    expect(Docs.multiAppAdding()).toBe(
+      `${AGENT_NATIVE_DOCS_ORIGIN}/docs/multi-app-workspace#adding-a-new-app`,
     );
   });
 });
