@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { defineAction } from "@agent-native/core";
 import {
   compareAndSetAppState,
+  listAppState,
   readAppState,
 } from "@agent-native/core/application-state";
 import { runWithRequestContext } from "@agent-native/core/server";
@@ -72,16 +73,30 @@ function isUniqueConstraintError(error: unknown): boolean {
   return false;
 }
 
-async function resolveWelcomeState(): Promise<ContentWelcomePageState> {
+async function resolveWelcomeState(): Promise<{
+  generation: number;
+  expectedValue: Record<string, unknown>;
+}> {
   while (true) {
-    const current = await readAppState(CONTENT_WELCOME_PAGE_STATE_KEY);
-    if (current) return { generation: welcomeGeneration(current) };
+    const entries = await listAppState(CONTENT_WELCOME_PAGE_STATE_KEY);
+    const entry = entries.find(
+      ({ key }) => key === CONTENT_WELCOME_PAGE_STATE_KEY,
+    );
+    if (entry) {
+      if (!entry.value || typeof entry.value !== "object") {
+        throw new Error("Content welcome page state must be an object");
+      }
+      return {
+        generation: welcomeGeneration(entry.value),
+        expectedValue: entry.value,
+      };
+    }
 
     const initial = { generation: 0 };
     if (
       await compareAndSetAppState(CONTENT_WELCOME_PAGE_STATE_KEY, null, initial)
     ) {
-      return initial;
+      return { generation: 0, expectedValue: initial };
     }
   }
 }
@@ -146,9 +161,13 @@ async function resolveWelcome(userEmail: string): Promise<{
     }
 
     if (existing.status === "unavailable") {
-      await compareAndSetAppState(CONTENT_WELCOME_PAGE_STATE_KEY, state, {
-        generation: state.generation + 1,
-      });
+      await compareAndSetAppState(
+        CONTENT_WELCOME_PAGE_STATE_KEY,
+        state.expectedValue,
+        {
+          generation: state.generation + 1,
+        },
+      );
       continue;
     }
 
@@ -175,9 +194,11 @@ async function resolveWelcome(userEmail: string): Promise<{
       }
       if (raced.status === "unavailable") continue;
       if (isUniqueConstraintError(error)) {
-        await compareAndSetAppState(CONTENT_WELCOME_PAGE_STATE_KEY, state, {
-          generation: state.generation + 1,
-        });
+        await compareAndSetAppState(
+          CONTENT_WELCOME_PAGE_STATE_KEY,
+          state.expectedValue,
+          { generation: state.generation + 1 },
+        );
         continue;
       }
       throw error;

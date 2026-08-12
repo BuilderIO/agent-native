@@ -8,7 +8,10 @@ import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { CONTENT_LAST_LOCATION_STATE_KEY } from "../shared/content-landing.js";
+import {
+  CONTENT_LAST_LOCATION_STATE_KEY,
+  CONTENT_WELCOME_PAGE_STATE_KEY,
+} from "../shared/content-landing.js";
 
 const TEST_DB_PATH = join(
   tmpdir(),
@@ -217,6 +220,12 @@ describe("resolve-content-landing", () => {
       "landing-collision-owner@example.com",
       collidingDocumentId,
     );
+    await runWithRequestContext({ userEmail }, () =>
+      writeAppState(CONTENT_WELCOME_PAGE_STATE_KEY, {
+        generation: 0,
+        futureField: "preserved for CAS",
+      }),
+    );
 
     const result = await runWithRequestContext({ userEmail }, () =>
       resolveContentLandingAction.run({}),
@@ -224,6 +233,19 @@ describe("resolve-content-landing", () => {
 
     expect(result).toMatchObject({ resolution: "welcome-created" });
     expect(result.documentId).not.toBe(collidingDocumentId);
+  });
+
+  it("fails loudly for a stored null welcome state", async () => {
+    const userEmail = "landing-null-state@example.com";
+    await runWithRequestContext({ userEmail }, () =>
+      writeAppState(CONTENT_WELCOME_PAGE_STATE_KEY, null as never),
+    );
+
+    await expect(
+      runWithRequestContext({ userEmail }, () =>
+        resolveContentLandingAction.run({}),
+      ),
+    ).rejects.toThrow("Content welcome page state must be an object");
   });
 
   it("converges concurrent root invocations on one private welcome page", async () => {
