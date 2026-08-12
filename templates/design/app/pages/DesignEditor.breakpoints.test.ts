@@ -378,8 +378,16 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
   });
 
   it("confirms that deleting a base screen includes all responsive variants", () => {
-    expect(source).toContain("designEditor.screenDeletion.descriptionOne");
-    expect(source).toContain("designEditor.screenDeletion.descriptionMany");
+    const deletionDialogSource = readFileSync(
+      "app/components/design/editor/PendingScreenDeletionDialog.tsx",
+      "utf8",
+    );
+    expect(deletionDialogSource).toContain(
+      "designEditor.screenDeletion.descriptionOne",
+    );
+    expect(deletionDialogSource).toContain(
+      "designEditor.screenDeletion.descriptionMany",
+    );
   });
 
   it("routes every style-commit path through the scoped write helper", () => {
@@ -501,7 +509,11 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
   });
 
   it("gates overview side-by-side frames on the show-all toggle", () => {
-    expect(source).toContain("!breakpointFramesHidden &&");
+    const overviewScreensSource = readFileSync(
+      "app/pages/design-editor/derive/overview-screens.ts",
+      "utf8",
+    );
+    expect(overviewScreensSource).toContain("!breakpointFramesHidden &&");
     expect(source).toContain("breakpointFramesHidden,");
   });
 

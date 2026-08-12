@@ -71,7 +71,6 @@ import {
   removeBreakpointMediaDeclaration,
 } from "@shared/breakpoint-media";
 import {
-  parseCanvasFrameGeometryById,
   type CanvasFrameGeometry,
   type CanvasFrameGeometryById,
 } from "@shared/canvas-frames";
@@ -120,13 +119,7 @@ import {
   isPendingDesignReprompt,
   type NodeRewriteProposal,
 } from "@shared/node-rewrite";
-import {
-  getPenPathGeometry,
-  parsePenNodes,
-  serializePenNodes,
-  serializePenPath,
-  type PenPath,
-} from "@shared/pen-path";
+import { parsePenNodes, type PenPath } from "@shared/pen-path";
 import {
   resolveTweaksToCssVars,
   tweakSelectionsHash,
@@ -145,40 +138,20 @@ import {
   IconArrowUpRight,
   IconArrowsDown,
   IconPencil,
-  IconMessage,
-  IconBrush,
   IconPlus,
   IconLayoutGrid,
-  IconDevices,
-  IconFrame,
   IconX,
   IconPin,
-  IconAssembly,
   IconCode,
   IconArchive,
-  IconFile,
   IconPhoto,
   IconRefresh,
   IconChevronDown,
-  IconChevronUp,
   IconCheck,
-  IconPointer,
-  IconHandStop,
-  IconSquare,
-  IconLine,
-  IconCircle,
-  IconTriangle,
-  IconStar,
-  IconPhotoVideo,
-  IconScale,
-  IconScribble,
-  IconHandClick,
-  IconTransformPoint,
   IconDownload,
   IconClipboard,
   IconFileExport,
   IconFileStack,
-  IconFileImport,
   IconPlayerPlay,
   IconDeviceFloppy,
   IconRocket,
@@ -186,8 +159,6 @@ import {
   IconCircleCheck,
   IconTerminal2,
   IconLink,
-  IconLock,
-  IconPuzzle,
   IconKeyboard,
   IconTemplate,
   IconAdjustmentsHorizontal,
@@ -201,7 +172,6 @@ import {
   useCallback,
   useRef,
   useMemo,
-  type ReactNode,
   type PointerEvent as ReactPointerEvent,
   type SetStateAction,
 } from "react";
@@ -223,19 +193,11 @@ import {
   breakpointLabelForWidth,
 } from "@/components/design/BreakpointBar";
 import {
-  canvasPrimitiveVisual,
-  DEFAULT_LINE_STROKE,
-  DEFAULT_LINE_STROKE_WIDTH_PX,
-} from "@/components/design/canvas-primitive-style";
-import {
   CanvasContextMenu,
   type CanvasContextMenuHandle,
 } from "@/components/design/CanvasContextMenu";
 import { type CodeWorkbenchActiveFile } from "@/components/design/code-workbench/CodeWorkbench";
-import {
-  CodeWorkbenchLoader,
-  preloadCodeWorkbench,
-} from "@/components/design/code-workbench/CodeWorkbenchLoader";
+import { CodeWorkbenchLoader } from "@/components/design/code-workbench/CodeWorkbenchLoader";
 import type { CreatePrimitiveSpec } from "@/components/design/design-canvas/creation";
 import { sanitizeLocalhostSourceSnapshotHtml } from "@/components/design/design-canvas/external-preview";
 import type {
@@ -260,6 +222,20 @@ import {
   parseRotationValue,
 } from "@/components/design/edit-panel/transform-helpers";
 import { nextTextDecorationLineValue } from "@/components/design/edit-panel/typography-helpers";
+import { AgentNativeMenuMark } from "@/components/design/editor/AgentNativeMenuMark";
+import { DesignBottomToolbar } from "@/components/design/editor/DesignBottomToolbar";
+import type { DesignCollaborator } from "@/components/design/editor/DesignCollaborators";
+import { DesignCollaboratorsMenu } from "@/components/design/editor/DesignCollaborators";
+import {
+  DesignWorkspaceRail,
+  INITIAL_GENERATION_DISABLED_LEFT_PANELS,
+} from "@/components/design/editor/DesignWorkspaceRail";
+import type { DesignMigrationResult } from "@/components/design/editor/MakeRealDialog";
+import { MakeRealDialog } from "@/components/design/editor/MakeRealDialog";
+import { PendingScreenDeletionDialog } from "@/components/design/editor/PendingScreenDeletionDialog";
+import { PendingVisualStyleWarningDialog } from "@/components/design/editor/PendingVisualStyleWarningDialog";
+import { ReadOnlyEditorPanel } from "@/components/design/editor/ReadOnlyEditorPanel";
+import { SaveTemplateDialog } from "@/components/design/editor/SaveTemplateDialog";
 import {
   EditPanel,
   isTextElement,
@@ -276,7 +252,6 @@ import {
   hasEyeDropperSupport,
   type ExportSettingsValue,
 } from "@/components/design/inspector";
-import { IconText } from "@/components/design/inspector/design-icons";
 import {
   isShaderWriteInFlight,
   waitForShaderWriteToSettle,
@@ -311,7 +286,6 @@ import {
   getBreakpointIframeId,
   getPrimaryIframeId,
 } from "@/components/design/multi-screen/iframe-targeting";
-import { authoredElementPosition } from "@/components/design/multi-screen/primitive-drop-target";
 import type {
   CanvasLayerMarqueeSelection,
   CanvasPrimitiveInsert,
@@ -326,10 +300,7 @@ import { MultiScreenCanvas } from "@/components/design/MultiScreenCanvas";
 import { QuestionFlow } from "@/components/design/QuestionFlow";
 import { ReadOnlyDesignBanner } from "@/components/design/ReadOnlyDesignBanner";
 import { ResponsiveInteractBar } from "@/components/design/ResponsiveInteractBar";
-import {
-  ReviewCommentsPanel,
-  type ReviewCommentsPanelProps,
-} from "@/components/design/ReviewCommentsPanel";
+import { type ReviewCommentsPanelProps } from "@/components/design/ReviewCommentsPanel";
 import type { ReviewPanelProps } from "@/components/design/ReviewPanel";
 import { TokensPanel } from "@/components/design/TokensPanel";
 import type {
@@ -358,7 +329,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -389,7 +359,6 @@ import {
 import {
   Select,
   SelectContent,
-  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -402,7 +371,6 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { Spinner } from "@/components/ui/spinner";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Tooltip,
   TooltipContent,
@@ -451,7 +419,6 @@ import {
   writeDesignClipboard,
 } from "@/lib/design-clipboard";
 import {
-  applyDesignClipboardManagedStyles,
   extractDesignClipboardManagedStyles,
   type DesignClipboardManagedStyleSnapshot,
 } from "@/lib/design-clipboard-managed-styles";
@@ -499,6 +466,10 @@ import {
 } from "@/lib/png-clipboard";
 import { prettyScreenName } from "@/lib/screen-names";
 import { cn } from "@/lib/utils";
+import {
+  externalPreviewUrlForContent,
+  fullPreviewHtml,
+} from "@/pages/design-editor/preview-html";
 
 import { actionErrorDetail } from "./design-editor/action-error";
 import {
@@ -519,9 +490,7 @@ import {
   uniqueLayerId,
 } from "./design-editor/canvas-primitive-insert";
 import {
-  CANVAS_TEXT_DEFAULT_FONT_FAMILY,
   createPrimitiveInsertFromSpec,
-  defaultCanvasTextColor,
   parsePenPathFromSerializedD,
 } from "./design-editor/canvas-primitives";
 import { resolveClipboardLayerSourceHtml } from "./design-editor/clipboard-layer-source";
@@ -536,7 +505,6 @@ import {
   setPenNodesAttributeOnElement,
   writeBackVectorEditedPenPath,
 } from "./design-editor/clone-and-pen-edit";
-import { reassignClonedAuthoredIds } from "./design-editor/clone-idrefs";
 import {
   bridgeSourceIdForCodeLayerNode,
   canonicalElementInfoForCodeLayerNode,
@@ -580,7 +548,6 @@ import {
 import { getCreatedScreenNavigationPlan } from "./design-editor/created-screen-navigation";
 import {
   adaptAutoTextColorForCrossScreenNode,
-  BOARD_TEXT_AUTO_COLOR_MARKER,
   clearAutoTextColorMarkerOnExplicitColorCommit,
 } from "./design-editor/cross-screen-text-color";
 import {
@@ -595,8 +562,9 @@ import {
   stagePendingDesignDataOperations,
   type DesignDataOperation,
   type PendingDesignDataOperations,
-  viewportSizeFromFrameGeometry,
 } from "./design-editor/data-operations";
+import { deriveDesignBreakpoints } from "./design-editor/derive/design-breakpoints";
+import { deriveOverviewScreens } from "./design-editor/derive/overview-screens";
 import {
   areTweakSelectionsEqual,
   buildAuthoritativeTweakSelections,
@@ -610,11 +578,7 @@ import {
   viewportChangedFrameIds,
 } from "./design-editor/design-data-geometry-utils";
 import { isRadixOverlayOpen } from "./design-editor/dom-guards";
-import {
-  escapeHtmlAttributeValue,
-  escapeHtmlText,
-  queryUniqueSelector,
-} from "./design-editor/dom-utils";
+import { escapeHtmlAttributeValue } from "./design-editor/dom-utils";
 import {
   createEditorSaveOperationSource,
   LOCAL_EDIT_ORIGIN,
@@ -652,16 +616,13 @@ import {
 } from "./design-editor/editor-state";
 import {
   buildStaticForeignObjectSvg,
-  computeExportCropBox,
   createMultiPageRasterPdf,
   createSinglePageRasterPdf,
-  EDITOR_CHROME_OVERLAY_SELECTOR,
   getExportCompositeBounds,
   PDF_MIN_PRINT_RASTER_SCALE,
   type RasterPdfPage,
   resolveRasterExportScale,
   stripNonStaticXmlAttributes,
-  unionExportCropRects,
   waitForExportReady,
 } from "./design-editor/export-capture";
 import {
@@ -676,7 +637,6 @@ import {
   promptRequestsVariantExploration,
 } from "./design-editor/generation-prompt-directives";
 import {
-  frameGeometryEquals,
   geometrySnapshotsEqual,
   sanitizeCanvasFrameGeometryForPersist,
 } from "./design-editor/geometry-persistence";
@@ -817,12 +777,7 @@ import {
   sanitizeSerializedXmlForSvg,
   type PngCaptureScope,
 } from "./design-editor/png-export-render";
-import {
-  applyPortableStyles,
-  applyPortableStyleSnapshotToHtml,
-  elementAtPortableStylePath,
-  styleHost,
-} from "./design-editor/portable-style";
+import { applyPortableStyleSnapshotToHtml } from "./design-editor/portable-style";
 import {
   buildReactSemanticHandoff,
   buildRuntimeReactLayerStateHandoff,
@@ -883,17 +838,14 @@ import {
   isTextEditSessionOutcome,
   postShaderFillPreviewClearToPreviewIframes,
   removeElementFromHtml,
-  sanitizeEditableInnerHtml,
   scheduleBeginTextEditForScreen,
   updateElementContentInHtml,
 } from "./design-editor/text-edit-utils";
 import {
   getDesignToolActivationState,
   getDesignBottomToolbarMode,
-  getMoveGroupToolPresentation,
   getSingleScreenCreationTool,
   isSingleScreenAnnotationTool,
-  MOVE_GROUP_TOOL_PRESENTATIONS,
   normalizeDesignLeftPanel,
   normalizeDesignTool,
   resolveModeChangeView,
@@ -909,7 +861,6 @@ import {
   type PendingTweakSave,
 } from "./design-editor/tweak-save";
 import {
-  type DesignAccessRole,
   type DesignData,
   type DesignFile,
   type DesignLeftPanel,
@@ -917,7 +868,6 @@ import {
   type EditorMode,
   type ShapeTool,
   FOCUSED_SCREEN_ZOOM,
-  SHOW_DESIGN_CODE_LEFT_PANEL,
 } from "./design-editor/types";
 
 // Selection is tab-scoped (like navigation) so a second editor tab cannot
@@ -1107,959 +1057,6 @@ interface PatchProofState {
   status: PatchProofStatus;
   error?: string;
   createdAt: number;
-}
-
-/**
- * Vector-edit foundations: stamps `data-an-pen-nodes` (the compact
- * serializePenNodes encoding — see shared/pen-path.ts) onto the committed
- * pen-path SVG element identified by `data-agent-native-node-id === nodeId`,
- * so the structured node/handle data survives independently of the
- * flattened `d` attribute and can later be re-hydrated into vector edit
- * mode. Returns `content` unchanged (never null) if the node can't be found
- * or `content` fails to parse — this is a best-effort enrichment step, never
- * a hard requirement for the primitive to commit successfully.
- */
-/**
- * Ask a single iframe's editor-chrome bridge whether a text-edit session for
- * `nodeId` is "active" (focused), "done" (non-empty committed text), or
- * neither. Replaces a direct `iframe.contentDocument` read: the bridge script
- * runs inside the iframe and already has `document.activeElement` available,
- * so it can answer the same question without the host needing same-origin
- * DOM access. See `agent-native:text-edit-status` in editor-chrome.bridge.ts.
- */
-function AgentNativeMenuMark({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="-5 -5 145 88"
-      fill="none"
-      aria-hidden="true"
-      className={className}
-    >
-      <path
-        d="M29.0771 77.8838H2.5L18.9 48.9L43.2 6.6C44 5.2 45.9 5.2 46.7 6.6L69.1 44.2C69.9 45.5 69 46.7305 67.5 46.7305H48.3C47.6 46.7305 46.9 47.1 46.6 47.7L30.8 76.9C30.45 77.5 29.8 77.8838 29.0771 77.8838Z"
-        stroke="currentColor"
-        strokeWidth="10.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M105.927 0H132.5C134 0 134.9 1.6 134.15 2.9L91.5 76.9C91.15 77.5 90.5 77.8853 89.8 77.8853H63.8C62.3 77.8853 61.4 76.3 62.15 75L104.2 1C104.55 0.38 105.2 0 105.927 0Z"
-        stroke="currentColor"
-        strokeWidth="10.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-const INITIAL_GENERATION_DISABLED_LEFT_PANELS = new Set<DesignLeftPanel>([
-  "file",
-  "assets",
-  "tools",
-  "tokens",
-  "import",
-  "code",
-]);
-
-function DesignWorkspaceRail({
-  activePanel,
-  disabledPanels,
-  motionOpen,
-  motionDisabled,
-  projectMenu,
-  onMotionToggle,
-  onPanelChange,
-}: {
-  activePanel: DesignLeftPanel;
-  disabledPanels?: ReadonlySet<DesignLeftPanel>;
-  motionOpen?: boolean;
-  motionDisabled?: boolean;
-  projectMenu: ReactNode;
-  onMotionToggle?: () => void;
-  onPanelChange: (panel: DesignLeftPanel) => void;
-}) {
-  const t = useT();
-  const items: Array<{
-    panel: DesignLeftPanel;
-    label: string;
-    icon: ReactNode;
-    separatorBefore?: boolean;
-  }> = [
-    {
-      panel: "file",
-      label: t("designEditor.leftRail.file"),
-      icon: <IconFile className="size-[15px]" />,
-    },
-    {
-      panel: "agent",
-      label: t("designEditor.leftRail.agent"),
-      icon: <IconMessage className="size-[15px]" />,
-    },
-    {
-      panel: "assets",
-      label: t("designEditor.leftRail.assets"),
-      icon: <IconPhoto className="size-[15px]" />,
-    },
-    {
-      panel: "import",
-      label: t("designEditor.leftRail.import"),
-      icon: <IconFileImport className="size-[15px]" />,
-    },
-    {
-      panel: "tools",
-      label: t("designEditor.leftRail.tools"),
-      icon: <IconPuzzle className="size-[15px]" />,
-    },
-    {
-      panel: "tokens",
-      label: t("designEditor.leftRail.tokens"),
-      icon: <IconAssembly className="size-[15px]" />,
-    },
-    ...(SHOW_DESIGN_CODE_LEFT_PANEL
-      ? [
-          {
-            panel: "code" as const,
-            label: "Code" /* i18n-ignore */,
-            icon: <IconCode className="size-[15px]" />,
-            separatorBefore: true,
-          },
-        ]
-      : []),
-  ];
-
-  return (
-    <nav
-      aria-label={t("designEditor.leftRail.label")}
-      className="flex min-h-0 w-[57px] shrink-0 flex-col items-center overflow-y-auto overscroll-contain border-r border-[var(--design-editor-panel-divider-color)] bg-[var(--design-editor-panel-bg)] py-3"
-    >
-      <div className="mb-3 flex h-8 items-center justify-center">
-        {projectMenu}
-      </div>
-      <div className="mb-5 h-px w-8 bg-border/70" />
-      <div className="flex min-h-0 flex-1 flex-col items-center gap-4">
-        {items.map((item) => {
-          const active = item.panel === activePanel;
-          const disabled = disabledPanels?.has(item.panel) ?? false;
-          return (
-            <div key={item.panel} className="flex w-full flex-col items-center">
-              {item.separatorBefore ? (
-                <div className="-mt-1 mb-3 h-px w-8 bg-border/70" />
-              ) : null}
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    aria-label={item.label}
-                    aria-disabled={disabled || undefined}
-                    aria-current={active ? "page" : undefined}
-                    tabIndex={disabled ? -1 : undefined}
-                    onClick={(event) => {
-                      if (disabled) {
-                        event.preventDefault();
-                        return;
-                      }
-                      onPanelChange(item.panel);
-                    }}
-                    onPointerEnter={() => {
-                      if (item.panel === "code") preloadCodeWorkbench();
-                    }}
-                    onFocus={() => {
-                      if (item.panel === "code") preloadCodeWorkbench();
-                    }}
-                    className={cn(
-                      "group flex w-12 cursor-pointer flex-col items-center justify-start gap-1 rounded-none text-[10px] font-[450] leading-none text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
-                      disabled &&
-                        "cursor-default opacity-35 hover:text-muted-foreground",
-                      active && "text-foreground",
-                    )}
-                  >
-                    <span
-                      className={cn(
-                        "flex size-8 items-center justify-center rounded-lg transition-colors",
-                        active
-                          ? "bg-[var(--design-editor-selection-color)] text-[var(--design-editor-accent-color)]"
-                          : "text-muted-foreground group-hover:bg-[var(--design-editor-layer-hover-color)] group-hover:text-foreground",
-                        disabled &&
-                          "group-hover:bg-transparent group-hover:text-muted-foreground",
-                      )}
-                    >
-                      {item.icon}
-                    </span>
-                    <span className="max-w-full truncate leading-none">
-                      {item.label}
-                    </span>
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="right">{item.label}</TooltipContent>
-              </Tooltip>
-            </div>
-          );
-        })}
-      </div>
-      {onMotionToggle ? (
-        <div className="mt-4 flex w-full flex-col items-center border-t border-border/70 pt-3">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                aria-label={"Motion" /* i18n-ignore */}
-                aria-disabled={motionDisabled || undefined}
-                aria-pressed={motionOpen || undefined}
-                tabIndex={motionDisabled ? -1 : undefined}
-                onClick={(event) => {
-                  if (motionDisabled) {
-                    event.preventDefault();
-                    return;
-                  }
-                  onMotionToggle();
-                }}
-                className={cn(
-                  "group flex w-12 cursor-pointer flex-col items-center justify-start gap-1 rounded-none !text-[10px] font-[450] leading-none text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
-                  motionDisabled &&
-                    "cursor-default opacity-35 hover:text-muted-foreground",
-                  motionOpen && "text-foreground",
-                )}
-              >
-                <span
-                  className={cn(
-                    "flex size-8 items-center justify-center rounded-lg transition-colors",
-                    motionOpen
-                      ? "bg-[var(--design-editor-selection-color)] text-[var(--design-editor-accent-color)]"
-                      : "text-muted-foreground group-hover:bg-[var(--design-editor-layer-hover-color)] group-hover:text-foreground",
-                    motionDisabled &&
-                      "group-hover:bg-transparent group-hover:text-muted-foreground",
-                  )}
-                >
-                  {motionOpen ? (
-                    <IconChevronDown className="size-[15px]" />
-                  ) : (
-                    <IconChevronUp className="size-[15px]" />
-                  )}
-                </span>
-                <span className="max-w-full truncate leading-none">
-                  {"Motion" /* i18n-ignore */}
-                </span>
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="right">
-              {"Motion" /* i18n-ignore */}
-            </TooltipContent>
-          </Tooltip>
-        </div>
-      ) : null}
-    </nav>
-  );
-}
-
-interface DesignCollaborator {
-  user: CollabUser;
-  image?: string;
-  isCurrent?: boolean;
-}
-
-function userInitial(nameOrEmail: string): string {
-  const trimmed = nameOrEmail.trim();
-  if (!trimmed) return "?";
-  return trimmed.charAt(0).toUpperCase();
-}
-
-function userColor(user: CollabUser): string {
-  return user.color || emailToColor(user.email);
-}
-
-function DesignCollaboratorAvatar({
-  collaborator,
-  className,
-}: {
-  collaborator: DesignCollaborator;
-  className?: string;
-}) {
-  const label = collaborator.user.name || emailToName(collaborator.user.email);
-  const storedAvatarUrl = useAvatarUrl(collaborator.user.email);
-  const avatarUrl = storedAvatarUrl ?? collaborator.image;
-
-  return (
-    <Avatar
-      className={cn(
-        "size-7 border-2 border-[var(--design-editor-panel-bg)] shadow-sm",
-        className,
-      )}
-    >
-      {avatarUrl ? <AvatarImage src={avatarUrl} alt={label} /> : null}
-      <AvatarFallback
-        className="text-[10px] font-semibold text-white"
-        style={{ backgroundColor: userColor(collaborator.user) }}
-      >
-        {userInitial(label || collaborator.user.email)}
-      </AvatarFallback>
-    </Avatar>
-  );
-}
-
-function DesignCollaboratorsMenu({
-  collaborators,
-  followingEmail,
-  label,
-  onAvatarClick,
-}: {
-  collaborators: DesignCollaborator[];
-  followingEmail?: string | null;
-  label: string;
-  onAvatarClick?: (user: CollabUser | null) => void;
-}) {
-  if (collaborators.length === 0) return null;
-
-  const visibleCollaborators = collaborators.slice(0, 3);
-  const hasMultipleCollaborators = collaborators.length > 1;
-  const followingLower = followingEmail?.trim().toLowerCase() ?? null;
-
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          className="flex h-8 min-w-0 cursor-pointer items-center rounded-md pr-1 text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
-          aria-label={label}
-        >
-          <span className="flex items-center">
-            {visibleCollaborators.map((collaborator, index) => (
-              <DesignCollaboratorAvatar
-                key={`${collaborator.user.email}:${index}`}
-                collaborator={collaborator}
-                className={index === 0 ? undefined : "-ml-2"}
-              />
-            ))}
-          </span>
-          {hasMultipleCollaborators ? (
-            <IconChevronDown className="ml-0.5 size-3 opacity-70" />
-          ) : null}
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-64">
-        <DropdownMenuLabel className="text-xs text-muted-foreground">
-          {label}
-        </DropdownMenuLabel>
-        {collaborators.map((collaborator) => {
-          const user = collaborator.user;
-          const email = user.email.trim().toLowerCase();
-          const isFollowing =
-            followingLower != null && email === followingLower;
-          const name = user.name || emailToName(user.email);
-
-          return (
-            <DropdownMenuItem
-              key={user.email}
-              onSelect={(event) => {
-                if (collaborator.isCurrent) {
-                  event.preventDefault();
-                  return;
-                }
-                onAvatarClick?.(user);
-              }}
-              className={cn(
-                "gap-2",
-                collaborator.isCurrent && "cursor-default",
-              )}
-            >
-              <DesignCollaboratorAvatar collaborator={collaborator} />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-medium">
-                  {name}
-                </span>
-                <span className="block truncate text-xs text-muted-foreground">
-                  {user.email}
-                </span>
-              </span>
-              {collaborator.isCurrent ? (
-                <span className="text-xs text-muted-foreground">
-                  {"You" /* i18n-ignore collaborator row */}
-                </span>
-              ) : isFollowing ? (
-                <IconCheck className="size-3.5 text-[var(--design-editor-accent-color)]" />
-              ) : (
-                <span className="text-xs text-muted-foreground">
-                  {"Follow" /* i18n-ignore collaborator row */}
-                </span>
-              )}
-            </DropdownMenuItem>
-          );
-        })}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
-function ReadOnlyEditorPanel({
-  title,
-  description,
-}: {
-  title: string;
-  description: string;
-}) {
-  return (
-    <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-5 text-center">
-      <div className="mb-3 flex size-10 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-        <IconLock className="size-5" />
-      </div>
-      <p className="text-sm font-medium text-foreground">{title}</p>
-      <p className="mt-1 max-w-56 text-xs leading-5 text-muted-foreground">
-        {description}
-      </p>
-    </div>
-  );
-}
-
-function externalPreviewUrlForContent(content: string): string | null {
-  const trimmed = content.trim();
-  if (!/^https?:\/\//i.test(trimmed)) return null;
-  try {
-    const url = new URL(trimmed);
-    url.hash = "";
-    return url.toString();
-  } catch {
-    return null;
-  }
-}
-
-function fullPreviewHtml(content: string): string {
-  const trimmed = content.trim();
-  if (/<!doctype html|<html[\s>]/i.test(trimmed)) return content;
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body>${content}</body></html>`;
-}
-
-type DesignToolbarOption = {
-  key: string;
-  label: string;
-  icon: ReactNode;
-  shortcut?: string;
-  active?: boolean;
-  disabled?: boolean;
-  onSelect: () => void;
-};
-
-function DesignPenToolIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      aria-hidden="true"
-      className={className}
-      fill="none"
-      focusable="false"
-      stroke="currentColor"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth="2"
-      viewBox="0 0 24 24"
-    >
-      <path d="M15.707 21.293a1 1 0 0 1-1.414 0l-1.586-1.586a1 1 0 0 1 0-1.414l5.586-5.586a1 1 0 0 1 1.414 0l1.586 1.586a1 1 0 0 1 0 1.414z" />
-      <path d="m18 13-1.375-6.874a1 1 0 0 0-.746-.776L3.235 2.028a1 1 0 0 0-1.207 1.207L5.35 15.879a1 1 0 0 0 .776.746L13 18" />
-      <path d="m2.3 2.3 7.286 7.286" />
-      <circle cx="11" cy="11" r="2" />
-    </svg>
-  );
-}
-
-function DesignToolbarTool({
-  active,
-  label,
-  icon,
-  options,
-  onPrimary,
-}: {
-  active: boolean;
-  label: string;
-  icon: ReactNode;
-  options: DesignToolbarOption[];
-  onPrimary: () => void;
-}) {
-  const hasOptionsMenu = options.length > 1;
-  // Item 5 (Figma parity): the hover tooltip should show the shortcut for
-  // whichever sub-tool is CURRENTLY active (mirroring how the button's own
-  // icon/label already track the active sub-tool above), falling back to the
-  // first option's shortcut when none of the options is active — e.g. a
-  // freshly-mounted toolbar before any tool has been explicitly selected.
-  const primaryShortcut =
-    options.find((option) => option.active)?.shortcut ?? options[0]?.shortcut;
-  return (
-    <div className="flex h-8 items-center text-neutral-200">
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            type="button"
-            className={cn(
-              "flex size-8 cursor-pointer items-center justify-center rounded-md transition-colors",
-              active
-                ? "bg-[var(--design-editor-accent-color)] text-white"
-                : "hover:bg-white/10 hover:text-white",
-            )}
-            onClick={onPrimary}
-            aria-label={label}
-            aria-pressed={active}
-          >
-            {icon}
-          </button>
-        </TooltipTrigger>
-        <TooltipContent side="top" className="flex items-center gap-2">
-          <span>{label}</span>
-          {primaryShortcut ? (
-            <span className="text-muted-foreground">{primaryShortcut}</span>
-          ) : null}
-        </TooltipContent>
-      </Tooltip>
-
-      {hasOptionsMenu ? (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              className={cn(
-                "flex h-8 w-4 cursor-pointer items-center justify-center rounded-md transition-colors hover:bg-white/10 hover:text-white",
-                active && "text-neutral-200",
-              )}
-              aria-label={`${label} options`}
-            >
-              <IconChevronDown className="size-3" />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent
-            side="top"
-            align="center"
-            sideOffset={12}
-            className="w-56 rounded-2xl border-border bg-popover p-2 text-popover-foreground shadow-md"
-          >
-            {options.map((option) => (
-              <DropdownMenuItem
-                key={option.key}
-                disabled={option.disabled}
-                onSelect={option.onSelect}
-                className="h-10 rounded-lg text-sm text-popover-foreground focus:bg-accent focus:text-accent-foreground data-[disabled]:text-muted-foreground"
-              >
-                <span className="mr-2 flex size-5 items-center justify-center text-popover-foreground">
-                  {option.active ? (
-                    <IconCheck className="size-4" />
-                  ) : (
-                    option.icon
-                  )}
-                </span>
-                <span className="min-w-0 flex-1 truncate">{option.label}</span>
-                {option.shortcut && (
-                  <DropdownMenuShortcut className="ml-3 text-muted-foreground">
-                    {option.shortcut}
-                  </DropdownMenuShortcut>
-                )}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      ) : null}
-    </div>
-  );
-}
-
-function DesignModeTab({
-  active,
-  disabled,
-  label,
-  icon,
-  onClick,
-}: {
-  active: boolean;
-  disabled?: boolean;
-  label: string;
-  icon: ReactNode;
-  onClick: () => void;
-}) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          disabled={disabled}
-          aria-label={label}
-          aria-pressed={active}
-          onClick={onClick}
-          className={cn(
-            "flex size-8 cursor-pointer items-center justify-center rounded-md text-neutral-300 transition-colors hover:bg-white/10 hover:text-white disabled:pointer-events-none disabled:opacity-40",
-            active &&
-              "bg-neutral-950/70 text-[#38bdf8] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.08),0_8px_18px_-12px_rgba(0,0,0,0.95)] hover:bg-neutral-950/70 hover:text-[#38bdf8]",
-          )}
-        >
-          {icon}
-        </button>
-      </TooltipTrigger>
-      <TooltipContent side="top">{label}</TooltipContent>
-    </Tooltip>
-  );
-}
-
-function DesignBottomToolbar({
-  mode,
-  pinMode,
-  drawMode,
-  activeTool,
-  isOverview,
-  hasActiveFile,
-  onMove,
-  onFrame,
-  frameToolDraws,
-  onFrameToolDrawsChange,
-  onShape,
-  onText,
-  onPen,
-  onHand,
-  onDraw,
-  onScale,
-  onCommentPin,
-  onModeChange,
-  shortcutsPanelOpen,
-}: {
-  mode: EditorMode;
-  pinMode: boolean;
-  drawMode: boolean;
-  activeTool: DesignTool;
-  isOverview: boolean;
-  hasActiveFile: boolean;
-  onMove: () => void;
-  onFrame: () => void;
-  frameToolDraws: "screen" | "frame";
-  onFrameToolDrawsChange: (value: "screen" | "frame") => void;
-  onShape: (tool: ShapeTool) => void;
-  onText: () => void;
-  onPen: () => void;
-  onHand: () => void;
-  onDraw: () => void;
-  onScale: () => void;
-  onCommentPin: () => void;
-  onModeChange: (mode: EditorMode) => void;
-  shortcutsPanelOpen: boolean;
-}) {
-  const t = useT();
-  const shapeTools = new Set<DesignTool>([
-    "rect",
-    "line",
-    "arrow",
-    "ellipse",
-    "polygon",
-    "star",
-  ]);
-  const activeShape = shapeTools.has(activeTool)
-    ? (activeTool as ShapeTool)
-    : "rect";
-  const shapeIcon = (tool: ShapeTool, className: string) => {
-    switch (tool) {
-      case "line":
-        return <IconLine className={className} />;
-      case "arrow":
-        return <IconArrowUpRight className={className} />;
-      case "ellipse":
-        return <IconCircle className={className} />;
-      case "polygon":
-        return <IconTriangle className={className} />;
-      case "star":
-        return <IconStar className={className} />;
-      case "rect":
-      default:
-        return <IconSquare className={className} />;
-    }
-  };
-  const shapeOptions: DesignToolbarOption[] = [
-    {
-      key: "rect",
-      label: t("designEditor.tools.rect"),
-      icon: shapeIcon("rect", "size-4"),
-      shortcut: "R",
-      active: activeTool === "rect",
-      onSelect: () => onShape("rect"),
-    },
-    {
-      key: "line",
-      label: t("designEditor.tools.line"),
-      icon: shapeIcon("line", "size-4"),
-      shortcut: "L",
-      active: activeTool === "line",
-      onSelect: () => onShape("line"),
-    },
-    {
-      key: "arrow",
-      label: t("designEditor.tools.arrow"),
-      icon: shapeIcon("arrow", "size-4"),
-      shortcut: "⇧L",
-      active: activeTool === "arrow",
-      onSelect: () => onShape("arrow"),
-    },
-    {
-      key: "ellipse",
-      label: t("designEditor.tools.ellipse"),
-      icon: shapeIcon("ellipse", "size-4"),
-      shortcut: "O",
-      active: activeTool === "ellipse",
-      onSelect: () => onShape("ellipse"),
-    },
-    {
-      key: "polygon",
-      label: t("designEditor.tools.polygon"),
-      icon: shapeIcon("polygon", "size-4"),
-      active: activeTool === "polygon",
-      onSelect: () => onShape("polygon"),
-    },
-    {
-      key: "star",
-      label: t("designEditor.tools.star"),
-      icon: shapeIcon("star", "size-4"),
-      active: activeTool === "star",
-      onSelect: () => onShape("star"),
-    },
-    {
-      key: "image-video",
-      label: t("designEditor.tools.imageVideo"),
-      icon: <IconPhotoVideo className="size-4" />,
-      disabled: true,
-      onSelect: () => {},
-    },
-  ];
-  const activeShapeOption =
-    shapeOptions.find((option) => option.key === activeShape) ??
-    shapeOptions[0]!;
-  const activeMoveGroupTool = getMoveGroupToolPresentation(activeTool);
-  const handleActiveMoveGroupTool =
-    activeMoveGroupTool.tool === "hand"
-      ? onHand
-      : activeMoveGroupTool.tool === "scale"
-        ? onScale
-        : onMove;
-  const tools: Array<{
-    key: string;
-    active: boolean;
-    label: string;
-    icon: ReactNode;
-    onClick: () => void;
-    options: DesignToolbarOption[];
-  }> = [
-    {
-      key: "move",
-      // Parent button is active whenever any of the move-group sub-tools is
-      // selected so the toolbar visually reflects hand and scale modes too.
-      active:
-        (activeTool === "move" && mode === "edit") ||
-        activeTool === "hand" ||
-        activeTool === "scale",
-      // The parent button represents the active move-group sub-tool. Expose
-      // that same identity to assistive technology and the tooltip instead of
-      // announcing every H/K activation as the Move tool.
-      label: t(activeMoveGroupTool.labelKey),
-      // Mirror the active sub-tool icon so the parent button is always
-      // informative about the currently selected move-group tool.
-      icon:
-        activeTool === "hand" ? (
-          <IconHandStop className="size-[18px]" />
-        ) : activeTool === "scale" ? (
-          <IconScale className="size-[18px]" />
-        ) : (
-          <IconPointer className="size-[18px]" />
-        ),
-      // Keep the primary action aligned with the icon/label it presents. A
-      // Hand or Scale button should remain Hand or Scale when clicked rather
-      // than silently switching back to Move.
-      onClick: handleActiveMoveGroupTool,
-      options: [
-        {
-          key: "move",
-          label: t("designEditor.tools.move"),
-          icon: <IconPointer className="size-4" />,
-          shortcut: MOVE_GROUP_TOOL_PRESENTATIONS.move.shortcut,
-          active: activeTool === "move" && mode === "edit",
-          onSelect: onMove,
-        },
-        {
-          key: "hand",
-          label: t("designEditor.tools.hand"),
-          icon: <IconHandStop className="size-4" />,
-          shortcut: MOVE_GROUP_TOOL_PRESENTATIONS.hand.shortcut,
-          active: activeTool === "hand",
-          onSelect: onHand,
-        },
-        {
-          key: "scale",
-          label: t("designEditor.tools.scale"),
-          icon: <IconScale className="size-4" />,
-          shortcut: MOVE_GROUP_TOOL_PRESENTATIONS.scale.shortcut,
-          active: activeTool === "scale",
-          onSelect: onScale,
-        },
-      ],
-    },
-    {
-      key: "frame",
-      active: activeTool === "frame",
-      label:
-        frameToolDraws === "screen"
-          ? t("designEditor.tools.screen")
-          : t("designEditor.tools.frame"),
-      icon:
-        frameToolDraws === "screen" ? (
-          <IconDevices className="size-[18px]" />
-        ) : (
-          <IconFrame className="size-[18px]" />
-        ),
-      onClick: onFrame,
-      options: [
-        {
-          key: "frame",
-          label: t("designEditor.tools.frame"),
-          icon: <IconFrame className="size-4" />,
-          shortcut: "F",
-          active: activeTool === "frame" && frameToolDraws === "frame",
-          onSelect: () => {
-            onFrameToolDrawsChange("frame");
-            onFrame();
-          },
-        },
-        {
-          key: "screen",
-          label: t("designEditor.tools.screen"),
-          icon: <IconDevices className="size-4" />,
-          active: activeTool === "frame" && frameToolDraws === "screen",
-          onSelect: () => {
-            onFrameToolDrawsChange("screen");
-            onFrame();
-          },
-        },
-      ],
-    },
-    {
-      key: "shape",
-      active: shapeTools.has(activeTool),
-      label: activeShapeOption.label,
-      icon: shapeIcon(activeShape, "size-[18px]"),
-      onClick: () => onShape(activeShape),
-      options: shapeOptions,
-    },
-    {
-      key: "pen",
-      active: activeTool === "pen",
-      label: t("designEditor.tools.pen"),
-      icon: <DesignPenToolIcon className="size-[18px]" />,
-      onClick: onPen,
-      options: [
-        {
-          key: "pen",
-          label: t("designEditor.tools.pen"),
-          icon: <DesignPenToolIcon className="size-4" />,
-          shortcut: "P",
-          active: activeTool === "pen",
-          onSelect: onPen,
-        },
-        {
-          key: "draw",
-          label: t("designEditor.modes.draw"),
-          icon: <IconBrush className="size-4" />,
-          shortcut: "Y",
-          active: activeTool === "draw" && mode === "annotate" && drawMode,
-          disabled: !hasActiveFile,
-          onSelect: onDraw,
-        },
-      ],
-    },
-    {
-      key: "text",
-      active: activeTool === "text",
-      label: t("designEditor.tools.text"),
-      icon: <IconText className="size-[18px]" />,
-      onClick: onText,
-      options: [
-        {
-          key: "text",
-          label: t("designEditor.tools.text"),
-          icon: <IconText className="size-4" />,
-          shortcut: "T",
-          active: activeTool === "text",
-          onSelect: onText,
-        },
-      ],
-    },
-    {
-      key: "comment",
-      active: activeTool === "comment" && mode === "annotate" && pinMode,
-      label: t("designEditor.pinComment"),
-      icon: <IconMessage className="size-[18px]" />,
-      onClick: onCommentPin,
-      options: [
-        {
-          key: "comment",
-          label: t("designEditor.pinComment"),
-          icon: <IconMessage className="size-4" />,
-          shortcut: "C",
-          active: activeTool === "comment" && mode === "annotate" && pinMode,
-          disabled: !hasActiveFile || isOverview,
-          onSelect: onCommentPin,
-        },
-      ],
-    },
-  ];
-
-  const modes: Array<{
-    key: EditorMode;
-    active: boolean;
-    label: string;
-    icon: ReactNode;
-    onClick: () => void;
-  }> = [
-    {
-      key: "annotate",
-      active: mode === "annotate",
-      label: t("designEditor.modes.annotate"),
-      icon: <IconScribble className="size-[18px]" />,
-      onClick: () => onModeChange("annotate"),
-    },
-    {
-      key: "edit",
-      active: mode === "edit",
-      label: t("designEditor.modes.edit"),
-      icon: <IconTransformPoint className="size-[18px]" />,
-      onClick: () => onModeChange("edit"),
-    },
-    {
-      key: "interact",
-      active: mode === "interact",
-      label: t("designEditor.modes.interact"),
-      icon: <IconHandClick className="size-[18px]" />,
-      onClick: () => onModeChange("interact"),
-    },
-  ];
-  return (
-    <div
-      data-design-bottom-toolbar
-      className="fixed left-1/2 z-[70] flex max-w-[calc(100%-1rem)] -translate-x-1/2 items-center gap-1.5 overflow-x-auto rounded-xl border border-white/10 bg-[#2c2c2c]/95 p-1.5 text-neutral-100 shadow-[0_22px_55px_-24px_rgba(0,0,0,0.9),0_0_0_1px_rgba(0,0,0,0.25)] backdrop-blur transition-[bottom] duration-150 motion-reduce:transition-none md:max-w-[calc(100%-2rem)] md:overflow-visible"
-      style={{ bottom: shortcutsPanelOpen ? 257 : 16 }}
-    >
-      <div className="flex min-w-0 items-center gap-0.5">
-        {tools.map((tool) => (
-          <DesignToolbarTool
-            key={tool.key}
-            active={tool.active}
-            label={tool.label}
-            icon={tool.icon}
-            options={tool.options}
-            onPrimary={tool.onClick}
-          />
-        ))}
-      </div>
-
-      <div className="h-9 w-px shrink-0 bg-white/15" />
-
-      <div className="flex shrink-0 items-center gap-0.5 rounded-md bg-white/10 p-0.5">
-        {modes.map((item) => (
-          <DesignModeTab
-            key={item.key}
-            active={item.active}
-            label={item.label}
-            icon={item.icon}
-            onClick={item.onClick}
-          />
-        ))}
-      </div>
-    </div>
-  );
 }
 
 /**
@@ -4228,21 +3225,8 @@ function DesignEditor() {
 
   // Result payload returned by migrate-inline-design-to-app on success.
   // `null` = not yet migrated; populated once the Builder agent accepts the job.
-  const [migrationResult, setMigrationResult] = useState<{
-    branchName?: string;
-    url?: string;
-    versionId?: string;
-    seedFileCount?: number;
-    status?: string;
-    projectId?: string;
-    cta?: {
-      kind: string;
-      label: string;
-      description: string;
-      connectUrl?: string;
-      primaryAction: string;
-    };
-  } | null>(null);
+  const [migrationResult, setMigrationResult] =
+    useState<DesignMigrationResult | null>(null);
 
   const [shareExportFormat, setShareExportFormat] =
     useState<ShareExportFormat>("html");
@@ -5361,100 +4345,13 @@ function DesignEditor() {
   ]);
 
   const overviewScreens = useMemo(() => {
-    const metadataByFileId = getDesignDataRecord(
+    return deriveOverviewScreens({
       designDataJson,
-      "screenMetadata",
-    );
-    // §6.4 — breakpoint set stored in designs.data.breakpointSet as a
-    // BreakpointSet { id, breakpoints: BreakpointDefinition[] }.
-    // Each BreakpointDefinition has { id, label, widthPx, prefix }.
-    const breakpointSet = (() => {
-      try {
-        const raw = (designDataJson as Record<string, unknown>)?.breakpointSet;
-        if (
-          raw &&
-          typeof raw === "object" &&
-          !Array.isArray(raw) &&
-          Array.isArray((raw as Record<string, unknown>).breakpoints)
-        ) {
-          return raw as {
-            id: string;
-            breakpoints: Array<{
-              id: string;
-              widthPx: number;
-              label?: string;
-              prefix?: string;
-            }>;
-          };
-        }
-      } catch {
-        // ignore
-      }
-      return undefined;
-    })();
-    const bpWidths =
-      !breakpointFramesHidden &&
-      breakpointSet &&
-      breakpointSet.breakpoints.length > 0
-        ? breakpointSet.breakpoints.map((bp) => bp.widthPx)
-        : undefined;
-
-    // Exclude the board file — it is rendered by its own DesignCanvas instance
-    // in MultiScreenCanvas and must not appear as a screen frame.  Support files
-    // such as CSS are editable files, not visual screens.
-    return files
-      .filter(
-        (file) =>
-          normalizedDesignFileType(file.fileType) === "html" &&
-          !isBoardFile(file.filename),
-      )
-      .map((file) => {
-        const metadata = getDesignDataRecord(metadataByFileId, file.id);
-        const stringValue = (key: string) =>
-          typeof metadata[key] === "string"
-            ? (metadata[key] as string)
-            : undefined;
-        const numberValue = (key: string) =>
-          typeof metadata[key] === "number" && Number.isFinite(metadata[key])
-            ? (metadata[key] as number)
-            : undefined;
-        return {
-          id: file.id,
-          filename: file.filename,
-          content: file.content,
-          updatedAt: file.updatedAt,
-          sourceType: stringValue("sourceType"),
-          source: stringValue("source"),
-          sourceFile: stringValue("sourceFile"),
-          connectionId: stringValue("connectionId"),
-          lod: stringValue("lod"),
-          previewState: stringValue("previewState"),
-          status: stringValue("status"),
-          title: stringValue("title"),
-          layoutGroupId: stringValue("variantSetId"),
-          width: numberValue("width"),
-          height: numberValue("height"),
-          // Without this the pin never reaches the canvas and the content-fit
-          // pass grows a deliberately-sized screen straight back.
-          heightPinned:
-            metadata.heightPinned === true ||
-            locallyPinnedHeightIdsRef.current.has(file.id),
-          url: stringValue("url"),
-          previewUrl: stringValue("previewUrl"),
-          bridgeUrl: stringValue("bridgeUrl"),
-          previewToken: stringValue("previewToken"),
-          // Breakpoint preview widths (§6.4). When non-empty, MultiScreenCanvas
-          // renders one iframe per width to the right of the primary frame.
-          breakpointWidths: bpWidths,
-          // Active breakpoint width tracked in component state; shared across all
-          // screens (a design has one active breakpoint set at a time in v1).
-          activeBreakpointWidth: bpWidths?.includes(
-            activeBreakpointWidthState ?? -1,
-          )
-            ? activeBreakpointWidthState
-            : undefined,
-        };
-      });
+      files,
+      activeBreakpointWidthState,
+      breakpointFramesHidden,
+      locallyPinnedHeightIds: locallyPinnedHeightIdsRef.current,
+    });
   }, [
     designDataJson,
     files,
@@ -6285,51 +5182,10 @@ function DesignEditor() {
   // §6.4 — The design's breakpoint definitions (id/label/width), parsed once
   // from designs.data.breakpointSet for the breakpoint bar and edit-scope
   // routing. Stable empty array when the design has no breakpoints yet.
-  const designBreakpoints = useMemo<
-    Array<{ id: string; label: string; widthPx: number }>
-  >(() => {
-    try {
-      const raw = (designDataJson as Record<string, unknown>)?.breakpointSet;
-      if (
-        raw &&
-        typeof raw === "object" &&
-        !Array.isArray(raw) &&
-        Array.isArray((raw as Record<string, unknown>).breakpoints)
-      ) {
-        const parsed = (
-          raw as {
-            breakpoints: Array<{
-              id?: unknown;
-              widthPx?: unknown;
-              label?: unknown;
-            }>;
-          }
-        ).breakpoints
-          .filter(
-            (bp) =>
-              typeof bp?.id === "string" &&
-              typeof bp?.widthPx === "number" &&
-              Number.isFinite(bp.widthPx),
-          )
-          .map((bp) => ({
-            id: bp.id as string,
-            widthPx: bp.widthPx as number,
-            label:
-              typeof bp.label === "string" && bp.label.trim()
-                ? (bp.label as string)
-                : (bp.widthPx as number) >= 1024
-                  ? "Desktop"
-                  : (bp.widthPx as number) >= 600
-                    ? "Tablet"
-                    : "Mobile",
-          }));
-        return parsed.sort((a, b) => a.widthPx - b.widthPx);
-      }
-    } catch {
-      // ignore malformed design data
-    }
-    return [];
-  }, [designDataJson]);
+  const designBreakpoints = useMemo(
+    () => deriveDesignBreakpoints(designDataJson),
+    [designDataJson],
+  );
 
   // §6.4 — BreakpointBar chip handlers (single-screen bar + overview compact
   // bar). Chip clicks switch the editing viewport width AND persist the edit
@@ -32659,36 +31515,12 @@ function DesignEditor() {
         </Sheet>
       ) : null}
 
-      <AlertDialog open={pendingVisualStyleWarningOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {t("designEditor.pendingVisualStyles.leaveTitle")}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {t(
-                pendingVisualEditCount === 1
-                  ? "designEditor.pendingVisualStyles.leaveDescriptionOne"
-                  : "designEditor.pendingVisualStyles.leaveDescriptionOther",
-                { count: pendingVisualEditCount },
-              )}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel
-              onClick={handleStayOnPendingVisualStyleNavigation}
-            >
-              {t("designEditor.pendingVisualStyles.stay")}
-            </AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={handleDiscardPendingVisualStylesAndNavigate}
-            >
-              {t("designEditor.pendingVisualStyles.leave")}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <PendingVisualStyleWarningDialog
+        open={pendingVisualStyleWarningOpen}
+        pendingVisualEditCount={pendingVisualEditCount}
+        onStay={handleStayOnPendingVisualStyleNavigation}
+        onDiscardAndNavigate={handleDiscardPendingVisualStylesAndNavigate}
+      />
 
       <AutoLayoutSuggestionDialog
         open={autoLayoutSuggestionPreview !== null}
@@ -32710,37 +31542,11 @@ function DesignEditor() {
         }}
       />
 
-      <AlertDialog open={pendingScreenDeletion !== null}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {pendingScreenDeletion?.files.length === 1
-                ? t("designEditor.screenDeletion.titleOne")
-                : t("designEditor.screenDeletion.titleMany", {
-                    count: pendingScreenDeletion?.files.length ?? 0,
-                  })}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {pendingScreenDeletion?.files.length === 1
-                ? t("designEditor.screenDeletion.descriptionOne", {
-                    filename: pendingScreenDeletion.files[0]?.filename ?? "",
-                  })
-                : t("designEditor.screenDeletion.descriptionMany")}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={handleCancelScreenDeletion}>
-              {t("designEditor.screenDeletion.cancel")}
-            </AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={handleConfirmScreenDeletion}
-            >
-              {t("designEditor.screenDeletion.confirm")}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <PendingScreenDeletionDialog
+        pendingScreenDeletion={pendingScreenDeletion}
+        onCancel={handleCancelScreenDeletion}
+        onConfirm={handleConfirmScreenDeletion}
+      />
 
       {/* Motion dock (§6.3) — bottom timeline mounted while opening, open, or
           closing. Canvas remains visible above.
@@ -32877,178 +31683,13 @@ function DesignEditor() {
           3. Success — branchName + url; sourceType already flipped to fusion.
           4. Not-configured — CTA to connect Builder.io.
       */}
-      <Dialog
+      <MakeRealDialog
         open={makeRealDialogOpen}
-        onOpenChange={(open) => {
-          if (!migrateMutation.isPending) setMakeRealDialogOpen(open);
-        }}
-      >
-        <DialogContent className="sm:max-w-md">
-          {/* Not-configured: Builder not connected or no project ID */}
-          {migrationResult?.status === "not-configured" &&
-          migrationResult.cta ? (
-            <>
-              <DialogHeader>
-                <DialogTitle className="flex items-center gap-2">
-                  <IconRocket className="size-5 text-muted-foreground" />
-                  {migrationResult.cta.label}
-                </DialogTitle>
-                <DialogDescription>
-                  {migrationResult.cta.description}
-                </DialogDescription>
-              </DialogHeader>
-              <DialogFooter className="flex-col gap-2 sm:flex-row">
-                <Button
-                  variant="outline"
-                  onClick={() => setMakeRealDialogOpen(false)}
-                  className="cursor-pointer"
-                >
-                  Cancel
-                </Button>
-                {migrationResult.cta.connectUrl ? (
-                  <Button asChild className="cursor-pointer">
-                    <a
-                      href={migrationResult.cta.connectUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      {migrationResult.cta.primaryAction}
-                      <IconExternalLink className="ml-1.5 size-3.5" />
-                    </a>
-                  </Button>
-                ) : null}
-              </DialogFooter>
-            </>
-          ) : migrationResult?.status === "processing" ? (
-            /* Success: Builder accepted the migration job */
-            <>
-              <DialogHeader>
-                <DialogTitle className="flex items-center gap-2">
-                  <IconCircleCheck className="size-5 text-green-500" />
-                  {"Migration started" /* i18n-ignore */}
-                </DialogTitle>
-                <DialogDescription>
-                  {
-                    "Builder is generating a React app branch from your design. The original inline design is preserved and recoverable." /* i18n-ignore */
-                  }
-                </DialogDescription>
-              </DialogHeader>
-              <div className="space-y-3 py-2">
-                {migrationResult.branchName && (
-                  <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm">
-                    <span className="text-muted-foreground">
-                      {"Branch: " /* i18n-ignore */}
-                    </span>
-                    <span className="font-mono font-medium">
-                      {migrationResult.branchName}
-                    </span>
-                  </div>
-                )}
-                {migrationResult.url && (
-                  <a
-                    href={withBuilderUtmTrackingParams(migrationResult.url, {
-                      campaign: "product",
-                      content: "design_migration",
-                    })}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-1.5 text-sm text-[var(--design-editor-accent-color)] hover:underline"
-                  >
-                    {"Open in Builder" /* i18n-ignore */}
-                    <IconExternalLink className="size-3.5" />
-                  </a>
-                )}
-                {migrationResult.seedFileCount !== undefined && (
-                  <p className="text-xs text-muted-foreground">
-                    {
-                      `${migrationResult.seedFileCount} design file${migrationResult.seedFileCount === 1 ? "" : "s"} included in migration seed.` /* i18n-ignore */
-                    }
-                  </p>
-                )}
-              </div>
-              <DialogFooter>
-                <Button
-                  onClick={() => setMakeRealDialogOpen(false)}
-                  className="cursor-pointer"
-                >
-                  {"Done" /* i18n-ignore */}
-                </Button>
-              </DialogFooter>
-            </>
-          ) : (
-            /* Idle or migrating */
-            <>
-              <DialogHeader>
-                <DialogTitle className="flex items-center gap-2">
-                  <IconRocket className="size-5" />
-                  {"Make this a real app" /* i18n-ignore */}
-                </DialogTitle>
-                <DialogDescription>
-                  {
-                    "Connect Builder.io (free tier available) to convert this design into a React + Tailwind app with real components, props, branches, and deploys. Your current inline design is preserved as a snapshot you can restore at any time." /* i18n-ignore */
-                  }
-                </DialogDescription>
-              </DialogHeader>
-              <div className="space-y-2 py-1 text-sm text-muted-foreground">
-                <p>{"What happens:" /* i18n-ignore */}</p>
-                <ul className="list-disc pl-4 space-y-1">
-                  <li>
-                    {
-                      "Your design HTML and tokens are sent to the Builder cloud agent" /* i18n-ignore */
-                    }
-                  </li>
-                  <li>
-                    {
-                      "A React + Tailwind branch is generated in Builder" /* i18n-ignore */
-                    }
-                  </li>
-                  <li>
-                    {
-                      "The editor switches to fusion source mode — gated panels light up" /* i18n-ignore */
-                    }
-                  </li>
-                  <li>
-                    {
-                      "The original inline design is saved as a restorable snapshot" /* i18n-ignore */
-                    }
-                  </li>
-                </ul>
-                <p className="pt-1 text-xs">
-                  {
-                    "Requires Builder.io to be connected (free tier available) with a branch project configured." /* i18n-ignore */
-                  }
-                </p>
-              </div>
-              <DialogFooter className="flex-col gap-2 sm:flex-row">
-                <Button
-                  variant="outline"
-                  onClick={() => setMakeRealDialogOpen(false)}
-                  disabled={migrateMutation.isPending}
-                  className="cursor-pointer"
-                >
-                  Cancel
-                </Button>
-                <Button
-                  onClick={() => void handleConfirmMakeReal()}
-                  disabled={migrateMutation.isPending}
-                  className="cursor-pointer"
-                >
-                  {
-                    migrateMutation.isPending ? (
-                      <>
-                        <Spinner className="mr-2 size-3.5" />
-                        {"Starting migration…" /* i18n-ignore */}
-                      </>
-                    ) : (
-                      "Start migration"
-                    ) /* i18n-ignore */
-                  }
-                </Button>
-              </DialogFooter>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
+        onOpenChange={setMakeRealDialogOpen}
+        result={migrationResult}
+        pending={migrateMutation.isPending}
+        onConfirm={handleConfirmMakeReal}
+      />
 
       <SaveTemplateDialog
         open={saveTemplateOpen}
@@ -33123,143 +31764,5 @@ function DesignEditor() {
         />
       ) : null}
     </div>
-  );
-}
-
-type TemplateCategory =
-  | "ad"
-  | "one-pager"
-  | "landing-page"
-  | "social"
-  | "presentation"
-  | "other";
-
-function SaveTemplateDialog({
-  open,
-  onOpenChange,
-  defaultTitle,
-  defaultDescription,
-  screenCount,
-  lockedLayerCount,
-  saving,
-  onSave,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  defaultTitle: string;
-  defaultDescription: string;
-  screenCount: number;
-  lockedLayerCount: number;
-  saving: boolean;
-  onSave: (values: {
-    title: string;
-    description?: string;
-    category: TemplateCategory;
-  }) => Promise<void>;
-}) {
-  const t = useT();
-  const [title, setTitle] = useState(defaultTitle);
-  const [description, setDescription] = useState(defaultDescription);
-  const [category, setCategory] = useState<TemplateCategory>("other");
-
-  useEffect(() => {
-    if (!open) return;
-    setTitle(defaultTitle);
-    setDescription(defaultDescription);
-    setCategory("other");
-  }, [defaultDescription, defaultTitle, open]);
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>{t("designEditor.saveAsTemplate")}</DialogTitle>
-          <DialogDescription>
-            {t("designEditor.saveTemplateDescription")}
-          </DialogDescription>
-        </DialogHeader>
-        <div className="grid gap-4 py-1">
-          <label className="grid gap-1.5 text-sm">
-            <span className="font-medium">
-              {t("designEditor.templateName")}
-            </span>
-            <Input
-              value={title}
-              onChange={(event) => setTitle(event.target.value)}
-              autoFocus
-            />
-          </label>
-          <label className="grid gap-1.5 text-sm">
-            <span className="font-medium">
-              {t("designEditor.templateDescription")}
-            </span>
-            <Textarea
-              value={description}
-              onChange={(event) => setDescription(event.target.value)}
-              rows={3}
-            />
-          </label>
-          <div className="grid gap-1.5 text-sm">
-            <span className="font-medium">
-              {t("designEditor.templateCategory")}
-            </span>
-            <Select
-              value={category}
-              onValueChange={(value) => setCategory(value as TemplateCategory)}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  {(
-                    [
-                      "ad",
-                      "social",
-                      "one-pager",
-                      "landing-page",
-                      "presentation",
-                      "other",
-                    ] as const
-                  ).map((value) => (
-                    <SelectItem key={value} value={value}>
-                      {t(`templatesPage.categories.${value}`)}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="rounded-lg border bg-muted/25 px-3 py-2 text-xs text-muted-foreground">
-            {t("designEditor.templateSnapshotSummary", {
-              screens: screenCount,
-              locks: lockedLayerCount,
-            })}
-          </div>
-        </div>
-        <DialogFooter>
-          <Button
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-            disabled={saving}
-          >
-            {t("home.cancel")}
-          </Button>
-          <Button
-            onClick={() =>
-              void onSave({
-                title: title.trim(),
-                description: description.trim() || undefined,
-                category,
-              })
-            }
-            disabled={!title.trim() || saving}
-          >
-            {saving ? <Spinner className="size-4" /> : null}
-            {t("designEditor.saveTemplate")}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   );
 }
