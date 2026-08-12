@@ -47,7 +47,7 @@ import { shouldOfferWorkspace } from "../../org/workspace-url.js";
 import { agentNativePath } from "../api-path.js";
 import { useT } from "../i18n.js";
 import { useDemoModeStatus } from "../use-demo-mode-status.js";
-import { useSession } from "../use-session.js";
+import { notifySessionInvalidated, useSession } from "../use-session.js";
 import {
   useOrg,
   useSwitchOrg,
@@ -92,6 +92,8 @@ export interface OrgSwitcherProps {
    * Pass `null` for apps that do not mount the Agent page.
    */
   agentPath?: string | null;
+  /** Omit the link to the app that currently owns this switcher. */
+  currentAppId?: string;
 }
 
 function personalLabelFromEmail(email: string | null | undefined): string {
@@ -209,30 +211,40 @@ function AppsSubmenu({
   isLoading,
   dispatchHref,
   dispatchAllAppsHref,
+  currentAppId,
   onNavigate,
 }: {
   apps: OrgSwitcherAppLink[];
   isLoading: boolean;
   dispatchHref: string;
   dispatchAllAppsHref: string;
+  currentAppId?: string;
   onNavigate: () => void;
 }) {
-  const { links, overflowCount } = visibleOrgAppLinks(apps);
+  const appsForMenu = currentAppId
+    ? apps.filter((app) => app.id !== currentAppId)
+    : apps;
+  const { links, overflowCount } = visibleOrgAppLinks(appsForMenu);
   const visibleDispatchApp = links.find((app) => app.isDispatch);
   const dispatchApp =
-    visibleDispatchApp ??
-    ({
-      id: "dispatch",
-      name: "Dispatch",
-      href: dispatchHref,
-      isDispatch: true,
-      status: "ready",
-    } satisfies OrgSwitcherAppLink);
+    currentAppId === "dispatch"
+      ? null
+      : (visibleDispatchApp ??
+        ({
+          id: "dispatch",
+          name: "Dispatch",
+          href: dispatchHref,
+          isDispatch: true,
+          status: "ready",
+        } satisfies OrgSwitcherAppLink));
   const visibleNonDispatch = links
     .filter((app) => !app.isDispatch)
-    .slice(0, visibleDispatchApp ? undefined : ORG_SWITCHER_MAX_APP_LINKS - 1);
+    .slice(0, dispatchApp ? undefined : ORG_SWITCHER_MAX_APP_LINKS);
   const shownCount = (dispatchApp ? 1 : 0) + visibleNonDispatch.length;
-  const remainingCount = Math.max(overflowCount, apps.length - shownCount);
+  const remainingCount = Math.max(
+    overflowCount,
+    appsForMenu.length - shownCount,
+  );
 
   return (
     <PopoverPrimitive.Root>
@@ -244,7 +256,7 @@ function AppsSubmenu({
             {isLoading ? (
               <IconLoader2 className="h-3 w-3 animate-spin" />
             ) : (
-              apps.length
+              appsForMenu.length
             )}
           </span>
           <IconChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground rtl:-scale-x-100" />
@@ -258,9 +270,11 @@ function AppsSubmenu({
           collisionPadding={12}
           className={APP_SUBMENU_CONTENT_CLASS}
         >
-          <AppMenuLink app={dispatchApp} onNavigate={onNavigate} />
+          {dispatchApp && (
+            <AppMenuLink app={dispatchApp} onNavigate={onNavigate} />
+          )}
 
-          {visibleNonDispatch.length > 0 && (
+          {dispatchApp && visibleNonDispatch.length > 0 && (
             <div className="my-1 h-px bg-border" />
           )}
           {visibleNonDispatch.map((app) => (
@@ -322,6 +336,7 @@ export function OrgSwitcher({
   settingsPath = DEFAULT_ORGANIZATION_SETTINGS_PATH,
   profilePath = DEFAULT_PROFILE_PATH,
   agentPath = DEFAULT_AGENT_PATH,
+  currentAppId,
 }: OrgSwitcherProps) {
   const { data: org, isLoading } = useOrg();
   const { session } = useSession();
@@ -361,6 +376,7 @@ export function OrgSwitcher({
     } catch {
       /* fall through to reload — server may already have cleared the cookie */
     }
+    notifySessionInvalidated();
     window.location.reload();
   };
 
@@ -637,6 +653,7 @@ export function OrgSwitcher({
                 isLoading={appLinks.isLoading}
                 dispatchHref={appLinks.dispatchHref}
                 dispatchAllAppsHref={appLinks.dispatchAllAppsHref}
+                currentAppId={currentAppId}
                 onNavigate={() => setOpen(false)}
               />
               {profilePath && (

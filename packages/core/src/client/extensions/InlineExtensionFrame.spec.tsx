@@ -78,6 +78,41 @@ describe("InlineExtensionFrame", () => {
     });
   });
 
+  it("keeps extension chat messages draft-only without explicit submission", async () => {
+    await act(async () => {
+      root.render(
+        <InlineExtensionFrame
+          extension={{
+            id: "inline-test",
+            mode: "transient",
+            name: "Inline controls",
+            content: "<button>Send choice</button>",
+          }}
+        />,
+      );
+    });
+
+    const iframe = container.querySelector("iframe");
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          source: iframe?.contentWindow ?? window,
+          data: {
+            type: "agent-native-send-to-chat",
+            message: "A refresh error",
+          },
+        }),
+      );
+    });
+
+    expect(sendToAgentChat).toHaveBeenCalledWith({
+      message: "A refresh error",
+      context: undefined,
+      submit: false,
+      openSidebar: true,
+    });
+  });
+
   it("dispatches passive output events from generated UI", async () => {
     await act(async () => {
       root.render(

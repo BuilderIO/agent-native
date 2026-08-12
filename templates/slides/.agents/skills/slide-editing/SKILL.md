@@ -102,6 +102,19 @@ simulate reveals. When content and reveals change together, send both fields in
 one `patch-deck` operation. To remove reveals, send `animations: []` with the
 existing content and verify the persisted slide afterward.
 
+Array order is reveal order, and each entry needs a non-empty `id`, a 0-based
+`elementIndex`, and a `type` of `appear`, `fade`, `slide-up`, or `zoom`; the
+schema rejects the operation otherwise. Nothing checks that ids are unique, but
+the editor keys its reveal list by id, so a duplicate makes "remove" and
+"change type" hit every entry sharing it.
+
+`elementPath` has to come from the exact final HTML because it is positional:
+every segment is a child index, so inserting or removing a sibling anywhere
+along the path retargets it. The runtime resolves the path first and falls back
+to `elementIndex` only when it fails to resolve, which is why a stale path
+silently reveals the wrong element instead of erroring. `get-deck` with
+`compact=true` reports each step's order, id, target, and type for verification.
+
 If retrieval produces a new immutable context pack, keep its `contextPackId`
 and reuse labels with the deck provenance. Existing slide HTML is not proof of
 which source version influenced it.

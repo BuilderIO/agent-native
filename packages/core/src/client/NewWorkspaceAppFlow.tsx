@@ -324,6 +324,15 @@ export function NewWorkspaceAppFlow({
         if (result?.mode === "builder") {
           setBranchUrl(result?.url || null);
           setStatusMessage("Builder branch created.");
+        } else if (result?.mode === "local-agent") {
+          sendToAgentChat({
+            message: result.prompt ?? message,
+            submit: true,
+            type: "code",
+            newTab: true,
+            reuseEmptyTab: true,
+          });
+          setStatusMessage("Sent to the local agent.");
         } else {
           setStatusMessage(
             result?.message ||

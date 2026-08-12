@@ -492,6 +492,10 @@ const messages = {
       editor: "编辑",
       admin: "行政",
     },
+    recordingViewer: {
+      label: "评论者",
+      description: "可以查看、评论和回应",
+    },
   },
   quickAsk: {
     title: "询问本次会议",
@@ -1495,10 +1499,6 @@ Clips 中所有面向用户的重要更改都会记录在这里。你可以随�
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (已本地化)",
     connectGoogleCalendar: "Connect Google Calendar (已本地化)",
-    googleMayShowWarning: "检查 Google 访问权限",
-    googleNotVerifiedTitle: "连接前请验证应用",
-    googleWarningBeforeAdvanced:
-      "请确认应用名称和请求的 Calendar 访问权限与你信任的 Clips 部署相符。如果 Google 显示未验证应用警告，或应用身份看起来陌生，请停止操作并联系工作区管理员。",
     desktopReminder:
       "Connect Google Calendar, keep Clips Desktop open, then click Start notes from the reminder or the menu bar when your meeting begins. (已本地化)",
     getDesktopApp: "Get desktop app (已本地化)",

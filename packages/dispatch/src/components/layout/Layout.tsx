@@ -102,8 +102,11 @@ import {
 import { Link, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
+import { isEmbedSessionExpiredMessage } from "../../lib/embed-session-recovery";
 import { cn } from "../../lib/utils";
 import {
+  isDispatchWorkspaceAppId,
+  isWorkspaceAppVisibleInDefaultLaunchers,
   mergeChatFirstWorkspaceApps,
   workspaceAppIdFromRoute,
   workspaceAppRoute,
@@ -297,6 +300,10 @@ function localDispatchPath(pathname: string): string {
     return pathname.slice(basePath.length) || "/";
   }
   return pathname;
+}
+
+export function isElectronEmbeddedSearch(search: string): boolean {
+  return new URLSearchParams(search).get("electron") === "1";
 }
 
 function chatFirstPrimaryTabForPath(
@@ -1187,7 +1194,7 @@ export function NavContent({
     <div
       className={cn("py-2", collapsed ? "flex justify-center px-1" : "px-3")}
     >
-      <OrgSwitcher compact={collapsed} reserveSpace />
+      <OrgSwitcher compact={collapsed} reserveSpace currentAppId="dispatch" />
     </div>
   );
   const sidebarFooterActions = (
@@ -1207,9 +1214,12 @@ export function NavContent({
           collapsed ? "justify-center px-0" : "px-4",
         )}
       >
-        <div
+        <Link
+          to={dispatchNavLinkTarget("/overview")}
+          aria-label={`${DISPATCH_SIDEBAR_LABEL} overview`}
+          data-dispatch-logo
           className={cn(
-            "flex items-center",
+            "flex items-center rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring",
             collapsed ? "justify-center" : "gap-2",
           )}
         >
@@ -1245,7 +1255,7 @@ export function NavContent({
               </div>
             </div>
           )}
-        </div>
+        </Link>
       </div>
 
       {chatFirstMode ? (
@@ -1330,6 +1340,11 @@ export function Layout({
     }
   });
   const localPathname = localDispatchPath(location.pathname);
+  const [electronEmbedded] = useState(() =>
+    typeof window !== "undefined"
+      ? isElectronEmbeddedSearch(window.location.search)
+      : false,
+  );
   const isChatRoute =
     localPathname === "/chat" || localPathname.startsWith("/chat/");
   const chatFirstSurfaceScope = threadIdFromPath(localPathname) ?? "new";
@@ -1347,6 +1362,17 @@ export function Layout({
   const chatFirstMode =
     extensions?.chatFirst === true || chatFirstPreference || chatFirstEmbedded;
   const chatFirstHasActiveChat = chatFirstSurfaceScope !== "new";
+  useEffect(() => {
+    if (!electronEmbedded || typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    if (isElectronEmbeddedSearch(url.search)) return;
+    url.searchParams.set("electron", "1");
+    window.history.replaceState(
+      window.history.state,
+      "",
+      `${url.pathname}${url.search}${url.hash}`,
+    );
+  }, [electronEmbedded, location.pathname, location.search]);
   useEffect(() => {
     if (!chatFirstMode || chatFirstEmbedded || localPathname !== "/overview") {
       return;
@@ -1396,7 +1422,9 @@ export function Layout({
   const chatFirstAppItems = useMemo<ChatFirstAppItem[]>(
     () =>
       chatFirstAppRegistrations
-        .filter((app) => app.enabled)
+        .filter(
+          (app) => app.enabled && isWorkspaceAppVisibleInDefaultLaunchers(app),
+        )
         .map((app) => ({
           id: app.id,
           name: app.name ?? app.id,
@@ -1562,11 +1590,9 @@ export function Layout({
 
     const handleEmbedSessionExpired = (event: MessageEvent) => {
       if (
-        event.data?.type !== "agentNative.embedSessionExpired" ||
-        event.source !== chatFirstAppFrameRef.current?.contentWindow
-      ) {
+        !isEmbedSessionExpiredMessage(event, chatFirstAppFrameRef.current, null)
+      )
         return;
-      }
       setChatFirstEmbedAttempt((attempt) => attempt + 1);
     };
 
@@ -1729,6 +1755,19 @@ export function Layout({
         setChatFirstNotice(chatFirstResolutionMessage(resolution.reason));
         return;
       }
+      if (isDispatchWorkspaceAppId(resolution.target.appId)) {
+        closeChatFirstSessionWatch();
+        chatFirstSurfaceTabsStore.closeAll();
+        setChatFirstSurfacePanelOpen(false);
+        persistChatFirstPane(null);
+        if (resolution.target.path) {
+          navigateWithAgentChatViewTransition(
+            navigate,
+            dispatchNavLinkTarget(resolution.target.path),
+          );
+        }
+        return;
+      }
       openChatFirstPane(resolution.target);
     },
     [
@@ -1736,7 +1775,12 @@ export function Layout({
       chatFirstAppsQuery.isError,
       chatFirstAppsQuery.isLoading,
       chatFirstGrantedAppsQuery.isLoading,
+      chatFirstSurfaceTabsStore,
+      closeChatFirstSessionWatch,
       openChatFirstPane,
+      navigate,
+      persistChatFirstPane,
+      setChatFirstSurfacePanelOpen,
     ],
   );
   const chatHomeHandoffActive = useAgentChatHomeHandoff({
@@ -2067,13 +2111,14 @@ export function Layout({
         chatOnly
         dynamicSuggestions={false}
         suggestions={[]}
+        suppressInlineOpenApp={chatFirstMode}
         emptyStateDisplay="hidden"
         composerPlaceholder={t(
           "dispatch.pages.chatFirstSessionMessagePlaceholder",
         )}
       />
     ),
-    [t],
+    [chatFirstMode, t],
   );
 
   const renderChatFirstSurfaceTab = useCallback(
@@ -2110,6 +2155,7 @@ export function Layout({
             onRetry={() => setChatFirstEmbedAttempt((value) => value + 1)}
             renderEmbed={({ url, title }: ChatFirstEmbedTarget) => (
               <iframe
+                key={`${url}:${chatFirstEmbedAttempt}`}
                 data-dispatch-chat-first-app-frame
                 src={url}
                 title={title ?? chatFirstCopy("appUnavailable")}
@@ -2202,6 +2248,29 @@ export function Layout({
 
   if (CHROMELESS_PATHS.some((path) => localPathname === path)) {
     return <>{children}</>;
+  }
+
+  if (electronEmbedded) {
+    return (
+      <DispatchExtensionsContext.Provider value={extensions}>
+        <HeaderActionsProvider>
+          <div
+            data-dispatch-electron-control-plane
+            className="flex h-screen w-full overflow-hidden bg-background"
+          >
+            <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
+              <Header showAgentToggle={false} />
+              <InvitationBanner />
+              <main className="flex-1 overflow-y-auto">
+                <div className="mx-auto max-w-7xl space-y-10 px-4 py-6 sm:px-6">
+                  {children}
+                </div>
+              </main>
+            </div>
+          </div>
+        </HeaderActionsProvider>
+      </DispatchExtensionsContext.Provider>
+    );
   }
 
   if (isWorkspaceAppHostRoute) {
@@ -2403,9 +2472,11 @@ export function Layout({
                 chatFirstSurfaceTabsStore.closeAll();
                 setChatFirstSurfacePanelOpen(false);
               }}
-              onChatFirstAppOpen={(app) =>
-                navigate(dispatchNavLinkTarget(workspaceAppRoute(app.id)))
-              }
+              onChatFirstAppOpen={(app) => {
+                if (isDispatchWorkspaceAppId(app.id)) return;
+                setSidebarCollapsed(true);
+                navigate(dispatchNavLinkTarget(workspaceAppRoute(app.id)));
+              }}
               onChatFirstAppsRetry={() => void chatFirstAppsQuery.refetch()}
               collapsible
               onCollapsedChange={setSidebarCollapsed}

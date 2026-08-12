@@ -42,6 +42,8 @@ If the Page was deleted or access changed, Content opens a safe fallback and exp
 - Restoration reauthorizes every target before reopening it and drops invalid state safely.
 - Saved or personal View focus restores when still authorized; ephemeral renderer state is bounded.
 - Recovery distinguishes normal restoration, missing target, denied target, and unavailable source.
+- At the root route, Content restores the last authorized Page. When no saved Page exists or the target is no longer available, it creates or reuses one private, editable Personal `Welcome to Agent-Native Content` Page.
+- Explicit Page links take precedence over root-route restoration. A fallback does not reveal the unavailable Page's title, preview, or owning context.
 
 ## Boundaries and non-goals
 
@@ -60,6 +62,10 @@ Content reopens that object and View with a usable focus target.
 Given saved state for an object whose access is revoked, when the session restores, then
 Content omits the object and does not reveal its title, preview, or prior selection.
 
+### Give a new person an honest starting place
+
+Given a person with no saved Content location but with organization-visible Pages, when they open the root route, then Content opens one private Personal welcome Page instead of selecting an arbitrary organization Page.
+
 ## Current evidence
 
 Persisted navigation donors do not prove reauthorization, fallback, and recovery. This
@@ -73,4 +79,4 @@ Capability remains `approved_shape`.
 
 ## Open questions
 
-The exact safe fallback order needs interaction design.
+The first Page-level fallback order is settled. Full saved View, selection, and renderer-state restoration remains to be designed and proven.

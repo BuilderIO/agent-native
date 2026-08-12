@@ -61,6 +61,8 @@ const deDE = {
     dialogLabel: "Dokumentation durchsuchen",
     placeholder: "Dokumentation durchsuchen...",
     empty: "Tippe, um die gesamte Dokumentation zu durchsuchen",
+    loadError: "Die Suche konnte nicht geladen werden. Erneut versuchen.",
+    retry: "Erneut versuchen",
     noResults: 'Keine Ergebnisse für "{{query}}"',
     browseAllDocs: "Alle Docs anzeigen",
     navigate: "navigieren",

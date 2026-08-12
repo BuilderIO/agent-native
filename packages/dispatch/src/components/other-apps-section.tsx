@@ -3,6 +3,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import { filterOtherApps, type ConnectedAppSummary } from "../lib/other-apps";
 import type { WorkspaceAppId } from "../lib/other-apps";
 import { cn } from "../lib/utils";
+import { isDefaultWorkspaceAppHiddenId } from "../lib/workspace-apps";
 import { ActionQueryError } from "./action-query-error";
 import {
   APP_LIST_GRID_CLASS,
@@ -52,7 +53,13 @@ export function mergeOtherAppEntries({
 
   for (const template of getTemplateItems(templates)) {
     const id = templateKey(template);
-    if (!id || template.installed || workspaceAppIds.has(id)) continue;
+    if (
+      !id ||
+      isDefaultWorkspaceAppHiddenId(id) ||
+      template.installed ||
+      workspaceAppIds.has(id)
+    )
+      continue;
     seen.add(id);
     entries.push({ kind: "template", template });
   }

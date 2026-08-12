@@ -224,7 +224,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
           suppressHydrationWarning
           dangerouslySetInnerHTML={{ __html: LOCALE_INIT_SCRIPT }}
         />
-        <link rel="manifest" href={appPath("/manifest.json")} />
         <link rel="icon" type="image/svg+xml" href={appPath("/favicon.svg")} />
         <meta name="theme-color" content="#111111" />
         <meta name="mobile-web-app-capable" content="yes" />

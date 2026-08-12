@@ -1,5 +1,43 @@
 # @agent-native/dispatch
 
+## 0.24.0
+
+### Minor Changes
+
+- aa17e22: Add a personal-first LLM usage investigation view with daily trends, prompt attribution, and agent review handoff.
+
+### Patch Changes
+
+- aa17e22: Use Plan's blue accent for generated app icons instead of a disabled-looking gray.
+- aa17e22: Open workspace apps at their registered app URL instead of treating the workspace mount path as an in-app document route.
+- aa17e22: Keep metadata-only workspace app edits from starting new Builder branches, and use canonical home URLs when launching built-in connected apps.
+- aa17e22: Make the Dispatch logo return to the Overview page when clicked.
+- aa17e22: Add an Admin link to Dispatch settings navigation.
+- aa17e22: Hide the current Dispatch app from the shared app switcher while keeping other workspace apps available.
+- aa17e22: Accept human-friendly names when creating workspace apps and normalize them into URL-safe ids.
+- aa17e22: Keep completed Dispatch app handoffs in the chat-first app pane instead of rendering a nested app shell inside the conversation.
+- aa17e22: Recover embedded workspace apps when their one-time session expires and keep account name editing available while profile data loads.
+- Updated dependencies [aa17e22]
+  - @agent-native/toolkit@0.14.0
+
+## 0.23.5
+
+### Patch Changes
+
+- 62a17be: Add the authenticated, nonce-only completion route used by packaged Desktop clients during cross-app identity federation.
+
+  Let Dispatch register rollout-gated identity routes on its primary auth guard so security checks remain unconditional while the capability is default-off.
+
+## 0.23.4
+
+### Patch Changes
+
+- 7c5888c: Render integrations and scheduled work as first-class, chrome-less Electron control-plane pages.
+- 7c5888c: Hide the generic Chat starter from Dispatch's default app launchers.
+- 7c5888c: Open new workspace app requests in a fresh coding chat and guide missing AI setup through Builder or custom keys.
+- Updated dependencies [7c5888c]
+  - @agent-native/toolkit@0.13.10
+
 ## 0.23.3
 
 ### Patch Changes

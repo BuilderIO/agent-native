@@ -61,6 +61,8 @@ const arSA = {
     dialogLabel: "البحث في الوثائق",
     placeholder: "ابحث في الوثائق...",
     empty: "اكتب للبحث في كل الوثائق",
+    loadError: "تعذر تحميل البحث. حاول مرة أخرى.",
+    retry: "حاول مرة أخرى",
     noResults: "لا توجد نتائج لـ “{{query}}”",
     browseAllDocs: "تصفح كل الوثائق",
     navigate: "تنقل",

@@ -7,4 +7,8 @@ describe("default chat-first copy", () => {
     expect(defaultChatFirstCopy("newChat")).toBe("New chat");
     expect(defaultChatFirstCopy("search")).toBe("Search");
   });
+
+  it("provides a clear destructive app action label", () => {
+    expect(defaultChatFirstCopy("removeApp")).toBe("Remove app from workspace");
+  });
 });

@@ -9,6 +9,12 @@ import { useLocation } from "react-router";
 
 import { useDecks } from "@/context/DeckContext";
 import { useSidebarCollapsed } from "@/hooks/use-sidebar-collapsed";
+import {
+  hasCurrentSlideSelection,
+  readPublishedSlidesSelection,
+  SLIDES_SELECTION_CHANGED_EVENT,
+  type SlidesAgentSelection,
+} from "@/lib/slide-agent-context";
 import { TAB_ID } from "@/lib/tab-id";
 import { cn } from "@/lib/utils";
 
@@ -45,6 +51,8 @@ export function Layout({ children }: LayoutProps) {
   const location = useLocation();
   const t = useT();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [slidesSelection, setSlidesSelection] =
+    useState<SlidesAgentSelection | null>(() => readPublishedSlidesSelection());
   const [editorSidebarOverride, setEditorSidebarOverride] =
     useState<EditorSidebarOverride | null>(null);
   const { collapsed: sidebarCollapsed, setCollapsed: setSidebarCollapsed } =
@@ -52,6 +60,20 @@ export function Layout({ children }: LayoutProps) {
   const { decks, loading: decksLoading } = useDecks();
   const isEmptyDecksState =
     location.pathname === "/" && !decksLoading && decks.length === 0;
+
+  useEffect(() => {
+    const onSelectionChanged = (event: Event) => {
+      setSlidesSelection(
+        (event as CustomEvent<SlidesAgentSelection | null>).detail ?? null,
+      );
+    };
+    window.addEventListener(SLIDES_SELECTION_CHANGED_EVENT, onSelectionChanged);
+    return () =>
+      window.removeEventListener(
+        SLIDES_SELECTION_CHANGED_EVENT,
+        onSelectionChanged,
+      );
+  }, []);
 
   // Scope new chats to the deck the user is currently editing. The route
   // is `/deck/:id`; everywhere else (list, presentation) leaves
@@ -61,12 +83,14 @@ export function Layout({ children }: LayoutProps) {
     const match = location.pathname.match(/^\/deck\/([^/]+)/);
     const deckId = match?.[1];
     if (!deckId) return null;
+    const hasSelection = hasCurrentSlideSelection(slidesSelection, deckId);
     return {
       type: "deck" as const,
       id: deckId,
-      label: t("agent.thisDeck"),
+      label: t(hasSelection ? "agent.currentSelection" : "agent.thisSlide"),
+      contextKey: "slides-current-context",
     };
-  }, [location.pathname, t]);
+  }, [location.pathname, slidesSelection, t]);
 
   useEffect(() => {
     setSidebarOpen(false);

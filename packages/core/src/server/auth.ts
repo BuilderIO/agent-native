@@ -124,6 +124,7 @@ import {
 import { isValidWorkspaceAppIdFormat } from "../shared/workspace-app-id.js";
 import { injectAnalyticsIntoHtml } from "./analytics.js";
 import { getConfiguredAppBasePath } from "./app-base-path.js";
+import { getAppProductionUrl } from "./app-url.js";
 import {
   readAnalyticsAnonymousId,
   signupAttributionFromCookieHeader,
@@ -173,10 +174,11 @@ import {
   resolveOAuthRedirectUri,
   isAllowedOAuthRedirectUri,
 } from "./google-oauth.js";
-// Pure env-read feature switch from a leaf module (no dependency back on
-// auth.ts), so the guard and the SSO route handler share one validator and
-// can never disagree about whether federated SSO is enabled.
-import { isIdentitySsoEnabled } from "./identity-sso-store.js";
+import {
+  isCanonicalAgentNativeAppRequest,
+  isDesktopSsoCanaryUserAgent,
+  isIdentitySsoEnabled,
+} from "./identity-sso-store.js";
 import { ensureCanonicalUserForLegacySession } from "./legacy-auth-migration.js";
 import { safeOAuthReturnUrl } from "./oauth-return-url.js";
 import {
@@ -307,17 +309,6 @@ export interface AuthOptions {
     description?: string;
     features?: string[];
     runLocalCommand?: string;
-  };
-  /**
-   * Optional host-scoped notice shown before the built-in Google sign-in
-   * redirects to Google.
-   */
-  googleSignInNotice?: {
-    host?: string;
-    title: string;
-    body: string | string[];
-    continueLabel?: string;
-    cancelLabel?: string;
   };
   /**
    * Optional email signup legal copy for the built-in login page.
@@ -600,6 +591,30 @@ export function isDevEnvironment(): boolean {
  */
 export function safeReturnPath(raw: string | null | undefined): string {
   return normalizeAppPath(raw) ?? "/";
+}
+
+// Better Auth's relative callback validator is stricter than normalizeAppPath:
+// query values such as UTM labels may contain characters that are safe here but
+// invalid as a Better Auth relative callback. Promote those paths to the
+// canonical app origin so the callback remains same-origin and valid there.
+const BETTER_AUTH_RELATIVE_CALLBACK_PATH_RE =
+  /^\/(?!\/|\\|%2f|%5c)[\w\-.\+/@]*(?:\?[\w\-.\+/=&%@]*)?$/i;
+
+function betterAuthCallbackURL(
+  raw: string | null | undefined,
+  forceAbsolute = false,
+  event?: H3Event,
+): string {
+  const safePath = safeReturnPath(raw);
+  if (!forceAbsolute && BETTER_AUTH_RELATIVE_CALLBACK_PATH_RE.test(safePath)) {
+    return safePath;
+  }
+
+  try {
+    return new URL(safePath, getAppProductionUrl(event)).toString();
+  } catch {
+    return "/";
+  }
 }
 
 /**
@@ -1416,7 +1431,6 @@ function getOnboardingHtmlOptions(
     authMode,
     googleOnly: options.googleOnly,
     marketing: options.marketing,
-    googleSignInNotice: options.googleSignInNotice,
     signupLegalNotice: options.signupLegalNotice,
     googleAuthMode: options.googleAuthMode,
     requestHost: event ? getRequestHost(event) : undefined,
@@ -2353,14 +2367,22 @@ function createAuthGuardFn(): (
     // definition, NOT yet signed in to THIS app) must bypass the blanket
     // 401-for-/_agent-native/*: they resolve / mint the browser session
     // themselves and verify a signature-bound, single-use, CSRF-stated
-    // hub token — not a cookie. This bypass is GATED on the opt-in env var
-    // so an unset `AGENT_NATIVE_IDENTITY_HUB_URL` is a true no-op (the
-    // guard's behaviour is byte-for-byte unchanged when SSO is off). The
-    // handler itself 404s when disabled as defence in depth.
+    // hub token — not a cookie. The handler fails closed with 404 unless
+    // direct web SSO is configured or this is the packaged SSO Canary on a
+    // canonical app origin. Keeping the bypass exact lets that request-scoped
+    // decision happen without exposing any other identity subpath.
+    const isIdentitySsoEntryPath =
+      p === "/_agent-native/identity/login" ||
+      p === "/_agent-native/identity/callback";
+    const isDesktopCanaryIdentityRequest =
+      isDesktopSsoCanaryUserAgent(getHeader(event, "user-agent")) &&
+      isCanonicalAgentNativeAppRequest(
+        getHeader(event, "host"),
+        getHeader(event, "x-forwarded-proto"),
+      );
     if (
-      isIdentitySsoEnabled() &&
-      (p === "/_agent-native/identity/login" ||
-        p === "/_agent-native/identity/callback")
+      isIdentitySsoEntryPath &&
+      (isIdentitySsoEnabled() || isDesktopCanaryIdentityRequest)
     ) {
       return;
     }
@@ -2584,6 +2606,14 @@ async function hasAutoDevAccountUser(
   return rows.length > 0;
 }
 
+async function hasRealUser(db: ReturnType<typeof getDbExec>): Promise<boolean> {
+  const { rows } = await db.execute({
+    sql: 'SELECT 1 FROM "user" WHERE email NOT IN (?, ?) LIMIT 1',
+    args: [AUTO_DEV_ACCOUNT_EMAIL, LEGACY_AUTO_DEV_ACCOUNT_EMAIL],
+  });
+  return rows.length > 0;
+}
+
 type AutoDevAccountCreationResult = { password: string } | null;
 
 const autoDevAccountCreationPromises = new Map<
@@ -2712,11 +2742,7 @@ async function createOrReuseAutoDevSession(
   if (session) return { email: session.email, token: session.token };
 
   const db = getDbExec();
-  const { rows: realUsers } = await db.execute({
-    sql: 'SELECT 1 FROM "user" WHERE email NOT IN (?, ?) LIMIT 1',
-    args: [AUTO_DEV_ACCOUNT_EMAIL, LEGACY_AUTO_DEV_ACCOUNT_EMAIL],
-  });
-  if (realUsers.length > 0) return null;
+  if (await hasRealUser(db)) return null;
 
   const devPassword = await createAutoDevAccountForSession(auth, db);
   if (!devPassword && !(await hasAutoDevAccountUser(db))) return null;
@@ -2734,8 +2760,40 @@ async function createOrReuseAutoDevSession(
   return session ? { email: session.email, token: session.token } : null;
 }
 
+type LocalDevAuthAvailability =
+  | { available: true }
+  | {
+      available: false;
+      reason: "not-allowed" | "existing-user" | "unreadable";
+    };
+
+async function getLocalDevAuthAvailability(
+  event: H3Event,
+  config?: BetterAuthConfig,
+): Promise<LocalDevAuthAvailability> {
+  if (!isLocalDevAuthAllowed(event)) {
+    return { available: false, reason: "not-allowed" };
+  }
+
+  try {
+    const db = getDbExec();
+    await getBetterAuth(config);
+    if (await hasAutoDevAccountUser(db)) return { available: true };
+    if (await hasRealUser(db)) {
+      return { available: false, reason: "existing-user" };
+    }
+    return { available: true };
+  } catch {
+    return { available: false, reason: "unreadable" };
+  }
+}
+
 function createLocalDevAuthHandler(config?: BetterAuthConfig) {
   return defineEventHandler(async (event) => {
+    if (getMethod(event) === "GET") {
+      setResponseHeader(event, "Cache-Control", "no-store");
+      return getLocalDevAuthAvailability(event, config);
+    }
     if (getMethod(event) !== "POST") {
       setResponseStatus(event, 405);
       return { error: "Method not allowed" };
@@ -2814,11 +2872,7 @@ async function maybeAutoCreateDevSession(
     // pre-fix local DB that still holds a `dev@local` row isn't treated
     // as having a "real user" (which would permanently disable
     // auto-create on that DB).
-    const { rows: realUsers } = await db.execute({
-      sql: 'SELECT 1 FROM "user" WHERE email NOT IN (?, ?) LIMIT 1',
-      args: [AUTO_DEV_ACCOUNT_EMAIL, LEGACY_AUTO_DEV_ACCOUNT_EMAIL],
-    });
-    if (realUsers.length > 0) return null;
+    if (await hasRealUser(db)) return null;
 
     // If the dev account already exists, this is not a freshly-scaffolded
     // app — the user has been through the auto-create flow at least
@@ -3807,6 +3861,7 @@ async function mountBetterAuthRoutes(
   // need for a separate "Connect Google" page.
   const betterAuthConfig: BetterAuthConfig = {
     ...(options.betterAuth ?? {}),
+    ...(options.maxAge !== undefined ? { sessionMaxAge: options.maxAge } : {}),
     ...(options.googleScopes ? { googleScopes: options.googleScopes } : {}),
   };
   const auth = await getBetterAuth(betterAuthConfig);
@@ -3901,10 +3956,15 @@ async function mountBetterAuthRoutes(
       }
 
       // The signup wrapper sanitizes callbackURL before calling Better Auth,
-      // but the resend endpoint is exposed directly so users can request a
-      // fresh link while unauthenticated. Keep that path equally strict:
-      // only same-origin relative return paths survive into the email.
-      if (isSendVerificationEmail || isMagicLinkRequest) {
+      // but the direct email and magic-link endpoints are also reachable from
+      // the browser. Keep every callback path valid for Better Auth's own
+      // stricter relative URL validator before it is embedded in an email.
+      if (
+        isSendVerificationEmail ||
+        isMagicLinkRequest ||
+        reqPath.includes("/sign-up/email") ||
+        reqPath.includes("/sign-in/email")
+      ) {
         try {
           const body = (await authRequest
             .clone()
@@ -3918,7 +3978,7 @@ async function mountBetterAuthRoutes(
             let changed = false;
             for (const key of callbackKeys) {
               if (typeof body[key] !== "string") continue;
-              const callbackURL = safeReturnPath(body[key]);
+              const callbackURL = betterAuthCallbackURL(body[key], true, event);
               if (callbackURL !== body[key]) {
                 sanitizedBody[key] = callbackURL;
                 changed = true;
@@ -4163,7 +4223,7 @@ async function mountBetterAuthRoutes(
       const body = await readBody(event);
       const rawEmail = typeof body?.email === "string" ? body.email : "";
       const email = normalizeAuthEmail(rawEmail);
-      let callbackURL =
+      let callbackPath =
         typeof body?.callbackURL === "string"
           ? safeReturnPath(body.callbackURL)
           : "/";
@@ -4180,15 +4240,21 @@ async function mountBetterAuthRoutes(
       }
 
       try {
-        if (isDesktopMagicLinkCallbackPath(callbackURL)) {
+        if (isDesktopMagicLinkCallbackPath(callbackPath)) {
           desktopFlow = await issueDesktopMagicLinkFlow();
-          callbackURL = withDesktopMagicLinkFlow(callbackURL, desktopFlow);
+          callbackPath = withDesktopMagicLinkFlow(callbackPath, desktopFlow);
         }
+        const callbackURL = betterAuthCallbackURL(callbackPath, true, event);
+        const newUserCallbackPath = `${getAppBasePath()}/_agent-native/auth/magic-link/new-user?return=${encodeURIComponent(callbackPath)}`;
         await auth.api.signInMagicLink({
           body: {
             email,
             callbackURL,
-            newUserCallbackURL: `${getAppBasePath()}/_agent-native/auth/magic-link/new-user?return=${encodeURIComponent(callbackURL)}`,
+            newUserCallbackURL: betterAuthCallbackURL(
+              newUserCallbackPath,
+              true,
+              event,
+            ),
           },
           headers: event.headers,
         });
@@ -4222,8 +4288,8 @@ async function mountBetterAuthRoutes(
       const password = body?.password;
       const callbackURL =
         typeof body?.callbackURL === "string"
-          ? safeReturnPath(body.callbackURL)
-          : "/";
+          ? betterAuthCallbackURL(body.callbackURL, true, event)
+          : betterAuthCallbackURL("/", true, event);
 
       if (!email) {
         setResponseStatus(event, 400);
@@ -4640,12 +4706,7 @@ export async function autoMountAuth(
       customGetSession = options.getSession;
     }
     if (_authGuardConfig) {
-      if (
-        options.googleOnly ||
-        options.loginHtml ||
-        options.marketing ||
-        options.googleSignInNotice
-      ) {
+      if (options.googleOnly || options.loginHtml || options.marketing) {
         const loginHtmlConfig = getOnboardingLoginHtmlConfig(
           options,
           _authGuardConfig.authMode,

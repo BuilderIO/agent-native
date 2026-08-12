@@ -48,6 +48,7 @@ import {
   useCreateMcpServer,
   useDeleteMcpServer,
   useMcpServers,
+  formatMcpServersLoadError,
   type McpServer,
   type McpServerScope,
 } from "../resources/use-mcp-servers.js";
@@ -373,9 +374,20 @@ export function ConnectionsTab({
         {serversQuery.isLoading ? (
           <TabLoading />
         ) : serversQuery.isError ? (
-          <p className="rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs text-destructive">
-            Could not load agent integrations.
-          </p>
+          <div
+            role="alert"
+            className="rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs text-destructive"
+          >
+            <p>{formatMcpServersLoadError(serversQuery.error)}</p>
+            <button
+              type="button"
+              onClick={() => void serversQuery.refetch()}
+              disabled={serversQuery.isFetching}
+              className="mt-2 font-medium underline underline-offset-2 hover:text-foreground disabled:cursor-wait disabled:opacity-60"
+            >
+              {serversQuery.isFetching ? "Retrying…" : "Retry"}
+            </button>
+          </div>
         ) : (
           <div className="space-y-6">
             {[

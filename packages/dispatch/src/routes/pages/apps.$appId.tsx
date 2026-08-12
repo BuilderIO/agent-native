@@ -13,7 +13,9 @@ import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Skeleton } from "../../components/ui/skeleton";
 import { Spinner } from "../../components/ui/spinner";
+import { isEmbedSessionExpiredMessage } from "../../lib/embed-session-recovery";
 import {
+  workspaceAppEmbedTarget,
   workspaceAppHref,
   type WorkspaceAppSummary,
 } from "../../lib/workspace-apps";
@@ -61,12 +63,12 @@ export default function WorkspaceAppRoute() {
   });
   const embedInput = useMemo<EmbedSessionInput | null>(() => {
     if (!app || !href) return null;
-    const path = app.path.trim();
-    if (path.startsWith("/")) {
-      return { app: app.id, path, chrome: "minimal" };
-    }
-    return { app: app.id, url: href, chrome: "minimal" };
-  }, [app?.id, app?.path, href]);
+    return {
+      app: app.id,
+      ...workspaceAppEmbedTarget(app),
+      chrome: "minimal",
+    };
+  }, [app?.id, app?.path, app?.url, href]);
 
   useEffect(() => {
     if (!app || app.status === "pending" || !embedInput) return;
@@ -99,12 +101,8 @@ export default function WorkspaceAppRoute() {
 
   useEffect(() => {
     const handleEmbedSessionExpired = (event: MessageEvent) => {
-      if (
-        event.data?.type !== "agentNative.embedSessionExpired" ||
-        event.source !== embedFrameRef.current?.contentWindow
-      ) {
+      if (!isEmbedSessionExpiredMessage(event, embedFrameRef.current, null))
         return;
-      }
       setEmbedAttempt((attempt) => attempt + 1);
     };
 
@@ -222,6 +220,7 @@ export default function WorkspaceAppRoute() {
       <div className="min-h-0 flex-1 bg-muted/20">
         {embedUrl ? (
           <iframe
+            key={`${embedUrl}:${embedAttempt}`}
             data-dispatch-workspace-app-frame
             src={embedUrl}
             title={app.name}

@@ -645,12 +645,12 @@ export function slackAdapter(
       };
       const token = await resolveBotToken(targetContext);
       if (!token) {
-        console.error(
+        const errorMessage =
           "[slack] no bot token for outbound target" +
-            (target.tenantId ? ` (tenant ${target.tenantId})` : "") +
-            "; set SLACK_BOT_TOKEN or pass installationKey to name the app",
-        );
-        return;
+          (target.tenantId ? ` (tenant ${target.tenantId})` : "") +
+          "; set SLACK_BOT_TOKEN or pass installationKey to name the app";
+        console.error(errorMessage);
+        throw new Error(errorMessage);
       }
 
       const chunks = splitNonEmptyMessage(message.text, SLACK_MAX_LENGTH);
@@ -673,9 +673,14 @@ export function slackAdapter(
               },
               body: JSON.stringify(body),
             },
-          )) as { ok: boolean; error?: string };
+          )) as { ok: boolean; error?: string; ts?: string };
           if (!data.ok) {
             throw new Error(data.error || "chat.postMessage failed");
+          }
+          if (!data.ts) {
+            throw new Error(
+              "chat.postMessage returned no message timestamp; delivery was not confirmed",
+            );
           }
         } catch (err) {
           console.error("[slack] Failed to send proactive message:", err);

@@ -30,6 +30,17 @@ describe("new deck generation flow", () => {
     expect(flow).toContain("recoverFromGenerationSetupFailure");
   });
 
+  it("shows the destination-shaped loading surface before navigation", () => {
+    const loadingIndex = flow.indexOf("setIsStartingNewDeck(true)");
+    const navigateIndex = flow.indexOf(
+      "navigate(`/deck/${deck.id}?generating=1`",
+    );
+
+    expect(loadingIndex).toBeGreaterThan(-1);
+    expect(loadingIndex).toBeLessThan(navigateIndex);
+    expect(source).toContain('data-testid="new-deck-loading"');
+  });
+
   it("marks generation intent before submitting the agent run", () => {
     const generatingRouteIndex = flow.indexOf(
       "navigate(`/deck/${deck.id}?generating=1`",

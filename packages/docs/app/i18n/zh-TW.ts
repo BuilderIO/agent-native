@@ -58,6 +58,8 @@ const messages = {
     dialogLabel: "搜尋檔案",
     placeholder: "搜尋檔案...",
     empty: "輸入內容以搜尋所有檔案",
+    loadError: "搜尋無法載入。請再試一次。",
+    retry: "再試一次",
     noResults: "未找到“{{query}}”的結果",
     browseAllDocs: "瀏覽全部檔案",
     navigate: "導覽",

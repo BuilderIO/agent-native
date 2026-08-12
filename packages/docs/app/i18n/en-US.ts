@@ -71,6 +71,8 @@ const enUS = {
     dialogLabel: "Search documentation",
     placeholder: "Search documentation...",
     empty: "Type to search across all documentation",
+    loadError: "Search couldn't load. Try again.",
+    retry: "Try again",
     noResults: 'No results found for "{{query}}"',
     browseAllDocs: "Browse all docs",
     navigate: "navigate",

@@ -123,6 +123,42 @@ describe("useShareButtonController", () => {
     );
   });
 
+  it("passes an optional message only with a notification", async () => {
+    const result = await render();
+    act(() => {
+      result.setInviteEmail("recipient@example.test");
+      result.setShareMessage("Here is the latest version.");
+      result.setMessageOpen(true);
+    });
+    act(() => (controller as ShareButtonController).handleAdd());
+
+    expect(mocks.share.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        principalId: "recipient@example.test",
+        notify: true,
+        message: "Here is the latest version.",
+      }),
+      expect.any(Object),
+    );
+
+    mocks.share.mutate.mockReset();
+    act(() => {
+      result.setInviteEmail("silent@example.test");
+      result.setNotifyPeople(false);
+      result.setShareMessage("This should not be sent.");
+    });
+    act(() => (controller as ShareButtonController).handleAdd());
+
+    expect(mocks.share.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        principalId: "silent@example.test",
+        notify: false,
+      }),
+      expect.any(Object),
+    );
+    expect(mocks.share.mutate.mock.calls[0]?.[0]).not.toHaveProperty("message");
+  });
+
   it("restores the exact cache snapshot when visibility fails", async () => {
     const initial: ShareButtonSharesResponse = {
       ...mocks.query.data!,
