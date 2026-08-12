@@ -4486,8 +4486,8 @@ pub(crate) fn persist_shared_clip_recording(
     server_url: &str,
     recording_id: &str,
     duration_ms: u128,
-    width: u32,
-    height: u32,
+    width: Option<u32>,
+    height: Option<u32>,
     include_mic: bool,
     include_system_audio: bool,
     has_camera: bool,
@@ -4506,8 +4506,8 @@ pub(crate) fn persist_shared_clip_recording(
         segment_paths: Vec::new(),
         mime_type: MP4_RECORDING_MIME_TYPE.to_string(),
         duration_ms,
-        width: Some(width),
-        height: Some(height),
+        width,
+        height,
         bytes,
         has_audio: include_mic || include_system_audio,
         mic_captured: include_mic,
@@ -4532,8 +4532,11 @@ pub(crate) fn clear_shared_clip_recording(app: &AppHandle, recording_id: &str, p
     let saved = read_saved_recording_metadata(app, recording_id).ok();
     if let Some(saved) = saved {
         clear_saved_recording_after_success(app, &saved);
-    } else if let Err(error) = remove_saved_file(path, "shared Clip temporary artifact") {
-        eprintln!("[clips-tray] shared Clip cleanup failed: {error}");
+    } else {
+        remove_recording_intent(path);
+        if let Err(error) = remove_saved_file(path, "shared Clip temporary artifact") {
+            eprintln!("[clips-tray] shared Clip cleanup failed: {error}");
+        }
     }
     let _ = app.emit("clips:pending-uploads-changed", ());
 }

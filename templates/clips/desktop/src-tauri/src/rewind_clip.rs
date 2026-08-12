@@ -1215,8 +1215,8 @@ pub(crate) async fn rewind_clip_stop_and_upload(
                         &server_url,
                         &recording_id,
                         logical_duration_ms as u128,
-                        sink_width,
-                        sink_height,
+                        Some(sink_width),
+                        Some(sink_height),
                         include_mic,
                         include_system_audio,
                         has_camera,
@@ -1246,8 +1246,8 @@ pub(crate) async fn rewind_clip_stop_and_upload(
                 &server_url,
                 &recording_id,
                 result.duration_ms as u128,
-                result.width,
-                result.height,
+                Some(result.width),
+                Some(result.height),
                 include_mic,
                 include_system_audio,
                 has_camera,
@@ -1273,8 +1273,8 @@ pub(crate) async fn rewind_clip_stop_and_upload(
                         &server_url,
                         &recording_id,
                         result.duration_ms as u128,
-                        result.width,
-                        result.height,
+                        Some(result.width),
+                        Some(result.height),
                         include_mic,
                         include_system_audio,
                         has_camera,
@@ -1332,18 +1332,60 @@ pub(crate) async fn rewind_clip_stop_and_upload(
         include_system_audio,
         Some((&server_url, &recording_id, has_camera)),
     )?;
-    native_screen::upload_finalized_native_artifact(
+    native_screen::persist_shared_clip_recording(
+        &app,
+        &artifact.path,
+        &server_url,
+        &recording_id,
+        artifact.duration_ms,
+        artifact.width,
+        artifact.height,
+        include_mic,
+        include_system_audio,
+        has_camera,
+        None,
+    )?;
+    let recovery_server_url = server_url.clone();
+    let recovery_recording_id = recording_id.clone();
+    let artifact_path = artifact.path.clone();
+    let result = native_screen::upload_finalized_native_artifact(
         &app,
         &artifact,
         server_url,
-        recording_id,
+        recording_id.clone(),
         auth_token.unwrap_or_default(),
         cookie.unwrap_or_default(),
         NativeUploadMode::from_option(upload_mode),
         include_mic || include_system_audio,
         has_camera,
     )
-    .await
+    .await;
+    match &result {
+        Ok(upload) if !upload.verification_pending => {
+            native_screen::clear_shared_clip_recording(
+                &app,
+                &recovery_recording_id,
+                &artifact_path,
+            );
+        }
+        Err(error) => {
+            let _ = native_screen::persist_shared_clip_recording(
+                &app,
+                &artifact_path,
+                &recovery_server_url,
+                &recovery_recording_id,
+                artifact.duration_ms,
+                artifact.width,
+                artifact.height,
+                include_mic,
+                include_system_audio,
+                has_camera,
+                Some(error),
+            );
+        }
+        _ => {}
+    }
+    result
 }
 
 #[tauri::command]
