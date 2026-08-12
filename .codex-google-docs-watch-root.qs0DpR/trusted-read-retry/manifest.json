@@ -1,0 +1,57 @@
+{
+  "bridgeVersion": "3.6",
+  "kind": "google-docs-trusted-read",
+  "status": "complete",
+  "outputDir": "/Users/steve/Projects/builder/agent-native/framework/.codex-google-docs-watch-root.qs0DpR/trusted-read-retry",
+  "target": {
+    "documentId": "1r0uPdGINKSBeYHVAnOX0tuZu713b_U8uMjFt3m_g5KE",
+    "title": "Agent Native P&E Questions",
+    "revisionId": "AIroW36Es0sJbshWK0TFBnvjJ1dPQ7sYMXBEjcwKER76p1G7lW3Ng3cLqGWX_Pe22hQjNbFCoKfeeGanchnXyLFtMTVNPeOuKvHHHLFwlLyg",
+    "documentUrl": "https://docs.google.com/document/d/1r0uPdGINKSBeYHVAnOX0tuZu713b_U8uMjFt3m_g5KE",
+    "selectedTabId": "t.5va3msp9z8jf"
+  },
+  "dropdownMetadata": {
+    "status": "unavailable",
+    "resolvedTool": null,
+    "authoritative": false,
+    "count": 0
+  },
+  "controlAwareness": {
+    "hasProtectedControls": false,
+    "authoritativeDropdownCount": 0,
+    "opaqueControlCount": 0,
+    "affectedParagraphCount": 0,
+    "nativeElementCounts": {},
+    "preservationRequired": false,
+    "recommendedBehavior": "No protected controls were detected in the scanned scope."
+  },
+  "warnings": [],
+  "files": {
+    "document_result": {
+      "path": "/Users/steve/Projects/builder/agent-native/framework/.codex-google-docs-watch-root.qs0DpR/trusted-read-retry/document-result.json",
+      "bytes": 442501,
+      "sha256": "be0173fb631ad159827649978d43eed576ddf60d895643c3bd854291f5f9432a"
+    },
+    "control_inventory": {
+      "path": "/Users/steve/Projects/builder/agent-native/framework/.codex-google-docs-watch-root.qs0DpR/trusted-read-retry/control-inventory.json",
+      "bytes": 1055,
+      "sha256": "75de6c1ef7f9dc29b64b6b9e48a137a0d5dd233e4204a66bfa219f208a5fbd27"
+    },
+    "document_outline": {
+      "path": "/Users/steve/Projects/builder/agent-native/framework/.codex-google-docs-watch-root.qs0DpR/trusted-read-retry/document-outline.json",
+      "bytes": 20547,
+      "sha256": "497d38fe0702a89e06047d81bcaa46a868398d7ccabadaf30a5e8fe06fe86c97"
+    },
+    "document_text": {
+      "path": "/Users/steve/Projects/builder/agent-native/framework/.codex-google-docs-watch-root.qs0DpR/trusted-read-retry/document-text.md",
+      "bytes": 6732,
+      "sha256": "412152070e40a97af1cbaf6254288c66016de6207d4c2ab8c4ffb62e7bef0f11"
+    },
+    "receipt": {
+      "path": "/Users/steve/Projects/builder/agent-native/framework/.codex-google-docs-watch-root.qs0DpR/trusted-read-retry/receipt.json",
+      "bytes": 975,
+      "sha256": "50aa829b5b1f36a157e719a26d50aa856e2481a70e74f829b684dac8d085c55e"
+    }
+  },
+  "error": null
+}

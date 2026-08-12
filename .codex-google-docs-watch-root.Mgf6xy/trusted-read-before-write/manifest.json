@@ -1,0 +1,57 @@
+{
+  "bridgeVersion": "3.6",
+  "kind": "google-docs-trusted-read",
+  "status": "complete",
+  "outputDir": "/Users/steve/Projects/builder/agent-native/framework/.codex-google-docs-watch-root.Mgf6xy/trusted-read-before-write",
+  "target": {
+    "documentId": "1r0uPdGINKSBeYHVAnOX0tuZu713b_U8uMjFt3m_g5KE",
+    "title": "Agent Native P&E Questions",
+    "revisionId": "AIroW36cb4IEVotrdlvY2lnLPj1LzAFPbUWV99a7CUwAw1DNUrAHp-Oh_yCPnzXOW58GAkg1s2zkmIbaJb9YGZ8TZsb5dcZNzmYKPYHf5P9-",
+    "documentUrl": "https://docs.google.com/document/d/1r0uPdGINKSBeYHVAnOX0tuZu713b_U8uMjFt3m_g5KE",
+    "selectedTabId": "t.5va3msp9z8jf"
+  },
+  "dropdownMetadata": {
+    "status": "unavailable",
+    "resolvedTool": null,
+    "authoritative": false,
+    "count": 0
+  },
+  "controlAwareness": {
+    "hasProtectedControls": false,
+    "authoritativeDropdownCount": 0,
+    "opaqueControlCount": 0,
+    "affectedParagraphCount": 0,
+    "nativeElementCounts": {},
+    "preservationRequired": false,
+    "recommendedBehavior": "No protected controls were detected in the scanned scope."
+  },
+  "warnings": [],
+  "files": {
+    "document_result": {
+      "path": "/Users/steve/Projects/builder/agent-native/framework/.codex-google-docs-watch-root.Mgf6xy/trusted-read-before-write/document-result.json",
+      "bytes": 440732,
+      "sha256": "fc202c9e3195789b73b1f9546bf6c347419e4c0d7b9c3964ed760d8cd8466beb"
+    },
+    "control_inventory": {
+      "path": "/Users/steve/Projects/builder/agent-native/framework/.codex-google-docs-watch-root.Mgf6xy/trusted-read-before-write/control-inventory.json",
+      "bytes": 1055,
+      "sha256": "706fbf42ee6f1ae7b53509310ddb6dfa8be180ddf7c8367ea06192b2bc6a60b4"
+    },
+    "document_outline": {
+      "path": "/Users/steve/Projects/builder/agent-native/framework/.codex-google-docs-watch-root.Mgf6xy/trusted-read-before-write/document-outline.json",
+      "bytes": 19265,
+      "sha256": "e0724594ee2d0219ca0fd853141e2fa281ab55beb239e2cabc458ffedae37a13"
+    },
+    "document_text": {
+      "path": "/Users/steve/Projects/builder/agent-native/framework/.codex-google-docs-watch-root.Mgf6xy/trusted-read-before-write/document-text.md",
+      "bytes": 6560,
+      "sha256": "d6576e61bc29b2c695a71a8a7bd9770053bbd3ea31da96204efce0c38dfa2821"
+    },
+    "receipt": {
+      "path": "/Users/steve/Projects/builder/agent-native/framework/.codex-google-docs-watch-root.Mgf6xy/trusted-read-before-write/receipt.json",
+      "bytes": 975,
+      "sha256": "b4539814f51c3350afdaceab79eba29a0e36ca178d3a1531086e180a7be0d2ff"
+    }
+  },
+  "error": null
+}

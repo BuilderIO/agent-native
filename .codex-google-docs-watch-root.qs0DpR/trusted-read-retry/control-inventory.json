@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "kind": "google-docs-trusted-read-context",
+  "target": {
+    "documentId": "1r0uPdGINKSBeYHVAnOX0tuZu713b_U8uMjFt3m_g5KE",
+    "title": "Agent Native P&E Questions",
+    "revisionId": "AIroW36Es0sJbshWK0TFBnvjJ1dPQ7sYMXBEjcwKER76p1G7lW3Ng3cLqGWX_Pe22hQjNbFCoKfeeGanchnXyLFtMTVNPeOuKvHHHLFwlLyg",
+    "documentUrl": "https://docs.google.com/document/d/1r0uPdGINKSBeYHVAnOX0tuZu713b_U8uMjFt3m_g5KE",
+    "selectedTabId": "t.5va3msp9z8jf"
+  },
+  "dropdownMetadata": {
+    "status": "unavailable",
+    "resolvedTool": null,
+    "authoritative": false,
+    "count": 0
+  },
+  "derivedControlInventory": {
+    "hasProtectedControls": false,
+    "authoritativeDropdownCount": 0,
+    "opaqueControlCount": 0,
+    "nativeElementCounts": {},
+    "tabsScanned": [
+      "t.5va3msp9z8jf"
+    ],
+    "controls": [],
+    "nativeElements": []
+  },
+  "editGuidance": {
+    "advisoryOnly": true,
+    "requiresTargetedPreservation": false,
+    "recommendedBehavior": "No protected controls were detected in the scanned scope.",
+    "warnings": []
+  }
+}
