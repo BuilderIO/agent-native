@@ -223,7 +223,7 @@ interface DeckContextType {
     options?: UpdateSlideOptions,
   ) => void;
   deleteSlide: (deckId: string, slideId: string) => void;
-  duplicateSlide: (deckId: string, slideId: string) => void;
+  duplicateSlide: (deckId: string, slideId: string) => string | undefined;
   reorderSlides: (deckId: string, oldIndex: number, newIndex: number) => void;
   setDeckSlides: (deckId: string, slides: Slide[]) => void;
   /**
@@ -2223,7 +2223,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     (deckId: string, slideId: string) => {
       const before = decksRef.current.find((d) => d.id === deckId);
       const original = before?.slides.find((slide) => slide.id === slideId);
-      if (!before || !original) return;
+      if (!before || !original) return undefined;
 
       markDeckDirty(deckId);
       const copiedSlide: Slide = { ...original, id: nanoid(8) };
@@ -2254,6 +2254,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       };
       enqueueDeckOp(deckId, op);
       recordUndo(before, op, { label: "Duplicate slide" });
+      return copiedSlide.id;
     },
     [markDeckDirty, recordUndo, setDecksLocal],
   );
