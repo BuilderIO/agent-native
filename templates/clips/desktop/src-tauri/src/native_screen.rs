@@ -3147,6 +3147,318 @@ pub async fn native_fullscreen_pending_uploads(
     Ok(pending)
 }
 
+fn is_recording_media_path(path: &Path) -> bool {
+    matches!(
+        path.extension().and_then(|value| value.to_str()),
+        Some("mp4" | "mov")
+    )
+}
+
+fn is_recording_segment_path(path: &Path) -> bool {
+    let Some(stem) = path.file_stem().and_then(|value| value.to_str()) else {
+        return false;
+    };
+    let Some((_, suffix)) = stem.rsplit_once("-seg") else {
+        return false;
+    };
+    !suffix.is_empty() && suffix.chars().all(|value| value.is_ascii_digit())
+}
+
+fn orphan_recording_id(path: &Path) -> Option<String> {
+    let stem = path.file_stem().and_then(|value| value.to_str())?;
+    let (prefix, value) = if let Some(value) = stem.strip_prefix("rewind-") {
+        ("rewind", value)
+    } else if let Some(value) = stem.strip_prefix("clips-fullscreen-") {
+        ("fullscreen", value)
+    } else {
+        return None;
+    };
+    let (recording_id, suffix) = value.rsplit_once('-')?;
+    if recording_id.is_empty() || suffix.is_empty() || !suffix.chars().all(|v| v.is_ascii_digit()) {
+        return None;
+    }
+    let _ = prefix;
+    Some(recording_id.to_string())
+}
+
+fn orphan_recording_mime_type(path: &Path) -> &'static str {
+    match path.extension().and_then(|value| value.to_str()) {
+        Some("mov") => QUICKTIME_RECORDING_MIME_TYPE,
+        _ => MP4_RECORDING_MIME_TYPE,
+    }
+}
+
+fn orphan_recording_candidates(app: &AppHandle) -> Result<Vec<PathBuf>, String> {
+    let local_dir = app
+        .path()
+        .app_local_data_dir()
+        .map_err(|error| format!("local data directory unavailable: {error}"))?
+        .join("pending-recordings");
+    let native_dir = pending_uploads_dir(app)?;
+    let mut candidates = BTreeSet::new();
+
+    for directory in [local_dir, native_dir] {
+        let entries = match std::fs::read_dir(&directory) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == ErrorKind::NotFound => continue,
+            Err(error) => {
+                return Err(format!(
+                    "orphaned recording lookup failed for {}: {error}",
+                    directory.display()
+                ));
+            }
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if is_recording_media_path(&path) {
+                if !is_recording_segment_path(&path) {
+                    candidates.insert(path);
+                }
+            } else if path
+                .file_name()
+                .and_then(|value| value.to_str())
+                .is_some_and(|value| value.ends_with(".intent.json"))
+            {
+                if let Some(recording_path) = recording_path_from_intent(&path) {
+                    candidates.insert(recording_path);
+                }
+            }
+        }
+    }
+    Ok(candidates.into_iter().collect())
+}
+
+fn orphan_recording_paths(path: &Path) -> Vec<PathBuf> {
+    let mut paths = if path.is_file() {
+        vec![path.to_path_buf()]
+    } else {
+        Vec::new()
+    };
+    let Some(parent) = path.parent() else {
+        return paths;
+    };
+    let Some(stem) = path.file_stem().and_then(|value| value.to_str()) else {
+        return paths;
+    };
+    let Some(extension) = path.extension().and_then(|value| value.to_str()) else {
+        return paths;
+    };
+    let prefix = format!("{stem}-seg");
+    let mut segments = Vec::new();
+    let Ok(entries) = std::fs::read_dir(parent) else {
+        return paths;
+    };
+    for entry in entries.flatten() {
+        let candidate = entry.path();
+        if candidate.extension().and_then(|value| value.to_str()) != Some(extension) {
+            continue;
+        }
+        let Some(candidate_stem) = candidate.file_stem().and_then(|value| value.to_str()) else {
+            continue;
+        };
+        let Some(suffix) = candidate_stem.strip_prefix(&prefix) else {
+            continue;
+        };
+        let Ok(index) = suffix.parse::<u32>() else {
+            continue;
+        };
+        if candidate.is_file() {
+            segments.push((index, candidate));
+        }
+    }
+    segments.sort_by_key(|(index, _)| *index);
+    paths.extend(segments.into_iter().map(|(_, path)| path));
+    paths
+}
+
+fn orphan_recording_intent(
+    path: &Path,
+    fallback_server_url: &str,
+) -> Result<Option<NativeRecordingIntent>, String> {
+    let mut intent = match read_recording_intent(path)? {
+        Some(intent) => intent,
+        None => {
+            let Some(recording_id) = orphan_recording_id(path) else {
+                return Ok(None);
+            };
+            if fallback_server_url.trim().is_empty() {
+                return Ok(None);
+            }
+            let is_rewind = path
+                .file_stem()
+                .and_then(|value| value.to_str())
+                .is_some_and(|value| value.starts_with("rewind-"));
+            NativeRecordingIntent {
+                recording_id,
+                server_url: fallback_server_url.trim_end_matches('/').to_string(),
+                mime_type: orphan_recording_mime_type(path).to_string(),
+                width: None,
+                height: None,
+                has_audio: false,
+                mic_captured: false,
+                system_audio_captured: false,
+                has_camera: false,
+                custom_pipeline: is_rewind,
+                saved_at: now_iso(),
+            }
+        }
+    };
+    if intent.server_url.trim().is_empty() {
+        intent.server_url = fallback_server_url.trim_end_matches('/').to_string();
+    }
+    if intent.recording_id.trim().is_empty() || intent.server_url.trim().is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(intent))
+}
+
+fn recover_orphaned_recording(
+    app: &AppHandle,
+    path: &Path,
+    fallback_server_url: &str,
+) -> Result<bool, String> {
+    let Some(intent) = orphan_recording_intent(path, fallback_server_url)? else {
+        return Ok(false);
+    };
+    let metadata_path = saved_recording_metadata_path(app, &intent.recording_id)?;
+    if metadata_path.exists() {
+        if let Ok(saved) = read_saved_recording_metadata_path(&metadata_path) {
+            if saved_recording_has_local_artifact(&saved) {
+                remove_recording_intent(path);
+                return Ok(false);
+            }
+        }
+        return Err(format!(
+            "pending metadata already exists for {}",
+            intent.recording_id
+        ));
+    }
+
+    let paths = orphan_recording_paths(path);
+    if paths.is_empty() {
+        return Ok(false);
+    }
+    for recording_path in &paths {
+        let bytes = std::fs::metadata(recording_path)
+            .map_err(|error| format!("orphaned recording metadata unavailable: {error}"))?
+            .len();
+        if bytes == 0 {
+            return Err(format!(
+                "orphaned recording is empty: {}",
+                recording_path.display()
+            ));
+        }
+        if !playable_recording_file(recording_path, &intent.mime_type) {
+            return Err(format!(
+                "orphaned recording is not playable yet: {}",
+                recording_path.display()
+            ));
+        }
+    }
+    let duration_ms = paths.iter().try_fold(0u128, |total, recording_path| {
+        let duration = probe_local_media_duration_ms(recording_path)?;
+        total
+            .checked_add(duration)
+            .ok_or_else(|| "orphaned recording duration overflowed".to_string())
+    })?;
+    if duration_ms == 0 {
+        return Err("orphaned recording has no measurable duration".into());
+    }
+    let bytes = paths.iter().try_fold(0u64, |total, recording_path| {
+        let size = std::fs::metadata(recording_path)
+            .map_err(|error| format!("orphaned recording metadata unavailable: {error}"))?
+            .len();
+        total
+            .checked_add(size)
+            .ok_or_else(|| "orphaned recording size overflowed".to_string())
+    })?;
+    let file_path = paths
+        .first()
+        .cloned()
+        .ok_or_else(|| "orphaned recording has no file path".to_string())?;
+    let segment_paths = if paths.len() > 1 {
+        paths.clone()
+    } else {
+        Vec::new()
+    };
+    let saved = SavedNativeRecording {
+        recording_id: intent.recording_id,
+        server_url: intent.server_url.trim_end_matches('/').to_string(),
+        file_path,
+        segment_paths,
+        mime_type: intent.mime_type,
+        duration_ms,
+        width: intent.width,
+        height: intent.height,
+        bytes,
+        has_audio: intent.has_audio,
+        mic_captured: intent.mic_captured,
+        system_audio_captured: intent.system_audio_captured,
+        has_camera: intent.has_camera,
+        saved_at: intent.saved_at,
+        last_attempt_at: None,
+        last_error: None,
+        retry_count: 0,
+        retry_attempt_id: None,
+        custom_pipeline: intent.custom_pipeline,
+        corrupt: false,
+    };
+    write_saved_recording_metadata(app, &saved)?;
+    Ok(true)
+}
+
+fn recover_orphaned_recordings(
+    app: &AppHandle,
+    fallback_server_url: &str,
+) -> Result<NativeOrphanedRecordingRecoveryResult, String> {
+    let candidates = orphan_recording_candidates(app)?;
+    let mut result = NativeOrphanedRecordingRecoveryResult {
+        recovered: 0,
+        skipped: 0,
+    };
+    for candidate in candidates {
+        match recover_orphaned_recording(app, &candidate, fallback_server_url) {
+            Ok(true) => {
+                result.recovered = result.recovered.saturating_add(1);
+                eprintln!(
+                    "[clips-tray] recovered orphaned recording for retry: {}",
+                    candidate.display()
+                );
+            }
+            Ok(false) => {}
+            Err(error) => {
+                result.skipped = result.skipped.saturating_add(1);
+                eprintln!(
+                    "[clips-tray] skipped orphaned recording {}: {error}",
+                    candidate.display()
+                );
+            }
+        }
+    }
+    Ok(result)
+}
+
+/// Run after the renderer starts so media inspection cannot delay tray startup.
+/// The command is idempotent: once metadata exists, the intent sidecar is
+/// removed and later startup checks leave the ordinary retry record alone.
+#[tauri::command]
+pub async fn native_fullscreen_recover_orphaned_uploads(
+    app: AppHandle,
+    server_url: String,
+) -> Result<NativeOrphanedRecordingRecoveryResult, String> {
+    let fallback_server_url = server_url.trim_end_matches('/').to_string();
+    let worker_app = app.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        recover_orphaned_recordings(&worker_app, &fallback_server_url)
+    })
+    .await
+    .map_err(|error| format!("orphaned recording recovery task failed: {error}"))??;
+    if result.recovered > 0 {
+        let _ = app.emit("clips:pending-uploads-changed", ());
+    }
+    Ok(result)
+}
+
 #[tauri::command]
 pub async fn native_fullscreen_recording_retry_upload(
     app: AppHandle,
@@ -3560,7 +3872,9 @@ pub(crate) fn persist_recording_intent(
         .map_err(|error| format!("recording recovery intent write failed: {error}"))?;
     if let Err(error) = std::fs::rename(&temporary, &destination) {
         let _ = std::fs::remove_file(&temporary);
-        return Err(format!("recording recovery intent finalize failed: {error}"));
+        return Err(format!(
+            "recording recovery intent finalize failed: {error}"
+        ));
     }
     Ok(())
 }
@@ -4912,6 +5226,11 @@ fn probe_local_media_duration_ms(path: &Path) -> Result<u128, String> {
             })?;
         Ok(duration_ms)
     }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn probe_local_media_duration_ms(_path: &Path) -> Result<u128, String> {
+    Err("local media duration probing is only available on macOS".into())
 }
 
 async fn upload_prepared_recording_file(
