@@ -591,7 +591,10 @@ export function McpIntegrationDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="inset-0 flex h-[100dvh] max-h-none w-full max-w-none translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none p-0">
+      <DialogContent
+        aria-describedby={undefined}
+        className="inset-0 flex h-[100dvh] max-h-none w-full max-w-none translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none p-0"
+      >
         {mode === "choice" && selected ? (
           <>
             <DialogHeader className="sr-only">

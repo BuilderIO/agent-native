@@ -1113,6 +1113,7 @@ function Modal({
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
       <DialogContent
+        aria-describedby={undefined}
         className={cx(
           "p-0",
           fullscreen
@@ -2697,7 +2698,10 @@ export default function WorkspaceIntegrationsRoute() {
         open={!!providerChoice}
         onOpenChange={(open) => !open && setProviderChoice(null)}
       >
-        <DialogContent className="inset-0 flex h-[100dvh] max-h-none w-full max-w-none translate-x-0 translate-y-0 flex-col overflow-hidden rounded-none p-0">
+        <DialogContent
+          aria-describedby={undefined}
+          className="inset-0 flex h-[100dvh] max-h-none w-full max-w-none translate-x-0 translate-y-0 flex-col overflow-hidden rounded-none p-0"
+        >
           <DialogHeader className="sr-only">
             <DialogTitle>
               {providerChoice
