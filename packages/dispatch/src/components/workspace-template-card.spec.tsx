@@ -130,7 +130,7 @@ describe("WorkspaceTemplateCard", () => {
       Object.getOwnPropertyDescriptor(
         HTMLInputElement.prototype,
         "value",
-      )?.set?.call(input, "sales-ops");
+      )?.set?.call(input, "Sales Ops");
       input.dispatchEvent(new Event("input", { bubbles: true }));
     });
 
@@ -153,33 +153,20 @@ describe("WorkspaceTemplateCard", () => {
     );
   });
 
-  it("keeps add app inside the catalog split-button menu", async () => {
+  it("keeps add app available in catalog cards", async () => {
     await act(async () => {
       root.render(<WorkspaceTemplateCard template={template} catalog />);
     });
 
-    expect(
-      Array.from(container.querySelectorAll("button")).some((button) =>
-        button.textContent?.includes("Add app"),
-      ),
-    ).toBe(false);
-
-    const optionsButton = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Open options for Weekly report"]',
+    const addButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Add app"),
     );
-    expect(optionsButton).not.toBeNull();
-    await act(async () => {
-      optionsButton?.dispatchEvent(
-        new MouseEvent("pointerdown", { bubbles: true, button: 0 }),
-      );
-    });
-
-    const addItem = Array.from(
-      document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
-    ).find((item) => item.textContent?.includes("Add app"));
-    expect(addItem).not.toBeUndefined();
-    await act(async () => addItem?.click());
+    expect(addButton).toBeDefined();
+    await act(async () => addButton?.click());
     expect(document.body.textContent).toContain("Choose the URL-safe id");
+    expect(
+      container.querySelector('a[href="https://reports.example.test"]'),
+    ).not.toBeNull();
   });
 
   it("accepts the list action envelope and renders installed state", async () => {

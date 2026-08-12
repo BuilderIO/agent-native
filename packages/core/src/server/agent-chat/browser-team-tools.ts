@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 import type { AgentEngine } from "../../agent/engine/types.js";
 import type { ActionEntry } from "../../agent/production-agent.js";
+import { getActiveFileUploadProviderForRequest } from "../../file-upload/registry.js";
 import {
   areBuiltinMcpCapabilitiesSupported,
   buildMergedConfig,
@@ -118,6 +119,29 @@ export function createBuilderBrowserTool(deps: {
   };
 
   const entries: Record<string, ActionEntry> = {
+    "connect-file-storage": {
+      tool: {
+        description:
+          "Render the inline file-storage setup card when an image or file attachment could not be durably uploaded. The card lets the user connect Builder for managed object storage or open the same custom-key setup used by onboarding. Call it immediately when the attachment context says storage is missing; do not ask the user to upload the file again.",
+        parameters: {
+          type: "object",
+          properties: {},
+        },
+      },
+      run: async () => {
+        const activeProvider = await getActiveFileUploadProviderForRequest();
+        const ownerEmail = deps.getOwner?.() ?? getRequestUserEmail();
+        return JSON.stringify({
+          kind: "connect-file-storage-card",
+          configured: !!activeProvider,
+          provider: activeProvider?.name ?? null,
+          connectUrl: getBuilderBrowserConnectUrlForOwner(
+            deps.getOrigin(),
+            ownerEmail,
+          ),
+        });
+      },
+    },
     "connect-builder": {
       tool: {
         description: `Render a Builder.io card inline in the chat. Call this as the first step (no code exploration or planning needed) when the user asks to modify the APP'S OWN SOURCE CODE: add a feature, change the UI chrome, edit a React component, add a route, add an integration, fix a bug in the app itself, or anything else that requires source-file edits while in hosted/production mode. ${extensionRequestGuidance}Do NOT call this for content the app is meant to produce — creating a video, generating a design, drafting an email, building a slide deck, making a dashboard, etc. — those run through the app's own domain actions, not Builder. Do NOT mention 'click Send to Builder' in your response unless this card is already in the conversation. The tool result includes \`builderEnabled\`; treat \`true\` as "Builder Cloud Agents can take the code-change handoff" and \`false\` as "this still needs a code change, but no Builder Cloud Agent can run here." If Builder is connected and Builder Cloud Agents are available, the card shows a 'Send to Builder' button that hands the work off to Builder's cloud agent and returns a branch URL. If \`builderEnabled\` is false, the card still renders but shows the code-change fallback: "This requires a code change. Edit locally or use Builder.io to edit this code in the cloud and continue customizing the app any way you like." Never tell the user to enable Builder Cloud Agents in Builder org settings or beta settings, and do not claim the Builder card has everything, is pre-loaded for handoff, or can run the cloud agent when \`builderEnabled\` is false. When you call this for a code-change request, pass the user's request verbatim as the \`prompt\` arg so the card can forward it to Builder unchanged when cloud agents are available.`,

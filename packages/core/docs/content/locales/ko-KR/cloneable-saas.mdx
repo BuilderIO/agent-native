@@ -295,7 +295,7 @@ seed data 또는 provider 요구 사항을 문서화하세요. 설치의 source 
 npx @agent-native/core@latest create my-platform
 ```
 
-다중 선택 선택 도구가 제공됩니다. 하나의 앱(독립 실행형) 또는 여러 개(작업 공간 - 앱 공유 인증, 브랜드, 에이전트 구성 및 데이터베이스)를 선택합니다. 선택한 각 앱은 필요한 모든 파일과 함께 `apps/<name>/`에 스캐폴딩됩니다. 앱 UI 대신 브라우저 UI 없는 automation을 만들려면 `npx @agent-native/core@latest create my-agent --headless`를 사용하세요.
+CLI는 먼저 **어떻게 시작하시겠습니까?**라고 묻습니다. Chat과 Dispatch가 있는 최소 작업 공간을 만들려면 **Chat**을, 다중 선택 도구를 열려면 **First-party template(s)**를 선택하세요. Community와 Headless는 독립 실행형 앱을 위한 선택지입니다. 작업 공간 앱은 인증, 브랜드, 에이전트 구성 및 데이터베이스를 공유하며 각 앱은 필요한 모든 파일과 함께 `apps/<name>/`에 스캐폴딩됩니다. 앱 UI 대신 브라우저 UI 없는 automation을 만들려면 `npx @agent-native/core@latest create my-agent --headless`를 사용하세요.
 
 `.env`(주로 `ANTHROPIC_API_KEY` 및 `DATABASE_URL`), `pnpm install`, `pnpm dev`를 입력하면 작동합니다. "TODO: 로그인 구현" 없음, 자리 표시자 경로 없음.
 

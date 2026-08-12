@@ -91,6 +91,38 @@ async function loadReferenceDeckGenerationContext(
   ].join("\n");
 }
 
+export function isSourceImprovementRequest(
+  prompt: string,
+  files: UploadedFile[],
+): boolean {
+  const hasSourceDeck = files.some((file) =>
+    /\.(pptx|pdf)$/i.test(file.originalName),
+  );
+  if (!hasSourceDeck) return false;
+
+  const normalized = prompt.toLowerCase();
+  const asksToImprove =
+    /\b(restyl\w*|redesign\w*|rebrand\w*|revamp\w*|rework\w*|moderni[sz]\w*|refresh\w*|polish\w*|improv\w*|updat\w*|revis\w*|edit\w*)\b/.test(
+      normalized,
+    ) ||
+    /\bmake\b[\s\S]{0,40}\b(better|modern|professional|polished|prett\w*)\b/.test(
+      normalized,
+    );
+  const asksToPreserveSource =
+    /(?:\b(turn|convert|transform)\b[\s\S]{0,50}\b(into|to)\b[\s\S]{0,30}\b(deck|presentation|slides?)\b|\b(create|build|make|generate)\b[\s\S]{0,80}\b(deck|presentation|slides?)\b[\s\S]{0,80}\bfrom\b)/.test(
+      normalized,
+    ) &&
+    /\b(copy|slide[- ]for[- ]slide|preserv\w*|same order|before\s*\/?\s*after|placeholder\w*|out of order)\b/.test(
+      normalized,
+    );
+  // A source deck attachment is the object being improved even when the
+  // prompt uses an implicit phrase such as "make this prettier" or asks to
+  // copy and restyle it. Requiring a source noun here silently falls back to
+  // reference-only generation and can discard the uploaded deck's slide IDs
+  // and content.
+  return asksToImprove || asksToPreserveSource;
+}
+
 function describeUploadedFilesForAgent(
   files: UploadedFile[],
   deckId: string,
@@ -103,25 +135,26 @@ function describeUploadedFilesForAgent(
         `- ${file.originalName} (${file.type}, ${(file.size / 1024).toFixed(1)}KB) at path: ${file.path}${file.url ? `; embeddable URL: ${file.url}` : ""}`,
     )
     .join("\n");
-  const sourceFile = importedSourceDeck?.file;
   return [
     "",
     importedSourceDeck
-      ? `The user uploaded ${files.length} file(s). The ${sourceFile?.originalName ?? importedSourceDeck.format.toUpperCase()} source deck has already been imported into target deck ${deckId} with ${importedSourceDeck.slideCount} source slide(s); do not import it again.`
-      : `The user uploaded ${files.length} file(s). These are mandatory source material, not optional references — process every one of them with the matching import action BEFORE adding the first slide:`,
+      ? `The user uploaded ${files.length} file(s). The ${importedSourceDeck.file.originalName} source deck has already been imported into target deck ${deckId} with ${importedSourceDeck.slideCount} source slide(s); do not import it again.`
+      : `The user attached ${files.length} file(s) as reference material for this new deck. Attachments are context for the agent by default; do not import or append their slides to target deck ${deckId} merely because they were attached.`,
     fileList,
     "",
     "File handling rules:",
     importedSourceDeck
-      ? "- The imported source deck is the canonical source. Preserve its slide count, order, IDs, factual copy, notes, imagery, charts, tables, diagrams, and freeform objects while improving styling. Use update-slide on existing slide IDs; do not rebuild it with add-slide."
-      : `- PPTX files: call \`import-pptx --filePath \"<path>\" --deckId ${deckId}\` before adding or editing slides.`,
+      ? "- The imported source deck is canonical. Preserve its slide count, order, IDs, factual copy, notes, imagery, charts, tables, diagrams, and freeform objects while improving styling. For a deck-wide restyle, use one patch-deck call with requireAllSourceSlides=true; use update-slide only for a targeted one-slide edit. Do not rebuild it with add-slide."
+      : `- PDF, PPTX, and DOCX files: call \`import-file --filePath \"<path>\" --format auto\` (without \`importIntoDeck\`) when you need their text or structure. Use the returned material as reference while creating new slides with \`add-slide\`.`,
     importedSourceDeck
       ? "- For a PDF source, keep the original full-page image in every slide and add restrained design-system chrome around it without obscuring source content. Never OCR-reconstruct a source-faithful page from extracted text."
-      : `- PDF and DOCX files: call \`import-file --filePath \"<path>\" --format auto --deckId ${deckId}\` and use the returned extracted text as source material. The returned text is capped for reliability; re-run with maxChars only if more context is needed. For a visual PDF whose original layout should be preserved, pass \`--importIntoDeck true\` instead of rebuilding the pages from extracted text. Do not proceed to add-slide until this call has returned for every PDF/DOCX in the list above.`,
+      : "- Do not pass `importIntoDeck: true` for an attached file unless the user explicitly asks to import or preserve the source pages in the current deck. An attached reference is not an instruction to replace or seed the deck.",
     "- Text-like files: use the uploaded-text-file blocks already included in the prompt; do not call import-file for them.",
     '- Image files with an embeddable URL are mandatory assets: if the user specified where to use one (e.g. "on the first and last slide"), embed it there with `<img src="...">` exactly as requested. Do not omit a requested image and continue silently — if it truly cannot be placed, say why in your final chat response.',
     "- Image files without a URL are visual/reference assets only; do not claim to have processed a PPTX/PDF/DOCX unless the relevant import action succeeds.",
-    "- Before your final response, verify every uploaded file above was either imported (PPTX/PDF/DOCX) or placed as requested (images). If any file's content or requested placement is missing from the deck, say so explicitly instead of reporting success.",
+    importedSourceDeck
+      ? "- Before your final response, verify the same source slide IDs and count with get-deck after the restyle. If source fidelity is partial or images were skipped, report the exact warning instead of claiming success."
+      : "- Before your final response, verify every uploaded file above was either used as reference or placed as explicitly requested. If any file's content or requested placement is missing from the deck, say so explicitly instead of reporting success.",
   ].join("\n");
 }
 
@@ -179,7 +212,7 @@ export interface StartDeckGenerationOptions {
     files: UploadedFile[],
     failure: DeckPersistenceResult,
   ) => void;
-  onSetupFailure: (
+  onSetupFailure?: (
     prompt: string,
     files: UploadedFile[],
     failure: unknown,
@@ -248,15 +281,17 @@ export async function startDeckGeneration({
   }
 
   let importedSourceDeck: ImportedSourceDeck | null = null;
-  try {
-    importedSourceDeck = await importUploadedDeckIntoDeck(
-      filesForGeneration,
-      deckId,
-    );
-  } catch (error) {
-    deleteDeck(deckId);
-    onSetupFailure(prompt, filesForGeneration, error);
-    return "failed";
+  if (isSourceImprovementRequest(prompt, filesForGeneration)) {
+    try {
+      importedSourceDeck = await importUploadedDeckIntoDeck(
+        filesForGeneration,
+        deckId,
+      );
+    } catch (error) {
+      deleteDeck(deckId);
+      onSetupFailure?.(prompt, filesForGeneration, error);
+      return "failed";
+    }
   }
 
   onPromptClosed();
@@ -324,19 +359,21 @@ export async function startDeckGeneration({
         "Source-preserving improvement mode:",
         `- The target deck already contains ${importedSourceDeck.slideCount} imported source slides. Treat those slides as the user's complete source, not as inspiration for a new deck.`,
         "- Keep the exact source slide count, order, IDs, factual meaning, notes, images, charts, tables, diagrams, and freeform objects unless the user explicitly asks to change one of them.",
-        "- Read `get-deck` before editing, load the linked design system with `get-design-system`, then use one `update-slide` call per existing slide ID for bounded visual improvements. Keep every original `<img>` source and enough original factual copy for each slide; for PDF slides, use restrained design-system chrome around the page without obscuring it.",
-        "- Do not call `add-slide`, delete slides, reorder slides, or replace source images with generic cards. Do not claim success until `get-deck` verifies the same slide IDs and count after the edits.",
-        "- If `get-deck` reports partial source fidelity or skipped images, stop and report the exact warning instead of claiming a reliable restyle.",
+        "- Read get-deck once before editing to obtain every existing slide ID and source HTML, load the linked design system with get-design-system, then make a deck-wide restyle with one patch-deck call using requireAllSourceSlides=true and one patch-slide operation with fields.content for every source slide ID. Do not split a full-deck restyle into arbitrary batches or fall back to one-by-one update-slide calls; use update-slide only for a targeted one-slide edit. Keep every original image source and enough original factual copy for each slide; for PDF slides, use restrained design-system chrome around the page without obscuring it.",
+        "- Do not call add-slide, delete slides, reorder slides, or replace source images with generic cards. Do not claim success until get-deck verifies the same slide IDs and count after the edits.",
+        '- After the patch succeeds, verify with get-deck using compact: "true" so only slide IDs, count, and previews are returned. Do not report an initial or partial pass, and do not leave any source slides for a later run.',
+        "- If get-deck reports partial source fidelity or skipped images, stop and report the exact warning instead of claiming a reliable restyle.",
       ].join("\n")
     : "";
   const sourceModeInstructions = importedSourceDeck
     ? [
         "The request is an in-place visual improvement of an imported source deck. Make a coherent style pass across every existing slide while preserving all source content and media.",
-        "Do not use the new-deck add-slide workflow for this source-preserving request.",
-      ]
+        "Do not use the new-deck add-slide workflow for this source-preserving request. Finish every source slide in this run; if patch-deck rejects incomplete coverage, continue with the returned missing IDs instead of reporting success with a partial deck.",
+      ].join("\n")
     : [
+        "This is a new deck. Keep it empty until generation begins; attached reference files must not seed it with imported slides.",
         "Start a `manage-progress` run so progress appears in the app header. Add the first slide as soon as it is ready, then continue one slide at a time so the editor visibly fills in.",
-        `After reading any requested or imported source material, but before adding the first slide, choose a concise, specific deck title from the user's request and source material. Call \`patch-deck\` with \`deckId: \"${deckId}\"\` and \`operations: [{ \"op\": \"patch-deck-fields\", \"fields\": { \"title\": \"<generated title>\" } }]\`. Include only \`title\` in \`fields\`; omit all other optional fields. Never leave a generated deck named \"Untitled Deck\" or another placeholder.`,
+        `After reading any requested or attached reference material, but before adding the first slide, choose a concise, specific deck title from the user's request and source material. Never use the deck id, run id, file id, uploaded filename, or another opaque alphanumeric token as the title. Do not reuse a generic placeholder like "Untitled scene" when the content or reference context gives you a better title. Call \`patch-deck\` with \`deckId: \"${deckId}\"\` and \`operations: [{ \"op\": \"patch-deck-fields\", \"fields\": { \"title\": \"<generated title>\" } }]\`. Include only \`title\` in \`fields\`; omit all other optional fields. Never leave a generated deck named \"Untitled Deck\" or another placeholder.`,
         "If the user asks for a standalone visual, diagram, hero, one-pager, poster, or a couple of visuals, create only the requested one/few polished visual slides. Do not pad the result into a full presentation.",
         "If the request is for a presentation or deck and does not explicitly ask for one slide, infer a coherent multi-slide outline from the scope and keep adding slides until that outline is complete. Do not stop after the first slide just because the prompt has few explicit instructions.",
         `Add slides ONE AT A TIME using the \`add-slide\` action with --deckId=${deckId}. Wait for each \`add-slide\` result before calling it again; do not batch or parallelize slide writes.`,

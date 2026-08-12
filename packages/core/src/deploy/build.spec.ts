@@ -896,6 +896,7 @@ export default (event) =>
     );
     expect(html).toContain('import("/assets/entry.client-abc.js")');
     expect(html).toContain('href="/assets/root.css"');
+    expect(html).not.toContain('rel="manifest"');
     expect(html).toContain("streamController.enqueue");
     expect(html).not.toContain("dev server");
     expect(html).not.toContain("browser console");
@@ -1953,6 +1954,7 @@ describe("durable-background Netlify function emit (single-template, default-on)
   let previousWorkspaceFlag: string | undefined;
   let previousViteWorkspaceFlag: string | undefined;
   let previousDisableRecurringJobs: string | undefined;
+  let previousEnableKeepWarm: string | undefined;
   let previousAppBasePath: string | undefined;
   let previousViteAppBasePath: string | undefined;
 
@@ -1962,12 +1964,14 @@ describe("durable-background Netlify function emit (single-template, default-on)
     previousViteWorkspaceFlag = process.env.VITE_AGENT_NATIVE_WORKSPACE;
     previousDisableRecurringJobs =
       process.env.AGENT_NATIVE_DISABLE_RECURRING_JOBS;
+    previousEnableKeepWarm = process.env.AGENT_NATIVE_ENABLE_KEEP_WARM;
     previousAppBasePath = process.env.APP_BASE_PATH;
     previousViteAppBasePath = process.env.VITE_APP_BASE_PATH;
     delete process.env.AGENT_CHAT_DURABLE_BACKGROUND;
     delete process.env.AGENT_NATIVE_WORKSPACE;
     delete process.env.VITE_AGENT_NATIVE_WORKSPACE;
     delete process.env.AGENT_NATIVE_DISABLE_RECURRING_JOBS;
+    delete process.env.AGENT_NATIVE_ENABLE_KEEP_WARM;
     delete process.env.APP_BASE_PATH;
     delete process.env.VITE_APP_BASE_PATH;
   });
@@ -1984,6 +1988,7 @@ describe("durable-background Netlify function emit (single-template, default-on)
       "AGENT_NATIVE_DISABLE_RECURRING_JOBS",
       previousDisableRecurringJobs,
     );
+    restoreEnv("AGENT_NATIVE_ENABLE_KEEP_WARM", previousEnableKeepWarm);
     restoreEnv("APP_BASE_PATH", previousAppBasePath);
     restoreEnv("VITE_APP_BASE_PATH", previousViteAppBasePath);
     for (const d of dirs.splice(0)) {
@@ -2121,6 +2126,7 @@ describe("durable-background Netlify function emit (single-template, default-on)
   }
 
   it("emits a site-local scheduled function that warms the real server route", () => {
+    process.env.AGENT_NATIVE_ENABLE_KEEP_WARM = "1";
     const cwd = setupNetlifyOutput();
 
     emitSingleTemplateNetlifyKeepWarmFunction(cwd);
@@ -2163,10 +2169,15 @@ describe("durable-background Netlify function emit (single-template, default-on)
     expect(entry).toContain("__agentNativeProcessorRoute");
     expect(entry).toContain("A2A_SECRET is required");
     expect(entry).toContain("return new URL(request.url).origin");
+    // The entry imports node:crypto, so the deploy packager rejects it unless
+    // includedFiles is declared.
+    expect(entry).toContain('import { createHmac } from "node:crypto"');
+    expect(entry).toContain('includedFiles: ["**"]');
   });
 
-  describe("keep-warm opt-out and cadence", () => {
+  describe("keep-warm opt-in and cadence", () => {
     const KEEP_WARM_ENV_KEYS = [
+      "AGENT_NATIVE_ENABLE_KEEP_WARM",
       "AGENT_NATIVE_DISABLE_KEEP_WARM",
       "AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND",
       "AGENT_NATIVE_KEEP_WARM_SCHEDULE",
@@ -2188,13 +2199,33 @@ describe("durable-background Netlify function emit (single-template, default-on)
       }
     });
 
-    it("is ON BY DEFAULT, at the historical once-a-minute cadence", () => {
-      expect(isKeepWarmDeployEnabled()).toBe(true);
-      expect(isKeepWarmBackgroundDeployEnabled()).toBe(true);
+    it("is OFF BY DEFAULT, at the historical once-a-minute cadence", () => {
+      expect(isKeepWarmDeployEnabled()).toBe(false);
+      expect(isKeepWarmBackgroundDeployEnabled()).toBe(false);
       expect(resolveKeepWarmSchedule()).toBe("* * * * *");
     });
 
-    it("emits nothing when keep-warm is disabled, so the DB can autosuspend", () => {
+    it("requires a truthy explicit opt-in flag", () => {
+      for (const value of ["", "0", "false", "no", "off", "maybe"]) {
+        process.env.AGENT_NATIVE_ENABLE_KEEP_WARM = value;
+        expect(isKeepWarmDeployEnabled()).toBe(false);
+      }
+      for (const value of ["1", "true", "TRUE", " yes ", "on"]) {
+        process.env.AGENT_NATIVE_ENABLE_KEEP_WARM = value;
+        expect(isKeepWarmDeployEnabled()).toBe(true);
+      }
+    });
+
+    it("emits nothing until keep-warm is explicitly enabled", () => {
+      const cwd = setupNetlifyOutput();
+
+      emitSingleTemplateNetlifyKeepWarmFunction(cwd);
+
+      expect(fs.existsSync(keepWarmDir(cwd))).toBe(false);
+    });
+
+    it("emits nothing when the compatibility disable flag is set", () => {
+      process.env.AGENT_NATIVE_ENABLE_KEEP_WARM = "1";
       process.env.AGENT_NATIVE_DISABLE_KEEP_WARM = "1";
       const cwd = setupNetlifyOutput();
 
@@ -2204,6 +2235,7 @@ describe("durable-background Netlify function emit (single-template, default-on)
     });
 
     it("honours an overridden cron cadence", () => {
+      process.env.AGENT_NATIVE_ENABLE_KEEP_WARM = "1";
       process.env.AGENT_NATIVE_KEEP_WARM_SCHEDULE = "*/5 * * * *";
       const cwd = setupNetlifyOutput();
 
@@ -2218,6 +2250,7 @@ describe("durable-background Netlify function emit (single-template, default-on)
     });
 
     it("THROWS on an unparseable cadence instead of silently keeping 1/min", () => {
+      process.env.AGENT_NATIVE_ENABLE_KEEP_WARM = "1";
       // Falling back would leave an operator who set this to stop burning
       // database quota still burning it, with a green build and no warning.
       process.env.AGENT_NATIVE_KEEP_WARM_SCHEDULE = "every 5 minutes";
@@ -2235,6 +2268,7 @@ describe("durable-background Netlify function emit (single-template, default-on)
     });
 
     it("THROWS on a 5-token value whose fields are not cron fields", () => {
+      process.env.AGENT_NATIVE_ENABLE_KEEP_WARM = "1";
       // Counting tokens is not parsing them: "not a cron expression here" is
       // five whitespace-separated words and would otherwise ship to Netlify as
       // a schedule, which is the same silent-wrong-cadence failure above.
@@ -2252,6 +2286,7 @@ describe("durable-background Netlify function emit (single-template, default-on)
     });
 
     it("accepts the cron syntax operators an operator would actually reach for", () => {
+      process.env.AGENT_NATIVE_ENABLE_KEEP_WARM = "1";
       for (const good of [
         "*/5 * * * *",
         "0 */6 * * *",
@@ -2266,6 +2301,7 @@ describe("durable-background Netlify function emit (single-template, default-on)
     it("drops the background warm independently of the server warm", () => {
       // Warming `server` is one health request; warming `-background` is a
       // fresh container that pays the whole schema-probe fan-out.
+      process.env.AGENT_NATIVE_ENABLE_KEEP_WARM = "1";
       process.env.AGENT_CHAT_DURABLE_BACKGROUND = "true";
       process.env.AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND = "1";
       try {
@@ -2287,6 +2323,7 @@ describe("durable-background Netlify function emit (single-template, default-on)
   });
 
   it("does not emit a keep-warm function without Nitro's server bundle", () => {
+    process.env.AGENT_NATIVE_ENABLE_KEEP_WARM = "1";
     const cwd = fs.mkdtempSync(path.join(process.cwd(), ".tmp-bg-emit-"));
     dirs.push(cwd);
 
@@ -2515,6 +2552,7 @@ describe("durable-background Netlify function emit (single-template, default-on)
   it("keeps the background function warm too when durable background is on", () => {
     // The background Lambda is a separate container; warming only the health
     // route left it cold-starting on essentially every dispatch.
+    process.env.AGENT_NATIVE_ENABLE_KEEP_WARM = "1";
     process.env.AGENT_CHAT_DURABLE_BACKGROUND = "true";
     const cwd = setupNetlifyOutput();
 
@@ -2535,6 +2573,7 @@ describe("durable-background Netlify function emit (single-template, default-on)
   });
 
   it("does not ping a background function that was never emitted", () => {
+    process.env.AGENT_NATIVE_ENABLE_KEEP_WARM = "1";
     const cwd = setupNetlifyOutput();
 
     emitSingleTemplateNetlifyKeepWarmFunction(cwd);

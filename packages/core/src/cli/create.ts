@@ -28,6 +28,49 @@ const STANDALONE_EXACT_DEPENDENCY_OVERRIDES: Record<string, string> = {
   "@react-router/fs-routes": "8.1.0",
   "react-router": "8.1.0",
 };
+const TIPTAP_WORKSPACE_OVERRIDES: Record<string, string> = {
+  '"@tiptap/core"': '"3.28.0"',
+  '"@tiptap/extension-blockquote"': '"3.28.0"',
+  '"@tiptap/extension-bold"': '"3.28.0"',
+  '"@tiptap/extension-bubble-menu"': '"3.28.0"',
+  '"@tiptap/extension-bullet-list"': '"3.28.0"',
+  '"@tiptap/extension-code"': '"3.28.0"',
+  '"@tiptap/extension-code-block"': '"3.28.0"',
+  '"@tiptap/extension-code-block-lowlight"': '"3.28.0"',
+  '"@tiptap/extension-collaboration"': '"3.28.0"',
+  '"@tiptap/extension-collaboration-caret"': '"3.28.0"',
+  '"@tiptap/extension-color"': '"3.28.0"',
+  '"@tiptap/extension-document"': '"3.28.0"',
+  '"@tiptap/extension-dropcursor"': '"3.28.0"',
+  '"@tiptap/extension-floating-menu"': '"3.28.0"',
+  '"@tiptap/extension-gapcursor"': '"3.28.0"',
+  '"@tiptap/extension-hard-break"': '"3.28.0"',
+  '"@tiptap/extension-heading"': '"3.28.0"',
+  '"@tiptap/extension-horizontal-rule"': '"3.28.0"',
+  '"@tiptap/extension-image"': '"3.28.0"',
+  '"@tiptap/extension-italic"': '"3.28.0"',
+  '"@tiptap/extension-link"': '"3.28.0"',
+  '"@tiptap/extension-list"': '"3.28.0"',
+  '"@tiptap/extension-list-item"': '"3.28.0"',
+  '"@tiptap/extension-list-keymap"': '"3.28.0"',
+  '"@tiptap/extension-ordered-list"': '"3.28.0"',
+  '"@tiptap/extension-paragraph"': '"3.28.0"',
+  '"@tiptap/extension-placeholder"': '"3.28.0"',
+  '"@tiptap/extension-strike"': '"3.28.0"',
+  '"@tiptap/extension-table"': '"3.28.0"',
+  '"@tiptap/extension-table-cell"': '"3.28.0"',
+  '"@tiptap/extension-table-header"': '"3.28.0"',
+  '"@tiptap/extension-table-row"': '"3.28.0"',
+  '"@tiptap/extension-task-item"': '"3.28.0"',
+  '"@tiptap/extension-task-list"': '"3.28.0"',
+  '"@tiptap/extension-text"': '"3.28.0"',
+  '"@tiptap/extension-text-style"': '"3.28.0"',
+  '"@tiptap/extension-underline"': '"3.28.0"',
+  '"@tiptap/extensions"': '"3.28.0"',
+  '"@tiptap/pm"': '"3.28.0"',
+  '"@tiptap/react"': '"3.28.0"',
+  '"@tiptap/starter-kit"': '"3.28.0"',
+};
 const REACT_ROUTER_BUILD_DEPENDENCIES = [
   "@react-router/dev",
   "@react-router/fs-routes",
@@ -132,8 +175,9 @@ export interface CreateAppOptions {
 /**
  * Main entry for `agent-native create [name]`.
  *
- * Default behavior: scaffold a workspace at <name>/ with a multi-select
- * template picker. Use --standalone for the single-app standalone flow.
+ * Default behavior: ask for a starting shape, with Chat and first-party
+ * templates creating a workspace at <name>/. Use --standalone for the
+ * single-app standalone flow.
  *
  * If run *inside* an existing workspace, falls through to the add-app
  * flow that scaffolds one new app under apps/<name>/.
@@ -173,8 +217,8 @@ export async function createApp(
 
   // When exactly one template is specified explicitly, treat it as a
   // standalone scaffold (script-friendly, matches historic behavior).
-  // Use `--template a,b` or pass no --template to opt into the workspace
-  // flow with the multi-select picker.
+  // Use `--template a,b` to opt into the workspace flow with the multi-select
+  // picker. Bare `create` asks for the starting shape first.
   const parsed = parseTemplateList(opts?.template);
   // Headless can't live in a workspace, so reject it when more than one
   // template is requested or when workspace semantics are forced.
@@ -198,9 +242,8 @@ export async function createApp(
   // No template specified: ask what shape to start from before diving into
   // "which templates?". The on-ramp choice implies the project structure, so
   // we don't ask a separate "workspace or standalone?" question — Chat and
-  // Headless scaffold a single standalone app (the lightest starts; headless
-  // cannot live in a workspace), while Template continues into the workspace
-  // multi-select.
+  // Template creates a workspace, while Community and Headless scaffold a
+  // single standalone app.
   if (parsed.length === 0) {
     // The deprecated `create-workspace` alias forces workspace semantics, so
     // it must skip the start-shape prompt and scaffold a workspace directly.
@@ -209,8 +252,19 @@ export async function createApp(
       return;
     }
     const shape = await promptStartShape(clack);
-    if (shape === "headless" || shape === "chat") {
+    if (shape === "headless") {
       await createStandaloneApp(name, { ...opts, template: shape }, clack);
+      return;
+    }
+    if (shape === "chat") {
+      // Chat is the default workspace on-ramp. Keep the minimal chat app in
+      // the same workspace shape as every other first-party app so the next
+      // documented step, `add-app`, works immediately.
+      await createWorkspaceInteractive(
+        name,
+        { ...opts, template: shape },
+        clack,
+      );
       return;
     }
     if (shape === "community") {
@@ -232,12 +286,11 @@ export async function createApp(
  * choice made here implies the project structure, so we deliberately avoid a
  * separate "workspace or standalone?" question:
  *   - "template" → full app(s) in a workspace (the multi-select picker)
+ *   - "chat"     → a minimal Chat app in a workspace with Dispatch
  *   - "community" → a single standalone app from a public GitHub repository
- *   - "chat"     → a single standalone chat UI app
  *   - "headless" → a single standalone action-first app with no UI shell
- * Chat and headless are standalone on purpose: a monorepo is unnecessary
- * ceremony for the lightest on-ramps, and headless cannot be a workspace
- * member. Either can grow into a workspace later via `add-app`.
+ * Headless cannot be a workspace member. Use `--standalone --template chat`
+ * when a standalone Chat app is the intended shape.
  */
 async function promptStartShape(
   clack: typeof import("@clack/prompts"),
@@ -258,7 +311,7 @@ function startShapePromptOptions() {
       {
         value: "chat",
         label: "Chat",
-        hint: "A single app with a minimal chat UI and the browser shell wired up",
+        hint: "A minimal chat app in a workspace with the browser shell wired up",
       },
       {
         value: "template",
@@ -652,7 +705,7 @@ async function scaffoldWorkspaceRoot(
     const existing = fs.existsSync(wsPath)
       ? fs.readFileSync(wsPath, "utf-8")
       : "";
-    if (!existing.includes("catalog:")) {
+    if (!/^catalog:\s*$/m.test(existing)) {
       const catalogYaml = Object.entries(catalog)
         .map(([k, v]) => `  "${k}": "${v}"`)
         .join("\n");
@@ -1872,23 +1925,9 @@ function postProcessStandalone(
           }
         }
       }
-      // Ensure pnpm.onlyBuiltDependencies is set so native packages
-      // (better-sqlite3, esbuild, node-pty) compile their postinstall scripts
-      // under pnpm 10+ without prompting for `pnpm approve-builds`.
       pkg.dependencies = pkg.dependencies ?? {};
       pkg.dependencies.postgres ??= POSTGRES_DEPENDENCY_VERSION;
       ensureReactRouterBuildDependencies(pkg);
-
-      const requiredBuilt = ["better-sqlite3", "esbuild", "node-pty"];
-      if (!pkg.pnpm || typeof pkg.pnpm !== "object") {
-        pkg.pnpm = {};
-      }
-      const existing = Array.isArray(pkg.pnpm.onlyBuiltDependencies)
-        ? pkg.pnpm.onlyBuiltDependencies
-        : [];
-      pkg.pnpm.onlyBuiltDependencies = Array.from(
-        new Set([...existing, ...requiredBuilt]),
-      );
       fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
     } catch {}
   }
@@ -1907,6 +1946,7 @@ function postProcessStandalone(
         "better-sqlite3": "true",
         esbuild: "true",
         "node-pty": "true",
+        "tesseract.js": "true",
       },
     };
     if (templateName !== "headless") {
@@ -1914,6 +1954,12 @@ function postProcessStandalone(
         '"@assistant-ui/store"': '">=0.2.9 <0.2.14"',
         '"@assistant-ui/tap"': '"^0.5.14"',
         nf3: '"0.3.17"',
+      };
+    }
+    if (templateName && getTemplate(templateName)) {
+      sections.overrides = {
+        ...sections.overrides,
+        ...TIPTAP_WORKSPACE_OVERRIDES,
       };
     }
     const localToolkit = localToolkitOverride();

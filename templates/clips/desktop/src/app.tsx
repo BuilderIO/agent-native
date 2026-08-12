@@ -2,8 +2,6 @@ import {
   IconAlertTriangle,
   IconArrowLeft,
   IconCalendarEvent,
-  IconChevronDown,
-  IconChevronRight,
   IconCircleCheck,
   IconCopy,
   IconDownload,
@@ -165,6 +163,8 @@ type PopoverView =
   | "settings"
   | "meetings"
   | "dictation";
+
+type SettingsTabId = "general" | "recording" | "meetings" | "dictation";
 
 interface PopoverMeeting {
   id: string;
@@ -973,10 +973,6 @@ export function App() {
   const [rewindSettingsReturnView, setRewindSettingsReturnView] = useState<
     "recorder" | "settings"
   >("recorder");
-  const [homeScreenMemoryStatus, setHomeScreenMemoryStatus] =
-    useState<ScreenMemoryStatus | null>(null);
-  const [homeScreenMemoryBusy, setHomeScreenMemoryBusy] = useState(false);
-  const homeScreenMemoryRefreshVersionRef = useRef(0);
   const [rewindAgentPromptCopied, setRewindAgentPromptCopied] = useState(false);
   const [agentHandoff, setAgentHandoff] =
     useState<RewindAgentHandoffRequest | null>(null);
@@ -1002,7 +998,6 @@ export function App() {
   const [readinessOpen, setReadinessOpen] = useState<boolean>(
     () => !loadBool(READINESS_REVIEWED_KEY, false),
   );
-  const [rewindHomeOpen, setRewindHomeOpen] = useState(false);
   const [recorder, setRecorder] = useState<RecorderHandle | null>(null);
   const recordingStartAbortRef = useRef<AbortController | null>(null);
   const [recError, setRecError] = useState<string | null>(null);
@@ -1022,67 +1017,20 @@ export function App() {
   const [videoStorageStatus, setVideoStorageStatus] =
     useState<VideoStorageStatus>("checking");
   const [signedInAs, setSignedInAs] = useState<string | null>(null);
-  const [signInPending, setSignInPending] = useState(false);
+  const [signInPending, setSignInPending] = useState<
+    "google" | "magic-link" | null
+  >(null);
+  const [magicLinkEmail, setMagicLinkEmail] = useState<string | null>(null);
   const [signInError, setSignInError] = useState<string | null>(null);
-  // Ref-based lock so two fast clicks cannot both enter signInExternal()
+  // Ref-based lock so two fast clicks cannot start competing desktop auth
   // (state updates are async; refs are synchronous).
   const signInInflightRef = useRef(false);
   // Stored so Cancel can stop the polling loop.
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const signInVisibilityRef = useRef<(() => void) | null>(null);
   const isRecording = recorder !== null;
   // Whether the popover window is shown; driven by the visibility effect below.
   const [popoverVisible, setPopoverVisible] = useState(false);
-  const homeRewindPresentation = getRewindStatusPresentation({
-    status: homeScreenMemoryStatus,
-    config: featureConfig?.screenMemory ?? DEFAULT_SCREEN_MEMORY_CONFIG,
-    clipRecordingActive: isRecording || recordingFlowActive,
-  });
-  const homeRewindOn =
-    featureConfig?.screenMemory?.enabled === true &&
-    featureConfig.screenMemory.paused !== true;
-  const refreshHomeScreenMemoryStatus = useCallback(() => {
-    const version = ++homeScreenMemoryRefreshVersionRef.current;
-    invoke<ScreenMemoryStatus>("screen_memory_status")
-      .then((status) => {
-        if (version === homeScreenMemoryRefreshVersionRef.current) {
-          setHomeScreenMemoryStatus(status);
-        }
-      })
-      .catch(() => {});
-  }, []);
-  useEffect(() => {
-    if (featureConfig?.screenMemory?.enabled !== true) {
-      homeScreenMemoryRefreshVersionRef.current += 1;
-      setHomeScreenMemoryStatus(null);
-      return;
-    }
-    let cancelled = false;
-    const refresh = () => {
-      if (!cancelled) refreshHomeScreenMemoryStatus();
-    };
-    refresh();
-    const timer = window.setInterval(refresh, popoverVisible ? 5_000 : 30_000);
-    let unlisten: (() => void) | undefined;
-    listen("clips:screen-memory-changed", refresh)
-      .then((stopListening) => {
-        if (cancelled) {
-          stopListening();
-          return;
-        }
-        unlisten = stopListening;
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-      homeScreenMemoryRefreshVersionRef.current += 1;
-      window.clearInterval(timer);
-      unlisten?.();
-    };
-  }, [
-    featureConfig?.screenMemory?.enabled,
-    popoverVisible,
-    refreshHomeScreenMemoryStatus,
-  ]);
   const recordShortcutHandlerRef = useRef<() => void>(() => {});
   const handleStartRecordingRef = useRef<
     (options?: {
@@ -2038,37 +1986,129 @@ export function App() {
     selectedMicLabel,
   });
 
-  // OAuth (Google) opens in the system browser — the popover WebView can't
-  // share a cookie jar with a separate Tauri WebviewWindow, and the old
-  // approach of opening a WebView at the server root produced a blank window.
-  // Instead: fetch the Google auth URL, open it externally, then poll a
-  // server-side exchange endpoint for the session token.
+  type DesktopAuthKind = "google" | "magic-link";
+
+  function stopDesktopAuthPolling() {
+    if (pollIntervalRef.current !== null) {
+      clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = null;
+    }
+    if (signInVisibilityRef.current) {
+      document.removeEventListener(
+        "visibilitychange",
+        signInVisibilityRef.current,
+      );
+      signInVisibilityRef.current = null;
+    }
+  }
+
+  function finishDesktopAuthWithError(kind: DesktopAuthKind, message: string) {
+    stopDesktopAuthPolling();
+    signInInflightRef.current = false;
+    setSignInPending(null);
+    if (kind === "magic-link") setMagicLinkEmail(null);
+    setSignInError(message);
+  }
+
+  function startDesktopAuthExchange(
+    flowId: string,
+    kind: DesktopAuthKind,
+    verifier?: string,
+  ) {
+    let tickInFlight = false;
+    const base = serverUrl.replace(/\/+$/, "");
+    const start = Date.now();
+    const TIMEOUT_MS = 5 * 60 * 1000;
+    const POLL_ABORT_MS = Math.max(10_000, 1500 * 4);
+    const timeoutMessage =
+      kind === "magic-link"
+        ? "The sign-in link timed out. Please request a new one."
+        : "Google sign-in timed out. Please try again.";
+    const exchangeErrorMessage =
+      kind === "magic-link"
+        ? "We couldn't complete sign-in with that link. Please request a new one."
+        : "Google sign-in failed. Please try again.";
+
+    const tick = async () => {
+      if (document.hidden || tickInFlight) return;
+      tickInFlight = true;
+      const controller = new AbortController();
+      const abortTimer = setTimeout(() => controller.abort(), POLL_ABORT_MS);
+      try {
+        const exchangeParams = new URLSearchParams({ flow_id: flowId });
+        if (verifier) exchangeParams.set("verifier", verifier);
+        const xr = await fetch(
+          `${base}/_agent-native/auth/desktop-exchange?${exchangeParams.toString()}`,
+          { credentials: "include", signal: controller.signal },
+        );
+        if (!xr.ok) {
+          if (Date.now() - start > TIMEOUT_MS) {
+            finishDesktopAuthWithError(kind, timeoutMessage);
+          }
+          return;
+        }
+        const xd = (await xr.json()) as {
+          error?: string;
+          message?: string;
+          token?: string;
+        } | null;
+        if (xd?.error) {
+          finishDesktopAuthWithError(
+            kind,
+            typeof xd.message === "string"
+              ? xd.message
+              : typeof xd.error === "string"
+                ? xd.error
+                : exchangeErrorMessage,
+          );
+          return;
+        }
+        if (xd?.token) {
+          stopDesktopAuthPolling();
+          saveDesktopAuthToken(base, String(xd.token));
+          // The exchange response sets the WebView cookie. The bearer token
+          // above is the reliable desktop auth path and avoids putting it in a
+          // follow-up URL.
+          signInInflightRef.current = false;
+          setSignInPending(null);
+          setMagicLinkEmail(null);
+          const ok = await checkAuth();
+          if (!ok) {
+            setSignInError(
+              kind === "magic-link"
+                ? "Sign-in completed, but Clips could not save the session. Please try again."
+                : "Google sign-in completed, but Clips could not save the session. Please try again.",
+            );
+          }
+        } else if (Date.now() - start > TIMEOUT_MS) {
+          finishDesktopAuthWithError(kind, timeoutMessage);
+        }
+      } catch {
+        if (Date.now() - start > TIMEOUT_MS) {
+          finishDesktopAuthWithError(kind, timeoutMessage);
+        }
+      } finally {
+        clearTimeout(abortTimer);
+        tickInFlight = false;
+      }
+    };
+
+    stopDesktopAuthPolling();
+    pollIntervalRef.current = setInterval(() => void tick(), 1500);
+    const onVisibilityChange = () => {
+      if (!document.hidden) void tick();
+    };
+    signInVisibilityRef.current = onVisibilityChange;
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    void tick();
+  }
+
+  // Google and magic-link verification open in the system browser because
+  // the Tauri WebView has its own cookie jar. Both flows return through the
+  // same short-lived server-side exchange.
   async function signInExternal() {
-    // Synchronous ref guard — prevents a double-click from opening two OAuth
-    // tabs. State updates are async so `signInPending` alone isn't sufficient.
     if (signInInflightRef.current) return;
     signInInflightRef.current = true;
-
-    let tickInFlight = false;
-    let onVisibilityChange: (() => void) | null = null;
-
-    function stopPolling() {
-      if (pollIntervalRef.current !== null) {
-        clearInterval(pollIntervalRef.current);
-        pollIntervalRef.current = null;
-      }
-      if (onVisibilityChange) {
-        document.removeEventListener("visibilitychange", onVisibilityChange);
-        onVisibilityChange = null;
-      }
-    }
-
-    function finishWithError(message: string) {
-      stopPolling();
-      signInInflightRef.current = false;
-      setSignInPending(false);
-      setSignInError(message);
-    }
 
     try {
       setSignInError(null);
@@ -2077,90 +2117,70 @@ export function App() {
         Math.random().toString(36).slice(2) + Date.now().toString(36);
       const base = serverUrl.replace(/\/+$/, "");
 
-      // Open directly in the system browser — the server redirects (302)
-      // to Google's OAuth page, avoiding any cross-origin fetch from
-      // the Tauri WebView.
       await openExternal(
         `${base}/_agent-native/google/auth-url?desktop=1&flow_id=${flowId}&redirect=1`,
       );
-
-      setSignInPending(true);
-
-      // Poll the exchange endpoint for the session token.
-      const start = Date.now();
-      const TIMEOUT_MS = 180_000; // 3 minutes
-      const POLL_ABORT_MS = Math.max(10_000, 1500 * 4);
-      const tick = async () => {
-        if (document.hidden || tickInFlight) return;
-        tickInFlight = true;
-        const controller = new AbortController();
-        const abortTimer = setTimeout(() => controller.abort(), POLL_ABORT_MS);
-        try {
-          const xr = await fetch(
-            `${base}/_agent-native/auth/desktop-exchange?flow_id=${flowId}`,
-            { credentials: "include", signal: controller.signal },
-          );
-          if (!xr.ok) {
-            if (Date.now() - start > TIMEOUT_MS) {
-              stopPolling();
-              signInInflightRef.current = false;
-              setSignInPending(false);
-            }
-            return;
-          }
-          const xd = await xr.json();
-          if (xd?.error) {
-            finishWithError(
-              typeof xd.error === "string"
-                ? xd.error
-                : "Google sign-in failed. Please try again.",
-            );
-            return;
-          }
-          if (xd?.token) {
-            stopPolling();
-            saveDesktopAuthToken(base, String(xd.token));
-            // Establish the session cookie when the WebView accepts it; the
-            // bearer token above is the reliable desktop auth path.
-            await fetch(
-              `${base}/_agent-native/auth/session?_session=${xd.token}`,
-              { credentials: "include", signal: controller.signal },
-            );
-            signInInflightRef.current = false;
-            setSignInPending(false);
-            const ok = await checkAuth();
-            if (!ok) {
-              setSignInError(
-                "Google sign-in completed, but Clips could not save the session. Please try again.",
-              );
-            }
-          } else if (Date.now() - start > TIMEOUT_MS) {
-            finishWithError("Google sign-in timed out. Please try again.");
-          }
-        } catch {
-          if (Date.now() - start > TIMEOUT_MS) {
-            finishWithError("Google sign-in timed out. Please try again.");
-          }
-        } finally {
-          clearTimeout(abortTimer);
-          tickInFlight = false;
-        }
-      };
-      pollIntervalRef.current = setInterval(() => void tick(), 1500);
-      onVisibilityChange = () => {
-        if (!document.hidden) void tick();
-      };
-      document.addEventListener("visibilitychange", onVisibilityChange);
+      setSignInPending("google");
+      startDesktopAuthExchange(flowId, "google");
     } catch (err) {
       console.error("[clips-tray] signInExternal failed:", err);
       signInInflightRef.current = false;
-      setSignInPending(false);
+      setSignInPending(null);
       setSignInError(
         err instanceof Error
           ? err.message
           : "Could not open Google sign-in. Please try again.",
       );
     }
+  }
+
+  async function requestMagicLink(email: string) {
+    if (signInInflightRef.current) return;
+    signInInflightRef.current = true;
+    const base = serverUrl.replace(/\/+$/, "");
+    try {
+      setSignInError(null);
+      const res = await fetch(`${base}/_agent-native/auth/magic-link`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: email.trim(),
+          callbackURL: "/_agent-native/auth/magic-link/desktop-callback",
+        }),
+        credentials: "include",
+      });
+      const json = (await res.json()) as {
+        error?: string;
+        flowId?: string;
+        verifier?: string;
+      } | null;
+      if (!res.ok) {
+        throw new Error(
+          json?.error || `Could not send sign-in link (${res.status})`,
+        );
+      }
+      if (!json?.flowId || !json.verifier) {
+        throw new Error(
+          "The sign-in flow was not initialized. Please request a new link.",
+        );
+      }
+      setMagicLinkEmail(email.trim());
+      setSignInPending("magic-link");
+      startDesktopAuthExchange(json.flowId, "magic-link", json.verifier);
+    } catch (err) {
+      signInInflightRef.current = false;
+      setSignInPending(null);
+      setMagicLinkEmail(null);
+      throw err;
+    }
+  }
+
+  function cancelSignIn() {
+    stopDesktopAuthPolling();
+    signInInflightRef.current = false;
+    setSignInPending(null);
+    setMagicLinkEmail(null);
+    setSignInError(null);
   }
 
   // Sign out via the framework's logout endpoint. The cookie clears in the
@@ -2604,8 +2624,12 @@ export function App() {
   // and we call `resize_popover` to match.
   const appRef = useRef<HTMLDivElement | null>(null);
   usePopoverAutoSize(appRef, {
-    disabled: !popoverVisible || isRecording || recordingFlowActive,
-    width: popoverView === "settings" || popoverView === "memory" ? 440 : 360,
+    disabled:
+      (popoverView !== "settings" && !popoverVisible) ||
+      isRecording ||
+      recordingFlowActive,
+    width:
+      popoverView === "settings" ? 920 : popoverView === "memory" ? 440 : 360,
   });
 
   const loadPendingUploads = useCallback(async () => {
@@ -3500,47 +3524,6 @@ export function App() {
   const showCameraRow = mode !== "screen"; // screen-only has no camera
   const showSourceRow = mode !== "camera"; // camera-only has no screen source
 
-  async function setHomeRewindRemembering(remembering: boolean) {
-    if (homeScreenMemoryBusy) return;
-    if (remembering && featureConfig?.screenMemory?.enabled !== true) {
-      setRewindSettingsReturnView("recorder");
-      setPromptRewindEnable(true);
-      setPopoverView("rewind-settings");
-      return;
-    }
-    setHomeScreenMemoryBusy(true);
-    try {
-      const current = await invoke<FeatureConfig>("get_feature_config");
-      await invoke("set_feature_config", {
-        config: {
-          ...current,
-          screenMemory: {
-            ...DEFAULT_SCREEN_MEMORY_CONFIG,
-            ...current.screenMemory,
-            // Once Rewind has been set up, the everyday Home switch is a
-            // pause/resume control. Full disable and capture permissions live
-            // in Rewind Settings, so an accidental Home click never tears
-            // down the configured memory system or asks for consent again.
-            enabled: true,
-            paused: !remembering,
-          },
-        },
-      });
-      // The native producer can take a moment to finish pausing. Do not keep
-      // the Home switch locked while that status request waits; the existing
-      // change event and bounded poll will reconcile it, and this best-effort
-      // refresh can do the same without blocking the next resume action.
-      refreshHomeScreenMemoryStatus();
-    } catch (err) {
-      console.error(
-        "[clips-tray] update Rewind remembering state failed:",
-        err,
-      );
-    } finally {
-      setHomeScreenMemoryBusy(false);
-    }
-  }
-
   const pendingUploadBanner = recordingStopFinalizing ? (
     <FinalizingUploadBanner />
   ) : pendingUploads.length > 0 ? (
@@ -3755,6 +3738,9 @@ export function App() {
             setServerUrl(url.replace(/\/+$/, ""));
             setPopoverView("recorder");
           }}
+          rewindAgentPromptCopied={rewindAgentPromptCopied}
+          onCopyRewindAgentPrompt={copyRewindAgentPrompt}
+          onOpenRewindDocs={openRewindDocs}
           onOpenRewind={() => setPopoverView("rewind-settings")}
           onOpenMemory={() => setPopoverView("memory")}
           onCancel={() => {
@@ -3801,6 +3787,9 @@ export function App() {
             setServerUrl(url.replace(/\/+$/, ""));
             setPopoverView("recorder");
           }}
+          rewindAgentPromptCopied={rewindAgentPromptCopied}
+          onCopyRewindAgentPrompt={copyRewindAgentPrompt}
+          onOpenRewindDocs={openRewindDocs}
           onOpenRewind={() => {
             setPromptRewindEnable(false);
             setRewindSettingsReturnView("settings");
@@ -3863,8 +3852,8 @@ export function App() {
   // (not a separate Tauri window). This avoids Tauri 2's separate-WebKit-
   // data-store-per-WebviewWindow cookie-jar issue — the cookie is set in
   // the same webview that reads it on the next /auth/session poll.
-  // OAuth (Google / Apple) still needs a browser, so we offer that as a
-  // secondary link via signInExternal().
+  // Google and magic-link verification use the system browser, while the
+  // password fallback stays inline in this WebView.
   if (authStatus === "anon") {
     return (
       <div className="app" ref={appRef}>
@@ -3875,22 +3864,14 @@ export function App() {
         />
         <UpdateBanner />
         {pendingUploadBanner}
-        {signInPending ? (
+        {signInPending === "google" ? (
           <div className="signin-pending">
             <div className="signin-pending-spinner" />
             <p className="signin-pending-text">Waiting for browser sign-in…</p>
             <button
               type="button"
               className="signin-pending-cancel"
-              onClick={() => {
-                if (pollIntervalRef.current !== null) {
-                  clearInterval(pollIntervalRef.current);
-                  pollIntervalRef.current = null;
-                }
-                signInInflightRef.current = false;
-                setSignInPending(false);
-                setSignInError(null);
-              }}
+              onClick={cancelSignIn}
             >
               Cancel
             </button>
@@ -3907,6 +3888,11 @@ export function App() {
                 await checkAuth();
               }}
               onUseBrowser={signInExternal}
+              onMagicLink={requestMagicLink}
+              magicLinkSentEmail={
+                signInPending === "magic-link" ? magicLinkEmail : null
+              }
+              onMagicLinkBack={cancelSignIn}
             />
           </>
         )}
@@ -4020,83 +4006,6 @@ export function App() {
             onOpenChange={updateReadinessOpen}
             onOpenPermission={openPrivacySettings}
           />
-
-          <section className="rewind-home-card" aria-label="Rewind">
-            <button
-              type="button"
-              className="rewind-home-summary"
-              aria-expanded={rewindHomeOpen}
-              onClick={() => setRewindHomeOpen((open) => !open)}
-            >
-              <span className="rewind-home-title">Rewind</span>
-              <span className="rewind-home-state">
-                {homeRewindOn ? "On" : "Off"}
-                {rewindHomeOpen ? (
-                  <IconChevronDown size={11} stroke={2} />
-                ) : (
-                  <IconChevronRight size={11} stroke={2} />
-                )}
-              </span>
-            </button>
-            {rewindHomeOpen ? (
-              <div className="rewind-home-details">
-                <p>{homeRewindPresentation.detail}</p>
-                <div className="rewind-home-detail-actions">
-                  <button
-                    type="button"
-                    className="rewind-docs-link"
-                    onClick={openRewindDocs}
-                  >
-                    Learn about Rewind
-                    <IconExternalLink size={13} stroke={1.9} />
-                  </button>
-                  <div className="rewind-home-controls">
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <button
-                          type="button"
-                          className="rewind-agent-prompt-copy"
-                          onClick={() => void copyRewindAgentPrompt()}
-                          aria-label={
-                            rewindAgentPromptCopied
-                              ? "Setup prompt copied — paste it into your agent once"
-                              : "Copy setup prompt for your agent"
-                          }
-                        >
-                          {rewindAgentPromptCopied ? (
-                            <IconCircleCheck size={15} stroke={2} />
-                          ) : (
-                            <IconCopy size={15} stroke={1.9} />
-                          )}
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        {rewindAgentPromptCopied
-                          ? "Setup prompt copied"
-                          : "Copy setup prompt for your agent"}
-                      </TooltipContent>
-                    </Tooltip>
-                    <Switch
-                      on={homeRewindOn}
-                      disabled={
-                        homeScreenMemoryBusy ||
-                        isRecording ||
-                        recordingFlowActive
-                      }
-                      onChange={(remembering) =>
-                        void setHomeRewindRemembering(remembering)
-                      }
-                      label={
-                        featureConfig?.screenMemory?.enabled === true
-                          ? "Remember with Rewind"
-                          : "Set up Rewind"
-                      }
-                    />
-                  </div>
-                </div>
-              </div>
-            ) : null}
-          </section>
         </div>
 
         {!isRecording ? (
@@ -4779,19 +4688,28 @@ function SignInForm({
   serverUrl,
   onSignedIn,
   onUseBrowser,
+  onMagicLink,
+  magicLinkSentEmail,
+  onMagicLinkBack,
 }: {
   serverUrl: string;
   onSignedIn: () => Promise<void> | void;
-  onUseBrowser: () => void;
+  onUseBrowser: () => void | Promise<void>;
+  onMagicLink: (email: string) => Promise<void>;
+  magicLinkSentEmail: string | null;
+  onMagicLinkBack: () => void;
 }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [authMode, setAuthMode] = useState<"magic-link" | "password">(
+    "magic-link",
+  );
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const emailRef = useRef<HTMLInputElement | null>(null);
   useEffect(() => {
-    emailRef.current?.focus();
-  }, []);
+    if (!magicLinkSentEmail) emailRef.current?.focus();
+  }, [magicLinkSentEmail]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -4799,6 +4717,10 @@ function SignInForm({
     setError(null);
     setSubmitting(true);
     try {
+      if (authMode === "magic-link") {
+        await onMagicLink(email.trim());
+        return;
+      }
       // Post to the framework's Better Auth-backed email/password endpoint.
       // Production Tauri builds cannot rely on cross-origin cookies sticking,
       // so the desktop fetch interceptor stores the returned session token and
@@ -4828,37 +4750,30 @@ function SignInForm({
     }
   }
 
+  if (magicLinkSentEmail) {
+    return (
+      <div className="signin signin-success" aria-live="polite">
+        <div className="signin-title">Check your email</div>
+        <p className="signin-success-copy">
+          {"We sent a secure sign-in link to "}
+          <strong>{magicLinkSentEmail}</strong>
+          {"."}
+        </p>
+        <button
+          type="button"
+          className="signin-alt signin-mode-link"
+          onClick={onMagicLinkBack}
+        >
+          Back
+        </button>
+      </div>
+    );
+  }
+
   return (
     <form className="signin" onSubmit={onSubmit}>
-      <div className="signin-title">Sign in to Clips</div>
-      <input
-        ref={emailRef}
-        type="email"
-        autoComplete="email"
-        placeholder="Email"
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-        required
-      />
-      <input
-        type="password"
-        autoComplete="current-password"
-        placeholder="Password"
-        value={password}
-        onChange={(e) => setPassword(e.target.value)}
-        required
-      />
-      {error ? <div className="error-banner">{error}</div> : null}
-      <button
-        type="submit"
-        className="primary start"
-        disabled={submitting || !email || !password}
-      >
-        {submitting ? "Signing in…" : "Sign in"}
-      </button>
-      <div className="signin-divider">
-        <span>or</span>
-      </div>
+      <div className="signin-title">Welcome</div>
+      <div className="signin-subtitle">Create an account or sign in</div>
       <button
         type="button"
         className="signin-google"
@@ -4866,7 +4781,65 @@ function SignInForm({
         title="Opens your default browser to complete Google sign-in"
       >
         <GoogleIcon />
-        Continue with Google
+        Sign in with Google
+      </button>
+      <div className="signin-divider">
+        <span>or</span>
+      </div>
+      <input
+        ref={emailRef}
+        type="email"
+        autoComplete="email"
+        placeholder="you@example.com"
+        value={email}
+        onChange={(e) => {
+          setEmail(e.target.value);
+          setError(null);
+        }}
+        required
+      />
+      {authMode === "password" ? (
+        <input
+          type="password"
+          autoComplete="current-password"
+          placeholder="Password"
+          value={password}
+          onChange={(e) => {
+            setPassword(e.target.value);
+            setError(null);
+          }}
+          required
+        />
+      ) : null}
+      {error ? <div className="error-banner">{error}</div> : null}
+      <button
+        type="submit"
+        className="primary start"
+        disabled={
+          submitting || !email || (authMode === "password" && !password)
+        }
+      >
+        {submitting
+          ? authMode === "magic-link"
+            ? "Sending…"
+            : "Signing in…"
+          : authMode === "magic-link"
+            ? "Continue"
+            : "Sign in"}
+      </button>
+      <button
+        type="button"
+        className="signin-alt signin-mode-link"
+        onClick={() => {
+          setError(null);
+          setAuthMode((current) =>
+            current === "magic-link" ? "password" : "magic-link",
+          );
+        }}
+      >
+        {authMode === "magic-link"
+          ? "Use a password instead"
+          : "Use a sign-in link instead"}
       </button>
     </form>
   );
@@ -5308,6 +5281,9 @@ function Setup({
   onVoiceProviderChange,
   onVoiceInstructionsChange,
   onConnect,
+  rewindAgentPromptCopied,
+  onCopyRewindAgentPrompt,
+  onOpenRewindDocs,
   onOpenRewind,
   onOpenMemory,
   onCancel,
@@ -5335,6 +5311,9 @@ function Setup({
   onVoiceProviderChange: (value: VoiceProvider) => void;
   onVoiceInstructionsChange: (value: string) => void;
   onConnect: (url: string) => void;
+  rewindAgentPromptCopied: boolean;
+  onCopyRewindAgentPrompt: () => void;
+  onOpenRewindDocs: () => void;
   onOpenRewind?: () => void;
   onOpenMemory?: () => void;
   onCancel?: () => void;
@@ -5342,6 +5321,7 @@ function Setup({
 }) {
   const [url, setUrl] = useState(initial ?? DEFAULT_URL);
   const [readinessOpen, setReadinessOpen] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<SettingsTabId>("general");
   const featureConfig = useFeatureConfig();
   const updateStatus = useUpdateStatus();
   const voiceEnabled = featureConfig?.voiceEnabled !== false;
@@ -6096,13 +6076,6 @@ function Setup({
     updateStatus.state === "available" ||
     updateStatus.state === "downloading";
   const updateReady = updateStatus.state === "downloaded";
-  const updateStatusClass =
-    updateStatus.state === "error"
-      ? "setup-warning"
-      : updateStatus.state === "downloaded" ||
-          updateStatus.state === "not-available"
-        ? "setup-success"
-        : "setup-hint";
   const updateCheckLabel = !updateChecksSupported
     ? "Release builds only"
     : updateStatus.state === "checking"
@@ -6532,6 +6505,26 @@ function Setup({
                   Rewind's reusable instructions and repairs the local
                   connection, so later you can simply say “Look at Rewind.”
                 </p>
+                <div className="setup-button-row">
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={onCopyRewindAgentPrompt}
+                  >
+                    <IconCopy size={14} stroke={1.9} />
+                    {rewindAgentPromptCopied
+                      ? "Setup prompt copied"
+                      : "Copy setup prompt"}
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={onOpenRewindDocs}
+                  >
+                    <IconExternalLink size={14} stroke={1.9} />
+                    Learn about Rewind
+                  </button>
+                </div>
               </div>
             </div>
             <details className="setup-advanced rewind-agent-repair">
@@ -6815,9 +6808,737 @@ function Setup({
     );
   }
 
+  function renderGeneralSettings() {
+    return (
+      <div className="settings-tab-content">
+        <DesktopSettingsGroup
+          title="Connection"
+          description="Choose the Clips backend used by this desktop recorder."
+        >
+          <DesktopSettingsRow
+            label="Clips server URL"
+            description="The backend this tray app connects to."
+            control={
+              <div className="settings-control-group settings-control-group--wide">
+                <input
+                  id="clips-url"
+                  className="settings-url-input"
+                  type="url"
+                  value={url}
+                  onChange={(event) => setUrl(event.target.value)}
+                  placeholder="http://localhost:8080"
+                />
+                <button
+                  className="secondary"
+                  type="button"
+                  onClick={handleConnect}
+                >
+                  Connect
+                </button>
+              </div>
+            }
+          />
+        </DesktopSettingsGroup>
+
+        <DesktopSettingsGroup
+          title="App behavior"
+          description="Keep Clips ready when you need it and out of the way when you do not."
+        >
+          <DesktopSettingsRow
+            label="Open at login"
+            description="Start Clips when you sign in."
+            control={
+              <Switch
+                on={launchAtLoginEnabled}
+                onChange={setLaunchAtLoginEnabled}
+                label="Open Clips at login"
+              />
+            }
+          />
+          <DesktopSettingsRow
+            label="Hide when inactive"
+            description="Hide the tray window when it loses focus."
+            control={
+              <Switch
+                on={autoHidePopoverEnabled}
+                onChange={setAutoHidePopoverEnabled}
+                label="Hide Clips when focus leaves"
+              />
+            }
+          />
+          <DesktopSettingsRow
+            label="Show in screen captures"
+            description="Include Clips windows in screenshots and recordings."
+            control={
+              <Switch
+                on={showInScreenCapture}
+                onChange={setShowInScreenCapture}
+                label="Show Clips in screen captures"
+              />
+            }
+          />
+        </DesktopSettingsGroup>
+
+        <DesktopSettingsGroup
+          title="Updates"
+          description="Keep the signed Clips desktop release current."
+        >
+          <DesktopSettingsRow
+            label="Desktop updates"
+            description={
+              updateChecksSupported
+                ? desktopUpdateStatusText(updateStatus)
+                : "Update checks are available in signed release builds."
+            }
+            control={
+              <div className="settings-control-group">
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={checkForDesktopUpdate}
+                  disabled={!updateChecksSupported || updateBusy || updateReady}
+                >
+                  <IconRefresh
+                    size={15}
+                    stroke={1.9}
+                    className={updateBusy ? "update-spinner" : undefined}
+                  />
+                  {updateCheckLabel}
+                </button>
+                {updateReady ? (
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => {
+                      installAndRestart().catch((err) => {
+                        console.error("[clips-updater] relaunch failed:", err);
+                      });
+                    }}
+                  >
+                    Restart to install
+                  </button>
+                ) : null}
+              </div>
+            }
+          />
+        </DesktopSettingsGroup>
+
+        <DesktopSettingsGroup
+          title="Account & diagnostics"
+          description="Manage the local desktop session and find troubleshooting information."
+        >
+          {signedInAs && onSignOut ? (
+            <DesktopSettingsRow
+              label="Signed in"
+              description={signedInAs}
+              control={
+                <button
+                  type="button"
+                  className="link-button"
+                  onClick={onSignOut}
+                >
+                  Sign out
+                </button>
+              }
+            />
+          ) : null}
+          <DesktopSettingsRow
+            label="Diagnostic logs"
+            description="Open the local Clips logs folder."
+            control={
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => {
+                  invoke("open_logs").catch((err) => {
+                    console.error("[clips-tray] open logs failed:", err);
+                  });
+                }}
+              >
+                <IconFolderOpen size={15} stroke={1.9} />
+                Open logs
+              </button>
+            }
+          />
+        </DesktopSettingsGroup>
+      </div>
+    );
+  }
+
+  function renderRecordingSettings() {
+    return (
+      <div className="settings-tab-content">
+        <DesktopSettingsGroup
+          title="Permissions"
+          description="Clips needs access to capture your screen, camera, and microphone."
+        >
+          <div className="settings-group-inset">
+            <ReadinessPanel
+              mode="screen-camera"
+              cameraOn={true}
+              micOn={true}
+              includeVoicePaste={voiceEnabled}
+              includeFnMonitoring={fnShortcutSelected}
+              open={readinessOpen}
+              onOpenChange={setReadinessOpen}
+              onOpenPermission={openPrivacySettings}
+            />
+          </div>
+        </DesktopSettingsGroup>
+
+        <DesktopSettingsGroup
+          title="Capture"
+          description="Choose how recordings are saved and how the tray opens them."
+        >
+          <DesktopSettingsRow
+            label="Rewind"
+            description={rewindStatusPresentation.title}
+            control={
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => onOpenRewind?.()}
+              >
+                Open Rewind settings
+              </button>
+            }
+          />
+          <DesktopSettingsRow
+            label="Clip Drafts"
+            description="Open local recordings that were kept after an upload issue."
+            control={
+              <button
+                type="button"
+                className="secondary"
+                onClick={openClipDraftsFolder}
+              >
+                <IconFolderOpen size={15} stroke={1.9} />
+                Open Clip Drafts
+              </button>
+            }
+          >
+            {clipDraftsError ? (
+              <p className="setup-warning">{clipDraftsError}</p>
+            ) : null}
+          </DesktopSettingsRow>
+          <DesktopSettingsRow
+            label="Save recordings locally"
+            description="Keep recordings on this Mac instead of uploading them."
+            control={
+              <select
+                id="local-recording-mode"
+                className="setup-select"
+                value={localRecordingMode}
+                onChange={(event) =>
+                  setLocalRecordingMode(
+                    event.target.value as LocalRecordingMode,
+                  )
+                }
+              >
+                <option value="off">Cloud Clips (default)</option>
+                <option value="composed">One local composed video</option>
+                <option value="separate">
+                  Two local files: desktop + camera
+                </option>
+              </select>
+            }
+          />
+          <DesktopSettingsRow
+            label="Screen region guides"
+            description={
+              regionGuideCount === 0
+                ? "Frame recordings with private guides that never enter the saved Clip."
+                : `${regionGuideCount} ${regionGuideCount === 1 ? "rectangle" : "rectangles"} saved.`
+            }
+            extraClassName="settings-row-extra--inline"
+            control={
+              <div className="settings-control-group">
+                <Switch
+                  on={regionGuides.enabled}
+                  onChange={setRegionGuidesEnabled}
+                  label="Show screen region guides while recording"
+                />
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={openRegionGuideEditor}
+                >
+                  <IconPencil size={15} stroke={1.9} />
+                  Edit preset
+                </button>
+              </div>
+            }
+          >
+            {regionGuides.enabled ? (
+              <>
+                <span>Keep guides visible when you are not recording.</span>
+                <Switch
+                  on={regionGuidesAlwaysVisible}
+                  onChange={setRegionGuidesAlwaysVisible}
+                  label="Keep region guides on screen even when not recording"
+                />
+                {regionGuideCount > 0 ? (
+                  <button
+                    type="button"
+                    className="settings-text-button"
+                    onClick={clearRegionGuidePreset}
+                  >
+                    Clear saved preset
+                  </button>
+                ) : null}
+              </>
+            ) : null}
+          </DesktopSettingsRow>
+        </DesktopSettingsGroup>
+
+        <DesktopSettingsGroup
+          title="Keyboard shortcuts"
+          description="Optional global shortcuts for recording and opening the tray."
+        >
+          <DesktopSettingsRow
+            label="Start/stop recording"
+            description="Start full-screen, region, or camera recordings and stop the active recording."
+            control={
+              <ShortcutRecorder
+                value={recordCustomShortcut}
+                placeholder="Record shortcut"
+                onChange={onRecordCustomShortcutChange}
+              />
+            }
+          />
+          <DesktopSettingsRow
+            label="Open Clips"
+            description="Open the tray popover; Cmd+Shift+L remains available."
+            control={
+              <ShortcutRecorder
+                value={popoverCustomShortcut}
+                placeholder="Record shortcut"
+                onChange={onPopoverCustomShortcutChange}
+              />
+            }
+          >
+            <>
+              <span>Leave this empty to use only Cmd+Shift+L.</span>
+              {shortcutRegistrationError ? (
+                <span className="setup-warning">
+                  {shortcutRegistrationError}
+                </span>
+              ) : null}
+            </>
+          </DesktopSettingsRow>
+        </DesktopSettingsGroup>
+      </div>
+    );
+  }
+
+  function renderMeetingSettings() {
+    return (
+      <div className="settings-tab-content">
+        <DesktopSettingsGroup
+          title="Meeting notes"
+          description="Use calendar meetings to show reminders and start live transcription."
+        >
+          <DesktopSettingsRow
+            label="Meeting notes"
+            description="Show the meeting widget and enable live notes."
+            control={
+              <Switch
+                on={meetingsEnabled}
+                onChange={setMeetingsEnabled}
+                label="Enable meeting notes"
+              />
+            }
+          />
+          {meetingsEnabled ? (
+            <>
+              <DesktopSettingsRow
+                label="Meeting transcription"
+                description="Ask first, start automatically, or wait for a manual start."
+                control={
+                  <select
+                    id="meeting-transcription-mode"
+                    className="setup-select"
+                    value={meetingTranscriptionMode}
+                    onChange={(event) =>
+                      setMeetingTranscriptionMode(
+                        event.target.value as MeetingTranscriptionMode,
+                      )
+                    }
+                  >
+                    <option value="ask">Ask at meeting time</option>
+                    <option value="auto">
+                      Auto-start during meeting times
+                    </option>
+                    <option value="manual">Manual only</option>
+                  </select>
+                }
+              />
+              <DesktopSettingsRow
+                label="Meeting widget"
+                description="Show the on-screen meeting widget near calendar start times."
+                control={
+                  <Switch
+                    on={showMeetingWidgetEnabled}
+                    onChange={setShowMeetingWidgetEnabled}
+                    label="Show meeting widget"
+                  />
+                }
+              />
+            </>
+          ) : null}
+        </DesktopSettingsGroup>
+      </div>
+    );
+  }
+
+  function renderDictationSettings() {
+    return (
+      <div className="settings-tab-content">
+        <DesktopSettingsGroup
+          title="Local transcription"
+          description="Use Whisper for offline transcription without an API key."
+        >
+          <DesktopSettingsRow
+            label="Whisper model"
+            description="Enable the local model for dictation and meetings."
+            control={
+              <Switch
+                on={whisperModelEnabled}
+                onChange={whisper.setEnabled}
+                label="Enable Whisper model"
+              />
+            }
+          />
+          <DesktopSettingsRow
+            label="Model"
+            description={
+              selectedWhisperModel?.description ??
+              "Choose the downloaded model used for offline transcription."
+            }
+            control={
+              <select
+                id="whisper-model"
+                className="setup-select"
+                value={whisperModelId}
+                onChange={(event) => whisper.setModelId(event.target.value)}
+                disabled={
+                  whisperModels.length === 0 ||
+                  whisperStatus?.state === "downloading"
+                }
+              >
+                {whisperModels.map((model) => (
+                  <option key={model.id} value={model.id}>
+                    {model.title} · {model.sizeMb} MB — {model.description}
+                  </option>
+                ))}
+              </select>
+            }
+          >
+            <>
+              <WhisperModelStatusRow
+                status={whisperStatus}
+                enabled={whisperModelEnabled}
+                onDownload={whisper.triggerDownload}
+              />
+              {deletableModels.length > 0 ? (
+                <div className="whisper-other-models">
+                  <p className="setup-hint">Other downloaded models</p>
+                  {deletableModels.map((model) => (
+                    <div key={model.id} className="whisper-other-model-row">
+                      <span className="whisper-other-model-name">
+                        {model.title} &middot; {model.sizeMb} MB
+                      </span>
+                      <button
+                        type="button"
+                        className="whisper-delete-btn"
+                        onClick={() => whisper.deleteModel(model.id)}
+                      >
+                        <IconTrash size={13} />
+                        Delete
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </>
+          </DesktopSettingsRow>
+        </DesktopSettingsGroup>
+
+        <DesktopSettingsGroup
+          title="Voice dictation"
+          description="Speak to type anywhere on your Mac."
+        >
+          <DesktopSettingsRow
+            label="Voice dictation"
+            description="Enable the global dictation shortcut."
+            control={
+              <Switch
+                on={voiceEnabled}
+                onChange={setVoiceEnabled}
+                label="Enable voice dictation"
+              />
+            }
+          />
+          {voiceEnabled ? (
+            <>
+              <DesktopSettingsRow
+                label="Provider"
+                description={providerHint[selectedMode]}
+                control={
+                  <div className="settings-control-group">
+                    <select
+                      id="voice-provider"
+                      className="setup-select"
+                      value={selectedMode}
+                      onChange={(event) =>
+                        selectProviderMode(
+                          event.target.value as VoiceProviderMode,
+                        )
+                      }
+                    >
+                      <option value="native">On-device (free, fast)</option>
+                      <option value="whisper" disabled={!whisperModelEnabled}>
+                        {whisperModelEnabled
+                          ? "Local Whisper (offline AI)"
+                          : "Local Whisper — enable Whisper model first"}
+                      </option>
+                      <option value="builder">Builder.io</option>
+                      <option value="byok">Add your own key</option>
+                    </select>
+                    {selectedMode === "builder" && !providerStatus?.builder ? (
+                      <button
+                        type="button"
+                        className="secondary"
+                        onClick={connectBuilder}
+                      >
+                        Use Builder.io
+                      </button>
+                    ) : null}
+                  </div>
+                }
+              >
+                {providerWarning ||
+                (selectedMode === "whisper" && !whisperModelEnabled) ? (
+                  <p className="setup-warning">
+                    {providerWarning ??
+                      "Whisper model is disabled. Enable it in Local transcription."}
+                  </p>
+                ) : null}
+              </DesktopSettingsRow>
+
+              {selectedMode === "byok" ? (
+                <>
+                  <DesktopSettingsRow
+                    label="Key provider"
+                    description="Choose the provider key used for cleanup."
+                    control={
+                      <select
+                        id="voice-byok-provider"
+                        className="setup-select"
+                        value={byokProvider}
+                        onChange={(event) => {
+                          setApiKeyMessage(null);
+                          onVoiceProviderChange(
+                            event.target.value as ByokVoiceProvider,
+                          );
+                        }}
+                      >
+                        <option value="gemini">
+                          Google Gemini (recommended)
+                        </option>
+                        <option value="groq">Groq</option>
+                      </select>
+                    }
+                  />
+                  <DesktopSettingsRow
+                    label="API key"
+                    description={
+                      providerStatus?.[byokProvider]
+                        ? `${labelForByokProvider(byokProvider)} key is set. Paste a new key to rotate it.`
+                        : `Save a ${keyForByokProvider(byokProvider)} key for cleanup.`
+                    }
+                    control={
+                      <div className="settings-control-group settings-control-group--wide">
+                        <input
+                          type="password"
+                          value={apiKeyValue}
+                          onChange={(event) =>
+                            setApiKeyValue(event.target.value)
+                          }
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") {
+                              event.preventDefault();
+                              saveApiKey();
+                            }
+                          }}
+                          placeholder={
+                            providerStatus?.[byokProvider]
+                              ? "Paste to rotate"
+                              : `Paste ${keyForByokProvider(byokProvider)}`
+                          }
+                          className="settings-url-input"
+                        />
+                        <button
+                          type="button"
+                          className="secondary"
+                          onClick={saveApiKey}
+                          disabled={!apiKeyValue.trim() || apiKeySaving}
+                        >
+                          {apiKeySaving
+                            ? "Saving..."
+                            : providerStatus?.[byokProvider]
+                              ? "Rotate"
+                              : "Save"}
+                        </button>
+                      </div>
+                    }
+                  >
+                    {apiKeyMessage ? (
+                      <p
+                        className={
+                          apiKeyMessage.kind === "ok"
+                            ? "setup-success"
+                            : "setup-warning"
+                        }
+                      >
+                        {apiKeyMessage.text}
+                      </p>
+                    ) : null}
+                  </DesktopSettingsRow>
+                </>
+              ) : null}
+
+              {selectedMode !== "native" && selectedMode !== "whisper" ? (
+                <DesktopSettingsRow
+                  label="Custom instructions"
+                  description="Guide casing, names, punctuation, and terms of art for LLM cleanup."
+                  stacked
+                  control={
+                    <textarea
+                      id="voice-instructions"
+                      className="setup-textarea"
+                      rows={4}
+                      value={voiceInstructions}
+                      onChange={(event) =>
+                        onVoiceInstructionsChange(event.target.value)
+                      }
+                      placeholder="Example: keep it casual and preserve technical terms exactly."
+                    />
+                  }
+                />
+              ) : null}
+
+              <DesktopSettingsRow
+                label="Shortcut"
+                description={shortcutHint[voiceShortcut]}
+                control={
+                  <select
+                    id="voice-shortcut"
+                    className="setup-select"
+                    value={voiceShortcut}
+                    onChange={(event) =>
+                      onVoiceShortcutChange(
+                        event.target.value as VoiceShortcutPreference,
+                      )
+                    }
+                  >
+                    <option value="cmd-shift-space">Cmd+Shift+Space</option>
+                    <option value="ctrl-shift-space">Ctrl+Shift+Space</option>
+                    <option value="custom">Custom shortcut</option>
+                    <option value="fn">
+                      Fn (globe, needs Input Monitoring)
+                    </option>
+                    <option value="both">All shortcuts (includes Fn)</option>
+                  </select>
+                }
+              />
+              {voiceShortcut === "custom" ? (
+                <DesktopSettingsRow
+                  label="Custom shortcut"
+                  description="Record the key combination used for dictation."
+                  control={
+                    <ShortcutRecorder
+                      value={voiceCustomShortcut}
+                      placeholder="Record voice shortcut"
+                      onChange={onVoiceCustomShortcutChange}
+                    />
+                  }
+                />
+              ) : null}
+              {isMacPlatform() && fnShortcutSelected ? (
+                <DesktopSettingsRow
+                  label="Input Monitoring"
+                  description="Required when the Fn / globe shortcut is enabled."
+                  control={
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={() => openPrivacySettings("input-monitoring")}
+                    >
+                      Open settings
+                    </button>
+                  }
+                />
+              ) : null}
+              <DesktopSettingsRow
+                label="Mode"
+                description={modeHint[voiceMode]}
+                control={
+                  <select
+                    id="voice-mode"
+                    className="setup-select"
+                    value={voiceMode}
+                    onChange={(event) =>
+                      onVoiceModeChange(event.target.value as VoiceMode)
+                    }
+                  >
+                    <option value="push-to-talk">Hold to dictate</option>
+                    <option value="toggle">
+                      Press to start, press to stop
+                    </option>
+                  </select>
+                }
+              />
+            </>
+          ) : null}
+        </DesktopSettingsGroup>
+      </div>
+    );
+  }
+
+  const settingsTabs: Array<{
+    id: SettingsTabId;
+    label: string;
+    group: string;
+  }> = [
+    { id: "general", label: "General", group: "Personal" },
+    { id: "recording", label: "Recording", group: "Personal" },
+    { id: "meetings", label: "Meetings", group: "Workflow" },
+    { id: "dictation", label: "Dictation", group: "Workflow" },
+  ];
+  const activeSettingsTab =
+    settingsTabs.find((tab) => tab.id === settingsTab) ?? settingsTabs[0];
+
+  function renderSettingsTab() {
+    switch (settingsTab) {
+      case "recording":
+        return renderRecordingSettings();
+      case "meetings":
+        return renderMeetingSettings();
+      case "dictation":
+        return renderDictationSettings();
+      case "general":
+      default:
+        return renderGeneralSettings();
+    }
+  }
+
   return (
-    <div className="setup">
-      <div className="setup-header" onMouseDown={handlePopoverHeaderMouseDown}>
+    <div className="setup settings-page">
+      <div
+        className="setup-header settings-page-header"
+        onMouseDown={handlePopoverHeaderMouseDown}
+      >
         {onCancel ? (
           <button
             type="button"
@@ -6828,1058 +7549,102 @@ function Setup({
             <IconArrowLeft size={18} stroke={1.75} />
           </button>
         ) : null}
-        <h2>Settings</h2>
-      </div>
-
-      <div className="setup-section-heading">General</div>
-
-      <div className="setup-section">
-        <SettingLabel
-          label="Clips server URL"
-          hint="The URL of the Clips backend this tray app connects to."
-          htmlFor="clips-url"
-        />
-        <input
-          id="clips-url"
-          type="url"
-          value={url}
-          onChange={(e) => setUrl(e.target.value)}
-          placeholder="http://localhost:8080"
-        />
-        <button
-          className="secondary setup-connect-button"
-          type="button"
-          onClick={handleConnect}
-        >
-          Connect
-        </button>
-      </div>
-
-      <div className="setup-section">
-        <div className="setup-toggle-row">
-          <SettingLabel
-            label="Open at login"
-            hint="Start Clips automatically when you sign in so recording, meetings, and dictation shortcuts are ready."
-          />
-          <Switch
-            on={launchAtLoginEnabled}
-            onChange={setLaunchAtLoginEnabled}
-            label="Open Clips at login"
-          />
+        <div className="settings-page-title">
+          <h2>Settings</h2>
+          <p>Clips desktop preferences</p>
         </div>
       </div>
 
-      <div className="setup-section">
-        <div className="setup-toggle-row">
-          <SettingLabel
-            label="Hide when inactive"
-            hint="When off, the Clips window stays open until you close it."
-          />
-          <Switch
-            on={autoHidePopoverEnabled}
-            onChange={setAutoHidePopoverEnabled}
-            label="Hide Clips when focus leaves"
-          />
-        </div>
-      </div>
-
-      <div className="setup-section">
-        <div className="setup-toggle-row">
-          <SettingLabel
-            label="Show Clips in screen captures"
-            hint="When off, Clips windows and recording overlays stay out of screenshots, normal screen recordings, and Rewind. Turn on only for debugging or demos."
-          />
-          <Switch
-            on={showInScreenCapture}
-            onChange={setShowInScreenCapture}
-            label="Show Clips in screen captures"
-          />
-        </div>
-      </div>
-
-      <div className="setup-section">
-        <SettingLabel
-          label="Desktop updates"
-          hint="Check the signed Clips desktop release channel and download any available update."
-        />
-        <div className="setup-button-row">
-          <button
-            type="button"
-            className="secondary"
-            onClick={checkForDesktopUpdate}
-            disabled={!updateChecksSupported || updateBusy || updateReady}
-          >
-            <IconRefresh
-              size={15}
-              stroke={1.9}
-              className={updateBusy ? "update-spinner" : undefined}
-            />
-            {updateCheckLabel}
-          </button>
-          {updateReady ? (
-            <button
-              type="button"
-              className="secondary"
-              onClick={() => {
-                installAndRestart().catch((err) => {
-                  console.error("[clips-updater] relaunch failed:", err);
-                });
-              }}
+      <div className="settings-page-layout">
+        <nav className="settings-nav" aria-label="Settings sections">
+          {settingsTabs.map((tab, index) => (
+            <div
+              key={tab.id}
+              className={`settings-nav-group ${
+                index === 0 || settingsTabs[index - 1]?.group !== tab.group
+                  ? "settings-nav-group--start"
+                  : ""
+              }`}
             >
-              Restart to install
-            </button>
-          ) : null}
-        </div>
-        <p className={updateStatusClass}>
-          {updateChecksSupported
-            ? desktopUpdateStatusText(updateStatus)
-            : "Update checks are available in signed release builds."}
-        </p>
-      </div>
-
-      <div className="setup-section-heading">Permissions</div>
-
-      <div className="setup-section">
-        <ReadinessPanel
-          mode="screen-camera"
-          cameraOn={true}
-          micOn={true}
-          includeVoicePaste={voiceEnabled}
-          includeFnMonitoring={fnShortcutSelected}
-          open={readinessOpen}
-          onOpenChange={setReadinessOpen}
-          onOpenPermission={openPrivacySettings}
-        />
-      </div>
-
-      <div className="setup-section-heading">Recording</div>
-
-      <div className="setup-section rewind-settings-entry">
-        <div className="rewind-settings-entry-main">
-          <span
-            className={`rewind-home-dot ${rewindStatusPresentation.isLive ? "is-live" : ""}`}
-          />
-          <div>
-            <strong>Rewind</strong>
-            <p className="setup-hint">{rewindStatusPresentation.title}</p>
-          </div>
-        </div>
-        <button type="button" className="secondary" onClick={onOpenRewind}>
-          Rewind settings
-        </button>
-      </div>
-
-      <div className="setup-section">
-        <SettingLabel
-          label="Clip Drafts"
-          hint="Only clips you dismiss from the saved-upload card appear in Movies/Clips/Drafts. To retry a failed upload, return to the Clips popover and use Retry."
-        />
-        <button
-          type="button"
-          className="secondary"
-          onClick={openClipDraftsFolder}
-        >
-          <IconFolderOpen size={15} stroke={1.9} />
-          Open Clip Drafts
-        </button>
-        {clipDraftsError ? (
-          <p className="setup-warning">{clipDraftsError}</p>
-        ) : null}
-      </div>
-
-      <div className="setup-section setup-rewind-legacy">
-        <div className="setup-toggle-row">
-          <SettingLabel
-            label="Rewind"
-            hint="A disabled-by-default rolling local archive for recent screen and app context. It never becomes a shared Clip on its own."
-          />
-          <Switch
-            on={screenMemory.enabled}
-            onChange={(enabled) =>
-              void setScreenMemoryConfig({ enabled, paused: false })
-            }
-            label="Enable Rewind"
-            disabled={screenMemoryConfigBusy || captureControlsLocked}
-          />
-        </div>
-        <p className="setup-hint">
-          Local-only by default. Media uploads and sharing happen only when you
-          make a normal Clip.
-        </p>
-        {screenMemory.enabled ? (
-          <>
-            <div className="setup-toggle-row">
-              <SettingLabel
-                label="Pause capture"
-                hint="Stop retaining new Rewind segments without clearing the local archive."
-              />
-              <Switch
-                on={screenMemory.paused}
-                onChange={(paused) => void setScreenMemoryConfig({ paused })}
-                label="Pause Rewind"
-                disabled={screenMemoryConfigBusy || captureControlsLocked}
-              />
-            </div>
-            <div className="setup-grid">
-              <label className="setup-mini-field">
-                <span>Retention</span>
-                <select
-                  className="setup-select"
-                  disabled={screenMemoryConfigBusy || captureControlsLocked}
-                  value={screenMemory.retentionHours}
-                  onChange={(event) =>
-                    setScreenMemoryConfig({
-                      retentionHours: Number(event.target.value),
-                    })
-                  }
-                >
-                  <option value={8}>8 hours</option>
-                  <option value={24}>24 hours</option>
-                </select>
-              </label>
-              <label className="setup-mini-field">
-                <span>Disk cap</span>
-                <select
-                  className="setup-select"
-                  disabled={screenMemoryConfigBusy}
-                  value={screenMemory.maxBytes}
-                  onChange={(event) =>
-                    setScreenMemoryConfig({
-                      maxBytes: Number(event.target.value),
-                    })
-                  }
-                >
-                  <option value={5 * 1024 * 1024 * 1024}>5 GB</option>
-                  <option value={20 * 1024 * 1024 * 1024}>20 GB</option>
-                  <option value={50 * 1024 * 1024 * 1024}>50 GB</option>
-                </select>
-              </label>
-            </div>
-            <div className="setup-grid">
-              <label className="setup-mini-field">
-                <span>Capture mode</span>
-                <select
-                  className="setup-select"
-                  disabled={screenMemoryConfigBusy}
-                  value={screenMemory.captureMode}
-                  onChange={(event) =>
-                    setScreenMemoryConfig({
-                      captureMode: event.target.value as
-                        | "visuals"
-                        | "visuals-audio",
-                    })
-                  }
-                >
-                  <option value="visuals">Visuals</option>
-                  <option value="visuals-audio">Visuals + audio</option>
-                </select>
-              </label>
-              <label className="setup-mini-field">
-                <span>Agent handoff review</span>
-                <select
-                  className="setup-select"
-                  disabled={screenMemoryConfigBusy}
-                  value={screenMemory.reviewBeforeSending ? "review" : "direct"}
-                  onChange={(event) =>
-                    setScreenMemoryConfig({
-                      reviewBeforeSending: event.target.value === "review",
-                    })
-                  }
-                >
-                  <option value="review">Review before sending</option>
-                  <option value="direct">Send requested range directly</option>
-                </select>
-              </label>
-            </div>
-            <p className="setup-hint">
-              {screenMemory.captureMode === "visuals-audio"
-                ? "Visuals + audio is configured to retain microphone and system audio as separate local tracks."
-                : "Visuals retains screen and app context without selecting audio capture."}
-            </p>
-            <p className="setup-hint">
-              Agents receive bounded matching text when you ask. Raw Rewind
-              media remains local unless a bounded range becomes a private Clip.
-            </p>
-            <label className="setup-mini-field">
-              <span>Excluded apps</span>
-              <input
-                value={excludedBundleIdsInput}
-                onChange={(event) =>
-                  setExcludedBundleIdsInput(event.target.value)
-                }
-                onBlur={() =>
-                  setScreenMemoryConfig({
-                    excludedBundleIds: parseExcludedBundleIds(
-                      excludedBundleIdsInput,
-                    ),
-                  })
-                }
-                placeholder="com.example.private-app, com.example.vault"
-                aria-describedby="rewind-excluded-apps-hint"
-              />
-            </label>
-            <button
-              type="button"
-              className="secondary"
-              disabled={screenMemoryConfigBusy}
-              onClick={() =>
-                void setScreenMemoryConfig({
-                  excludedBundleIds: parseExcludedBundleIds(
-                    excludedBundleIdsInput,
-                  ),
-                })
-              }
-            >
-              Apply exclusions
-            </button>
-            <p id="rewind-excluded-apps-hint" className="setup-hint">
-              Bundle IDs, comma-separated. Password managers are excluded by
-              default. Recognized bundle IDs stop media capture and discard the
-              entire in-flight segment; apps that do not expose a recognized
-              bundle ID cannot be detected.
-            </p>
-            <div className="whisper-status">
-              {rewindStatusPresentation.isLive ? (
-                <IconCircleCheck size={13} className="whisper-status-icon" />
-              ) : (
-                <IconAlertTriangle size={13} className="whisper-status-icon" />
-              )}
-              <span>
-                {rewindStatusPresentation.kind === "recording" &&
-                !rewindStatusPresentation.hasError
-                  ? `Rewind is retaining local coverage: ${screenMemorySegments.length} segment${screenMemorySegments.length === 1 ? "" : "s"}, ${formatStorageBytes(screenMemoryTotalBytes)}.`
-                  : rewindStatusPresentation.detail}
-              </span>
-            </div>
-            {screenMemorySegments[0] ? (
-              <p className="setup-hint">
-                Latest local coverage:{" "}
-                {new Date(screenMemorySegments[0].endedAt).toLocaleTimeString()}
-                .
-              </p>
-            ) : null}
-            <div className="setup-advanced-body">
-              <SettingLabel
-                label="Ask Rewind"
-                hint="Searches app context, local transcripts, and local visual text on this Mac. Private mode allows this because no model or network service is called."
-              />
-              <div className="setup-button-row">
-                <input
-                  value={rewindLocalQuery}
-                  onChange={(event) => setRewindLocalQuery(event.target.value)}
-                  placeholder="What was Lilian saying about the audience?"
-                  aria-label="Ask Rewind locally"
-                  maxLength={500}
-                  onKeyDown={(event) => {
-                    if (event.key !== "Enter") return;
-                    event.preventDefault();
-                    event.stopPropagation();
-                    void askRewindLocally();
-                  }}
-                />
-                <button
-                  type="button"
-                  className="secondary"
-                  disabled={rewindLocalBusy || !rewindLocalQuery.trim()}
-                  onClick={() => void askRewindLocally()}
-                >
-                  {rewindLocalBusy ? "Searching…" : "Search locally"}
-                </button>
-              </div>
-              {rewindLocalError ? (
-                <p className="setup-warning">{rewindLocalError}</p>
+              {index === 0 || settingsTabs[index - 1]?.group !== tab.group ? (
+                <div className="settings-nav-group-label">{tab.group}</div>
               ) : null}
-              {rewindLocalResult ? (
-                <div aria-live="polite">
-                  <p className="setup-hint">
-                    <strong>Local answer:</strong>{" "}
-                    {rewindLocalResult.answerSummary}
-                  </p>
-                  <p className="setup-hint">
-                    <strong>Confidence:</strong> {rewindLocalResult.confidence}
-                  </p>
-                  <p className="setup-hint">
-                    <strong>Coverage:</strong>{" "}
-                    {rewindLocalResult.coverage.segmentsConsidered} retained
-                    segment
-                    {rewindLocalResult.coverage.segmentsConsidered === 1
-                      ? ""
-                      : "s"}
-                    ; {rewindLocalResult.coverage.transcriptIndexesReady}{" "}
-                    transcript and {rewindLocalResult.coverage.ocrIndexesReady}{" "}
-                    visual indexes ready.
-                    {rewindLocalResult.coverage.gaps.length > 0
-                      ? ` ${rewindLocalResult.coverage.gaps.length} capture or index gap${rewindLocalResult.coverage.gaps.length === 1 ? "" : "s"} may hide matches.`
-                      : " No known capture or index gaps."}
-                  </p>
-                  {rewindLocalResult.coverage.gaps.length > 0 ? (
-                    <details className="setup-advanced">
-                      <summary className="setup-advanced-summary">
-                        Coverage gaps
-                      </summary>
-                      <div className="setup-advanced-body">
-                        {rewindLocalResult.coverage.gaps
-                          .slice(0, 10)
-                          .map((gap, index) => (
-                            <p
-                              className="setup-hint"
-                              key={`${gap.kind}-${gap.source}-${gap.startedAt ?? index}`}
-                            >
-                              <strong>{gap.source}</strong> · {gap.detail}
-                            </p>
-                          ))}
-                      </div>
-                    </details>
-                  ) : null}
-                  {rewindLocalResult.evidence.length === 0 ? (
-                    <p className="setup-hint">No matching evidence to show.</p>
-                  ) : (
-                    rewindLocalResult.evidence.map((evidence) => (
-                      <div className="setup-section" key={evidence.id}>
-                        <p className="setup-hint">
-                          <strong>{evidence.sourceType}</strong> ·{" "}
-                          {new Date(evidence.capturedAt).toLocaleString()}
-                          {typeof evidence.confidence === "number"
-                            ? ` · ${Math.round(evidence.confidence * 100)}% OCR confidence`
-                            : ""}
-                          <br />
-                          {evidence.excerpt}
-                        </p>
-                        <button
-                          type="button"
-                          className="secondary"
-                          onClick={() => void replayRewindMoment(evidence)}
-                          disabled={rewindReplayId === evidence.id}
-                        >
-                          <IconExternalLink size={14} stroke={1.9} />
-                          {rewindReplayId === evidence.id
-                            ? "Preparing replay…"
-                            : "Replay moment"}
-                        </button>
-                      </div>
-                    ))
-                  )}
-                  {rewindLocalResult.truncated ? (
-                    <p className="setup-hint">
-                      More local matches exist; results are bounded to the
-                      strongest 12.
-                    </p>
-                  ) : null}
-                </div>
-              ) : null}
-            </div>
-            <div className="setup-button-row">
               <button
                 type="button"
-                className="secondary"
-                onClick={exportScreenMemoryRecent}
-                disabled={screenMemoryBusy || screenMemorySegments.length === 0}
+                className={`settings-nav-button ${settingsTab === tab.id ? "is-active" : ""}`}
+                aria-current={settingsTab === tab.id ? "page" : undefined}
+                onClick={() => setSettingsTab(tab.id)}
               >
-                <IconDownload size={15} stroke={1.9} />
-                Export 5 min
-              </button>
-              <button
-                type="button"
-                className="secondary"
-                onClick={openScreenMemoryFolder}
-              >
-                <IconFolderOpen size={15} stroke={1.9} />
-                Open folder
-              </button>
-              <button
-                type="button"
-                className="secondary"
-                onClick={clearScreenMemory}
-                disabled={screenMemoryBusy || screenMemorySegments.length === 0}
-              >
-                <IconTrash size={15} stroke={1.9} />
-                Clear Rewind
+                {tab.label}
               </button>
             </div>
-            <details
-              className="setup-advanced"
-              open={rewindEgressOpen}
-              onToggle={(event) => {
-                const open = event.currentTarget.open;
-                setRewindEgressOpen(open);
-                if (open) refreshRewindEgressLog();
-              }}
-            >
-              <summary className="setup-advanced-summary">
-                Agent access log
-              </summary>
-              <div className="setup-advanced-body">
-                <p className="setup-hint">
-                  Every bounded Rewind evidence request is recorded on this Mac
-                  before matching text is returned. Raw media appears only as a
-                  separate private Clip handoff.
-                </p>
-                {rewindEgressEvents.length === 0 ? (
-                  <p className="setup-hint">No evidence requests yet.</p>
-                ) : (
-                  rewindEgressEvents.slice(0, 10).map((event) => (
-                    <details
-                      className="setup-advanced"
-                      key={`${event.requestId}-${event.state}`}
-                    >
-                      <summary className="popover-kv">
-                        <span>
-                          {new Date(event.occurredAt).toLocaleString()} ·{" "}
-                          {event.state}
-                        </span>
-                        <strong>
-                          {event.evidenceCount} item
-                          {event.evidenceCount === 1 ? "" : "s"}
-                        </strong>
-                      </summary>
-                      <div className="setup-advanced-body">
-                        <p className="setup-hint">
-                          <strong>{event.operation ?? "Agent access"}</strong>
-                          {" · "}Request {event.requestId}
-                        </p>
-                        {event.receipt?.evidence?.map((evidence) => (
-                          <p className="setup-hint" key={evidence.id}>
-                            <strong>{evidence.sourceType}</strong>
-                            {evidence.capturedAt
-                              ? ` · ${new Date(evidence.capturedAt).toLocaleTimeString()}`
-                              : ""}
-                            <br />
-                            Evidence {evidence.id} · moment {evidence.momentId}
-                          </p>
-                        ))}
-                        {event.receipt?.frames?.map((frame) => (
-                          <p className="setup-hint" key={frame.timestamp}>
-                            <strong>Local frame</strong>
-                            {` · ${new Date(frame.timestamp).toLocaleTimeString()}`}
-                            <br />
-                            Segment {frame.segmentId}
-                          </p>
-                        ))}
-                        {event.receipt?.mediaInterval ? (
-                          <p className="setup-hint">
-                            <strong>Private Clip range</strong>
-                            {` · ${new Date(event.receipt.mediaInterval.startAt).toLocaleTimeString()}–${new Date(event.receipt.mediaInterval.endAt).toLocaleTimeString()}`}
-                          </p>
-                        ) : null}
-                        {!event.receipt ? (
-                          <p className="setup-hint">
-                            This completion record refers to the prepared
-                            receipt with request ID {event.requestId}.
-                          </p>
-                        ) : null}
-                        {event.error ? (
-                          <p className="setup-warning">{event.error}</p>
-                        ) : null}
-                      </div>
-                    </details>
-                  ))
-                )}
-              </div>
-            </details>
-            {screenMemoryMessage ? (
-              <p
-                className={
-                  screenMemoryMessage.kind === "ok"
-                    ? "setup-success"
-                    : "setup-warning"
-                }
-              >
-                {screenMemoryMessage.text}
-              </p>
-            ) : null}
-          </>
-        ) : null}
-      </div>
-
-      <details className="setup-advanced">
-        <summary className="setup-advanced-summary">Advanced recording</summary>
-        <div className="setup-advanced-body">
-          <div className="setup-section">
-            <SettingLabel
-              label="Save recordings locally"
-              hint="Advanced local-only mode. Local recordings save to Movies/Clips and do not upload or create a Clip."
-              htmlFor="local-recording-mode"
-            />
-            <select
-              id="local-recording-mode"
-              className="setup-select"
-              value={localRecordingMode}
-              onChange={(event) =>
-                setLocalRecordingMode(event.target.value as LocalRecordingMode)
-              }
-            >
-              <option value="off">Cloud Clips (default)</option>
-              <option value="composed">One local composed video</option>
-              <option value="separate">
-                Two local files: desktop + camera
-              </option>
-            </select>
-            <p className="setup-hint">
-              Two-file mode records desktop with audio and a raw rectangular
-              camera video with no audio.
-            </p>
-          </div>
-
-          <div className="setup-section">
-            <div className="setup-toggle-row">
-              <SettingLabel
-                label="Screen region guides"
-                hint="Show private rectangle guides over your screen while recording. They stay out of the saved Clip."
-              />
-              <Switch
-                on={regionGuides.enabled}
-                onChange={setRegionGuidesEnabled}
-                label="Show screen region guides while recording"
-              />
-            </div>
-            {regionGuides.enabled && (
-              <div className="setup-toggle-row">
-                <SettingLabel
-                  label="Keep guides on screen even when not recording"
-                  hint="Stays visible at all times so you can frame recordings made with other tools like OBS or QuickTime. Still excluded from every screen recording."
-                />
-                <Switch
-                  on={regionGuidesAlwaysVisible}
-                  onChange={setRegionGuidesAlwaysVisible}
-                  label="Keep region guides on screen even when not recording"
-                />
-              </div>
-            )}
-            <div className="setup-button-row">
-              <button
-                type="button"
-                className="secondary"
-                onClick={openRegionGuideEditor}
-              >
-                <IconPencil size={15} stroke={1.9} />
-                Edit preset
-              </button>
-              <button
-                type="button"
-                className="secondary"
-                onClick={clearRegionGuidePreset}
-                disabled={regionGuideCount === 0}
-              >
-                <IconTrash size={15} stroke={1.9} />
-                Clear
-              </button>
-            </div>
-            <p className="setup-hint">
-              {regionGuideCount === 0
-                ? "No guide preset saved yet."
-                : `${regionGuideCount} ${regionGuideCount === 1 ? "rectangle" : "rectangles"} saved.`}
-            </p>
-          </div>
-        </div>
-      </details>
-
-      <div className="setup-section">
-        <SettingLabel
-          label="Start/stop recording shortcut"
-          hint="Optional global shortcut for starting full-screen, region, or camera recordings and stopping the active recording."
-        />
-        <ShortcutRecorder
-          value={recordCustomShortcut}
-          placeholder="Record shortcut"
-          onChange={onRecordCustomShortcutChange}
-        />
-        <p className="setup-hint">
-          Window and browser-tab sources still open Clips first so the picker
-          can use a click.
-        </p>
-      </div>
-
-      <div className="setup-section">
-        <SettingLabel
-          label="Open Clips shortcut"
-          hint="Optional extra global shortcut for opening the tray popover. Cmd+Shift+L remains available."
-        />
-        <ShortcutRecorder
-          value={popoverCustomShortcut}
-          placeholder="Record shortcut"
-          onChange={onPopoverCustomShortcutChange}
-        />
-        <p className="setup-hint">
-          Use a modifier combination like Cmd+Shift+K. Leave empty to use only
-          Cmd+Shift+L.
-        </p>
-        {shortcutRegistrationError ? (
-          <p className="setup-warning">{shortcutRegistrationError}</p>
-        ) : null}
-      </div>
-
-      <div className="setup-section-heading">Meetings</div>
-
-      <div className="setup-section">
-        <div className="setup-toggle-row">
-          <SettingLabel
-            label="Meeting notes"
-            hint="Use calendar meetings to show a notes widget and start live transcription."
-          />
-          <Switch
-            on={meetingsEnabled}
-            onChange={setMeetingsEnabled}
-            label="Enable meeting notes"
-          />
-        </div>
-      </div>
-
-      {meetingsEnabled ? (
-        <>
-          <div className="setup-section">
-            <SettingLabel
-              label="Meeting transcription"
-              hint="Choose whether Clips asks first, starts automatically, or waits for manual start."
-              htmlFor="meeting-transcription-mode"
-            />
-            <select
-              id="meeting-transcription-mode"
-              className="setup-select"
-              value={meetingTranscriptionMode}
-              onChange={(event) =>
-                setMeetingTranscriptionMode(
-                  event.target.value as MeetingTranscriptionMode,
-                )
-              }
-            >
-              <option value="ask">Ask at meeting time</option>
-              <option value="auto">Auto-start during meeting times</option>
-              <option value="manual">Manual only</option>
-            </select>
-            <p className="setup-hint">
-              Auto-start still shows the notes pill while transcription is
-              active.
-            </p>
-          </div>
-
-          <div className="setup-section">
-            <div className="setup-toggle-row">
-              <SettingLabel
-                label="Meeting widget"
-                hint="Show the on-screen meeting widget near calendar start times, even when macOS notifications are hidden."
-              />
-              <Switch
-                on={showMeetingWidgetEnabled}
-                onChange={setShowMeetingWidgetEnabled}
-                label="Show meeting widget"
-              />
-            </div>
-          </div>
-        </>
-      ) : null}
-
-      <div className="setup-section-heading">Whisper</div>
-
-      <div className="setup-section">
-        <div className="setup-toggle-row">
-          <SettingLabel
-            label="Whisper model"
-            hint="Local AI model for offline transcription (dictation and meetings). No API key required."
-          />
-          <Switch
-            on={whisperModelEnabled}
-            onChange={whisper.setEnabled}
-            label="Enable Whisper model"
-          />
-        </div>
-        <SettingLabel
-          label="Model"
-          hint="Larger models can improve transcription accuracy but use more storage and may run more slowly."
-          htmlFor="whisper-model"
-        />
-        <select
-          id="whisper-model"
-          className="setup-select"
-          value={whisperModelId}
-          onChange={(event) => whisper.setModelId(event.target.value)}
-          disabled={
-            whisperModels.length === 0 || whisperStatus?.state === "downloading"
-          }
-        >
-          {whisperModels.map((model) => (
-            <option key={model.id} value={model.id}>
-              {model.title} · {model.sizeMb} MB — {model.description}
-            </option>
           ))}
-        </select>
-        {selectedWhisperModel ? (
-          <p className="setup-hint">{selectedWhisperModel.description}</p>
-        ) : null}
-        <WhisperModelStatusRow
-          status={whisperStatus}
-          enabled={whisperModelEnabled}
-          onDownload={whisper.triggerDownload}
-        />
-        {deletableModels.length > 0 ? (
-          <div className="whisper-other-models">
-            <p className="setup-hint">Other downloaded models</p>
-            {deletableModels.map((model) => (
-              <div key={model.id} className="whisper-other-model-row">
-                <span className="whisper-other-model-name">
-                  {model.title} &middot; {model.sizeMb} MB
-                </span>
-                <button
-                  type="button"
-                  className="whisper-delete-btn"
-                  onClick={() => whisper.deleteModel(model.id)}
-                >
-                  <IconTrash size={13} />
-                  Delete
-                </button>
-              </div>
-            ))}
+        </nav>
+        <main className="settings-page-content" tabIndex={-1}>
+          <div className="settings-tab-heading">
+            <h3>{activeSettingsTab.label}</h3>
+            <p>
+              {settingsTab === "general"
+                ? "Connection, app behavior, updates, and diagnostics."
+                : settingsTab === "recording"
+                  ? "Capture behavior, permissions, drafts, and shortcuts."
+                  : settingsTab === "meetings"
+                    ? "Meeting reminders and live transcription behavior."
+                    : "Local transcription and voice dictation controls."}
+            </p>
           </div>
-        ) : null}
+          {renderSettingsTab()}
+        </main>
       </div>
+    </div>
+  );
+}
 
-      <div className="setup-section-heading">Dictation</div>
+function DesktopSettingsGroup({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description?: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="settings-group">
+      <header className="settings-group-header">
+        <h4>{title}</h4>
+        {description ? <p>{description}</p> : null}
+      </header>
+      <div className="settings-group-body">{children}</div>
+    </section>
+  );
+}
 
-      <div className="setup-section">
-        <div className="setup-toggle-row">
-          <SettingLabel
-            label="Voice dictation"
-            hint="Speak to type anywhere on your Mac. Turn off to disable globally and remove the keyboard shortcuts."
-          />
-          <Switch
-            on={voiceEnabled}
-            onChange={setVoiceEnabled}
-            label="Enable voice dictation"
-          />
-        </div>
+function DesktopSettingsRow({
+  label,
+  description,
+  control,
+  children,
+  extraClassName,
+  stacked = false,
+}: {
+  label: string;
+  description: ReactNode;
+  control?: ReactNode;
+  children?: ReactNode;
+  extraClassName?: string;
+  stacked?: boolean;
+}) {
+  return (
+    <div className={`settings-row ${stacked ? "settings-row--stacked" : ""}`}>
+      <div className="settings-row-copy">
+        <strong>{label}</strong>
+        <span>{description}</span>
       </div>
-
-      {voiceEnabled ? (
-        <>
-          <div className="setup-section">
-            <SettingLabel
-              label="Provider"
-              hint="Choose free on-device dictation, Builder.io cleanup, or a provider key you own."
-              htmlFor="voice-provider"
-            />
-            <select
-              id="voice-provider"
-              className="setup-select"
-              value={selectedMode}
-              onChange={(event) =>
-                selectProviderMode(event.target.value as VoiceProviderMode)
-              }
-            >
-              <option value="native">On-device (free, fast)</option>
-              <option value="whisper" disabled={!whisperModelEnabled}>
-                {whisperModelEnabled
-                  ? "Local Whisper (offline AI)"
-                  : "Local Whisper — enable Whisper model first"}
-              </option>
-              <option value="builder">Builder.io</option>
-              <option value="byok">Add your own key</option>
-            </select>
-            <p className="setup-hint">{providerHint[selectedMode]}</p>
-            {selectedMode === "whisper" && !whisperModelEnabled ? (
-              <p className="setup-warning">
-                Whisper model is disabled. Enable it in the Whisper section
-                above.
-              </p>
-            ) : null}
-            {providerWarning ? (
-              <p className="setup-warning">{providerWarning}</p>
-            ) : null}
-            {selectedMode === "builder" && !providerStatus?.builder ? (
-              <button
-                type="button"
-                className="secondary"
-                onClick={connectBuilder}
-              >
-                Use Builder.io
-              </button>
-            ) : null}
-          </div>
-
-          {selectedMode === "byok" ? (
-            <div className="setup-section">
-              <SettingLabel
-                label="Key provider"
-                hint="Choose which provider key to use for cleanup."
-                htmlFor="voice-byok-provider"
-              />
-              <select
-                id="voice-byok-provider"
-                className="setup-select"
-                value={byokProvider}
-                onChange={(event) => {
-                  setApiKeyMessage(null);
-                  onVoiceProviderChange(
-                    event.target.value as ByokVoiceProvider,
-                  );
-                }}
-              >
-                <option value="gemini">Google Gemini (recommended)</option>
-                <option value="groq">Groq</option>
-              </select>
-              <div className="setup-key-row">
-                <input
-                  type="password"
-                  value={apiKeyValue}
-                  onChange={(event) => setApiKeyValue(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") {
-                      event.preventDefault();
-                      saveApiKey();
-                    }
-                  }}
-                  placeholder={
-                    providerStatus?.[byokProvider]
-                      ? "Key is saved — paste to rotate"
-                      : `Paste ${keyForByokProvider(byokProvider)} here`
-                  }
-                  className="setup-key-input"
-                />
-                <button
-                  type="button"
-                  className="secondary setup-key-save"
-                  onClick={saveApiKey}
-                  disabled={!apiKeyValue.trim() || apiKeySaving}
-                >
-                  {apiKeySaving
-                    ? "Saving..."
-                    : providerStatus?.[byokProvider]
-                      ? "Rotate"
-                      : "Save"}
-                </button>
-              </div>
-              {providerStatus?.[byokProvider] ? (
-                <p className="setup-hint">
-                  {labelForByokProvider(byokProvider)} key is set.
-                </p>
-              ) : null}
-              {apiKeyMessage ? (
-                <p
-                  className={
-                    apiKeyMessage.kind === "ok"
-                      ? "setup-success"
-                      : "setup-warning"
-                  }
-                >
-                  {apiKeyMessage.text}
-                </p>
-              ) : null}
-            </div>
-          ) : null}
-
-          {selectedMode !== "native" && selectedMode !== "whisper" ? (
-            <div className="setup-section">
-              <SettingLabel
-                label="Custom instructions"
-                hint="Included with LLM cleanup/transcription. Use this for casing, names, punctuation, tone, or terms of art."
-                htmlFor="voice-instructions"
-              />
-              <textarea
-                id="voice-instructions"
-                className="setup-textarea"
-                rows={4}
-                value={voiceInstructions}
-                onChange={(event) =>
-                  onVoiceInstructionsChange(event.target.value)
-                }
-                placeholder="Example: keep it casual, spell Builder.io with a dot, and preserve technical terms exactly."
-              />
-              <p className="setup-hint">
-                These instructions are sent only when an LLM-based provider is
-                selected.
-              </p>
-            </div>
-          ) : null}
-
-          <div className="setup-section">
-            <SettingLabel
-              label="Shortcut"
-              hint="The key combination that triggers voice dictation."
-              htmlFor="voice-shortcut"
-            />
-            <select
-              id="voice-shortcut"
-              className="setup-select"
-              value={voiceShortcut}
-              onChange={(event) =>
-                onVoiceShortcutChange(
-                  event.target.value as VoiceShortcutPreference,
-                )
-              }
-            >
-              <option value="cmd-shift-space">Cmd+Shift+Space</option>
-              <option value="ctrl-shift-space">Ctrl+Shift+Space</option>
-              <option value="custom">Custom shortcut</option>
-              <option value="fn">Fn (globe, needs Input Monitoring)</option>
-              <option value="both">All shortcuts (includes Fn)</option>
-            </select>
-            {voiceShortcut === "custom" ? (
-              <ShortcutRecorder
-                value={voiceCustomShortcut}
-                placeholder="Record voice shortcut"
-                onChange={onVoiceCustomShortcutChange}
-              />
-            ) : null}
-            <p className="setup-hint">{shortcutHint[voiceShortcut]}</p>
-            {isMacPlatform() && fnShortcutSelected ? (
-              <button
-                type="button"
-                className="secondary"
-                onClick={() => openPrivacySettings("input-monitoring")}
-              >
-                Open Input Monitoring
-              </button>
-            ) : null}
-          </div>
-
-          <div className="setup-section">
-            <SettingLabel
-              label="Mode"
-              hint="Whether you hold the shortcut while speaking or toggle it on and off."
-              htmlFor="voice-mode"
-            />
-            <select
-              id="voice-mode"
-              className="setup-select"
-              value={voiceMode}
-              onChange={(event) =>
-                onVoiceModeChange(event.target.value as VoiceMode)
-              }
-            >
-              <option value="push-to-talk">Hold to dictate</option>
-              <option value="toggle">Press to start, press to stop</option>
-            </select>
-            <p className="setup-hint">{modeHint[voiceMode]}</p>
-          </div>
-        </>
-      ) : null}
-
-      <div className="setup-section-heading">Debug</div>
-
-      <div className="setup-account setup-account--no-border">
-        <button
-          type="button"
-          className="link-button"
-          onClick={() => {
-            invoke("open_logs").catch((err) => {
-              console.error("[clips-tray] open logs failed:", err);
-            });
-          }}
-          style={{ display: "flex", alignItems: "center", gap: 6 }}
-        >
-          <IconFolderOpen size={14} />
-          Open logs
-        </button>
-      </div>
-      {signedInAs && onSignOut ? (
-        <div className="setup-account">
-          <span className="setup-account-email">{signedInAs}</span>
-          <button
-            type="button"
-            className="link-button"
-            onClick={onSignOut}
-            style={{ background: "transparent", border: "none" }}
-          >
-            Sign out
-          </button>
+      {control ? <div className="settings-row-control">{control}</div> : null}
+      {children ? (
+        <div className={`settings-row-extra ${extraClassName ?? ""}`}>
+          {children}
         </div>
       ) : null}
     </div>

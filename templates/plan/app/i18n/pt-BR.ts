@@ -389,6 +389,8 @@ const messages = {
         "Privado por padrão. Convide pessoas, compartilhe com sua organização ou defina Público para revisão por qualquer pessoa com link.",
       peopleAccess: "Pessoas com acesso {{noun}}",
       generalAccess: "Acesso geral {{noun}}",
+      commenterRoleLabel: "Comentarista",
+      commenterRoleDescription: "Pode ver e adicionar comentários",
       shareAria: "Compartilhe {{noun}}",
       share: "Compartilhe {{noun}}",
       shareThis: "Compartilhe isto {{noun}}",

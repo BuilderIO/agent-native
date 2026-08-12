@@ -3,10 +3,8 @@ import {
   IconPhoto,
   IconFolderOpen,
   IconUpload,
-  IconSearch,
   IconMaximize,
   IconMinimize,
-  IconGlobe,
 } from "@tabler/icons-react";
 import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
@@ -17,8 +15,6 @@ interface ImageOverlayProps {
   onGenerate: () => void;
   onLibrary: () => void;
   onUpload: () => void;
-  onSearch: () => void;
-  onLogo: () => void;
   onToggleObjectFit: () => void;
   onClose: () => void;
 }
@@ -29,8 +25,6 @@ export default function ImageOverlay({
   onGenerate,
   onLibrary,
   onUpload,
-  onSearch,
-  onLogo,
   onToggleObjectFit,
   onClose,
 }: ImageOverlayProps) {
@@ -105,26 +99,6 @@ export default function ImageOverlay({
       >
         <IconUpload className="w-3.5 h-3.5 text-muted-foreground" />
         Upload
-      </button>
-      <button
-        onClick={() => {
-          onSearch();
-          onClose();
-        }}
-        className="image-overlay-btn"
-      >
-        <IconSearch className="w-3.5 h-3.5 text-muted-foreground" />
-        Search
-      </button>
-      <button
-        onClick={() => {
-          onLogo();
-          onClose();
-        }}
-        className="image-overlay-btn"
-      >
-        <IconGlobe className="w-3.5 h-3.5 text-muted-foreground" />
-        Logo
       </button>
       <div className="mx-1.5 border-t border-border" />
       <button onClick={onToggleObjectFit} className="image-overlay-btn">

@@ -76,6 +76,17 @@ export function createSlidesCanvasInteractionCore(
   return createCanvasInteractionCore(slidesCanvasInteractionConfig, adapter);
 }
 
+/**
+ * Slides only nudges selected layers for plain arrows and Shift+arrows. Other
+ * modifier chords stay native so browser and editing shortcuts keep working.
+ */
+export function resolveSlidesCanvasNudge(
+  input: Parameters<typeof slidesCanvasInteractionCore.nudge>[0],
+) {
+  if (input.altKey || input.ctrlKey || input.metaKey) return null;
+  return slidesCanvasInteractionCore.nudge(input);
+}
+
 /** Creates one shared controller per live Slides pointer gesture. */
 export function createSlidesCanvasGestureController(
   adapter: SlidesCanvasGestureAdapter,

@@ -25,7 +25,7 @@ export function ChatFirstAppPane({
           <Skeleton className="h-4 w-2/3" />
         </div>
       ) : status === "ready" && app && embedUrl ? (
-        <div className="relative min-h-0 flex-1 overflow-hidden">
+        <div className="min-h-0 flex-1 overflow-hidden">
           {renderEmbed({ url: embedUrl, title: app.name })}
         </div>
       ) : status === "error" ? (

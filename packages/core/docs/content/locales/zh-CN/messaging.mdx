@@ -127,7 +127,7 @@ Slack 应用程序有一个事件 API 请求 URL。如果同一个 Slack 应用�
 
 ### 提示
 
-- **频道提及** - 使用 @mention 开始工作。只有同一线程仍有活跃任务时，未提及机器人的回复才会继续任务。
+- **频道提及** - 使用 @mention 开始工作。代理要处理的每条频道消息都必须明确提及代理；普通线程回复和一般频道聊天不会调用代理。
 - **私信** — 已接受的个人私信属于私密会话，并要求已验证的组织成员或已关联的 Slack 身份。
 - **身份** — 私信可把经过验证的 Slack 邮箱映射到同一应用用户；托管频道使用自己的服务身份和策略。
 - **生产允许列表** — 设置 `SLACK_ALLOWED_TEAM_IDS`，对于共享 Slack 应用，设置 `SLACK_ALLOWED_API_APP_IDS`，以便有效的签名密钥无法被意外的工作区重复使用。
@@ -169,8 +169,7 @@ Event Subscriptions Request URL 设置为
 `https://your-app.example.com/_agent-native/integrations/slack/webhook`，
 Interactivity Request URL 设置为
 `https://your-app.example.com/_agent-native/integrations/slack/interactions`。
-订阅 `app_home_opened`、`app_context_changed`、`app_mention`、
-`message.channels`、`message.groups`、`message.im` 和 `message.mpim`。
+订阅 `app_home_opened`、`app_context_changed`、`app_mention` 和 `message.im`。
 配置 `SLACK_CLIENT_ID`、`SLACK_CLIENT_SECRET` 和
 `SLACK_SIGNING_SECRET` 后，在**设置 → 消息**中点击 **Add to Slack**。
 每个安装使用独立的加密令牌，并按工作区、应用、频道和线程隔离会话键。
@@ -184,7 +183,7 @@ Interactivity Request URL 设置为
 个人 Slack 私信只接受已验证的 Agent Native 组织成员，或已关联到该成员的 Slack
 身份。频道服务主体的策略和预算与个人身份分开管理。
 
-未提及机器人的回复只会继续活跃线程；普通频道聊天不会调用代理。有限上下文包含
+代理要处理的每条频道消息都必须明确提及代理；普通线程回复和一般频道聊天不会调用代理。有限上下文包含
 反应和文件引用，原生任务卡显示计划、进度、取消和批准/拒绝。私信使用个人身份；
 托管频道使用明确的服务身份以及访客、Slack Connect 和模型策略。频道记忆仅在明确
 要求时保存或删除，绝不自动记忆。在频道中创建的例程会把结果发送回同一 Slack。
@@ -202,7 +201,7 @@ Slack 提及跑通之后，最常见的下一个需求大致是 _“我在会话
 在动 Notion 之前，先完成 [设置Slack](#slack)，并确认频道中的 `@mention` 能得到回复。后续步骤有两点行为很关键：
 
 - 含 `@mention` 的那条消息就是调用，它的文本就是代理看到的内容。
-- 同一会话串里之后的普通回复，**只有在该会话串仍有运行中的工作时**才会到达代理。如果运行已结束，你的追加消息会被忽略 —— 请重新 @mention，而不要假定代理还在听。
+- 同一会话串里之后的每条消息也必须明确提及代理；普通回复不会到达代理。每次有新请求时都请重新 @mention。
 
 #### 2. 暴露供应商 API 操作
 
@@ -362,7 +361,7 @@ export default defineAction({
 | `notion credential not configured. Tried: NOTION_API_KEY` | 第 3 步。密钥放在了 `.env`，或者以 **Personal** 保存在了与实际执行账号不同的账号下。请改存为 **Workspace**。 |
 | Notion 返回 `404`                                         | 第 4 步。数据库从未共享给该集成。                                                                            |
 | Notion 就属性返回 `400`                                   | 操作里的属性名或类型与数据库的列不一致。                                                                     |
-| 成功过一次，之后会话串里的回复被忽略                      | 这是预期行为。没有提及的会话串回复，只在该会话串有活动工作时才会到达代理 —— 请重新 @mention。                |
+| 成功过一次，之后会话串里的回复被忽略                      | 这是预期行为。代理要处理的每条消息都必须明确提及代理 —— 请重新 @mention。                                    |
 
 ## 设置 Telegram {#telegram}
 

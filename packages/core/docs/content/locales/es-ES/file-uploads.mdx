@@ -1,6 +1,6 @@
 ---
 title: "Carga de archivos"
-description: "Configurar el almacenamiento de carga de archivos: respaldo SQL para desarrolladores, Builder.io o proveedores personalizados para producción."
+description: "Configura almacenamiento de objetos duradero para cargas de archivos: Builder.io o un proveedor S3 compatible personalizado."
 ---
 
 # Carga de archivos
@@ -15,9 +15,9 @@ El orden de resolución del proveedor es:
 
 1. **Proveedores registrados por el usuario**: proveedores personalizados registrados a través de `registerFileUploadProvider()`
 2. **Proveedor Builder.io** (nivel gratuito disponible): integrado, se activa automáticamente cuando se conecta Builder.io
-3. **SQL reserva**: almacena archivos como base64 en la base de datos (está bien para desarrollo, no para producción)
+3. **Se requiere almacenamiento**: sin un proveedor, la carga falla de forma segura y se muestra una tarjeta de configuración; los datos binarios nunca se guardan en SQL
 
-<Diagram id="doc-block-12sluna" title={"Orden de resolución del proveedor"} summary={"uploadFile() elige el primer proveedor configurado en orden. El respaldo SQL siempre existe, por lo que las cargas funcionan sin configuración."}>
+<Diagram id="doc-block-12sluna" title={"Orden de resolución del proveedor"} summary={"uploadFile() elige el primer proveedor configurado en orden. Sin proveedor, la carga falla de forma segura y se muestra una tarjeta de configuración."}>
 
 ```html
 <div class="diagram-upload">
@@ -47,8 +47,8 @@ El orden de resolución del proveedor es:
     <div class="diagram-step">
       <span class="diagram-pill warn">3</span>
       <div class="diagram-node">
-        respaldo SQL<br /><small class="diagram-muted"
-          >base64 en BD — solo desarrollo</small
+        almacenamiento requerido<br /><small class="diagram-muted"
+          >configura Builder.io o almacenamiento S3 compatible</small
         >
       </div>
     </div>
@@ -94,11 +94,11 @@ Dispatches to the first configured provider in resolution order. Check the activ
 
 </Endpoint>
 
-## Predeterminado: reserva de SQL {#sql-fallback}
+## Se requiere almacenamiento para cargas duraderas {#storage-required}
 
-Cuando no se configura ningún proveedor, los archivos se almacenan como datos base64 en la base de datos SQL a través del sistema de recursos. Esto funciona de inmediato para el desarrollo local, pero no se recomienda para producción: los archivos grandes sobrecargan la base de datos y no hay CDN.
+Cuando no se configura ningún proveedor, la carga falla de forma segura y se muestra una tarjeta para configurar Builder.io o un proveedor S3 compatible. Los datos binarios no se almacenan como base64 en SQL.
 
-Se registra una advertencia única cuando se utiliza el respaldo.
+Los bytes solo pueden usarse durante la solicitud actual y no se guardan en el historial del chat. Después de configurar el almacenamiento, las cargas devuelven una URL pública estable que puede reutilizarse en turnos posteriores.
 
 ## Alojamiento Builder.io {#builder-hosting}
 
@@ -142,7 +142,8 @@ La interfaz `FileUploadProvider`:
 interface FileUploadProvider {
   id: string; // Unique id, e.g. "s3"
   name: string; // Human-readable name
-  isConfigured: () => boolean; // True when ready (env vars set, etc.)
+  isConfigured: () => boolean; // True when ready from sync runtime state
+  isConfiguredForRequest?: () => Promise<boolean>; // True from scoped DB secrets
   upload: (input: FileUploadInput) => Promise<FileUploadResult>;
 }
 
@@ -150,7 +151,7 @@ interface FileUploadInput {
   data: Uint8Array | Buffer; // File contents
   filename?: string; // Original filename
   mimeType?: string; // MIME type, e.g. "image/png"
-  ownerEmail?: string; // For per-user scoping in fallback
+  ownerEmail?: string; // For request-scoped provider credentials
 }
 
 interface FileUploadResult {
@@ -174,6 +175,6 @@ const result = await uploadFile({
 if (result) {
   // Provider handled it — result.url is the public URL
 } else {
-  // No provider configured — handle respaldo SQL yourself, or skip
+  // Configura el almacenamiento o omite la carga
 }
 ```

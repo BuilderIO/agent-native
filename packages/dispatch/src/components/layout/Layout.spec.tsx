@@ -9,6 +9,7 @@ import { TooltipProvider } from "../ui/tooltip";
 import {
   buildChatFirstEmbedSessionInput,
   formatThreadAge,
+  isElectronEmbeddedSearch,
   NavContent,
 } from "./Layout";
 
@@ -116,6 +117,14 @@ describe("chat-first embed sessions", () => {
       path: "/mail/inbox",
       chrome: "minimal",
     });
+  });
+});
+
+describe("Electron control-plane mode", () => {
+  it("recognizes only the explicit Electron query flag", () => {
+    expect(isElectronEmbeddedSearch("?electron=1")).toBe(true);
+    expect(isElectronEmbeddedSearch("?electron=0")).toBe(false);
+    expect(isElectronEmbeddedSearch("?chatFirst=1")).toBe(false);
   });
 });
 
@@ -293,6 +302,9 @@ describe("Dispatch NavContent", () => {
     );
     expect(sidebarLabel?.textContent?.trim()).toBe("Dispatch");
     expect(container.textContent).not.toContain("Agent-Native Dispatch");
+    expect(
+      sidebarLabel?.closest('a[data-dispatch-logo][href="/overview"]'),
+    ).not.toBeNull();
 
     const settingsLink = container.querySelector('a[href="/settings"]');
     const adminLink = container.querySelector('a[href="/admin"]');
@@ -382,6 +394,59 @@ describe("Dispatch NavContent", () => {
       allApps?.click();
     });
     expect(paths.at(-1)).toBe("/apps");
+  });
+
+  it("omits the Chats section when chat-first has no chats", async () => {
+    clientState.threads = [];
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/chat"]}>
+          <TooltipProvider>
+            <NavContent
+              chatFirstMode
+              collapsible
+              chatFirstApps={[{ id: "mail", name: "Mail" }]}
+            />
+          </TooltipProvider>
+        </MemoryRouter>,
+      );
+    });
+
+    expect(container.textContent).not.toContain("Chats");
+    expect(container.querySelector("[data-chat-first-app]")).not.toBeNull();
+    expect(
+      container.querySelector("[data-chat-first-app] span[style]"),
+    ).not.toBeNull();
+    expect(
+      container.querySelector("[data-sidebar-footer-feedback]"),
+    ).not.toBeNull();
+    expect(
+      container.querySelector("[data-sidebar-footer-collapse]"),
+    ).not.toBeNull();
+  });
+
+  it("opens a workspace app in the main app route from the left rail", async () => {
+    const paths: string[] = [];
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/chat"]}>
+          <TooltipProvider>
+            <NavContent
+              chatFirstMode
+              chatFirstApps={[{ id: "mail", name: "Mail" }]}
+              onChatFirstAppOpen={(app) => paths.push(`/apps/${app.id}`)}
+            />
+          </TooltipProvider>
+        </MemoryRouter>,
+      );
+    });
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>("[data-chat-first-app] button")
+        ?.click();
+    });
+    expect(paths).toEqual(["/apps/mail"]);
   });
 
   it("uses the shared chat history rail and retains thread actions", async () => {

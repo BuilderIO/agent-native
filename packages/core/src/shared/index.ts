@@ -52,6 +52,7 @@ export {
   assertValidWorkspaceAppId,
   getWorkspaceAppIdValidationError,
   isValidWorkspaceAppIdFormat,
+  normalizeWorkspaceAppId,
 } from "./workspace-app-id.js";
 export {
   DEFAULT_WORKSPACE_APP_AUDIENCE,

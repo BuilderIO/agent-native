@@ -15,7 +15,10 @@ import {
   SUPPORTED_LOCALES,
   type LocaleCode,
 } from "../localization/shared.js";
-import { PASSWORD_MIN_LENGTH } from "../shared/password-policy.js";
+import {
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MIN_LENGTH,
+} from "../shared/password-policy.js";
 import { signInJourneyInlineScript } from "../shared/sign-in-journey.js";
 import {
   AGENT_NATIVE_SOCIAL_IMAGE_ALT,
@@ -116,7 +119,8 @@ const EN_AUTH_COPY = {
   sendMagicLink: "Continue",
   magicLinkSent: "Check your email",
   magicLinkSentCopy: "We sent a secure sign-in link to",
-  magicLinkFailed: "Could not send sign-in link.",
+  magicLinkFailed:
+    "We couldn't send a sign-in link. Check your email and try again.",
   usePasswordInstead: "Use a password instead",
   backToMagicLink: "Use a sign-in link instead",
   signupProgress: "Signup progress",
@@ -158,34 +162,42 @@ const EN_AUTH_COPY = {
   legalSuffix: ".",
   invalidEmail: "Enter a valid email address, like you@example.com.",
   signInToContinue: "Sign in to continue.",
-  finishSignInFailed: "Could not finish sign-in automatically.",
+  finishSignInFailed:
+    "We couldn't finish signing you in. Please sign in manually.",
   enterPasswordAfterVerification:
     "Enter your password after verifying your email.",
   finishSignInManually:
-    "We could not finish sign-in automatically. Sign in to continue.",
+    "We couldn't finish signing you in automatically. Sign in to continue.",
   stillWaitingVerification:
     "Still waiting on verification. Click the link in your email, then try Continue again.",
-  checkVerificationFailed: "Could not check verification. Please try again.",
+  checkVerificationFailed:
+    "We couldn't check your verification status. Please try again.",
+  verificationLinkInvalid:
+    "This verification link is invalid or expired. Request a new one.",
   checking: "Checking...",
   checkingVerification: "Checking your verification...",
   sending: "Sending...",
   sent: "Sent",
   sentVerification: "Sent a fresh verification link.",
-  resendVerificationFailed: "Could not resend the verification email.",
-  networkErrorRetry: "Network error. Please try again.",
-  networkErrorDashRetry: "Network error — please try again",
-  passwordsMismatch: "Passwords do not match",
+  resendVerificationFailed:
+    "We couldn't resend the verification email. Please try again.",
+  networkErrorRetry:
+    "We couldn't reach the server. Check your connection and try again.",
+  networkErrorDashRetry:
+    "We couldn't reach the server. Check your connection and try again.",
+  passwordsMismatch: "Passwords do not match.",
   creatingAccount: "Creating account…",
-  registrationFailed: "Registration failed",
+  registrationFailed: "We couldn't create your account. Please try again.",
   accountCreatedSigningIn: "Account created — signing you in…",
   emailVerifiedFinishing: "Email verified. Finishing sign-in...",
   emailVerifiedSignIn: "Email verified. Sign in to continue.",
   resetEmailSent: "If that email exists, a reset link is on its way.",
-  resetEmailFailed: "Could not send reset email.",
+  resetEmailFailed:
+    "We couldn't send a password reset email. Check your email and try again.",
   signingIn: "Signing in…",
-  invalidLogin: "Invalid email or password",
-  googleNotConfigured: "Google OAuth is not configured.",
-  failedToConnect: "Failed to connect. Please try again.",
+  invalidLogin: "The email or password is incorrect.",
+  googleNotConfigured: "Google sign-in is not available right now.",
+  failedToConnect: "We couldn't connect. Please try again.",
   migrateLocalFallback: "Continue signing in to migrate local data.",
   googlePopupHelp: "Allow popups for this site and try again",
   googleNeverFinished:
@@ -272,6 +284,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     stillWaitingVerification:
       "仍在等待验证。请点击邮件中的链接，然后再次点击继续。",
     checkVerificationFailed: "无法检查验证状态。请重试。",
+    verificationLinkInvalid: "此验证链接无效或已过期。请重新请求一个。",
     checking: "正在检查...",
     checkingVerification: "正在检查验证状态...",
     sending: "正在发送...",
@@ -375,6 +388,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     stillWaitingVerification:
       "仍在等待驗證。請點擊郵件中的連結，然後再次點擊繼續。",
     checkVerificationFailed: "無法檢查驗證狀態。請重試。",
+    verificationLinkInvalid: "此驗證連結無效或已過期。請重新索取。",
     checking: "正在檢查...",
     checkingVerification: "正在檢查驗證狀態...",
     sending: "正在寄送...",
@@ -485,6 +499,8 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
       "Aún esperamos la verificación. Haz clic en el enlace del email y luego prueba Continuar de nuevo.",
     checkVerificationFailed:
       "No se pudo comprobar la verificación. Inténtalo de nuevo.",
+    verificationLinkInvalid:
+      "Este enlace de verificación no es válido o ha caducado. Solicita uno nuevo.",
     checking: "Comprobando...",
     checkingVerification: "Comprobando tu verificación...",
     sending: "Enviando...",
@@ -597,6 +613,8 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
       "La vérification est toujours en attente. Cliquez sur le lien dans votre e-mail, puis réessayez Continuer.",
     checkVerificationFailed:
       "Impossible de vérifier l'état. Veuillez réessayer.",
+    verificationLinkInvalid:
+      "Ce lien de vérification est invalide ou expiré. Demandez-en un nouveau.",
     checking: "Vérification...",
     checkingVerification: "Vérification en cours...",
     sending: "Envoi...",
@@ -711,6 +729,8 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
       "Die Bestätigung steht noch aus. Klicke auf den Link in deiner E-Mail und versuche Weiter erneut.",
     checkVerificationFailed:
       "Bestätigung konnte nicht geprüft werden. Bitte erneut versuchen.",
+    verificationLinkInvalid:
+      "Dieser Bestätigungslink ist ungültig oder abgelaufen. Fordere einen neuen an.",
     checking: "Prüfen...",
     checkingVerification: "Bestätigung wird geprüft...",
     sending: "Senden...",
@@ -822,6 +842,8 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
       "まだ確認待ちです。メール内のリンクをクリックしてから、もう一度続行してください。",
     checkVerificationFailed:
       "確認状態をチェックできませんでした。もう一度お試しください。",
+    verificationLinkInvalid:
+      "この確認リンクは無効か期限切れです。新しいリンクをリクエストしてください。",
     checking: "確認中...",
     checkingVerification: "確認状態をチェック中...",
     sending: "送信中...",
@@ -930,6 +952,8 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     stillWaitingVerification:
       "아직 확인을 기다리고 있습니다. 이메일의 링크를 클릭한 뒤 계속을 다시 눌러주세요.",
     checkVerificationFailed: "확인 상태를 확인할 수 없습니다. 다시 시도하세요.",
+    verificationLinkInvalid:
+      "이 인증 링크가 유효하지 않거나 만료되었습니다. 새 링크를 요청하세요.",
     checking: "확인 중...",
     checkingVerification: "확인 상태 확인 중...",
     sending: "보내는 중...",
@@ -1039,6 +1063,8 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     stillWaitingVerification:
       "Ainda estamos aguardando a verificação. Clique no link do email e tente Continuar novamente.",
     checkVerificationFailed: "Não foi possível verificar. Tente novamente.",
+    verificationLinkInvalid:
+      "Este link de verificação é inválido ou expirou. Solicite um novo.",
     checking: "Verificando...",
     checkingVerification: "Verificando sua confirmação...",
     sending: "Enviando...",
@@ -1147,6 +1173,8 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     stillWaitingVerification:
       "सत्यापन का इंतजार है। ईमेल में लिंक खोलें, फिर Continue दोबारा दबाएं।",
     checkVerificationFailed: "सत्यापन जांच नहीं हो सकी। कृपया फिर कोशिश करें।",
+    verificationLinkInvalid:
+      "यह सत्यापन लिंक अमान्य या समाप्त हो गया है। नया लिंक मांगें।",
     checking: "जांच हो रही है...",
     checkingVerification: "आपका सत्यापन जांच रहे हैं...",
     sending: "भेजा जा रहा है...",
@@ -1254,6 +1282,8 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     stillWaitingVerification:
       "ما زلنا ننتظر التحقق. افتح الرابط في بريدك الإلكتروني ثم جرّب متابعة مرة أخرى.",
     checkVerificationFailed: "تعذر التحقق من الحالة. حاول مرة أخرى.",
+    verificationLinkInvalid:
+      "رابط التحقق هذا غير صالح أو منتهي الصلاحية. اطلب رابطًا جديدًا.",
     checking: "جارٍ التحقق...",
     checkingVerification: "جارٍ التحقق من حالتك...",
     sending: "جارٍ الإرسال...",
@@ -1470,18 +1500,6 @@ export interface OnboardingHtmlOptions {
   requestPath?: string;
   requestOrigin?: string;
   /**
-   * Optional preflight copy shown before redirecting through Google sign-in.
-   * Use this when a hosted app needs to warn about provider-specific consent
-   * screens while leaving self-hosted deployments untouched.
-   */
-  googleSignInNotice?: {
-    host?: string;
-    title: string;
-    body: string | string[];
-    continueLabel?: string;
-    cancelLabel?: string;
-  };
-  /**
    * Optional email signup legal copy. Builder-hosted `*.agent-native.com`
    * deployments get the Agent Native links automatically; self-hosted and
    * custom-domain apps must opt in with their own URLs.
@@ -1639,61 +1657,6 @@ ${localeMenuItemsHtml}
         <button type="button" class="copy-run-local" id="copy-signup-local-mode" onclick="__anCopySignupLocalModeCommand()"${i18nAttr("copyCommand")}>${esc(t("copyCommand"))}</button>
       </div>`
     : "";
-  const googleSignInNotice = opts.googleSignInNotice;
-  const googleNoticeBodyParts = googleSignInNotice
-    ? (Array.isArray(googleSignInNotice.body)
-        ? googleSignInNotice.body
-        : [googleSignInNotice.body]
-      ).filter((body) => body.trim().length > 0)
-    : [];
-  const googleNoticeBodyHtml = googleNoticeBodyParts
-    .map(
-      (body, index) =>
-        `<p class="google-preflight-copy"${index === 0 ? ' id="google-preflight-copy"' : ""}>${esc(body)}</p>`,
-    )
-    .join("\n");
-  const googleNoticeRunLocalHtml = runLocalCommand
-    ? `
-      <button type="button" class="btn-secondary google-preflight-local" id="google-preflight-run-local" onclick="__anChooseRunLocalFromGoogleNotice()"${i18nAttr(googleSignInNotice?.cancelLabel === undefined ? "runLocallySentence" : undefined)}>${esc(googleSignInNotice?.cancelLabel ?? t("runLocallySentence"))}</button>`
-    : `
-      <button type="button" class="btn-secondary" onclick="__anHideGoogleNotice()"${i18nAttr(googleSignInNotice?.cancelLabel === undefined ? "close" : undefined)}>${esc(googleSignInNotice?.cancelLabel ?? t("close"))}</button>`;
-  const googleNoticeRunLocalPanelHtml = runLocalCommand
-    ? `
-    <div class="google-preflight-command" id="google-preflight-run-local-panel" hidden data-command="${esc(runLocalCommand)}">
-      <p class="google-preflight-command-label"${i18nAttr("useOwnGoogleClient")}>${esc(t("useOwnGoogleClient"))}</p>
-      <code>${esc(runLocalCommand)}</code>
-      <button type="button" class="copy-run-local" id="copy-google-preflight-run-local" onclick="__anCopyGoogleNoticeRunLocalCommand()"${i18nAttr("copyCommand")}>${esc(t("copyCommand"))}</button>
-    </div>`
-    : "";
-  const googleNoticeHtml =
-    renderGoogleButton && googleSignInNotice
-      ? `
-  <div
-    class="google-preflight"
-    id="google-preflight"
-    data-host="${esc(googleSignInNotice.host ?? "")}"
-    role="dialog"
-    aria-labelledby="google-preflight-title"
-    aria-describedby="google-preflight-copy"
-    tabindex="-1"
-  >
-    <button type="button" class="google-preflight-close" aria-label="${esc(t("closeGoogleChoices"))}"${i18nAriaAttr("closeGoogleChoices")} onclick="__anHideGoogleNotice()">&times;</button>
-    <div class="google-preflight-main">
-      <span class="google-preflight-icon" aria-hidden="true">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.24 3.957l-8.422 14.06a1.989 1.989 0 0 0 1.7 2.983h16.845a1.989 1.989 0 0 0 1.7 -2.983l-8.423 -14.06a1.989 1.989 0 0 0 -3.4 0z"/><path d="M12 9v4"/><path d="M12 16h.01"/></svg>
-      </span>
-      <div class="google-preflight-text">
-        <p class="google-preflight-title" id="google-preflight-title">${esc(googleSignInNotice.title)}</p>
-${googleNoticeBodyHtml}
-      </div>
-    </div>
-    <div class="google-preflight-actions">
-      <button type="button" class="btn-primary" id="google-preflight-continue" onclick="__anAcceptGoogleNotice()"${i18nAttr(googleSignInNotice.continueLabel === undefined ? "continue" : undefined)}>${esc(googleSignInNotice.continueLabel ?? t("continue"))}</button>
-${googleNoticeRunLocalHtml}
-    </div>
-${googleNoticeRunLocalPanelHtml}
-  </div>`
-      : "";
   const identitySsoHtml = identitySsoLoginButtonHtml();
   const localDevHtml = `
   <div class="local-dev-signin" id="local-dev-signin" hidden>
@@ -2636,126 +2599,6 @@ ${identitySsoMagicLinkSelector}
     word-break: break-word;
   }
   .google-debug.show { display: block; }
-  .google-preflight {
-    display: none;
-    position: absolute;
-    top: calc(100% + 0.625rem);
-    left: 0;
-    right: 0;
-    z-index: 20;
-    padding: 0.875rem;
-    border: 1px solid rgba(255,255,255,0.12);
-    border-radius: 10px;
-    background: #1b1b1b;
-    box-shadow: 0 18px 50px rgba(0,0,0,0.48);
-  }
-  .google-preflight.show { display: block; }
-  .google-preflight::before {
-    content: '';
-    position: absolute;
-    top: -6px;
-    left: 50%;
-    width: 10px;
-    height: 10px;
-    transform: translateX(-50%) rotate(45deg);
-    background: #1b1b1b;
-    border-left: 1px solid rgba(255,255,255,0.12);
-    border-top: 1px solid rgba(255,255,255,0.12);
-  }
-  .google-preflight-main {
-    display: flex;
-    align-items: flex-start;
-    gap: 0.625rem;
-    padding-right: 1.25rem;
-  }
-  .google-preflight-icon {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    flex: none;
-    width: 1.75rem;
-    height: 1.75rem;
-    border-radius: 7px;
-    background: rgba(245,158,11,0.15);
-    color: #fcd34d;
-  }
-  .google-preflight-icon svg { width: 1rem; height: 1rem; }
-  .google-preflight-text { min-width: 0; }
-  .google-preflight-title {
-    color: #fff;
-    font-size: 0.8125rem;
-    font-weight: 600;
-    margin-bottom: 0.25rem;
-  }
-  .google-preflight-close {
-    position: absolute;
-    top: 0.5rem;
-    right: 0.5rem;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 1.5rem;
-    height: 1.5rem;
-    background: transparent;
-    border: none;
-    border-radius: 999px;
-    color: #888;
-    cursor: pointer;
-    font-size: 1.125rem;
-    line-height: 1;
-  }
-  .google-preflight-close:hover { color: #fff; background: rgba(255,255,255,0.07); }
-  .google-preflight-copy {
-    color: #b4b4b8;
-    font-size: 0.75rem;
-    line-height: 1.55;
-  }
-  .google-preflight-copy + .google-preflight-copy { margin-top: 0.5rem; }
-  .google-preflight-actions {
-    display: flex;
-    gap: 0.5rem;
-    margin-top: 0.875rem;
-  }
-  .google-preflight-actions .btn-primary,
-  .google-preflight-actions .btn-secondary {
-    flex: 1;
-    width: auto;
-    margin-top: 0;
-    white-space: nowrap;
-  }
-  .google-preflight-command {
-    margin-top: 0.75rem;
-    padding: 0.75rem;
-    border: 1px solid rgba(255,255,255,0.1);
-    border-radius: 8px;
-    background: rgba(0,0,0,0.24);
-  }
-  .google-preflight-command[hidden] { display: none; }
-  .google-preflight-command-label {
-    margin-bottom: 0.5rem;
-    color: #d4d4d8;
-    font-size: 0.75rem;
-    font-weight: 500;
-  }
-  .google-preflight-command code {
-    display: block;
-    overflow-x: auto;
-    color: #e5e5e5;
-    font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
-    font-size: 0.71875rem;
-    line-height: 1.45;
-    white-space: nowrap;
-  }
-  @media (max-width: 480px) {
-    .google-preflight {
-      position: static;
-      margin-top: 0.625rem;
-    }
-    .google-preflight::before { display: none; }
-    .google-preflight-actions { flex-direction: column; }
-    .google-preflight-actions .btn-primary,
-    .google-preflight-actions .btn-secondary { width: 100%; }
-  }
   .local-note {
     display: none;
     max-width: 400px;
@@ -2799,13 +2642,12 @@ ${
   renderGoogleButton
     ? `
   <div class="google-signin" id="google-signin">
-  <button class="btn-google" id="google-btn" onclick="signInWithGoogle()"${googleSignInNotice ? ' aria-haspopup="dialog" aria-expanded="false" aria-controls="google-preflight"' : ""}>
+  <button class="btn-google" id="google-btn" onclick="signInWithGoogle()">
     <svg viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
     <span${i18nAttr("googleButton")}>${esc(t("googleButton"))}</span>
   </button>
   <p class="google-error" id="google-err"></p>
   <p class="google-debug" id="google-debug"></p>
-${googleNoticeHtml}
   </div>
 ${googleOnly ? "" : `\n  <div class="divider" id="auth-divider"${i18nAttr("dividerOr")}>${esc(t("dividerOr"))}</div>\n`}
 `
@@ -2823,9 +2665,9 @@ ${
       <label for="s-email"${i18nAttr("email")}>${esc(t("email"))}</label>
       <input id="s-email" type="email" autocomplete="email" autofocus placeholder="you@example.com" required />
     <label for="s-pass"${i18nAttr("password")}>${esc(t("password"))}</label>
-    <input id="s-pass" type="password" autocomplete="new-password" placeholder="${esc(t("passwordMinPlaceholder"))}"${i18nPlaceholderAttr("passwordMinPlaceholder")} required minlength="${PASSWORD_MIN_LENGTH}" />
+    <input id="s-pass" type="password" autocomplete="new-password" placeholder="${esc(t("passwordMinPlaceholder"))}"${i18nPlaceholderAttr("passwordMinPlaceholder")} required minlength="${PASSWORD_MIN_LENGTH}" maxlength="${PASSWORD_MAX_LENGTH}" />
     <label for="s-pass2"${i18nAttr("confirmPassword")}>${esc(t("confirmPassword"))}</label>
-    <input id="s-pass2" type="password" autocomplete="new-password" placeholder="${esc(t("confirmPasswordPlaceholder"))}"${i18nPlaceholderAttr("confirmPasswordPlaceholder")} required minlength="${PASSWORD_MIN_LENGTH}" />
+    <input id="s-pass2" type="password" autocomplete="new-password" placeholder="${esc(t("confirmPasswordPlaceholder"))}"${i18nPlaceholderAttr("confirmPasswordPlaceholder")} required minlength="${PASSWORD_MIN_LENGTH}" maxlength="${PASSWORD_MAX_LENGTH}" />
       <button type="submit"${i18nAttr("createAccount")}>${esc(t("createAccount"))}</button>
 ${signupLegalNoteHtml}
 ${signupLocalModeNoteHtml}
@@ -2972,6 +2814,28 @@ ${signInJourneyInlineScript()}
       var localized = __AN_AUTH_LOCALES[__anAuthLocale] || __AN_AUTH_LOCALES[__AN_AUTH_DEFAULT_LOCALE] || {};
       var fallback = __AN_AUTH_LOCALES[__AN_AUTH_DEFAULT_LOCALE] || {};
       return localized[key] || fallback[key] || key;
+    }
+    function __anAuthErrorText(data, fallback) {
+      var candidate = data && (data.error || data.message);
+      if (typeof candidate !== 'string' || !candidate.trim()) return fallback;
+      var message = candidate.trim();
+      if (/failed query|\bselect\b.*\bfrom\b|\binsert\b.*\binto\b|\bupdate\b.*\bset\b|\bdelete\b.*\bfrom\b|\bsql\b|database|relation .* does not exist|column .* does not exist|syntax error|constraint|connection refused|econn|timeout/i.test(message)) {
+        return fallback;
+      }
+      return message;
+    }
+    function __anBindPasswordValidation(input) {
+      if (!input) return;
+      input.addEventListener('invalid', function() {
+        if (input.validity && input.validity.tooShort) {
+          input.setCustomValidity(__anT('passwordMinPlaceholder'));
+        } else if (input.validity && input.validity.tooLong) {
+          input.setCustomValidity('Choose a password with no more than ${PASSWORD_MAX_LENGTH} characters.');
+        }
+      });
+      input.addEventListener('input', function() {
+        input.setCustomValidity('');
+      });
     }
     function __anSetAuthI18nKey(node, key) {
       if (!node || !key) return;
@@ -3184,6 +3048,7 @@ ${signInJourneyInlineScript()}
     }
     function __anFinishOAuthExchange(ret, flowId, sessionToken) {
       __anGoogleSignInInFlight = false;
+      __anMagicLinkInFlight = false;
       if (__anIsBuilderPreview()) {
         if (sessionToken) {
           __anSetOAuthDebug('OAuth exchange redeemed; applying session bridge to embedded app', flowId);
@@ -3252,37 +3117,54 @@ ${signInJourneyInlineScript()}
       var container = document.getElementById('local-dev-signin');
       var button = document.getElementById('local-dev-btn');
       var fullOptionsButton = document.getElementById('local-dev-full-options');
-      var message = document.getElementById('local-dev-msg');
       if (!container || !button || !__anCanUseLocalDevSignin()) return;
-      container.hidden = false;
-      var startWithLocalDev = __anShouldStartWithLocalDev();
-      __anSetFullAuthOptionsVisible(!startWithLocalDev);
-      if (startWithLocalDev) button.focus();
-      if (fullOptionsButton) fullOptionsButton.addEventListener('click', function() {
-        __anSetFullAuthOptionsVisible(true);
-        var firstInput = document.querySelector('#full-auth-options input, #full-auth-options button, #full-auth-options a');
-        if (firstInput) firstInput.focus();
-      });
-      button.addEventListener('click', function() {
-        button.disabled = true;
-        button.textContent = __anT('localDevSigningIn');
-        fetch(__anPath('/_agent-native/auth/local-dev'), {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'Accept': 'application/json' },
-        }).then(function(response) {
-          if (!response.ok) throw new Error('local-dev-auth-failed');
-        }).then(function() {
-          __anRedirectToSignedInApp(__anResumeHref());
-        }).catch(function() {
-          button.disabled = false;
-          button.textContent = __anT('localDevButton');
+      function __anShowLocalDevSignin() {
+        container.hidden = false;
+        var startWithLocalDev = __anShouldStartWithLocalDev();
+        __anSetFullAuthOptionsVisible(!startWithLocalDev);
+        if (startWithLocalDev) button.focus();
+        if (fullOptionsButton) fullOptionsButton.addEventListener('click', function() {
           __anSetFullAuthOptionsVisible(true);
-          if (message) {
-            message.textContent = __anT('localDevFailed');
-            message.classList.add('show');
-          }
+          var firstInput = document.querySelector('#full-auth-options input, #full-auth-options button, #full-auth-options a');
+          if (firstInput) firstInput.focus();
         });
+        button.addEventListener('click', function() {
+          button.disabled = true;
+          button.textContent = __anT('localDevSigningIn');
+          fetch(__anPath('/_agent-native/auth/local-dev'), {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Accept': 'application/json' },
+          }).then(function(response) {
+            if (!response.ok) throw new Error('local-dev-auth-failed');
+          }).then(function() {
+            __anRedirectToSignedInApp(__anResumeHref());
+          }).catch(function() {
+            container.hidden = true;
+            __anSetFullAuthOptionsVisible(true);
+          });
+        });
+      }
+      fetch(__anPath('/_agent-native/auth/local-dev'), {
+        method: 'GET',
+        credentials: 'include',
+        cache: 'no-store',
+        headers: { 'Accept': 'application/json' },
+      }).then(function(response) {
+        if (!response.ok) return null;
+        return response.json().then(function(data) {
+          return data;
+        }, function() {
+          return null;
+        });
+      }, function() {
+        return null;
+      }).then(function(data) {
+        if (data && data.available === true) {
+          __anShowLocalDevSignin();
+        } else {
+          __anSetFullAuthOptionsVisible(true);
+        }
       });
     })();
 ${identitySsoScript}
@@ -3439,6 +3321,7 @@ ${identitySsoScript}
     var __anOAuthPollTimer = null;
     var __anOAuthPollCount = 0;
     var __anGoogleSignInInFlight = false;
+    var __anMagicLinkInFlight = false;
     var __anGoogleRecoverBound = false;
     function __anNewOAuthFlowId() {
       try {
@@ -3472,15 +3355,26 @@ ${identitySsoScript}
         if (showDebugOverlay) debug.classList.add('show');
       }
     }
-    function __anShowOAuthError(err, btn, message) {
+    function __anStopOAuthExchangePolling() {
       if (__anOAuthPollTimer) {
         clearInterval(__anOAuthPollTimer);
         __anOAuthPollTimer = null;
       }
+    }
+    function __anShowAuthExchangeError(err, btn, message, kind) {
+      __anStopOAuthExchangePolling();
       err.textContent = message;
-      err.classList.add('show');
+      err.classList.add('show', 'error');
       btn.disabled = false;
-      __anGoogleSignInInFlight = false;
+      if (kind === 'magic-link') {
+        __anMagicLinkInFlight = false;
+        showMagicLinkForm();
+      } else {
+        __anGoogleSignInInFlight = false;
+      }
+    }
+    function __anShowOAuthError(err, btn, message) {
+      __anShowAuthExchangeError(err, btn, message, 'google');
     }
     function __anRecoverGoogleSignInAfterReturn() {
       // The user left for the Google sign-in window and came back. If the flow
@@ -3527,17 +3421,20 @@ ${identitySsoScript}
       try {
         __anOpenOAuthUrl(__anGoogleAuthUrlPath() + '?' + params.toString());
       } catch(e) {
-        __anShowOAuthError(err, btn, 'Could not start Google sign-in redirect' + (flowId ? ' for flow ' + __anFlowDebugId(flowId) : '') + ': ' + (e && e.message ? e.message : 'unknown error'));
+        __anShowOAuthError(err, btn, __anT('failedToConnect'));
       }
     }
-    function __anWaitForOAuthExchange(flowId, ret, btn, err) {
+    function __anWaitForOAuthExchange(flowId, ret, btn, err, kind, verifier) {
       var started = Date.now();
       var timeoutMs = 5 * 60 * 1000;
+      var isMagicLink = kind === 'magic-link';
       __anOAuthPollCount = 0;
       async function check() {
         __anOAuthPollCount++;
         try {
-          var res = await fetch(__anPath('/_agent-native/auth/desktop-exchange') + '?flow_id=' + encodeURIComponent(flowId), { credentials: 'include' });
+          var exchangeParams = '?flow_id=' + encodeURIComponent(flowId);
+          if (verifier) exchangeParams += '&verifier=' + encodeURIComponent(verifier);
+          var res = await fetch(__anPath('/_agent-native/auth/desktop-exchange') + exchangeParams, { credentials: 'include' });
           var data = await res.json().catch(function() { return {}; });
           if (data && (data.email || data.token)) {
             if (__anOAuthPollTimer) clearInterval(__anOAuthPollTimer);
@@ -3547,7 +3444,12 @@ ${identitySsoScript}
           }
           if (data && data.error) {
             __anSetOAuthDebug('OAuth exchange returned an error: ' + (data.message || data.error), flowId);
-            __anShowOAuthError(err, btn, data.message || data.error);
+            __anShowAuthExchangeError(
+              err,
+              btn,
+              __anAuthErrorText(data, isMagicLink ? __anT('magicLinkFailed') : __anT('googleNotConfigured')),
+              isMagicLink ? 'magic-link' : 'google',
+            );
             return;
           }
           if (data && data.pending && (__anOAuthPollCount === 1 || __anOAuthPollCount % 5 === 0)) {
@@ -3559,10 +3461,17 @@ ${identitySsoScript}
           }
         }
         if (Date.now() - started > timeoutMs) {
-          __anShowOAuthError(err, btn, __anT('googleNeverFinished') + ' Flow ' + __anFlowDebugId(flowId) + '.');
+          __anShowAuthExchangeError(
+            err,
+            btn,
+            isMagicLink
+              ? __anT('magicLinkFailed')
+              : __anT('googleNeverFinished') + ' Flow ' + __anFlowDebugId(flowId) + '.',
+            isMagicLink ? 'magic-link' : 'google',
+          );
         }
       }
-      if (__anOAuthPollTimer) clearInterval(__anOAuthPollTimer);
+      __anStopOAuthExchangePolling();
       __anOAuthPollTimer = setInterval(check, 1000);
       setTimeout(check, 500);
     }
@@ -3699,6 +3608,8 @@ ${
       __anSetAuthView('magicLinkSent');
     }
     function showMagicLinkForm() {
+      __anStopOAuthExchangePolling();
+      __anMagicLinkInFlight = false;
       var form = document.getElementById('magic-link-form');
       if (!form) return;
       hideMagicLinkSuccess();
@@ -3791,6 +3702,16 @@ ${
 	        return false;
 	      }
 	    }
+	    function __anVerificationRedirectError() {
+	      try {
+	        var params = new URLSearchParams(location.search);
+        return params.get('error') === 'verification_link_invalid'
+          ? __anT('verificationLinkInvalid')
+          : '';
+      } catch (e) { // coercion-ok: malformed query has no verification error to render
+        return '';
+      }
+	    }
 	    function __anShowEmailValidationError(input, msg) {
 	      if (msg) {
 	        msg.textContent = __anT('invalidEmail');
@@ -3832,7 +3753,7 @@ ${
         console.warn('[auth] Could not parse sign-in response', error);
         return null;
       });
-      var error = (data && (data.error || data.message)) || __anT('finishSignInFailed');
+      var error = __anAuthErrorText(data, __anT('finishSignInFailed'));
       return {
         ok: false,
         error: error,
@@ -3955,7 +3876,7 @@ ${
 	        }
 	        var data = await res.json().catch(function() { return {}; });
 	        if (msg) {
-          msg.textContent = (data && (data.message || data.error)) || __anT('resendVerificationFailed');
+          msg.textContent = __anAuthErrorText(data, __anT('resendVerificationFailed'));
           msg.classList.add('show', 'error');
         }
         if (btn) {
@@ -3975,6 +3896,7 @@ ${
     }
     (function initActiveTab() {
     var initial = __AN_AUTH_MODE === 'magic-link' ? 'magicLink' : 'signup';
+    var verificationError = __anVerificationRedirectError();
     try {
       var params = new URLSearchParams(location.search);
       var qp = params.get('tab');
@@ -3983,6 +3905,8 @@ ${
       if (qp === 'login' || qp === 'signup') {
         initial = qp;
 	      } else if (__anIsVerifiedRedirectSuccess()) {
+	        initial = 'login';
+	      } else if (verificationError) {
 	        initial = 'login';
 	      } else if (path === '/login' || path.endsWith('/login')) {
         initial = 'login';
@@ -3995,6 +3919,13 @@ ${
     } catch (e) {}
     if (initial === 'magicLink') showMagicLinkForm();
     else setActiveTab(initial, { persist: false });
+	    if (verificationError) {
+	      var verificationMsg = document.getElementById('l-msg');
+	      if (verificationMsg) {
+	        verificationMsg.textContent = verificationError;
+	        verificationMsg.classList.add('show', 'error');
+	      }
+	    }
 	      try {
 	        if (__anIsVerifiedRedirectSuccess()) {
 	          var rememberedEmail = readRememberedPendingSignupEmail();
@@ -4037,6 +3968,8 @@ ${
   });
 
   var magicLinkForm = document.getElementById('magic-link-form');
+  __anBindPasswordValidation(document.getElementById('s-pass'));
+  __anBindPasswordValidation(document.getElementById('s-pass2'));
   var magicLinkEmail = document.getElementById('m-email');
   if (magicLinkEmail) {
     magicLinkEmail.addEventListener('input', updateMagicLinkSubmitState);
@@ -4049,6 +3982,7 @@ ${
     var msg = document.getElementById('m-msg');
     var emailInput = document.getElementById('m-email');
     var email = __anNormalizeAuthEmail(emailInput && emailInput.value);
+    var isDesktopMagicLink = __anIsAgentNativeDesktop();
     msg.classList.remove('show', 'error', 'success');
     if (!__anIsValidAuthEmail(email)) {
       __anShowEmailValidationError(emailInput, msg);
@@ -4056,12 +3990,18 @@ ${
     }
     var originalLabel = btn.textContent;
     btn.disabled = true;
+    __anMagicLinkInFlight = isDesktopMagicLink;
     btn.textContent = __anT('sending');
     try {
       var res = await fetch(__anPath('/_agent-native/auth/magic-link'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email, callbackURL: __anResumeHref() }),
+        body: JSON.stringify({
+          email: email,
+          callbackURL: isDesktopMagicLink
+            ? __anPath('/_agent-native/auth/magic-link/desktop-callback')
+            : __anResumeHref(),
+        }),
       });
       var data = await res.json().catch(function(error) {
         console.warn('[auth] Could not parse magic-link response', error);
@@ -4071,13 +4011,23 @@ ${
         btn.disabled = false;
         btn.textContent = originalLabel;
         showMagicLinkSuccess(email);
+        if (isDesktopMagicLink) {
+          var magicFlowId = data && typeof data.flowId === 'string' ? data.flowId : '';
+          var magicVerifier = data && typeof data.verifier === 'string' ? data.verifier : '';
+          if (!magicFlowId || !magicVerifier) {
+            throw new Error('The sign-in flow was not initialized.');
+          }
+          __anWaitForOAuthExchange(magicFlowId, __anResumeHref(), btn, msg, 'magic-link', magicVerifier);
+        }
         return;
       }
-      msg.textContent = (data && (data.error || data.message)) || __anT('magicLinkFailed');
+      __anMagicLinkInFlight = false;
+      msg.textContent = __anAuthErrorText(data, __anT('magicLinkFailed'));
       msg.classList.add('show', 'error');
       btn.disabled = false;
       btn.textContent = originalLabel;
     } catch (err) {
+      __anMagicLinkInFlight = false;
       msg.textContent = __anT('networkErrorDashRetry');
       msg.classList.add('show', 'error');
       btn.disabled = false;
@@ -4140,7 +4090,7 @@ ${
           showVerificationStep(email, pass);
           return;
         }
-      msg.textContent = data.error || __anT('registrationFailed');
+      msg.textContent = __anAuthErrorText(data, __anT('registrationFailed'));
       msg.classList.add('show', 'error');
       btn.disabled = false;
       btn.textContent = originalLabel;
@@ -4224,7 +4174,7 @@ ${
         return;
       }
       var data = await res.json().catch(function() { return {}; });
-      msg.textContent = (data && (data.message || data.error)) || __anT('resetEmailFailed');
+      msg.textContent = __anAuthErrorText(data, __anT('resetEmailFailed'));
       msg.classList.add('show', 'error');
       btn.disabled = false;
       btn.textContent = original;
@@ -4269,7 +4219,7 @@ ${
         return;
       }
       var data = await res.json().catch(function() { return {}; });
-      msg.textContent = data.error || __anT('invalidLogin');
+      msg.textContent = __anAuthErrorText(data, __anT('invalidLogin'));
       msg.classList.add('show');
       btn.disabled = false;
       btn.textContent = originalLabel;
@@ -4286,13 +4236,6 @@ ${
   renderGoogleButton
     ? `
     async function signInWithGoogle() {
-    if (__anShouldShowGoogleNotice()) {
-      __anShowGoogleNotice();
-      return;
-    }
-    return __anStartGoogleSignIn();
-  }
-    async function __anStartGoogleSignIn() {
     var btn = document.getElementById('google-btn');
     var err = document.getElementById('google-err');
     var ret = __anResumeHref();
@@ -4320,7 +4263,7 @@ ${
       if (data.url) {
         __anOpenOAuthUrl(data.url);
       } else {
-        err.textContent = data.message || __anT('googleNotConfigured');
+        err.textContent = __anAuthErrorText(data, __anT('googleNotConfigured'));
         err.classList.add('show');
         btn.disabled = false;
         __anGoogleSignInInFlight = false;
@@ -4333,68 +4276,6 @@ ${
     }
   }`
     : ""
-}
-${
-  googleSignInNotice
-    ? `
-  window.__anGoogleNoticeAccepted = false;
-  function __anShouldShowGoogleNotice() {
-    var notice = document.getElementById('google-preflight');
-    if (!notice || window.__anGoogleNoticeAccepted) return false;
-    var host = notice.getAttribute('data-host');
-    return !host || window.location.hostname === host;
-  }
-  function __anSetGoogleNoticeOpen(open) {
-    var notice = document.getElementById('google-preflight');
-    var trigger = document.getElementById('google-btn');
-    if (!notice) return;
-    if (open) {
-      notice.classList.add('show');
-      if (trigger) trigger.setAttribute('aria-expanded', 'true');
-    } else {
-      notice.classList.remove('show');
-      if (trigger) trigger.setAttribute('aria-expanded', 'false');
-    }
-  }
-  function __anShowGoogleNotice() {
-    var notice = document.getElementById('google-preflight');
-    if (!notice) return;
-    __anSetGoogleNoticeOpen(true);
-    var continueBtn = document.getElementById('google-preflight-continue');
-    if (continueBtn) continueBtn.focus();
-  }
-  function __anHideGoogleNotice() {
-    __anSetGoogleNoticeOpen(false);
-  }
-  function __anChooseRunLocalFromGoogleNotice() {
-    var panel = document.getElementById('google-preflight-run-local-panel');
-    if (!panel) {
-      __anHideGoogleNotice();
-      return;
-    }
-    panel.removeAttribute('hidden');
-    var copy = document.getElementById('copy-google-preflight-run-local');
-    if (copy) copy.focus();
-  }
-  function __anAcceptGoogleNotice() {
-    window.__anGoogleNoticeAccepted = true;
-    __anHideGoogleNotice();
-    __anStartGoogleSignIn();
-  }
-  (function __anInstallGoogleNoticeDismissal() {
-    document.addEventListener('keydown', function(event) {
-      if (event.key === 'Escape') __anHideGoogleNotice();
-    });
-    document.addEventListener('click', function(event) {
-      var notice = document.getElementById('google-preflight');
-      if (!notice || !notice.classList.contains('show')) return;
-      var wrapper = document.getElementById('google-signin');
-      if (wrapper && wrapper.contains(event.target)) return;
-      __anHideGoogleNotice();
-    });
-  })();`
-    : `
-  function __anShouldShowGoogleNotice() { return false; }`
 }
 ${starfieldScript}
 ${
@@ -4436,8 +4317,6 @@ ${
   function __anCopySignupLocalModeCommand() {
     __anCopyCommandFromPanel('signup-local-mode-note', 'copy-signup-local-mode');
   }
-  function __anCopyGoogleNoticeRunLocalCommand() {
-    __anCopyCommandFromPanel('google-preflight-run-local-panel', 'copy-google-preflight-run-local');
   }`
     : ""
 }
@@ -4490,9 +4369,9 @@ export function getResetPasswordHtml(): string {
   <p class="subtitle">Set a new password for your account.</p>
   <form id="reset-form">
     <label for="p1">New password</label>
-    <input id="p1" type="password" autocomplete="new-password" autofocus placeholder="At least ${PASSWORD_MIN_LENGTH} characters" required minlength="${PASSWORD_MIN_LENGTH}" />
+    <input id="p1" type="password" autocomplete="new-password" autofocus placeholder="At least ${PASSWORD_MIN_LENGTH} characters" required minlength="${PASSWORD_MIN_LENGTH}" maxlength="${PASSWORD_MAX_LENGTH}" />
     <label for="p2">Confirm password</label>
-    <input id="p2" type="password" autocomplete="new-password" placeholder="Confirm password" required minlength="${PASSWORD_MIN_LENGTH}" />
+    <input id="p2" type="password" autocomplete="new-password" placeholder="Confirm password" required minlength="${PASSWORD_MIN_LENGTH}" maxlength="${PASSWORD_MAX_LENGTH}" />
     <button type="submit">Save new password</button>
     <p class="msg" id="msg"></p>
   </form>
@@ -4512,20 +4391,51 @@ export function getResetPasswordHtml(): string {
     var params = new URLSearchParams(location.search);
     var token = params.get('token') || '';
     var msg = document.getElementById('msg');
+    var resetForm = document.getElementById('reset-form');
+    function resetErrorText(data, fallback) {
+      var candidate = data && (data.error || data.message);
+      if (typeof candidate !== 'string' || !candidate.trim()) return fallback;
+      var message = candidate.trim();
+      if (/failed query|\bselect\b.*\bfrom\b|\binsert\b.*\binto\b|\bupdate\b.*\bset\b|\bdelete\b.*\bfrom\b|\bsql\b|database|relation .* does not exist|column .* does not exist|syntax error|constraint|connection refused|econn|timeout/i.test(message)) {
+        return fallback;
+      }
+      if (/password.*(?:at least|minimum|min(?:imum)?|too short)/i.test(message)) {
+        return 'Choose a password with at least ${PASSWORD_MIN_LENGTH} characters.';
+      }
+      if (/password.*(?:at most|maximum|max(?:imum)?|too long)/i.test(message)) {
+        return 'Choose a password with no more than ${PASSWORD_MAX_LENGTH} characters.';
+      }
+      return message;
+    }
+    function bindPasswordValidation(input) {
+      if (!input) return;
+      input.addEventListener('invalid', function() {
+        if (input.validity && input.validity.tooShort) {
+          input.setCustomValidity('Choose a password with at least ${PASSWORD_MIN_LENGTH} characters.');
+        } else if (input.validity && input.validity.tooLong) {
+          input.setCustomValidity('Choose a password with no more than ${PASSWORD_MAX_LENGTH} characters.');
+        }
+      });
+      input.addEventListener('input', function() {
+        input.setCustomValidity('');
+      });
+    }
+    bindPasswordValidation(document.getElementById('p1'));
+    bindPasswordValidation(document.getElementById('p2'));
     if (!token) {
-      msg.textContent = 'Missing or invalid reset token. Request a new reset link.';
+      msg.textContent = 'This password reset link is missing or invalid. Request a new one.';
       msg.classList.add('show', 'error');
-      document.getElementById('reset-form').style.display = 'none';
+      resetForm.style.display = 'none';
       return;
     }
-    document.getElementById('reset-form').addEventListener('submit', async function(e) {
+    resetForm.addEventListener('submit', async function(e) {
       e.preventDefault();
       var btn = e.currentTarget.querySelector('button[type="submit"]');
       var p1 = document.getElementById('p1').value;
       var p2 = document.getElementById('p2').value;
       msg.classList.remove('show', 'error', 'success');
       if (p1 !== p2) {
-        msg.textContent = 'Passwords do not match';
+        msg.textContent = 'Passwords do not match.';
         msg.classList.add('show', 'error');
         return;
       }
@@ -4545,12 +4455,12 @@ export function getResetPasswordHtml(): string {
           return;
         }
         var data = await res.json().catch(function() { return {}; });
-        msg.textContent = (data && (data.message || data.error)) || 'Reset failed. The link may have expired — request a new one.';
+        msg.textContent = resetErrorText(data, "We couldn't update your password. The link may have expired; request a new one.");
         msg.classList.add('show', 'error');
         btn.disabled = false;
         btn.textContent = original;
       } catch (err) {
-        msg.textContent = 'Network error — please try again';
+        msg.textContent = "We couldn't reach the server. Check your connection and try again.";
         msg.classList.add('show', 'error');
         btn.disabled = false;
         btn.textContent = original;

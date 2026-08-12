@@ -234,7 +234,7 @@
 .an-chat-history--rail .an-chat-history-row__button {
   min-height: 32px;
   padding-block: 6px;
-  padding-inline: 10px 36px;
+  padding-inline: 10px;
   border-radius: inherit;
   color: hsl(var(--muted-foreground));
 }
@@ -290,12 +290,38 @@
 .an-chat-history--rail .an-chat-history-row__timestamp {
   font-size: 11px;
   color: hsl(var(--muted-foreground) / 0.62);
+  transition: opacity 100ms ease;
+}
+
+.an-chat-history--rail
+  .an-chat-history-row--has-menu
+  .an-chat-history-row__timestamp {
+  display: inline-flex;
+  min-width: 24px;
+  justify-content: flex-end;
 }
 
 .an-chat-history--rail
   .an-chat-history-row--active
   .an-chat-history-row__timestamp {
   color: hsl(var(--accent-foreground));
+}
+
+/* The menu overlays this fixed trailing slot so its hover state never changes
+   the title's available width or moves the rest of the rail. */
+.an-chat-history--rail
+  .an-chat-history-row--has-menu:hover
+  .an-chat-history-row__timestamp,
+.an-chat-history--rail
+  .an-chat-history-row--has-menu:focus-within
+  .an-chat-history-row__timestamp,
+.an-chat-history--rail
+  .an-chat-history-row--has-menu.an-chat-history-row--menu-open
+  .an-chat-history-row__timestamp,
+.an-chat-history--rail
+  .an-chat-history-row--has-menu.an-chat-history-row--pinned
+  .an-chat-history-row__timestamp {
+  opacity: 0;
 }
 
 .an-chat-history-row__subtitle {
@@ -351,6 +377,10 @@
   inset-inline-end: 4px;
 }
 
+.an-chat-history--rail .an-chat-history-row__menu {
+  inset-inline-end: 10px;
+}
+
 .an-chat-history-row__menu-trigger {
   display: inline-flex;
   align-items: center;
@@ -369,11 +399,26 @@
     opacity 100ms ease;
 }
 
+.an-chat-history--rail .an-chat-history-row__menu-trigger {
+  pointer-events: none;
+}
+
 .an-chat-history-row:hover .an-chat-history-row__menu-trigger,
 .an-chat-history-row:focus-within .an-chat-history-row__menu-trigger,
 .an-chat-history-row__menu-trigger[aria-expanded="true"],
 .an-chat-history-row__menu-trigger--pinned {
   opacity: 1;
+}
+
+.an-chat-history--rail
+  .an-chat-history-row:hover
+  .an-chat-history-row__menu-trigger,
+.an-chat-history--rail
+  .an-chat-history-row:focus-within
+  .an-chat-history-row__menu-trigger,
+.an-chat-history--rail .an-chat-history-row__menu-trigger[aria-expanded="true"],
+.an-chat-history--rail .an-chat-history-row__menu-trigger--pinned {
+  pointer-events: auto;
 }
 
 .an-chat-history-row__menu-trigger:hover,
@@ -393,7 +438,13 @@
   border-radius: var(--radius);
   background: hsl(var(--popover));
   color: hsl(var(--popover-foreground));
-  box-shadow: 0 10px 30px hsl(var(--background) / 0.28);
+  --agent-shadow: 0 0% 0%;
+  --agent-shadow-o: 0.14;
+  box-shadow: 0 10px 30px hsl(var(--agent-shadow) / var(--agent-shadow-o));
+}
+
+.dark .an-chat-history-row__menu-content {
+  --agent-shadow-o: 0.08;
 }
 
 .an-chat-history-row__menu-item {

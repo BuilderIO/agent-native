@@ -20,6 +20,9 @@ export interface PresenceBarProps {
   agentPresent?: boolean;
   /** Whether the agent is actively making edits right now. */
   agentActive?: boolean;
+  /** Whether to show the status dot beside the active agent label. When false,
+   *  the label is integrated with the avatar pill. */
+  showAgentEditingDot?: boolean;
   /** Current user's email (to exclude from the list). */
   currentUserEmail?: string;
   /** Max visible avatars before "+N" overflow. Default: 5 */
@@ -151,12 +154,15 @@ function AgentAvatar({
   active,
   onClick,
   isFollowing,
+  showAgentEditingDot,
 }: {
   active: boolean;
   onClick?: () => void;
   isFollowing?: boolean;
+  showAgentEditingDot: boolean;
 }) {
   injectStyles();
+  const integratedEditingBadge = active && !isFollowing && !showAgentEditingDot;
 
   return (
     <div
@@ -164,6 +170,12 @@ function AgentAvatar({
         display: "flex",
         alignItems: "center",
         gap: 4,
+        ...(integratedEditingBadge && {
+          height: AVATAR_SIZE,
+          paddingRight: 8,
+          borderRadius: 9999,
+          backgroundColor: `${AGENT_COLOR}20`,
+        }),
       }}
     >
       <div
@@ -193,7 +205,12 @@ function AgentAvatar({
       >
         A
       </div>
-      {active && !isFollowing && <AgentEditingChip />}
+      {active && !isFollowing && (
+        <AgentEditingChip
+          showDot={showAgentEditingDot}
+          integrated={integratedEditingBadge}
+        />
+      )}
       {isFollowing && (
         <span
           style={{
@@ -216,33 +233,41 @@ function AgentAvatar({
   );
 }
 
-function AgentEditingChip() {
+function AgentEditingChip({
+  showDot,
+  integrated,
+}: {
+  showDot: boolean;
+  integrated: boolean;
+}) {
   return (
     <span
       style={{
         display: "inline-flex",
         alignItems: "center",
-        gap: 4,
-        height: 20,
-        padding: "0 8px",
-        borderRadius: 9999,
-        backgroundColor: `${AGENT_COLOR}20`,
+        gap: showDot ? 4 : 0,
+        height: integrated ? "auto" : 20,
+        padding: integrated ? 0 : "0 8px",
+        borderRadius: integrated ? 0 : 9999,
+        backgroundColor: integrated ? "transparent" : `${AGENT_COLOR}20`,
         color: AGENT_COLOR,
         fontSize: 11,
         fontWeight: 600,
         whiteSpace: "nowrap",
       }}
     >
-      <span
-        style={{
-          width: 6,
-          height: 6,
-          borderRadius: "50%",
-          backgroundColor: AGENT_COLOR,
-          animation: "_anPresencePulse 2s infinite",
-          flexShrink: 0,
-        }}
-      />
+      {showDot && (
+        <span
+          style={{
+            width: 6,
+            height: 6,
+            borderRadius: "50%",
+            backgroundColor: AGENT_COLOR,
+            animation: "_anPresencePulse 2s infinite",
+            flexShrink: 0,
+          }}
+        />
+      )}
       AI editing
     </span>
   );
@@ -275,6 +300,7 @@ export function PresenceBar({
   activeUsers,
   agentPresent,
   agentActive,
+  showAgentEditingDot = true,
   currentUserEmail,
   maxVisible = 5,
   className,
@@ -313,6 +339,7 @@ export function PresenceBar({
             active={!!agentActive}
             onClick={onAvatarClick ? () => onAvatarClick(null) : undefined}
             isFollowing={isFollowingAgent}
+            showAgentEditingDot={showAgentEditingDot}
           />
         )}
         {visibleUsers.length > 0 && (

@@ -48,6 +48,7 @@ import React, {
   Suspense,
   startTransition,
 } from "react";
+import { flushSync } from "react-dom";
 
 import type { AgentRun } from "../progress/types.js";
 import {
@@ -1411,13 +1412,44 @@ function AgentPanelInner({
               <DropdownMenuSeparator />
             ) : null}
             {onCollapse && mode === "chat" && (
-              <DropdownMenuItem onSelect={addTab}>
-                <IconPlus size={14} className="shrink-0" />
-                {t("agentPanel.newChat")}
-              </DropdownMenuItem>
+              <>
+                <DropdownMenuItem onSelect={addTab}>
+                  <IconPlus size={14} className="shrink-0" />
+                  {t("agentPanel.newChat")}
+                </DropdownMenuItem>
+                {(() => {
+                  const activeTab = activeChatSessionId
+                    ? tabs.find((tab) => tab.id === activeChatSessionId)
+                    : undefined;
+                  if (
+                    !activeTab ||
+                    (activeTabMessageCount <= 0 && activeTab.status === "idle")
+                  ) {
+                    return null;
+                  }
+                  return (
+                    <div className="p-1">
+                      <ShareButton
+                        resourceType="chat_thread"
+                        resourceId={activeTab.id}
+                        resourceTitle={activeTab.label || "Chat"}
+                        shareUrl={getChatThreadShareUrl(activeTab.id)}
+                        trigger="label-icon"
+                        triggerClassName="w-full justify-start"
+                      />
+                    </div>
+                  );
+                })()}
+              </>
             )}
             {mode === "chat" && toggleHistory && (
-              <DropdownMenuItem onSelect={toggleHistory}>
+              <DropdownMenuItem
+                onSelect={() => {
+                  // Let the menu finish restoring focus before mounting the
+                  // history popover; otherwise Radix dismisses the new overlay.
+                  setTimeout(() => toggleHistory(), 0);
+                }}
+              >
                 <IconHistory size={14} className="shrink-0" />
                 {showHistory
                   ? t("agentPanel.hideChats")
@@ -2251,7 +2283,7 @@ const SIDEBAR_OVERLAY_Z_INDEX = 70;
 const SIDEBAR_DRAWER_Z_INDEX = 80;
 const SIDEBAR_DRAWER_VIEW_TRANSITION_NAME = "agent-native-sidebar-drawer";
 /** Shared max width of the centered fullscreen chat column and composer. */
-const FULLSCREEN_CHAT_COLUMN_MAX_PX = 684;
+const FULLSCREEN_CHAT_COLUMN_MAX_PX = 750;
 
 export function getActiveTabScrollDelta(
   containerRect: Pick<DOMRect, "left" | "right">,
@@ -3354,6 +3386,26 @@ export function AgentSidebar({
       return next;
     });
   }, []);
+  // `view-transition-name` is only legal to carry while a transition is
+  // actually capturing. Left on permanently it makes the panel its own
+  // stacking context and the containing block for every fixed/absolute
+  // descendant, and enlists it as a captured group in unrelated transitions
+  // (any React Router `viewTransition` navigation), which is how overlays end
+  // up painted at stale offsets. Apply it only around the drawer morph, and
+  // flush it into the DOM first: `startViewTransition` captures the old state
+  // before it invokes the callback, so a name applied in a normal React commit
+  // would land too late to be captured.
+  const [drawerMorphing, setDrawerMorphing] = useState(false);
+  const runDrawerMorph = useCallback((apply: () => void) => {
+    flushSync(() => setDrawerMorphing(true));
+    const settle = () => setDrawerMorphing(false);
+    const transition = startAgentChatViewTransition(apply);
+    if (!transition) {
+      settle();
+      return;
+    }
+    transition.finished.then(settle, settle);
+  }, []);
   const snapTo75Percent = useCallback(() => {
     if (drawerExitTimerRef.current !== null) {
       clearTimeout(drawerExitTimerRef.current);
@@ -3375,8 +3427,8 @@ export function AgentSidebar({
         // coercion-ok: the drawer remains applied in memory when storage is unavailable.
       } catch {}
     };
-    startAgentChatViewTransition(apply);
-  }, [drawerPlaceholderWidth, isWideDrawer, width]);
+    runDrawerMorph(apply);
+  }, [runDrawerMorph, drawerPlaceholderWidth, isWideDrawer, width]);
   const exitWideDrawer = useCallback(() => {
     if (!isWideDrawer || drawerExitTimerRef.current !== null) return;
     const next = drawerPlaceholderWidth;
@@ -3392,8 +3444,8 @@ export function AgentSidebar({
         setIsWideDrawer(false);
       }, SIDEBAR_ANIMATION_MS + 32);
     };
-    startAgentChatViewTransition(apply);
-  }, [drawerPlaceholderWidth, isWideDrawer]);
+    runDrawerMorph(apply);
+  }, [runDrawerMorph, drawerPlaceholderWidth, isWideDrawer]);
   const handleResizeStart = useCallback(() => setIsResizing(true), []);
   const handleResizeEnd = useCallback(() => setIsResizing(false), []);
 
@@ -3484,7 +3536,9 @@ export function AgentSidebar({
       borderLeft: isLeft ? "none" : "1px solid hsl(var(--border))",
       borderRight: isLeft ? "1px solid hsl(var(--border))" : "none",
       display: "flex",
-      viewTransitionName: SIDEBAR_DRAWER_VIEW_TRANSITION_NAME,
+      ...(drawerMorphing
+        ? { viewTransitionName: SIDEBAR_DRAWER_VIEW_TRANSITION_NAME }
+        : null),
     };
   } else {
     panelStyle = {
@@ -3507,7 +3561,9 @@ export function AgentSidebar({
       display: desktopAnimationEnabled || panelOpen ? "flex" : "none",
       minWidth: desktopAnimationEnabled ? 0 : undefined,
       pointerEvents: desktopAnimationEnabled && !panelOpen ? "none" : undefined,
-      viewTransitionName: SIDEBAR_DRAWER_VIEW_TRANSITION_NAME,
+      ...(drawerMorphing
+        ? { viewTransitionName: SIDEBAR_DRAWER_VIEW_TRANSITION_NAME }
+        : null),
     };
   }
 
@@ -3527,7 +3583,6 @@ export function AgentSidebar({
         className={cn(
           "agent-sidebar-panel flex shrink-0 flex-col overflow-hidden text-[13px] leading-[1.2] antialiased",
           chatViewTransition && AGENT_CHAT_VIEW_TRANSITION_CLASS,
-          mobileAnimationEnabled && "shadow-2xl",
         )}
         data-agent-sidebar-animation={
           wideDrawerEnabled
@@ -3591,7 +3646,7 @@ export function AgentSidebar({
   ) : null;
 
   const drawerPlaceholder =
-    wideDrawerEnabled && !presentationMode && shouldRenderPanel ? (
+    wideDrawerEnabled && !presentationMode && panelOpen ? (
       <div
         aria-hidden="true"
         className="agent-sidebar-drawer-placeholder shrink-0"

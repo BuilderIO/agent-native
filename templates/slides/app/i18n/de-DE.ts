@@ -48,7 +48,8 @@ const messages = {
   },
   agent: {
     emptyState: "Frag mich alles zu deinen Präsentationen",
-    thisDeck: "Dieses Deck",
+    thisSlide: "Diese Folie",
+    currentSelection: "Aktuelle Auswahl",
     suggestionPitch:
       "Erstelle aus diesem Dokument ein Pitch-Deck mit 10 Folien",
     suggestionBrand: "Wende unsere Marke auf dieses Deck an",
@@ -208,6 +209,8 @@ const messages = {
     usingDesignSystem: "{{title}} wird verwendet",
     usingLinkedDesignSystem: "Verknüpftes Designsystem wird verwendet",
     viewOnly: "Nur ansehen",
+    commenterRoleLabel: "Kommentator",
+    commenterRoleDescription: "Kann ansehen und Kommentare hinzufügen",
     slideSettings: "Folieneinstellungen",
     layout: "Layout",
     background: "Hintergrund",
@@ -441,6 +444,10 @@ const messages = {
     order: "Reihenfolge",
     bringToFront: "In den Vordergrund",
     sendToBack: "In den Hintergrund",
+    copyStyle: "Stil kopieren",
+    pasteStyle: "Stil einfügen",
+    copy: "Kopieren",
+    paste: "Einfügen",
   },
   animations: {
     appear: "Aparecer",
@@ -671,6 +678,7 @@ const messages = {
     deckCount_other: "Decks",
     createDeckOrVisual: "Präsentation erstellen",
     noMineDecks: "Du hast noch keine Decks erstellt.",
+    noDecksMatchSearch: "Keine Decks entsprechen deiner Suche.",
     deleteDeckTitle: "Deck löschen?",
     deleteDeckDescription:
       "Dadurch werden dieses Deck und alle Folien dauerhaft gelöscht. Diese Aktion kann nicht rückgängig gemacht werden.",
@@ -685,6 +693,12 @@ const messages = {
     chooseReferences: "Referenzen auswählen",
     addDesignSystem: "+ Designsystem",
     importFrom: "Importieren von",
+    imported: "Importiert",
+    importedReferenceDeck: "Importiertes Referenz-Deck",
+    referenceImportSuccess: "Erfolgreich importiert",
+    referenceImportSelected: "„{{title}}“ ist jetzt das Referenz-Deck.",
+    continue: "Weiter",
+    continueToGenerate: "Zum Generieren fortfahren",
     designSystem: "Designsystem",
     referenceDeck: "Referenz-Deck",
     referenceDeckPlaceholder: "Den Stil eines vorhandenen Decks übernehmen",
@@ -696,6 +710,7 @@ const messages = {
       "Behalte das Standarddesignsystem und das Referenzdeck bei, sofern du sie nicht entfernst. Suche ein anderes Deck, importiere eine Datei oder fahre fort, wenn du bereit bist.",
     chooseAnotherDeck: "Anderes Deck auswählen",
     noMatchingDecks: "Keine passenden Decks gefunden.",
+    googleSlidesImportLabel: "Slides",
     googleSlidesReferenceTitle: "Google-Slides-Decks",
     googleSlidesReferenceConnect:
       "Verbinde Google Drive, um ein Slides-Deck zu importieren.",

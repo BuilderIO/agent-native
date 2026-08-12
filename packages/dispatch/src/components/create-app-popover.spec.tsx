@@ -152,9 +152,12 @@ describe("CreateAppFlow", () => {
     vi.unstubAllGlobals();
   });
 
-  async function renderAndSubmit(prompt: string) {
+  async function renderAndSubmit(
+    prompt: string,
+    props: { onClose?: () => void } = {},
+  ) {
     await act(async () => {
-      root.render(React.createElement(CreateAppFlow, {}));
+      root.render(React.createElement(CreateAppFlow, props));
     });
 
     changeValue(
@@ -211,6 +214,27 @@ describe("CreateAppFlow", () => {
         String(input).includes("start-workspace-app-creation"),
       ),
     ).toBe(false);
+  });
+
+  it("opens a fresh local chat when the server hands off app creation", async () => {
+    startWorkspaceAppCreationResponse.result = {
+      mode: "local-agent",
+      appId: "quality-dashboard",
+      prompt: "Create the quality dashboard in the new workspace app.",
+      message: "Starting the local coding chat.",
+    };
+    const onClose = vi.fn();
+
+    await renderAndSubmit("Build a quality dashboard", { onClose });
+
+    expect(sendToAgentChatMock).toHaveBeenCalledWith({
+      message: "Create the quality dashboard in the new workspace app.",
+      submit: true,
+      type: "code",
+      newTab: true,
+      reuseEmptyTab: true,
+    });
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it("renders the error affordance and a Try again control for builder-error, without a Connect Builder control", async () => {

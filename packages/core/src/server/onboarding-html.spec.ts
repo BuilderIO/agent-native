@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { LOCALE_STORAGE_KEY } from "../localization/shared.js";
-import { PASSWORD_MIN_LENGTH } from "../shared/password-policy.js";
+import {
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MIN_LENGTH,
+} from "../shared/password-policy.js";
 import {
   AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,
   AGENT_NATIVE_SOCIAL_IMAGE_PATH,
@@ -54,6 +57,9 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain("function __anIsLoopbackHostname()");
     expect(html).toContain("function __anSetFullAuthOptionsVisible(visible)");
     expect(html).toContain("fetch(__anPath('/_agent-native/auth/local-dev')");
+    expect(html).toContain("method: 'GET'");
+    expect(html).toContain("cache: 'no-store'");
+    expect(html).toContain("data.available === true");
     expect(html).toContain("hostname.indexOf('127.') === 0");
     expect(html).toContain(
       "var __AN_BUILDER_PREVIEW_LOCAL_DEV_ENABLED = false;",
@@ -134,6 +140,8 @@ describe("getOnboardingHtml", () => {
 
       expect(html).toContain('id="google-btn"');
       expect(html).toContain("async function signInWithGoogle()");
+      expect(html).toContain('onclick="signInWithGoogle()"');
+      expect(html).not.toContain("google-preflight");
       expect(html).not.toContain("Google sign-in is not configured");
     });
 
@@ -191,14 +199,53 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain("password: document.getElementById('l-pass').value");
   });
 
+  it("uses clear client-side validation and hides technical auth errors", () => {
+    const html = getOnboardingHtml();
+    const resetHtml = getResetPasswordHtml();
+
+    expect(html).toContain("function __anAuthErrorText(data, fallback)");
+    expect(html).toContain("function __anBindPasswordValidation(input)");
+    expect(html).toContain(
+      "input.setCustomValidity(__anT('passwordMinPlaceholder'))",
+    );
+    expect(html).toContain(`maxlength="${PASSWORD_MAX_LENGTH}"`);
+    expect(html).toContain(
+      "We couldn't create your account. Please try again.",
+    );
+    expect(html).toContain(
+      "We couldn't reach the server. Check your connection and try again.",
+    );
+    expect(html).toContain("function __anVerificationRedirectError()");
+    expect(html).toContain("verification_link_invalid");
+    expect(html).toContain(
+      "This verification link is invalid or expired. Request a new one.",
+    );
+    expect(resetHtml).toContain(
+      "This password reset link is missing or invalid. Request a new one.",
+    );
+    expect(resetHtml).toContain(
+      "We couldn't update your password. The link may have expired; request a new one.",
+    );
+    expect(resetHtml).toContain(`maxlength="${PASSWORD_MAX_LENGTH}"`);
+
+    const onboardingScript = html.match(/<script>([\s\S]*)<\/script>/)?.[1];
+    const resetScript = resetHtml.match(/<script>([\s\S]*)<\/script>/)?.[1];
+    expect(onboardingScript).toBeTruthy();
+    expect(resetScript).toBeTruthy();
+    expect(() => new Function(onboardingScript!)).not.toThrow();
+    expect(() => new Function(resetScript!)).not.toThrow();
+  });
+
   it("renders the policy password minimum in signup and reset forms", () => {
     const html = getOnboardingHtml();
     const resetHtml = getResetPasswordHtml();
 
     expect(html).toContain(`minlength="${PASSWORD_MIN_LENGTH}"`);
+    expect(html).toContain(`maxlength="${PASSWORD_MAX_LENGTH}"`);
     expect(html).toContain(`At least ${PASSWORD_MIN_LENGTH} characters`);
     expect(html).not.toContain('minlength="8"');
     expect(resetHtml).toContain(`minlength="${PASSWORD_MIN_LENGTH}"`);
+    expect(resetHtml).toContain(`maxlength="${PASSWORD_MAX_LENGTH}"`);
     expect(resetHtml).toContain(`At least ${PASSWORD_MIN_LENGTH} characters`);
     expect(resetHtml).not.toContain('minlength="8"');
   });
@@ -241,8 +288,10 @@ describe("getOnboardingHtml", () => {
     );
     expect(html).toContain('id="back-to-magic-link"');
     expect(html).toContain("/_agent-native/auth/magic-link");
+    expect(html).toContain("callbackURL: isDesktopMagicLink");
+    expect(html).toContain("/_agent-native/auth/magic-link/desktop-callback");
     expect(html).toContain(
-      "body: JSON.stringify({ email: email, callbackURL: __anResumeHref() })",
+      "__anWaitForOAuthExchange(magicFlowId, __anResumeHref(), btn, msg, 'magic-link', magicVerifier)",
     );
     expect(html).toContain(
       "var initial = __AN_AUTH_MODE === 'magic-link' ? 'magicLink' : 'signup';",
@@ -532,43 +581,6 @@ return { rememberPendingSignupEmail, readRememberedPendingSignupEmail };`,
     expect(html).toContain(
       `${AGENT_NATIVE_SOCIAL_IMAGE_PATH}?v=${AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER}`,
     );
-  });
-
-  it("puts hosted Google warnings in a popover with a run-local choice", () => {
-    vi.stubEnv("GOOGLE_CLIENT_ID", "google-client-id");
-    vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-client-secret");
-
-    const command =
-      "npx @agent-native/core@latest create my-mail-app --template mail";
-    const html = getOnboardingHtml({
-      googleOnly: true,
-      marketing: {
-        appName: "Agent-Native Mail",
-        tagline: "Manage email with an agent.",
-        runLocalCommand: command,
-      },
-      googleSignInNotice: {
-        host: "mail.agent-native.com",
-        title: "Google may show a warning",
-        body: "Google may ask you to confirm before continuing.",
-        continueLabel: "Continue to Google",
-        cancelLabel: "Run locally",
-      },
-    });
-
-    expect(html).toContain('class="google-signin"');
-    expect(html).toContain(
-      'aria-haspopup="dialog" aria-expanded="false" aria-controls="google-preflight"',
-    );
-    expect(html).toContain('role="dialog"');
-    expect(html).toContain("Google may show a warning");
-    expect(html).toContain('id="google-preflight-run-local"');
-    expect(html).toContain("Run locally");
-    expect(html).not.toContain("Not now");
-    expect(html).toContain('id="google-preflight-run-local-panel"');
-    expect(html).toContain(command);
-    expect(html).toContain("function __anChooseRunLocalFromGoogleNotice()");
-    expect(html).toContain("__anCopyGoogleNoticeRunLocalCommand()");
   });
 
   it("has branded auth marketing for every core built-in template host", () => {

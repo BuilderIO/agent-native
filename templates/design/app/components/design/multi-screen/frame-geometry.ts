@@ -337,6 +337,9 @@ export function getBreakpointFrameGeometry(args: {
   /** Measured content height at this width; wins over the primary-aspect
    * projection, which clipped narrower frames (they reflow taller). */
   contentHeightPx?: number;
+  /** A height the user set. Content measurement must never overwrite it, or
+   * the frame grows out from under them and 100vh content chases itself. */
+  pinnedHeightPx?: number;
 }): {
   frameWidth: number;
   frameHeight: number;
@@ -353,10 +356,16 @@ export function getBreakpointFrameGeometry(args: {
       : undefined;
   // Until the frame's own content is measured, use the pure aspect projection;
   // the device-viewport floor only applies once a real height is known.
+  const pinned =
+    args.pinnedHeightPx && args.pinnedHeightPx > 0
+      ? Math.round(args.pinnedHeightPx)
+      : undefined;
   const naturalHeight =
-    measured !== undefined
-      ? Math.max(deviceViewportFloorForWidth(args.widthPx), measured)
-      : Math.round(args.widthPx * Math.max(0.01, args.naturalAspect));
+    pinned !== undefined
+      ? pinned
+      : measured !== undefined
+        ? Math.max(deviceViewportFloorForWidth(args.widthPx), measured)
+        : Math.round(args.widthPx * Math.max(0.01, args.naturalAspect));
   const frameWidth = Math.round(args.widthPx * scale);
   const frameHeight = Math.round(naturalHeight * scale);
   return { frameWidth, frameHeight, naturalHeight, scale };

@@ -40,6 +40,7 @@ import {
   isRetryableError,
   actionsToEngineTools,
   filterInitialEngineTools,
+  findApprovedStructuredToolCall,
   MAX_BACKGROUND_RUN_CONTINUATIONS,
   lastUnfinishedPreparingActionToolFromEvents,
   markBackgroundContinuationChunkTerminal,
@@ -124,10 +125,10 @@ describe("resolveAgentRequestReasoningEffort", () => {
     );
   });
 
-  it("defaults missing reasoning to Medium", () => {
+  it("defaults missing effort to High", () => {
     expect(
       resolveAgentRequestReasoningEffort({ model: "claude-sonnet-5" }),
-    ).toBe("medium");
+    ).toBe("high");
   });
 
   it("preserves explicit none through the production request path", () => {
@@ -692,6 +693,42 @@ describe("buildUserContentWithAttachments", () => {
         ],
       },
     ]);
+  });
+
+  it("finds the latest exact pending approval call from structured history", () => {
+    expect(
+      findApprovedStructuredToolCall(
+        [
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                id: "call-1",
+                name: "create-builder-branch",
+                input: { branchName: "feature/test" },
+              },
+            ],
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "tool-result",
+                toolCallId: "call-1",
+                content:
+                  "Awaiting human approval to run the action. This action did NOT execute.",
+              },
+            ],
+          },
+        ],
+        ['create-builder-branch:{"branchName":"feature/test"}'],
+      ),
+    ).toEqual({
+      callId: "call-1",
+      name: "create-builder-branch",
+      input: { branchName: "feature/test" },
+    });
   });
 
   it("appends a text note when a sibling tool-result is orphaned", () => {
@@ -9455,6 +9492,58 @@ describe("runAgentLoop", () => {
     );
     expect(events2).toContainEqual({ type: "text", text: "sent the email" });
     expect(events2.at(-1)).toEqual({ type: "done" });
+  });
+
+  it("requires the server approval consumer before executing an approved call", async () => {
+    const phase1 = approvalEngine();
+    const run = vi.fn(async () => "delivered");
+    const actions = {
+      "send-email": {
+        ...actionEntry({ readOnly: false }),
+        needsApproval: true,
+        run,
+      },
+    };
+    const events1: any[] = [];
+
+    await runAgentLoop({
+      engine: phase1.engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions,
+      send: (event) => events1.push(event),
+      signal: new AbortController().signal,
+    });
+
+    const approvalKey = events1.find(
+      (event) => event.type === "approval_required",
+    )?.approvalKey as string;
+    const consumeApproval = vi.fn(async () => false);
+    const onApprovalRequired = vi.fn(async () => undefined);
+    const events2: any[] = [];
+
+    await runAgentLoop({
+      engine: approvalEngine().engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions,
+      approvedToolCalls: [approvalKey],
+      consumeApproval,
+      onApprovalRequired,
+      send: (event) => events2.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(consumeApproval).toHaveBeenCalledOnce();
+    expect(onApprovalRequired).toHaveBeenCalledOnce();
+    expect(run).not.toHaveBeenCalled();
+    expect(events2).toContainEqual(
+      expect.objectContaining({ type: "approval_required" }),
+    );
   });
 
   it("consumes an approval grant after the first exact tool-call match", async () => {

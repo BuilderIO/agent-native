@@ -6,7 +6,7 @@ import {
   IconSearch,
   IconTrash,
 } from "@tabler/icons-react";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 
 import { cn } from "../utils.js";
 
@@ -158,14 +158,24 @@ export function ChatHistoryList({
   className,
   listClassName,
 }: ChatHistoryListProps) {
-  const resolvedLabels: ChatHistoryListLabels = {
-    options: labels?.options ?? DEFAULT_LABELS.options,
-    renameInput: labels?.renameInput ?? DEFAULT_LABELS.renameInput,
-    rename: labels?.rename ?? DEFAULT_LABELS.rename,
-    pin: labels?.pin ?? DEFAULT_LABELS.pin,
-    unpin: labels?.unpin ?? DEFAULT_LABELS.unpin,
-    delete: labels?.delete ?? DEFAULT_LABELS.delete,
-  };
+  const resolvedLabels = useMemo<ChatHistoryListLabels>(
+    () => ({
+      options: labels?.options ?? DEFAULT_LABELS.options,
+      renameInput: labels?.renameInput ?? DEFAULT_LABELS.renameInput,
+      rename: labels?.rename ?? DEFAULT_LABELS.rename,
+      pin: labels?.pin ?? DEFAULT_LABELS.pin,
+      unpin: labels?.unpin ?? DEFAULT_LABELS.unpin,
+      delete: labels?.delete ?? DEFAULT_LABELS.delete,
+    }),
+    [
+      labels?.delete,
+      labels?.options,
+      labels?.pin,
+      labels?.rename,
+      labels?.renameInput,
+      labels?.unpin,
+    ],
+  );
   const resolvedSections: ChatHistorySection[] =
     sections ?? (items ? [{ id: "default", items }] : []);
   const totalCount = resolvedSections.reduce(
@@ -244,19 +254,7 @@ export function ChatHistoryList({
   );
 }
 
-function ChatHistoryRow({
-  item,
-  active,
-  onSelect,
-  onOpen,
-  onTogglePin,
-  onRename,
-  renameMaxLength,
-  onDelete,
-  renderRowActions,
-  renderAdditionalRowActions,
-  labels,
-}: {
+type ChatHistoryRowProps = {
   item: ChatHistoryItem;
   active: boolean;
   onSelect: (id: string) => void;
@@ -271,7 +269,21 @@ function ChatHistoryRow({
     closeMenu: () => void,
   ) => React.ReactNode;
   labels: ChatHistoryListLabels;
-}) {
+};
+
+const ChatHistoryRow = React.memo(function ChatHistoryRow({
+  item,
+  active,
+  onSelect,
+  onOpen,
+  onTogglePin,
+  onRename,
+  renameMaxLength,
+  onDelete,
+  renderRowActions,
+  renderAdditionalRowActions,
+  labels,
+}: ChatHistoryRowProps) {
   const [isRenaming, setIsRenaming] = useState(false);
   const [draftTitle, setDraftTitle] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
@@ -346,6 +358,8 @@ function ChatHistoryRow({
         "an-chat-history-row",
         active && "an-chat-history-row--active",
         item.pinned && "an-chat-history-row--pinned",
+        hasMenu && "an-chat-history-row--has-menu",
+        menuOpen && "an-chat-history-row--menu-open",
         isRenaming && "an-chat-history-row--renaming",
         item.disabled && "an-chat-history-row--disabled",
       )}
@@ -471,4 +485,4 @@ function ChatHistoryRow({
       )}
     </div>
   );
-}
+});

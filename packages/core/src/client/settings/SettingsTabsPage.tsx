@@ -84,6 +84,8 @@ export interface SettingsTabsPageProps {
   defaultTab?: string;
   className?: string;
   navClassName?: string;
+  /** Optional content rendered at the top of the settings navigation rail. */
+  navHeader?: ReactNode;
   contentClassName?: string;
   /** Whether to render the settings search box. Defaults to true. */
   enableSearch?: boolean;
@@ -139,9 +141,6 @@ function normalizeTabId(value?: string | null): string | null {
   if (normalized === "workspace" || normalized === "workspace-settings") {
     return "workspace";
   }
-  if (normalized === "connections") {
-    return "integrations";
-  }
   return normalized;
 }
 
@@ -152,6 +151,15 @@ function resolveTabId(
   const normalized = normalizeTabId(value);
   if (!normalized) return null;
   if (tabs.some((tab) => tab.id === normalized)) return normalized;
+  const alternateTabId =
+    normalized === "connections"
+      ? "integrations"
+      : normalized === "integrations"
+        ? "connections"
+        : null;
+  if (alternateTabId && tabs.some((tab) => tab.id === alternateTabId)) {
+    return alternateTabId;
+  }
   const nestedTab = tabs
     .filter(
       (tab) =>
@@ -253,6 +261,7 @@ export function SettingsTabsPage({
   defaultTab = "general",
   className,
   navClassName,
+  navHeader,
   contentClassName,
   enableSearch = true,
   searchPlaceholder = "Search settings",
@@ -545,6 +554,7 @@ export function SettingsTabsPage({
           navClassName,
         )}
       >
+        {navHeader}
         {enableSearch ? (
           <div className="relative sm:mb-2">
             <IconSearch className="pointer-events-none absolute start-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />

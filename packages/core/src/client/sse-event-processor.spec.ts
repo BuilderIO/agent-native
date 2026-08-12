@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { RUN_NO_PROGRESS_HARD_TIMEOUT_MS } from "../agent/run-manager.js";
+import { subscribeChatFirstOpenApp } from "./chat-first.js";
 import {
   AgentAutoContinueSignal,
+  processEvent,
   readSSEStream,
   readSSEStreamRaw,
   SSE_ACTION_PREPARATION_STALL_TIMEOUT_MS,
@@ -586,7 +588,154 @@ async function drain(iterable: AsyncIterable<unknown>) {
   return results;
 }
 
+describe("SSE first-party app handoff", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("emits exact open_app results without steering namespaced tools", () => {
+    type OpenAppEvent = { type: string; detail: unknown };
+    const listeners = new Set<(event: OpenAppEvent) => void>();
+    vi.stubGlobal("window", {
+      addEventListener: (type: string, listener: (event: unknown) => void) => {
+        if (type === "agentNative:openApp") {
+          listeners.add(listener as (event: OpenAppEvent) => void);
+        }
+      },
+      removeEventListener: (
+        _type: string,
+        listener: (event: unknown) => void,
+      ) => {
+        listeners.delete(listener as (event: OpenAppEvent) => void);
+      },
+      dispatchEvent: (event: OpenAppEvent) => {
+        if (event.type !== "agentNative:openApp") return true;
+        for (const listener of listeners) listener(event);
+        return true;
+      },
+    });
+    vi.stubGlobal(
+      "CustomEvent",
+      class FakeCustomEvent {
+        readonly type: string;
+        readonly detail: unknown;
+
+        constructor(type: string, init: { detail: unknown }) {
+          this.type = type;
+          this.detail = init.detail;
+        }
+      },
+    );
+
+    const details: unknown[] = [];
+    const unsubscribe = subscribeChatFirstOpenApp((detail) =>
+      details.push(detail),
+    );
+    try {
+      const content: ContentPart[] = [];
+      const toolCallCounter = { value: 0 };
+      processEvent(
+        {
+          type: "tool_start",
+          id: "open-app-1",
+          tool: "open_app",
+          input: { app: "analytics", path: "/reports" },
+        },
+        content,
+        toolCallCounter,
+        undefined,
+      );
+      processEvent(
+        {
+          type: "tool_done",
+          id: "open-app-1",
+          tool: "open_app",
+          result: JSON.stringify({ app: "analytics", path: "/reports" }),
+        },
+        content,
+        toolCallCounter,
+        undefined,
+      );
+      processEvent(
+        {
+          type: "tool_done",
+          id: "namespaced-open-app-1",
+          tool: "evil___open_app",
+          result: JSON.stringify({ app: "analytics", path: "/phishing" }),
+        },
+        content,
+        toolCallCounter,
+        undefined,
+      );
+      processEvent(
+        {
+          type: "tool_start",
+          id: "failed-open-app-1",
+          tool: "open_app",
+          input: { app: "analytics", path: "/failed" },
+        },
+        content,
+        toolCallCounter,
+        undefined,
+      );
+      processEvent(
+        {
+          type: "tool_done",
+          id: "failed-open-app-1",
+          tool: "open_app",
+          result: JSON.stringify({ app: "analytics", path: "/failed" }),
+          isError: true,
+        },
+        content,
+        toolCallCounter,
+        undefined,
+      );
+    } finally {
+      unsubscribe();
+    }
+
+    expect(details).toEqual([
+      expect.objectContaining({ app: "analytics", path: "/reports" }),
+    ]);
+  });
+});
+
 describe("SSE replay render pacing", () => {
+  it("marks an explicit done frame terminal without treating EOF as success", async () => {
+    const results = await drain(
+      readSSEStream(
+        eventStream([{ type: "text", text: "complete" }, { type: "done" }]),
+        [],
+        { value: 0 },
+        "tab-terminal-frame",
+        undefined,
+        undefined,
+        { markTerminalResults: true },
+      ),
+    );
+
+    expect(results.at(-1)).toMatchObject({
+      status: { type: "complete", reason: "stop" },
+    });
+
+    const abruptEof = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.close();
+      },
+    });
+    await expect(
+      drain(
+        readSSEStream(
+          abruptEof,
+          [],
+          { value: 0 },
+          "tab-abrupt-eof",
+          undefined,
+          undefined,
+          { markTerminalResults: true },
+        ),
+      ),
+    ).rejects.toMatchObject({ reason: "stream_ended" });
+  });
+
   it("yields to the browser event loop during a dense replay burst", async () => {
     const textEvents = Array.from({ length: 60 }, (_, index) => ({
       type: "text",
@@ -679,6 +828,35 @@ describe("SSE replay render pacing", () => {
         type: "text",
         text: after.map((event) => event.text).join(""),
       },
+    ]);
+  });
+
+  it("marks the browser liveness cursor only for durable progress events", async () => {
+    const events = [
+      { type: "text", text: "working", seq: 0 },
+      { type: "stream_keepalive", seq: 1 },
+      { type: "clear", seq: 2 },
+      { type: "tool_input_delta", text: "{", seq: 3 },
+      { type: "done", seq: 4 },
+    ];
+    const progressBySeq = new Map<number, boolean | undefined>();
+
+    await drain(
+      readSSEStream(
+        eventStream(events),
+        [],
+        { value: 0 },
+        undefined,
+        (seq, isProgress) => progressBySeq.set(seq, isProgress),
+      ),
+    );
+
+    expect([...progressBySeq.entries()]).toEqual([
+      [0, true],
+      [1, false],
+      [2, false],
+      [3, true],
+      [4, true],
     ]);
   });
 
@@ -2320,6 +2498,36 @@ describe("SSE event processor error classification", () => {
     });
   });
 
+  it("keeps an intentional user stop neutral instead of adding a final warning", async () => {
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "activity",
+            label: "Contacting model",
+          },
+          { type: "done", reason: "user" },
+        ]),
+        [],
+        { value: 0 },
+        "tab-user-stop",
+      ),
+    );
+
+    expect(results.at(-1)).toMatchObject({
+      status: { type: "complete", reason: "stop" },
+      metadata: { custom: { userStopped: true } },
+    });
+    expect(results.at(-1)?.content).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "text",
+          text: expect.stringContaining("without sending a final message"),
+        }),
+      ]),
+    );
+  });
+
   it("fills the pending tool activity card when tool_start arrives", async () => {
     const results = await drain(
       readSSEStream(
@@ -3818,6 +4026,31 @@ describe("SSE event processor activity-label clearing", () => {
       expect.objectContaining({
         type: "agent-chat:activity-clear",
         detail: { tabId: "tab-clear-text" },
+      }),
+    );
+  });
+
+  it("clears the running activity label when a terminal done follows preparation", async () => {
+    const dispatchEvent = stubWindow();
+    await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "activity",
+            label: "Preparing patch deck...",
+            tool: "patch-deck",
+          },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        "tab-clear-terminal",
+      ),
+    );
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:activity-clear",
+        detail: { tabId: "tab-clear-terminal" },
       }),
     );
   });

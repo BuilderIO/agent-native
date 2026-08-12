@@ -63,11 +63,15 @@ export type ChatFirstSurfaceKind =
   | "side-chat"
   | "agents";
 
+export type ChatFirstAppSurfacePlacement = "main" | "side";
+
 export interface ChatFirstSurfaceTab {
   id: string;
   kind: ChatFirstSurfaceKind;
   title: string;
   appId?: string;
+  /** App tabs can either replace the main chat or sit beside it. */
+  placement?: ChatFirstAppSurfacePlacement;
   path?: string;
   view?: string;
   url?: string;
@@ -402,7 +406,10 @@ export interface ChatFirstSessionWatchDelivery {
 }
 
 export type ChatFirstBrowserResolution =
-  | { status: "ready"; target: { url: string; title?: string } }
+  | {
+      status: "ready";
+      target: { url: string; title?: string; openExternally?: boolean };
+    }
   | { status: "unresolved"; reason: "empty-detail" | "invalid-url" };
 
 export interface ChatFirstAppRegistration {
@@ -558,14 +565,20 @@ export function orderChatFirstAppIds(
     ...preferredDefaults,
     ...appIds.filter((id) => !preferredDefaultSet.has(id)),
   ];
+  const manualOrderedIds = layout.orderedIds.filter((id) => available.has(id));
+  const hasManualOrder = manualOrderedIds.length > 0;
   const ordered = [
-    ...layout.orderedIds.filter((id) => available.has(id)),
+    ...manualOrderedIds,
     ...fallbackOrder.filter((id) => !layout.orderedIds.includes(id)),
   ];
-  const pinned = new Set(layout.pinnedIds.filter((id) => available.has(id)));
-  // `orderedIds` is the single source of positional truth. Pinning changes
-  // presentation only; it must not rewrite the user's drag order or make an
-  // unpinned app jump to the fallback order.
+  const pinnedIds = layout.pinnedIds.filter((id) => available.has(id));
+  const pinned = new Set(pinnedIds);
+  // A live `orderedIds` value is the single source of positional truth. Pinning
+  // changes presentation only; it must not rewrite the user's drag order or
+  // make an unpinned app jump to the fallback order.
+  if (!hasManualOrder) {
+    return [...pinnedIds, ...fallbackOrder.filter((id) => !pinned.has(id))];
+  }
   return [
     ...ordered.filter((id) => pinned.has(id)),
     ...ordered.filter((id) => !pinned.has(id)),
@@ -586,6 +599,9 @@ export function resolveChatFirstBrowserTarget(
     target: {
       url: url.href,
       ...(detail.title?.trim() ? { title: detail.title.trim() } : {}),
+      ...(shouldOpenChatFirstBrowserExternally(url.href)
+        ? { openExternally: true }
+        : {}),
     },
   };
 }
@@ -738,9 +754,18 @@ function readChatFirstSurfaceTabsState(
       return { tabs: [], activeTabId: null };
     }
     const value = scoped as Record<string, unknown>;
+    let migratedLegacyPlacement = false;
     const tabs = Array.isArray(value.tabs)
       ? value.tabs.flatMap((candidate) => {
           const tab = normalizePersistedChatFirstSurfaceTab(candidate);
+          if (
+            tab?.kind === "app" &&
+            candidate !== null &&
+            typeof candidate === "object" &&
+            !("placement" in candidate)
+          ) {
+            migratedLegacyPlacement = true;
+          }
           return tab ? [tab] : [];
         })
       : [];
@@ -749,7 +774,9 @@ function readChatFirstSurfaceTabsState(
       tabs.some((tab) => tab.id === value.activeTabId)
         ? value.activeTabId
         : (tabs[0]?.id ?? null);
-    return { tabs, activeTabId };
+    const state = { tabs, activeTabId };
+    if (migratedLegacyPlacement) writeChatFirstSurfaceTabsState(scope, state);
+    return state;
   } catch {
     return { tabs: [], activeTabId: null };
   }
@@ -776,13 +803,27 @@ function normalizePersistedChatFirstSurfaceTab(
   if (kind === "app") {
     const appId = typeof value.appId === "string" ? value.appId.trim() : "";
     if (!appId) return null;
+    const placement = value.placement;
+    if (
+      placement !== undefined &&
+      placement !== "main" &&
+      placement !== "side"
+    ) {
+      return null;
+    }
     if (
       value.path !== undefined &&
       (typeof value.path !== "string" || normalizedPath(value.path) === null)
     ) {
       return null;
     }
-    return { ...tab, id, title, appId };
+    return {
+      ...tab,
+      id,
+      title,
+      appId,
+      placement: placement ?? "main",
+    };
   }
   if (kind === "browser") {
     const url = typeof value.url === "string" ? value.url.trim() : "";
@@ -1008,6 +1049,19 @@ function parseAbsoluteHttpUrl(value: string): URL | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Builder's web app sends frame-blocking headers. Its branch/editor URLs are
+ * open-browser targets, not the iframe-backed Fusion preview URLs served from
+ * builder.cloud, so keep them out of the chat-first browser iframe.
+ */
+export function shouldOpenChatFirstBrowserExternally(value: string): boolean {
+  const url = parseAbsoluteHttpUrl(value);
+  return Boolean(
+    url &&
+    (url.hostname === "builder.io" || url.hostname.endsWith(".builder.io")),
+  );
 }
 
 function registrationUrls(

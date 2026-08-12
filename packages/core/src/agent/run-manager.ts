@@ -274,12 +274,13 @@ export const DEFAULT_COMPLETED_RUN_RETENTION_MS = 24 * 60 * 60 * 1000;
 export const DEFAULT_ERRORED_RUN_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
- * How recently a terminal run must have started for `/runs/active` to surface
- * it. Reconnect after this window won't replay the run — typical real-world
- * disconnects resolve in seconds, so 10 minutes is generous while keeping us
- * from resurrecting ancient turns when the user reopens an old thread.
+ * How recently a terminal run must have completed for `/runs/active` to surface
+ * it. This must outlast the durable browser watchdog (13 minutes) and the
+ * in-flight reader watchdog (15 minutes) so a quiet event stream can detach
+ * and still replay a run that completed while the browser was waiting.
+ * Reconnect after this window won't replay the run.
  */
-export const TERMINAL_RUN_RECONNECT_WINDOW_MS = 10 * 60 * 1000;
+export const TERMINAL_RUN_RECONNECT_WINDOW_MS = 20 * 60 * 1000;
 
 /** Fast poll cadence while a SQL-backed SSE subscription is actively receiving rows. */
 export const SQL_SUBSCRIPTION_ACTIVE_POLL_MS = 125;
@@ -631,6 +632,39 @@ function isTerminalRunEvent(event: AgentChatEvent): boolean {
   );
 }
 
+/**
+ * A completed tool with no later assistant text is an unfinished turn, not a
+ * successful terminal response. Keep this predicate beside the run-manager's
+ * terminal synthesis so the run-manager and production continuation paths use
+ * the same boundary evidence.
+ */
+export function endsAfterCompletedToolWithoutAssistantFinal(
+  run: ActiveRun,
+): boolean {
+  let completedToolAfterLastAssistantText = false;
+  for (const { event } of run.events) {
+    if (event.type === "text" && event.text.trim().length > 0) {
+      completedToolAfterLastAssistantText = false;
+      continue;
+    }
+    if (event.type === "tool_done" && event.isError !== true) {
+      completedToolAfterLastAssistantText =
+        event.chatUI === undefined && event.mcpApp === undefined;
+      continue;
+    }
+    if (
+      event.type === "clear" ||
+      event.type === "error" ||
+      event.type === "missing_api_key" ||
+      event.type === "auto_continue" ||
+      event.type === "loop_limit"
+    ) {
+      completedToolAfterLastAssistantText = false;
+    }
+  }
+  return completedToolAfterLastAssistantText;
+}
+
 function terminalEventForcesErroredStatus(event: AgentChatEvent | null) {
   return event?.type === "error" || event?.type === "missing_api_key";
 }
@@ -736,10 +770,24 @@ function abortInMemoryRun(run: ActiveRun, reason: string = "user") {
     threadToRun.delete(run.threadId);
   }
   run.abort.abort(reason);
-  const terminalEvent = terminalEventForAbortReason(reason);
+  // Keep the abort terminal in the replay buffer as well as sending it to
+  // current subscribers. A reconnect can arrive after the live subscriber
+  // was removed but while this run is still warm in memory; closing that
+  // replay with no terminal frame makes the client manufacture a false
+  // frozen response and retry against a run that is already done.
+  const existingTerminalEvent = [...run.events]
+    .reverse()
+    .find((event) => isTerminalRunEvent(event.event));
+  const terminalRunEvent = existingTerminalEvent ?? {
+    seq: run.events.length,
+    event: terminalEventForAbortReason(reason),
+  };
+  if (!existingTerminalEvent) {
+    run.events.push(terminalRunEvent);
+  }
   for (const subscriber of run.subscribers) {
     try {
-      subscriber({ seq: run.events.length, event: terminalEvent });
+      subscriber(terminalRunEvent);
     } catch {
       // ignore — subscriber is being removed below
     }
@@ -854,17 +902,131 @@ export function startRun(
   // Throttle the durable progress timestamp to at most once per second so
   // a chatty token-by-token stream doesn't translate into one DB write per
   // chunk. The stuck-detector threshold is on the order of tens of seconds,
-  // so 1s resolution is plenty.
+  // so 1s resolution is plenty. Keep one write in flight and coalesce a
+  // trailing request: overlapping progress updates can exhaust a pooler and
+  // starve the heartbeat that is supposed to prove this run is alive.
+  const PROGRESS_BUMP_INTERVAL_MS = 1_000;
   let lastProgressBumpAt = 0;
+  let progressWriteInFlight: Promise<void> | null = null;
+  let progressWriteTimer: ReturnType<typeof setTimeout> | null = null;
+  let progressWritePending = false;
+  let progressWriteAttempts = 0;
+  let progressWriteFailures = 0;
+  let consecutiveProgressWriteFailures = 0;
   const preparingActivityBytes = new Map<string, number>();
   const preparingActivityTools = new Map<string, string>();
   const preparingActivityRestartHighWater = new Map<string, number>();
   let eventPersistenceErrorCaptured = false;
+  const recordProgressWriteFailure = (error: unknown, kind: string) => {
+    progressWriteFailures += 1;
+    consecutiveProgressWriteFailures += 1;
+    // Keep every failure counted and retried, but sample the error capture so
+    // a database outage does not turn one long streamed input into hundreds of
+    // identical reports. The run id and event count make the sampled report
+    // useful for correlating the durable clock with the event ledger.
+    if (progressWriteFailures === 1 || progressWriteFailures % 10 === 0) {
+      const capturedError =
+        error instanceof Error ? error : new Error(String(error));
+      console.error(
+        `[run-manager] durable progress write ${kind} failed`,
+        runId,
+        {
+          attempts: progressWriteAttempts,
+          failures: progressWriteFailures,
+          consecutiveFailures: consecutiveProgressWriteFailures,
+          eventCount: run.events.length,
+        },
+        capturedError,
+      );
+      captureError(capturedError, {
+        route: "/_agent-native/agent-chat",
+        tags: {
+          source: "agent-run-manager",
+          phase: "progress",
+          kind,
+          consecutiveFailures: String(consecutiveProgressWriteFailures),
+        },
+        aiTraceId: runId,
+        extra: {
+          runId,
+          threadId,
+          attempts: progressWriteAttempts,
+          failures: progressWriteFailures,
+          eventCount: run.events.length,
+        },
+      });
+    }
+  };
+  const writeProgress = async (): Promise<void> => {
+    let updated = await bumpRunProgress(runId);
+    if (updated === false) {
+      // The initial run insert is intentionally asynchronous so the fast SSE
+      // path does not wait on SQL. If this first UPDATE wins the race, retry
+      // after that insert commits instead of permanently losing the first
+      // durable progress signal.
+      await insertRunPromise;
+      updated = await bumpRunProgress(runId);
+    }
+    if (updated === false) {
+      if (run.status !== "running") return;
+      recordProgressWriteFailure(
+        new Error("Durable progress update affected no running run row"),
+        "no-row",
+      );
+      progressWritePending = true;
+      return;
+    }
+    consecutiveProgressWriteFailures = 0;
+  };
+  function startProgressWrite(): void {
+    if (
+      !progressWritePending ||
+      progressWriteInFlight ||
+      run.status !== "running"
+    ) {
+      return;
+    }
+    progressWritePending = false;
+    lastProgressBumpAt = Date.now();
+    progressWriteAttempts += 1;
+    const write = writeProgress()
+      .catch((error: unknown) => {
+        recordProgressWriteFailure(error, "error");
+        // Retry even if no later event arrives. A transient failure must not
+        // freeze the durable clock until the next user-visible event.
+        progressWritePending = true;
+      })
+      .finally(() => {
+        progressWriteInFlight = null;
+        scheduleProgressWrite();
+      });
+    progressWriteInFlight = write;
+  }
+  function scheduleProgressWrite(): void {
+    if (
+      !progressWritePending ||
+      progressWriteInFlight ||
+      progressWriteTimer ||
+      run.status !== "running"
+    ) {
+      return;
+    }
+    const delayMs = Math.max(
+      0,
+      lastProgressBumpAt + PROGRESS_BUMP_INTERVAL_MS - Date.now(),
+    );
+    if (delayMs === 0) {
+      startProgressWrite();
+      return;
+    }
+    progressWriteTimer = setTimeout(() => {
+      progressWriteTimer = null;
+      startProgressWrite();
+    }, delayMs);
+  }
   const bumpProgressIfDue = () => {
-    const now = Date.now();
-    if (now - lastProgressBumpAt < 1000) return;
-    lastProgressBumpAt = now;
-    bumpRunProgress(runId).catch(() => {});
+    progressWritePending = true;
+    scheduleProgressWrite();
   };
   const shouldBumpProgressForEvent = (event: AgentChatEvent): boolean => {
     if (event.type === "stream_keepalive") return false;
@@ -963,6 +1125,30 @@ export function startRun(
   // emits nothing for minutes and carries its own 12-min timeout.
   let lastRealProgressAt = Date.now();
   let inFlightWorkCount = 0;
+  let inFlightMarkerSince: number | null = null;
+  let inFlightMarkerWrite = Promise.resolve();
+  const mirrorInFlightMarker = (inFlight: boolean) => {
+    const markerSince = inFlight ? Date.now() : inFlightMarkerSince;
+    if (inFlight) {
+      inFlightMarkerSince = markerSince;
+    } else {
+      inFlightMarkerSince = null;
+    }
+    // Preserve transition order: a delayed clear must not erase the marker
+    // written for the next tool that starts before the clear reaches SQL.
+    inFlightMarkerWrite = inFlightMarkerWrite
+      .catch(() => undefined)
+      .then(() =>
+        setRunInFlightMarker(runId, inFlight, markerSince ?? undefined),
+      )
+      .catch((error: unknown) => {
+        console.error(
+          `[run-manager] failed to mirror in-flight marker (${inFlight ? "set" : "clear"})`,
+          runId,
+          error instanceof Error ? error.message : error,
+        );
+      });
+  };
   const trackInFlightWork = (event: AgentChatEvent) => {
     const wasIdle = inFlightWorkCount === 0;
     if (event.type === "tool_start") {
@@ -984,14 +1170,14 @@ export function startRun(
     // grant this demonstrably-alive run a bounded grace even when THIS
     // isolate's own heartbeat write is failing (e.g. Neon pooler saturation)
     // — `inFlightWorkCount` itself is in-memory and invisible to those other
-    // isolates. Fire-and-forget: never block event emission on this write,
-    // and a write failure here is no worse than today's behavior (the row
-    // just gets no grace). See `setRunInFlightMarker` / `IN_FLIGHT_RUN_STALE_GRACE_MS`
-    // in run-store.ts for the full reasoning and the bounded-grace derivation.
+    // isolates. Fire-and-forget: never block event emission on this write, but
+    // keep failures observable and preserve transition order. See
+    // `setRunInFlightMarker` / `IN_FLIGHT_RUN_STALE_GRACE_MS` in run-store.ts
+    // for the full reasoning and bounded-grace derivation.
     if (wasIdle && inFlightWorkCount > 0) {
-      setRunInFlightMarker(runId, true).catch(() => {});
+      mirrorInFlightMarker(true);
     } else if (!wasIdle && inFlightWorkCount === 0) {
-      setRunInFlightMarker(runId, false).catch(() => {});
+      mirrorInFlightMarker(false);
     }
   };
   // Make a chunk boundary durable at the instant it is decided. The terminal
@@ -1390,6 +1576,22 @@ export function startRun(
               terminalEventForcesErroredStatus(terminalEvent)
             ? "errored"
             : "completed";
+      const shouldAutoContinueAfterCompletedTool =
+        finalStatus === "completed" &&
+        endsAfterCompletedToolWithoutAssistantFinal(run) &&
+        (!terminalEventForCompletion ||
+          (terminalEventForCompletion.event.type === "done" &&
+            terminalEventForCompletion.event.reason !== "user"));
+      const completedToolContinuationEvent =
+        shouldAutoContinueAfterCompletedTool
+          ? ({
+              type: "auto_continue" as const,
+              reason: "stream_ended" as const,
+            } satisfies Extract<AgentChatEvent, { type: "auto_continue" }>)
+          : null;
+      if (completedToolContinuationEvent) {
+        terminalEvent = completedToolContinuationEvent;
+      }
       const terminalReason = terminalReasonForRun(
         finalStatus,
         terminalEvent,
@@ -1424,9 +1626,10 @@ export function startRun(
         // insertRunEvent's `ON CONFLICT (run_id, seq) DO NOTHING`, so the
         // client would never see the terminal/continuation signal. We always
         // re-stamp the seq at emit time (max-seq+1) just below.
-        const terminalEvent: AgentChatEvent =
+        const terminalEventToEmit: AgentChatEvent =
           finalStatus === "completed"
-            ? (terminalEventForCompletion?.event ?? { type: "done" })
+            ? (completedToolContinuationEvent ??
+              terminalEventForCompletion?.event ?? { type: "done" })
             : terminalEventForCompletion?.event.type === "error" ||
                 terminalEventForCompletion?.event.type === "missing_api_key"
               ? terminalEventForCompletion.event
@@ -1452,7 +1655,7 @@ export function startRun(
           // terminal event was stashed.
           const terminal: RunEvent = {
             seq: run.events.length,
-            event: terminalEvent,
+            event: terminalEventToEmit,
           };
           try {
             await emitRunEvent(terminal, { surfacePersistenceError: true });
@@ -1488,6 +1691,16 @@ export function startRun(
       // 4. Stop the heartbeat — all liveness writes are done.
       clearInterval(heartbeatTimer);
       if (softTimeoutTimer) clearTimeout(softTimeoutTimer);
+      if (progressWriteTimer) clearTimeout(progressWriteTimer);
+      progressWriteTimer = null;
+      progressWritePending = false;
+      // A tool can throw before its matching event is emitted, or the process
+      // can reach terminal cleanup with an in-flight call still open. Do not
+      // leave the SQL grace marker attached to a terminal run.
+      if (inFlightWorkCount > 0 || inFlightMarkerSince !== null) {
+        inFlightWorkCount = 0;
+        mirrorInFlightMarker(false);
+      }
 
       // 5. Persist final status to SQL. Use the conditional write so a zombie
       //    run (reaped or displaced while executing) cannot clobber the newer

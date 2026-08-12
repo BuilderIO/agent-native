@@ -29,6 +29,7 @@ export function AppOpenActions({
   rel,
   labels: labelOverrides,
   onAddApp,
+  onOpenInline,
   showInlineOption = false,
   showNewTabOption = false,
 }: {
@@ -38,13 +39,15 @@ export function AppOpenActions({
   rel?: string;
   labels?: Partial<AppOpenActionLabels>;
   onAddApp?: () => void;
+  onOpenInline?: () => void;
   showInlineOption?: boolean;
   showNewTabOption?: boolean;
 }) {
   const labels = { ...DEFAULT_LABELS, ...labelOverrides };
+  const canOfferNewTab = showNewTabOption && target !== "_blank";
   const hasMenu =
     Boolean(onAddApp) ||
-    (Boolean(href) && (showInlineOption || showNewTabOption));
+    (Boolean(href) && (showInlineOption || canOfferNewTab));
 
   if (!href && !hasMenu) {
     return (
@@ -92,11 +95,11 @@ export function AppOpenActions({
               </DropdownMenuItem>
             ) : null}
             {showInlineOption && href ? (
-              <DropdownMenuItem asChild>
-                <a href={href}>{labels.openInline}</a>
+              <DropdownMenuItem onSelect={onOpenInline}>
+                {labels.openInline}
               </DropdownMenuItem>
             ) : null}
-            {showNewTabOption && href ? (
+            {canOfferNewTab && href ? (
               <DropdownMenuItem asChild>
                 <a href={href} target="_blank" rel="noreferrer">
                   {labels.openInNewTab}

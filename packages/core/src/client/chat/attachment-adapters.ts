@@ -11,7 +11,7 @@ import type {
   Attachment,
 } from "@assistant-ui/react";
 
-// Maximum PDF/document size (4 MB). Larger PDFs would bloat the JSON POST
+// Maximum document size (4 MB). Larger files would bloat the JSON POST
 // body past Vercel's ~4.5 MB limit after base64 encoding (+33% overhead).
 export const MAX_PDF_BYTES = 4 * 1024 * 1024;
 
@@ -40,6 +40,12 @@ const WEB_SAFE_IMAGE_TYPES = new Set([
 export function inferDocumentContentType(file: File): string {
   if (file.type) return file.type;
   if (file.name.toLowerCase().endsWith(".pdf")) return "application/pdf";
+  if (file.name.toLowerCase().endsWith(".xlsx")) {
+    return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+  }
+  if (file.name.toLowerCase().endsWith(".xls")) {
+    return "application/vnd.ms-excel";
+  }
   if (file.name.toLowerCase().endsWith(".svg")) return "image/svg+xml";
   return "application/octet-stream";
 }
@@ -56,7 +62,7 @@ export function getFileDataURL(file: File | Blob): Promise<string> {
 function formatOversizedDocumentError(name: string, size: number): string {
   const mb = (size / 1024 / 1024).toFixed(1);
   const maxMb = (MAX_PDF_BYTES / 1024 / 1024).toFixed(0);
-  return `"${name}" is ${mb} MB — PDFs are capped at ${maxMb} MB to stay within message limits. Please reduce the file size or split it into smaller parts.`;
+  return `"${name}" is ${mb} MB - documents are capped at ${maxMb} MB to stay within message limits. Please reduce the file size or split it into smaller parts.`;
 }
 
 function loadImage(url: string): Promise<HTMLImageElement> {
@@ -326,6 +332,17 @@ export function serializeAttachmentContentPart(
           : "application/octet-stream",
       ...(typeof part.filename === "string" ? { filename: part.filename } : {}),
     };
+  }
+  if (part.type === "file" && typeof part.url === "string") {
+    return {
+      type: "file",
+      url: part.url,
+      mimeType:
+        typeof part.mimeType === "string"
+          ? part.mimeType
+          : "application/octet-stream",
+      ...(typeof part.filename === "string" ? { filename: part.filename } : {}),
+    } as unknown as QueuedAttachment["content"][number];
   }
   return null;
 }

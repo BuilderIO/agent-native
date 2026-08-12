@@ -4,22 +4,18 @@ import {
 } from "@agent-native/core/client/agent-chat";
 import { PromptComposer } from "@agent-native/core/client/composer";
 import { useActionQuery } from "@agent-native/core/client/hooks";
-import { isInBuilderFrame } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
-import {
-  IconArrowUpRight,
-  IconChevronDown,
-  IconClockHour4,
-  IconApps,
-} from "@tabler/icons-react";
+import { IconChevronDown, IconClockHour4, IconPlus } from "@tabler/icons-react";
 import type { ReactNode } from "react";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router";
 
 import type { ConnectedAppSummary } from "../lib/other-apps";
-import { submitOverviewPrompt } from "../lib/overview-chat";
 import { cn } from "../lib/utils";
-import type { WorkspaceAppSummary } from "../lib/workspace-apps";
+import {
+  isWorkspaceAppVisibleInDefaultLaunchers,
+  type WorkspaceAppSummary,
+} from "../lib/workspace-apps";
 import { ActionQueryError } from "./action-query-error";
 import {
   APP_LIST_GRID_CLASS,
@@ -28,7 +24,7 @@ import {
 } from "./app-list-row";
 import { CreateAppPopover } from "./create-app-popover";
 import { useSetPageTitle } from "./layout/HeaderActions";
-import { OtherAppsSection } from "./other-apps-section";
+import { mergeOtherAppEntries, OtherAppsSection } from "./other-apps-section";
 import { Button } from "./ui/button";
 import {
   Collapsible,
@@ -52,26 +48,6 @@ function SectionHeader({
         {title}
       </h2>
       {action ? <div className="shrink-0">{action}</div> : null}
-    </div>
-  );
-}
-
-function AppGroupHeader({
-  title,
-  description,
-}: {
-  title: string;
-  description: string;
-}) {
-  return (
-    <div className="flex min-w-0 items-start gap-2">
-      <IconApps size={16} className="mt-0.5 shrink-0 text-muted-foreground" />
-      <div className="min-w-0">
-        <h3 className="truncate text-sm font-semibold text-foreground">
-          {title}
-        </h3>
-        <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>
-      </div>
     </div>
   );
 }
@@ -104,11 +80,6 @@ function CommandPanel() {
     const trimmed = message.trim();
     if (!trimmed) return;
 
-    if (isInBuilderFrame()) {
-      submitOverviewPrompt(trimmed, selectedModel);
-      return;
-    }
-
     navigateWithAgentChatViewTransition(navigate, "/chat", {
       state: {
         dispatchPrompt: {
@@ -124,7 +95,7 @@ function CommandPanel() {
 
   return (
     <section className="flex flex-col">
-      <div className="mx-auto flex w-full max-w-3xl flex-col pt-4 sm:pt-6">
+      <div className="mx-auto flex w-full max-w-[750px] flex-col pt-4 sm:pt-6">
         <div className="mb-5 text-center">
           <h2 className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
             {t("dispatch.pages.chatAcrossApps", {
@@ -147,6 +118,7 @@ function CommandPanel() {
           selectedEffort={selectedEffort}
           selectedEngine={selectedEngine}
           selectedModel={selectedModel}
+          rootClassName="bg-card"
           onEffortChange={onEffortChange}
           onModelChange={onModelChange}
           onSubmit={(text) => send(text)}
@@ -193,63 +165,78 @@ function AppsPanel({
 }) {
   const t = useT();
   const [showPending, setShowPending] = useState(false);
-  const visibleApps = apps.filter((app) => !app.isDispatch && !app.archived);
+  const visibleApps = apps.filter(
+    (app) => isWorkspaceAppVisibleInDefaultLaunchers(app) && !app.archived,
+  );
   const activeApps = visibleApps.filter((app) => app.status !== "pending");
   const pendingApps = visibleApps.filter((app) => app.status === "pending");
+  const otherAppEntries = mergeOtherAppEntries({
+    templates: curatedTemplates,
+    connectedApps,
+    workspaceApps: apps,
+  });
   const showSkeletons =
     isLoading && activeApps.length === 0 && pendingApps.length === 0;
 
   return (
-    <section className="flex flex-col gap-3">
+    <section className="mx-auto flex w-full max-w-[1000px] flex-col gap-3">
       <SectionHeader
         title="Apps"
         action={
-          <Button variant="outline" size="sm" asChild>
-            <Link to="/apps">
-              View all
-              <IconArrowUpRight size={14} />
-            </Link>
-          </Button>
+          <div className="flex items-center gap-1.5">
+            <Button variant="outline" size="sm" asChild>
+              <Link to="/apps">View all</Link>
+            </Button>
+            <CreateAppPopover
+              align="end"
+              trigger={
+                <Button variant="ghost" size="sm" className="gap-1.5">
+                  <IconPlus size={14} />
+                  {t("dispatch.pages.newApp", { defaultValue: "New" })}
+                </Button>
+              }
+            />
+          </div>
         }
       />
       {showSkeletons ? (
         <OverviewAppsSkeleton />
       ) : (
         <>
-          {activeApps.length > 0 ? (
-            <div className="space-y-3">
-              <AppGroupHeader
-                title={t("dispatch.pages.yourApps", {
-                  defaultValue: "Your apps",
-                })}
-                description={t("dispatch.pages.activeCount", {
-                  count: activeApps.length,
-                })}
+          <AppList className={APP_LIST_GRID_CLASS}>
+            {activeApps.map((app) => (
+              <WorkspaceAppCard
+                key={app.id}
+                app={app}
+                className={APP_LIST_GRID_ROW_CLASS}
               />
-              <AppList className={APP_LIST_GRID_CLASS}>
-                {activeApps.map((app) => (
-                  <WorkspaceAppCard
-                    key={app.id}
-                    app={app}
-                    className={APP_LIST_GRID_ROW_CLASS}
-                  />
-                ))}
-              </AppList>
-            </div>
-          ) : (
-            <CreateAppPopover />
-          )}
-          <OtherAppsSection
-            templates={curatedTemplates}
-            connectedApps={connectedApps}
-            workspaceApps={apps}
-            templatesLoading={curatedTemplatesLoading}
-            connectedAppsLoading={connectedAppsLoading}
-            templatesError={curatedTemplatesError}
-            connectedAppsError={connectedAppsError}
-            onRetryTemplates={onRetryCuratedTemplates}
-            onRetryConnectedApps={onRetryConnectedApps}
-          />
+            ))}
+            {activeApps.length === 0 &&
+            otherAppEntries.length === 0 &&
+            !curatedTemplatesLoading &&
+            !connectedAppsLoading &&
+            !curatedTemplatesError &&
+            !connectedAppsError ? (
+              <p className="px-4 py-3 text-sm text-muted-foreground">
+                {t("dispatch.pages.noApps", {
+                  defaultValue: "No apps yet.",
+                })}
+              </p>
+            ) : null}
+            <OtherAppsSection
+              templates={curatedTemplates}
+              connectedApps={connectedApps}
+              workspaceApps={apps}
+              templatesLoading={curatedTemplatesLoading}
+              connectedAppsLoading={connectedAppsLoading}
+              templatesError={curatedTemplatesError}
+              connectedAppsError={connectedAppsError}
+              onRetryTemplates={onRetryCuratedTemplates}
+              onRetryConnectedApps={onRetryConnectedApps}
+              heading={null}
+              embeddedInList
+            />
+          </AppList>
         </>
       )}
       {pendingApps.length > 0 ? (

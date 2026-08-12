@@ -38,6 +38,7 @@ export type RunErrorInfo = {
   details?: string;
   errorCode?: string;
   runId?: string;
+  turnId?: string;
   recoverable?: boolean;
 };
 
@@ -74,9 +75,10 @@ export function getLoopLimitMetadata(message: unknown): LoopLimitInfo | null {
 export function getRunErrorMetadata(message: unknown): RunErrorInfo | null {
   const meta = (message as { metadata?: unknown })?.metadata as
     | {
-        custom?: { runError?: RunErrorInfo; runId?: unknown };
+        custom?: { runError?: RunErrorInfo; runId?: unknown; turnId?: unknown };
         runError?: RunErrorInfo;
         runId?: unknown;
+        turnId?: unknown;
       }
     | undefined;
   const runError = meta?.custom?.runError ?? meta?.runError;
@@ -92,6 +94,14 @@ export function getRunErrorMetadata(message: unknown): RunErrorInfo | null {
         : typeof meta?.runId === "string"
           ? meta.runId
           : undefined;
+  const turnId =
+    typeof runError.turnId === "string"
+      ? runError.turnId
+      : typeof meta?.custom?.turnId === "string"
+        ? meta.custom.turnId
+        : typeof meta?.turnId === "string"
+          ? meta.turnId
+          : undefined;
   return {
     message: messageText,
     ...(typeof runError.details === "string"
@@ -101,6 +111,7 @@ export function getRunErrorMetadata(message: unknown): RunErrorInfo | null {
       ? { errorCode: runError.errorCode }
       : {}),
     ...(runId ? { runId } : {}),
+    ...(turnId ? { turnId } : {}),
     ...(runError.recoverable ? { recoverable: true } : {}),
   };
 }

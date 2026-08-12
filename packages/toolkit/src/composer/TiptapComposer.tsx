@@ -580,7 +580,7 @@ export interface TiptapComposerProps {
     references: Reference[],
     attachments?: ReadonlyArray<unknown>,
     options?: TiptapComposerSubmitOptions,
-  ) => void;
+  ) => void | Promise<void>;
   /** Return false to stop a submit before it enters the chat runtime. */
   onBeforeSubmit?: () => boolean | Promise<boolean>;
   /**
@@ -631,20 +631,24 @@ export interface TiptapComposerProps {
   voiceEnabled?: boolean;
   /** Selected model override for this conversation */
   selectedModel?: string;
-  /** Selected reasoning effort override for this conversation */
+  /** Selected effort override for this conversation */
   selectedEffort?: ReasoningEffort;
+  /** Show the legacy provider-level Auto model option (default: true). */
+  showAutoModelOption?: boolean;
   /** Available models grouped by provider */
   availableModels?: Array<{
     engine: string;
     label: string;
     models: string[];
     configured: boolean;
+    statusLabel?: string;
+    isSubscription?: boolean;
   }>;
   /** Whether the model list is still being resolved. */
   modelListLoading?: boolean;
   /** Callback when user picks a model */
   onModelChange?: (model: string, engine: string) => void;
-  /** Callback when user picks a reasoning effort */
+  /** Callback when user picks an effort */
   onEffortChange?: (effort: ReasoningEffort) => void;
   /**
    * Disable Builder/provider status polling for hosts that supply provider
@@ -844,7 +848,7 @@ function ModeSelector({
 
 const FRIENDLY_MODEL_NAMES: Record<string, string> = {
   auto: "Default model",
-  "codex-cli": "ChatGPT subscription",
+  "codex-cli": "Codex",
   "claude-fable-5": "Fable 5",
   "kimi-k2-5": "Kimi K2.5",
   "deepseek-v3-1": "DeepSeek v3.1",
@@ -959,7 +963,7 @@ function latestModelsOnly(models: string[]): string[] {
       return true;
     }
     // GPT: family = gpt-{major} (e.g. gpt-5.6-sol and gpt-5.6-luna are different)
-    // OpenAI reasoning: each is its own family
+    // OpenAI effort: each is its own family
     // Gemini: family = gemini-{major} + variant
     const gemini = m.match(/^gemini-(\d+(?:\.\d+)?)-(.+?)(?:-preview)?$/);
     if (gemini) {
@@ -1046,6 +1050,7 @@ function ModelSelector({
   model,
   effort,
   engines,
+  showAutoModelOption = true,
   modelListLoading = false,
   onChange,
   onEffortChange,
@@ -1061,7 +1066,10 @@ function ModelSelector({
     label: string;
     models: string[];
     configured: boolean;
+    statusLabel?: string;
+    isSubscription?: boolean;
   }>;
+  showAutoModelOption?: boolean;
   modelListLoading?: boolean;
   onChange: (model: string, engine: string) => void;
   onEffortChange?: (effort: ReasoningEffort) => void;
@@ -1075,7 +1083,9 @@ function ModelSelector({
   const reasoning = adapters.models?.reasoning;
   const defaultEffort = reasoning?.defaultEffort ?? DEFAULT_REASONING_EFFORT;
   const [open, setOpen] = useState(false);
-  const autoModelGroup = engines.find((group) => group.models.includes("auto"));
+  const autoModelGroup = showAutoModelOption
+    ? engines.find((group) => group.models.includes("auto"))
+    : undefined;
   const providerGroups = useMemo(
     () =>
       engines
@@ -1123,12 +1133,12 @@ function ModelSelector({
     });
   }, []);
 
-  // The reasoning effort list is collapsed by default — it's a secondary
+  // The effort list is collapsed by default — it's a secondary
   // control most users don't touch, so it stays tucked behind a header that
   // reveals the current effort at a glance. Reset to collapsed on each open.
-  const [reasoningExpanded, setReasoningExpanded] = useState(false);
+  const [effortExpanded, setEffortExpanded] = useState(false);
   useEffect(() => {
-    if (open) setReasoningExpanded(false);
+    if (open) setEffortExpanded(false);
   }, [open]);
 
   // The optional image-model section follows the same collapsed-by-default
@@ -1155,12 +1165,16 @@ function ModelSelector({
   const hasConfiguredBuilderModels = providerGroups.some(
     (group) => group.engine === "builder" && group.configured,
   );
+  const hasConnectedSubscription = providerGroups.some(
+    (group) => group.configured && group.isSubscription,
+  );
   const showBuilderCta =
     (builderFlow.hasFetchedStatus ||
       (!providerConnectStatusEnabled && !!onConnectProvider)) &&
     !builderFlow.configured &&
     !builderFlow.envManaged &&
-    !hasConfiguredBuilderModels;
+    !hasConfiguredBuilderModels &&
+    !hasConnectedSubscription;
   const onlyConnectPathAvailable = shouldShowOnlyConnectPath(
     showBuilderCta,
     providerGroups,
@@ -1188,7 +1202,7 @@ function ModelSelector({
           data-agent-composer-slot="model-button"
           aria-label={`Model: ${friendlyModelName(model)}${
             effortOptions.length > 0
-              ? `. Reasoning: ${effortLabel(selectedEffort)}`
+              ? `. Effort: ${effortLabel(selectedEffort)}`
               : ""
           }`}
           className="agent-composer-model-button flex min-w-0 max-w-[10.5rem] shrink items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground"
@@ -1352,6 +1366,17 @@ function ModelSelector({
             const groupKey = `${group.engine}:${group.label}`;
             const isExpanded = expandedGroups.has(groupKey);
             const ChevronIcon = isExpanded ? IconChevronDown : IconChevronRight;
+            const isLocalRuntime =
+              group.engine === "codex-cli" || group.engine === "claude-cli";
+            const canConnectLocalRuntime =
+              isLocalRuntime && Boolean(onConnectLocalRuntime);
+            const statusLabel =
+              group.statusLabel ??
+              (!group.configured
+                ? canConnectLocalRuntime
+                  ? "sign in"
+                  : "needs API key"
+                : undefined);
             return (
               <div key={groupKey}>
                 <div className="flex items-center hover:bg-accent/30">
@@ -1371,20 +1396,23 @@ function ModelSelector({
                       </span>
                     )}
                   </button>
-                  {!group.configured && (
+                  {!group.configured && statusLabel && (
                     <button
                       type="button"
-                      className="text-[10px] text-muted-foreground/60 hover:text-foreground cursor-pointer pe-3 py-1.5"
+                      className="ms-auto max-w-[9rem] shrink-0 text-end text-[10px] text-muted-foreground/60 hover:text-foreground cursor-pointer pe-3 py-1.5"
                       onClick={() =>
-                        group.engine === "codex-cli" && onConnectLocalRuntime
+                        canConnectLocalRuntime
                           ? connectLocalRuntime(group.engine)
                           : openLlmSettings()
                       }
                     >
-                      {group.engine === "codex-cli" && onConnectLocalRuntime
-                        ? "sign in"
-                        : "needs API key"}
+                      {statusLabel}
                     </button>
+                  )}
+                  {group.configured && statusLabel && (
+                    <span className="ms-auto max-w-[9rem] shrink-0 pe-3 text-end text-[10px] text-muted-foreground/70">
+                      {statusLabel}
+                    </span>
                   )}
                 </div>
                 {isExpanded &&
@@ -1394,10 +1422,7 @@ function ModelSelector({
                       type="button"
                       onClick={() => {
                         if (!group.configured) {
-                          if (
-                            group.engine === "codex-cli" &&
-                            onConnectLocalRuntime
-                          ) {
+                          if (canConnectLocalRuntime) {
                             connectLocalRuntime(group.engine);
                           } else {
                             openLlmSettings();
@@ -1441,26 +1466,26 @@ function ModelSelector({
               <div className="flex items-center hover:bg-accent/30">
                 <button
                   type="button"
-                  aria-expanded={reasoningExpanded}
-                  onClick={() => setReasoningExpanded((prev) => !prev)}
+                  aria-expanded={effortExpanded}
+                  onClick={() => setEffortExpanded((prev) => !prev)}
                   className="flex flex-1 min-w-0 items-center gap-1.5 px-2 py-1.5 cursor-pointer text-start"
                 >
-                  {reasoningExpanded ? (
+                  {effortExpanded ? (
                     <IconChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
                   ) : (
                     <IconChevronRight className="h-3 w-3 shrink-0 text-muted-foreground rtl:-scale-x-100" />
                   )}
                   <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide shrink-0">
-                    Reasoning
+                    Effort
                   </span>
-                  {!reasoningExpanded && (
+                  {!effortExpanded && (
                     <span className="text-[11px] text-muted-foreground/80 truncate">
                       {effortLabel(selectedEffort)}
                     </span>
                   )}
                 </button>
               </div>
-              {reasoningExpanded &&
+              {effortExpanded &&
                 effortOptions.map((option) => (
                   <button
                     key={option}
@@ -1540,6 +1565,7 @@ export function TiptapComposer({
   voiceEnabled = DEFAULT_VOICE_DICTATION_ENABLED,
   selectedModel,
   selectedEffort,
+  showAutoModelOption = true,
   availableModels,
   modelListLoading,
   onModelChange,
@@ -2625,7 +2651,13 @@ export function TiptapComposer({
       }
 
       if (onSubmit) {
-        onSubmit(text, references, attachments, { intent });
+        try {
+          await onSubmit(text, references, attachments, { intent });
+        } catch {
+          // Hosts own their submit errors. Keep the draft and attachments
+          // available for recovery when a host rejects the submission.
+          return;
+        }
         // Clear any pending attachments now that the host has them.
         void composerRuntime.clearAttachments().catch(() => {});
         if (!clearOnSubmit) {
@@ -2985,6 +3017,7 @@ export function TiptapComposer({
             model={selectedModel}
             effort={selectedEffort}
             engines={availableModels}
+            showAutoModelOption={showAutoModelOption}
             modelListLoading={modelListLoading}
             onChange={onModelChange}
             onEffortChange={onEffortChange}

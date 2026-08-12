@@ -221,7 +221,7 @@ const messages = {
     newTerminal: "नया टर्मिनल",
     panelOptions: "एजेंट पैनल विकल्प",
     collapseSidebar: "साइडबार समेटें",
-    widenChat: "चैट को 75% चौड़ा करें",
+    widenChat: "चैट को चौड़ा करें",
     returnChatToLayout: "चैट को लेआउट में वापस लाएँ",
     hideChats: "चैट छुपाएं",
     allChats: "सभी चैट",

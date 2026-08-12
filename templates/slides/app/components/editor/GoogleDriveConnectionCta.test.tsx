@@ -24,6 +24,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       "raw.googleOAuthNotConfigured": "Google Drive OAuth is not configured.",
       "home.googleSlidesReferencePicking": "Working...",
       "editorExport.connectGoogle": "Connect Google",
+      "comments.close": "Close",
     })[key] ?? key,
 }));
 
@@ -67,6 +68,38 @@ describe("<GoogleDriveConnectionCta>", () => {
   });
 
   it("shows a direct Connect Google button when Drive is disconnected", async () => {
+    render(<GoogleDriveConnectionCta />);
+
+    expect(
+      await screen.findByRole("button", { name: "Connect Google" }),
+    ).toBeTruthy();
+  });
+
+  it("can be dismissed without starting OAuth", async () => {
+    render(<GoogleDriveConnectionCta />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Close" }));
+
+    expect(screen.queryByRole("button", { name: "Connect Google" })).toBeNull();
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows the reconnect button for a connected account without URL-import access", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              configured: true,
+              connected: true,
+              googleSlidesUrlImportReady: false,
+            }),
+            { headers: { "Content-Type": "application/json" } },
+          ),
+      ),
+    );
+
     render(<GoogleDriveConnectionCta />);
 
     expect(

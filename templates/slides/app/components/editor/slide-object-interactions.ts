@@ -521,6 +521,67 @@ export function removeSlideObjectAndLayoutSpacer(element: HTMLElement): void {
   element.remove();
 }
 
+/**
+ * Whether Delete may remove this selected element from the slide content.
+ *
+ * Selection is intentionally broader than freeform object manipulation: an
+ * AI-generated flow-layout div is still user content and must be removable.
+ * The renderer's structural shells and the hidden spacer used to preserve a
+ * moved object's original layout slot are not user content.
+ */
+export function isDeletableSlideElement(element: HTMLElement): boolean {
+  return (
+    !element.classList.contains("fmd-layout-spacer") &&
+    !element.classList.contains("fmd-slide") &&
+    !element.classList.contains("fmd-autofit-scale") &&
+    !element.hasAttribute("data-fmd-autofit-content") &&
+    !element.hasAttribute("data-slide-canvas")
+  );
+}
+
+/**
+ * Whether Delete should remove `element` even though it is not a freeform
+ * canvas object or generic flow element.
+ *
+ * Images are handled specially because they are leaves: an image nested in a
+ * card should be removed without swallowing the surrounding card. Generic
+ * flow elements are covered by `isDeletableSlideElement`.
+ */
+export function isDeletableFlowImage(element: HTMLElement): boolean {
+  return (
+    element.tagName === "IMG" ||
+    element.classList.contains("fmd-img-placeholder")
+  );
+}
+
+/**
+ * The persisted image object that owns `element`, if any.
+ *
+ * PPTX/PDF import wraps each picture in an absolutely positioned
+ * `.fmd-pptx-image` div carrying the durable `data-slide-object-id`, with the
+ * `<img>` (or an empty placeholder) inside it. Deleting the inner node alone
+ * leaves that wrapper behind as an invisible object that still occupies its
+ * slot and still round-trips through save. Matching on the image wrapper
+ * specifically — rather than any positioned ancestor — keeps this from
+ * swallowing a whole card or column that merely contains a picture.
+ */
+export function findPersistedImageObject(
+  element: HTMLElement,
+  root: HTMLElement,
+): HTMLElement | null {
+  let current: HTMLElement | null = element;
+  while (current && current !== root && root.contains(current)) {
+    const isImageWrapper =
+      current.classList.contains("fmd-pptx-image") ||
+      current.getAttribute("data-pptx-element-kind") === "image";
+    if (isImageWrapper && current.getAttribute("data-slide-object-id")) {
+      return current;
+    }
+    current = current.parentElement;
+  }
+  return null;
+}
+
 /** Convert a viewport click into the unscaled fmd-slide coordinate system. */
 export function clientPointToSlideCoordinates(
   clientX: number,

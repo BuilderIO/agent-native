@@ -435,7 +435,8 @@ export function CommentsSidebar({
       ? `${t("comments.agentRegardingText", { text: thread.quotedText })}\n\n`
       : "";
     sendToAgentChat({
-      message: `${context}${t("comments.agentThreadHeader")}\n${commentTexts}\n\n${t("comments.agentHelp")}`,
+      message: t("comments.agentHelp"),
+      context: `${context}${t("comments.agentThreadHeader")}\n${commentTexts}`,
     });
   };
 

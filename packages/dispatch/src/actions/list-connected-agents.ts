@@ -27,8 +27,10 @@ export default defineAction({
       (m) => m.getDispatchConfig(),
     );
     const discovered = await discoverAgents("dispatch");
-    const builtinIds = new Set(
-      getBuiltinAgents("dispatch").map((agent) => agent.id),
+    const builtins = getBuiltinAgents("dispatch");
+    const builtinIds = new Set(builtins.map((agent) => agent.id));
+    const builtinHomeUrls = new Map(
+      builtins.map((agent) => [agent.id, agent.url]),
     );
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");
@@ -78,8 +80,10 @@ export default defineAction({
     const connected = discovered.map((agent) => {
       const custom = customById.get(agent.id);
       const isBuiltin = builtinIds.has(agent.id);
+      const homeUrl = isBuiltin ? builtinHomeUrls.get(agent.id) : undefined;
       return {
         ...agent,
+        ...(homeUrl ? { homeUrl } : {}),
         source: isBuiltin ? "builtin" : custom ? "custom" : "workspace",
         resourceId: custom?.resourceId,
         path: custom?.path,

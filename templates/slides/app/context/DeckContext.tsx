@@ -8,6 +8,7 @@ import { callAction } from "@agent-native/core/client/hooks";
 import { isEmbedAuthActive } from "@agent-native/core/client/host";
 import { useOrg } from "@agent-native/core/client/org";
 import { subscribeSyncEvents } from "@agent-native/core/client/use-db-sync";
+import { DEFAULT_DECK_TITLE } from "@shared/deck-title";
 import { nanoid } from "nanoid";
 import {
   createContext,
@@ -613,13 +614,12 @@ type PatchDeckFields = Extract<
 export function applyOpToDeck(deck: Deck, op: PatchDeckOp): Deck {
   switch (op.op) {
     case "patch-slide": {
-      let changed = false;
+      const prior = deck.slides.find((s) => s.id === op.slideId);
+      if (!prior || !hasChangedFields(prior, op.fields)) return deck;
       const slides = deck.slides.map((s) => {
         if (s.id !== op.slideId) return s;
-        changed = true;
         return { ...s, ...op.fields };
       });
-      if (!changed) return deck; // slide concurrently deleted — skip
       return { ...deck, slides, updatedAt: new Date().toISOString() };
     }
     case "delete-slide": {
@@ -644,6 +644,12 @@ export function applyOpToDeck(deck: Deck, op: PatchDeckOp): Deck {
       const named = new Set(op.orderedIds);
       for (const s of deck.slides) {
         if (!named.has(s.id)) reordered.push(s);
+      }
+      if (
+        reordered.length === deck.slides.length &&
+        reordered.every((slide, index) => slide.id === deck.slides[index]?.id)
+      ) {
+        return deck;
       }
       return {
         ...deck,
@@ -671,6 +677,7 @@ export function applyOpToDeck(deck: Deck, op: PatchDeckOp): Deck {
       return { ...deck, slides, updatedAt: new Date().toISOString() };
     }
     case "patch-deck-fields": {
+      if (!hasChangedFields(deck, op.fields)) return deck;
       return {
         ...deck,
         ...op.fields,
@@ -678,6 +685,27 @@ export function applyOpToDeck(deck: Deck, op: PatchDeckOp): Deck {
       } as Deck;
     }
   }
+}
+
+function equalDeckValue(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true;
+  if (
+    left === null ||
+    right === null ||
+    typeof left !== "object" ||
+    typeof right !== "object"
+  ) {
+    return false;
+  }
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function hasChangedFields(current: object, fields: object): boolean {
+  const currentRecord = current as Record<string, unknown>;
+  const fieldRecord = fields as Record<string, unknown>;
+  return Object.keys(fieldRecord).some(
+    (key) => !equalDeckValue(currentRecord[key], fieldRecord[key]),
+  );
 }
 
 export function applyUndoOpToDecks(decks: Deck[], op: DeckUndoOp): Deck[] {
@@ -750,8 +778,11 @@ export function deriveInverseOp(
         // Capture the prior value for every field this op touches, so undo
         // restores exactly what changed (including clearing fields back to
         // undefined).
-        (priorFields as Record<string, unknown>)[key] = prior[key];
+        if (!equalDeckValue(prior[key], op.fields[key])) {
+          (priorFields as Record<string, unknown>)[key] = prior[key];
+        }
       }
+      if (Object.keys(priorFields).length === 0) return null;
       return [{ op: "patch-slide", slideId: op.slideId, fields: priorFields }];
     }
     case "delete-slide": {
@@ -785,6 +816,7 @@ export function deriveInverseOp(
     }
     case "add-slide": {
       // Inverse of adding a slide is deleting it.
+      if (before.slides.some((slide) => slide.id === op.slideId)) return null;
       return [
         {
           op: "delete-slide",
@@ -795,6 +827,7 @@ export function deriveInverseOp(
     }
     case "reorder-slides": {
       // Inverse reorder = the order the slides were in before.
+      if (applyOpToDeck(before, op) === before) return null;
       return [
         { op: "reorder-slides", orderedIds: before.slides.map((s) => s.id) },
       ];
@@ -802,9 +835,13 @@ export function deriveInverseOp(
     case "patch-deck-fields": {
       const priorFields: Record<string, unknown> = {};
       const beforeRecord = before as unknown as Record<string, unknown>;
+      const nextRecord = op.fields as Record<string, unknown>;
       for (const key of Object.keys(op.fields)) {
-        priorFields[key] = beforeRecord[key];
+        if (!equalDeckValue(beforeRecord[key], nextRecord[key])) {
+          priorFields[key] = beforeRecord[key];
+        }
       }
+      if (Object.keys(priorFields).length === 0) return null;
       return [
         {
           op: "patch-deck-fields",
@@ -1733,7 +1770,8 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         target.tagName === "TEXTAREA" ||
         target.tagName === "INPUT" ||
         target.isContentEditable;
-      if ((e.metaKey || e.ctrlKey) && e.key === "z") {
+      const key = e.key.toLowerCase();
+      if ((e.metaKey || e.ctrlKey) && key === "z") {
         if (isTyping) return;
         e.preventDefault();
         if (e.shiftKey) {
@@ -1742,7 +1780,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
           undo();
         }
       }
-      if ((e.metaKey || e.ctrlKey) && e.key === "y") {
+      if ((e.metaKey || e.ctrlKey) && key === "y") {
         if (isTyping) return;
         e.preventDefault();
         redo();
@@ -1760,7 +1798,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       const insertIndex = decksRef.current.length;
       const newDeck: Deck = {
         id: nanoid(10),
-        title: title || "Untitled Deck",
+        title: title?.trim() || DEFAULT_DECK_TITLE,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         createdByMe: true,
@@ -1981,17 +2019,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
 
   const updateDeck = useCallback(
     (id: string, updates: Partial<Omit<Deck, "id" | "createdAt">>) => {
-      // Clear the external-update suppression window so a rename/update that
-      // happens within 2s of page load (or an SSE event) is not silently dropped.
-      markDeckDirty(id);
       const before = decksRef.current.find((d) => d.id === id);
-      setDecks((prev) =>
-        prev.map((d) =>
-          d.id === id
-            ? { ...d, ...updates, updatedAt: new Date().toISOString() }
-            : d,
-        ),
-      );
       // Enqueue a granular patch-deck-fields op — only the changed fields are
       // sent to the server, so concurrent edits to slides are never clobbered.
       // Exclude internal/derived fields that live only in client state.
@@ -2006,11 +2034,26 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       };
       void _slides;
       _ca;
-      if (Object.keys(persistableUpdates).length > 0) {
-        const op: PatchDeckOp = {
-          op: "patch-deck-fields",
-          fields: persistableUpdates as PatchDeckFields,
-        };
+      const hasPersistableUpdates = Object.keys(persistableUpdates).length > 0;
+      const op: PatchDeckOp | null = hasPersistableUpdates
+        ? {
+            op: "patch-deck-fields",
+            fields: persistableUpdates as PatchDeckFields,
+          }
+        : null;
+      if (before && op && !deriveInverseOp(before, op)) return;
+
+      // Clear the external-update suppression window so a rename/update that
+      // happens within 2s of page load (or an SSE event) is not silently dropped.
+      markDeckDirty(id);
+      setDecks((prev) =>
+        prev.map((d) =>
+          d.id === id
+            ? { ...d, ...updates, updatedAt: new Date().toISOString() }
+            : d,
+        ),
+      );
+      if (op) {
         enqueueDeckOp(id, op);
         if (before) {
           // Coalesce rapid deck-field edits (e.g. title typing, tweak sliders)
@@ -2086,7 +2129,6 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       updates: Partial<Omit<Slide, "id">>,
       options?: UpdateSlideOptions,
     ) => {
-      markDeckDirty(deckId);
       const label = updates.layout
         ? "Change layout"
         : updates.background
@@ -2095,6 +2137,9 @@ export function DeckProvider({ children }: { children: ReactNode }) {
             ? "Update content"
             : "Edit slide";
       const before = decksRef.current.find((d) => d.id === deckId);
+      const op: PatchDeckOp = { op: "patch-slide", slideId, fields: updates };
+      if (before && !deriveInverseOp(before, op)) return;
+      markDeckDirty(deckId);
       setDecksLocal((prev: Deck[]) =>
         prev.map((d) => {
           if (d.id !== deckId) return d;
@@ -2108,7 +2153,6 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         }),
       );
       // Granular op — only this slide's changed fields reach the server.
-      const op: PatchDeckOp = { op: "patch-slide", slideId, fields: updates };
       enqueueDeckOp(deckId, op, options);
       if (before) {
         // Coalesce a burst of edits to the SAME slide's SAME field-set into one
@@ -2222,11 +2266,18 @@ export function DeckProvider({ children }: { children: ReactNode }) {
 
   const setDeckSlides = useCallback(
     (deckId: string, slides: Slide[]) => {
-      markDeckDirty(deckId);
       const before = decksRef.current.find((deck) => deck.id === deckId);
       const after = before
         ? { ...before, slides, updatedAt: new Date().toISOString() }
         : null;
+      if (
+        before &&
+        after &&
+        deckContentSignature(before) === deckContentSignature(after)
+      ) {
+        return;
+      }
+      markDeckDirty(deckId);
       // setDeckSlides replaces ALL slides wholesale (used by AI generation and
       // imports), so its undo entry is a deck-level full replacement instead of
       // a fine-grained slide patch.

@@ -85,6 +85,33 @@ describe("SettingsTabsPage", () => {
     expect(document.activeElement).toBe(searchInput);
   });
 
+  it("renders the optional navigation header above the settings search", () => {
+    act(() => {
+      root.render(
+        <SettingsTabsPage
+          general={<div>General content</div>}
+          navHeader={<div data-testid="settings-nav-header">Back to app</div>}
+        />,
+      );
+    });
+
+    const searchInput = container.querySelector<HTMLInputElement>(
+      'input[type="search"]',
+    );
+    const navHeader = container.querySelector(
+      '[data-testid="settings-nav-header"]',
+    );
+
+    expect(navHeader).not.toBeNull();
+    expect(searchInput).not.toBeNull();
+    expect(
+      Boolean(
+        navHeader!.compareDocumentPosition(searchInput!) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+      ),
+    ).toBe(true);
+  });
+
   it("does not focus the settings search on mobile entry", () => {
     stubMobileViewport(true);
     runAnimationFramesImmediately();
@@ -147,6 +174,39 @@ describe("SettingsTabsPage", () => {
 
     expect(container.textContent).toContain("General content");
     expect(container.textContent).not.toContain("Integration content");
+  });
+
+  it("restores a connections tab from its canonical route after a remount", () => {
+    const props = {
+      general: <div>General content</div>,
+      extraTabs: [
+        {
+          id: "connections",
+          label: "Connections",
+          content: <div>Connection content</div>,
+        },
+      ],
+    };
+
+    act(() => {
+      root.render(<SettingsTabsPage {...props} />);
+    });
+
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>("#settings-tab-connections")
+        ?.click();
+    });
+    expect(window.location.pathname).toBe("/settings/integrations");
+
+    act(() => {
+      root.unmount();
+      root = createRoot(container);
+      root.render(<SettingsTabsPage {...props} />);
+    });
+
+    expect(container.textContent).toContain("Connection content");
+    expect(container.textContent).not.toContain("General content");
   });
 
   it("opens the team tab from the hash and avoids rendering a settings title", () => {

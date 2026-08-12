@@ -8,6 +8,8 @@ import {
   SSR_CACHE_ENV_VAR,
 } from "../shared/cache-control.js";
 import {
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MAX_LENGTH_MESSAGE,
   PASSWORD_MIN_LENGTH,
   PASSWORD_MIN_LENGTH_MESSAGE,
 } from "../shared/password-policy.js";
@@ -142,7 +144,7 @@ describe("server/auth", () => {
   });
 
   describe("magic-link login", () => {
-    it("normalizes the email and keeps the callback same-origin", async () => {
+    it("normalizes the email and uses absolute same-origin callbacks", async () => {
       vi.stubEnv("NODE_ENV", "development");
       vi.stubEnv("RESEND_API_KEY", "resend-example-key");
       const signInMagicLink = vi.fn(async () => ({ status: true }));
@@ -159,7 +161,14 @@ describe("server/auth", () => {
         })),
         getBetterAuthSync: vi.fn(() => undefined),
       }));
-
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
+        isLocalDatabase: () => true,
+        isPostgres: () => false,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        describeDbError: (error: unknown) => String(error),
+      }));
       const { autoMountAuth } = await import("./auth.js");
       const app = createMockApp();
       await autoMountAuth(app);
@@ -178,12 +187,244 @@ describe("server/auth", () => {
       expect(signInMagicLink).toHaveBeenCalledWith({
         body: {
           email: "owner@example.com",
-          callbackURL: "/",
+          callbackURL: "http://localhost/",
           newUserCallbackURL:
-            "/_agent-native/auth/magic-link/new-user?return=%2F",
+            "http://localhost/_agent-native/auth/magic-link/new-user?return=%2F",
         },
         headers: event.headers,
       });
+
+      await expect(
+        handler(
+          createJsonPostEvent(
+            "/_agent-native/auth/magic-link",
+            {
+              email: "owner@example.com",
+              callbackURL: "/library?error=INVALID_TOKEN",
+            },
+            undefined,
+            "https://clips.agent-native.com",
+          ),
+        ),
+      ).resolves.toEqual({ ok: true });
+
+      const reportRequest = signInMagicLink.mock.calls[1]?.[0];
+      expect(reportRequest.body.callbackURL).toBe(
+        "https://clips.agent-native.com/library?error=INVALID_TOKEN",
+      );
+      expect(reportRequest.body.newUserCallbackURL).toBe(
+        "https://clips.agent-native.com/_agent-native/auth/magic-link/new-user?return=%2Flibrary%3Ferror%3DINVALID_TOKEN",
+      );
+    });
+
+    it("promotes tracking callbacks that Better Auth cannot accept relatively", async () => {
+      vi.stubEnv("NODE_ENV", "development");
+      vi.stubEnv("RESEND_API_KEY", "resend-example-key");
+      const signInMagicLink = vi.fn(async () => ({ status: true }));
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signInMagicLink,
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
+        isLocalDatabase: () => true,
+        isPostgres: () => false,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        describeDbError: (error: unknown) => String(error),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const handler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/magic-link",
+      )?.[1];
+      expect(handler).toBeTypeOf("function");
+
+      const callbackPath = "/?utm_source=friend&utm_content=button:hero#signup";
+      await expect(
+        handler(
+          createJsonPostEvent(
+            "/_agent-native/auth/magic-link",
+            {
+              email: "owner@example.com",
+              callbackURL: callbackPath,
+            },
+            undefined,
+            "https://self-hosted.example",
+          ),
+        ),
+      ).resolves.toEqual({ ok: true });
+
+      const request = signInMagicLink.mock.calls[0]?.[0];
+      expect(request.body.callbackURL).toMatch(
+        /^https:\/\/self-hosted\.example\//,
+      );
+      const callbackURL = new URL(request.body.callbackURL);
+      expect(callbackURL.searchParams.get("utm_source")).toBe("friend");
+      expect(callbackURL.searchParams.get("utm_content")).toBe("button:hero");
+      expect(callbackURL.hash).toBe("#signup");
+
+      expect(request.body.newUserCallbackURL).toMatch(/^https?:\/\//);
+      const newUserCallbackURL = new URL(request.body.newUserCallbackURL);
+      expect(newUserCallbackURL.pathname).toMatch(
+        /\/_agent-native\/auth\/magic-link\/new-user$/,
+      );
+      expect(newUserCallbackURL.searchParams.get("return")).toBe(callbackPath);
+    });
+
+    it("bridges a verified magic-link callback to a native desktop exchange", async () => {
+      vi.stubEnv("NODE_ENV", "development");
+      vi.stubEnv("RESEND_API_KEY", "resend-example-key");
+      const mockExecute = vi.fn(async () => ({ rows: [] }));
+      const signInMagicLink = vi.fn(async () => ({ status: true }));
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => ({
+              user: { id: "user_1", email: "owner@example.com" },
+              session: { token: "magic-session-token" },
+            })),
+            signInEmail: vi.fn(),
+            signInMagicLink,
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => ({
+          api: {
+            getSession: vi.fn(async () => ({
+              user: { id: "user_1", email: "owner@example.com" },
+              session: { token: "magic-session-token" },
+            })),
+          },
+        })),
+      }));
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: mockExecute }),
+        isPostgres: () => false,
+        isLocalDatabase: () => true,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+      vi.doMock("../org/context.js", () => ({
+        resolveOrgIdForEmailViaEvent: vi.fn(async () => null),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const callbackHandler = app.use.mock.calls.find(
+        (call: any[]) =>
+          call[0] === "/_agent-native/auth/magic-link/desktop-callback",
+      )?.[1];
+      const exchangeHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/desktop-exchange",
+      )?.[1];
+      expect(callbackHandler).toBeTypeOf("function");
+      expect(exchangeHandler).toBeTypeOf("function");
+
+      const magicLinkHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/magic-link",
+      )?.[1];
+      const flowResponse = await magicLinkHandler(
+        createJsonPostEvent("/_agent-native/auth/magic-link", {
+          email: "owner@example.com",
+          callbackURL: "/_agent-native/auth/magic-link/desktop-callback",
+        }),
+      );
+      expect(flowResponse).toMatchObject({
+        ok: true,
+        flowId: expect.any(String),
+        verifier: expect.any(String),
+      });
+
+      const wrongVerifier = `${flowResponse.verifier.slice(0, -1)}x`;
+      const wrongVerifierResponse = await callbackHandler(
+        createMockEvent({
+          path: "/_agent-native/auth/magic-link/desktop-callback",
+          query: {
+            flow_id: flowResponse.flowId,
+            verifier: wrongVerifier,
+          },
+        }),
+      );
+      await expect(
+        (wrongVerifierResponse as Response).text(),
+      ).resolves.toContain("Connection failed");
+
+      const callbackResponse = await callbackHandler(
+        createMockEvent({
+          path: "/_agent-native/auth/magic-link/desktop-callback",
+          query: {
+            flow_id: flowResponse.flowId,
+            verifier: flowResponse.verifier,
+          },
+        }),
+      );
+      expect(callbackResponse).toBeInstanceOf(Response);
+      await expect((callbackResponse as Response).text()).resolves.toContain(
+        "Sign-in complete. You can return to the app.",
+      );
+
+      const replayResponse = await callbackHandler(
+        createMockEvent({
+          path: "/_agent-native/auth/magic-link/desktop-callback",
+          query: {
+            flow_id: flowResponse.flowId,
+            verifier: flowResponse.verifier,
+          },
+        }),
+      );
+      await expect((replayResponse as Response).text()).resolves.toContain(
+        "Connection failed",
+      );
+
+      await expect(
+        exchangeHandler(
+          createMockEvent({
+            path: "/_agent-native/auth/desktop-exchange",
+            query: {
+              flow_id: flowResponse.flowId,
+              verifier: flowResponse.verifier,
+            },
+          }),
+        ),
+      ).resolves.toEqual({
+        token: "magic-session-token",
+        email: "owner@example.com",
+      });
+      expect(mockExecute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          args: [
+            "magic-session-token",
+            "owner@example.com",
+            expect.any(Number),
+          ],
+        }),
+      );
+      expect(signInMagicLink).toHaveBeenCalledWith(
+        expect.objectContaining({
+          body: expect.objectContaining({
+            callbackURL: expect.stringMatching(
+              /desktop-callback\?flow_id=[^&]+&verifier=[^&]+/,
+            ),
+          }),
+        }),
+      );
     });
 
     it("sets first-run onboarding only for an authenticated callback", async () => {
@@ -368,6 +609,32 @@ describe("server/auth", () => {
       errorSpy.mockRestore();
     });
 
+    it("passes a custom max age through to Better Auth", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      const getBetterAuth = vi.fn(async () => ({
+        handler: vi.fn(async () => new Response("{}")),
+        api: {
+          getSession: vi.fn(async () => null),
+          signInEmail: vi.fn(),
+          signUpEmail: vi.fn(),
+          signOut: vi.fn(),
+        },
+      }));
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth,
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      await autoMountAuth(createMockApp(), { maxAge: 60 * 60 * 24 * 90 });
+
+      expect(getBetterAuth).toHaveBeenCalledWith(
+        expect.objectContaining({ sessionMaxAge: 60 * 60 * 24 * 90 }),
+      );
+    });
+
     it("enables Better Auth when no tokens in production", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("DEBUG", "1");
@@ -417,6 +684,14 @@ describe("server/auth", () => {
           },
         })),
         getBetterAuthSync: vi.fn(() => undefined),
+      }));
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
+        isLocalDatabase: () => true,
+        isPostgres: () => false,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        describeDbError: (error: unknown) => String(error),
       }));
 
       const { autoMountAuth } = await import("./auth.js");
@@ -1353,7 +1628,7 @@ describe("server/auth", () => {
       });
     });
 
-    it("env-gates the federated-SSO route bypass (no-op when AGENT_NATIVE_IDENTITY_HUB_URL is unset)", async () => {
+    it("bypasses only the two federated-SSO entry routes", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");
       delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
@@ -1369,20 +1644,56 @@ describe("server/auth", () => {
         .find((arg: unknown) => typeof arg === "function");
       expect(guard).toBeTypeOf("function");
 
-      // Env UNSET → the identity routes are NOT bypassed: the guard must
-      // treat them like any other unauthenticated /_agent-native/* request
-      // (it returns a 401 body, i.e. NOT `undefined`). This is the
-      // regression assertion for the env-unset-no-op invariant.
+      // Ordinary requests remain protected while direct web SSO is unset.
       for (const path of [
         "/_agent-native/identity/login",
         "/_agent-native/identity/callback",
       ]) {
-        const result = await guard(createMockEvent({ path }));
-        expect(result).not.toBeUndefined();
+        await expect(guard(createMockEvent({ path }))).resolves.toEqual({
+          error: "Unauthorized",
+        });
       }
 
-      // Env SET → both routes bypass the blanket guard so the handler can
-      // run its own signature/CSRF verification.
+      vi.stubEnv("APP_URL", "https://mail.agent-native.com");
+      for (const path of [
+        "/_agent-native/identity/login",
+        "/_agent-native/identity/callback",
+      ]) {
+        await expect(
+          guard(
+            createMockEvent({
+              path,
+              headers: {
+                host: "mail.agent-native.com",
+                "x-forwarded-proto": "https",
+                "user-agent": "Mozilla/5.0 AgentNativeDesktopSsoCanary/1.2.3",
+              },
+            }),
+          ),
+        ).resolves.toBeUndefined();
+      }
+
+      await expect(
+        guard(
+          createMockEvent({
+            path: "/_agent-native/identity/login",
+            headers: {
+              host: "untrusted.example",
+              "x-forwarded-proto": "https",
+              "user-agent": "Mozilla/5.0 AgentNativeDesktopSsoCanary/1.2.3",
+            },
+          }),
+        ),
+      ).resolves.toEqual({ error: "Unauthorized" });
+
+      await expect(
+        guard(
+          createMockEvent({
+            path: "/_agent-native/identity/desktop-complete",
+          }),
+        ),
+      ).resolves.toEqual({ error: "Unauthorized" });
+
       vi.stubEnv(
         "AGENT_NATIVE_IDENTITY_HUB_URL",
         "https://dispatch.agent-native.com",
@@ -2142,6 +2453,15 @@ describe("server/auth", () => {
       expect(tooShortResult).toEqual({ error: PASSWORD_MIN_LENGTH_MESSAGE });
       expect(signUpEmail).not.toHaveBeenCalled();
 
+      const tooLongResult = await registerHandler(
+        createJsonPostEvent("/_agent-native/auth/register", {
+          email: "steve+1@builder.io",
+          password: "p".repeat(PASSWORD_MAX_LENGTH + 1),
+        }),
+      );
+      expect(tooLongResult).toEqual({ error: PASSWORD_MAX_LENGTH_MESSAGE });
+      expect(signUpEmail).not.toHaveBeenCalled();
+
       const event = createJsonPostEvent(
         "/_agent-native/auth/register",
         {
@@ -2168,7 +2488,7 @@ describe("server/auth", () => {
           email: "steve+1@builder.io",
           password: "secret-password",
           name: "steve+1",
-          callbackURL: "/after",
+          callbackURL: "https://localhost/after",
         },
         headers: event.headers,
       });
@@ -2222,6 +2542,59 @@ describe("server/auth", () => {
         error: "Enter a valid email address, like you@example.com.",
       });
       expect(signUpEmail).toHaveBeenCalledTimes(1);
+    });
+
+    it("hides Better Auth adapter details from signup errors", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      const signUpEmail = vi.fn(async () => {
+        throw new Error(
+          'Failed query: select "id", "name" from "user" where "user"."email" = $1',
+        );
+      });
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail,
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
+        isPostgres: () => false,
+        isLocalDatabase: () => true,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const registerHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/register",
+      )?.[1];
+      expect(registerHandler).toBeTypeOf("function");
+
+      const event = createJsonPostEvent("/_agent-native/auth/register", {
+        email: "steve+1@builder.io",
+        password: "secret-password",
+      });
+      const result = await registerHandler(event);
+
+      expect(event.res.status).toBe(500);
+      expect(result).toEqual({
+        error: "We couldn't create your account right now. Please try again.",
+      });
+      expect(JSON.stringify(result)).not.toContain("Failed query");
+      expect(JSON.stringify(result)).not.toContain('select "id"');
     });
 
     it("accepts HEAD on the auth session endpoint", async () => {
@@ -2428,7 +2801,7 @@ describe("server/auth", () => {
       );
       expect(response).toBeInstanceOf(Response);
       await expect((response as Response).text()).resolves.toContain(
-        "The user denied access",
+        "Google sign-in was cancelled. Try again when you&#39;re ready.",
       );
 
       const result = await exchangeHandler(
@@ -2439,8 +2812,8 @@ describe("server/auth", () => {
       );
 
       expect(result).toMatchObject({
-        error: "Google sign-in failed: The user denied access",
-        message: "Google sign-in failed: The user denied access",
+        error: "Google sign-in was cancelled. Try again when you're ready.",
+        message: "Google sign-in was cancelled. Try again when you're ready.",
         code: "access_denied",
       });
     });
@@ -2511,6 +2884,70 @@ describe("server/auth", () => {
       expect(forwardedPath).toBe("/_agent-native/auth/ba/sign-in/email");
     });
 
+    it("sanitizes raw Better Auth JSON errors on direct auth routes", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(
+            async () =>
+              new Response(
+                JSON.stringify({
+                  message:
+                    'Failed query: select "id", "name" from "user" where "user"."email" = $1',
+                }),
+                {
+                  status: 500,
+                  headers: { "content-type": "application/json" },
+                },
+              ),
+          ),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
+        isPostgres: () => false,
+        isLocalDatabase: () => true,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const baHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/ba",
+      )?.[1];
+      expect(baHandler).toBeTypeOf("function");
+
+      const response = await baHandler(
+        createJsonPostEvent("/_agent-native/auth/ba/sign-up/email", {
+          email: "user@example.com",
+          password: "secret-password",
+        }),
+      );
+
+      expect(response).toBeInstanceOf(Response);
+      expect((response as Response).status).toBe(500);
+      const body = await (response as Response).json();
+      expect(body).toEqual({
+        error: "We couldn't create your account right now. Please try again.",
+        message: "We couldn't create your account right now. Please try again.",
+      });
+      expect(JSON.stringify(body)).not.toContain("Failed query");
+      expect(JSON.stringify(body)).not.toContain('select "id"');
+    });
+
     it("sanitizes resend verification callback URLs before forwarding to Better Auth", async () => {
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.ACCESS_TOKEN;
@@ -2578,7 +3015,7 @@ describe("server/auth", () => {
 
       expect(forwardedBody).toEqual({
         email: "user@example.com",
-        callbackURL: "/",
+        callbackURL: "http://localhost/",
       });
     });
 
@@ -2644,7 +3081,7 @@ describe("server/auth", () => {
       const response = await baHandler(event);
 
       expect(response.headers.get("location")).toBe(
-        "/_agent-native/sign-in?error=INVALID_TOKEN",
+        "/_agent-native/sign-in?error=verification_link_invalid",
       );
     });
 
@@ -4043,28 +4480,6 @@ describe("server/auth", () => {
       expect(html).toContain("function __anCopyRunLocalCommand()");
     });
 
-    it("can split the Google preflight notice into paragraphs", async () => {
-      vi.stubEnv("GOOGLE_CLIENT_ID", "google-client-id");
-      vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-client-secret");
-
-      const { getOnboardingHtml } = await import("./onboarding-html.js");
-      const html = getOnboardingHtml({
-        googleOnly: true,
-        googleSignInNotice: {
-          title: "Hosted Mail may show Google warnings",
-          body: [
-            "This demo uses a shared OAuth client.",
-            "Self-hosting avoids this warning.",
-          ],
-        },
-      });
-
-      expect(html).toContain('id="google-preflight-copy"');
-      expect(html).toContain("This demo uses a shared OAuth client.");
-      expect(html).toContain("Self-hosting avoids this warning.");
-      expect(html.match(/class="google-preflight-copy"/g)).toHaveLength(2);
-    });
-
     it("defaults the active tab from the login or signup path", async () => {
       const { getOnboardingHtml } = await import("./onboarding-html.js");
       const html = getOnboardingHtml();
@@ -5066,6 +5481,12 @@ describe("server/auth", () => {
       event.req.ip = "127.0.0.1";
       event.node.req.socket = socket;
       event.node.req.connection = socket;
+
+      await expect(localDevHandler(event)).resolves.toEqual({
+        available: true,
+      });
+      expect(event.res.headers.get("cache-control")).toBe("no-store");
+
       event.req.method = "POST";
       event.node.req.method = "POST";
 
@@ -5078,6 +5499,24 @@ describe("server/auth", () => {
       expect(event.res.headers.get("set-cookie")).toContain(
         "better-auth-dev-session",
       );
+
+      mockExecute.mockImplementation(async (query: { sql?: string }) => ({
+        rows: query.sql?.includes("NOT IN")
+          ? [{ email: "existing@example.com" }]
+          : [],
+      }));
+      const unavailableEvent = createMockEvent({
+        path: "/_agent-native/auth/local-dev",
+      });
+      unavailableEvent.req.context = { clientAddress: "127.0.0.1" };
+      unavailableEvent.req.ip = "127.0.0.1";
+      unavailableEvent.node.req.socket = socket;
+      unavailableEvent.node.req.connection = socket;
+
+      await expect(localDevHandler(unavailableEvent)).resolves.toEqual({
+        available: false,
+        reason: "existing-user",
+      });
     });
 
     it("keeps the endpoint out of custom auth and rejects production, previews, and remote peers", async () => {
@@ -5287,8 +5726,9 @@ function createJsonPostEvent(
   path: string,
   body: unknown,
   headers?: Record<string, string>,
+  origin = "http://localhost",
 ): any {
-  const request = new Request(`http://localhost${path}`, {
+  const request = new Request(`${origin}${path}`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -5298,6 +5738,7 @@ function createJsonPostEvent(
   });
   const requestHeaders = Object.fromEntries(request.headers.entries());
   const event = createMockEvent({ path, headers: requestHeaders });
+  event.url = new URL(`${origin}${path}`);
   event.req = request;
   event.headers = request.headers;
   event.node.req.method = "POST";

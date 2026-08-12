@@ -296,6 +296,32 @@ describe("standalone scaffold — chat template", { timeout: 180_000 }, () => {
     const pkg = readPkg(path.join(tmpDir, "test-app"));
     expect(pkg.dependencies?.postgres).toBeDefined();
   });
+
+  it("allows Tesseract builds through pnpm-workspace.yaml", async () => {
+    await createApp("test-app", { template: "chat" });
+    const root = path.join(tmpDir, "test-app");
+    const pkg = readPkg(root);
+    const workspaceYaml = fs.readFileSync(
+      path.join(root, "pnpm-workspace.yaml"),
+      "utf-8",
+    );
+
+    expect(pkg.pnpm).toBeUndefined();
+    expect(workspaceYaml).toContain("allowBuilds:");
+    expect(workspaceYaml).toContain("tesseract.js: true");
+    expect(workspaceYaml).not.toContain("onlyBuiltDependencies:");
+  });
+
+  it("pins the Tiptap family for fresh standalone installs", async () => {
+    await createApp("test-app", { template: "chat" });
+    const workspaceYaml = fs.readFileSync(
+      path.join(tmpDir, "test-app", "pnpm-workspace.yaml"),
+      "utf-8",
+    );
+
+    expect(workspaceYaml).toContain('"@tiptap/core": "3.28.0"');
+    expect(workspaceYaml).toContain('"@tiptap/extension-list": "3.28.0"');
+  });
 });
 
 describe("installed package template discovery", () => {
@@ -999,6 +1025,29 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
     );
     expect(wsYaml).toContain("catalog:");
     expect(wsYaml).toContain("tailwindcss");
+  });
+
+  it("allows Tesseract builds in workspace settings", async () => {
+    const wsDir = await scaffoldWorkspace("my-ws", ["chat"]);
+    const wsYaml = fs.readFileSync(
+      path.join(wsDir, "pnpm-workspace.yaml"),
+      "utf-8",
+    );
+
+    expect(wsYaml).toContain("allowBuilds:");
+    expect(wsYaml).toContain("tesseract.js: true");
+  });
+
+  it("pins Tiptap transitive extensions to the tested workspace family", async () => {
+    const wsDir = await scaffoldWorkspace("my-ws", ["chat", "calendar"]);
+    const wsYaml = fs.readFileSync(
+      path.join(wsDir, "pnpm-workspace.yaml"),
+      "utf-8",
+    );
+
+    expect(wsYaml).toContain('"@tiptap/core": "3.28.0"');
+    expect(wsYaml).toContain('"@tiptap/extension-list": "3.28.0"');
+    expect(wsYaml).toContain('"@tiptap/extension-code-block": "3.28.0"');
   });
 
   it("pins Better Auth in workspace roots until the latest Kysely adapter build is compatible", async () => {

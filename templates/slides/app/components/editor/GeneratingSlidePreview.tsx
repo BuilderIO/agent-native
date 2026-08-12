@@ -1,5 +1,4 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { IconLoader2 } from "@tabler/icons-react";
 
 import SlideRenderer from "@/components/deck/SlideRenderer";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -47,7 +46,7 @@ export default function GeneratingSlidePreview({
   return (
     <div
       className={cn(
-        "relative w-full overflow-hidden rounded-lg border border-border/60 bg-muted/20",
+        "relative w-full overflow-hidden rounded-lg border border-border bg-muted/20",
         className,
       )}
       style={{ aspectRatio: cssRatio }}
@@ -65,9 +64,6 @@ export default function GeneratingSlidePreview({
       ) : (
         <SlideLoadingArtwork />
       )}
-      <div className="absolute right-2 top-2 rounded-full bg-background/80 p-1.5 text-muted-foreground shadow-sm backdrop-blur">
-        <IconLoader2 className="size-3.5 animate-spin" aria-hidden="true" />
-      </div>
     </div>
   );
 }

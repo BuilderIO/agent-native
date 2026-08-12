@@ -1,6 +1,7 @@
 // Owns: message-timestamp helpers, SelectionAttachedPill, UserMessage,
 // AssistantMessage, MessageBranchPicker, CheckpointContext, MessageActionsContext,
-// RunningActivityStatus, ThinkingIndicator, and displayableUserMessageText.
+// UserStoppedRunContext, RunningActivityStatus, ThinkingIndicator, and
+// displayableUserMessageText.
 
 import { isPastedTextAttachmentName } from "@agent-native/toolkit/composer/pasted-text";
 import { PastedTextChip } from "@agent-native/toolkit/composer/PastedTextChip";
@@ -66,7 +67,6 @@ import { ThumbsFeedback } from "../observability/ThumbsFeedback.js";
 import { McpConnectionSuggestion } from "../resources/McpConnectionSuggestion.js";
 import type { ContentPart } from "../sse-event-processor.js";
 import {
-  humanizeToolName,
   isCallAgentToolCallShadowed,
   shadowedCallAgentToolCallIds,
 } from "../tool-display.js";
@@ -90,6 +90,8 @@ import {
   FilesChangedSummary,
   ASSISTANT_VISIBLE_TOOL_CALL_LIMIT,
   ChatRunningContext,
+  ChatRunningRunIdContext,
+  ChatRunningTurnIdContext,
   ChatRunDurationContext,
   formatWorkedDuration,
   RanToolsSummary,
@@ -353,6 +355,38 @@ export function assistantMessageRunId(message: unknown): string | undefined {
       : undefined;
 }
 
+/** Stable logical-turn identity shared by chained continuation run IDs. */
+export function assistantMessageTurnId(message: unknown): string | undefined {
+  const metadata = (message as { metadata?: unknown })?.metadata as
+    | { custom?: { turnId?: unknown }; turnId?: unknown }
+    | undefined;
+  return typeof metadata?.custom?.turnId === "string"
+    ? metadata.custom.turnId
+    : typeof metadata?.turnId === "string"
+      ? metadata.turnId
+      : undefined;
+}
+
+export function assistantMessageWasUserStopped(message: unknown): boolean {
+  const metadata = (message as { metadata?: unknown })?.metadata as
+    | { custom?: { userStopped?: unknown }; userStopped?: unknown }
+    | undefined;
+  return (
+    metadata?.custom?.userStopped === true || metadata?.userStopped === true
+  );
+}
+
+export function resolveAssistantRequestId(
+  message: unknown,
+  activeRun: { threadId: string; runId: string } | null,
+  threadId: string,
+): string | undefined {
+  return (
+    assistantMessageRunId(message) ||
+    (activeRun?.threadId === threadId ? activeRun.runId : undefined)
+  );
+}
+
 // ─── MessageBranchPicker ──────────────────────────────────────────────────────
 
 export function MessageBranchPicker() {
@@ -589,9 +623,11 @@ function UserMessageEditComposer() {
 export function MessageActionsMenu({
   showRevert,
   onRevert,
+  threadId = "",
 }: {
   showRevert?: boolean;
   onRevert?: () => void;
+  threadId?: string;
 } = {}) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
@@ -620,24 +656,23 @@ export function MessageActionsMenu({
 
   const handleCopyRequestId = useCallback(() => {
     const m = messageRuntime.getState();
-    // If the message carries no run id (e.g. the run is still in flight and
-    // this is the first message), fall back to the active-run state so a hung /
-    // mid-stream chat still surfaces a usable trace ID. Last resort is the
-    // assistant-ui local message id.
-    const runId =
-      assistantMessageRunId(m) ||
-      (typeof window !== "undefined" ? getActiveRun()?.runId : null) ||
-      m.id ||
-      "";
+    const runId = resolveAssistantRequestId(m, getActiveRun(), threadId);
+    if (!runId) {
+      setCopied("id-unavailable");
+      return;
+    }
     void writeClipboardText(runId).then((ok) => {
-      if (!ok) return;
+      if (!ok) {
+        setCopied("id-failed");
+        return;
+      }
       setCopied("id");
       setTimeout(() => {
         setCopied(null);
         setOpen(false);
       }, 1000);
     });
-  }, [messageRuntime]);
+  }, [messageRuntime, threadId]);
 
   const handleForkChat = useCallback(() => {
     setOpen(false);
@@ -697,7 +732,13 @@ export function MessageActionsMenu({
           ) : (
             <IconId className="h-3.5 w-3.5" />
           )}
-          {copied === "id" ? "Copied!" : "Copy Request ID"}
+          {copied === "id"
+            ? "Copied!"
+            : copied === "id-unavailable"
+              ? "Request ID unavailable"
+              : copied === "id-failed"
+                ? "Copy failed"
+                : "Copy Request ID"}
         </DropdownMenuItem>
         {showRevert && (
           <DropdownMenuItem onSelect={handleRevert}>
@@ -954,35 +995,6 @@ function missingFinalResponseWarningText(content: unknown): string | null {
   return null;
 }
 
-export function completedAssistantToolNamesAfterLastText(
-  content: readonly ContentPart[],
-): string[] {
-  let lastTextIndex = -1;
-  for (let index = content.length - 1; index >= 0; index -= 1) {
-    if (content[index]?.type === "text") {
-      lastTextIndex = index;
-      break;
-    }
-  }
-
-  const names = new Set<string>();
-  for (let index = lastTextIndex + 1; index < content.length; index += 1) {
-    const part = content[index];
-    if (
-      part?.type !== "tool-call" ||
-      part.activity === true ||
-      part.result === undefined ||
-      part.isError === true ||
-      part.outcome === "unknown" ||
-      isCallAgentToolCallShadowed(content, index)
-    ) {
-      continue;
-    }
-    names.add(humanizeToolName(part.toolName));
-  }
-  return [...names];
-}
-
 export function latestUserMessageText(messages: readonly unknown[]): string {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
@@ -1116,19 +1128,40 @@ export function computeActiveTailToolCallId(
 export function shouldShowAssistantMessageFooter({
   isLast,
   chatRunning,
+  activeRunId,
+  messageRunId,
+  activeTurnId,
+  messageTurnId,
   hasRenderableContent,
   statusIsTerminal,
   hasUnresolvedTool,
 }: {
   isLast: boolean;
   chatRunning: boolean;
+  activeRunId?: string | null;
+  messageRunId?: string;
+  activeTurnId?: string | null;
+  messageTurnId?: string;
   hasRenderableContent: boolean;
   statusIsTerminal: boolean;
   hasUnresolvedTool?: boolean;
 }): boolean {
   if (!hasRenderableContent) return false;
+  const ownsActiveTurn =
+    activeTurnId != null &&
+    (messageTurnId == null || activeTurnId === messageTurnId);
+  // Keep the run-id comparison only for legacy messages that predate the
+  // turn-id metadata. Once either side has a logical-turn identity, absent
+  // turn evidence must not be treated as proof of a different run.
+  const ownsLegacyRun =
+    activeTurnId == null &&
+    messageTurnId == null &&
+    activeRunId != null &&
+    messageRunId != null &&
+    activeRunId === messageRunId;
+  const ownsActiveRun = isLast || ownsActiveTurn || ownsLegacyRun;
+  if (chatRunning && ownsActiveRun) return false;
   if (!isLast) return true;
-  if (chatRunning) return false;
   if (hasUnresolvedTool) return false;
   return statusIsTerminal;
 }
@@ -1140,6 +1173,9 @@ export function shouldShowAssistantMessageFooter({
  * that the agent stopped.
  */
 export const ServerRunActiveContext = React.createContext(false);
+export const UserStoppedRunContext = React.createContext<
+  (runId?: string) => boolean
+>(() => false);
 
 export function shouldShowMissingFinalResponse({
   isCurrentTurnRunning,
@@ -1148,6 +1184,7 @@ export function shouldShowMissingFinalResponse({
   hasAssistantText,
   hasUnresolvedTool,
   hasCompletedCustomUi,
+  userStoppedRun,
 }: {
   isCurrentTurnRunning: boolean;
   serverRunActive?: boolean;
@@ -1155,7 +1192,9 @@ export function shouldShowMissingFinalResponse({
   hasAssistantText: boolean;
   hasUnresolvedTool: boolean;
   hasCompletedCustomUi?: boolean;
+  userStoppedRun?: boolean;
 }): boolean {
+  if (userStoppedRun) return false;
   if (serverRunActive) return false;
   // A completed tool can make the latest message look terminal before the
   // active turn attaches its follow-up text.
@@ -1215,6 +1254,14 @@ export function shouldShowAssistantWorkSummary({
   return isComplete || !isLast;
 }
 
+export function getAssistantWorkSummaryDurationMs(
+  durationMs: number | null | undefined,
+  groupStartIndex: number,
+  firstWorkPartIndex: number,
+): number | null | undefined {
+  return groupStartIndex === firstWorkPartIndex ? durationMs : null;
+}
+
 function ReasoningMessagePart() {
   const part = useMessagePartReasoning();
   const partRuntime = useMessagePartRuntime();
@@ -1257,7 +1304,10 @@ function ReasoningMessagePart() {
   );
 }
 
-const ALWAYS_VISIBLE_ASSISTANT_TOOLS = new Set(["connect-builder"]);
+const ALWAYS_VISIBLE_ASSISTANT_TOOLS = new Set([
+  "connect-builder",
+  "connect-file-storage",
+]);
 
 export function isAlwaysVisibleAssistantTool(part: {
   type?: unknown;
@@ -1473,31 +1523,6 @@ export function InlineRunErrorNotice({
   );
 }
 
-function AssistantCompletionProgress({
-  messageId,
-  toolNames,
-}: {
-  messageId: string;
-  toolNames: readonly string[];
-}) {
-  if (toolNames.length === 0) return null;
-  return (
-    <div
-      className="my-1 w-full text-[13px] text-muted-foreground"
-      role="status"
-      aria-live="polite"
-      data-testid="assistant-completion-progress"
-    >
-      <SmoothMarkdownText
-        text={`The agent completed these actions: ${toolNames.join(", ")}`}
-        streaming
-        resetKey={`assistant-completion-progress:${messageId}`}
-        statusType="running"
-      />
-    </div>
-  );
-}
-
 function MissingFinalResponseNotice({
   messageId,
   text,
@@ -1535,6 +1560,8 @@ export function AssistantMessage() {
   const messageRuntime = useMessageRuntime();
   const thread = useThread();
   const chatRunning = React.useContext(ChatRunningContext);
+  const activeRunId = React.useContext(ChatRunningRunIdContext);
+  const activeTurnId = React.useContext(ChatRunningTurnIdContext);
   const lastRunDurationMs = React.useContext(ChatRunDurationContext);
   const msg = messageRuntime.getState();
   const persistedDurationMs = getAssistantRunDurationMs(msg);
@@ -1543,6 +1570,11 @@ export function AssistantMessage() {
     thread.messages.length > 0 &&
     thread.messages[thread.messages.length - 1].id === msg.id;
   const wasLiveRef = useRef(false);
+  const messageRunId = assistantMessageRunId(msg);
+  const messageTurnId = assistantMessageTurnId(msg);
+  const userStoppedRun = React.useContext(UserStoppedRunContext);
+  const isUserStoppedRun =
+    assistantMessageWasUserStopped(msg) || userStoppedRun(messageRunId);
   const hasRenderableContent = assistantMessageHasRenderableContent(msg);
   const hasUnresolvedTool = assistantMessageHasUnresolvedTool(msg.content);
   const missingWarningText = missingFinalResponseWarningText(msg.content);
@@ -1555,10 +1587,12 @@ export function AssistantMessage() {
   const serverRunActive = React.useContext(ServerRunActiveContext);
   const messageRunError = getRunErrorMetadata(msg);
   const messageActions = React.useContext(MessageActionsContext);
-  const showInlineRunError = shouldShowInlineRunError({
-    runError: messageRunError,
-    bannerRunErrorKey: messageActions?.bannerRunErrorKey,
-  });
+  const showInlineRunError =
+    !isUserStoppedRun &&
+    shouldShowInlineRunError({
+      runError: messageRunError,
+      bannerRunErrorKey: messageActions?.bannerRunErrorKey,
+    });
   const missingFinalResponseCandidate =
     missingWarningText == null &&
     shouldShowMissingFinalResponse({
@@ -1568,16 +1602,22 @@ export function AssistantMessage() {
       hasAssistantText: responseConnectionText.trim().length > 0,
       hasUnresolvedTool,
       hasCompletedCustomUi,
+      userStoppedRun: isUserStoppedRun,
     });
   const showMissingFinalResponse = useSettledFlag(
     missingFinalResponseCandidate,
     isLast ? MISSING_FINAL_RESPONSE_SETTLE_MS : 0,
   );
-  const missingFinalResponseNoticeText =
-    missingWarningText ??
-    (showMissingFinalResponse
-      ? "The agent stopped without sending a final message. Ask the agent to continue or retry."
-      : null);
+  const shouldShowUserStoppedNotice =
+    isUserStoppedRun && isLast && responseConnectionText.trim().length === 0;
+  const missingFinalResponseNoticeText = shouldShowUserStoppedNotice
+    ? "Stopped"
+    : isUserStoppedRun
+      ? null
+      : (missingWarningText ??
+        (showMissingFinalResponse
+          ? "The agent stopped without sending a final message. Ask the agent to continue or retry."
+          : null));
   const animateMissingFinalResponse = Boolean(
     isLast && missingFinalResponseNoticeText && wasLiveRef.current,
   );
@@ -1602,10 +1642,6 @@ export function AssistantMessage() {
     if (missingFinalResponseAnimationKey == null) return;
     setRevealedMissingFinalResponseKey(missingFinalResponseAnimationKey);
   }, [missingFinalResponseAnimationKey]);
-  const completedToolNames =
-    isLast && chatRunning && !hasCompletedCustomUi && Array.isArray(msg.content)
-      ? completedAssistantToolNamesAfterLastText(msg.content)
-      : [];
   const shouldHoldCompletionFooter =
     isLast &&
     ((missingFinalResponseCandidate && !showMissingFinalResponse) ||
@@ -1619,6 +1655,10 @@ export function AssistantMessage() {
     shouldShowAssistantMessageFooter({
       isLast,
       chatRunning,
+      activeRunId,
+      messageRunId,
+      activeTurnId,
+      messageTurnId,
       hasRenderableContent,
       statusIsTerminal,
       hasUnresolvedTool,
@@ -1666,8 +1706,6 @@ export function AssistantMessage() {
     }
     wasRunningRef.current = chatRunning && isLast;
   }, [chatRunning, isComplete, isLast]);
-
-  const messageRunId = assistantMessageRunId(msg);
 
   const handleRestore = useCallback(async () => {
     if (restoreState === "idle" || restoreState === "error") {
@@ -1741,6 +1779,14 @@ export function AssistantMessage() {
         (p.type !== "tool-call" || p.activity !== true) &&
         isCollapsibleAssistantWorkPart(p),
     );
+  const firstWorkPartIndex = Array.isArray(msgContent)
+    ? msgContent.findIndex(
+        (p, index) =>
+          !isCallAgentToolCallShadowed(msgContent, index) &&
+          (p.type !== "tool-call" || p.activity !== true) &&
+          isCollapsibleAssistantWorkPart(p),
+      )
+    : -1;
   const shadowedToolCallIds = Array.isArray(msgContent)
     ? shadowedCallAgentToolCallIds(msgContent)
     : new Set<string>();
@@ -1772,7 +1818,11 @@ export function AssistantMessage() {
                   if (!showSummary) return <>{children}</>;
                   return (
                     <WorkedForSummary
-                      durationMs={capturedDurationMs ?? persistedDurationMs}
+                      durationMs={getAssistantWorkSummaryDurationMs(
+                        capturedDurationMs ?? persistedDurationMs,
+                        part.indices[0] ?? -1,
+                        firstWorkPartIndex,
+                      )}
                       defaultOpen={hasCustomUi}
                       autoCollapse={animateCollapse && !hasCustomUi}
                     >
@@ -1791,6 +1841,18 @@ export function AssistantMessage() {
                   );
                 }
                 case "text":
+                  if (
+                    isUserStoppedRun &&
+                    isMissingFinalResponseWarningText(part.text)
+                  ) {
+                    return shouldShowUserStoppedNotice ? (
+                      <MissingFinalResponseNotice
+                        messageId={msg.id}
+                        text="Stopped"
+                        animate={false}
+                      />
+                    ) : null;
+                  }
                   if (
                     missingWarningText != null &&
                     part.text === missingWarningText
@@ -1813,7 +1875,6 @@ export function AssistantMessage() {
                     <ToolActivityPresentation
                       toolName={part.toolName}
                       isRunning={part.status?.type === "running"}
-                      isActiveTail={part.toolCallId === activeTailToolCallId}
                       toolCallId={part.toolCallId}
                     >
                       {part.toolUI}
@@ -1830,12 +1891,6 @@ export function AssistantMessage() {
             }}
           </MessagePrimitive.GroupedParts>
         </ToolCallStackMotion>
-        {completedToolNames.length > 0 && !showInlineRunError && (
-          <AssistantCompletionProgress
-            messageId={msg.id}
-            toolNames={completedToolNames}
-          />
-        )}
         {showInlineRunError && messageRunError && (
           <InlineRunErrorNotice
             info={messageRunError}
@@ -1874,6 +1929,7 @@ export function AssistantMessage() {
             <MessageActionsMenu
               showRevert={showRestore && restoreState === "idle"}
               onRevert={handleRestore}
+              threadId={cpCtx?.threadId ?? ""}
             />
             {/* Regenerate button — only on the last assistant message, auto-disabled while running */}
             {isLast && (

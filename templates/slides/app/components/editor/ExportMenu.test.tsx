@@ -8,10 +8,13 @@ import {
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { toastSuccessMock, toastErrorMock } = vi.hoisted(() => ({
-  toastSuccessMock: vi.fn(),
-  toastErrorMock: vi.fn(),
-}));
+const { toastSuccessMock, toastErrorMock, toastWarningMock } = vi.hoisted(
+  () => ({
+    toastSuccessMock: vi.fn(),
+    toastErrorMock: vi.fn(),
+    toastWarningMock: vi.fn(),
+  }),
+);
 
 vi.mock("@agent-native/core", () => ({
   cn: (...args: unknown[]) =>
@@ -59,8 +62,14 @@ vi.mock("sonner", () => ({
   toast: Object.assign(vi.fn(), {
     success: toastSuccessMock,
     error: toastErrorMock,
+    warning: toastWarningMock,
   }),
 }));
+
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+} from "@/components/ui/dropdown-menu";
 
 import { ExportMenu } from "./ExportMenu";
 
@@ -117,6 +126,29 @@ describe("<ExportMenu>", () => {
     await waitFor(() => expect(onExportPptx).toHaveBeenCalledTimes(1));
     expect(fetch).not.toHaveBeenCalled();
     expect(window.open).not.toHaveBeenCalled();
+  });
+
+  it("renders export actions inline inside a parent menu", async () => {
+    const onExportPptx = vi.fn().mockResolvedValue(undefined);
+    render(
+      <DropdownMenu open>
+        <DropdownMenuContent>
+          <ExportMenu
+            inline
+            deckId="deck-1"
+            deckTitle="Quarterly Review"
+            onDuplicate={vi.fn()}
+            onExportPdf={vi.fn()}
+            onExportPptx={onExportPptx}
+          />
+        </DropdownMenuContent>
+      </DropdownMenu>,
+    );
+
+    expect(screen.queryByRole("button", { name: /^export$/i })).toBeNull();
+    fireEvent.click(screen.getByText("Export as PPTX"));
+
+    await waitFor(() => expect(onExportPptx).toHaveBeenCalledTimes(1));
   });
 
   it("opens the converted deck in Google Slides", async () => {
@@ -219,10 +251,11 @@ describe("<ExportMenu>", () => {
     expect((await screen.findByRole("dialog")).textContent).toContain(
       "Import the downloaded PPTX into Google Slides.",
     );
-    expect(toastSuccessMock).toHaveBeenCalledWith(
+    expect(toastWarningMock).toHaveBeenCalledWith(
       "Downloaded for Google Slides",
       expect.objectContaining({
-        description: "Import the downloaded PPTX into Google Slides.",
+        description:
+          "No connected Google account. Import the downloaded PPTX into Google Slides.",
       }),
     );
   });

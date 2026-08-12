@@ -72,6 +72,7 @@ const {
   insertAgentComposerReference,
   listAgentChatContext,
   normalizeAgentComposerReference,
+  parseSubmitChatMessage,
   removeAgentChatContextItem,
   reportAgentChatSubmitResult,
   sendToAgentChat,
@@ -163,6 +164,29 @@ describe("sendToAgentChat", () => {
     expect(parentPostMessageSpy).toHaveBeenCalledOnce();
     const payload = parentPostMessageSpy.mock.calls[0][0];
     expect(payload.data.images).toEqual(["data:image/png;base64,abc"]);
+  });
+
+  it("rehydrates hosted reference images into the submitted image sources", () => {
+    const parsed = parseSubmitChatMessage({
+      data: {
+        type: "agentNative.submitChat",
+        data: {
+          message: "use these references",
+          images: ["https://cdn.example.test/first.png"],
+          referenceImagePaths: [
+            "https://cdn.example.test/first.png",
+            "https://cdn.example.test/second.png",
+          ],
+          uploadedReferenceImages: ["data:image/png;base64,abc"],
+        },
+      },
+    } as MessageEvent);
+
+    expect(parsed?.images).toEqual([
+      "https://cdn.example.test/first.png",
+      "https://cdn.example.test/second.png",
+      "data:image/png;base64,abc",
+    ]);
   });
 
   it("snapshots stored plan mode into the postMessage payload", () => {

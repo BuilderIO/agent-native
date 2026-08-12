@@ -1,4 +1,9 @@
 export const INITIAL_TOOL_NAMES = [
+  // Analytics runs with the compact production surface, but company knowledge
+  // and Slack context belong to the sibling Brain app. Keep the handoff tools
+  // on turn one so the model cannot mistake Brain for an Analytics extension.
+  "describe-workspace-apps",
+  "call-agent",
   "view-screen",
   "data-source-status",
   // Keep the first-party observability workflow on the initial surface so a

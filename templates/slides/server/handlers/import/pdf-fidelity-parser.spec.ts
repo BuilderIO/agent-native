@@ -193,6 +193,40 @@ describe("mergeLineRuns", () => {
     ]);
     expect(runs).toHaveLength(2);
   });
+
+  it("keeps the word gap across a style change so the words don't jam together", () => {
+    const runs = mergeLineRuns([
+      box({
+        text: "7 Air",
+        left: 0,
+        right: 60,
+        fontSize: 40,
+        color: "#ffffff",
+      }),
+      box({
+        text: "purifying",
+        left: 80,
+        right: 200,
+        fontSize: 40,
+        color: "#18b6f6",
+      }),
+    ]);
+    expect(runs.map((r) => r.text).join("")).toBe("7 Air purifying");
+  });
+
+  it("does not double a space that either side already carries", () => {
+    const runs = mergeLineRuns([
+      box({ text: "Nike NYC: ", left: 0, right: 60, fontSize: 40 }),
+      box({
+        text: "Event Details",
+        left: 80,
+        right: 200,
+        fontSize: 40,
+        color: "#18b6f6",
+      }),
+    ]);
+    expect(runs.map((r) => r.text).join("")).toBe("Nike NYC: Event Details");
+  });
 });
 
 describe("groupIntoStyledLines", () => {
