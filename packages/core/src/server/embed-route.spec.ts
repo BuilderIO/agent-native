@@ -155,6 +155,8 @@ describe("createEmbedStartRouteHandler", () => {
     expect(res.headers.get("Cache-Control")).toBe("no-store");
     expect(html).toContain("Embedded app session expired");
     expect(html).toContain("agentNative.embedSessionExpired");
+    expect(html).toContain("embedStartUrl: window.location.href");
+    expect(html).toContain('id="retry"');
     expect(html).not.toContain("Invalid or expired embed session");
   });
 

@@ -1,252 +1,262 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
-import {
-  DEFAULT_ALLOWED_HOST_SUFFIXES,
-  IDENTITY_SCOPE,
-  IDENTITY_TOKEN_TTL,
-  IDENTITY_TOKEN_TTL_SECONDS,
-  buildIdentityClaims,
-  buildRedirectLocation,
-  getConfiguredHostSuffixes,
-  isAllowedRedirectUri,
-} from "./identity-sso.js";
+interface CodeRow {
+  code_hash: string;
+  state: string;
+  app_id: string;
+  client_id: string;
+  redirect_uri: string;
+  authority: string;
+  code_challenge: string;
+  email: string;
+  name: string | null;
+  org_domain: string | null;
+  jti: string;
+  expires_at: number;
+  consumed_at: number | null;
+}
 
-describe("isAllowedRedirectUri — the critical open-redirect guard", () => {
-  describe("accepts first-party + localhost", () => {
-    it("accepts https first-party subdomains", () => {
-      expect(isAllowedRedirectUri("https://mail.agent-native.com/cb")).toBe(
-        true,
-      );
-      expect(
-        isAllowedRedirectUri("https://calendar.agent-native.com/auth/callback"),
-      ).toBe(true);
-      expect(
-        isAllowedRedirectUri("https://analytics.agent-native.com/x?a=1#frag"),
-      ).toBe(true);
+const codeRows: CodeRow[] = [];
+
+const exec = async (input: string | { sql: string; args?: unknown[] }) => {
+  const sql = (typeof input === "string" ? input : input.sql).trim();
+  const args = (typeof input === "string" ? [] : (input.args ?? [])) as any[];
+  if (/^CREATE TABLE/i.test(sql)) return { rows: [], rowsAffected: 0 };
+  if (/^DELETE FROM identity_sso_authorization_code/i.test(sql)) {
+    for (let i = codeRows.length - 1; i >= 0; i--) {
+      if (codeRows[i].expires_at < args[0]) codeRows.splice(i, 1);
+    }
+    return { rows: [], rowsAffected: 0 };
+  }
+  if (/^INSERT INTO identity_sso_authorization_code/i.test(sql)) {
+    codeRows.push({
+      code_hash: args[0],
+      state: args[1],
+      app_id: args[2],
+      client_id: args[3],
+      redirect_uri: args[4],
+      authority: args[5],
+      code_challenge: args[6],
+      email: args[7],
+      name: args[8],
+      org_domain: args[9],
+      jti: args[10],
+      expires_at: args[12],
+      consumed_at: args[13],
     });
+    return { rows: [], rowsAffected: 1 };
+  }
+  if (/^SELECT state, app_id, client_id/i.test(sql)) {
+    const row = codeRows.find((candidate) => candidate.code_hash === args[0]);
+    return { rows: row ? [{ ...row }] : [], rowsAffected: 0 };
+  }
+  if (/^UPDATE identity_sso_authorization_code SET consumed_at/i.test(sql)) {
+    const row = codeRows.find((candidate) => candidate.code_hash === args[1]);
+    if (row && row.consumed_at == null) {
+      row.consumed_at = args[0];
+      return { rows: [], rowsAffected: 1 };
+    }
+    return { rows: [], rowsAffected: 0 };
+  }
+  throw new Error(`unexpected SQL in test: ${sql}`);
+};
 
-    it("accepts deep first-party subdomains", () => {
-      expect(isAllowedRedirectUri("https://a.b.c.agent-native.com/cb")).toBe(
-        true,
-      );
-    });
+vi.mock("@agent-native/core/db", () => ({
+  getDbExec: () => ({ execute: exec }),
+  intType: () => "INTEGER",
+}));
 
-    it("accepts localhost over http and https (dev)", () => {
-      expect(isAllowedRedirectUri("http://localhost:3000/cb")).toBe(true);
-      expect(isAllowedRedirectUri("https://localhost:3000/cb")).toBe(true);
-      expect(isAllowedRedirectUri("http://127.0.0.1:5173/auth")).toBe(true);
-      expect(isAllowedRedirectUri("http://[::1]:8080/cb")).toBe(true);
-    });
+const mod = await import("./identity-sso.js");
 
-    it("accepts an extra host suffix passed explicitly", () => {
-      expect(
-        isAllowedRedirectUri("https://app.staging.example.com/cb", {
-          allowedHostSuffixes: [".staging.example.com"],
-        }),
-      ).toBe(true);
-    });
+const CALLBACK =
+  "https://mail.agent-native.com/_agent-native/identity/callback";
+const AUTHORITY = "https://dispatch.agent-native.com";
+const STATE = "s".repeat(43);
+const VERIFIER = "v".repeat(64);
+
+beforeEach(() => {
+  codeRows.length = 0;
+  process.env.IDENTITY_SSO_APP_REGISTRY_JSON = "";
+});
+
+afterEach(() => {
+  delete process.env.IDENTITY_SSO_APP_REGISTRY_JSON;
+});
+
+describe("strict identity app registration", () => {
+  it("accepts exact canonical app/client/callback pairs", () => {
+    expect(mod.isAllowedIdentityRedirect("mail", CALLBACK)).toBe(true);
+    expect(mod.resolveIdentitySsoApp("mail", "mail", CALLBACK)?.origin).toBe(
+      "https://mail.agent-native.com",
+    );
   });
 
-  describe("REJECTS everything else", () => {
-    it("rejects a plain evil host", () => {
-      expect(isAllowedRedirectUri("https://evil.com/cb")).toBe(false);
-      expect(isAllowedRedirectUri("https://evil.com/")).toBe(false);
-    });
-
-    it("rejects suffix-spoof: agent-native.com.evil.com", () => {
-      expect(isAllowedRedirectUri("https://agent-native.com.evil.com/cb")).toBe(
-        false,
-      );
-    });
-
-    it("rejects prefix/substring-spoof hosts", () => {
-      expect(isAllowedRedirectUri("https://evil-agent-native.com/cb")).toBe(
-        false,
-      );
-      expect(isAllowedRedirectUri("https://notagent-native.com/cb")).toBe(
-        false,
-      );
-      // bare apex is intentionally NOT allowed (apps are subdomains)
-      expect(isAllowedRedirectUri("https://agent-native.com/cb")).toBe(false);
-    });
-
-    it("rejects non-https for non-loopback hosts", () => {
-      expect(isAllowedRedirectUri("http://mail.agent-native.com/cb")).toBe(
-        false,
-      );
-    });
-
-    it("rejects non-http(s) schemes", () => {
-      expect(isAllowedRedirectUri("javascript:alert(document.cookie)")).toBe(
-        false,
-      );
-      expect(isAllowedRedirectUri("data:text/html;base64,PHNjcmlwdD4=")).toBe(
-        false,
-      );
-      expect(isAllowedRedirectUri("ftp://mail.agent-native.com/cb")).toBe(
-        false,
-      );
-    });
-
-    it("rejects embedded credentials (open-redirect obfuscation)", () => {
-      // userinfo host is good, but the URL parser host is good too — the
-      // credential form is still an exfil/obfuscation vector, reject it.
-      expect(
-        isAllowedRedirectUri("https://attacker@mail.agent-native.com/cb"),
-      ).toBe(false);
-      expect(isAllowedRedirectUri("https://u:p@mail.agent-native.com/cb")).toBe(
-        false,
-      );
-      // Classic trick: real host in userinfo, evil host is the real host.
-      expect(
-        isAllowedRedirectUri("https://mail.agent-native.com@evil.com/cb"),
-      ).toBe(false);
-    });
-
-    it("rejects relative / non-absolute / empty / non-string", () => {
-      expect(isAllowedRedirectUri("/relative/path")).toBe(false);
-      expect(isAllowedRedirectUri("mail.agent-native.com/cb")).toBe(false);
-      expect(isAllowedRedirectUri("")).toBe(false);
-      expect(isAllowedRedirectUri(undefined)).toBe(false);
-      expect(isAllowedRedirectUri(null)).toBe(false);
-      expect(isAllowedRedirectUri(42)).toBe(false);
-      expect(isAllowedRedirectUri({})).toBe(false);
-    });
-
-    it("rejects scheme-relative //evil.com", () => {
-      expect(isAllowedRedirectUri("//evil.com/cb")).toBe(false);
-    });
-
-    it("rejects control chars (CRLF header injection / NUL / DEL)", () => {
-      expect(
-        isAllowedRedirectUri(
-          "https://mail.agent-native.com/cb\r\nSet-Cookie: x=1",
-        ),
-      ).toBe(false);
-      // NUL and DEL bytes via escapes so this source stays plain ASCII.
-      expect(
-        isAllowedRedirectUri(
-          "https://mail.agent-native.com/cb" + String.fromCharCode(0),
-        ),
-      ).toBe(false);
-      expect(
-        isAllowedRedirectUri(
-          "https://mail.agent-native.com/cb" + String.fromCharCode(127),
-        ),
-      ).toBe(false);
-    });
-
-    it("does not allow the configured env suffix to be empty/wildcard", () => {
-      expect(getConfiguredHostSuffixes({} as NodeJS.ProcessEnv)).toEqual([]);
-      expect(
-        getConfiguredHostSuffixes({
-          IDENTITY_SSO_ALLOWED_HOST_SUFFIXES: " , . , ",
-        } as unknown as NodeJS.ProcessEnv),
-      ).toEqual([]);
-      expect(
-        getConfiguredHostSuffixes({
-          IDENTITY_SSO_ALLOWED_HOST_SUFFIXES:
-            "staging.example.com, .preview.example.com",
-        } as unknown as NodeJS.ProcessEnv),
-      ).toEqual([".staging.example.com", ".preview.example.com"]);
-    });
+  it("rejects mismatched app ids, paths, unknown hosts, and suffix spoofing", () => {
+    expect(mod.isAllowedIdentityRedirect("calendar", CALLBACK)).toBe(false);
+    expect(
+      mod.isAllowedIdentityRedirect("mail", "https://mail.agent-native.com/cb"),
+    ).toBe(false);
+    expect(
+      mod.isAllowedIdentityRedirect(
+        "unknown",
+        "https://unknown.agent-native.com/_agent-native/identity/callback",
+      ),
+    ).toBe(false);
+    expect(mod.isAllowedRedirectUri("https://evil.agent-native.com/cb")).toBe(
+      false,
+    );
+    expect(
+      mod.isAllowedRedirectUri("https://agent-native.com.evil.example/cb"),
+    ).toBe(false);
   });
 
-  it("default allowlist is exactly .agent-native.com", () => {
-    expect(DEFAULT_ALLOWED_HOST_SUFFIXES).toEqual([".agent-native.com"]);
+  it("requires explicit custom registration and identity-sso capability", () => {
+    const customOrigin = "https://workspace.example.com";
+    const env = {
+      IDENTITY_SSO_APP_REGISTRY_JSON: JSON.stringify([
+        {
+          appId: "workspace",
+          clientId: "workspace-client",
+          origin: customOrigin,
+          callbackPath: "/_agent-native/identity/callback",
+          capabilities: ["identity-sso"],
+        },
+      ]),
+    } as unknown as NodeJS.ProcessEnv;
+    const callback = `${customOrigin}/_agent-native/identity/callback`;
+    expect(
+      mod.resolveIdentitySsoApp("workspace", "workspace-client", callback, env),
+    ).not.toBeNull();
+    expect(
+      mod.resolveIdentitySsoApp("workspace", "workspace", callback, env),
+    ).toBeNull();
+    expect(
+      mod.resolveIdentitySsoApp(
+        "workspace",
+        "workspace-client",
+        "https://workspace.example.com.evil/_agent-native/identity/callback",
+        env,
+      ),
+    ).toBeNull();
+  });
+
+  it("keeps localhost as an exact development-only callback", () => {
+    expect(
+      mod.isAllowedIdentityRedirect(
+        "mail",
+        "http://localhost:8085/_agent-native/identity/callback",
+      ),
+    ).toBe(true);
+    expect(
+      mod.isAllowedIdentityRedirect("mail", "http://localhost:8085/other"),
+    ).toBe(false);
   });
 });
 
-describe("buildIdentityClaims — exact claim set, no secrets", () => {
-  it("produces sub/email/scope/jti and omits empty optionals", () => {
-    const c = buildIdentityClaims({ email: "user@acme.com" });
-    expect(c.sub).toBe("user@acme.com");
-    expect(c.email).toBe("user@acme.com");
-    expect(c.scope).toBe(IDENTITY_SCOPE);
-    expect(c.scope).toBe("identity");
-    expect(typeof c.jti).toBe("string");
-    expect(c.jti.length).toBeGreaterThan(10);
-    expect("name" in c).toBe(false);
-    expect("org_domain" in c).toBe(false);
-  });
-
-  it("includes name + org_domain when present", () => {
-    const c = buildIdentityClaims({
-      email: "u@acme.com",
-      name: "  Ada Lovelace ",
-      orgDomain: " acme.com ",
+describe("authorization-code store", () => {
+  it("stores only a hash and consumes a code once with PKCE and binding", async () => {
+    const challenge = mod.createCodeChallenge(VERIFIER)!;
+    const code = await mod.createIdentityAuthorizationCode({
+      state: STATE,
+      appId: "mail",
+      clientId: "mail",
+      redirectUri: CALLBACK,
+      authority: AUTHORITY,
+      codeChallenge: challenge,
+      email: "user@example.test",
+      name: "User",
+      orgDomain: "example.test",
     });
-    expect(c.name).toBe("Ada Lovelace");
-    expect(c.org_domain).toBe("acme.com");
-  });
-
-  it("omits blank name / org_domain", () => {
-    const c = buildIdentityClaims({
-      email: "u@acme.com",
-      name: "   ",
-      orgDomain: "",
+    expect(code).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(codeRows[0]?.code_hash).not.toBe(code);
+    expect(
+      await mod.consumeIdentityAuthorizationCode({
+        code,
+        state: STATE,
+        appId: "mail",
+        clientId: "mail",
+        redirectUri: CALLBACK,
+        authority: AUTHORITY,
+        codeVerifier: VERIFIER,
+      }),
+    ).toEqual({
+      email: "user@example.test",
+      name: "User",
+      orgDomain: "example.test",
+      jti: expect.any(String),
     });
-    expect("name" in c).toBe(false);
-    expect("org_domain" in c).toBe(false);
+    expect(
+      await mod.consumeIdentityAuthorizationCode({
+        code,
+        state: STATE,
+        appId: "mail",
+        clientId: "mail",
+        redirectUri: CALLBACK,
+        authority: AUTHORITY,
+        codeVerifier: VERIFIER,
+      }),
+    ).toBeNull();
   });
 
-  it("never carries a password/secret-like field", () => {
-    const c = buildIdentityClaims({ email: "u@acme.com", name: "U" });
-    const keys = Object.keys(c).sort();
-    expect(keys).toEqual(["email", "jti", "name", "scope", "sub"]);
-  });
-
-  it("jti is unique per call", () => {
-    const a = buildIdentityClaims({ email: "u@acme.com" });
-    const b = buildIdentityClaims({ email: "u@acme.com" });
-    expect(a.jti).not.toBe(b.jti);
+  it("fails closed for wrong verifier, state, redirect, client, or authority", async () => {
+    const code = await mod.createIdentityAuthorizationCode({
+      state: STATE,
+      appId: "mail",
+      clientId: "mail",
+      redirectUri: CALLBACK,
+      authority: AUTHORITY,
+      codeChallenge: mod.createCodeChallenge(VERIFIER)!,
+      email: "user@example.test",
+    });
+    await expect(
+      mod.consumeIdentityAuthorizationCode({
+        code,
+        state: "x".repeat(43),
+        appId: "mail",
+        clientId: "mail",
+        redirectUri: CALLBACK,
+        authority: AUTHORITY,
+        codeVerifier: VERIFIER,
+      }),
+    ).resolves.toBeNull();
+    await expect(
+      mod.consumeIdentityAuthorizationCode({
+        code,
+        state: STATE,
+        appId: "mail",
+        clientId: "mail",
+        redirectUri: CALLBACK,
+        authority: AUTHORITY,
+        codeVerifier: "wrong".repeat(13),
+      }),
+    ).resolves.toBeNull();
   });
 });
 
-describe("token TTL", () => {
-  it("is short (<= 5 min) and the jose duration string matches the seconds", () => {
-    expect(IDENTITY_TOKEN_TTL_SECONDS).toBeLessThanOrEqual(300);
-    expect(IDENTITY_TOKEN_TTL_SECONDS).toBeGreaterThan(0);
-    // "2m" duration string must equal the documented seconds value.
-    expect(IDENTITY_TOKEN_TTL).toBe("2m");
-    expect(IDENTITY_TOKEN_TTL_SECONDS).toBe(120);
-  });
-});
-
-describe("buildRedirectLocation — token + state placement", () => {
-  it("appends token and state as query params, preserving existing query", () => {
-    const loc = buildRedirectLocation(
-      "https://mail.agent-native.com/cb?keep=1",
-      "JWT.HERE.SIG",
-      "opaque-state-123",
-    );
-    const u = new URL(loc);
-    expect(u.origin).toBe("https://mail.agent-native.com");
-    expect(u.pathname).toBe("/cb");
-    expect(u.searchParams.get("keep")).toBe("1");
-    expect(u.searchParams.get("token")).toBe("JWT.HERE.SIG");
-    expect(u.searchParams.get("state")).toBe("opaque-state-123");
+describe("identity claims and browser redirect", () => {
+  it("keeps identity claims free of credentials and org authorization", () => {
+    const claims = mod.buildIdentityClaims({
+      email: "user@example.test",
+      name: " User ",
+      orgDomain: "example.test",
+    });
+    expect(claims).toMatchObject({
+      sub: "user@example.test",
+      email: "user@example.test",
+      scope: "identity",
+      name: "User",
+      org_domain: "example.test",
+    });
+    expect(Object.keys(claims)).not.toContain("password");
+    expect(Object.keys(claims)).not.toContain("role");
   });
 
-  it("omits state when not provided but always includes token", () => {
-    const loc = buildRedirectLocation(
-      "https://calendar.agent-native.com/auth",
-      "TKN",
-      null,
-    );
-    const u = new URL(loc);
-    expect(u.searchParams.get("token")).toBe("TKN");
-    expect(u.searchParams.has("state")).toBe(false);
-  });
-
-  it("does not mutate / re-encode an opaque state value's identity", () => {
-    const state = "a+b/c=d&e";
-    const loc = buildRedirectLocation(
-      "https://mail.agent-native.com/cb",
-      "TKN",
-      state,
-    );
-    // URL round-trips it; the parsed value must equal the original.
-    expect(new URL(loc).searchParams.get("state")).toBe(state);
+  it("places a one-time code, never a JWT token, in the browser redirect", () => {
+    const location = mod.buildRedirectLocation(CALLBACK, "code-value", STATE);
+    const url = new URL(location);
+    expect(url.searchParams.get("code")).toBe("code-value");
+    expect(url.searchParams.get("state")).toBe(STATE);
+    expect(url.searchParams.has("token")).toBe(false);
+    expect(url.searchParams.has("assertion")).toBe(false);
   });
 });

@@ -117,7 +117,10 @@ vi.mock("../components/ui/popover.js", () => {
   };
 });
 
-function setInputValue(input: HTMLInputElement, value: string) {
+function setInputValue(
+  input: HTMLInputElement | HTMLTextAreaElement,
+  value: string,
+) {
   const setter = Object.getOwnPropertyDescriptor(
     Object.getPrototypeOf(input),
     "value",
@@ -214,6 +217,91 @@ describe("ShareButton", () => {
     expect(
       container.querySelector('input[placeholder="Add people by email"]'),
     ).toBeTruthy();
+  });
+
+  it("uses role copy overrides without changing the persisted role value", async () => {
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton
+            resourceType="deck"
+            resourceId="deck-1"
+            roleCopy={{
+              viewer: {
+                label: "Commenter",
+                description: "Can view and add comments",
+              },
+            }}
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    const roleTrigger = container.querySelector(
+      'button[aria-label="Role"]',
+    ) as HTMLButtonElement | null;
+    expect(roleTrigger?.textContent).toContain("Commenter");
+    await act(async () => roleTrigger?.click());
+    expect(document.body.textContent).toContain("Can view and add comments");
+
+    const input = container.querySelector(
+      'input[placeholder="Add people by email"]',
+    ) as HTMLInputElement;
+    setInputValue(input, "commenter@example.com");
+    const add = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Add",
+    );
+    if (!add) throw new Error("Add button not found");
+
+    act(() => add.click());
+
+    expect(shareMutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        principalId: "commenter@example.com",
+        role: "viewer",
+      }),
+      expect.any(Object),
+    );
+  });
+
+  it("sends an optional message with the notification", async () => {
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton resourceType="deck" resourceId="deck-1" />
+        </QueryClientProvider>,
+      );
+    });
+
+    const input = container.querySelector(
+      'input[placeholder="Add people by email"]',
+    ) as HTMLInputElement;
+    setInputValue(input, "recipient@example.com");
+
+    const addMessage = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Add a message",
+    );
+    if (!addMessage) throw new Error("Add a message button not found");
+    act(() => addMessage.click());
+
+    const message = container.querySelector(
+      'textarea[aria-label="Message"]',
+    ) as HTMLTextAreaElement;
+    setInputValue(message, "Here is the latest version.");
+
+    const add = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Add",
+    );
+    if (!add) throw new Error("Add button not found");
+    act(() => add.click());
+
+    expect(shareMutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        principalId: "recipient@example.com",
+        message: "Here is the latest version.",
+      }),
+      expect.any(Object),
+    );
   });
 
   it("keeps a draft email when the share popover is closed and reopened", async () => {

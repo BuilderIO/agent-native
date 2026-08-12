@@ -156,7 +156,7 @@
 
 .brain-chat-panel [data-agent-empty-state="centered"] .agent-composer-area {
   width: 100%;
-  max-width: min(1000px, 100%);
+  max-width: min(750px, 100%);
   padding: 0;
 }
 

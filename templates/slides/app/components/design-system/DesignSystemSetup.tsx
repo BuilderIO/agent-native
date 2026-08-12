@@ -8,7 +8,7 @@ import { openAgentSidebar } from "@agent-native/core/client/navigation";
 import { withBuilderUtmTrackingParams } from "@agent-native/core/shared";
 import {
   IconWorld,
-  IconPalette,
+  IconComponents,
   IconLoader2,
   IconBrandGithub,
   IconBrandFigma,
@@ -581,8 +581,15 @@ export function DesignSystemSetup({
       }. Present a summary for review.`,
     );
 
+    const message =
+      parts[0] ?? "Set up a design system from the selected sources.";
+    const contextParts = parts.slice(1);
     openAgentSidebar();
-    sendToAgentChat({ message: parts.join("\n"), submit: true });
+    sendToAgentChat({
+      message,
+      context: contextParts.join("\n"),
+      submit: true,
+    });
     toast(t("designSystemSetup.generationStarted"), {
       description: t("designSystemSetup.generationStartedDescription"),
     });
@@ -721,7 +728,7 @@ export function DesignSystemSetup({
                   </div>
 
                   <SourceAccordionRow
-                    icon={IconPalette}
+                    icon={IconComponents}
                     title={t("designSystemSetup.otherSources")}
                     description={t("designSystemSetup.otherSourcesDescription")}
                     expanded={sourcePanel === "other"}
@@ -741,7 +748,7 @@ export function DesignSystemSetup({
                       <div className="divide-y divide-border">
                         <SourceAccordionRow
                           className="rounded-none border-0"
-                          icon={IconPalette}
+                          icon={IconComponents}
                           title={t("designSystemSetup.companyBrand")}
                           description={t(
                             "designSystemSetup.companyBrandPlaceholder",
@@ -771,7 +778,7 @@ export function DesignSystemSetup({
                         {existingSystems.length > 0 && (
                           <SourceAccordionRow
                             className="rounded-none border-0"
-                            icon={IconPalette}
+                            icon={IconComponents}
                             title={t("designSystemSetup.forkExisting")}
                             description={t(
                               "designSystemSetup.customInstructionsDescription",
@@ -1064,7 +1071,7 @@ export function DesignSystemSetup({
                               }`}
                             >
                               <div className="flex items-center gap-2">
-                                <IconPalette className="w-3.5 h-3.5 text-muted-foreground" />
+                                <IconComponents className="w-3.5 h-3.5 text-muted-foreground" />
                                 <span className="text-sm text-foreground/80 truncate">
                                   {ds.title}
                                 </span>
@@ -1276,7 +1283,7 @@ function BuilderSourceStatus({ builder }: { builder: BuilderSourceDetails }) {
         ? IconBrandGithub
         : sourceKind === "code"
           ? IconFolder
-          : IconPalette;
+          : IconComponents;
   const sourceTitle =
     sourceKind === "figma"
       ? t("designSystemSetup.sourceFigma")

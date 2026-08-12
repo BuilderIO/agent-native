@@ -48,7 +48,8 @@ const messages = {
   },
   agent: {
     emptyState: "プレゼンテーションについて何でも聞いてください",
-    thisDeck: "このデッキ",
+    thisSlide: "このスライド",
+    currentSelection: "現在の選択",
     suggestionPitch: "このドキュメントから 10 枚のピッチ資料を作成",
     suggestionBrand: "このデッキにブランドを適用",
     suggestionHero: "このスライド用のヒーロー画像を生成",
@@ -204,6 +205,8 @@ const messages = {
     usingDesignSystem: "{{title}} を使用中",
     usingLinkedDesignSystem: "リンクされたデザインシステムを使用中",
     viewOnly: "表示のみ",
+    commenterRoleLabel: "コメント可",
+    commenterRoleDescription: "表示とコメントの追加ができます",
     slideSettings: "スライド設定",
     layout: "レイアウト",
     background: "背景",
@@ -438,6 +441,10 @@ const messages = {
     order: "順序",
     bringToFront: "最前面へ移動",
     sendToBack: "最背面へ移動",
+    copyStyle: "スタイルをコピー",
+    pasteStyle: "スタイルを貼り付け",
+    copy: "コピー",
+    paste: "貼り付け",
   },
   animations: {
     appear: "出现",
@@ -656,6 +663,7 @@ const messages = {
     deckCount_other: "デッキ",
     createDeckOrVisual: "プレゼンテーションを作成",
     noMineDecks: "自分が作成したデッキはまだありません。",
+    noDecksMatchSearch: "検索に一致するデッキはありません。",
     deleteDeckTitle: "デッキを削除しますか？",
     deleteDeckDescription:
       "このデッキとすべてのスライドを完全に削除します。この操作は元に戻せません。",

@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
+import { IPC } from "../../shared/ipc-channels.js";
 import { MULTI_FRONTIER_CHANNELS } from "../../shared/multi-frontier-channels.js";
 
 const electron = vi.hoisted(() => {
@@ -37,6 +38,36 @@ vi.mock("electron", () => ({
 describe("multi-frontier preload API", () => {
   beforeAll(async () => {
     await import("./index.js");
+  });
+
+  it("exposes bounded workspace identity status and sign-out IPC", async () => {
+    const identity = (
+      electron.exposed as {
+        identity: {
+          getStatus(): Promise<unknown>;
+          signIn(): Promise<unknown>;
+          signOut(): Promise<unknown>;
+          onStatusChange(callback: (status: unknown) => void): () => void;
+        };
+      }
+    ).identity;
+    await identity.getStatus();
+    await identity.signIn();
+    await identity.signOut();
+    const callback = vi.fn();
+    const unsubscribe = identity.onStatusChange(callback);
+    const listener = electron.listeners.get(IPC.IDENTITY_STATUS_CHANGED)!;
+    listener({}, "signed-in");
+    unsubscribe();
+
+    expect(electron.invoke).toHaveBeenCalledWith(IPC.IDENTITY_STATUS_GET);
+    expect(electron.invoke).toHaveBeenCalledWith(IPC.IDENTITY_SIGN_IN);
+    expect(electron.invoke).toHaveBeenCalledWith(IPC.IDENTITY_SIGN_OUT);
+    expect(callback).toHaveBeenCalledWith("signed-in");
+    expect(electron.removeListener).toHaveBeenCalledWith(
+      IPC.IDENTITY_STATUS_CHANGED,
+      listener,
+    );
   });
 
   it("exposes intent-shaped invokes without raw channels", async () => {

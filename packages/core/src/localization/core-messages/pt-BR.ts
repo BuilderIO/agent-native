@@ -564,6 +564,10 @@ const messages: AgentChatTranslation = {
   "share.noMatches": "Nenhuma correspondência.",
   "share.noPeopleFound": "Nenhuma pessoa encontrada.",
   "share.notifyPeople": "Notificar pessoas",
+  "share.message": "Mensagem",
+  "share.addMessage": "Adicionar uma mensagem",
+  "share.hideMessage": "Ocultar mensagem",
+  "share.messagePlaceholder": "Adicione uma nota curta (opcional)",
   "share.organization": "Organização",
   "share.organizationDescription":
     "Qualquer pessoa na sua organização pode visualizar",

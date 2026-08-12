@@ -6218,6 +6218,12 @@ function PlanShareControl({
         shareUrlPlacement="top"
         peopleAccessLabel={t("plansPage.share.peopleAccess", { noun })}
         generalAccessLabel={t("plansPage.share.generalAccess", { noun })}
+        roleCopy={{
+          viewer: {
+            label: t("plansPage.share.commenterRoleLabel"),
+            description: t("plansPage.share.commenterRoleDescription"),
+          },
+        }}
         accessNote={buildShareAccessNote(t, noun)}
         visibilityCopy={buildShareVisibilityCopy(t, noun)}
         trigger="icon"

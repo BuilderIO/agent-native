@@ -129,8 +129,12 @@ Extensions have full access to app data via helpers injected into the iframe
   in chat, record passive control/selection output at
   `inline-ui:<extensionId>:output` in application state so the agent can read it
   later with `readAppState`.
-- `agentNative.chat.send(message, opts?)` — send a visible prompt or selected
-  value back into the current agent chat.
+- `agentNative.chat.send(message, opts?)` - send a visible prompt or selected
+  value back into the current agent chat. The extension bridge keeps messages
+  draft-only unless `opts.submit === true`; pass `{ submit: true }` only from a
+  user-triggered Apply or Submit action. Never call it from polling, refresh, or
+  error handlers; use application state or `agentNative.ui.output` for passive
+  results.
 
 For transient inline generative UI, `extensionData` is host-browser
 `localStorage`: the agent cannot read it, it does not sync across devices, it

@@ -301,6 +301,16 @@ export function emailStrong(text: string): string {
 }
 
 /**
+ * Build a quoted message block for user-authored text in notification emails.
+ * The message stays escaped while preserving intentional line breaks.
+ */
+export function emailQuote(text: string): string {
+  const content = escapeHtml(text.trim()).replace(/\r?\n/g, "<br />");
+  // guard:allow-raw-color — quoted blocks intentionally use a fixed email-safe accent
+  return `<div style="margin:0 0 16px 0; padding:12px 16px; border-left:3px solid #52525b; background:#18181b; color:#e4e4e7; font-size:16px; line-height:1.6;">${content}</div>`;
+}
+
+/**
  * Build a labelled inline link for paragraph strings passed to `renderEmail`.
  * Use this instead of rendering raw URLs in the visible email body.
  */

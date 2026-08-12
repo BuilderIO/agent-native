@@ -244,9 +244,9 @@ export function AnimationsPanel({
   );
 
   return (
-    <div className="w-60 flex flex-col h-full border-l border-border bg-background">
+    <div className="flex h-full w-60 flex-col bg-[var(--slides-editor-surface)]">
       {/* Header */}
-      <div className="flex items-center justify-between px-3 py-2.5 border-b border-border">
+      <div className="flex items-center justify-between px-3 py-2.5">
         <span className="text-xs font-medium text-foreground/90">
           {t("animations.title")}
         </span>
@@ -303,7 +303,7 @@ export function AnimationsPanel({
 
         {/* Available elements to add */}
         {availableElements.length > 0 && (
-          <div className="border-t border-border px-2 py-2">
+          <div className="px-2 py-2">
             <div className="flex items-center justify-between mb-1.5 px-1">
               <span className="text-[9px] font-medium text-muted-foreground/70 uppercase tracking-wider">
                 {t("animations.elements")}

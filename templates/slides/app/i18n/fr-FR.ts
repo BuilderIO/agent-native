@@ -48,7 +48,8 @@ const messages = {
   },
   agent: {
     emptyState: "Posez-moi vos questions sur vos présentations",
-    thisDeck: "Ce deck",
+    thisSlide: "Cette diapositive",
+    currentSelection: "Sélection actuelle",
     suggestionPitch: "Créer un pitch de 10 diapositives à partir de ce doc",
     suggestionBrand: "Appliquer notre marque à ce deck",
     suggestionHero: "Générer une image héro pour cette diapositive",
@@ -212,6 +213,8 @@ const messages = {
     usingDesignSystem: "Utilisation de {{title}}",
     usingLinkedDesignSystem: "Utilisation d’un système de design lié",
     viewOnly: "Lecture seule",
+    commenterRoleLabel: "Commentateur",
+    commenterRoleDescription: "Peut consulter et ajouter des commentaires",
     slideSettings: "Paramètres de la diapositive",
     layout: "Disposition",
     background: "Arrière-plan",
@@ -447,6 +450,10 @@ const messages = {
     order: "Ordre",
     bringToFront: "Mettre au premier plan",
     sendToBack: "Mettre à l'arrière-plan",
+    copyStyle: "Copier le style",
+    pasteStyle: "Coller le style",
+    copy: "Copier",
+    paste: "Coller",
   },
   animations: {
     appear: "Aparecer",
@@ -681,6 +688,7 @@ const messages = {
     deckCount_other: "decks",
     createDeckOrVisual: "Créer une présentation",
     noMineDecks: "Aucun deck créé par vous pour le moment.",
+    noDecksMatchSearch: "Aucun deck ne correspond à votre recherche.",
     deleteDeckTitle: "Supprimer le deck ?",
     deleteDeckDescription:
       "Cela supprimera définitivement ce deck et toutes ses diapositives. Cette action est irréversible.",

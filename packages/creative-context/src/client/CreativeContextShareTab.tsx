@@ -310,7 +310,13 @@ function ContextSelect({
       <SelectTrigger>
         <SelectValue placeholder="Choose a context" />
       </SelectTrigger>
-      <SelectContent>
+      {/* This tab is embedded inside ShareButton's high z-index popover
+          (see z-[100010]+ overrides in design/content/slides toolbars).
+          Without a matching z-index the portal renders behind that popover,
+          and without data-agent-native-share-overlay the popover's
+          onInteractOutside treats clicks in this portal as "outside" and
+          closes the whole Share dialog. */}
+      <SelectContent data-agent-native-share-overlay="" className="z-[100020]">
         {contexts.map((context) => (
           <SelectItem key={context.id} value={context.id}>
             {context.name}
@@ -533,7 +539,10 @@ export function CreativeContextShareTab({
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent
+                    data-agent-native-share-overlay=""
+                    className="z-[100020]"
+                  >
                     <SelectItem value="canonical">Canonical</SelectItem>
                     <SelectItem value="exemplar">Exemplar</SelectItem>
                     <SelectItem value="normal">Reference</SelectItem>

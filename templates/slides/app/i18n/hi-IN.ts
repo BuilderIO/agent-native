@@ -47,7 +47,8 @@ const messages = {
   },
   agent: {
     emptyState: "अपनी प्रस्तुतियों के बारे में मुझसे कुछ भी पूछें",
-    thisDeck: "यह डेक",
+    thisSlide: "यह स्लाइड",
+    currentSelection: "वर्तमान चयन",
     suggestionPitch: "इस दस्तावेज़ से 10-स्लाइड पिच बनाएं",
     suggestionBrand: "इस डेक पर हमारा ब्रांड लागू करें",
     suggestionHero: "इस स्लाइड के लिए हीरो इमेज बनाएं",
@@ -203,6 +204,8 @@ const messages = {
     usingDesignSystem: "{{title}} उपयोग हो रहा है",
     usingLinkedDesignSystem: "लिंक किया गया डिज़ाइन सिस्टम उपयोग हो रहा है",
     viewOnly: "केवल देखें",
+    commenterRoleLabel: "टिप्पणीकार",
+    commenterRoleDescription: "देख सकते हैं और टिप्पणियां जोड़ सकते हैं",
     slideSettings: "स्लाइड सेटिंग्स",
     layout: "लेआउट",
     background: "बैकग्राउंड",
@@ -433,6 +436,10 @@ const messages = {
     order: "क्रम",
     bringToFront: "सबसे आगे लाएं",
     sendToBack: "सबसे पीछे भेजें",
+    copyStyle: "शैली कॉपी करें",
+    pasteStyle: "शैली पेस्ट करें",
+    copy: "कॉपी करें",
+    paste: "पेस्ट करें",
   },
   animations: {
     appear: "दिखाएं",
@@ -651,6 +658,7 @@ const messages = {
     deckCount_other: "डेक",
     createDeckOrVisual: "प्रेज़ेंटेशन बनाएं",
     noMineDecks: "आपने अभी तक कोई डेक नहीं बनाया है।",
+    noDecksMatchSearch: "आपकी खोज से कोई डेक मेल नहीं खाता।",
     deleteDeckTitle: "डेक हटाएं?",
     deleteDeckDescription:
       "यह इस डेक और इसकी सभी स्लाइड्स को स्थायी रूप से हटा देगा। यह कार्रवाई वापस नहीं की जा सकती।",

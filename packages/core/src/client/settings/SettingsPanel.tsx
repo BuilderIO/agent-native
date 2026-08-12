@@ -60,8 +60,10 @@ import {
 } from "../agent-engine-key.js";
 import { AgentWorkspaceContent } from "../agent-page/AgentWorkspaceContent.js";
 import {
+  AGENT_PROVIDER_CATALOG,
   getAgentProviderOption,
   providerIdForEngine,
+  type AgentProviderId,
 } from "../agent-provider-catalog.js";
 import { agentNativePath } from "../api-path.js";
 import { BuilderBMark } from "../builder-mark.js";
@@ -94,6 +96,7 @@ import { AgentsSection } from "./AgentsSection.js";
 import { AutomationsSection } from "./AutomationsSection.js";
 import { DemoModeSection } from "./DemoModeSection.js";
 import { ExtensionsSettingsContent } from "./ExtensionsSettingsContent.js";
+import { FileStorageSettingsForm } from "./FileStorageSettingsForm.js";
 import { AgentProviderPicker } from "./ProviderSetupForm.js";
 import { SecretsSection } from "./SecretsSection.js";
 import { SettingsGroup, SettingsRow } from "./SettingsRow.js";
@@ -532,8 +535,6 @@ function UseBuilderCard({
     );
   }
 
-  if (!connectUrl) return null;
-
   if (compact) {
     return (
       <Button
@@ -769,7 +770,7 @@ function friendlyModelName(model: string): string {
 
 type SettingsStatus = {
   engine: string;
-  source: "env" | "settings";
+  source: "env" | "settings" | "app_secrets";
   envVar: string | null;
 } | null;
 
@@ -785,6 +786,9 @@ function computeSourceBadge(args: {
   if (settingsConfigured) {
     if (settingsStatus?.source === "env") {
       return `Connected via ${settingsStatus.envVar ?? args.envVar ?? "env"}`;
+    }
+    if (settingsStatus?.source === "app_secrets") {
+      return "Connected via saved key";
     }
     return "Connected via template (server-side)";
   }
@@ -986,7 +990,9 @@ function LLMSectionInner({
         if (
           data?.configured &&
           typeof data.engine === "string" &&
-          (data.source === "env" || data.source === "settings")
+          (data.source === "env" ||
+            data.source === "settings" ||
+            data.source === "app_secrets")
         ) {
           setSettingsStatus({
             engine: data.engine,
@@ -1025,18 +1031,45 @@ function LLMSectionInner({
   }, []);
 
   const selectedEngineInfo = engines.find((e) => e.name === selectedEngine);
-  const envVar = selectedEngineInfo?.requiredEnvVars?.[0];
+  const selectedProvider = providerIdForEngine(selectedEngine) ?? "anthropic";
+  const selectedProviderOption = getAgentProviderOption(selectedProvider);
+  const envVar = selectedProviderOption.key;
   const selectedEnginePackageInstalled =
     selectedEngineInfo?.packageInstalled !== false;
   const envConfigured = envVar
     ? (envKeys.find((k) => k.key === envVar)?.configured ?? false)
     : false;
   const settingsConfigured =
-    settingsStatus != null && settingsStatus.engine === currentEngine;
+    settingsStatus != null &&
+    (settingsStatus.engine === selectedEngine ||
+      (!!envVar && settingsStatus.envVar === envVar));
+  const configuredProviderIds = useMemo(() => {
+    const configured = new Set<AgentProviderId>();
+    for (const option of AGENT_PROVIDER_CATALOG) {
+      if (
+        option.key &&
+        envKeys.some((entry) => entry.key === option.key && entry.configured)
+      ) {
+        configured.add(option.id);
+      }
+    }
+    if (settingsStatus) {
+      const statusProvider = providerIdForEngine(settingsStatus.engine);
+      if (statusProvider) configured.add(statusProvider);
+      if (settingsStatus.envVar) {
+        const statusOption = AGENT_PROVIDER_CATALOG.find(
+          (option) => option.key === settingsStatus.envVar,
+        );
+        if (statusOption) configured.add(statusOption.id);
+      }
+    }
+    return configured;
+  }, [envKeys, settingsStatus]);
   const builderConnected = connected || builderFlow.configured;
   const anyKeyConfigured =
     builderConnected ||
-    (selectedEnginePackageInstalled && (envConfigured || settingsConfigured));
+    (selectedEnginePackageInstalled &&
+      (envConfigured || settingsConfigured || configuredProviderIds.size > 0));
   const sourceBadge = computeSourceBadge({
     settingsConfigured,
     settingsStatus,
@@ -1048,8 +1081,6 @@ function LLMSectionInner({
 
   const engineChanged =
     selectedEngine !== currentEngine || selectedModel !== currentModel;
-  const selectedProvider = providerIdForEngine(selectedEngine) ?? "anthropic";
-  const selectedProviderOption = getAgentProviderOption(selectedProvider);
   const isEndpointProvider = selectedProviderOption.supportsEndpoint === true;
   const endpointChanged =
     isEndpointProvider && (!!baseUrl.trim() || clearBaseUrl);
@@ -1244,6 +1275,7 @@ function LLMSectionInner({
               <div className="space-y-2 mb-1">
                 <AgentProviderPicker
                   value={selectedProvider}
+                  configuredProviders={configuredProviderIds}
                   layout={isPage ? "page" : "compact"}
                   onChange={(provider) => {
                     const option = getAgentProviderOption(provider);
@@ -1381,7 +1413,7 @@ function LLMSectionInner({
                   </div>
                 )}
 
-                {envVar && envConfigured ? (
+                {envVar && (envConfigured || settingsConfigured) ? (
                   <div
                     className={cn(
                       "flex items-center gap-1.5 text-primary",
@@ -1389,7 +1421,10 @@ function LLMSectionInner({
                     )}
                   >
                     <IconCheck size={isPage ? 14 : 10} />
-                    {envVar} configured
+                    {settingsStatus?.source === "app_secrets" &&
+                    settingsConfigured
+                      ? "Saved key configured"
+                      : `${envVar} configured`}
                   </div>
                 ) : envVar ? (
                   <div className="flex gap-1.5">
@@ -1774,6 +1809,8 @@ function AppModelDefaultsSectionInner({
 
   useEffect(() => load(), [load]);
 
+  if (!loading && !settings) return null;
+
   const selectedEngineInfo =
     settings?.engines.find((engine) => engine.name === selectedEngine) ?? null;
   const engineOptions: SettingsSelectOption[] = (settings?.engines ?? [])
@@ -2086,11 +2123,7 @@ function AppModelDefaultsSectionInner({
             </div>
           </div>
         )
-      ) : (
-        <p className={cn("text-muted-foreground", noteTextClass(isPage))}>
-          App model defaults are unavailable.
-        </p>
-      )}
+      ) : null}
     </SettingsSection>
   );
 }
@@ -2456,6 +2489,8 @@ function AgentLimitsSectionInner({
       window.removeEventListener("agent-loop-settings:changed", handler);
   }, []);
 
+  if (!loading && !settings) return null;
+
   const numericValue = Number(value);
   const hasPendingChange =
     !!settings &&
@@ -2751,11 +2786,7 @@ function AgentLimitsSectionInner({
             </div>
           </div>
         )
-      ) : (
-        <p className={cn("text-muted-foreground", noteTextClass(isPage))}>
-          Agent limit settings are unavailable.
-        </p>
-      )}
+      ) : null}
     </SettingsSection>
   );
 }
@@ -3177,13 +3208,15 @@ function SettingsPanelContent({
                     />
                     <ManualSetupCard
                       title="Set up manually"
-                      hint="Configure your own file or object storage provider."
+                      hint="Use an S3-compatible bucket with a stable public URL for durable chat attachments."
                       docsUrl="https://www.builder.io/c/docs/agent-native-file-uploads?utm_source=agent-native&utm_medium=product&utm_campaign=onboarding&utm_content=file_upload_settings"
                       dim={connected}
                       bare
                       popover
                       popoverLabel="Manage"
-                    />
+                    >
+                      <FileStorageSettingsForm />
+                    </ManualSetupCard>
                   </div>
                 }
               />
@@ -3397,10 +3430,12 @@ function SettingsPanelContent({
                 trackingFlow="file_upload"
               />
               <ManualSetupCard
-                hint="Without a provider, files are stored as base64 in your database. Fine for dev, not recommended for production."
+                hint="Object storage keeps uploaded files durable and their URLs reusable throughout the thread. Connect Builder or use an S3-compatible bucket below."
                 docsUrl="https://www.builder.io/c/docs/agent-native-file-uploads?utm_source=agent-native&utm_medium=product&utm_campaign=onboarding&utm_content=file_upload_settings"
                 dim={connected}
-              />
+              >
+                <FileStorageSettingsForm />
+              </ManualSetupCard>
             </div>
           </SettingsSection>
         )}

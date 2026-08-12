@@ -120,4 +120,121 @@ describe("listDispatchUsageMetrics", () => {
     expect(metrics.recent).toEqual([]);
     expect(metrics.appAccess).toHaveLength(1);
   });
+
+  it("allows personal scope and hydrates a linked thread prompt", async () => {
+    mocks.currentOrgId.mockReturnValue("org-a");
+    mocks.currentOwnerEmail.mockReturnValue("owner@example.test");
+    mocks.getUsageSummary.mockResolvedValue(null);
+    mocks.listWorkspaceApps.mockResolvedValue([]);
+    mocks.execute.mockImplementation(async ({ sql }: { sql: string }) => {
+      if (sql.includes("SELECT id, created_at")) {
+        return {
+          rows: [
+            {
+              id: 7,
+              created_at: Date.now(),
+              owner_email: "owner@example.test",
+              app: "dispatch",
+              label: "chat",
+              model: "test-model",
+              input_tokens: 10,
+              output_tokens: 20,
+              cache_read_tokens: 0,
+              cache_write_tokens: 0,
+              cost_cents_x100: 250,
+              thread_id: "thread-1",
+              run_id: "run-1",
+              task_id: null,
+              source_platform: "dispatch",
+              source_id: "dispatch",
+            },
+          ],
+        };
+      }
+      if (sql.includes("FROM chat_threads WHERE id IN")) {
+        return {
+          rows: [
+            {
+              id: "thread-1",
+              preview: "Fallback preview",
+              thread_data: JSON.stringify({
+                messages: [
+                  {
+                    message: {
+                      role: "user",
+                      content: "Find the repeated background work.",
+                    },
+                  },
+                ],
+              }),
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+
+    const metrics = await listDispatchUsageMetrics({
+      sinceDays: 7,
+      scope: "me",
+    });
+
+    expect(metrics.viewScope).toBe("me");
+    expect(metrics.recent[0]).toMatchObject({
+      prompt: "Find the repeated background work.",
+      promptSource: "thread",
+      threadId: "thread-1",
+      runId: "run-1",
+    });
+    expect(
+      mocks.execute.mock.calls.some(([query]) =>
+        String((query as { sql?: string }).sql).includes(
+          "LOWER(owner_email) = ?",
+        ),
+      ),
+    ).toBe(true);
+  });
+
+  it("filters workspace usage and prompts to a selected member", async () => {
+    mocks.currentOrgId.mockReturnValue("org-a");
+    mocks.currentOwnerEmail.mockReturnValue("owner@example.test");
+    mocks.getUsageSummary.mockResolvedValue(null);
+    mocks.listWorkspaceApps.mockResolvedValue([]);
+    mocks.execute.mockImplementation(async ({ sql }: { sql: string }) => {
+      if (sql.includes("SELECT role FROM org_members")) {
+        return { rows: [{ role: "owner" }] };
+      }
+      if (sql.includes("SELECT email, role, joined_at")) {
+        return {
+          rows: [
+            { email: "owner@example.test", role: "owner", joined_at: null },
+            { email: "member@example.test", role: "member", joined_at: null },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+
+    const metrics = await listDispatchUsageMetrics({
+      sinceDays: 30,
+      scope: "workspace",
+      userEmail: "member@example.test",
+    });
+
+    expect(metrics.selectedUserEmail).toBe("member@example.test");
+    expect(metrics.availableUsers).toEqual([
+      { email: "member@example.test", role: "member" },
+      { email: "owner@example.test", role: "owner" },
+    ]);
+    expect(
+      mocks.execute.mock.calls.some(([query]) => {
+        const sql = String((query as { sql?: string }).sql);
+        const args = (query as { args?: unknown[] }).args ?? [];
+        return (
+          sql.includes("LOWER(owner_email) = ?") &&
+          args.includes("member@example.test")
+        );
+      }),
+    ).toBe(true);
+  });
 });

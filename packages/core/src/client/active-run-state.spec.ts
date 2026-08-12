@@ -81,13 +81,37 @@ describe("resolveReconnectAfterSeq", () => {
       activityTool: "generate-design",
     });
 
+    updateActiveRunSeq(13, true);
+    expect(getActiveRun()).toMatchObject({
+      threadId: "thread-1",
+      runId: "run-1",
+      lastSeq: 13,
+      lastProgressSeq: 13,
+      lastProgressObservedAt: expect.any(Number),
+      activityTool: "generate-design",
+    });
+
     updateActiveRunActivity("");
     expect(getActiveRun()).toMatchObject({
       threadId: "thread-1",
       runId: "run-1",
-      lastSeq: 12,
+      lastSeq: 13,
     });
     expect(getActiveRun()?.activityTool).toBeUndefined();
+  });
+
+  it("preserves real-progress freshness when reconnect code replaces the cursor", () => {
+    setActiveRun({ threadId: "thread-1", runId: "run-1", lastSeq: 10 });
+    updateActiveRunSeq(11, true);
+    const progress = getActiveRun();
+
+    setActiveRun({ threadId: "thread-1", runId: "run-1", lastSeq: 10 });
+
+    expect(getActiveRun()).toMatchObject({
+      lastSeq: 10,
+      lastProgressSeq: progress?.lastProgressSeq,
+      lastProgressObservedAt: progress?.lastProgressObservedAt,
+    });
   });
 
   it("notifies listeners when the active run changes", () => {

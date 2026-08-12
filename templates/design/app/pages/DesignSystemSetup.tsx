@@ -19,7 +19,7 @@ import {
   IconWorld,
   IconFileDescription,
   IconPhoto,
-  IconPalette,
+  IconComponents,
   IconCheck,
   IconExternalLink,
   IconChevronDown,
@@ -555,9 +555,13 @@ export default function DesignSystemSetup() {
       }. Present a summary for review.`,
     );
 
+    const message =
+      parts[0] ?? "Set up a design system from the selected sources.";
+    const context = parts.slice(1).join("\n");
     openAgentSidebar();
     sendToDesignAgentChat({
-      message: parts.join("\n"),
+      message,
+      context,
       submit: true,
       newTab: true,
     });
@@ -714,7 +718,7 @@ export default function DesignSystemSetup() {
             </Section>
 
             <SourceAccordionRow
-              icon={IconPalette}
+              icon={IconComponents}
               title={t("designSystemSetup.otherSources")}
               description={t("designSystemSetup.otherSourcesDescription")}
               expanded={sourcePanel === "other"}
@@ -734,7 +738,7 @@ export default function DesignSystemSetup() {
                 <div className="divide-y divide-border">
                   <SourceAccordionRow
                     className="rounded-none border-0"
-                    icon={IconPalette}
+                    icon={IconComponents}
                     title={t("designSystemSetup.sections.company.title")}
                     description={t(
                       "designSystemSetup.sections.company.description",
@@ -769,7 +773,7 @@ export default function DesignSystemSetup() {
                     existingSystems.length > 0) && (
                     <SourceAccordionRow
                       className="rounded-none border-0"
-                      icon={IconPalette}
+                      icon={IconComponents}
                       title={t(
                         "designSystemSetup.sections.importExisting.title",
                       )}
@@ -1134,7 +1138,7 @@ export default function DesignSystemSetup() {
                       }`}
                     >
                       <div className="flex items-center gap-2">
-                        <IconPalette className="w-3.5 h-3.5 text-muted-foreground" />
+                        <IconComponents className="w-3.5 h-3.5 text-muted-foreground" />
                         <span className="text-sm text-foreground/70 truncate">
                           {ds.title}
                         </span>

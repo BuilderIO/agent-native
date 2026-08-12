@@ -15,6 +15,7 @@ import {
   IconChevronUp,
   IconPin,
   IconPlus,
+  IconTrash,
 } from "@tabler/icons-react";
 import { memo, useMemo, useState, type ReactNode } from "react";
 
@@ -40,6 +41,7 @@ function AppRows({
   onDrop,
   onDragEnd,
   onOpenApp,
+  onRemoveApp,
   onTogglePinned,
   onMove,
   renderIcon,
@@ -52,6 +54,7 @@ function AppRows({
   onDrop: (id: string) => void;
   onDragEnd: () => void;
   onOpenApp: (app: ChatFirstAppItem) => void;
+  onRemoveApp?: (app: ChatFirstAppItem) => void;
   onTogglePinned: (id: string) => void;
   onMove: (id: string, direction: -1 | 1) => void;
   renderIcon: (app: ChatFirstAppItem) => ReactNode;
@@ -156,6 +159,18 @@ function AppRows({
                 <IconChevronDown size={14} aria-hidden="true" />
                 {copy("moveDown")}
               </ContextMenuItem>
+              {onRemoveApp ? (
+                <>
+                  <ContextMenuSeparator />
+                  <ContextMenuItem
+                    onSelect={() => onRemoveApp(app)}
+                    className="text-destructive focus:text-destructive"
+                  >
+                    <IconTrash size={14} aria-hidden="true" />
+                    {copy("removeApp")}
+                  </ContextMenuItem>
+                </>
+              ) : null}
             </ContextMenuContent>
           </ContextMenu>
         );
@@ -175,6 +190,7 @@ export const ChatFirstAppsRail = memo(function ChatFirstAppsRail({
   onLayoutError,
   onRetry,
   onOpenApp,
+  onRemoveApp,
   onOpenAllApps,
   onCreateApp,
   createAppTrigger,
@@ -316,7 +332,7 @@ export const ChatFirstAppsRail = memo(function ChatFirstAppsRail({
   return (
     <section
       data-chat-first-apps-rail
-      className="mt-3 px-0 pb-2 pt-2"
+      className="mt-3 px-2 pb-2 pt-2"
       aria-label={copy("workspaceApps")}
     >
       <div className="mb-1 flex items-center gap-1.5 px-2 text-[11px] font-medium text-sidebar-foreground/50">
@@ -358,6 +374,7 @@ export const ChatFirstAppsRail = memo(function ChatFirstAppsRail({
           onDrop={reorderApps}
           onDragEnd={() => setDraggedAppId(null)}
           onOpenApp={onOpenApp}
+          onRemoveApp={onRemoveApp}
           onTogglePinned={togglePinned}
           onMove={moveApp}
           renderIcon={renderIcon}

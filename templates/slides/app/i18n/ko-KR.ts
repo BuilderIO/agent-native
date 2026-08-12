@@ -48,7 +48,8 @@ const messages = {
   },
   agent: {
     emptyState: "프레젠테이션에 대해 무엇이든 물어보세요",
-    thisDeck: "이 덱",
+    thisSlide: "이 슬라이드",
+    currentSelection: "현재 선택",
     suggestionPitch: "이 문서로 10장짜리 피치덱 만들기",
     suggestionBrand: "이 덱에 우리 브랜드 적용",
     suggestionHero: "이 슬라이드의 히어로 이미지 생성",
@@ -204,6 +205,8 @@ const messages = {
     usingDesignSystem: "{{title}} 사용 중",
     usingLinkedDesignSystem: "연결된 디자인 시스템 사용 중",
     viewOnly: "보기 전용",
+    commenterRoleLabel: "댓글 작성자",
+    commenterRoleDescription: "보고 댓글을 추가할 수 있습니다",
     slideSettings: "슬라이드 설정",
     layout: "레이아웃",
     background: "배경",
@@ -435,6 +438,10 @@ const messages = {
     order: "순서",
     bringToFront: "맨 앞으로 가져오기",
     sendToBack: "맨 뒤로 보내기",
+    copyStyle: "스타일 복사",
+    pasteStyle: "스타일 붙여넣기",
+    copy: "복사",
+    paste: "붙여넣기",
   },
   animations: {
     appear: "出现",
@@ -649,6 +656,7 @@ const messages = {
     deckCount_other: "덱",
     createDeckOrVisual: "프레젠테이션 만들기",
     noMineDecks: "아직 내가 만든 덱이 없습니다.",
+    noDecksMatchSearch: "검색과 일치하는 덱이 없습니다.",
     deleteDeckTitle: "덱을 삭제할까요?",
     deleteDeckDescription:
       "이 덱과 모든 슬라이드가 영구적으로 삭제됩니다. 이 작업은 되돌릴 수 없습니다.",

@@ -4,6 +4,9 @@ const messages = {
   ...messagesByLocale["fr-FR"],
   designEditor: {
     ...messagesByLocale["fr-FR"].designEditor,
+    commenterRoleLabel: "Commentateur",
+    commenterRoleDescription:
+      "Peut consulter et ajouter des commentaires de révision",
     nodeRewrite: {
       composerTitle: "Questionner ou modifier la sélection",
       send: "Envoyer",

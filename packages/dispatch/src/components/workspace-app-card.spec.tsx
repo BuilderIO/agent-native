@@ -62,21 +62,21 @@ describe("WorkspaceAppCard", () => {
     });
 
     const appLink = container.querySelector<HTMLAnchorElement>(
-      'a[href="/apps/analytics"]',
+      'a[href="/analytics"]',
     );
     expect(appLink).not.toBeNull();
     expect(appLink?.textContent).toContain("Open app");
-    expect(appLink?.className).toContain("bg-accent");
-    expect(appLink?.getAttribute("target")).toBeNull();
-    expect(appLink?.getAttribute("rel")).toBeNull();
+    expect(appLink?.getAttribute("target")).toBe("_blank");
+    expect(appLink?.getAttribute("rel")).toBe("noreferrer");
     expect(appLink?.querySelector("svg")).toBeNull();
-    expect(container.textContent).not.toContain("/apps/analytics");
 
     expect(
       container.querySelector(
         'button[aria-label="Open options for Analytics"]',
       ),
-    ).toBeNull();
+    ).not.toBeNull();
+    expect(document.body.textContent).not.toContain("Open in new tab");
+    expect(document.body.textContent).not.toContain("Add app");
 
     const settingsButton = container.querySelector<HTMLButtonElement>(
       'button[aria-label="Settings for Analytics"]',

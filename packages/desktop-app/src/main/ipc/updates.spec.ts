@@ -19,6 +19,8 @@ const electronState = vi.hoisted(() => {
       getVersion: vi.fn(() => "1.0.0"),
       whenReady: vi.fn(() => new Promise<void>(() => {})),
       on: vi.fn(),
+      relaunch: vi.fn(),
+      exit: vi.fn(),
     },
     browserWindow: {
       getAllWindows: vi.fn(() => []),
@@ -183,7 +185,7 @@ describe("desktop updates", () => {
     expect(refreshApplicationMenu).not.toHaveBeenCalled();
   });
 
-  it("disables auto-updates for a locally packaged development build", async () => {
+  it("keeps development updates explicitly unsupported", async () => {
     vi.stubGlobal("__AGENT_NATIVE_DESKTOP_BUILD_CHANNEL__", "dev");
     vi.resetModules();
     const updates = await import("./updates.js");
@@ -197,11 +199,22 @@ describe("desktop updates", () => {
       state: "unsupported",
       reason: "Auto-update is disabled in development",
     });
+    expect(updaterState.setFeedURL).not.toHaveBeenCalled();
+    expect(updaterState.checkForUpdates).not.toHaveBeenCalled();
+
     await expect(updates.checkForAppUpdates()).resolves.toEqual({
       state: "unsupported",
       reason: "Auto-update is disabled in development",
     });
     expect(updaterState.setFeedURL).not.toHaveBeenCalled();
     expect(updaterState.checkForUpdates).not.toHaveBeenCalled();
+
+    const installHandler = electronState.ipcMain.handlers.get(
+      IPC.UPDATE_INSTALL,
+    );
+    expect(installHandler).toBeDefined();
+    installHandler?.();
+    expect(electronState.app.relaunch).not.toHaveBeenCalled();
+    expect(electronState.app.exit).not.toHaveBeenCalled();
   });
 });

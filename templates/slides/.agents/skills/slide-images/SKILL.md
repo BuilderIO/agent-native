@@ -38,8 +38,8 @@ legacy image action directly:
    `deckId`, and `slideId`. Only say the image was added when it returns
    `inserted: true`; a preview URL is not proof of a slide write.
 6. For preview-only variations, place the chosen URL with `update-slide`, then
-   re-read that slide with `get-deck` and confirm the persisted HTML contains
-   the image source before reporting success.
+   re-read the deck with `get-deck` using `compact=false` and confirm the
+   persisted HTML contains the image source before reporting success.
 7. For feedback, refine the same asset rather than starting an unrelated run.
 
 ### Context to pass
@@ -79,4 +79,4 @@ pnpm action search-images --q "Acme logo transparent" --count 5
   provider scripts or manually guess provider URLs
 - Never claim image insertion from a generation response alone; require the
   verified `inserted: true` response, or an `update-slide` plus `get-deck`
-  verification for preview-only placement
+  `compact=false` verification for preview-only placement

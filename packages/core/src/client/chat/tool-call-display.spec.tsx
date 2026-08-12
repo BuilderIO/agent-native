@@ -18,6 +18,7 @@ import {
   formatWorkedDuration,
   ReasoningCell,
   RanToolsSummary,
+  SuppressInlineOpenAppContext,
   WorkedForSummary,
   toolInputPayload,
 } from "./tool-call-display.js";
@@ -1084,6 +1085,48 @@ describe("ToolCallDisplay native renderers", () => {
           args={{}}
           result={JSON.stringify({ ok: true })}
           mcpApp={mcpApp}
+          isRunning={false}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("MCP APP");
+  });
+
+  it("keeps first-party open_app MCP Apps out of a chat-first transcript", () => {
+    act(() => {
+      root.render(
+        <SuppressInlineOpenAppContext.Provider value={true}>
+          <ToolCallDisplay
+            toolName="open_app"
+            args={{}}
+            result={JSON.stringify({ ok: true })}
+            mcpApp={{
+              ...mcpApp,
+              toolName: "open_app",
+              originalToolName: "open_app",
+            }}
+            isRunning={false}
+          />
+        </SuppressInlineOpenAppContext.Provider>,
+      );
+    });
+
+    expect(container.textContent).not.toContain("MCP APP");
+  });
+
+  it("still renders open_app MCP Apps outside chat-first mode", () => {
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="open_app"
+          args={{}}
+          result={JSON.stringify({ ok: true })}
+          mcpApp={{
+            ...mcpApp,
+            toolName: "open_app",
+            originalToolName: "open_app",
+          }}
           isRunning={false}
         />,
       );

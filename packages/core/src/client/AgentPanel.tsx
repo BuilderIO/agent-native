@@ -1413,10 +1413,35 @@ function AgentPanelInner({
               <DropdownMenuSeparator />
             ) : null}
             {onCollapse && mode === "chat" && (
-              <DropdownMenuItem onSelect={addTab}>
-                <IconPlus size={14} className="shrink-0" />
-                {t("agentPanel.newChat")}
-              </DropdownMenuItem>
+              <>
+                <DropdownMenuItem onSelect={addTab}>
+                  <IconPlus size={14} className="shrink-0" />
+                  {t("agentPanel.newChat")}
+                </DropdownMenuItem>
+                {(() => {
+                  const activeTab = activeChatSessionId
+                    ? tabs.find((tab) => tab.id === activeChatSessionId)
+                    : undefined;
+                  if (
+                    !activeTab ||
+                    (activeTabMessageCount <= 0 && activeTab.status === "idle")
+                  ) {
+                    return null;
+                  }
+                  return (
+                    <div className="p-1">
+                      <ShareButton
+                        resourceType="chat_thread"
+                        resourceId={activeTab.id}
+                        resourceTitle={activeTab.label || "Chat"}
+                        shareUrl={getChatThreadShareUrl(activeTab.id)}
+                        trigger="label-icon"
+                        triggerClassName="w-full justify-start"
+                      />
+                    </div>
+                  );
+                })()}
+              </>
             )}
             {mode === "chat" && toggleHistory && (
               <DropdownMenuItem

@@ -33,7 +33,10 @@ import type {
 } from "../../components/workspace-template-card";
 import type { ConnectedAppSummary } from "../../lib/other-apps";
 import { cn } from "../../lib/utils";
-import type { WorkspaceAppSummary } from "../../lib/workspace-apps";
+import {
+  isWorkspaceAppVisibleInDefaultLaunchers,
+  type WorkspaceAppSummary,
+} from "../../lib/workspace-apps";
 
 export function meta() {
   return [{ title: "Apps — Dispatch" }];
@@ -72,7 +75,7 @@ function AppsRoute() {
   const ws = workspace as WorkspaceInfo | undefined;
   const workspaceLabel = ws?.displayName ?? ws?.name ?? null;
   const allApps = (apps as WorkspaceAppSummary[]).filter(
-    (app) => !app.isDispatch,
+    isWorkspaceAppVisibleInDefaultLaunchers,
   );
   const visibleApps = allApps.filter((app) => !app.archived);
   const activeApps = visibleApps.filter((app) => app.status !== "pending");

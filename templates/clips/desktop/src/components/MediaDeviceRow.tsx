@@ -1,10 +1,8 @@
-import { IconVinyl } from "@tabler/icons-react";
 import { useMemo } from "react";
 
 import { useMicMeter } from "../hooks/useMicMeter";
 import { CameraIcon, CheckIcon, ChevronDown, MicIcon } from "./Icons";
 import { Switch } from "./Switch";
-import { Tooltip, TooltipContent, TooltipTrigger } from "./Tooltip";
 import { useRowMenu } from "./useRowMenu";
 
 function Toggle({
@@ -234,34 +232,24 @@ export function MediaDeviceRow({
                 )}
               </>
             ) : null}
+            {kind === "mic" && onSystemAudioToggle ? (
+              <div className="row-menu-settings" role="none">
+                <div className="row-menu-divider" aria-hidden />
+                <div className="row-menu-setting">
+                  <span className="row-menu-setting-label">
+                    Record System Audio
+                  </span>
+                  <Switch
+                    on={!!systemAudio}
+                    onChange={(value) => onSystemAudioToggle(value)}
+                    label="Record System Audio"
+                  />
+                </div>
+              </div>
+            ) : null}
           </div>
         ) : null}
       </div>
-      {kind === "mic" && onSystemAudioToggle ? (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <div
-              className={`row system-audio-option ${systemAudio ? "row-on" : "row-off"}`}
-            >
-              <span className="row-icon">
-                <IconVinyl size={18} stroke={1.75} />
-              </span>
-              <span className="system-audio-option-label">
-                Record System Audio
-              </span>
-              <span className="row-flex" aria-hidden />
-              <Toggle
-                on={!!systemAudio}
-                onChange={onSystemAudioToggle}
-                label="Record System Audio"
-              />
-            </div>
-          </TooltipTrigger>
-          <TooltipContent side="bottom">
-            Record audio from other applications
-          </TooltipContent>
-        </Tooltip>
-      ) : null}
     </div>
   );
 }

@@ -511,6 +511,10 @@ const messages = {
       editor: "편집자",
       admin: "관리자",
     },
+    recordingViewer: {
+      label: "댓글 작성자",
+      description: "보고 댓글을 달고 반응할 수 있습니다",
+    },
   },
   quickAsk: {
     title: "이 회의에 대해 질문",
@@ -1541,10 +1545,6 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (현지화됨)",
     connectGoogleCalendar: "Connect Google Calendar (현지화됨)",
-    googleMayShowWarning: "Google 액세스 검토",
-    googleNotVerifiedTitle: "연결하기 전에 앱을 확인하세요",
-    googleWarningBeforeAdvanced:
-      "앱 이름과 요청된 Calendar 액세스가 신뢰하는 Clips 배포와 일치하는지 확인하세요. Google에서 확인되지 않은 앱 경고를 표시하거나 신원이 낯설게 보이면 중단하고 워크스페이스 관리자에게 문의하세요.",
     desktopReminder:
       "Connect Google Calendar, keep Clips Desktop open, then click Start notes from the reminder or the menu bar when your meeting begins. (현지화됨)",
     getDesktopApp: "Get desktop app (현지화됨)",

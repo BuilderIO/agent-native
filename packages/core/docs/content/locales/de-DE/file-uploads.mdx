@@ -1,6 +1,6 @@
 ---
 title: "Datei-Uploads"
-description: "Datei-Upload-Speicher konfigurieren – SQL-Fallback für Entwickler, Builder.io oder benutzerdefinierte Anbieter für die Produktion."
+description: "Dauerhaften Objektspeicher für Datei-Uploads konfigurieren – Builder.io oder ein eigener S3-kompatibler Anbieter."
 ---
 
 # Datei-Uploads
@@ -15,9 +15,9 @@ Die Reihenfolge der Anbieterauflösung lautet:
 
 1. **Vom Benutzer registrierte Anbieter** – benutzerdefinierte Anbieter, die über `registerFileUploadProvider()` registriert wurden
 2. **Builder.io-Anbieter** (kostenloser Tarif verfügbar) – integriert, wird automatisch aktiviert, wenn Builder.io verbunden ist
-3. **SQL Fallback** – speichert Dateien als Base64 in der Datenbank (gut für Entwickler, nicht für Produktion)
+3. **Speicher erforderlich** – ohne Anbieter wird der Upload sicher abgelehnt und eine Einrichtungskarte angezeigt; Binärdaten werden nicht in SQL gespeichert
 
-<Diagram id="doc-block-1f4e9e3" title={"Anordnung zur Lösung des Anbieters"} summary={"uploadFile() wählt den ersten konfigurierten Anbieter der Reihe nach aus. Der SQL-Fallback ist immer vorhanden, sodass Uploads ohne Setup funktionieren."}>
+<Diagram id="doc-block-1f4e9e3" title={"Anordnung zur Lösung des Anbieters"} summary={"uploadFile() wählt den ersten konfigurierten Anbieter der Reihe nach aus. Ohne Anbieter wird der Upload sicher abgelehnt und eine Einrichtungskarte angezeigt."}>
 
 ```html
 <div class="diagram-upload">
@@ -47,8 +47,8 @@ Die Reihenfolge der Anbieterauflösung lautet:
     <div class="diagram-step">
       <span class="diagram-pill warn">3</span>
       <div class="diagram-node">
-        SQL-Fallback<br /><small class="diagram-muted"
-          >base64 in DB — nur Entwicklung</small
+        Speicher erforderlich<br /><small class="diagram-muted"
+          >Builder.io oder S3-kompatiblen Speicher konfigurieren</small
         >
       </div>
     </div>
@@ -94,11 +94,11 @@ Dispatches to the first configured provider in resolution order. Check the activ
 
 </Endpoint>
 
-## Standard: SQL Fallback {#sql-fallback}
+## Speicher für dauerhafte Uploads erforderlich {#storage-required}
 
-Wenn kein Anbieter konfiguriert ist, werden Dateien über das Ressourcensystem als Base64-Daten in der SQL-Datenbank gespeichert. Dies funktioniert sofort für die lokale Entwicklung, wird jedoch nicht für die Produktion empfohlen – große Dateien blähen die Datenbank auf und es gibt kein CDN.
+Wenn kein Anbieter konfiguriert ist, wird der Upload sicher abgelehnt und eine Einrichtungskarte für Builder.io oder einen S3-kompatiblen Anbieter angezeigt. Binärdaten werden nicht als Base64 in SQL gespeichert.
 
-Eine einmalige Warnung wird protokolliert, wenn der Fallback verwendet wird.
+Die Bytes können nur für die aktuelle Anfrage verwendet werden und werden nicht im Chatverlauf gespeichert. Nach der Einrichtung liefern Uploads eine stabile öffentliche URL, die in späteren Nachrichten wiederverwendet werden kann.
 
 ## Builder.io Hosting {#builder-hosting}
 
@@ -142,7 +142,8 @@ Die `FileUploadProvider`-Schnittstelle:
 interface FileUploadProvider {
   id: string; // Unique id, e.g. "s3"
   name: string; // Human-readable name
-  isConfigured: () => boolean; // True when ready (env vars set, etc.)
+  isConfigured: () => boolean; // True when ready from sync runtime state
+  isConfiguredForRequest?: () => Promise<boolean>; // True from scoped DB secrets
   upload: (input: FileUploadInput) => Promise<FileUploadResult>;
 }
 
@@ -150,7 +151,7 @@ interface FileUploadInput {
   data: Uint8Array | Buffer; // File contents
   filename?: string; // Original filename
   mimeType?: string; // MIME type, e.g. "image/png"
-  ownerEmail?: string; // For per-user scoping in fallback
+  ownerEmail?: string; // For request-scoped provider credentials
 }
 
 interface FileUploadResult {
@@ -174,6 +175,6 @@ const result = await uploadFile({
 if (result) {
   // Provider handled it — result.url is the public URL
 } else {
-  // No provider configured — handle SQL-Fallback yourself, or skip
+  // Speicher einrichten oder den Upload überspringen
 }
 ```

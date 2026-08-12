@@ -40,6 +40,7 @@ import {
   PopoverTrigger,
 } from "../components/ui/popover.js";
 import { ConnectBuilderCard } from "../ConnectBuilderCard.js";
+import { FileStorageSetupCard } from "../FileStorageSetupCard.js";
 import { useOptionalLocale, useT } from "../i18n.js";
 import { McpAppRenderer } from "../mcp-apps/McpAppRenderer.js";
 import { findMcpIntegrationForToolName } from "../resources/mcp-integration-catalog.js";
@@ -71,7 +72,12 @@ import {
 
 // Exported so AssistantChatInner can provide a context value.
 export const ChatRunningContext = React.createContext(false);
+export const ChatRunningRunIdContext = React.createContext<string | null>(null);
+export const ChatRunningTurnIdContext = React.createContext<string | null>(
+  null,
+);
 export const ChatRunDurationContext = React.createContext<number | null>(null);
+export const SuppressInlineOpenAppContext = React.createContext(false);
 export const ASSISTANT_VISIBLE_TOOL_CALL_LIMIT = 3;
 /**
  * Keeps the tool-call stack layout-transparent. Tool-entry motion is disabled
@@ -778,6 +784,7 @@ function ToolCallDisplayGeneric({
   repeatCount?: number;
 }) {
   const t = useT();
+  const suppressInlineOpenApp = React.useContext(SuppressInlineOpenAppContext);
   const isRawCallAgent = toolName === "call-agent";
   const isAgentCall = toolName.startsWith("agent:") || isRawCallAgent;
   const [expanded, setExpanded] = useState(isAgentCall);
@@ -822,6 +829,19 @@ function ToolCallDisplayGeneric({
         );
       }
     } catch {
+      // coercion-ok: malformed tool output should fall through to the default tool pill
+      // fall through to default pill rendering
+    }
+  }
+
+  if (toolName === "connect-file-storage" && result) {
+    try {
+      const parsed = JSON.parse(result);
+      if (parsed?.kind === "connect-file-storage-card") {
+        return <FileStorageSetupCard />;
+      }
+    } catch {
+      // coercion-ok: malformed storage tool output should fall through to the default tool pill
       // fall through to default pill rendering
     }
   }
@@ -940,7 +960,9 @@ function ToolCallDisplayGeneric({
 
   return (
     <div className="group/tool my-0.5 w-full overflow-hidden">
-      {mcpApp && <McpAppRenderer app={mcpApp} className="mb-1.5" />}
+      {mcpApp && !(suppressInlineOpenApp && toolName === "open_app") && (
+        <McpAppRenderer app={mcpApp} className="mb-1.5" />
+      )}
       <button
         type="button"
         onClick={() => canExpand && setExpanded(!isExpanded)}

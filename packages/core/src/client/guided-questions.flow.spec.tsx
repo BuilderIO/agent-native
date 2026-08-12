@@ -184,6 +184,79 @@ describe("useGuidedQuestionFlow scoped reads", () => {
     expect(requestedKeys).not.toContain("guided-questions:undefined");
   });
 
+  // The per-tab key is shared by every chat in that browser tab, so an
+  // agent-written payload names the thread that asked. Without this the same
+  // card followed the user into every other conversation.
+  it("hides a question asked in another chat", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) =>
+        readResponse(String(input), (key) =>
+          key === "guided-questions:tab123"
+            ? JSON.stringify({ ...payload, threadId: "chat-a" })
+            : "",
+        ),
+      ),
+    );
+
+    const result = await renderFlow({
+      stateKey: "guided-questions",
+      queryKey: ["guided-questions"],
+      browserTabId: "tab123",
+      threadId: "chat-b",
+      refetchInterval: false,
+    });
+
+    expect(result.current().questions).toBeNull();
+    expect(result.current().payload).toBeNull();
+  });
+
+  it("renders a question in the chat that asked it", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) =>
+        readResponse(String(input), (key) =>
+          key === "guided-questions:tab123"
+            ? JSON.stringify({ ...payload, threadId: "chat-a" })
+            : "",
+        ),
+      ),
+    );
+
+    const result = await renderFlow({
+      stateKey: "guided-questions",
+      queryKey: ["guided-questions"],
+      browserTabId: "tab123",
+      threadId: "chat-a",
+      refetchInterval: false,
+    });
+
+    expect(result.current().questions?.length).toBe(1);
+  });
+
+  it("renders a payload with no threadId in any chat", async () => {
+    // Client-initiated `askUserQuestion` and deterministic writes are not
+    // thread-bound; they must keep rendering wherever the flow is mounted.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) =>
+        readResponse(String(input), (key) =>
+          key === "guided-questions:tab123" ? JSON.stringify(payload) : "",
+        ),
+      ),
+    );
+
+    const result = await renderFlow({
+      stateKey: "guided-questions",
+      queryKey: ["guided-questions"],
+      browserTabId: "tab123",
+      threadId: "chat-b",
+      refetchInterval: false,
+    });
+
+    expect(result.current().questions?.length).toBe(1);
+  });
+
   it("does not read application state when disabled", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);

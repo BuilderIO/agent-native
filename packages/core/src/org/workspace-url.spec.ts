@@ -1,6 +1,10 @@
 import { describe, it, expect } from "vitest";
 
-import { parseWorkspaceUrl, shouldOfferWorkspace } from "./workspace-url.js";
+import {
+  isLocalDevelopmentOrigin,
+  parseWorkspaceUrl,
+  shouldOfferWorkspace,
+} from "./workspace-url.js";
 
 describe("parseWorkspaceUrl", () => {
   it("normalizes a bare host to an https origin", () => {
@@ -73,5 +77,22 @@ describe("shouldOfferWorkspace", () => {
         "http://localhost:4000",
       ),
     ).toBe(true);
+  });
+});
+
+describe("isLocalDevelopmentOrigin", () => {
+  it.each([
+    "http://localhost:3000/apps",
+    "http://127.0.0.1:3000/apps",
+    "http://[::1]:3000/apps",
+    "http://preview.localhost:3000/apps",
+  ])("recognizes %s as local", (url) => {
+    expect(isLocalDevelopmentOrigin(url)).toBe(true);
+  });
+
+  it("does not classify hosted previews as local", () => {
+    expect(
+      isLocalDevelopmentOrigin("https://dispatch.agent-native.com/apps"),
+    ).toBe(false);
   });
 });

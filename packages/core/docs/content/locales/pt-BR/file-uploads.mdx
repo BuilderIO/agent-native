@@ -1,6 +1,6 @@
 ---
 title: "Uploads de arquivos"
-description: "Configurar armazenamento de upload de arquivo — substituto SQL para dev, Builder.io ou provedores personalizados para produção."
+description: "Configure armazenamento de objetos durável para uploads de arquivos — Builder.io ou um provedor S3 compatível personalizado."
 ---
 
 # Uploads de arquivos
@@ -15,9 +15,9 @@ A ordem de resolução do provedor é:
 
 1. **Provedores registrados pelo usuário** — provedores personalizados registrados via `registerFileUploadProvider()`
 2. **Provedor Builder.io** (nível gratuito disponível) — integrado, ativado automaticamente quando Builder.io é conectado
-3. **SQL substituto** — armazena arquivos como base64 no banco de dados (ótimo para desenvolvimento, não para produção)
+3. **Armazenamento obrigatório** — sem um provedor, o upload falha com segurança e um cartão de configuração é exibido; dados binários nunca são armazenados no SQL
 
-<Diagram id="doc-block-1t5oj8a" title={"Ordem de resolução do provedor"} summary={"uploadFile() escolhe o primeiro provedor configurado na ordem. O substituto SQL sempre existe, então os uploads funcionam sem configuração."}>
+<Diagram id="doc-block-1t5oj8a" title={"Ordem de resolução do provedor"} summary={"uploadFile() escolhe o primeiro provedor configurado na ordem. Sem provedor, o upload falha com segurança e um cartão de configuração é exibido."}>
 
 ```html
 <div class="diagram-upload">
@@ -47,8 +47,8 @@ A ordem de resolução do provedor é:
     <div class="diagram-step">
       <span class="diagram-pill warn">3</span>
       <div class="diagram-node">
-        fallback SQL<br /><small class="diagram-muted"
-          >base64 no DB — só desenvolvimento</small
+        armazenamento obrigatório<br /><small class="diagram-muted"
+          >configure Builder.io ou armazenamento S3 compatível</small
         >
       </div>
     </div>
@@ -94,11 +94,11 @@ Dispatches to the first configured provider in resolution order. Check the activ
 
 </Endpoint>
 
-## Padrão: substituto SQL {#sql-fallback}
+## Armazenamento obrigatório para uploads duráveis {#storage-required}
 
-Quando nenhum provedor está configurado, os arquivos são armazenados como dados base64 no banco de dados SQL por meio do sistema de recursos. Isso funciona imediatamente para desenvolvimento local, mas não é recomendado para produção: arquivos grandes sobrecarregam o banco de dados e não há CDN.
+Quando nenhum provedor está configurado, o upload falha com segurança e um cartão permite configurar o Builder.io ou um provedor S3 compatível. Dados binários não são armazenados como base64 no SQL.
 
-Um aviso único é registrado quando o substituto é usado.
+Os bytes só podem ser usados durante a solicitação atual e não são salvos no histórico do chat. Depois de configurar o armazenamento, os uploads retornam uma URL pública estável que pode ser reutilizada em turnos posteriores.
 
 ## Hospedagem Builder.io {#builder-hosting}
 
@@ -142,7 +142,8 @@ A interface `FileUploadProvider`:
 interface FileUploadProvider {
   id: string; // Unique id, e.g. "s3"
   name: string; // Human-readable name
-  isConfigured: () => boolean; // True when ready (env vars set, etc.)
+  isConfigured: () => boolean; // True when ready from sync runtime state
+  isConfiguredForRequest?: () => Promise<boolean>; // True from scoped DB secrets
   upload: (input: FileUploadInput) => Promise<FileUploadResult>;
 }
 
@@ -150,7 +151,7 @@ interface FileUploadInput {
   data: Uint8Array | Buffer; // File contents
   filename?: string; // Original filename
   mimeType?: string; // MIME type, e.g. "image/png"
-  ownerEmail?: string; // For per-user scoping in fallback
+  ownerEmail?: string; // For request-scoped provider credentials
 }
 
 interface FileUploadResult {
@@ -174,6 +175,6 @@ const result = await uploadFile({
 if (result) {
   // Provider handled it — result.url is the public URL
 } else {
-  // No provider configured — handle fallback SQL yourself, or skip
+  // Configure o armazenamento ou ignore o upload
 }
 ```
