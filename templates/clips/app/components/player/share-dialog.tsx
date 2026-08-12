@@ -274,7 +274,7 @@ function ShareRecordingContent({
             sharesQuery={sharesQuery}
             canManage={canManage}
             roleCopy={{
-              viewer: {
+              commenter: {
                 label: t("shareUi.recordingViewer.label"),
                 description: t("shareUi.recordingViewer.description"),
               },

@@ -14,7 +14,7 @@ import {
 } from "./share-controller-helpers.js";
 
 export type ShareButtonVisibility = "private" | "org" | "public";
-export type ShareButtonRole = "viewer" | "editor" | "admin";
+export type ShareButtonRole = "viewer" | "commenter" | "editor" | "admin";
 
 export interface ShareButtonShare {
   id: string;

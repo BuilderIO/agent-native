@@ -145,6 +145,16 @@ Spreadsheet attachments are valid source artifacts for this workflow:
   inputs, outputs, static historicals, refresh/snapshot choice, and truncation
   limits as a review state. Let the user confirm or correct the mapping. Do not
   publish, overwrite the source, or claim a complete import before confirmation.
+- Do not promote every numeric cell or model assumption into an editable app
+  input. Classify candidates as primary controllable drivers, secondary
+  controllable levers, or fixed model context. Opening balances, current-period
+  anchors, historicals, and policy or tax rates stay in fixed context unless
+  the source or user explicitly identifies them as editable.
+- Rank the primary edit surface by controllability and modeled leverage. Put the
+  smallest useful set of high-impact drivers first, keep lower-frequency levers
+  behind progressive disclosure, and keep fixed context visible for orientation
+  without presenting it as a control. Name these categories in the source brief
+  and preserve the distinction in the generated app's actions and agent context.
 - Decide whether the generated app needs a one-time snapshot or a refreshable
   source. For a snapshot, pass bounded sample context and provenance to the
   local build or the browser-only Builder handoff selected by the host. For a

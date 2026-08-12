@@ -1,8 +1,11 @@
 import { defineAction } from "@agent-native/core";
 import { getWorkspaceConnectionProvider } from "@agent-native/core/connections";
+import { getWorkspaceConnection } from "@agent-native/core/workspace-connections";
 import { z } from "zod";
 
-import upsertWorkspaceConnection from "./upsert-workspace-connection.js";
+import upsertWorkspaceConnection, {
+  assertWorkspaceConnectionAllowedUsers,
+} from "./upsert-workspace-connection.js";
 
 const statusSchema = z.enum([
   "connected",
@@ -75,18 +78,18 @@ export default defineAction({
     selectedApps: z.array(z.string()).default([]),
     userGrantMode: z
       .enum(["all-users", "selected-users"])
-      .default("all-users")
+      .optional()
       .describe(
         "Whether every workspace member or only selected members may use the connection.",
       ),
     selectedUsers: z
       .array(z.string())
-      .default([])
+      .optional()
       .describe(
         "Workspace member email addresses allowed to use the connection.",
       ),
   }),
-  run: async (args) => {
+  run: async (args, ctx) => {
     const provider = getWorkspaceConnectionProvider(args.provider);
     if (!provider) {
       throw new Error(
@@ -127,27 +130,45 @@ export default defineAction({
     if (args.grantMode === "selected-apps" && allowedApps.length === 0) {
       throw new Error("Choose at least one app or switch access to all apps.");
     }
+    const existingConnection = args.connectionId
+      ? await getWorkspaceConnection(args.connectionId)
+      : null;
+    const userGrantMode =
+      args.userGrantMode ??
+      (existingConnection?.allowedUsers?.length
+        ? "selected-users"
+        : "all-users");
     const allowedUsers =
-      args.userGrantMode === "all-users"
+      userGrantMode === "all-users"
         ? []
-        : uniqueStrings(args.selectedUsers);
-    if (args.userGrantMode === "selected-users" && allowedUsers.length === 0) {
+        : uniqueStrings(
+            args.selectedUsers ?? existingConnection?.allowedUsers ?? [],
+          );
+    if (userGrantMode === "selected-users" && allowedUsers.length === 0) {
       throw new Error(
         "Choose at least one person or switch access to all workspace members.",
       );
     }
 
-    return upsertWorkspaceConnection.run({
-      id: args.connectionId,
-      provider: provider.id,
-      label: args.label?.trim() || provider.label,
-      accountId: args.accountId?.trim() || null,
-      accountLabel: args.accountLabel?.trim() || null,
-      status: args.status,
-      scopes: uniqueStrings(args.scopes),
-      credentialRefs,
-      allowedApps,
+    const validatedAllowedUsers = await assertWorkspaceConnectionAllowedUsers(
       allowedUsers,
-    });
+      ctx?.orgId,
+    );
+
+    return upsertWorkspaceConnection.run(
+      {
+        id: args.connectionId,
+        provider: provider.id,
+        label: args.label?.trim() || provider.label,
+        accountId: args.accountId?.trim() || null,
+        accountLabel: args.accountLabel?.trim() || null,
+        status: args.status,
+        scopes: uniqueStrings(args.scopes),
+        credentialRefs,
+        allowedApps,
+        allowedUsers: validatedAllowedUsers,
+      },
+      ctx,
+    );
   },
 });

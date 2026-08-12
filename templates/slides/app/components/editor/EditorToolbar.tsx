@@ -825,7 +825,7 @@ export default function EditorToolbar({
           resourceId={deckId}
           resourceTitle={deckTitle}
           roleCopy={{
-            viewer: {
+            commenter: {
               label: t("editorToolbar.commenterRoleLabel"),
               description: t("editorToolbar.commenterRoleDescription"),
             },

@@ -272,6 +272,8 @@ const messages = {
     publicDescription: "링크로 로그인한 사람은 누구나 볼 수 있습니다.",
     viewer: "Viewer",
     viewerDescription: "볼 수 있음",
+    commenter: "댓글 작성자",
+    commenterDescription: "보고 댓글을 추가할 수 있습니다",
     editor: "Editor",
     editorDescription: "편집 가능",
     admin: "관리자",

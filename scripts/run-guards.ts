@@ -51,6 +51,7 @@ const guards = [
   "guard:no-raw-colors",
   "guard:persistent-compositing",
   "guard:help-icon-scale",
+  "guard:no-default-chrome",
   "guard:no-boot-data-work",
   "guard:no-heavy-dashboard-list-reads",
   "guard:dead-settings-keys",

@@ -849,12 +849,12 @@ function ConnectionRow({
     connection.status === "needs_reauth" ||
     connection.status === "disabled";
   return (
-    <article className="rounded-lg border bg-card shadow-sm">
+    <article className="rounded-lg bg-muted/35">
       <div className="dispatch-connection-card-grid grid gap-4 p-4">
         <div className="min-w-0 space-y-3">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="flex min-w-0 items-start gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border bg-muted">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-background/80">
                 <Icon size={18} className="text-muted-foreground" />
               </div>
               <div className="min-w-0">
@@ -966,7 +966,7 @@ function ConnectionRow({
           ) : null}
         </div>
 
-        <div className="rounded-md border bg-background p-3">
+        <div className="rounded-md bg-muted/30 p-3">
           <div className="mb-2 flex items-center justify-between gap-2">
             <div>
               <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -995,7 +995,7 @@ function ConnectionRow({
               return (
                 <div
                   key={app.id}
-                  className="flex min-h-9 items-center justify-between gap-3 rounded-md border px-2.5 py-2"
+                  className="flex min-h-9 items-center justify-between gap-3 rounded-md bg-muted/40 px-2.5 py-2"
                 >
                   <div className="flex min-w-0 items-center gap-2">
                     <AppIcon size={14} className="text-muted-foreground" />
@@ -1054,7 +1054,7 @@ function ConnectionMeta({
   value: string;
 }) {
   return (
-    <div className="min-w-0 rounded-md border bg-background px-3 py-2">
+    <div className="min-w-0 rounded-md bg-muted/30 px-3 py-2">
       <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
         <Icon size={13} />
         {label}
@@ -1646,7 +1646,7 @@ function CredentialRefsEditor({
   const rows = refs.length > 0 ? refs : appendCredentialRef([], provider);
 
   return (
-    <div className="rounded-md border bg-background p-3">
+    <div className="rounded-md bg-muted/30 p-3">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="text-sm font-medium">
@@ -1673,7 +1673,7 @@ function CredentialRefsEditor({
           return (
             <div
               key={`${index}:${ref.provider ?? provider?.id ?? "provider"}`}
-              className="grid gap-2 rounded-md border px-3 py-3 sm:grid-cols-[minmax(0,1fr)_8rem_auto]"
+              className="grid gap-2 rounded-md bg-muted/40 px-3 py-3 sm:grid-cols-[minmax(0,1fr)_8rem_auto]"
             >
               <div className="grid min-w-0 gap-1.5 text-sm">
                 <Label className="flex items-center gap-1.5">
@@ -2288,7 +2288,7 @@ function ConnectionDeleteImpact({
   const t = useT();
   if (loading) {
     return (
-      <div className="rounded-md border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+      <div className="rounded-md bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
         {t("integrations.checkingAffectedApps")}
       </div>
     );
@@ -2304,7 +2304,7 @@ function ConnectionDeleteImpact({
   );
 
   return (
-    <div className="rounded-md border bg-muted/30 px-3 py-2 text-sm">
+    <div className="rounded-md bg-muted/30 px-3 py-2 text-sm">
       <div className="flex flex-wrap items-center gap-2">
         <Pill className="border-border bg-background text-muted-foreground">
           {impact.impactSummary.hasAllAppsAccess
@@ -2704,7 +2704,7 @@ export default function WorkspaceIntegrationsRoute() {
         {!connectionsQuery.isError && !appsQuery.isError ? (
           <>
             {connectionsQuery.isLoading ? (
-              <div className="rounded-lg border border-dashed px-6 py-12 text-center text-sm text-muted-foreground">
+              <div className="rounded-lg bg-muted/30 px-6 py-12 text-center text-sm text-muted-foreground">
                 {t("integrations.loadingWorkspaceIntegrations")}
               </div>
             ) : null}
@@ -2775,13 +2775,13 @@ export default function WorkspaceIntegrationsRoute() {
               />
             </section>
 
-            <details className="rounded-xl border border-border/70 bg-card">
+            <details className="rounded-xl bg-muted/30">
               <summary className="cursor-pointer list-none px-4 py-3 text-sm font-medium text-foreground marker:hidden">
                 {t(/* i18n-key-ignore */ "integrations.workspaceOverview", {
                   defaultValue: "Workspace overview",
                 })}
               </summary>
-              <div className="border-t border-border/60 p-4">
+              <div className="p-4">
                 <section
                   data-usage-tracked={usageTracked ? "true" : undefined}
                   className={cx(
@@ -2872,7 +2872,7 @@ export default function WorkspaceIntegrationsRoute() {
                 </div>
               </div>
               {connections.length === 0 && !connectionsQuery.isLoading ? (
-                <div className="rounded-lg border border-dashed px-6 py-12 text-center">
+                <div className="rounded-lg bg-muted/30 px-6 py-12 text-center">
                   <IconPlugConnected
                     size={24}
                     className="mx-auto text-muted-foreground"
@@ -3031,7 +3031,7 @@ function IntegrationOnboarding() {
   ];
 
   return (
-    <section className="rounded-lg border bg-card px-4 py-3 shadow-sm">
+    <section className="rounded-lg bg-muted/30 px-4 py-3">
       <div className="dispatch-onboarding-grid grid gap-3">
         <div>
           <h2 className="text-sm font-semibold text-foreground">
@@ -3046,7 +3046,7 @@ function IntegrationOnboarding() {
             const Icon = step.icon;
             return (
               <div key={step.title} className="flex min-w-0 gap-2">
-                <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md border bg-muted">
+                <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md bg-muted/50">
                   <Icon size={14} className="text-muted-foreground" />
                 </div>
                 <div className="min-w-0">
@@ -3078,10 +3078,10 @@ function SummaryCard({
   detail: string;
 }) {
   return (
-    <div className="rounded-lg border bg-card p-4 shadow-sm">
+    <div className="rounded-lg bg-muted/30 p-4">
       <div className="flex items-center justify-between gap-3">
         <span className="text-sm text-muted-foreground">{label}</span>
-        <div className="flex h-8 w-8 items-center justify-center rounded-md border bg-muted">
+        <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted/50">
           <Icon size={16} className="text-muted-foreground" />
         </div>
       </div>

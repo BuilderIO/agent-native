@@ -776,6 +776,8 @@ const messages = {
     publicDescription: "Anyone signed in with the link can view",
     viewer: "Viewer",
     viewerDescription: "Can view",
+    commenter: "Commenter",
+    commenterDescription: "Can view and add comments",
     editor: "Editor",
     editorDescription: "Can edit",
     admin: "Admin",

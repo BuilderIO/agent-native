@@ -1161,7 +1161,7 @@ function ConnectedView({
               })}
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <div className="rounded-md border border-border/60 bg-muted/30 p-3 text-xs text-muted-foreground">
+          <div className="rounded-md bg-muted/30 p-3 text-xs text-muted-foreground">
             {t("dataSources.sharedCredentials", {
               credentials: sharedCredentialKeys
                 .map((key) => keyLabels[key] || key)
@@ -1339,7 +1339,7 @@ function DataSourceCard({
       {expanded && !showUnknownStatus && (
         <CardContent className="px-5 py-4">
           {focused && ready && showAskContinuation && (
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md bg-emerald-500/10 p-3">
               <span className="flex items-center gap-2 text-xs font-medium text-emerald-600 dark:text-emerald-400">
                 <IconCheck className="h-3.5 w-3.5" />
                 {t("dataSources.connectionSuccessful")}
@@ -1364,7 +1364,7 @@ function DataSourceCard({
             orgLoaded,
             hasOrg,
           ) && (
-            <div className="mb-4 rounded-md border border-border/50 bg-muted/20 p-3">
+            <div className="mb-4 rounded-md bg-muted/30 p-3">
               <div className="flex items-start gap-3">
                 <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-background text-muted-foreground">
                   <IconPlugConnected className="h-4 w-4" />
@@ -1513,7 +1513,7 @@ function DataSourceCard({
                 );
               })()}
 
-              <div className="flex items-center gap-2 border-t border-border/30 pt-3">
+              <div className="flex items-center gap-2 pt-1">
                 {hasInputValues && (
                   <Button
                     size="sm"
@@ -1765,10 +1765,8 @@ function FirstPartyAnalyticsCard() {
               <Skeleton className="h-28 w-full rounded-md" />
             ) : (
               <div
-                className={`rounded-md border p-3 text-xs ${
-                  recommendsExternalBackend
-                    ? "border-amber-500/30 bg-amber-500/10"
-                    : "border-border/50 bg-muted/20"
+                className={`rounded-md p-3 text-xs ${
+                  recommendsExternalBackend ? "bg-amber-500/10" : "bg-muted/30"
                 }`}
               >
                 <div className="flex items-start justify-between gap-3">
@@ -1793,7 +1791,7 @@ function FirstPartyAnalyticsCard() {
                   </div>
                 </div>
                 {externalBackends.length > 0 && (
-                  <div className="mt-3 border-t border-border/30 pt-3">
+                  <div className="mt-4">
                     <div className="mb-2 text-muted-foreground">
                       {t("analyticsBackend.options")}
                     </div>
@@ -1827,7 +1825,7 @@ function FirstPartyAnalyticsCard() {
                   </div>
                 )}
                 {health && healthStatus !== "unavailable" && (
-                  <div className="mt-3 grid grid-cols-3 gap-2 border-t border-border/30 pt-3">
+                  <div className="mt-4 grid grid-cols-3 gap-2">
                     <div>
                       <div className="text-muted-foreground">
                         {t("dataSources.analyticsEventCount")}
@@ -1860,7 +1858,7 @@ function FirstPartyAnalyticsCard() {
                 )}
               </div>
             )}
-            <div className="grid gap-2 rounded-md border border-border/50 bg-muted/20 p-3 text-xs">
+            <div className="grid gap-2 rounded-md bg-muted/30 p-3 text-xs">
               <div className="flex items-center justify-between gap-3">
                 <span className="text-muted-foreground">
                   {t("dataSources.endpoint")}
@@ -1890,7 +1888,7 @@ function FirstPartyAnalyticsCard() {
             {/* Error capture note — the analytics SDK also captures uncaught
                 exceptions and links them to session replays. Static English
                 copy because shared i18n is owned elsewhere. */}
-            <div className="rounded-md border border-border/50 bg-muted/20 p-3 text-xs">
+            <div className="rounded-md bg-muted/30 p-3 text-xs">
               <div className="font-medium text-foreground">
                 Error capture{/* i18n-ignore static SDK docs label */}
               </div>
@@ -1946,7 +1944,7 @@ function FirstPartyAnalyticsCard() {
             </div>
 
             {createdKey && (
-              <div className="space-y-2 rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3">
+              <div className="space-y-2 rounded-md bg-emerald-500/10 p-3">
                 <p className="text-xs font-medium text-emerald-600 dark:text-emerald-400">
                   {t("dataSources.newKeyGenerated")}
                 </p>
@@ -1973,7 +1971,7 @@ function FirstPartyAnalyticsCard() {
             )}
 
             {keys.length > 0 && (
-              <div className="space-y-2 border-t border-border/30 pt-3">
+              <div className="space-y-2 pt-1">
                 {keys.map((key) => (
                   <div
                     key={key.id}
@@ -2138,7 +2136,7 @@ export default function DataSources() {
       {unknownFocusedSourceId && (
         <div
           role="status"
-          className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300"
+          className="flex items-start gap-2 rounded-md bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300"
         >
           <IconAlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
           <span>

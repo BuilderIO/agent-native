@@ -3,7 +3,9 @@ import {
   getWorkspaceConnectionProvider,
   type WorkspaceConnectionProvider,
 } from "@agent-native/core/connections";
+import { isOrgMember } from "@agent-native/core/org";
 import {
+  normalizeWorkspaceConnectionAllowedUsers,
   upsertWorkspaceConnection,
   type WorkspaceConnectionStatus,
 } from "@agent-native/core/workspace-connections";
@@ -57,6 +59,35 @@ function normalizeCredentialRefs(
     });
 }
 
+export async function assertWorkspaceConnectionAllowedUsers(
+  allowedUsers: string[] | undefined,
+  orgId: string | null | undefined,
+): Promise<string[] | undefined> {
+  if (allowedUsers === undefined) return undefined;
+
+  const normalized = normalizeWorkspaceConnectionAllowedUsers(allowedUsers);
+  if (normalized.length === 0) return normalized;
+  if (!orgId?.trim()) {
+    throw new Error(
+      "Selected people require a workspace connection. Personal connections are only available to you.",
+    );
+  }
+
+  const missing = (
+    await Promise.all(
+      normalized.map(async (email) =>
+        (await isOrgMember(orgId, email)) ? null : email,
+      ),
+    )
+  ).filter((email): email is string => Boolean(email));
+  if (missing.length > 0) {
+    throw new Error(
+      `Selected people must be members of this workspace: ${missing.join(", ")}.`,
+    );
+  }
+  return normalized;
+}
+
 export default defineAction({
   description:
     "Create or update a shared workspace integration connection and its app access list.",
@@ -93,7 +124,7 @@ export default defineAction({
       .describe("App IDs that may use this connection. Empty means all apps."),
     allowedUsers: z
       .array(z.string())
-      .default([])
+      .optional()
       .describe(
         "Workspace member email addresses that may use this connection. Empty means all workspace members.",
       ),
@@ -105,7 +136,7 @@ export default defineAction({
       ),
     lastError: z.string().nullable().optional(),
   }),
-  run: async (args) => {
+  run: async (args, ctx) => {
     const provider = getWorkspaceConnectionProvider(args.provider);
     if (!provider) {
       throw new Error(
@@ -113,9 +144,15 @@ export default defineAction({
       );
     }
 
+    const allowedUsers = await assertWorkspaceConnectionAllowedUsers(
+      args.allowedUsers,
+      ctx?.orgId,
+    );
+
     return upsertWorkspaceConnection({
       ...args,
       status: args.status as WorkspaceConnectionStatus,
+      allowedUsers,
       credentialRefs: normalizeCredentialRefs(args.credentialRefs, provider),
     });
   },

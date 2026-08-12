@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-fix first-run onboarding eligibility for existing organization members
+fix first-run onboarding eligibility and prevent app-shell flashes before the decision resolves

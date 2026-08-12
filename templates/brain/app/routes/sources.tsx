@@ -2318,9 +2318,7 @@ export default function SourcesRoute() {
   return (
     <div className="min-h-full bg-muted/20">
       <PageHeader
-        eyebrow={t("sources.eyebrow")}
         title={t("sources.title")}
-        description={t("sources.description")}
         actions={
           <div className="grid w-full gap-2 sm:w-auto sm:grid-flow-col sm:auto-cols-max sm:justify-end">
             <Button

@@ -204,6 +204,11 @@ function visibilityMeta(
 const ROLE_OPTIONS: Array<{ value: Role; label: string; description: string }> =
   [
     { value: "viewer", label: "Viewer", description: "Can view" },
+    {
+      value: "commenter",
+      label: "Commenter",
+      description: "Can view and add comments",
+    },
     { value: "editor", label: "Editor", description: "Can edit" },
     {
       value: "admin",
