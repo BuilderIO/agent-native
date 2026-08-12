@@ -14,6 +14,25 @@ const MAX_MARKDOWN_FILES = 100;
 const MAX_MARKDOWN_FILE_CHARS = 250_000;
 const MAX_MARKDOWN_BATCH_CHARS = 4_000_000;
 
+type ImportedMarkdownResult =
+  | {
+      path: string;
+      status: "imported";
+      captureId: string;
+      distillation: "queued" | "existing" | "skipped" | "failed";
+      error?: string;
+    }
+  | {
+      path: string;
+      status: "blocked";
+      sensitivityReceipt: unknown;
+    }
+  | {
+      path: string;
+      status: "failed";
+      error: string;
+    };
+
 const markdownFileSchema = z.object({
   path: z.string().trim().min(1).max(2_000),
   content: z.string().max(MAX_MARKDOWN_FILE_CHARS),
@@ -136,65 +155,65 @@ export default defineAction({
       );
     }
 
-    const importedResults = await Promise.all(
-      validFiles.map(async (file) => {
-        const normalizedPath = file.normalizedPath;
-        try {
-          const capture = await createCapture({
-            sourceId: source.id,
-            externalId: `markdown:${normalizedPath}`,
-            title: normalizedPath,
-            kind: "document",
-            content: file.input.content,
-            metadata: {
-              path: normalizedPath,
-              sourceFormat: "markdown",
-            },
-          });
-          let distillation: "queued" | "existing" | "skipped" | "failed" =
-            "skipped";
-          let distillationError: string | undefined;
-          if (
-            args.enqueueDistillation &&
-            capture.status !== "distilled" &&
-            capture.status !== "ignored"
-          ) {
-            try {
-              const queued = await enqueueCaptureDistillation({ capture });
-              distillation = queued.existing ? "existing" : "queued";
-            } catch (error) {
-              distillation = "failed";
-              distillationError =
-                error instanceof Error ? error.message : String(error);
-            }
-          }
-          return {
+    const importedResults: ImportedMarkdownResult[] = [];
+    for (const file of validFiles) {
+      const normalizedPath = file.normalizedPath;
+      try {
+        const capture = await createCapture({
+          sourceId: source.id,
+          externalId: `markdown:${normalizedPath}`,
+          title: normalizedPath,
+          kind: "document",
+          content: file.input.content,
+          metadata: {
             path: normalizedPath,
-            status: "imported" as const,
-            captureId: capture.id,
-            distillation,
-            ...(distillationError
-              ? {
-                  error: `Capture imported, but distillation failed: ${distillationError}`,
-                }
-              : {}),
-          };
-        } catch (error) {
-          if (error instanceof BrainCaptureBlockedError) {
-            return {
-              path: normalizedPath,
-              status: "blocked" as const,
-              sensitivityReceipt: error.receipt,
-            };
+            sourceFormat: "markdown",
+          },
+        });
+        let distillation: "queued" | "existing" | "skipped" | "failed" =
+          "skipped";
+        let distillationError: string | undefined;
+        if (
+          args.enqueueDistillation &&
+          capture.status !== "distilled" &&
+          capture.status !== "ignored"
+        ) {
+          try {
+            const queued = await enqueueCaptureDistillation({ capture });
+            distillation = queued.existing ? "existing" : "queued";
+          } catch (error) {
+            distillation = "failed";
+            distillationError =
+              error instanceof Error ? error.message : String(error);
           }
-          return {
-            path: normalizedPath,
-            status: "failed" as const,
-            error: error instanceof Error ? error.message : String(error),
-          };
         }
-      }),
-    );
+        importedResults.push({
+          path: normalizedPath,
+          status: "imported",
+          captureId: capture.id,
+          distillation,
+          ...(distillationError
+            ? {
+                error: `Capture imported, but distillation failed: ${distillationError}`,
+              }
+            : {}),
+        });
+      } catch (error) {
+        if (error instanceof BrainCaptureBlockedError) {
+          importedResults.push({
+            path: normalizedPath,
+            status: "blocked",
+            sensitivityReceipt: error.receipt,
+          });
+        } else {
+          importedResults.push({
+            path: normalizedPath,
+            status: "failed",
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+    }
     const files = [...invalidResults, ...importedResults];
     return {
       source: serializeSource(source),
