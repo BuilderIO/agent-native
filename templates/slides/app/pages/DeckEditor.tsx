@@ -37,7 +37,6 @@ import EditorToolbar from "@/components/editor/EditorToolbar";
 import GeneratingSlidePreview from "@/components/editor/GeneratingSlidePreview";
 import HistoryPanel from "@/components/editor/HistoryPanel";
 import ImageGenPanel from "@/components/editor/ImageGenPanel";
-import { isInsidePortaledLayer } from "@/components/editor/PromptDialog";
 import { QuestionFlow } from "@/components/editor/QuestionFlow";
 import SlideEditor from "@/components/editor/SlideEditor";
 import { TweaksPanel } from "@/components/editor/TweaksPanel";
@@ -791,6 +790,15 @@ export default function DeckEditor() {
       if (key !== "c" && key !== "v") return;
       if (pinMode || drawMode) return;
 
+      // Radix Popper positions Popover/DropdownMenu/Select/Tooltip content
+      // inside the same [data-radix-popper-content-wrapper]. A tooltip opens
+      // on plain hover, so treating every such wrapper as blocking would
+      // disable this shortcut just by mousing over a toolbar button; only
+      // wrappers that aren't tooltips (marked with data-agent-native-tooltip)
+      // should count as an open menu/popover/dialog owning the keystroke.
+      const isBlockingPopperWrapper = (el: Element) =>
+        el.matches("[data-radix-popper-content-wrapper]") &&
+        !el.querySelector("[data-agent-native-tooltip]");
       const isInsideSafeZone = (el: Element | null) => {
         if (!el) return false;
         if (el instanceof HTMLInputElement) return true;
@@ -803,7 +811,11 @@ export default function DeckEditor() {
           if (el.closest("[data-add-slide-popover]")) return true;
           if (el.closest(".agent-panel-root")) return true;
           if (el.closest("[role='dialog'], [role='alertdialog']")) return true;
-          if (isInsidePortaledLayer(el)) return true;
+          const popperWrapper = el.closest(
+            "[data-radix-popper-content-wrapper]",
+          );
+          if (popperWrapper && isBlockingPopperWrapper(popperWrapper))
+            return true;
         }
         return false;
       };
@@ -816,7 +828,12 @@ export default function DeckEditor() {
       // shortcut duplicate the slide underneath it.
       if (document.querySelector("[role='dialog'], [role='alertdialog']"))
         return;
-      if (document.querySelector("[data-radix-popper-content-wrapper]")) return;
+      if (
+        Array.from(
+          document.querySelectorAll("[data-radix-popper-content-wrapper]"),
+        ).some(isBlockingPopperWrapper)
+      )
+        return;
       if (document.querySelector("[data-slide-element-selected='true']"))
         return;
 

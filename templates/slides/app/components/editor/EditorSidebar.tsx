@@ -33,7 +33,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import type { Slide } from "@/context/DeckContext";
+import { defaultSlideContent, type Slide } from "@/context/DeckContext";
 import { getAspectRatioDims, type AspectRatio } from "@/lib/aspect-ratios";
 import { TAB_ID } from "@/lib/tab-id";
 
@@ -584,9 +584,17 @@ export default function EditorSidebar({
               onAddSlideGeneratingChange?.(false);
               // The popover already closed (AddSlidePopover doesn't wait on
               // this async callback), so the typed prompt is gone either
-              // way — remove the orphaned blank placeholder rather than
-              // leaving a stray empty slide the user never asked for.
-              onRemoveFailedSlide?.(describeSlideId);
+              // way. Only remove the placeholder if it's still untouched —
+              // the save retries take long enough that the user could have
+              // started editing it directly on the canvas in the meantime,
+              // and deleting it would destroy that work.
+              const current = slides.find((s) => s.id === describeSlideId);
+              if (
+                current?.content === defaultSlideContent.blank &&
+                !current.notes
+              ) {
+                onRemoveFailedSlide?.(describeSlideId);
+              }
               toast.error(t("editorSidebar.newSlideSaveFailed"));
               return;
             }
