@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   generateWorkspaceAppDescription,
+  getAppCreationSettings,
   listAvailableWorkspaceTemplates,
   listWorkspaceApps,
   setAppCreationSettings,
@@ -46,7 +47,6 @@ const mocks = vi.hoisted(() => {
     })),
     ensureBuilderProject: vi.fn(),
     runBuilderAgent: vi.fn(),
-    resolveBuilderBranchProjectId: vi.fn(async () => ""),
     getBuilderBranchProjectId: vi.fn(() => ""),
     writeAppSecret: vi.fn(async () => "secret-id"),
     deleteAppSecret: vi.fn(async () => true),
@@ -86,8 +86,6 @@ vi.mock("@agent-native/core/server", async (importOriginal) => {
     ensureBuilderProject: (...args: any[]) =>
       mocks.ensureBuilderProject(...args),
     runBuilderAgent: (...args: any[]) => mocks.runBuilderAgent(...args),
-    resolveBuilderBranchProjectId: (...args: any[]) =>
-      mocks.resolveBuilderBranchProjectId(...args),
     getBuilderBranchProjectId: (...args: any[]) =>
       mocks.getBuilderBranchProjectId(...args),
   };
@@ -121,10 +119,48 @@ afterEach(() => {
     source: null,
     lookupFailed: false,
   });
-  mocks.resolveBuilderBranchProjectId.mockResolvedValue("");
   mocks.getBuilderBranchProjectId.mockReturnValue("");
   mocks.ensureBuilderProject.mockReset();
   globalThis.fetch = originalFetch;
+});
+
+describe("getAppCreationSettings", () => {
+  it("treats the Dispatch project as authoritative over the environment", async () => {
+    mocks.settings.set("dispatch-app-creation-settings:org:builder_io", {
+      builderProjectId: "dispatch-project",
+    });
+    vi.stubEnv("DISPATCH_BUILDER_PROJECT_ID", "stale-env-project");
+
+    const result = await runWithRequestContext(
+      { userEmail: "dev@example.test", orgId: "builder_io" },
+      () => getAppCreationSettings(),
+    );
+
+    expect(result).toMatchObject({
+      builderProjectId: "dispatch-project",
+      builderProjectIdSource: "dispatch",
+      envBuilderProjectId: "stale-env-project",
+    });
+  });
+
+  it("treats an explicit Dispatch null as disabled over the environment", async () => {
+    mocks.settings.set("dispatch-app-creation-settings:org:builder_io", {
+      builderProjectId: null,
+    });
+    vi.stubEnv("DISPATCH_BUILDER_PROJECT_ID", "stale-env-project");
+
+    const result = await runWithRequestContext(
+      { userEmail: "dev@example.test", orgId: "builder_io" },
+      () => getAppCreationSettings(),
+    );
+
+    expect(result).toMatchObject({
+      builderProjectId: null,
+      builderProjectIdSource: "dispatch",
+      envBuilderProjectId: "stale-env-project",
+      builderBranchingEnabled: false,
+    });
+  });
 });
 
 describe("listWorkspaceApps", () => {

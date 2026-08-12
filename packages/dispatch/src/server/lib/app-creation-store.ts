@@ -9,7 +9,6 @@ import {
   getBuilderBranchProjectId,
   getRequestContext,
   isIntegrationCallerRequest,
-  resolveBuilderBranchProjectId,
   resolveBuilderCredentialsDetailed,
   runBuilderAgent,
 } from "@agent-native/core/server";
@@ -1590,26 +1589,28 @@ function runScaffoldCli(input: {
 
 export async function getAppCreationSettings(): Promise<AppCreationSettings> {
   const envBuilderProjectId = getEnvBuilderProjectId();
-  const resolvedBuilderProjectId = await resolveBuilderBranchProjectId();
   const raw = await readSettingsRecord();
+  const hasSavedBuilderProjectId = Object.prototype.hasOwnProperty.call(
+    raw,
+    "builderProjectId",
+  );
   const savedBuilderProjectId =
     typeof raw?.builderProjectId === "string" && raw.builderProjectId.trim()
       ? raw.builderProjectId.trim()
       : null;
-  const builderProjectId = envBuilderProjectId || savedBuilderProjectId;
   const enableBuilder =
     process.env.ENABLE_BUILDER === "true" || process.env.ENABLE_BUILDER === "1";
-  const effectiveBuilderProjectId =
-    builderProjectId ||
-    resolvedBuilderProjectId ||
-    (enableBuilder ? getBuilderBranchProjectId() : null);
+  const effectiveBuilderProjectId = hasSavedBuilderProjectId
+    ? savedBuilderProjectId
+    : envBuilderProjectId ||
+      (enableBuilder ? getBuilderBranchProjectId() : null);
 
   return {
     builderProjectId: effectiveBuilderProjectId,
-    builderProjectIdSource: envBuilderProjectId
-      ? "env"
-      : savedBuilderProjectId
-        ? "dispatch"
+    builderProjectIdSource: hasSavedBuilderProjectId
+      ? "dispatch"
+      : envBuilderProjectId
+        ? "env"
         : effectiveBuilderProjectId
           ? "default"
           : "unset",
