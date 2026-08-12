@@ -129,13 +129,13 @@ function ClipPreviewSlider() {
               })
             }
           >
-            <div className="relative aspect-video overflow-hidden border-b border-[var(--docs-border)] bg-black">
+            <div className="relative aspect-[4/3] overflow-hidden border-b border-[var(--docs-border)] bg-black">
               <img
                 src={clip.thumbnail}
                 alt=""
                 loading="lazy"
                 decoding="async"
-                className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.02]"
+                className="h-full w-full object-cover object-bottom transition duration-300 group-hover:scale-[1.02]"
               />
               <span className="absolute inset-0 flex items-center justify-center">
                 <span className="flex h-12 w-12 items-center justify-center rounded-full bg-black/75 text-xl text-white shadow-lg transition group-hover:scale-105">
