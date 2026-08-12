@@ -287,6 +287,7 @@ export function createProviderCorpusJobAction(
       "When status is paused or quota_wait, call operation=continue with the jobId after the indicated time/budget. Report coverage counts, paginationComplete, and any remaining gaps; a max-pages stop is not exhaustive.",
     schema: ProviderCorpusJobSchema,
     http: false,
+    grounding: true,
     run: async (args) => runProviderCorpusJobAction(args, options),
   });
 }

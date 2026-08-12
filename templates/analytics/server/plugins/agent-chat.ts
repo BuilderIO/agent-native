@@ -29,7 +29,27 @@ import {
   looksLikeAnalyticsDataRequest,
   needsCorpusWorkflowForCoverageSensitiveRequest,
   needsSourceRecordBodyWorkflowForCoverageSensitiveRequest,
+  registerGroundingActions,
 } from "../lib/real-data-actions";
+
+// Which actions return real data-source evidence is a fact each action states
+// on itself (`grounding: true`). Reading it off the definitions here is what
+// keeps the response guard from drifting behind a newly shipped source action.
+registerGroundingActions(
+  Object.entries(actionsRegistry)
+    .filter(([, module]) => {
+      // Action modules reach the registry either as the module namespace or as
+      // an already-unwrapped definition, the same two shapes
+      // `loadActionsFromStaticRegistry` normalizes.
+      const candidate = module as
+        | { grounding?: boolean; default?: { grounding?: boolean } }
+        | undefined;
+      return (
+        candidate?.grounding === true || candidate?.default?.grounding === true
+      );
+    })
+    .map(([name]) => name),
+);
 
 const ANALYTICS_BACKGROUND_RUN_SOFT_TIMEOUT_MS = 13 * 60_000;
 // A background job may legitimately spend minutes inside a provider/tool call,
@@ -764,17 +784,23 @@ export function realDataFinalGuard(
   }
 
   if (dataQueryAttempted) return null;
+  const failedQueryMessage = failedDataQueryAttemptMessage(context.toolResults);
+  // Whether the built-in source is worth trying is decided by tool evidence,
+  // not by how the draft is worded, so it is asked once for every draft shape.
+  // A source that already failed this turn is not an untried source: steering
+  // the model back into it is how a permanently failing precondition turns
+  // into a retry loop.
+  if (firstPartySourceShouldBeTried && !failedQueryMessage) {
+    return {
+      retryMessage:
+        "The user asked for live analytics, and the built-in first-party Analytics source is available even though no external provider is connected. Call `query-agent-native-analytics` for first-party product, usage, conversion, or observability data and answer from that result. If the request specifically names an external provider, explain what is missing and include the real Connect data sources link.",
+      fallbackMessage:
+        "I couldn't complete a grounded first-party Analytics query yet. Please retry and I'll use the built-in Analytics source before asking you to connect an external provider.",
+      maxRetries: 2,
+      expandToolSurface: true,
+    };
+  }
   if (isSafeNoDataAnalyticsResponse(context.text)) {
-    if (firstPartySourceShouldBeTried) {
-      return {
-        retryMessage:
-          "The built-in first-party Analytics source is available even though no external provider is connected. Use `query-agent-native-analytics` for the user's first-party product, usage, conversion, or observability question before explaining that data is unavailable. Only guide the user to connect a source if the request specifically needs an external provider.",
-        fallbackMessage:
-          "I couldn't complete a grounded first-party Analytics query yet. Please retry and I'll use the built-in Analytics source before asking you to connect an external provider.",
-        maxRetries: 2,
-        expandToolSurface: true,
-      };
-    }
     if (
       needsDataSourceLink &&
       !includesDataSourcesLink(context.text, setupLink)
@@ -787,7 +813,6 @@ export function realDataFinalGuard(
     }
     return null;
   }
-  const failedQueryMessage = failedDataQueryAttemptMessage(context.toolResults);
   if (failedQueryMessage) {
     if (
       needsDataSourceLink &&
@@ -805,11 +830,10 @@ export function realDataFinalGuard(
     };
   }
 
-  if (
-    needsDataSourceLink &&
-    (missingRequestedExternalSource ||
-      (noConnectedExternalSources && externalSourceRequest))
-  ) {
+  // `needsDataSourceLink` already carries "status was checked, the user named an
+  // external source, and it is missing or nothing is connected". Restating those
+  // clauses here is what made the next branch look reachable.
+  if (needsDataSourceLink) {
     return {
       retryMessage: `The requested external source is not connected. Explain what is missing in the context of the user's question and include this exact markdown link: ${setupMarkdown}. Do not use the generic no-grounded-data fallback.`,
       fallbackMessage: `I can help with that once the relevant source is connected. ${setupMarkdown}`,
@@ -819,24 +843,6 @@ export function realDataFinalGuard(
   }
 
   const configuredSources = configuredDataSourceLabels(context.toolResults);
-  if (firstPartySourceShouldBeTried) {
-    return {
-      retryMessage:
-        "The user asked for live analytics, and the built-in first-party Analytics source is available even though no external provider is connected. Call `query-agent-native-analytics` for first-party product, usage, conversion, or observability data and answer from that result. If the request specifically names an external provider, explain what is missing and include the real Connect data sources link.",
-      fallbackMessage:
-        "I couldn't complete a grounded first-party Analytics query yet. Please retry and I'll use the built-in Analytics source before asking you to connect an external provider.",
-      maxRetries: 2,
-      expandToolSurface: true,
-    };
-  }
-  if (noConnectedExternalSources) {
-    return {
-      retryMessage: `The user asked for live analytics, but data-source-status found no connected external providers. The built-in first-party source is still available for first-party Analytics data. If this request needs an external source, respond naturally in the context of the user's question, explain what is missing, and include ${setupMarkdown}. Do not use a generic canned no-data response.`,
-      fallbackMessage: `I can help with that once the relevant source is connected. ${setupMarkdown}`,
-      maxRetries: 2,
-      expandToolSurface: true,
-    };
-  }
   const configuredSourceGuidance = configuredSources.length
     ? ` \`data-source-status\` already confirmed these connected sources: ${configuredSources.join(", ")}. Do not claim that no sources are connected and do not ask the user to reconnect them. Immediately call the relevant query action for one of those sources.`
     : "";

@@ -50,7 +50,11 @@ vi.mock("./observational-memory/index.js", () => ({
   serializeObservationalMemoryBlock: () => "",
 }));
 
-const { runAgentLoop } = await import("./production-agent.js");
+const {
+  runAgentLoop,
+  MAX_IDENTICAL_TOOL_CALLS,
+  AGENT_INTERNAL_CONTINUE_PROMPT,
+} = await import("./production-agent.js");
 import type { AgentEngine, EngineEvent } from "./engine/types.js";
 import type { ActionEntry } from "./production-agent.js";
 
@@ -185,6 +189,7 @@ describe("tool-call journal hard-block", () => {
     expect(guard.mock.calls[0]?.[0].toolResults).toEqual([
       {
         name: "bigquery",
+        input: { sql: "select count(*)" },
         content: '{"rows":[{"count":3}]}',
         isError: false,
       },
@@ -398,5 +403,152 @@ describe("tool-call journal hard-block", () => {
     });
 
     expect(readAction.run).toHaveBeenCalledOnce();
+  });
+
+  it("counts identical tool calls from earlier chunks of the same turn", async () => {
+    // Seven identical calls already in this turn's ledger, none of them
+    // completed. Unseeded, this chunk starts from zero and the model gets
+    // another full MAX_IDENTICAL_TOOL_CALLS budget at every chunk boundary.
+    currentTurnEventsMock.mockResolvedValue(
+      Array.from({ length: MAX_IDENTICAL_TOOL_CALLS - 1 }, () => ({
+        type: "tool_start",
+        tool: "flaky-write",
+        input: { id: "row-1" },
+      })),
+    );
+    const action = makeWriteAction();
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine: singleToolEngine("flaky-write", { id: "row-1" }),
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: { "flaky-write": action },
+      send: (e) => events.push(e),
+      signal: new AbortController().signal,
+      threadId: "thread-repeat-across-chunks",
+    });
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        errorCode: "repeated_tool_call",
+        recoverable: false,
+      }),
+    );
+    // A guard stop is a failed run, not a clean one.
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "done" }),
+    );
+  });
+
+  it("counts identical tool errors from earlier chunks of the same turn", async () => {
+    currentTurnEventsMock.mockResolvedValue([
+      { type: "tool_start", tool: "flaky-write", input: { id: "row-1" } },
+      {
+        type: "tool_done",
+        tool: "flaky-write",
+        input: { id: "row-1" },
+        result: "Error running flaky-write: DB exploded",
+        isError: true,
+      },
+      { type: "tool_start", tool: "flaky-write", input: { id: "row-1" } },
+      {
+        type: "tool_done",
+        tool: "flaky-write",
+        result: "Error running flaky-write: DB exploded",
+        isError: true,
+      },
+    ]);
+    const action: ActionEntry = {
+      tool: {
+        description: "A write action",
+        parameters: { type: "object", properties: {} },
+      },
+      readOnly: false,
+      run: vi.fn(async () => {
+        throw new Error("DB exploded");
+      }),
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine: singleToolEngine("flaky-write", { id: "row-1" }),
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: { "flaky-write": action },
+      send: (e) => events.push(e),
+      signal: new AbortController().signal,
+      threadId: "thread-repeat-error-across-chunks",
+    });
+
+    // Two prior failures are already on the ledger, so this chunk's first
+    // failure is the third and last.
+    expect(action.run).toHaveBeenCalledOnce();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        errorCode: "repeated_identical_tool_error",
+        details: expect.stringContaining("DB exploded"),
+      }),
+    );
+  });
+
+  it("stops a continuation whose per-turn ledger cannot be read", async () => {
+    currentTurnEventsMock.mockRejectedValue(new Error("neon: connection lost"));
+    const action = makeWriteAction();
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine: singleToolEngine("send-email", { to: "a@b.com" }),
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [
+        {
+          role: "user",
+          content: [{ type: "text", text: AGENT_INTERNAL_CONTINUE_PROMPT }],
+        },
+      ],
+      actions: { "send-email": action },
+      send: (e) => events.push(e),
+      signal: new AbortController().signal,
+      threadId: "thread-unreadable",
+    });
+
+    // Without the ledger we cannot tell a completed side effect from a fresh
+    // one, so nothing runs.
+    expect(action.run).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        errorCode: "tool_call_journal_unreadable",
+        recoverable: false,
+        details: expect.stringContaining("neon: connection lost"),
+      }),
+    );
+  });
+
+  it("runs a FRESH turn normally when the ledger read fails", async () => {
+    currentTurnEventsMock.mockRejectedValue(new Error("neon: connection lost"));
+    const action = makeWriteAction();
+
+    await runAgentLoop({
+      engine: singleToolEngine("send-email", { to: "a@b.com" }),
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "send" }] }],
+      actions: { "send-email": action },
+      send: () => {},
+      signal: new AbortController().signal,
+      threadId: "thread-unreadable-fresh",
+    });
+
+    expect(action.run).toHaveBeenCalledOnce();
   });
 });

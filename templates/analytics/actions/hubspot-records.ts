@@ -49,6 +49,7 @@ export default defineAction({
   }),
   http: { method: "GET" },
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
+  grounding: true,
   run: async ({ objectType, query, properties, limit, after }) => {
     const result = await searchHubSpotObjects({
       objectType,
