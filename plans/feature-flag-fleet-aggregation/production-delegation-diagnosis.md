@@ -328,12 +328,17 @@ H2. On the additional target, choose Enable for me.
     Visual expectation: The control returns to a clear enabled state without a contradictory error.
     Evidence: Before/after screenshots and target-local read-back of the persisted rule.
 
-H3. Exercise an isolated member or same-email account outside the mapped target organization.
+H3. Exercise an isolated member in the mapped target organization.
     Functional expectation: Listing or mutation is denied and no targeting rules are disclosed or changed.
     Visual expectation: Analytics shows a truthful forbidden state rather than an unreachable or successful state.
     Evidence: Denial screenshot plus unchanged target-local rule read-back.
 
-H4. Exercise one safe unreachable target condition in the isolated previews.
+H4. Exercise an isolated same-email account outside the mapped target organization.
+    Functional expectation: Listing or mutation is denied and no targeting rules are disclosed or changed.
+    Visual expectation: Analytics shows a truthful forbidden state rather than an unreachable or successful state.
+    Evidence: Cross-organization denial screenshot plus unchanged target-local rule read-back.
+
+H5. Exercise one safe unreachable target condition in the isolated previews.
     Functional expectation: Analytics reports a fixed safe class such as timeout or network and does not reflect response bodies, host details, or secrets.
     Visual expectation: The reason remains concise and legible.
     Evidence: Error-state screenshot and relevant sanitized network/log observation.
