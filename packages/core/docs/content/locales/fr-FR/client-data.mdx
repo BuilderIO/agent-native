@@ -1,0 +1,436 @@
+---
+title: "Données et synchronisation"
+description: "Les hooks d'action que app/ utilise pour lire, écrire et rester synchronisé en direct avec les mêmes actions que celles appelées par l'agent."
+---
+
+# Données et synchronisation
+
+Le principal moyen de lire et d'écrire des données d'application depuis le client est d'utiliser les hooks d'[action](/docs/actions). En intégrant les requêtes dans des actions, votre client et votre agent peuvent tous deux interagir avec votre application de la même manière.
+
+Dans l'exemple ci-dessous, un ticket est assigné à l'utilisateur actuel manuellement via une liste déroulante, puis via l'agent de chat. L'UI et l'agent accèdent tous deux à la même action.
+
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa5548a35d1494c1f8a4f960fbe8d9b2c%2Fcompressed?apiKey=YJIGb4i01jvw0SRdL5Bt&token=a5548a35d1494c1f8a4f960fbe8d9b2c&alt=media&optimized=true"
+  alt="Exemple d'une action UI et d'une action agent produisant le même résultat."
+  align="full"
+  autoplay={true}
+  loop={true}
+  width={600}
+  caption="Exemple d'une action UI et d'une action agent produisant le même résultat."
+/>
+
+## Récupérer et muter des données {#fetching-mutating}
+
+Une application typique construit sa propre couche API et l'appelle avec des requêtes `fetch` écrites à la main. Une application native d'agent se passe de cette couche : `app/` appelle les mêmes actions que celles que l'agent possède déjà comme outils, via les hooks ci-dessous.
+
+<Diagram id="doc-block-client-data-fm-1" title="fetch typique vs. un hook d'action" summary="Un composant typique appelle une route que lui seul peut atteindre. Un composant natif d'agent appelle une action que l'agent peut aussi appeler.">
+
+```html
+<div class="diagram-fmcmp">
+  <div class="fmcmp-col">
+    <div class="fmcmp-label diagram-muted">Typique</div>
+    <div class="diagram-node">Composant</div>
+    <div class="fmcmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-node">fetch("/api/leads/:id")</div>
+    <div class="fmcmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-panel" data-rough>
+      <strong>Votre route API</strong>
+      <small class="diagram-muted">seul le frontend peut l'appeler</small>
+    </div>
+    <div class="fmcmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-box" data-rough>Base de données</div>
+  </div>
+  <div class="fmcmp-vs diagram-muted">vs</div>
+  <div class="fmcmp-col">
+    <div class="fmcmp-label diagram-muted">Agent Native</div>
+    <div class="diagram-node">Composant</div>
+    <div class="fmcmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-node">useActionQuery("get-lead")</div>
+    <div class="fmcmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-panel" data-rough>
+      <span class="diagram-pill accent">action get-lead</span>
+      <small class="diagram-muted">aussi un outil d'agent</small>
+    </div>
+    <div class="fmcmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-box" data-rough>base de données SQL</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-fmcmp {
+  display: flex;
+  align-items: flex-start;
+  gap: 28px;
+  flex-wrap: wrap;
+}
+.fmcmp-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 200px;
+}
+.fmcmp-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+.fmcmp-vs {
+  font-size: 13px;
+  font-weight: 600;
+  padding-top: 52px;
+}
+.diagram-fmcmp .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 16px;
+  align-items: center;
+}
+.fmcmp-arrow {
+  font-size: 18px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+### Hooks d'action {#action-hooks}
+
+Il y a deux hooks d'action que vous êtes le plus susceptible d'utiliser : `useActionQuery()` et `useActionMutation()`. Ces deux hooks donnent accès aux actions de votre application.
+
+#### useActionQuery {#use-action-query}
+
+<Signature
+  id="doc-block-client-data-1"
+  name="useActionQuery"
+  params={[
+    {
+      name: "actionName",
+      type: "TName",
+      description: "Le nom enregistré de l'action.",
+    },
+    {
+      name: "params",
+      type: "ActionParams<TName>",
+      optional: true,
+      description:
+        "L'entrée de l'action, typée à partir de son schéma `defineAction()`.",
+    },
+    {
+      name: "options",
+      type: "UseQueryOptions",
+      optional: true,
+      description:
+        "Tout ce qui vient des [options de useQuery](https://tanstack.com/query/latest/docs/framework/react/reference/useQuery) sauf `queryKey` et `queryFn`, que le hook définit lui-même.",
+    },
+  ]}
+  returns={{
+    type: "UseQueryResult<TResult>",
+    description:
+      'Mis en cache sous `["action", name, params]`. Se relance automatiquement chaque fois qu\'une action de mutation se termine, sans invalidation manuelle nécessaire.',
+  }}
+/>
+
+Ce hook est destiné à être utilisé pour les actions en lecture seule. C'est un wrapper léger autour de la fonction [useQuery()](https://tanstack.com/query/latest/docs/framework/react/reference/useQuery).
+
+Dans l'exemple ci-dessous, l'action `list-tickets` est appelée. C'est similaire à effectuer une requête GET pour tous les tickets.
+
+```ts
+import { useActionQuery } from "@agent-native/core/client/hooks";
+
+const { data, isLoading } = useActionQuery("list-tickets", {});
+```
+
+L'exemple suivant montre une requête pour récupérer un seul ticket, via l'action `get-ticket`. Un `ticketId` est fourni pour restreindre la requête à un ticket spécifique. L'option supplémentaire `enabled` est fournie pour garantir que la requête ne s'exécute pas automatiquement, et ne s'exécute que lorsqu'un `ticketId` est présent.
+
+```ts
+import { useActionQuery } from "@agent-native/core/client/hooks";
+
+const { data, isLoading } = useActionQuery(
+  "get-ticket",
+  { ticketId: ticketId ?? "" },
+  { enabled: Boolean(ticketId) },
+);
+```
+
+#### useActionMutation {#use-action-mutation}
+
+<Signature
+  id="doc-block-client-data-2"
+  name="useActionMutation"
+  params={[
+    {
+      name: "actionName",
+      type: "TName",
+      description: "Le nom enregistré de l'action.",
+    },
+    {
+      name: "options",
+      type: "UseMutationOptions",
+      optional: true,
+      description:
+        "Tout ce qui vient des [options de useMutation](https://tanstack.com/query/latest/docs/framework/react/reference/useMutation) sauf `mutationFn`, que le hook définit lui-même.",
+      fields: [
+        {
+          name: "method",
+          type: '"POST" | "PUT" | "DELETE"',
+          optional: true,
+          default: '"POST"',
+          description: "Remplace la méthode de requête par défaut.",
+        },
+        {
+          name: "skipActionQueryInvalidation",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description:
+            "Désactive le rafraîchissement automatique du cache en cas de succès.",
+        },
+      ],
+    },
+  ]}
+  returns={{
+    type: "UseMutationResult",
+    description:
+      'En cas de succès, émet un événement de changement avec `source: "action"`, afin que chaque `useActionQuery()` lisant les données affectées se relance automatiquement. Aucune invalidation manuelle n\'est nécessaire.',
+  }}
+/>
+
+Ce hook est destiné à être utilisé pour les actions qui modifient des données, comme la création, la mise à jour ou l'envoi de quelque chose. C'est un wrapper léger autour de la fonction [useMutation()](https://tanstack.com/query/latest/docs/framework/react/reference/useMutation).
+
+Contrairement à `useActionQuery()`, l'entrée de l'action n'est pas transmise au hook lui-même. Elle est transmise à `mutate()` ou `mutateAsync()` lorsque vous êtes prêt à exécuter la mutation.
+
+Dans l'exemple ci-dessous, l'action `send-ticket-reply` est appelée pour publier une réponse à un ticket. Appelez `mutate()` depuis un gestionnaire d'événement, comme l'`onClick` d'un bouton.
+
+```ts
+import { useActionMutation } from "@agent-native/core/client/hooks";
+
+const { mutate, isPending } = useActionMutation("send-ticket-reply");
+
+mutate({ ticketId, body: draft });
+```
+
+L'exemple suivant montre la même mutation avec une option `onSuccess`. L'invalidation du cache se produit automatiquement après chaque mutation, donc `onSuccess` n'est nécessaire que pour des effets de bord locaux, comme vider le composeur de réponse une fois la réponse envoyée.
+
+```ts
+import { useActionMutation } from "@agent-native/core/client/hooks";
+
+const { mutate, isPending } = useActionMutation("send-ticket-reply", {
+  onSuccess: () => setDraft(""),
+});
+
+mutate({ ticketId, body: draft });
+```
+
+### callAction {#call-action}
+
+<Signature
+  id="doc-block-client-data-3"
+  name="callAction"
+  params={[
+    {
+      name: "actionName",
+      type: "TName",
+      description: "Le nom enregistré de l'action.",
+    },
+    {
+      name: "params",
+      type: "ActionParams<TName>",
+      optional: true,
+      description:
+        "L'entrée de l'action, typée à partir de son schéma `defineAction()`.",
+    },
+    {
+      name: "options",
+      type: "ClientActionCallOptions",
+      optional: true,
+      description: "Tout ce qui suit est facultatif.",
+      fields: [
+        {
+          name: "method",
+          type: '"GET" | "POST" | "PUT" | "DELETE"',
+          optional: true,
+          default: '"POST"',
+          description: "Remplace la méthode de requête par défaut.",
+        },
+        {
+          name: "signal",
+          type: "AbortSignal",
+          optional: true,
+          description: "Annule la requête.",
+        },
+        {
+          name: "timeoutMs",
+          type: "number",
+          optional: true,
+          default: "60000",
+          description:
+            "Remplace le délai d'expiration par défaut de 60 secondes, pour les actions qui prennent légitimement plus de temps.",
+        },
+      ],
+    },
+  ]}
+  returns={{
+    type: "Promise<TResult>",
+    description:
+      "Contrairement aux hooks ci-dessus, il n'y a ni cache ni relance automatique. Associez-le à une invalidation manuelle si d'autres éléments de l'UI dépendent du résultat.",
+  }}
+/>
+
+Cette fonction est destinée aux appels d'action impératifs ponctuels hors d'un flux de rendu React, comme un simple gestionnaire d'événement, un script, ou tout autre chemin de code non React. Elle renvoie directement une promesse plutôt qu'un résultat de hook.
+
+Dans l'exemple ci-dessous, l'action `update-ticket` est appelée depuis un gestionnaire de raccourci clavier hors du flux de rendu de React, pour assigner le ticket à un représentant.
+
+```ts
+import { callAction } from "@agent-native/core/client/hooks";
+
+await callAction("update-ticket", {
+  ticketId,
+  assignedToEmail: "jordan@example.com",
+});
+```
+
+L'exemple suivant montre le même appel avec une option `timeoutMs`, utile pour les actions qui prennent légitimement plus de temps que le délai d'expiration par défaut de 60 secondes.
+
+```ts
+import { callAction } from "@agent-native/core/client/hooks";
+
+await callAction(
+  "update-ticket",
+  { ticketId, assignedToEmail: "jordan@example.com" },
+  { timeoutMs: 120_000 },
+);
+```
+
+Chaque requête `useActionQuery()`, `useActionMutation()`, et `callAction()` est limitée par un délai d'expiration de 60 secondes, et les délais d'expiration apparaissent comme des erreurs plutôt que de relancer silencieusement. `useActionQuery()` annule aussi automatiquement les requêtes remplacées, en utilisant le signal d'abandon de React Query.
+
+## useDbSync {#usedbsync}
+
+<Signature
+  id="doc-block-client-data-4"
+  name="useDbSync"
+  params={[
+    {
+      name: "options",
+      type: "UseDbSyncOptions",
+      description: "Chaque champ est facultatif.",
+      fields: [
+        {
+          name: "queryClient",
+          type: "QueryClient",
+          optional: true,
+          description:
+            "Client React Query utilisé pour l'invalidation du cache.",
+        },
+        {
+          name: "pollUrl",
+          type: "string",
+          optional: true,
+          default: '"/_agent-native/poll"',
+          description: "URL du point de terminaison d'interrogation.",
+        },
+        {
+          name: "sseUrl",
+          type: "string | false",
+          optional: true,
+          default: '"/_agent-native/events"',
+          description:
+            "URL du point de terminaison SSE. Passez `false` pour n'utiliser que l'interrogation.",
+        },
+        {
+          name: "interval",
+          type: "number",
+          optional: true,
+          default: "2000",
+          description: "Intervalle d'interrogation en ms.",
+        },
+        {
+          name: "fallbackInterval",
+          type: "number",
+          optional: true,
+          default: "60000",
+          description:
+            "Intervalle d'interrogation tant que SSE est connecté, comme secours au cas où un événement serait manqué. Un onglet déconnecté interroge à la cadence plus rapide `interval` (ou une cadence d'inactivité fixe) à la place.",
+        },
+        {
+          name: "pauseWhenHidden",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description:
+            "Suspend l'interrogation lorsque l'onglet du navigateur est masqué. Les onglets masqués gardent SSE connecté et n'interrogent pas plus vite que toutes les 10 s tant qu'ils sont actifs, 60 s une fois inactifs.",
+        },
+        {
+          name: "ignoreSource",
+          type: "string",
+          optional: true,
+          description:
+            "Source de requête par onglet à ignorer, afin qu'un onglet ne se relance pas à partir de ses propres écritures.",
+        },
+        {
+          name: "onEvent",
+          type: "(data) => void",
+          optional: true,
+          description:
+            "Callback facultatif lorsque SSE ou l'interrogation reçoit un événement de changement.",
+        },
+        {
+          name: "actionInvalidatePredicate",
+          type: "(query: Query) => boolean",
+          optional: true,
+          description:
+            "Filtre l'invalidation large qu'un événement d'action déclenche. Rarement nécessaire. Utilisez-le pour garder une requête active coûteuse sur une sémantique de rafraîchissement explicite, alors que les requêtes normales à version de source continuent de réagir via `useChangeVersion`.",
+        },
+        {
+          name: "suppressActionInvalidationFor",
+          type: "string[]",
+          optional: true,
+          description:
+            "Noms d'actions dont les événements de synchronisation ne doivent pas invalider toutes les requêtes d'action. Uniquement pour les actions en arrière-plan à haut volume qui effectuent déjà leur propre invalidation restreinte.",
+        },
+        {
+          name: "queryKeys",
+          type: "string[]",
+          optional: true,
+          description:
+            "Obsolète et ignoré. Conservé pour les anciens sites d'appel.",
+        },
+      ],
+    },
+  ]}
+  returns={{ type: "void" }}
+/>
+
+Ce hook est destiné à maintenir l'UI synchronisée avec les changements de base de données qui se produisent en dehors de vos propres actions, comme une écriture de l'agent, un webhook, ou un changement effectué depuis un autre onglet du navigateur. Il écoute les changements via des événements envoyés par le serveur, et revient à l'interrogation lorsque les événements envoyés par le serveur ne sont pas disponibles.
+
+```ts
+import { useDbSync } from "@agent-native/core/client/hooks";
+import { useQueryClient } from "@tanstack/react-query";
+
+function App() {
+  const queryClient = useQueryClient();
+
+  useDbSync({
+    queryClient,
+    pollUrl: "/_agent-native/poll",
+    onEvent: (data) => console.log("Data changed:", data),
+  });
+
+  return <div>...</div>;
+}
+```
+
+Pour les CRUD normaux, préférez `useActionQuery()` et `useActionMutation()`. Les actions de mutation émettent `source: "action"`, donc ces hooks se relancent immédiatement. Les changements provenant de l'agent, d'un webhook, ou d'un autre onglet arrivent via `useDbSync()` à la place, via SSE ou le secours par interrogation. Si un appel `useQuery()` brut a besoin de se synchroniser sur une clé personnalisée, voir [Synchronisation interne](/docs/client-sync-internals). Si vous avez besoin d'écrire directement dans `application_state`, voir [Avancé](/docs/client-advanced).
+
+## Quelle est la prochaine étape
+
+- [**Vue d’ensemble**](/docs/client-overview) — la disposition des répertoires `app/` et `public/` dans laquelle vivent les hooks de cette page
+- [**Chat de l’Agent**](/docs/client-agent-chat) — envoyer des prompts et préparer du contexte pour l'agent
+- [**Actions**](/docs/actions) — la surface `defineAction` derrière chaque hook de cette page
+- [**Avancé**](/docs/client-advanced) — accès direct à `application_state`
+- [**Synchronisation interne**](/docs/client-sync-internals) — synchroniser un `useQuery` brut avec `useChangeVersion`
+- [**Synchronisation en direct**](/docs/key-concepts#polling-sync) — comment `useDbSync` maintient l'UI à jour
