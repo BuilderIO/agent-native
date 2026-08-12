@@ -171,11 +171,10 @@ describe("mountA2A auth", () => {
     ]);
   });
 
-  // The public card may only name actions with `requiresAuth !== true`, while
-  // `actions/invoke` only runs ones with `requiresAuth === true`. Advertising
-  // the public set to a verified sibling reported "no callable actions" for an
-  // app it could in fact call, so callers fell back to open-ended delegation.
-  it("shows a verified caller the skills it can actually invoke", async () => {
+  // The anonymous card cannot disclose authenticated capabilities. A verified
+  // caller needs both exact direct reads and message-only writes so it can
+  // choose delegation without learning a mutation schema.
+  it("shows a verified caller its direct and delegated capabilities", async () => {
     const cardConfig = {
       ...config,
       publicSkillsOnly: true,
@@ -185,7 +184,15 @@ describe("mountA2A auth", () => {
           id: "query-agent-native-analytics",
           name: "query-agent-native-analytics",
           description: "Read-only SQL over first-party analytics",
+          readOnly: true,
           publicAgent: { expose: true, readOnly: true, requiresAuth: true },
+        },
+        {
+          id: "create-campaign",
+          name: "create-campaign",
+          description: "Create a campaign from an objective",
+          readOnly: false,
+          publicAgent: { expose: true, readOnly: false, requiresAuth: true },
         },
       ],
     } as unknown as A2AConfig;
@@ -220,7 +227,8 @@ describe("mountA2A auth", () => {
     });
     expect(
       authenticated.skills.map((skill: { id: string }) => skill.id),
-    ).toEqual(["query-agent-native-analytics"]);
+    ).toEqual(["query-agent-native-analytics", "create-campaign"]);
+    expect(authenticated.skills[1]).not.toHaveProperty("inputSchema");
   });
 
   it("requires the owner's browser session for approval pages", async () => {

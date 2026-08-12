@@ -234,12 +234,10 @@ export function mountA2A(
       const baseUrl = `${protocol}://${host}`;
 
       // The anonymous card may only advertise actions safe to disclose
-      // publicly (`requiresAuth !== true`), but `actions/invoke` only ever
-      // runs the opposite set (`requiresAuth === true`). Those are disjoint,
-      // so an unauthenticated card said "no directly callable actions" about
-      // an app whose actions a verified sibling can call — and callers fell
-      // back to open-ended delegation. Show a verified caller what it can
-      // actually invoke; anonymous fetches keep the public list unchanged.
+      // publicly (`requiresAuth !== true`). A verified caller instead sees the
+      // authenticated surface: schemas for direct read invocation plus concise
+      // message-only capabilities for writes owned by the receiving agent.
+      // Anonymous fetches keep the public list unchanged.
       let skills = filterPublicAgentCardSkills(config);
       if (config.authenticatedSkills?.length) {
         const bearer = extractBearerToken(
