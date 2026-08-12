@@ -24605,7 +24605,9 @@ function DesignEditor() {
             ?.connectionId,
         ),
       );
-      const structureAcks = structureEdits
+      // Acks answer the localhost bridge that raised the request, so they only
+      // cover edits that went through it.
+      const structureAcks = locallyVerifiableStructureEdits
         .filter((edit) => Boolean(edit.requestId))
         .map((edit) => ({
           screenId: edit.screenId,
@@ -24643,7 +24645,10 @@ function DesignEditor() {
           );
           return;
         }
-        finalizeWithoutStructureVerification();
+        // A staged handoff is sitting in the host's composer unsent, so the
+        // edits are still pending: clearing them here loses the work if the
+        // user edits the prefill or dismisses it.
+        if (!delivery.staged) finalizeWithoutStructureVerification();
         if (delivery.target === "local") setActiveLeftPanel("agent");
         toast.success(t("designEditor.pendingVisualStyles.sentToast"));
         return;
@@ -24728,8 +24733,10 @@ function DesignEditor() {
           return;
         }
 
+        // Only the edits this branch actually verifies: waiting on a snapshot
+        // for a screen with no verification path times the whole batch out.
         const screenIds = Array.from(
-          new Set(structureEdits.map((edit) => edit.screenId)),
+          new Set(locallyVerifiableStructureEdits.map((edit) => edit.screenId)),
         );
         setPendingStructureVerificationStatus("awaiting-source");
         if (delivery.target === "local") setActiveLeftPanel("agent");
@@ -24749,7 +24756,7 @@ function DesignEditor() {
           ) {
             const runtimeResult = verifyPendingStructuresRuntime(
               runtimeSnapshots,
-              structureEdits,
+              locallyVerifiableStructureEdits,
             );
             if (runtimeResult.ok) {
               if (structureAcks.length > 0) {

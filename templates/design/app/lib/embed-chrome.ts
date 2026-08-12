@@ -20,7 +20,10 @@ function storageKey(win: Window): string {
   return `${STORAGE_KEY_PREFIX}${match?.[1] ?? "unscoped"}`;
 }
 
-let requested: boolean | null = null;
+// Keyed, not a bare boolean: an SPA navigation to a different design keeps this
+// module alive, and a plain cached `true` would follow the user there.
+let cachedKey: string | null = null;
+let requested = false;
 
 function readFromUrl(win: Window): boolean {
   try {
@@ -40,11 +43,13 @@ function readFromUrl(win: Window): boolean {
  */
 export function isEmbedChromeRequested(): boolean {
   if (typeof window === "undefined") return false;
-  if (requested !== null) return requested;
+  const key = storageKey(window);
+  if (cachedKey === key) return requested;
+  cachedKey = key;
   if (readFromUrl(window)) {
     requested = true;
     try {
-      window.sessionStorage?.setItem(storageKey(window), "1");
+      window.sessionStorage?.setItem(key, "1");
     } catch {
       // coercion-ok: sandboxed hosts refuse session storage; the module-level
       // value still covers the single-page boot path.
@@ -52,7 +57,7 @@ export function isEmbedChromeRequested(): boolean {
     return true;
   }
   try {
-    requested = window.sessionStorage?.getItem(storageKey(window)) === "1";
+    requested = window.sessionStorage?.getItem(key) === "1";
   } catch {
     requested = false;
   }
@@ -60,5 +65,6 @@ export function isEmbedChromeRequested(): boolean {
 }
 
 export function _resetEmbedChromeForTests(): void {
-  requested = null;
+  cachedKey = null;
+  requested = false;
 }

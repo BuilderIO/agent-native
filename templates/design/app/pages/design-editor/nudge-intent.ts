@@ -465,13 +465,27 @@ export function resolveElementNudgeIntent(
   // element that really is inline or a flex child is handled above — the parser
   // sees those, and a rendered value always wins over this default.
   const rendered = args.selectedElement.parentDisplay;
+  // A rendered grid needs its column count to map an arrow onto the next visual
+  // cell, and `display: grid` alone does not carry it. Guessing "flex row" walks
+  // DOM order instead, which is a different element in any multi-column grid.
+  if (
+    parsedContainer.kind === "none" &&
+    !escapesFlow(position) &&
+    (rendered === "grid" || rendered === "inline-grid")
+  ) {
+    return { kind: "none" };
+  }
   const container: FlowContainerInfo =
     parsedContainer.kind === "none" && !escapesFlow(position)
       ? isRenderedFlowDisplay(rendered)
-        ? // A flex/grid parent the parser could not see. Axis is unknown from
-          // markup alone; the row default matches describeFlowContainer's.
+        ? // A flex parent the parser could not see. Axis is unknown from markup
+          // alone; the row default matches describeFlowContainer's.
           { ...NO_FLOW_CONTAINER, kind: "flex", axis: "horizontal" }
-        : isRenderedBlockDisplay(rendered) || rendered === undefined
+        : // `parent` null means the node is a projection root: it has no flow to
+          // reorder within, and the bridge reports `parentDisplay: undefined`
+          // for it exactly as it does for a not-yet-measured selection.
+          isRenderedBlockDisplay(rendered) ||
+            (rendered === undefined && parent !== null)
           ? BLOCK_FLOW_CONTAINER
           : parsedContainer
       : parsedContainer;

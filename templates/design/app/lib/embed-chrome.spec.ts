@@ -34,6 +34,15 @@ describe("isEmbedChromeRequested", () => {
     expect(isEmbedChromeRequested()).toBe(false);
   });
 
+  it("drops the flag on an in-tab navigation to another design", () => {
+    setUrl("/visual-edit/d1?embedChrome=1");
+    expect(isEmbedChromeRequested()).toBe(true);
+
+    // Deliberately no reset: an SPA navigation keeps the module alive.
+    setUrl("/visual-edit/d2?editorView=overview");
+    expect(isEmbedChromeRequested()).toBe(false);
+  });
+
   it("survives the editor rewriting its own URL", () => {
     setUrl("/visual-edit/d1?editorView=overview&embedChrome=1");
     expect(isEmbedChromeRequested()).toBe(true);

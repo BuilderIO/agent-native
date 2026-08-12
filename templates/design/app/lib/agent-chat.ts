@@ -45,6 +45,12 @@ export function sendToDesignAgentChatAndConfirm(
 export interface DesignSourceHandoffResult {
   target: "host" | "local";
   delivered: boolean;
+  /**
+   * The host prefilled its composer and the user has not sent it yet. Callers
+   * must not treat this as applied: discarding pending edits here loses work
+   * the agent was never asked to do.
+   */
+  staged?: boolean;
   reason?: string;
   tabId?: string;
 }
@@ -76,7 +82,7 @@ export async function sendDesignSourceHandoffAndConfirm(
     return {
       target: "host",
       delivered: posted,
-      ...(posted ? {} : { reason: "host-post-failed" }),
+      ...(posted ? { staged: true } : { reason: "host-post-failed" }),
     };
   }
 

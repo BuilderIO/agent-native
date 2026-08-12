@@ -82,6 +82,32 @@ const STACK = [
 ].join("");
 
 describe("resolveElementNudgeIntent in normal block flow", () => {
+  it("refuses a rendered grid, whose column count it cannot know", () => {
+    expect(orderAfterNudge(STACK, "alpha", "down", "grid")).toEqual({
+      kind: "none",
+    });
+  });
+
+  it("does not treat a projection root as a block child", () => {
+    const rootOnly = "<!doctype html><html><body>Only</body></html>";
+    const projection = buildCodeLayerProjection(rootOnly);
+    const rootId = projection.rootNodeIds[0]!;
+    const intent = resolveElementNudgeIntent({
+      content: rootOnly,
+      selectedElement: {
+        tagName: "html",
+        sourceId: rootId,
+        selector: `[data-agent-native-node-id="${rootId}"]`,
+        classes: [],
+        computedStyles: {},
+        boundingRect: { x: 0, y: 0, width: 0, height: 0 },
+      } as unknown as ElementInfo,
+      direction: "down",
+      largeStep: false,
+    });
+    expect(intent.kind).not.toBe("reorder");
+  });
+
   it("reorders down the block axis when the browser reports display:block", () => {
     expect(orderAfterNudge(STACK, "alpha", "down", "block")).toEqual([
       "beta",
