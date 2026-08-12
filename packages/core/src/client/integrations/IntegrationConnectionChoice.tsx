@@ -74,7 +74,6 @@ export function IntegrationConnectionChoice({
               </button>
             ) : null}
           </div>
-
         </div>
       </main>
     </div>

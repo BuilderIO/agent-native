@@ -1584,18 +1584,24 @@ function SetupWizard({
     provider,
     credentialRefs,
   );
+  const hasCredentialStep = Boolean(
+    provider &&
+    (provider.credentialKeys.length > 0 || credentialRefs.length > 0),
+  );
   const selectedApps = form?.selectedApps ?? [];
   const stepItems = [
     t("integrations.provider"),
-    t("integrations.refs"),
+    ...(hasCredentialStep ? [t("integrations.refs")] : []),
     t("integrations.access"),
   ];
-  const canAdvance =
-    step === 0
-      ? Boolean(form?.label.trim())
-      : step === 1
-        ? missingCredentialRefs.length === 0
-        : form?.grantMode === "all-apps" || selectedApps.length > 0;
+  const isProviderStep = step === 0;
+  const isCredentialStep = hasCredentialStep && step === 1;
+  const isAccessStep = step === stepItems.length - 1;
+  const canAdvance = isProviderStep
+    ? Boolean(form?.label.trim())
+    : isCredentialStep
+      ? missingCredentialRefs.length === 0
+      : form?.grantMode === "all-apps" || selectedApps.length > 0;
   const suggestedGrantApps = useMemo(() => {
     const map = new Map<
       string,
@@ -1653,10 +1659,8 @@ function SetupWizard({
             </div>
             <div className="h-1 overflow-hidden rounded-full bg-muted">
               <div
-                className={cx(
-                  "h-full rounded-full bg-primary transition-[width] duration-200 ease-[var(--ease-out-strong)]",
-                  step === 0 ? "w-1/3" : step === 1 ? "w-2/3" : "w-full",
-                )}
+                className="h-full rounded-full bg-primary transition-[width] duration-200 ease-[var(--ease-out-strong)]"
+                style={{ width: `${((step + 1) / stepItems.length) * 100}%` }}
               />
             </div>
           </div>
@@ -1686,7 +1690,7 @@ function SetupWizard({
                 </div>
               ) : null}
 
-              {step === 0 ? (
+              {isProviderStep ? (
                 <div className="grid gap-6">
                   <div className="flex items-center gap-3">
                     <span className="flex size-10 shrink-0 items-center justify-center rounded-lg border border-border bg-card">
@@ -1757,7 +1761,7 @@ function SetupWizard({
                 </div>
               ) : null}
 
-              {step === 1 ? (
+              {isCredentialStep ? (
                 <CredentialRefsEditor
                   provider={provider}
                   refs={form.credentialRefs}
@@ -1769,7 +1773,7 @@ function SetupWizard({
                 />
               ) : null}
 
-              {step === 2 ? (
+              {isAccessStep ? (
                 <div className="grid gap-5">
                   <div>
                     <h2 className="text-lg font-semibold tracking-[-0.02em] text-foreground">
@@ -1900,7 +1904,7 @@ function SetupWizard({
                 {t("integrations.back")}
               </Button>
             ) : null}
-            {step < 2 ? (
+            {!isAccessStep ? (
               <Button
                 type="button"
                 onClick={() => onStepChange(step + 1)}

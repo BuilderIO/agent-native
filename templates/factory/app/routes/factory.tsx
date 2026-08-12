@@ -1681,181 +1681,194 @@ function SettingsView({ t }: { t: ReturnType<typeof useT> }) {
   const sentryConfigured = Boolean(
     sentryOrgSlug.trim() || sentryProjectSlug.trim(),
   );
+  const sourceRoutingConfigured =
+    [slackConfigured, githubConfigured, sentryConfigured].filter(Boolean)
+      .length;
 
   if (query.isLoading) {
     return (
-      <div className="w-full max-w-5xl space-y-6 p-4 lg:p-6">
+      <div className="mx-auto w-full max-w-3xl space-y-6 p-4 lg:p-6">
         <FactorySettingsSkeleton t={t} />
       </div>
     );
   }
 
   return (
-    <div className="w-full max-w-5xl space-y-6 p-4 lg:p-6">
-      <SettingsGroup title="Sources">
+    <div className="mx-auto w-full max-w-3xl space-y-6 p-4 lg:p-6">
+      <SettingsGroup>
         <SettingsRow
-          label="Slack"
-          status={
-            slackConfigured ? (
-              <span className="rounded-full bg-accent px-2 py-0.5 text-[10px] font-medium text-accent-foreground">
-                Connected
+          label="Workspace integrations"
+          icon={<IconPlugConnected className="size-4" />}
+          control={
+            <Button asChild type="button" variant="outline">
+              <Link to={buildSettingsRoute("integrations")}>Manage</Link>
+            </Button>
+          }
+        />
+        <SettingsRow
+          label="Source routing"
+          icon={
+            <div
+              className="flex items-center -space-x-1.5"
+              aria-label="Slack, GitHub, and Sentry"
+            >
+              <span className="flex size-5 items-center justify-center rounded-full bg-background text-muted-foreground ring-1 ring-border">
+                <IconBrandSlack className="size-3.5" />
               </span>
-            ) : undefined
+              <span className="flex size-5 items-center justify-center rounded-full bg-background text-muted-foreground ring-1 ring-border">
+                <IconBrandGithub className="size-3.5" />
+              </span>
+              <span className="flex size-5 items-center justify-center rounded-full bg-background text-muted-foreground ring-1 ring-border">
+                <IconBug className="size-3.5" />
+              </span>
+            </div>
+          }
+          status={
+            <span className="text-xs text-muted-foreground">
+              {sourceRoutingConfigured}/3 configured
+            </span>
           }
           control={
             <FactorySourcePopover
-              label="Slack"
-              connected={slackConfigured}
+              label="Source routing"
+              configured={sourceRoutingConfigured > 0}
               saving={mutation.isPending}
               onSave={saveSettings}
             >
               <div className="grid gap-3">
-                <label className="grid gap-1.5 text-xs font-medium text-foreground">
-                  {t("triage.slackWorkspace")}
-                  <select
-                    aria-label={t("triage.slackWorkspace")}
-                    value={workspace}
-                    onChange={(event) =>
-                      setWorkspace(
-                        event.target.value as "primary" | "secondary",
-                      )
-                    }
-                    className="h-9 w-full rounded-md border bg-background px-3 text-sm"
-                  >
-                    <option value="primary">primary</option>
-                    <option value="secondary">secondary</option>
-                  </select>
-                </label>
-                <label className="grid gap-1.5 text-xs font-medium text-foreground">
-                  {t("triage.slackChannelId")}
-                  <Input
-                    aria-label={t("triage.slackChannelId")}
-                    value={channelId}
-                    onChange={(event) => setChannelId(event.target.value)}
-                    placeholder={t("triage.slackChannelPlaceholder")}
-                  />
-                </label>
-                <label className="grid gap-1.5 text-xs font-medium text-foreground">
-                  {t("triage.slackChannelName")}
-                  <Input
-                    aria-label={t("triage.slackChannelName")}
-                    value={channelName}
-                    onChange={(event) => setChannelName(event.target.value)}
-                    placeholder={t("triage.slackChannelNamePlaceholder")}
-                  />
-                </label>
-                <label className="flex items-center justify-between gap-3 text-xs font-medium text-foreground">
-                  {t("triage.enablePolling")}
-                  <Checkbox
-                    aria-label={t("triage.enablePolling")}
-                    checked={polling}
-                    onCheckedChange={(checked) => setPolling(checked === true)}
-                  />
-                </label>
+                <div className="grid gap-3 rounded-lg bg-muted/35 p-3">
+                  <div className="flex items-center gap-2 text-xs font-medium">
+                    <IconBrandSlack className="size-4 text-muted-foreground" />
+                    Slack
+                  </div>
+                  <label className="grid gap-1.5 text-xs font-medium text-foreground">
+                    {t("triage.slackWorkspace")}
+                    <select
+                      aria-label={t("triage.slackWorkspace")}
+                      value={workspace}
+                      onChange={(event) =>
+                        setWorkspace(
+                          event.target.value as "primary" | "secondary",
+                        )
+                      }
+                      className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                    >
+                      <option value="primary">primary</option>
+                      <option value="secondary">secondary</option>
+                    </select>
+                  </label>
+                  <label className="grid gap-1.5 text-xs font-medium text-foreground">
+                    {t("triage.slackChannelId")}
+                    <Input
+                      aria-label={t("triage.slackChannelId")}
+                      value={channelId}
+                      onChange={(event) => setChannelId(event.target.value)}
+                      placeholder={t("triage.slackChannelPlaceholder")}
+                    />
+                  </label>
+                  <label className="grid gap-1.5 text-xs font-medium text-foreground">
+                    {t("triage.slackChannelName")}
+                    <Input
+                      aria-label={t("triage.slackChannelName")}
+                      value={channelName}
+                      onChange={(event) => setChannelName(event.target.value)}
+                      placeholder={t("triage.slackChannelNamePlaceholder")}
+                    />
+                  </label>
+                  <label className="flex items-center justify-between gap-3 text-xs font-medium text-foreground">
+                    {t("triage.enablePolling")}
+                    <Checkbox
+                      aria-label={t("triage.enablePolling")}
+                      checked={polling}
+                      onCheckedChange={(checked) =>
+                        setPolling(checked === true)
+                      }
+                    />
+                  </label>
+                </div>
+                <div className="grid gap-3 rounded-lg bg-muted/35 p-3">
+                  <div className="flex items-center gap-2 text-xs font-medium">
+                    <IconBrandGithub className="size-4 text-muted-foreground" />
+                    GitHub
+                  </div>
+                  <label className="grid gap-1.5 text-xs font-medium text-foreground">
+                    {t("triage.repository")}
+                    <Input
+                      aria-label={t("triage.repository")}
+                      value={repository}
+                      onChange={(event) => setRepository(event.target.value)}
+                      placeholder={t("triage.repositoryPlaceholder")}
+                    />
+                  </label>
+                  <label className="flex items-center justify-between gap-3 text-xs font-medium text-foreground">
+                    {t("triage.enableGithubPolling")}
+                    <Checkbox
+                      aria-label={t("triage.enableGithubPolling")}
+                      checked={githubPolling}
+                      onCheckedChange={(checked) =>
+                        setGithubPolling(checked === true)
+                      }
+                    />
+                  </label>
+                </div>
+                <div className="grid gap-3 rounded-lg bg-muted/35 p-3">
+                  <div className="flex items-center gap-2 text-xs font-medium">
+                    <IconBug className="size-4 text-muted-foreground" />
+                    Sentry
+                  </div>
+                  <label className="grid gap-1.5 text-xs font-medium text-foreground">
+                    {t("triage.sentryOrgSlug")}
+                    <Input
+                      aria-label={t("triage.sentryOrgSlug")}
+                      value={sentryOrgSlug}
+                      onChange={(event) => setSentryOrgSlug(event.target.value)}
+                      placeholder={t("triage.sentryOrgPlaceholder")}
+                    />
+                  </label>
+                  <label className="grid gap-1.5 text-xs font-medium text-foreground">
+                    {t("triage.sentryProjectSlug")}
+                    <Input
+                      aria-label={t("triage.sentryProjectSlug")}
+                      value={sentryProjectSlug}
+                      onChange={(event) =>
+                        setSentryProjectSlug(event.target.value)
+                      }
+                      placeholder={t("triage.sentryProjectPlaceholder")}
+                    />
+                  </label>
+                  <label className="grid gap-1.5 text-xs font-medium text-foreground">
+                    {t("triage.sentryEnvironment")}
+                    <Input
+                      aria-label={t("triage.sentryEnvironment")}
+                      value={sentryEnvironment}
+                      onChange={(event) =>
+                        setSentryEnvironment(event.target.value)
+                      }
+                      placeholder={t("triage.sentryEnvironmentPlaceholder")}
+                    />
+                  </label>
+                  <label className="flex items-center justify-between gap-3 text-xs font-medium text-foreground">
+                    {t("triage.enableSentryPolling")}
+                    <Checkbox
+                      aria-label={t("triage.enableSentryPolling")}
+                      checked={sentryPolling}
+                      onCheckedChange={(checked) =>
+                        setSentryPolling(checked === true)
+                      }
+                    />
+                  </label>
+                </div>
               </div>
             </FactorySourcePopover>
           }
         />
         <SettingsRow
-          label="GitHub"
-          status={
-            githubConfigured ? (
-              <span className="rounded-full bg-accent px-2 py-0.5 text-[10px] font-medium text-accent-foreground">
-                Connected
-              </span>
-            ) : undefined
-          }
+          label="Agent access"
+          icon={<IconRobot className="size-4" />}
           control={
-            <FactorySourcePopover
-              label="GitHub"
-              connected={githubConfigured}
-              saving={mutation.isPending}
-              onSave={saveSettings}
-            >
-              <div className="grid gap-3">
-                <label className="grid gap-1.5 text-xs font-medium text-foreground">
-                  {t("triage.repository")}
-                  <Input
-                    aria-label={t("triage.repository")}
-                    value={repository}
-                    onChange={(event) => setRepository(event.target.value)}
-                    placeholder={t("triage.repositoryPlaceholder")}
-                  />
-                </label>
-                <label className="flex items-center justify-between gap-3 text-xs font-medium text-foreground">
-                  {t("triage.enableGithubPolling")}
-                  <Checkbox
-                    aria-label={t("triage.enableGithubPolling")}
-                    checked={githubPolling}
-                    onCheckedChange={(checked) =>
-                      setGithubPolling(checked === true)
-                    }
-                  />
-                </label>
-              </div>
-            </FactorySourcePopover>
-          }
-        />
-        <SettingsRow
-          label="Sentry"
-          status={
-            sentryConfigured ? (
-              <span className="rounded-full bg-accent px-2 py-0.5 text-[10px] font-medium text-accent-foreground">
-                Connected
-              </span>
-            ) : undefined
-          }
-          control={
-            <FactorySourcePopover
-              label="Sentry"
-              connected={sentryConfigured}
-              saving={mutation.isPending}
-              onSave={saveSettings}
-            >
-              <div className="grid gap-3">
-                <label className="grid gap-1.5 text-xs font-medium text-foreground">
-                  {t("triage.sentryOrgSlug")}
-                  <Input
-                    aria-label={t("triage.sentryOrgSlug")}
-                    value={sentryOrgSlug}
-                    onChange={(event) => setSentryOrgSlug(event.target.value)}
-                    placeholder={t("triage.sentryOrgPlaceholder")}
-                  />
-                </label>
-                <label className="grid gap-1.5 text-xs font-medium text-foreground">
-                  {t("triage.sentryProjectSlug")}
-                  <Input
-                    aria-label={t("triage.sentryProjectSlug")}
-                    value={sentryProjectSlug}
-                    onChange={(event) =>
-                      setSentryProjectSlug(event.target.value)
-                    }
-                    placeholder={t("triage.sentryProjectPlaceholder")}
-                  />
-                </label>
-                <label className="grid gap-1.5 text-xs font-medium text-foreground">
-                  {t("triage.sentryEnvironment")}
-                  <Input
-                    aria-label={t("triage.sentryEnvironment")}
-                    value={sentryEnvironment}
-                    onChange={(event) =>
-                      setSentryEnvironment(event.target.value)
-                    }
-                    placeholder={t("triage.sentryEnvironmentPlaceholder")}
-                  />
-                </label>
-                <label className="flex items-center justify-between gap-3 text-xs font-medium text-foreground">
-                  {t("triage.enableSentryPolling")}
-                  <Checkbox
-                    aria-label={t("triage.enableSentryPolling")}
-                    checked={sentryPolling}
-                    onCheckedChange={(checked) =>
-                      setSentryPolling(checked === true)
-                    }
-                  />
-                </label>
-              </div>
-            </FactorySourcePopover>
+            <Button asChild type="button" variant="outline">
+              <Link to={buildSettingsRoute("agent")}>Manage</Link>
+            </Button>
           }
         />
       </SettingsGroup>
@@ -1892,7 +1905,6 @@ function SettingsView({ t }: { t: ReturnType<typeof useT> }) {
         />
         <SettingsRow
           label={t("factoryRoute.automationFailureEmailReadiness")}
-          description={t("factoryRoute.automationEmailReadinessHint")}
           control={
             <span className="rounded-full border px-2.5 py-1 text-xs font-medium text-muted-foreground">
               {(query.data as TriageConfig | undefined)?.emailReadiness
@@ -1939,13 +1951,13 @@ function SettingsView({ t }: { t: ReturnType<typeof useT> }) {
 
 function FactorySourcePopover({
   label,
-  connected,
+  configured,
   saving,
   onSave,
   children,
 }: {
   label: string;
-  connected: boolean;
+  configured: boolean;
   saving: boolean;
   onSave: () => void;
   children: React.ReactNode;
@@ -1953,8 +1965,8 @@ function FactorySourcePopover({
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button type="button" variant={connected ? "outline" : "default"}>
-          {connected ? "Manage" : "Connect"}
+        <Button type="button" variant={configured ? "outline" : "default"}>
+          {configured ? "Manage" : "Configure"}
         </Button>
       </PopoverTrigger>
       <PopoverContent
@@ -1968,7 +1980,7 @@ function FactorySourcePopover({
           <div className="flex justify-end">
             <Button type="button" onClick={onSave} disabled={saving}>
               {saving && <IconLoader2 className="animate-spin" />}
-              {connected ? "Save" : "Connect"}
+              Save
             </Button>
           </div>
         </div>
