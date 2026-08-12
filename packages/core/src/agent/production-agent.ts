@@ -20,7 +20,7 @@ import {
 } from "../action.js";
 import { readAppState } from "../application-state/script-helpers.js";
 import { isReadOnlyShellCommand } from "../coding-tools/index.js";
-import { getDbExec } from "../db/client.js";
+import { getDbExec, isTransientDatabaseError } from "../db/client.js";
 import { extensionIdFromPathname } from "../extensions/path.js";
 import { preUploadAttachments } from "../file-upload/pre-upload-attachments.js";
 import { isMcpActionResult } from "../mcp-client/app-result.js";
@@ -1188,6 +1188,35 @@ export async function resolveAgentOwnerEmail(
 }
 
 const MAX_RETRIES = 3;
+const COMPLETION_DATABASE_RETRY_DELAYS_MS = [250, 750, 1_500] as const;
+
+/**
+ * A transient database failure in the completion callback used to prevent a
+ * background continuation from ever being handed off. Keep the retry bounded
+ * and database-only so a permanent persistence error still fails loudly.
+ */
+export async function runCompletionCallbackWithDatabaseRetry(
+  callback: () => void | Promise<void>,
+  options?: { sleep?: (ms: number) => Promise<void> },
+): Promise<void> {
+  const sleep =
+    options?.sleep ??
+    ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      await callback();
+      return;
+    } catch (error) {
+      const retryDelay = COMPLETION_DATABASE_RETRY_DELAYS_MS[attempt];
+      if (!isTransientDatabaseError(error) || retryDelay === undefined) {
+        throw error;
+      }
+      await sleep(retryDelay);
+    }
+  }
+}
+
 /**
  * Retry budget override for `builder_gateway_error` — the no-detail Builder
  * gateway fallback. Production data shows this code is almost never
@@ -9181,7 +9210,9 @@ export function createProductionAgentHandler(
       options.onRunComplete || trackedProgressRunId
         ? async (run: ActiveRun) => {
             try {
-              await options.onRunComplete?.(run, threadId);
+              await runCompletionCallbackWithDatabaseRetry(() =>
+                options.onRunComplete?.(run, threadId),
+              );
             } catch (err) {
               await completeTrackedProgressRun(run, err);
               throw err;

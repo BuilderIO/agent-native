@@ -2629,7 +2629,7 @@ export function App() {
       isRecording ||
       recordingFlowActive,
     width:
-      popoverView === "settings" ? 920 : popoverView === "memory" ? 440 : 360,
+      popoverView === "settings" ? 920 : popoverView === "memory" ? 440 : 320,
   });
 
   const loadPendingUploads = useCallback(async () => {

@@ -636,7 +636,7 @@ export default function EditorToolbar({
       />
 
       {/* Consolidated editor menu */}
-      <div className="flex-shrink-0">
+      <div className="ml-auto flex-shrink-0">
         <DropdownMenu>
           <Tooltip>
             <TooltipTrigger asChild>

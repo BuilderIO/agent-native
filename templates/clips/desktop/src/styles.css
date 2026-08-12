@@ -13,6 +13,7 @@
   --surface: #f7f7f7;
   --surface-hover: #f0f0f0;
   --surface-strong: #ebebeb;
+  --settings-nav-active: #ffffff;
   --fg: #171717;
   --fg-muted: #737373;
   --fg-subtle: #a3a3a3;
@@ -48,6 +49,7 @@
     --surface: #262626;
     --surface-hover: #2e2e2e;
     --surface-strong: #3d3d3d;
+    --settings-nav-active: var(--surface-hover);
     --fg: #f5f5f5;
     --fg-muted: #a3a3a3;
     --fg-subtle: #737373;
@@ -237,9 +239,9 @@ body[data-clips-route="recording-pill"] #root {
 }
 
 .settings-nav-button.is-active {
-  background: var(--bg);
+  background: var(--settings-nav-active);
   color: var(--fg);
-  box-shadow: var(--shadow-sm);
+  box-shadow: none;
 }
 
 .settings-nav-button:focus-visible {
@@ -2575,6 +2577,12 @@ body[data-clips-route="recording-pill"] #root {
   max-height: none;
   overflow: visible;
   overscroll-behavior: contain;
+}
+
+.setup.settings-page {
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
 }
 
 /* Meetings / dictation drill-ins: a touch more room under the last row so

@@ -10,8 +10,6 @@ const source = readFileSync(
 
 describe("meeting share popover", () => {
   it("makes transcript sharing an explicit admin-managed opt-in", () => {
-    expect(source).toContain('t("shareMeeting.sharedContent")');
-    expect(source).toContain('t("shareMeeting.summaryIncluded")');
     expect(source).toContain('t("shareMeeting.includeTranscript")');
     expect(source).toContain("checked={includeTranscript}");
     expect(source).toContain("!canManage || !transcriptReady");

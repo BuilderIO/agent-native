@@ -557,10 +557,17 @@ describe("ShareButton", () => {
     });
 
     const text = container.textContent ?? "";
-    expect(text).toContain("People with editing access");
     expect(text).toContain("General editing access");
-    expect(text.indexOf("Public response link")).toBeLessThan(
-      text.indexOf("People with editing access"),
+    const manageAccess = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Manage access",
+    );
+    if (!manageAccess) throw new Error("Manage access button not found");
+    act(() => manageAccess.click());
+    expect(container.textContent).toContain("People with editing access");
+    expect(
+      (container.textContent ?? "").indexOf("Public response link"),
+    ).toBeLessThan(
+      (container.textContent ?? "").indexOf("People with editing access"),
     );
   });
 

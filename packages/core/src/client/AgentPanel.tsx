@@ -37,6 +37,7 @@ import {
   IconArrowsHorizontal,
   IconArrowsMaximize,
   IconExternalLink,
+  IconShare3,
 } from "@tabler/icons-react";
 import React, {
   useState,
@@ -1252,6 +1253,7 @@ function AgentPanelInner({
 
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [shareFromMenuOpen, setShareFromMenuOpen] = useState(false);
 
   const getChatThreadShareUrl = useCallback(
     (threadId: string) => {
@@ -1342,7 +1344,7 @@ function AgentPanelInner({
             <SetupButton />
           </Suspense>
         )}
-        {!onCollapse &&
+        {(!onCollapse || shareFromMenuOpen) &&
           (() => {
             const activeTab =
               mode === "chat" && activeChatSessionId
@@ -1363,6 +1365,8 @@ function AgentPanelInner({
                 shareUrl={getChatThreadShareUrl(activeTab.id)}
                 trigger="icon"
                 triggerClassName="h-7 w-7"
+                defaultOpen={onCollapse && shareFromMenuOpen}
+                onOpenChange={onCollapse ? setShareFromMenuOpen : undefined}
               />
             );
           })()}
@@ -1483,17 +1487,20 @@ function AgentPanelInner({
                     return null;
                   }
                   return (
-                    <div className="p-1">
-                      <ShareButton
-                        resourceType="chat_thread"
-                        resourceId={activeTab.id}
-                        allowedRoles={["viewer", "editor", "admin"]}
-                        resourceTitle={activeTab.label || "Chat"}
-                        shareUrl={getChatThreadShareUrl(activeTab.id)}
-                        trigger="label-icon"
-                        triggerClassName="w-full justify-start"
-                      />
-                    </div>
+                    // ShareButton's content is portalled, so open it only
+                    // after the menu releases its dismissable layer.
+                    <DropdownMenuItem
+                      onSelect={(event) =>
+                        deferAgentPanelOverlayOpen(
+                          event,
+                          () => setHeaderMenuOpen(false),
+                          () => setShareFromMenuOpen(true),
+                        )
+                      }
+                    >
+                      <IconShare3 size={14} className="shrink-0" />
+                      Share
+                    </DropdownMenuItem>
                   );
                 })()}
               </>
@@ -1671,6 +1678,7 @@ function AgentPanelInner({
       openRunThread,
       selectCli,
       selectedCli,
+      shareFromMenuOpen,
       storageKey,
       switchMode,
       t,

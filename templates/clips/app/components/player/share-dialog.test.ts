@@ -27,7 +27,8 @@ describe("recording share popover", () => {
     );
     expect(shareDialogSource).toContain("{!isPublic ? (");
     expect(shareDialogSource).toContain("if (!isPublic)");
-    expect(shareDialogSource).not.toContain("Collapsible");
+    expect(shareDialogSource).toContain("<Collapsible");
+    expect(shareDialogSource).toContain("agentDetailsOpen");
   });
 
   it("uses known recording access while share details load", () => {

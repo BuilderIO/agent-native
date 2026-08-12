@@ -1516,9 +1516,6 @@ function RulesView({ t }: { t: ReturnType<typeof useT> }) {
           <CardTitle className="text-base">
             {t("factoryRoute.rulesTitle")}
           </CardTitle>
-          <p className="text-sm text-muted-foreground">
-            {t("factoryRoute.rulesDescription")}
-          </p>
         </CardHeader>
         <CardContent className="space-y-2">
           <Button
