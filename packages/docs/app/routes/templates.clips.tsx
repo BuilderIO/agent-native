@@ -4,7 +4,6 @@ import { Link } from "react-router";
 
 import { ClipsQuickStart } from "../components/ClipsQuickStart";
 import { sitePathForLocale } from "../components/docs-locale";
-import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import { TemplateDocsLink } from "../components/template-docs";
 import { templates, trackEvent } from "../components/TemplateCard";
 import { withTemplateSocialImage } from "../seo";
@@ -170,40 +169,6 @@ export default function ClipsTemplate() {
             <p className="mb-6 text-base leading-7 text-[var(--fg-secondary)] sm:text-lg sm:leading-relaxed">
               {t("templateLanding.clips.s008")}
             </p>
-
-            <div className="template-detail-actions mb-8 grid grid-cols-2 items-stretch gap-3 sm:flex sm:flex-wrap sm:items-center">
-              <a
-                href="https://clips.agent-native.com"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 rounded-xl bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
-                onClick={(event) => {
-                  applyFirstTouchAttributionToLink(event.currentTarget);
-                  trackEvent("try live demo", {
-                    template: "clips",
-                    location: "landing_page",
-                  });
-                }}
-              >
-                {t("templateLanding.clips.s009")}
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-                  <polyline points="15 3 21 3 21 9" />
-                  <line x1="10" y1="14" x2="21" y2="3" />
-                </svg>
-              </a>
-              <TemplateDocsLink template={template} location="landing_page" />
-              <CliCopy />
-            </div>
           </div>
 
           <div className="overflow-hidden rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)]">
