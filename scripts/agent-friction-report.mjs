@@ -84,13 +84,13 @@ const PATTERNS = [
   {
     key: "no-progress",
     label: "Had to chase status on a long-running run",
-    fixedBy: "unstated — no owning skill yet",
+    fixedBy: ".agents/skills/reporting-progress (2026-08-12)",
     re: /\b(hows? (it going|we looking)|what'?s the status|are we done|you done|did you finish|how close|still (going|running|working)|progress check|any update)\b/i,
   },
   {
     key: "cross-thread-interference",
     label: "Agent acted on other agents' threads or work uninvited",
-    fixedBy: "unstated — no owning skill yet",
+    fixedBy: ".agents/skills/reporting-progress (2026-08-12)",
     re: /\b(other (chats?|threads?|agents?)|pause (their|other)|don'?t (tell|message) (other|the other)|didn'?t ask you to (touch|message))\b/i,
   },
 ];

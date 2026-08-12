@@ -3,6 +3,10 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import {
+  getDefaultMcpIntegrations,
+  McpIntegrationLogo,
+} from "@agent-native/core/client/resources";
+import {
   IconChevronRight,
   IconLink,
   IconPlugConnected,
@@ -88,6 +92,38 @@ function inferProviderFromKey(key: string, label: string): string {
     if (haystack.includes(provider)) return provider;
   }
   return "other";
+}
+
+const MCP_INTEGRATIONS_BY_ID = new Map(
+  getDefaultMcpIntegrations().map((integration) => [
+    integration.id,
+    integration,
+  ]),
+);
+
+const CREDENTIAL_PROVIDER_LOGO_IDS: Record<string, string> = {
+  google: "google-workspace",
+  bigquery: "google-workspace",
+  jira: "atlassian",
+};
+
+function credentialLogo(service: Service) {
+  const providerId = inferProviderFromKey(service.key, service.label);
+  const integration = MCP_INTEGRATIONS_BY_ID.get(
+    CREDENTIAL_PROVIDER_LOGO_IDS[providerId] ?? providerId,
+  );
+  if (!integration?.logoUrl) {
+    return <IconPlugConnected className="size-4 text-muted-foreground" />;
+  }
+  return (
+    <McpIntegrationLogo
+      name={service.label}
+      logoUrl={integration.logoUrl}
+      integrationId={integration.id}
+      className="size-full rounded-md border-0 bg-transparent"
+      imageClassName="size-full p-1"
+    />
+  );
 }
 
 function ConnectDialog({
@@ -248,7 +284,7 @@ function ConnectorCard({
     <>
       <article className="flex min-w-0 items-center gap-3 border-b border-border/60 py-3.5 last:border-b-0">
         <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-muted">
-          <IconPlugConnected className="size-4 text-muted-foreground" />
+          {credentialLogo(service)}
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-2">

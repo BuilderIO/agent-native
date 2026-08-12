@@ -3160,15 +3160,8 @@ function SettingsPanelContent({
                 label="Hosting"
                 description="Deploy the app to the cloud."
                 control={
-                  <ManualSetupCard
-                    title="Set up manually"
-                    hint="Deploy manually to Netlify, Vercel, Cloudflare, or any Nitro-supported target."
-                    docsUrl="https://www.builder.io/c/docs/agent-native-deployment?utm_source=agent-native&utm_medium=product&utm_campaign=onboarding&utm_content=deployment_settings"
-                    dim={connected}
-                    bare
-                    popover
-                    popoverLabel="Manage"
-                    summaryContent={
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    {!connected && (
                       <UseBuilderCard
                         builderFlow={builderFlow}
                         connectUrl={connectUrl}
@@ -3178,9 +3171,33 @@ function SettingsPanelContent({
                         credentialSource={credentialSource}
                         trackingSource="hosting_settings"
                         trackingFlow="hosting"
+                        compact
                       />
-                    }
-                  />
+                    )}
+                    <ManualSetupCard
+                      title="Set up manually"
+                      hint="Deploy manually to Netlify, Vercel, Cloudflare, or any Nitro-supported target."
+                      docsUrl="https://www.builder.io/c/docs/agent-native-deployment?utm_source=agent-native&utm_medium=product&utm_campaign=onboarding&utm_content=deployment_settings"
+                      dim={connected}
+                      bare
+                      popover
+                      popoverLabel="Manage"
+                      summaryContent={
+                        connected ? (
+                          <UseBuilderCard
+                            builderFlow={builderFlow}
+                            connectUrl={connectUrl}
+                            connected={connected}
+                            orgName={orgName}
+                            envManaged={envManaged}
+                            credentialSource={credentialSource}
+                            trackingSource="hosting_settings"
+                            trackingFlow="hosting"
+                          />
+                        ) : undefined
+                      }
+                    />
+                  </div>
                 }
               />
             )}
@@ -3190,15 +3207,8 @@ function SettingsPanelContent({
                 label="Database"
                 description="Connect persistent app storage."
                 control={
-                  <ManualSetupCard
-                    title="Set up manually"
-                    hint="Set DATABASE_URL in your .env to connect a supported database."
-                    docsUrl="https://www.builder.io/c/docs/agent-native-database?utm_source=agent-native&utm_medium=product&utm_campaign=onboarding&utm_content=database_settings"
-                    dim={connected}
-                    bare
-                    popover
-                    popoverLabel="Manage"
-                    summaryContent={
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    {!connected && (
                       <UseBuilderCard
                         builderFlow={builderFlow}
                         connectUrl={connectUrl}
@@ -3208,9 +3218,33 @@ function SettingsPanelContent({
                         credentialSource={credentialSource}
                         trackingSource="database_settings"
                         trackingFlow="database"
+                        compact
                       />
-                    }
-                  />
+                    )}
+                    <ManualSetupCard
+                      title="Set up manually"
+                      hint="Set DATABASE_URL in your .env to connect a supported database."
+                      docsUrl="https://www.builder.io/c/docs/agent-native-database?utm_source=agent-native&utm_medium=product&utm_campaign=onboarding&utm_content=database_settings"
+                      dim={connected}
+                      bare
+                      popover
+                      popoverLabel="Manage"
+                      summaryContent={
+                        connected ? (
+                          <UseBuilderCard
+                            builderFlow={builderFlow}
+                            connectUrl={connectUrl}
+                            connected={connected}
+                            orgName={orgName}
+                            envManaged={envManaged}
+                            credentialSource={credentialSource}
+                            trackingSource="database_settings"
+                            trackingFlow="database"
+                          />
+                        ) : undefined
+                      }
+                    />
+                  </div>
                 }
               />
             )}
@@ -3220,15 +3254,8 @@ function SettingsPanelContent({
                 label="File uploads"
                 description="Store avatars and chat attachments."
                 control={
-                  <ManualSetupCard
-                    title="Set up manually"
-                    hint="Use an S3-compatible bucket with a stable public URL for durable chat attachments."
-                    docsUrl="https://www.builder.io/c/docs/agent-native-file-uploads?utm_source=agent-native&utm_medium=product&utm_campaign=onboarding&utm_content=file_upload_settings"
-                    dim={connected}
-                    bare
-                    popover
-                    popoverLabel="Manage"
-                    summaryContent={
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    {!connected && (
                       <UseBuilderCard
                         builderFlow={builderFlow}
                         connectUrl={connectUrl}
@@ -3238,11 +3265,35 @@ function SettingsPanelContent({
                         credentialSource={credentialSource}
                         trackingSource="file_upload_settings"
                         trackingFlow="file_upload"
+                        compact
                       />
-                    }
-                  >
-                    <FileStorageSettingsForm />
-                  </ManualSetupCard>
+                    )}
+                    <ManualSetupCard
+                      title="Set up manually"
+                      hint="Use an S3-compatible bucket with a stable public URL for durable chat attachments."
+                      docsUrl="https://www.builder.io/c/docs/agent-native-file-uploads?utm_source=agent-native&utm_medium=product&utm_campaign=onboarding&utm_content=file_upload_settings"
+                      dim={connected}
+                      bare
+                      popover
+                      popoverLabel="Manage"
+                      summaryContent={
+                        connected ? (
+                          <UseBuilderCard
+                            builderFlow={builderFlow}
+                            connectUrl={connectUrl}
+                            connected={connected}
+                            orgName={orgName}
+                            envManaged={envManaged}
+                            credentialSource={credentialSource}
+                            trackingSource="file_upload_settings"
+                            trackingFlow="file_upload"
+                          />
+                        ) : undefined
+                      }
+                    >
+                      <FileStorageSettingsForm />
+                    </ManualSetupCard>
+                  </div>
                 }
               />
             )}
@@ -3252,15 +3303,8 @@ function SettingsPanelContent({
                 label="Authentication"
                 description="Set up sign-in and access control."
                 control={
-                  <ManualSetupCard
-                    title="Set up manually"
-                    hint="Configure Better Auth and optional Google or GitHub providers."
-                    docsUrl="https://www.builder.io/c/docs/agent-native-authentication?utm_source=agent-native&utm_medium=product&utm_campaign=onboarding&utm_content=authentication_settings"
-                    dim={connected}
-                    bare
-                    popover
-                    popoverLabel="Manage"
-                    summaryContent={
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    {!connected && (
                       <UseBuilderCard
                         builderFlow={builderFlow}
                         connectUrl={connectUrl}
@@ -3270,9 +3314,33 @@ function SettingsPanelContent({
                         credentialSource={credentialSource}
                         trackingSource="auth_settings"
                         trackingFlow="auth"
+                        compact
                       />
-                    }
-                  />
+                    )}
+                    <ManualSetupCard
+                      title="Set up manually"
+                      hint="Configure Better Auth and optional Google or GitHub providers."
+                      docsUrl="https://www.builder.io/c/docs/agent-native-authentication?utm_source=agent-native&utm_medium=product&utm_campaign=onboarding&utm_content=authentication_settings"
+                      dim={connected}
+                      bare
+                      popover
+                      popoverLabel="Manage"
+                      summaryContent={
+                        connected ? (
+                          <UseBuilderCard
+                            builderFlow={builderFlow}
+                            connectUrl={connectUrl}
+                            connected={connected}
+                            orgName={orgName}
+                            envManaged={envManaged}
+                            credentialSource={credentialSource}
+                            trackingSource="auth_settings"
+                            trackingFlow="auth"
+                          />
+                        ) : undefined
+                      }
+                    />
+                  </div>
                 }
               />
             )}
