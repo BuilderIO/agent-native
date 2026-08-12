@@ -54,6 +54,10 @@ function checkedRemoteUrl(value: string | URL, label: string): URL {
   return result.url;
 }
 
+function canonicalServerUrl(value: string): string {
+  return checkedRemoteUrl(value, "server").toString();
+}
+
 function guardedOAuthFetch(): GuardedFetch {
   const allowedPrivateOrigins = (
     process.env[MCP_OAUTH_PRIVATE_ORIGINS_ENV] ?? ""
@@ -495,13 +499,14 @@ export async function readMcpOAuthCredentials(options: {
   serverUrl?: string;
 }): Promise<McpOAuthCredentialBundle | null> {
   if (!options.serverUrl) return null;
+  const serverUrl = canonicalServerUrl(options.serverUrl);
   const state = await getMcpOAuthConnectionState({
     ...options,
-    serverUrl: options.serverUrl,
+    serverUrl,
   });
   if (state.kind === "missing" || state.kind === "malformed") return null;
   const parsed = state.credential;
-  if (parsed.serverUrl !== options.serverUrl) return null;
+  if (parsed.serverUrl !== serverUrl) return null;
   if (!validateRemoteUrl(parsed.serverUrl).ok) return null;
   if (parsed.discoveryState) {
     try {
@@ -519,13 +524,13 @@ export async function getMcpOAuthConnectionState(options: {
   scopeId: string;
   serverUrl: string;
 }): Promise<OAuthCredentialState<McpOAuthCredentialBundle>> {
+  const serverUrl = canonicalServerUrl(options.serverUrl);
   return readOAuthCredentialState<McpOAuthCredentialBundle>(
-    credentialIdentity(options),
+    credentialIdentity({ ...options, serverUrl }),
     {
       allowLegacy: true,
       legacyAccountKey: true,
-      validateCredential: (credential) =>
-        credential.serverUrl === options.serverUrl,
+      validateCredential: (credential) => credential.serverUrl === serverUrl,
     },
   );
 }
@@ -537,15 +542,16 @@ export async function deleteMcpOAuthCredentials(options: {
   serverUrl?: string;
 }): Promise<boolean> {
   if (!options.serverUrl) return false;
+  const serverUrl = canonicalServerUrl(options.serverUrl);
   const identity = credentialIdentity({
     ...options,
-    serverUrl: options.serverUrl,
+    serverUrl,
   });
   const result = await revokeOAuthCredential(identity, {
     allowLegacy: true,
     legacyAccountKey: true,
     validateCredential: (credential: McpOAuthCredentialBundle) =>
-      credential.serverUrl === options.serverUrl,
+      credential.serverUrl === serverUrl,
   });
   return result.local === "deleted";
 }
@@ -556,12 +562,12 @@ export async function revokeMcpOAuthCredentials(options: {
   scopeId: string;
   serverUrl: string;
 }): Promise<OAuthRevocationResult> {
-  const identity = credentialIdentity(options);
+  const serverUrl = canonicalServerUrl(options.serverUrl);
+  const identity = credentialIdentity({ ...options, serverUrl });
   return revokeOAuthCredential<McpOAuthCredentialBundle>(identity, {
     allowLegacy: true,
     legacyAccountKey: true,
-    validateCredential: (credential) =>
-      credential.serverUrl === options.serverUrl,
+    validateCredential: (credential) => credential.serverUrl === serverUrl,
     revoke: async ({ credential }) => {
       const endpoint = (
         credential.discoveryState?.authorizationServerMetadata as
@@ -604,14 +610,15 @@ export async function getMcpOAuthAccessToken(options: {
   scopeId: string;
   serverUrl: string;
 }): Promise<string | null> {
-  if (!validateRemoteUrl(options.serverUrl).ok) return null;
+  const validation = validateRemoteUrl(options.serverUrl);
+  if (!validation.ok || !validation.url) return null;
+  const serverUrl = validation.url.toString();
   const result = await resolveOAuthCredentialAccess<McpOAuthCredentialBundle>(
-    credentialIdentity(options),
+    credentialIdentity({ ...options, serverUrl }),
     {
       allowLegacy: true,
       legacyAccountKey: true,
-      validateCredential: (credential) =>
-        credential.serverUrl === options.serverUrl,
+      validateCredential: (credential) => credential.serverUrl === serverUrl,
       expirySkewMs: TOKEN_EXPIRY_SKEW_MS,
       refresh: async ({ credential: credentials }) => {
         const refreshToken = credentials.tokens.refresh_token;

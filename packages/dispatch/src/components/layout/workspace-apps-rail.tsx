@@ -5,6 +5,7 @@ import { Link, useLocation } from "react-router";
 
 import { cn } from "../../lib/utils";
 import {
+  isWorkspaceAppVisibleInDefaultLaunchers,
   workspaceAppIdFromRoute,
   workspaceAppRoute,
   workspaceAppHref,
@@ -41,7 +42,7 @@ export function WorkspaceAppsRail({
   const apps = appsQuery.data
     .filter(
       (app) =>
-        !app.isDispatch &&
+        isWorkspaceAppVisibleInDefaultLaunchers(app) &&
         !app.archived &&
         app.status !== "pending" &&
         !!workspaceAppHref(app),

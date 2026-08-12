@@ -65,6 +65,10 @@ type AgentChatAdapterAttachment = {
   name: string;
   contentType?: string;
   data?: string;
+  url?: string;
+  uploadProvider?: string;
+  referenceOnly?: boolean;
+  securityNote?: string;
   text?: string;
 };
 
@@ -299,6 +303,14 @@ const BACKGROUND_CONTINUATION_TERMINAL_REASONS = new Set<string>([
   "no_progress",
 ]);
 
+function isUserInitiatedTerminalReason(reason: string): boolean {
+  return (
+    reason === "aborted:user" ||
+    reason === "aborted:abort" ||
+    reason.startsWith("aborted:user_")
+  );
+}
+
 /**
  * True when the given `/runs/active` snapshot, if surfaced as a background
  * terminal outcome right now, would render as an error rather than a
@@ -315,6 +327,7 @@ function isBackgroundTerminalErrorOutcome(
     typeof lastKnown?.terminalReason === "string"
       ? lastKnown.terminalReason
       : "";
+  if (isUserInitiatedTerminalReason(rawTerminalReason)) return false;
   const hasErrorTerminalReason = rawTerminalReason.startsWith("error:");
   const terminalReason = rawTerminalReason.replace(/^error:/, "");
   const mappedMessage = terminalReason
@@ -478,38 +491,78 @@ function extractAttachmentsFromMessage(message: {
   for (const att of message.attachments ?? []) {
     for (const part of att.content) {
       if (part.type === "image" && typeof part.image === "string") {
+        const persistedMetadata =
+          att && typeof (att as any).metadata === "object"
+            ? ((att as any).metadata as Record<string, unknown>)
+            : undefined;
+        const imageIsDataUrl = part.image.startsWith("data:");
         attachments.push({
           type: "image",
           name: att.name,
           contentType: att.contentType,
-          data: part.image,
+          ...(imageIsDataUrl ? { data: part.image } : { url: part.image }),
+          ...(typeof persistedMetadata?.uploadProvider === "string"
+            ? { uploadProvider: persistedMetadata.uploadProvider }
+            : {}),
+          ...(persistedMetadata?.referenceOnly === true
+            ? {
+                referenceOnly: true,
+                ...(typeof persistedMetadata.securityNote === "string"
+                  ? { securityNote: persistedMetadata.securityNote }
+                  : {}),
+              }
+            : {}),
         });
-      } else if (part.type === "file" && typeof part.data === "string") {
+      } else if (
+        part.type === "file" &&
+        (typeof part.data === "string" || typeof part.url === "string")
+      ) {
         const contentType =
           att.contentType ??
           (typeof part.mimeType === "string" ? part.mimeType : undefined);
+        const data = typeof part.data === "string" ? part.data : undefined;
+        const url = typeof part.url === "string" ? part.url : undefined;
+        const persistedMetadata =
+          att && typeof (att as any).metadata === "object"
+            ? ((att as any).metadata as Record<string, unknown>)
+            : undefined;
         const preserveDataUrl =
-          part.data.startsWith("data:") &&
+          typeof data === "string" &&
+          data.startsWith("data:") &&
           shouldPreserveFileDataUrl({ name: att.name, contentType });
-        const decodedText = part.data.startsWith("data:")
-          ? decodeTextDataUrl(part.data)
+        const decodedText = data?.startsWith("data:")
+          ? decodeTextDataUrl(data)
           : null;
         attachments.push({
           type: "file",
           name: att.name,
           contentType,
+          ...(url ? { url } : {}),
           ...(preserveDataUrl
             ? {
-                data: part.data,
+                data,
                 ...(decodedText !== null
                   ? { text: truncateOutboundAttachment(decodedText) }
                   : {}),
               }
             : decodedText !== null
               ? { text: truncateOutboundAttachment(decodedText) }
-              : part.data.startsWith("data:")
-                ? { data: part.data }
-                : { text: truncateOutboundAttachment(part.data) }),
+              : data?.startsWith("data:")
+                ? { data }
+                : url
+                  ? {}
+                  : { text: truncateOutboundAttachment(data ?? "") }),
+          ...(typeof persistedMetadata?.uploadProvider === "string"
+            ? { uploadProvider: persistedMetadata.uploadProvider }
+            : {}),
+          ...(persistedMetadata?.referenceOnly === true
+            ? {
+                referenceOnly: true,
+                ...(typeof persistedMetadata.securityNote === "string"
+                  ? { securityNote: persistedMetadata.securityNote }
+                  : {}),
+              }
+            : {}),
         });
       } else if (part.type === "text" && typeof part.text === "string") {
         attachments.push({
@@ -523,11 +576,12 @@ function extractAttachmentsFromMessage(message: {
   }
   for (const part of message.content ?? []) {
     if (part.type === "image" && typeof part.image === "string") {
+      const imageIsDataUrl = part.image.startsWith("data:");
       attachments.push({
         type: "image",
         name: "image",
         contentType: /^data:([^;,]+)/.exec(part.image)?.[1],
-        data: part.image,
+        ...(imageIsDataUrl ? { data: part.image } : { url: part.image }),
       });
     }
   }
@@ -573,12 +627,16 @@ function attachmentHistoryText(
       attachment.type
         ? `type="${escapeAttachmentAttribute(attachment.type)}"`
         : null,
+      attachment.url
+        ? `url="${escapeAttachmentAttribute(attachment.url)}"`
+        : null,
     ].filter(Boolean);
     return `<attachment ${attrs.join(" ")}>\n${truncateHistoryAttachment(attachment.text)}\n</attachment>`;
   }
 
   if (attachment.name) {
-    return `[Attached ${attachment.type || "file"}: ${attachment.name}${attachment.contentType ? ` (${attachment.contentType})` : ""}]`;
+    const hostedUrl = attachment.url ? `; hosted URL: ${attachment.url}` : "";
+    return `[Attached ${attachment.type || "file"}: ${attachment.name}${attachment.contentType ? ` (${attachment.contentType})` : ""}${hostedUrl}]`;
   }
   return null;
 }
@@ -2558,6 +2616,27 @@ export function createAgentChatAdapter(
             typeof lastKnown?.terminalReason === "string"
               ? lastKnown.terminalReason
               : "";
+          if (isUserInitiatedTerminalReason(rawTerminalReason)) {
+            settleInterruptedToolCalls(content, undefined, {
+              includeActivity: true,
+            });
+            settleTerminalChatRun();
+            yield {
+              content: [...content],
+              status: {
+                type: "complete" as const,
+                reason: "stop" as const,
+              },
+              metadata: {
+                custom: {
+                  ...(runId ? { runId } : {}),
+                  userStopped: true,
+                },
+              },
+            } as ChatModelRunResult;
+            clearActiveRun();
+            return;
+          }
           // terminal_reason is either a bare reason ("dispatch_payload_missing")
           // or "error:<errorCode>" when derived from a terminal error event.
           const hasErrorTerminalReason = rawTerminalReason.startsWith("error:");
@@ -2956,6 +3035,14 @@ export function createAgentChatAdapter(
             if (activeRunId && isOurRun) {
               lastSeenActive = active;
               updateCurrentRunDispatchMode(active?.dispatchMode);
+              const activeTerminalReason =
+                typeof active?.terminalReason === "string"
+                  ? active.terminalReason
+                  : "";
+              if (isUserInitiatedTerminalReason(activeTerminalReason)) {
+                yield* emitBackgroundTerminalOutcome(active);
+                return "completed";
+              }
               const isTerminal =
                 activeStatus === "completed" || activeStatus === "errored";
               if (isTerminal && replayedTerminalRunIds.has(activeRunId)) {

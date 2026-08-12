@@ -34,6 +34,7 @@ vi.mock("../oauth-tokens/store.js", () => ({
         : null;
     },
   ),
+  getOAuthTokenSnapshotForUserOwner: vi.fn(async () => null),
   replaceOAuthTokensIfRevision: replaceOAuthTokensIfRevisionMock,
   deleteOAuthTokensIfRevision: deleteOAuthTokensIfRevisionMock,
 }));
@@ -685,6 +686,40 @@ describe("MCP OAuth client", () => {
 
     expect(getOAuthTokensMock).toHaveBeenCalledTimes(1);
     expect(deleteOAuthTokensIfRevisionMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses one canonical server URL across reads, access, and deletion", async () => {
+    const rootCredentials = {
+      ...credentials,
+      serverUrl: "https://mcp.example.com/",
+    };
+    getOAuthTokensMock.mockResolvedValue(rootCredentials);
+    deleteOAuthTokensIfRevisionMock.mockResolvedValue(true);
+
+    await expect(
+      readMcpOAuthCredentials({
+        key: "mcp_oauth:test",
+        scope: "user",
+        scopeId: "alice@example.com",
+        serverUrl: "https://mcp.example.com",
+      }),
+    ).resolves.toMatchObject({ serverUrl: "https://mcp.example.com/" });
+    await expect(
+      getMcpOAuthAccessToken({
+        key: "mcp_oauth:test",
+        scope: "user",
+        scopeId: "alice@example.com",
+        serverUrl: "https://mcp.example.com",
+      }),
+    ).resolves.toBe("<ACCESS_TOKEN>");
+    await expect(
+      deleteMcpOAuthCredentials({
+        key: "mcp_oauth:test",
+        scope: "user",
+        scopeId: "alice@example.com",
+        serverUrl: "https://mcp.example.com",
+      }),
+    ).resolves.toBe(true);
   });
 
   it("does not delete a legacy credential bound to another server", async () => {

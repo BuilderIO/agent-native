@@ -389,6 +389,8 @@ const messages = {
         "Standardmäßig privat. Laden Sie Personen ein, teilen Sie sie mit Ihrer Organisation oder stellen Sie „Öffentlich“ ein, damit jeder, der über einen Link verfügt, eine Überprüfung durchführen kann.",
       peopleAccess: "Personen mit {{noun}}-Zugriff",
       generalAccess: "Allgemeiner {{noun}}-Zugriff",
+      commenterRoleLabel: "Kommentator",
+      commenterRoleDescription: "Kann ansehen und Kommentare hinzufügen",
       shareAria: "Teilen {{noun}}",
       share: "Teilen {{noun}}",
       shareThis: "Teilen Sie dies {{noun}}",

@@ -67,7 +67,7 @@ const APP_VISUALS_BY_ID: Record<
   forms: { icon: IconStack2, colorRgb: "6 182 212" },
   macros: { icon: IconCode, colorRgb: "113 113 122" },
   mail: { icon: IconMail, colorRgb: "59 130 246" },
-  plan: { icon: IconLayoutBoard, colorRgb: "82 82 91" },
+  plan: { icon: IconLayoutBoard, colorRgb: "47 111 237" },
   slides: { icon: IconPresentation, colorRgb: "236 72 153" },
   tasks: { icon: IconListCheck, colorRgb: "99 102 241" },
 };

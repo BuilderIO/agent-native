@@ -4,6 +4,7 @@ import { mutateSetting } from "../settings/store.js";
 import {
   deleteOAuthTokensIfRevision,
   getOAuthTokenSnapshot,
+  getOAuthTokenSnapshotForUserOwner,
   replaceOAuthTokensIfRevision,
   saveOAuthTokens,
 } from "./store.js";
@@ -323,6 +324,14 @@ async function readStoredOAuthCredentialState<
       accountId,
       storageOwner,
     );
+  }
+  if (!stored && options.allowLegacy && identity.owner.scope === "user") {
+    stored = await getOAuthTokenSnapshotForUserOwner(
+      identity.provider,
+      accountId,
+      canonicalOwner,
+    );
+    if (stored?.owner) storageOwner = stored.owner;
   }
   if (!stored) return { kind: "missing" };
   const parsed = stored.tokens as Partial<T>;

@@ -513,6 +513,10 @@ const messages = {
       editor: "محرر",
       admin: "مسؤول",
     },
+    recordingViewer: {
+      label: "معلّق",
+      description: "يمكنه العرض والتعليق والتفاعل",
+    },
   },
   quickAsk: {
     title: "اسأل عن هذا الاجتماع",
@@ -1550,10 +1554,6 @@ const messages = {
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (مترجم)",
     connectGoogleCalendar: "Connect Google Calendar (مترجم)",
-    googleMayShowWarning: "مراجعة صلاحيات Google",
-    googleNotVerifiedTitle: "تحقق من التطبيق قبل الاتصال",
-    googleWarningBeforeAdvanced:
-      "تأكد من أن اسم التطبيق وصلاحيات Calendar المطلوبة تتطابق مع بيئة Clips التي تثق بها. إذا عرض Google تحذيرًا بأن التطبيق غير موثّق أو بدت الهوية غير مألوفة، فتوقف وتواصل مع مسؤول مساحة العمل.",
     desktopReminder:
       "Connect Google Calendar, keep Clips Desktop open, then click Start notes from the reminder or the menu bar when your meeting begins. (مترجم)",
     getDesktopApp: "Get desktop app (مترجم)",

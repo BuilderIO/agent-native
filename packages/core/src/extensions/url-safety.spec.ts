@@ -33,6 +33,37 @@ describe("createSsrfSafeDispatcher", () => {
     }
   });
 
+  it("retains guarded fetch behavior in edge runtimes without a Node dispatcher", async () => {
+    vi.doMock("node:dns", () => {
+      throw new Error("node:dns unavailable");
+    });
+    vi.doMock("node:dns/promises", () => ({
+      lookup: vi
+        .fn()
+        .mockResolvedValue([{ address: "93.184.216.34", family: 4 }]),
+    }));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response("ok", { status: 200 })),
+    );
+    vi.resetModules();
+    try {
+      const mod = await import("./url-safety.js");
+      await expect(
+        mod.ssrfSafeFetch("https://example.com/data"),
+      ).resolves.toBeInstanceOf(Response);
+      expect(fetch).toHaveBeenCalledWith(
+        "https://example.com/data",
+        expect.not.objectContaining({ dispatcher: expect.anything() }),
+      );
+    } finally {
+      vi.doUnmock("node:dns");
+      vi.doUnmock("node:dns/promises");
+      vi.unstubAllGlobals();
+      vi.resetModules();
+    }
+  });
+
   it("allows a configured loopback hostname at its exact port through the real dispatcher", async () => {
     const server = createServer((_request, response) => {
       response.writeHead(200, { "content-type": "text/plain" });

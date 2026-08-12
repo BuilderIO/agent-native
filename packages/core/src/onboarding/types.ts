@@ -102,6 +102,8 @@ export interface OnboardingCapability {
   label: string;
   /** Whether this capability blocks the app's normal setup. */
   required: boolean;
+  /** Show this optional capability as a recommended BYOK setup. */
+  suggested?: boolean;
   /** Whether Builder's managed connection covers this capability. */
   builderIncluded: boolean;
   /** Compact description of the key or connection the BYOK path needs. */

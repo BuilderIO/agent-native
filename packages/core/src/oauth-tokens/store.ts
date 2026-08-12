@@ -211,6 +211,29 @@ export async function getOAuthTokenSnapshot(
   };
 }
 
+/** Read a legacy user-owned row without treating organization ids as case-insensitive. */
+export async function getOAuthTokenSnapshotForUserOwner(
+  provider: string,
+  accountId: string,
+  owner: string,
+): Promise<OAuthTokenSnapshot | null> {
+  await ensureTable();
+  const client = getDbExec();
+  const table = oauthTokensTable();
+  const { rows } = await client.execute({
+    sql: `SELECT owner, tokens, revision, updated_at FROM ${table} WHERE provider = ? AND account_id = ? AND LOWER(owner) = LOWER(?) AND LOWER(owner) LIKE 'user:%'`,
+    args: [provider, accountId, owner],
+  });
+  if (rows.length === 0) return null;
+  return {
+    tokens: parseStoredTokens(rows[0].tokens as string),
+    owner: (rows[0].owner as string) ?? null,
+    revision: Number(rows[0].revision ?? 0),
+    legacyRevision: Number(rows[0].updated_at),
+    storageVersion: rows[0].tokens as string,
+  };
+}
+
 /**
  * Replace an existing credential bundle only when the caller still owns the
  * revision it read. This prevents a slow refresh/revoke flow from overwriting

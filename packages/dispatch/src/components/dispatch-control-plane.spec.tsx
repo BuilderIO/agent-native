@@ -142,6 +142,7 @@ describe("DispatchControlPlane", () => {
       selectedEffort: "medium",
       selectedEngine: "",
       selectedModel: "auto",
+      rootClassName: "bg-card",
     });
 
     await act(async () => {
@@ -230,7 +231,9 @@ describe("DispatchControlPlane", () => {
         id: "clips",
         name: "Clips",
         description: "Record and share",
-        url: "https://clips.agent-native.com",
+        url: "https://clips.agent-native.com/share/WrA8ZQ3oxa2T?ref=clip_share",
+        homeUrl: "https://clips.agent-native.com",
+        source: "builtin",
       },
       {
         id: "onboarding",
@@ -281,5 +284,10 @@ describe("DispatchControlPlane", () => {
         anchor.getAttribute("href")?.includes("onboarding"),
       ),
     ).toHaveLength(1);
+    const clipsHref = Array.from(container.querySelectorAll("a"))
+      .map((anchor) => anchor.getAttribute("href"))
+      .find((href) => href?.includes("clips.agent-native.com"));
+    expect(clipsHref).toContain("https://clips.agent-native.com");
+    expect(clipsHref).not.toContain("/share/");
   });
 });

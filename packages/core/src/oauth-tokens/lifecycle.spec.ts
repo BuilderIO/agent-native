@@ -43,6 +43,15 @@ vi.mock("./store.js", () => ({
       return row?.owner === owner ? structuredClone(row) : null;
     },
   ),
+  getOAuthTokenSnapshotForUserOwner: vi.fn(
+    async (provider: string, accountId: string, owner: string) => {
+      const row = state.rows.get(rowKey(provider, accountId));
+      return row?.owner.toLowerCase() === owner.toLowerCase() &&
+        row.owner.toLowerCase().startsWith("user:")
+        ? structuredClone(row)
+        : null;
+    },
+  ),
   replaceOAuthTokensIfRevision: vi.fn(
     async (
       provider: string,
@@ -191,7 +200,7 @@ describe("OAuth credential lifecycle", () => {
       provider: "mcp",
       accountId: "mcp_oauth:test",
       resource: "https://mcp.example.com/mcp",
-      owner: { scope: "user", id: "Alice@Example.com" },
+      owner: { scope: "user", id: "alice@example.com" },
     };
     state.rows.set(rowKey("mcp", "mcp_oauth:test"), {
       tokens: credential(),

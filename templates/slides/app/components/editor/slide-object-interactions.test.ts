@@ -22,6 +22,7 @@ import {
   findPersistedImageObject,
   getSlideTextBoxDefaultColor,
   isDeletableFlowImage,
+  isDeletableSlideElement,
   removeSlideObjectAndLayoutSpacer,
   resolveSlideObjectContainingBlock,
   resizeSlideObject,
@@ -753,7 +754,7 @@ describe("isDeletableFlowImage", () => {
     expect(isDeletableFlowImage(placeholder)).toBe(true);
   });
 
-  it("refuses ordinary flow containers so Delete cannot collapse a layout", () => {
+  it("does not classify ordinary flow containers as images", () => {
     const card = document.createElement("div");
     card.className = "fmd-card";
     card.innerHTML = "<img src='x.png' /><p>Zamioculcas</p>";
@@ -764,6 +765,49 @@ describe("isDeletableFlowImage", () => {
     const heading = document.createElement("h1");
     heading.textContent = "Low LIGHT";
     expect(isDeletableFlowImage(heading)).toBe(false);
+  });
+});
+
+describe("isDeletableSlideElement", () => {
+  it("accepts an AI-generated flow div", () => {
+    const rectangle = document.createElement("div");
+    rectangle.className = "generated-rectangle";
+    rectangle.dataset.builderId = "b-generated";
+    rectangle.textContent = "Generated content";
+
+    expect(isDeletableSlideElement(rectangle)).toBe(true);
+  });
+
+  it("removes the selected flow div without touching its sibling", () => {
+    const root = document.createElement("div");
+    const rectangle = document.createElement("div");
+    rectangle.className = "generated-rectangle";
+    rectangle.dataset.builderId = "b-generated";
+    const sibling = document.createElement("p");
+    sibling.textContent = "Keep this content";
+    root.append(rectangle, sibling);
+
+    removeSlideObjectAndLayoutSpacer(rectangle);
+
+    expect(root.contains(rectangle)).toBe(false);
+    expect(root.contains(sibling)).toBe(true);
+  });
+
+  it("keeps renderer shells and layout spacers protected", () => {
+    const shell = document.createElement("div");
+    shell.className = "fmd-slide";
+    const autofit = document.createElement("div");
+    autofit.className = "fmd-autofit-scale";
+    const contentLayer = document.createElement("div");
+    contentLayer.setAttribute("data-fmd-autofit-content", "true");
+    const canvas = document.createElement("div");
+    canvas.setAttribute("data-slide-canvas", "slide-1");
+    const spacer = document.createElement("div");
+    spacer.className = "fmd-layout-spacer";
+
+    for (const element of [shell, autofit, contentLayer, canvas, spacer]) {
+      expect(isDeletableSlideElement(element)).toBe(false);
+    }
   });
 });
 

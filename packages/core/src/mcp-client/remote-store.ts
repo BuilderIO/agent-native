@@ -40,7 +40,6 @@ import {
 } from "../settings/user-settings.js";
 import type { McpHttpServerConfig } from "./config.js";
 import {
-  deleteMcpOAuthCredentials,
   getMcpOAuthAccessToken,
   revokeMcpOAuthCredentials,
   saveMcpOAuthCredentials,
@@ -285,21 +284,21 @@ export async function addOAuthRemoteServer(
       oauthSecretKey,
     });
     if (!result.ok) {
-      await deleteMcpOAuthCredentials({
+      await revokeMcpOAuthCredentials({
         key: oauthSecretKey,
         scope,
         scopeId,
         serverUrl: credentials.serverUrl,
-      });
+      }).catch(() => undefined);
     }
     return result;
   } catch (err: any) {
-    await deleteMcpOAuthCredentials({
+    await revokeMcpOAuthCredentials({
       key: oauthSecretKey,
       scope,
       scopeId,
       serverUrl: credentials.serverUrl,
-    }).catch(() => {});
+    }).catch(() => undefined);
     return {
       ok: false,
       error: `Failed to save MCP OAuth credentials: ${err?.message ?? err}`,

@@ -1,7 +1,10 @@
 import { IconExternalLink } from "@tabler/icons-react";
 import { useState } from "react";
 
-import { shouldOfferWorkspace } from "../../org/workspace-url.js";
+import {
+  isLocalDevelopmentOrigin,
+  shouldOfferWorkspace,
+} from "../../org/workspace-url.js";
 import { useOrg } from "./hooks.js";
 
 const DISMISS_KEY_PREFIX = "agent-native:workspace-notice-dismissed:";
@@ -41,6 +44,7 @@ export function WorkspaceNotice({ className }: { className?: string }) {
   const workspaceUrl = org?.workspaceUrl ?? null;
 
   if (typeof window === "undefined") return null;
+  if (isLocalDevelopmentOrigin(window.location.href)) return null;
   if (!workspaceUrl || dismissedNow || readDismissed(workspaceUrl)) return null;
   if (!shouldOfferWorkspace(window.location.href, workspaceUrl)) return null;
 

@@ -262,6 +262,21 @@ describe("AgentPanel header overflow actions", () => {
     expect(overflowMenu).not.toContain("fullscreenHint");
     expect(overflowMenu).not.toContain("onSelect={onToggleFullscreen}");
   });
+
+  it("offers sharing from the sidebar overflow for an active chat", () => {
+    const source = readFileSync("src/client/AgentPanel.tsx", {
+      encoding: "utf8",
+    });
+    const overflowMenu = source.slice(
+      source.indexOf("<DropdownMenu open="),
+      source.indexOf("const renderPageChatOverlay"),
+    );
+
+    expect(overflowMenu).toContain('resourceType="chat_thread"');
+    expect(overflowMenu).toContain('trigger="label-icon"');
+    expect(overflowMenu).toContain('triggerClassName="w-full justify-start"');
+    expect(overflowMenu).toContain("activeTabMessageCount <= 0");
+  });
 });
 
 describe("AgentSidebar wide drawer layout", () => {

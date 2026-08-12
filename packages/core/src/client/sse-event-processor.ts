@@ -7,6 +7,7 @@ import {
   LLM_MISSING_CREDENTIALS_MESSAGE,
 } from "../agent/engine/credential-errors.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
+import { emitChatFirstOpenApp } from "./chat-first.js";
 import { formatChatErrorText, normalizeChatError } from "./error-format.js";
 import {
   humanizeToolLabelText,
@@ -1246,6 +1247,51 @@ function shouldDispatchStreamProgress(
   return true;
 }
 
+function emitFirstPartyOpenAppHandoff(ev: SSEEvent): void {
+  if (ev.type !== "tool_done" || (ev.tool ?? "unknown") !== "open_app") {
+    return;
+  }
+  if (ev.isError === true) return;
+  if (!ev.result?.trim()) {
+    console.warn(
+      "[chat-first] open_app completed without a readable result; no app pane opened",
+    );
+    return;
+  }
+
+  let result: Record<string, unknown>;
+  try {
+    const parsed: unknown = JSON.parse(ev.result);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      console.warn(
+        "[chat-first] open_app completed without a readable result; no app pane opened",
+      );
+      return;
+    }
+    result = parsed as Record<string, unknown>;
+  } catch {
+    // coercion-ok: unreadable tool output must not be treated as a successful handoff.
+    console.warn(
+      "[chat-first] open_app completed without a readable result; no app pane opened",
+    );
+    return;
+  }
+
+  const readString = (value: unknown): string | undefined =>
+    typeof value === "string" && value.trim() ? value : undefined;
+  const delivery = emitChatFirstOpenApp({
+    app: readString(result.app ?? result.appId ?? result.application),
+    path: readString(result.path ?? result.targetPath),
+    url: readString(result.url ?? result.href),
+    view: readString(result.view),
+  });
+  if (!delivery.delivered) {
+    console.warn(
+      `[chat-first] open_app was completed but not delivered (${delivery.reason ?? "unknown"})`,
+    );
+  }
+}
+
 /**
  * Process a single SSE event and update the content accumulator.
  * Returns: "continue" to keep going, "done" to stop, or a yield-ready result.
@@ -1558,6 +1604,7 @@ export function processEvent(
     if (findCompletedToolCallIndex(content, ev.id) >= 0) {
       return { action: "continue" };
     }
+    emitFirstPartyOpenAppHandoff(ev);
     if (typeof window !== "undefined") {
       window.dispatchEvent(
         new CustomEvent("agent-native:tool-done", {
@@ -1896,6 +1943,7 @@ export function processEvent(
     // a wrap-up marker. Clear any preparation label before inspecting pending
     // tools so both success and interrupted-terminal paths settle the UI.
     dispatchActivityClear(tabId);
+    const userStoppedRun = ev.reason === "user";
     const interruptedTools = pendingToolNames(content);
     const allInterruptedTools = [
       ...interruptedTools.running,
@@ -1903,6 +1951,16 @@ export function processEvent(
     ];
     if (allInterruptedTools.length > 0) {
       settleInterruptedToolCalls(content, undefined, { includeActivity: true });
+      if (userStoppedRun) {
+        return {
+          action: "done",
+          result: {
+            content: contentSnapshot(content),
+            status: { type: "complete" as const, reason: "stop" as const },
+            metadata: { custom: { userStopped: true } },
+          } as ChatModelRunResult,
+        };
+      }
       const message = interruptedToolMessage(interruptedTools);
       const runError = {
         message,
@@ -1927,6 +1985,16 @@ export function processEvent(
           content: contentSnapshot(content),
           status: { type: "incomplete" as const, reason: "error" as const },
           metadata: { custom: { runError } },
+        } as ChatModelRunResult,
+      };
+    }
+    if (userStoppedRun) {
+      return {
+        action: "done",
+        result: {
+          content: contentSnapshot(content),
+          status: { type: "complete" as const, reason: "stop" as const },
+          metadata: { custom: { userStopped: true } },
         } as ChatModelRunResult,
       };
     }

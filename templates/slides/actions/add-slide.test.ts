@@ -4,7 +4,6 @@ const mockAssertAccess = vi.fn();
 const mockNotifyClients = vi.fn();
 const mockReadAppState = vi.fn(async () => null);
 const mockWriteAppState = vi.fn(async () => undefined);
-let mockRunContext: { browserTabId?: string } | undefined;
 // Each test sets this; the helper consults it to decide whether to report
 // overflow, fit, or timeout.
 let mockFitCheckResult:
@@ -130,7 +129,7 @@ vi.mock("@agent-native/core/application-state", () => ({
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
-  getRequestRunContext: () => mockRunContext,
+  getRequestRunContext: () => undefined,
 }));
 
 vi.mock("./_await-fit-check.js", () => ({
@@ -143,9 +142,6 @@ import action from "./add-slide";
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockRunContext = undefined;
-  mockReadAppState.mockResolvedValue(null);
-  mockWriteAppState.mockResolvedValue(undefined);
   mockFitCheckResult = undefined;
   mockGetGenerationCreativeContext.mockResolvedValue(null);
   deckData = {
@@ -225,18 +221,7 @@ describe("add-slide", () => {
     );
   });
 
-  it("scopes auto-navigation to the requesting browser tab", async () => {
-    mockRunContext = { browserTabId: "slides-tab-a" };
-    mockReadAppState.mockImplementation(async (key) => {
-      if (key === "navigation:slides-tab-a") {
-        return { view: "editor", deckId: "deck-1" };
-      }
-      if (key === "navigation") {
-        return { view: "editor", deckId: "deck-other" };
-      }
-      return null;
-    });
-
+  it("does not auto-navigate the editor to the generated slide", async () => {
     await action.run({
       deckId: "deck-1",
       slideId: "slide-new",
@@ -244,19 +229,8 @@ describe("add-slide", () => {
       position: 1,
     });
 
-    expect(mockReadAppState).toHaveBeenCalledWith("navigation:slides-tab-a");
-    expect(mockReadAppState).not.toHaveBeenCalledWith("navigation");
-    expect(mockWriteAppState).toHaveBeenCalledWith(
-      "navigate:slides-tab-a",
-      expect.objectContaining({
-        deckId: "deck-1",
-        slideIndex: 1,
-      }),
-    );
-    expect(mockWriteAppState).not.toHaveBeenCalledWith(
-      "navigate",
-      expect.anything(),
-    );
+    expect(mockReadAppState).not.toHaveBeenCalled();
+    expect(mockWriteAppState).not.toHaveBeenCalled();
   });
 
   it("rejects empty string positions", async () => {

@@ -819,7 +819,7 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
         sendToAgentChat({
           message: text,
           context: serializeChatValue(message.context),
-          submit: message.submit !== false,
+          submit: message.submit === true,
           openSidebar: message.openSidebar !== false,
         });
         return;

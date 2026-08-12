@@ -9,6 +9,7 @@ import { TooltipProvider } from "../ui/tooltip";
 import {
   buildChatFirstEmbedSessionInput,
   formatThreadAge,
+  isElectronEmbeddedSearch,
   NavContent,
 } from "./Layout";
 
@@ -116,6 +117,14 @@ describe("chat-first embed sessions", () => {
       path: "/mail/inbox",
       chrome: "minimal",
     });
+  });
+});
+
+describe("Electron control-plane mode", () => {
+  it("recognizes only the explicit Electron query flag", () => {
+    expect(isElectronEmbeddedSearch("?electron=1")).toBe(true);
+    expect(isElectronEmbeddedSearch("?electron=0")).toBe(false);
+    expect(isElectronEmbeddedSearch("?chatFirst=1")).toBe(false);
   });
 });
 
@@ -293,6 +302,9 @@ describe("Dispatch NavContent", () => {
     );
     expect(sidebarLabel?.textContent?.trim()).toBe("Dispatch");
     expect(container.textContent).not.toContain("Agent-Native Dispatch");
+    expect(
+      sidebarLabel?.closest('a[data-dispatch-logo][href="/overview"]'),
+    ).not.toBeNull();
 
     const settingsLink = container.querySelector('a[href="/settings"]');
     const adminLink = container.querySelector('a[href="/admin"]');

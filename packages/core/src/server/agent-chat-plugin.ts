@@ -1348,10 +1348,18 @@ export function createAgentChatPlugin(
       const corpusToolNames = loadCorpusToolsInitially
         ? corpusToolNamesTaughtByPrompt(corpusPromptRegistry)
         : [];
-      const effectiveInitialToolNames =
-        corpusToolNames.length > 0
-          ? [...new Set([...templateInitialToolNames, ...corpusToolNames])]
-          : templateInitialToolNames;
+      const effectiveInitialToolNames = [
+        ...new Set([
+          ...templateInitialToolNames,
+          ...corpusToolNames,
+          // Attachment setup is a recovery action, but it must be available on
+          // the first request so a missing provider renders the CTA immediately
+          // instead of spending another turn in tool-search.
+          ...(browserTools["connect-file-storage"]
+            ? ["connect-file-storage"]
+            : []),
+        ]),
+      ];
 
       const resolveExtraContext = async (
         event: any,
@@ -2893,15 +2901,19 @@ export function createAgentChatPlugin(
 
       // Lean mode: only template actions + essential framework tools. Drop
       // web-request, browser tools, teams, jobs, automations, notifications,
-      // progress, call-agent, and MCP entries to keep the tool list tight and
-      // prevent the LLM from reaching for web-request instead of the
-      // template's native actions (e.g. log-meal).
+      // progress, and MCP entries to keep the tool list tight and prevent the
+      // LLM from reaching for web-request instead of the template's native
+      // actions (e.g. log-meal). Cross-app delegation is the exception: when
+      // it is enabled, keep its two discovery/delegation tools available even
+      // in lean mode because the framework prompt and default starter surface
+      // still promise sibling-app routing.
       const leanActionEntries: Record<string, ActionEntry> = {
         ...templateScripts,
         ...resourceScripts,
         ...refreshScreenTool,
         ...urlTools,
         ...chatScripts,
+        ...(a2aAgentDelegationEnabled ? callAgentScript : {}),
         ...toolActions,
       };
       const anonymousReadOnlyActions = attachToolSearch(
@@ -3023,7 +3035,12 @@ export function createAgentChatPlugin(
       // Lean mode: use only the template's systemPrompt + actions list.
       // Skip resource loading and schema block — those add DB round-trips
       // and tokens that minimal/voice apps don't need.
-      const leanBasePrompt = (options?.systemPrompt ?? "") + prodActionsPrompt;
+      const leanActionsPrompt =
+        prodActionsPrompt +
+        (a2aAgentDelegationEnabled
+          ? generateActionsPrompt(callAgentScript, "tool")
+          : "");
+      const leanBasePrompt = (options?.systemPrompt ?? "") + leanActionsPrompt;
       const anonymousReadOnlyPrompt =
         (options?.systemPrompt ?? PROD_FRAMEWORK_PROMPT_COMPACT) +
         generateActionsPrompt(
@@ -3255,9 +3272,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             await emitContextXraySystemSections(event, {
               frameworkPrompt: leanBasePrompt.slice(
                 0,
-                Math.max(0, leanBasePrompt.length - prodActionsPrompt.length),
+                Math.max(0, leanBasePrompt.length - leanActionsPrompt.length),
               ),
-              actionsPrompt: prodActionsPrompt,
+              actionsPrompt: leanActionsPrompt,
               additionalFramework: leanRunPolicyPrompt,
               extra,
               modelOverlay,
@@ -3537,9 +3554,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               await emitContextXraySystemSections(event, {
                 frameworkPrompt: leanBasePrompt.slice(
                   0,
-                  Math.max(0, leanBasePrompt.length - prodActionsPrompt.length),
+                  Math.max(0, leanBasePrompt.length - leanActionsPrompt.length),
                 ),
-                actionsPrompt: prodActionsPrompt,
+                actionsPrompt: leanActionsPrompt,
                 extra,
                 modelOverlay,
                 runtimeContext,

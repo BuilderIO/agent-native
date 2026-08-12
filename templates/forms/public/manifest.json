@@ -3,7 +3,6 @@
   "short_name": "Forms",
   "description": "Form builder",
   "start_url": ".",
-  "display": "standalone",
   "background_color": "#111111",
   "theme_color": "#06B6D4",
   "icons": [

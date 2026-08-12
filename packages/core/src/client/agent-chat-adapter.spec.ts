@@ -435,6 +435,79 @@ describe("createAgentChatAdapter", () => {
     });
   });
 
+  it("rehydrates persisted object-storage attachments as URL references", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-url-attachments",
+      threadId: "thread-url-attachments",
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Use these again" }],
+            attachments: [
+              {
+                name: "screenshot.png",
+                contentType: "image/png",
+                metadata: {
+                  uploadUrl: "https://cdn.example.com/screenshot.png",
+                  uploadProvider: "builder",
+                },
+                content: [
+                  {
+                    type: "image",
+                    image: "https://cdn.example.com/screenshot.png",
+                  },
+                ],
+              },
+              {
+                name: "report.pdf",
+                contentType: "application/pdf",
+                metadata: {
+                  uploadUrl: "https://cdn.example.com/report.pdf",
+                  uploadProvider: "builder",
+                },
+                content: [
+                  {
+                    type: "file",
+                    url: "https://cdn.example.com/report.pdf",
+                    mimeType: "application/pdf",
+                    filename: "report.pdf",
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.attachments).toEqual([
+      {
+        type: "image",
+        name: "screenshot.png",
+        contentType: "image/png",
+        url: "https://cdn.example.com/screenshot.png",
+        uploadProvider: "builder",
+      },
+      {
+        type: "file",
+        name: "report.pdf",
+        contentType: "application/pdf",
+        url: "https://cdn.example.com/report.pdf",
+        uploadProvider: "builder",
+      },
+    ]);
+  });
+
   it("posts approval grants on the continuation turn", async () => {
     const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
     vi.stubGlobal("fetch", fetchSpy);
@@ -6079,6 +6152,78 @@ describe("createAgentChatAdapter", () => {
     expect(last.content.at(-1).text).toContain(
       "stopped before sending a final message",
     );
+  });
+
+  it("keeps a user-stopped background run neutral", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let requestTurnId = "";
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+        requestTurnId = JSON.parse(init.body as string).turnId;
+        return backgroundSseResponse(
+          [
+            { type: "text", text: "Working" },
+            { type: "auto_continue", reason: "run_timeout" },
+          ],
+          "run-bg-user-stop",
+        );
+      }
+      if (url.includes("/runs/active")) {
+        return jsonResponse({
+          active: true,
+          runId: "run-bg-user-stop",
+          threadId: "thread-bg-user-stop",
+          turnId: requestTurnId,
+          status: "aborted",
+          terminalReason: "aborted:user",
+          dispatchMode: "background-processing",
+          heartbeatAt: Date.now(),
+          lastProgressAt: Date.now(),
+        });
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-bg-user-stop",
+      threadId: "thread-bg-user-stop",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "stop this" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(5_000);
+    const results = await promise;
+
+    const last = results.at(-1) as any;
+    expect(last.status).toEqual({ type: "complete", reason: "stop" });
+    expect(last.metadata?.custom?.userStopped).toBe(true);
+    expect(last.metadata?.custom?.runError).toBeUndefined();
+    expect(last.metadata?.custom?.runWarning).toBeUndefined();
+    expect(last.content.at(-1).text).toBe("Working");
   });
 
   it("keeps following instead of completing mid-turn when /runs/active re-observes the same chunk-boundary run", async () => {

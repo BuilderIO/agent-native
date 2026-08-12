@@ -326,8 +326,9 @@ export async function createSsrfSafeDispatcher(
  *   1. Pre-flight DNS-aware private-address check (isBlockedExtensionUrlWithDns)
  *      on the initial URL and on every redirect hop.
  *   2. A connect-time dispatcher that re-checks the resolved IP at TCP-connect
- *      time (closes the DNS-rebinding TOCTOU). This strict fetch path fails
- *      closed when the server dispatcher is unavailable.
+ *      time (closes the DNS-rebinding TOCTOU) when the runtime supports the
+ *      Node dispatcher. Edge runtimes retain preflight DNS checks, literal and
+ *      rebinding-domain rejection, and per-hop redirect validation.
  *   3. Manual redirect handling — a public URL cannot 30x-redirect into the
  *      private network because each hop is re-validated before it is followed.
  *
@@ -399,11 +400,11 @@ export async function ssrfSafeFetch(
       ...init,
       redirect: "manual",
     };
-    fetchOpts.dispatcher = await createSsrfSafeDispatcher(
+    const dispatcher = await createSsrfSafeDispatcher(
       options.allowedPrivateOrigins,
       currentUrl,
-      { required: true },
     );
+    if (dispatcher) fetchOpts.dispatcher = dispatcher;
 
     const response = await fetch(currentUrl, fetchOpts);
     if (response.status >= 300 && response.status < 400) {

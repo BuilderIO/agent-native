@@ -3,7 +3,7 @@ import { useAvatarUrl } from "@agent-native/core/client/hooks";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 
-export const PLAYBACK_COMMENT_VISIBLE_MS = 1_000;
+export const PLAYBACK_COMMENT_VISIBLE_MS = 3_000;
 
 export function getPlaybackCommentVisibleMs(playbackRate = 1): number {
   const safePlaybackRate =

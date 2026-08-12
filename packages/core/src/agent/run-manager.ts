@@ -632,6 +632,39 @@ function isTerminalRunEvent(event: AgentChatEvent): boolean {
   );
 }
 
+/**
+ * A completed tool with no later assistant text is an unfinished turn, not a
+ * successful terminal response. Keep this predicate beside the run-manager's
+ * terminal synthesis so the run-manager and production continuation paths use
+ * the same boundary evidence.
+ */
+export function endsAfterCompletedToolWithoutAssistantFinal(
+  run: ActiveRun,
+): boolean {
+  let completedToolAfterLastAssistantText = false;
+  for (const { event } of run.events) {
+    if (event.type === "text" && event.text.trim().length > 0) {
+      completedToolAfterLastAssistantText = false;
+      continue;
+    }
+    if (event.type === "tool_done" && event.isError !== true) {
+      completedToolAfterLastAssistantText =
+        event.chatUI === undefined && event.mcpApp === undefined;
+      continue;
+    }
+    if (
+      event.type === "clear" ||
+      event.type === "error" ||
+      event.type === "missing_api_key" ||
+      event.type === "auto_continue" ||
+      event.type === "loop_limit"
+    ) {
+      completedToolAfterLastAssistantText = false;
+    }
+  }
+  return completedToolAfterLastAssistantText;
+}
+
 function terminalEventForcesErroredStatus(event: AgentChatEvent | null) {
   return event?.type === "error" || event?.type === "missing_api_key";
 }
@@ -1543,6 +1576,22 @@ export function startRun(
               terminalEventForcesErroredStatus(terminalEvent)
             ? "errored"
             : "completed";
+      const shouldAutoContinueAfterCompletedTool =
+        finalStatus === "completed" &&
+        endsAfterCompletedToolWithoutAssistantFinal(run) &&
+        (!terminalEventForCompletion ||
+          (terminalEventForCompletion.event.type === "done" &&
+            terminalEventForCompletion.event.reason !== "user"));
+      const completedToolContinuationEvent =
+        shouldAutoContinueAfterCompletedTool
+          ? ({
+              type: "auto_continue" as const,
+              reason: "stream_ended" as const,
+            } satisfies Extract<AgentChatEvent, { type: "auto_continue" }>)
+          : null;
+      if (completedToolContinuationEvent) {
+        terminalEvent = completedToolContinuationEvent;
+      }
       const terminalReason = terminalReasonForRun(
         finalStatus,
         terminalEvent,
@@ -1577,9 +1626,10 @@ export function startRun(
         // insertRunEvent's `ON CONFLICT (run_id, seq) DO NOTHING`, so the
         // client would never see the terminal/continuation signal. We always
         // re-stamp the seq at emit time (max-seq+1) just below.
-        const terminalEvent: AgentChatEvent =
+        const terminalEventToEmit: AgentChatEvent =
           finalStatus === "completed"
-            ? (terminalEventForCompletion?.event ?? { type: "done" })
+            ? (completedToolContinuationEvent ??
+              terminalEventForCompletion?.event ?? { type: "done" })
             : terminalEventForCompletion?.event.type === "error" ||
                 terminalEventForCompletion?.event.type === "missing_api_key"
               ? terminalEventForCompletion.event
@@ -1605,7 +1655,7 @@ export function startRun(
           // terminal event was stashed.
           const terminal: RunEvent = {
             seq: run.events.length,
-            event: terminalEvent,
+            event: terminalEventToEmit,
           };
           try {
             await emitRunEvent(terminal, { surfacePersistenceError: true });

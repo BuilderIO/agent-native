@@ -78,6 +78,7 @@ import {
   useDocumentSyncStatus,
   usePushDocumentToNotion,
 } from "@/hooks/use-notion";
+import { rememberContentLandingDocument } from "@/lib/content-landing";
 import {
   canWriteLinkedLocalSource,
   writeDocumentToLinkedLocalSource,
@@ -538,6 +539,14 @@ function DocumentEditorBody({
   databaseDocumentId,
 }: DocumentEditorBodyProps) {
   const t = useT();
+  useEffect(() => {
+    void rememberContentLandingDocument(documentId).catch((error) => {
+      toast.error(t("landing.saveFailed"), {
+        description:
+          error instanceof Error ? error.message : t("empty.genericError"),
+      });
+    });
+  }, [documentId, t]);
   const updateDocument = useUpdateDocument();
   const createDatabase = useCreateContentDatabase(documentId);
   const deleteContentDatabase = useDeleteContentDatabase();

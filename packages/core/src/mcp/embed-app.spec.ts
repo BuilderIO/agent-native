@@ -154,6 +154,7 @@ describe("embedApp", () => {
     expect(html).toContain('"agentNative.mcpHost.requestDisplayMode"');
     expect(html).toContain('"agentNative.mcpHost.response"');
     expect(html).toContain('"agentNative.embedSessionExpired"');
+    expect(html).toContain("message.embedStartUrl === appFrame?.src");
     expect(html).toContain("refreshExpiredEmbedSession");
     expect(html).toContain("const maxEmbedSessionRefreshAttempts = 2");
     expect(html).toContain("let embedSessionRefreshAttempts = 0");

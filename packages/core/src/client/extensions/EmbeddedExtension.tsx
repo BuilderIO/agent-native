@@ -334,7 +334,7 @@ export function EmbeddedExtension({
         sendToAgentChat({
           message: text,
           context: serializeChatValue((message as any).context),
-          submit: (message as any).submit !== false,
+          submit: (message as any).submit === true,
           openSidebar: (message as any).openSidebar !== false,
         });
         return;

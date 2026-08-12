@@ -128,6 +128,7 @@ const {
   deleteOAuthTokens,
   deleteOAuthTokensIfRevision,
   getOAuthTokenSnapshot,
+  getOAuthTokenSnapshotForUserOwner,
   getOAuthTokens,
   replaceOAuthTokensIfRevision,
   saveOAuthTokens,
@@ -187,6 +188,24 @@ describe("oauth token store", () => {
       "LOWER(oauth_tokens.owner) = LOWER(excluded.owner)",
     );
     expect(lastInsert().args[2]).toBe("user:alice@example.com");
+  });
+
+  it("finds only case-insensitive legacy user owners", async () => {
+    existingOwner = "user:Alice@Example.com";
+    existingTokens = { access_token: "legacy-token" };
+
+    await expect(
+      getOAuthTokenSnapshotForUserOwner(
+        "mcp",
+        "mcp_oauth:test",
+        "user:alice@example.com",
+      ),
+    ).resolves.toMatchObject({ owner: "user:Alice@Example.com" });
+
+    const read = execCalls.find((call) =>
+      call.sql.includes("LOWER(owner) = LOWER(?)"),
+    );
+    expect(read?.sql).toContain("LOWER(owner) LIKE 'user:%'");
   });
 
   it("does not treat differently cased organization owners as equivalent", async () => {

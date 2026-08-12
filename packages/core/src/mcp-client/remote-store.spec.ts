@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const oauthMocks = vi.hoisted(() => ({
   delete: vi.fn(),
+  revoke: vi.fn(),
   save: vi.fn(),
 }));
 const getUserSettingMock = vi.hoisted(() => vi.fn());
@@ -10,7 +11,7 @@ const putUserSettingMock = vi.hoisted(() => vi.fn());
 vi.mock("./oauth-client.js", () => ({
   deleteMcpOAuthCredentials: oauthMocks.delete,
   getMcpOAuthAccessToken: vi.fn(),
-  revokeMcpOAuthCredentials: vi.fn(),
+  revokeMcpOAuthCredentials: oauthMocks.revoke,
   saveMcpOAuthCredentials: oauthMocks.save,
 }));
 
@@ -39,6 +40,10 @@ vi.mock("../mcp/org-directory.js", () => ({
 beforeEach(() => {
   vi.clearAllMocks();
   getUserSettingMock.mockResolvedValue(null);
+  oauthMocks.revoke.mockResolvedValue({
+    remote: "succeeded",
+    local: "deleted",
+  });
 });
 
 describe("validateRemoteUrl", () => {
@@ -166,9 +171,37 @@ describe("OAuth remote MCP metadata", () => {
         }),
       }),
     );
-    expect(oauthMocks.delete).toHaveBeenCalledWith(
+    expect(oauthMocks.revoke).toHaveBeenCalledWith(
       expect.objectContaining({ serverUrl: "https://mcp.example.com/" }),
     );
+  });
+
+  it("revokes credentials when registration throws after the grant is saved", async () => {
+    putUserSettingMock.mockRejectedValueOnce(new Error("settings unavailable"));
+
+    await expect(
+      addOAuthRemoteServer("user", "user@example.com", {
+        name: "example",
+        url: "https://mcp.example.com",
+        credentials: {
+          serverUrl: "https://mcp.example.com",
+          clientInformation: {
+            client_id: "example-client",
+            redirect_uris: ["https://app.example.com/callback"],
+          },
+          tokens: {
+            access_token: "<ACCESS_TOKEN>",
+            token_type: "bearer",
+          },
+        },
+      }),
+    ).resolves.toMatchObject({ ok: false });
+
+    expect(oauthMocks.save).toHaveBeenCalledTimes(1);
+    expect(oauthMocks.revoke).toHaveBeenCalledWith(
+      expect.objectContaining({ serverUrl: "https://mcp.example.com/" }),
+    );
+    expect(oauthMocks.delete).not.toHaveBeenCalled();
   });
 });
 

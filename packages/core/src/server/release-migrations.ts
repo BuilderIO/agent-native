@@ -1,5 +1,9 @@
 import { CONTEXT_XRAY_MIGRATIONS } from "../agent/context-xray/migrations.js";
 import { OBSERVATIONAL_MEMORY_MIGRATIONS } from "../agent/observational-memory/migrations.js";
+import {
+  AGENT_TOOL_APPROVAL_MIGRATIONS,
+  AGENT_TOOL_APPROVAL_MIGRATIONS_TABLE,
+} from "../agent/tool-approval-migrations.js";
 import { runMigrations } from "../db/migrations.js";
 import { runAutomationRunMigrations } from "../jobs/run-history.js";
 import { runAutomationSchedulerHealthMigrations } from "../jobs/scheduler-health.js";
@@ -21,6 +25,9 @@ export async function runFrameworkReleaseMigrations(
   nitroApp: unknown,
 ): Promise<void> {
   await runBetterAuthMigrations(nitroApp);
+  await runMigrations(AGENT_TOOL_APPROVAL_MIGRATIONS, {
+    table: AGENT_TOOL_APPROVAL_MIGRATIONS_TABLE,
+  })(nitroApp);
   await runMigrations(OAUTH_TOKEN_MIGRATIONS, {
     table: OAUTH_TOKEN_MIGRATIONS_TABLE,
   })(nitroApp);

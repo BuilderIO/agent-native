@@ -141,9 +141,6 @@ function normalizeTabId(value?: string | null): string | null {
   if (normalized === "workspace" || normalized === "workspace-settings") {
     return "workspace";
   }
-  if (normalized === "connections") {
-    return "integrations";
-  }
   return normalized;
 }
 
@@ -154,6 +151,15 @@ function resolveTabId(
   const normalized = normalizeTabId(value);
   if (!normalized) return null;
   if (tabs.some((tab) => tab.id === normalized)) return normalized;
+  const alternateTabId =
+    normalized === "connections"
+      ? "integrations"
+      : normalized === "integrations"
+        ? "connections"
+        : null;
+  if (alternateTabId && tabs.some((tab) => tab.id === alternateTabId)) {
+    return alternateTabId;
+  }
   const nestedTab = tabs
     .filter(
       (tab) =>
