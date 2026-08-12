@@ -12,7 +12,6 @@ import {
   CopyField,
   GeneralAccessSelect,
   MakePublicCard,
-  ShareCardHeader,
   SharePeopleTab,
   copyToClipboard,
   useResourceVisibilityMutation,
@@ -30,7 +29,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 export interface ShareMeetingPopoverProps {
   meetingId: string;
-  meetingTitle?: string;
   shareTranscript: boolean;
   transcriptReady: boolean;
   children: ReactNode;
@@ -38,7 +36,6 @@ export interface ShareMeetingPopoverProps {
 
 export function ShareMeetingPopover({
   meetingId,
-  meetingTitle,
   shareTranscript,
   transcriptReady,
   children,
@@ -52,7 +49,6 @@ export function ShareMeetingPopover({
       >
         <ShareMeetingContent
           meetingId={meetingId}
-          meetingTitle={meetingTitle}
           shareTranscript={shareTranscript}
           transcriptReady={transcriptReady}
         />
@@ -63,12 +59,10 @@ export function ShareMeetingPopover({
 
 function ShareMeetingContent({
   meetingId,
-  meetingTitle,
   shareTranscript,
   transcriptReady,
 }: {
   meetingId: string;
-  meetingTitle?: string;
   shareTranscript: boolean;
   transcriptReady: boolean;
 }) {
@@ -85,14 +79,9 @@ function ShareMeetingContent({
 
   const data = sharesQuery.data;
   const canManage = data?.role === "owner" || data?.role === "admin";
-  const titleText = meetingTitle
-    ? t("clipsFinalRaw.shareNamedMeeting", { title: meetingTitle })
-    : t("clipsFinalRaw.shareMeeting");
 
   return (
     <>
-      <ShareCardHeader title={titleText} ownerEmail={data?.ownerEmail} />
-
       <Tabs defaultValue="link" className="min-w-0 px-4 py-3">
         <TabsList className="grid w-full grid-cols-2">
           <TabsTrigger value="link" className="gap-1.5">

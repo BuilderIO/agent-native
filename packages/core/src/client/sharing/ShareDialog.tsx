@@ -119,7 +119,11 @@ export function ShareDialog({
       onOpenChange={controller.onOpenChange}
       title={
         <span
-          className="truncate !text-base !leading-normal !tracking-normal !text-inherit"
+          className={cn(
+            controller.tabsEnabled
+              ? "sr-only"
+              : "truncate !text-base !leading-normal !tracking-normal !text-inherit",
+          )}
           title={controller.title}
         >
           {controller.title}
@@ -130,13 +134,13 @@ export function ShareDialog({
       className="!top-4 !z-[2010] !block !max-h-none !w-[calc(100vw-2rem)] !max-w-lg !translate-y-0 !gap-0 !overflow-visible !rounded-xl !border-border !bg-popover !p-0 !text-popover-foreground !shadow-2xl sm:!top-1/2 sm:!-translate-y-1/2"
       aria-label={controller.title}
     >
-      <div className="px-5 pt-0 pb-3">
-        {controller.ownerLabel ? (
+      {!controller.tabsEnabled && controller.ownerLabel ? (
+        <div className="px-5 pt-0 pb-3">
           <div className="truncate text-xs text-muted-foreground">
             {controller.ownerLabel}
           </div>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
 
       {controller.tabsEnabled ? (
         <div
@@ -224,7 +228,7 @@ function LinkTab({
         controller={controller}
       />
       <div>
-        <div className="mb-2 text-sm font-semibold">
+        <div className="mb-2 text-xs font-medium text-muted-foreground">
           {controller.labels.generalAccess}
         </div>
         <div className="flex items-center gap-3">
