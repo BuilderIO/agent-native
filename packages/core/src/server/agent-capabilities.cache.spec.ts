@@ -110,4 +110,24 @@ describe("peer capability card caching", () => {
       token: "tok",
     });
   });
+
+  it("strips an explicit A2A endpoint from the discovery audience", async () => {
+    getRequestUserEmail.mockReturnValue("alice@example.com");
+    const endpointPeer = {
+      ...PEER,
+      url: "https://workspace.example/slides/_agent-native/a2a",
+    };
+
+    await loadCapabilities(endpointPeer);
+
+    expect(signA2AToken).toHaveBeenCalledWith(
+      "alice@example.com",
+      undefined,
+      undefined,
+      {
+        preferGlobalSecret: true,
+        audience: "https://workspace.example/slides",
+      },
+    );
+  });
 });
