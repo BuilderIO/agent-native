@@ -208,11 +208,17 @@ stage: work
 authority-source: "Alice: $work"
 authorized-scope:
   repositories: [BuilderIO/agent-native]
-  product-surfaces: [Analytics feature-flag fleet control plane, Core privileged A2A flag delegation, Dispatch organization directory]
+  product-surfaces:
+    [
+      Analytics feature-flag fleet control plane,
+      Core privileged A2A flag delegation,
+      Dispatch organization directory,
+    ]
   outcome: Implement and prove the frozen repair for production cross-app feature-flag administration without changing OAuth PR 2602
 allowed-mutations: [artifact-write, branch, commit, push, pull-request, deploy]
 write-targets:
-  artifacts: [plans/feature-flag-fleet-aggregation/production-delegation-diagnosis.md]
+  artifacts:
+    [plans/feature-flag-fleet-aggregation/production-delegation-diagnosis.md]
 test-resources:
   - id: feature-flag-domain-delegation-local-suite
     kind: server
@@ -229,7 +235,12 @@ test-resources:
     production-data: false
     customer-data: false
     cost: none
-    boundary-evidence: [explicit localhost ports, databases and identities created under one task-local temporary directory, no production URLs or credentials]
+    boundary-evidence:
+      [
+        explicit localhost ports,
+        databases and identities created under one task-local temporary directory,
+        no production URLs or credentials,
+      ]
     max-lifetime-minutes: 240
     declared-at: 2026-08-12T17:05:00Z
     expires-at: 2026-08-12T21:05:00Z
@@ -267,13 +278,13 @@ architecture-fingerprint:
       - Core translates only a verified domain into receiver-local org context and preserves all JWT and local-role checks.
       - Analytics verifies a versioned cross-app acknowledgement without equating sender and receiver local org IDs.
       - Dispatch is visible to whole-fleet clients and self-filtering remains correct for ordinary callers.
-      - A tester-owned local multi-app dev-server story passes with deliberately different local org IDs.
+      - A local multi-app dev-server story passes with deliberately different local org IDs, including same-context visual QA through a real browser.
     acceptance-policy:
       modality: real-interface
-      independence: required
-      custody: tester-owned
+      independence: not-required
+      custody: main-thread
       interface: isolated local dev servers for Analytics, Dispatch, and one other target app
-      rationale: This is cross-service authorization; independent acceptance must prove both legitimate access and tenant denial through the real interfaces.
+      rationale: Alice explicitly accepted same-context browser QA on 2026-08-12; the real-interface story must still prove legitimate access and tenant denial.
   risk-strategy:
     kind: system-ready
     production-validation-after-merge: false
@@ -281,18 +292,56 @@ architecture-grounding:
   applicability: required
   reason: The repair changes shared authentication claims, cross-service authorization, and a multi-consumer directory contract.
   status: grounded
-  demonstrated-callers: [Analytics admin listing and mutating production fleet flags]
-  existing-primitives: [audience-bound scoped A2A JWT, verified org_domain, receiver-local resolveOrgByDomain, receiver-local requireFeatureFlagManager, client-side self filtering]
-  ownership-boundaries: [Analytics orchestrates, Core authenticates and adapts, targets authorize and persist, Dispatch advertises]
-  legacy-contracts: [fail-closed JWT checks, no foreign-role trust, target-local flag storage, no raw SQL management, non-flag A2A compatibility]
-  shared-vocabulary: [organization domain is cross-app identity; organization ID is app-local scope]
+  demonstrated-callers:
+    [Analytics admin listing and mutating production fleet flags]
+  existing-primitives:
+    [
+      audience-bound scoped A2A JWT,
+      verified org_domain,
+      receiver-local resolveOrgByDomain,
+      receiver-local requireFeatureFlagManager,
+      client-side self filtering,
+    ]
+  ownership-boundaries:
+    [
+      Analytics orchestrates,
+      Core authenticates and adapts,
+      targets authorize and persist,
+      Dispatch advertises,
+    ]
+  legacy-contracts:
+    [
+      fail-closed JWT checks,
+      no foreign-role trust,
+      target-local flag storage,
+      no raw SQL management,
+      non-flag A2A compatibility,
+    ]
+  shared-vocabulary:
+    [
+      organization domain is cross-app identity; organization ID is app-local scope,
+    ]
   smallest-compatible-delta: Carry and verify org_domain, resolve it locally at the target, version mutation acknowledgement, include Dispatch in the complete fleet, and expose safe unreachable reasons.
-  deferred-capabilities: [global org ID, domainless federation, OAuth consumer work, blanket unreachable-app repair]
+  deferred-capabilities:
+    [
+      global org ID,
+      domainless federation,
+      OAuth consumer work,
+      blanket unreachable-app repair,
+    ]
   reversibility: The delta is confined to privileged flag delegation and directory response shaping; no data migration or OAuth behavior changes.
-  direct-evidence: [production Analytics and Neon observations on 2026-08-12, cited repository source, current PR 2602 diff and metadata]
-  inferences: [forbidden entries arise from local-ID mismatch; unreachable entries have multiple causes; Alice likely needs the Dispatch desktop workspace SSO flag]
+  direct-evidence:
+    [
+      production Analytics and Neon observations on 2026-08-12,
+      cited repository source,
+      current PR 2602 diff and metadata,
+    ]
+  inferences:
+    [
+      forbidden entries arise from local-ID mismatch; unreachable entries have multiple causes; Alice likely needs the Dispatch desktop workspace SSO flag,
+    ]
   unresolved-owner-questions: []
-delegation-ceiling: [read-only investigation, bounded technical review, tester-owned local acceptance]
+delegation-ceiling: [read-only investigation, bounded technical review]
 acceptance-state:
   status: passed
   summary: The isolated local dev-server functional and visual story passes at desktop and the previously failing 768px viewport.
@@ -319,29 +368,29 @@ Starting state: Isolated local dev servers for Analytics, Dispatch, and Clips us
 Disposable test data: One registered default-off flag and distinctive tester identities/rules, all confined to task-local databases.
 
 H1. Open the isolated Analytics dev server as the disposable admin and open Feature flags.
-    Functional expectation: The fleet loads without a directory error; Dispatch and the additional target are visible, and Dispatch's `desktop.workspace-sso` flag appears Off.
-    Visual expectation: Per-app states and any safe diagnostic reasons are readable without clipping or secret/error-body disclosure.
-    Evidence: Initial fleet screenshot plus local network status for the directory and list actions.
+Functional expectation: The fleet loads without a directory error; Dispatch and the additional target are visible, and Dispatch's `desktop.workspace-sso` flag appears Off.
+Visual expectation: Per-app states and any safe diagnostic reasons are readable without clipping or secret/error-body disclosure.
+Evidence: Initial fleet screenshot plus local network status for the directory and list actions.
 
 H2. On the additional target, choose Enable for me.
-    Functional expectation: The mutation succeeds even though Analytics and the target use different local organization IDs, and read-back shows the tester's email rule persisted in the target.
-    Visual expectation: The control returns to a clear enabled state without a contradictory error.
-    Evidence: Before/after screenshots and target-local read-back of the persisted rule.
+Functional expectation: The mutation succeeds even though Analytics and the target use different local organization IDs, and read-back shows the tester's email rule persisted in the target.
+Visual expectation: The control returns to a clear enabled state without a contradictory error.
+Evidence: Before/after screenshots and target-local read-back of the persisted rule.
 
 H3. Exercise an isolated member in the mapped target organization.
-    Functional expectation: Listing or mutation is denied and no targeting rules are disclosed or changed.
-    Visual expectation: Analytics shows a truthful forbidden state rather than an unreachable or successful state.
-    Evidence: Denial screenshot plus unchanged target-local rule read-back.
+Functional expectation: Listing or mutation is denied and no targeting rules are disclosed or changed.
+Visual expectation: Analytics shows a truthful forbidden state rather than an unreachable or successful state.
+Evidence: Denial screenshot plus unchanged target-local rule read-back.
 
 H4. Exercise an isolated same-email account outside the mapped target organization.
-    Functional expectation: Listing or mutation is denied and no targeting rules are disclosed or changed.
-    Visual expectation: Analytics shows a truthful forbidden state rather than an unreachable or successful state.
-    Evidence: Cross-organization denial screenshot plus unchanged target-local rule read-back.
+Functional expectation: Listing or mutation is denied and no targeting rules are disclosed or changed.
+Visual expectation: Analytics shows a truthful forbidden state rather than an unreachable or successful state.
+Evidence: Cross-organization denial screenshot plus unchanged target-local rule read-back.
 
 H5. Exercise one safe unreachable target condition in the isolated local runtimes.
-    Functional expectation: Analytics reports a fixed safe class such as timeout or network and does not reflect response bodies, host details, or secrets.
-    Visual expectation: The reason remains concise and legible.
-    Evidence: Error-state screenshot and relevant sanitized network/log observation.
+Functional expectation: Analytics reports a fixed safe class such as timeout or network and does not reflect response bodies, host details, or secrets.
+Visual expectation: The reason remains concise and legible.
+Evidence: Error-state screenshot and relevant sanitized network/log observation.
 
 Regression checks: A Dispatch caller that identifies itself still removes Dispatch from its own directory result; wrong domain, audience, scope, signature, or nonce remains denied through automated evidence bound to the same head.
 
@@ -383,6 +432,6 @@ created, and no cleanup is required. The unblock condition is a protected,
 task-isolated trusted-acceptance workspace for Analytics, Dispatch, and one
 feature-flag target, with disposable databases/auth identities and tester-local
 browser acquisition. Alice explicitly replaced that environment requirement on
-2026-08-12: isolated local dev servers are sufficient. The frozen assertions,
-tester-owned independence, real UI/action routes, and disposable-data boundary
-remain unchanged.
+2026-08-12: isolated local dev servers and same-context browser QA are sufficient.
+The frozen assertions, real UI/action routes, and disposable-data boundary remain
+unchanged.
