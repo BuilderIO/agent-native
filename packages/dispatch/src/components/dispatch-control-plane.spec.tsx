@@ -137,6 +137,15 @@ describe("DispatchControlPlane", () => {
     expect(container.textContent).not.toContain("Open chat");
     expect(container.textContent).not.toContain("Also");
     expect(container.textContent).not.toContain("active");
+    expect(container.textContent).not.toContain(
+      "Summarize the current workspace health",
+    );
+    expect(container.textContent).toContain(
+      "Create an app for onboarding requests",
+    );
+    expect(container.textContent).toContain(
+      "Check which agents can help with analytics",
+    );
     expect(container.querySelector("nav")).toBeNull();
     expect(
       container.querySelector('[data-placeholder="Ask Dispatch anything..."]'),

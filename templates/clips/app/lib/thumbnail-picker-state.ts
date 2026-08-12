@@ -31,6 +31,7 @@ function parseGifValue(value: string): {
     if (!parsed || typeof parsed !== "object") return {};
     return parsed as { startMs?: unknown; durationMs?: unknown };
   } catch {
+    // coercion-ok: malformed saved GIF metadata falls back to safe picker defaults.
     return {};
   }
 }

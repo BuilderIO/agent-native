@@ -130,6 +130,7 @@ const messages = {
     newFactoryDescription:
       "Describe the work this factory turns into shipped outcomes.",
     selectFactory: "Select factory",
+    backToFactories: "Back to factories",
     askAI: "Ask Factory AI",
     factoryViews: "Factory views",
     observeFirst: "Observe-first · shadow mode",
@@ -137,6 +138,8 @@ const messages = {
     mapTitle: "From signal to shipped outcome",
     mapHint: "Select a step or route to edit.",
     unsavedChanges: "Unsaved visual changes",
+    factoryListDescription:
+      "Choose a factory to review its purpose, flow, automations, and recent activity. Start a new one from a minimal blank graph when you want to define a fresh review path.",
     inboxTitle: "Observation inbox",
     inboxDescription: "Evidence entering the factory, before autonomous work.",
     selectObservation:
@@ -144,6 +147,7 @@ const messages = {
     approveAndStart: "Approve and start",
     rulesDescription: "Every rule is shadow-only until deliberately promoted.",
     editRule: "Edit triage rule",
+    editFlow: "Edit flow",
     settingsDescription:
       "Connect Slack, GitHub, and Sentry sources. Automations can dispatch governed work and expose their prompts and runs below.",
     blueprintTitle: "Blueprint mode.",

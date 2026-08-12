@@ -35,7 +35,7 @@ export default defineAction({
       .string()
       .optional()
       .describe("Optional signed-ingest bearer token; stored only as a hash"),
-    visibility: z.enum(["private", "org"]).default("org"),
+    visibility: z.enum(["private", "org"]).default("private"),
     policy: sourceAnswerPolicySchema
       .optional()
       .describe(

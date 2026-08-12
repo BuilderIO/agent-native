@@ -123,6 +123,7 @@ const messages = {
     newFactory: "مصنع وكلاء جديد",
     newFactoryDescription: "صِف العمل الذي يحوّله هذا المصنع إلى نتائج منشورة.",
     selectFactory: "تحديد المصنع",
+    backToFactories: "العودة إلى المصانع",
     askAI: "اسأل ذكاء المصنع",
     factoryViews: "طرق عرض المصنع",
     observeFirst: "المراقبة أولًا · وضع الظل",
@@ -130,12 +131,15 @@ const messages = {
     mapTitle: "من الإشارة إلى النتيجة المنشورة",
     mapHint: "انقر على خطوة أو مسار لفحصه. انقر مرتين على خطوة لإضافة تعليق.",
     unsavedChanges: "تغييرات مرئية غير محفوظة",
+    factoryListDescription:
+      "اختر مصنعًا لمراجعة غرضه وتدفقه وعملياته الآلية ونشاطه الأخير. ابدأ مصنعًا جديدًا من رسم بياني فارغ وبسيط عند رغبتك في تعريف مسار مراجعة جديد.",
     inboxTitle: "صندوق ملاحظات المراقبة",
     inboxDescription: "الأدلة التي تدخل المصنع قبل العمل المستقل.",
     selectObservation: "حدد ملاحظة لفحص مسارها وملاحظاتها.",
     approveAndStart: "الموافقة والبدء",
     rulesDescription: "تظل كل قاعدة في وضع الظل حتى ترقيتها عمدًا.",
     editRule: "تعديل قاعدة الفرز",
+    editFlow: "تعديل التدفق",
     settingsDescription:
       "اربط Slack وGitHub وSentry. يمكن للتشغيل الآلي بدء عمل محكوم وعرض المطالبات وعمليات التشغيل أدناه.",
     blueprintTitle: "وضع المخطط.",

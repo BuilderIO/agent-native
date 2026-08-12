@@ -132,6 +132,7 @@ const messages = {
     newFactoryDescription:
       "Descreva o trabalho que esta fábrica transforma em resultados entregues.",
     selectFactory: "Selecionar fábrica",
+    backToFactories: "Voltar para as fábricas",
     askAI: "Perguntar à IA da fábrica",
     factoryViews: "Visualizações da fábrica",
     observeFirst: "Observar primeiro · modo sombra",
@@ -140,6 +141,8 @@ const messages = {
     mapHint:
       "Clique em uma etapa ou rota para inspecioná-la. Clique duas vezes em uma etapa para comentar.",
     unsavedChanges: "Alterações visuais não salvas",
+    factoryListDescription:
+      "Escolha uma fábrica para revisar seu propósito, fluxo, automações e atividade recente. Inicie uma nova a partir de um grafo em branco mínimo quando quiser definir um novo caminho de revisão.",
     inboxTitle: "Caixa de entrada de observações",
     inboxDescription:
       "Evidências entrando na fábrica antes do trabalho autônomo.",
@@ -149,6 +152,7 @@ const messages = {
     rulesDescription:
       "Cada regra permanece no modo sombra até ser promovida deliberadamente.",
     editRule: "Editar regra de triagem",
+    editFlow: "Editar fluxo",
     settingsDescription:
       "Conecte Slack, GitHub e Sentry. As automações podem iniciar trabalho governado e mostrar seus prompts e execuções abaixo.",
     blueprintTitle: "Modo blueprint.",

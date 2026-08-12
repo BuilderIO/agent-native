@@ -44,10 +44,6 @@ import {
 import { Input } from "@agent-native/dispatch/components/ui/input";
 import { Label } from "@agent-native/dispatch/components/ui/label";
 import {
-  RadioGroup,
-  RadioGroupItem,
-} from "@agent-native/dispatch/components/ui/radio-group";
-import {
   Select,
   SelectContent,
   SelectItem,
@@ -66,6 +62,7 @@ import {
   IconBuilding,
   IconChartBar,
   IconCheck,
+  IconChevronDown,
   IconCircleDashed,
   IconClock,
   IconDatabase,
@@ -1104,17 +1101,26 @@ function Modal({
   open,
   onClose,
   children,
+  fullscreen = false,
 }: {
   title: string;
   description?: string;
   open: boolean;
   onClose: () => void;
   children: ReactNode;
+  fullscreen?: boolean;
 }) {
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
-      <DialogContent className="max-h-[92vh] max-w-2xl overflow-y-auto p-0">
-        <DialogHeader className="border-b p-4 pe-10">
+      <DialogContent
+        className={cx(
+          "p-0",
+          fullscreen
+            ? "inset-0 flex h-[100dvh] max-h-none w-full max-w-none translate-x-0 translate-y-0 flex-col overflow-hidden rounded-none"
+            : "max-h-[92vh] max-w-2xl overflow-y-auto",
+        )}
+      >
+        <DialogHeader className="shrink-0 border-b p-4 pe-10 sm:px-8">
           <DialogTitle className="text-base">{title}</DialogTitle>
           {description ? (
             <DialogDescription>{description}</DialogDescription>
@@ -1157,6 +1163,7 @@ function ConnectionForm({
     <Modal
       open={open}
       onClose={onClose}
+      fullscreen
       title={
         form.id
           ? t("integrations.editConnection")
@@ -1516,7 +1523,6 @@ function SetupWizard({
   loading,
   saving,
   onStepChange,
-  onProviderChange,
   onChange,
   onClose,
   onSubmit,
@@ -1531,7 +1537,6 @@ function SetupWizard({
   loading: boolean;
   saving: boolean;
   onStepChange: (step: number) => void;
-  onProviderChange: (providerId: string) => void;
   onChange: (form: SetupWizardFormState) => void;
   onClose: () => void;
   onSubmit: () => void;
@@ -1548,9 +1553,9 @@ function SetupWizard({
   );
   const selectedApps = form?.selectedApps ?? [];
   const stepItems = [
-    { label: t("integrations.provider"), icon: IconPlugConnected },
-    { label: t("integrations.refs"), icon: IconKey },
-    { label: t("integrations.access"), icon: IconShieldCheck },
+    t("integrations.provider"),
+    t("integrations.refs"),
+    t("integrations.access"),
   ];
   const canAdvance =
     step === 0
@@ -1587,6 +1592,7 @@ function SetupWizard({
     <Modal
       open={open}
       onClose={onClose}
+      fullscreen
       title={
         state?.mode === "repair"
           ? t("integrations.repairConnectionTitle", {
@@ -1599,339 +1605,295 @@ function SetupWizard({
               provider: provider?.label || t("integrations.providerFallback"),
             })
       }
-      description={provider?.description}
+      description={undefined}
     >
-      <div className="grid gap-4 p-4">
-        <div className="grid grid-cols-3 gap-2">
-          {stepItems.map((item, index) => {
-            const Icon = item.icon;
-            const active = step === index;
-            const complete = step > index;
-            return (
-              <button
-                key={item.label}
-                type="button"
-                onClick={() => onStepChange(index)}
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto grid w-full max-w-2xl gap-8 px-6 py-8 sm:px-10 sm:py-12">
+          <div className="grid gap-2">
+            <div className="flex items-center justify-between gap-4 text-xs text-muted-foreground">
+              <span>
+                Step {step + 1} of {stepItems.length}
+              </span>
+              <span className="font-medium text-foreground">
+                {stepItems[step]}
+              </span>
+            </div>
+            <div className="h-1 overflow-hidden rounded-full bg-muted">
+              <div
                 className={cx(
-                  "flex min-h-10 items-center justify-center gap-2 rounded-md border px-2 text-xs font-medium transition",
-                  active
-                    ? "border-primary bg-primary text-primary-foreground"
-                    : complete
-                      ? "border-border bg-muted text-foreground"
-                      : "border-border bg-background text-muted-foreground",
+                  "h-full rounded-full bg-primary transition-[width] duration-200 ease-[var(--ease-out-strong)]",
+                  step === 0 ? "w-1/3" : step === 1 ? "w-2/3" : "w-full",
                 )}
-              >
-                {complete ? <IconCheck size={14} /> : <Icon size={14} />}
-                <span className="truncate">{item.label}</span>
-              </button>
-            );
-          })}
-        </div>
-
-        {loading ? (
-          <div className="rounded-lg border border-dashed px-6 py-10 text-center text-sm text-muted-foreground">
-            {t("integrations.loadingSetupPlan")}
+              />
+            </div>
           </div>
-        ) : null}
 
-        {!loading && form && provider ? (
-          <>
-            {plan?.warnings.length ? (
-              <div className="grid gap-2">
-                {plan.warnings.map((warning) => (
-                  <div
-                    key={warning}
-                    className="flex items-start gap-2 rounded-md border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400"
-                  >
-                    <IconAlertTriangle size={15} className="mt-0.5 shrink-0" />
-                    <span className="min-w-0 break-words">{warning}</span>
-                  </div>
-                ))}
-              </div>
-            ) : null}
+          {loading ? (
+            <div className="rounded-lg border border-dashed px-6 py-10 text-center text-sm text-muted-foreground">
+              {t("integrations.loadingSetupPlan")}
+            </div>
+          ) : null}
 
-            {step === 0 ? (
-              <div className="grid gap-4">
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="grid gap-1.5 text-sm">
-                    <Label>{t("integrations.provider")}</Label>
-                    <Select
-                      value={form.provider}
-                      disabled={state?.mode === "repair"}
-                      onValueChange={onProviderChange}
+          {!loading && form && provider ? (
+            <>
+              {plan?.warnings.length ? (
+                <div className="grid gap-2">
+                  {plan.warnings.map((warning) => (
+                    <div
+                      key={warning}
+                      className="flex items-start gap-2 rounded-md border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400"
                     >
-                      <SelectTrigger>
-                        <SelectValue
-                          placeholder={t("integrations.chooseProvider")}
-                        />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {providers.map((item) => (
-                          <SelectItem key={item.id} value={item.id}>
-                            {item.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                      <IconAlertTriangle
+                        size={15}
+                        className="mt-0.5 shrink-0"
+                      />
+                      <span className="min-w-0 break-words">{warning}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+
+              {step === 0 ? (
+                <div className="grid gap-6">
+                  <div className="flex items-center gap-3">
+                    <span className="flex size-10 shrink-0 items-center justify-center rounded-lg border border-border bg-card">
+                      {logoForProvider(provider.id, provider.label)}
+                    </span>
+                    <div className="min-w-0">
+                      <h2 className="text-lg font-semibold tracking-[-0.02em] text-foreground">
+                        {provider.label}
+                      </h2>
+                      <p className="mt-0.5 text-sm text-muted-foreground">
+                        {t("integrations.scopeWorkspace")}
+                      </p>
+                    </div>
                   </div>
+
                   <TextField
                     label={t("integrations.connectionLabel")}
                     value={form.label}
                     onChange={(value) => onChange({ ...form, label: value })}
                     required
                   />
-                </div>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <TextField
-                    label={t("integrations.accountLabel")}
-                    value={form.accountLabel}
-                    onChange={(value) =>
-                      onChange({ ...form, accountLabel: value })
-                    }
-                    placeholder={t("integrations.accountLabelPlaceholder")}
-                  />
-                  <TextField
-                    label={t("integrations.accountId")}
-                    value={form.accountId}
-                    onChange={(value) =>
-                      onChange({ ...form, accountId: value })
-                    }
-                    placeholder={t("integrations.accountIdPlaceholder")}
-                  />
-                </div>
-                <div className="rounded-md border bg-background p-3">
-                  <div className="text-sm font-medium">
-                    {t("integrations.providerPlan")}
-                  </div>
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {provider.capabilities.map((capability) => (
-                      <Pill key={capability} className="border-border bg-muted">
-                        {capability}
-                      </Pill>
-                    ))}
-                  </div>
-                  <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                    {plan?.grantRecommendation.reason}
-                  </p>
-                </div>
-              </div>
-            ) : null}
 
-            {step === 1 ? (
-              <CredentialRefsEditor
-                provider={provider}
-                refs={form.credentialRefs}
-                missingRefs={missingCredentialRefs}
-                onChange={(credentialRefs) =>
-                  onChange({ ...form, credentialRefs })
-                }
-              />
-            ) : null}
-
-            {step === 2 ? (
-              <div className="grid gap-4">
-                <GrantPreview
-                  providerLabel={provider.label}
-                  grantMode={form.grantMode}
-                  selectedAppIds={selectedApps}
-                  grantApps={suggestedGrantApps}
-                />
-                <RadioGroup
-                  value={form.grantMode}
-                  onValueChange={(value) =>
-                    onChange({
-                      ...form,
-                      grantMode: value as SetupWizardFormState["grantMode"],
-                    })
-                  }
-                  className="grid gap-2"
-                >
-                  <Label
-                    htmlFor="setup-grant-selected"
-                    className="flex cursor-pointer items-start gap-3 rounded-md border bg-background p-3"
-                  >
-                    <RadioGroupItem
-                      id="setup-grant-selected"
-                      value="selected-apps"
-                      className="mt-0.5"
-                    />
-                    <span className="grid gap-1">
-                      <span className="text-sm font-medium">
-                        {t("integrations.selectedApps")}
+                  <details className="group rounded-lg border border-border/70">
+                    <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3.5 py-3 text-sm font-medium text-foreground marker:hidden">
+                      <span>
+                        {t(
+                          /* i18n-key-ignore */
+                          "integrations.advancedDetails",
+                          { defaultValue: "Advanced details" },
+                        )}
                       </span>
-                      <span className="text-xs leading-5 text-muted-foreground">
-                        {t("integrations.selectedAppsDescription")}
-                      </span>
-                    </span>
-                  </Label>
-                  <Label
-                    htmlFor="setup-grant-all"
-                    className="flex cursor-pointer items-start gap-3 rounded-md border bg-background p-3"
-                  >
-                    <RadioGroupItem
-                      id="setup-grant-all"
-                      value="all-apps"
-                      className="mt-0.5"
-                    />
-                    <span className="grid gap-1">
-                      <span className="text-sm font-medium">
-                        {t("integrations.allApps")}
-                      </span>
-                      <span className="text-xs leading-5 text-muted-foreground">
-                        {t("integrations.allAppsDescription")}
-                      </span>
-                    </span>
-                  </Label>
-                </RadioGroup>
-
-                {form.grantMode === "selected-apps" ? (
-                  <div className="rounded-md border bg-background p-3">
-                    <div className="mb-3 text-sm font-medium">
-                      {t("integrations.appGrants")}
-                    </div>
-                    <div className="grid gap-2 sm:grid-cols-2">
-                      {suggestedGrantApps.map((app) => {
-                        const AppIcon = app.icon;
-                        const selected = selectedApps.includes(app.id);
-                        return (
-                          <Label
-                            key={app.id}
-                            htmlFor={`setup-app-${app.id}`}
-                            className="flex min-h-11 cursor-pointer items-center justify-between gap-3 rounded-md border px-3 py-2"
-                          >
-                            <span className="flex min-w-0 items-center gap-2">
-                              <AppIcon
-                                size={14}
-                                className="text-muted-foreground"
-                              />
-                              <span className="truncate text-sm font-medium">
-                                {app.label}
-                              </span>
-                              {app.recommended ? (
-                                <Pill className="h-5 border-border bg-muted px-1.5 text-[11px]">
-                                  {t("integrations.suggested")}
-                                </Pill>
-                              ) : null}
-                            </span>
-                            <Checkbox
-                              id={`setup-app-${app.id}`}
-                              checked={selected}
-                              onCheckedChange={(checked) =>
-                                onChange({
-                                  ...form,
-                                  selectedApps: checked
-                                    ? Array.from(
-                                        new Set([...selectedApps, app.id]),
-                                      )
-                                    : selectedApps.filter(
-                                        (appId) => appId !== app.id,
-                                      ),
-                                })
-                              }
-                              aria-label={t("integrations.appGrantAria", {
-                                action: selected
-                                  ? t("integrations.remove")
-                                  : t("integrations.grant"),
-                                app: app.label,
-                              })}
-                            />
-                          </Label>
-                        );
-                      })}
-                    </div>
-                    {selectedApps.length === 0 ? (
-                      <div className="mt-3 text-xs text-muted-foreground">
-                        {t("integrations.chooseOneApp")}
+                      <IconChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
+                    </summary>
+                    <div className="grid gap-3 border-t border-border/70 px-3.5 py-3.5 sm:grid-cols-2">
+                      <TextField
+                        label={t("integrations.accountLabel")}
+                        value={form.accountLabel}
+                        onChange={(value) =>
+                          onChange({ ...form, accountLabel: value })
+                        }
+                        placeholder={t("integrations.accountLabelPlaceholder")}
+                      />
+                      <TextField
+                        label={t("integrations.accountId")}
+                        value={form.accountId}
+                        onChange={(value) =>
+                          onChange({ ...form, accountId: value })
+                        }
+                        placeholder={t("integrations.accountIdPlaceholder")}
+                      />
+                      <div className="sm:col-span-2">
+                        <p className="text-xs font-medium text-foreground">
+                          {t("integrations.providerPlan")}
+                        </p>
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {provider.capabilities.map((capability) => (
+                            <Pill
+                              key={capability}
+                              className="border-border bg-muted"
+                            >
+                              {capability}
+                            </Pill>
+                          ))}
+                        </div>
                       </div>
-                    ) : null}
+                    </div>
+                  </details>
+                </div>
+              ) : null}
+
+              {step === 1 ? (
+                <CredentialRefsEditor
+                  provider={provider}
+                  refs={form.credentialRefs}
+                  missingRefs={missingCredentialRefs}
+                  progressive
+                  onChange={(credentialRefs) =>
+                    onChange({ ...form, credentialRefs })
+                  }
+                />
+              ) : null}
+
+              {step === 2 ? (
+                <div className="grid gap-5">
+                  <div>
+                    <h2 className="text-lg font-semibold tracking-[-0.02em] text-foreground">
+                      {t("integrations.accessMode")}
+                    </h2>
+                    <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                      {t("integrations.selectedAppsDescription")}
+                    </p>
                   </div>
-                ) : null}
-              </div>
-            ) : null}
-          </>
-        ) : null}
+
+                  <div className="flex items-center justify-between gap-4 rounded-lg border border-border px-4 py-3.5">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-foreground">
+                        {t("integrations.allApps")}
+                      </p>
+                      <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
+                        {t("integrations.allAppsDescription")}
+                      </p>
+                    </div>
+                    <Switch
+                      checked={form.grantMode === "all-apps"}
+                      onCheckedChange={(checked) =>
+                        onChange({
+                          ...form,
+                          grantMode: checked ? "all-apps" : "selected-apps",
+                          selectedApps: checked
+                            ? []
+                            : selectedApps.length > 0
+                              ? selectedApps
+                              : suggestedGrantApps
+                                  .filter((app) => app.recommended)
+                                  .slice(0, 1)
+                                  .map((app) => app.id),
+                        })
+                      }
+                      aria-label={t("integrations.grantAllWorkspaceAppsAria")}
+                    />
+                  </div>
+
+                  {form.grantMode === "selected-apps" ? (
+                    <div className="grid gap-3">
+                      <div>
+                        <p className="text-sm font-medium text-foreground">
+                          {t("integrations.appGrants")}
+                        </p>
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          {t("integrations.chooseOneApp")}
+                        </p>
+                      </div>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        {suggestedGrantApps.map((app) => {
+                          const AppIcon = app.icon;
+                          const selected = selectedApps.includes(app.id);
+                          return (
+                            <Label
+                              key={app.id}
+                              htmlFor={`setup-app-${app.id}`}
+                              className="flex min-h-11 cursor-pointer items-center justify-between gap-3 rounded-lg border px-3 py-2 transition-colors hover:bg-accent/30"
+                            >
+                              <span className="flex min-w-0 items-center gap-2">
+                                <AppIcon
+                                  size={14}
+                                  className="text-muted-foreground"
+                                />
+                                <span className="truncate text-sm font-medium">
+                                  {app.label}
+                                </span>
+                                {app.recommended ? (
+                                  <Pill className="h-5 border-border bg-muted px-1.5 text-[11px]">
+                                    {t("integrations.suggested")}
+                                  </Pill>
+                                ) : null}
+                              </span>
+                              <Checkbox
+                                id={`setup-app-${app.id}`}
+                                checked={selected}
+                                onCheckedChange={(checked) =>
+                                  onChange({
+                                    ...form,
+                                    selectedApps: checked
+                                      ? Array.from(
+                                          new Set([...selectedApps, app.id]),
+                                        )
+                                      : selectedApps.filter(
+                                          (appId) => appId !== app.id,
+                                        ),
+                                  })
+                                }
+                                aria-label={t("integrations.appGrantAria", {
+                                  action: selected
+                                    ? t("integrations.remove")
+                                    : t("integrations.grant"),
+                                  app: app.label,
+                                })}
+                              />
+                            </Label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+            </>
+          ) : null}
+        </div>
       </div>
 
-      <DialogFooter className="border-t p-4">
-        <Button
-          type="button"
-          variant="outline"
-          onClick={onClose}
-          disabled={saving}
-        >
-          {t("integrations.cancel")}
-        </Button>
-        {step > 0 ? (
+      <DialogFooter className="shrink-0 border-t px-6 py-4 sm:px-10">
+        <div className="mx-auto flex w-full max-w-2xl items-center justify-between gap-2">
           <Button
             type="button"
-            variant="outline"
-            onClick={() => onStepChange(step - 1)}
+            variant="ghost"
+            onClick={onClose}
             disabled={saving}
           >
-            <IconArrowLeft size={14} className="rtl:-scale-x-100" />
-            {t("integrations.back")}
+            {t("integrations.cancel")}
           </Button>
-        ) : null}
-        {step < 2 ? (
-          <Button
-            type="button"
-            onClick={() => onStepChange(step + 1)}
-            disabled={!canAdvance || loading || saving}
-          >
-            {t("integrations.next")}
-            <IconArrowRight size={14} className="rtl:-scale-x-100" />
-          </Button>
-        ) : (
-          <Button
-            type="button"
-            onClick={onSubmit}
-            disabled={!canAdvance || loading || saving}
-          >
-            {saving ? <IconRefresh size={14} className="animate-spin" /> : null}
-            {state?.mode === "repair"
-              ? t("integrations.applyRepair")
-              : t("integrations.createConnection")}
-          </Button>
-        )}
+          <div className="flex items-center gap-2">
+            {step > 0 ? (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => onStepChange(step - 1)}
+                disabled={saving}
+              >
+                <IconArrowLeft size={14} className="rtl:-scale-x-100" />
+                {t("integrations.back")}
+              </Button>
+            ) : null}
+            {step < 2 ? (
+              <Button
+                type="button"
+                onClick={() => onStepChange(step + 1)}
+                disabled={!canAdvance || loading || saving}
+              >
+                {t("integrations.next")}
+                <IconArrowRight size={14} className="rtl:-scale-x-100" />
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                onClick={onSubmit}
+                disabled={!canAdvance || loading || saving}
+              >
+                {saving ? (
+                  <IconRefresh size={14} className="animate-spin" />
+                ) : null}
+                {state?.mode === "repair"
+                  ? t("integrations.applyRepair")
+                  : t("integrations.createConnection")}
+              </Button>
+            )}
+          </div>
+        </div>
       </DialogFooter>
     </Modal>
-  );
-}
-
-function GrantPreview({
-  providerLabel,
-  grantMode,
-  selectedAppIds,
-  grantApps,
-}: {
-  providerLabel: string;
-  grantMode: SetupWizardFormState["grantMode"];
-  selectedAppIds: string[];
-  grantApps: GrantApp[];
-}) {
-  const t = useT();
-  const selectedLabel = summarizeAppList(selectedAppIds, grantApps, t);
-  return (
-    <div className="rounded-md border bg-muted/30 px-3 py-2 text-sm">
-      <div className="flex items-center gap-2 font-medium text-foreground">
-        <IconShieldCheck size={14} className="text-muted-foreground" />
-        {t("integrations.grantPreview")}
-      </div>
-      <p className="mt-1 text-xs leading-5 text-muted-foreground">
-        {grantMode === "all-apps"
-          ? t("integrations.grantPreviewAllApps", {
-              provider: providerLabel,
-            })
-          : selectedAppIds.length > 0
-            ? t("integrations.grantPreviewSelected", {
-                apps: selectedLabel,
-                provider: providerLabel,
-              })
-            : t("integrations.grantPreviewEmpty", {
-                provider: providerLabel,
-              })}
-      </p>
-    </div>
   );
 }
 
@@ -2638,12 +2600,6 @@ export default function WorkspaceIntegrationsRoute() {
         loading={setupPlanQuery.isLoading}
         saving={applySetup.isPending}
         onStepChange={setSetupStep}
-        onProviderChange={(providerId) => {
-          setSetupWizard({ mode: "setup", providerId });
-          setSetupStep(0);
-          setSetupForm(null);
-          setSetupFormKey("");
-        }}
         onChange={setSetupForm}
         onClose={() => {
           setSetupWizard(null);
@@ -2666,7 +2622,7 @@ export default function WorkspaceIntegrationsRoute() {
         open={!!providerChoice}
         onOpenChange={(open) => !open && setProviderChoice(null)}
       >
-        <DialogContent className="max-w-md p-0">
+        <DialogContent className="inset-0 flex h-[100dvh] max-h-none w-full max-w-none translate-x-0 translate-y-0 flex-col overflow-hidden rounded-none p-0">
           <DialogHeader className="sr-only">
             <DialogTitle>
               {providerChoice
@@ -2677,7 +2633,6 @@ export default function WorkspaceIntegrationsRoute() {
           {providerChoice ? (
             <IntegrationConnectionChoice
               name={providerChoice.provider.label}
-              description="Choose who should be able to use this connection."
               logo={logoForProvider(
                 providerChoice.provider.id,
                 providerChoice.provider.label,

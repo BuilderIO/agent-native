@@ -146,10 +146,7 @@ export function AppOpenActions({
             {menuItems?.map((item) => (
               <DropdownMenuItem key={item.id} onSelect={item.onSelect}>
                 {item.icon ? (
-                  <span
-                    aria-hidden="true"
-                    className="shrink-0 text-muted-foreground"
-                  >
+                  <span aria-hidden="true" className="shrink-0">
                     {item.icon}
                   </span>
                 ) : null}

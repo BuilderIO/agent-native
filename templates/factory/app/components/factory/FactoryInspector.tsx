@@ -1,10 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
-import {
-  IconArrowRight,
-  IconMessagePlus,
-  IconPlus,
-  IconTrash,
-} from "@tabler/icons-react";
+import { IconArrowRight, IconPlus, IconTrash } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
 
@@ -19,30 +14,15 @@ import type {
   FactoryCanvasNode,
 } from "./FactoryCanvas";
 
-export type FactoryComment = {
-  id: string;
-  targetType: string;
-  targetId?: string | null;
-  body: string;
-  createdAt: string;
-  ownerEmail: string;
-};
-
 interface FactoryInspectorProps {
   graph: FactoryCanvasGraph;
   selectedNode?: FactoryCanvasNode;
   selectedEdge?: FactoryCanvasEdge;
-  comments: FactoryComment[];
   factoryId?: string;
   dirty: boolean;
   saving: boolean;
   onGraphChange: (graph: FactoryCanvasGraph) => void;
   onSave: () => void;
-  onAddComment: (
-    targetType: "canvas" | "node" | "edge",
-    targetId?: string,
-    body?: string,
-  ) => void;
   onAddNode: () => void;
   onDeleteNode: (nodeId: string) => void;
   onConnect: (sourceId: string, targetId: string) => void;
@@ -52,51 +32,32 @@ export function FactoryInspector({
   graph,
   selectedNode,
   selectedEdge,
-  comments,
   factoryId,
   dirty,
   saving,
   onGraphChange,
   onSave,
-  onAddComment,
   onAddNode,
   onDeleteNode,
   onConnect,
 }: FactoryInspectorProps) {
   const t = useT();
   const [searchParams] = useSearchParams();
-  const [commentDraft, setCommentDraft] = useState("");
   const [connectTarget, setConnectTarget] = useState("");
-  const [notesExpanded, setNotesExpanded] = useState(false);
-  const targetType = selectedNode ? "node" : selectedEdge ? "edge" : "canvas";
-  const targetId = selectedNode?.id ?? selectedEdge?.id;
-  const targetComments = useMemo(
-    () =>
-      comments.filter(
-        (comment) =>
-          comment.targetType === targetType &&
-          (targetType === "canvas" || comment.targetId === targetId),
-      ),
-    [comments, targetId, targetType],
-  );
   const outgoingTargets = graph.nodes.filter(
     (node) => node.id !== selectedNode?.id,
   );
-  const noteTargetLabel = selectedNode
-    ? "this step"
-    : selectedEdge
-      ? "this route"
-      : "this factory";
-  const notesSummaryLabel =
-    targetComments.length === 1 ? "1 note" : `${targetComments.length} notes`;
-  const notesHelperText = selectedNode
-    ? "Capture design notes, intent, or handoff context for this step."
-    : selectedEdge
-      ? "Capture route-specific rationale or edge-case notes here."
-      : "Capture higher-level design notes for this factory here.";
   const auditHref = useMemo(() => {
     const next = new URLSearchParams(searchParams);
     next.set("tab", "audit");
+    next.delete("node");
+    next.delete("edge");
+    if (factoryId) next.set("factoryId", factoryId);
+    return `/factory?${next.toString()}`;
+  }, [factoryId, searchParams]);
+  const reviewHref = useMemo(() => {
+    const next = new URLSearchParams(searchParams);
+    next.set("tab", "inbox");
     next.delete("node");
     next.delete("edge");
     if (factoryId) next.set("factoryId", factoryId);
@@ -121,13 +82,6 @@ export function FactoryInspector({
         edge.id === selectedEdge.id ? { ...edge, ...patch } : edge,
       ),
     });
-  }
-
-  function submitComment() {
-    const body = commentDraft.trim();
-    if (!body) return;
-    onAddComment(targetType, targetId, body);
-    setCommentDraft("");
   }
 
   return (
@@ -288,115 +242,40 @@ export function FactoryInspector({
           </>
         )}
 
-        <section
-          className="rounded-lg border bg-muted/20 px-3 py-3"
-          aria-labelledby="factory-inspector-notes-title"
-        >
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <p
-                  id="factory-inspector-notes-title"
-                  className="text-xs font-medium"
-                >
-                  Notes
-                </p>
-                <span className="text-[11px] text-muted-foreground">
-                  {notesSummaryLabel}
-                </span>
-              </div>
-              <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                {notesHelperText} Operational history lives in Activity.
-              </p>
-            </div>
-            <span className="shrink-0 text-xs text-muted-foreground">
-              v{graph.version}
-            </span>
-          </div>
-
-          <div className="mt-3 flex flex-wrap items-center gap-2">
+        <section className="rounded-lg border bg-muted/20 px-3 py-3">
+          <p className="text-xs font-medium">{t("factoryRoute.auditTitle")}</p>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+            {t("factoryRoute.auditDescription")}
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
             <Button
+              asChild
               type="button"
               variant="ghost"
               size="sm"
               className="h-8 px-2 text-xs"
-              aria-expanded={notesExpanded}
-              aria-controls="factory-inspector-notes-panel"
-              onClick={() => setNotesExpanded((current) => !current)}
             >
-              {notesExpanded
-                ? "Hide notes"
-                : `Show notes for ${noteTargetLabel}`}
+              <a
+                href={auditHref}
+                aria-label={t("factoryRoute.auditTitle")}
+              >
+                Activity
+                <IconArrowRight className="size-3.5" />
+              </a>
             </Button>
             <Button
               asChild
               type="button"
               variant="ghost"
               size="sm"
-              className="h-8 px-2 text-xs text-muted-foreground hover:text-foreground"
+              className="h-8 px-2 text-xs"
             >
-              <a
-                href={auditHref}
-                aria-label="Open factory activity and audit history"
-              >
-                Activity
+              <a href={reviewHref} aria-label={t("factoryRoute.inboxTitle")}>
+                Review
                 <IconArrowRight className="size-3.5" />
               </a>
             </Button>
           </div>
-
-          {notesExpanded ? (
-            <div id="factory-inspector-notes-panel" className="mt-3 space-y-3">
-              {targetComments.length === 0 ? (
-                <p className="text-xs leading-5 text-muted-foreground">
-                  No notes yet for {noteTargetLabel}.
-                </p>
-              ) : (
-                <div
-                  className="space-y-2"
-                  aria-label={`Notes for ${noteTargetLabel}`}
-                >
-                  {targetComments.map((comment) => (
-                    <div
-                      key={comment.id}
-                      className="rounded-md border bg-background/80 px-3 py-2.5"
-                    >
-                      <p className="text-sm leading-5">{comment.body}</p>
-                      <p className="mt-2 text-[11px] text-muted-foreground">
-                        {comment.ownerEmail} ·{" "}
-                        {formatCommentDate(comment.createdAt)}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              )}
-              <div className="grid gap-2">
-                <Label
-                  htmlFor="factory-note-draft"
-                  className="text-xs font-medium"
-                >
-                  Add note
-                </Label>
-                <Textarea
-                  id="factory-note-draft"
-                  value={commentDraft}
-                  onChange={(event) => setCommentDraft(event.target.value)}
-                  placeholder={`Leave a note about ${noteTargetLabel}.`}
-                  rows={3}
-                />
-              </div>
-              <Button
-                type="button"
-                variant="outline"
-                className="w-full"
-                disabled={!commentDraft.trim()}
-                onClick={submitComment}
-              >
-                <IconMessagePlus className="size-4" />
-                Add note
-              </Button>
-            </div>
-          ) : null}
         </section>
       </div>
 
@@ -469,10 +348,4 @@ function CanvasInspector({
       </Button>
     </>
   );
-}
-
-function formatCommentDate(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString([], { month: "short", day: "numeric" });
 }

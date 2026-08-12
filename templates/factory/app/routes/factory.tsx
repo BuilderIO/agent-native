@@ -1,16 +1,13 @@
-import { useChatModels } from "@agent-native/core/client/agent-chat";
-import { AgentToggleButton } from "@agent-native/core/client/agent-chat";
+import {
+  AgentToggleButton,
+  useChatModels,
+} from "@agent-native/core/client/agent-chat";
 import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { SettingsGroup, SettingsRow } from "@agent-native/core/client/settings";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@agent-native/toolkit/ui/popover";
 import {
   IconAlertCircle,
   IconArrowLeft,
@@ -30,16 +27,18 @@ import {
   type FactoryCanvasGraph,
   type FactoryCanvasNode,
 } from "@/components/factory/FactoryCanvas";
-import {
-  FactoryInspector,
-  type FactoryComment,
-} from "@/components/factory/FactoryInspector";
+import { FactoryInspector } from "@/components/factory/FactoryInspector";
 import { TriageStatusPill } from "@/components/triage/triage-status-pill";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Textarea } from "@/components/ui/textarea";
 
 type FactoryGraphResponse = {
@@ -166,23 +165,6 @@ type FactoryAutomation = {
 };
 
 const DEFAULT_FACTORY_ID = "product-feedback";
-const BLANK_FACTORY_GRAPH: FactoryCanvasGraph = {
-  version: 1,
-  name: "New factory",
-  description: "Define the purpose, review flow, and handoff for this factory.",
-  executionMode: "blueprint",
-  nodes: [
-    {
-      id: "start",
-      label: "Start",
-      description: "Define the first decision or intake step for this factory.",
-      kind: "decision",
-      provider: "factory",
-      position: { x: 240, y: 220 },
-    },
-  ],
-  edges: [],
-};
 
 export function meta() {
   return [{ title: "Factory" }];
@@ -269,15 +251,8 @@ export default function FactoryRoute() {
     rawGraphData?.factory.id === factoryId ? rawGraphData : undefined;
   const graph = draftGraph ?? graphData?.graph ?? null;
   const graphVersion = graphData?.factory.graphVersion ?? graph?.version ?? 1;
-  const commentsQuery = useActionQuery(
-    "list-factory-comments",
-    { factoryId, graphVersion },
-    { enabled: Boolean(selectedFactoryId && graph) },
-  );
   const saveGraphMutation = useActionMutation("save-factory-graph");
-  const addCommentMutation = useActionMutation("add-factory-comment");
   const factoryList = (factoryListQuery.data ?? []) as FactorySummary[];
-  const comments = (commentsQuery.data ?? []) as FactoryComment[];
 
   useEffect(() => {
     if (!graphData || creating) return;
@@ -303,14 +278,6 @@ export default function FactoryRoute() {
 
   const selectedNode = graph?.nodes.find((node) => node.id === selectedNodeId);
   const selectedEdge = graph?.edges.find((edge) => edge.id === selectedEdgeId);
-  const commentCounts = useMemo(() => {
-    const counts: Record<string, number> = {};
-    for (const comment of comments) {
-      if (comment.targetId)
-        counts[comment.targetId] = (counts[comment.targetId] ?? 0) + 1;
-    }
-    return counts;
-  }, [comments]);
 
   function selectNode(nodeId: string) {
     setSelectedNodeId(nodeId);
@@ -400,7 +367,23 @@ export default function FactoryRoute() {
     const id = `factory-${Date.now().toString(36)}`;
     openFactory(id, { tab: "overview" });
     setCreating(true);
-    setDraftGraph(structuredClone(BLANK_FACTORY_GRAPH));
+    setDraftGraph({
+      version: 1,
+      name: t("factoryRoute.newFactory"),
+      description: t("factoryRoute.newFactoryDescription"),
+      executionMode: "blueprint",
+      nodes: [
+        {
+          id: "start",
+          label: t("factoryRoute.newStep"),
+          description: t("factoryRoute.newStepDescription"),
+          kind: "decision",
+          provider: "factory",
+          position: { x: 240, y: 220 },
+        },
+      ],
+      edges: [],
+    });
     setDirty(true);
     setSelectedNodeId(null);
     setSelectedEdgeId(null);
@@ -424,22 +407,6 @@ export default function FactoryRoute() {
     await Promise.all([graphQuery.refetch(), factoryListQuery.refetch()]);
   }
 
-  async function addComment(
-    targetType: "canvas" | "node" | "edge",
-    targetId?: string,
-    body?: string,
-  ) {
-    if (!body || !graph || !selectedFactoryId) return;
-    await addCommentMutation.mutateAsync({
-      factoryId: selectedFactoryId,
-      graphVersion,
-      targetType,
-      ...(targetId ? { targetId } : {}),
-      body,
-    });
-    await commentsQuery.refetch();
-  }
-
   if (!selectedFactoryId) {
     return (
       <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-background">
@@ -450,15 +417,13 @@ export default function FactoryRoute() {
                 Factories
               </h1>
               <p className="text-sm leading-6 text-muted-foreground">
-                Choose a factory to review its purpose, flow, automations, and
-                recent activity. Start a new one from a minimal blank graph when
-                you want to define a fresh review path.
+                {t("factoryRoute.factoryListDescription")}
               </p>
             </div>
             <div className="flex items-center gap-2">
               <Button type="button" size="sm" onClick={startNewFactory}>
                 <IconPlus className="size-4" />
-                New factory
+                {t("factoryRoute.newFactory")}
               </Button>
               <AgentToggleButton />
             </div>
@@ -553,7 +518,7 @@ export default function FactoryRoute() {
                 size="icon"
                 className="size-10 shrink-0"
                 onClick={goToFactoryList}
-                aria-label="Back to factories"
+                aria-label={t("factoryRoute.backToFactories")}
               >
                 <IconArrowLeft className="size-4" />
               </Button>
@@ -597,7 +562,7 @@ export default function FactoryRoute() {
               size="icon"
               className="size-10 shrink-0"
               onClick={goToFactoryList}
-              aria-label="Back to factories"
+              aria-label={t("factoryRoute.backToFactories")}
             >
               <IconArrowLeft className="size-4" />
             </Button>
@@ -616,7 +581,7 @@ export default function FactoryRoute() {
               onClick={startNewFactory}
             >
               <IconPlus className="size-4" />
-              New factory
+              {t("factoryRoute.newFactory")}
             </Button>
             <AgentToggleButton />
           </div>
@@ -689,7 +654,7 @@ export default function FactoryRoute() {
         {activeTab === "overview" ? (
           <OverviewView
             graph={graph}
-            graphVersion={graphVersion}
+            t={t}
             metrics={graphData?.metrics}
             onOpenReview={() => setActiveTab("inbox")}
             onOpenAutomations={() => setActiveTab("automations")}
@@ -722,7 +687,6 @@ export default function FactoryRoute() {
               <FactoryCanvas
                 graph={graph}
                 nodeMetrics={graphData?.nodeMetrics}
-                commentCounts={commentCounts}
                 selectedNodeId={selectedNodeId}
                 selectedEdgeId={selectedEdgeId}
                 onSelectNode={selectNode}
@@ -735,7 +699,6 @@ export default function FactoryRoute() {
                     ),
                   });
                 }}
-                onComment={addComment}
               />
               <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
                 <span>{t("factoryRoute.mapHint")}</span>
@@ -750,13 +713,11 @@ export default function FactoryRoute() {
               graph={graph}
               selectedNode={selectedNode}
               selectedEdge={selectedEdge}
-              comments={comments}
               factoryId={factoryId}
               dirty={dirty}
               saving={saveGraphMutation.isPending}
               onGraphChange={updateGraph}
               onSave={() => void saveGraph()}
-              onAddComment={addComment}
               onAddNode={addNode}
               onDeleteNode={deleteNode}
               onConnect={connectNodes}
@@ -815,7 +776,7 @@ function parseWorkspaceTab(value: string | null): WorkspaceTab {
 
 function OverviewView({
   graph,
-  graphVersion,
+  t,
   metrics,
   onOpenReview,
   onOpenAutomations,
@@ -824,7 +785,7 @@ function OverviewView({
   onOpenFlow,
 }: {
   graph: FactoryCanvasGraph;
-  graphVersion: number;
+  t: ReturnType<typeof useT>;
   metrics?: FactoryGraphResponse["metrics"];
   onOpenReview: () => void;
   onOpenAutomations: () => void;
@@ -833,147 +794,77 @@ function OverviewView({
   onOpenFlow: () => void;
 }) {
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 p-4 lg:p-6">
-      <Card className="border-border/70">
-        <CardHeader className="gap-4">
-          <div className="space-y-2">
-            <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-              Overview
-            </p>
-            <div className="flex flex-wrap items-center gap-2">
-              <CardTitle className="text-xl tracking-tight">
-                {graph.name}
-              </CardTitle>
-              <span className="rounded-full border px-2 py-1 text-xs text-muted-foreground">
-                Version {graphVersion}
-              </span>
-            </div>
-            <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
-              {graph.description || "No description yet."}
-            </p>
-          </div>
-        </CardHeader>
-      </Card>
-
+    <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 p-4 lg:p-6">
       <div className="grid gap-3 md:grid-cols-3">
         <Card>
-          <CardHeader className="gap-1 pb-2">
+          <CardContent className="space-y-1 p-4">
             <p className="text-sm text-muted-foreground">Signals</p>
-            <CardTitle className="text-2xl">
+            <p className="text-2xl font-semibold tracking-tight">
               {(metrics?.totalItems ?? 0).toLocaleString()}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="text-sm text-muted-foreground">
-            All observed items currently in scope.
+            </p>
           </CardContent>
         </Card>
         <Card>
-          <CardHeader className="gap-1 pb-2">
+          <CardContent className="space-y-1 p-4">
             <p className="text-sm text-muted-foreground">Decisions</p>
-            <CardTitle className="text-2xl">
+            <p className="text-2xl font-semibold tracking-tight">
               {(metrics?.decisions ?? 0).toLocaleString()}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="text-sm text-muted-foreground">
-            Review decisions captured through the factory flow.
+            </p>
           </CardContent>
         </Card>
         <Card>
-          <CardHeader className="gap-1 pb-2">
+          <CardContent className="space-y-1 p-4">
             <p className="text-sm text-muted-foreground">Runs</p>
-            <CardTitle className="text-2xl">
+            <p className="text-2xl font-semibold tracking-tight">
               {(metrics?.runs ?? 0).toLocaleString()}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="text-sm text-muted-foreground">
-            Approved automation or delivery runs for this workspace.
+            </p>
           </CardContent>
         </Card>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(280px,.8fr)]">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">At a glance</CardTitle>
-          </CardHeader>
-          <CardContent className="grid gap-3 sm:grid-cols-3">
-            <div className="rounded-lg border bg-muted/30 px-3 py-3">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                Nodes
-              </p>
-              <p className="mt-1 text-lg font-semibold">
+      <Card>
+        <CardContent className="flex flex-col gap-4 p-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
+            <span>
+              <span className="text-muted-foreground">Nodes </span>
+              <span className="font-medium">
                 {graph.nodes.length.toLocaleString()}
-              </p>
-            </div>
-            <div className="rounded-lg border bg-muted/30 px-3 py-3">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                Connections
-              </p>
-              <p className="mt-1 text-lg font-semibold">
+              </span>
+            </span>
+            <span>
+              <span className="text-muted-foreground">Connections </span>
+              <span className="font-medium">
                 {graph.edges.length.toLocaleString()}
-              </p>
-            </div>
-            <div className="rounded-lg border bg-muted/30 px-3 py-3">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                Completed runs
-              </p>
-              <p className="mt-1 text-lg font-semibold">
+              </span>
+            </span>
+            <span>
+              <span className="text-muted-foreground">
+                {t("factoryRoute.auditRuns")}{" "}
+              </span>
+              <span className="font-medium">
                 {(metrics?.completedRuns ?? 0).toLocaleString()}
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Open</CardTitle>
-            <p className="text-sm text-muted-foreground">
-              Jump into the part of this factory you want to work on next.
-            </p>
-          </CardHeader>
-          <CardContent className="grid gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              className="justify-between"
-              onClick={onOpenReview}
-            >
+              </span>
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="outline" onClick={onOpenReview}>
               Review
             </Button>
-            <Button
-              type="button"
-              variant="outline"
-              className="justify-between"
-              onClick={onOpenAutomations}
-            >
+            <Button type="button" variant="outline" onClick={onOpenAutomations}>
               Automations
             </Button>
-            <Button
-              type="button"
-              variant="outline"
-              className="justify-between"
-              onClick={onOpenActivity}
-            >
+            <Button type="button" variant="outline" onClick={onOpenActivity}>
               Activity
             </Button>
-            <Button
-              type="button"
-              variant="outline"
-              className="justify-between"
-              onClick={onOpenSettings}
-            >
+            <Button type="button" variant="outline" onClick={onOpenSettings}>
               Settings
             </Button>
-            <Button
-              type="button"
-              className="justify-between"
-              onClick={onOpenFlow}
-            >
-              Edit flow
+            <Button type="button" onClick={onOpenFlow}>
+              {t("factoryRoute.editFlow")}
             </Button>
-          </CardContent>
-        </Card>
-      </div>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }
@@ -1431,8 +1322,7 @@ function InboxView({ t }: { t: ReturnType<typeof useT> }) {
           <div>
             <CardTitle className="text-base">Review</CardTitle>
             <p className="mt-1 text-sm text-muted-foreground">
-              Review incoming observations, inspect the latest decision, and
-              approve the next step when it is ready.
+              {t("factoryRoute.inboxDescription")}
             </p>
           </div>
           <div className="flex items-end gap-2">
@@ -1818,7 +1708,7 @@ function SettingsView({ t }: { t: ReturnType<typeof useT> }) {
   if (query.isLoading) {
     return (
       <div className="w-full max-w-5xl space-y-6 p-4 lg:p-6">
-        <FactorySettingsSkeleton />
+        <FactorySettingsSkeleton t={t} />
       </div>
     );
   }
@@ -1830,7 +1720,7 @@ function SettingsView({ t }: { t: ReturnType<typeof useT> }) {
           label="Slack"
           status={
             slackConfigured ? (
-              <span className="rounded-full bg-green-500/10 px-2 py-0.5 text-[10px] font-medium text-green-600 dark:text-green-400">
+              <span className="rounded-full bg-accent px-2 py-0.5 text-[10px] font-medium text-accent-foreground">
                 Connected
               </span>
             ) : undefined
@@ -1893,7 +1783,7 @@ function SettingsView({ t }: { t: ReturnType<typeof useT> }) {
           label="GitHub"
           status={
             githubConfigured ? (
-              <span className="rounded-full bg-green-500/10 px-2 py-0.5 text-[10px] font-medium text-green-600 dark:text-green-400">
+              <span className="rounded-full bg-accent px-2 py-0.5 text-[10px] font-medium text-accent-foreground">
                 Connected
               </span>
             ) : undefined
@@ -1933,7 +1823,7 @@ function SettingsView({ t }: { t: ReturnType<typeof useT> }) {
           label="Sentry"
           status={
             sentryConfigured ? (
-              <span className="rounded-full bg-green-500/10 px-2 py-0.5 text-[10px] font-medium text-green-600 dark:text-green-400">
+              <span className="rounded-full bg-accent px-2 py-0.5 text-[10px] font-medium text-accent-foreground">
                 Connected
               </span>
             ) : undefined
@@ -2110,9 +2000,12 @@ function FactorySourcePopover({
   );
 }
 
-function FactorySettingsSkeleton() {
+function FactorySettingsSkeleton({ t }: { t: ReturnType<typeof useT> }) {
   return (
-    <div className="space-y-6" aria-label="Loading factory settings">
+    <div
+      className="space-y-6"
+      aria-label={t("triage.loading")}
+    >
       {Array.from({ length: 2 }).map((_, index) => (
         <div
           key={index}

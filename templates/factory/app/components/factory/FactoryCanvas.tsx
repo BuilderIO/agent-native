@@ -73,16 +73,11 @@ const CANVAS_HEIGHT = 660;
 interface FactoryCanvasProps {
   graph: FactoryCanvasGraph;
   nodeMetrics?: Record<string, number>;
-  commentCounts?: Record<string, number>;
   selectedNodeId?: string | null;
   selectedEdgeId?: string | null;
   onSelectNode: (nodeId: string) => void;
   onSelectEdge: (edgeId: string) => void;
   onMoveNode?: (nodeId: string, position: { x: number; y: number }) => void;
-  onComment: (
-    targetType: "canvas" | "node" | "edge",
-    targetId?: string,
-  ) => void;
 }
 
 type DragState = {
@@ -97,13 +92,11 @@ const DRAG_THRESHOLD = 6;
 export function FactoryCanvas({
   graph,
   nodeMetrics = {},
-  commentCounts = {},
   selectedNodeId,
   selectedEdgeId,
   onSelectNode,
   onSelectEdge,
   onMoveNode,
-  onComment,
 }: FactoryCanvasProps) {
   const t = useT();
   const [zoom, setZoom] = useState(0.72);
@@ -386,7 +379,6 @@ export function FactoryCanvas({
 
             {graph.nodes.map((node) => {
               const selected = selectedNodeId === node.id;
-              const comments = commentCounts[node.id] ?? 0;
               const metric = nodeMetrics[node.id] ?? 0;
               return (
                 <button
@@ -400,7 +392,6 @@ export function FactoryCanvas({
                   onPointerDown={(event) => beginDrag(event, node)}
                   onPointerMove={moveNode}
                   onPointerUp={endDrag}
-                  onDoubleClick={() => onComment("node", node.id)}
                 >
                   <span className="flex items-start justify-between gap-2">
                     <span className="flex min-w-0 items-center gap-2">
@@ -423,16 +414,6 @@ export function FactoryCanvas({
                         ? t("factoryCanvas.signals")
                         : t("factoryCanvas.events")}
                     </span>
-                    {comments > 0 && (
-                      <span>
-                        {comments}{" "}
-                        {t(
-                          comments === 1
-                            ? "factoryCanvas.commentOne"
-                            : "factoryCanvas.commentMany",
-                        )}
-                      </span>
-                    )}
                   </span>
                 </button>
               );
@@ -440,13 +421,6 @@ export function FactoryCanvas({
           </div>
         </div>
       </div>
-      <button
-        type="button"
-        className="absolute bottom-3 left-3 rounded-md bg-background/90 px-2 py-1 text-xs text-muted-foreground shadow-sm ring-1 ring-border hover:text-foreground"
-        onClick={() => onComment("canvas")}
-      >
-        {t("factoryCanvas.commentFactory")}
-      </button>
     </div>
   );
 }

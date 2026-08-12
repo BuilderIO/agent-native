@@ -128,6 +128,7 @@ const messages = {
     newFactoryDescription:
       "このファクトリーが出荷可能な成果に変える作業を説明します。",
     selectFactory: "ファクトリーを選択",
+    backToFactories: "ファクトリー一覧に戻る",
     askAI: "ファクトリーAIに質問",
     factoryViews: "ファクトリーの表示",
     observeFirst: "まず観察 · シャドーモード",
@@ -136,6 +137,8 @@ const messages = {
     mapHint:
       "確認するにはステップまたはルートをクリックします。コメントするにはステップをダブルクリックします。",
     unsavedChanges: "未保存の表示変更",
+    factoryListDescription:
+      "ファクトリーの目的、フロー、自動化、最近のアクティビティを確認するファクトリーを選択します。新しいレビュー経路を定義する場合は、最小限の空白グラフから始めます。",
     inboxTitle: "観察インボックス",
     inboxDescription: "自律的な作業の前にファクトリーへ入る証拠。",
     selectObservation: "経路とフィードバックを確認する観察を選択します。",
@@ -143,6 +146,7 @@ const messages = {
     rulesDescription:
       "意図的に昇格されるまで、すべてのルールはシャドーモードです。",
     editRule: "トリアージルールを編集",
+    editFlow: "フローを編集",
     settingsDescription:
       "Slack、GitHub、Sentry を接続します。自動化は管理された作業を開始し、下にプロンプトと実行履歴を表示できます。",
     blueprintTitle: "ブループリントモード。",

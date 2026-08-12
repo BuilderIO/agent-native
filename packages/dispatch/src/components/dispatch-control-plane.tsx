@@ -74,9 +74,6 @@ function CommandPanel() {
   } = useChatModels({ storageKey: "dispatch" });
   const navigate = useNavigate();
   const promptSuggestions = [
-    t("dispatch.pages.suggestionWorkspaceHealth", {
-      defaultValue: "Summarize the current workspace health",
-    }),
     t("dispatch.pages.suggestionOnboardingApp", {
       defaultValue: "Create an app for onboarding requests",
     }),

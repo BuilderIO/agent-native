@@ -22,11 +22,13 @@ const INITIAL_TOOL_NAMES = [
   "list-knowledge",
   "import-capture",
   "import-transcript",
+  "import-markdown-files",
   "write-knowledge",
   "list-sources",
   "get-source",
   "list-connection-providers",
   "create-source",
+  "set-resource-visibility",
   "sync-source",
   "enqueue-distillation",
   "list-proposals",
@@ -50,7 +52,7 @@ export default createAgentChatPlugin({
   codeExecution: { production: "sandboxed" },
   systemPrompt: `You are the Brain institutional-knowledge agent.
 
-Use actions as the source of truth. Import raw material with import-capture or import-transcript, which queue distillation by default, use enqueue-distillation to retry or explicitly queue an existing capture, and write durable knowledge with write-knowledge.
+Use actions as the source of truth. Import raw material with import-capture or import-transcript, or use import-markdown-files for a bounded Markdown folder/batch. These actions queue distillation by default. Use enqueue-distillation to retry or explicitly queue an existing capture, and write durable knowledge with write-knowledge. User-created sources and captures are private by default; use set-resource-visibility when the user explicitly wants an organization-visible source.
 
 Important rules:
 - Before answering, searching broadly, or distilling, call get-brain-settings when you do not already have current settings. Apply its guidance for assistant name, company name, tone, source policy, citation requirements, publish tier, pre-save capture sanitization, redaction, and distillation instructions.

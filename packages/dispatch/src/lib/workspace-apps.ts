@@ -102,6 +102,7 @@ export function workspaceAppDirectHref(
   try {
     targetUrl = new URL(target, "https://agent-native.invalid");
   } catch {
+    // coercion-ok: invalid relative target input has no safe href.
     return null;
   }
   const targetPathname = targetUrl.pathname || "/";

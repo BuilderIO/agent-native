@@ -127,6 +127,7 @@ const messages = {
     newFactoryDescription:
       "이 팩토리가 배포 가능한 결과로 바꾸는 작업을 설명하세요.",
     selectFactory: "팩토리 선택",
+    backToFactories: "팩토리 목록으로 돌아가기",
     askAI: "팩토리 AI에게 묻기",
     factoryViews: "팩토리 보기",
     observeFirst: "먼저 관찰 · 섀도 모드",
@@ -135,6 +136,8 @@ const messages = {
     mapHint:
       "검사하려면 단계나 경로를 클릭하세요. 댓글을 달려면 단계를 두 번 클릭하세요.",
     unsavedChanges: "저장되지 않은 시각적 변경 사항",
+    factoryListDescription:
+      "목적, 흐름, 자동화 및 최근 활동을 검토할 팩토리를 선택하세요. 새로운 검토 경로를 정의하려면 최소한의 빈 그래프에서 시작하세요.",
     inboxTitle: "관찰 받은편지함",
     inboxDescription: "자율 작업 전에 팩토리로 들어오는 증거입니다.",
     selectObservation: "경로와 피드백을 확인할 관찰을 선택하세요.",
@@ -142,6 +145,7 @@ const messages = {
     rulesDescription:
       "의도적으로 승격할 때까지 모든 규칙은 섀도 모드로 유지됩니다.",
     editRule: "트리아지 규칙 편집",
+    editFlow: "흐름 편집",
     settingsDescription:
       "Slack, GitHub, Sentry를 연결하세요. 자동화는 관리된 작업을 시작하고 아래에 프롬프트와 실행 기록을 표시할 수 있습니다.",
     blueprintTitle: "블루프린트 모드.",

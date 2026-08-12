@@ -31,7 +31,9 @@ import { runWithRequestContext } from "../server/request-context.js";
 import {
   FIRST_RUN_ONBOARDING_COMPLETED_KEY,
   FIRST_RUN_ONBOARDING_COOKIE,
+  FIRST_RUN_ONBOARDING_ELIGIBLE_KEY,
 } from "../shared/first-run-onboarding.js";
+import { getOrgContext } from "../org/context.js";
 import { getOnboardingAppProfile } from "./app-profile.js";
 import { registerDefaultOnboardingSteps } from "./default-steps.js";
 import { listOnboardingSteps } from "./registry.js";
@@ -306,8 +308,28 @@ export function createOnboardingPlugin(
             context.sessionId,
             FIRST_RUN_ONBOARDING_COMPLETED_KEY,
           );
+          if (completed?.completed === true) {
+            deleteCookie(event, FIRST_RUN_ONBOARDING_COOKIE, { path: "/" });
+            return { firstRun: false };
+          }
+
+          // Signup alone is not enough to qualify. Resolve the real org path
+          // first so invite/domain members cannot race this check before their
+          // existing membership is visible, while a true first user causes the
+          // default org to be created and marked eligible.
+          const orgContext = await getOrgContext(event);
+          const eligible = await appStateGet(
+            context.sessionId,
+            FIRST_RUN_ONBOARDING_ELIGIBLE_KEY,
+          );
+          const firstRun =
+            orgContext.orgId !== null &&
+            eligible?.orgId === orgContext.orgId;
+          if (!firstRun) {
+            deleteCookie(event, FIRST_RUN_ONBOARDING_COOKIE, { path: "/" });
+          }
           return {
-            firstRun: completed?.completed !== true,
+            firstRun,
           };
         });
       }),

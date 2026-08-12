@@ -609,7 +609,7 @@ export async function createSource(values: {
     lastError: null,
     ownerEmail,
     orgId,
-    visibility: values.visibility ?? "org",
+    visibility: values.visibility ?? "private",
     createdAt: now,
     updatedAt: now,
   });

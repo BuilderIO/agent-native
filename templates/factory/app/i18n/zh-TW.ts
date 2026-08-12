@@ -120,6 +120,7 @@ const messages = {
     newFactory: "新代理工廠",
     newFactoryDescription: "描述此工廠如何將工作轉化為已交付成果。",
     selectFactory: "選取工廠",
+    backToFactories: "返回工廠列表",
     askAI: "詢問工廠 AI",
     factoryViews: "工廠檢視畫面",
     observeFirst: "先觀察 · 陰影模式",
@@ -127,12 +128,15 @@ const messages = {
     mapTitle: "從訊號到已交付成果",
     mapHint: "按一下步驟或路徑即可檢查。按兩下步驟即可留言。",
     unsavedChanges: "未儲存的視覺變更",
+    factoryListDescription:
+      "選取工廠以檢視其目的、流程、自動化與最近活動。需要定義新的檢查路徑時，可從最小的空白圖開始。",
     inboxTitle: "觀察收件匣",
     inboxDescription: "自主工作開始前進入工廠的證據。",
     selectObservation: "選取觀察項目以檢查其路徑和回饋。",
     approveAndStart: "核准並開始",
     rulesDescription: "每個規則都會保持陰影模式，直到明確提升。",
     editRule: "編輯分流規則",
+    editFlow: "編輯流程",
     settingsDescription:
       "連接 Slack、GitHub 和 Sentry。自動化可以啟動受治理的工作，並在下方顯示提示詞與執行記錄。",
     blueprintTitle: "藍圖模式。",

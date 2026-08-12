@@ -482,6 +482,25 @@ const enUS = {
     nextSync: "Next sync {{date}}",
     waitingForFirstSync: "Waiting for first sync",
     manualSync: "Manual sync",
+    manualImportTitle: "Import Markdown into {{source}}",
+    manualImportDescription:
+      "Choose a folder or batch of Markdown files. Each file becomes a searchable document capture and follows this source's access setting.",
+    chooseMarkdownFolder: "Choose Markdown folder",
+    importMarkdownFiles: "Import Markdown files",
+    manualImportNoFiles: "No Markdown files selected",
+    manualImportFilesSelected: "{{count}} Markdown files selected",
+    manualImportFileLimit:
+      "Only .md and .markdown files are imported. Folder imports are limited to 100 files and 4 million characters.",
+    manualImportSkippedFiles: "{{count}} non-Markdown files will be skipped.",
+    manualImportMoreFiles: "+{{count}} more files",
+    manualImportResult:
+      "{{imported}} imported, {{queued}} queued for distillation, {{failed}} failed, {{blocked}} blocked",
+    manualImportBlocked: "Blocked by Brain privacy policy.",
+    manualImportMoreIssues: "+{{count}} more files need attention",
+    archiveSource: "Archive source",
+    archiveSourceTitle: "Archive this source?",
+    archiveSourceDescription:
+      "{{source}} will leave the active source list. Its captures and knowledge remain auditable and are not hard-deleted.",
     queueDistill: "Queue distill",
     retryDistill: "Retry distill",
     captureStatus: {
@@ -3180,6 +3199,16 @@ const exactEnglishDebtOverrides: Partial<
       webhookSourceKey: "Webhook مفتاح المصدر",
       workspaceConnections: "اتصالات مساحة العمل",
       workspaceConnection: "اتصال مساحة العمل",
+      manualImportDescription:
+        "اختر مجلدًا أو مجموعة من ملفات Markdown. يصبح كل ملف مستندًا قابلاً للبحث ويتبع إعداد الوصول لهذا المصدر.",
+      chooseMarkdownFolder: "اختيار مجلد Markdown",
+      importMarkdownFiles: "استيراد ملفات Markdown",
+      manualImportNoFiles: "لم يتم اختيار ملفات Markdown",
+      manualImportFileLimit:
+        "سيتم استيراد ملفات .md و.markdown فقط. يقتصر استيراد المجلدات على 100 ملف و4 ملايين حرف.",
+      manualImportBlocked: "محظور بموجب سياسة خصوصية Brain.",
+      archiveSource: "أرشفة المصدر",
+      archiveSourceTitle: "هل تريد أرشفة هذا المصدر؟",
     },
   },
   "de-DE": {
@@ -3618,6 +3647,16 @@ const exactEnglishDebtOverrides: Partial<
       webhookSourceKey: "Webhook Quellschlüssel",
       workspaceConnections: "Arbeitsbereichsverbindungen",
       workspaceConnection: "Arbeitsbereichsverbindung",
+      manualImportDescription:
+        "Wählen Sie einen Ordner oder mehrere Markdown-Dateien aus. Jede Datei wird zu einem durchsuchbaren Dokument und folgt der Zugriffseinstellung dieser Quelle.",
+      chooseMarkdownFolder: "Markdown-Ordner auswählen",
+      importMarkdownFiles: "Markdown-Dateien importieren",
+      manualImportNoFiles: "Keine Markdown-Dateien ausgewählt",
+      manualImportFileLimit:
+        "Nur .md- und .markdown-Dateien werden importiert. Ordnerimporte sind auf 100 Dateien und 4 Millionen Zeichen begrenzt.",
+      manualImportBlocked: "Durch die Brain-Datenschutzrichtlinie blockiert.",
+      archiveSource: "Quelle archivieren",
+      archiveSourceTitle: "Diese Quelle archivieren?",
     },
   },
   "es-ES": {
@@ -4051,6 +4090,16 @@ const exactEnglishDebtOverrides: Partial<
       webhookSourceKey: "Webhook clave fuente",
       workspaceConnections: "Conexiones del espacio de trabajo",
       workspaceConnection: "Conexión del espacio de trabajo",
+      manualImportDescription:
+        "Elige una carpeta o un conjunto de archivos Markdown. Cada archivo se convierte en un documento consultable y sigue la configuración de acceso de esta fuente.",
+      chooseMarkdownFolder: "Elegir carpeta de Markdown",
+      importMarkdownFiles: "Importar archivos Markdown",
+      manualImportNoFiles: "No se han seleccionado archivos Markdown",
+      manualImportFileLimit:
+        "Solo se importan archivos .md y .markdown. Las importaciones de carpetas están limitadas a 100 archivos y 4 millones de caracteres.",
+      manualImportBlocked: "Bloqueado por la política de privacidad de Brain.",
+      archiveSource: "Archivar fuente",
+      archiveSourceTitle: "¿Archivar esta fuente?",
     },
   },
   "fr-FR": {
@@ -4490,6 +4539,17 @@ const exactEnglishDebtOverrides: Partial<
       webhookSourceKey: "Clé source Webhook",
       workspaceConnections: "Connexions à l'espace de travail",
       workspaceConnection: "Connexion à l'espace de travail",
+      manualImportDescription:
+        "Choisissez un dossier ou un ensemble de fichiers Markdown. Chaque fichier devient un document consultable et respecte le paramètre d’accès de cette source.",
+      chooseMarkdownFolder: "Choisir un dossier Markdown",
+      importMarkdownFiles: "Importer des fichiers Markdown",
+      manualImportNoFiles: "Aucun fichier Markdown sélectionné",
+      manualImportFileLimit:
+        "Seuls les fichiers .md et .markdown sont importés. Les imports de dossiers sont limités à 100 fichiers et 4 millions de caractères.",
+      manualImportBlocked:
+        "Bloqué par la politique de confidentialité de Brain.",
+      archiveSource: "Archiver la source",
+      archiveSourceTitle: "Archiver cette source ?",
     },
   },
   "hi-IN": {
@@ -4888,6 +4948,16 @@ const exactEnglishDebtOverrides: Partial<
       webhookSourceKey: "Webhook स्रोत कुंजी",
       workspaceConnections: "कार्यस्थल कनेक्शन",
       workspaceConnection: "कार्यस्थल कनेक्शन",
+      manualImportDescription:
+        "फ़ोल्डर या Markdown फ़ाइलों का समूह चुनें। हर फ़ाइल खोजे जा सकने वाले दस्तावेज़ में बदलती है और इस स्रोत की एक्सेस सेटिंग का पालन करती है।",
+      chooseMarkdownFolder: "Markdown फ़ोल्डर चुनें",
+      importMarkdownFiles: "Markdown फ़ाइलें आयात करें",
+      manualImportNoFiles: "कोई Markdown फ़ाइल नहीं चुनी गई",
+      manualImportFileLimit:
+        "केवल .md और .markdown फ़ाइलें आयात की जाती हैं। फ़ोल्डर आयात 100 फ़ाइलों और 40 लाख वर्णों तक सीमित हैं।",
+      manualImportBlocked: "Brain की गोपनीयता नीति द्वारा अवरुद्ध।",
+      archiveSource: "स्रोत को संग्रहित करें",
+      archiveSourceTitle: "इस स्रोत को संग्रहित करें?",
     },
   },
   "ja-JP": {
@@ -5304,6 +5374,16 @@ const exactEnglishDebtOverrides: Partial<
       webhookSourceKey: "Webhook ソースキー",
       workspaceConnections: "ワークスペース接続",
       workspaceConnection: "ワークスペース接続",
+      manualImportDescription:
+        "フォルダーまたはMarkdownファイルのまとまりを選択します。各ファイルは検索可能なドキュメントになり、このソースのアクセス設定に従います。",
+      chooseMarkdownFolder: "Markdownフォルダーを選択",
+      importMarkdownFiles: "Markdownファイルをインポート",
+      manualImportNoFiles: "Markdownファイルが選択されていません",
+      manualImportFileLimit:
+        ".mdと.markdownファイルのみがインポートされます。フォルダーからのインポートは100ファイル、400万文字までです。",
+      manualImportBlocked: "Brainのプライバシーポリシーによりブロックされました。",
+      archiveSource: "ソースをアーカイブ",
+      archiveSourceTitle: "このソースをアーカイブしますか？",
     },
   },
   "ko-KR": {
@@ -5712,6 +5792,16 @@ const exactEnglishDebtOverrides: Partial<
       webhookSourceKey: "Webhook 소스 키",
       workspaceConnections: "작업 공간 연결",
       workspaceConnection: "작업공간 연결",
+      manualImportDescription:
+        "폴더 또는 Markdown 파일 묶음을 선택하세요. 각 파일은 검색 가능한 문서가 되며 이 소스의 액세스 설정을 따릅니다.",
+      chooseMarkdownFolder: "Markdown 폴더 선택",
+      importMarkdownFiles: "Markdown 파일 가져오기",
+      manualImportNoFiles: "선택한 Markdown 파일 없음",
+      manualImportFileLimit:
+        ".md 및 .markdown 파일만 가져옵니다. 폴더 가져오기는 파일 100개와 400만 자로 제한됩니다.",
+      manualImportBlocked: "Brain 개인정보 보호 정책에 의해 차단되었습니다.",
+      archiveSource: "소스 보관",
+      archiveSourceTitle: "이 소스를 보관할까요?",
     },
   },
   "pt-BR": {
@@ -6140,6 +6230,17 @@ const exactEnglishDebtOverrides: Partial<
       webhookSourceKey: "Webhook chave de origem",
       workspaceConnections: "Conexões do espaço de trabalho",
       workspaceConnection: "Conexão do espaço de trabalho",
+      manualImportDescription:
+        "Escolha uma pasta ou um conjunto de arquivos Markdown. Cada arquivo se torna um documento pesquisável e segue a configuração de acesso desta fonte.",
+      chooseMarkdownFolder: "Escolher pasta Markdown",
+      importMarkdownFiles: "Importar arquivos Markdown",
+      manualImportNoFiles: "Nenhum arquivo Markdown selecionado",
+      manualImportFileLimit:
+        "Somente arquivos .md e .markdown são importados. As importações de pastas estão limitadas a 100 arquivos e 4 milhões de caracteres.",
+      manualImportBlocked:
+        "Bloqueado pela política de privacidade do Brain.",
+      archiveSource: "Arquivar fonte",
+      archiveSourceTitle: "Arquivar esta fonte?",
     },
   },
   "zh-CN": {
@@ -6502,6 +6603,16 @@ const exactEnglishDebtOverrides: Partial<
       webhookSourceKey: "Webhook 源密钥",
       workspaceConnections: "工作区连接",
       workspaceConnection: "工作区连接",
+      manualImportDescription:
+        "选择一个文件夹或一批 Markdown 文件。每个文件都会成为可搜索的文档，并遵循此来源的访问设置。",
+      chooseMarkdownFolder: "选择 Markdown 文件夹",
+      importMarkdownFiles: "导入 Markdown 文件",
+      manualImportNoFiles: "未选择 Markdown 文件",
+      manualImportFileLimit:
+        "仅导入 .md 和 .markdown 文件。文件夹导入最多支持 100 个文件和 400 万个字符。",
+      manualImportBlocked: "已被 Brain 隐私政策阻止。",
+      archiveSource: "归档来源",
+      archiveSourceTitle: "要归档此来源吗？",
     },
   },
 } satisfies Partial<Record<LocaleCode, DeepPartial<Messages>>>;

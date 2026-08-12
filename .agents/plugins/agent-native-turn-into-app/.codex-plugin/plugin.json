@@ -1,6 +1,6 @@
 {
   "name": "agent-native-turn-into-app",
-  "version": "1.0.0+codex.6858969e186e",
+  "version": "1.0.0+codex.1f76d0bddca0",
   "description": "Turn visible project context, a proven thread, skill, or workflow into a runnable Agent-Native app. On Claude or ChatGPT Web, it hands a bounded source brief to Builder through Dispatch; local code agents can build and verify in a workspace.",
   "author": { "name": "Agent-Native", "url": "https://agent-native.com" },
   "homepage": "https://dispatch.agent-native.com",

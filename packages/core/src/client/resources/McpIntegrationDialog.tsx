@@ -363,7 +363,10 @@ export function McpIntegrationDialog({
   };
 
   const quickConnect = (integration: DefaultMcpIntegration) => {
-    if (requiresMcpIntegrationSetup(integration)) return;
+    if (requiresMcpIntegrationSetup(integration)) {
+      openForm(integration);
+      return;
+    }
     if (integration.authMode === "oauth") {
       connectWithOAuth(integration, {
         scope: "user",
@@ -478,6 +481,26 @@ export function McpIntegrationDialog({
     openForm(integration, { scope: "user" });
   };
 
+  const connectWorkspace = (integration: DefaultMcpIntegration) => {
+    if (integration.authMode === "oauth") {
+      connectWithOAuth(integration, { scope: "org" });
+      return;
+    }
+    if (
+      integration.authMode === "none" &&
+      integration.connectionMode === "direct"
+    ) {
+      void createServer({
+        scope: "org",
+        name: integration.name,
+        url: integration.url,
+        description: integration.description,
+      });
+      return;
+    }
+    openForm(integration, { scope: "org" });
+  };
+
   const runTest = async () => {
     const trimmedUrl = url.trim();
     if (!trimmedUrl || busy) return;
@@ -568,7 +591,7 @@ export function McpIntegrationDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[min(820px,calc(100vh-32px))] w-[calc(100vw-24px)] max-w-[760px] flex-col gap-0 p-0 sm:w-[min(760px,calc(100vw-48px))]">
+      <DialogContent className="inset-0 flex h-[100dvh] max-h-none w-full max-w-none translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none p-0">
         {mode === "choice" && selected ? (
           <>
             <DialogHeader className="sr-only">
@@ -576,7 +599,6 @@ export function McpIntegrationDialog({
             </DialogHeader>
             <IntegrationConnectionChoice
               name={selected.name}
-              description="Choose who should be able to use this connection."
               logo={
                 <McpIntegrationLogo
                   name={selected.name}
@@ -593,12 +615,12 @@ export function McpIntegrationDialog({
               )}
               busy={busy}
               onPersonal={() => connectPersonal(selected)}
-              onWorkspace={() => openForm(selected, { scope: "org" })}
+              onWorkspace={() => connectWorkspace(selected)}
             />
           </>
         ) : mode === "catalog" ? (
           <>
-            <DialogHeader className="shrink-0 px-7 pb-5 pe-14 pt-6">
+            <DialogHeader className="shrink-0 border-b border-border px-7 pb-5 pe-14 pt-7 sm:px-10">
               <DialogTitle>{t("mcpIntegrations.title")}</DialogTitle>
               <DialogDescription>
                 {t("mcpIntegrations.description", {
@@ -627,14 +649,15 @@ export function McpIntegrationDialog({
                 {t("mcpIntegrations.addYourOwn")}
               </button>
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto px-7 pb-7">
-              {error && (
-                <div className="mb-3 rounded-md border border-red-500/20 bg-red-500/5 px-3 py-2 text-[12px] leading-relaxed text-red-600 dark:text-red-400">
-                  {error}
-                </div>
-              )}
-              <IntegrationGrid
-                items={filteredIntegrations.map((integration) => {
+            <div className="min-h-0 flex-1 overflow-y-auto px-7 pb-10 pt-7 sm:px-10">
+              <div className="mx-auto w-full max-w-5xl">
+                {error && (
+                  <div className="mb-3 rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2 text-[12px] leading-relaxed text-destructive">
+                    {error}
+                  </div>
+                )}
+                <IntegrationGrid
+                  items={filteredIntegrations.map((integration) => {
                   const connected = connectedUrls.has(
                     compareUrl(integration.url),
                   );
@@ -677,18 +700,19 @@ export function McpIntegrationDialog({
                       selectCatalogConnection(integration);
                     },
                   };
-                })}
-              />
-              {filteredIntegrations.length === 0 && (
-                <div className="rounded-md border border-dashed border-border p-6 text-center text-[12px] text-muted-foreground">
-                  {t("mcpIntegrations.noMatches")}
-                </div>
-              )}
+                  })}
+                />
+                {filteredIntegrations.length === 0 && (
+                  <div className="rounded-md border border-dashed border-border p-6 text-center text-[12px] text-muted-foreground">
+                    {t("mcpIntegrations.noMatches")}
+                  </div>
+                )}
+              </div>
             </div>
           </>
         ) : (
           <>
-            <DialogHeader className="shrink-0 border-b border-border px-7 pb-5 pe-14 pt-6">
+            <DialogHeader className="shrink-0 border-b border-border px-7 pb-5 pe-14 pt-7 sm:px-10">
               <button
                 type="button"
                 onClick={() => {
@@ -724,24 +748,42 @@ export function McpIntegrationDialog({
                   : t("mcpIntegrations.customDescription")}
               </DialogDescription>
             </DialogHeader>
-            <div className="min-h-0 flex-1 overflow-y-auto px-7 py-5">
-              <div className="space-y-3">
+            <div className="min-h-0 flex-1 overflow-y-auto px-7 py-7 sm:px-10">
+              <div className="mx-auto max-w-2xl space-y-3">
                 {renderScopeSelector()}
-                {selected?.setupNoteKey && (
+                {selected?.setupNoteKey && !selectedRequiresSetup ? (
                   <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
                     {t(selected.setupNoteKey)}
                   </div>
-                )}
+                ) : null}
                 {selectedRequiresSetup && selected && (
-                  <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-[11px] leading-relaxed">
-                    <p className="font-medium text-foreground">
-                      {t("mcpIntegrations.providerSetupRequired")}
-                    </p>
-                    <p className="mt-0.5 text-muted-foreground">
-                      {t("mcpIntegrations.providerSetupDescription", {
-                        name: selected.name,
-                      })}
-                    </p>
+                  <div className="mx-auto grid w-full max-w-xl gap-4 py-8">
+                    <div>
+                      <p className="text-base font-semibold tracking-[-0.02em] text-foreground">
+                        {t("mcpIntegrations.providerSetupRequired")}
+                      </p>
+                      <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                        {t("mcpIntegrations.providerSetupDescription", {
+                          name: selected.name,
+                        })}
+                      </p>
+                    </div>
+                    {selected.setupNoteKey ? (
+                      <p className="text-sm leading-6 text-muted-foreground">
+                        {t(selected.setupNoteKey)}
+                      </p>
+                    ) : null}
+                    {selected.docsUrl ? (
+                      <a
+                        href={selected.docsUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex w-fit items-center gap-1 text-sm font-medium text-foreground underline underline-offset-4 hover:text-muted-foreground"
+                      >
+                        {t("mcpIntegrations.viewSetup")}
+                        <IconExternalLink className="size-3.5" />
+                      </a>
+                    ) : null}
                   </div>
                 )}
                 {!selectedRequiresSetup && (

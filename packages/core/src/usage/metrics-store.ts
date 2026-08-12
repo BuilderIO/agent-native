@@ -313,6 +313,7 @@ function parseJson(value: unknown): Record<string, unknown> | null {
       ? (parsed as Record<string, unknown>)
       : null;
   } catch {
+    // coercion-ok: malformed persisted metadata is absent from optional prompt enrichment.
     return null;
   }
 }
@@ -421,6 +422,7 @@ async function detectUsageEngineName(): Promise<string | null> {
       return stored.engine;
     }
   } catch {
+    // coercion-ok: engine settings are optional; raw usage rows remain authoritative.
     // The metrics action can still render USD estimates when engine settings
     // are unavailable; the underlying usage rows remain authoritative.
   }
