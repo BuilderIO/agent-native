@@ -1369,14 +1369,47 @@ function CredentialRefsEditor({
   provider,
   refs,
   missingRefs,
+  progressive = false,
   onChange,
 }: {
   provider?: WorkspaceConnectionProvider;
   refs: WorkspaceConnectionCredentialRef[];
   missingRefs: string[];
+  progressive?: boolean;
   onChange: (refs: WorkspaceConnectionCredentialRef[]) => void;
 }) {
   const t = useT();
+  if (
+    progressive &&
+    refs.length === 0 &&
+    provider?.credentialKeys.length === 0
+  ) {
+    return (
+      <div className="grid gap-5">
+        <div>
+          <h2 className="text-lg font-semibold tracking-[-0.02em] text-foreground">
+            {t("integrations.credentialRefs")}
+          </h2>
+          <p className="mt-1 text-sm leading-6 text-muted-foreground">
+            {t(
+              /* i18n-key-ignore */
+              "integrations.noCredentialRefs",
+              { defaultValue: "No keys are needed for this connection." },
+            )}
+          </p>
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          className="w-fit"
+          onClick={() => onChange(appendCredentialRef([], provider))}
+        >
+          <IconPlus size={14} />
+          {t("integrations.addRef")}
+        </Button>
+      </div>
+    );
+  }
   const providerKeys = new Map(
     provider?.credentialKeys.map((credential) => [
       credential.key,
@@ -2663,7 +2696,7 @@ export default function WorkspaceIntegrationsRoute() {
           ].filter((integration): integration is DefaultMcpIntegration =>
             Boolean(integration),
           )}
-          quickConnectIntegrationId={personalIntegrationId}
+          connectIntegrationId={personalIntegrationId}
           defaultScope="user"
           canCreateOrgMcp={false}
           hasOrg={false}

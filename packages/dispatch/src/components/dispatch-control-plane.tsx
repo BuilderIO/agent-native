@@ -203,7 +203,9 @@ function AppsPanel({
         action={
           <div className="flex min-w-0 flex-wrap items-center justify-end gap-1.5">
             <Button variant="ghost" size="sm" asChild>
-              <Link to="/apps">View all</Link>
+              <Link to="/apps" className="text-muted-foreground">
+                View all
+              </Link>
             </Button>
             {!showSkeletons && visibleApps.length > 0 ? (
               <WorkspaceAppSearch

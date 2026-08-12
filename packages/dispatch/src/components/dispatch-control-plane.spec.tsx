@@ -291,6 +291,10 @@ describe("DispatchControlPlane", () => {
     expect(container.textContent).toContain("Analytics");
     expect(container.textContent).toContain("Apps");
     expect(container.textContent).toContain("New");
+    const viewAllLink = Array.from(container.querySelectorAll("a")).find(
+      (link) => link.textContent?.trim() === "View all",
+    );
+    expect(viewAllLink?.className).toContain("text-muted-foreground");
     expect(container.textContent).not.toContain("Other apps");
     expect(container.textContent).not.toContain("available");
     expect(container.textContent).not.toContain("Archived app");
