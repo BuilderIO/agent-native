@@ -16,6 +16,7 @@ import { getH3App } from "../server/framework-request-handler.js";
 import { readBody } from "../server/h3-helpers.js";
 import { isSameOriginRequest } from "../server/request-origin.js";
 import { generateAgentCard } from "./agent-card.js";
+import { canonicalA2AAudience } from "./audience.js";
 import {
   hasConfiguredA2ASecret,
   isA2AProductionRuntime,
@@ -79,14 +80,19 @@ function expectedJwtAudience(event: any | undefined): string | undefined {
     process.env.URL ||
     process.env.DEPLOY_URL ||
     process.env.BETTER_AUTH_URL;
-  if (fromEnv) return String(fromEnv).replace(/\/$/, "");
+  const receiverBasePath = process.env.APP_BASE_PATH;
+  if (fromEnv) {
+    return canonicalA2AAudience(String(fromEnv), receiverBasePath);
+  }
   // Best-effort: derive from the inbound request host. This is forgeable
   // (Host-header attack), but only useful as a hint when env-derived URL
   // is unset; the rest of the JWT verification still uses the secret.
   try {
     const proto = getRequestHeader(event, "x-forwarded-proto") || "https";
     const host = getRequestHeader(event, "host");
-    if (host) return `${proto}://${host}`;
+    if (host) {
+      return canonicalA2AAudience(`${proto}://${host}`, receiverBasePath);
+    }
   } catch {}
   return undefined;
 }

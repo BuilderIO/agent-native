@@ -102,7 +102,7 @@ describe("peer capability card caching", () => {
       undefined,
       {
         preferGlobalSecret: true,
-        audience: "http://127.0.0.1:8080",
+        audience: "http://127.0.0.1:8080/slides",
       },
     );
     expect(getAgentCard).toHaveBeenCalledWith({

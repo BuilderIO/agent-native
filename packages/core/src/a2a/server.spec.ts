@@ -716,6 +716,30 @@ describe("verifyA2AToken (exported)", () => {
     expect(result).toEqual({ email: "alice@builder.io", orgDomain: null });
   });
 
+  it("binds a path-mounted receiver to its app base path", async () => {
+    process.env.A2A_SECRET = "shared-global-secret";
+    process.env.APP_URL = "https://workspace.example/dispatch";
+    process.env.APP_BASE_PATH = "/slides";
+    const { verifyA2AToken } = await import("./server.js");
+    const scopedToken = await signToken("shared-global-secret", {
+      sub: "alice@builder.io",
+      aud: "https://workspace.example/slides",
+    });
+    const originToken = await signToken("shared-global-secret", {
+      sub: "alice@builder.io",
+      aud: "https://workspace.example",
+    });
+
+    await expect(verifyA2AToken(scopedToken)).resolves.toEqual({
+      email: "alice@builder.io",
+      orgDomain: null,
+    });
+    await expect(verifyA2AToken(originToken)).resolves.toEqual({
+      email: null,
+      orgDomain: null,
+    });
+  });
+
   it("rejects a token whose aud does not match the receiver's derived audience", async () => {
     process.env.A2A_SECRET = "shared-global-secret";
     process.env.APP_URL = "https://receiver.example";

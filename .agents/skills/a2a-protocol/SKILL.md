@@ -216,8 +216,9 @@ const { result } = await invokeAgentAction({
 The receiver still owns schema validation, credentials, access scoping, audit
 attribution, and exposure policy. Direct invocation is available only for
 cataloged, authenticated, explicitly exposed read-only actions that do not
-require approval. Its JWT is audience-bound to the receiving app. Use normal
-message delegation whenever the receiver must interpret the request, choose a
+require approval. Its JWT is audience-bound to the receiving app's exact base
+URL, including a workspace path such as `/content`. Use normal message
+delegation whenever the receiver must interpret the request, choose a
 source, consult its data dictionary, plan, synthesize, join data, or perform a
 multi-step workflow.
 

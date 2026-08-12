@@ -1006,6 +1006,43 @@ describe("A2AClient", () => {
     ).resolves.toMatchObject({ status: "completed", output: '{"total":2}' });
   });
 
+  it("preserves a receiver base path in direct action audiences", async () => {
+    process.env.A2A_SECRET = "shared-direct-secret";
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method !== "POST") {
+        return new Response("not found", { status: 404 });
+      }
+      const authorization = new Headers(init.headers).get("authorization");
+      const token = authorization?.replace(/^Bearer\s+/i, "") ?? "";
+      expect(jose.decodeJwt(token).aud).toBe(
+        "https://workspace.example/slides",
+      );
+      const body = JSON.parse(String(init.body));
+      return new Response(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: body.id,
+          result: {
+            action: "list-decks",
+            status: "completed",
+            output: "[]",
+          },
+        }),
+        { status: 200 },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      callAction(
+        "https://workspace.example/slides",
+        "list-decks",
+        {},
+        { userEmail: "alice@example.test" },
+      ),
+    ).resolves.toMatchObject({ status: "completed", output: "[]" });
+  });
+
   it("retries direct action with the audience-bound token after receiver rejection", async () => {
     process.env.A2A_SECRET = "shared-direct-secret";
     const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
