@@ -1,4 +1,5 @@
 import type { ActionEntry } from "../agent/production-agent.js";
+import { DEFAULT_AUTOMATION_SCHEDULE } from "../automations/service.js";
 import { getDbExec } from "../db/client.js";
 import { resolveUserSchedulingTimezone } from "../localization/user-timezone.js";
 import {
@@ -110,12 +111,16 @@ async function runCreate(
   args: Record<string, any>,
   appId?: string,
 ): Promise<string> {
-  const { name, schedule, instructions, scope, runAs, model } = args;
+  const { name, instructions, scope, runAs, model } = args;
+  const schedule =
+    typeof args.schedule === "string" && args.schedule.trim()
+      ? args.schedule.trim()
+      : DEFAULT_AUTOMATION_SCHEDULE;
   const requestedTimezone = args.timezone;
 
-  if (!name || !schedule || !instructions) {
+  if (!name || !instructions) {
     return JSON.stringify({
-      error: "name, schedule, and instructions are required",
+      error: "name and instructions are required",
     });
   }
 
@@ -391,7 +396,7 @@ export function createJobTools(appId?: string): Record<string, ActionEntry> {
         description: `Manage recurring jobs that run on a cron schedule.
 
 Actions:
-- "create": Create a new recurring job. Requires name, schedule, and instructions.
+- "create": Create a new recurring job. Requires name and instructions; an omitted schedule defaults to once per hour.
 - "list": List all recurring jobs and their status (schedule, enabled, last run, next run).
 - "update": Update a job's schedule, instructions, or enabled state. Requires name.
 - "delete": Delete a recurring job. Requires name. Always confirm with the user first.
@@ -420,7 +425,7 @@ For jobs that use a connected MCP, pass the exact tool names in mcpTools. This b
             schedule: {
               type: "string",
               description:
-                "Cron expression (5 fields: minute hour day-of-month month day-of-week). Required for create, optional for update.",
+                "Cron expression (5 fields: minute hour day-of-month month day-of-week). Defaults to once per hour (0 * * * *) for create; optional for update.",
             },
             instructions: {
               type: "string",

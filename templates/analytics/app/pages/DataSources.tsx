@@ -13,6 +13,10 @@ import { oauthRedirectUri } from "@agent-native/core/client/host";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { useOrgRole } from "@agent-native/core/client/org";
 import {
+  getDefaultMcpIntegrations,
+  McpIntegrationLogo,
+} from "@agent-native/core/client/resources";
+import {
   IconCheck,
   IconChevronDown,
   IconChevronUp,
@@ -80,7 +84,6 @@ import {
   isSourceLocallyConfigured,
   shouldOfferWorkspaceOAuthReconnect,
   shouldShowWorkspaceOAuthAdminNotice,
-  shouldShowWorkspaceOAuthSetup,
   credentialRowsFromStatus,
   type DataSourceStatusResponse,
   type EnvKeyStatus,
@@ -148,6 +151,39 @@ const firstPartyAnalyticsEndpoint =
   (import.meta.env as Record<string, string | undefined>)
     .VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT ||
   "https://analytics.agent-native.com/track";
+
+const MCP_INTEGRATIONS_BY_ID = new Map(
+  getDefaultMcpIntegrations().map((integration) => [
+    integration.id,
+    integration,
+  ]),
+);
+
+const DATA_SOURCE_LOGO_IDS: Record<string, string> = {
+  "google-analytics": "google-workspace",
+  bigquery: "google-workspace",
+  "google-cloud": "google-workspace",
+  jira: "atlassian",
+};
+
+function DataSourceLogo({ source }: { source: DataSource }) {
+  const integration = MCP_INTEGRATIONS_BY_ID.get(
+    DATA_SOURCE_LOGO_IDS[source.id] ?? source.id,
+  );
+  if (!integration?.logoUrl) {
+    const Icon = source.icon;
+    return <Icon className="h-5 w-5" />;
+  }
+  return (
+    <McpIntegrationLogo
+      name={source.name}
+      logoUrl={integration.logoUrl}
+      integrationId={integration.id}
+      className="size-8 rounded-md border-0 bg-transparent"
+      imageClassName="size-full p-0.5"
+    />
+  );
+}
 
 async function saveEnvVars(
   vars: Array<{ key: string; value: string }>,
@@ -1202,7 +1238,6 @@ function DataSourceCard({
     },
   });
 
-  const Icon = source.icon;
   const hasInputValues = Object.values(inputValues).some((v) => v.trim());
   const readyViaWorkspace = sharedConnectionStatus?.kind === "ready";
   const showCredentialSetup =
@@ -1225,23 +1260,23 @@ function DataSourceCard({
   return (
     <Card
       id={`data-source-${source.id}`}
-      className="data-source-card bg-card border-border/50"
+      className="data-source-card rounded-none border-0 border-b border-border/60 bg-transparent shadow-none"
     >
       <button
         onClick={() => setExpanded(!expanded)}
         className="w-full rounded-t-lg text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
       >
-        <CardHeader className="p-5">
-          <div className="flex items-center justify-between gap-6">
+        <CardHeader className="p-3.5">
+          <div className="flex items-center justify-between gap-4">
             <div className="flex min-w-0 items-center gap-3">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                <Icon className="h-5 w-5" />
+              <div className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border/70 bg-background text-primary">
+                <DataSourceLogo source={source} />
               </div>
               <div className="min-w-0">
                 <CardTitle className="text-sm font-medium">
                   {source.name}
                 </CardTitle>
-                <CardDescription className="mt-0.5 line-clamp-2 text-xs">
+                <CardDescription className="mt-0.5 line-clamp-1 text-xs">
                   {source.description}
                 </CardDescription>
               </div>
@@ -1267,11 +1302,11 @@ function DataSourceCard({
                   {t("dataSources.notConfigured")}
                 </span>
               )}
-              {!isStatusLoading && !statusUnknown && sharedConnectionStatus && (
-                <span className="data-source-shared-badge">
-                  <SharedConnectionBadge status={sharedConnectionStatus} />
-                </span>
-              )}
+              <span className="hidden text-xs font-medium text-foreground/70 sm:inline">
+                {ready
+                  ? t("dataSources.editCredentials")
+                  : t("dataSources.connect")}
+              </span>
               {expanded ? (
                 <IconChevronUp className="h-4 w-4 text-muted-foreground" />
               ) : (
@@ -1322,20 +1357,6 @@ function DataSourceCard({
               />
             </div>
           )}
-          {shouldShowWorkspaceOAuthSetup(
-            source,
-            sharedConnectionStatus,
-            canManageOrg,
-          ) && (
-            <div className="mb-4">
-              <WorkspaceOAuthView
-                provider={source.id}
-                label={source.name}
-                connected={sharedConnectionStatus?.kind === "needs_grant"}
-                returnPath={oauthReturnPath}
-              />
-            </div>
-          )}
           {shouldShowWorkspaceOAuthAdminNotice(
             source,
             ready,
@@ -1383,6 +1404,13 @@ function DataSourceCard({
             />
           ) : workspaceRoleLoading ? (
             <Skeleton className="h-9 w-full rounded-md" />
+          ) : preferWorkspaceSetup && canManageOrg ? (
+            <WorkspaceOAuthView
+              provider={source.id}
+              label={source.name}
+              connected={sharedConnectionStatus?.kind === "needs_grant"}
+              returnPath={oauthReturnPath}
+            />
           ) : preferWorkspaceSetup ? (
             <Button
               size="sm"
@@ -1390,7 +1418,9 @@ function DataSourceCard({
               onClick={() => setShowLocalCredentials(true)}
               className="text-xs"
             >
-              {t("dataSources.addLocalCredentials")}
+              {t("dataSources.useKeyJustInThisApp" /* i18n-key-ignore */, {
+                defaultValue: "Use a key just in this app",
+              })}
             </Button>
           ) : (
             <>

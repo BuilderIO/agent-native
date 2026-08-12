@@ -24,6 +24,7 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "../server/request-context.js";
+import { credentialKeyMatches } from "./credential-key-aliases.js";
 import { notifyWorkspaceConnectionLifecycle } from "./lifecycle.js";
 
 export type WorkspaceConnectionStatus =
@@ -1261,7 +1262,12 @@ function missingRequiredCredentialKeys(
       .map((ref) => ref.key.trim())
       .filter(Boolean),
   );
-  return requiredCredentialKeys(provider).filter((key) => !available.has(key));
+  return requiredCredentialKeys(provider).filter(
+    (key) =>
+      !Array.from(available).some((refKey) =>
+        credentialKeyMatches(provider.id, key, refKey),
+      ),
+  );
 }
 
 export function summarizeWorkspaceConnectionProviderReadiness({

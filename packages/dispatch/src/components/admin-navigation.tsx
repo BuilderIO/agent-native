@@ -16,11 +16,14 @@ import {
   IconSettingsAutomation,
   IconShield,
   IconShieldCheck,
+  IconSearch,
+  IconX,
 } from "@tabler/icons-react";
-import { type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { NavLink } from "react-router";
 
 import { cn } from "../lib/utils";
+import { DISPATCH_DOCS, DocsLink } from "./docs-link";
 import { useDispatchExtensions, type DispatchNavItem } from "./layout/Layout";
 
 export interface AdminNavGroup {
@@ -211,22 +214,60 @@ export function AdminShell({
 }) {
   const t = useT();
   const groups = useAdminNavGroups();
+  const [query, setQuery] = useState("");
+  const normalizedQuery = query.trim().toLowerCase();
+  const visibleGroups = useMemo(
+    () =>
+      groups
+        .map((group) => ({
+          ...group,
+          items: group.items.filter((item) => {
+            if (!normalizedQuery) return true;
+            const label = itemLabel(t, item).toLowerCase();
+            return `${label} ${group.label.toLowerCase()}`.includes(
+              normalizedQuery,
+            );
+          }),
+        }))
+        .filter((group) => group.items.length > 0),
+    [groups, normalizedQuery, t],
+  );
 
   return (
     <div
       className="grid min-w-0 gap-6 lg:grid-cols-[13rem_minmax(0,1fr)]"
       data-dispatch-admin-shell
     >
-      <aside className="min-w-0 border-b pb-5 lg:sticky lg:top-2 lg:self-start lg:border-b-0 lg:border-e lg:pe-6">
-        <div className="px-2">
-          <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-            {t("dispatch.nav.admin", { defaultValue: "Admin" })}
+      <aside className="min-w-0 border-b pb-5 lg:sticky lg:top-2 lg:self-start lg:border-b-0">
+        <div className="flex items-center gap-1 px-2">
+          <div className="relative min-w-0 flex-1">
+            <IconSearch className="pointer-events-none absolute start-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+            <input
+              type="search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") setQuery("");
+              }}
+              placeholder="Search admin"
+              aria-label="Search admin"
+              className="h-8 w-full rounded-md border border-border bg-background ps-8 pe-7 text-[13px] text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-foreground/30 focus:ring-2 focus:ring-accent/40"
+            />
+            {query ? (
+              <button
+                type="button"
+                onClick={() => setQuery("")}
+                aria-label="Clear admin search"
+                className="absolute end-1.5 top-1/2 flex size-5 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-accent/60 hover:text-foreground"
+              >
+                <IconX className="size-3.5" />
+              </button>
+            ) : null}
           </div>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">
-            {t("dispatch.pages.adminDescription", {
-              defaultValue: "Workspace controls and operations",
-            })}
-          </p>
+          <DocsLink
+            href={DISPATCH_DOCS.dispatch}
+            label="Open Dispatch admin documentation"
+          />
         </div>
 
         <nav
@@ -235,7 +276,7 @@ export function AdminShell({
           })}
           className="mt-5 space-y-5"
         >
-          {groups.map((group) => (
+          {visibleGroups.map((group) => (
             <section key={group.id}>
               <h2 className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/70">
                 {t(group.labelKey, { defaultValue: group.label })}
@@ -251,6 +292,11 @@ export function AdminShell({
               </ul>
             </section>
           ))}
+          {visibleGroups.length === 0 ? (
+            <p className="px-2 py-6 text-center text-xs text-muted-foreground">
+              No matching admin pages
+            </p>
+          ) : null}
         </nav>
       </aside>
 

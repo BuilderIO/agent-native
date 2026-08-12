@@ -64,6 +64,11 @@ import {
 import type { AppRolesDescriptor } from "../../org/app-roles.js";
 import type { DomainMatchOrg } from "../../org/types.js";
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "../components/ui/popover.js";
+import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
@@ -1968,180 +1973,223 @@ function A2ASecretSection({ isSet }: { isSet: boolean }) {
         </OrganizationDescription>
       }
       control={
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          <span className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1.5 text-sm font-mono">
-            <IconKey className="h-3.5 w-3.5 text-muted-foreground" />
-            {secret ?? masked}
-          </span>
-          {isSet && (
-            <>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    onClick={toggleReveal}
-                    disabled={revealA2ASecret.isPending}
-                    className="text-muted-foreground hover:text-foreground"
-                  >
-                    {secret ? <IconEyeOff size={14} /> : <IconEye size={14} />}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {secret ? "Hide secret" : "Reveal secret"}
-                </TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    onClick={copyToClipboard}
-                    disabled={revealA2ASecret.isPending}
-                    className="text-muted-foreground hover:text-foreground"
-                  >
-                    {copied ? (
-                      <IconCheck size={14} className="text-primary" />
-                    ) : (
-                      <IconCopy size={14} />
-                    )}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Copy secret</TooltipContent>
-              </Tooltip>
-            </>
-          )}
-          <Button
-            type="button"
-            intent="danger"
-            emphasis="outline"
-            onClick={regenerate}
-            disabled={setA2ASecret.isPending || syncA2ASecret.isPending}
-            className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50 disabled:opacity-50"
+        <Popover>
+          <PopoverTrigger asChild>
+            <ToolkitButton
+              type="button"
+              variant="ghost"
+              intent="neutral"
+              emphasis="outline"
+              className="inline-flex h-9 min-h-9 items-center justify-center rounded-md border border-border px-3 text-sm font-medium leading-none text-foreground hover:bg-accent/40 active:scale-100"
+            >
+              Manage
+            </ToolkitButton>
+          </PopoverTrigger>
+          <PopoverContent
+            align="end"
+            sideOffset={8}
+            className="w-[min(420px,calc(100vw-2rem))] space-y-4 p-4"
           >
-            {setA2ASecret.isPending ? (
-              <IconLoader2 size={14} className="animate-spin" />
-            ) : (
-              <IconRefresh size={14} />
-            )}
-            Regenerate
-          </Button>
-          {isSet && (
-            <Button
-              type="button"
-              intent="neutral"
-              emphasis="outline"
-              onClick={() => syncToApps()}
-              disabled={setA2ASecret.isPending || syncA2ASecret.isPending}
-              className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50 disabled:opacity-50"
-            >
-              {syncA2ASecret.isPending ? (
-                <IconLoader2 size={14} className="animate-spin" />
-              ) : (
-                <IconCloudUpload size={14} />
-              )}
-              Sync
-            </Button>
-          )}
-          {!pasteMode && (
-            <Button
-              type="button"
-              intent="neutral"
-              emphasis="outline"
-              onClick={() => setPasteMode(true)}
-              className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50"
-            >
-              <IconKey size={14} />
-              Paste secret
-            </Button>
-          )}
-        </div>
-      }
-    >
-      {(pasteMode ||
-        syncA2ASecret.isPending ||
-        syncResult ||
-        revealA2ASecret.error ||
-        setA2ASecret.error ||
-        syncA2ASecret.error) && (
-        <div className="space-y-3">
-          {syncA2ASecret.isPending && (
-            <p className="text-xs text-muted-foreground">
-              Syncing to connected apps…
-            </p>
-          )}
-
-          {syncResult && !syncA2ASecret.isPending && (
             <div className="space-y-1">
-              <p className="text-xs text-muted-foreground">
-                Synced to {syncResult.succeeded}/{syncResult.total} app
-                {syncResult.total === 1 ? "" : "s"}
-                {syncResult.failed > 0 ? ` (${syncResult.failed} failed)` : ""}.
+              <h3 className="text-sm font-semibold text-foreground">
+                Cross-app authentication
+              </h3>
+              <p className="text-xs leading-5 text-muted-foreground">
+                Use one shared secret across connected apps. Regenerating or
+                replacing it automatically syncs the new value to those apps.
               </p>
-              {syncResult.failed > 0 && (
-                <ul className="list-disc space-y-0.5 ps-5 text-xs text-destructive">
-                  {syncResult.results
-                    .filter((r) => !r.ok)
-                    .map((r) => (
-                      <li key={r.id}>
-                        {r.name}: {r.error || `HTTP ${r.status ?? "?"}`}
-                      </li>
-                    ))}
-                </ul>
-              )}
             </div>
-          )}
 
-          {pasteMode ? (
-            <div className="flex items-center gap-2">
-              <input
-                type="text"
-                value={pasteValue}
-                onChange={(e) => setPasteValue(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") saveSecret();
-                  if (e.key === "Escape") {
-                    setPasteMode(false);
-                    setPasteValue("");
-                  }
-                }}
-                placeholder="Paste A2A secret"
-                className="min-w-0 flex-1 rounded-md border border-border bg-background px-2.5 py-1.5 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-foreground"
-                autoFocus
-              />
+            <div className="rounded-lg border border-border bg-background p-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-xs font-medium text-muted-foreground">
+                    Shared secret
+                  </p>
+                  <p className="mt-1 truncate font-mono text-sm text-foreground">
+                    {secret ?? masked}
+                  </p>
+                </div>
+                {isSet && (
+                  <div className="flex shrink-0 items-center gap-1">
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          type="button"
+                          onClick={toggleReveal}
+                          disabled={revealA2ASecret.isPending}
+                          aria-label={secret ? "Hide secret" : "Reveal secret"}
+                          className="rounded-md p-2 text-muted-foreground hover:bg-accent hover:text-foreground"
+                        >
+                          {secret ? (
+                            <IconEyeOff size={14} />
+                          ) : (
+                            <IconEye size={14} />
+                          )}
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {secret ? "Hide secret" : "Reveal secret"}
+                      </TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          type="button"
+                          onClick={copyToClipboard}
+                          disabled={revealA2ASecret.isPending}
+                          aria-label="Copy secret"
+                          className="rounded-md p-2 text-muted-foreground hover:bg-accent hover:text-foreground"
+                        >
+                          {copied ? (
+                            <IconCheck size={14} className="text-primary" />
+                          ) : (
+                            <IconCopy size={14} />
+                          )}
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Copy secret</TooltipContent>
+                    </Tooltip>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="grid gap-2 sm:grid-cols-2">
               <Button
                 type="button"
-                intent="primary"
-                emphasis="solid"
-                disabled={!pasteValue.trim() || setA2ASecret.isPending}
-                onClick={saveSecret}
-                className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                intent="danger"
+                emphasis="outline"
+                onClick={regenerate}
+                disabled={setA2ASecret.isPending || syncA2ASecret.isPending}
+                className="inline-flex h-9 items-center justify-center gap-1 rounded-md border border-border px-2.5 text-xs font-medium hover:bg-accent/50 disabled:opacity-50"
               >
                 {setA2ASecret.isPending ? (
                   <IconLoader2 size={14} className="animate-spin" />
                 ) : (
-                  "Save"
+                  <IconRefresh size={14} />
                 )}
+                Regenerate
               </Button>
+              {isSet ? (
+                <Button
+                  type="button"
+                  intent="neutral"
+                  emphasis="outline"
+                  onClick={() => syncToApps()}
+                  disabled={setA2ASecret.isPending || syncA2ASecret.isPending}
+                  className="inline-flex h-9 items-center justify-center gap-1 rounded-md border border-border px-2.5 text-xs font-medium hover:bg-accent/50 disabled:opacity-50"
+                >
+                  {syncA2ASecret.isPending ? (
+                    <IconLoader2 size={14} className="animate-spin" />
+                  ) : (
+                    <IconCloudUpload size={14} />
+                  )}
+                  Sync to apps
+                </Button>
+              ) : null}
+            </div>
+
+            {!pasteMode ? (
               <Button
                 type="button"
                 intent="neutral"
                 emphasis="outline"
-                onClick={() => {
-                  setPasteMode(false);
-                  setPasteValue("");
-                }}
-                className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
+                onClick={() => setPasteMode(true)}
+                className="inline-flex h-9 w-full items-center justify-center gap-1 rounded-md border border-border px-2.5 text-xs font-medium hover:bg-accent/50"
               >
-                Cancel
+                <IconKey size={14} />
+                Paste secret
               </Button>
-            </div>
-          ) : null}
+            ) : (
+              <div className="space-y-2 rounded-lg border border-border bg-background p-3">
+                <label
+                  htmlFor="cross-app-secret"
+                  className="text-xs font-medium text-foreground"
+                >
+                  Paste a shared secret
+                </label>
+                <input
+                  id="cross-app-secret"
+                  type="text"
+                  value={pasteValue}
+                  onChange={(e) => setPasteValue(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") saveSecret();
+                    if (e.key === "Escape") {
+                      setPasteMode(false);
+                      setPasteValue("");
+                    }
+                  }}
+                  placeholder="Paste A2A secret"
+                  className="min-w-0 w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-foreground"
+                  autoFocus
+                />
+                <div className="flex justify-end gap-2">
+                  <Button
+                    type="button"
+                    intent="neutral"
+                    emphasis="outline"
+                    onClick={() => {
+                      setPasteMode(false);
+                      setPasteValue("");
+                    }}
+                    className="h-8 rounded-md border border-border px-3 text-xs font-medium text-muted-foreground hover:text-foreground"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    intent="primary"
+                    emphasis="solid"
+                    disabled={!pasteValue.trim() || setA2ASecret.isPending}
+                    onClick={saveSecret}
+                    className="h-8 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                  >
+                    {setA2ASecret.isPending ? (
+                      <IconLoader2 size={14} className="animate-spin" />
+                    ) : null}
+                    Save
+                  </Button>
+                </div>
+              </div>
+            )}
 
-          <ErrorText error={revealA2ASecret.error} />
-          <ErrorText error={setA2ASecret.error} />
-          <ErrorText error={syncA2ASecret.error} />
-        </div>
-      )}
-    </SettingsRow>
+            {syncA2ASecret.isPending && (
+              <p className="text-xs text-muted-foreground">
+                Syncing to connected apps…
+              </p>
+            )}
+            {syncResult && !syncA2ASecret.isPending && (
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground">
+                  Synced to {syncResult.succeeded}/{syncResult.total} app
+                  {syncResult.total === 1 ? "" : "s"}
+                  {syncResult.failed > 0
+                    ? ` (${syncResult.failed} failed)`
+                    : ""}
+                  .
+                </p>
+                {syncResult.failed > 0 && (
+                  <ul className="list-disc space-y-0.5 ps-5 text-xs text-destructive">
+                    {syncResult.results
+                      .filter((r) => !r.ok)
+                      .map((r) => (
+                        <li key={r.id}>
+                          {r.name}: {r.error || `HTTP ${r.status ?? "?"}`}
+                        </li>
+                      ))}
+                  </ul>
+                )}
+              </div>
+            )}
+            <ErrorText error={revealA2ASecret.error} />
+            <ErrorText error={setA2ASecret.error} />
+            <ErrorText error={syncA2ASecret.error} />
+          </PopoverContent>
+        </Popover>
+      }
+    />
   );
 }
 

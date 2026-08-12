@@ -164,7 +164,7 @@ const messages = {
       appBuildingSuffix:
         "after its branch is merged and the workspace deploy finishes.",
       branch: "Branch: {{branch}}",
-      openBuilderBranch: "Open Builder branch",
+      openBuilderBranch: "Open in Builder",
       openingApp: "Opening {{name}}",
       redirectingTo: "Redirecting to",
       openApp: "Open app",

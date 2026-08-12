@@ -69,6 +69,7 @@ vi.mock("@agent-native/core/credentials", () => ({
 }));
 
 import {
+  assertSourceCredentialAvailable,
   inspectSourceCredentialAvailability,
   resolveSourceCredential,
 } from "./source-credentials.js";
@@ -326,5 +327,48 @@ describe("resolveSourceCredential", () => {
         connectionId: "bound-calendar",
       }),
     ]);
+  });
+
+  it("rejects a connected source when its referenced credential is missing", async () => {
+    mocks.connections = [
+      {
+        id: "conn-slack",
+        label: "Builder Slack",
+        provider: "slack",
+        status: "connected",
+        allowedApps: ["brain"],
+        credentialRefs: [{ key: "SLACK_BOT_TOKEN", scope: "org" }],
+      },
+    ];
+
+    await expect(
+      assertSourceCredentialAvailable({
+        provider: "slack",
+        workspaceConnectionId: "conn-slack",
+        ctx: { userEmail: "owner@example.test", orgId: "org-1" },
+      }),
+    ).rejects.toThrow(/SLACK_BOT_TOKEN.*missing/i);
+  });
+
+  it("allows source setup when the selected credential resolves", async () => {
+    mocks.connections = [
+      {
+        id: "conn-slack",
+        label: "Builder Slack",
+        provider: "slack",
+        status: "connected",
+        allowedApps: ["brain"],
+        credentialRefs: [{ key: "SLACK_BOT_TOKEN", scope: "org" }],
+      },
+    ];
+    mocks.secrets.set("org:org-1:SLACK_BOT_TOKEN", "slack-token");
+
+    await expect(
+      assertSourceCredentialAvailable({
+        provider: "slack",
+        workspaceConnectionId: "conn-slack",
+        ctx: { userEmail: "owner@example.test", orgId: "org-1" },
+      }),
+    ).resolves.toBeUndefined();
   });
 });

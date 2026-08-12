@@ -40,6 +40,7 @@ import {
   useRef,
   useMemo,
   Fragment,
+  type MouseEvent as ReactMouseEvent,
 } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
@@ -150,6 +151,7 @@ import {
 } from "@/lib/prefetch-keys";
 import type { ResourceAccess } from "@/lib/resource-access";
 
+import { resolveAskNavigationAction } from "./layout-route-policy";
 import { NewDashboardDialog } from "./NewDashboardDialog";
 import { SidebarLoadError } from "./SidebarLoadError";
 
@@ -1613,6 +1615,27 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     });
   }, []);
 
+  const handleAskClick = useCallback(
+    (event: ReactMouseEvent<HTMLAnchorElement>) => {
+      const action = resolveAskNavigationAction(
+        isAskRoute,
+        event.metaKey || event.ctrlKey || event.shiftKey || event.altKey,
+      );
+      if (action === "browser") return;
+
+      event.preventDefault();
+      if (action === "toggle") {
+        toggleAskOpen();
+        return;
+      }
+
+      setAskOpen(true);
+      setStoredBoolean(ASK_OPEN_KEY, true);
+      navigateWithAgentChatViewTransition(navigate, "/ask");
+    },
+    [isAskRoute, navigate, toggleAskOpen],
+  );
+
   // Fold per-source counters into sidebar list query keys so agent-driven
   // create/rename/archive/delete shows up without a manual refresh. We
   // Domain counters keep these lists targeted. Folding the generic `action`
@@ -2075,18 +2098,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       label: t("navigation.ask"),
       href: "/ask",
       active: location.pathname === "/ask",
-      onClick: (event: React.MouseEvent<HTMLAnchorElement>) => {
-        if (
-          location.pathname !== "/ask" &&
-          !event.metaKey &&
-          !event.ctrlKey &&
-          !event.shiftKey &&
-          !event.altKey
-        ) {
-          event.preventDefault();
-          navigateWithAgentChatViewTransition(navigate, "/ask");
-        }
-      },
+      onClick: handleAskClick,
     },
     {
       icon: IconChartBar,
@@ -2201,7 +2213,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       )}
       {effectiveCollapsed ? (
         <>
-          <nav className="flex min-h-0 flex-1 flex-col items-center gap-1 overflow-y-auto px-1 py-2">
+          <nav className="flex min-h-0 flex-1 flex-col items-center gap-0.5 overflow-y-auto px-1 py-2">
             {collapsedNavItems.map((item) => {
               const Icon = item.icon;
               return (
@@ -2212,7 +2224,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                       onClick={item.onClick}
                       aria-label={item.label}
                       className={cn(
-                        "flex h-10 w-10 items-center justify-center rounded-md transition-colors",
+                        "flex h-9 w-9 items-center justify-center rounded-md transition-colors",
                         item.active
                           ? "bg-sidebar-accent text-sidebar-accent-foreground"
                           : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground",
@@ -2275,18 +2287,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                 >
                   <Link
                     to="/ask"
-                    onClick={(event) => {
-                      if (
-                        !isAskRoute &&
-                        !event.metaKey &&
-                        !event.ctrlKey &&
-                        !event.shiftKey &&
-                        !event.altKey
-                      ) {
-                        event.preventDefault();
-                        navigateWithAgentChatViewTransition(navigate, "/ask");
-                      }
-                    }}
+                    onClick={handleAskClick}
                     className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2"
                   >
                     <IconMessageCircle className="h-4 w-4 shrink-0" />

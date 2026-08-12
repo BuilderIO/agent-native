@@ -236,6 +236,24 @@ describe("getOnboardingHtml", () => {
     expect(() => new Function(resetScript!)).not.toThrow();
   });
 
+  it("keeps the auth script valid when marketing includes a local run command", () => {
+    const html = getOnboardingHtml({
+      googleOnly: true,
+      marketing: {
+        appName: "Calendar",
+        tagline: "Your AI agent manages your calendar.",
+        runLocalCommand:
+          "npx @agent-native/core@latest create my-calendar-app --template calendar",
+      },
+    });
+
+    const onboardingScript = html.match(/<script>([\s\S]*)<\/script>/)?.[1];
+    expect(onboardingScript).toBeTruthy();
+    expect(html).toContain('onclick="__anToggleRunLocalCommand()"');
+    expect(html).toContain('onclick="signInWithGoogle()"');
+    expect(() => new Function(onboardingScript!)).not.toThrow();
+  });
+
   it("renders the policy password minimum in signup and reset forms", () => {
     const html = getOnboardingHtml();
     const resetHtml = getResetPasswordHtml();

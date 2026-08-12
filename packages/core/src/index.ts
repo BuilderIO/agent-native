@@ -264,6 +264,26 @@ export {
   type DailyBucket,
   type UsageRecentEntry,
 } from "./usage/store.js";
+export {
+  dismissUsageAlert,
+  enqueueUsageAlertEvaluation,
+  listUsageAlerts,
+  saveUsageAlert,
+  setUsageAlertEnabled,
+  USAGE_ALERT_DEFAULT_DAILY_USD,
+  USAGE_ALERT_UNIT_SCALE,
+  type SaveUsageAlertInput,
+  type UsageAlertAccess,
+  type UsageAlertChannel,
+  type UsageAlertEventSummary,
+  type UsageAlertListOptions,
+  type UsageAlertMutationResult,
+  type UsageAlertPeriod,
+  type UsageAlertRule,
+  type UsageAlertScope,
+  type UsageAlertStatus,
+  type UsageAlertUnit,
+} from "./usage/alerts-store.js";
 
 // Workspace-scoped third-party connection metadata
 export {

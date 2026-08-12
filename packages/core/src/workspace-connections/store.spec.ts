@@ -1274,6 +1274,57 @@ describe("workspace connection store", () => {
     });
   });
 
+  it("resolves an explicitly registered legacy HubSpot secret ref", async () => {
+    const { runWithRequestContext } =
+      await import("../server/request-context.js");
+    const { writeAppSecret } = await import("../secrets/index.js");
+    const { resolveWorkspaceConnectionCredentialForApp } =
+      await import("./credentials.js");
+    const { upsertWorkspaceConnection } = await import("./store.js");
+
+    await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "org-1" },
+      async () => {
+        await upsertWorkspaceConnection({
+          id: "conn-hubspot-secret-ref",
+          provider: "hubspot",
+          label: "Team HubSpot (legacy ref)",
+          credentialRefs: [{ key: "HUBSPOT_SECRET_KEY", scope: "org" }],
+        });
+        await writeAppSecret({
+          key: "HUBSPOT_SECRET_KEY",
+          value: "legacy-ref-token",
+          scope: "org",
+          scopeId: "org-1",
+        });
+      },
+    );
+
+    const resolved = await runWithRequestContext(
+      { userEmail: "bob@example.com", orgId: "org-1" },
+      () =>
+        resolveWorkspaceConnectionCredentialForApp({
+          appId: "analytics",
+          provider: "hubspot",
+          key: "HUBSPOT_PRIVATE_APP_TOKEN",
+        }),
+    );
+
+    expect(resolved).toMatchObject({
+      available: true,
+      status: "resolved",
+      value: "legacy-ref-token",
+      provenance: {
+        requestedKey: "HUBSPOT_PRIVATE_APP_TOKEN",
+        resolvedKey: "HUBSPOT_SECRET_KEY",
+        credentialRef: {
+          key: "HUBSPOT_SECRET_KEY",
+          source: "connection",
+        },
+      },
+    });
+  });
+
   it("falls back to legacy scoped credentials and reports multi-key misses", async () => {
     const { runWithRequestContext } =
       await import("../server/request-context.js");

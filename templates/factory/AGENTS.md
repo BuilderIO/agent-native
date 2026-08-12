@@ -45,7 +45,7 @@ decisions, feedback, agent runs, and provider audit records.
 
 | Action | Purpose |
 | --- | --- |
-| `list-triage-items` / `get-triage-item` | Inspect queue and evidence. |
+| `list-triage-items` / `get-triage-item` | Inspect queue and evidence; scheduled reviewers must pass `needsReview: true` with a bounded `source` and `limit`. |
 | `poll-slack-channel` | Observe Slack history; never writes to Slack. |
 | `get-slack-feedback-context` | Read the bounded full Slack thread before classification. |
 | `poll-github-sources` / `poll-sentry-errors` | Observe bounded GitHub and Sentry source queues. |

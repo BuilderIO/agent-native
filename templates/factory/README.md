@@ -44,8 +44,9 @@ encryption fallback). Never copy raw tokens between apps or add a second
 env-only read in a provider client.
 
 In Factory, set the Slack workspace, channel ID, channel name, repository, and
-polling switch. The default scheduler polls once per minute, evaluates a
-bounded page, and preserves errors for reconciliation.
+polling switch. GitHub issue polling defaults to hourly; Slack and pull-request
+checks use shorter bounded cadences because those sources can need faster
+feedback. Every poll preserves errors for reconciliation.
 
 The generic Slack bot is wired to Factory. Mention `@agent-native` in a feedback
 thread to inspect the linked item, explain its decision, tune a rule, or say

@@ -247,6 +247,23 @@ const AGENT_PANEL_CONTROL_STYLE = {
 } satisfies React.CSSProperties;
 const ACTIVATE_KEYS = new Set(["Enter", " "]);
 
+export function deferAgentPanelOverlayOpen(
+  event: { preventDefault: () => void },
+  closeMenu: () => void,
+  openOverlay: () => void,
+): void {
+  event.preventDefault();
+  closeMenu();
+  if (
+    typeof window !== "undefined" &&
+    typeof window.requestAnimationFrame === "function"
+  ) {
+    window.requestAnimationFrame(() => openOverlay());
+  } else {
+    setTimeout(openOverlay, 0);
+  }
+}
+
 interface AvailableCli {
   command: string;
   label: string;
@@ -469,6 +486,30 @@ export function shouldShowAgentPanelFullViewAction(
   );
 }
 
+export function resolveAgentPanelFullViewAction(
+  agentPageHref: string | undefined,
+  onFullViewRequest: (() => void) | undefined,
+  mode: PanelMode,
+  isSidebar = false,
+  currentPath?: string,
+) {
+  if (
+    !agentPageHref ||
+    !shouldShowAgentPanelFullViewAction(
+      agentPageHref,
+      mode,
+      isSidebar,
+      currentPath,
+    )
+  ) {
+    return null;
+  }
+
+  return onFullViewRequest
+    ? ({ kind: "callback" } as const)
+    : ({ kind: "link", href: agentPageHref } as const);
+}
+
 export function getAgentPanelShortcutHints(isMac: boolean) {
   return {
     closeTab: isMac ? "⌃W" : "⌥W",
@@ -612,6 +653,8 @@ export interface AgentPanelProps extends Omit<
   isFullscreen?: boolean;
   /** @deprecated Fullscreen sidebar controls are no longer rendered. */
   onToggleFullscreen?: () => void;
+  /** Called when the user selects the full-view action from a sidebar chat. */
+  onFullViewRequest?: () => void;
   /** Called when the user asks the sidebar to use the wide chat width preset. */
   onSnapTo75Percent?: () => void;
   /** Whether the sidebar is currently using the wide fixed drawer presentation. */
@@ -787,6 +830,7 @@ function AgentPanelInner({
   onCollapse,
   isFullscreen,
   onToggleFullscreen,
+  onFullViewRequest,
   onSnapTo75Percent,
   isWideDrawer,
   onExitWideDrawer,
@@ -1228,14 +1272,12 @@ function AgentPanelInner({
   const wideDrawerLabel = t(
     isWideDrawer ? "agentPanel.returnChatToLayout" : "agentPanel.widenChat",
   );
-  const showFullViewAction = Boolean(
-    agentPageHref &&
-    shouldShowAgentPanelFullViewAction(
-      agentPageHref,
-      mode,
-      chatOnly,
-      location.pathname,
-    ),
+  const fullViewAction = resolveAgentPanelFullViewAction(
+    agentPageHref,
+    onFullViewRequest,
+    mode,
+    chatOnly,
+    location.pathname,
   );
 
   useEffect(() => {
@@ -1396,10 +1438,18 @@ function AgentPanelInner({
                 <DropdownMenuShortcut>{widenChatHint}</DropdownMenuShortcut>
               </DropdownMenuItem>
             ) : null}
-            {showFullViewAction && agentPageHref ? (
+            {fullViewAction?.kind === "callback" && onFullViewRequest ? (
+              <DropdownMenuItem
+                onSelect={onFullViewRequest}
+                aria-label={t("agentPanel.openFullView")}
+              >
+                <IconArrowsMaximize size={14} className="shrink-0" />
+                {t("agentPanel.openFullView")}
+              </DropdownMenuItem>
+            ) : fullViewAction?.kind === "link" ? (
               <DropdownMenuItem asChild>
                 <Link
-                  to={agentPageHref}
+                  to={fullViewAction.href}
                   aria-label={t("agentPanel.openFullView")}
                 >
                   <IconArrowsMaximize size={14} className="shrink-0" />
@@ -1408,7 +1458,7 @@ function AgentPanelInner({
               </DropdownMenuItem>
             ) : null}
             {(onCollapse && mode === "chat" && wideDrawerAction) ||
-            showFullViewAction ? (
+            fullViewAction ? (
               <DropdownMenuSeparator />
             ) : null}
             {onCollapse && mode === "chat" && (
@@ -1444,11 +1494,13 @@ function AgentPanelInner({
             )}
             {mode === "chat" && toggleHistory && (
               <DropdownMenuItem
-                onSelect={() => {
-                  // Let the menu finish restoring focus before mounting the
-                  // history popover; otherwise Radix dismisses the new overlay.
-                  setTimeout(() => toggleHistory(), 0);
-                }}
+                onSelect={(event) =>
+                  deferAgentPanelOverlayOpen(
+                    event,
+                    () => setHeaderMenuOpen(false),
+                    toggleHistory,
+                  )
+                }
               >
                 <IconHistory size={14} className="shrink-0" />
                 {showHistory
@@ -1501,12 +1553,13 @@ function AgentPanelInner({
             )}
             {feedbackEnabled ? (
               <DropdownMenuItem
-                onSelect={() => {
-                  // Defer past the closing DropdownMenu's focus-restore/dismiss-layer
-                  // teardown, otherwise it can immediately dismiss the Popover we're
-                  // opening in the same tick (Radix nested-overlay race).
-                  setTimeout(() => setFeedbackOpen(true), 0);
-                }}
+                onSelect={(event) =>
+                  deferAgentPanelOverlayOpen(
+                    event,
+                    () => setHeaderMenuOpen(false),
+                    () => setFeedbackOpen(true),
+                  )
+                }
               >
                 <IconMessageDots size={14} className="shrink-0" />
                 {t("agentPanel.feedback")}
@@ -1604,7 +1657,9 @@ function AgentPanelInner({
       isWideDrawer,
       mode,
       agentPageHref,
+      fullViewAction,
       onCollapse,
+      onFullViewRequest,
       onExitWideDrawer,
       onSnapTo75Percent,
       openRunThread,
@@ -1616,7 +1671,6 @@ function AgentPanelInner({
       wideDrawerAction,
       wideDrawerLabel,
       widenChatHint,
-      showFullViewAction,
     ],
   );
 
@@ -2942,7 +2996,7 @@ export interface AgentSidebarProps {
   storageKey?: string;
   /** Open the sidebar when a chat run is active or reconnects. */
   openOnChatRunning?: boolean;
-  /** @deprecated Fullscreen sidebar actions are no longer rendered. */
+  /** Called when the user selects the full-view action from the chat sidebar. */
   onFullscreenRequest?: () => void;
   /** Ambient resource context rendered as a composer chip. */
   scope?: import("./use-chat-threads.js").ChatThreadScope | null;
@@ -2982,6 +3036,7 @@ export function AgentSidebar({
   chatViewTransitionHandoff = false,
   storageKey,
   openOnChatRunning = false,
+  onFullscreenRequest,
   scope,
   showScopeBadge,
   browserTabId,
@@ -3623,6 +3678,7 @@ export function AgentSidebar({
             onSnapTo75Percent={isMobile ? undefined : snapTo75Percent}
             isWideDrawer={isMobile ? false : isWideDrawer}
             onExitWideDrawer={isMobile ? undefined : exitWideDrawer}
+            onFullViewRequest={onFullscreenRequest}
             storageKey={storageKey}
             scope={scope}
             showScopeBadge={showScopeBadge}

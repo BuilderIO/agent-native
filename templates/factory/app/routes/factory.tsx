@@ -4,8 +4,16 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { AgentToggleButton } from "@agent-native/core/client/agent-chat";
+import { SettingsGroup, SettingsRow } from "@agent-native/core/client/settings";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@agent-native/toolkit/ui/popover";
 import {
   IconAlertCircle,
+  IconArrowLeft,
   IconExternalLink,
   IconLoader2,
   IconPlayerPlay,
@@ -114,6 +122,7 @@ type TriageConfig = {
 
 type Verdict = "correct" | "incorrect" | "uncertain";
 type WorkspaceTab =
+  | "overview"
   | "map"
   | "inbox"
   | "rules"
@@ -157,6 +166,23 @@ type FactoryAutomation = {
 };
 
 const DEFAULT_FACTORY_ID = "product-feedback";
+const BLANK_FACTORY_GRAPH: FactoryCanvasGraph = {
+  version: 1,
+  name: "New factory",
+  description: "Define the purpose, review flow, and handoff for this factory.",
+  executionMode: "blueprint",
+  nodes: [
+    {
+      id: "start",
+      label: "Start",
+      description: "Define the first decision or intake step for this factory.",
+      kind: "decision",
+      provider: "factory",
+      position: { x: 240, y: 220 },
+    },
+  ],
+  edges: [],
+};
 
 export function meta() {
   return [{ title: "Factory" }];
@@ -166,7 +192,8 @@ export default function FactoryRoute() {
   const t = useT();
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = parseWorkspaceTab(searchParams.get("tab"));
-  const factoryId = searchParams.get("factoryId") || DEFAULT_FACTORY_ID;
+  const selectedFactoryId = searchParams.get("factoryId");
+  const factoryId = selectedFactoryId ?? DEFAULT_FACTORY_ID;
   const [creating, setCreating] = useState(false);
   const [draftGraph, setDraftGraph] = useState<FactoryCanvasGraph | null>(null);
   const [dirty, setDirty] = useState(false);
@@ -178,7 +205,7 @@ export default function FactoryRoute() {
     setSearchParams(
       (current) => {
         const next = new URLSearchParams(current);
-        if (tab === "map") next.delete("tab");
+        if (tab === "overview") next.delete("tab");
         else next.set("tab", tab);
         return next;
       },
@@ -186,12 +213,45 @@ export default function FactoryRoute() {
     );
   }
 
-  function setFactoryId(nextFactoryId: string) {
+  function openFactory(
+    nextFactoryId: string,
+    options?: { tab?: WorkspaceTab; replace?: boolean },
+  ) {
+    setCreating(false);
+    setDraftGraph(null);
+    setDirty(false);
+    setSelectedNodeId(null);
+    setSelectedEdgeId(null);
     setSearchParams(
       (current) => {
         const next = new URLSearchParams(current);
-        if (nextFactoryId === DEFAULT_FACTORY_ID) next.delete("factoryId");
-        else next.set("factoryId", nextFactoryId);
+        next.set("factoryId", nextFactoryId);
+        next.delete("node");
+        next.delete("edge");
+        next.delete("itemId");
+        next.delete("automationId");
+        next.delete("auditRunId");
+        if (options?.tab) {
+          if (options.tab === "overview") next.delete("tab");
+          else next.set("tab", options.tab);
+        }
+        return next;
+      },
+      { replace: options?.replace ?? true },
+    );
+  }
+
+  function goToFactoryList() {
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        next.delete("factoryId");
+        next.delete("tab");
+        next.delete("node");
+        next.delete("edge");
+        next.delete("itemId");
+        next.delete("automationId");
+        next.delete("auditRunId");
         return next;
       },
       { replace: true },
@@ -199,14 +259,20 @@ export default function FactoryRoute() {
   }
 
   const factoryListQuery = useActionQuery("list-factories", {});
-  const graphQuery = useActionQuery("get-factory-graph", { factoryId });
-  const graphData = graphQuery.data as FactoryGraphResponse | undefined;
+  const graphQuery = useActionQuery(
+    "get-factory-graph",
+    selectedFactoryId ? { factoryId: selectedFactoryId } : undefined,
+    { enabled: Boolean(selectedFactoryId) },
+  );
+  const rawGraphData = graphQuery.data as FactoryGraphResponse | undefined;
+  const graphData =
+    rawGraphData?.factory.id === factoryId ? rawGraphData : undefined;
   const graph = draftGraph ?? graphData?.graph ?? null;
   const graphVersion = graphData?.factory.graphVersion ?? graph?.version ?? 1;
   const commentsQuery = useActionQuery(
     "list-factory-comments",
     { factoryId, graphVersion },
-    { enabled: Boolean(graph) },
+    { enabled: Boolean(selectedFactoryId && graph) },
   );
   const saveGraphMutation = useActionMutation("save-factory-graph");
   const addCommentMutation = useActionMutation("add-factory-comment");
@@ -225,6 +291,15 @@ export default function FactoryRoute() {
     setSelectedNodeId(searchParams.get("node"));
     setSelectedEdgeId(searchParams.get("edge"));
   }, [searchParams]);
+
+  useEffect(() => {
+    if (selectedFactoryId) return;
+    setCreating(false);
+    setDraftGraph(null);
+    setDirty(false);
+    setSelectedNodeId(null);
+    setSelectedEdgeId(null);
+  }, [selectedFactoryId]);
 
   const selectedNode = graph?.nodes.find((node) => node.id === selectedNodeId);
   const selectedEdge = graph?.edges.find((edge) => edge.id === selectedEdgeId);
@@ -322,30 +397,22 @@ export default function FactoryRoute() {
   }
 
   function startNewFactory() {
-    const base = graph ?? graphData?.graph;
-    if (!base) return;
     const id = `factory-${Date.now().toString(36)}`;
-    setFactoryId(id);
+    openFactory(id, { tab: "overview" });
     setCreating(true);
-    setDraftGraph({
-      ...structuredClone(base),
-      version: 1,
-      name: t("factoryRoute.newFactory"),
-      description: t("factoryRoute.newFactoryDescription"),
-    });
+    setDraftGraph(structuredClone(BLANK_FACTORY_GRAPH));
     setDirty(true);
     setSelectedNodeId(null);
     setSelectedEdgeId(null);
-    setActiveTab("map");
   }
 
   async function saveGraph() {
-    if (!graph) return;
+    if (!graph || !selectedFactoryId) return;
     await saveGraphMutation.mutateAsync({
-      factoryId,
+      factoryId: selectedFactoryId,
       name: graph.name,
       description: graph.description,
-      prompt: graphData?.factory.prompt ?? "",
+      prompt: creating ? "" : (graphData?.factory.prompt ?? ""),
       source: "manual",
       changeSummary: creating
         ? "Created from the Factory visual editor."
@@ -362,9 +429,9 @@ export default function FactoryRoute() {
     targetId?: string,
     body?: string,
   ) {
-    if (!body || !graph) return;
+    if (!body || !graph || !selectedFactoryId) return;
     await addCommentMutation.mutateAsync({
-      factoryId,
+      factoryId: selectedFactoryId,
       graphVersion,
       targetType,
       ...(targetId ? { targetId } : {}),
@@ -373,49 +440,177 @@ export default function FactoryRoute() {
     await commentsQuery.refetch();
   }
 
+  if (!selectedFactoryId) {
+    return (
+      <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-background">
+        <section className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-6 p-4 lg:p-6">
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <div className="max-w-2xl space-y-2">
+              <h1 className="text-2xl font-semibold tracking-tight">
+                Factories
+              </h1>
+              <p className="text-sm leading-6 text-muted-foreground">
+                Choose a factory to review its purpose, flow, automations, and
+                recent activity. Start a new one from a minimal blank graph when
+                you want to define a fresh review path.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button type="button" size="sm" onClick={startNewFactory}>
+                <IconPlus className="size-4" />
+                New factory
+              </Button>
+              <AgentToggleButton />
+            </div>
+          </div>
+
+          {factoryListQuery.isError ? (
+            <Card>
+              <CardContent className="p-0">
+                <ErrorState
+                  message="Could not load factories."
+                  onRetry={() => void factoryListQuery.refetch()}
+                />
+              </CardContent>
+            </Card>
+          ) : factoryListQuery.isLoading ? (
+            <div className="overflow-hidden rounded-xl border border-border/70 bg-card">
+              {Array.from({ length: 4 }).map((_, index) => (
+                <div
+                  key={`factory-skeleton-${index}`}
+                  className="grid gap-3 border-b border-border px-3 py-3 last:border-b-0 md:grid-cols-[minmax(0,2fr)_minmax(120px,0.8fr)_minmax(70px,auto)_auto] md:items-center"
+                >
+                  <div className="min-w-0 space-y-2">
+                    <div className="h-4 w-2/3 animate-pulse rounded bg-muted" />
+                    <div className="h-3 w-4/5 animate-pulse rounded bg-muted" />
+                  </div>
+                  <div className="h-4 w-24 animate-pulse rounded bg-muted" />
+                  <div className="h-4 w-12 animate-pulse rounded bg-muted" />
+                  <div className="h-9 w-20 animate-pulse rounded bg-muted md:ms-auto" />
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="overflow-hidden rounded-xl border border-border/70 bg-card">
+              {factoryList.map((factory) => (
+                <div
+                  key={factory.id}
+                  className="group grid cursor-pointer gap-3 border-b border-border px-3 py-3 last:border-b-0 hover:bg-accent/25 md:grid-cols-[minmax(0,2fr)_minmax(120px,0.8fr)_minmax(70px,auto)_auto] md:items-center"
+                  role="button"
+                  tabIndex={0}
+                  onClick={() =>
+                    openFactory(factory.id, { tab: "overview" })
+                  }
+                  onKeyDown={(event) => {
+                    if (event.key !== "Enter" && event.key !== " ") return;
+                    event.preventDefault();
+                    openFactory(factory.id, { tab: "overview" });
+                  }}
+                >
+                  <div className="min-w-0">
+                    <h2 className="truncate text-sm font-medium">
+                      {factory.name}
+                    </h2>
+                    <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                      {factory.description || "No description yet."}
+                    </p>
+                  </div>
+                  <div className="flex min-w-0 items-center text-xs text-muted-foreground">
+                    {factory.virtual ? "Default factory" : "Saved factory"}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    v{factory.graphVersion}
+                  </div>
+                  <div className="flex justify-end">
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="md:opacity-0 md:transition-opacity md:group-hover:opacity-100"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        openFactory(factory.id, { tab: "overview" });
+                      }}
+                    >
+                      Open
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      </div>
+    );
+  }
+
   if (!graph) {
     return (
-      <div className="flex h-full items-center justify-center p-8 text-sm text-muted-foreground">
-        {graphQuery.isError
-          ? "Could not load this Factory."
-          : "Loading Factory..."}
+      <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
+        <header className="shrink-0 border-b bg-background px-2 sm:px-4 lg:px-6">
+          <div className="flex h-14 items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-1 sm:gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="size-10 shrink-0"
+                onClick={goToFactoryList}
+                aria-label="Back to factories"
+              >
+                <IconArrowLeft className="size-4" />
+              </Button>
+              <div className="h-5 w-48 animate-pulse rounded bg-muted" />
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="h-9 w-28 animate-pulse rounded bg-muted" />
+              <AgentToggleButton />
+            </div>
+          </div>
+        </header>
+        <main className="flex flex-1 items-center justify-center p-6">
+          {graphQuery.isError ? (
+            <Card className="w-full max-w-lg">
+              <CardContent className="p-0">
+                <ErrorState
+                  message="Could not load this factory."
+                  onRetry={() => void graphQuery.refetch()}
+                />
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="grid w-full max-w-5xl gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+              <div className="h-[420px] animate-pulse rounded-xl border bg-muted/40" />
+              <div className="h-[420px] animate-pulse rounded-xl border bg-muted/40" />
+            </div>
+          )}
+        </main>
       </div>
     );
   }
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
-      <header className="shrink-0 border-b bg-background px-4 py-2.5 lg:px-6">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <h1 className="truncate text-base font-semibold">{graph.name}</h1>
-              <span className="shrink-0 text-xs text-muted-foreground">
-                v{graphVersion}
-              </span>
-            </div>
-            <p className="hidden truncate text-xs text-muted-foreground md:block">
-              {graph.description}
-            </p>
+      <header className="shrink-0 border-b bg-background">
+        <div className="flex h-14 items-center justify-between gap-3 px-2 sm:px-4 lg:px-6">
+          <div className="flex min-w-0 items-center gap-1 sm:gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-10 shrink-0"
+              onClick={goToFactoryList}
+              aria-label="Back to factories"
+            >
+              <IconArrowLeft className="size-4" />
+            </Button>
+            <h1 className="truncate text-sm font-medium sm:text-base">
+              {graph.name}
+            </h1>
+            <span className="shrink-0 text-xs text-muted-foreground">
+              v{graphVersion}
+            </span>
           </div>
           <div className="flex items-center gap-2">
-            <select
-              aria-label={t("factoryRoute.selectFactory")}
-              value={factoryId}
-              onChange={(event) => {
-                setFactoryId(event.target.value);
-                setCreating(false);
-                setDraftGraph(null);
-                setDirty(false);
-              }}
-              className="h-9 max-w-[220px] rounded-md border bg-background px-3 text-sm"
-            >
-              {factoryList.map((factory) => (
-                <option key={factory.id} value={factory.id}>
-                  {factory.name}
-                </option>
-              ))}
-            </select>
             <Button
               type="button"
               variant="outline"
@@ -423,26 +618,33 @@ export default function FactoryRoute() {
               onClick={startNewFactory}
             >
               <IconPlus className="size-4" />
-              New
+              New factory
             </Button>
+            <AgentToggleButton />
           </div>
         </div>
-        <div className="mt-4 flex items-center gap-2">
+        <div className="flex items-center gap-2 overflow-x-auto px-2 py-2 sm:px-4 lg:px-6">
           <nav
-            className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto"
+            className="flex min-w-0 flex-1 items-center gap-1"
             aria-label={t("factoryRoute.factoryViews")}
           >
+            <TabButton
+              active={activeTab === "overview"}
+              onClick={() => setActiveTab("overview")}
+            >
+              Overview
+            </TabButton>
             <TabButton
               active={activeTab === "map"}
               onClick={() => setActiveTab("map")}
             >
-              Map
+              Flow
             </TabButton>
             <TabButton
               active={activeTab === "inbox"}
               onClick={() => setActiveTab("inbox")}
             >
-              Inbox
+              Review
             </TabButton>
             <TabButton
               active={activeTab === "rules"}
@@ -460,7 +662,7 @@ export default function FactoryRoute() {
               active={activeTab === "audit"}
               onClick={() => setActiveTab("audit")}
             >
-              {t("factoryRoute.auditTab")}
+              Activity
             </TabButton>
             <TabButton
               active={activeTab === "settings"}
@@ -486,12 +688,23 @@ export default function FactoryRoute() {
       </header>
 
       <main className="min-h-0 flex-1 overflow-y-auto">
-        {activeTab === "map" ? (
+        {activeTab === "overview" ? (
+          <OverviewView
+            graph={graph}
+            graphVersion={graphVersion}
+            metrics={graphData?.metrics}
+            onOpenReview={() => setActiveTab("inbox")}
+            onOpenAutomations={() => setActiveTab("automations")}
+            onOpenActivity={() => setActiveTab("audit")}
+            onOpenSettings={() => setActiveTab("settings")}
+            onOpenFlow={() => setActiveTab("map")}
+          />
+        ) : activeTab === "map" ? (
           <div className="grid min-h-full gap-0 xl:grid-cols-[minmax(0,1fr)_360px]">
             <section className="min-w-0 p-4 lg:p-6">
               <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
                 <span className="text-xs font-medium text-muted-foreground">
-                  {t("factoryRoute.mapEyebrow")}
+                  Flow
                 </span>
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                   <Metric
@@ -540,6 +753,7 @@ export default function FactoryRoute() {
               selectedNode={selectedNode}
               selectedEdge={selectedEdge}
               comments={comments}
+              factoryId={factoryId}
               dirty={dirty}
               saving={saveGraphMutation.isPending}
               onGraphChange={updateGraph}
@@ -591,13 +805,179 @@ function TabButton({
 }
 
 function parseWorkspaceTab(value: string | null): WorkspaceTab {
-  return value === "inbox" ||
+  return value === "map" ||
+    value === "inbox" ||
     value === "rules" ||
     value === "automations" ||
     value === "audit" ||
     value === "settings"
     ? value
-    : "map";
+    : "overview";
+}
+
+function OverviewView({
+  graph,
+  graphVersion,
+  metrics,
+  onOpenReview,
+  onOpenAutomations,
+  onOpenActivity,
+  onOpenSettings,
+  onOpenFlow,
+}: {
+  graph: FactoryCanvasGraph;
+  graphVersion: number;
+  metrics?: FactoryGraphResponse["metrics"];
+  onOpenReview: () => void;
+  onOpenAutomations: () => void;
+  onOpenActivity: () => void;
+  onOpenSettings: () => void;
+  onOpenFlow: () => void;
+}) {
+  return (
+    <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 p-4 lg:p-6">
+      <Card className="border-border/70">
+        <CardHeader className="gap-4">
+          <div className="space-y-2">
+            <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+              Overview
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <CardTitle className="text-xl tracking-tight">
+                {graph.name}
+              </CardTitle>
+              <span className="rounded-full border px-2 py-1 text-xs text-muted-foreground">
+                Version {graphVersion}
+              </span>
+            </div>
+            <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
+              {graph.description || "No description yet."}
+            </p>
+          </div>
+        </CardHeader>
+      </Card>
+
+      <div className="grid gap-3 md:grid-cols-3">
+        <Card>
+          <CardHeader className="gap-1 pb-2">
+            <p className="text-sm text-muted-foreground">Signals</p>
+            <CardTitle className="text-2xl">
+              {(metrics?.totalItems ?? 0).toLocaleString()}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm text-muted-foreground">
+            All observed items currently in scope.
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="gap-1 pb-2">
+            <p className="text-sm text-muted-foreground">Decisions</p>
+            <CardTitle className="text-2xl">
+              {(metrics?.decisions ?? 0).toLocaleString()}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm text-muted-foreground">
+            Review decisions captured through the factory flow.
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="gap-1 pb-2">
+            <p className="text-sm text-muted-foreground">Runs</p>
+            <CardTitle className="text-2xl">
+              {(metrics?.runs ?? 0).toLocaleString()}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm text-muted-foreground">
+            Approved automation or delivery runs for this workspace.
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(280px,.8fr)]">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">At a glance</CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-3 sm:grid-cols-3">
+            <div className="rounded-lg border bg-muted/30 px-3 py-3">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                Nodes
+              </p>
+              <p className="mt-1 text-lg font-semibold">
+                {graph.nodes.length.toLocaleString()}
+              </p>
+            </div>
+            <div className="rounded-lg border bg-muted/30 px-3 py-3">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                Connections
+              </p>
+              <p className="mt-1 text-lg font-semibold">
+                {graph.edges.length.toLocaleString()}
+              </p>
+            </div>
+            <div className="rounded-lg border bg-muted/30 px-3 py-3">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                Completed runs
+              </p>
+              <p className="mt-1 text-lg font-semibold">
+                {(metrics?.completedRuns ?? 0).toLocaleString()}
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Open</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Jump into the part of this factory you want to work on next.
+            </p>
+          </CardHeader>
+          <CardContent className="grid gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              className="justify-between"
+              onClick={onOpenReview}
+            >
+              Review
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="justify-between"
+              onClick={onOpenAutomations}
+            >
+              Automations
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="justify-between"
+              onClick={onOpenActivity}
+            >
+              Activity
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="justify-between"
+              onClick={onOpenSettings}
+            >
+              Settings
+            </Button>
+            <Button
+              type="button"
+              className="justify-between"
+              onClick={onOpenFlow}
+            >
+              Edit flow
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
 }
 
 function Metric({ label, value }: { label: string; value: number }) {
@@ -1051,11 +1431,10 @@ function InboxView({ t }: { t: ReturnType<typeof useT> }) {
       <Card>
         <CardHeader className="gap-3 border-b sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <CardTitle className="text-base">
-              {t("factoryRoute.inboxTitle")}
-            </CardTitle>
+            <CardTitle className="text-base">Review</CardTitle>
             <p className="mt-1 text-sm text-muted-foreground">
-              {t("factoryRoute.inboxDescription")}
+              Review incoming observations, inspect the latest decision, and
+              approve the next step when it is ready.
             </p>
           </div>
           <div className="flex items-end gap-2">
@@ -1393,6 +1772,7 @@ function SettingsView({ t }: { t: ReturnType<typeof useT> }) {
     { refetchInterval: 60_000 },
   );
   const mutation = useActionMutation("save-triage-config");
+
   useEffect(() => {
     const data = query.data as TriageConfig | undefined;
     if (!data) return;
@@ -1411,201 +1791,278 @@ function SettingsView({ t }: { t: ReturnType<typeof useT> }) {
     );
     setAutomationFailureAlertEmail(data.automationFailureAlertEmail ?? "");
   }, [query.data]);
+
+  const saveSettings = () => {
+    mutation.mutate({
+      slackWorkspace: workspace,
+      slackChannelId: channelId,
+      slackChannelName: channelName,
+      repository,
+      pollingEnabled: polling,
+      githubPollingEnabled: githubPolling,
+      sentryPollingEnabled: sentryPolling,
+      sentryOrgSlug,
+      sentryProjectSlug,
+      sentryEnvironment,
+      automationFailureAlertsEnabled,
+      ...(automationFailureAlertEmail.trim()
+        ? { automationFailureAlertEmail: automationFailureAlertEmail.trim() }
+        : {}),
+    });
+  };
+
+  const slackConfigured = Boolean(channelId.trim() || channelName.trim());
+  const githubConfigured = Boolean(repository.trim());
+  const sentryConfigured = Boolean(
+    sentryOrgSlug.trim() || sentryProjectSlug.trim(),
+  );
+
+  if (query.isLoading) {
+    return (
+      <div className="w-full max-w-5xl space-y-6 p-4 lg:p-6">
+        <FactorySettingsSkeleton />
+      </div>
+    );
+  }
+
   return (
-    <div className="max-w-4xl space-y-4 p-4 lg:p-6">
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">
-            {t("triage.settingsTitle")}
-          </CardTitle>
-          <p className="text-sm text-muted-foreground">
-            {t("factoryRoute.settingsDescription")}
-          </p>
-        </CardHeader>
-        <CardContent className="grid gap-4 sm:grid-cols-2">
-          <div className="grid gap-1.5">
-            <Label htmlFor="factory-slack-workspace">
-              {t("triage.slackWorkspace")}
-            </Label>
-            <select
-              id="factory-slack-workspace"
-              value={workspace}
-              onChange={(event) =>
-                setWorkspace(event.target.value as "primary" | "secondary")
-              }
-              className="h-9 rounded-md border bg-background px-3 text-sm"
+    <div className="w-full max-w-5xl space-y-6 p-4 lg:p-6">
+      <SettingsGroup title="Sources">
+        <SettingsRow
+          label="Slack"
+          status={
+            slackConfigured ? (
+              <span className="rounded-full bg-green-500/10 px-2 py-0.5 text-[10px] font-medium text-green-600 dark:text-green-400">
+                Connected
+              </span>
+            ) : undefined
+          }
+          control={
+            <FactorySourcePopover
+              label="Slack"
+              connected={slackConfigured}
+              saving={mutation.isPending}
+              onSave={saveSettings}
             >
-              <option value="primary">primary</option>
-              <option value="secondary">secondary</option>
-            </select>
-          </div>
-          <div className="grid gap-1.5">
-            <Label htmlFor="factory-slack-channel-id">
-              {t("triage.slackChannelId")}
-            </Label>
-            <Input
-              id="factory-slack-channel-id"
-              value={channelId}
-              onChange={(event) => setChannelId(event.target.value)}
-              placeholder="C0123456789"
-            />
-          </div>
-          <div className="grid gap-1.5">
-            <Label htmlFor="factory-slack-channel-name">
-              {t("triage.slackChannelName")}
-            </Label>
-            <Input
-              id="factory-slack-channel-name"
-              value={channelName}
-              onChange={(event) => setChannelName(event.target.value)}
-              placeholder="product-agent-native-feedback"
-            />
-          </div>
-          <div className="grid gap-1.5">
-            <Label htmlFor="factory-repository">{t("triage.repository")}</Label>
-            <Input
-              id="factory-repository"
-              value={repository}
-              onChange={(event) => setRepository(event.target.value)}
-              placeholder={t("triage.repositoryPlaceholder")}
-            />
-          </div>
-          <label className="flex items-center gap-2 text-sm sm:col-span-2">
+              <div className="grid gap-3">
+                <label className="grid gap-1.5 text-xs font-medium text-foreground">
+                  {t("triage.slackWorkspace")}
+                  <select
+                    aria-label={t("triage.slackWorkspace")}
+                    value={workspace}
+                    onChange={(event) =>
+                      setWorkspace(event.target.value as "primary" | "secondary")
+                    }
+                    className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                  >
+                    <option value="primary">primary</option>
+                    <option value="secondary">secondary</option>
+                  </select>
+                </label>
+                <label className="grid gap-1.5 text-xs font-medium text-foreground">
+                  {t("triage.slackChannelId")}
+                  <Input
+                    aria-label={t("triage.slackChannelId")}
+                    value={channelId}
+                    onChange={(event) => setChannelId(event.target.value)}
+                    placeholder={t("triage.slackChannelPlaceholder")}
+                  />
+                </label>
+                <label className="grid gap-1.5 text-xs font-medium text-foreground">
+                  {t("triage.slackChannelName")}
+                  <Input
+                    aria-label={t("triage.slackChannelName")}
+                    value={channelName}
+                    onChange={(event) => setChannelName(event.target.value)}
+                    placeholder={t("triage.slackChannelNamePlaceholder")}
+                  />
+                </label>
+                <label className="flex items-center justify-between gap-3 text-xs font-medium text-foreground">
+                  {t("triage.enablePolling")}
+                  <Checkbox
+                    aria-label={t("triage.enablePolling")}
+                    checked={polling}
+                    onCheckedChange={(checked) => setPolling(checked === true)}
+                  />
+                </label>
+              </div>
+            </FactorySourcePopover>
+          }
+        />
+        <SettingsRow
+          label="GitHub"
+          status={
+            githubConfigured ? (
+              <span className="rounded-full bg-green-500/10 px-2 py-0.5 text-[10px] font-medium text-green-600 dark:text-green-400">
+                Connected
+              </span>
+            ) : undefined
+          }
+          control={
+            <FactorySourcePopover
+              label="GitHub"
+              connected={githubConfigured}
+              saving={mutation.isPending}
+              onSave={saveSettings}
+            >
+              <div className="grid gap-3">
+                <label className="grid gap-1.5 text-xs font-medium text-foreground">
+                  {t("triage.repository")}
+                  <Input
+                    aria-label={t("triage.repository")}
+                    value={repository}
+                    onChange={(event) => setRepository(event.target.value)}
+                    placeholder={t("triage.repositoryPlaceholder")}
+                  />
+                </label>
+                <label className="flex items-center justify-between gap-3 text-xs font-medium text-foreground">
+                  {t("triage.enableGithubPolling")}
+                  <Checkbox
+                    aria-label={t("triage.enableGithubPolling")}
+                    checked={githubPolling}
+                    onCheckedChange={(checked) =>
+                      setGithubPolling(checked === true)
+                    }
+                  />
+                </label>
+              </div>
+            </FactorySourcePopover>
+          }
+        />
+        <SettingsRow
+          label="Sentry"
+          status={
+            sentryConfigured ? (
+              <span className="rounded-full bg-green-500/10 px-2 py-0.5 text-[10px] font-medium text-green-600 dark:text-green-400">
+                Connected
+              </span>
+            ) : undefined
+          }
+          control={
+            <FactorySourcePopover
+              label="Sentry"
+              connected={sentryConfigured}
+              saving={mutation.isPending}
+              onSave={saveSettings}
+            >
+              <div className="grid gap-3">
+                <label className="grid gap-1.5 text-xs font-medium text-foreground">
+                  {t("triage.sentryOrgSlug")}
+                  <Input
+                    aria-label={t("triage.sentryOrgSlug")}
+                    value={sentryOrgSlug}
+                    onChange={(event) => setSentryOrgSlug(event.target.value)}
+                    placeholder={t("triage.sentryOrgPlaceholder")}
+                  />
+                </label>
+                <label className="grid gap-1.5 text-xs font-medium text-foreground">
+                  {t("triage.sentryProjectSlug")}
+                  <Input
+                    aria-label={t("triage.sentryProjectSlug")}
+                    value={sentryProjectSlug}
+                    onChange={(event) =>
+                      setSentryProjectSlug(event.target.value)
+                    }
+                    placeholder={t("triage.sentryProjectPlaceholder")}
+                  />
+                </label>
+                <label className="grid gap-1.5 text-xs font-medium text-foreground">
+                  {t("triage.sentryEnvironment")}
+                  <Input
+                    aria-label={t("triage.sentryEnvironment")}
+                    value={sentryEnvironment}
+                    onChange={(event) =>
+                      setSentryEnvironment(event.target.value)
+                    }
+                    placeholder={t("triage.sentryEnvironmentPlaceholder")}
+                  />
+                </label>
+                <label className="flex items-center justify-between gap-3 text-xs font-medium text-foreground">
+                  {t("triage.enableSentryPolling")}
+                  <Checkbox
+                    aria-label={t("triage.enableSentryPolling")}
+                    checked={sentryPolling}
+                    onCheckedChange={(checked) =>
+                      setSentryPolling(checked === true)
+                    }
+                  />
+                </label>
+              </div>
+            </FactorySourcePopover>
+          }
+        />
+      </SettingsGroup>
+
+      <SettingsGroup title={t("factoryRoute.automationFailureAlertsTitle")}>
+        <SettingsRow
+          label={t("factoryRoute.automationFailureAlertsEnabled")}
+          control={
             <Checkbox
-              checked={polling}
-              onCheckedChange={(checked) => setPolling(checked === true)}
+              aria-label={t("factoryRoute.automationFailureAlertsEnabled")}
+              checked={automationFailureAlertsEnabled}
+              onCheckedChange={(checked) =>
+                setAutomationFailureAlertsEnabled(checked === true)
+              }
             />
-            {t("triage.enablePolling")}
-          </label>
-          <label className="flex items-center gap-2 text-sm sm:col-span-2">
-            <Checkbox
-              checked={githubPolling}
-              onCheckedChange={(checked) => setGithubPolling(checked === true)}
-            />
-            {t("triage.enableGithubPolling")}
-          </label>
-          <div className="grid gap-1.5">
-            <Label htmlFor="factory-sentry-org">
-              {t("triage.sentryOrgSlug")}
-            </Label>
+          }
+        />
+        <SettingsRow
+          label={t("factoryRoute.automationFailureAlertEmail")}
+          control={
             <Input
-              id="factory-sentry-org"
-              value={sentryOrgSlug}
-              onChange={(event) => setSentryOrgSlug(event.target.value)}
-              placeholder={t("triage.sentryOrgPlaceholder")}
+              aria-label={t("factoryRoute.automationFailureAlertEmail")}
+              type="email"
+              value={automationFailureAlertEmail}
+              onChange={(event) =>
+                setAutomationFailureAlertEmail(event.target.value)
+              }
+              placeholder={t(
+                "factoryRoute.automationFailureAlertEmailPlaceholder",
+              )}
+              className="h-9 w-full sm:w-64"
             />
-          </div>
-          <div className="grid gap-1.5">
-            <Label htmlFor="factory-sentry-project">
-              {t("triage.sentryProjectSlug")}
-            </Label>
-            <Input
-              id="factory-sentry-project"
-              value={sentryProjectSlug}
-              onChange={(event) => setSentryProjectSlug(event.target.value)}
-              placeholder={t("triage.sentryProjectPlaceholder")}
-            />
-          </div>
-          <div className="grid gap-1.5">
-            <Label htmlFor="factory-sentry-environment">
-              {t("triage.sentryEnvironment")}
-            </Label>
-            <Input
-              id="factory-sentry-environment"
-              value={sentryEnvironment}
-              onChange={(event) => setSentryEnvironment(event.target.value)}
-              placeholder={t("triage.sentryEnvironmentPlaceholder")}
-            />
-          </div>
-          <label className="flex items-center gap-2 text-sm sm:col-span-2">
-            <Checkbox
-              checked={sentryPolling}
-              onCheckedChange={(checked) => setSentryPolling(checked === true)}
-            />
-            {t("triage.enableSentryPolling")}
-          </label>
-          <div className="space-y-3 border-t pt-4 sm:col-span-2">
-            <div>
-              <h3 className="text-sm font-medium">
-                {t("factoryRoute.automationFailureAlertsTitle")}
-              </h3>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {t("factoryRoute.automationFailureAlertsDescription")}
-              </p>
-            </div>
-            <label className="flex items-center gap-2 text-sm">
-              <Checkbox
-                checked={automationFailureAlertsEnabled}
-                onCheckedChange={(checked) =>
-                  setAutomationFailureAlertsEnabled(checked === true)
-                }
-              />
-              {t("factoryRoute.automationFailureAlertsEnabled")}
-            </label>
-            <div className="grid gap-1.5 sm:max-w-md">
-              <Label htmlFor="factory-automation-failure-email">
-                {t("factoryRoute.automationFailureAlertEmail")}
-              </Label>
-              <Input
-                id="factory-automation-failure-email"
-                type="email"
-                value={automationFailureAlertEmail}
-                onChange={(event) =>
-                  setAutomationFailureAlertEmail(event.target.value)
-                }
-                placeholder={t(
-                  "factoryRoute.automationFailureAlertEmailPlaceholder",
-                )}
-              />
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {t("factoryRoute.automationFailureEmailReadiness")}:{" "}
+          }
+        />
+        <SettingsRow
+          label={t("factoryRoute.automationFailureEmailReadiness")}
+          description={t("factoryRoute.automationEmailReadinessHint")}
+          control={
+            <span className="rounded-full border px-2.5 py-1 text-xs font-medium text-muted-foreground">
               {(query.data as TriageConfig | undefined)?.emailReadiness
                 ?.status ?? "unknown"}
-            </p>
-            <p className="text-xs text-muted-foreground">
-              {t("factoryRoute.automationEmailReadinessHint")}
-            </p>
-            {query.isError && (
-              <p className="text-xs text-destructive">
-                {t("factoryRoute.automationDiagnosticsLoadError")}{" "}
-                {query.error instanceof Error
-                  ? query.error.message
-                  : String(query.error)}
-              </p>
-            )}
+            </span>
+          }
+        />
+        {query.isError && (
+          <div className="px-5 py-3 text-xs text-destructive sm:px-6">
+            {t("factoryRoute.automationDiagnosticsLoadError")}{" "}
+            {query.error instanceof Error
+              ? query.error.message
+              : String(query.error)}
           </div>
-          <div className="sm:col-span-2">
-            <Button
-              onClick={() =>
-                mutation.mutate({
-                  slackWorkspace: workspace,
-                  slackChannelId: channelId,
-                  slackChannelName: channelName,
-                  repository,
-                  pollingEnabled: polling,
-                  githubPollingEnabled: githubPolling,
-                  sentryPollingEnabled: sentryPolling,
-                  sentryOrgSlug,
-                  sentryProjectSlug,
-                  sentryEnvironment,
-                  automationFailureAlertsEnabled,
-                  ...(automationFailureAlertEmail.trim()
-                    ? {
-                        automationFailureAlertEmail:
-                          automationFailureAlertEmail.trim(),
-                      }
-                    : {}),
-                })
-              }
-              disabled={mutation.isPending}
-            >
-              {mutation.isPending && <IconLoader2 className="animate-spin" />}
-              {t("triage.saveSettings")}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+        )}
+      </SettingsGroup>
+
+      <div className="flex flex-wrap items-center justify-start gap-3">
+        {mutation.isError && (
+          <p className="text-sm text-destructive" role="alert">
+            {t("triage.settingsError")}
+          </p>
+        )}
+        {mutation.isSuccess && (
+          <p className="text-sm text-muted-foreground" role="status">
+            {t("triage.settingsSaved")}
+          </p>
+        )}
+        <Button
+          onClick={saveSettings}
+          disabled={mutation.isPending}
+        >
+          {mutation.isPending && <IconLoader2 className="animate-spin" />}
+          {t("triage.saveSettings")}
+        </Button>
+      </div>
+
       <SchedulerHealthStatus
         health={schedulerHealthQuery.data}
         isError={schedulerHealthQuery.isError}
@@ -1616,6 +2073,77 @@ function SettingsView({ t }: { t: ReturnType<typeof useT> }) {
   );
 }
 
+function FactorySourcePopover({
+  label,
+  connected,
+  saving,
+  onSave,
+  children,
+}: {
+  label: string;
+  connected: boolean;
+  saving: boolean;
+  onSave: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button type="button" variant={connected ? "outline" : "default"}>
+          {connected ? "Manage" : "Connect"}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        sideOffset={6}
+        className="w-[min(420px,calc(100vw-2rem))] p-4"
+      >
+        <div className="space-y-4">
+          <p className="text-sm font-medium text-foreground">{label}</p>
+          {children}
+          <div className="flex justify-end">
+            <Button type="button" onClick={onSave} disabled={saving}>
+              {saving && <IconLoader2 className="animate-spin" />}
+              {connected ? "Save" : "Connect"}
+            </Button>
+          </div>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function FactorySettingsSkeleton() {
+  return (
+    <div className="space-y-6" aria-label="Loading factory settings">
+      {Array.from({ length: 2 }).map((_, index) => (
+        <div
+          key={index}
+          className="overflow-hidden rounded-xl border border-border/70 bg-card"
+        >
+          <div className="space-y-2 border-b border-border/60 px-5 py-4">
+            <div className="h-4 w-32 animate-pulse rounded bg-muted" />
+            <div className="h-3 w-3/4 animate-pulse rounded bg-muted" />
+          </div>
+          <div className="divide-y divide-border/60">
+            {Array.from({ length: index === 0 ? 5 : 3 }).map((_, rowIndex) => (
+              <div
+                key={rowIndex}
+                className="flex min-h-20 items-center justify-between gap-4 px-5 py-4 sm:px-6"
+              >
+                <div className="space-y-2">
+                  <div className="h-3.5 w-36 animate-pulse rounded bg-muted" />
+                  <div className="h-3 w-48 animate-pulse rounded bg-muted" />
+                </div>
+                <div className="h-9 w-24 animate-pulse rounded bg-muted" />
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
 function SchedulerHealthStatus({
   health,
   isError,
@@ -1651,7 +2179,7 @@ function SchedulerHealthStatus({
   return (
     <section
       aria-labelledby="factory-scheduler-health"
-      className="border-t px-1 pt-4"
+      className="rounded-xl border border-border/70 bg-card px-5 py-4 text-card-foreground sm:px-6"
     >
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
         <div className="flex flex-wrap items-center gap-2">

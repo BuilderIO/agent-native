@@ -3,9 +3,10 @@ name: turn-into-app
 description: >-
   Turn visible project context, a proven thread, skill, or workflow into a
   runnable Agent-Native app with simple buttons, visible agent steps, preview,
-  and deployment handoff. Use when a user invokes `/turn-into-app`,
-  `/make-into-app`, or asks to make a workflow into an app, including from
-  Claude or ChatGPT on the web.
+  and deployment handoff. Use when a user invokes `/turn-into-app` or asks to
+  make a workflow into an app, including from
+  Claude or ChatGPT on the web, including when the source is a spreadsheet
+  link or upload.
 user-invocable: true
 scope: both
 metadata:
@@ -44,6 +45,11 @@ handoff is non-interactive. Do not ask the user for visual, product, copy,
 layout, template, integration, or implementation choices that can be resolved
 from the source. Select the source's recommended option; otherwise choose the
 most direct conventional default and record the assumption for later review.
+There is one source-integrity exception: for a spreadsheet, if candidate
+workflows or the input/output mapping remain materially ambiguous after the
+bounded review, ask one compact confirmation question before handoff. Show the
+recommended interpretation and let the user confirm, correct, or multi-select
+the candidates. Do not turn this into a generic app-builder questionnaire.
 Only stop for a genuine hard blocker such as missing authorization, a
 destructive external action, an ambiguous target workspace, or no identifiable
 workflow at all.
@@ -98,6 +104,35 @@ Spreadsheet attachments are valid source artifacts for this workflow:
   provider API catalog/docs/request path to read only the required sheet or
   range. If that connection is unavailable, ask for a CSV/XLSX export or the
   required connection; do not use a public export URL to bypass access.
+- First inventory the workbook before choosing an app: list every available
+  worksheet, its bounded shape, whether it is readable, and any visible
+  formulas or formatting signals. Do not assume the first tab is the product
+  or that every tab deserves its own app.
+- Treat the workbook's visual conventions as evidence, not as a silent truth:
+  yellow-filled cells are proposed inputs, blue text is proposed output, and
+  black text is static historical context. Apply those signals to cell/range
+  mappings only when the source exposes formatting metadata. The current
+  bounded Excel preview is text-only, so an upload alone cannot prove those
+  colors; ask the user to confirm or clarify instead of inferring from plain
+  text. See [the spreadsheet source guide](references/spreadsheet-source.md).
+- If the workbook contains several plausible repeatable jobs, present one
+  compact Q&A review with multi-select candidate options. Each option must
+  show its proposed name, source worksheet/range IDs, purpose, inferred inputs,
+  inferred outputs, confidence, and unresolved question. Default-select only
+  high-confidence recommendations. Mark the strongest recommendations in the
+  Q&A UI without silently selecting them. When the user selects multiple candidates,
+  implement them as separate named left-navigation destinations in one app,
+  with each destination preserving its own source tabs/ranges and I/O mapping.
+- In generated app code, render this review with
+  `askUserQuestion` from `@agent-native/core/client/agent-chat` using
+  `allowMultiple: true`, stable candidate IDs as option values, and
+  `allowFreeText: true` for corrections. It renders inline in the agent panel;
+  do not build a custom modal. Group a large workbook into 2-4 candidate jobs
+  per question instead of presenting a tab dump.
+- Before handoff or the first generated-app run, show the proposed source,
+  inputs, outputs, static historicals, refresh/snapshot choice, and truncation
+  limits as a review state. Let the user confirm or correct the mapping. Do not
+  publish, overwrite the source, or claim a complete import before confirmation.
 - Decide whether the generated app needs a one-time snapshot or a refreshable
   source. For a snapshot, pass bounded sample context and provenance to the
   Builder handoff. For a live source, preserve the provider/file identity,
@@ -182,6 +217,11 @@ Generated apps must follow the shared Agent-Native surface model:
   message or neutral action icon, or no icon when the button label is enough.
 - Make the left navigation describe domain destinations. Chat is a separate
   destination, not the label for every app page.
+- For a spreadsheet-derived app with multiple confirmed candidates, make each
+  candidate a separate named left-navigation destination. Keep the shared
+  source provenance visible, but show that candidate's selected worksheets,
+  ranges, inputs, outputs, historical context, and confirmation state on its
+  destination.
 - Start with one primary action and one compact state. Put setup choices,
   advanced inputs, diagnostics, and long explanations behind progressive
   disclosure or later workflow steps.
@@ -210,6 +250,14 @@ brief:
 - the 1-3 judgment-heavy agent moments;
 - the buttons, review points, and retry states a user needs;
 - data, permissions, integrations, and failure boundaries.
+
+For a spreadsheet source, also include the workbook/file or spreadsheet ID,
+worksheet and range candidates, source snapshot/live semantics, formatting
+signals and their confidence, selected candidate destinations, and the exact
+confirmation or clarification still needed. A spreadsheet's inputs and
+outputs have two layers: the mapped source cells/ranges, and the generated
+app's user-facing results/actions. Name both so the Builder does not confuse
+an output cell with an app write or a historical value with an editable input.
 
 Preserve useful judgment from the source, but do not turn a one-off answer,
 private data, or an unverified result into a product contract. If the source is

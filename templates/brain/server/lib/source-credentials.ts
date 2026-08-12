@@ -16,6 +16,12 @@ import type { BrainSourceProvider } from "../../shared/types.js";
 
 const APP_ID = "brain";
 
+const SOURCE_CREDENTIAL_KEYS: Record<string, string> = {
+  slack: "SLACK_BOT_TOKEN",
+  granola: "GRANOLA_API_KEY",
+  github: "GITHUB_TOKEN",
+};
+
 interface ResolveSourceCredentialOptions {
   provider: BrainSourceProvider | string;
   key: string;
@@ -587,4 +593,40 @@ export async function assertSourceWorkspaceConnectionAvailable({
     connection: result.connection,
     access: result.appAccess,
   };
+}
+
+/**
+ * Source setup must prove the selected connection can actually supply the
+ * provider credential. Connection access alone is only metadata and can leave
+ * a source saved in a state every later sync will fail to use.
+ */
+export async function assertSourceCredentialAvailable({
+  provider,
+  workspaceConnectionId,
+  ctx,
+}: {
+  provider: BrainSourceProvider | string;
+  workspaceConnectionId: string;
+  ctx: CredentialContext | null;
+}) {
+  const key = SOURCE_CREDENTIAL_KEYS[provider.trim().toLowerCase()];
+  if (!key) return;
+  if (!ctx) {
+    throw new Error(
+      "Source workspace connection setup requires an authenticated credential context.",
+    );
+  }
+
+  const availability = await inspectSourceCredentialAvailability({
+    provider,
+    key,
+    ctx,
+    workspaceConnectionId,
+  });
+  if (!availability.available) {
+    throw new Error(
+      availability.missingMessage ??
+        `The selected ${provider} workspace connection cannot provide ${key}.`,
+    );
+  }
 }

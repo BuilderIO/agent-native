@@ -303,6 +303,9 @@ export function scoreSearchText(
     title?: string | null;
     summary?: string | null;
     body?: string | null;
+    topic?: string | null;
+    tags?: string | null;
+    entities?: string | null;
     provider?: string | null;
     status?: string | null;
   },
@@ -313,7 +316,7 @@ export function scoreSearchText(
       title: fields.title,
       summary: fields.summary,
       body: fields.body,
-      metadata: `${fields.provider ?? ""} ${fields.status ?? ""}`,
+      metadata: `${fields.topic ?? ""} ${fields.tags ?? ""} ${fields.entities ?? ""} ${fields.provider ?? ""} ${fields.status ?? ""}`,
     },
     terms,
   );
@@ -398,6 +401,8 @@ async function searchKnowledgeResults(
             schema.brainKnowledge.summary,
             schema.brainKnowledge.body,
             schema.brainKnowledge.topic,
+            schema.brainKnowledge.tagsJson,
+            schema.brainKnowledge.entitiesJson,
           ],
           terms,
         ),
@@ -417,6 +422,9 @@ async function searchKnowledgeResults(
           title: row.title,
           summary: row.summary,
           body: row.body,
+          topic: row.topic,
+          tags: row.tagsJson,
+          entities: row.entitiesJson,
           status: row.status,
         },
         terms,

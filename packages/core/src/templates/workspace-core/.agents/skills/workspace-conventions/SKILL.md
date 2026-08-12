@@ -20,8 +20,9 @@ resources, or looking up framework APIs.
 Read `agent-native-docs` for the lookup workflow (`framework-search` first, then
 the focused `docs-search` / `source-search` readers, and the `rg` fallback).
 
-The workspace-specific slugs it does not list are `workspace`,
-`multi-app-workspace`, and `feature-flags`. Use package docs for framework APIs,
+The workspace-specific slugs it does not list are `workspace` and
+`multi-app-workspace`. Feature flags and other specialized workflows are
+optional; read their skill only when the app uses them. Use package docs for framework APIs,
 the package corpus for reusable framework/template patterns, and this
 `AGENTS.md` plus `.agents/skills/` for workspace-specific conventions.
 

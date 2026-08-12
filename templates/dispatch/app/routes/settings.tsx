@@ -30,7 +30,10 @@ export function meta() {
 
 export default function SettingsRoute() {
   const t = useT();
-  const agentSettingsTabs = useAgentSettingsTabs();
+  const agentSettingsTabs = useAgentSettingsTabs({
+    usageAppId: "dispatch",
+    usageViewAllHref: "/admin/metrics",
+  });
   const settingsTabs = [
     ...agentSettingsTabs,
     {

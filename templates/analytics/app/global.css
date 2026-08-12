@@ -482,7 +482,12 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   align-items: start;
-  gap: 0.75rem;
+  gap: 0 2rem;
+  overflow: hidden;
+  border: 1px solid hsl(var(--border) / 0.7);
+  border-radius: 0.75rem;
+  background: hsl(var(--card));
+  padding: 0 1rem;
 }
 
 .data-source-card {

@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core";
 import { getWorkspaceConnectionProvider } from "@agent-native/core/connections";
 import {
+  credentialKeyMatches,
   getWorkspaceConnection,
   listWorkspaceConnectionGrants,
   summarizeWorkspaceConnectionProviderReadiness,
@@ -90,11 +91,15 @@ export default defineAction({
     }
 
     const existingRefs = connection?.credentialRefs ?? [];
-    const existingRefKeys = new Set(existingRefs.map((ref) => ref.key));
     const missingRequiredRefs = provider.credentialKeys
       .filter((credential) => credential.required)
       .map((credential) => credential.key)
-      .filter((key) => !existingRefKeys.has(key));
+      .filter(
+        (key) =>
+          !existingRefs.some((ref) =>
+            credentialKeyMatches(provider.id, key, ref.key),
+          ),
+      );
     const recommendedAppIds = uniqueStrings([
       "dispatch",
       ...provider.recommendedTemplateUses,

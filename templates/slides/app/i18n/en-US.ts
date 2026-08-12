@@ -385,6 +385,7 @@ const messages = {
     center: "Center",
     right: "Right",
     justify: "Justify",
+    distribute: "Distribute",
     fill: "Fill",
     tint: "Tint",
     transparent: "Transparent",
@@ -563,6 +564,11 @@ const messages = {
     dismissLayoutWarning: "Dismiss layout warning",
     slidesAdded_one: "{{count}} slide added",
     slidesAdded_other: "{{count}} slides added",
+    unsavedChangesTitle: "Unsaved changes",
+    unsavedChangesDescription:
+      "If you leave or reload now, you may lose changes that have not been saved yet. Are you sure you want to exit?",
+    keepEditing: "Keep editing",
+    leaveWithoutSaving: "Exit without saving",
   },
   designSystemSetup: {
     importedBrand: "Imported brand",
@@ -662,8 +668,6 @@ const messages = {
     all: "All",
     showMineDecks: "Show decks created by me",
     mine: "Mine",
-    deckCount_one: "deck",
-    deckCount_other: "decks",
     createDeckOrVisual: "Create a presentation",
     noMineDecks: "No decks created by you yet.",
     noDecksMatchSearch: "No decks match your search.",

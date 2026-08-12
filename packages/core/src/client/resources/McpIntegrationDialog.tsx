@@ -16,12 +16,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../components/ui/dialog.js";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "../components/ui/tooltip.js";
 import { useT } from "../i18n.js";
+import { IntegrationConnectionChoice } from "../integrations/IntegrationConnectionChoice.js";
+import { IntegrationGrid } from "../integrations/IntegrationGrid.js";
 import { cn } from "../utils.js";
 import {
   buildMcpOAuthStartUrl,
@@ -46,12 +43,14 @@ import {
   type McpServerScope,
 } from "./use-mcp-servers.js";
 
-type DialogMode = "catalog" | "form";
+type DialogMode = "catalog" | "choice" | "form";
 
 export interface McpIntegrationDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   initialIntegrationId?: string | null;
+  connectIntegrationId?: string | null;
+  quickConnectIntegrationId?: string | null;
   defaultScope: McpServerScope;
   canCreateOrgMcp: boolean;
   hasOrg: boolean;
@@ -121,6 +120,8 @@ export function McpIntegrationDialog({
   open,
   onOpenChange,
   initialIntegrationId = null,
+  connectIntegrationId = null,
+  quickConnectIntegrationId = null,
   defaultScope,
   canCreateOrgMcp,
   hasOrg,
@@ -143,10 +144,13 @@ export function McpIntegrationDialog({
   const [description, setDescription] = useState("");
   const [headersText, setHeadersText] = useState("");
   const [busy, setBusy] = useState(false);
-  const [quickBusyId, setQuickBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<TestResult | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const quickConnectAttemptedRef = useRef<string | null>(null);
+  const quickConnectRef = useRef<
+    ((integration: DefaultMcpIntegration) => void) | null
+  >(null);
   const mcpApi = useMcpServersApi();
   const mcpServersQuery = useMcpServers();
   const defaultIntegrations = useMemo(
@@ -208,7 +212,6 @@ export function McpIntegrationDialog({
     setDescription(initialDefaults.description);
     setHeadersText(initialDefaults.headersText);
     setBusy(false);
-    setQuickBusyId(null);
     setError(null);
     setTestResult(null);
   }, [
@@ -234,16 +237,20 @@ export function McpIntegrationDialog({
     setTestResult(null);
   };
 
-  const openForm = (integration?: DefaultMcpIntegration | null) => {
+  const openForm = (
+    integration?: DefaultMcpIntegration | null,
+    options?: { scope?: McpServerScope },
+  ) => {
     const defaults = createMcpIntegrationFormDefaults(integration);
     setSelected(integration ?? null);
     setScope(
-      resolveIntegrationScope(
-        integration,
-        defaultScope,
-        hasOrg,
-        canCreateOrgMcp,
-      ),
+      options?.scope ??
+        resolveIntegrationScope(
+          integration,
+          defaultScope,
+          hasOrg,
+          canCreateOrgMcp,
+        ),
     );
     setName(defaults.name);
     setUrl(defaults.url);
@@ -260,7 +267,7 @@ export function McpIntegrationDialog({
       url: string;
       description: string;
     },
-    options?: { quickId?: string; scope?: McpServerScope },
+    options?: { scope?: McpServerScope },
   ) => {
     const validationError = getMcpUrlValidationError(args.url);
     if (validationError) {
@@ -269,7 +276,6 @@ export function McpIntegrationDialog({
       return;
     }
     setBusy(true);
-    setQuickBusyId(options?.quickId ?? null);
     const returnUrl =
       typeof window === "undefined"
         ? "/"
@@ -291,7 +297,7 @@ export function McpIntegrationDialog({
 
   const connectWithOAuth = (
     integration: DefaultMcpIntegration,
-    options?: { quickId?: string },
+    options?: { scope?: McpServerScope },
   ) =>
     beginOAuth(
       {
@@ -302,10 +308,11 @@ export function McpIntegrationDialog({
       {
         ...options,
         scope:
-          integration.supportsOrganizationScope === true &&
+          options?.scope ??
+          (integration.supportsOrganizationScope === true &&
           integration.managedOAuth !== true
             ? scope
-            : "user",
+            : "user"),
       },
     );
 
@@ -321,10 +328,7 @@ export function McpIntegrationDialog({
     });
   };
 
-  const createServer = async (
-    args: CreateMcpServerArgs,
-    options?: { quickId?: string },
-  ) => {
+  const createServer = async (args: CreateMcpServerArgs) => {
     const validationError = getMcpUrlValidationError(args.url);
     if (validationError) {
       setError(validationError);
@@ -332,7 +336,6 @@ export function McpIntegrationDialog({
       return;
     }
 
-    if (options?.quickId) setQuickBusyId(options.quickId);
     setBusy(true);
     setError(null);
     try {
@@ -343,7 +346,6 @@ export function McpIntegrationDialog({
       setError(formatMcpServerError(err));
     } finally {
       setBusy(false);
-      setQuickBusyId(null);
     }
   };
 
@@ -361,6 +363,35 @@ export function McpIntegrationDialog({
   };
 
   const quickConnect = (integration: DefaultMcpIntegration) => {
+    if (requiresMcpIntegrationSetup(integration)) return;
+    if (integration.authMode === "oauth") {
+      connectWithOAuth(integration, {
+        scope: "user",
+      });
+      return;
+    }
+    if (integration.authMode === "headers") {
+      openForm(integration);
+      return;
+    }
+    void createServer({
+      scope: "user",
+      name: integration.name,
+      url: integration.url,
+      description: integration.description,
+    });
+  };
+
+  const selectCatalogConnection = (integration: DefaultMcpIntegration) => {
+    if (requiresMcpIntegrationSetup(integration)) {
+      const apiFallback = getMcpIntegrationApiFallback(integration);
+      if (apiFallback) {
+        openAgentSettings(`secrets:${apiFallback.secretKey}`);
+      } else {
+        openForm(integration);
+      }
+      return;
+    }
     if (
       shouldOfferMcpIntegrationOrganizationScope(
         integration,
@@ -368,32 +399,83 @@ export function McpIntegrationDialog({
         canCreateOrgMcp,
       )
     ) {
+      setSelected(integration);
+      setMode("choice");
+      return;
+    }
+    quickConnect(integration);
+  };
+
+  quickConnectRef.current = quickConnect;
+
+  useEffect(() => {
+    if (!open) {
+      quickConnectAttemptedRef.current = null;
+      return;
+    }
+    if (
+      !quickConnectIntegrationId ||
+      quickConnectAttemptedRef.current === quickConnectIntegrationId
+    ) {
+      return;
+    }
+    const integration = defaultIntegrations.find(
+      (candidate) => candidate.id === quickConnectIntegrationId,
+    );
+    if (!integration) return;
+    quickConnectAttemptedRef.current = quickConnectIntegrationId;
+    quickConnectRef.current?.(integration);
+  }, [defaultIntegrations, open, quickConnectIntegrationId]);
+
+  useEffect(() => {
+    if (!open || !connectIntegrationId) return;
+    const integration = defaultIntegrations.find(
+      (candidate) => candidate.id === connectIntegrationId,
+    );
+    if (!integration) return;
+    const attemptKey = `connect:${connectIntegrationId}`;
+    if (quickConnectAttemptedRef.current === attemptKey) return;
+    quickConnectAttemptedRef.current = attemptKey;
+    if (requiresMcpIntegrationSetup(integration)) {
       openForm(integration);
       return;
     }
-    if (requiresMcpIntegrationSetup(integration)) return;
+    const showWorkspaceChoice = shouldOfferMcpIntegrationOrganizationScope(
+      integration,
+      hasOrg,
+      canCreateOrgMcp,
+    );
+    if (!showWorkspaceChoice) {
+      quickConnectRef.current?.(integration);
+    } else {
+      setMode("choice");
+    }
+  }, [
+    canCreateOrgMcp,
+    connectIntegrationId,
+    defaultIntegrations,
+    hasOrg,
+    open,
+  ]);
+
+  const connectPersonal = (integration: DefaultMcpIntegration) => {
     if (integration.authMode === "oauth") {
-      connectWithOAuth(integration, { quickId: integration.id });
+      connectWithOAuth(integration, { scope: "user" });
       return;
     }
-    if (integration.authMode === "headers") {
-      openForm(integration);
-      return;
-    }
-    void createServer(
-      {
-        scope: resolveIntegrationScope(
-          integration,
-          defaultScope,
-          hasOrg,
-          canCreateOrgMcp,
-        ),
+    if (
+      integration.authMode === "none" &&
+      integration.connectionMode === "direct"
+    ) {
+      void createServer({
+        scope: "user",
         name: integration.name,
         url: integration.url,
         description: integration.description,
-      },
-      { quickId: integration.id },
-    );
+      });
+      return;
+    }
+    openForm(integration, { scope: "user" });
   };
 
   const runTest = async () => {
@@ -487,7 +569,34 @@ export function McpIntegrationDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex max-h-[min(820px,calc(100vh-32px))] w-[calc(100vw-24px)] max-w-[760px] flex-col gap-0 p-0 sm:w-[min(760px,calc(100vw-48px))]">
-        {mode === "catalog" ? (
+        {mode === "choice" && selected ? (
+          <>
+            <DialogHeader className="sr-only">
+              <DialogTitle>Connect {selected.name}</DialogTitle>
+            </DialogHeader>
+            <IntegrationConnectionChoice
+              name={selected.name}
+              description="Choose who should be able to use this connection."
+              logo={
+                <McpIntegrationLogo
+                  name={selected.name}
+                  logoUrl={selected.logoUrl}
+                  integrationId={selected.id}
+                  className="size-7 rounded-md"
+                  imageClassName="size-full p-1"
+                />
+              }
+              showWorkspaceOption={shouldOfferMcpIntegrationOrganizationScope(
+                selected,
+                hasOrg,
+                canCreateOrgMcp,
+              )}
+              busy={busy}
+              onPersonal={() => connectPersonal(selected)}
+              onWorkspace={() => openForm(selected, { scope: "org" })}
+            />
+          </>
+        ) : mode === "catalog" ? (
           <>
             <DialogHeader className="shrink-0 px-7 pb-5 pe-14 pt-6">
               <DialogTitle>{t("mcpIntegrations.title")}</DialogTitle>
@@ -524,133 +633,52 @@ export function McpIntegrationDialog({
                   {error}
                 </div>
               )}
-              <div className="grid gap-3 sm:grid-cols-2">
-                {filteredIntegrations.map((integration) => {
-                  const apiFallback = getMcpIntegrationApiFallback(integration);
+              <IntegrationGrid
+                items={filteredIntegrations.map((integration) => {
                   const connected = connectedUrls.has(
                     compareUrl(integration.url),
                   );
-                  const requiresHeaders = integration.authMode === "headers";
                   const setupOnly = requiresMcpIntegrationSetup(integration);
-                  return (
-                    <article
-                      key={integration.id}
-                      className="flex min-h-[128px] flex-col rounded-md border border-border bg-card p-4 transition-colors hover:border-border/80 hover:bg-accent/20"
-                    >
-                      <div className="flex items-center gap-3">
-                        <McpIntegrationLogo
-                          name={integration.name}
-                          logoUrl={integration.logoUrl}
-                          integrationId={integration.id}
-                          className="size-8 rounded-md"
-                          imageClassName="size-6"
-                        />
-                        <div className="min-w-0">
-                          <h3 className="truncate text-[13px] font-semibold text-foreground">
-                            {integration.name}
-                          </h3>
-                          {integration.availability !== "ready" && (
-                            <span className="mt-0.5 inline-flex rounded-full border border-border/70 bg-muted/40 px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground">
-                              {integration.availability === "beta"
-                                ? t("mcpIntegrations.status.beta")
-                                : integration.availability ===
-                                    "client-restricted"
-                                  ? t("mcpIntegrations.status.clientRestricted")
-                                  : t("mcpIntegrations.status.setupRequired")}
-                            </span>
-                          )}
-                          <span className="ms-1 mt-0.5 inline-flex rounded-full border border-border/70 bg-muted/40 px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground">
-                            {integration.verification === "verified"
-                              ? t("mcpIntegrations.status.verified")
-                              : integration.verification === "restricted"
-                                ? t("mcpIntegrations.status.restricted")
-                                : t("mcpIntegrations.status.preflightOnly")}
-                          </span>
-                        </div>
-                      </div>
-                      <p className="mt-1 line-clamp-2 flex-1 text-[12px] leading-relaxed text-muted-foreground">
-                        {t(integration.descriptionKey)}
-                      </p>
-                      <div className="mt-3 flex items-center gap-2">
-                        {connected ? (
-                          <button
-                            type="button"
-                            disabled
-                            className="inline-flex h-8 flex-1 cursor-not-allowed items-center justify-center gap-1.5 rounded-md border border-border bg-muted px-2.5 text-[12px] font-medium text-muted-foreground opacity-70"
-                          >
-                            {t("mcpIntegrations.connected")}
-                          </button>
-                        ) : setupOnly ? (
-                          <>
-                            {apiFallback && (
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  openAgentSettings(
-                                    `secrets:${apiFallback.secretKey}`,
-                                  )
-                                }
-                                className="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md bg-primary px-2.5 text-[12px] font-medium text-primary-foreground hover:bg-primary/90"
-                              >
-                                {t("mcpIntegrations.useApiToken")}
-                              </button>
-                            )}
-                            <button
-                              type="button"
-                              onClick={() => openForm(integration)}
-                              className="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-[12px] font-medium text-foreground hover:bg-accent"
-                            >
-                              {t("mcpIntegrations.viewSetup")}
-                            </button>
-                          </>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => quickConnect(integration)}
-                            disabled={busy}
-                            aria-busy={quickBusyId === integration.id}
-                            className={cn(
-                              "inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md bg-primary px-2.5 text-[12px] font-medium text-primary-foreground hover:bg-primary/90",
-                              busy && "cursor-not-allowed opacity-70",
-                            )}
-                          >
-                            {quickBusyId === integration.id ? (
-                              <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
-                            ) : null}
-                            {integration.authMode === "oauth"
-                              ? t("mcpIntegrations.connectWithOAuth")
-                              : requiresHeaders
-                                ? t("mcpIntegrations.configure")
-                                : t("mcpIntegrations.connect")}
-                          </button>
-                        )}
-                        {integration.docsUrl && (
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <a
-                                href={integration.docsUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-accent hover:text-foreground"
-                                aria-label={t("mcpIntegrations.docsLabel", {
-                                  name: integration.name,
-                                })}
-                              >
-                                <IconExternalLink className="h-3.5 w-3.5" />
-                              </a>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              {t("mcpIntegrations.docsLabel", {
-                                name: integration.name,
-                              })}
-                            </TooltipContent>
-                          </Tooltip>
-                        )}
-                      </div>
-                    </article>
-                  );
+                  const apiFallback = getMcpIntegrationApiFallback(integration);
+                  return {
+                    id: integration.id,
+                    name: integration.name,
+                    description: t(integration.descriptionKey),
+                    logo: (
+                      <McpIntegrationLogo
+                        name={integration.name}
+                        logoUrl={integration.logoUrl}
+                        integrationId={integration.id}
+                        className="size-7 rounded-md"
+                        imageClassName="size-full p-1"
+                      />
+                    ),
+                    status: connected
+                      ? t("mcpIntegrations.connected")
+                      : setupOnly
+                        ? t("mcpIntegrations.status.setupRequired")
+                        : undefined,
+                    statusClassName: connected
+                      ? "text-emerald-600 dark:text-emerald-400"
+                      : "text-muted-foreground",
+                    actionLabel: connected
+                      ? "Manage"
+                      : setupOnly && apiFallback
+                        ? t("mcpIntegrations.useApiToken")
+                        : setupOnly
+                          ? t("mcpIntegrations.viewSetup")
+                          : t("mcpIntegrations.connect"),
+                    disabled: connected || busy,
+                    onAction: () => {
+                      if (connected) {
+                        openForm(integration);
+                        return;
+                      }
+                      selectCatalogConnection(integration);
+                    },
+                  };
                 })}
-              </div>
+              />
               {filteredIntegrations.length === 0 && (
                 <div className="rounded-md border border-dashed border-border p-6 text-center text-[12px] text-muted-foreground">
                   {t("mcpIntegrations.noMatches")}

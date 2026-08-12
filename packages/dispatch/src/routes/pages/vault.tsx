@@ -829,8 +829,13 @@ export default function VaultRoute() {
 
         <TabsContent value="secrets" className="mt-4 space-y-3">
           {!accessReady ? (
-            <div className="rounded-2xl border border-dashed px-6 py-12 text-center text-sm text-muted-foreground">
-              Checking workspace access…
+            <div className="space-y-3">
+              {Array.from({ length: 3 }).map((_, index) => (
+                <div key={index} className="rounded-lg bg-card px-4 py-4">
+                  <Skeleton className="h-4 w-1/3" />
+                  <Skeleton className="mt-2 h-3 w-2/3" />
+                </div>
+              ))}
             </div>
           ) : !canManageVault ? (
             <div className="rounded-2xl border border-dashed px-6 py-12 text-center">

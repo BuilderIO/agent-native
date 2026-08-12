@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { writeAppState } from "@agent-native/core/application-state";
 import { emit } from "@agent-native/core/event-bus";
 import { setOAuthDisplayName } from "@agent-native/core/oauth-tokens";
 import { getRequestUserEmail } from "@agent-native/core/server";
@@ -80,6 +81,12 @@ function buildTrackingContext(
     trackClicks,
     appUrl: getAppProductionUrl(),
   };
+}
+
+async function signalMailRefresh(): Promise<void> {
+  await writeAppState("refresh-signal", { ts: Date.now() }).catch((error) => {
+    console.error("[send-email] refresh signal failed:", error);
+  });
 }
 
 const attachmentSchema = z.object({
@@ -224,6 +231,7 @@ export default defineAction({
             { owner: ownerEmail },
           );
         } catch {}
+        await signalMailRefresh();
         return JSON.stringify(newEmail, null, 2);
       });
     }
@@ -322,6 +330,7 @@ export default defineAction({
       } catch {
         // best-effort — never block the send response
       }
+      await signalMailRefresh();
 
       return `Email sent successfully (id: ${sent.id})`;
     } catch (err: any) {

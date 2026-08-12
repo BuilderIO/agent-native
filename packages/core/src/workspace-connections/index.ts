@@ -1,4 +1,10 @@
 export {
+  credentialKeyAliases,
+  credentialKeyMatches,
+  lookupKeysForRef,
+} from "./credential-key-aliases.js";
+
+export {
   deleteWorkspaceConnection,
   ensureWorkspaceConnectionsTable,
   getWorkspaceConnectionAppAccess,

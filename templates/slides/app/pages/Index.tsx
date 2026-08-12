@@ -1361,51 +1361,41 @@ export default function Index() {
       ) : (
         <>
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center">
-              <ToggleGroup
-                type="single"
-                value={deckFilter}
-                onValueChange={(value) => value && setDeckFilter(value)}
-                className="w-fit rounded-lg border border-border bg-card p-0.5"
-                size="sm"
+            <ToggleGroup
+              type="single"
+              value={deckFilter}
+              onValueChange={(value) => value && setDeckFilter(value)}
+              className="w-fit rounded-lg border border-border bg-card p-0.5"
+              size="sm"
+            >
+              <ToggleGroupItem
+                value="all"
+                aria-label={t("home.showAllDecks")}
+                className="h-7 rounded-md px-3 text-xs data-[state=on]:bg-accent"
               >
-                <ToggleGroupItem
-                  value="all"
-                  aria-label={t("home.showAllDecks")}
-                  className="h-7 rounded-md px-3 text-xs data-[state=on]:bg-accent"
-                >
-                  <IconStack2 className="me-1.5 h-3.5 w-3.5" />
-                  {t("home.all")}
-                </ToggleGroupItem>
-                <ToggleGroupItem
-                  value="mine"
-                  aria-label={t("home.showMineDecks")}
-                  className="h-7 rounded-md px-3 text-xs data-[state=on]:bg-accent"
-                >
-                  <IconUserCircle className="me-1.5 h-3.5 w-3.5" />
-                  {t("home.mine")}
-                </ToggleGroupItem>
-              </ToggleGroup>
-              <label className="flex h-8 w-full items-center gap-2 rounded-lg border border-border bg-card px-2.5 text-muted-foreground sm:w-60">
-                <IconSearch className="size-3.5 shrink-0" aria-hidden="true" />
-                <Input
-                  type="search"
-                  value={deckSearch}
-                  onChange={(event) => setDeckSearch(event.target.value)}
-                  placeholder={t("root.searchDecks")}
-                  aria-label={t("root.searchDecks")}
-                  className="h-7 min-w-0 flex-1 border-0 bg-transparent p-0 text-xs shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
-                />
-              </label>
-            </div>
-            <span className="text-xs text-muted-foreground/70">
-              {deckFilter === "mine" || normalizedDeckSearch
-                ? `${visibleDecks.length} of ${decks.length}`
-                : visibleDecks.length}{" "}
-              {t("home.deckCount", {
-                count: visibleDecks.length,
-              })}
-            </span>
+                <IconStack2 className="me-1.5 h-3.5 w-3.5" />
+                {t("home.all")}
+              </ToggleGroupItem>
+              <ToggleGroupItem
+                value="mine"
+                aria-label={t("home.showMineDecks")}
+                className="h-7 rounded-md px-3 text-xs data-[state=on]:bg-accent"
+              >
+                <IconUserCircle className="me-1.5 h-3.5 w-3.5" />
+                {t("home.mine")}
+              </ToggleGroupItem>
+            </ToggleGroup>
+            <label className="flex h-8 w-full items-center gap-2 rounded-lg border border-border bg-card px-2.5 text-muted-foreground sm:w-60">
+              <IconSearch className="size-3.5 shrink-0" aria-hidden="true" />
+              <Input
+                type="search"
+                value={deckSearch}
+                onChange={(event) => setDeckSearch(event.target.value)}
+                placeholder={t("root.searchDecks")}
+                aria-label={t("root.searchDecks")}
+                className="h-7 min-w-0 flex-1 border-0 bg-transparent p-0 text-xs shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+              />
+            </label>
           </div>
           <div className="deck-grid-container">
             <div className="deck-grid grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">

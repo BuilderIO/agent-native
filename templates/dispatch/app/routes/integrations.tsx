@@ -5,6 +5,18 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  IntegrationConnectionChoice,
+  IntegrationGrid,
+} from "@agent-native/core/client/integrations";
+import {
+  McpIntegrationDialog,
+  McpIntegrationLogo,
+  getDefaultMcpIntegrations,
+  useCreateMcpServer,
+  type DefaultMcpIntegration,
+} from "@agent-native/core/client/resources";
+import { credentialKeyMatches } from "@agent-native/core/workspace-connections/credential-key-aliases";
+import {
   ActionQueryError,
   DispatchShell,
 } from "@agent-native/dispatch/components";
@@ -63,6 +75,7 @@ import {
   IconPlugConnected,
   IconPlus,
   IconRefresh,
+  IconSearch,
   IconShieldCheck,
   IconTrash,
   IconUsersGroup,
@@ -325,6 +338,11 @@ interface SetupWizardFormState {
   selectedApps: string[];
 }
 
+interface ProviderChoice {
+  provider: WorkspaceConnectionProvider;
+  personalIntegration: DefaultMcpIntegration;
+}
+
 const EMPTY_RESPONSE: WorkspaceConnectionsResponse = {
   providers: [],
   connections: [],
@@ -387,12 +405,42 @@ const PROVIDER_ICONS: Record<string, IconComponent> = {
   generic: IconWorld,
 };
 
+const MCP_INTEGRATIONS_BY_ID = new Map(
+  getDefaultMcpIntegrations().map((integration) => [
+    integration.id,
+    integration,
+  ]),
+);
+
+const PROVIDER_LOGO_IDS: Record<string, string> = {
+  google_drive: "google-workspace",
+};
+
 function cx(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
 }
 
 function iconForProvider(providerId: string): IconComponent {
   return PROVIDER_ICONS[providerId] ?? IconPlugConnected;
+}
+
+function logoForProvider(providerId: string, providerName: string): ReactNode {
+  const integration = MCP_INTEGRATIONS_BY_ID.get(
+    PROVIDER_LOGO_IDS[providerId] ?? providerId,
+  );
+  if (!integration?.logoUrl) {
+    const Icon = iconForProvider(providerId);
+    return <Icon size={18} />;
+  }
+  return (
+    <McpIntegrationLogo
+      name={providerName}
+      logoUrl={integration.logoUrl}
+      integrationId={integration.id}
+      className="size-7 rounded-md border-0 bg-transparent"
+      imageClassName="size-full p-0.5"
+    />
+  );
 }
 
 function iconForApp(appId: string): IconComponent {
@@ -556,11 +604,13 @@ function missingRequiredCredentialKeys(
   refs: WorkspaceConnectionCredentialRef[],
 ): string[] {
   if (!provider) return [];
-  const available = new Set(refs.map((ref) => ref.key.trim()).filter(Boolean));
   return provider.credentialKeys
     .filter((credential) => credential.required)
     .map((credential) => credential.key)
-    .filter((key) => !available.has(key));
+    .filter(
+      (key) =>
+        !refs.some((ref) => credentialKeyMatches(provider.id, key, ref.key)),
+    );
 }
 
 function formFromConnection(
@@ -752,104 +802,6 @@ function providerHasOAuth(provider: WorkspaceConnectionProvider): boolean {
   return Boolean(provider.oauth) || provider.id === "slack";
 }
 
-function ProviderCard({
-  provider,
-  connections,
-  onCreate,
-}: {
-  provider: WorkspaceConnectionProvider;
-  connections: WorkspaceConnection[];
-  onCreate: () => void;
-}) {
-  const t = useT();
-  const Icon = iconForProvider(provider.id);
-  const active = connections.filter((item) => item.status !== "disabled");
-  const readiness = provider.readiness;
-  const readinessStatus =
-    readiness?.status ?? (active.length > 0 ? "ready" : "not_configured");
-  return (
-    <article className="flex min-h-[232px] flex-col justify-between rounded-lg border bg-card p-4 shadow-sm transition hover:border-foreground/20">
-      <div className="space-y-3">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-md border bg-muted">
-            <Icon size={18} className="text-muted-foreground" />
-          </div>
-          <Pill className={READINESS_CLASSES[readinessStatus]}>
-            {readinessStatus === "ready" ? (
-              <IconCheck size={12} />
-            ) : (
-              <IconCircleDashed size={12} />
-            )}
-            {readinessLabel(t, readinessStatus)}
-          </Pill>
-        </div>
-        <div>
-          <h2 className="text-sm font-semibold text-foreground">
-            {provider.label}
-          </h2>
-          <p className="mt-1 line-clamp-3 text-sm leading-5 text-muted-foreground">
-            {provider.description}
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-1.5">
-          {provider.capabilities.map((capability) => (
-            <Pill key={capability} className="border-border bg-background">
-              {capability}
-            </Pill>
-          ))}
-        </div>
-        {readiness?.missingRequiredCredentialKeys.length ? (
-          <div className="rounded-md border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
-            {t("integrations.missingKeys", {
-              keys: readiness.missingRequiredCredentialKeys
-                .slice(0, 2)
-                .join(", "),
-              suffix:
-                readiness.missingRequiredCredentialKeys.length > 2
-                  ? ` +${readiness.missingRequiredCredentialKeys.length - 2}`
-                  : "",
-            })}
-          </div>
-        ) : null}
-      </div>
-      <div className="mt-4 flex items-center justify-between gap-3 border-t pt-3">
-        <span className="text-xs text-muted-foreground">
-          {active.length > 0
-            ? t("integrations.activeConnection", { count: active.length })
-            : provider.credentialKeys.length === 0
-              ? t("integrations.noCredentialRefs")
-              : t("integrations.credentialRefCount", {
-                  count: provider.credentialKeys.length,
-                })}
-        </span>
-        <div className="flex items-center gap-2">
-          {providerHasOAuth(provider) ? (
-            <Button
-              type="button"
-              size="sm"
-              onClick={() => startWorkspaceProviderOAuth(provider)}
-            >
-              <IconShieldCheck size={14} />
-              {t("integrations.connect")}
-            </Button>
-          ) : null}
-          <Button
-            type="button"
-            variant={providerHasOAuth(provider) ? "ghost" : "outline"}
-            size="sm"
-            onClick={onCreate}
-          >
-            <IconKey size={14} />
-            {providerHasOAuth(provider)
-              ? t("integrations.connectionFallback")
-              : t("integrations.connect")}
-          </Button>
-        </div>
-      </div>
-    </article>
-  );
-}
-
 function ConnectionRow({
   connection,
   provider,
@@ -964,7 +916,7 @@ function ConnectionRow({
             <ConnectionMeta
               icon={IconUsersGroup}
               label={t("integrations.access")}
-              value={summarizeGrant(connection, grantApps, grants, t)}
+              value={`${t("integrations.scopeWorkspace")} · ${summarizeGrant(connection, grantApps, grants, t)}`}
             />
             {hasUsageTimestamp(connection) ? (
               <ConnectionMeta
@@ -2110,6 +2062,13 @@ export default function WorkspaceIntegrationsRoute() {
   const [setupStep, setSetupStep] = useState(0);
   const [setupForm, setSetupForm] = useState<SetupWizardFormState | null>(null);
   const [setupFormKey, setSetupFormKey] = useState("");
+  const [providerQuery, setProviderQuery] = useState("");
+  const [providerChoice, setProviderChoice] = useState<ProviderChoice | null>(
+    null,
+  );
+  const [personalIntegrationId, setPersonalIntegrationId] = useState<
+    string | null
+  >(null);
   const [deleteTarget, setDeleteTarget] = useState<WorkspaceConnection | null>(
     null,
   );
@@ -2163,11 +2122,29 @@ export default function WorkspaceIntegrationsRoute() {
     }
     return map;
   }, [connections]);
+  const personalIntegrations = useMemo(() => {
+    const map = new Map<string, DefaultMcpIntegration>();
+    for (const integration of getDefaultMcpIntegrations()) {
+      map.set(integration.provider, integration);
+      map.set(integration.id, integration);
+    }
+    return map;
+  }, []);
+  const filteredProviders = useMemo(() => {
+    const query = providerQuery.trim().toLowerCase();
+    if (!query) return providers;
+    return providers.filter((provider) =>
+      `${provider.label} ${provider.description} ${provider.capabilities.join(" ")}`
+        .toLowerCase()
+        .includes(query),
+    );
+  }, [providerQuery, providers]);
 
   const upsertConnection = useActionMutation("upsert-workspace-connection");
   const applySetup = useActionMutation("apply-workspace-connection-setup");
   const setGrant = useActionMutation("set-workspace-connection-grant");
   const deleteConnection = useActionMutation("delete-workspace-connection");
+  const createPersonalMcpServer = useCreateMcpServer();
 
   const currentSetupKey = setupWizard
     ? `${setupWizard.mode}:${setupWizard.connectionId ?? ""}:${
@@ -2187,6 +2164,19 @@ export default function WorkspaceIntegrationsRoute() {
     setSetupStep(0);
     setSetupForm(null);
     setSetupFormKey("");
+  }
+
+  function openProviderConnection(provider: WorkspaceConnectionProvider) {
+    const personalIntegration = personalIntegrations.get(provider.id);
+    if (personalIntegration) {
+      setProviderChoice({ provider, personalIntegration });
+      return;
+    }
+    if (providerHasOAuth(provider)) {
+      startWorkspaceProviderOAuth(provider);
+      return;
+    }
+    openSetup(provider);
   }
 
   function openRepair(connection: WorkspaceConnection) {
@@ -2431,79 +2421,6 @@ export default function WorkspaceIntegrationsRoute() {
         ) : null}
         {!connectionsQuery.isError && !appsQuery.isError ? (
           <>
-            <section
-              data-usage-tracked={usageTracked ? "true" : undefined}
-              className={cx(
-                "dispatch-integrations-summary-grid grid gap-3",
-                usageTracked && "dispatch-integrations-summary-grid-tracked",
-              )}
-            >
-              <SummaryCard
-                icon={IconCheck}
-                label={t("integrations.readyProviders")}
-                value={`${data.counts.readyProviders ?? 0}/${providers.length}`}
-                detail={t("integrations.readyProvidersDetail")}
-              />
-              <SummaryCard
-                icon={IconPlugConnected}
-                label={t("integrations.connections")}
-                value={String(connections.length)}
-                detail={t("integrations.connectedCount", {
-                  count: connectedCount,
-                })}
-              />
-              <SummaryCard
-                icon={IconShieldCheck}
-                label={t("integrations.appGrants")}
-                value={String(data.grants.length)}
-                detail={t("integrations.appGrantsDetail", {
-                  allAppCount: data.counts.allAppConnections ?? 0,
-                  selectedCount: data.counts.selectedAppConnections ?? 0,
-                })}
-              />
-              <SummaryCard
-                icon={IconKey}
-                label={t("integrations.keyHealth")}
-                value={
-                  connectionsMissingKeys === 0
-                    ? t("integrations.healthy")
-                    : t("integrations.missingCount", {
-                        count: connectionsMissingKeys,
-                      })
-                }
-                detail={
-                  attentionCount
-                    ? t("integrations.connectionNeedsAttention", {
-                        count: attentionCount,
-                      })
-                    : t("integrations.requiredRefsPresent")
-                }
-              />
-              {usageTracked ? (
-                <SummaryCard
-                  icon={IconClock}
-                  label={t("integrations.usage")}
-                  value={
-                    Number.isFinite(mostRecentUsage)
-                      ? formatTimestamp(
-                          t,
-                          new Date(mostRecentUsage).toISOString(),
-                        )
-                      : t("integrations.time.neverUsed")
-                  }
-                  detail={
-                    neverUsedCount
-                      ? t("integrations.neverUsedCount", {
-                          count: neverUsedCount,
-                        })
-                      : t("integrations.allTrackedAccountsHaveUsage")
-                  }
-                />
-              ) : null}
-            </section>
-
-            <IntegrationOnboarding />
-
             {connectionsQuery.isLoading ? (
               <div className="rounded-lg border border-dashed px-6 py-12 text-center text-sm text-muted-foreground">
                 {t("integrations.loadingWorkspaceIntegrations")}
@@ -2511,29 +2428,151 @@ export default function WorkspaceIntegrationsRoute() {
             ) : null}
 
             <section>
-              <div className="mb-3 flex items-center justify-between gap-3">
+              <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
                 <div>
                   <h2 className="text-sm font-semibold text-foreground">
-                    {t("integrations.providerCatalog")}
+                    {t(
+                      /* i18n-key-ignore */
+                      "integrations.workspaceCatalogTitle",
+                      { defaultValue: "Workspace integrations" },
+                    )}
                   </h2>
                   <p className="text-xs text-muted-foreground">
-                    {t("integrations.providersAvailable", {
-                      count: providers.length,
-                    })}
+                    {t(
+                      /* i18n-key-ignore */
+                      "integrations.workspaceCatalogDescription",
+                      {
+                        defaultValue:
+                          "Connect once, then choose which apps can use it.",
+                      },
+                    )}
                   </p>
                 </div>
-              </div>
-              <div className="dispatch-provider-grid grid gap-3">
-                {providers.map((provider) => (
-                  <ProviderCard
-                    key={provider.id}
-                    provider={provider}
-                    connections={providerConnections.get(provider.id) ?? []}
-                    onCreate={() => openSetup(provider)}
+                <div className="relative w-full sm:max-w-xs">
+                  <IconSearch className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    value={providerQuery}
+                    onChange={(event) => setProviderQuery(event.target.value)}
+                    placeholder={t(
+                      /* i18n-key-ignore */
+                      "integrations.searchWorkspacePlaceholder",
+                      { defaultValue: "Search integrations" },
+                    )}
+                    aria-label={t(
+                      /* i18n-key-ignore */
+                      "integrations.searchWorkspaceLabel",
+                      { defaultValue: "Search workspace integrations" },
+                    )}
+                    className="h-9 ps-9"
                   />
-                ))}
+                </div>
               </div>
+              <IntegrationGrid
+                items={filteredProviders.map((provider) => {
+                  const active = (
+                    providerConnections.get(provider.id) ?? []
+                  ).filter((connection) => connection.status !== "disabled");
+                  const connected = active.length > 0;
+                  return {
+                    id: provider.id,
+                    name: provider.label,
+                    description: provider.description,
+                    logo: logoForProvider(provider.id, provider.label),
+                    status: connected ? "Connected" : undefined,
+                    statusClassName: connected
+                      ? "text-emerald-600 dark:text-emerald-400"
+                      : "text-muted-foreground",
+                    actionLabel: connected ? "Manage" : "Connect",
+                    onAction: () =>
+                      connected
+                        ? openEdit(active[0])
+                        : openProviderConnection(provider),
+                  };
+                })}
+                emptyLabel="No integrations match."
+              />
             </section>
+
+            <details className="rounded-xl border border-border/70 bg-card">
+              <summary className="cursor-pointer list-none px-4 py-3 text-sm font-medium text-foreground marker:hidden">
+                {t(/* i18n-key-ignore */ "integrations.workspaceOverview", {
+                  defaultValue: "Workspace overview",
+                })}
+              </summary>
+              <div className="border-t border-border/60 p-4">
+                <section
+                  data-usage-tracked={usageTracked ? "true" : undefined}
+                  className={cx(
+                    "dispatch-integrations-summary-grid grid gap-3",
+                    usageTracked &&
+                      "dispatch-integrations-summary-grid-tracked",
+                  )}
+                >
+                  <SummaryCard
+                    icon={IconCheck}
+                    label={t("integrations.readyProviders")}
+                    value={`${data.counts.readyProviders ?? 0}/${providers.length}`}
+                    detail={t("integrations.readyProvidersDetail")}
+                  />
+                  <SummaryCard
+                    icon={IconPlugConnected}
+                    label={t("integrations.connections")}
+                    value={String(connections.length)}
+                    detail={t("integrations.connectedCount", {
+                      count: connectedCount,
+                    })}
+                  />
+                  <SummaryCard
+                    icon={IconShieldCheck}
+                    label={t("integrations.appGrants")}
+                    value={String(data.grants.length)}
+                    detail={t("integrations.appGrantsDetail", {
+                      allAppCount: data.counts.allAppConnections ?? 0,
+                      selectedCount: data.counts.selectedAppConnections ?? 0,
+                    })}
+                  />
+                  <SummaryCard
+                    icon={IconKey}
+                    label={t("integrations.keyHealth")}
+                    value={
+                      connectionsMissingKeys === 0
+                        ? t("integrations.healthy")
+                        : t("integrations.missingCount", {
+                            count: connectionsMissingKeys,
+                          })
+                    }
+                    detail={
+                      attentionCount
+                        ? t("integrations.connectionNeedsAttention", {
+                            count: attentionCount,
+                          })
+                        : t("integrations.requiredRefsPresent")
+                    }
+                  />
+                  {usageTracked ? (
+                    <SummaryCard
+                      icon={IconClock}
+                      label={t("integrations.usage")}
+                      value={
+                        Number.isFinite(mostRecentUsage)
+                          ? formatTimestamp(
+                              t,
+                              new Date(mostRecentUsage).toISOString(),
+                            )
+                          : t("integrations.time.neverUsed")
+                      }
+                      detail={
+                        neverUsedCount
+                          ? t("integrations.neverUsedCount", {
+                              count: neverUsedCount,
+                            })
+                          : t("integrations.allTrackedAccountsHaveUsage")
+                      }
+                    />
+                  ) : null}
+                </section>
+              </div>
+            </details>
 
             <section>
               <div className="mb-3 flex items-center justify-between gap-3">
@@ -2623,6 +2662,62 @@ export default function WorkspaceIntegrationsRoute() {
         onClose={() => setForm(null)}
         onSubmit={handleSubmit}
       />
+      <Dialog
+        open={!!providerChoice}
+        onOpenChange={(open) => !open && setProviderChoice(null)}
+      >
+        <DialogContent className="max-w-md p-0">
+          <DialogHeader className="sr-only">
+            <DialogTitle>
+              {providerChoice
+                ? `Connect ${providerChoice.provider.label}`
+                : "Connect integration"}
+            </DialogTitle>
+          </DialogHeader>
+          {providerChoice ? (
+            <IntegrationConnectionChoice
+              name={providerChoice.provider.label}
+              description="Choose who should be able to use this connection."
+              logo={logoForProvider(
+                providerChoice.provider.id,
+                providerChoice.provider.label,
+              )}
+              showWorkspaceOption
+              onPersonal={() => {
+                setPersonalIntegrationId(providerChoice.personalIntegration.id);
+                setProviderChoice(null);
+              }}
+              onWorkspace={() => {
+                const provider = providerChoice.provider;
+                setProviderChoice(null);
+                if (providerHasOAuth(provider)) {
+                  startWorkspaceProviderOAuth(provider);
+                } else {
+                  openSetup(provider);
+                }
+              }}
+            />
+          ) : null}
+        </DialogContent>
+      </Dialog>
+      {personalIntegrationId ? (
+        <McpIntegrationDialog
+          open
+          integrations={[
+            personalIntegrations.get(personalIntegrationId),
+          ].filter((integration): integration is DefaultMcpIntegration =>
+            Boolean(integration),
+          )}
+          quickConnectIntegrationId={personalIntegrationId}
+          defaultScope="user"
+          canCreateOrgMcp={false}
+          hasOrg={false}
+          onOpenChange={(open) => {
+            if (!open) setPersonalIntegrationId(null);
+          }}
+          onCreateMcpServer={createPersonalMcpServer.mutateAsync}
+        />
+      ) : null}
       <DeleteConfirm
         connection={deleteTarget}
         deleting={deleteConnection.isPending}

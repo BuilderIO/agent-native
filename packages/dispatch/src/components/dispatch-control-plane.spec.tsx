@@ -33,6 +33,9 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
     path: string,
     options?: unknown,
   ) => clientState.navigateWithTransition(navigate, path, options),
+  orderChatFirstAppIds: (appIds: string[]) => appIds,
+  readChatFirstAppLayout: () => ({ pinnedIds: [], orderedIds: [] }),
+  writeChatFirstAppLayout: () => ({ ok: true }),
   useChatModels: clientState.useChatModels,
 }));
 
@@ -51,6 +54,11 @@ vi.mock("@agent-native/core/client/composer", () => ({
       </button>
     );
   },
+}));
+
+vi.mock("@agent-native/core/client/application-state", () => ({
+  readClientAppState: vi.fn(async () => null),
+  writeClientAppState: vi.fn(async () => null),
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
@@ -280,10 +288,23 @@ describe("DispatchControlPlane", () => {
     expect(container.textContent).not.toContain("Duplicate onboarding");
     expect(container.textContent).not.toContain("CRM");
     expect(
-      Array.from(container.querySelectorAll("a")).filter((anchor) =>
-        anchor.getAttribute("href")?.includes("onboarding"),
+      container.querySelectorAll(
+        'button[aria-label="Open options for Onboarding"]',
       ),
     ).toHaveLength(1);
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="Open options for Onboarding"]',
+        )
+        ?.dispatchEvent(
+          new MouseEvent("pointerdown", { bubbles: true, button: 0 }),
+        );
+    });
+    const onboardingNewTabLink = document.querySelector<HTMLAnchorElement>(
+      'a[href="/onboarding"][target="_blank"]',
+    );
+    expect(onboardingNewTabLink).not.toBeNull();
     const clipsHref = Array.from(container.querySelectorAll("a"))
       .map((anchor) => anchor.getAttribute("href"))
       .find((href) => href?.includes("clips.agent-native.com"));

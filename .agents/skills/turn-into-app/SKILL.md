@@ -3,9 +3,10 @@ name: turn-into-app
 description: >-
   Turn visible project context, a proven thread, skill, or workflow into a
   runnable Agent-Native app with simple buttons, visible agent steps, preview,
-  and deployment handoff. Use when a user invokes `/turn-into-app`,
-  `/make-into-app`, or asks to make a workflow into an app, including from
-  Claude or ChatGPT on the web.
+  and deployment handoff. Use when a user invokes `/turn-into-app` or asks to
+  make a workflow into an app, including from
+  Claude or ChatGPT on the web, including when the source is a spreadsheet
+  link or upload.
 user-invocable: true
 scope: both
 metadata:
@@ -16,43 +17,59 @@ metadata:
 
 ## Host execution boundary
 
-The build location depends on the host. Treat this as a hard routing rule:
+Classify the runtime before choosing a build path. The presence of a Dispatch
+or Builder connector does not make a coding host an online host:
 
-- In Claude Web, ChatGPT Web, or a Claude/ChatGPT Project on the web, you are
-  the source analyst and handoff orchestrator. You must not build the app in
-  the host sandbox. Do not run `npm`, `pnpm`, `npx`, `agent-native create`, or
-  `add-app`; do not edit files, create artifacts, or start a local dev server.
-  After writing the bounded source brief, call the connected Dispatch action
+- **Local coding host** - Codex Desktop/Code, Claude Code, Cursor, or any
+  runtime with a terminal, filesystem, and target checkout. Build in that
+  checkout: scaffold, edit, run, and verify the app locally. Do not call
+  `start-workspace-app-creation`, `create_workspace_app`, or any Builder
+  handoff for this path. The local implementation steps below are required.
+- **Non-coding browser host** - Claude Web, ChatGPT Web, or a
+  Claude/ChatGPT Project in the browser when no target checkout or filesystem
+  is available. Act as the source analyst and handoff orchestrator. Do not run
+  `npm`, `pnpm`, `npx`, `agent-native create`, or `add-app`; do not edit files,
+  create artifacts, or start a local dev server. After writing the bounded
+  source brief, call the connected Dispatch action
   `start-workspace-app-creation`. Pass the brief and repeatable workflow in
   `prompt`, plus the inferred `appId`, `description`, `template`, and selected
-  `resourceIds` when available. This is the Builder handoff.
-- Do not substitute the generic `create_workspace_app` MCP tool in an online
-  host. That tool is a local workspace scaffolder, not the Builder handoff.
-- Connect the Agent-Native Dispatch MCP connector only. Dispatch uses the
-  authenticated Builder Projects API to reuse or provision the workspace
-  project before starting the Builder Cloud Agent; a separate Builder CMS MCP
-  connection is not required for this workflow.
-- If `start-workspace-app-creation` is not available or Dispatch is not
+  `resourceIds` when available. This is the Builder handoff for browser hosts
+  only.
+- If the host is ambiguous, inspect the environment. A real cwd, terminal, and
+  target workspace mean local coding host. Do not infer browser mode from the
+  availability of a Builder connector.
+- For the browser-only path, do not substitute the generic
+  `create_workspace_app` MCP tool. That tool is a local workspace scaffolder,
+  not the Builder handoff. Connect the Agent-Native Dispatch MCP connector
+  only; Dispatch uses the authenticated Builder Projects API to reuse or
+  provision the workspace project before starting the Builder Cloud Agent.
+- If the browser-only handoff action is unavailable or Dispatch is not
   authenticated, stop with the connector setup needed. Do not fall back to a
-  local build or claim that the app exists.
-- In Claude Code, Codex Code, or another local code-agent runtime with a target
-  workspace, follow the local implementation steps below. The local agent may
-  scaffold, edit, run, and verify the app there.
+  host sandbox build or claim that the app exists.
+- Never invent a Builder branch URL. If Dispatch returns only an acknowledgement
+  or a path without a URL, report the handoff as unverified rather than calling
+  it a ready or verified Builder branch.
 
 Once the source brief is sufficient to identify a repeatable workflow, the
 handoff is non-interactive. Do not ask the user for visual, product, copy,
 layout, template, integration, or implementation choices that can be resolved
 from the source. Select the source's recommended option; otherwise choose the
 most direct conventional default and record the assumption for later review.
+There is one source-integrity exception: for a spreadsheet, if candidate
+workflows or the input/output mapping remain materially ambiguous after the
+bounded review, ask one compact confirmation question before handoff. Show the
+recommended interpretation and let the user confirm, correct, or multi-select
+the candidates. Do not turn this into a generic app-builder questionnaire.
 Only stop for a genuine hard blocker such as missing authorization, a
 destructive external action, an ambiguous target workspace, or no identifiable
 workflow at all.
 
 ## Default behavior
 
-For a local code-agent runtime this is an end-to-end build skill, not a request
-for an app proposal. For an online host, the end-to-end result is a verified
-Builder handoff and the resulting workspace app, not code written in the host.
+For a local coding host this is an end-to-end local build skill, not a request
+for an app proposal. For a non-coding browser host, the end-to-end result is a
+verified Builder handoff and the resulting workspace app, not code written in
+the browser host.
 
 - With no argument, choose the source in this order: visible project context,
   then the current thread. A fresh Claude or ChatGPT Project is a valid source
@@ -66,9 +83,10 @@ Builder handoff and the resulting workspace app, not code written in the host.
 - With an attachment or path, read the supplied artifact as the source.
 - Do not ask the user to restate context that is already in the thread.
 - When invoked from an Agent-Native app, use its visible project context first,
-  then the current thread, and use the available workspace/coding-agent
-  handoff when the current runtime cannot edit files. Do not claim the app
-  exists without an actual path and verification result.
+  then the current thread. If the current runtime has a target checkout, use
+  the local implementation path; use a workspace/coding-agent handoff only
+  when the runtime cannot edit files. Do not claim the app exists without an
+  actual path and verification result.
 
 ## Source support
 
@@ -98,22 +116,52 @@ Spreadsheet attachments are valid source artifacts for this workflow:
   provider API catalog/docs/request path to read only the required sheet or
   range. If that connection is unavailable, ask for a CSV/XLSX export or the
   required connection; do not use a public export URL to bypass access.
+- First inventory the workbook before choosing an app: list every available
+  worksheet, its bounded shape, whether it is readable, and any visible
+  formulas or formatting signals. Do not assume the first tab is the product
+  or that every tab deserves its own app.
+- Treat the workbook's visual conventions as evidence, not as a silent truth:
+  yellow-filled cells are proposed inputs, blue text is proposed output, and
+  black text is static historical context. Apply those signals to cell/range
+  mappings only when the source exposes formatting metadata. The current
+  bounded Excel preview is text-only, so an upload alone cannot prove those
+  colors; ask the user to confirm or clarify instead of inferring from plain
+  text. See [the spreadsheet source guide](references/spreadsheet-source.md).
+- If the workbook contains several plausible repeatable jobs, present one
+  compact Q&A review with multi-select candidate options. Each option must
+  show its proposed name, source worksheet/range IDs, purpose, inferred inputs,
+  inferred outputs, confidence, and unresolved question. Default-select only
+  high-confidence recommendations. Mark the strongest recommendations in the
+  Q&A UI without silently selecting them. When the user selects multiple candidates,
+  implement them as separate named left-navigation destinations in one app,
+  with each destination preserving its own source tabs/ranges and I/O mapping.
+- In generated app code, render this review with
+  `askUserQuestion` from `@agent-native/core/client/agent-chat` using
+  `allowMultiple: true`, stable candidate IDs as option values, and
+  `allowFreeText: true` for corrections. It renders inline in the agent panel;
+  do not build a custom modal. Group a large workbook into 2-4 candidate jobs
+  per question instead of presenting a tab dump.
+- Before handoff or the first generated-app run, show the proposed source,
+  inputs, outputs, static historicals, refresh/snapshot choice, and truncation
+  limits as a review state. Let the user confirm or correct the mapping. Do not
+  publish, overwrite the source, or claim a complete import before confirmation.
 - Decide whether the generated app needs a one-time snapshot or a refreshable
   source. For a snapshot, pass bounded sample context and provenance to the
-  Builder handoff. For a live source, preserve the provider/file identity,
-  worksheet or range, and refresh semantics, then implement a scoped action for
-  reads or refreshes. Never copy workbook bytes, base64 data, credentials, or a
-  full unbounded sheet into SQL, application state, or the handoff prompt.
+  local build or the browser-only Builder handoff selected by the host. For a
+  live source, preserve the provider/file identity, worksheet or range, and
+  refresh semantics, then implement a scoped action for reads or refreshes.
+  Never copy workbook bytes, base64 data, credentials, or a full unbounded
+  sheet into SQL, application state, or the handoff prompt.
 - Do not claim the app imported the whole workbook when only a preview was
   available. Keep unreadable, partial, and failed source states distinct from
   an empty sheet.
 
-For local code-agent runtimes, deliver a fresh app in a new directory,
-implement the repeatable workflow with buttons and agent handoffs, start its dev
-server, verify the main path, and continue through build/deployment handoff. Do
-not stop at a plan. For online hosts, call Dispatch first after the source brief,
-then report the returned Builder branch/path and verify the workspace app through
-Dispatch when it becomes available.
+For local coding hosts, deliver a fresh app in a new directory, implement the
+repeatable workflow with buttons and agent handoffs, start its dev server,
+verify the main path, and continue through build/deployment handoff. Do not stop
+at a plan or route the work to Builder. For non-coding browser hosts, call
+Dispatch first after the source brief, then report only the returned Builder
+branch URL/path and verification result; if the URL is absent, say so plainly.
 
 ## Fresh project context mode
 
@@ -182,6 +230,11 @@ Generated apps must follow the shared Agent-Native surface model:
   message or neutral action icon, or no icon when the button label is enough.
 - Make the left navigation describe domain destinations. Chat is a separate
   destination, not the label for every app page.
+- For a spreadsheet-derived app with multiple confirmed candidates, make each
+  candidate a separate named left-navigation destination. Keep the shared
+  source provenance visible, but show that candidate's selected worksheets,
+  ranges, inputs, outputs, historical context, and confirmation state on its
+  destination.
 - Start with one primary action and one compact state. Put setup choices,
   advanced inputs, diagnostics, and long explanations behind progressive
   disclosure or later workflow steps.
@@ -210,6 +263,14 @@ brief:
 - the 1-3 judgment-heavy agent moments;
 - the buttons, review points, and retry states a user needs;
 - data, permissions, integrations, and failure boundaries.
+
+For a spreadsheet source, also include the workbook/file or spreadsheet ID,
+worksheet and range candidates, source snapshot/live semantics, formatting
+signals and their confidence, selected candidate destinations, and the exact
+confirmation or clarification still needed. A spreadsheet's inputs and
+outputs have two layers: the mapped source cells/ranges, and the generated
+app's user-facing results/actions. Name both so the Builder does not confuse
+an output cell with an app write or a historical value with an editable input.
 
 Preserve useful judgment from the source, but do not turn a one-off answer,
 private data, or an unverified result into a product contract. If the source is
@@ -243,12 +304,13 @@ Do not use `create` for an existing workspace; it scaffolds a new standalone
 workspace rather than adding an app to the current one.
 
 When the source came from a fresh external Project and the target is a Builder
-workspace, the online host path is mandatory: after writing the source brief,
-call `start-workspace-app-creation` with a concise prompt, the inferred app id,
-and the brief's repeatable workflow. Pass selected workspace resource IDs when
-they are available, rather than pasting entire knowledge files. Continue from
-the returned workspace path or Builder branch handoff and report the actual
-verification result. Do not run the local scaffold commands in this host mode.
+workspace, the browser-only host path is mandatory: after writing the source
+brief, call `start-workspace-app-creation` with a concise prompt, the inferred
+app id, and the brief's repeatable workflow. Pass selected workspace resource
+IDs when they are available, rather than pasting entire knowledge files.
+Continue from the returned workspace path or Builder branch handoff and report
+the actual verification result. This rule does not override local host
+classification: Codex/Claude Code with a target checkout must build locally.
 
 Use a first-party template only when it materially fits the workflow. Keep the
 new app independent from the source thread's working tree unless the user

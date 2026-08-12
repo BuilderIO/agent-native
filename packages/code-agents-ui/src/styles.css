@@ -128,11 +128,34 @@
   border-right: 1px solid hsl(var(--sidebar-border));
 }
 
+.code-agents-rail-scroll {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
 .code-agents-nav-list {
   display: grid;
   gap: 1px;
   padding: 6px var(--code-agents-rail-gutter);
   border-bottom: 1px solid hsl(var(--sidebar-border));
+}
+
+.code-agents-primary-new-chat-shell {
+  position: sticky;
+  z-index: 3;
+  top: 0;
+  padding: 6px var(--code-agents-rail-gutter) 0;
+  background: hsl(var(--sidebar-background));
+}
+
+.code-agents-primary-new-chat[aria-selected="false"] {
+  background: hsl(var(--sidebar-background));
 }
 
 .code-agents-nav-link {

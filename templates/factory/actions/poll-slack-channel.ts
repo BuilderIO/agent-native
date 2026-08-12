@@ -11,6 +11,10 @@ import {
 } from "../server/lib/require-workspace-member.js";
 import { recordFactoryAudit } from "../server/triage/audit.js";
 import { itemDedupeKey } from "../server/triage/ids.js";
+import {
+  hasTriageSourceChanged,
+  statusAfterTriageSourceUpdate,
+} from "../server/triage/review-state.js";
 import { pollSlackChannel } from "../server/triage/slack-poller.js";
 
 export default defineAction({
@@ -59,6 +63,38 @@ export default defineAction({
     await db.transaction(async (tx) => {
       for (const envelope of result.envelopes) {
         const id = itemDedupeKey(envelope, orgId);
+        const existing = (
+          await tx
+            .select()
+            .from(triageItems)
+            .where(and(eq(triageItems.id, id), eq(triageItems.orgId, orgId)))
+            .limit(1)
+        )[0];
+        const sourceChanged = hasTriageSourceChanged(existing, {
+          title: envelope.title,
+          summary: envelope.summary ?? null,
+          sourceUrl: envelope.sourceUrl ?? null,
+          coverage: envelope.coverage,
+          lastSeenAt:
+            typeof envelope.metadata?.messageTs === "string"
+              ? envelope.metadata.messageTs
+              : undefined,
+        });
+        const status = statusAfterTriageSourceUpdate(
+          existing?.status,
+          sourceChanged,
+          "received",
+        );
+        const updatedAt = sourceChanged
+          ? now
+          : (existing?.updatedAt ?? now);
+        const sourceLastSeenAt =
+          typeof envelope.metadata?.messageTs === "string"
+            ? envelope.metadata.messageTs
+            : now;
+        const lastSeenAt = sourceChanged
+          ? sourceLastSeenAt
+          : (existing?.lastSeenAt ?? now);
         await tx
           .insert(triageItems)
           .values({
@@ -68,7 +104,7 @@ export default defineAction({
             sourceUrl: envelope.sourceUrl ?? null,
             title: envelope.title,
             summary: envelope.summary ?? null,
-            status: "received",
+            status,
             risk: "unknown",
             channelId: envelope.channelId ?? null,
             threadTs: envelope.threadTs ?? null,
@@ -78,9 +114,9 @@ export default defineAction({
             coverage: envelope.coverage,
             dedupeKey: id,
             metadataJson: JSON.stringify(envelope.metadata ?? {}),
-            lastSeenAt: now,
+            lastSeenAt,
             createdAt: now,
-            updatedAt: now,
+            updatedAt,
             ownerEmail: userEmail,
             orgId,
           })
@@ -93,8 +129,10 @@ export default defineAction({
               channelId: envelope.channelId ?? null,
               threadTs: envelope.threadTs ?? null,
               coverage: envelope.coverage,
-              lastSeenAt: now,
-              updatedAt: now,
+              metadataJson: JSON.stringify(envelope.metadata ?? {}),
+              status,
+              lastSeenAt,
+              updatedAt,
             },
           });
       }

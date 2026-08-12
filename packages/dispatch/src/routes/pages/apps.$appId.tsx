@@ -15,6 +15,7 @@ import { Skeleton } from "../../components/ui/skeleton";
 import { Spinner } from "../../components/ui/spinner";
 import { isEmbedSessionExpiredMessage } from "../../lib/embed-session-recovery";
 import {
+  workspaceAppDirectHref,
   workspaceAppEmbedTarget,
   workspaceAppHref,
   type WorkspaceAppSummary,
@@ -82,6 +83,8 @@ export default function WorkspaceAppRoute() {
       })
       .catch((cause: unknown) => {
         if (!cancelled) {
+          const directAppUrl = workspaceAppDirectHref(app, "/");
+          if (directAppUrl) setEmbedUrl(directAppUrl);
           setEmbedError(
             cause instanceof Error ? cause : new Error(String(cause)),
           );
@@ -187,11 +190,6 @@ export default function WorkspaceAppRoute() {
               <span className="font-mono text-foreground">{app.path}</span>{" "}
               {t("dispatch.pages.appBuildingSuffix")}
             </p>
-            {app.branchName ? (
-              <p className="text-xs text-muted-foreground">
-                {t("dispatch.pages.branch", { branch: app.branchName })}
-              </p>
-            ) : null}
             {app.builderUrl ? (
               <Button asChild>
                 <a
@@ -202,7 +200,9 @@ export default function WorkspaceAppRoute() {
                   target="_blank"
                   rel="noreferrer"
                 >
-                  {t("dispatch.pages.openBuilderBranch")}
+                  {t("dispatch.pages.openBuilderBranch", {
+                    defaultValue: "Open in Builder",
+                  })}
                 </a>
               </Button>
             ) : null}

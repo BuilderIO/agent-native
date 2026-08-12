@@ -75,6 +75,24 @@ const PATTERNS = [
     fixedBy: ".agents/skills/concurrent-agents + scripts/hooks/file-lease.mjs",
     re: /\b(collision|overwrit\w+|clobber\w*|reverted (my|our|their) work|lost (my|our) (work|edits)|another agent (is|was) (shipping|editing))\b/i,
   },
+  {
+    key: "unpushed-work",
+    label: "Had to demand local work be pushed",
+    fixedBy: "pnpm ship:push (scripts/ship-push.mjs, 2026-08-12)",
+    re: /\b(push (up|it up|them up|all|everything|shit up)|not pushed|never pushed|unpushed|files to push|tons of (local|files)|push the local)\b/i,
+  },
+  {
+    key: "no-progress",
+    label: "Had to chase status on a long-running run",
+    fixedBy: "unstated — no owning skill yet",
+    re: /\b(hows? (it going|we looking)|what'?s the status|are we done|you done|did you finish|how close|still (going|running|working)|progress check|any update)\b/i,
+  },
+  {
+    key: "cross-thread-interference",
+    label: "Agent acted on other agents' threads or work uninvited",
+    fixedBy: "unstated — no owning skill yet",
+    re: /\b(other (chats?|threads?|agents?)|pause (their|other)|don'?t (tell|message) (other|the other)|didn'?t ask you to (touch|message))\b/i,
+  },
 ];
 
 const args = process.argv.slice(2);

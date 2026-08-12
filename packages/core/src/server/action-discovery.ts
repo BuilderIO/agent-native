@@ -693,6 +693,15 @@ export async function mergeCoreSharingActions(
       "manage-automation",
       () => import("../triggers/actions/manage-automation.js"),
     ],
+    ["get-usage-alerts", () => import("../usage/actions/get-usage-alerts.js")],
+    [
+      "manage-usage-alert",
+      () => import("../usage/actions/manage-usage-alert.js"),
+    ],
+    [
+      "get-usage-metrics",
+      () => import("../usage/actions/get-usage-metrics.js"),
+    ],
     [
       "context-manifest-get",
       () => import("../agent/context-xray/actions/context-manifest-get.js"),

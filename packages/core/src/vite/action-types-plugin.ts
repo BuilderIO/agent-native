@@ -110,6 +110,18 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
       "@agent-native/core/localization/actions/set-localization-preference",
   },
   {
+    name: "get-usage-alerts",
+    specifier: "@agent-native/core/usage/actions/get-usage-alerts",
+  },
+  {
+    name: "manage-usage-alert",
+    specifier: "@agent-native/core/usage/actions/manage-usage-alert",
+  },
+  {
+    name: "get-usage-metrics",
+    specifier: "@agent-native/core/usage/actions/get-usage-metrics",
+  },
+  {
     name: "create-resource-version",
     specifier: "@agent-native/core/history/actions/create-resource-version",
   },

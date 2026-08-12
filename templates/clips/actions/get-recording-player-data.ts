@@ -29,6 +29,7 @@ import { getDb, schema } from "../server/db/index.js";
 import { isAgentRecordingCaller } from "../server/lib/agent-recording-access.js";
 import { countRecordingAgentViews } from "../server/lib/agent-views.js";
 import { isMediaVerificationPending } from "../server/lib/media-verification-state.js";
+import { resolvePlayerThumbnailUrl } from "../server/lib/player-thumbnail-url.js";
 import { resolvePlayerVideoUrl } from "../server/lib/player-video-url.js";
 import {
   canOpenDirectRecordingPage,
@@ -312,7 +313,7 @@ export default defineAction({
         organizationId: rec.organizationId,
         title: rec.title,
         description: rec.description,
-        thumbnailUrl: rec.thumbnailUrl,
+        thumbnailUrl: resolvePlayerThumbnailUrl(rec),
         animatedThumbnailUrl: rec.animatedThumbnailUrl,
         filmstripUrl: rec.filmstripUrl ?? null,
         filmstripFrameCount: rec.filmstripFrameCount ?? 0,
