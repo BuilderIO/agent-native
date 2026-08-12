@@ -1000,9 +1000,7 @@ export function McpIntegrationDialog({
                     </button>
                   )}
                 </div>
-              ) : !selected &&
-                customAuthMode === "oauth" ? null : selected?.authMode ===
-                "oauth" ? (
+              ) : selected?.authMode === "oauth" ? (
                 <button
                   type="button"
                   onClick={() => connectWithOAuth(selected)}
@@ -1013,7 +1011,7 @@ export function McpIntegrationDialog({
                   {busy && <IconLoader2 className="h-3.5 w-3.5 animate-spin" />}
                   {t("mcpIntegrations.connectWithOAuth")}
                 </button>
-              ) : (
+              ) : !selected && customAuthMode === "oauth" ? null : (
                 <button
                   type="button"
                   onClick={submitForm}

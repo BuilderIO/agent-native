@@ -5,7 +5,7 @@ import { cn } from "../utils.js";
 export interface IntegrationGridItem {
   id: string;
   name: string;
-  description: string;
+  description?: string;
   logo: ReactNode;
   status?: string;
   statusClassName?: string;
@@ -75,9 +75,11 @@ export function IntegrationGrid({
                 </span>
               ) : null}
             </div>
-            <p className="mt-0.5 line-clamp-1 text-xs leading-5 text-muted-foreground">
-              {item.description}
-            </p>
+            {item.description ? (
+              <p className="mt-0.5 line-clamp-1 text-xs leading-5 text-muted-foreground">
+                {item.description}
+              </p>
+            ) : null}
           </div>
           <button
             type="button"

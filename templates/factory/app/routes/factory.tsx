@@ -1290,9 +1290,6 @@ function InboxView({ t }: { t: ReturnType<typeof useT> }) {
         <CardHeader className="gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <CardTitle className="text-base">Review</CardTitle>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {t("factoryRoute.inboxDescription")}
-            </p>
           </div>
           <div className="flex items-end gap-2">
             <div className="grid gap-1.5">

@@ -508,6 +508,7 @@ const messages = {
     },
     roles: {
       viewer: "뷰어",
+      commenter: "댓글 작성자",
       editor: "편집자",
       admin: "관리자",
     },

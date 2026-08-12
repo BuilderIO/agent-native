@@ -515,6 +515,7 @@ const messages = {
     },
     roles: {
       viewer: "ビューア",
+      commenter: "コメント投稿者",
       editor: "エディタ",
       admin: "管理者",
     },

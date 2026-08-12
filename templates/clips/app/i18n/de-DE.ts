@@ -523,6 +523,7 @@ const messages = {
     },
     roles: {
       viewer: "Zuschauer",
+      commenter: "Kommentator",
       editor: "Editor",
       admin: "Admin",
     },

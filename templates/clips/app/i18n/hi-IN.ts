@@ -503,6 +503,7 @@ const messages = {
     },
     roles: {
       viewer: "दर्शक",
+      commenter: "टिप्पणीकार",
       editor: "संपादक",
       admin: "व्यवस्थापक",
     },

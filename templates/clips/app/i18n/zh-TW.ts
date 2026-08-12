@@ -489,6 +489,7 @@ const messages = {
     },
     roles: {
       viewer: "觀眾",
+      commenter: "留言者",
       editor: "編輯",
       admin: "管理員",
     },

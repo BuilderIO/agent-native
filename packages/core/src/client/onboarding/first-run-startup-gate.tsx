@@ -44,6 +44,14 @@ export function FirstRunOnboardingStartupGate({
     }
 
     let cancelled = false;
+    const handleFirstRunCompleted = () => {
+      cancelled = true;
+      setDecision("ineligible");
+    };
+    window.addEventListener(
+      "agent-native:first-run-completed",
+      handleFirstRunCompleted,
+    );
     setDecision("pending");
     void fetchFirstRunOnboardingStatus()
       .then((firstRun) => {
@@ -55,6 +63,10 @@ export function FirstRunOnboardingStartupGate({
 
     return () => {
       cancelled = true;
+      window.removeEventListener(
+        "agent-native:first-run-completed",
+        handleFirstRunCompleted,
+      );
     };
   }, [shouldResolve]);
 

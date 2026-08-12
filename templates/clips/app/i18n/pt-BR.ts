@@ -517,6 +517,7 @@ const messages = {
     },
     roles: {
       viewer: "Visualizador",
+      commenter: "Comentarista",
       editor: "Editor",
       admin: "Administrador",
     },

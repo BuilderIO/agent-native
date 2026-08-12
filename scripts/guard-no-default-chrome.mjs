@@ -55,16 +55,13 @@ const RULES = [
   },
   {
     id: "eyebrow",
-    // The uppercase micro-label above a heading. It repeats the nav item that
-    // is already on screen.
+    // The uppercase micro-label ABOVE a heading. Position is the whole
+    // distinction: identical styling to the right of a heading is a column or
+    // status label, which nobody has complained about. Requiring the heading to
+    // follow is what keeps this off `UsageSection`'s "Spend".
     pragma: "guard:allow-eyebrow",
-    test: (line) =>
-      /className=\{?["'`][^"'`]*\buppercase\b[^"'`]*\btracking-[^"'`]*\btext-muted-foreground/.test(
-        line,
-      ) ||
-      /className=\{?["'`][^"'`]*\btext-muted-foreground[^"'`]*\buppercase\b/.test(
-        line,
-      ),
+    multiline: true,
+    re: /<(?:p|span|div)[^>]*className=\{?["'`][^"'`]*\buppercase\b[^"'`]*tracking-[^"'`]*text-muted-foreground[^"'`]*["'`][^>]*>[\s\S]{0,160}?<\/(?:p|span|div)>\s*<h[1-3]\b/g,
     why: "No eyebrow/kicker above a title. The nav rail and the route already say where the user is.",
   },
   {
@@ -86,6 +83,9 @@ const RULES = [
     pragma: "guard:allow-card-description",
     multiline: true,
     re: /<\/CardTitle>[\s\S]{0,240}?<p[^>]*className=\{?["'`][^"'`]*text-muted-foreground/g,
+    // Report the paragraph, not the CardTitle: the paragraph is the line the
+    // author added and the line they need to delete.
+    anchorIn: (matched) => matched.lastIndexOf("<p"),
     why: "A card gets a title or a description, never both. Move the explanation to a tooltip or drop it.",
   },
 ];
@@ -128,21 +128,27 @@ function main() {
     for (const rule of RULES) {
       if (rule.multiline) {
         for (const match of source.matchAll(rule.re)) {
-          const lineNumber = lineNumberAt(source, match.index ?? 0);
-          // Anchor on the muted <p>, which is the line the author added.
-          const blurbOffset = (match.index ?? 0) + match[0].lastIndexOf("<p");
-          const blurbLine = lineNumberAt(source, blurbOffset);
-          if (
-            !addedLineNumbers.has(blurbLine) &&
-            !addedLineNumbers.has(lineNumber)
-          )
-            continue;
-          if (hasPragma(lines, blurbLine, rule.pragma)) continue;
+          const start = match.index ?? 0;
+          const startLine = lineNumberAt(source, start);
+          const anchorLine = lineNumberAt(
+            source,
+            start + (rule.anchorIn ? rule.anchorIn(match[0]) : 0),
+          );
+          // A match spanning several lines counts if the branch added any of
+          // them — an author who adds only the blurb under an existing title
+          // has still added the blurb.
+          const touched = [...addedLineNumbers].some(
+            (n) =>
+              n >= startLine &&
+              n <= lineNumberAt(source, start + match[0].length),
+          );
+          if (!touched) continue;
+          if (hasPragma(lines, anchorLine, rule.pragma)) continue;
           violations.push({
             file: relativePath,
-            lineNumber: blurbLine,
+            lineNumber: anchorLine,
             rule,
-            snippet: (lines[blurbLine - 1] ?? "").trim(),
+            snippet: (lines[anchorLine - 1] ?? "").trim(),
           });
         }
         continue;

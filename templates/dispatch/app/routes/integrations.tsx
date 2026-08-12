@@ -775,6 +775,24 @@ function summarizeGrant(
   return `${labels.join(", ")}${suffix}`;
 }
 
+function summarizeUserAccess(
+  connection: WorkspaceConnection,
+  t: Translate,
+): string {
+  const allowedUsers = connection.allowedUsers ?? [];
+  return allowedUsers.length > 0
+    ? t(
+        /* i18n-key-ignore */
+        "integrations.selectedWorkspaceMembers",
+        { defaultValue: `${allowedUsers.length} selected` },
+      )
+    : t(
+        /* i18n-key-ignore */
+        "integrations.allWorkspaceMembers",
+        { defaultValue: "All workspace members" },
+      );
+}
+
 function summarizeAppList(
   appIds: string[],
   grantApps: GrantApp[],
@@ -929,8 +947,17 @@ function ConnectionRow({
             />
             <ConnectionMeta
               icon={IconUsersGroup}
-              label={t("integrations.access")}
-              value={`${t("integrations.scopeWorkspace")} · ${summarizeGrant(connection, grantApps, grants, t)}`}
+              label={t(
+                /* i18n-key-ignore */
+                "integrations.peopleWithAccess",
+                { defaultValue: "People with access" },
+              )}
+              value={summarizeUserAccess(connection, t)}
+            />
+            <ConnectionMeta
+              icon={IconShieldCheck}
+              label={t("integrations.appGrants")}
+              value={summarizeGrant(connection, grantApps, grants, t)}
             />
             {hasUsageTimestamp(connection) ? (
               <ConnectionMeta

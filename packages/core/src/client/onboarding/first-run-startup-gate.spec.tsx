@@ -147,6 +147,41 @@ describe("FirstRunOnboardingStartupGate", () => {
     ).toBe("true");
   });
 
+  it("reveals the app after the eligible user completes onboarding", async () => {
+    const status = deferred<boolean>();
+    mocks.fetchStatus.mockReturnValue(status.promise);
+
+    act(() => {
+      root.render(
+        <FirstRunOnboardingStartupGate>
+          <div data-testid="app-content">app</div>
+        </FirstRunOnboardingStartupGate>,
+      );
+    });
+
+    await act(async () => {
+      status.resolve(true);
+      await status.promise;
+    });
+    await vi.waitFor(() => {
+      expect(
+        container.querySelector("[data-testid='first-run-onboarding']"),
+      ).not.toBeNull();
+    });
+
+    act(() => {
+      window.dispatchEvent(new Event("agent-native:first-run-completed"));
+    });
+
+    expect(
+      container.querySelector("[data-testid='app-content']"),
+    ).not.toBeNull();
+    expect(container.querySelector("[data-first-run-app-hidden]")).toBeNull();
+    expect(
+      container.querySelector("[data-testid='first-run-onboarding']"),
+    ).toBeNull();
+  });
+
   it("fails closed to the app if the eligibility check is unavailable", async () => {
     const status = deferred<boolean>();
     mocks.fetchStatus.mockReturnValue(status.promise);

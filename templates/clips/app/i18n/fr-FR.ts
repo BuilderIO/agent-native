@@ -520,6 +520,7 @@ const messages = {
     },
     roles: {
       viewer: "Téléspectateur",
+      commenter: "Commentateur",
       editor: "Éditeur",
       admin: "Administrateur",
     },

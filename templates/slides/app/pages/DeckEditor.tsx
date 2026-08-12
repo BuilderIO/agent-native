@@ -303,7 +303,7 @@ export default function DeckEditor() {
   // get the full editor. Only assume edit access while the role is still
   // loading when `createdByMe` already confirms ownership — otherwise a
   // viewer would briefly see (and could click) edit affordances.
-  const { canEdit } = useDeckRole(id, deck?.createdByMe === true);
+  const { canEdit, canComment } = useDeckRole(id, deck?.createdByMe === true);
   const isNewDeckGenerating = shouldShowNewDeckGeneratingProgress({
     generating,
     isNewDeckCreation: wasNewDeckCreation.current,
@@ -1311,6 +1311,7 @@ export default function DeckEditor() {
             }
             recentEdits={deckRecentEdits}
             onComment={(quotedText) => {
+              if (!canComment) return;
               setPendingComment({ quotedText });
               setSidePanel("comments");
             }}
@@ -1338,6 +1339,7 @@ export default function DeckEditor() {
           <SlideCommentsPanel
             deckId={id}
             slideId={currentSlide?.id ?? null}
+            canComment={canComment}
             pendingComment={pendingComment}
             onPendingDone={() => setPendingComment(null)}
             onClose={() => {
