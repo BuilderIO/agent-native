@@ -2,7 +2,13 @@ import { appBasePath } from "@agent-native/core/client/api-path";
 import { PromptComposer } from "@agent-native/core/client/composer";
 import { useT } from "@agent-native/core/client/i18n";
 import { IconCopy, IconSquarePlus, IconX } from "@tabler/icons-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
 
@@ -91,6 +97,14 @@ export function AddSlidePopover({
   const panelRef = useRef<HTMLDivElement>(null);
   const [promptText, setPromptText] = useState("");
   const [googleDocContext, setGoogleDocContext] = useState("");
+  // Estimate before the panel has painted so the first frame doesn't hang
+  // off the bottom of the viewport; corrected once the real height is known.
+  const [panelHeight, setPanelHeight] = useState(320);
+
+  useLayoutEffect(() => {
+    if (!open || !panelRef.current) return;
+    setPanelHeight(panelRef.current.getBoundingClientRect().height);
+  });
 
   useEffect(() => {
     if (!open) return;
@@ -216,7 +230,7 @@ export function AddSlidePopover({
       : Math.max(12, Math.min(rect.left, window.innerWidth - panelWidth - 12));
   const top =
     placement === "right"
-      ? Math.max(12, Math.min(rect.top, window.innerHeight - 12))
+      ? Math.max(12, Math.min(rect.top, window.innerHeight - panelHeight - 12))
       : rect.bottom + 8;
 
   return createPortal(

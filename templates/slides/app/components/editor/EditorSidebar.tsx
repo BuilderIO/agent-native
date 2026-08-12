@@ -332,7 +332,8 @@ export default function EditorSidebar({
   onAddSlideGeneratingChange,
 }: EditorSidebarProps) {
   const t = useT();
-  const { submit: agentSubmit } = useAgentGenerating();
+  const { generating: agentGenerating, submit: agentSubmit } =
+    useAgentGenerating();
   const [describeSlideId, setDescribeSlideId] = useState<string | null>(null);
   const [describeAnchorEl, setDescribeAnchorEl] =
     useState<HTMLButtonElement | null>(null);
@@ -344,6 +345,13 @@ export default function EditorSidebar({
     >(),
   );
   const writeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (addSlideGenerating && !agentGenerating) {
+      onAddSlideGeneratingChange?.(false);
+    }
+  }, [addSlideGenerating, agentGenerating, onAddSlideGeneratingChange]);
+
   const aiEditedSlideIds = new Set(
     (recentEdits ?? [])
       .filter((edit) => edit.isAgent)

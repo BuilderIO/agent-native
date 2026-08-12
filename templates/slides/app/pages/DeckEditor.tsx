@@ -1037,7 +1037,17 @@ export default function DeckEditor() {
 
   const handleAddEmptySlide = () => {
     const activeIdx = deck.slides.findIndex((s) => s.id === activeSlideId);
-    const newId = addSlide(id, "blank", activeIdx >= 0 ? activeIdx : undefined);
+    // Immediate persistence: this placeholder is immediately followed by an
+    // agent request to `update-slide` it, which can reach the server before
+    // the default 500ms debounce would have flushed the `add-slide` op.
+    const newId = addSlide(
+      id,
+      "blank",
+      activeIdx >= 0 ? activeIdx : undefined,
+      {
+        persistence: "immediate",
+      },
+    );
     setActiveSlideId(newId);
     return newId;
   };

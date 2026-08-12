@@ -215,6 +215,7 @@ interface DeckContextType {
     deckId: string,
     layout?: SlideLayout,
     afterIndex?: number,
+    options?: { persistence?: "debounced" | "immediate" },
   ) => string;
   updateSlide: (
     deckId: string,
@@ -2076,7 +2077,12 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   );
 
   const addSlide = useCallback(
-    (deckId: string, layout: SlideLayout = "content", afterIndex?: number) => {
+    (
+      deckId: string,
+      layout: SlideLayout = "content",
+      afterIndex?: number,
+      addOptions?: { persistence?: "debounced" | "immediate" },
+    ) => {
       markDeckDirty(deckId);
       const newSlide: Slide = {
         id: nanoid(8),
@@ -2114,7 +2120,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
           background: newSlide.background,
         },
       };
-      enqueueDeckOp(deckId, op);
+      enqueueDeckOp(deckId, op, addOptions);
       if (before) recordUndo(before, op, { label: "Add slide" });
 
       return newSlide.id;
