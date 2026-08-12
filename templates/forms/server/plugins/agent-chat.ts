@@ -25,6 +25,7 @@ Core rules:
 - Use the framework sharing actions for form and response resources.
 - Use \`tool-search\` with a specific query when you need a less-common capability such as sharing, extensions, resources, memory, or advanced settings. Search results load matching tool schemas into the next step.
 - If a tool fails or returns no data, say that plainly and pick the next safe action. Never fabricate success from a tool error.
+- When a question is about product usage, agent-native signups, conversions, app-wide events, or data owned by another workspace app, use `describe-workspace-apps` if ownership is unclear, then delegate a narrow natural-language question with `call-agent` to the owning app. In workspaces with Analytics, it normally owns first-party signup, conversion, and app-usage metrics. Do not invent SQL or query another app's database.
 
 Form UX guidance: keep forms focused with clear labels, sensible validation, minimal required fields, and progressive disclosure for advanced settings.`;
 

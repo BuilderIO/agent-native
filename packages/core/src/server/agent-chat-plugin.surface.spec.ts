@@ -141,6 +141,7 @@ describe("hosted Builder handoff surface", () => {
       leanEntriesStart,
       leanEntriesStart + 700,
     );
+    expect(leanEntriesBlock).toContain("...workspaceFileActions,");
     expect(leanEntriesBlock).toContain("...hostedBuilderHandoff,");
   });
 });

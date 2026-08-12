@@ -920,8 +920,7 @@ function AutomationsSection() {
   });
 
   const queryClient = useQueryClient();
-  const [isSavingAutomationSends, setIsSavingAutomationSends] =
-    useState(false);
+  const [isSavingAutomationSends, setIsSavingAutomationSends] = useState(false);
   const selectedModel = autoSettings?.model || defaultModel;
   const selectedEngine =
     autoSettings?.engine ||
@@ -971,9 +970,7 @@ function AutomationsSection() {
       queryClient.setQueriesData<AutomationSettings>(
         { queryKey: ["automation-settings"] },
         (current) =>
-          current
-            ? { ...current, allowAutomationSends: previous }
-            : current,
+          current ? { ...current, allowAutomationSends: previous } : current,
       );
       toast.error(
         error instanceof Error

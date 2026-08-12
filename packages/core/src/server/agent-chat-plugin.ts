@@ -2926,6 +2926,7 @@ export function createAgentChatPlugin(
       const leanActionEntries: Record<string, ActionEntry> = {
         ...templateScripts,
         ...resourceScripts,
+        ...workspaceFileActions,
         ...refreshScreenTool,
         ...urlTools,
         ...chatScripts,

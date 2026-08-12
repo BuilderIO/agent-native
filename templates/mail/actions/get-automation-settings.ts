@@ -11,7 +11,7 @@ import {
 
 export default defineAction({
   description:
-    "Read the engine and model used to evaluate inbox automation rules, falling back to the app's configured agent engine.",
+    "Read the engine, model, and email-send permission used by inbox automations, falling back to the app's configured agent engine.",
   schema: z.object({}),
   http: { method: "GET" },
   agentTool: false,

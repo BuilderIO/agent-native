@@ -22,9 +22,6 @@ export async function requiresEmailSendApproval(
 ): Promise<boolean> {
   if (ctx?.caller !== "automation" || !ctx.userEmail) return true;
 
-  const settings = await getUserSetting(
-    ctx.userEmail,
-    "automation-settings",
-  );
+  const settings = await getUserSetting(ctx.userEmail, "automation-settings");
   return !allowsAutomationSends(settings);
 }

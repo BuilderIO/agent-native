@@ -32,6 +32,12 @@ Read the relevant skill before deeper work:
   combined dashboard/report requests.
 - For form setup/configuration previews, call `preview-form`. It returns a
   native inline summary/table and an "Open editor" expansion path.
+- For product usage, agent-native signup, conversion, app-wide event, or other
+  data-owned-by-sibling questions, use `describe-workspace-apps` when ownership
+  is unclear, then delegate a narrow natural-language question with `call-agent`
+  to the owning app. In workspaces with Analytics, it normally owns first-party
+  signup, conversion, and app-usage metrics. Do not invent SQL or query another
+  app's database.
 - For an anonymous feedback form or survey, create all fields in one
   `create-form` call with `status: "published"`, verify the persisted form, and
   copy the returned `publicUrl` verbatim. Never derive the link from `slug` or

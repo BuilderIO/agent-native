@@ -2,6 +2,7 @@ import { defineAction } from "@agent-native/core";
 import type { ActionRunContext } from "@agent-native/core/action";
 import { z } from "zod";
 
+import { requiresEmailSendApproval } from "../server/lib/automation-settings.js";
 import {
   claimQueuedDraftForSending,
   listQueuedDrafts,
@@ -9,7 +10,6 @@ import {
   releaseQueuedDraftClaim,
   type QueuedEmailDraft,
 } from "../server/lib/queued-drafts.js";
-import { requiresEmailSendApproval } from "../server/lib/automation-settings.js";
 import sendEmailAction from "./send-email.js";
 
 function extractSentMessageId(result: unknown): string | undefined {
@@ -34,7 +34,10 @@ type SendOutcome =
   | { outcome: "skipped"; id: string; reason: string }
   | { outcome: "failed"; id: string; error: string };
 
-async function sendOne(id: string): Promise<SendOutcome> {
+async function sendOne(
+  id: string,
+  actionContext?: ActionRunContext,
+): Promise<SendOutcome> {
   const claim = await claimQueuedDraftForSending(id);
   if (!claim.claimed) {
     if (claim.reason === "sent") {
@@ -52,14 +55,17 @@ async function sendOne(id: string): Promise<SendOutcome> {
 
   const { ctx, draft, claimId, priorStatus } = claim;
   try {
-    const result = await (sendEmailAction as any).run({
-      to: draft.to,
-      cc: draft.cc || undefined,
-      bcc: draft.bcc || undefined,
-      subject: draft.subject,
-      body: draft.body,
-      account: draft.accountEmail || undefined,
-    });
+    const result = await sendEmailAction.run(
+      {
+        to: draft.to,
+        cc: draft.cc || undefined,
+        bcc: draft.bcc || undefined,
+        subject: draft.subject,
+        body: draft.body,
+        account: draft.accountEmail || undefined,
+      },
+      actionContext,
+    );
 
     if (typeof result === "string" && result.startsWith("Error")) {
       throw new Error(result);
@@ -99,7 +105,7 @@ export default defineAction({
   }),
   needsApproval: (_args, ctx?: ActionRunContext) =>
     requiresEmailSendApproval(ctx),
-  run: async (args) => {
+  run: async (args, ctx) => {
     let ids: string[] = [];
 
     if (args.all) {
@@ -131,7 +137,7 @@ export default defineAction({
     const failed: Array<{ id: string; error: string }> = [];
 
     for (const id of ids) {
-      const result = await sendOne(id);
+      const result = await sendOne(id, ctx);
       if (result.outcome === "sent") {
         sent.push(result);
       } else if (result.outcome === "failed") {

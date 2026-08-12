@@ -9,6 +9,7 @@ import { getUserSetting } from "@agent-native/core/settings";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
+import { requiresEmailSendApproval } from "../server/lib/automation-settings.js";
 import {
   collectLinks,
   newClickToken,
@@ -33,7 +34,6 @@ import {
   resolveComposeAttachments,
   splitReplyQuote,
 } from "../server/lib/outgoing-email.js";
-import { requiresEmailSendApproval } from "../server/lib/automation-settings.js";
 import { resolveGoogleSenderIdentity } from "../server/lib/sender-identity.js";
 import { markdownPreviewSnippet } from "../shared/markdown.js";
 import type { UserSettings } from "../shared/types.js";
@@ -142,9 +142,14 @@ export default defineAction({
   // trusted action context rather than from tool input.
   needsApproval: (_args, ctx?: ActionRunContext) =>
     requiresEmailSendApproval(ctx),
-  run: async (args) => {
+  run: async (args, ctx) => {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");
+    if (ctx?.caller === "automation" && (await requiresEmailSendApproval(ctx))) {
+      throw new Error(
+        "Automation email sending is disabled. Enable it in Mail settings to send automatically.",
+      );
+    }
     const settings = await readSettings();
 
     // Resolve attachments eagerly — fail before touching Gmail if any are missing.
