@@ -1358,6 +1358,7 @@ function AgentPanelInner({
               <ShareButton
                 resourceType="chat_thread"
                 resourceId={activeTab.id}
+                allowedRoles={["viewer", "editor", "admin"]}
                 resourceTitle={activeTab.label || "Chat"}
                 shareUrl={getChatThreadShareUrl(activeTab.id)}
                 trigger="icon"
@@ -1486,6 +1487,7 @@ function AgentPanelInner({
                       <ShareButton
                         resourceType="chat_thread"
                         resourceId={activeTab.id}
+                        allowedRoles={["viewer", "editor", "admin"]}
                         resourceTitle={activeTab.label || "Chat"}
                         shareUrl={getChatThreadShareUrl(activeTab.id)}
                         trigger="label-icon"
@@ -1713,6 +1715,7 @@ function AgentPanelInner({
                 <ShareButton
                   resourceType="chat_thread"
                   resourceId={activeTab.id}
+                  allowedRoles={["viewer", "editor", "admin"]}
                   resourceTitle={activeTab.label || "Chat"}
                   shareUrl={getChatThreadShareUrl(activeTab.id)}
                   trigger="icon"

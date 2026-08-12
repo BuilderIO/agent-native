@@ -31,7 +31,7 @@ interface DesignSystemCardProps {
   data: DesignSystemData;
   isDefault: boolean;
   visibility?: "private" | "org" | "public" | null;
-  accessRole?: "owner" | "admin" | "editor" | "viewer";
+  accessRole?: "owner" | "admin" | "editor" | "commenter" | "viewer";
   canManage?: boolean;
   onClick: () => void;
   onSetDefault: () => void;
@@ -121,6 +121,7 @@ export function DesignSystemCard({
           <ShareButton
             resourceType="design-system"
             resourceId={id}
+            allowedRoles={["viewer", "editor", "admin"]}
             resourceTitle={title}
           />
           {(canManage || canSetWorkspaceDefault) && (

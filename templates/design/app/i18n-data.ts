@@ -1472,6 +1472,8 @@ const enUS = {
       "Connect from a website, code, files, or an existing design system.",
     chooseSourcePrompt: "Choose one source to configure",
     continue: "Continue to generation",
+    starting: "Starting...",
+    githubIndexStarted: "GitHub indexing started",
     title: "Set up your design system",
     description:
       "Connect Figma, code, and optional design.md guidance through Builder DSI. More context gives the agent a more accurate system.",
@@ -1532,6 +1534,8 @@ const enUS = {
       enterGithub: "Enter a GitHub repository URL before adding it.",
       githubUrl:
         "Use a full GitHub repository URL, like https://github.com/org/repo.",
+      githubIndex:
+        "Could not start GitHub indexing. Check your Builder connection and repository access.",
       noSources: "Add at least one source before generating a design system.",
     },
     sections: {
@@ -1947,6 +1951,8 @@ const designLocaleOverrides = {
       otherSourcesDescription: "从网站、代码、文件或现有设计系统连接。",
       chooseSourcePrompt: "选择一个来源进行配置",
       continue: "继续生成",
+      starting: "正在启动…",
+      githubIndexStarted: "GitHub 索引已开始",
       title: "设置您的设计系统",
       description:
         "通过 Builder DSI 连接 Figma、代码和可选的 design.md 指引。上下文越多，代理得到的系统越准确。",
@@ -1999,6 +2005,8 @@ const designLocaleOverrides = {
         enterGithub: "在添加之前输入 GitHub 存储库 URL。",
         githubUrl:
           "使用完整的 GitHub 存储库 URL，例如 https://github.com/org/repo。",
+        githubIndex:
+          "无法启动 GitHub 索引。请检查 Builder 连接和仓库访问权限。",
         noSources: "在生成设计系统之前至少添加一个源。",
       },
       sections: {
@@ -2356,6 +2364,8 @@ const designLocaleOverrides = {
         "Conecta desde un sitio web, código, archivos o un sistema de diseño existente.",
       chooseSourcePrompt: "Elige una fuente para configurar",
       continue: "continuar con la generación",
+      starting: "Iniciando…",
+      githubIndexStarted: "La indexación de GitHub ha comenzado",
       title: "Configure su sistema de diseño",
       description:
         "Conecta Figma, código y guía opcional de design.md mediante Builder DSI. Más contexto le da al agente un sistema más preciso.",
@@ -2418,6 +2428,8 @@ const designLocaleOverrides = {
         enterGithub: "Ingrese un repositorio GitHub URL antes de agregarlo.",
         githubUrl:
           "Utilice un repositorio GitHub completo URL, como https://github.com/org/repo.",
+        githubIndex:
+          "No se pudo iniciar la indexación de GitHub. Comprueba la conexión de Builder y el acceso al repositorio.",
         noSources:
           "Agregue al menos una fuente antes de generar un sistema de diseño.",
       },
@@ -2787,6 +2799,8 @@ const designLocaleOverrides = {
         "Connectez-vous depuis un site web, du code, des fichiers ou un système de conception existant.",
       chooseSourcePrompt: "Choisissez une source à configurer",
       continue: "Continuer jusqu'à la génération",
+      starting: "Démarrage…",
+      githubIndexStarted: "L’indexation GitHub a démarré",
       title: "Configurez votre système de conception",
       description:
         "Connectez Figma, le code et les consignes design.md facultatives via Builder DSI. Plus le contexte est riche, plus le système de l’agent est précis.",
@@ -2849,6 +2863,8 @@ const designLocaleOverrides = {
         enterGithub: "Entrez un référentiel GitHub URL avant de l'ajouter.",
         githubUrl:
           "Utilisez un référentiel GitHub complet URL, comme https://github.com/org/repo.",
+        githubIndex:
+          "Impossible de démarrer l’indexation GitHub. Vérifiez la connexion à Builder et l’accès au dépôt.",
         noSources:
           "Ajoutez au moins une source avant de générer un système de conception.",
       },
@@ -3218,6 +3234,8 @@ const designLocaleOverrides = {
         "Von einer Website, Code, Dateien oder einem vorhandenen Designsystem verbinden.",
       chooseSourcePrompt: "Quelle zum Konfigurieren auswählen",
       continue: "Weiter zur Generation",
+      starting: "Wird gestartet…",
+      githubIndexStarted: "GitHub-Indizierung gestartet",
       title: "Richten Sie Ihr Designsystem ein",
       description:
         "Verbinde Figma, Code und optionale design.md-Anweisungen über Builder DSI. Mehr Kontext gibt dem Agenten ein genaueres System.",
@@ -3282,6 +3300,8 @@ const designLocaleOverrides = {
           "Geben Sie ein GitHub-Repository URL ein, bevor Sie es hinzufügen.",
         githubUrl:
           "Verwenden Sie ein vollständiges GitHub-Repository URL, wie https://github.com/org/repo.",
+        githubIndex:
+          "GitHub-Indizierung konnte nicht gestartet werden. Prüfe die Builder-Verbindung und den Repository-Zugriff.",
         noSources:
           "Fügen Sie mindestens eine Quelle hinzu, bevor Sie ein Designsystem erstellen.",
       },
@@ -3649,6 +3669,8 @@ const designLocaleOverrides = {
         "Webサイト、コード、ファイル、または既存のデザインシステムから接続します。",
       chooseSourcePrompt: "設定するソースを選択",
       continue: "世代を継続する",
+      starting: "開始中…",
+      githubIndexStarted: "GitHub のインデックス作成を開始しました",
       title: "デザインシステムをセットアップする",
       description:
         "Figma、コード、任意の design.md ガイドを Builder DSI で接続します。コンテキストが多いほど、エージェントのシステムは正確になります。",
@@ -3711,6 +3733,8 @@ const designLocaleOverrides = {
         enterGithub: "追加する前に、GitHub リポジトリ URL を入力します。",
         githubUrl:
           "https://github.com/org/repo など、完全な GitHub リポジトリ URL を使用します。",
+        githubIndex:
+          "GitHub のインデックス作成を開始できませんでした。Builder の接続とリポジトリへのアクセスを確認してください。",
         noSources:
           "デザイン システムを生成する前に、少なくとも 1 つのソースを追加します。",
       },
@@ -4075,6 +4099,8 @@ const designLocaleOverrides = {
         "웹사이트, 코드, 파일 또는 기존 디자인 시스템에서 연결합니다.",
       chooseSourcePrompt: "구성할 소스 선택",
       continue: "세대를 이어가다",
+      starting: "시작 중…",
+      githubIndexStarted: "GitHub 인덱싱이 시작되었습니다",
       title: "디자인 시스템 설정",
       description:
         "Figma, 코드, 선택적 design.md 지침을 Builder DSI로 연결하세요. 맥락이 많을수록 에이전트의 시스템이 더 정확해집니다.",
@@ -4133,6 +4159,8 @@ const designLocaleOverrides = {
         enterGithub: "추가하기 전에 GitHub 저장소 URL를 입력하세요.",
         githubUrl:
           "https://github.com/org/repo와 같은 전체 GitHub 저장소 URL를 사용하세요.",
+        githubIndex:
+          "GitHub 인덱싱을 시작할 수 없습니다. Builder 연결과 저장소 접근 권한을 확인하세요.",
         noSources: "디자인 시스템을 생성하기 전에 소스를 하나 이상 추가하세요.",
       },
       sections: {
@@ -4495,6 +4523,8 @@ const designLocaleOverrides = {
         "Conecte-se de um site, código, arquivos ou um sistema de design existente.",
       chooseSourcePrompt: "Escolha uma fonte para configurar",
       continue: "Continuar para a geração",
+      starting: "Iniciando…",
+      githubIndexStarted: "Indexação do GitHub iniciada",
       title: "Configure seu sistema de design",
       description:
         "Conecte Figma, código e orientações opcionais de design.md pelo Builder DSI. Mais contexto dá ao agente um sistema mais preciso.",
@@ -4556,6 +4586,8 @@ const designLocaleOverrides = {
         enterGithub: "Insira um repositório GitHub URL antes de adicioná-lo.",
         githubUrl:
           "Use um repositório GitHub completo URL, como https://github.com/org/repo.",
+        githubIndex:
+          "Não foi possível iniciar a indexação do GitHub. Verifique a conexão do Builder e o acesso ao repositório.",
         noSources:
           "Adicione pelo menos uma fonte antes de gerar um sistema de design.",
       },
@@ -4921,6 +4953,8 @@ const designLocaleOverrides = {
         "वेबसाइट, कोड, फ़ाइलों या मौजूदा डिज़ाइन सिस्टम से कनेक्ट करें।",
       chooseSourcePrompt: "कॉन्फ़िगर करने के लिए एक स्रोत चुनें",
       continue: "पीढ़ी तक जारी रखें",
+      starting: "शुरू हो रहा है…",
+      githubIndexStarted: "GitHub इंडेक्सिंग शुरू हो गई",
       title: "अपना डिज़ाइन सिस्टम सेट करें",
       description:
         "Figma, कोड और वैकल्पिक design.md मार्गदर्शन को Builder DSI से कनेक्ट करें. अधिक संदर्भ एजेंट को अधिक सटीक सिस्टम देता है.",
@@ -4977,6 +5011,8 @@ const designLocaleOverrides = {
         enterGithub: "इसे जोड़ने से पहले एक GitHub रिपॉजिटरी URL दर्ज करें।",
         githubUrl:
           "https://github.com/org/repo जैसे पूर्ण GitHub रिपॉजिटरी URL का उपयोग करें।",
+        githubIndex:
+          "GitHub इंडेक्सिंग शुरू नहीं हो सकी। Builder कनेक्शन और रिपॉजिटरी एक्सेस जाँचें।",
         noSources: "डिज़ाइन सिस्टम तैयार करने से पहले कम से कम एक स्रोत जोड़ें।",
       },
       sections: {
@@ -5337,6 +5373,8 @@ const designLocaleOverrides = {
         "الاتصال من موقع ويب أو رمز أو ملفات أو نظام تصميم موجود.",
       chooseSourcePrompt: "اختر مصدرًا لتهيئته",
       continue: "الاستمرار في الجيل",
+      starting: "جارٍ البدء…",
+      githubIndexStarted: "بدأت فهرسة GitHub",
       title: "قم بإعداد نظام التصميم الخاص بك",
       description:
         "اربط Figma والكود وإرشادات design.md الاختيارية عبر Builder DSI. كلما زاد السياق، حصل الوكيل على نظام أدق.",
@@ -5395,6 +5433,8 @@ const designLocaleOverrides = {
         enterGithub: "أدخل مستودع GitHub URL قبل إضافته.",
         githubUrl:
           "استخدم مستودع GitHub الكامل URL، مثل https://github.com/org/repo.",
+        githubIndex:
+          "تعذر بدء فهرسة GitHub. تحقق من اتصال Builder ومن صلاحية الوصول إلى المستودع.",
         noSources: "أضف مصدرًا واحدًا على الأقل قبل إنشاء نظام التصميم.",
       },
       sections: {

@@ -67,6 +67,16 @@ beforeEach(() => {
     // The first test creates the table through the store initializer.
   }
   try {
+    sqlite.prepare("DELETE FROM workspace_user_groups").run();
+  } catch {
+    // Group tests create the table on demand.
+  }
+  try {
+    sqlite.prepare("DELETE FROM org_members").run();
+  } catch {
+    // Most store tests do not need organization membership rows.
+  }
+  try {
     sqlite.prepare("DELETE FROM app_secrets").run();
   } catch {
     // The first secret-backed test creates the table through the store.
@@ -532,6 +542,86 @@ describe("workspace connection store", () => {
         allowedUsers: ["alice@example.com"],
       },
     });
+  });
+
+  it("resolves connection access through mutable workspace user groups", async () => {
+    const { runWithRequestContext } =
+      await import("../server/request-context.js");
+    const { upsertWorkspaceUserGroup } = await import("./groups.js");
+    const { upsertWorkspaceConnection, resolveWorkspaceConnectionForApp } =
+      await import("./store.js");
+
+    sqlite.exec(`
+      CREATE TABLE IF NOT EXISTS org_members (
+        id TEXT PRIMARY KEY,
+        org_id TEXT NOT NULL,
+        email TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'member',
+        joined_at INTEGER NOT NULL DEFAULT 0
+      )
+    `);
+    sqlite
+      .prepare(
+        "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)",
+      )
+      .run("member-alice", "org-groups", "alice@example.com", "owner", 1);
+    sqlite
+      .prepare(
+        "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)",
+      )
+      .run("member-bob", "org-groups", "bob@example.com", "member", 2);
+
+    const connectionId = await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "org-groups" },
+      async () => {
+        const group = await upsertWorkspaceUserGroup({
+          name: "Rev Ops",
+          memberEmails: ["bob@example.com"],
+        });
+        const connection = await upsertWorkspaceConnection({
+          id: "conn-rev-ops",
+          provider: "hubspot",
+          label: "Rev Ops HubSpot",
+          allowedUserGroups: [group.id],
+        });
+        return connection.id;
+      },
+    );
+
+    const bobCanResolve = await runWithRequestContext(
+      { userEmail: "bob@example.com", orgId: "org-groups" },
+      () =>
+        resolveWorkspaceConnectionForApp({
+          appId: "dispatch",
+          provider: "hubspot",
+          connectionId,
+        }),
+    );
+    expect(bobCanResolve.available).toBe(true);
+
+    await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "org-groups" },
+      async () => {
+        const groups = await import("./groups.js");
+        const [group] = await groups.listWorkspaceUserGroups();
+        await groups.upsertWorkspaceUserGroup({
+          id: group.id,
+          name: group.name,
+          memberEmails: [],
+        });
+      },
+    );
+
+    const bobAfterRemoval = await runWithRequestContext(
+      { userEmail: "bob@example.com", orgId: "org-groups" },
+      () =>
+        resolveWorkspaceConnectionForApp({
+          appId: "dispatch",
+          provider: "hubspot",
+          connectionId,
+        }),
+    );
+    expect(bobAfterRemoval.available).toBe(false);
   });
 
   it("scopes workspace connection grants to the active org", async () => {

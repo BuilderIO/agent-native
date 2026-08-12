@@ -1057,11 +1057,7 @@ export default function RecordingPage() {
         <p className="text-sm text-muted-foreground mb-4 max-w-md text-center">
           {failureReason}
         </p>
-        {isFailure &&
-        !storageSetupFailure &&
-        detail &&
-        role &&
-        role !== "viewer" ? (
+        {isFailure && !storageSetupFailure && detail && role && canEdit ? (
           <div className="mb-4 w-full max-w-xl rounded-md border border-border bg-card p-4 text-start shadow-sm">
             <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
               {t("recordingPage.details")}

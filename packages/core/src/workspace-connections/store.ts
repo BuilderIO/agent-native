@@ -26,6 +26,7 @@ import {
 } from "../server/request-context.js";
 import { credentialKeyMatches } from "./credential-key-aliases.js";
 import {
+  assertWorkspaceUserGroupIds,
   normalizeWorkspaceUserGroupIds,
   workspaceUserGroupsIncludeUser,
 } from "./groups.js";
@@ -807,8 +808,7 @@ function workspaceConnectionHasDirectUserAccess(
 ): boolean {
   const allowedUserGroups = connection.allowedUserGroups ?? [];
   return (
-    (connection.allowedUsers.length === 0 &&
-      allowedUserGroups.length === 0) ||
+    (connection.allowedUsers.length === 0 && allowedUserGroups.length === 0) ||
     connection.allowedUsers.includes(userEmail)
   );
 }
@@ -1692,13 +1692,12 @@ export async function listWorkspaceConnections(
     connections,
     scope,
   );
-  return userConnections
-    .filter(
-      (connection) =>
-        connection.allowedApps.length === 0 ||
-        connection.allowedApps.includes(appId) ||
-        grantedConnectionIds.has(connection.id),
-    );
+  return userConnections.filter(
+    (connection) =>
+      connection.allowedApps.length === 0 ||
+      connection.allowedApps.includes(appId) ||
+      grantedConnectionIds.has(connection.id),
+  );
 }
 
 export async function getWorkspaceConnection(
@@ -1747,7 +1746,10 @@ export async function upsertWorkspaceConnection(
   const allowedUserGroups =
     input.allowedUserGroups === undefined
       ? (existingConnection?.allowedUserGroups ?? [])
-      : normalizeWorkspaceUserGroupIds(input.allowedUserGroups);
+      : ((await assertWorkspaceUserGroupIds(
+          input.allowedUserGroups,
+          scope.orgId,
+        )) ?? []);
   const credentialRefs = normalizeCredentialRefs(input.credentialRefs);
   const lastCheckedAt = millis(input.lastCheckedAt);
   const lastError = input.lastError ?? null;

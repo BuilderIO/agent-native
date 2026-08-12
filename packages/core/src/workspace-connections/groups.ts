@@ -8,10 +8,7 @@ import {
   safeJsonParse,
   type DbExec,
 } from "../db/client.js";
-import {
-  ensureIndexExists,
-  ensureTableExists,
-} from "../db/ddl-guard.js";
+import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 import { isOrgMember } from "../org/membership.js";
 import {
   getRequestOrgId,
@@ -34,6 +31,13 @@ export interface UpsertWorkspaceUserGroupInput {
   memberEmails: string[];
   orgId?: string | null;
   createdByEmail?: string;
+}
+
+export interface UpdateWorkspaceUserGroupMembersInput {
+  id: string;
+  memberEmails: string[];
+  operation: "add" | "remove";
+  orgId?: string | null;
 }
 
 function workspaceUserGroupsTable(): string {
@@ -82,7 +86,9 @@ function normalizeGroupName(value: unknown): string {
   const name = typeof value === "string" ? value.trim() : "";
   if (!name) throw new Error("Workspace user group name is required.");
   if (name.length > 80) {
-    throw new Error("Workspace user group names must be 80 characters or less.");
+    throw new Error(
+      "Workspace user group names must be 80 characters or less.",
+    );
   }
   return name;
 }
@@ -244,7 +250,9 @@ export async function assertWorkspaceUserGroupIds(
   const found = new Set(groups.map((group) => group.id));
   const missing = normalized.filter((id) => !found.has(id));
   if (missing.length > 0) {
-    throw new Error(`User groups were not found in this workspace: ${missing.join(", ")}.`);
+    throw new Error(
+      `User groups were not found in this workspace: ${missing.join(", ")}.`,
+    );
   }
   return normalized;
 }
@@ -262,7 +270,9 @@ export async function assertWorkspaceUserGroupManager(
     sql: `SELECT role FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
     args: [normalizedOrgId, normalizedEmail],
   });
-  const role = String((rows[0] as Record<string, unknown> | undefined)?.role ?? "");
+  const role = String(
+    (rows[0] as Record<string, unknown> | undefined)?.role ?? "",
+  );
   if (role !== "owner" && role !== "admin") {
     throw new Error("Only workspace admins can manage user groups.");
   }
@@ -324,6 +334,69 @@ export async function upsertWorkspaceUserGroup(
   const group = groups[0];
   if (!group) throw new Error(`User group "${id}" was not found after upsert.`);
   return group;
+}
+
+export async function updateWorkspaceUserGroupMembers(
+  input: UpdateWorkspaceUserGroupMembersInput,
+): Promise<WorkspaceUserGroup> {
+  const requestScope = requireWorkspaceUserGroupScope();
+  const orgId = input.orgId?.trim() || requestScope.orgId;
+  if (orgId !== requestScope.orgId) {
+    throw new Error("User groups must belong to the active workspace.");
+  }
+
+  const id = input.id.trim();
+  if (!id) throw new Error("A user group is required.");
+  const group = (await listWorkspaceUserGroupsForOrg(orgId, [id]))[0];
+  if (!group) throw new Error(`User group "${id}" was not found.`);
+
+  const memberEmails = normalizeMemberEmails(input.memberEmails);
+  const missing = (
+    await Promise.all(
+      memberEmails.map(async (email) =>
+        (await isOrgMember(orgId, email)) ? null : email,
+      ),
+    )
+  ).filter((email): email is string => Boolean(email));
+  if (missing.length > 0) {
+    throw new Error(
+      `Group members must belong to this workspace: ${missing.join(", ")}.`,
+    );
+  }
+
+  const existing = new Set(group.memberEmails);
+  const nextMembers =
+    input.operation === "add"
+      ? Array.from(new Set([...existing, ...memberEmails]))
+      : group.memberEmails.filter((email) => !memberEmails.includes(email));
+
+  return upsertWorkspaceUserGroup({
+    id: group.id,
+    name: group.name,
+    memberEmails: nextMembers,
+    orgId,
+    createdByEmail: requestScope.userEmail,
+  });
+}
+
+export async function deleteWorkspaceUserGroup(
+  id: string,
+  orgId?: string | null,
+): Promise<boolean> {
+  const requestScope = requireWorkspaceUserGroupScope();
+  const normalizedOrgId = orgId?.trim() || requestScope.orgId;
+  if (normalizedOrgId !== requestScope.orgId) {
+    throw new Error("User groups must belong to the active workspace.");
+  }
+  const normalizedId = id.trim();
+  if (!normalizedId) throw new Error("A user group is required.");
+
+  await ensureWorkspaceUserGroupsTable();
+  const result = await getDbExec().execute({
+    sql: `DELETE FROM ${workspaceUserGroupsTable()} WHERE id = ? AND org_id = ?`,
+    args: [normalizedId, normalizedOrgId],
+  });
+  return result.rowsAffected > 0;
 }
 
 export async function workspaceUserGroupsIncludeUser(

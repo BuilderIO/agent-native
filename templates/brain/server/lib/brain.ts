@@ -524,7 +524,7 @@ export function serializeProposal(
 
 export async function getAccessibleSource(
   sourceId: string,
-  role: "viewer" | "editor" | "admin" | "owner" = "viewer",
+  role: "viewer" | "commenter" | "editor" | "admin" | "owner" = "viewer",
 ): Promise<ResolvedAccess> {
   if (role !== "viewer") {
     return assertAccess("brain-source", sourceId, role);

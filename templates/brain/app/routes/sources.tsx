@@ -1873,6 +1873,7 @@ function SourceListItem({
           <ShareButton
             resourceType="brain-source"
             resourceId={source.id}
+            allowedRoles={["viewer", "editor", "admin"]}
             resourceTitle={sourceName(source)}
             trigger="icon"
             triggerClassName="size-8"

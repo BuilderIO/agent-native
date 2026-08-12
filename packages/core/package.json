@@ -314,6 +314,10 @@
     },
     "./workspace-files": "./dist/workspace-files/index.js",
     "./workspace-connections/credential-key-aliases": "./dist/workspace-connections/credential-key-aliases.js",
+    "./workspace-connections/actions/list-workspace-user-groups": "./dist/workspace-connections/actions/list-workspace-user-groups.js",
+    "./workspace-connections/actions/upsert-workspace-user-group": "./dist/workspace-connections/actions/upsert-workspace-user-group.js",
+    "./workspace-connections/actions/bulk-update-workspace-user-groups": "./dist/workspace-connections/actions/bulk-update-workspace-user-groups.js",
+    "./workspace-connections/actions/delete-workspace-user-group": "./dist/workspace-connections/actions/delete-workspace-user-group.js",
     "./package-lifecycle": {
       "types": "./dist/package-lifecycle/index.d.ts",
       "default": "./dist/package-lifecycle/index.js"

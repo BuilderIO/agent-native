@@ -1,6 +1,9 @@
 import { defineAction } from "@agent-native/core";
 import { getWorkspaceConnectionProvider } from "@agent-native/core/connections";
-import { getWorkspaceConnection } from "@agent-native/core/workspace-connections";
+import {
+  credentialKeyMatches,
+  getWorkspaceConnection,
+} from "@agent-native/core/workspace-connections";
 import { z } from "zod";
 
 import upsertWorkspaceConnection, {
@@ -116,11 +119,15 @@ export default defineAction({
           key,
       };
     });
-    const availableRefs = new Set(credentialRefs.map((ref) => ref.key));
     const missingRequiredRefs = provider.credentialKeys
       .filter((credential) => credential.required)
       .map((credential) => credential.key)
-      .filter((key) => !availableRefs.has(key));
+      .filter(
+        (key) =>
+          !credentialRefs.some((ref) =>
+            credentialKeyMatches(provider.id, key, ref.key),
+          ),
+      );
 
     if (missingRequiredRefs.length > 0) {
       throw new Error(
@@ -155,9 +162,11 @@ export default defineAction({
         ? []
         : Array.from(
             new Set(
-              (args.selectedUserGroups ??
+              (
+                args.selectedUserGroups ??
                 existingConnection?.allowedUserGroups ??
-                [])
+                []
+              )
                 .map((groupId) => groupId.trim())
                 .filter(Boolean),
             ),

@@ -34,8 +34,9 @@ describe("Analytics layout sidebar route policy", () => {
       'className="flex min-h-0 flex-1 flex-col overflow-hidden py-2"',
     );
     expect(source).toContain(
-      'className="min-h-0 flex-1 grid min-w-0 items-start overflow-x-hidden overflow-y-auto px-2 text-sm font-medium lg:px-4 space-y-1"',
+      'className="min-h-0 min-w-0 flex flex-1 flex-col gap-1 overflow-x-hidden overflow-y-auto px-2 text-sm font-medium lg:px-4"',
     );
+    expect(source).toContain('className="flex min-w-0 flex-col gap-1 pb-1"');
     expect(source).toContain(
       'className="shrink-0 min-w-0 px-2 pt-2 text-sm font-medium lg:px-4"',
     );
@@ -59,6 +60,8 @@ describe("Analytics layout sidebar route policy", () => {
     );
     expect(source).toContain("onClick: handleAskClick");
     expect(source).toContain("onClick={handleAskClick}");
+    expect(source).toContain("open={askOpen}");
+    expect(source).not.toContain("open={askOpen && isAskRoute}");
   });
 
   it("keeps the collapsed rail compact without changing expanded spacing", () => {
@@ -74,7 +77,7 @@ describe("Analytics layout sidebar route policy", () => {
       '"flex h-9 w-9 items-center justify-center rounded-md transition-colors"',
     );
     expect(source).toContain(
-      'className="min-h-0 flex-1 grid min-w-0 items-start overflow-x-hidden overflow-y-auto px-2 text-sm font-medium lg:px-4 space-y-1"',
+      'className="min-h-0 min-w-0 flex flex-1 flex-col gap-1 overflow-x-hidden overflow-y-auto px-2 text-sm font-medium lg:px-4"',
     );
   });
 });

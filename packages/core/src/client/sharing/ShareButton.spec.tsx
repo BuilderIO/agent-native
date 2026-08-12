@@ -218,7 +218,7 @@ describe("ShareButton", () => {
     ).toBeTruthy();
   });
 
-  it("uses role copy overrides without changing the persisted role value", async () => {
+  it("uses commenter role copy overrides and persists the commenter role", async () => {
     await act(async () => {
       root.render(
         <QueryClientProvider client={queryClient}>
@@ -226,7 +226,7 @@ describe("ShareButton", () => {
             resourceType="deck"
             resourceId="deck-1"
             roleCopy={{
-              viewer: {
+              commenter: {
                 label: "Commenter",
                 description: "Can view and add comments",
               },
@@ -239,9 +239,15 @@ describe("ShareButton", () => {
     const roleTrigger = container.querySelector(
       'button[aria-label="Role"]',
     ) as HTMLButtonElement | null;
-    expect(roleTrigger?.textContent).toContain("Commenter");
+    expect(roleTrigger?.textContent).toContain("Viewer");
     await act(async () => roleTrigger?.click());
     expect(document.body.textContent).toContain("Can view and add comments");
+    const commenterOption = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="option"]'),
+    ).find((option) => option.textContent?.includes("Commenter"));
+    expect(commenterOption).toBeTruthy();
+    act(() => commenterOption?.click());
+    expect(roleTrigger?.textContent).toContain("Commenter");
 
     const input = container.querySelector(
       'input[placeholder="Add people by email"]',
@@ -257,10 +263,37 @@ describe("ShareButton", () => {
     expect(shareMutate).toHaveBeenCalledWith(
       expect.objectContaining({
         principalId: "commenter@example.com",
-        role: "viewer",
+        role: "commenter",
       }),
       expect.any(Object),
     );
+  });
+
+  it("can omit commenter for resources without comment support", async () => {
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton
+            resourceType="form"
+            resourceId="form-1"
+            allowedRoles={["viewer", "editor", "admin"]}
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    const roleTrigger = container.querySelector(
+      'button[aria-label="Role"]',
+    ) as HTMLButtonElement | null;
+    await act(async () => roleTrigger?.click());
+    expect(document.body.textContent).not.toContain(
+      "Can view and add comments",
+    );
+    expect(
+      Array.from(
+        document.querySelectorAll<HTMLElement>('[role="option"]'),
+      ).some((option) => option.textContent?.includes("Commenter")),
+    ).toBe(false);
   });
 
   it("sends an optional message with the notification", async () => {

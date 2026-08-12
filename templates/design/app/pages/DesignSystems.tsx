@@ -71,8 +71,6 @@ import {
   getCssColorToken,
 } from "@/lib/design-system-preview";
 
-import type { DesignSystemTemplateId } from "../../shared/design-system-templates";
-import { ProductionDesignSystemShowcase } from "../components/design-system/ProductionDesignSystemShowcase";
 import { QueryErrorState } from "../components/QueryErrorState";
 
 interface DesignSystem {
@@ -84,7 +82,7 @@ interface DesignSystem {
   customInstructions?: string | null;
   isDefault: boolean;
   visibility?: "private" | "org" | "public" | null;
-  accessRole?: "owner" | "viewer" | "editor" | "admin";
+  accessRole?: "owner" | "viewer" | "commenter" | "editor" | "admin";
   canManage?: boolean;
   createdAt: string;
   updatedAt?: string;
@@ -124,8 +122,6 @@ export default function DesignSystems() {
   const [selectedSystemIds, setSelectedSystemIds] = useState<Set<string>>(
     () => new Set(),
   );
-  const [pendingTemplateId, setPendingTemplateId] =
-    useState<DesignSystemTemplateId | null>(null);
 
   const { data, isLoading, isError, isFetching, refetch } = useActionQuery<{
     designSystems: DesignSystem[];
@@ -134,7 +130,6 @@ export default function DesignSystems() {
   const setDefaultMutation = useActionMutation("set-default-design-system");
   const deleteMutation = useActionMutation("delete-design-system");
   const updateMutation = useActionMutation("update-design-system");
-  const createMutation = useActionMutation("create-design-system");
 
   const designSystems = data?.designSystems ?? [];
   const selectedDesignSystemId = searchParams.get("designSystemId");
@@ -250,33 +245,6 @@ export default function DesignSystems() {
       });
     },
     [queryClient, setDefaultMutation],
-  );
-
-  const handleAddProductionTemplate = useCallback(
-    (templateId: DesignSystemTemplateId) => {
-      setPendingTemplateId(templateId);
-      createMutation.mutate({ templateId } as any, {
-        onSuccess: (result: any) => {
-          setPendingTemplateId(null);
-          toast.success(t("designSystems.showcase.addSuccess"));
-          const id =
-            result && typeof result.id === "string" ? result.id : undefined;
-          navigate(
-            id
-              ? `/design-systems?designSystemId=${encodeURIComponent(id)}`
-              : "/design-systems",
-          );
-        },
-        onError: (error) => {
-          setPendingTemplateId(null);
-          toast.error(t("designSystems.showcase.addError"), {
-            description:
-              error instanceof Error ? error.message : t("common.genericError"),
-          });
-        },
-      });
-    },
-    [createMutation, navigate, t],
   );
 
   const handleDelete = useCallback(() => {
@@ -438,15 +406,7 @@ export default function DesignSystems() {
               retrying={isFetching}
             />
           ) : designSystems.length === 0 ? (
-            <>
-              <EmptyState />
-              <div className="border-t border-border pt-8">
-                <ProductionDesignSystemShowcase
-                  pendingTemplateId={pendingTemplateId}
-                  onAdd={handleAddProductionTemplate}
-                />
-              </div>
-            </>
+            <EmptyState />
           ) : (
             <>
               {isSelectionMode ? (
@@ -608,6 +568,7 @@ export default function DesignSystems() {
                           <ShareButton
                             resourceType="design-system"
                             resourceId={ds.id}
+                            allowedRoles={["viewer", "editor", "admin"]}
                             resourceTitle={ds.title}
                           />
                         </div>
@@ -699,12 +660,6 @@ export default function DesignSystems() {
                   })}
                 </div>
               </section>
-              <div className="mt-12 border-t border-border pt-8">
-                <ProductionDesignSystemShowcase
-                  pendingTemplateId={pendingTemplateId}
-                  onAdd={handleAddProductionTemplate}
-                />
-              </div>
             </>
           )}
         </main>

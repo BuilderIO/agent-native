@@ -105,6 +105,8 @@ export interface ShareButtonProps {
   >;
   /** Optional template-specific labels and descriptions for share roles. */
   roleCopy?: Partial<Record<Role, { label?: string; description?: string }>>;
+  /** Optional role capability boundary for resources without comment support. */
+  allowedRoles?: readonly Role[];
   /** Optional label for the explicit per-person access list. */
   peopleAccessLabel?: ReactNode;
   /** Optional label for the coarse visibility control. */
@@ -267,6 +269,7 @@ export function ShareButton(props: ShareButtonProps) {
     onOpenChange: props.onOpenChange,
     shareTabs: props.shareTabs,
     shareUrl: props.shareUrl,
+    allowedRoles: props.allowedRoles,
     hideInSearchControl: props.hideInSearchControl,
   });
   const triggerVisibility = controller.triggerVisibility;
@@ -457,6 +460,7 @@ function SharePanel(
               value={role}
               onChange={setRole}
               roleCopy={props.roleCopy}
+              allowedRoles={props.allowedRoles}
             />
             <button
               type="button"
@@ -547,6 +551,7 @@ function SharePanel(
                 disabled={inFlight.has(keyOf(s))}
                 plain
                 roleCopy={props.roleCopy}
+                allowedRoles={props.allowedRoles}
               />
             ) : (
               <span className="text-xs text-muted-foreground">
@@ -1115,11 +1120,15 @@ function RoleSelect(props: {
    *  the per-person role picker in Google Docs. */
   plain?: boolean;
   roleCopy?: ShareButtonProps["roleCopy"];
+  allowedRoles?: ShareButtonProps["allowedRoles"];
 }) {
   const current = roleMeta(props.value, props.roleCopy);
-  const options = ROLE_OPTIONS.map((option) =>
-    roleMeta(option.value, props.roleCopy),
-  );
+  const allowedRoles =
+    props.allowedRoles ?? ROLE_OPTIONS.map((item) => item.value);
+  const options = ROLE_OPTIONS.filter(
+    (option) =>
+      option.value === props.value || allowedRoles.includes(option.value),
+  ).map((option) => roleMeta(option.value, props.roleCopy));
   return (
     <Select.Root
       value={props.value}

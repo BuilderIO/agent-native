@@ -597,6 +597,10 @@ export { CORE_ACTION_GROUPS };
  */
 export const ALWAYS_ON_CORE_ACTIONS: ReadonlySet<string> = new Set([
   "upload-image",
+  "list-workspace-user-groups",
+  "upsert-workspace-user-group",
+  "bulk-update-workspace-user-groups",
+  "delete-workspace-user-group",
   "list-transactional-emails",
   "render-transactional-email-preview",
   "list-email-log",
@@ -631,6 +635,34 @@ export async function mergeCoreSharingActions(
       () => import("../sharing/actions/create-agent-resource-link.js"),
     ],
     ["upload-image", () => import("../file-upload/actions/upload-image.js")],
+    [
+      "list-workspace-user-groups",
+      () =>
+        import(
+          "../workspace-connections/actions/list-workspace-user-groups.js"
+        ),
+    ],
+    [
+      "upsert-workspace-user-group",
+      () =>
+        import(
+          "../workspace-connections/actions/upsert-workspace-user-group.js"
+        ),
+    ],
+    [
+      "bulk-update-workspace-user-groups",
+      () =>
+        import(
+          "../workspace-connections/actions/bulk-update-workspace-user-groups.js"
+        ),
+    ],
+    [
+      "delete-workspace-user-group",
+      () =>
+        import(
+          "../workspace-connections/actions/delete-workspace-user-group.js"
+        ),
+    ],
     // Transactional email catalog - mounted everywhere so Dispatch can ask any
     // app what it sends without that app opting in.
     [

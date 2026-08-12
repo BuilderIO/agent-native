@@ -1,5 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import {
+  assertWorkspaceUserGroupManager,
   getWorkspaceConnection,
   revokeWorkspaceConnectionGrant,
   upsertWorkspaceConnection,
@@ -54,7 +55,8 @@ export default defineAction({
         "Known workspace app IDs. Used when converting an all-app connection into selected-app grants.",
       ),
   }),
-  run: async (args) => {
+  run: async (args, ctx) => {
+    await assertWorkspaceUserGroupManager(ctx?.orgId, ctx?.userEmail);
     const connection = await getWorkspaceConnection(args.connectionId);
     if (!connection) {
       throw new Error(`Workspace connection "${args.connectionId}" not found.`);
@@ -77,8 +79,16 @@ export default defineAction({
 
       if (connection.allowedApps.length === 0 && !args.granted) {
         allowedApps = knownAppIds.filter((id) => id !== appId);
+      } else if (connection.allowedApps.length === 0 && args.granted) {
+        allowedApps = [appId];
       } else if (connection.allowedApps.length > 0 && !args.granted) {
-        allowedApps = connection.allowedApps.filter((id) => id !== appId);
+        const nextAllowedApps = connection.allowedApps.filter(
+          (id) => id !== appId,
+        );
+        allowedApps =
+          nextAllowedApps.length > 0
+            ? nextAllowedApps
+            : knownAppIds.filter((id) => id !== appId);
         await revokeWorkspaceConnectionGrant(connection.id, appId);
       } else if (connection.allowedApps.length > 0 && args.granted) {
         allowedApps = connection.allowedApps;

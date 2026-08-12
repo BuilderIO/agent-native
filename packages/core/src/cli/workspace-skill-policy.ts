@@ -10,6 +10,7 @@ export const DEFAULT_WORKSPACE_SKILLS = [
   "adding-a-feature",
   "agent-native-docs",
   "agent-native-toolkit",
+  "context-awareness",
   "customizing-agent-native",
   "delegate-to-agent",
   "frontend-design",
@@ -20,6 +21,7 @@ export const DEFAULT_WORKSPACE_SKILLS = [
   "shadcn-ui",
   "sharing",
   "storing-data",
+  "portability",
   "workspace-conventions",
 ] as const;
 

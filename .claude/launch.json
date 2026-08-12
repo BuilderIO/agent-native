@@ -680,24 +680,6 @@
         "3231"
       ],
       "port": 3231
-    },
-    {
-      "name": "tasks-chrome-verify",
-      "runtimeExecutable": "pnpm",
-      "runtimeArgs": [
-        "exec",
-        "tsx",
-        "scripts/claude-launch.ts",
-        "--name",
-        "tasks-chrome-verify",
-        "--dir",
-        "templates/tasks",
-        "--",
-        "dev",
-        "--port",
-        "3245"
-      ],
-      "port": 3245
     }
   ]
 }

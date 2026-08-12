@@ -162,11 +162,10 @@ export default defineAction({
       args.allowedUsers,
       ctx?.orgId,
     );
-    const allowedUserGroups =
-      await assertWorkspaceConnectionAllowedUserGroups(
-        args.allowedUserGroups,
-        ctx?.orgId,
-      );
+    const allowedUserGroups = await assertWorkspaceConnectionAllowedUserGroups(
+      args.allowedUserGroups,
+      ctx?.orgId,
+    );
 
     return upsertWorkspaceConnection({
       ...args,

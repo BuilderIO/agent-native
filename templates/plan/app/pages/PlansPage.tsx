@@ -2439,9 +2439,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     Boolean(bundle) &&
     effectivePlanVisibility === "public" &&
     !canManagePlan;
-  const canResolveCommentThreads = Boolean(
-    bundle && canCommentPlan,
-  );
+  const canResolveCommentThreads = Boolean(bundle && canCommentPlan);
   const defaultInlineCommentDraft = useMemo<CommentDraft>(() => {
     return defaultInlineCommentDraftForPlanContext({
       planKind: bundle?.plan.kind,
@@ -6241,7 +6239,7 @@ function PlanShareControl({
         peopleAccessLabel={t("plansPage.share.peopleAccess", { noun })}
         generalAccessLabel={t("plansPage.share.generalAccess", { noun })}
         roleCopy={{
-          viewer: {
+          commenter: {
             label: t("plansPage.share.commenterRoleLabel"),
             description: t("plansPage.share.commenterRoleDescription"),
           },
