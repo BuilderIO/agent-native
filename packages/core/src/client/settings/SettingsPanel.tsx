@@ -1277,8 +1277,8 @@ function LLMSectionInner({
                 settingsConfigured
                   ? "Manage"
                   : t("agentPanel.addOwnKeys", {
-                    defaultValue: "Custom keys",
-                  })
+                      defaultValue: "Custom keys",
+                    })
               }
               summaryContent={
                 anyKeyConfigured ? (

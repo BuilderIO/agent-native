@@ -1,10 +1,10 @@
 import { useChatModels } from "@agent-native/core/client/agent-chat";
+import { AgentToggleButton } from "@agent-native/core/client/agent-chat";
 import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { AgentToggleButton } from "@agent-native/core/client/agent-chat";
 import { SettingsGroup, SettingsRow } from "@agent-native/core/client/settings";
 import {
   Popover,
@@ -498,9 +498,7 @@ export default function FactoryRoute() {
                   className="group grid cursor-pointer gap-3 border-b border-border px-3 py-3 last:border-b-0 hover:bg-accent/25 md:grid-cols-[minmax(0,2fr)_minmax(120px,0.8fr)_minmax(70px,auto)_auto] md:items-center"
                   role="button"
                   tabIndex={0}
-                  onClick={() =>
-                    openFactory(factory.id, { tab: "overview" })
-                  }
+                  onClick={() => openFactory(factory.id, { tab: "overview" })}
                   onKeyDown={(event) => {
                     if (event.key !== "Enter" && event.key !== " ") return;
                     event.preventDefault();
@@ -1851,7 +1849,9 @@ function SettingsView({ t }: { t: ReturnType<typeof useT> }) {
                     aria-label={t("triage.slackWorkspace")}
                     value={workspace}
                     onChange={(event) =>
-                      setWorkspace(event.target.value as "primary" | "secondary")
+                      setWorkspace(
+                        event.target.value as "primary" | "secondary",
+                      )
                     }
                     className="h-9 w-full rounded-md border bg-background px-3 text-sm"
                   >
@@ -2054,10 +2054,7 @@ function SettingsView({ t }: { t: ReturnType<typeof useT> }) {
             {t("triage.settingsSaved")}
           </p>
         )}
-        <Button
-          onClick={saveSettings}
-          disabled={mutation.isPending}
-        >
+        <Button onClick={saveSettings} disabled={mutation.isPending}>
           {mutation.isPending && <IconLoader2 className="animate-spin" />}
           {t("triage.saveSettings")}
         </Button>
