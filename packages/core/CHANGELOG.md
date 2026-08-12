@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.153.2
+
+### Patch Changes
+
+- fd32ffd: Polish sharing dialogs and controls across the core and Clips surfaces.
+
 ## 0.153.1
 
 ### Patch Changes
