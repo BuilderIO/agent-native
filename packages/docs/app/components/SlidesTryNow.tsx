@@ -10,6 +10,9 @@ import {
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent } from "react";
 
+import { applyFirstTouchAttributionToLink } from "./marketing-attribution";
+import { trackEvent } from "./TemplateCard";
+
 type DesignReference = {
   title: string;
   description: string;
@@ -329,13 +332,31 @@ export function SlidesTryNow() {
           .
         </div>
         <div className="flex justify-end">
-          <button
-            type="button"
+          <a
+            href="https://slides.agent-native.com/?initialPrompt="
+            target="_blank"
+            rel="noopener noreferrer"
             className="inline-flex items-center gap-2 rounded-xl bg-black px-6 py-3 text-sm font-medium text-white transition hover:bg-gray-800 dark:bg-white dark:text-black dark:hover:bg-gray-200"
+            onClick={(event) => {
+              const promptText = editorRef.current
+                ? (
+                    editorRef.current.innerText ||
+                    editorRef.current.textContent ||
+                    ""
+                  ).trim()
+                : "";
+              const targetUrl = `https://slides.agent-native.com/?initialPrompt=${encodeURIComponent(promptText)}`;
+              event.currentTarget.href = targetUrl;
+              applyFirstTouchAttributionToLink(event.currentTarget);
+              trackEvent("generate deck", {
+                template: "slides",
+                location: "try_now",
+              });
+            }}
           >
             {tn("submit")}
             <IconArrowRight size={16} />
-          </button>
+          </a>
         </div>
       </div>
     </div>

@@ -1,9 +1,7 @@
 import { useLocale, useT } from "@agent-native/core/client/i18n";
-import { useState } from "react";
 import { Link } from "react-router";
 
 import { sitePathForLocale } from "../components/docs-locale";
-import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import { SlidesTryNow } from "../components/SlidesTryNow";
 import { TemplateDocsLink } from "../components/template-docs";
 import { templates, trackEvent } from "../components/TemplateCard";
@@ -66,64 +64,6 @@ const COMPARISON_ROWS = [
   },
 ];
 
-function CliCopy() {
-  const [copied, setCopied] = useState(false);
-  function handleCopy() {
-    navigator.clipboard.writeText(template.cliCommand);
-    setCopied(true);
-    trackEvent("copy cli command", {
-      template: template.slug,
-      location: "landing_page",
-    });
-    setTimeout(() => setCopied(false), 2000);
-  }
-  return (
-    <button
-      onClick={handleCopy}
-      data-template-cli-copy
-      className="group col-span-full flex w-full min-w-0 max-w-full items-center gap-3 rounded-md border border-[var(--code-border)] bg-[var(--code-bg)] px-4 py-3 font-mono text-sm transition hover:border-[var(--fg-secondary)] sm:w-auto sm:max-w-[min(100%,36rem)] sm:px-5"
-    >
-      <span className="shrink-0 text-[var(--fg-secondary)]">$</span>
-      <span
-        data-template-cli-copy-text
-        className="min-w-0 truncate text-[var(--fg)]"
-      >
-        {template.cliCommand}
-      </span>
-      <span className="ml-auto shrink-0 text-[var(--fg-secondary)] opacity-100 transition sm:opacity-0 sm:group-hover:opacity-100">
-        {copied ? (
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <polyline points="20 6 9 17 4 12" />
-          </svg>
-        ) : (
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-          </svg>
-        )}
-      </span>
-    </button>
-  );
-}
-
 export default function SlidesTemplate() {
   const t = useT();
   const { locale } = useLocale();
@@ -149,14 +89,15 @@ export default function SlidesTemplate() {
               {t("templateLanding.slides.s007")}
             </p>
 
-            <div className="template-detail-actions mb-8 grid grid-cols-2 items-stretch gap-3 sm:flex sm:flex-wrap sm:items-center">
+            <div className="template-detail-actions mb-8 flex flex-wrap items-center gap-3">
               <a
-                href="https://slides.agent-native.com"
-                target="_blank"
-                rel="noopener noreferrer"
+                href="#build-now"
                 className="inline-flex items-center gap-2 rounded-xl bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
                 onClick={(event) => {
-                  applyFirstTouchAttributionToLink(event.currentTarget);
+                  event.preventDefault();
+                  document
+                    .getElementById("build-now")
+                    ?.scrollIntoView({ behavior: "smooth" });
                   trackEvent("try live demo", {
                     template: "slides",
                     location: "landing_page",
@@ -174,13 +115,10 @@ export default function SlidesTemplate() {
                   strokeLinecap="round"
                   strokeLinejoin="round"
                 >
-                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-                  <polyline points="15 3 21 3 21 9" />
-                  <line x1="10" y1="14" x2="21" y2="3" />
+                  <line x1="12" y1="5" x2="12" y2="19" />
+                  <polyline points="19 12 12 19 5 12" />
                 </svg>
               </a>
-              <TemplateDocsLink template={template} location="landing_page" />
-              <CliCopy />
             </div>
           </div>
 
