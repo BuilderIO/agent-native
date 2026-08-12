@@ -5515,7 +5515,8 @@ const AssistantChatInner = forwardRef<
   // GuidedQuestionPayload to application_state under "guided-questions". The
   // hook polls that key, and on submit/skip composes the answer as a normal
   // user turn (via the shared sendToAgentChat) and clears the persisted key so
-  // the question does not reappear.
+  // the question does not reappear. The key is per browser tab, so `threadId`
+  // is what keeps a pending question in the chat that asked it.
   const {
     questions: guidedQuestions,
     title: guidedQuestionsTitle,
@@ -5528,6 +5529,7 @@ const AssistantChatInner = forwardRef<
     stateKey: "guided-questions",
     queryKey: ["guided-questions"],
     ...(browserTabId ? { browserTabId } : {}),
+    ...(threadId ? { threadId } : {}),
   });
   const hasComposerAccessoryAboveStack = Boolean(
     composerError ||

@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.152.1
+
+### Patch Changes
+
+- 2f4a788: Keep an `ask-question` card in the chat that asked it, and end the turn once it renders instead of letting the agent keep working over an unanswered question.
+
 ## 0.152.0
 
 ### Minor Changes
