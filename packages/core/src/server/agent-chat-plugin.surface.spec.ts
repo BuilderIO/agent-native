@@ -125,11 +125,8 @@ describe("hosted Builder handoff surface", () => {
     const source = readFileSync("src/server/agent-chat-plugin.ts", {
       encoding: "utf-8",
     });
-    expect(source).toContain(
-      "const hostedBuilderHandoff = resolveHostedBuilderHandoff(
-        browserTools,
-        canToggle,
-      );",
+    expect(source).toMatch(
+      /const hostedBuilderHandoff = resolveHostedBuilderHandoff\(\s*browserTools,\s*canToggle,\s*\);/,
     );
 
     const initialNamesStart = source.indexOf(

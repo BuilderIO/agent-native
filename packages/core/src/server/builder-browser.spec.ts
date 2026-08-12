@@ -25,9 +25,14 @@ vi.mock("./request-context.js", async (importOriginal) => {
   };
 });
 
-vi.mock("./credential-provider.js", () => ({
-  resolveSecret: (...args: unknown[]) => resolverMocks.resolveSecret(...args),
-}));
+vi.mock("./credential-provider.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("./credential-provider.js")>();
+  return {
+    ...actual,
+    resolveSecret: (...args: unknown[]) => resolverMocks.resolveSecret(...args),
+  };
+});
 
 import {
   appendBuilderConnectToken,
