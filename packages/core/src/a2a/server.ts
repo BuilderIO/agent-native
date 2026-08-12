@@ -26,7 +26,7 @@ import {
   getA2AApprovalForOwner,
   settleA2AApproval,
 } from "./task-store.js";
-import type { A2AConfig } from "./types.js";
+import type { A2AConfig, AgentSkill } from "./types.js";
 
 /**
  * One-time warning when A2A is running unauthenticated in development. We
@@ -89,6 +89,21 @@ function expectedJwtAudience(event: any | undefined): string | undefined {
     if (host) return `${proto}://${host}`;
   } catch {}
   return undefined;
+}
+
+function tokenHasAudienceClaim(token: string): boolean {
+  try {
+    return typeof jose.decodeJwt(token).aud !== "undefined";
+  } catch {
+    return false;
+  }
+}
+
+function isDirectReadSkill(skill: AgentSkill): boolean {
+  return (
+    skill.readOnly === true ||
+    (skill.readOnly === undefined && skill.publicAgent?.readOnly === true)
+  );
 }
 
 /**
@@ -245,7 +260,13 @@ export function mountA2A(
         );
         if (bearer) {
           const payload = await verifyA2AToken(bearer, event);
-          if (payload.email) skills = config.authenticatedSkills;
+          if (payload.email) {
+            skills = tokenHasAudienceClaim(bearer)
+              ? config.authenticatedSkills
+              : config.authenticatedSkills.filter(
+                  (skill) => !isDirectReadSkill(skill),
+                );
+          }
         }
       }
 
@@ -472,12 +493,7 @@ export function mountA2A(
         verifiedCallerEmail = tokenPayload.email;
         verifiedOrgDomain = tokenPayload.orgDomain;
         if (verifiedCallerEmail) {
-          try {
-            verifiedAudienceBound =
-              typeof jose.decodeJwt(bearerToken).aud !== "undefined";
-          } catch {
-            verifiedAudienceBound = false;
-          }
+          verifiedAudienceBound = tokenHasAudienceClaim(bearerToken);
         }
         bearerTokenRejectedByJwt = !verifiedCallerEmail;
       }

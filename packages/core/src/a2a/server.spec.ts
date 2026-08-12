@@ -231,6 +231,53 @@ describe("mountA2A auth", () => {
     expect(authenticated.skills[1]).not.toHaveProperty("inputSchema");
   });
 
+  it("shows legacy tokens only message-delegated capabilities", async () => {
+    const cardConfig = {
+      ...config,
+      publicSkillsOnly: true,
+      skills: [],
+      authenticatedSkills: [
+        {
+          id: "query-agent-native-analytics",
+          name: "query-agent-native-analytics",
+          description: "Read-only SQL over first-party analytics",
+          readOnly: true,
+          publicAgent: { expose: true, readOnly: true, requiresAuth: true },
+        },
+        {
+          id: "create-campaign",
+          name: "create-campaign",
+          description: "Create a campaign from an objective",
+          readOnly: false,
+          publicAgent: { expose: true, readOnly: false, requiresAuth: true },
+        },
+      ],
+    } as unknown as A2AConfig;
+
+    process.env.A2A_SECRET = "test-a2a-secret";
+    const token = await new jose.SignJWT({})
+      .setProtectedHeader({ alg: "HS256" })
+      .setSubject("legacy-sibling@example.com")
+      .setExpirationTime("5m")
+      .sign(new TextEncoder().encode("test-a2a-secret"));
+
+    const authenticated = await (
+      await mountedAgentCardHandler(cardConfig)
+    )({
+      method: "GET",
+      headers: {
+        host: "agent.example",
+        "x-forwarded-proto": "https",
+        authorization: `Bearer ${token}`,
+      },
+      context: {},
+    });
+
+    expect(
+      authenticated.skills.map((skill: { id: string }) => skill.id),
+    ).toEqual(["create-campaign"]);
+  });
+
   it("requires the owner's browser session for approval pages", async () => {
     getSessionMock.mockResolvedValue(null);
     const handler = await mountedA2AApprovalHandler(config);
