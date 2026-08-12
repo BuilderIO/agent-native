@@ -93,16 +93,13 @@ function expectedJwtAudience(event: any | undefined): string | undefined {
     if (host) {
       return canonicalA2AAudience(`${proto}://${host}`, receiverBasePath);
     }
+    // coercion-ok: undefined makes audience-bearing token verification fail closed.
   } catch {}
   return undefined;
 }
 
 function tokenHasAudienceClaim(token: string): boolean {
-  try {
-    return typeof jose.decodeJwt(token).aud !== "undefined";
-  } catch {
-    return false;
-  }
+  return typeof jose.decodeJwt(token).aud !== "undefined";
 }
 
 function isDirectReadSkill(skill: AgentSkill): boolean {
