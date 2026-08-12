@@ -125,7 +125,6 @@ export function ShareRecordingPopover({
           animatedThumbnailUrl={animatedThumbnailUrl}
           isLoomRecording={isLoomRecording}
           hasPassword={hasPassword}
-          reserveCloseButton
         />
       </PopoverContent>
     </Popover>
@@ -169,6 +168,7 @@ export function ShareRecordingDialog({
           animatedThumbnailUrl={animatedThumbnailUrl}
           isLoomRecording={isLoomRecording}
           hasPassword={hasPassword}
+          reserveCloseButton
         />
       </DialogContent>
     </Dialog>

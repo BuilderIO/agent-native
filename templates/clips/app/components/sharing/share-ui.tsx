@@ -289,9 +289,7 @@ export function CopyField({
   return (
     <div>
       {label ? (
-        <ShareSectionLabel className="mb-1">
-          {label}
-        </ShareSectionLabel>
+        <ShareSectionLabel className="mb-1">{label}</ShareSectionLabel>
       ) : null}
       <div className="flex items-stretch gap-2">
         <Input
