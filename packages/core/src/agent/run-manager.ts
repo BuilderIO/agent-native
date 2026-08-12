@@ -675,6 +675,13 @@ function terminalReasonForRun(
   abortReason: string | undefined,
   completionError: unknown,
 ): string {
+  if (
+    finalStatus !== "aborted" &&
+    completionError &&
+    terminalEvent?.type === "auto_continue"
+  ) {
+    return "completion_error";
+  }
   if (terminalEvent?.type === "auto_continue") {
     return terminalEvent.reason || "auto_continue";
   }
@@ -1633,13 +1640,18 @@ export function startRun(
             : terminalEventForCompletion?.event.type === "error" ||
                 terminalEventForCompletion?.event.type === "missing_api_key"
               ? terminalEventForCompletion.event
-              : terminalEventForCompletion?.event.type === "auto_continue"
+              : terminalEventForCompletion?.event.type === "auto_continue" &&
+                  run.continuationTerminalEvent
                 ? // The run was checkpointed at a soft-timeout/loop boundary and
                   // is recoverable: the partial turn is in agent_run_events and
-                  // the continuation run will re-attempt the thread_data save.
+                  // the handed-off continuation run will re-attempt the
+                  // thread_data save.
                   // Even though the completion save failed (finalStatus stays
                   // "errored" for SQL/diagnostics), re-emit the auto_continue so
-                  // the client resumes instead of seeing a dead chat.
+                  // the client resumes instead of seeing a dead chat. A
+                  // pending auto_continue without this handoff marker is not
+                  // recoverable: advertising it makes the client poll a dead
+                  // run until it reports background_run_lost.
                   terminalEventForCompletion.event
                 : {
                     type: "error",

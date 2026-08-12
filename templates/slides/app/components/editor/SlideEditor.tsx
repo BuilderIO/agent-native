@@ -21,13 +21,10 @@ import {
   IconBrush,
   IconClipboard,
   IconCopy,
-  IconMaximize,
   IconStackBack,
   IconStackFront,
   IconTrash,
   IconX,
-  IconZoomIn,
-  IconZoomOut,
 } from "@tabler/icons-react";
 import {
   useState,
@@ -1252,10 +1249,6 @@ export default function SlideEditor({
       .find((preset) => preset < canvasZoom);
     setManualCanvasZoom(previous ?? CANVAS_ZOOM_PRESETS[0]);
   }, [canvasZoom, setManualCanvasZoom]);
-  const fitCanvasToScreen = useCallback(() => {
-    userSetCanvasZoomRef.current = false;
-    setCanvasZoom(fitCanvasZoom);
-  }, [fitCanvasZoom]);
 
   usePinchZoom({
     containerRef: scrollContainerRef,
@@ -5010,6 +5003,16 @@ export default function SlideEditor({
   const objectOperationSelection = getObjectOperationSelection();
   const hasObjectSelection = objectOperationSelection !== null;
   const objectSelectionCount = objectOperationSelection?.elements.length ?? 0;
+  const zoomControls = slide.excalidrawData
+    ? undefined
+    : {
+        value: canvasZoom,
+        onZoomOut: canvasZoomOut,
+        onZoomIn: canvasZoomIn,
+        canZoomOut: canvasZoom > MIN_CANVAS_ZOOM,
+        canZoomIn:
+          canvasZoom < CANVAS_ZOOM_PRESETS[CANVAS_ZOOM_PRESETS.length - 1],
+      };
 
   // Excalidraw slides have no selectable slide content, so the row collapses
   // to its slide-level state — but that state owns the background picker, and
@@ -5038,6 +5041,7 @@ export default function SlideEditor({
         objectSelectionCount={objectSelectionCount}
         onAlignObjects={handleAlignSelectedObjects}
         onDistributeObjects={handleDistributeSelectedObjects}
+        zoomControls={zoomControls}
       />
     </div>
   ) : null;
@@ -5061,6 +5065,7 @@ export default function SlideEditor({
         objectSelectionCount={objectSelectionCount}
         onAlignObjects={handleAlignSelectedObjects}
         onDistributeObjects={handleDistributeSelectedObjects}
+        zoomControls={zoomControls}
         className="slide-context-toolbar--top-row"
       />
     </div>
@@ -5102,59 +5107,6 @@ export default function SlideEditor({
             </div>
           ) : (
             <div className="relative h-full bg-[var(--slides-editor-surface)]">
-              <div className="absolute right-3 top-3 z-20 flex h-8 items-center gap-0.5 rounded-md bg-popover/95 px-1">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-6 w-6 cursor-pointer"
-                      onClick={canvasZoomOut}
-                      disabled={canvasZoom <= MIN_CANVAS_ZOOM}
-                      aria-label={t("raw.zoomOut")}
-                    >
-                      <IconZoomOut className="h-3.5 w-3.5" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>{t("raw.zoomOut")}</TooltipContent>
-                </Tooltip>
-                <span className="w-11 text-center text-xs tabular-nums text-muted-foreground">
-                  {canvasZoom}%
-                </span>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-6 w-6 cursor-pointer"
-                      onClick={canvasZoomIn}
-                      disabled={
-                        canvasZoom >=
-                        CANVAS_ZOOM_PRESETS[CANVAS_ZOOM_PRESETS.length - 1]
-                      }
-                      aria-label={t("raw.zoomIn")}
-                    >
-                      <IconZoomIn className="h-3.5 w-3.5" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>{t("raw.zoomIn")}</TooltipContent>
-                </Tooltip>
-                <div className="mx-0.5 h-4 w-px bg-border" />
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-6 w-6 cursor-pointer"
-                      onClick={fitCanvasToScreen}
-                      aria-label={t("raw.fitSlideToScreen")}
-                    >
-                      <IconMaximize className="h-3.5 w-3.5" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>{t("raw.fitToScreen")}</TooltipContent>
-                </Tooltip>
-              </div>
               <div
                 ref={scrollContainerRef}
                 className={`h-full overflow-auto ${

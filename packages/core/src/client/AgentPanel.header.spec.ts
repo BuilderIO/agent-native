@@ -307,7 +307,7 @@ describe("AgentPanel header overflow actions", () => {
     expect(overflowMenu).toContain(
       "<DropdownMenuShortcut>{widenChatHint}</DropdownMenuShortcut>",
     );
-    expect(overflowMenu.match(/deferAgentPanelOverlayOpen/g)).toHaveLength(2);
+    expect(overflowMenu.match(/deferAgentPanelOverlayOpen/g)).toHaveLength(3);
     expect(overflowMenu).toContain('t("agentPanel.openFullView")');
     expect(overflowMenu).toContain("onSelect={onFullViewRequest}");
     expect(source).toContain("onFullViewRequest={onFullscreenRequest}");
@@ -324,10 +324,12 @@ describe("AgentPanel header overflow actions", () => {
       source.indexOf("const renderPageChatOverlay"),
     );
 
-    expect(overflowMenu).toContain('resourceType="chat_thread"');
-    expect(overflowMenu).toContain('trigger="label-icon"');
-    expect(overflowMenu).toContain('triggerClassName="w-full justify-start"');
+    expect(overflowMenu).toContain("<IconShare3");
+    expect(overflowMenu).toContain("setShareFromMenuOpen(true)");
+    expect(overflowMenu).not.toContain('trigger="label-icon"');
     expect(overflowMenu).toContain("activeTabMessageCount <= 0");
+    expect(source).toContain("defaultOpen={onCollapse && shareFromMenuOpen}");
+    expect(source).toContain("onCollapse ? setShareFromMenuOpen : undefined");
   });
 });
 
