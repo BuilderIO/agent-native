@@ -797,46 +797,46 @@ export function McpIntegrationDialog({
                     ) : null}
                   </div>
                 )}
-                    {!selected && (
-                      <div className="flex items-center justify-between gap-3 rounded-md bg-muted/30 px-3 py-2 text-[11px]">
-                        <span className="text-muted-foreground">
-                          {customAuthMode === "oauth"
-                            ? t(
-                                /* i18n-key-ignore */
-                                "mcpIntegrations.customOAuthDefault",
-                                { defaultValue: "Sign in with OAuth" },
-                              )
-                            : t(
-                                /* i18n-key-ignore */
-                                "mcpIntegrations.customHeadersMode",
-                                { defaultValue: "Use an API key" },
-                              )}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setCustomAuthMode((current) =>
-                              current === "oauth" ? "headers" : "oauth",
-                            );
-                            clearFeedback();
-                          }}
-                          className="font-medium text-foreground underline underline-offset-2 hover:text-muted-foreground"
-                        >
-                          {customAuthMode === "oauth"
-                            ? t(
-                                /* i18n-key-ignore */
-                                "mcpIntegrations.useApiKeyInstead",
-                                { defaultValue: "Use an API key instead" },
-                              )
-                            : t(
-                                /* i18n-key-ignore */
-                                "mcpIntegrations.useOAuthInstead",
-                                { defaultValue: "Use OAuth instead" },
-                              )}
-                        </button>
-                      </div>
-                    )}
-                    {!selectedRequiresSetup && (
+                {!selected && (
+                  <div className="flex items-center justify-between gap-3 rounded-md bg-muted/30 px-3 py-2 text-[11px]">
+                    <span className="text-muted-foreground">
+                      {customAuthMode === "oauth"
+                        ? t(
+                            /* i18n-key-ignore */
+                            "mcpIntegrations.customOAuthDefault",
+                            { defaultValue: "Sign in with OAuth" },
+                          )
+                        : t(
+                            /* i18n-key-ignore */
+                            "mcpIntegrations.customHeadersMode",
+                            { defaultValue: "Use an API key" },
+                          )}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCustomAuthMode((current) =>
+                          current === "oauth" ? "headers" : "oauth",
+                        );
+                        clearFeedback();
+                      }}
+                      className="font-medium text-foreground underline underline-offset-2 hover:text-muted-foreground"
+                    >
+                      {customAuthMode === "oauth"
+                        ? t(
+                            /* i18n-key-ignore */
+                            "mcpIntegrations.useApiKeyInstead",
+                            { defaultValue: "Use an API key instead" },
+                          )
+                        : t(
+                            /* i18n-key-ignore */
+                            "mcpIntegrations.useOAuthInstead",
+                            { defaultValue: "Use OAuth instead" },
+                          )}
+                    </button>
+                  </div>
+                )}
+                {!selectedRequiresSetup && (
                   <>
                     {selected?.authMode === "oauth" && (
                       <div className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-[11px] leading-relaxed text-primary">

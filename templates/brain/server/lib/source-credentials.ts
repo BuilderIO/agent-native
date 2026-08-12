@@ -269,7 +269,11 @@ async function resolveWorkspaceConnectionCredential({
   let grants: SerializedWorkspaceConnectionGrant[] = [];
   try {
     [connections, grants] = await Promise.all([
-      listWorkspaceConnections({ provider, includeDisabled: true }),
+      listWorkspaceConnections({
+        provider,
+        appId: APP_ID,
+        includeDisabled: true,
+      }),
       listWorkspaceConnectionGrants({ provider, appId: APP_ID }),
     ]);
   } catch (err) {

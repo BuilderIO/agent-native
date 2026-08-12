@@ -782,6 +782,16 @@ export function normalizeWorkspaceConnectionAllowedUsers(
   );
 }
 
+function workspaceConnectionIsAvailableToUser(
+  connection: Pick<SerializedWorkspaceConnection, "allowedUsers">,
+  userEmail: string,
+): boolean {
+  return (
+    connection.allowedUsers.length === 0 ||
+    connection.allowedUsers.includes(userEmail)
+  );
+}
+
 function normalizeRequiredString(value: unknown, label: string): string {
   const normalized = typeof value === "string" ? value.trim() : "";
   if (!normalized) {

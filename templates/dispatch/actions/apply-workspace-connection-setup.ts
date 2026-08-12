@@ -82,7 +82,9 @@ export default defineAction({
     selectedUsers: z
       .array(z.string())
       .default([])
-      .describe("Workspace member email addresses allowed to use the connection."),
+      .describe(
+        "Workspace member email addresses allowed to use the connection.",
+      ),
   }),
   run: async (args) => {
     const provider = getWorkspaceConnectionProvider(args.provider);
@@ -126,7 +128,9 @@ export default defineAction({
       throw new Error("Choose at least one app or switch access to all apps.");
     }
     const allowedUsers =
-      args.userGrantMode === "all-users" ? [] : uniqueStrings(args.selectedUsers);
+      args.userGrantMode === "all-users"
+        ? []
+        : uniqueStrings(args.selectedUsers);
     if (args.userGrantMode === "selected-users" && allowedUsers.length === 0) {
       throw new Error(
         "Choose at least one person or switch access to all workspace members.",

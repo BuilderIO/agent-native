@@ -93,7 +93,40 @@ const PATTERNS = [
     fixedBy: ".agents/skills/reporting-progress (2026-08-12)",
     re: /\b(other (chats?|threads?|agents?)|pause (their|other)|don'?t (tell|message) (other|the other)|didn'?t ask you to (touch|message))\b/i,
   },
+  // Measured for the first time on 2026-08-12, after three prose rewrites of the
+  // same rule (c497c859fa, 061896a301, 44ac2c4acf) shipped with no key at all.
+  // That is why the 2026-08-09 attempt could delete its own concrete rules nine
+  // minutes after writing them and no number moved. Baseline that day, deduped
+  // by message: 07-20: 7 · 07-27: 2 · 08-03: 28 · 08-10: 15 (3 days) — 50 in
+  // class over 14 days, which ranks this 3rd of 10 under the counting below.
+  // Windowing is by file mtime, so read a sample of matches, not just the count:
+  // a resumed session re-enters the window and a quiet fortnight cannot be
+  // distinguished from a vocabulary change.
+  {
+    key: "text-heavy-ui",
+    label: "Told the UI has too much text / chrome upfront",
+    fixedBy: "guard:no-default-chrome + .agents/skills/frontend-design (2026-08-12)",
+    re: /\b(too much (text|copy|chrome)|too many (words|titles|headers|labels|sections)|so much text|text[ -]?heavy|text overload|(less|fewer|way less|trim the|bloated with|unnecessary) (text|copy)|too (wordy|verbose)|too keen to add|descriptions? everywhere|remove (the|that) (descriptions?|titles?|headers?|breadcrumbs?|eyebrows?|subtitles?|blurb|subtext|copy|top bar|bottom row)|(we|i) don'?t need (the|these|those|that|all|an?)[^.!?]{0,50}\b(text|titles?|headers?|sections?|descriptions?|eyebrows?|labels?|rows?|blocks?|copy|line|about)|don'?t show the (sub ?text|description|title)|eyebrows?\b|overwhelming|clutter(ed)?\b|too busy|in your face|minimal u[ix]|less info upfront|progressive disclosure)/i,
+  },
 ];
+
+/**
+ * Both harnesses replay machine-authored text through the user role: subagent
+ * briefs, delegation envelopes, ambient UI state, watchdog transcripts. A
+ * `startsWith("<")` test misses all of it, because these arrive appended to a
+ * real message or wrapped in Codex's "Files mentioned by the user" preamble.
+ * Counting them inflates every pattern in the table — a subagent brief that
+ * says "reduces text overload" is not the user asking for anything.
+ *
+ * `humanText` strips the envelopes, then judges what the human actually typed.
+ * It returns null when nothing is left, so "machine-only" and "user said
+ * nothing" stay the same answer and a stripped-to-empty message is never
+ * counted as friction.
+ */
+const MACHINE_BLOCK =
+  /<(subagent_notification|codex_delegation|in-app-browser-context|user_message_metadata|environment_context|user_instructions|turn_aborted|task-notification|system-reminder|skill)\b[\s\S]*?(<\/\1>|$)/g;
+const MACHINE_PREFIX =
+  /^\s*(The following is the Codex agent history|Claude here\s*[—-]\s*watchdog)/i;
 
 const args = process.argv.slice(2);
 const weeks = Number(valueOf("--weeks") ?? 8);
@@ -181,29 +214,40 @@ async function scan(file, read) {
   }
 }
 
+function humanText(raw) {
+  const text = String(raw ?? "").replace(MACHINE_BLOCK, " ");
+  if (MACHINE_PREFIX.test(text)) return null;
+  const trimmed = text.replace(/\s+/g, " ").trim();
+  return trimmed.length > 2 ? trimmed : null;
+}
+
 function claudeMessage(entry) {
   const at = Date.parse(entry?.timestamp ?? "");
   if (entry?.type === "queue-operation" && entry.operation === "enqueue") {
-    return { text: String(entry.content ?? ""), at };
+    const text = humanText(entry.content);
+    return text ? { text, at } : null;
   }
   if (entry?.type !== "user" || entry.isSidechain) return null;
   const content = entry?.message?.content;
-  if (typeof content === "string") return { text: content, at };
+  if (typeof content === "string") {
+    const text = humanText(content);
+    return text ? { text, at } : null;
+  }
   if (!Array.isArray(content)) return null;
-  const text = content
-    .filter((part) => part?.type === "text")
-    .map((part) => part.text ?? "")
-    .join("\n");
+  const text = humanText(
+    content
+      .filter((part) => part?.type === "text")
+      .map((part) => part.text ?? "")
+      .join("\n"),
+  );
   return text ? { text, at } : null;
 }
 
 function codexMessage(entry) {
   if (entry?.type !== "event_msg" || entry?.payload?.type !== "user_message")
     return null;
-  const text = String(entry.payload.message ?? "");
-  // Codex replays tool and automation traffic through the same event type.
-  if (!text || text.startsWith("<")) return null;
-  return { text, at: Date.parse(entry?.timestamp ?? "") };
+  const text = humanText(entry.payload.message);
+  return text ? { text, at: Date.parse(entry?.timestamp ?? "") } : null;
 }
 
 function report() {

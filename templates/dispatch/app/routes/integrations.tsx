@@ -9,16 +9,16 @@ import {
   IntegrationGrid,
 } from "@agent-native/core/client/integrations";
 import {
-  useShareOrgMemberSearch,
-  type ShareOrgMember,
-} from "@agent-native/core/client/sharing";
-import {
   McpIntegrationDialog,
   McpIntegrationLogo,
   getDefaultMcpIntegrations,
   useCreateMcpServer,
   type DefaultMcpIntegration,
 } from "@agent-native/core/client/resources";
+import {
+  useShareOrgMemberSearch,
+  type ShareOrgMember,
+} from "@agent-native/core/client/sharing";
 import { credentialKeyMatches } from "@agent-native/core/workspace-connections/credential-key-aliases";
 import {
   ActionQueryError,
@@ -1150,6 +1150,207 @@ function Modal({
   );
 }
 
+function UserAccessControl({
+  allUsers,
+  selectedUsers,
+  onChange,
+}: {
+  allUsers: boolean;
+  selectedUsers: string[];
+  onChange: (next: { allUsers: boolean; selectedUsers: string[] }) => void;
+}) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const memberSearch = useShareOrgMemberSearch(query, open && !allUsers, {
+    limit: 100,
+  });
+  const selectedSet = useMemo(
+    () => new Set(selectedUsers.map((email) => email.toLowerCase())),
+    [selectedUsers],
+  );
+
+  function toggleMember(member: ShareOrgMember, checked: boolean) {
+    const email = member.email.toLowerCase();
+    const next = checked
+      ? Array.from(new Set([...selectedUsers, email]))
+      : selectedUsers.filter((value) => value.toLowerCase() !== email);
+    onChange({ allUsers: false, selectedUsers: next });
+  }
+
+  const summary = allUsers
+    ? t(
+        /* i18n-key-ignore */
+        "integrations.allWorkspaceMembers",
+        { defaultValue: "All workspace members" },
+      )
+    : t(
+        /* i18n-key-ignore */
+        "integrations.selectedWorkspaceMembers",
+        {
+          defaultValue: `${selectedUsers.length} selected`,
+        },
+      );
+
+  return (
+    <details
+      open={open}
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+      className="group rounded-lg bg-muted/30"
+    >
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-medium text-foreground marker:hidden">
+        <span className="flex min-w-0 items-center gap-2">
+          <IconUsersGroup className="size-4 shrink-0 text-muted-foreground" />
+          <span className="truncate">
+            {t(
+              /* i18n-key-ignore */
+              "integrations.peopleWithAccess",
+              { defaultValue: "People with access" },
+            )}
+          </span>
+          <span className="truncate text-xs font-normal text-muted-foreground">
+            {summary}
+          </span>
+        </span>
+        <IconChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
+      </summary>
+      <div className="grid gap-3 px-4 pb-4">
+        <div className="flex items-center justify-between gap-4 rounded-md bg-muted/40 px-3 py-3">
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-foreground">
+              {t(
+                /* i18n-key-ignore */
+                "integrations.allWorkspaceMembers",
+                { defaultValue: "All workspace members" },
+              )}
+            </p>
+            <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
+              {t(
+                /* i18n-key-ignore */
+                "integrations.allWorkspaceMembersDescription",
+                {
+                  defaultValue:
+                    "Anyone in this workspace can use the connection.",
+                },
+              )}
+            </p>
+          </div>
+          <Switch
+            checked={allUsers}
+            onCheckedChange={(checked) =>
+              onChange({
+                allUsers: checked,
+                selectedUsers: checked ? [] : selectedUsers,
+              })
+            }
+            aria-label={t(
+              /* i18n-key-ignore */
+              "integrations.allWorkspaceMembersAria",
+              { defaultValue: "Allow all workspace members" },
+            )}
+          />
+        </div>
+
+        {!allUsers ? (
+          <div className="grid gap-2">
+            <div className="relative">
+              <IconSearch className="pointer-events-none absolute start-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder={t(
+                  /* i18n-key-ignore */
+                  "integrations.searchPeoplePlaceholder",
+                  { defaultValue: "Search people" },
+                )}
+                aria-label={t(
+                  /* i18n-key-ignore */
+                  "integrations.searchPeopleLabel",
+                  { defaultValue: "Search workspace members" },
+                )}
+                className="h-9 ps-9"
+              />
+            </div>
+            {memberSearch.isLoading ? (
+              <p className="px-1 text-xs text-muted-foreground">
+                {t(
+                  /* i18n-key-ignore */
+                  "integrations.loadingPeople",
+                  { defaultValue: "Loading people..." },
+                )}
+              </p>
+            ) : memberSearch.error ? (
+              <p className="px-1 text-xs text-destructive">
+                {t(
+                  /* i18n-key-ignore */
+                  "integrations.peopleLoadError",
+                  { defaultValue: "Could not load workspace members." },
+                )}
+              </p>
+            ) : memberSearch.members.length > 0 ? (
+              <div className="grid gap-1">
+                {memberSearch.members.map((member) => {
+                  const checked = selectedSet.has(member.email.toLowerCase());
+                  return (
+                    <Label
+                      key={member.email}
+                      htmlFor={`connection-user-${member.email}`}
+                      className="flex cursor-pointer items-center justify-between gap-3 rounded-md bg-background/60 px-3 py-2 transition-colors hover:bg-accent/30"
+                    >
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-medium">
+                          {member.name || member.email}
+                        </span>
+                        {member.name ? (
+                          <span className="block truncate text-xs text-muted-foreground">
+                            {member.email}
+                          </span>
+                        ) : null}
+                      </span>
+                      <Checkbox
+                        id={`connection-user-${member.email}`}
+                        checked={checked}
+                        onCheckedChange={(value) =>
+                          toggleMember(member, value === true)
+                        }
+                        aria-label={member.email}
+                      />
+                    </Label>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="px-1 text-xs text-muted-foreground">
+                {t(
+                  /* i18n-key-ignore */
+                  "integrations.noPeopleFound",
+                  { defaultValue: "No workspace members found." },
+                )}
+              </p>
+            )}
+            {memberSearch.hasMore ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={memberSearch.loadMore}
+                disabled={memberSearch.isLoadingMore}
+                className="w-fit text-xs"
+              >
+                {t(
+                  /* i18n-key-ignore */
+                  "integrations.loadMorePeople",
+                  { defaultValue: "Load more" },
+                )}
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+    </details>
+  );
+}
+
 function ConnectionForm({
   open,
   form,
@@ -1277,7 +1478,7 @@ function ConnectionForm({
             />
           </div>
 
-          <div className="rounded-md border bg-background p-3">
+          <div className="rounded-md bg-muted/30 p-3">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <div className="text-sm font-medium">
@@ -1330,6 +1531,14 @@ function ConnectionForm({
               </div>
             ) : null}
           </div>
+
+          <UserAccessControl
+            allUsers={form.allUsers}
+            selectedUsers={form.selectedUsers}
+            onChange={({ allUsers, selectedUsers }) =>
+              onChange({ ...form, allUsers, selectedUsers })
+            }
+          />
 
           <CredentialRefsEditor
             provider={provider}
@@ -1607,6 +1816,7 @@ function SetupWizard({
     (provider.credentialKeys.length > 0 || credentialRefs.length > 0),
   );
   const selectedApps = form?.selectedApps ?? [];
+  const selectedUsers = form?.selectedUsers ?? [];
   const stepItems = [
     t("integrations.provider"),
     ...(hasCredentialStep ? [t("integrations.refs")] : []),
@@ -1619,7 +1829,8 @@ function SetupWizard({
     ? Boolean(form?.label.trim())
     : isCredentialStep
       ? missingCredentialRefs.length === 0
-      : form?.grantMode === "all-apps" || selectedApps.length > 0;
+      : (form?.grantMode === "all-apps" || selectedApps.length > 0) &&
+        (form?.userGrantMode === "all-users" || selectedUsers.length > 0);
   const suggestedGrantApps = useMemo(() => {
     const map = new Map<
       string,
@@ -1814,7 +2025,7 @@ function SetupWizard({
                     </h2>
                   </div>
 
-                  <div className="rounded-lg border border-border">
+                  <div className="grid gap-2">
                     <div className="flex items-center gap-3 px-4 py-3.5">
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-medium text-foreground">
@@ -1826,13 +2037,13 @@ function SetupWizard({
                       </div>
                     </div>
 
-                    <details className="group border-t border-border">
+                    <details className="group rounded-lg bg-muted/30">
                       <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-medium text-foreground marker:hidden">
                         <span>{t("integrations.appGrants")}</span>
                         <IconChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
                       </summary>
-                      <div className="grid gap-3 border-t border-border/70 px-4 py-3.5">
-                        <div className="flex items-center justify-between gap-4 rounded-md border border-border/70 px-3 py-3">
+                      <div className="grid gap-3 px-4 pb-4">
+                        <div className="flex items-center justify-between gap-4 rounded-md bg-muted/40 px-3 py-3">
                           <div className="min-w-0">
                             <p className="text-sm font-medium text-foreground">
                               {t("integrations.allApps")}
@@ -1878,7 +2089,7 @@ function SetupWizard({
                                   <Label
                                     key={app.id}
                                     htmlFor={`setup-app-${app.id}`}
-                                    className="flex min-h-11 cursor-pointer items-center justify-between gap-3 rounded-lg border px-3 py-2 transition-colors hover:bg-accent/30"
+                                    className="flex min-h-11 cursor-pointer items-center justify-between gap-3 rounded-lg bg-muted/40 px-3 py-2 transition-colors hover:bg-muted/60"
                                   >
                                     <span className="flex min-w-0 items-center gap-2">
                                       <AppIcon
@@ -1931,6 +2142,19 @@ function SetupWizard({
                       </div>
                     </details>
                   </div>
+                  <UserAccessControl
+                    allUsers={form.userGrantMode === "all-users"}
+                    selectedUsers={selectedUsers}
+                    onChange={({ allUsers, selectedUsers: nextUsers }) =>
+                      onChange({
+                        ...form,
+                        userGrantMode: allUsers
+                          ? "all-users"
+                          : "selected-users",
+                        selectedUsers: nextUsers,
+                      })
+                    }
+                  />
                 </div>
               ) : null}
             </>
@@ -2270,6 +2494,7 @@ export default function WorkspaceIntegrationsRoute() {
         scopes: normalizeList(form.scopes),
         credentialRefs,
         allowedApps: form.allApps ? [] : form.selectedApps,
+        allowedUsers: form.allUsers ? [] : form.selectedUsers,
       });
       toast.success(
         form.id
@@ -2301,6 +2526,8 @@ export default function WorkspaceIntegrationsRoute() {
         ),
         grantMode: setupForm.grantMode,
         selectedApps: setupForm.selectedApps,
+        userGrantMode: setupForm.userGrantMode,
+        selectedUsers: setupForm.selectedUsers,
       });
       toast.success(
         setupForm.connectionId

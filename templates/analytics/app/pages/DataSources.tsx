@@ -451,7 +451,7 @@ function GitHubOAuthView({
     status?.viewer?.name || status?.viewer?.login || status?.viewer?.email;
 
   return (
-    <div className="space-y-3 rounded-md border border-border/50 bg-muted/20 p-3">
+    <div className="space-y-3 rounded-md bg-muted/30 p-3">
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-start gap-3">
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-background text-muted-foreground">
@@ -550,7 +550,7 @@ function WorkspaceOAuthView({
   const t = useT();
 
   return (
-    <div className="space-y-3 rounded-md border border-border/50 bg-muted/20 p-3">
+    <div className="space-y-3 rounded-md bg-muted/30 p-3">
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-start gap-3">
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-background text-muted-foreground">
@@ -586,7 +586,7 @@ function GoogleSheetsExportCard({
   const connected = connection?.grantState === "connected";
 
   return (
-    <Card className="data-source-card bg-card border-border/50">
+    <Card className="data-source-card rounded-xl border-0 bg-muted/35 shadow-none">
       <CardContent className="space-y-4 p-5">
         <div className="flex items-start justify-between gap-4">
           <div className="flex min-w-0 items-start gap-3">
@@ -653,7 +653,7 @@ function SharedConnectionStatusRow({
           : t("dataSources.sharedFallback");
 
   return (
-    <div className="mb-4 flex items-start justify-between gap-3 rounded-md border border-border/50 bg-muted/20 p-3">
+    <div className="mb-4 flex items-start justify-between gap-3 rounded-md bg-muted/30 p-3">
       <div className="min-w-0 space-y-1">
         <div className="flex flex-wrap items-center gap-2">
           <p className="text-xs font-medium text-foreground">
@@ -1260,7 +1260,7 @@ function DataSourceCard({
   return (
     <Card
       id={`data-source-${source.id}`}
-      className="data-source-card rounded-none border-0 border-b border-border/60 bg-transparent shadow-none"
+      className="data-source-card rounded-xl border-0 bg-muted/35 shadow-none"
     >
       <button
         onClick={() => setExpanded(!expanded)}
@@ -1269,7 +1269,7 @@ function DataSourceCard({
         <CardHeader className="p-3.5">
           <div className="flex items-center justify-between gap-4">
             <div className="flex min-w-0 items-center gap-3">
-              <div className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border/70 bg-background text-primary">
+              <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-background/80 text-primary">
                 <DataSourceLogo source={source} />
               </div>
               <div className="min-w-0">
@@ -1318,7 +1318,7 @@ function DataSourceCard({
       </button>
 
       {expanded && showUnknownStatus && (
-        <CardContent className="border-t border-border/50 px-5 py-4">
+        <CardContent className="px-5 py-4">
           <div className="space-y-3">
             <p className="flex items-start gap-2 text-xs text-muted-foreground">
               <IconAlertCircle className="mt-px h-3.5 w-3.5 shrink-0 text-amber-500" />
@@ -1337,7 +1337,7 @@ function DataSourceCard({
       )}
 
       {expanded && !showUnknownStatus && (
-        <CardContent className="border-t border-border/50 px-5 py-4">
+        <CardContent className="px-5 py-4">
           {focused && ready && showAskContinuation && (
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3">
               <span className="flex items-center gap-2 text-xs font-medium text-emerald-600 dark:text-emerald-400">
@@ -1702,7 +1702,7 @@ function FirstPartyAnalyticsCard() {
   };
 
   return (
-    <Card className="data-source-card bg-card border-border/50">
+    <Card className="data-source-card rounded-xl border-0 bg-muted/35 shadow-none">
       <button
         onClick={() => setExpanded(!expanded)}
         className="w-full rounded-t-lg text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
@@ -1759,7 +1759,7 @@ function FirstPartyAnalyticsCard() {
       </button>
 
       {expanded && (
-        <CardContent className="border-t border-border/50 px-5 py-4">
+        <CardContent className="px-5 py-4">
           <div className="space-y-4">
             {isHealthLoading ? (
               <Skeleton className="h-28 w-full rounded-md" />

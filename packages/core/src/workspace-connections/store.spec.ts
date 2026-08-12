@@ -424,6 +424,116 @@ describe("workspace connection store", () => {
     expect(otherOrg).toBeNull();
   });
 
+  it("normalizes and enforces connection-level user allowlists", async () => {
+    const { runWithRequestContext } =
+      await import("../server/request-context.js");
+    const {
+      listWorkspaceConnections,
+      listWorkspaceConnectionsForApp,
+      normalizeWorkspaceConnectionAllowedUsers,
+      resolveWorkspaceConnectionForApp,
+      upsertWorkspaceConnection,
+    } = await import("./store.js");
+
+    expect(
+      normalizeWorkspaceConnectionAllowedUsers([
+        " Alice@Example.com ",
+        "alice@example.com",
+        "BOB@example.com",
+        "",
+      ]),
+    ).toEqual(["alice@example.com", "bob@example.com"]);
+
+    await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "org-1" },
+      async () => {
+        await upsertWorkspaceConnection({
+          id: "conn-user-open",
+          provider: "slack",
+          label: "Everyone Slack",
+        });
+        await upsertWorkspaceConnection({
+          id: "conn-user-alice",
+          provider: "slack",
+          label: "Alice Slack",
+          allowedUsers: [" Alice@Example.com ", "alice@example.com"],
+        });
+        await upsertWorkspaceConnection({
+          id: "conn-user-bob",
+          provider: "slack",
+          label: "Bob Slack",
+          allowedUsers: ["BOB@example.com"],
+        });
+
+        const updated = await upsertWorkspaceConnection({
+          id: "conn-user-alice",
+          provider: "slack",
+          label: "Alice Slack renamed",
+        });
+        expect(updated.allowedUsers).toEqual(["alice@example.com"]);
+      },
+    );
+
+    const managementConnections = await runWithRequestContext(
+      { userEmail: "bob@example.com", orgId: "org-1" },
+      () => listWorkspaceConnections({ provider: "slack" }),
+    );
+    expect(
+      managementConnections.map((connection) => connection.id).sort(),
+    ).toEqual(["conn-user-alice", "conn-user-bob", "conn-user-open"]);
+
+    const bobConnections = await runWithRequestContext(
+      { userEmail: "bob@example.com", orgId: "org-1" },
+      () => listWorkspaceConnections({ provider: "slack", appId: "brain" }),
+    );
+    expect(bobConnections.map((connection) => connection.id).sort()).toEqual([
+      "conn-user-bob",
+      "conn-user-open",
+    ]);
+
+    const bobAppConnections = await runWithRequestContext(
+      { userEmail: "bob@example.com", orgId: "org-1" },
+      () =>
+        listWorkspaceConnectionsForApp({ appId: "brain", provider: "slack" }),
+    );
+    expect(bobAppConnections.map((connection) => connection.id).sort()).toEqual(
+      ["conn-user-bob", "conn-user-open"],
+    );
+
+    const bobCannotResolveAlice = await runWithRequestContext(
+      { userEmail: "bob@example.com", orgId: "org-1" },
+      () =>
+        resolveWorkspaceConnectionForApp({
+          appId: "brain",
+          provider: "slack",
+          connectionId: "conn-user-alice",
+        }),
+    );
+    expect(bobCannotResolveAlice).toMatchObject({
+      available: false,
+      connection: null,
+      appAccess: null,
+    });
+    expect(bobCannotResolveAlice.reason).toMatch(/not found/i);
+
+    const aliceCanResolve = await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "org-1" },
+      () =>
+        resolveWorkspaceConnectionForApp({
+          appId: "brain",
+          provider: "slack",
+          connectionId: "conn-user-alice",
+        }),
+    );
+    expect(aliceCanResolve).toMatchObject({
+      available: true,
+      connection: {
+        id: "conn-user-alice",
+        allowedUsers: ["alice@example.com"],
+      },
+    });
+  });
+
   it("scopes workspace connection grants to the active org", async () => {
     const { runWithRequestContext } =
       await import("../server/request-context.js");

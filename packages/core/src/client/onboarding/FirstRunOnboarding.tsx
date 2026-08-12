@@ -725,10 +725,7 @@ export function FirstRunOnboarding({
                 ],
               ]
           ).map(([title, description]) => (
-            <div
-              key={title}
-              className="rounded-xl bg-muted/35 px-4 py-4"
-            >
+            <div key={title} className="rounded-xl bg-muted/35 px-4 py-4">
               <span className="flex size-7 items-center justify-center rounded-full bg-primary/10 text-primary">
                 <IconCheck size={14} />
               </span>
