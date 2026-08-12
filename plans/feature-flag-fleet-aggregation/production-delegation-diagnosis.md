@@ -216,7 +216,7 @@ write-targets:
 test-resources:
   - id: feature-flag-domain-delegation-local-suite
     kind: server
-    surface: isolated local Analytics, Dispatch, and Content dev runtimes on ports 8088, 8092, and 8083
+    surface: isolated local Analytics, Dispatch, and Clips dev runtimes on ports 8088, 8092, and 8094
     ownership-marker: feature-flag-domain-delegation-local-suite
     baseline: ports unused and task-local databases absent before Work
     allowed-actions: [create, update, exercise, delete]
@@ -314,7 +314,7 @@ actually requires; its current diff does not itself establish that dependency.
 
 Persona: An independent Builder.io workspace administrator managing feature flags from Analytics.
 
-Starting state: Isolated local dev servers for Analytics, Dispatch, and Content use the same verified workspace domain but deliberately different app-local organization IDs. The tester owns disposable identities and no production data is present.
+Starting state: Isolated local dev servers for Analytics, Dispatch, and Clips use the same verified workspace domain but deliberately different app-local organization IDs. The tester owns disposable identities and no production data is present.
 
 Disposable test data: One registered default-off flag and distinctive tester identities/rules, all confined to task-local databases.
 
