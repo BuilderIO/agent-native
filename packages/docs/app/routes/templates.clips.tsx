@@ -290,18 +290,32 @@ export default function ClipsTemplate() {
 
       {/* By the numbers */}
       <section className="border-t border-[var(--docs-border)] py-16">
-        <div className="mx-auto grid max-w-3xl gap-px overflow-hidden rounded-xl border border-[var(--docs-border)] bg-[var(--docs-border)] sm:grid-cols-3">
+        <div className="grid overflow-hidden rounded-xl border border-[var(--docs-border)] sm:grid-cols-3">
           {[
-            { number: "Auto", label: t("templateLanding.clips.s003") },
-            { number: "Agent", label: t("templateLanding.clips.s005") },
-            { number: "People", label: "Love it too!" },
-          ].map((stat) => (
-            <div key={stat.label} className="bg-[var(--bg)] p-6 text-center">
-              <div className="mb-1 text-2xl font-bold text-[var(--docs-accent)]">
-                {stat.number}
+            { title: "Record", caption: "Share your screen", bg: "var(--bg)" },
+            {
+              title: "AI Agents",
+              caption: "Can See + Hear",
+              bg: "var(--bg-secondary)",
+            },
+            {
+              title: "Auto",
+              caption: t("templateLanding.clips.s003"),
+              bg: "var(--bg)",
+            },
+          ].map((stat, index) => (
+            <div
+              key={stat.title}
+              className={`flex min-h-[220px] flex-col justify-center gap-3 border-[var(--docs-border)] p-8 sm:min-h-[260px] sm:p-10 ${
+                index > 0 ? "border-t sm:border-t-0 sm:border-s" : ""
+              }`}
+              style={{ background: stat.bg }}
+            >
+              <div className="text-3xl font-medium tracking-tight text-[var(--fg)] sm:text-4xl">
+                {stat.title}
               </div>
-              <div className="text-sm text-[var(--fg-secondary)]">
-                {stat.label}
+              <div className="text-lg text-[var(--fg-secondary)] sm:text-xl">
+                {stat.caption}
               </div>
             </div>
           ))}
