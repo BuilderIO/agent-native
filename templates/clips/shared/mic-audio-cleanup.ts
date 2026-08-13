@@ -11,7 +11,7 @@
  */
 
 export const MIC_AUDIO_HIGH_PASS_HZ = 70;
-export const MIC_AUDIO_HUM_NOTCH_FREQUENCIES = [50, 60] as const;
+export const MIC_AUDIO_HUM_NOTCH_FREQUENCIES = [50, 60, 100, 120] as const;
 export const MIC_AUDIO_HUM_NOTCH_Q = 35;
 export const MIC_AUDIO_EXPANDER_INTERVAL_MS = 40;
 export const MIC_AUDIO_EXPANDER_FLOOR_GAIN = 0.24;

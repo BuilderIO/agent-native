@@ -545,10 +545,9 @@ interface RecordingAudio {
 }
 
 /**
- * Build the audio track(s) for the recording. When BOTH a mic track and a
- * system/display-audio track are present they're mixed into a single track via
- * WebAudio (one audio track keeps players + our finalize step happy). With only
- * one source we pass it through untouched.
+ * Build the audio track(s) for the recording. Microphone tracks pass through
+ * the cleanup graph whether or not system/display audio is also present, then
+ * both sources are mixed into one track when needed.
  */
 function buildRecordingAudio(
   micTracks: MediaStreamTrack[],

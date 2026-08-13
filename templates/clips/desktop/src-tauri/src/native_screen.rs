@@ -64,6 +64,12 @@ const AUDIO_SIGNAL_MIN_MAX_VOLUME_DB: f64 = -30.0;
 // stereo content that must not be flattened.
 const AUDIO_DOWNMIX_FILTER: &str =
     "aformat=channel_layouts=stereo,pan=stereo|FL=0.5*FL+0.5*FR|FR=0.5*FL+0.5*FR";
+// The legacy ScreenCaptureKit output carries mic + system audio together on
+// the two source channels. Remove only the narrow mains tones before the
+// centered downmix; do not apply the mic-only high-pass/expander to system
+// audio, which may legitimately contain bass.
+const AUDIO_MIXED_HUM_FILTER: &str =
+    "bandreject=f=50:t=q:w=18,bandreject=f=60:t=q:w=18,bandreject=f=100:t=q:w=18,bandreject=f=120:t=q:w=18";
 // Mild FFT denoise for native mic captures. Browser recordings already request
 // WebRTC noise suppression; ScreenCaptureKit/screencapture mic capture does
 // not, so reduce steady broadband room/mic hiss during the existing optimize
@@ -97,6 +103,7 @@ const AUDIO_DOWNMIX_MAKEUP_FILTER: &str = "volume=6dB";
 fn audio_filter_chain(downmix: bool, denoise: bool, mic_pregain: bool) -> String {
     let mut filters = Vec::new();
     if downmix {
+        filters.push(AUDIO_MIXED_HUM_FILTER);
         filters.push(AUDIO_DOWNMIX_FILTER);
         // Undo pan attenuation; do not also apply mic-only pregain here —
         // system audio would get a double boost.
@@ -8170,6 +8177,7 @@ mod audio_track_probe_tests {
         parse_ffmpeg_volume_db, AudioSignalProbe, PreparedAudioSignalDecision,
         AUDIO_DENOISE_FILTER, AUDIO_DOWNMIX_FILTER, AUDIO_DOWNMIX_MAKEUP_FILTER,
         AUDIO_LOUDNESS_FILTER, AUDIO_MIC_CLEANUP_FILTER, AUDIO_MIC_PREGAIN_FILTER,
+        AUDIO_MIXED_HUM_FILTER,
     };
     use std::io::Write;
 
@@ -8229,7 +8237,7 @@ mod audio_track_probe_tests {
         assert_eq!(
             audio_filter_chain(true, true, false),
             format!(
-                "{AUDIO_DOWNMIX_FILTER},{AUDIO_DOWNMIX_MAKEUP_FILTER},{AUDIO_DENOISE_FILTER},{AUDIO_LOUDNESS_FILTER}"
+                "{AUDIO_MIXED_HUM_FILTER},{AUDIO_DOWNMIX_FILTER},{AUDIO_DOWNMIX_MAKEUP_FILTER},{AUDIO_DENOISE_FILTER},{AUDIO_LOUDNESS_FILTER}"
             )
         );
     }
