@@ -39,6 +39,7 @@ create-form · update-form
 createSession.resumeState
 CRUD
 Cursor · Codex
+dashboard_.$ticketId.tsx
 dbQuery / dbExec
 Dispatch hub
 GET /api/auth/user

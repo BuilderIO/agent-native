@@ -20,6 +20,27 @@ describe("defineAction", () => {
     expect(action.readOnly).toBe(true);
   });
 
+  it("carries the grounding declaration through to the entry", () => {
+    const action = defineAction({
+      description: "query a provider",
+      parameters: { q: { type: "string" } },
+      http: false,
+      grounding: true,
+      run: async () => "ok",
+    });
+    expect(action.grounding).toBe(true);
+  });
+
+  it("leaves grounding undefined when the action does not declare it", () => {
+    const action = defineAction({
+      description: "list saved config",
+      parameters: { id: { type: "string" } },
+      http: { method: "GET" },
+      run: async () => "ok",
+    });
+    expect(action.grounding).toBeUndefined();
+  });
+
   it("leaves readOnly undefined for default POST actions", () => {
     const action = defineAction({
       description: "write things",

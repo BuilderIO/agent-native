@@ -1243,6 +1243,44 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     expect(sentEvents.filter((e) => e.type === "clear")).toHaveLength(0);
   });
 
+  it("keeps user-visible output when the ledger read fails mid-recovery", async () => {
+    // `clear` WIPES what the user already sees. A ledger blip must not be read
+    // as "no completed side effect", which is what made it wipe tool cards.
+    mockGetCurrentTurnEventsForThread.mockRejectedValue(
+      new Error("neon: connection lost"),
+    );
+    const sentEvents: import("./types.js").AgentChatEvent[] = [];
+    let attempts = 0;
+    mockRunAgentLoop.mockImplementation(async () => {
+      attempts++;
+      if (attempts === 1) {
+        throw new EngineError("Builder gateway timed out", {
+          errorCode: "builder_gateway_timeout",
+        });
+      }
+      return {
+        inputTokens: 1,
+        outputTokens: 1,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        model: "test-model",
+      };
+    });
+
+    await runAgentLoopDirectWithSoftTimeout(
+      makeOpts(
+        [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        new AbortController().signal,
+        (event) => sentEvents.push(event),
+        "thread-1",
+      ),
+      60_000,
+    );
+
+    expect(attempts).toBe(2);
+    expect(sentEvents.filter((e) => e.type === "clear")).toHaveLength(0);
+  });
+
   // ─── Per-turn tool-call journal on resume ─────────────────────────────────
 
   it("injects a structured journal note on resume listing completed and interrupted tool calls", async () => {
@@ -1280,7 +1318,10 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     );
 
     expect(attempts).toBe(2);
-    expect(mockGetCurrentTurnEventsForThread).toHaveBeenCalledWith("thread-1");
+    expect(mockGetCurrentTurnEventsForThread).toHaveBeenCalledWith(
+      "thread-1",
+      undefined,
+    );
 
     const journalNote = messages
       .map((m) => (m.content[0]?.type === "text" ? m.content[0].text : ""))

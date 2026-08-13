@@ -131,7 +131,13 @@ export interface AgentAutoContinueErrorInfo {
   upgradeUrl?: string;
 }
 
-const INTERRUPTED_TOOL_RESULT =
+/**
+ * Kept verbatim in sync with `INTERRUPTED_TOOL_RESULT_MARKER`
+ * (agent/production-agent.ts): the server matches this substring in replayed
+ * history to count how many times a write tool was interrupted, which is the
+ * only thing that tells "we do not know if it landed" apart from "it failed".
+ */
+export const INTERRUPTED_TOOL_RESULT =
   "Interrupted before this tool returned a result.";
 const INTERRUPTED_ACTIVITY_RESULT = "Stopped before this action started.";
 
@@ -832,6 +838,12 @@ function isAutoRecoverableError(ev: SSEEvent, errMsg: string): boolean {
   }
 
   if (ev.recoverable === true) return true;
+  // An explicit flag outranks the message sniff below, which exists only for
+  // events that carry no flag at all. The repeat guards stop a turn with
+  // `recoverable: false` and a message that names the looping tool, so a stop
+  // on `list-workspace-connections` matched the "connection" sniff and
+  // auto-continued the very loop it was emitted to break.
+  if (ev.recoverable === false) return false;
 
   if (msg.includes("daily gateway request cap")) return false;
 
@@ -2025,10 +2037,26 @@ export function processEvent(
   return { action: "continue" };
 }
 
+/**
+ * Drop the draft the server is about to re-emit — the narration since the last
+ * completed tool, not the whole turn. A `clear` arrives on a final-answer-guard
+ * retry or a continuation, both of which resume AFTER the last completed tool
+ * call, so anything before that boundary is settled multi-step narration the
+ * retry will never re-send. Wiping it read to users as "it deleted its reply
+ * and started over", and `thread-data-builder` replays this same scoping on
+ * rebuild, so the loss survived a reload.
+ */
 function clearAssistantDraftContent(content: ContentPart[]): void {
   for (let index = content.length - 1; index >= 0; index--) {
     const part = content[index];
     if (!part) continue;
+    if (
+      part.type === "tool-call" &&
+      part.activity !== true &&
+      part.result !== undefined
+    ) {
+      return;
+    }
     if (part.type === "text" || part.type === "reasoning") {
       content.splice(index, 1);
       continue;

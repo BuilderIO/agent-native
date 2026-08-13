@@ -77,6 +77,7 @@ export default defineAction({
       .describe("Per-channel cursors for mode=multi-history"),
   }),
   readOnly: true,
+  grounding: true,
   run: async (args) => {
     const workspace = parseWorkspace(args.workspace);
     const key =

@@ -48,8 +48,12 @@ import { badgeBlock } from "./blocks/badge";
 import { bannerBlock } from "./blocks/banner";
 import { cardsBlock } from "./blocks/cards";
 import { comparisonBlock } from "./blocks/comparison";
+import { imageBlock } from "./blocks/image";
 import { noticeBlock } from "./blocks/notice";
+import { signatureBlock } from "./blocks/signature";
 import { stepsBlock } from "./blocks/steps";
+import { videoBlock } from "./blocks/video";
+import { DEFAULT_DOCS_LOCALE, type DocsLocale } from "./docs-locale";
 import { renderMarkdownToHtml } from "./MarkdownRenderer";
 
 export {
@@ -80,6 +84,9 @@ function getDocBlockRegistry(): BlockRegistry {
   registry.register(stepsBlock);
   registry.register(cardsBlock);
   registry.register(comparisonBlock);
+  registry.register(signatureBlock);
+  registry.register(imageBlock);
+  registry.register(videoBlock);
   registry.register(noticeBlock);
   registry.register(bannerBlock);
   registry.register(accordionBlock);
@@ -92,11 +99,19 @@ function getDocBlockRegistry(): BlockRegistry {
 /* Render context                                                              */
 /* -------------------------------------------------------------------------- */
 
-function MarkdownInline({ markdown }: { markdown: string }): ReactNode {
+function MarkdownInline({
+  markdown,
+  locale,
+}: {
+  markdown: string;
+  locale: DocsLocale;
+}): ReactNode {
   return (
     <div
       className="docs-content"
-      dangerouslySetInnerHTML={{ __html: renderMarkdownToHtml(markdown) }}
+      dangerouslySetInnerHTML={{
+        __html: renderMarkdownToHtml(markdown, locale),
+      }}
     />
   );
 }
@@ -107,7 +122,7 @@ function MarkdownInline({ markdown }: { markdown: string }): ReactNode {
  * container blocks (tabs, columns) to a recursive dispatch so nested blocks render
  * through the same registry.
  */
-function useDocBlockContext(): BlockRenderContext {
+function useDocBlockContext(locale: DocsLocale): BlockRenderContext {
   const registry = getDocBlockRegistry();
   return useMemo<BlockRenderContext>(
     () => ({
@@ -115,16 +130,19 @@ function useDocBlockContext(): BlockRenderContext {
       textDirection: "ltr",
       visualFrame: "hide",
       showCodeAnnotationOverlays: false,
-      renderMarkdown: (markdown) => <MarkdownInline markdown={markdown} />,
+      renderMarkdown: (markdown) => (
+        <MarkdownInline markdown={markdown} locale={locale} />
+      ),
       renderBlock: ({ block, compactVisuals }) => (
         <DocNestedBlock
           block={block}
           registry={registry}
           compactVisuals={compactVisuals}
+          locale={locale}
         />
       ),
     }),
-    [registry],
+    [registry, locale],
   );
 }
 
@@ -132,12 +150,14 @@ function DocNestedBlock({
   block,
   registry,
   compactVisuals,
+  locale,
 }: {
   block: NestedBlock;
   registry: BlockRegistry;
   compactVisuals?: boolean;
+  locale: DocsLocale;
 }): ReactNode {
-  const ctx = useDocBlockContext();
+  const ctx = useDocBlockContext(locale);
   const spec = registry.get(block.type);
   if (!spec) return null;
   void compactVisuals;
@@ -156,9 +176,15 @@ function DocNestedBlock({
 /* -------------------------------------------------------------------------- */
 
 /** Provides the docs block registry + read-only render context to descendants. */
-export function DocBlocksProvider({ children }: { children: ReactNode }) {
+export function DocBlocksProvider({
+  children,
+  locale = DEFAULT_DOCS_LOCALE,
+}: {
+  children: ReactNode;
+  locale?: DocsLocale;
+}) {
   const registry = getDocBlockRegistry();
-  const ctx = useDocBlockContext();
+  const ctx = useDocBlockContext(locale);
   return (
     <BlockRegistryProvider registry={registry} ctx={ctx}>
       {children}

@@ -219,6 +219,7 @@ export function createQueryStagedDatasetAction<
     schema,
     http: options.http ?? false,
     readOnly: true,
+    grounding: true,
     run: async (rawArgs) => {
       const args = rawArgs as StagedActionArgs;
       const scope = resolveScope("query-staged-dataset", args, options);
