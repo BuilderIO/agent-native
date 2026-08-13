@@ -55,6 +55,10 @@ import {
   waitForAcceptedRecordingAfterFinalizeError,
   waitForReadyRecordingAfterFinalizeError,
 } from "../../../shared/finalize-recovery";
+import {
+  createMicAudioCleanup,
+  type MicAudioCleanupHandle,
+} from "../../../shared/mic-audio-cleanup";
 import type { LocalRecordingMode } from "../shared/config";
 import { createAudioCue, type AudioCue } from "./audio-cue";
 import { createCameraCompositeStream } from "./camera-composite";
@@ -73,10 +77,6 @@ import {
   getAudioStreamWithFallback,
   getCameraStreamWithFallback,
 } from "./media-capture-constraints";
-import {
-  createMicAudioCleanup,
-  type MicAudioCleanupHandle,
-} from "../../../shared/mic-audio-cleanup";
 import { planNativeFullscreenWarmOverlap } from "./native-recording-warm";
 import {
   createPauseTransitionQueue,

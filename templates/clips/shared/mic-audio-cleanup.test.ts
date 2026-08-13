@@ -40,7 +40,11 @@ class FakeAudioParam {
     timeConstant: number;
   }> = [];
 
-  setTargetAtTime(value: number, startTime: number, timeConstant: number): void {
+  setTargetAtTime(
+    value: number,
+    startTime: number,
+    timeConstant: number,
+  ): void {
     this.value = value;
     this.targetCalls.push({ value, startTime, timeConstant });
   }
@@ -124,26 +128,34 @@ describe("createMicAudioCleanup", () => {
     vi.useFakeTimers();
     const ctx = new FakeAudioContext();
     ctx.analyser.sampleValue = 0;
-    const inputStream = new FakeStream([new FakeTrack()]) as unknown as MediaStream;
+    const inputStream = new FakeStream([
+      new FakeTrack(),
+    ]) as unknown as MediaStream;
 
     const handle = createMicAudioCleanup(inputStream, {
       audioContext: ctx as unknown as AudioContext,
     });
 
     expect(handle.active).toBe(true);
-    expect(handle.stream).toBe(ctx.destination.stream as unknown as MediaStream);
+    expect(handle.stream).toBe(
+      ctx.destination.stream as unknown as MediaStream,
+    );
     expect(ctx.sourceNodes).toHaveLength(1);
-    expect(ctx.filters).toHaveLength(MIC_AUDIO_HUM_NOTCH_FREQUENCIES.length + 1);
+    expect(ctx.filters).toHaveLength(
+      MIC_AUDIO_HUM_NOTCH_FREQUENCIES.length + 1,
+    );
 
     const [highPass, ...notches] = ctx.filters;
     expect(highPass.type).toBe("highpass");
     expect(highPass.frequency.value).toBe(MIC_AUDIO_HIGH_PASS_HZ);
     expect(highPass.Q.value).toBeCloseTo(0.707);
-    expect(notches.map((filter) => filter.frequency.value)).toEqual(
-      [...MIC_AUDIO_HUM_NOTCH_FREQUENCIES],
-    );
+    expect(notches.map((filter) => filter.frequency.value)).toEqual([
+      ...MIC_AUDIO_HUM_NOTCH_FREQUENCIES,
+    ]);
     expect(notches.every((filter) => filter.type === "notch")).toBe(true);
-    expect(notches.every((filter) => filter.Q.value === MIC_AUDIO_HUM_NOTCH_Q)).toBe(true);
+    expect(
+      notches.every((filter) => filter.Q.value === MIC_AUDIO_HUM_NOTCH_Q),
+    ).toBe(true);
 
     expect(ctx.sourceNodes[0].connections[0]).toBe(highPass);
     expect(highPass.connections[0]).toBe(notches[0]);

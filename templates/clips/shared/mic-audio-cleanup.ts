@@ -125,7 +125,10 @@ function hasAudioTrack(stream: MediaStream): boolean {
   }
 }
 
-function buildTargetGain(levelDb: number, preset: ReturnType<typeof normalizePreset>) {
+function buildTargetGain(
+  levelDb: number,
+  preset: ReturnType<typeof normalizePreset>,
+) {
   if (!Number.isFinite(levelDb)) return preset.floorGain;
   if (levelDb >= preset.openDb) return 1;
   if (levelDb <= preset.closeDb) return preset.floorGain;
@@ -200,7 +203,10 @@ function tryBuildMicAudioCleanup(
   }
 
   const preset = normalizePreset(options.preset);
-  const intervalMs = Math.max(16, Math.round(options.intervalMs ?? preset.intervalMs));
+  const intervalMs = Math.max(
+    16,
+    Math.round(options.intervalMs ?? preset.intervalMs),
+  );
   const supportsNodes =
     typeof audioContext.createAnalyser === "function" &&
     typeof audioContext.createBiquadFilter === "function" &&
@@ -243,7 +249,10 @@ function tryBuildMicAudioCleanup(
     node.connect(analyser);
     gain.connect(destination);
 
-    if (audioContext.state === "suspended" && typeof audioContext.resume === "function") {
+    if (
+      audioContext.state === "suspended" &&
+      typeof audioContext.resume === "function"
+    ) {
       void audioContext.resume().catch(() => {});
     }
 

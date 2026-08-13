@@ -9,6 +9,10 @@ import {
   type AudioInputFallback,
 } from "@shared/media-device-selection";
 import {
+  createMicAudioCleanup,
+  type MicAudioCleanupHandle,
+} from "@shared/mic-audio-cleanup";
+import {
   SCREEN_CAPTURE_FRAME_RATE,
   screenCaptureDisplayOptions,
   screenCaptureVideoConstraints,
@@ -19,10 +23,6 @@ import {
   pickMimeTypeCandidates,
   type UploadMode,
 } from "@shared/recording-core";
-import {
-  createMicAudioCleanup,
-  type MicAudioCleanupHandle,
-} from "@shared/mic-audio-cleanup";
 
 import {
   createBackgroundBlurStream,

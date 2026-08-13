@@ -22,6 +22,7 @@ import {
   isLikelyPhoneMicLabel,
   type AudioInputFallback,
 } from "@shared/media-device-selection";
+import { createMicAudioCleanup } from "@shared/mic-audio-cleanup";
 import { scheduleReadyChime } from "@shared/recording-audio";
 import {
   SCREEN_CAPTURE_FRAME_RATE,
@@ -33,7 +34,6 @@ import {
   pickMimeType,
   type UploadMode,
 } from "@shared/recording-core";
-import { createMicAudioCleanup } from "@shared/mic-audio-cleanup";
 import { MAX_UPLOAD_BYTES } from "@shared/upload-limits";
 
 import { waitForAcceptedRecordingAfterFinalizeError } from "./finalize-recovery";
