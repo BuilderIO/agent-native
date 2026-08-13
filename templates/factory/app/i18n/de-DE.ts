@@ -169,7 +169,8 @@ const messages = {
     agenticAppsTitle: "Agentische Apps",
     agenticAppsEmpty: "Noch keine agentischen Apps in diesem Workspace.",
     editAppDetails: "App-Details bearbeiten",
-    editAppDetailsDescription: "Gemeinsamen Anzeigenamen und Beschreibung aktualisieren.",
+    editAppDetailsDescription:
+      "Gemeinsamen Anzeigenamen und Beschreibung aktualisieren.",
     appName: "Name",
     appDescription: "Beschreibung",
     openApp: "App öffnen",

@@ -42,6 +42,8 @@ vi.mock("../resources/store.js", () => ({
   resourceList: resourceListMock,
   resourceListAccessible: resourceListAccessibleMock,
   SHARED_OWNER: "__shared__",
+  sharedResourceOwner: (orgId?: string | null) =>
+    orgId ? `__organization__:${orgId}` : "__shared__",
 }));
 
 vi.mock("../settings/index.js", () => ({
@@ -229,6 +231,102 @@ describe("agent discovery", () => {
       name: "External QA",
       url: "https://qa.example.com",
     });
+  });
+
+  it("discovers organization-owned agents with legacy shared fallback", async () => {
+    const manifests = new Map([
+      [
+        "legacy-resource",
+        JSON.stringify({
+          id: "shared-qa",
+          name: "Legacy QA",
+          url: "https://legacy.example.com",
+        }),
+      ],
+      [
+        "organization-resource",
+        JSON.stringify({
+          id: "org-qa",
+          name: "Organization QA",
+          url: "https://org.example.com",
+        }),
+      ],
+    ]);
+    resourceListMock.mockImplementation(
+      async (owner: string, prefix: string) => {
+        if (prefix !== "remote-agents/") return [];
+        if (owner === "__shared__") {
+          return [{ id: "legacy-resource", path: "remote-agents/legacy.json" }];
+        }
+        return [
+          {
+            id: "organization-resource",
+            path: "remote-agents/organization.json",
+          },
+        ];
+      },
+    );
+    resourceGetMock.mockImplementation(async (id: string) => ({
+      id,
+      content: manifests.get(id) ?? "{}",
+    }));
+
+    const agents = await runWithRequestContext({ orgId: "org-123" }, () =>
+      discoverAgents("dispatch"),
+    );
+
+    expect(resourceListMock).toHaveBeenCalledWith(
+      "__organization__:org-123",
+      "remote-agents/",
+    );
+    expect(agents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "shared-qa",
+          url: "https://legacy.example.com",
+        }),
+        expect.objectContaining({
+          id: "org-qa",
+          url: "https://org.example.com",
+        }),
+      ]),
+    );
+  });
+
+  it("prefers the organization manifest and reads each scoped resource once", async () => {
+    resourceListMock.mockImplementation(
+      async (owner: string, prefix: string) => {
+        if (prefix !== "remote-agents/") return [];
+        return [
+          {
+            id: owner === "__shared__" ? "shared-resource" : "org-resource",
+            path: "remote-agents/same-agent.json",
+          },
+        ];
+      },
+    );
+    resourceGetMock.mockImplementation(async (id: string) => ({
+      id,
+      content: JSON.stringify({
+        id: "same-agent",
+        name: id === "org-resource" ? "Organization Agent" : "Legacy Agent",
+        url:
+          id === "org-resource"
+            ? "https://org.example.com"
+            : "https://legacy.example.com",
+      }),
+    }));
+
+    const agents = await runWithRequestContext({ orgId: "org-123" }, () =>
+      discoverAgents("dispatch"),
+    );
+
+    expect(agents.filter((agent) => agent.id === "same-agent")).toHaveLength(1);
+    expect(agents.find((agent) => agent.id === "same-agent")).toMatchObject({
+      name: "Organization Agent",
+      url: "https://org.example.com",
+    });
+    expect(resourceGetMock).toHaveBeenCalledTimes(2);
   });
 
   it("discovers sibling workspace apps from the workspace manifest", async () => {

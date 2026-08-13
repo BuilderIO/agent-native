@@ -163,9 +163,11 @@ const messages = {
     automationsTab: "自動化",
     agentsTab: "エージェント",
     agenticAppsTitle: "エージェントアプリ",
-    agenticAppsEmpty: "このワークスペースにはまだエージェントアプリがありません。",
+    agenticAppsEmpty:
+      "このワークスペースにはまだエージェントアプリがありません。",
     editAppDetails: "アプリの詳細を編集",
-    editAppDetailsDescription: "このワークスペースアプリの共有表示名と説明を更新します。",
+    editAppDetailsDescription:
+      "このワークスペースアプリの共有表示名と説明を更新します。",
     appName: "名前",
     appDescription: "説明",
     openApp: "アプリを開く",

@@ -27,7 +27,9 @@ export default defineAction({
     );
     if (!profile) throw new Error("Agent profile not found");
 
-    const root = agentPackRoot(profile.path.replace(/^agents\//, "").replace(/\.md$/i, ""));
+    const root = agentPackRoot(
+      profile.path.replace(/^agents\//, "").replace(/\.md$/i, ""),
+    );
     const files = resources.filter(
       (resource) =>
         resource.id !== profile.id && resource.path.startsWith(`${root}/`),

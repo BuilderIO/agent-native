@@ -172,9 +172,11 @@ const messages = {
     automationsTab: "Automatizaciones",
     agentsTab: "Agentes",
     agenticAppsTitle: "Aplicaciones agenticas",
-    agenticAppsEmpty: "Aún no hay aplicaciones agenticas en este espacio de trabajo.",
+    agenticAppsEmpty:
+      "Aún no hay aplicaciones agenticas en este espacio de trabajo.",
     editAppDetails: "Editar detalles de la aplicación",
-    editAppDetailsDescription: "Actualiza el nombre y la descripción compartidos de esta aplicación.",
+    editAppDetailsDescription:
+      "Actualiza el nombre y la descripción compartidos de esta aplicación.",
     appName: "Nombre",
     appDescription: "Descripción",
     openApp: "Abrir aplicación",

@@ -179,7 +179,7 @@ export function isJobPath(path: string): boolean {
 }
 
 export function isCustomAgentPath(path: string): boolean {
-  return path.startsWith("agents/") && path.endsWith(".md");
+  return /^agents\/[^/]+\.md$/.test(path);
 }
 
 export function isRemoteAgentPath(path: string): boolean {

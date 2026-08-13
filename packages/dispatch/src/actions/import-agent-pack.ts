@@ -39,8 +39,9 @@ const schema = z.object({
     .describe("Make the pack available to all apps or selected apps"),
 });
 
-function availableToolNames(): Set<string> {
+function availableToolNames(dispatchToolNames: string[]): Set<string> {
   return new Set([
+    ...dispatchToolNames,
     "agent-teams",
     "bash",
     "call-agent",
@@ -62,9 +63,10 @@ export default defineAction({
   schema,
   run: async ({ files, scope }) => {
     const normalized = normalizeAgentPack(files as AgentPackFileInput[]);
+    const { dispatchActions } = await import("./index.js");
     const toolValidation = validateImportedAgentTools(
       normalized.profile.tools,
-      availableToolNames(),
+      availableToolNames(Object.keys(dispatchActions)),
     );
     const warnings = [...normalized.warnings, ...toolValidation.warnings];
     const sourceHash = crypto
@@ -104,7 +106,9 @@ export default defineAction({
       return {
         status: "unchanged" as const,
         resource: existingProfile,
-        files: existing.filter((resource) => resource.path.startsWith(`${root}/`)),
+        files: existing.filter((resource) =>
+          resource.path.startsWith(`${root}/`),
+        ),
         warnings,
       };
     }

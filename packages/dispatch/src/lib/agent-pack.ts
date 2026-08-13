@@ -61,16 +61,24 @@ function normalizePackPath(value: string): string {
 }
 
 function shouldIgnorePackPath(path: string): boolean {
-  return path.split("/").some((part) => IGNORED_PACK_FILES.has(part.toLowerCase()));
+  return path
+    .split("/")
+    .some((part) => IGNORED_PACK_FILES.has(part.toLowerCase()));
 }
 
 function commonRoot(paths: string[]): string {
   const firstParts = paths.map((path) => path.split("/")[0]);
-  if (firstParts.length < 2 || !firstParts.every((part) => part === firstParts[0])) {
+  if (
+    firstParts.length < 2 ||
+    !firstParts.every((part) => part === firstParts[0])
+  ) {
     return "";
   }
   const root = firstParts[0];
-  if (!root || ["skills", "context", "references", "files", "scripts"].includes(root)) {
+  if (
+    !root ||
+    ["skills", "context", "references", "files", "scripts"].includes(root)
+  ) {
     return "";
   }
   return root;
@@ -123,14 +131,18 @@ export function normalizeAgentPack(
     throw new Error("Choose an agent file or folder with at least one file.");
   }
   if (inputFiles.length > AGENT_PACK_MAX_FILES) {
-    throw new Error(`Agent packs can contain at most ${AGENT_PACK_MAX_FILES} files.`);
+    throw new Error(
+      `Agent packs can contain at most ${AGENT_PACK_MAX_FILES} files.`,
+    );
   }
 
   const files = stripCommonRoot(
     inputFiles.map((file) => {
       const path = normalizePackPath(file.path);
       if (shouldIgnorePackPath(path)) {
-        throw new Error(`Remove ignored or private path from the pack: ${path}`);
+        throw new Error(
+          `Remove ignored or private path from the pack: ${path}`,
+        );
       }
       if (typeof file.content !== "string") {
         throw new Error(`Agent pack file is not text: ${path}`);
@@ -157,9 +169,14 @@ export function normalizeAgentPack(
 
   const profileFile = [...files]
     .filter((file) => profileScore(file) > 0)
-    .sort((a, b) => profileScore(b) - profileScore(a) || a.path.localeCompare(b.path))[0];
+    .sort(
+      (a, b) =>
+        profileScore(b) - profileScore(a) || a.path.localeCompare(b.path),
+    )[0];
   if (!profileFile) {
-    throw new Error("An agent pack needs an agent.md, CLAUDE.md, or Markdown profile file.");
+    throw new Error(
+      "An agent pack needs an agent.md, CLAUDE.md, or Markdown profile file.",
+    );
   }
 
   const profile = normalizeImportedAgent(profileFile.content, profileFile.path);
@@ -180,7 +197,9 @@ export function normalizeAgentPack(
     });
 
   if (packFiles.length === 0) {
-    warnings.push("This pack contains only the profile; add files under context/ or skills/ when needed.");
+    warnings.push(
+      "This pack contains only the profile; add files under context/ or skills/ when needed.",
+    );
   }
 
   return { profile, profileFile, files: packFiles, warnings, totalBytes };
@@ -205,4 +224,3 @@ export function agentPackProfileContent(input: {
 export function agentPackRoot(agentNameOrSlug: string): string {
   return `agents/${slugifyAgentName(agentNameOrSlug)}`;
 }
-

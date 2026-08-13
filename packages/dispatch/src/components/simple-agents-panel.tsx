@@ -12,6 +12,7 @@ import {
   IconChevronDown,
   IconEdit,
   IconFileImport,
+  IconFolder,
   IconLayoutGrid,
   IconMessageCircle,
   IconPlugConnected,
@@ -83,6 +84,21 @@ interface WorkspaceAgentResource {
   content: string;
   scope: "all" | "selected";
   updatedAt: number;
+}
+
+interface AgentPackFileResource extends WorkspaceAgentResource {
+  kind: "agent-file" | "skill";
+}
+
+interface AgentPackResponse {
+  profile: WorkspaceAgentResource;
+  root: string;
+  files: AgentPackFileResource[];
+}
+
+interface AgentPackFileInput {
+  path: string;
+  content: string;
 }
 
 interface AgentEditorProps {
@@ -307,16 +323,293 @@ function AgentEditorDialog({ resource, trigger, onSaved }: AgentEditorProps) {
   );
 }
 
+function AgentPackDialog({
+  resource,
+  onChanged,
+  trigger,
+}: {
+  resource: WorkspaceAgentResource;
+  onChanged?: () => void;
+  trigger?: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const [selectedId, setSelectedId] = useState(resource.id);
+  const [content, setContent] = useState(resource.content);
+  const [addOpen, setAddOpen] = useState(false);
+  const [newPath, setNewPath] = useState("");
+  const [newKind, setNewKind] = useState<"agent-file" | "skill">("agent-file");
+  const [newContent, setNewContent] = useState("");
+  const query = useActionQuery<AgentPackResponse>(
+    "list-agent-pack",
+    { agentId: resource.id },
+    { enabled: open },
+  );
+  const update = useActionMutation("update-workspace-resource", {
+    onSuccess: () => {
+      toast.success("Pack file updated");
+      void query.refetch();
+      onChanged?.();
+    },
+    onError: (error) => toast.error(error.message),
+  });
+  const create = useActionMutation("create-workspace-resource", {
+    onSuccess: () => {
+      toast.success("Pack file added");
+      setAddOpen(false);
+      setNewPath("");
+      setNewContent("");
+      void query.refetch();
+      onChanged?.();
+    },
+    onError: (error) => toast.error(error.message),
+  });
+  const remove = useActionMutation("delete-workspace-resource", {
+    onSuccess: () => {
+      toast.success("Pack file removed");
+      setSelectedId(resource.id);
+      void query.refetch();
+      onChanged?.();
+    },
+    onError: (error) => toast.error(error.message),
+  });
+
+  const files = query.data
+    ? [{ ...query.data.profile, kind: "agent" as const }, ...query.data.files]
+    : [];
+  const selected = files.find((file) => file.id === selectedId) ?? files[0];
+
+  useEffect(() => {
+    if (!open) return;
+    setSelectedId(resource.id);
+  }, [open, resource.id]);
+
+  useEffect(() => {
+    if (!selected) return;
+    setSelectedId(selected.id);
+    setContent(selected.content);
+  }, [selected?.id, selected?.content]);
+
+  function addFile() {
+    const relativePath = newPath.trim().replaceAll("\\", "/");
+    if (
+      !relativePath ||
+      relativePath.startsWith("/") ||
+      relativePath.includes("..") ||
+      relativePath.split("/").some((part) => !part || part === ".")
+    ) {
+      toast.error("Use a relative pack path without ..");
+      return;
+    }
+    const name = relativePath.split("/").pop() || relativePath;
+    create.mutate({
+      kind: newKind,
+      name,
+      path: `${query.data?.root || `agents/${slugifyAgentName(resource.name)}`}/${relativePath}`,
+      content: newContent,
+      scope: resource.scope,
+    });
+  }
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen);
+        if (!nextOpen) setAddOpen(false);
+      }}
+    >
+      <DialogTrigger asChild>
+        {trigger || (
+          <Button variant="ghost" size="sm">
+            <IconFolder size={15} />
+            Pack
+          </Button>
+        )}
+      </DialogTrigger>
+      <DialogContent className="max-w-4xl">
+        <DialogHeader>
+          <DialogTitle>Agent pack</DialogTitle>
+          <DialogDescription className="sr-only">
+            Edit the profile, reference files, context, and skills that belong
+            to this agent.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid min-h-0 gap-4 md:grid-cols-[220px_minmax(0,1fr)]">
+          <div className="min-w-0 space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-medium text-muted-foreground">
+                Files
+              </span>
+              <Dialog open={addOpen} onOpenChange={setAddOpen}>
+                <DialogTrigger asChild>
+                  <Button variant="outline" size="sm">
+                    <IconPlus size={14} />
+                    Add
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Add pack file</DialogTitle>
+                    <DialogDescription className="sr-only">
+                      Add a text reference or agent-owned skill to this pack.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-4 py-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="agent-pack-file-path">Path</Label>
+                      <Input
+                        id="agent-pack-file-path"
+                        value={newPath}
+                        onChange={(event) => setNewPath(event.target.value)}
+                        placeholder="context/brief.md"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="agent-pack-file-kind">Type</Label>
+                      <Select
+                        value={newKind}
+                        onValueChange={(value: "agent-file" | "skill") =>
+                          setNewKind(value)
+                        }
+                      >
+                        <SelectTrigger id="agent-pack-file-kind">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="agent-file">
+                            Reference file
+                          </SelectItem>
+                          <SelectItem value="skill">Skill</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="agent-pack-file-content">Content</Label>
+                      <Textarea
+                        id="agent-pack-file-content"
+                        value={newContent}
+                        onChange={(event) => setNewContent(event.target.value)}
+                        rows={8}
+                        className="font-mono text-sm"
+                      />
+                    </div>
+                  </div>
+                  <DialogFooter>
+                    <Button
+                      onClick={addFile}
+                      disabled={!newPath.trim() || create.isPending}
+                    >
+                      {create.isPending ? "Adding..." : "Add file"}
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            </div>
+            {query.isLoading ? (
+              <Skeleton className="h-24 w-full" />
+            ) : (
+              <div className="space-y-1">
+                {files.map((file) => (
+                  <Button
+                    key={file.id}
+                    type="button"
+                    variant={selected?.id === file.id ? "secondary" : "ghost"}
+                    className="h-auto w-full justify-start px-2 py-2 text-left"
+                    onClick={() => setSelectedId(file.id)}
+                  >
+                    <span className="min-w-0 truncate text-xs">
+                      {file.path.replace(`${query.data?.root || ""}/`, "")}
+                    </span>
+                  </Button>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="min-w-0 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="min-w-0">
+                <div className="truncate text-sm font-medium">
+                  {selected?.path || "Select a file"}
+                </div>
+                {selected && selected.kind !== "agent" ? (
+                  <Badge variant="outline">
+                    {selected.kind === "skill" ? "Skill" : "Reference"}
+                  </Badge>
+                ) : null}
+              </div>
+              <div className="flex items-center gap-1">
+                {selected && selected.kind !== "agent" ? (
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button variant="ghost" size="sm">
+                        <IconTrash size={15} />
+                        Remove
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>
+                          Remove this pack file?
+                        </AlertDialogTitle>
+                        <AlertDialogDescription>
+                          The file will no longer be available to this agent.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                          onClick={() => remove.mutate({ id: selected.id })}
+                          disabled={remove.isPending}
+                        >
+                          Remove
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                ) : null}
+                <Button
+                  size="sm"
+                  onClick={() =>
+                    selected && update.mutate({ id: selected.id, content })
+                  }
+                  disabled={
+                    !selected ||
+                    update.isPending ||
+                    content === selected.content
+                  }
+                >
+                  {update.isPending ? "Saving..." : "Save file"}
+                </Button>
+              </div>
+            </div>
+            <Textarea
+              value={content}
+              onChange={(event) => setContent(event.target.value)}
+              disabled={!selected}
+              rows={18}
+              className="min-h-[360px] font-mono text-sm"
+            />
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function ImportAgentDialog({ onImported }: { onImported?: () => void }) {
   const [open, setOpen] = useState(false);
-  const [mode, setMode] = useState<"file" | "endpoint">("file");
+  const [mode, setMode] = useState<"file" | "folder" | "endpoint">("file");
   const [source, setSource] = useState("");
   const [fileName, setFileName] = useState("");
   const [scope, setScope] = useState<"all" | "selected">("all");
   const [url, setUrl] = useState("");
   const [endpointName, setEndpointName] = useState("");
   const [endpointDescription, setEndpointDescription] = useState("");
+  const [packFiles, setPackFiles] = useState<AgentPackFileInput[]>([]);
+  const [packName, setPackName] = useState("");
+  const [packWarnings, setPackWarnings] = useState<string[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
+  const folderRef = useRef<HTMLInputElement>(null);
 
   const importAgent = useActionMutation("import-agent", {
     onSuccess: (result: { status: string; warnings?: string[] }) => {
@@ -341,6 +634,27 @@ function ImportAgentDialog({ onImported }: { onImported?: () => void }) {
     },
     onError: (error) => toast.error(error.message),
   });
+  const importPack = useActionMutation("import-agent-pack", {
+    onSuccess: (result: { status: string; warnings?: string[] }) => {
+      toast.success(
+        result.status === "pending-approval"
+          ? "Pack sent for approval"
+          : result.status === "unchanged"
+            ? "Agent pack already imported"
+            : "Agent pack imported",
+      );
+      if (result.warnings?.length) toast.info(result.warnings.join(" "));
+      setOpen(false);
+      onImported?.();
+    },
+    onError: (error) => toast.error(error.message),
+  });
+
+  useEffect(() => {
+    if (!folderRef.current) return;
+    folderRef.current.setAttribute("webkitdirectory", "");
+    folderRef.current.setAttribute("directory", "");
+  }, [mode, open]);
 
   function reset() {
     setMode("file");
@@ -350,6 +664,9 @@ function ImportAgentDialog({ onImported }: { onImported?: () => void }) {
     setUrl("");
     setEndpointName("");
     setEndpointDescription("");
+    setPackFiles([]);
+    setPackName("");
+    setPackWarnings([]);
   }
 
   async function handleFile(event: ChangeEvent<HTMLInputElement>) {
@@ -357,6 +674,32 @@ function ImportAgentDialog({ onImported }: { onImported?: () => void }) {
     if (!file) return;
     setFileName(file.name);
     setSource(await file.text());
+  }
+
+  async function handleFolder(event: ChangeEvent<HTMLInputElement>) {
+    const selectedFiles = Array.from(event.target.files ?? []);
+    if (selectedFiles.length === 0) return;
+    const warnings: string[] = [];
+    const textExtensions =
+      /\.(md|markdown|txt|json|yaml|yml|csv|html|xml|toml|ts|tsx|js|mjs|py|sh)$/i;
+    const pack = await Promise.all(
+      selectedFiles.map(async (file) => {
+        const path =
+          (file as File & { webkitRelativePath?: string }).webkitRelativePath ||
+          file.name;
+        if (!textExtensions.test(path)) {
+          warnings.push(`Skipped non-text file: ${path}`);
+          return null;
+        }
+        return { path, content: await file.text() };
+      }),
+    );
+    const files = pack.filter((file): file is AgentPackFileInput =>
+      Boolean(file),
+    );
+    setPackFiles(files);
+    setPackName(files[0]?.path.split("/")[0] || "Selected folder");
+    setPackWarnings(warnings);
   }
 
   return (
@@ -383,10 +726,13 @@ function ImportAgentDialog({ onImported }: { onImported?: () => void }) {
         </DialogHeader>
         <Tabs
           value={mode}
-          onValueChange={(value) => setMode(value as "file" | "endpoint")}
+          onValueChange={(value) =>
+            setMode(value as "file" | "folder" | "endpoint")
+          }
         >
           <TabsList className="w-full justify-start">
             <TabsTrigger value="file">Agent file</TabsTrigger>
+            <TabsTrigger value="folder">Agent folder</TabsTrigger>
             <TabsTrigger value="endpoint">Connect endpoint</TabsTrigger>
           </TabsList>
           <TabsContent value="file" className="space-y-4 py-4">
@@ -448,6 +794,58 @@ function ImportAgentDialog({ onImported }: { onImported?: () => void }) {
                 disabled={!source.trim() || importAgent.isPending}
               >
                 {importAgent.isPending ? "Importing..." : "Import agent"}
+              </Button>
+            </DialogFooter>
+          </TabsContent>
+          <TabsContent value="folder" className="space-y-4 py-4">
+            <div className="flex flex-wrap items-center gap-3">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => folderRef.current?.click()}
+              >
+                <IconFolder size={16} />
+                Choose folder
+              </Button>
+              <input
+                ref={folderRef}
+                type="file"
+                multiple
+                className="hidden"
+                onChange={(event) => void handleFolder(event)}
+              />
+              <span className="text-xs text-muted-foreground">
+                {packName
+                  ? `${packName} · ${packFiles.length} files`
+                  : "Claude Project or Cowork-style folder"}
+              </span>
+            </div>
+            {packWarnings.length > 0 ? (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
+                {packWarnings.join(" ")}
+              </div>
+            ) : null}
+            <div className="space-y-2">
+              <Label htmlFor="import-agent-pack-scope">Availability</Label>
+              <Select
+                value={scope}
+                onValueChange={(value: "all" | "selected") => setScope(value)}
+              >
+                <SelectTrigger id="import-agent-pack-scope">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All apps</SelectItem>
+                  <SelectItem value="selected">Selected apps</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <DialogFooter>
+              <Button
+                onClick={() => importPack.mutate({ files: packFiles, scope })}
+                disabled={packFiles.length === 0 || importPack.isPending}
+              >
+                {importPack.isPending ? "Importing..." : "Import agent pack"}
               </Button>
             </DialogFooter>
           </TabsContent>
@@ -571,6 +969,11 @@ function AgentRow({
   onSaved?: () => void;
 }) {
   const navigate = useNavigate();
+  const packQuery = useActionQuery<AgentPackResponse>(
+    "list-agent-pack",
+    { agentId: resource.id },
+    { enabled: false },
+  );
   const promote = useActionMutation<
     AgentAppCreationResult,
     AgentAppCreationInput
@@ -612,12 +1015,17 @@ function AgentRow({
     );
   }
 
-  function buildApp() {
+  async function buildApp() {
+    const pack = await packQuery.refetch();
+    if (pack.error || !pack.data) {
+      toast.error(pack.error?.message || "Could not load the agent pack");
+      return;
+    }
     promote.mutate({
       appId: slugifyAgentName(resource.name),
       description: resource.description || undefined,
       prompt: `Turn the "${resource.name}" workspace agent into a focused workspace app. Preserve its role and instructions, make the app its usable face, and keep the original reusable agent profile available.`,
-      resourceIds: [resource.id],
+      resourceIds: [resource.id, ...pack.data.files.map((file) => file.id)],
     });
   }
 
@@ -657,13 +1065,26 @@ function AgentRow({
         <Button
           variant="ghost"
           size="sm"
-          onClick={buildApp}
+          onClick={() => void buildApp()}
           disabled={promote.isPending}
           aria-label={`Build an app for ${resource.name}`}
         >
           <IconLayoutGrid size={15} />
           {promote.isPending ? "Starting..." : "Build app"}
         </Button>
+        <AgentPackDialog
+          resource={resource}
+          onChanged={onSaved}
+          trigger={
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label={`Manage files for ${resource.name}`}
+            >
+              <IconFolder size={16} />
+            </Button>
+          }
+        />
         <AgentEditorDialog
           resource={resource}
           onSaved={onSaved}

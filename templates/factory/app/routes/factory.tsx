@@ -21,8 +21,8 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 
-import { FactoryAuditView } from "@/components/factory/FactoryAuditView";
 import { FactoryAgentsView } from "@/components/factory/FactoryAgentsView";
+import { FactoryAuditView } from "@/components/factory/FactoryAuditView";
 import {
   FactoryCanvas,
   type FactoryCanvasEdge,

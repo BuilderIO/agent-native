@@ -164,7 +164,8 @@ const messages = {
     agenticAppsTitle: "에이전트 앱",
     agenticAppsEmpty: "이 워크스페이스에는 아직 에이전트 앱이 없습니다.",
     editAppDetails: "앱 세부정보 편집",
-    editAppDetailsDescription: "이 워크스페이스 앱의 공유 표시 이름과 설명을 업데이트합니다.",
+    editAppDetailsDescription:
+      "이 워크스페이스 앱의 공유 표시 이름과 설명을 업데이트합니다.",
     appName: "이름",
     appDescription: "설명",
     openApp: "앱 열기",

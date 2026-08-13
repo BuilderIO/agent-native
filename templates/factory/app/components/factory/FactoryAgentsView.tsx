@@ -1,10 +1,19 @@
-import { SimpleAgentsPanel } from "@agent-native/dispatch/components";
-import { ActionQueryError } from "@agent-native/dispatch/components";
 import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { SimpleAgentsPanel } from "@agent-native/dispatch/components";
+import { ActionQueryError } from "@agent-native/dispatch/components";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@agent-native/dispatch/components/ui/dialog";
 import {
   IconEdit,
   IconExternalLink,
@@ -18,15 +27,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@agent-native/dispatch/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 
 interface WorkspaceAppSummary {
@@ -152,7 +152,10 @@ function AgenticAppsSection({ t }: { t: ReturnType<typeof useT> }) {
         {query.isLoading && apps.length === 0 ? (
           <div className="space-y-3">
             {[0, 1].map((item) => (
-              <div key={item} className="h-16 animate-pulse rounded-xl bg-muted" />
+              <div
+                key={item}
+                className="h-16 animate-pulse rounded-xl bg-muted"
+              />
             ))}
           </div>
         ) : apps.length > 0 ? (
