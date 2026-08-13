@@ -106,6 +106,19 @@ export function AddSlidePopover({
     setPanelHeight(panelRef.current.getBoundingClientRect().height);
   });
 
+  // Content can grow after the first paint (Google Doc hint, file chips,
+  // an auto-growing textarea) without necessarily triggering a React
+  // re-render. Watch the panel directly so it keeps clamping to the
+  // viewport as it resizes, not just on the frame it first opens.
+  useEffect(() => {
+    if (!open || !panelRef.current) return;
+    const observer = new ResizeObserver(([entry]) => {
+      setPanelHeight(entry.borderBoxSize?.[0]?.blockSize ?? entry.contentRect.height);
+    });
+    observer.observe(panelRef.current);
+    return () => observer.disconnect();
+  }, [open]);
+
   useEffect(() => {
     if (!open) return;
     const handleClick = (e: MouseEvent) => {

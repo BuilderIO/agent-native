@@ -451,7 +451,10 @@ export default function EditorSidebar({
       }
       // The new-slide prompt anchors to the just-created slide's thumbnail,
       // which doesn't exist yet at click time — pick it up as soon as it mounts.
+      // Center it in the scroll area first so the prompt has room on-screen
+      // instead of opening off the bottom edge when the new slide lands there.
       if (node && slideId === describeSlideId) {
+        node.scrollIntoView({ block: "center" });
         setDescribeAnchorEl(node);
       }
     },
@@ -510,16 +513,16 @@ export default function EditorSidebar({
   return (
     <div className="flex h-full min-h-0 w-48 flex-shrink-0 flex-col bg-background sm:w-52">
       {!readOnly && onAddEmptySlide && (
-        <div className="shrink-0 p-2 pb-0">
+        <div className="shrink-0 p-2">
           <Button
             type="button"
-            variant="outline"
+            variant="ghost"
             size="sm"
-            className="w-full justify-center gap-1.5"
+            className="h-7 w-full justify-center gap-1.5 border border-border text-xs text-muted-foreground hover:text-foreground"
             onClick={handleNewSlideClick}
             disabled={addSlideGenerating}
           >
-            <IconPlus className="size-4" />
+            <IconPlus className="size-3.5" />
             {t("editorSidebar.newSlide")}
           </Button>
         </div>
