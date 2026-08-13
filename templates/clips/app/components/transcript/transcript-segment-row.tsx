@@ -71,7 +71,17 @@ export function TranscriptSegmentRow({
         )}
       />
       <span className="min-w-0 flex-1 whitespace-pre-wrap">{children}</span>
-      <span className="pointer-events-none w-12 shrink-0 text-right font-mono text-[10px] tabular-nums text-muted-foreground/80 opacity-0 transition-opacity group-hover/segment:opacity-100 group-focus-visible/segment:opacity-100 [@media(hover:none)]:opacity-100">
+      <span
+        className={cn(
+          "pointer-events-none w-12 shrink-0 text-right font-mono text-[10px] tabular-nums text-muted-foreground/80 transition-opacity",
+          // The player's transcript list is scanned by timestamp to find a
+          // moment — it's primary information there, not hover-reveal
+          // supplementary detail like it is in the summary bullets.
+          gutter === "panel"
+            ? "opacity-100"
+            : "opacity-0 group-hover/segment:opacity-100 group-focus-visible/segment:opacity-100 [@media(hover:none)]:opacity-100",
+        )}
+      >
         {formatTranscriptTimestamp(startMs)}
       </span>
     </div>
