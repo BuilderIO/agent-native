@@ -796,38 +796,26 @@ async function replayReceipt(
       { idempotencyKey },
     );
   }
-  const snapshot = await rowSnapshot(
-    db,
-    stored.databaseId,
-    stored.itemId,
-    stored.documentId,
-    revisionPropertyIds(context),
-  );
-  if (!snapshot || snapshot.revision !== stored.postRowRevision) {
-    conflict(
-      "IDEMPOTENCY_REPLAY_DRIFT",
-      "The committed row changed after this idempotent mutation; replay cannot report the old result as current.",
-      { idempotencyKey, itemId: stored.itemId, documentId: stored.documentId },
-    );
-  }
+  await assertAccess("document", stored.documentId, "viewer");
   const parsed = JSON.parse(
     stored.resultJson,
   ) as ContentDatabaseRowMutationResult;
+  if (
+    parsed.receipt.receiptId !== stored.id ||
+    parsed.receipt.row.itemId !== stored.itemId ||
+    parsed.receipt.row.documentId !== stored.documentId ||
+    parsed.receipt.row.rowRevision !== stored.postRowRevision
+  ) {
+    conflict(
+      "RECEIPT_MISMATCH",
+      "The stored database row mutation receipt is inconsistent.",
+      { receiptId: stored.id },
+    );
+  }
   return {
     receipt: {
       ...parsed.receipt,
       idempotency: { ...parsed.receipt.idempotency, result: "replayed" },
-      readback: {
-        ...parsed.receipt.readback,
-        verified: true,
-        title: snapshot.document.title,
-        propertyValues: Object.fromEntries(
-          [...snapshot.values.entries()].map(([propertyId, valueJson]) => [
-            propertyId,
-            parsePropertyValue(valueJson),
-          ]),
-        ),
-      },
     },
   };
 }
@@ -861,27 +849,6 @@ async function insertReceipt(
     createdAt: now,
     updatedAt: now,
   });
-}
-
-async function verifyCommittedResult(result: ContentDatabaseRowMutationResult) {
-  const db = getDb();
-  const receipt = result.receipt;
-  const context = await loadContext(receipt.target, "viewer", db);
-  const snapshot = await rowSnapshot(
-    db,
-    receipt.target.databaseId,
-    receipt.row.itemId,
-    receipt.row.documentId,
-    revisionPropertyIds(context),
-  );
-  if (!snapshot || snapshot.revision !== receipt.row.rowRevision) {
-    conflict(
-      "READBACK_MISMATCH",
-      "The database row committed but its exact read-back could not be verified.",
-      { receiptId: receipt.receiptId },
-    );
-  }
-  return result;
 }
 
 function assertSchema(context: MutationContext, expected: string) {
@@ -1019,6 +986,7 @@ async function updateInsideTransaction(
     values: Map<string, string>;
   },
 ) {
+  await assertAccess("document", args.documentId, "editor");
   const [lockedDocument] = await tx
     .update(schema.documents)
     .set({ updatedAt: sql`${schema.documents.updatedAt}` })
@@ -1210,7 +1178,7 @@ export async function createDatabaseRow(
       return built;
     }),
   );
-  return verifyCommittedResult(result);
+  return result;
 }
 
 export async function updateDatabaseRow(
@@ -1290,7 +1258,7 @@ export async function updateDatabaseRow(
       return built;
     }),
   );
-  return verifyCommittedResult(result);
+  return result;
 }
 
 export async function upsertDatabaseRow(
@@ -1498,5 +1466,5 @@ export async function upsertDatabaseRow(
       return built;
     }),
   );
-  return verifyCommittedResult(result);
+  return result;
 }

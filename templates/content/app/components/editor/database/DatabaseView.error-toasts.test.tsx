@@ -393,6 +393,9 @@ describe("DatabaseView UI regressions", () => {
         idempotencyKey: expect.any(String),
       }),
     );
+    expect(addItemMutation.mutateAsync.mock.calls[0]?.[0]).not.toHaveProperty(
+      "title",
+    );
     expect(toastErrorMock).toHaveBeenCalledTimes(1);
     expect(toastErrorMock).toHaveBeenCalledWith(
       failedToCreateRow,

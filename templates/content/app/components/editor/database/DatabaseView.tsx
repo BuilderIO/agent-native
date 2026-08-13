@@ -1608,7 +1608,7 @@ function DatabaseTable({
         target: mutationContract.target,
         expectedSchemaRevision: mutationContract.schemaRevision,
         idempotencyKey: crypto.randomUUID(),
-        title,
+        ...(title.trim() ? { title } : {}),
         propertyValues:
           Object.keys(propertyValues).length > 0 ? propertyValues : undefined,
       });
