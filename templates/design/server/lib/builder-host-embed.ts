@@ -27,18 +27,10 @@ export function builderHostEmbedScope(designId: string): string {
 
 /**
  * `/visual-edit/:id` rather than `/design/:id` so the embed token's target
- * binding cannot widen ordinary public design links. Opens on the screen, not
- * the board: a selected frame's drag surface covers its own content, so nothing
- * inside it is clickable from the overview.
+ * binding cannot widen ordinary public design links.
  */
-export function builderHostDesignPath(
-  designId: string,
-  screenId?: string,
-): string {
-  const view = screenId
-    ? `view=single&mode=edit&screen=${encodeURIComponent(screenId)}`
-    : "view=overview";
-  return `/visual-edit/${encodeURIComponent(designId)}?${view}&embedChrome=1`;
+export function builderHostDesignPath(designId: string): string {
+  return `/visual-edit/${encodeURIComponent(designId)}?view=overview&embedChrome=1`;
 }
 
 /**

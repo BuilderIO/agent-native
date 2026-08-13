@@ -1175,6 +1175,7 @@ const enUS = {
   multiScreenCanvas: {
     addBreakpointToAllScreens:
       "Add {{label}} breakpoint ({{width}}px) to all screens",
+    preparingLiveEditor: "Preparing the live editor…",
     duplicate: "Duplicate",
     fork: "Fork",
     fullView: "Full view",

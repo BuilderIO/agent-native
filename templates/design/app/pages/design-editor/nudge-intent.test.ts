@@ -412,7 +412,14 @@ function elementInfoFor(
   nodeId: string,
   tagName = "div",
   parentDisplay?: string,
+  parentFlexDirection?: string,
 ): ElementInfo {
+  // A real bridge payload always carries a computed `flex-direction` alongside
+  // a flex `parentDisplay`, so the default keeps fixtures faithful to that.
+  const flexDirection =
+    parentDisplay === "flex" || parentDisplay === "inline-flex"
+      ? (parentFlexDirection ?? "row")
+      : parentFlexDirection;
   return {
     tagName,
     sourceId: nodeId,
@@ -420,6 +427,7 @@ function elementInfoFor(
     classes: [],
     computedStyles: {},
     parentDisplay,
+    ...(flexDirection ? { parentLayout: { flexDirection } } : {}),
     boundingRect: { x: 0, y: 0, width: 0, height: 0 },
   } as unknown as ElementInfo;
 }
@@ -431,10 +439,16 @@ function orderAfterNudge(
   nodeId: string,
   direction: "up" | "right" | "down" | "left",
   parentDisplay?: string,
+  parentFlexDirection?: string,
 ): string[] | { kind: string } {
   const intent = resolveElementNudgeIntent({
     content,
-    selectedElement: elementInfoFor(nodeId, "div", parentDisplay),
+    selectedElement: elementInfoFor(
+      nodeId,
+      "div",
+      parentDisplay,
+      parentFlexDirection,
+    ),
     direction,
     largeStep: false,
   });
@@ -579,6 +593,62 @@ describe("resolveElementNudgeIntent", () => {
       "beta",
       "alpha",
     ]);
+  });
+
+  it("reorders along the rendered axis for a stylesheet-driven flex column", () => {
+    const content = `<!doctype html><html><body>
+      <section data-agent-native-node-id="col" class="col">
+        <div data-agent-native-node-id="alpha">Alpha</div>
+        <div data-agent-native-node-id="beta">Beta</div>
+      </section>
+    </body></html>`;
+    // `.col { display: flex; flex-direction: column }`. Assuming a row would
+    // reorder on left/right and do nothing useful on down.
+    expect(orderAfterNudge(content, "alpha", "down", "flex", "column")).toEqual(
+      ["beta", "alpha"],
+    );
+    // Cross-axis in a non-wrapping column has nowhere to go, and writing
+    // `left` on a static flow child would do nothing.
+    expect(
+      orderAfterNudge(content, "alpha", "right", "flex", "column"),
+    ).toEqual({ kind: "none" });
+  });
+
+  it("follows a reversed rendered direction", () => {
+    const content = `<!doctype html><html><body>
+      <section data-agent-native-node-id="row" class="row">
+        <div data-agent-native-node-id="alpha">Alpha</div>
+        <div data-agent-native-node-id="beta">Beta</div>
+      </section>
+    </body></html>`;
+    // Visual left is DOM forward under `row-reverse`.
+    expect(
+      orderAfterNudge(content, "alpha", "left", "flex", "row-reverse"),
+    ).toEqual(["beta", "alpha"]);
+  });
+
+  it("refuses a rendered flex parent whose direction the bridge did not report", () => {
+    const content = `<!doctype html><html><body>
+      <section data-agent-native-node-id="row" class="row">
+        <div data-agent-native-node-id="alpha">Alpha</div>
+        <div data-agent-native-node-id="beta">Beta</div>
+      </section>
+    </body></html>`;
+    const intent = resolveElementNudgeIntent({
+      content,
+      selectedElement: {
+        tagName: "div",
+        sourceId: "alpha",
+        selector: '[data-agent-native-node-id="alpha"]',
+        classes: [],
+        computedStyles: {},
+        parentDisplay: "flex",
+        boundingRect: { x: 0, y: 0, width: 0, height: 0 },
+      } as unknown as ElementInfo,
+      direction: "right",
+      largeStep: false,
+    });
+    expect(intent).toEqual({ kind: "none" });
   });
 
   it("still translates an absolute child whose parent renders as flex", () => {

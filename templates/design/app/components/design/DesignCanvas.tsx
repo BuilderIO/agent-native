@@ -39,6 +39,7 @@ import {
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 // NOTE: This wires up the NEW shared visual-editor DrawOverlay + comment-pin
 // components from `@/components/visual-editor`. The legacy iframe-only
 // DrawOverlay at `./DrawOverlay.tsx` is intentionally NOT used here — both
@@ -2391,6 +2392,12 @@ export function DesignCanvas({
     previousIframeDocumentIdentityRef.current = iframeDocumentIdentity;
     bridgeReadyRef.current = false;
   }
+  // Only a URL-backed frame boots: srcdoc paints synchronously, so gating it on
+  // an onLoad that already fired would strand a spinner over finished content.
+  const [previewFrameLoaded, setPreviewFrameLoaded] = useState(false);
+  useEffect(() => {
+    setPreviewFrameLoaded(false);
+  }, [iframeDocumentIdentity]);
   // No snapshot is ever painted over the live frame, not even for the few
   // frames of a document swap. Covering the real iframe with a frozen copy is
   // the same false-success shape as rendering the snapshot outright: when the
@@ -4492,6 +4499,7 @@ export function DesignCanvas({
           })}
           data-design-preview-iframe
           onLoad={(event) => {
+            setPreviewFrameLoaded(true);
             installSameOriginBridge();
             // The bridge logs into the IFRAME console and cannot read
             // import.meta.env, so dev has to switch it on from out here.
@@ -4526,6 +4534,14 @@ export function DesignCanvas({
           title={t("designEditor.designPreview")}
         />
       )}
+      {externalPreviewUrl && !previewFrameLoaded ? (
+        <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center gap-2 bg-background px-2 text-muted-foreground">
+          <Spinner className="size-4 shrink-0" />
+          <span className="truncate !text-[11px] font-medium">
+            {t("multiScreenCanvas.preparingLiveEditor")}
+          </span>
+        </div>
+      ) : null}
       {runtimeVerificationUrl ? (
         <iframe
           key={`${runtimeVerificationUrl}::${runtimeVerificationRequest?.requestId ?? 0}`}

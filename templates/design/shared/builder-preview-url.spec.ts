@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import {
   InvalidBuilderPreviewUrlError,
@@ -92,5 +92,26 @@ describe("parseBuilderPreviewUrl", () => {
     expect(parseBuilderPreviewUrl("http://localhost:5173/app").origin).toBe(
       "http://localhost:5173",
     );
+  });
+});
+
+describe("loopback outside development", () => {
+  const nodeEnv = process.env.NODE_ENV;
+  afterEach(() => {
+    process.env.NODE_ENV = nodeEnv;
+  });
+
+  it("refuses a loopback preview host in production", () => {
+    process.env.NODE_ENV = "production";
+    // The proxy fetches this server-side, so allowing it would scan the
+    // Design host on a caller's behalf.
+    expect(isBuilderPreviewUrl("http://localhost:6379/")).toBe(false);
+    expect(isBuilderPreviewUrl("http://127.0.0.1:8080/")).toBe(false);
+    expect(isBuilderPreviewUrl("https://[::1]/")).toBe(false);
+  });
+
+  it("still accepts a real Builder preview host in production", () => {
+    process.env.NODE_ENV = "production";
+    expect(isBuilderPreviewUrl("https://app.fly.dev/")).toBe(true);
   });
 });

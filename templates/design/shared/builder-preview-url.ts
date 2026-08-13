@@ -14,8 +14,23 @@ const BUILDER_PREVIEW_HOST_SUFFIXES = [
   ".builder.live",
 ] as const;
 
-/** Loopback is allowed over http so a local container works in dev. */
 const LOOPBACK_HOSTNAMES = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
+
+/**
+ * Development only, and fail closed: the proxy fetches this URL from the
+ * server, so in production a loopback host means scanning the Design host
+ * itself on a caller's behalf.
+ */
+function loopbackAllowed(): boolean {
+  const nodeEnv =
+    typeof process === "undefined" ? undefined : process.env?.NODE_ENV;
+  // Wins over the bundler flag: a dev-mode bundle served by a production
+  // process is still production.
+  if (nodeEnv === "production") return false;
+  if (nodeEnv === "development" || nodeEnv === "test") return true;
+  const viteEnv = (import.meta as { env?: { DEV?: boolean } }).env;
+  return viteEnv?.DEV === true;
+}
 
 export class InvalidBuilderPreviewUrlError extends Error {
   constructor(reason: string) {
@@ -52,6 +67,11 @@ export function parseBuilderPreviewUrl(raw: unknown): URL {
   }
 
   const hostname = url.hostname.toLowerCase();
+  if (isLoopbackHostname(hostname) && !loopbackAllowed()) {
+    throw new InvalidBuilderPreviewUrlError(
+      "loopback hosts are only allowed in development",
+    );
+  }
   const loopback = isLoopbackHostname(hostname);
 
   if (url.protocol !== "https:" && !(loopback && url.protocol === "http:")) {

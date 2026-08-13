@@ -10,6 +10,7 @@ import {
   sendToBuilderChat,
 } from "@agent-native/core/client/host";
 
+import { isBuilderHostEmbed } from "./builder-host-origin";
 import { isEmbedChromeRequested } from "./embed-chrome";
 
 export const DESIGN_CHAT_STORAGE_KEY = "design";
@@ -73,7 +74,10 @@ export async function sendDesignSourceHandoffAndConfirm(
   // A host that framed only the canvas owns the chat, so `submit` is its call,
   // not the caller's. No ack to wait on: delivery is evidenced by the host's
   // composer filling in front of the user.
-  if (isEmbedAuthActive() && isEmbedChromeRequested()) {
+  // `embedChrome` is a display preference any embedder can ask for, so it
+  // cannot decide who receives source-edit context. The scope is server-signed
+  // by the Builder handshake; every other embed keeps the local agent path.
+  if (isEmbedAuthActive() && isEmbedChromeRequested() && isBuilderHostEmbed()) {
     const posted = sendToBuilderChat({
       message: opts.message,
       context: opts.context,

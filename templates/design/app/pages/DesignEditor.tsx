@@ -38,7 +38,10 @@ import {
   useChangeVersion,
   useAvatarUrl,
 } from "@agent-native/core/client/hooks";
-import { isEmbedAuthActive } from "@agent-native/core/client/host";
+import {
+  getBuilderParentOrigin,
+  isEmbedAuthActive,
+} from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import {
@@ -443,6 +446,11 @@ import {
   builderSelectionChip,
   sendBuilderSelectionContext,
 } from "@/lib/builder-host-chat";
+import {
+  isBuilderHostEmbed,
+  markBuilderHostEmbed,
+  rememberBuilderHostOrigin,
+} from "@/lib/builder-host-origin";
 import {
   acknowledgeClipboardContentMutation,
   publishClipboardContentMutation,
@@ -1205,10 +1213,65 @@ function describeSelectionForHost(element: ElementInfo): {
   return { label, detail };
 }
 
-/** The host supplies the chat, so the editor's own agent surface is noise. */
-const HOST_EMBEDDED_HIDDEN_LEFT_PANELS: ReadonlySet<DesignLeftPanel> = new Set([
-  "agent",
-]);
+/**
+ * The host renders its own chat over this panel's box, so the panel reserves
+ * the space and reports where it landed rather than rendering a chat itself.
+ */
+const HOST_CHAT_SLOT_MESSAGE = "agentNative.chatSlot";
+
+const BUILDER_PREVIEW_PROXY_PATH_PREFIX = "/builder-preview/";
+
+/**
+ * Repaint the running-app frames once the coding agent finishes a turn.
+ *
+ * Same-origin only: these are the proxied container frames, and reading or
+ * reloading a cross-origin one throws. Reloading rather than re-keying `src`
+ * keeps the container's query string verbatim — a dev server distinguishes
+ * `?astro&lang.css` from a re-encoded copy and serves a different module.
+ */
+function reloadRunningAppPreviewFrames(): void {
+  if (typeof document === "undefined") return;
+  const frames = document.querySelectorAll<HTMLIFrameElement>(
+    "iframe[data-design-preview-iframe]",
+  );
+  for (const frame of frames) {
+    // `src` is absolute — upsertFusionScreens builds it against appOrigin so
+    // `new URL(src)` never throws — so match the pathname, not the raw string.
+    const src = frame.getAttribute("src");
+    if (!src) continue;
+    let target: URL;
+    try {
+      target = new URL(src, window.location.href);
+      // coercion-ok: an unparsable src names no proxied container.
+    } catch {
+      continue;
+    }
+    if (
+      target.origin !== window.location.origin ||
+      !target.pathname.startsWith(BUILDER_PREVIEW_PROXY_PATH_PREFIX)
+    ) {
+      continue;
+    }
+    try {
+      const win = frame.contentWindow;
+      if (!win) continue;
+      // Captured before the navigation: a reloaded document starts at the top,
+      // which reads as the canvas jumping on every agent turn.
+      const { scrollX, scrollY } = win;
+      const restoreScroll = () => {
+        frame.removeEventListener("load", restoreScroll);
+        try {
+          frame.contentWindow?.scrollTo(scrollX, scrollY);
+        } catch {
+          // A frame that refuses access after reload keeps its own position.
+        }
+      };
+      frame.addEventListener("load", restoreScroll);
+      win.location.reload();
+      // coercion-ok: a frame we cannot read is one we must not reload.
+    } catch {}
+  }
+}
 
 function DesignWorkspaceRail({
   activePanel,
@@ -2252,13 +2315,63 @@ function DesignEditor() {
   const hostOwnsChrome = embedded && !isEmbedChromeRequested();
   // Framed by a host that supplies the chat but not the canvas chrome: our
   // rails stay, our agent surface does not.
-  const hostEmbeddedEditor = embedded && !hostOwnsChrome;
-  useEffect(() => {
+  // The signed embed scope, not `embedChrome` alone: that is a display
+  // preference any embedder can ask for, while this scope is only ever minted
+  // by the Builder partner handshake.
+  const [builderHostConfirmed, setBuilderHostConfirmed] = useState(() =>
+    isBuilderHostEmbed(),
+  );
+  const hostEmbeddedEditor =
+    embedded && !hostOwnsChrome && builderHostConfirmed;
+  const hostChatSlotRef = useRef<HTMLDivElement | null>(null);
+  const hostChatGeneratingRef = useRef(false);
+  const hostChatSlotObserverRef = useRef<ResizeObserver | null>(null);
+  const postHostChatSlotRect = useCallback(() => {
     if (!hostEmbeddedEditor) return;
-    setActiveLeftPanel((panel) =>
-      HOST_EMBEDDED_HIDDEN_LEFT_PANELS.has(panel) ? "file" : panel,
+    const box = hostChatSlotRef.current?.getBoundingClientRect();
+    // A hidden panel measures 0x0. That is "not on screen", so the host hides
+    // its chat instead of pinning it to a degenerate box.
+    const rect =
+      box && box.width > 0 && box.height > 0
+        ? {
+            x: Math.round(box.left),
+            y: Math.round(box.top),
+            width: Math.round(box.width),
+            height: Math.round(box.height),
+          }
+        : null;
+    window.parent.postMessage(
+      { type: HOST_CHAT_SLOT_MESSAGE, data: { rect } },
+      getBuilderParentOrigin() ?? "*",
     );
   }, [hostEmbeddedEditor]);
+  // A callback ref, not an effect: the slot unmounts with the whole sidebar,
+  // and switching panels only changes its box, which the observer already sees.
+  const attachHostChatSlot = useCallback(
+    (node: HTMLDivElement | null) => {
+      hostChatSlotRef.current = node;
+      hostChatSlotObserverRef.current?.disconnect();
+      hostChatSlotObserverRef.current = null;
+      if (node && typeof ResizeObserver !== "undefined") {
+        const observer = new ResizeObserver(() => postHostChatSlotRect());
+        observer.observe(node);
+        hostChatSlotObserverRef.current = observer;
+      }
+      postHostChatSlotRect();
+    },
+    [postHostChatSlotRect],
+  );
+  useEffect(() => {
+    if (!hostEmbeddedEditor) return;
+    window.addEventListener("resize", postHostChatSlotRect);
+    return () => {
+      window.removeEventListener("resize", postHostChatSlotRect);
+      window.parent.postMessage(
+        { type: HOST_CHAT_SLOT_MESSAGE, data: { rect: null } },
+        getBuilderParentOrigin() ?? "*",
+      );
+    };
+  }, [hostEmbeddedEditor, postHostChatSlotRect]);
 
   const designChatScope = useMemo(
     () => (id ? ({ type: "design" as const, id } as const) : null),
@@ -3120,8 +3233,13 @@ function DesignEditor() {
   const [reviewAuditedAt, setReviewAuditedAt] = useState<string | null>(null);
   const [reviewAuditError, setReviewAuditError] = useState<string | null>(null);
 
+  // Two ways in: the legacy `design_host=builder` preview, and the embed the
+  // partner handshake generates, which never carries that param. Builder waits
+  // on `appReady` before sending theme or preview-URL changes, so gating the
+  // handshake on the param alone left the generated embed permanently unsynced.
+  const builderHostProtocolActive = isBuilderDesignEmbed || hostEmbeddedEditor;
   useEffect(() => {
-    if (!isBuilderDesignEmbed) return;
+    if (!builderHostProtocolActive) return;
     // Announce ready to Builder. The trusted origin is not yet known at this
     // point so we use "*" — this message carries no user data.
     window.parent.postMessage({ type: "agentNative.appReady" }, "*");
@@ -3153,27 +3271,31 @@ function DesignEditor() {
         if (!parentOriginRef.current) {
           parentOriginRef.current = origin;
         }
-        const { previewUrl, themeVars } = data.data ?? {};
-        // Apply theme vars
-        if (themeVars && typeof themeVars === "object") {
-          const root = document.documentElement;
-          for (const [key, value] of Object.entries(
-            themeVars as Record<string, string>,
-          )) {
-            if (typeof value === "string") {
-              root.style.setProperty(key, value);
-            }
-          }
-        }
+        rememberBuilderHostOrigin(origin);
+        const { previewUrl } = data.data ?? {};
         if (typeof previewUrl === "string" && previewUrl) {
           setBuilderPreviewUrl(previewUrl);
         }
+      }
+
+      if (data.type === "design:showChat") {
+        setActiveLeftPanel("agent");
+      }
+
+      if (data.type === "design:chatState") {
+        const next = data.data?.state;
+        // Fires once per turn, not per file write: the agent edits source while
+        // generating, so the container has rebuilt by the time it settles.
+        if (hostChatGeneratingRef.current && next !== "generating") {
+          reloadRunningAppPreviewFrames();
+        }
+        hostChatGeneratingRef.current = next === "generating";
       }
     }
 
     window.addEventListener("message", handleDesignHostMessage);
     return () => window.removeEventListener("message", handleDesignHostMessage);
-  }, [isBuilderDesignEmbed]);
+  }, [builderHostProtocolActive]);
 
   const focusDesignInspectorForSelection = useCallback(() => {
     setActiveInspectorTab("design");
@@ -9287,7 +9409,7 @@ function DesignEditor() {
       const screen = overviewScreens.find(
         (candidate) => candidate.id === owner.fileId,
       );
-      if (resolveOverviewScreenSourceType(screen) !== "localhost") {
+      if (!isRunningAppSourceType(resolveOverviewScreenSourceType(screen))) {
         return false;
       }
       const info = elementInfoFromCodeLayerNode(owner.node);
@@ -9745,6 +9867,14 @@ function DesignEditor() {
     () => readFusionApp(designDataJson),
     [designDataJson],
   );
+  useEffect(() => {
+    // The design's own linkage, not the token: the token leaves the URL after
+    // the server exchanges it, and reading it later reports "not Builder".
+    if (fusionApp?.source !== "builder-host") return;
+    markBuilderHostEmbed(true);
+    setBuilderHostConfirmed(true);
+  }, [fusionApp?.source]);
+
   const fullAppBuildingEnabled = useFeatureFlag(FULL_APP_BUILDING.key);
 
   // Builder-hosted preview URL for fusion-source designs. Prefers the flat
@@ -31459,11 +31589,6 @@ function DesignEditor() {
           <div className="relative flex min-h-0 shrink-0 bg-[var(--design-editor-panel-bg)]">
             <DesignWorkspaceRail
               activePanel={activeLeftPanel}
-              hiddenPanels={
-                hostEmbeddedEditor
-                  ? HOST_EMBEDDED_HIDDEN_LEFT_PANELS
-                  : undefined
-              }
               disabledPanels={
                 initialGenerationChromeLimited
                   ? INITIAL_GENERATION_DISABLED_LEFT_PANELS
@@ -31547,7 +31672,9 @@ function DesignEditor() {
                   activeLeftPanel === "agent" ? "flex" : "hidden",
                 )}
               >
-                {canEditDesign ? (
+                {hostEmbeddedEditor ? (
+                  <div ref={attachHostChatSlot} className="min-h-0 flex-1" />
+                ) : canEditDesign ? (
                   <AgentChatSurface
                     mode="panel"
                     className="min-h-0 flex-1 border-0 bg-transparent shadow-none"

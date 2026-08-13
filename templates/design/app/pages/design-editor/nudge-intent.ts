@@ -475,12 +475,30 @@ export function resolveElementNudgeIntent(
   ) {
     return { kind: "none" };
   }
+  // The rendered axis, which markup alone cannot give: a stylesheet-driven
+  // `flex-direction: column` maps up/down onto DOM order, and assuming a row
+  // reorders on left/right instead.
+  const renderedFlexDirection =
+    args.selectedElement.parentLayout?.flexDirection;
+  if (
+    parsedContainer.kind === "none" &&
+    !escapesFlow(position) &&
+    isRenderedFlowDisplay(rendered) &&
+    !renderedFlexDirection
+  ) {
+    return { kind: "none" };
+  }
   const container: FlowContainerInfo =
     parsedContainer.kind === "none" && !escapesFlow(position)
       ? isRenderedFlowDisplay(rendered)
-        ? // A flex parent the parser could not see. Axis is unknown from markup
-          // alone; the row default matches describeFlowContainer's.
-          { ...NO_FLOW_CONTAINER, kind: "flex", axis: "horizontal" }
+        ? {
+            ...NO_FLOW_CONTAINER,
+            kind: "flex",
+            axis: renderedFlexDirection?.startsWith("column")
+              ? "vertical"
+              : "horizontal",
+            reversed: renderedFlexDirection?.endsWith("-reverse") ?? false,
+          }
         : // `parent` null means the node is a projection root: it has no flow to
           // reorder within, and the bridge reports `parentDisplay: undefined`
           // for it exactly as it does for a not-yet-measured selection.

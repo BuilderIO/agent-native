@@ -51,6 +51,15 @@ function isAllowedBrowserOrigin(origin: string | undefined): boolean {
   );
 }
 
+function originMatches(rawUrl: string, expectedOrigin: string): boolean {
+  try {
+    return new URL(rawUrl).origin === expectedOrigin;
+    // coercion-ok: a URL that will not parse matches no signed origin.
+  } catch {
+    return false;
+  }
+}
+
 /** Caller-supplied, so bounded: a screen is a live iframe of the container. */
 const MAX_REQUESTED_ROUTES = 24;
 
@@ -120,11 +129,24 @@ export const builderPartnerOpen = defineEventHandler(async (event) => {
     throw error;
   }
 
-  // The branch identity comes from the signed claims; only the preview URL is
-  // caller-supplied, and the action validates it against the host allowlist.
+  // The host allowlist cannot tell one org's `.fly.dev` container from an
+  // attacker's, so when Builder signs the origin it is the only thing that
+  // decides — the body may name that origin, nothing else.
+  const previewUrl = String(body?.previewUrl ?? "");
+  if (
+    claims.previewOrigin &&
+    !originMatches(previewUrl, claims.previewOrigin)
+  ) {
+    setResponseStatus(event, 403);
+    return { error: "Preview URL does not match the signed container origin." };
+  }
+
+  // The branch identity comes from the signed claims; the preview URL is
+  // caller-supplied unless the token bound it, and the action still validates
+  // it against the host allowlist.
   const result = await runWithRequestContext({}, () =>
     openBuilderVisualEdit({
-      previewUrl: String(body?.previewUrl ?? ""),
+      previewUrl,
       builderOrgId: claims.builderOrgId,
       projectId: claims.projectId,
       branchName: claims.branchName,

@@ -36,6 +36,7 @@ import type { LinksFunction } from "react-router";
 import { Layout as AppLayout } from "@/components/layout/Layout";
 import { Toaster } from "@/components/ui/sonner";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
+import { isBuilderHostEmbed } from "@/lib/builder-host-origin";
 import { requestDesignUiToggle } from "@/lib/design-ui-events";
 
 import changelog from "../CHANGELOG.md?raw";
@@ -168,6 +169,21 @@ function DesignCommandMenu({
   );
 }
 
+/**
+ * The one toaster: AppProviders renders its own by default, and a second copy
+ * here made every toast appear twice once the two positions stopped coinciding.
+ * Builder's chat covers the left column when it hosts the editor, which would
+ * hide any toast underneath it.
+ */
+function DesignToaster() {
+  return (
+    <Toaster
+      richColors
+      position={isBuilderHostEmbed() ? "bottom-right" : "bottom-left"}
+    />
+  );
+}
+
 function RootContent() {
   const location = useLocation();
   const { session } = useSession();
@@ -191,7 +207,6 @@ function RootContent() {
   return (
     <>
       {hasSession && <DbSyncSetup />}
-      <Toaster richColors position="bottom-left" />
       {hasSession && !isPublicVisualEdit && (
         <DesignCommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen} />
       )}
@@ -210,6 +225,7 @@ export default function Root() {
         queryClient={queryClient}
         isPublicPath={isPublicPath}
         i18n={{ catalog: i18nCatalog, persistPreference: !isPublicPath }}
+        toaster={<DesignToaster />}
       >
         <RootContent />
       </AppProviders>

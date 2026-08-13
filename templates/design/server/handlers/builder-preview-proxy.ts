@@ -2,13 +2,21 @@
  * Serve a Builder container preview from this app's own origin, so the canvas
  * frames it same-origin and the COEP/CORP negotiation disappears.
  *
- * The upstream origin comes from the design's stored linkage, never from the
- * caller, so this cannot be driven as an open proxy.
+ * Whatever the container serves runs on this origin, so proxying a design is a
+ * capability its viewers must hold, not a public read.
  */
 
+import {
+  getSession,
+  runWithRequestContext,
+  verifyEmbedSessionToken,
+} from "@agent-native/core/server";
+import { EMBED_SESSION_COOKIE } from "@agent-native/core/shared";
+import { resolveAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import {
   defineEventHandler,
+  getCookie,
   getHeader,
   getRequestURL,
   getRouterParam,
@@ -20,6 +28,7 @@ import {
 import { parseBuilderPreviewUrl } from "../../shared/builder-preview-url.js";
 import { readFusionApp } from "../../shared/full-app.js";
 import { getDb, schema } from "../db/index.js";
+import { builderHostEmbedScope } from "../lib/builder-host-embed.js";
 
 export const BUILDER_PREVIEW_PROXY_PREFIX = "/builder-preview";
 
@@ -41,7 +50,20 @@ const DROPPED_UPSTREAM_HEADERS = new Set([
   "cross-origin-opener-policy",
   "cross-origin-embedder-policy",
   "cross-origin-resource-policy",
+  // Root-absolute subresources are mapped to a design by Referer alone, so no
+  // cache key here carries the design. A shared cache would hand one design's
+  // response to another viewer without re-running authorization.
+  "cache-control",
+  "etag",
+  "last-modified",
+  "expires",
+  "age",
+  "vary",
 ]);
+
+/** A hostile or hung container must not be able to hold a request open. */
+const UPSTREAM_TIMEOUT_MS = 20_000;
+const UPSTREAM_MAX_BYTES = 32 * 1024 * 1024;
 
 export function builderPreviewProxyPath(designId: string, path = "/"): string {
   const suffix = path.startsWith("/") ? path.slice(1) : path;
@@ -101,11 +123,50 @@ async function upstreamOriginFor(designId: string): Promise<string | null> {
   }
 }
 
+/**
+ * The embed session is signed against the design page, so `getSession` refuses
+ * it here — this path is neither that target nor a core "runtime" path. The
+ * scope names the design, which is the same authorization by a shorter route.
+ */
+function embedSessionGrantsDesign(event: H3Event, designId: string): boolean {
+  const verified = verifyEmbedSessionToken(
+    getCookie(event, EMBED_SESSION_COOKIE),
+  );
+  return (
+    verified.ok && verified.claims.scope === builderHostEmbedScope(designId)
+  );
+}
+
 export async function proxyBuilderPreview(
   event: H3Event,
   args: { designId: string; path: string },
 ): Promise<unknown> {
-  const origin = await upstreamOriginFor(args.designId);
+  // Framed, container code is confined to the canvas; navigated to directly it
+  // becomes this origin's own top-level document. Only `document` is refused —
+  // the frame's own subresources carry script/style/image dests.
+  if (getHeader(event, "sec-fetch-dest") === "document") {
+    setResponseStatus(event, 403);
+    return { error: "A Builder preview can only be opened inside the canvas." };
+  }
+
+  let origin: string | null = null;
+  if (embedSessionGrantsDesign(event, args.designId)) {
+    origin = await upstreamOriginFor(args.designId);
+  } else {
+    // coercion-ok: an unreadable session is no session, which the check below rejects.
+    const session = await getSession(event).catch(() => null);
+    if (!session?.email) {
+      setResponseStatus(event, 401);
+      return { error: "Sign in to view this Builder preview." };
+    }
+    origin = await runWithRequestContext(
+      { userEmail: session.email, orgId: session.orgId },
+      async () =>
+        (await resolveAccess("design", args.designId))
+          ? await upstreamOriginFor(args.designId)
+          : null,
+    );
+  }
   if (!origin) {
     setResponseStatus(event, 404);
     return { error: "No Builder preview is linked to this design." };
@@ -123,6 +184,7 @@ export async function proxyBuilderPreview(
       // Never `follow`: the allowlist is checked on this URL only, so a
       // container that redirects elsewhere would fetch that origin through us.
       redirect: "manual",
+      signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
     });
   } catch (error) {
     // A dead or sleeping container is a gateway failure, not a 500 here.
@@ -151,9 +213,22 @@ export async function proxyBuilderPreview(
         : resolved.toString(),
     );
   }
+  setResponseHeader(event, "cache-control", "private, no-store");
   setResponseStatus(event, upstream.status);
 
-  return Buffer.from(await upstream.arrayBuffer());
+  const declaredLength = Number(upstream.headers.get("content-length"));
+  if (Number.isFinite(declaredLength) && declaredLength > UPSTREAM_MAX_BYTES) {
+    setResponseStatus(event, 502);
+    return { error: "The Builder preview response is too large to proxy." };
+  }
+  const body = Buffer.from(await upstream.arrayBuffer());
+  // Length is advisory: a chunked response can exceed it, so the buffered size
+  // is what actually has to be checked.
+  if (body.byteLength > UPSTREAM_MAX_BYTES) {
+    setResponseStatus(event, 502);
+    return { error: "The Builder preview response is too large to proxy." };
+  }
+  return body;
 }
 
 export const builderPreviewProxy = defineEventHandler(async (event) => {

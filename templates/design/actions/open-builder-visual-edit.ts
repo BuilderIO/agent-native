@@ -151,7 +151,7 @@ export async function openBuilderVisualEdit(input: OpenBuilderVisualEditArgs) {
         height: args.height ?? DEFAULT_FUSION_SCREEN_HEIGHT,
       });
 
-      const urlPath = builderHostDesignPath(designId, screens[0]?.fileId);
+      const urlPath = builderHostDesignPath(designId);
       await writeAppState("visual-edit", {
         designId,
         source: "builder-host",

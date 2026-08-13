@@ -177,8 +177,7 @@ describe("open-builder-visual-edit", () => {
     await openBuilderVisualEdit(validArgs);
     expect(mocks.signEmbedSessionToken).toHaveBeenCalledWith({
       ownerEmail: expect.stringMatching(/^builder\+/),
-      targetPath:
-        "/visual-edit/design-1?view=single&mode=edit&screen=f1&embedChrome=1",
+      targetPath: "/visual-edit/design-1?view=overview&embedChrome=1",
       scope: "builder-host:design:design-1",
       ttlSeconds: 3600,
     });
@@ -202,8 +201,7 @@ describe("open-builder-visual-edit", () => {
     expect(url.pathname).toBe("/visual-edit/design-1");
     expect(url.searchParams.get("__an_embed_token")).toBe("embed-token-abc");
     expect(url.searchParams.get("embedded")).toBe("1");
-    expect(url.searchParams.get("view")).toBe("single");
-    expect(url.searchParams.get("mode")).toBe("edit");
+    expect(url.searchParams.get("view")).toBe("overview");
   });
 
   it("keeps the embed URL non-enumerable so it cannot be serialized out", async () => {
@@ -280,8 +278,7 @@ describe("open-builder-visual-edit", () => {
       source: "builder-host",
       builderOrgId: "org-1",
       branchName: "feature/x",
-      urlPath:
-        "/visual-edit/design-1?view=single&mode=edit&screen=f1&embedChrome=1",
+      urlPath: "/visual-edit/design-1?view=overview&embedChrome=1",
     });
   });
 });

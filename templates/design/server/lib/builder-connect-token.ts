@@ -11,6 +11,9 @@ export const BUILDER_CONNECT_ISSUER = "builder.io";
 export const BUILDER_CONNECT_AUDIENCE = "design.agent-native.com";
 export const BUILDER_CONNECT_SCOPE = "design-embed";
 
+/** Builder mints these for 60s; the rest is clock-skew allowance. */
+export const BUILDER_CONNECT_MAX_TOKEN_AGE_SECONDS = 120;
+
 /** `_NEXT` lets Builder rotate the secret with no downtime. */
 const SECRET_ENV_KEYS = [
   "BUILDER_DESIGN_PARTNER_SECRET",
@@ -19,10 +22,28 @@ const SECRET_ENV_KEYS = [
 
 const MIN_SECRET_LENGTH = 32;
 
+function normalizeClaimOrigin(value: unknown): string | null {
+  if (typeof value !== "string" || !value.trim()) return null;
+  try {
+    return new URL(value.trim()).origin;
+    // coercion-ok: an unparsable claim binds nothing, and the caller treats a
+    // null origin as "Builder did not sign one", not as "any origin is fine".
+  } catch {
+    return null;
+  }
+}
+
 export interface BuilderConnectClaims {
   builderOrgId: string;
   projectId: string;
   branchName: string;
+  /**
+   * The container origin Builder resolved for this branch. Absent on tokens
+   * minted before Builder signed it; when present it is authoritative and the
+   * caller-supplied preview URL must match, because a host-suffix allowlist
+   * cannot tell one org's `.fly.dev` app from an attacker's.
+   */
+  previewOrigin: string | null;
   jti: string | null;
 }
 
@@ -113,6 +134,11 @@ export async function verifyBuilderConnectToken(
         issuer: BUILDER_CONNECT_ISSUER,
         audience: BUILDER_CONNECT_AUDIENCE,
         algorithms: ["HS256"],
+        // `exp` is only checked when present, so without this a token minted
+        // with no expiry — or a far-future one — is valid forever. `maxTokenAge`
+        // bounds it against `iat` as well, so the minted TTL is the real one.
+        requiredClaims: ["exp", "iat"],
+        maxTokenAge: BUILDER_CONNECT_MAX_TOKEN_AGE_SECONDS,
       });
       payload = verified.payload;
       break;
@@ -137,6 +163,7 @@ export async function verifyBuilderConnectToken(
     builderOrgId: requireStringClaim(payload, "builderOrgId"),
     projectId: requireStringClaim(payload, "projectId"),
     branchName: requireStringClaim(payload, "branchName"),
+    previewOrigin: normalizeClaimOrigin(payload.previewOrigin),
     jti: typeof payload.jti === "string" && payload.jti ? payload.jti : null,
   };
 

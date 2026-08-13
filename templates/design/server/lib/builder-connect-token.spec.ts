@@ -22,11 +22,12 @@ async function mint(
     secret?: string;
     issuer?: string;
     audience?: string;
-    expiresIn?: string;
+    expiresIn?: string | null;
+    issuedAt?: number;
     jti?: string | null;
   } = {},
 ): Promise<string> {
-  const jwt = new SignJWT({
+  const jwt: SignJWT = new SignJWT({
     builderOrgId: "org-1",
     projectId: "proj-1",
     branchName: "feature/x",
@@ -36,8 +37,10 @@ async function mint(
     .setProtectedHeader({ alg: "HS256" })
     .setIssuer(options.issuer ?? BUILDER_CONNECT_ISSUER)
     .setAudience(options.audience ?? BUILDER_CONNECT_AUDIENCE)
-    .setIssuedAt()
-    .setExpirationTime(options.expiresIn ?? "60s");
+    .setIssuedAt(options.issuedAt);
+  if (options.expiresIn !== null) {
+    jwt.setExpirationTime(options.expiresIn ?? "60s");
+  }
   if (options.jti !== null) {
     jwt.setJti(options.jti ?? `jti-${Math.random().toString(36).slice(2)}`);
   }
@@ -129,6 +132,21 @@ describe("verifyBuilderConnectToken", () => {
         BuilderConnectTokenError,
       );
     }
+  });
+
+  it("rejects a token that never expires", async () => {
+    await expect(
+      verifyBuilderConnectToken(await mint({}, { expiresIn: null })),
+    ).rejects.toBeInstanceOf(BuilderConnectTokenError);
+  });
+
+  it("rejects a token minted far in the past, whatever its expiry says", async () => {
+    const anHourAgo = Math.floor(Date.now() / 1000) - 3600;
+    await expect(
+      verifyBuilderConnectToken(
+        await mint({}, { issuedAt: anHourAgo, expiresIn: "24h" }),
+      ),
+    ).rejects.toBeInstanceOf(BuilderConnectTokenError);
   });
 
   it("rejects an unsigned (alg=none) token", async () => {

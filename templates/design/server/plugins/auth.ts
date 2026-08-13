@@ -27,13 +27,9 @@ export default createAuthPlugin({
   // review comment mutations remain protected by action auth and resource ACLs.
   // The Builder handshake runs before any session exists — minting one is its
   // job. It authenticates itself against BUILDER_DESIGN_PARTNER_SECRET.
-  // The container preview is proxied same-origin so the canvas can frame it.
-  // It only ever reaches a design's own stored preview origin, which is a
-  // public Builder container — no caller-supplied URL, so not an open proxy.
   publicPaths: [
     "/api/design-handoff",
     "/__manifest",
-    "/builder-preview",
     "/_agent-native/partner/builder/open",
     "/_agent-native/actions/get-design",
     "/_agent-native/actions/list-design-native-assets",
