@@ -93,6 +93,19 @@ export default defineAction({
         purpose:
           "Create apps, manage workspace resources, route work to connected agents, and continue Dispatch conversations.",
       };
+      const agentPath =
+        typeof navigation.agentPath === "string"
+          ? navigation.agentPath.trim()
+          : "";
+      if (agentPath) {
+        const agents = await listWorkspaceResourceOptions({ kind: "agent" });
+        const agent = agents.find((resource) => resource.path === agentPath);
+        screen.chatSurface = {
+          ...(screen.chatSurface as Record<string, unknown>),
+          agentPath,
+          ...(agent ? { agent } : {}),
+        };
+      }
     }
     if (navigation?.view === "overview") {
       screen.recentAudit = overview.recentAudit.slice(0, 5);

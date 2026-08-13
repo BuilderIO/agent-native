@@ -580,6 +580,13 @@ function AgentRow({
       if (result.mode === "builder") {
         toast.success("App build started", {
           description: result.message,
+          action: result.url
+            ? {
+                label: "Open in Builder",
+                onClick: () =>
+                  window.open(result.url, "_blank", "noopener,noreferrer"),
+              }
+            : undefined,
         });
         return;
       }
@@ -677,6 +684,7 @@ interface AgentAppCreationResult {
   mode: "builder" | "local-agent" | "builder-unavailable" | "coming-soon";
   message: string;
   prompt?: string;
+  url?: string;
 }
 
 export function SimpleAgentsPanel() {

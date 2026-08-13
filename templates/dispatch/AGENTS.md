@@ -37,8 +37,9 @@ Read the relevant skill before deeper work:
 - Use `connect-external-agent` for public HTTP/A2A metadata; authenticate through
   the normal connection flow.
 - Dispatch's primary nav is Overview, Chat, Apps, Agents, and the app rail.
-  `/agents` creates/imports reusable profiles; `/admin/agents` manages technical
-  MCP/A2A connections. Other workspace/operator tools live under `/admin`:
+  `/agents` creates/imports reusable profiles, opens per-agent chat, and can
+  hand a profile off to app creation; `/admin/agents` manages technical MCP/A2A
+  connections. Other workspace/operator tools live under `/admin`:
   operations, metrics, integrations, vault, automations, approvals,
   destinations, workspace, messaging, identities, audit, dreams, and thread-debug.
 - Keep approval and routing behavior explicit. Never silently widen access to
