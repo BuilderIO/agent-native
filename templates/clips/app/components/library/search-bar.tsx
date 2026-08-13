@@ -46,6 +46,17 @@ interface SearchBarProps {
   side?: "top" | "right" | "bottom" | "left";
 }
 
+/**
+ * Focuses the nearest mounted SearchBar input. Used by the "Search" command
+ * palette entry, which has no input of its own to focus.
+ */
+export const FOCUS_SEARCH_EVENT = "clips:focus-search";
+
+export function focusSearchBar() {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event(FOCUS_SEARCH_EVENT));
+}
+
 function matchLabel(hit: SearchHit, t: ReturnType<typeof useT>): string {
   switch (hit.matchType) {
     case "title-transcript":
@@ -99,8 +110,16 @@ export function SearchBar({ className, side = "right" }: SearchBarProps) {
         inputRef.current?.blur();
       }
     };
+    const onFocusRequest = () => {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener(FOCUS_SEARCH_EVENT, onFocusRequest);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener(FOCUS_SEARCH_EVENT, onFocusRequest);
+    };
   }, []);
 
   function pickResult(hit: SearchHit) {

@@ -22,6 +22,7 @@ import { resolveLocaleFromRequest } from "@agent-native/core/server";
 import {
   IconHierarchy2,
   IconCheck,
+  IconSearch,
   IconSun,
   IconMoon,
 } from "@tabler/icons-react";
@@ -41,6 +42,7 @@ import {
 } from "react-router";
 import type { LinksFunction, LoaderFunctionArgs } from "react-router";
 
+import { focusSearchBar } from "@/components/library/search-bar";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -371,7 +373,15 @@ function AppContent() {
               <IconHierarchy2 size={16} />
               {t("root.openAgent")}
             </CommandMenu.Item>
-            <CommandMenu.Item onSelect={() => {}}>
+            <CommandMenu.Item
+              onSelect={() => {
+                navigate("/library");
+                // Wait for the library route (and its search input) to
+                // mount before focusing it.
+                requestAnimationFrame(() => focusSearchBar());
+              }}
+            >
+              <IconSearch size={16} />
               {t("root.commandSearch")}
             </CommandMenu.Item>
           </CommandMenu.Group>
