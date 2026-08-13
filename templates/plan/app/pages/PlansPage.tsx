@@ -13,6 +13,10 @@ import { PromptComposer } from "@agent-native/core/client/composer";
 import { useActionQuery, useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  InlineMarkdown,
+  type InlineMarkdownProtectedSpan,
+} from "@agent-native/core/client/markdown";
+import {
   useAcceptInvitation,
   useJoinByDomain,
   useOrg,
@@ -976,30 +980,35 @@ function safeDecodeURIComponent(value: string): string {
 }
 
 function renderCommentMessage(message: string) {
-  const parts: ReactNode[] = [];
-  let lastIndex = 0;
+  const protectedSpans: InlineMarkdownProtectedSpan[] = [];
   const pattern = /@\[([^\]]+)\]\(mailto:([^)]+)\)/g;
   let match: RegExpExecArray | null;
   while ((match = pattern.exec(message)) !== null) {
-    if (match.index > lastIndex) {
-      parts.push(message.slice(lastIndex, match.index));
-    }
     const label = match[1] ?? "";
     const email = safeDecodeURIComponent(match[2] ?? "");
-    parts.push(
-      <span
-        key={`${email}-${match.index}`}
-        className="mx-0.5 inline-flex max-w-[14rem] translate-y-[2px] items-center gap-1 rounded-full border border-primary/20 bg-primary/10 px-1.5 py-0.5 text-xs font-medium text-primary"
-        title={email}
-      >
-        <IconAt className="size-3" />
-        <span className="truncate">{label || email}</span>
-      </span>,
-    );
-    lastIndex = pattern.lastIndex;
+    protectedSpans.push({
+      source: match[0],
+      label: label || email,
+      title: email,
+    });
   }
-  if (lastIndex < message.length) parts.push(message.slice(lastIndex));
-  return parts.length > 0 ? parts : message;
+  return (
+    <InlineMarkdown
+      content={message}
+      inline
+      protectedSpans={protectedSpans}
+      renderProtectedSpan={(span, children) => (
+        <span
+          key={span.source}
+          className="mx-0.5 inline-flex max-w-[14rem] translate-y-[2px] items-center gap-1 rounded-full border border-primary/20 bg-primary/10 px-1.5 py-0.5 text-xs font-medium text-primary"
+          title={span.title}
+        >
+          <IconAt className="size-3" />
+          <span className="truncate">{children}</span>
+        </span>
+      )}
+    />
+  );
 }
 
 function CommentAvatar({

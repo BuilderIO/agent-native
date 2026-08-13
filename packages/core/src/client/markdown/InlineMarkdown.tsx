@@ -129,7 +129,8 @@ export function InlineMarkdown({
   );
 }
 
-const PROTECTED_SPAN_PREFIX = "inline-markdown-protected:";
+const PROTECTED_SPAN_PREFIX =
+  "https://inline-markdown-protected.invalid/span/";
 
 function protectInlineMarkdownSpans(
   content: string,

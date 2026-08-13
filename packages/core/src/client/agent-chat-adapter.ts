@@ -2484,6 +2484,7 @@ export function createAgentChatAdapter(
                 reconnectRes.headers.get("X-Dispatch-Mode"),
               );
 
+              takeRunStreamOwnership();
               for await (const result of readSSEStream(
                 reconnectRes.body,
                 content,
@@ -2891,6 +2892,7 @@ export function createAgentChatAdapter(
             updateCurrentRunDispatchMode(
               eventsRes.headers.get("X-Dispatch-Mode"),
             );
+            takeRunStreamOwnership();
             let missingFinalResponseResult: ChatModelRunResult | null = null;
             for await (const result of readSSEStream(
               eventsRes.body,
@@ -4006,6 +4008,7 @@ export function createAgentChatAdapter(
               setActiveRun({ threadId, runId, turnId, lastSeq: -1 });
             }
 
+            takeRunStreamOwnership();
             let missingFinalResponseResult: ChatModelRunResult | null = null;
             for await (const result of readSSEStream(
               res.body,

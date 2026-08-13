@@ -19,6 +19,11 @@ import {
   intType,
   isProductionServerlessFunctionRuntime,
 } from "@agent-native/core/db";
+import {
+  CANONICAL_WORKSPACE_SSO_APP_ORIGINS,
+  exactWorkspaceSsoOrigin,
+  parseWorkspaceSsoAppRegistrations,
+} from "@agent-native/dispatch/shared/workspace-sso";
 
 const CONTROL_CHARS = /[\u0000-\u001f\u007f]/;
 const APP_ID = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
@@ -66,22 +71,7 @@ export function normalizeIdentityAuthority(raw: unknown): string | null {
 
 /** Exact first-party app origins. Never replace this with a suffix check. */
 export const CANONICAL_IDENTITY_SSO_APP_ORIGINS = {
-  analytics: "https://analytics.agent-native.com",
-  assets: "https://assets.agent-native.com",
-  brain: "https://brain.agent-native.com",
-  calendar: "https://calendar.agent-native.com",
-  chat: "https://chat.agent-native.com",
-  clips: "https://clips.agent-native.com",
-  content: "https://content.agent-native.com",
-  crm: "https://crm.agent-native.com",
-  design: "https://design.agent-native.com",
-  dispatch: "https://dispatch.agent-native.com",
-  forms: "https://forms.agent-native.com",
-  macros: "https://macros.agent-native.com",
-  mail: "https://mail.agent-native.com",
-  plan: "https://plan.agent-native.com",
-  slides: "https://slides.agent-native.com",
-  tasks: "https://tasks.agent-native.com",
+  ...CANONICAL_WORKSPACE_SSO_APP_ORIGINS,
 } as const;
 
 export const DEFAULT_ALLOWED_ORIGINS: readonly string[] = Object.values(
@@ -107,81 +97,20 @@ function canonicalRegistrations(): IdentitySsoAppRegistration[] {
 }
 
 function exactOrigin(raw: unknown): string | null {
-  if (typeof raw !== "string" || !raw || CONTROL_CHARS.test(raw)) return null;
-  try {
-    const url = new URL(raw);
-    if (
-      url.protocol !== "https:" &&
-      !(url.protocol === "http:" && LOCALHOST_HOSTS.has(url.hostname))
-    ) {
-      return null;
-    }
-    if (
-      url.username ||
-      url.password ||
-      url.pathname !== "/" ||
-      url.search ||
-      url.hash
-    ) {
-      return null;
-    }
-    return url.origin;
-  } catch (error) {
-    void error;
-    return null;
-  }
+  return exactWorkspaceSsoOrigin(raw);
 }
 
 function parseCustomRegistrations(
   env: NodeJS.ProcessEnv,
 ): IdentitySsoAppRegistration[] {
-  const raw = env.IDENTITY_SSO_APP_REGISTRY_JSON?.trim();
-  if (!raw) return [];
-  let value: unknown;
-  try {
-    value = JSON.parse(raw);
-  } catch (error) {
-    void error;
-    return [];
-  }
-  if (!Array.isArray(value)) return [];
-
-  const registrations: IdentitySsoAppRegistration[] = [];
-  const seen = new Set<string>();
-  for (const entry of value) {
-    if (!entry || typeof entry !== "object") continue;
-    const candidate = entry as Record<string, unknown>;
-    const appId = candidate.appId;
-    const clientId = candidate.clientId;
-    const origin = exactOrigin(candidate.origin);
-    const callbackPath = candidate.callbackPath;
-    const capabilities = candidate.capabilities;
-    if (
-      typeof appId !== "string" ||
-      !APP_ID.test(appId) ||
-      typeof clientId !== "string" ||
-      !CLIENT_ID.test(clientId) ||
-      !origin ||
-      callbackPath !== IDENTITY_SSO_CALLBACK_PATH ||
-      !Array.isArray(capabilities) ||
-      !capabilities.includes("identity-sso") ||
-      seen.has(appId) ||
-      Object.prototype.hasOwnProperty.call(
-        CANONICAL_IDENTITY_SSO_APP_ORIGINS,
-        appId,
-      )
-    ) {
-      continue;
-    }
-    seen.add(appId);
-    registrations.push({
-      appId,
-      clientId,
-      origin,
-      callbackPath: IDENTITY_SSO_CALLBACK_PATH,
-    });
-  }
-  return registrations;
+  return parseWorkspaceSsoAppRegistrations(
+    env.IDENTITY_SSO_APP_REGISTRY_JSON,
+  ).map((registration) => ({
+    appId: registration.appId,
+    clientId: registration.clientId,
+    origin: registration.origin,
+    callbackPath: IDENTITY_SSO_CALLBACK_PATH,
+  }));
 }
 
 /**

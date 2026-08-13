@@ -29,6 +29,8 @@
     "./routes/pages/*": "./dist/routes/pages/*.js",
     "./server": "./dist/server/index.js",
     "./shared/app-roles": "./dist/shared/app-roles.js",
+    "./shared/feature-flags": "./dist/shared/feature-flags.js",
+    "./shared/workspace-sso": "./dist/shared/workspace-sso.js",
     "./server/lib/thread-link-preview": "./dist/server/lib/thread-link-preview.js",
     "./actions": "./dist/actions/index.js",
     "./db": "./dist/db/index.js",
