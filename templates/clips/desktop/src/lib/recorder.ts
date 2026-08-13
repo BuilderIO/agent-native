@@ -565,7 +565,7 @@ function buildRecordingAudio(
   const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
   if (!AudioCtx) {
     // No WebAudio — keep the capture alive with the raw microphone signal.
-    return { tracks: systemTracks.length ? micTracks : micTracks, cleanup() {} };
+    return { tracks: micTracks, cleanup() {} };
   }
   const ctx: AudioContext = new AudioCtx();
   const destination = ctx.createMediaStreamDestination();

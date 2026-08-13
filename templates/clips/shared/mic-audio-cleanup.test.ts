@@ -163,7 +163,7 @@ describe("createMicAudioCleanup", () => {
 
     handle.stop();
     expect(ctx.destination.stream.getTracks()[0].stopCalls).toBe(1);
-    expect(ctx.close).toHaveBeenCalledTimes(1);
+    expect(ctx.close).not.toHaveBeenCalled();
     expect(ctx.sourceNodes[0].disconnectCalls).toBeGreaterThan(0);
     expect(ctx.gain.disconnectCalls).toBeGreaterThan(0);
 
