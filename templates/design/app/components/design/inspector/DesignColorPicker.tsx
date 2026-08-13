@@ -270,9 +270,9 @@ const DEFAULT_LABELS: DesignColorPickerLabels = {
   diamond: "Diamond", // i18n-ignore fallback component label
 };
 
-// checkerboard: explicit light/dark tiles for legibility.
-const CHECKER_A = "#d4d4d4";
-const CHECKER_B = "#a3a3a3";
+// Keep transparency tiles light on both light and dark editor surfaces.
+const CHECKER_A = "#e5e5e5";
+const CHECKER_B = "#f5f5f5";
 const CHECKERBOARD_IMAGE = `linear-gradient(45deg, ${CHECKER_A} 25%, transparent 25%), linear-gradient(-45deg, ${CHECKER_A} 25%, transparent 25%), linear-gradient(45deg, transparent 75%, ${CHECKER_A} 75%), linear-gradient(-45deg, transparent 75%, ${CHECKER_A} 75%)`;
 
 // ─── Paint-type icon SVGs (Tabler style, distinct per type) ────────────────────
@@ -1676,6 +1676,7 @@ export function DesignColorPicker({
                             max={100}
                             disabled={disabled}
                             backgroundImage={alphaTrackBackground(fieldColor)}
+                            backgroundColor={CHECKER_B}
                             backgroundSize="8px 8px, 8px 8px, 8px 8px, 8px 8px, 100% 100%"
                             backgroundPosition="0 0, 0 4px, 4px -4px, -4px 0, 0 0"
                             onChange={(next) => {
@@ -2062,6 +2063,7 @@ function ColorTrack({
   max,
   disabled,
   backgroundImage,
+  backgroundColor,
   backgroundSize,
   backgroundPosition,
   onChange,
@@ -2073,6 +2075,7 @@ function ColorTrack({
   max: number;
   disabled: boolean;
   backgroundImage: string;
+  backgroundColor?: string;
   backgroundSize?: string;
   backgroundPosition?: string;
   onChange: (value: number) => void;
@@ -2160,7 +2163,12 @@ function ColorTrack({
         "active:cursor-grabbing",
         disabled && "cursor-not-allowed opacity-60",
       )}
-      style={{ backgroundImage, backgroundSize, backgroundPosition }}
+      style={{
+        backgroundImage,
+        backgroundColor,
+        backgroundSize,
+        backgroundPosition,
+      }}
     >
       {/* Thumb overhangs the track slightly, matching the design editor */}
       <span
@@ -2552,6 +2560,7 @@ function triggerSwatchStyle(
   if (!lower || lower === "transparent") {
     return {
       backgroundImage: CHECKERBOARD_IMAGE,
+      backgroundColor: CHECKER_B,
       backgroundSize: "8px 8px",
     };
   }
@@ -2577,6 +2586,7 @@ function swatchStyle(value: string): {
   if (parsed && parsed.a < 1) {
     return {
       backgroundImage: `${CHECKERBOARD_IMAGE}, linear-gradient(${rgbaToCss(parsed)}, ${rgbaToCss(parsed)})`,
+      backgroundColor: CHECKER_B,
       backgroundSize: "8px 8px, 8px 8px, 8px 8px, 8px 8px, 100% 100%",
       backgroundPosition: "0 0, 0 4px, 4px -4px, -4px 0, 0 0",
     };
@@ -2590,6 +2600,7 @@ function swatchStyle(value: string): {
   // that would otherwise render as a blank swatch.
   return {
     backgroundImage: CHECKERBOARD_IMAGE,
+    backgroundColor: CHECKER_B,
     backgroundSize: "8px 8px",
   };
 }

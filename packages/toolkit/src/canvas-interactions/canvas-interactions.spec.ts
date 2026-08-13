@@ -142,7 +142,7 @@ describe("canvas interaction conformance", () => {
     }
   });
 
-  it("keeps midpoint resizing single-axis while Shift preserves corner aspect ratio", () => {
+  it("preserves aspect ratio for side and corner Shift resizing", () => {
     const start = { x: 100, y: 100, width: 200, height: 100 };
     expect(
       resizeCanvasRect(start, {
@@ -157,7 +157,14 @@ describe("canvas interaction conformance", () => {
         delta: { x: 60, y: 10 },
         preserveAspectRatio: true,
       }),
-    ).toMatchObject({ width: 260, height: 100 });
+    ).toEqual({ x: 100, y: 85, width: 260, height: 130 });
+    expect(
+      resizeCanvasRect(start, {
+        handle: "n",
+        delta: { x: 10, y: -20 },
+        preserveAspectRatio: true,
+      }),
+    ).toEqual({ x: 80, y: 80, width: 240, height: 120 });
     expect(constrainCanvasDragDelta({ x: 8, y: 3 }, true)).toEqual({
       x: 8,
       y: 0,
@@ -166,6 +173,52 @@ describe("canvas interaction conformance", () => {
       x: 0,
       y: 8,
     });
+  });
+
+  it("resizes symmetrically from the center while Alt is held", () => {
+    const start = { x: 100, y: 100, width: 200, height: 100 };
+
+    expect(
+      resizeCanvasRect(start, {
+        handle: "e",
+        delta: { x: 20, y: 0 },
+        altKey: true,
+      }),
+    ).toEqual({ x: 80, y: 100, width: 240, height: 100 });
+    expect(
+      resizeCanvasRect(start, {
+        handle: "nw",
+        delta: { x: -10, y: -20 },
+        altKey: true,
+      }),
+    ).toEqual({ x: 90, y: 80, width: 220, height: 140 });
+  });
+
+  it("combines Alt center resizing with Shift corner aspect locking", () => {
+    expect(
+      resizeCanvasRect(
+        { x: 100, y: 100, width: 200, height: 100 },
+        {
+          handle: "se",
+          delta: { x: 30, y: 5 },
+          altKey: true,
+          preserveAspectRatio: true,
+        },
+      ),
+    ).toEqual({ x: 70, y: 85, width: 260, height: 130 });
+  });
+
+  it("combines Alt center resizing with Shift aspect locking on sides", () => {
+    const start = { x: 100, y: 100, width: 200, height: 100 };
+
+    expect(
+      resizeCanvasRect(start, {
+        handle: "e",
+        delta: { x: 20, y: 0 },
+        altKey: true,
+        preserveAspectRatio: true,
+      }),
+    ).toEqual({ x: 80, y: 90, width: 240, height: 120 });
   });
 
   it("keeps aspect ratio and the opposite corner anchored at minimum size", () => {
@@ -422,6 +475,30 @@ describe("canvas interaction conformance", () => {
     expect(preview).toHaveBeenCalledTimes(1);
     expect(cancel).toHaveBeenCalledTimes(1);
     expect(commit).not.toHaveBeenCalled();
+  });
+
+  it("forwards Alt and Shift modifiers to centered aspect-ratio resize", () => {
+    const controller = createCanvasGestureController({
+      adapter: { commit: () => ({ handled: true }) },
+    });
+    controller.pointerDown({
+      kind: "resize",
+      objectIds: ["title"],
+      pointer: { x: 100, y: 100 },
+      viewport: { left: 0, top: 0, width: 500, height: 250 },
+      canvas: { width: 1000, height: 500 },
+      handle: "se",
+      rect: { x: 100, y: 100, width: 200, height: 100 },
+    });
+
+    expect(
+      controller.pointerMove({ x: 115, y: 105, altKey: true, shiftKey: true }),
+    ).toMatchObject({
+      phase: "active",
+      gesture: {
+        rect: { x: 70, y: 85, width: 260, height: 130 },
+      },
+    });
   });
 
   it("commits each of the eight resize handles through one common sequence", () => {

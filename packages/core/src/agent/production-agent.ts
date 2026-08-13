@@ -8583,7 +8583,7 @@ export function createProductionAgentHandler(
             typeof sel.capturedAt === "number" ? sel.capturedAt : 0;
           if (Date.now() - capturedAt > SELECTION_TTL_MS) return "";
           return (
-            `\n\nThe user has selected the following text and pressed Cmd+I to focus the agent. ` +
+            `\n\nThe user has selected the following text and pressed Cmd I to focus the agent. ` +
             `Treat this as the immediate context to act on:\n` +
             `<selection>\n${capSelectionContext(sel.text)}\n</selection>`
           );

@@ -27,6 +27,40 @@ function triggerBlobDownload(blob: Blob, filename: string) {
   window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
+async function waitForImagesToSettle(root: HTMLElement) {
+  const images = Array.from(root.querySelectorAll<HTMLImageElement>("img"));
+  await Promise.all(
+    images.map(async (image) => {
+      if (!image.complete) {
+        await new Promise<void>((resolve) => {
+          const done = () => resolve();
+          image.addEventListener("error", done, { once: true });
+          image.addEventListener("load", done, { once: true });
+        });
+      }
+      if (image.complete && image.naturalWidth > 0) {
+        try {
+          await image.decode();
+        } catch (error) {
+          if (error instanceof Error && error.name === "EncodingError") {
+            // The exporter still gets the image element; decoding is only a
+            // layout barrier so geometry is measured after intrinsic size settles.
+            return;
+          }
+          throw error;
+        }
+      }
+    }),
+  );
+  if (typeof window.requestAnimationFrame === "function") {
+    await new Promise<void>((resolve) => {
+      window.requestAnimationFrame(() =>
+        window.requestAnimationFrame(() => resolve()),
+      );
+    });
+  }
+}
+
 function escapeXml(value: string) {
   return value
     .replace(/&/g, "&amp;")
@@ -186,6 +220,11 @@ function createUnscaledExportClone(
   source: HTMLElement,
   dims: { width: number; height: number },
 ) {
+  const sourceRect = source.getBoundingClientRect();
+  const imageGeometry = collectImageGeometry(source);
+  const textGeometry = collectTextGeometry(source);
+  const positionedGeometry = collectPositionedGeometry(source);
+
   const stage = document.createElement("div");
   stage.setAttribute("aria-hidden", "true");
   Object.assign(stage.style, {
@@ -215,7 +254,545 @@ function createUnscaledExportClone(
   return {
     element: clone,
     cleanup: () => stage.remove(),
+    imageGeometry,
+    positionedGeometry,
+    textGeometry,
+    sourceRect,
   };
+}
+
+interface ElementPathRecord {
+  path: number[];
+}
+
+interface PositionedGeometryRecord extends ElementPathRecord {
+  rect: DOMRect;
+}
+
+interface ImageGeometryRecord extends ElementPathRecord {
+  position: string;
+  rect: DOMRect;
+}
+
+interface TextGeometryRecord extends ElementPathRecord {
+  fontSize: number;
+  heading: boolean;
+  letterSpacing: number;
+  lineHeight: number;
+  position: string;
+  rect: DOMRect;
+  scaleX: number;
+  scaleY: number;
+  singleLine: boolean;
+}
+
+function getElementPath(root: HTMLElement, element: HTMLElement) {
+  const path: number[] = [];
+  let current: HTMLElement | null = element;
+
+  while (current && current !== root) {
+    const parent: HTMLElement | null = current.parentElement;
+    if (!parent) return null;
+    const index = Array.prototype.indexOf.call(parent.children, current);
+    if (index < 0) return null;
+    path.unshift(index);
+    current = parent;
+  }
+
+  return current === root ? path : null;
+}
+
+function getElementAtPath(root: HTMLElement, path: number[]) {
+  let current: Element = root;
+  for (const index of path) {
+    const child = current.children[index];
+    if (!(child instanceof HTMLElement)) return null;
+    current = child;
+  }
+  return current instanceof HTMLElement ? current : null;
+}
+
+function isPositionedElement(element: HTMLElement) {
+  const position = window.getComputedStyle(element).position;
+  return position === "absolute" || position === "fixed";
+}
+
+function hasPositionedAncestor(element: HTMLElement, root: HTMLElement) {
+  let parent = element.parentElement;
+  while (parent && parent !== root) {
+    if (isPositionedElement(parent)) return true;
+    parent = parent.parentElement;
+  }
+  return false;
+}
+
+function isTextGeometryCandidate(element: HTMLElement) {
+  if (!element.textContent?.trim()) return false;
+  if (element.querySelector("img,svg,video,canvas")) return false;
+  if (element.closest('[aria-hidden="true"]')) return false;
+  if (
+    element.tagName === "LI" ||
+    element.tagName === "UL" ||
+    element.tagName === "OL"
+  ) {
+    return false;
+  }
+  const isHeading = /^H[1-3]$/.test(element.tagName);
+  const isTextBlock = element.tagName === "P";
+  const isLeafText =
+    element.tagName === "DIV" &&
+    (element.children.length === 0 ||
+      element.hasAttribute("data-slide-object-id"));
+  if (!isHeading && !isTextBlock && !isLeafText) {
+    return false;
+  }
+
+  const style = window.getComputedStyle(element);
+  if (style.display === "none" || style.visibility === "hidden") {
+    return false;
+  }
+  const rect = element.getBoundingClientRect();
+  return rect.width > 0 && rect.height > 0;
+}
+
+function computedLength(value: string, fallback: number) {
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function collectImageGeometry(root: HTMLElement) {
+  return Array.from(root.querySelectorAll<HTMLImageElement>("img")).flatMap(
+    (element): ImageGeometryRecord[] => {
+      const style = window.getComputedStyle(element);
+      const rect = element.getBoundingClientRect();
+      const path = getElementPath(root, element);
+      if (
+        !path ||
+        style.display === "none" ||
+        style.visibility === "hidden" ||
+        !rect.width ||
+        !rect.height
+      ) {
+        return [];
+      }
+      return [{ path, position: style.position, rect }];
+    },
+  );
+}
+
+function collectTextGeometry(root: HTMLElement) {
+  return Array.from(root.querySelectorAll<HTMLElement>("h1,h2,h3,p,div"))
+    .filter(isTextGeometryCandidate)
+    .flatMap((element): TextGeometryRecord[] => {
+      const path = getElementPath(root, element);
+      if (!path) return [];
+
+      const style = window.getComputedStyle(element);
+      const rect = element.getBoundingClientRect();
+      const layoutWidth = computedLength(style.width, rect.width);
+      const layoutHeight = computedLength(style.height, rect.height);
+      const fontSize = computedLength(style.fontSize, 16);
+      const lineHeight = computedLength(
+        style.lineHeight,
+        Math.max(16, fontSize * 1.2),
+      );
+      return [
+        {
+          fontSize,
+          heading: /^H[1-3]$/.test(element.tagName),
+          letterSpacing: computedLength(style.letterSpacing, 0),
+          lineHeight,
+          path,
+          position: style.position,
+          rect,
+          scaleX: rect.width / Math.max(1, layoutWidth),
+          scaleY: rect.height / Math.max(1, layoutHeight),
+          singleLine: rect.height <= lineHeight * 1.35,
+        },
+      ];
+    });
+}
+
+/**
+ * The live slide is nested inside a positioned presentation wrapper, but the
+ * export clone is not. Record only the outermost positioned descendants so
+ * the clone can keep its source-space geometry without flattening nested
+ * objects or changing the editable object hierarchy.
+ */
+function collectPositionedGeometry(root: HTMLElement) {
+  return Array.from(root.querySelectorAll<HTMLElement>("*"))
+    .filter((element) => {
+      if (!isPositionedElement(element)) return false;
+      if (hasPositionedAncestor(element, root)) return false;
+      const rect = element.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0;
+    })
+    .flatMap((element): PositionedGeometryRecord[] => {
+      const path = getElementPath(root, element);
+      return path ? [{ path, rect: element.getBoundingClientRect() }] : [];
+    });
+}
+
+function restorePositionedGeometry(
+  clone: HTMLElement,
+  sourceRect: DOMRect,
+  records: PositionedGeometryRecord[],
+  dims: { width: number; height: number },
+) {
+  const cloneRect = clone.getBoundingClientRect();
+  if (
+    !sourceRect.width ||
+    !sourceRect.height ||
+    !cloneRect.width ||
+    !cloneRect.height
+  ) {
+    return;
+  }
+
+  const scaleX = dims.width / sourceRect.width;
+  const scaleY = dims.height / sourceRect.height;
+
+  for (const record of records) {
+    const element = getElementAtPath(clone, record.path);
+    if (!element) continue;
+
+    const currentRect = element.getBoundingClientRect();
+    const desiredLeft = (record.rect.left - sourceRect.left) * scaleX;
+    const desiredTop = (record.rect.top - sourceRect.top) * scaleY;
+    const currentLeft = currentRect.left - cloneRect.left;
+    const currentTop = currentRect.top - cloneRect.top;
+    const currentStyle = window.getComputedStyle(element);
+    const currentCssLeft = Number.parseFloat(currentStyle.left);
+    const currentCssTop = Number.parseFloat(currentStyle.top);
+
+    element.style.position = "absolute";
+    element.style.right = "auto";
+    element.style.bottom = "auto";
+    element.style.left = `${(Number.isFinite(currentCssLeft)
+      ? currentCssLeft + (desiredLeft - currentLeft)
+      : desiredLeft
+    ).toFixed(3)}px`;
+    element.style.top = `${(Number.isFinite(currentCssTop)
+      ? currentCssTop + (desiredTop - currentTop)
+      : desiredTop
+    ).toFixed(3)}px`;
+  }
+}
+
+function resetAutofitTransforms(root: HTMLElement) {
+  for (const layer of root.querySelectorAll<HTMLElement>(
+    "[data-fmd-autofit-content]",
+  )) {
+    layer.style.transform = "none";
+  }
+}
+
+function restoreTextGeometry(
+  clone: HTMLElement,
+  sourceRect: DOMRect,
+  records: TextGeometryRecord[],
+  dims: { width: number; height: number },
+) {
+  if (!sourceRect.width || !sourceRect.height) return;
+
+  const scaleX = dims.width / sourceRect.width;
+  const scaleY = dims.height / sourceRect.height;
+  for (const record of records) {
+    const element = getElementAtPath(clone, record.path);
+    if (!element) continue;
+
+    let ancestor = element.parentElement;
+    while (ancestor && ancestor !== clone) {
+      if (window.getComputedStyle(ancestor).transform !== "none") {
+        ancestor.style.transform = "none";
+      }
+      ancestor = ancestor.parentElement;
+    }
+
+    const cloneRect = clone.getBoundingClientRect();
+    const desiredLeft = (record.rect.left - sourceRect.left) * scaleX;
+    const desiredTop = (record.rect.top - sourceRect.top) * scaleY;
+    const currentRect = element.getBoundingClientRect();
+    const currentLeft = currentRect.left - cloneRect.left;
+    const currentTop = currentRect.top - cloneRect.top;
+    const translateX = desiredLeft - currentLeft;
+    const translateY = desiredTop - currentTop;
+
+    if (record.position === "static" || record.position === "relative") {
+      element.dataset.exportTextGeometry = "true";
+      if (record.singleLine) element.style.whiteSpace = "nowrap";
+      element.style.left = `${translateX.toFixed(3)}px`;
+      element.style.position = "relative";
+      element.style.top = `${translateY.toFixed(3)}px`;
+      element.style.transform = "none";
+      if (Math.abs(record.scaleY - 1) >= 0.01) {
+        element.style.fontSize = `${Math.max(1, record.fontSize * record.scaleY)}px`;
+        element.style.letterSpacing = `${(record.letterSpacing * record.scaleX).toFixed(3)}px`;
+        element.style.lineHeight = record.lineHeight
+          ? `${(record.lineHeight * record.scaleY).toFixed(3)}px`
+          : "normal";
+      }
+      continue;
+    }
+
+    element.dataset.exportTextGeometry = "true";
+    if (record.singleLine) element.style.whiteSpace = "nowrap";
+    element.style.boxSizing = "border-box";
+    element.style.bottom = "auto";
+    element.style.display = "block";
+    element.style.fontSize = `${Math.max(1, record.fontSize * record.scaleY)}px`;
+    element.style.height = `${Math.max(1, record.rect.height * scaleY)}px`;
+    element.style.left = `${desiredLeft.toFixed(3)}px`;
+    element.style.letterSpacing = `${(record.letterSpacing * record.scaleX).toFixed(3)}px`;
+    element.style.lineHeight = record.lineHeight
+      ? `${(record.lineHeight * record.scaleY).toFixed(3)}px`
+      : "normal";
+    element.style.margin = "0";
+    element.style.maxHeight = "none";
+    element.style.maxWidth = "none";
+    element.style.minHeight = "0";
+    element.style.minWidth = "0";
+    element.style.position = "absolute";
+    element.style.right = "auto";
+    element.style.top = `${desiredTop.toFixed(3)}px`;
+    element.style.transform = "none";
+    element.style.width = `${Math.max(1, record.rect.width * scaleX)}px`;
+  }
+}
+
+function restoreImageGeometry(
+  clone: HTMLElement,
+  sourceRect: DOMRect,
+  records: ImageGeometryRecord[],
+  dims: { width: number; height: number },
+) {
+  if (!sourceRect.width || !sourceRect.height) return;
+
+  const cloneRect = clone.getBoundingClientRect();
+  const scaleX = dims.width / sourceRect.width;
+  const scaleY = dims.height / sourceRect.height;
+  for (const record of records) {
+    const element = getElementAtPath(
+      clone,
+      record.path,
+    ) as HTMLImageElement | null;
+    if (!element) continue;
+
+    const desiredLeft = (record.rect.left - sourceRect.left) * scaleX;
+    const desiredTop = (record.rect.top - sourceRect.top) * scaleY;
+    const desiredWidth = record.rect.width * scaleX;
+    const desiredHeight = record.rect.height * scaleY;
+    element.style.boxSizing = "border-box";
+    element.style.height = `${Math.max(1, desiredHeight)}px`;
+    element.style.maxHeight = "none";
+    element.style.maxWidth = "none";
+    element.style.width = `${Math.max(1, desiredWidth)}px`;
+
+    if (record.position === "absolute" || record.position === "fixed") {
+      element.style.bottom = "auto";
+      element.style.left = `${desiredLeft.toFixed(3)}px`;
+      element.style.position = "absolute";
+      element.style.right = "auto";
+      element.style.top = `${desiredTop.toFixed(3)}px`;
+      element.style.transform = "none";
+      continue;
+    }
+
+    const currentRect = element.getBoundingClientRect();
+    const currentLeft = currentRect.left - cloneRect.left;
+    const currentTop = currentRect.top - cloneRect.top;
+    element.style.transform = `translate(${(desiredLeft - currentLeft).toFixed(3)}px, ${(desiredTop - currentTop).toFixed(3)}px)`;
+  }
+}
+
+function normalizeSingleLineText(
+  clone: HTMLElement,
+  records: TextGeometryRecord[],
+) {
+  const cloneRect = clone.getBoundingClientRect();
+  for (const record of records) {
+    if (!record.singleLine) continue;
+    const element = getElementAtPath(clone, record.path);
+    if (!element) continue;
+
+    const rect = element.getBoundingClientRect();
+    if (!rect.width || !rect.height) continue;
+
+    element.dataset.exportSingleLineText = "true";
+    if (element.dataset.exportTextGeometry === "true") continue;
+    element.style.boxSizing = "border-box";
+    element.style.whiteSpace = "nowrap";
+    if (record.heading) {
+      element.style.maxWidth = "none";
+      element.style.width = `${Math.max(1, Math.ceil(cloneRect.right - rect.left))}px`;
+      continue;
+    }
+
+    const buffer = Math.max(24, rect.width * 0.25);
+    const available = Math.max(rect.width, cloneRect.right - rect.left);
+    element.style.width = `${Math.max(
+      1,
+      Math.ceil(Math.min(rect.width + buffer, available)),
+    )}px`;
+  }
+}
+
+/**
+ * CSS markers live outside the LI box, so dom-to-pptx cannot infer the gap
+ * between a bullet and its text from getBoundingClientRect alone. Add that
+ * source-visible gap only on the export clone; the source DOM stays editable.
+ */
+function normalizeListsForPptx(root: HTMLElement) {
+  const bulletIndents: number[] = [];
+
+  for (const list of root.querySelectorAll<HTMLElement>("ul,ol")) {
+    const listStyle = window.getComputedStyle(list);
+    const listStyleType = listStyle.listStyleType || "disc";
+    const paddingLeft = Number.parseFloat(listStyle.paddingLeft) || 0;
+    if (
+      paddingLeft > 0 &&
+      listStyle.listStylePosition === "inside" &&
+      listStyle.transform === "none"
+    ) {
+      list.style.transform = `translateX(${paddingLeft}px)`;
+    }
+
+    for (const item of list.children) {
+      if (!(item instanceof HTMLElement) || item.tagName !== "LI") continue;
+      const itemStyle = window.getComputedStyle(item);
+      const currentMarginLeft = Number.parseFloat(itemStyle.marginLeft) || 0;
+      const markerStyle = window.getComputedStyle(item, "::marker");
+      const markerSize = Number.parseFloat(markerStyle.fontSize) || 20;
+      const markerGap = Math.max(24, markerSize * 1.2);
+      if (currentMarginLeft < markerGap) {
+        item.style.marginLeft = `${markerGap}px`;
+      }
+    }
+
+    if (listStyleType === "none") continue;
+    const firstItem = Array.from(list.children).find(
+      (item): item is HTMLElement =>
+        item instanceof HTMLElement && item.tagName === "LI",
+    );
+    if (!firstItem) continue;
+
+    const listRect = list.getBoundingClientRect();
+    const itemRect = firstItem.getBoundingClientRect();
+    if (!listRect.width || !itemRect.width) continue;
+
+    const visualIndentPx = itemRect.left - listRect.left;
+    bulletIndents.push(Math.max(0, (visualIndentPx - paddingLeft) * 0.75));
+  }
+
+  return bulletIndents;
+}
+
+const EMU_PER_POINT = 12_700;
+
+/**
+ * dom-to-pptx prepends a bullet run, then PptxGenJS lets the following text
+ * run overwrite the paragraph properties. Restore the measured indent at the
+ * package boundary so Google Slides receives both the marker and its gap.
+ */
+function patchBulletIndentsInXml(xml: string, indentPoints: number[]) {
+  let result = "";
+  let cursor = 0;
+  let listIndex = 0;
+
+  while (true) {
+    const shapeStart = xml.indexOf("<p:sp>", cursor);
+    if (shapeStart < 0) {
+      result += xml.slice(cursor);
+      break;
+    }
+
+    const shapeEnd = xml.indexOf("</p:sp>", shapeStart);
+    if (shapeEnd < 0) {
+      result += xml.slice(cursor);
+      break;
+    }
+
+    result += xml.slice(cursor, shapeStart);
+    let shapeXml = xml.slice(shapeStart, shapeEnd + "</p:sp>".length);
+    if (
+      shapeXml.includes("<a:buChar") &&
+      indentPoints[listIndex] !== undefined
+    ) {
+      const indent = Math.max(
+        0,
+        Math.round(indentPoints[listIndex] * EMU_PER_POINT),
+      );
+      let patchedShape = "";
+      let shapeCursor = 0;
+
+      while (true) {
+        const bulletStart = shapeXml.indexOf("<a:buChar", shapeCursor);
+        if (bulletStart < 0) {
+          patchedShape += shapeXml.slice(shapeCursor);
+          break;
+        }
+
+        const paragraphStart = shapeXml.lastIndexOf("<a:pPr", bulletStart);
+        const paragraphEnd = shapeXml.indexOf("</a:pPr>", bulletStart);
+        if (paragraphStart < shapeCursor || paragraphEnd < 0) {
+          patchedShape += shapeXml.slice(shapeCursor);
+          break;
+        }
+
+        patchedShape += shapeXml.slice(shapeCursor, paragraphStart);
+        const paragraphXml = shapeXml.slice(
+          paragraphStart,
+          paragraphEnd + "</a:pPr>".length,
+        );
+        const openingEnd = paragraphXml.indexOf(">");
+        const openingTag = paragraphXml
+          .slice(0, openingEnd)
+          .replace(/\s(?:marL|indent)="[^"]*"/g, "");
+        patchedShape +=
+          `${openingTag} marL="${indent}" indent="-${indent}"` +
+          paragraphXml.slice(openingEnd);
+        shapeCursor = paragraphEnd + "</a:pPr>".length;
+      }
+
+      shapeXml = patchedShape;
+      listIndex += 1;
+    }
+
+    result += shapeXml;
+    cursor = shapeEnd + "</p:sp>".length;
+  }
+
+  return result;
+}
+
+export async function patchBulletIndentsInPptxBlob(
+  blob: Blob,
+  slideBulletIndents: number[][],
+) {
+  if (!slideBulletIndents.some((indents) => indents.length > 0)) return blob;
+
+  const { default: JSZip } = await importExportModule(() => import("jszip"));
+  const zip = await JSZip.loadAsync(blob);
+
+  for (let i = 0; i < slideBulletIndents.length; i++) {
+    const indents = slideBulletIndents[i];
+    if (!indents.length) continue;
+
+    const slideFile = zip.file(`ppt/slides/slide${i + 1}.xml`);
+    if (!slideFile) continue;
+
+    const slideXml = await slideFile.async("string");
+    zip.file(
+      `ppt/slides/slide${i + 1}.xml`,
+      patchBulletIndentsInXml(slideXml, indents),
+    );
+  }
+
+  return zip.generateAsync({
+    type: "blob",
+    compression: "DEFLATE",
+    compressionOptions: { level: 6 },
+  });
 }
 
 function svgDataUrl(svg: SVGSVGElement) {
@@ -300,6 +877,7 @@ function widenNoWrapTextElements(root: HTMLElement) {
   for (const element of elements) {
     if (!element.textContent?.trim()) continue;
     if (element.querySelector("img,svg,video,canvas")) continue;
+    if (element.dataset.exportSingleLineText === "true") continue;
     const style = window.getComputedStyle(element);
     if (style.whiteSpace !== "nowrap" && style.whiteSpace !== "pre") continue;
     const rect = element.getBoundingClientRect();
@@ -419,20 +997,44 @@ export async function buildDeckPptxBlob(
     element: HTMLElement;
     cleanup: () => void;
   }> = [];
+  const slideBulletIndents: number[][] = [];
 
   try {
     for (let i = 0; i < slides.length; i++) {
       const exportSlide = slides[i];
       const source = findSlideExportSource(exportSlide.id, i, slides.length);
+      await waitForImagesToSettle(source);
       const clone = createUnscaledExportClone(source, {
         width: dims.width,
         height: dims.height,
       });
       exportClones.push(clone);
+      await preloadImagesWithCors(clone.element);
+      resetAutofitTransforms(clone.element);
+      slideBulletIndents.push(normalizeListsForPptx(clone.element));
+      restorePositionedGeometry(
+        clone.element,
+        clone.sourceRect,
+        clone.positionedGeometry,
+        dims,
+      );
+      restoreTextGeometry(
+        clone.element,
+        clone.sourceRect,
+        clone.textGeometry,
+        dims,
+      );
+      normalizeSingleLineText(clone.element, clone.textGeometry);
       materializeImportedBackgroundGrid(clone.element);
       widenNoWrapTextElements(clone.element);
       await replaceInlineSvgsWithImages(clone.element);
       await preloadImagesWithCors(clone.element);
+      restoreImageGeometry(
+        clone.element,
+        clone.sourceRect,
+        clone.imageGeometry,
+        dims,
+      );
     }
 
     const initialBlob = await exportToPptx(
@@ -447,7 +1049,11 @@ export async function buildDeckPptxBlob(
       },
     );
 
-    const blob = await addSpeakerNotesToPptxBlob(initialBlob, slides);
+    const bulletPatchedBlob = await patchBulletIndentsInPptxBlob(
+      initialBlob,
+      slideBulletIndents,
+    );
+    const blob = await addSpeakerNotesToPptxBlob(bulletPatchedBlob, slides);
     return { blob, filename: safePptxName(deckTitle) };
   } finally {
     for (const clone of exportClones) {

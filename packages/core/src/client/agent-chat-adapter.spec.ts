@@ -8880,6 +8880,37 @@ describe("activeRunLooksAlive", () => {
     ).resolves.toBe(false);
     expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
+
+  it("treats an unresolved delegated-agent activity card as in-flight work", async () => {
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse({
+        active: true,
+        runId: "run-1",
+        status: "running",
+        hasInFlightWork: false,
+      }),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await expect(
+      activeRunLooksAlive({
+        apiUrl: "/_agent-native/agent-chat",
+        threadId: "thread-1",
+        runId: "run-1",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "agent-call",
+            toolName: "agent:Analytics",
+            argsText: "",
+            args: {},
+            activity: true,
+          },
+        ] as any,
+      }),
+    ).resolves.toBe(true);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
 });
 
 describe("empty-run continuation backoff", () => {

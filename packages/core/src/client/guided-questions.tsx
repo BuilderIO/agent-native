@@ -72,6 +72,14 @@ export interface GuidedQuestionPayload {
   submitMessage?: string;
   skipMessage?: string;
   /**
+   * Hidden context appended to whichever message this card sends. The card's
+   * answer opens a continuation turn that inherits nothing from the turn that
+   * posed it, so anything the follow-up work depends on — a linked design
+   * system, the user's original brief — has to travel with the payload or it
+   * is gone by the time the agent acts on the answer.
+   */
+  submitContext?: string;
+  /**
    * @internal Set by {@link askUserQuestion} for client-initiated questions.
    * When present, `useGuidedQuestionFlow` resolves the matching in-memory
    * promise with the answer instead of forwarding it to the agent chat.
@@ -1139,9 +1147,13 @@ export function useGuidedQuestionFlow({
       const formattedAnswers = formatGuidedAnswersForAgent(answers);
       const resolvedSubmitMessage =
         visiblePayload?.submitMessage ?? submitMessage;
-      const context =
+      const context = [
         buildSubmitContext?.({ answers, formattedAnswers }) ??
-        defaultGuidedSubmitContext(formattedAnswers);
+          defaultGuidedSubmitContext(formattedAnswers),
+        visiblePayload?.submitContext,
+      ]
+        .filter(Boolean)
+        .join("\n\n");
       sendToAgentChat({
         message: resolvedSubmitMessage,
         context,
@@ -1161,7 +1173,11 @@ export function useGuidedQuestionFlow({
     }
     sendToAgentChat({
       message: visiblePayload?.skipMessage ?? skipMessage,
-      context: buildSkipContext?.(),
+      // Skipping a variant set asks for another one — the replacement needs the
+      // same context the first set was built from.
+      context: [buildSkipContext?.(), visiblePayload?.submitContext]
+        .filter(Boolean)
+        .join("\n\n"),
       submit: true,
     });
     clear();

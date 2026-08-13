@@ -13,6 +13,7 @@ vi.mock("dom-to-pptx", () => ({
 import {
   addSpeakerNotesToPptxBlob,
   exportDeckAsPptx,
+  patchBulletIndentsInPptxBlob,
 } from "./export-pptx-client";
 
 async function buildMinimalPptxBlob(slideCount = 1): Promise<Blob> {
@@ -192,5 +193,25 @@ describe("addSpeakerNotesToPptxBlob", () => {
     expect(slideRels).toContain("../notesSlides/notesSlide1.xml");
     expect(presentationXml).toContain("<p:notesMasterIdLst>");
     expect(presentationXml).toContain("<p:notesSz");
+  });
+});
+
+describe("patchBulletIndentsInPptxBlob", () => {
+  it("preserves the measured gap between bullet markers and text", async () => {
+    const blob = await buildMinimalPptxBlob(1);
+    const zip = await JSZip.loadAsync(blob);
+    zip.file(
+      "ppt/slides/slide1.xml",
+      '<p:sld><p:sp><p:txBody><a:p><a:pPr marL="0" indent="0"><a:buChar char="•"/></a:pPr><a:r><a:t>Bullet</a:t></a:r></a:p></p:txBody></p:sp></p:sld>',
+    );
+    const slideBlob = await zip.generateAsync({ type: "blob" });
+
+    const patched = await patchBulletIndentsInPptxBlob(slideBlob, [[19.8]]);
+    const patchedZip = await JSZip.loadAsync(patched);
+    const slideXml = await patchedZip
+      .file("ppt/slides/slide1.xml")
+      ?.async("string");
+
+    expect(slideXml).toContain('marL="251460" indent="-251460"');
   });
 });

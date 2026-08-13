@@ -12,6 +12,7 @@ import { formatChatErrorText, normalizeChatError } from "./error-format.js";
 import {
   humanizeToolLabelText,
   humanizeToolName,
+  isToolCallActive,
   runningToolLabel,
 } from "./tool-display.js";
 
@@ -144,16 +145,34 @@ const INTERRUPTED_ACTIVITY_RESULT = "Stopped before this action started.";
 /**
  * Maximum number of assistant-ui repository updates we deliver in one browser
  * event-loop turn. Durable-run replay can put hundreds of SSE frames into the
- * stream queue before the client attaches; draining all of them through
- * assistant-ui without a macrotask boundary synchronously nests React external
- * store notifications until React throws "Maximum update depth exceeded."
+ * stream queue before the client attaches; allowing even a small burst through
+ * assistant-ui can synchronously nest React external-store notifications until
+ * React throws "Maximum update depth exceeded."
  *
- * A timer scheduled on the first result resets the count when the stream is
+ * A task scheduled on the first result resets the count when the stream is
  * naturally idle between network chunks. We only await it when results are
  * arriving densely enough to hit this bound, so normal live token streaming
  * keeps its existing latency while replay bursts yield cooperatively.
  */
-const SSE_RENDER_UPDATES_PER_EVENT_LOOP_TURN = 20;
+const SSE_RENDER_UPDATES_PER_EVENT_LOOP_TURN = 1;
+
+function waitForNextEventLoopTurn(): Promise<void> {
+  if (typeof MessageChannel !== "undefined") {
+    return new Promise<void>((resolve) => {
+      const channel = new MessageChannel();
+      channel.port1.onmessage = () => {
+        channel.port1.close();
+        channel.port2.close();
+        resolve();
+      };
+      channel.port2.postMessage(undefined);
+    });
+  }
+
+  return new Promise<void>((resolve) => {
+    setTimeout(resolve, 0);
+  });
+}
 
 export function settleInterruptedToolCalls(
   content: ContentPart[],
@@ -1181,6 +1200,7 @@ export function appendMissingFinalResponseWarning(
   content: ContentPart[],
   completedToolNames?: Iterable<string>,
 ): { message: string; errorCode: string; recoverable: true } | null {
+  if (content.some((part) => isToolCallActive(part))) return null;
   const lastTextIndex = lastAssistantTextIndex(content);
   const successfulToolNames = [
     ...new Set(
@@ -1691,6 +1711,7 @@ export function processEvent(
                 : "Done";
           part.structuredMeta = {
             ...part.structuredMeta,
+            ...(ev.status === "pending" ? { agentPending: true } : {}),
             ...(ev.durationMs != null
               ? { agentDurationMs: ev.durationMs }
               : {}),
@@ -2113,15 +2134,20 @@ export async function* readSSEStream(
       ? Math.max(noProgressTimeoutMs, SSE_IN_FLIGHT_WORK_TIMEOUT_MS)
       : noProgressTimeoutMs;
 
-  const paceRenderUpdate = async (): Promise<void> => {
+  const paceRenderUpdate = async (hasBufferedEvent: boolean): Promise<void> => {
+    // A single event in a network chunk already has a natural read boundary.
+    // Avoid inserting a task into quiet streams so watchdogs and fake-clock
+    // consumers can continue to observe their own timers normally.
+    if (!hasBufferedEvent) {
+      renderUpdatesThisTurn = 0;
+      return;
+    }
+
     renderUpdatesThisTurn += 1;
     if (!nextEventLoopTurn) {
-      nextEventLoopTurn = new Promise<void>((resolve) => {
-        setTimeout(() => {
-          renderUpdatesThisTurn = 0;
-          nextEventLoopTurn = null;
-          resolve();
-        }, 0);
+      nextEventLoopTurn = waitForNextEventLoopTurn().then(() => {
+        renderUpdatesThisTurn = 0;
+        nextEventLoopTurn = null;
       });
     }
     if (renderUpdatesThisTurn >= SSE_RENDER_UPDATES_PER_EVENT_LOOP_TURN) {
@@ -2187,11 +2213,22 @@ export async function* readSSEStream(
       const lines = buf.split("\n");
       buf = lines.pop() ?? "";
       let sawProgressEvent = false;
+      let bufferedDataEvents = lines.reduce(
+        (count, pendingLine) =>
+          count +
+          (pendingLine.startsWith("data: ") &&
+          pendingLine.slice(6).trim().length > 0
+            ? 1
+            : 0),
+        0,
+      );
 
-      for (const line of lines) {
+      for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+        const line = lines[lineIndex]!;
         if (!line.startsWith("data: ")) continue;
         const raw = line.slice(6).trim();
         if (!raw) continue;
+        bufferedDataEvents -= 1;
 
         let ev: SSEEvent;
         try {
@@ -2270,7 +2307,8 @@ export async function* readSSEStream(
               }
             : result;
         if (terminalResult) {
-          await paceRenderUpdate();
+          const hasBufferedEvent = bufferedDataEvents > 0;
+          await paceRenderUpdate(hasBufferedEvent);
           yield withStreamMetadata(terminalResult);
         }
         if (

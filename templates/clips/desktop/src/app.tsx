@@ -739,6 +739,14 @@ function meetingCanStartNotes(meeting: PopoverMeeting): boolean {
   );
 }
 
+function humanReadableShortcutLabel(shortcut: string): string {
+  return shortcut
+    .split("+")
+    .map((token) => token.trim())
+    .filter(Boolean)
+    .join(" ");
+}
+
 function voiceShortcutLabel(
   shortcut: VoiceShortcutPreference,
   customShortcut: string,
@@ -747,13 +755,15 @@ function voiceShortcutLabel(
     case "fn":
       return "Fn";
     case "cmd-shift-space":
-      return "Cmd+Shift+Space";
+      return "Cmd Shift Space";
     case "ctrl-shift-space":
-      return "Ctrl+Shift+Space";
+      return "Ctrl Shift Space";
     case "custom":
-      return customShortcut || "Custom shortcut";
+      return customShortcut
+        ? humanReadableShortcutLabel(customShortcut)
+        : "Custom shortcut";
     case "both":
-      return "Fn, Cmd+Shift+Space, or Ctrl+Shift+Space";
+      return "Fn, Cmd Shift Space, or Ctrl Shift Space";
   }
 }
 
@@ -5983,10 +5993,10 @@ function Setup({
   const shortcutHint: Record<VoiceShortcutPreference, string> = {
     fn: "Press the Fn / globe key to dictate. macOS requires Input Monitoring for this one shortcut.",
     "cmd-shift-space":
-      "Press Cmd+Shift+Space to dictate. This does not need Input Monitoring.",
-    "ctrl-shift-space": "Press Ctrl+Shift+Space to dictate.",
+      "Press Cmd Shift Space to dictate. This does not need Input Monitoring.",
+    "ctrl-shift-space": "Press Ctrl Shift Space to dictate.",
     custom: `Press ${voiceCustomShortcut || "your recorded shortcut"} to dictate.`,
-    both: "Any of Fn, Cmd+Shift+Space, or Ctrl+Shift+Space. Includes Fn, so macOS may ask for Input Monitoring.",
+    both: "Any of Fn, Cmd Shift Space, or Ctrl Shift Space. Includes Fn, so macOS may ask for Input Monitoring.",
   };
   const fnShortcutSelected = voiceShortcut === "fn" || voiceShortcut === "both";
   const modeHint: Record<VoiceMode, string> = {
@@ -7373,7 +7383,7 @@ function Setup({
           />
           <DesktopSettingsRow
             label="Open Clips"
-            description="Open the tray popover; Cmd+Shift+L remains available."
+            description="Open the tray popover; Cmd Shift L remains available."
             control={
               <ShortcutRecorder
                 value={popoverCustomShortcut}
@@ -7383,7 +7393,7 @@ function Setup({
             }
           >
             <>
-              <span>Leave this empty to use only Cmd+Shift+L.</span>
+              <span>Leave this empty to use only Cmd Shift L.</span>
               {shortcutRegistrationError ? (
                 <span className="setup-warning">
                   {shortcutRegistrationError}
@@ -7707,8 +7717,8 @@ function Setup({
                       )
                     }
                   >
-                    <option value="cmd-shift-space">Cmd+Shift+Space</option>
-                    <option value="ctrl-shift-space">Ctrl+Shift+Space</option>
+                    <option value="cmd-shift-space">Cmd Shift Space</option>
+                    <option value="ctrl-shift-space">Ctrl Shift Space</option>
                     <option value="custom">Custom shortcut</option>
                     <option value="fn">
                       Fn (globe, needs Input Monitoring)
@@ -8239,7 +8249,11 @@ function ShortcutRecorder({
           event.stopPropagation();
         }}
       >
-        {recording ? "Press shortcut..." : value || placeholder}
+        {recording
+          ? "Press shortcut..."
+          : value
+            ? humanReadableShortcutLabel(value)
+            : placeholder}
       </button>
       {value ? (
         <button

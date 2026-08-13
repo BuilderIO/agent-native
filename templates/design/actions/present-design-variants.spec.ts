@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => {
     designs: {
       id: "designs.id",
       data: "designs.data",
+      designSystemId: "designs.designSystemId",
       updatedAt: "designs.updatedAt",
     },
     designShares: "designShares",
@@ -273,6 +274,17 @@ describe("present-design-variants", () => {
         ],
       }),
     );
+    // No linked system and the prompt is the only direction there is: the
+    // pick's continuation turn inherits nothing, so the prompt has to ride
+    // along or the kept placeholder is expanded blind.
+    expect(
+      (
+        mocks.writeAppStateForCurrentTab.mock.calls[0]?.[1] as {
+          submitContext?: string;
+        }
+      ).submitContext,
+    ).toContain("Pick a calmer mobile direction");
+
     const guidedQuestions = mocks.writeAppStateForCurrentTab.mock
       .calls[0]?.[1] as {
       submitMessage: string;
@@ -387,6 +399,32 @@ describe("present-design-variants", () => {
     expect(result.nextRequiredAction).toContain("bounded pass");
   });
 
+  it("carries the linked design system into the variant-pick continuation", async () => {
+    mocks.designSelectChain.where.mockImplementation(() =>
+      Promise.resolve([
+        {
+          data: JSON.stringify(mocks.designData),
+          designSystemId: "ds_flo",
+        },
+      ]),
+    );
+
+    await action.run({
+      designId: "design_123",
+      prompt: "A dense ops console",
+      variants: [
+        { id: "a", label: "A", content: "<!doctype html><div>A</div>" },
+        { id: "b", label: "B", content: "<!doctype html><div>B</div>" },
+      ],
+    });
+
+    const { submitContext } = mocks.writeAppStateForCurrentTab.mock
+      .calls[0]?.[1] as { submitContext?: string };
+    expect(submitContext).toContain("ds_flo");
+    expect(submitContext).toContain("get-design-system");
+    expect(submitContext).toContain("A dense ops console");
+  });
+
   it("keeps an existing screen intact when a generated filename collides", async () => {
     mocks.filesSelectChain.where.mockResolvedValue([
       {
@@ -455,6 +493,34 @@ describe("present-design-variants", () => {
     expect(action.schema.safeParse(withVariants(6)).success).toBe(false);
   });
 
+  it("rejects contentless variants when the design has a linked system, whatever the caption says", async () => {
+    // The caption is chat chrome this same model writes, so an agent that has
+    // decided to explore writes an exploration-flavored one. The linked system
+    // is the fact the server owns, and it survives an intake round-trip.
+    mocks.designSelectChain.where.mockImplementation(() =>
+      Promise.resolve([
+        {
+          data: JSON.stringify(mocks.designData),
+          designSystemId: "ds_flo",
+        },
+      ]),
+    );
+
+    await expect(
+      action.run({
+        designId: "design_123",
+        prompt: "Pick a direction",
+        variants: [
+          { id: "calm", label: "Calm Operator", description: "Quiet ops." },
+          { id: "signal", label: "Signal Console", description: "Dense." },
+        ],
+      }),
+    ).rejects.toThrow("requires complete self-contained HTML");
+
+    expect(mocks.insertChain.values).not.toHaveBeenCalled();
+    expect(mocks.db.delete).not.toHaveBeenCalled();
+  });
+
   it("can render compact variants from direction summaries without inline HTML", async () => {
     await action.run({
       designId: "design_123",
@@ -495,6 +561,34 @@ describe("present-design-variants", () => {
       expect.any(String),
       expect.stringContaining("Keyboard hints"),
     );
+  });
+
+  it("requires complete HTML when a prompt specifies a product surface and layout", async () => {
+    await expect(
+      action.run({
+        designId: "design_123",
+        prompt:
+          "S1MOS Overview dashboard with the supplied reference and a 12-col grid spec",
+        variants: [
+          {
+            id: "calm",
+            label: "Calm Operator",
+            description: "A quiet operations dashboard.",
+          },
+          {
+            id: "signal",
+            label: "Signal Console",
+            description: "A denser operations dashboard.",
+          },
+        ],
+      }),
+    ).rejects.toThrow("requires complete self-contained HTML");
+
+    // The guard runs before supersession, deletion, or insertion, so a failed
+    // model call cannot damage an earlier variant set.
+    expect(mocks.db.delete).not.toHaveBeenCalled();
+    expect(mocks.insertChain.values).not.toHaveBeenCalled();
+    expect(mocks.mutateDesignData).not.toHaveBeenCalled();
   });
 
   it("spaces desktop directions by their whole painted row, not just the primary frame", async () => {

@@ -2616,6 +2616,16 @@ describe("assistantUiRecoverableRenderErrorKind", () => {
     ).toBe("assistant-ui-react-fiber-unmount");
   });
 
+  it("matches React maximum update depth crashes from assistant-ui streaming", () => {
+    expect(
+      assistantUiRecoverableRenderErrorKind(
+        new Error(
+          "Minified React error #185; visit https://react.dev/errors/185",
+        ),
+      ),
+    ).toBe("assistant-ui-react-update-depth");
+  });
+
   it("matches duplicate resource-key crashes from assistant-ui composer state", () => {
     expect(
       assistantUiRecoverableRenderErrorKind(
