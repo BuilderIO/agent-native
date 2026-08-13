@@ -176,6 +176,14 @@ export function NewDeckReferenceStep({
   const chooseSource = (
     kind: NonNullable<NewDeckReferenceSelection["referenceSource"]>["kind"],
   ) => {
+    const isAlreadySelected =
+      selectedSource?.kind === kind ||
+      (kind === "google-docs" && importedReference?.source === "google-slides");
+    if (isAlreadySelected) {
+      setSelectedSource(null);
+      setImportedReference(null);
+      return;
+    }
     setSelectedSource({ kind, value: "" });
     if (kind === "website" || kind === "figma") {
       setSelectedDesignSystemId(null);
