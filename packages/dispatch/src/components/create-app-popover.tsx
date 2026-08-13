@@ -9,6 +9,7 @@ import { isInBuilderFrame } from "@agent-native/core/client/host";
 import { useBuilderConnectFlow } from "@agent-native/core/client/settings/useBuilderStatus";
 import {
   buildChatFirstAppCreationPrompt,
+  docsUrl,
   getWorkspaceAppIdValidationError,
   titleFromChatFirstAppPrompt,
 } from "@agent-native/core/shared";
@@ -91,8 +92,9 @@ const ERROR_FAILURE_REASONS = new Set([
   "credential-store-unavailable",
   "settings-management-required",
 ]);
-const LOCAL_APP_DOCS_URL =
-  "https://agent-native.com/docs/multi-app-workspace#adding-a-new-app";
+const LOCAL_APP_DOCS_URL = docsUrl("multi-app-workspace", {
+  hash: "adding-a-new-app",
+});
 
 function isErrorFailureReason(reason: string | null): boolean {
   return !!reason && ERROR_FAILURE_REASONS.has(reason);
