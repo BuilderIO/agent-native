@@ -720,7 +720,12 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
     const save = (req: SaveCall) => {
       calls.push(req);
       if (calls.length === 1) {
-        return Promise.reject(new Error("Blocks field revision conflict"));
+        // The action transport can cross a worker/realm boundary and reject
+        // with an Error-shaped object rather than an instanceof Error value.
+        return Promise.reject({
+          message:
+            "Action set-document-property failed: Blocks field revision conflict",
+        });
       }
       return Promise.resolve({
         properties: [

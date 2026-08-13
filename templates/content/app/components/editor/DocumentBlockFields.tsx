@@ -53,6 +53,23 @@ interface DocumentBlockFieldsProps {
   primaryEditor: ReactNode;
 }
 
+function isBlocksFieldRevisionConflict(error: unknown): boolean {
+  if (error instanceof Error) {
+    return error.message.includes("Blocks field revision conflict");
+  }
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as {
+    message?: unknown;
+    error?: unknown;
+    cause?: unknown;
+  };
+  return [candidate.message, candidate.error, candidate.cause].some(
+    (value) =>
+      typeof value === "string" &&
+      value.includes("Blocks field revision conflict"),
+  );
+}
+
 export function blockFieldsFromProperties(
   properties: DocumentProperty[],
 ): DocumentProperty[] {
@@ -713,7 +730,7 @@ export function useBlockFieldEditor({
       // controller per key), so no cross-instance serialization lane is needed.
       save: (value) => implRef.current(value),
       onError: (error) => {
-        if (String(error).includes("Blocks field revision conflict")) {
+        if (isBlocksFieldRevisionConflict(error)) {
           rejectedRevisionRef.current = revisionRef.current;
           onRevisionConflictRef.current?.();
         }
