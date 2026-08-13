@@ -231,6 +231,21 @@ describe("list-content-databases", () => {
     });
   });
 
+  it("applies a default bound to ordinary discovery", async () => {
+    for (let index = 0; index < 51; index += 1) {
+      await createDatabaseDocument({
+        documentId: `db-doc-default-bound-${index}`,
+        databaseId: `db-default-bound-${index}`,
+        title: `Default Bound ${index}`,
+      });
+    }
+
+    await runWithRequestContext({ userEmail: OWNER }, async () => {
+      const result = await listContentDatabasesAction.run({});
+      expect(result.databases).toHaveLength(50);
+    });
+  });
+
   it("does not disclose system or inaccessible databases", async () => {
     await createDatabaseDocument({
       documentId: "db-doc-system",
@@ -311,6 +326,7 @@ describe("list-content-databases", () => {
     await runWithRequestContext({ userEmail: OWNER }, async () => {
       const result = await listContentDatabasesAction.run({
         excludeDatabaseIds: ["db-doc-self"],
+        query: "Other",
       });
 
       expect(

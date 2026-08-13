@@ -7,6 +7,8 @@ import { getDb, schema } from "../server/db/index.js";
 import { documentDiscoveryFilter } from "../server/lib/documents.js";
 import type { ListContentDatabasesResponse } from "../shared/api.js";
 
+const DEFAULT_CONTENT_DATABASE_DISCOVERY_LIMIT = 50;
+
 function escapeLike(s: string): string {
   return s.replace(/([\\%_])/g, "\\$1");
 }
@@ -55,8 +57,8 @@ export default defineAction({
       .int()
       .min(1)
       .max(50)
-      .optional()
-      .describe("Maximum number of databases to return."),
+      .default(DEFAULT_CONTENT_DATABASE_DISCOVERY_LIMIT)
+      .describe("Maximum number of databases to return. Defaults to 50."),
   }),
   http: { method: "GET" },
   readOnly: true,
@@ -133,10 +135,9 @@ export default defineAction({
 
     // Exact resolution must inspect every match so ambiguity fails closed.
     // Ordinary discovery keeps its caller-provided database bound.
-    const rows =
-      resolvesExactly || !args.limit
-        ? await queryBuilder
-        : await queryBuilder.limit(args.limit);
+    const rows = resolvesExactly
+      ? await queryBuilder
+      : await queryBuilder.limit(args.limit);
 
     const localTableSources =
       excludedDatabaseIds.size > 0
@@ -187,17 +188,15 @@ export default defineAction({
       );
     }
 
-    const databases = visibleRows
-      .slice(0, args.limit ?? visibleRows.length)
-      .map((row) => ({
-        databaseId: row.id,
-        documentId: row.documentId,
-        spaceId: row.spaceId,
-        // The document's live title (matches the sidebar) rather than the
-        // possibly-stale content_databases.title.
-        title: row.title ?? "Untitled database",
-        description: row.description,
-      }));
+    const databases = visibleRows.slice(0, args.limit).map((row) => ({
+      databaseId: row.id,
+      documentId: row.documentId,
+      spaceId: row.spaceId,
+      // The document's live title (matches the sidebar) rather than the
+      // possibly-stale content_databases.title.
+      title: row.title ?? "Untitled database",
+      description: row.description,
+    }));
 
     return { databases };
   },
