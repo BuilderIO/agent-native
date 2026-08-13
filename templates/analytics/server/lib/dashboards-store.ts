@@ -205,11 +205,8 @@ function dashboardReferenceSearchQuery(
 function dashboardReferenceFieldText(value: unknown): string {
   if (typeof value === "string") return value.toLowerCase();
   if (!value || typeof value !== "object") return "";
-  try {
-    return JSON.stringify(value).toLowerCase();
-  } catch {
-    return "";
-  }
+  const serialized = JSON.stringify(value);
+  return typeof serialized === "string" ? serialized.toLowerCase() : "";
 }
 
 function dashboardReferenceMatch(
@@ -907,6 +904,7 @@ export async function searchDashboardReferences(
     isNull(schema.dashboards.hiddenAt),
     or(phraseMatch, tokenMatch),
   );
+  // guard:allow-heavy-dashboard-list-read — bounded wildcard candidates need serialized config to rank references.
   const rows = await db
     .select({
       id: schema.dashboards.id,
