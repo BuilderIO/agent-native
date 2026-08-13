@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.154.5
+
+### Patch Changes
+
+- 99a8c34: Preserve typed action contract conflicts across the shared HTTP action transport.
+
 ## 0.154.4
 
 ### Patch Changes
