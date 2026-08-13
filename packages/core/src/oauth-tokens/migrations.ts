@@ -36,4 +36,14 @@ export const OAUTH_TOKEN_MIGRATIONS: MigrationEntry[] = [
     name: "oauth-tokens-owner-backfill",
     sql: "UPDATE oauth_tokens SET owner = account_id WHERE owner IS NULL",
   },
+  {
+    version: 5,
+    name: "oauth-tokens-revision-column",
+    sql: "ALTER TABLE oauth_tokens ADD COLUMN IF NOT EXISTS revision BIGINT",
+  },
+  {
+    version: 6,
+    name: "oauth-tokens-revision-backfill",
+    sql: "UPDATE oauth_tokens SET revision = updated_at WHERE revision IS NULL",
+  },
 ];

@@ -4,6 +4,7 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, inArray } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
+import { deleteBlocksFieldIdentity } from "./_blocks-field-identity.js";
 import {
   lockContentDatabaseMutation,
   touchContentDatabase,
@@ -132,6 +133,15 @@ export default defineAction({
             )
         ).map((property) => property.id);
         if (removedDocumentIds.length > 0 && propertyIds.length > 0) {
+          for (const removedDocumentId of removedDocumentIds) {
+            for (const propertyId of propertyIds) {
+              await deleteBlocksFieldIdentity({
+                db: tx as unknown as ReturnType<typeof getDb>,
+                documentId: removedDocumentId,
+                propertyId,
+              });
+            }
+          }
           await tx
             .delete(schema.documentPropertyValues)
             .where(

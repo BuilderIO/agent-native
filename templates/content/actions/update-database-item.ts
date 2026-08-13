@@ -5,45 +5,46 @@ import { z } from "zod";
 import type { ContentDatabaseRowMutationResult } from "../shared/api.js";
 import {
   databaseMutationEnvelopeSchema,
-  upsertDatabaseRow,
+  updateDatabaseRow,
 } from "./_database-row-mutation.js";
 
 const schema = databaseMutationEnvelopeSchema.extend({
-  keyValue: z.string().min(1).describe("Value of the configured natural key"),
+  itemId: z.string().min(1).describe("Exact database membership row ID"),
+  documentId: z.string().min(1).describe("Exact row page ID"),
   expectedRowRevision: z
     .string()
     .min(1)
-    .nullable()
-    .describe(
-      "Use null to assert the key is absent and create; use the discovered row revision to update an existing key",
-    ),
+    .describe("Row revision returned by get-content-database"),
   title: z.string().trim().min(1).max(500).optional(),
   propertyValues: z
     .record(z.string(), z.unknown())
     .optional()
-    .describe("Sparse strict values keyed by property definition ID"),
+    .describe(
+      "Sparse strict patch keyed by property definition ID; omitted fields are preserved and explicit null clears a value",
+    ),
 });
 
 export default defineAction({
   description:
-    "Create or sparsely update one Content database row by that database's explicitly configured natural key. Requires schema and row compare-and-swap revisions and returns a verified idempotent receipt.",
+    "Sparsely update one exact Content database row by stable item and document IDs. Requires schema and row revisions, validates every non-Blocks property, and returns a verified idempotent receipt.",
   schema,
+  http: { method: "PUT" },
   audit: {
     recordInputs: false,
     target: (args) => ({
-      type: "content-database",
-      id: args.target.databaseId,
+      type: "document",
+      id: args.documentId,
       visibility: "private",
     }),
     summary: (_args, result) => {
       const receipt = (result as ContentDatabaseRowMutationResult | null)
         ?.receipt;
       return receipt
-        ? `${receipt.outcome === "created" ? "Created" : receipt.outcome === "updated" ? "Updated" : "Checked"} natural-key row ${receipt.row.itemId}`
-        : "Upserted Content database row by natural key";
+        ? `${receipt.outcome === "unchanged" ? "Checked" : "Updated"} Content database row ${receipt.row.itemId}`
+        : "Updated Content database row";
     },
   },
-  run: upsertDatabaseRow,
+  run: updateDatabaseRow,
   link: ({ result }) => {
     const documentId = (result as ContentDatabaseRowMutationResult | null)
       ?.receipt.row.documentId;
