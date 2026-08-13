@@ -32,6 +32,9 @@ jobs:
         with:
           node-version: "22"
 
+      - name: Test change scope classifier
+        run: node --experimental-strip-types --test scripts/ci-change-scope.test.ts
+
       - name: Classify changed paths
         id: scope
         env:

@@ -5,6 +5,8 @@ import { dispatchActions } from "./index.js";
 describe("dispatch action registry", () => {
   it("keeps workspace resources runtime-inherited instead of exposing sync actions", () => {
     expect(dispatchActions).toHaveProperty("list-workspace-resources-for-app");
+    expect(dispatchActions).toHaveProperty("connect-external-agent");
+    expect(dispatchActions).toHaveProperty("import-agent");
     expect(dispatchActions).toHaveProperty("list-mcp-app-access");
     expect(dispatchActions).toHaveProperty("set-mcp-app-access");
     expect(dispatchActions).toHaveProperty("list_apps");

@@ -6,6 +6,7 @@ import approveVaultRequest from "./approve-vault-request.js";
 import archiveWorkspaceApp from "./archive-workspace-app.js";
 import askApp from "./ask_app.js";
 import askAppStatus from "./ask_app_status.js";
+import connectExternalAgent from "./connect-external-agent.js";
 import createBrowserChatSession from "./create-browser-chat-session.js";
 import createDreamReport from "./create-dream-report.js";
 import createLinkToken from "./create-link-token.js";
@@ -57,6 +58,7 @@ import listWorkspaceResourceGrants from "./list-workspace-resource-grants.js";
 import listWorkspaceResourceOptions from "./list-workspace-resource-options.js";
 import listWorkspaceResourcesForApp from "./list-workspace-resources-for-app.js";
 import listWorkspaceResources from "./list-workspace-resources.js";
+import importAgent from "./import-agent.js";
 import listApps from "./list_apps.js";
 import navigate from "./navigate.js";
 import openApp from "./open_app.js";
@@ -107,6 +109,7 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "archive-workspace-app": archiveWorkspaceApp,
   ask_app: askApp,
   ask_app_status: askAppStatus,
+  "connect-external-agent": connectExternalAgent,
   "create-link-token": createLinkToken,
   "create-pylon-ticket": createPylonTicket,
   "create-vault-grant": createVaultGrant,
@@ -160,6 +163,7 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "list-workspace-resource-grants": listWorkspaceResourceGrants,
   "list-workspace-resources-for-app": listWorkspaceResourcesForApp,
   "list-workspace-resources": listWorkspaceResources,
+  "import-agent": importAgent,
   navigate: navigate,
   open_app: openApp,
   "apply-dream-proposal": applyDreamProposal,
