@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.154.2
+
+### Patch Changes
+
+- 4a3849b: Authorize delegated feature-flag actions through verified organization domains while preserving receiver-local organization scope, reject replayed mutation tokens, keep domainless local administration available, and keep flag details readable by stacking actions at narrow widths.
+
 ## 0.154.1
 
 ### Patch Changes
