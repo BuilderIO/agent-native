@@ -251,6 +251,14 @@ export default function DeckEditor() {
   const [sidebarOpen, setSidebarOpen] = useState(
     () => typeof window !== "undefined" && window.innerWidth >= 768,
   );
+  // The slide just inserted via the toolbar's New Slide button, so the rail
+  // can anchor the "describe this slide" popover to its thumbnail once it
+  // mounts — even though the button that sets this now lives in the
+  // toolbar, outside the rail.
+  const [describeSlideId, setDescribeSlideId] = useState<string | null>(null);
+  useEffect(() => {
+    setDescribeSlideId(null);
+  }, [id]);
   const [contextToolbarSlot, setContextToolbarSlot] =
     useState<HTMLDivElement | null>(null);
   const [wideContextToolbarSlot, setWideContextToolbarSlot] =
@@ -1161,6 +1169,17 @@ export default function DeckEditor() {
     return newId;
   };
 
+  const handleNewSlideClick = () => {
+    const newId = handleAddEmptySlide();
+    if (newId) {
+      // The rail owns the anchor node the describe-slide popover attaches
+      // to, so it must be mounted even if it started closed on a narrow
+      // viewport where the toolbar button is still reachable.
+      setSidebarOpen(true);
+      setDescribeSlideId(newId);
+    }
+  };
+
   return (
     <div
       className="deck-editor-shell flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-l-lg bg-background"
@@ -1185,6 +1204,8 @@ export default function DeckEditor() {
         onShowHistory={() => setHistoryOpen((open) => !open)}
         historyButtonRef={historyButtonRef}
         currentSlide={currentSlide}
+        onAddEmptySlide={canEdit ? handleNewSlideClick : undefined}
+        addSlideGenerating={addSlideGenerating}
         onWideContextToolbarSlotChange={setWideContextToolbarSlot}
         activeUsers={slideActiveUsers.filter((u) => u.email !== session?.email)}
         agentPresent={agentPresent}
@@ -1287,11 +1308,11 @@ export default function DeckEditor() {
                   activeSlideId={currentSlide?.id || ""}
                   deckId={id}
                   deckTitle={deck.title}
-                  onAddEmptySlide={canEdit ? handleAddEmptySlide : undefined}
+                  describeSlideId={describeSlideId}
+                  onCloseDescribe={() => setDescribeSlideId(null)}
                   onAwaitAddSlidePersisted={() => flushDeckSave(id)}
                   onRemoveFailedSlide={(slideId) => deleteSlide(id, slideId)}
                   addSlideAgentSubmit={addSlideAgentSubmit}
-                  addSlideGenerating={addSlideGenerating}
                   onAddSlideGeneratingChange={setAddSlideGenerating}
                   onSelectSlide={(slideId) => {
                     setGeneratingSlideSelected(false);
@@ -1373,6 +1394,8 @@ export default function DeckEditor() {
                 <EditorActionCluster
                   textBoxMode={textBoxMode}
                   onToggleTextBoxMode={toggleTextBoxMode}
+                  onAddEmptySlide={handleNewSlideClick}
+                  addSlideGenerating={addSlideGenerating}
                 />
               ) : undefined
             }

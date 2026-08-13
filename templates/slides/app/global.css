@@ -266,53 +266,20 @@ button[title="Open agent sidebar"] {
 
 .deck-editor-context-toolbar-host--narrow {
   display: flex;
-  justify-content: flex-end;
+  justify-content: flex-start;
 }
 
 .deck-editor-context-toolbar-host--narrow
   > [data-slide-inline-edit-surface="true"] {
   min-width: 0;
-  width: fit-content;
-  max-width: 100%;
-  flex: 0 1 auto;
+  width: 100%;
+  flex: 1 1 auto;
 }
 
-@container deck-editor (max-width: 1149px) {
-  .deck-editor-context-toolbar-host--wide {
-    display: none;
-  }
-
-  .deck-editor-context-toolbar-host--narrow {
-    display: flex;
-  }
-}
-
-@container deck-editor (min-width: 1150px) {
-  .deck-editor-context-toolbar-host--narrow {
-    display: none;
-  }
-
-  .deck-editor-context-toolbar-host--wide[data-context-toolbar-visible="true"] {
-    display: flex;
-    flex: 1 1 0%;
-    align-items: center;
-    justify-content: flex-end;
-  }
-
-  .deck-editor-context-toolbar-host--wide
-    > [data-slide-inline-edit-surface="true"] {
-    min-width: 0;
-    max-width: 100%;
-  }
-
-  .deck-editor-context-toolbar-host--wide .slide-context-toolbar--top-row {
-    height: 2.75rem;
-    justify-content: flex-end;
-    border: 0;
-    background: transparent;
-    padding-inline: 0;
-  }
-}
+/* The element-controls toolbar (New Slide, text/style controls, zoom)
+ * always renders as its own row below the title/Share/Present bar, at every
+ * viewport size — the "wide" host above stays permanently hidden by the
+ * base rule so the row never merges into the title bar on large screens. */
 
 @container (max-width: 36rem) {
   .deck-grid {

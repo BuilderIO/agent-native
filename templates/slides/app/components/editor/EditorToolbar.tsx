@@ -129,6 +129,13 @@ interface EditorToolbarProps {
   onExportPptx?: () => Promise<void> | void;
   /** Create the deck in the user's Google Drive as native Google Slides */
   onExportGoogleSlides?: () => Promise<GoogleSlidesExportResult>;
+  /** Inserts a blank slide directly below the active slide. Threaded through
+   *  to the fallback action cluster below so an empty deck (no current
+   *  slide, so the primary element-controls toolbar never mounts) still has
+   *  a way to add its first slide. */
+  onAddEmptySlide?: () => void;
+  /** True while an agent add-slide request is in flight. */
+  addSlideGenerating?: boolean;
 }
 
 const TOOLBAR_ICON_BUTTON_CLASS =
@@ -169,6 +176,8 @@ export default function EditorToolbar({
   onExportPdf,
   onExportPptx,
   onExportGoogleSlides,
+  onAddEmptySlide,
+  addSlideGenerating,
   canEdit = true,
   canComment = canEdit,
 }: EditorToolbarProps) {
@@ -513,7 +522,7 @@ export default function EditorToolbar({
   useEffect(() => registerEditorCommands(() => editorCommandsRef.current), []);
 
   return (
-    <div className="deck-editor-toolbar flex h-11 shrink-0 items-center gap-1 overflow-x-auto whitespace-nowrap bg-background px-2 sm:px-3">
+    <div className="deck-editor-toolbar flex h-14 shrink-0 items-center gap-1 overflow-x-auto whitespace-nowrap bg-background px-2 sm:px-3">
       {/* Back button */}
       <Tooltip>
         <TooltipTrigger asChild>
@@ -544,14 +553,18 @@ export default function EditorToolbar({
         <TooltipContent>{t("editorToolbar.toggleSlideList")}</TooltipContent>
       </Tooltip>
 
-      {/* The text-box tool lives at the head of the contextual toolbar below.
-       * That row is desktop-only, so keep a fallback here for narrow screens
-       * and empty decks. */}
-      {canEdit && (
+      {/* New Slide and the text-box tool live at the head of the contextual
+       * toolbar below, which SlideEditor portals in at every viewport size
+       * (a wide inline row or a narrow standalone row) whenever there's a
+       * current slide. Render this fallback only when there isn't one — an
+       * empty deck — so those two rows never end up showing the same
+       * buttons twice. */}
+      {canEdit && !contextToolbarVisible && (
         <EditorActionCluster
-          className={contextToolbarVisible ? "lg:hidden" : undefined}
           textBoxMode={textBoxMode}
           onToggleTextBoxMode={onToggleTextBoxMode}
+          onAddEmptySlide={onAddEmptySlide}
+          addSlideGenerating={addSlideGenerating}
         />
       )}
 

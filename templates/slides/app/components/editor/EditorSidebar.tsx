@@ -17,7 +17,6 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import { hashSlideContent, type DeckFitState } from "@shared/slide-fit";
-import { IconPlus } from "@tabler/icons-react";
 import { useRef, useEffect, useState } from "react";
 import { useCallback } from "react";
 import { toast } from "sonner";
@@ -27,7 +26,6 @@ import type { SlideOverflowInfo } from "@/components/deck/SlideRenderer";
 import { AddSlidePopover } from "@/components/editor/AddSlidePopover";
 import { AiEditingMarker } from "@/components/editor/AiEditingMarker";
 import GeneratingSlidePreview from "@/components/editor/GeneratingSlidePreview";
-import { Button } from "@/components/ui/button";
 import {
   Tooltip,
   TooltipContent,
@@ -59,10 +57,15 @@ interface EditorSidebarProps {
   generatingSlide?: { index: number };
   generatingSlideSelected?: boolean;
   onSelectGeneratingSlide?: () => void;
-  /** Inserts a blank slide directly below the active slide and returns its id. */
-  onAddEmptySlide?: () => string | undefined;
-  /** True while an agent add-slide request is in flight. */
-  addSlideGenerating?: boolean;
+  /** The slide just inserted via the toolbar's New Slide button — the rail
+   *  anchors the "describe this slide" popover to that slide's thumbnail
+   *  once it mounts. Owned by the parent since the button that sets it now
+   *  lives in the toolbar, outside this component. */
+  describeSlideId: string | null;
+  /** Clears `describeSlideId` in the parent when the popover closes. */
+  onCloseDescribe: () => void;
+  /** Reports add-slide generation state up so the toolbar's New Slide button
+   *  can disable itself while a request is in flight. */
   onAddSlideGeneratingChange?: (generating: boolean) => void;
   /** Resolves once a just-inserted blank slide has actually reached the
    *  server, so the agent's update-slide request can't race the add-slide
@@ -338,15 +341,14 @@ export default function EditorSidebar({
   generatingSlide,
   generatingSlideSelected = false,
   onSelectGeneratingSlide,
-  onAddEmptySlide,
-  addSlideGenerating = false,
+  describeSlideId,
+  onCloseDescribe,
   onAddSlideGeneratingChange,
   onAwaitAddSlidePersisted,
   onRemoveFailedSlide,
   addSlideAgentSubmit,
 }: EditorSidebarProps) {
   const t = useT();
-  const [describeSlideId, setDescribeSlideId] = useState<string | null>(null);
   const [describeAnchorEl, setDescribeAnchorEl] =
     useState<HTMLButtonElement | null>(null);
   const slideButtonRefs = useRef(new Map<string, HTMLButtonElement>());
@@ -425,7 +427,6 @@ export default function EditorSidebar({
   }, [deckId, aspectRatio]);
 
   useEffect(() => {
-    setDescribeSlideId(null);
     setDescribeAnchorEl(null);
   }, [deckId]);
 
@@ -460,14 +461,6 @@ export default function EditorSidebar({
     },
     [describeSlideId],
   );
-
-  const handleNewSlideClick = useCallback(() => {
-    const newId = onAddEmptySlide?.();
-    if (newId) {
-      setDescribeAnchorEl(null);
-      setDescribeSlideId(newId);
-    }
-  }, [onAddEmptySlide]);
 
   const describeSlideIndex = describeSlideId
     ? slides.findIndex((s) => s.id === describeSlideId)
@@ -512,21 +505,6 @@ export default function EditorSidebar({
 
   return (
     <div className="flex h-full min-h-0 w-48 flex-shrink-0 flex-col bg-background sm:w-52">
-      {!readOnly && onAddEmptySlide && (
-        <div className="shrink-0 p-2">
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-7 w-full justify-center gap-1.5 border border-border text-xs text-muted-foreground hover:text-foreground"
-            onClick={handleNewSlideClick}
-            disabled={addSlideGenerating}
-          >
-            <IconPlus className="size-3.5" />
-            {t("editorSidebar.newSlide")}
-          </Button>
-        </div>
-      )}
       <div className="relative min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain p-2">
         <SortableContext
           items={slides.map((s) => s.id)}
@@ -566,7 +544,7 @@ export default function EditorSidebar({
           open
           onOpenChange={(open) => {
             if (!open) {
-              setDescribeSlideId(null);
+              onCloseDescribe();
               setDescribeAnchorEl(null);
             }
           }}
