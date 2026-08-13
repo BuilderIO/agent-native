@@ -384,6 +384,19 @@ CREATE INDEX IF NOT EXISTS design_templates_owner_org_updated_idx ON design_temp
 CREATE INDEX IF NOT EXISTS design_template_shares_resource_principal_idx ON design_template_shares (resource_id, principal_type, principal_id);
 CREATE INDEX IF NOT EXISTS design_template_files_template_idx ON design_template_files (template_id, updated_at)`,
     },
+    {
+      version: 24,
+      name: "builder-connect-consumed-tokens",
+      // The primary key is the guarantee: consuming a token is an insert that
+      // fails on replay. A per-process Map cannot do this on Netlify, where
+      // every request may land on a different Lambda.
+      sql: `CREATE TABLE IF NOT EXISTS builder_connect_consumed_tokens (
+    jti TEXT PRIMARY KEY,
+    expires_at TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+CREATE INDEX IF NOT EXISTS builder_connect_consumed_tokens_expires_idx ON builder_connect_consumed_tokens (expires_at)`,
+    },
   ],
   { table: "design_migrations" },
 );

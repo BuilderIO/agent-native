@@ -4,7 +4,6 @@
  * token is the only thing between a caller and a branch's capability.
  */
 
-import { getOrigin } from "@agent-native/core/server";
 import { runWithRequestContext } from "@agent-native/core/server/request-context";
 import {
   defineEventHandler,
@@ -49,15 +48,6 @@ function isAllowedBrowserOrigin(origin: string | undefined): boolean {
     ALLOWED_ORIGIN_HOSTS.has(host) ||
     ALLOWED_ORIGIN_SUFFIXES.some((suffix) => host.endsWith(suffix))
   );
-}
-
-function originMatches(rawUrl: string, expectedOrigin: string): boolean {
-  try {
-    return new URL(rawUrl).origin === expectedOrigin;
-    // coercion-ok: a URL that will not parse matches no signed origin.
-  } catch {
-    return false;
-  }
 }
 
 /** Caller-supplied, so bounded: a screen is a live iframe of the container. */
@@ -110,7 +100,6 @@ export const builderPartnerOpen = defineEventHandler(async (event) => {
   // coercion-ok: an unreadable body has no token, which the verify below rejects loudly.
   const body = (await readBody(event).catch(() => null)) as {
     token?: unknown;
-    previewUrl?: unknown;
     contentId?: unknown;
     routes?: unknown;
   } | null;
@@ -129,32 +118,16 @@ export const builderPartnerOpen = defineEventHandler(async (event) => {
     throw error;
   }
 
-  // The host allowlist cannot tell one org's `.fly.dev` container from an
-  // attacker's, so when Builder signs the origin it is the only thing that
-  // decides — the body may name that origin, nothing else.
-  const previewUrl = String(body?.previewUrl ?? "");
-  if (
-    claims.previewOrigin &&
-    !originMatches(previewUrl, claims.previewOrigin)
-  ) {
-    setResponseStatus(event, 403);
-    return { error: "Preview URL does not match the signed container origin." };
-  }
-
-  // The branch identity comes from the signed claims; the preview URL is
-  // caller-supplied unless the token bound it, and the action still validates
-  // it against the host allowlist.
+  // Builder derives the container origin from the branch record and signs it,
+  // so the body cannot name a preview target at all.
   const result = await runWithRequestContext({}, () =>
     openBuilderVisualEdit({
-      previewUrl,
+      previewUrl: claims.previewOrigin,
       builderOrgId: claims.builderOrgId,
       projectId: claims.projectId,
       branchName: claims.branchName,
       contentId: typeof body?.contentId === "string" ? body.contentId : null,
       routes: parseRequestedRoutes(body?.routes),
-      // Only the request knows this app's public origin, and screen URLs must
-      // be absolute for the canvas to accept them.
-      appOrigin: getOrigin(event),
     }),
   );
 

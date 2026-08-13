@@ -17,10 +17,6 @@ import {
 } from "h3";
 
 import { DESIGN_AGENT_CONTEXT_ENDPOINT } from "../../shared/agent-readable.js";
-import {
-  designIdFromProxyReferer,
-  proxyBuilderPreview,
-} from "../handlers/builder-preview-proxy.js";
 
 const ssrHandler = createH3SSRHandler(
   () => import("virtual:react-router/server-build"),
@@ -58,17 +54,6 @@ function injectScript(html: string, script: string): string {
 }
 
 export default defineEventHandler(async (event) => {
-  // A proxied container asks for its own assets with root-absolute paths, which
-  // land here rather than under the proxy prefix. The referring document is the
-  // only thing tying them back to a design; anything else falls through to SSR.
-  const previewDesignId = designIdFromProxyReferer(getHeader(event, "referer"));
-  if (previewDesignId) {
-    return proxyBuilderPreview(event, {
-      designId: previewDesignId,
-      path: getRequestURL(event).pathname,
-    });
-  }
-
   const response = (await ssrHandler(event)) as Response;
   const requestUrl = getRequestURL(event);
   const designId = designIdFromPath(requestUrl.pathname);

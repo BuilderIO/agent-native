@@ -7,6 +7,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import { type ReviewThread } from "@agent-native/core/client/review";
 import type { ReviewComment } from "@agent-native/core/review";
 import { injectDocumentMarkup } from "@agent-native/core/shared";
+import { isLoopbackPreviewAllowed } from "@shared/builder-preview-url";
 import {
   DEFAULT_CANVAS_MAX_ZOOM,
   DEFAULT_CANVAS_MIN_ZOOM,
@@ -151,8 +152,15 @@ function isAllowedFusionOrigin(
   } catch {
     return false;
   }
-  // Only allow secure (https) Builder origins.
-  if (protocol !== "https:") return false;
+  // Only allow secure (https) Builder origins. Loopback is a development-only
+  // exception: without it every bridge message from a local proxy is dropped.
+  if (protocol !== "https:") {
+    const loopbackDev =
+      isLoopbackPreviewAllowed() &&
+      (host === "localhost" || host === "127.0.0.1" || host === "[::1]");
+    if (!loopbackDev) return false;
+    return true;
+  }
   // Exact match against the configured fusion URL's origin.
   if (fusionUrl) {
     try {
@@ -1607,51 +1615,83 @@ export function DesignCanvas({
   runtimeReplacementContentRef.current = runtimeReplacementContent;
   runtimeReplacementKeyRef.current = runtimeReplacementKey;
 
-  // A container proxied through this app's own origin has no dev-server bridge
-  // to register the editor chrome with, so it is installed into the document
-  // directly — the one thing a cross-origin preview can never allow.
-  const sameOriginExternalPreview = useMemo(() => {
+  // A framed container has no dev-server bridge to register the editor chrome
+  // with, so it goes over postMessage to the bootstrap its proxy injects.
+  const containerPreview = useMemo(() => {
+    // Not the localhost live-edit path: there the bridge server injects the
+    // bridge into its own proxied document, so nothing is posted from here.
+    if (usesLiveEditInjectedBridge) return false;
     if (!externalPreviewUrl || typeof window === "undefined") return false;
     try {
       return (
-        new URL(externalPreviewUrl, window.location.href).origin ===
+        new URL(externalPreviewUrl, window.location.href).origin !==
         window.location.origin
       );
+      // coercion-ok: an unparseable URL frames nothing to bridge into.
     } catch {
-      // coercion-ok: an unparseable URL is not same-origin, so the bridge is
-      // left to the cross-origin path rather than injected blind.
       return false;
     }
-  }, [externalPreviewUrl]);
-  const installSameOriginBridge = useCallback(() => {
-    if (!sameOriginExternalPreview || !includeLiveEditEditorChrome) return;
-    const frame = iframeRef.current;
-    const doc = frame?.contentDocument;
-    if (!doc?.head) return;
-    // The initial about:blank is replaced by the real navigation, and a bridge
-    // installed there keeps running against a document with no elements left.
-    if (doc.URL.startsWith("about:")) return;
-    const installed = doc.documentElement.dataset.agentNativeBridgeKey;
-    if (installed === liveEditBridgeKey) return;
-    // The bridge binds document-wide listeners once. A different script means a
-    // fresh document, never a second copy layered over the first.
-    if (installed) {
-      frame?.contentWindow?.location.reload();
+  }, [externalPreviewUrl, usesLiveEditInjectedBridge]);
+  const installedBridgeKeyRef = useRef<string | null>(null);
+  const sendBridgeToContainer = useCallback(() => {
+    if (!containerPreview || !includeLiveEditEditorChrome) return;
+    const target = iframeRef.current?.contentWindow;
+    if (!target || !externalPreviewUrl) return;
+    if (installedBridgeKeyRef.current === liveEditBridgeKey) return;
+    let origin: string;
+    try {
+      origin = new URL(externalPreviewUrl, window.location.href).origin;
+      // coercion-ok: without a parseable origin there is nowhere safe to post.
+    } catch {
       return;
     }
-    doc.documentElement.dataset.agentNativeBridgeKey = liveEditBridgeKey;
-    doc.head.appendChild(
-      doc.createRange().createContextualFragment(liveEditBridgeScript),
-    );
+    try {
+      // Never "*": the bridge carries editor internals, and the container is
+      // the only window that should receive it.
+      target.postMessage(
+        {
+          type: "agentNative.installBridge",
+          key: liveEditBridgeKey,
+          script: liveEditBridgeScript,
+        },
+        origin,
+      );
+    } catch {
+      // Leave the key unmarked: `bridgeReady` drives the real install, and
+      // marking a failed attempt disables the bridge for the document's life.
+      return;
+    }
+    installedBridgeKeyRef.current = liveEditBridgeKey;
   }, [
+    containerPreview,
+    externalPreviewUrl,
     includeLiveEditEditorChrome,
     liveEditBridgeKey,
     liveEditBridgeScript,
-    sameOriginExternalPreview,
   ]);
+  // The bootstrap announces itself on every document load, which is also how a
+  // reload or in-frame navigation asks for the bridge again.
   useEffect(() => {
-    installSameOriginBridge();
-  }, [installSameOriginBridge]);
+    if (!containerPreview) return;
+    function onBootstrapMessage(event: MessageEvent) {
+      if (event.source !== iframeRef.current?.contentWindow) return;
+      // A failed install must not read as an installed one, or the retry below
+      // never fires and the canvas silently loses selection and inline editing.
+      if (event.data?.type === "agentNative.bridgeFailed") {
+        installedBridgeKeyRef.current = null;
+        console.error(
+          "[design] editor bridge failed to install in the preview:",
+          event.data?.message,
+        );
+        return;
+      }
+      if (event.data?.type !== "agentNative.bridgeReady") return;
+      installedBridgeKeyRef.current = null;
+      sendBridgeToContainer();
+    }
+    window.addEventListener("message", onBootstrapMessage);
+    return () => window.removeEventListener("message", onBootstrapMessage);
+  }, [containerPreview, sendBridgeToContainer]);
 
   useEffect(() => {
     onExternalContentSnapshotRef.current = onExternalContentSnapshot;
@@ -2410,7 +2450,7 @@ export function DesignCanvas({
   // A proxied container paints its own app immediately, so without this the
   // canvas looks ready while hover, selection and layers are still dead.
   const sameOriginBridgePending =
-    sameOriginExternalPreview &&
+    containerPreview &&
     includeLiveEditEditorChrome &&
     readyIframeDocumentIdentity !== iframeDocumentIdentity;
 
@@ -4500,7 +4540,7 @@ export function DesignCanvas({
           data-design-preview-iframe
           onLoad={(event) => {
             setPreviewFrameLoaded(true);
-            installSameOriginBridge();
+            sendBridgeToContainer();
             // The bridge logs into the IFRAME console and cannot read
             // import.meta.env, so dev has to switch it on from out here.
             if (!import.meta.env?.DEV) return;

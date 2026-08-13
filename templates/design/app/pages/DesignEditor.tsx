@@ -1219,15 +1219,12 @@ function describeSelectionForHost(element: ElementInfo): {
  */
 const HOST_CHAT_SLOT_MESSAGE = "agentNative.chatSlot";
 
-const BUILDER_PREVIEW_PROXY_PATH_PREFIX = "/builder-preview/";
-
 /**
  * Repaint the running-app frames once the coding agent finishes a turn.
  *
- * Same-origin only: these are the proxied container frames, and reading or
- * reloading a cross-origin one throws. Reloading rather than re-keying `src`
- * keeps the container's query string verbatim — a dev server distinguishes
- * `?astro&lang.css` from a re-encoded copy and serves a different module.
+ * The container is framed cross-origin, so this asks its bridge bootstrap to
+ * reload itself — reading or reloading the frame from here would throw. The
+ * bootstrap restores scroll, which this side can no longer measure.
  */
 function reloadRunningAppPreviewFrames(): void {
   if (typeof document === "undefined") return;
@@ -1235,41 +1232,17 @@ function reloadRunningAppPreviewFrames(): void {
     "iframe[data-design-preview-iframe]",
   );
   for (const frame of frames) {
-    // `src` is absolute — upsertFusionScreens builds it against appOrigin so
-    // `new URL(src)` never throws — so match the pathname, not the raw string.
     const src = frame.getAttribute("src");
     if (!src) continue;
-    let target: URL;
+    let origin: string;
     try {
-      target = new URL(src, window.location.href);
-      // coercion-ok: an unparsable src names no proxied container.
+      origin = new URL(src, window.location.href).origin;
+      // coercion-ok: an unparsable src names no container to reload.
     } catch {
       continue;
     }
-    if (
-      target.origin !== window.location.origin ||
-      !target.pathname.startsWith(BUILDER_PREVIEW_PROXY_PATH_PREFIX)
-    ) {
-      continue;
-    }
-    try {
-      const win = frame.contentWindow;
-      if (!win) continue;
-      // Captured before the navigation: a reloaded document starts at the top,
-      // which reads as the canvas jumping on every agent turn.
-      const { scrollX, scrollY } = win;
-      const restoreScroll = () => {
-        frame.removeEventListener("load", restoreScroll);
-        try {
-          frame.contentWindow?.scrollTo(scrollX, scrollY);
-        } catch {
-          // A frame that refuses access after reload keeps its own position.
-        }
-      };
-      frame.addEventListener("load", restoreScroll);
-      win.location.reload();
-      // coercion-ok: a frame we cannot read is one we must not reload.
-    } catch {}
+    if (origin === window.location.origin) continue;
+    frame.contentWindow?.postMessage({ type: "agentNative.reload" }, origin);
   }
 }
 
@@ -3245,6 +3218,9 @@ function DesignEditor() {
     window.parent.postMessage({ type: "agentNative.appReady" }, "*");
 
     function handleDesignHostMessage(event: MessageEvent) {
+      // The host is the embedder, so anything else — a sibling frame, a popup —
+      // is not it, even from an allowed origin.
+      if (event.source !== window.parent) return;
       // Only accept messages from builder.io origins
       const origin = event.origin ?? "";
       try {

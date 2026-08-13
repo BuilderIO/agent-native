@@ -318,3 +318,17 @@ export const designReviewSnapshot = table("design_review_snapshot", {
   updatedAt: text("updated_at").default(now()),
   ...ownableColumns(),
 });
+
+/**
+ * Connect-token JTIs already exchanged for an embed session. Not ownable: it is
+ * infrastructure for one-time-use, and a caller must never be able to read or
+ * scope it.
+ */
+export const builderConnectConsumedTokens = table(
+  "builder_connect_consumed_tokens",
+  {
+    jti: text("jti").primaryKey(),
+    expiresAt: text("expires_at").notNull(),
+    createdAt: text("created_at").default(now()),
+  },
+);

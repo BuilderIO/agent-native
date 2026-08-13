@@ -113,7 +113,7 @@ describe("open-builder-visual-edit", () => {
           fileId: "f1",
           filename: "fusion-dashboard.html",
           path: "/dashboard",
-          url: "/builder-preview/design-1/dashboard",
+          url: "https://branch-x.builderio.xyz/dashboard",
           title: "Dashboard",
           width: 1280,
           height: 900,
@@ -156,21 +156,13 @@ describe("open-builder-visual-edit", () => {
     ).toBe("https://branch-x.builderio.xyz");
   });
 
-  it("bases screens on this app's own origin so the canvas frames them same-origin", async () => {
-    await openBuilderVisualEdit({
-      ...validArgs,
-      appOrigin: "https://design.example.com",
-    });
-    expect(mocks.upsertFusionScreens.mock.calls[0]![0].previewUrl).toBe(
-      "https://design.example.com/builder-preview/design-1/",
-    );
-  });
-
-  it("falls back to an origin-relative proxy base when the origin is unknown", async () => {
+  it("bases screens on the container's own origin, never this app's", async () => {
+    // Serving the container from this origin would run the user's application
+    // code with this app's storage, cookies and DOM.
     await openBuilderVisualEdit(validArgs);
-    expect(mocks.upsertFusionScreens.mock.calls[0]![0].previewUrl).toBe(
-      "/builder-preview/design-1/",
-    );
+    const framed = mocks.upsertFusionScreens.mock.calls[0]![0].previewUrl;
+    expect(framed).toBe("https://branch-x.builderio.xyz");
+    expect(framed).not.toContain("/builder-preview/");
   });
 
   it("signs a session for the owning principal, bound to the visual-edit path", async () => {

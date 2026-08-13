@@ -1,5 +1,40 @@
 import { SignJWT } from "jose";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+/**
+ * An in-memory stand-in for the consumed-jti table. Two behaviours matter: the
+ * primary-key conflict (a replay inserts nothing) and the expiry sweep, so a
+ * jti becomes reusable once its retention window passes.
+ */
+const consumedJtis = new Map<string, string>();
+vi.mock("drizzle-orm", () => ({
+  lt: (_column: unknown, value: string) => ({ threshold: value }),
+}));
+vi.mock("../db/index.js", () => ({
+  schema: {
+    builderConnectConsumedTokens: { jti: "jti", expiresAt: "expires_at" },
+  },
+  getDb: () => ({
+    delete: () => ({
+      where: async ({ threshold }: { threshold: string }) => {
+        for (const [jti, expiresAt] of consumedJtis) {
+          if (expiresAt < threshold) consumedJtis.delete(jti);
+        }
+      },
+    }),
+    insert: () => ({
+      values: (row: { jti: string; expiresAt: string }) => ({
+        onConflictDoNothing: () => ({
+          returning: async () => {
+            if (consumedJtis.has(row.jti)) return [];
+            consumedJtis.set(row.jti, row.expiresAt);
+            return [{ jti: row.jti }];
+          },
+        }),
+      }),
+    }),
+  }),
+}));
 
 import {
   BUILDER_CONNECT_AUDIENCE,
@@ -7,7 +42,6 @@ import {
   BUILDER_CONNECT_SCOPE,
   BuilderConnectTokenError,
   BuilderPartnerNotConfiguredError,
-  __resetBuilderConnectReplayGuardForTests,
   isBuilderPartnerConfigured,
   resolveBuilderPartnerSecrets,
   verifyBuilderConnectToken,
@@ -31,6 +65,7 @@ async function mint(
     builderOrgId: "org-1",
     projectId: "proj-1",
     branchName: "feature/x",
+    previewOrigin: "https://branch-x.projects.builder.codes",
     scope: BUILDER_CONNECT_SCOPE,
     ...overrides,
   })
@@ -82,7 +117,7 @@ describe("verifyBuilderConnectToken", () => {
   beforeEach(() => {
     process.env.BUILDER_DESIGN_PARTNER_SECRET = SECRET;
     delete process.env.BUILDER_DESIGN_PARTNER_SECRET_NEXT;
-    __resetBuilderConnectReplayGuardForTests();
+    consumedJtis.clear();
   });
 
   afterEach(() => {
@@ -132,6 +167,29 @@ describe("verifyBuilderConnectToken", () => {
         BuilderConnectTokenError,
       );
     }
+  });
+
+  it("rejects a token with no previewOrigin, which would leave the target unbound", async () => {
+    await expect(
+      verifyBuilderConnectToken(await mint({ previewOrigin: undefined })),
+    ).rejects.toBeInstanceOf(BuilderConnectTokenError);
+  });
+
+  it("rejects an unparsable previewOrigin rather than treating it as absent", async () => {
+    await expect(
+      verifyBuilderConnectToken(await mint({ previewOrigin: "not-a-url" })),
+    ).rejects.toBeInstanceOf(BuilderConnectTokenError);
+  });
+
+  it("normalizes previewOrigin to a bare origin", async () => {
+    const claims = await verifyBuilderConnectToken(
+      await mint({
+        previewOrigin: "https://branch-x.projects.builder.codes/app?x=1",
+      }),
+    );
+    expect(claims.previewOrigin).toBe(
+      "https://branch-x.projects.builder.codes",
+    );
   });
 
   it("rejects a token that never expires", async () => {

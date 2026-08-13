@@ -5,7 +5,10 @@
  * indistinguishable to a caller.
  */
 
+import { lt } from "drizzle-orm";
 import { jwtVerify, type JWTPayload } from "jose";
+
+import { getDb, schema } from "../db/index.js";
 
 export const BUILDER_CONNECT_ISSUER = "builder.io";
 export const BUILDER_CONNECT_AUDIENCE = "design.agent-native.com";
@@ -22,14 +25,14 @@ const SECRET_ENV_KEYS = [
 
 const MIN_SECRET_LENGTH = 32;
 
-function normalizeClaimOrigin(value: unknown): string | null {
-  if (typeof value !== "string" || !value.trim()) return null;
+function requireClaimOrigin(value: unknown): string {
+  if (typeof value !== "string" || !value.trim()) {
+    throw new BuilderConnectTokenError('missing "previewOrigin" claim');
+  }
   try {
     return new URL(value.trim()).origin;
-    // coercion-ok: an unparsable claim binds nothing, and the caller treats a
-    // null origin as "Builder did not sign one", not as "any origin is fine".
   } catch {
-    return null;
+    throw new BuilderConnectTokenError('"previewOrigin" is not a valid URL');
   }
 }
 
@@ -37,13 +40,13 @@ export interface BuilderConnectClaims {
   builderOrgId: string;
   projectId: string;
   branchName: string;
+
   /**
-   * The container origin Builder resolved for this branch. Absent on tokens
-   * minted before Builder signed it; when present it is authoritative and the
-   * caller-supplied preview URL must match, because a host-suffix allowlist
-   * cannot tell one org's `.fly.dev` app from an attacker's.
+   * The container origin Builder resolved from the branch record. Required: a
+   * host-suffix allowlist cannot tell one org's container from an attacker's,
+   * so this claim is the only thing that authorizes a preview target.
    */
-  previewOrigin: string | null;
+  previewOrigin: string;
   jti: string | null;
 }
 
@@ -91,20 +94,35 @@ export function isBuilderPartnerConfigured(): boolean {
   return resolveBuilderPartnerSecrets().length > 0;
 }
 
-/**
- * Replay guard, stated rather than implied: this is per-process memory, so a
- * replay routed to another serverless instance is not caught. Proportionate for
- * a 60s single-audience token that only ever travels over postMessage. Put the
- * jti in SQL if that stops being true.
- */
-const seenJtis = new Map<string, number>();
-
-/** Retained ≥ the token TTL so a jti cannot outlive its own guard entry. */
+/** Retained ≥ the token TTL so a jti cannot outlive its own guard row. */
 const JTI_RETENTION_MS = 180_000;
 
-/** Exposed so tests do not leak replay state between cases. */
-export function __resetBuilderConnectReplayGuardForTests(): void {
-  seenJtis.clear();
+/**
+ * Consume a jti exactly once, across instances.
+ *
+ * The insert *is* the guard: this app runs as Netlify functions, so a
+ * check-then-write — or a per-process Map — races between Lambdas and lets the
+ * same token mint a second embed session.
+ */
+async function consumeJti(jti: string, now: number): Promise<boolean> {
+  const db = getDb();
+  await db
+    .delete(schema.builderConnectConsumedTokens)
+    .where(
+      lt(
+        schema.builderConnectConsumedTokens.expiresAt,
+        new Date(now).toISOString(),
+      ),
+    );
+  const inserted = await db
+    .insert(schema.builderConnectConsumedTokens)
+    .values({
+      jti,
+      expiresAt: new Date(now + JTI_RETENTION_MS).toISOString(),
+    })
+    .onConflictDoNothing()
+    .returning({ jti: schema.builderConnectConsumedTokens.jti });
+  return inserted.length > 0;
 }
 
 function requireStringClaim(payload: JWTPayload, claim: string): string {
@@ -163,7 +181,7 @@ export async function verifyBuilderConnectToken(
     builderOrgId: requireStringClaim(payload, "builderOrgId"),
     projectId: requireStringClaim(payload, "projectId"),
     branchName: requireStringClaim(payload, "branchName"),
-    previewOrigin: normalizeClaimOrigin(payload.previewOrigin),
+    previewOrigin: requireClaimOrigin(payload.previewOrigin),
     jti: typeof payload.jti === "string" && payload.jti ? payload.jti : null,
   };
 
@@ -173,15 +191,9 @@ export async function verifyBuilderConnectToken(
     throw new BuilderConnectTokenError("token is missing a jti");
   }
 
-  {
-    const now = options.now?.() ?? Date.now();
-    for (const [jti, expiresAt] of seenJtis) {
-      if (expiresAt <= now) seenJtis.delete(jti);
-    }
-    if (seenJtis.has(claims.jti)) {
-      throw new BuilderConnectTokenError("token has already been used");
-    }
-    seenJtis.set(claims.jti, now + JTI_RETENTION_MS);
+  const consumed = await consumeJti(claims.jti, options.now?.() ?? Date.now());
+  if (!consumed) {
+    throw new BuilderConnectTokenError("token has already been used");
   }
 
   return claims;

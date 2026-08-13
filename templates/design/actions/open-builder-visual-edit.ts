@@ -20,7 +20,6 @@ import {
 } from "@agent-native/core/server/request-context";
 import { z } from "zod";
 
-import { builderPreviewProxyPath } from "../server/handlers/builder-preview-proxy.js";
 import { findOrCreateBuilderHostDesign } from "../server/lib/builder-host-design.js";
 import {
   builderHostDesignPath,
@@ -97,12 +96,6 @@ export const openBuilderVisualEditSchema = z.object({
     .describe(
       "Routes to place as screens. Defaults to the preview URL's path.",
     ),
-  appOrigin: z
-    .string()
-    .optional()
-    .describe(
-      "This app's public origin, used to build absolute screen URLs. Supplied by the partner route from the request.",
-    ),
   width: z.number().positive().optional(),
   height: z.number().positive().optional(),
 });
@@ -136,16 +129,12 @@ export async function openBuilderVisualEdit(input: OpenBuilderVisualEditArgs) {
         title: args.title,
       });
 
-      // Same-origin via the proxy, and absolute: the canvas resolves a screen
-      // src with `new URL(src)`, which throws on a bare path and silently falls
-      // back to rendering it as inline content.
-      const proxyBase = args.appOrigin
-        ? new URL(builderPreviewProxyPath(designId), args.appOrigin).toString()
-        : builderPreviewProxyPath(designId);
-
+      // The container's own origin, framed cross-origin. Serving it from this
+      // app's origin instead would run the user's application code with this
+      // app's storage, cookies and DOM.
       const { screens, placedFrames } = await upsertFusionScreens({
         designId,
-        previewUrl: proxyBase,
+        previewUrl: previewOrigin,
         paths,
         width: args.width ?? DEFAULT_FUSION_SCREEN_WIDTH,
         height: args.height ?? DEFAULT_FUSION_SCREEN_HEIGHT,

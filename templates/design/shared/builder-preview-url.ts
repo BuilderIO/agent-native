@@ -21,7 +21,7 @@ const LOOPBACK_HOSTNAMES = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
  * server, so in production a loopback host means scanning the Design host
  * itself on a caller's behalf.
  */
-function loopbackAllowed(): boolean {
+export function isLoopbackPreviewAllowed(): boolean {
   const nodeEnv =
     typeof process === "undefined" ? undefined : process.env?.NODE_ENV;
   // Wins over the bundler flag: a dev-mode bundle served by a production
@@ -67,7 +67,7 @@ export function parseBuilderPreviewUrl(raw: unknown): URL {
   }
 
   const hostname = url.hostname.toLowerCase();
-  if (isLoopbackHostname(hostname) && !loopbackAllowed()) {
+  if (isLoopbackHostname(hostname) && !isLoopbackPreviewAllowed()) {
     throw new InvalidBuilderPreviewUrlError(
       "loopback hosts are only allowed in development",
     );
