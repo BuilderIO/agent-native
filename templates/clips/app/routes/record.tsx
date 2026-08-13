@@ -2398,9 +2398,16 @@ export default function RecordRoute() {
         }
       }
 
-      // Opt/Alt+Shift+C — cancel
+      // Opt/Alt+Shift+C -- cancel. Route the same states that show a
+      // discard/cancel control (the recording toolbar and the
+      // uploading/compressing overlay) through the confirm dialog, so the
+      // shortcut can't bypass what the equivalent on-screen button requires.
       if (alt && shift && k === "c") {
-        if (uiState === "recording") {
+        if (
+          uiState === "recording" ||
+          uiState === "uploading" ||
+          uiState === "compressing"
+        ) {
           e.preventDefault();
           requestDiscard();
           return;
