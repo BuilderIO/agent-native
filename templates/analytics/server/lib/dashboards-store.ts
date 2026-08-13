@@ -169,6 +169,17 @@ interface AccessCtx {
 
 const SQL_PREFIX = "sql-dashboard-";
 const EXPLORER_PREFIX = "dashboard-";
+
+/**
+ * `EXPLORER_PREFIX` also prefixes per-dashboard preference keys such as
+ * `dashboard-filters:<id>`, so an unqualified prefix match reads every saved
+ * filter set back as an "Untitled" explorer dashboard. Settings sub-namespaces
+ * are the only thing that puts a separator inside the remainder, encoded or
+ * not, and no dashboard id contains one.
+ */
+function isLegacyDashboardId(id: string): boolean {
+  return id.length > 0 && !/:|%3a/i.test(id);
+}
 const ANALYSIS_PREFIX = "adhoc-analysis-";
 const DASHBOARD_REVISION_LIMIT = 50;
 const ANALYSIS_REVISION_LIMIT = 30;
@@ -303,8 +314,10 @@ function legacyDashboardReferenceScope(
     };
   }
   if (ctx.email && key.startsWith(`u:${ctx.email}:${EXPLORER_PREFIX}`)) {
+    const id = key.slice(`u:${ctx.email}:${EXPLORER_PREFIX}`.length);
+    if (!isLegacyDashboardId(id)) return null;
     return {
-      id: key.slice(`u:${ctx.email}:${EXPLORER_PREFIX}`.length),
+      id,
       kind: "explorer",
       ownerEmail: ctx.email,
       orgId: null,
@@ -673,7 +686,7 @@ export async function listDashboards(
         key.startsWith(`u:${ctx.email}:${EXPLORER_PREFIX}`)
       ) {
         id = key.slice(`u:${ctx.email}:${EXPLORER_PREFIX}`.length);
-        kind = "explorer";
+        kind = isLegacyDashboardId(id) ? "explorer" : null;
       }
       if (!id || !kind) continue;
       if (filter?.kind && filter.kind !== kind) continue;
@@ -820,7 +833,7 @@ export async function listDashboardSummaries(
         key.startsWith(`u:${ctx.email}:${EXPLORER_PREFIX}`)
       ) {
         id = key.slice(`u:${ctx.email}:${EXPLORER_PREFIX}`.length);
-        kind = "explorer";
+        kind = isLegacyDashboardId(id) ? "explorer" : null;
       }
       if (!id || !kind || seen.has(id)) continue;
       if (filter?.kind && filter.kind !== kind) continue;
