@@ -198,7 +198,12 @@ function SortableSlideThumb({
         type="button"
         {...(readOnly ? {} : attributes)}
         {...(readOnly ? {} : listeners)}
-        onClick={onSelect}
+        onClick={(event) => {
+          // Safari does not focus a button on click, and the slide copy/paste
+          // and delete shortcuts are scoped to a focused thumbnail.
+          event.currentTarget.focus();
+          onSelect();
+        }}
         onFocus={onSelect}
         aria-label={t("editorSidebar.selectSlide", { number: index + 1 })}
         aria-current={isActive ? "true" : undefined}
