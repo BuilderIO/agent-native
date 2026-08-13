@@ -220,6 +220,42 @@ describe("slash image picker lifecycle", () => {
     }
   });
 
+  it("keeps the existing pending node identifiable until render validation completes", () => {
+    const editor = createFullEditor();
+    try {
+      editor.commands.setContent({
+        type: "doc",
+        content: [{ type: "image", attrs: request.attrs }],
+      });
+      expect(
+        ensurePendingImageUpload(editor.view, request, "image-upload-test"),
+      ).toBe(true);
+      expect(
+        commitPendingImageUpload(editor.view, request, "image-upload-test", {
+          src: "https://cdn.example.com/diagram.svg",
+          uploadId: "image-upload-test",
+        }),
+      ).toBe(true);
+      expect(editor.getJSON().content?.[0]?.attrs).toMatchObject({
+        src: "https://cdn.example.com/diagram.svg",
+        uploadId: "image-upload-test",
+      });
+
+      expect(
+        commitPendingImageUpload(editor.view, request, "image-upload-test", {
+          src: "https://cdn.example.com/diagram.svg",
+          uploadId: null,
+        }),
+      ).toBe(true);
+      expect(editor.getJSON().content?.[0]?.attrs).toMatchObject({
+        src: "https://cdn.example.com/diagram.svg",
+        uploadId: null,
+      });
+    } finally {
+      editor.destroy();
+    }
+  });
+
   it("restores a usable empty image when the native picker is cancelled", () => {
     const editor = createFullEditor();
     try {
@@ -237,6 +273,13 @@ describe("slash image picker lifecycle", () => {
   it("removes a staged source when the committed image cannot render", () => {
     const editor = createFullEditor();
     try {
+      editor.commands.setContent({
+        type: "doc",
+        content: [{ type: "image", attrs: request.attrs }],
+      });
+      expect(
+        ensurePendingImageUpload(editor.view, request, "image-upload-test"),
+      ).toBe(true);
       expect(
         commitPendingImageUpload(editor.view, request, "image-upload-test", {
           src: "https://cdn.example.com/broken.svg",
@@ -250,6 +293,9 @@ describe("slash image picker lifecycle", () => {
         .getJSON()
         .content?.find((node) => node.type === "image");
       expect(image?.attrs).toMatchObject({ src: null, uploadId: null });
+      expect(
+        editor.getJSON().content?.filter((node) => node.type === "image"),
+      ).toHaveLength(1);
     } finally {
       editor.destroy();
     }

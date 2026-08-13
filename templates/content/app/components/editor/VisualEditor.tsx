@@ -1207,7 +1207,7 @@ function updatePendingMediaNode(
       tr = tr.setNodeMarkup(pos, undefined, {
         ...node.attrs,
         ...attrs,
-        uploadId: null,
+        uploadId: attrs.uploadId ?? null,
       });
       found = true;
       return false;
@@ -2385,6 +2385,7 @@ export function VisualEditor({
         await completeImageFileUpload({
           file,
           stageAttributes: (src) => {
+            if (editor.isDestroyed) return;
             staged = commitPendingImageUpload(editor.view, request, uploadId, {
               src,
               uploadId,
@@ -2397,6 +2398,7 @@ export function VisualEditor({
             );
           },
           commitAttributes: (src) => {
+            if (editor.isDestroyed) return;
             committed = commitPendingImageUpload(
               editor.view,
               request,
@@ -2408,6 +2410,10 @@ export function VisualEditor({
         if (!committed) throw new Error(t("empty.genericError"));
         toast.success(t("editor.media.imageAdded"), { id: toastId });
       } catch (error) {
+        if (editor.isDestroyed) {
+          toast.dismiss(toastId);
+          return;
+        }
         restorePendingImagePicker(editor.view, request, uploadId);
         toast.error(
           error instanceof ImageRenderError
