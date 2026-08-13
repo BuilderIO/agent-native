@@ -1111,6 +1111,10 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     searchNextMatch: "Próxima correspondência",
     searchClose: "Fechar pesquisa",
   },
+  bulletLink: {
+    jumpToTranscript: "Ir para {{time}} na transcrição",
+    noMatchingMoment: "Nenhum momento correspondente encontrado",
+  },
   editorLayout: {
     trimmed: "Recortado",
     trimFailed: "Falha ao recortar",

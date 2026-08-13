@@ -1098,6 +1098,10 @@ const messages = {
     searchNextMatch: "النتيجة التالية",
     searchClose: "إغلاق البحث",
   },
+  bulletLink: {
+    jumpToTranscript: "الانتقال إلى {{time}} في النص",
+    noMatchingMoment: "لم يتم العثور على لحظة مطابقة",
+  },
   editorLayout: {
     trimmed: "تم القص",
     trimFailed: "فشل القص",

@@ -1115,6 +1115,10 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     searchNextMatch: "Coincidencia siguiente",
     searchClose: "Cerrar búsqueda",
   },
+  bulletLink: {
+    jumpToTranscript: "Ir a {{time}} en la transcripción",
+    noMatchingMoment: "No se encontró ningún momento coincidente",
+  },
   editorLayout: {
     trimmed: "Recortado",
     trimFailed: "No se pudo recortar",

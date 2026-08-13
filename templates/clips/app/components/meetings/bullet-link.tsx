@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client/i18n";
 import { useMemo } from "react";
 
 import {
@@ -129,6 +130,7 @@ export function BulletLink({
   onJumpTo,
   children,
 }: BulletLinkProps) {
+  const t = useT();
   const matchIndex = useMemo(
     () => findBestSegmentMatch(bullet, segments),
     [bullet, segments],
@@ -146,7 +148,7 @@ export function BulletLink({
           <button
             type="button"
             onClick={() => onJumpTo(matchIndex)}
-            aria-label={`Jump to ${timestamp} in transcript`}
+            aria-label={t("bulletLink.jumpToTranscript", { time: timestamp })}
             className={cn(
               "mt-0.5 inline-flex h-5 shrink-0 items-center rounded px-1 font-mono text-[10px] tabular-nums text-muted-foreground/80 opacity-0 transition-opacity",
               "group-hover:opacity-100 [@media(hover:none)]:opacity-100",
@@ -161,14 +163,14 @@ export function BulletLink({
               <button
                 type="button"
                 disabled
-                aria-label="No matching moment found"
+                aria-label={t("bulletLink.noMatchingMoment")}
                 className="mt-0.5 inline-flex h-5 shrink-0 cursor-default items-center rounded px-1 font-mono text-[10px] tabular-nums text-muted-foreground/40 opacity-0 transition-opacity group-hover:opacity-100 [@media(hover:none)]:opacity-100"
               >
                 --:--
               </button>
             </TooltipTrigger>
             <TooltipContent side="left">
-              No matching moment found
+              {t("bulletLink.noMatchingMoment")}
             </TooltipContent>
           </Tooltip>
         )}

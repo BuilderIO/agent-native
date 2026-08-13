@@ -1040,6 +1040,10 @@ const messages = {
     searchNextMatch: "下一個符合項目",
     searchClose: "關閉搜尋",
   },
+  bulletLink: {
+    jumpToTranscript: "跳到逐字稿中的 {{time}}",
+    noMatchingMoment: "找不到符合的時刻",
+  },
   editorLayout: {
     trimmed: "已修剪",
     trimFailed: "修剪失敗",

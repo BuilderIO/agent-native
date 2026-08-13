@@ -1047,6 +1047,10 @@ Clips 中所有面向用户的重要更改都会记录在这里。你可以随�
     searchNextMatch: "下一个匹配项",
     searchClose: "关闭搜索",
   },
+  bulletLink: {
+    jumpToTranscript: "跳转到转录中的 {{time}}",
+    noMatchingMoment: "未找到匹配的时刻",
+  },
   editorLayout: {
     trimmed: "已修剪",
     trimFailed: "修剪失败",
