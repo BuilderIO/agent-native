@@ -92,6 +92,7 @@ interface Bullet {
 interface Meeting {
   id: string;
   title: string;
+  ownerEmail?: string | null;
   scheduledStart: string;
   scheduledEnd?: string | null;
   actualStart?: string | null;
@@ -968,6 +969,8 @@ export default function MeetingDetailRoute() {
           <TranscriptBubbles
             segments={segments}
             isLive={isLive}
+            participants={meeting.participants ?? []}
+            ownerEmail={meeting.ownerEmail}
             registerScrollTo={(fn) => {
               transcriptScrollToRef.current = fn;
             }}

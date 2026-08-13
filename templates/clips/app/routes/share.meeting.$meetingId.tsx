@@ -277,6 +277,7 @@ export default function ShareMeetingRoute() {
     (participant) => ({
       email: participant.email,
       name: participant.name ?? undefined,
+      isOrganizer: participant.isOrganizer,
     }),
   );
   const transcript = meeting.transcript;
@@ -436,6 +437,7 @@ export default function ShareMeetingRoute() {
                 <TranscriptBubbles
                   segments={transcript.segments}
                   isLive={false}
+                  participants={attendees}
                 />
               </div>
             ) : transcript.fullText ? (

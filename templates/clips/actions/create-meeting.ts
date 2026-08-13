@@ -9,6 +9,7 @@
 
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
+import { getRequestUserName } from "@agent-native/core/server/request-context";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
@@ -93,7 +94,7 @@ export default defineAction({
       email: string;
       name?: string;
       isOrganizer?: boolean;
-    }> = args.participants ?? [];
+    }> = [...(args.participants ?? [])];
     let calendarEventIdLink: string | null = null;
     let source: "calendar" | "adhoc" | "manual" =
       args.source ?? (args.title ? "manual" : "adhoc");
@@ -188,6 +189,26 @@ export default defineAction({
       } catch {
         // Ignore malformed attendees JSON.
       }
+    }
+
+    // Keep a meeting-specific snapshot of the owner identity. This gives
+    // transcript rendering a stable display name even if the auth profile
+    // changes later, while preserving calendar-provided attendee names.
+    const ownerName = getRequestUserName()?.trim() || undefined;
+    const ownerParticipant = participantsToInsert.find(
+      (participant) =>
+        participant.email.trim().toLowerCase() === ownerEmail.toLowerCase(),
+    );
+    if (ownerParticipant) {
+      if (!ownerParticipant.name?.trim() && ownerName) {
+        ownerParticipant.name = ownerName;
+      }
+    } else {
+      participantsToInsert.unshift({
+        email: ownerEmail,
+        name: ownerName,
+        isOrganizer: source !== "calendar",
+      });
     }
 
     const visibility =

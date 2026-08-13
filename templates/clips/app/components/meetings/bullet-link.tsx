@@ -1,14 +1,8 @@
-import { IconSearch } from "@tabler/icons-react";
 import { useMemo } from "react";
 
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
+import { formatTranscriptTimestamp } from "../transcript/transcript-segment-row";
 import type { TranscriptSegment } from "./transcript-bubbles";
 
 const STOPWORDS = new Set<string>([
@@ -134,35 +128,27 @@ export function BulletLink({
     [bullet, segments],
   );
   const hasMatch = matchIndex >= 0;
+  const timestamp = hasMatch
+    ? formatTranscriptTimestamp(segments[matchIndex]!.startMs)
+    : null;
 
   return (
-    <TooltipProvider delayDuration={200}>
-      <div className="group flex items-start gap-1.5">
-        <div className="flex-1 min-w-0">{children}</div>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              disabled={!hasMatch}
-              onClick={() => hasMatch && onJumpTo(matchIndex)}
-              aria-label={
-                hasMatch ? "Jump to transcript moment" : "No matching moment"
-              }
-              className={cn(
-                "shrink-0 mt-0.5 inline-flex h-5 w-5 items-center justify-center rounded transition-opacity",
-                hasMatch
-                  ? "opacity-0 group-hover:opacity-50 hover:!opacity-100 hover:bg-accent text-muted-foreground hover:text-foreground cursor-pointer"
-                  : "opacity-0 group-hover:opacity-30 text-muted-foreground/50 cursor-default",
-              )}
-            >
-              <IconSearch className="h-3.5 w-3.5" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="left">
-            {hasMatch ? "Jump to transcript" : "No matching moment found"}
-          </TooltipContent>
-        </Tooltip>
-      </div>
-    </TooltipProvider>
+    <div className="group flex items-start gap-1.5">
+      <div className="flex min-w-0 flex-1">{children}</div>
+      {timestamp && (
+        <button
+          type="button"
+          onClick={() => onJumpTo(matchIndex)}
+          aria-label={`Jump to ${timestamp} in transcript`}
+          className={cn(
+            "mt-0.5 inline-flex h-5 shrink-0 items-center rounded px-1 font-mono text-[10px] tabular-nums text-muted-foreground/80 opacity-0 transition-opacity",
+            "group-hover:opacity-100 [@media(hover:none)]:opacity-100",
+            "cursor-pointer hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+          )}
+        >
+          {timestamp}
+        </button>
+      )}
+    </div>
   );
 }
