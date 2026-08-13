@@ -40,23 +40,28 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
     documentId,
     propertyId,
     initialContent,
+    initialRevision = 0,
     save,
     onReady,
     onContent,
+    onRevisionConflict,
   }: {
     documentId: string;
     propertyId: string;
     initialContent: string;
+    initialRevision?: number;
     save: (req: SaveCall) => Promise<unknown>;
     onReady: (onChange: (markdown: string) => void) => void;
     onContent?: (content: string) => void;
+    onRevisionConflict?: () => void;
   }) {
     const { content, onChange } = useBlockFieldEditor({
       documentId,
       propertyId,
       initialContent,
-      initialRevision: 0,
+      initialRevision,
       save,
+      onRevisionConflict,
     });
     onReady(onChange);
     onContent?.(content);
@@ -706,5 +711,97 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
     // The dirty edit is preserved (seeded from the controller's pending), not
     // reset to the server base.
     expect(seenContent).toBe("dirty edit in progress");
+  });
+
+  it("adopts the accepted server winner after a stale revision is rejected", async () => {
+    vi.useFakeTimers();
+    const calls: SaveCall[] = [];
+    const onRevisionConflict = vi.fn();
+    const save = (req: SaveCall) => {
+      calls.push(req);
+      if (calls.length === 1) {
+        return Promise.reject(new Error("Blocks field revision conflict"));
+      }
+      return Promise.resolve({
+        properties: [
+          {
+            definition: { id: "field" },
+            blocksField: { revision: 12 },
+          },
+        ],
+      });
+    };
+
+    let onChange!: (markdown: string) => void;
+    const ready = (fn: (markdown: string) => void) => {
+      onChange = fn;
+    };
+    let seenContent = "";
+    const onContent = (content: string) => {
+      seenContent = content;
+    };
+
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    act(() => {
+      root!.render(
+        createElement(Harness, {
+          key: "doc:field",
+          documentId: "doc",
+          propertyId: "field",
+          initialContent: "server base",
+          initialRevision: 10,
+          save,
+          onReady: ready,
+          onContent,
+          onRevisionConflict,
+        }),
+      );
+    });
+    act(() => onChange("stale local draft"));
+    await act(async () => {
+      vi.advanceTimersByTime(600);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(onRevisionConflict).toHaveBeenCalledTimes(1);
+    expect(calls[0]?.expectedBlocksFieldRevision).toBe(10);
+
+    // The mutation invalidates the field query after rejection. Once that
+    // refetch carries a newer revision, the editor must display the accepted
+    // server value instead of leaving the rejected draft looking current.
+    act(() => {
+      root!.render(
+        createElement(Harness, {
+          key: "doc:field",
+          documentId: "doc",
+          propertyId: "field",
+          initialContent: "accepted server winner",
+          initialRevision: 11,
+          save,
+          onReady: ready,
+          onContent,
+          onRevisionConflict,
+        }),
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(seenContent).toBe("accepted server winner");
+
+    act(() => onChange("edit after conflict"));
+    await act(async () => {
+      vi.advanceTimersByTime(600);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(calls[1]).toMatchObject({
+      value: "edit after conflict",
+      expectedBlocksFieldRevision: 11,
+    });
   });
 });
