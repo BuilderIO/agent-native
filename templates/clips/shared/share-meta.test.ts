@@ -5,6 +5,7 @@ import {
   clipsShareDescription,
   clipsSharePageTitle,
   displayRecordingTitle,
+  preferredThumbnailVariant,
 } from "./share-meta";
 
 describe("Clips share metadata", () => {
@@ -66,6 +67,13 @@ describe("Clips share metadata", () => {
   });
 
   it("prefers the stable still thumbnail over an animated preview", () => {
+    expect(
+      preferredThumbnailVariant({
+        thumbnailUrl: "/api/thumbnail/rec-1",
+        animatedThumbnailUrl: "https://cdn.example.com/preview.gif",
+      }),
+    ).toBe("still");
+
     const meta = buildClipsShareMeta({
       origin: "https://clips.example.com",
       recording: {
@@ -79,5 +87,14 @@ describe("Clips share metadata", () => {
       property: "og:image",
       content: "https://clips.example.com/api/thumbnail/rec-1",
     });
+  });
+
+  it("falls back to an animated thumbnail only when no still exists", () => {
+    expect(
+      preferredThumbnailVariant({
+        thumbnailUrl: null,
+        animatedThumbnailUrl: "https://cdn.example.com/preview.gif",
+      }),
+    ).toBe("animated");
   });
 });

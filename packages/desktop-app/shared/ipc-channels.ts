@@ -76,6 +76,7 @@ export const IPC = {
 
   /** Clipboard helpers (renderer ↔ main) */
   CLIPBOARD_WRITE_TEXT: "clipboard:write-text",
+  SHELL_OPEN_EXTERNAL: "shell:open-external",
 
   /** Frame settings (renderer ↔ main) */
   FRAME_LOAD: "frame:load",

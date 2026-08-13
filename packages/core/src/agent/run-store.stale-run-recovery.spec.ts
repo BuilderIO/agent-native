@@ -86,6 +86,7 @@ const {
   reapIfStale,
   reapAllStaleRuns,
   BACKGROUND_PROCESSING_RUN_STALE_MS,
+  STALE_RUN_TERMINAL_REASON,
   __resetNoRunningRunsProbeForTests,
 } = await import("./run-store.js");
 
@@ -213,7 +214,7 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
 
     const oldRow = readRow(runId);
     expect(oldRow?.status).toBe("errored");
-    expect(oldRow?.terminal_reason).toBe("stale_run");
+    expect(oldRow?.terminal_reason).toBe(STALE_RUN_TERMINAL_REASON);
     // Terminal writes elsewhere NULL dispatch_payload, but reapIfStale's own
     // UPDATE never touches it directly — the important invariant is that the
     // payload was captured into the successor before the row went terminal.
@@ -430,8 +431,9 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapAllStaleRuns)", 
     await claimBackgroundRun(runId);
     setStaleLiveness(runId, Date.now() - STALE_PAST_MS);
 
-    const reapedCount = await reapAllStaleRuns();
-    expect(reapedCount).toBeGreaterThanOrEqual(1);
+    const swept = await reapAllStaleRuns();
+    expect(swept.reaped).toBeGreaterThanOrEqual(1);
+    expect(swept.failed).toBe(0);
     expect(readRow(runId)?.status).toBe("errored");
     expect(rowsForTurn(turn)).toHaveLength(2);
 

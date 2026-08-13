@@ -1,0 +1,186 @@
+---
+title: "高度"
+description: "app/ の低レベルなプリミティブとエスケープ ハッチ: application_state への直接アクセス、バックグラウンドでのチャット送信、カスタム提案チップ、MCP アプリ ホスト ブリッジ。"
+---
+
+# 高度
+
+概要、データと同期、Agent チャット、Routing は典型的なケース、つまりほとんどのページが必要とするフックとヘルパーをカバーしています。このページでは、その下にある低レベルのプリミティブとより狭いエスケープ ハッチを扱います。ほとんどのアプリはこれらに直接触れることはありません。カスタムの選択同期や、埋め込み型の MCP アプリなど、デフォルトのフックがサポートするより凝ったものを構築するときに、これらに手を伸ばしてください。手書きのキーで生の `useQuery` を同期する場合は、代わりに [同期の内部](/docs/client-sync-internals) を参照してください。
+
+## アプリケーション状態 {#application-state}
+
+`application_state` は、エージェントが UI が現在何を見ているかを知るために読み取る SQL に裏付けられたキー/バリュー ストアで、ナビゲーション、選択、その他のフォーカスされたオブジェクトのコンテキストを含みます ([Context Awareness](/docs/context-awareness) を参照)。`useAgentRouteState` と `useSemanticNavigationState` (これも Context Awareness で扱われています) は、一般的なナビゲーションのケースについてこれらを既にラップしています。それらがカバーしていないもの、カスタムの選択の同期や、コンポーネントのレンダー フローの外からの書き込みなどを同期する必要があるときは、直接以下のプリミティブに手を伸ばしてください。
+
+### readClientAppState {#read-client-app-state}
+
+キーの現在の値を読み取ります。そのキーに最後に書き込まれた値、またはそのキーがまだ一度も書き込まれていない場合は `null` に解決されます。
+
+```ts
+import { readClientAppState } from "@agent-native/core/client/hooks";
+
+const selection = await readClientAppState("selection");
+// selection is exactly what was last written to that key, e.g.:
+// { kind: "tickets.rows", ids: ["tik_182", "tik_209"] }
+//
+// or, if nothing has written "selection" yet:
+// null
+```
+
+### writeClientAppState {#write-client-app-state}
+
+キーに値を書き込みます。下記の `setClientAppState` とは異なり、`null` を渡した場合でも常に書き込みます。`undefined` を渡すと、`undefined` は有効な JSON ではないためスローされます。キーをクリアするには `setClientAppState(key, undefined)` または `deleteClientAppState()` を使用してください。
+
+```ts
+import { writeClientAppState } from "@agent-native/core/client/hooks";
+
+await writeClientAppState(
+  "selection",
+  { id: recordId },
+  { requestSource: TAB_ID },
+);
+```
+
+### setClientAppState {#set-client-app-state}
+
+ほとんどの UI コードが使うべき便利なラッパーです。値を書き込むか、`null`/`undefined` を渡した場合はキーを削除します。呼び出し元が本当に「常に書き込み、決して削除しない」を必要としない限り、`writeClientAppState` の代わりにこれを使用してください。
+
+```ts
+import { setClientAppState } from "@agent-native/core/client/hooks";
+
+await setClientAppState(
+  "selection",
+  { id: recordId },
+  { requestSource: TAB_ID },
+);
+await setClientAppState("selection", null); // clears the key, same as deleteClientAppState
+```
+
+### deleteClientAppState {#delete-client-app-state}
+
+キーを完全に削除します。
+
+```ts
+import { deleteClientAppState } from "@agent-native/core/client/hooks";
+
+await deleteClientAppState("pending-selection-context");
+```
+
+### readClientAppStateMany {#read-client-app-state-many}
+
+複数のキーを 1 回のリクエストで読み取ります。`{ values, missing }` を返します。`values` には、明示的に `null` として書き込まれたキーを含め、サーバーが行を持っているすべてのキーのエントリがあります。`missing` には、一度も書き込まれたことがないキーが列挙されます。これが、「一度も書き込まれていない」を「null として書き込まれた」と区別できる方法です。
+
+```ts
+import { readClientAppStateMany } from "@agent-native/core/client/hooks";
+
+const { values, missing } = await readClientAppStateMany([
+  "selection",
+  "pending-selection-context",
+]);
+```
+
+100 個を超えるキーのリクエストは自動的に分割されます。`readClientAppState()` 自体はこの上に構築されています: 同じティックで発行された呼び出しは、裏で 1 回のリクエストにまとめられるため、1 回のレンダー パス内で何度も呼び出しても、1 回ごとに 1 リクエストではなく、合計で 1 回の往復になります。
+
+### オプション {#application-state-options}
+
+`signal` は上記の 5 つの関数すべてで受け付けられ、進行中の呼び出しをキャンセルします。`requestSource` と `keepalive` は、読み取りには意味がないため、3 つの書き込み関数にのみ適用されます。
+
+| オプション      | タイプ         | 適用対象                                                           | 説明                                                                                                               |
+| --------------- | -------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------ |
+| `requestSource` | `string?`      | `writeClientAppState`、`setClientAppState`、`deleteClientAppState` | 書き込みに id をタグ付けし、対応する `useDbSync({ ignoreSource })` がその再フェッチをスキップできるようにします    |
+| `keepalive`     | `boolean?`     | `writeClientAppState`、`setClientAppState`、`deleteClientAppState` | リクエストがページのアンロードを超えて生存できるようにします。選択のクリアなどのクリーンアップ書き込みに使用します |
+| `signal`        | `AbortSignal?` | 5 つの関数すべて                                                   | リクエストをキャンセルします                                                                                       |
+
+### 失敗時の動作 {#failure-behavior}
+
+上記の 5 つの関数はすべて、リクエストの失敗、非 2xx レスポンス、パースできない本文の場合にスローします。スローされる `Error` は、サーバーが応答した場合には `.status` プロパティを持つため、呼び出し元が必要に応じて HTTP ステータスで分岐できます。呼び出しを `try`/`catch` で包むか、他のネットワーク呼び出しと同様にエラー バウンダリに伝播させてください。
+
+### TAB_ID とは {#tab-id}
+
+`requestSource` には、一般的に `TAB_ID` が設定されます。これは、すべてのテンプレートが `app/lib/tab-id.ts` からエクスポートする普通の定数で、タブの生存期間中は同じままで、タブ間で異なる短いランダムな文字列です。書き込み側で `requestSource: TAB_ID` を、読み取り側で `useDbSync({ ignoreSource: TAB_ID })` をペアリングすることが、タブが他の全員の変更には反応しつつ、自分自身の書き込みの再フェッチを避ける方法です。完全な手順については [Context Awareness](/docs/context-awareness#jitter-prevention) を参照してください。
+
+## sendToAgentChat: バックグラウンド送信 {#background-send}
+
+UI アクションが、サイドバーを開いたりフォーカスしたりせずに、実際のエージェントの作業を開始すべきときは `background: true` を使用してください。これでも通常のチャット スレッド/実行が作成され、エージェントのツール/アクション/コンテキストを使用し、実行トレイを通じて作業を監視可能な状態に保ちます。これは生の単発モデル呼び出しではありません。
+
+```ts
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
+
+const tabId = sendToAgentChat({
+  message: "Analyze this import and create any missing records",
+  context: `Import batch id: ${batchId}`,
+  submit: true,
+  newTab: true,
+  background: true,
+  openSidebar: false,
+});
+```
+
+`background` は `newTab` と組み合わせて使うことを意図しています。これにより、非表示の作業がユーザーの現在のアクティブな会話を上書きしないようにします。UI が後でフォローアップのステータスを関連付けたり、実行へディープリンクしたりする必要がある場合は、返された `tabId` を使用してください。
+
+[Agent チャット](/docs/client-agent-chat#agentchatmessage) でカバーされているものを超えた、もう少しの `AgentChatMessage` オプションがあります。主に埋め込みや下流の統合のためのケースです。
+
+| オプション            | タイプ      | 説明                                                                                     |
+| --------------------- | ----------- | ---------------------------------------------------------------------------------------- |
+| `background`          | `boolean?`  | `newTab` と組み合わせて、タブをフォーカスせずに実行し、`RunsTray` に実行結果を表示します |
+| `projectSlug`         | `string?`   | 構造化されたコンテキストのためのオプションのプロジェクト スラグ                          |
+| `preset`              | `string?`   | 下流のコンシューマ向けのオプションのプリセット名                                         |
+| `referenceImagePaths` | `string[]?` | オプションの参照画像パス                                                                 |
+
+## MCP アプリ ホスト ブリッジ {#mcp-app-host-bridge}
+
+MCP アプリとして埋め込まれるルートは URL ファーストであるべきです。パス/クエリ パラメータから現在のアーティファクトをロードし、実際の React ルートかフォーカスされた共有コンポーネントをレンダリングし、ホスト ブリッジはホスト所有の振る舞いにのみ使用します。`@agent-native/core/client` は、埋め込みルートが呼び出すヘルパーをエクスポートします。
+
+```ts
+import {
+  getMcpAppHostContext,
+  openMcpAppHostLink,
+  requestMcpAppDisplayMode,
+  updateMcpAppModelContext,
+  useMcpAppHostContext,
+} from "@agent-native/core/client/agent-chat";
+```
+
+`getMcpAppHostContext()` は、最後にプッシュされたホスト コンテキストのスナップショットを読み取ります。`useMcpAppHostContext()` は、React コンポーネントを変更にサブスクライブさせます。リクエスト用のヘルパー (`openMcpAppHostLink`、`requestMcpAppDisplayMode`、`updateMcpAppModelContext`) は、埋め込まれた MCP アプリ フレームの外では `false` を、フレーム内では `Promise<boolean>` を返します。
+
+`sendToAgentChat()` ([Agent チャット](/docs/client-agent-chat#sendtoagentchat) を参照) は、埋め込みルートからの自動送信されるプロンプトに同じブリッジを使用します。`embedApp()` で作成された MCP アプリ埋め込みの内側では、自動送信されるメッセージ (`submit` が省略、または `true`) はブリッジに転送され、ブリッジは埋め込みを含むホストに非表示のコンテキストを追加し、表示されるユーザー ターンを送信するよう要求します。`context` は、ユーザー向けチャットとして投稿されることなく、モデルに表示され続けます。`submit: false` は、MCP アプリが標準的なドラフト事前入力 API を定義していないため、ローカルな事前入力/レビューの動作を維持します。内部的にはこれは送信済みチャット パスで、時には `agentNative.submitChat` として表面化します。アプリのコードは、そのイベントを直接投稿するのではなく、`sendToAgentChat()` を呼び出すべきです。
+
+ブリッジ自体、`ui/*` の JSON-RPC メッセージ、`agentNative.mcpHost.*` ラッパー リレー、移植対制御フレーム レンダリング、ホスト コンテキスト、表示モードのリクエストは、[External Agents](/docs/external-agents#mcp-app-bridge) が所有します。プロトコル全体については [MCP Apps](/docs/mcp-apps) を参照してください。
+
+## カスタム提案チップ {#custom-suggestions}
+
+`<AgentSidebar>` の `dynamicSuggestions` ([Agent チャット](/docs/client-agent-chat#dynamic-suggestions) を参照) は、既に静的な `suggestions` とフレームワーク自身のコンテキスト認識ヒューリスティックをマージしています。フレームワークのデフォルトのヒューリスティックの代わりに、同じ `application_state` のコンテキストから計算された決定論的でドメイン固有のチップをアプリが求める場合は、代わりに `dynamicSuggestions` の中に `getSuggestions` 関数を渡してください。
+
+```tsx
+<AgentSidebar
+  suggestions={["Summarize my inbox"]}
+  dynamicSuggestions={{
+    getSuggestions: ({ navigation }) => {
+      if (
+        typeof navigation !== "object" ||
+        navigation === null ||
+        (navigation as { view?: unknown }).view !== "inbox"
+      ) {
+        return [];
+      }
+      const label = (navigation as { label?: unknown }).label;
+      return [`Summarize ${typeof label === "string" ? label : "this"} label`];
+    },
+  }}
+>
+  <App />
+</AgentSidebar>
+```
+
+`getSuggestions` は、組み込みのヒューリスティックが読み取るのと同じ `navigation`/`selection`/`pendingSelection` のスナップショットを受け取りますが、その形はアプリ次第なので `unknown` として型付けされています。フィールドを読み取る前に型を絞り込んでください。カスタムの実装は、汎用的なルールの代わりにアプリ固有のルールを使って、デフォルトの実装が反応するのと全く同じ状態に反応できます。
+
+## 次は何ですか
+
+- [**概要**](/docs/client-overview) — これらのプリミティブが存在する `app/` と `public/` のディレクトリ レイアウト
+- [**データと同期**](/docs/client-data) — 代わりに使うべきデフォルトのアクション フックと `useDbSync`
+- [**同期の内部**](/docs/client-sync-internals) — `useChangeVersion`/`useChangeVersions` と、再フェッチが取りうる 2 つのレイテンシ パス
+- [**Agent チャット**](/docs/client-agent-chat) — 代わりに使うべきデフォルトの `sendToAgentChat`/`askUserQuestion` ヘルパーと、ステージングされたエージェント チャット コンテキスト状態 API
+- [**エントリーポイント**](/docs/client-entry-points) — `app/entry.client.tsx`/`app/entry.server.tsx` と SSR ストリーミングのカスタマイズ
+- [**Context Awareness**](/docs/context-awareness) — `application_state` の上に構築された `navigation`/`selection` のセマンティクスと、`TAB_ID`/ジッター防止の完全な手順
+- [**Generative UI**](/docs/generative-ui) — `askUserQuestion` を超えたより豊かなインライン チャット コントロール
+- [**External Agents**](/docs/external-agents#mcp-app-bridge) — MCP アプリ ホスト ブリッジの完全な内部構造
+  </content>

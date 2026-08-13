@@ -42,7 +42,7 @@ export default defineAction({
     ) {
       await assertAccess("deck", comment.deckId, "editor");
     } else {
-      await assertAccess("deck", comment.deckId, "viewer");
+      await assertAccess("deck", comment.deckId, "commenter");
     }
 
     const updatedAt = new Date().toISOString();

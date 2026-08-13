@@ -10,6 +10,7 @@ export default defineAction({
   description: "Get SEO metrics for all blog pages.",
   schema: z.object({}),
   http: { method: "GET" },
+  grounding: true,
   run: async () => {
     const pages = await getAllBlogPagesSeo();
     return { pages, total: Object.keys(pages).length };

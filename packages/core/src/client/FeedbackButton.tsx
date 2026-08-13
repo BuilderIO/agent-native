@@ -306,13 +306,32 @@ function isFirstPartyHostname(hostname: string | null | undefined): boolean {
   );
 }
 
+function isLegacyFeedbackPageUrl(
+  value: string,
+  hostname: string | null | undefined,
+): boolean | null {
+  const hasScheme = /^[a-z][a-z\d+.-]*:/i.test(value);
+  const base = hasScheme || !hostname ? undefined : `https://${hostname}`;
+  if (!URL.canParse(value, base)) return null;
+  const parsed = new URL(value, base);
+  return (
+    parsed.pathname === "/feedback" && isFirstPartyHostname(parsed.hostname)
+  );
+}
+
 export function resolveFeedbackUrl(
   url?: string | null,
   hostname: string | null | undefined = clientHostname(),
 ): string | null {
   const value =
     url === undefined ? clientEnv()?.VITE_AGENT_NATIVE_FEEDBACK_URL : url;
-  if (typeof value === "string" && value.trim()) return value.trim();
+  if (typeof value === "string" && value.trim()) {
+    const normalized = value.trim();
+    if (isLegacyFeedbackPageUrl(normalized, hostname) === true) {
+      return FIRST_PARTY_FEEDBACK_URL;
+    }
+    return parseTarget(normalized) ? normalized : null;
+  }
   if (url !== undefined) return null;
   return isFirstPartyHostname(hostname) ? FIRST_PARTY_FEEDBACK_URL : null;
 }

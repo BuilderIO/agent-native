@@ -15,11 +15,13 @@ import {
   _fixPackageJsonName,
   _fixWebManifestName,
   _getCoreDependencyVersion,
+  _extractTarball,
   _parseCommunityTemplateSelection,
   _resolveCommunityTemplateSource,
   _discoverCommunityWorkspaceApps,
   _ensureGuardedScaffold,
   _normalizeCommunityWorkspaceAppDependencies,
+  _materializeArchiveSymlinks,
   _standaloneTemplatePromptOptions,
   _startShapePromptOptions,
   _tarExtractArgs,
@@ -477,6 +479,138 @@ describe("community template selections", () => {
       "/tmp/out",
     ]);
   });
+
+  it("adds exact archive symlink exclusions without dropping regular skill files", () => {
+    expect(
+      _tarExtractArgs("/tmp/archive.tar.gz", "/tmp/out", {
+        skipAgentSymlinks: true,
+        additionalExcludes: [
+          "repo/templates/clips/.agents/skills/a2a-protocol",
+        ],
+      }),
+    ).toEqual([
+      "xzf",
+      "/tmp/archive.tar.gz",
+      "--strip-components=1",
+      "--exclude",
+      "*/CLAUDE.md",
+      "--exclude",
+      "*/.claude/skills",
+      "--exclude",
+      "repo/templates/clips/.agents/skills/a2a-protocol",
+      "-C",
+      "/tmp/out",
+    ]);
+  });
+
+  it("materializes first-party archive symlinks from in-archive targets", () => {
+    const extracted = path.join(tmpDir, "extracted");
+    const sharedSkill = path.join(extracted, ".agents", "skills", "actions");
+    fs.mkdirSync(sharedSkill, { recursive: true });
+    fs.writeFileSync(path.join(sharedSkill, "SKILL.md"), "actions\n");
+
+    _materializeArchiveSymlinks(extracted, [
+      {
+        archivePath: "repo/templates/clips/.agents/skills/actions",
+        target: "../../../../.agents/skills/actions",
+      },
+      {
+        archivePath: "repo/templates/clips/.claude/skills",
+        target: "../.agents/skills",
+      },
+    ]);
+
+    expect(
+      fs.readFileSync(
+        path.join(
+          extracted,
+          "templates",
+          "clips",
+          ".agents",
+          "skills",
+          "actions",
+          "SKILL.md",
+        ),
+        "utf-8",
+      ),
+    ).toBe("actions\n");
+    expect(
+      fs.readFileSync(
+        path.join(
+          extracted,
+          "templates",
+          "clips",
+          ".claude",
+          "skills",
+          "actions",
+          "SKILL.md",
+        ),
+        "utf-8",
+      ),
+    ).toBe("actions\n");
+  });
+
+  it.skipIf(process.platform === "win32")(
+    "extracts first-party archives without preserving Windows-incompatible symlinks",
+    () => {
+      const archiveRoot = path.join(tmpDir, "archive-root");
+      const repoRoot = path.join(archiveRoot, "repo");
+      const archivePath = path.join(tmpDir, "template.tar.gz");
+      const sharedSkill = path.join(repoRoot, ".agents", "skills", "actions");
+      fs.mkdirSync(sharedSkill, { recursive: true });
+      fs.writeFileSync(path.join(sharedSkill, "SKILL.md"), "actions\n");
+      const clipsRoot = path.join(repoRoot, "templates", "clips");
+      fs.mkdirSync(path.join(clipsRoot, ".agents", "skills"), {
+        recursive: true,
+      });
+      fs.mkdirSync(path.join(clipsRoot, ".claude"), { recursive: true });
+      fs.writeFileSync(path.join(clipsRoot, "AGENTS.md"), "agents\n");
+      fs.symlinkSync(
+        "../../../../.agents/skills/actions",
+        path.join(clipsRoot, ".agents", "skills", "actions"),
+      );
+      fs.symlinkSync(
+        "../.agents/skills",
+        path.join(clipsRoot, ".claude", "skills"),
+        "dir",
+      );
+      fs.symlinkSync("AGENTS.md", path.join(clipsRoot, "CLAUDE.md"));
+      execFileSync("tar", ["czf", archivePath, "-C", archiveRoot, "repo"], {
+        stdio: "pipe",
+      });
+
+      const extracted = path.join(tmpDir, "extracted");
+      fs.mkdirSync(extracted);
+      _extractTarball(archivePath, extracted, { skipAgentSymlinks: true });
+
+      expect(
+        fs.readFileSync(
+          path.join(
+            extracted,
+            "templates",
+            "clips",
+            ".agents",
+            "skills",
+            "actions",
+            "SKILL.md",
+          ),
+          "utf-8",
+        ),
+      ).toBe("actions\n");
+      expect(
+        fs
+          .lstatSync(
+            path.join(extracted, "templates", "clips", ".claude", "skills"),
+          )
+          .isSymbolicLink(),
+      ).toBe(false);
+      expect(
+        fs
+          .lstatSync(path.join(extracted, "templates", "clips", "CLAUDE.md"))
+          .isSymbolicLink(),
+      ).toBe(false);
+    },
+  );
 
   it("rejects links in untrusted community archives", () => {
     expect(() =>

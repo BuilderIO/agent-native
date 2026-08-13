@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   generateWorkspaceAppDescription,
+  getAppCreationSettings,
   listAvailableWorkspaceTemplates,
   listWorkspaceApps,
   setAppCreationSettings,
@@ -46,7 +47,6 @@ const mocks = vi.hoisted(() => {
     })),
     ensureBuilderProject: vi.fn(),
     runBuilderAgent: vi.fn(),
-    resolveBuilderBranchProjectId: vi.fn(async () => ""),
     getBuilderBranchProjectId: vi.fn(() => ""),
     writeAppSecret: vi.fn(async () => "secret-id"),
     deleteAppSecret: vi.fn(async () => true),
@@ -86,8 +86,6 @@ vi.mock("@agent-native/core/server", async (importOriginal) => {
     ensureBuilderProject: (...args: any[]) =>
       mocks.ensureBuilderProject(...args),
     runBuilderAgent: (...args: any[]) => mocks.runBuilderAgent(...args),
-    resolveBuilderBranchProjectId: (...args: any[]) =>
-      mocks.resolveBuilderBranchProjectId(...args),
     getBuilderBranchProjectId: (...args: any[]) =>
       mocks.getBuilderBranchProjectId(...args),
   };
@@ -121,10 +119,48 @@ afterEach(() => {
     source: null,
     lookupFailed: false,
   });
-  mocks.resolveBuilderBranchProjectId.mockResolvedValue("");
   mocks.getBuilderBranchProjectId.mockReturnValue("");
   mocks.ensureBuilderProject.mockReset();
   globalThis.fetch = originalFetch;
+});
+
+describe("getAppCreationSettings", () => {
+  it("treats the Dispatch project as authoritative over the environment", async () => {
+    mocks.settings.set("dispatch-app-creation-settings:org:builder_io", {
+      builderProjectId: "dispatch-project",
+    });
+    vi.stubEnv("DISPATCH_BUILDER_PROJECT_ID", "stale-env-project");
+
+    const result = await runWithRequestContext(
+      { userEmail: "dev@example.test", orgId: "builder_io" },
+      () => getAppCreationSettings(),
+    );
+
+    expect(result).toMatchObject({
+      builderProjectId: "dispatch-project",
+      builderProjectIdSource: "dispatch",
+      envBuilderProjectId: "stale-env-project",
+    });
+  });
+
+  it("treats an explicit Dispatch null as disabled over the environment", async () => {
+    mocks.settings.set("dispatch-app-creation-settings:org:builder_io", {
+      builderProjectId: null,
+    });
+    vi.stubEnv("DISPATCH_BUILDER_PROJECT_ID", "stale-env-project");
+
+    const result = await runWithRequestContext(
+      { userEmail: "dev@example.test", orgId: "builder_io" },
+      () => getAppCreationSettings(),
+    );
+
+    expect(result).toMatchObject({
+      builderProjectId: null,
+      builderProjectIdSource: "dispatch",
+      envBuilderProjectId: "stale-env-project",
+      builderBranchingEnabled: false,
+    });
+  });
 });
 
 describe("listWorkspaceApps", () => {
@@ -399,9 +435,11 @@ describe("listWorkspaceApps", () => {
             name: "Todo Board",
           }),
       ),
-    ).rejects.toThrow(
-      "Only organization owners and admins can update app creation settings.",
-    );
+    ).rejects.toMatchObject({
+      message:
+        "Only organization owners and admins can update app creation settings.",
+      statusCode: 403,
+    });
     expect(
       mocks.settings.get("workspace-app-metadata:org:org-123"),
     ).toBeUndefined();
@@ -603,12 +641,11 @@ describe("startWorkspaceAppCreation", () => {
     expect(mocks.runBuilderAgent).toHaveBeenCalledWith(
       expect.objectContaining({ projectId: "project-provisioned" }),
     );
-    expect(mocks.writeAppSecret).toHaveBeenCalledWith(
-      expect.objectContaining({
-        key: "BUILDER_BRANCH_PROJECT_ID",
-        value: "project-provisioned",
-      }),
-    );
+    expect(mocks.settings.get(settingsKey)).toMatchObject({
+      builderProjectId: "project-provisioned",
+    });
+    expect(mocks.writeAppSecret).not.toHaveBeenCalled();
+    expect(mocks.deleteAppSecret).not.toHaveBeenCalled();
   });
 
   it("does not let an organization member persist an auto-provisioned project", async () => {
@@ -653,58 +690,68 @@ describe("setAppCreationSettings", () => {
     );
   }
 
-  it("stores the project id as an org-scoped credential so member apps resolve it", async () => {
+  it("stores the project id in the org-scoped Dispatch settings row", async () => {
     await save(projectId);
 
-    expect(mocks.writeAppSecret).toHaveBeenCalledWith(
-      expect.objectContaining({
-        key: "BUILDER_BRANCH_PROJECT_ID",
-        value: projectId,
-        scope: "org",
-        scopeId: orgId,
-      }),
+    expect(
+      mocks.settings.get("dispatch-app-creation-settings:org:builder_io"),
+    ).toEqual({ builderProjectId: projectId });
+    expect(mocks.putSetting).toHaveBeenCalledWith(
+      "dispatch-app-creation-settings:org:builder_io",
+      { builderProjectId: projectId },
     );
     expect(mocks.deleteAppSecret).not.toHaveBeenCalled();
+    expect(mocks.writeAppSecret).not.toHaveBeenCalled();
   });
 
-  it("scopes the credential to one organization rather than every tenant", async () => {
+  it("scopes the settings row to one organization rather than every tenant", async () => {
     await save(projectId);
 
-    const [args] = mocks.writeAppSecret.mock.calls.at(-1) as [
-      { scope: string; scopeId: string },
-    ];
-    expect(args.scope).not.toBe("user");
-    expect(args.scopeId).toBe(orgId);
+    expect(mocks.putSetting.mock.calls.at(-1)?.[0]).toBe(
+      "dispatch-app-creation-settings:org:builder_io",
+    );
+    expect(mocks.putSetting.mock.calls.at(-1)?.[0]).not.toContain(":user:");
+    expect(mocks.writeAppSecret).not.toHaveBeenCalled();
   });
 
-  it("falls back to a solo workspace scope when there is no active org", async () => {
+  it("uses a user-scoped settings row when there is no active org", async () => {
     await save(projectId, { userEmail: "dev@example.test" });
 
-    expect(mocks.writeAppSecret).toHaveBeenCalledWith(
-      expect.objectContaining({
-        scope: "workspace",
-        scopeId: "solo:dev@example.test",
-      }),
-    );
-  });
-
-  it("removes the credential when the project id is cleared", async () => {
-    await save(null);
-
-    expect(mocks.deleteAppSecret).toHaveBeenCalledWith({
-      key: "BUILDER_BRANCH_PROJECT_ID",
-      scope: "org",
-      scopeId: orgId,
+    expect(mocks.settings.get(settingsKey)).toEqual({
+      builderProjectId: projectId,
+    });
+    expect(mocks.putSetting).toHaveBeenCalledWith(settingsKey, {
+      builderProjectId: projectId,
     });
     expect(mocks.writeAppSecret).not.toHaveBeenCalled();
   });
 
-  it("does not save the setting when the credential write fails", async () => {
+  it("persists an explicit null when the project id is cleared", async () => {
+    await save(null);
+
+    expect(
+      mocks.settings.get("dispatch-app-creation-settings:org:builder_io"),
+    ).toEqual({ builderProjectId: null });
+    expect(mocks.putSetting).toHaveBeenCalledWith(
+      "dispatch-app-creation-settings:org:builder_io",
+      { builderProjectId: null },
+    );
+    expect(mocks.deleteAppSecret).not.toHaveBeenCalled();
+    expect(mocks.writeAppSecret).not.toHaveBeenCalled();
+  });
+
+  it("never consults the project secret store when saving settings", async () => {
     mocks.writeAppSecret.mockRejectedValueOnce(
       new Error("credential store down"),
     );
 
-    await expect(save(projectId)).rejects.toThrow("credential store down");
-    expect(mocks.putSetting).not.toHaveBeenCalled();
+    await expect(save(projectId)).resolves.toMatchObject({
+      builderProjectId: projectId,
+    });
+    expect(
+      mocks.settings.get("dispatch-app-creation-settings:org:builder_io"),
+    ).toEqual({ builderProjectId: projectId });
+    expect(mocks.writeAppSecret).not.toHaveBeenCalled();
+    expect(mocks.deleteAppSecret).not.toHaveBeenCalled();
   });
 });

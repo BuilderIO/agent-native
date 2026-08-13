@@ -87,6 +87,7 @@ describe("CommentsPanel reply composer", () => {
             currentMs={34_000}
             currentUserEmail={currentUserEmail}
             enableComments
+            canComment
             onSeek={vi.fn()}
             queryKey={["recording", "recording-1"]}
             presentation="share"

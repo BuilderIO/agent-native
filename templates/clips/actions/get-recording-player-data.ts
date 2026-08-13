@@ -29,6 +29,7 @@ import { getDb, schema } from "../server/db/index.js";
 import { isAgentRecordingCaller } from "../server/lib/agent-recording-access.js";
 import { countRecordingAgentViews } from "../server/lib/agent-views.js";
 import { isMediaVerificationPending } from "../server/lib/media-verification-state.js";
+import { resolvePlayerThumbnailUrl } from "../server/lib/player-thumbnail-url.js";
 import { resolvePlayerVideoUrl } from "../server/lib/player-video-url.js";
 import {
   canOpenDirectRecordingPage,
@@ -153,6 +154,7 @@ export default defineAction({
       access.role === "owner" ||
       access.role === "admin" ||
       access.role === "editor";
+    const canCommentRecording = canEditRecording || access.role === "commenter";
     // This action is on a 1-3s poll from the player, so every read here shares
     // one Promise.all instead of adding serial round-trips.
     const [
@@ -305,6 +307,7 @@ export default defineAction({
 
     return {
       role: access.role,
+      canComment: canCommentRecording,
       viewCount,
       agentViewCount,
       recording: {
@@ -312,7 +315,7 @@ export default defineAction({
         organizationId: rec.organizationId,
         title: rec.title,
         description: rec.description,
-        thumbnailUrl: rec.thumbnailUrl,
+        thumbnailUrl: resolvePlayerThumbnailUrl(rec),
         animatedThumbnailUrl: rec.animatedThumbnailUrl,
         filmstripUrl: rec.filmstripUrl ?? null,
         filmstripFrameCount: rec.filmstripFrameCount ?? 0,

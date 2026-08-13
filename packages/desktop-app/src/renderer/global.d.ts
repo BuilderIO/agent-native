@@ -721,6 +721,10 @@ interface ElectronAPI {
     writeText(text: string): Promise<boolean>;
   };
 
+  shell: {
+    openExternal(url: string): Promise<void>;
+  };
+
   interApp: {
     send(targetAppId: string, event: string, data: unknown): void;
     on(cb: (from: string, event: string, data: unknown) => void): () => void;

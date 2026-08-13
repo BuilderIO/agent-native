@@ -4167,6 +4167,12 @@ function DesignEditor() {
   const canShareDesign =
     designAccessRole === "owner" || designAccessRole === "admin";
   const canEditDesign = canShareDesign || designAccessRole === "editor";
+  const canCommentDesign =
+    isSignedIn &&
+    (designAccessRole === "owner" ||
+      designAccessRole === "admin" ||
+      designAccessRole === "editor" ||
+      designAccessRole === "commenter");
   const canRenderAuthenticatedShare = isSignedIn || canEditDesign;
   const reviewResult = useReviewComments(
     {
@@ -6472,6 +6478,7 @@ function DesignEditor() {
   const designBottomToolbarMode = getDesignBottomToolbarMode({
     isSignedIn,
     canEditDesign,
+    canCommentDesign,
     hasActiveFile: Boolean(activeFile),
   });
   activeFileIdForUndoRef.current = activeFile?.id ?? null;
@@ -11535,7 +11542,7 @@ function DesignEditor() {
                   name: selectedReviewLayerContext.label,
                 })
               : undefined,
-            canComment: isSignedIn,
+            canComment: canCommentDesign,
             canResolve: canEditDesign,
             canDeleteComment: (comment) =>
               canEditDesign ||
@@ -11561,6 +11568,7 @@ function DesignEditor() {
       id,
       isSignedIn,
       canEditDesign,
+      canCommentDesign,
       reviewSendingThreadId,
       selectedReviewLayerContext,
       session?.email,
@@ -23528,7 +23536,7 @@ function DesignEditor() {
   }, []);
 
   const handlePinToolToggle = useCallback(() => {
-    if (!activeFile || (!canEditDesign && !isSignedIn)) return;
+    if (!activeFile || !canCommentDesign) return;
     if (pinMode) {
       handleExitReviewCommentMode();
       return;
@@ -23545,10 +23553,9 @@ function DesignEditor() {
     setDrawMode(false);
   }, [
     activeFile,
-    canEditDesign,
+    canCommentDesign,
     enterOverviewFromZoom,
     handleExitReviewCommentMode,
-    isSignedIn,
     pinMode,
     viewMode,
   ]);
@@ -24205,7 +24212,7 @@ function DesignEditor() {
     onTextTool: canEditDesign ? handleTextTool : undefined,
     onPenTool: canEditDesign ? handlePenTool : undefined,
     onHandTool: canEditDesign ? handleHandTool : undefined,
-    onCommentTool: isSignedIn ? handlePinToolToggle : undefined,
+    onCommentTool: canCommentDesign ? handlePinToolToggle : undefined,
     onDrawTool: canEditDesign ? handleDrawTool : undefined,
     onScaleTool: canEditDesign ? handleScaleTool : undefined,
     onCopy: handleCopySelection,
@@ -30947,7 +30954,7 @@ function DesignEditor() {
         </DropdownMenuSub>
         <DropdownMenuItem
           onClick={handlePinToolToggle}
-          disabled={!activeFile || !isSignedIn}
+          disabled={!activeFile || !canCommentDesign}
         >
           <IconPin className="mr-2 h-4 w-4" />
           {pinMode
@@ -31428,7 +31435,7 @@ function DesignEditor() {
               shareUrlLabel={t("designEditor.shareEditorLink")}
               shareUrlDescription={t("designEditor.shareEditorLinkDescription")}
               roleCopy={{
-                viewer: {
+                commenter: {
                   label: t("designEditor.commenterRoleLabel"),
                   description: t("designEditor.commenterRoleDescription"),
                 },
@@ -32194,16 +32201,14 @@ function DesignEditor() {
                       }}
                     />
                   )}
-                  {/* Figma-style notice for viewers who can't edit this
-                      design. Only shown once accessRole has actually
-                      resolved to "viewer" to avoid flashing during load. */}
-                  {designAccessRole === "viewer" && (
+                  {/* Figma-style notice for viewers/commenters who can't edit
+                      this design. Only shown once accessRole has resolved. */}
+                  {(designAccessRole === "viewer" ||
+                    designAccessRole === "commenter") && (
                     <ReadOnlyDesignBanner
                       pinMode={pinMode}
                       onCommentPin={
-                        !hostOwnsChrome &&
-                        !uiHidden &&
-                        designBottomToolbarMode === "commenter"
+                        !hostOwnsChrome && !uiHidden && canCommentDesign
                           ? handlePinToolToggle
                           : undefined
                       }
@@ -32683,7 +32688,7 @@ function DesignEditor() {
                         commentPinsHidden={commentsHidden}
                         onExitPinMode={handleExitReviewCommentMode}
                         designId={id}
-                        reviewCanPost={isSignedIn}
+                        reviewCanPost={canCommentDesign}
                         reviewCanResolve={canEditDesign}
                         reviewFocusRequest={reviewFocusRequest}
                         onDispatchCommentToAgent={

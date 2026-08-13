@@ -30,6 +30,8 @@ let quickPromptWindow: BrowserWindow | null = null;
 let quickPromptShortcutRegistered = false;
 let quickPromptShortcutError: string | undefined;
 let quickPromptDependencies: QuickPromptDependencies | null = null;
+let quickPromptPreviousFocusedWindow: BrowserWindow | null = null;
+let quickPromptShouldBeVisible = false;
 
 function debugQuickPrompt(message: string, details?: unknown): void {
   if (process.env.AGENT_NATIVE_DESKTOP_SHORTCUT_DEBUG !== "1") return;
@@ -60,9 +62,34 @@ function positionQuickPromptWindow(window: BrowserWindow): void {
   window.setPosition(x, y, false);
 }
 
-function hideQuickPrompt(): void {
-  if (quickPromptWindow && !quickPromptWindow.isDestroyed()) {
-    quickPromptWindow.hide();
+function hideQuickPrompt(options: { restoreFocus?: boolean } = {}): void {
+  const window = quickPromptWindow;
+  if (
+    !window ||
+    window.isDestroyed() ||
+    (!quickPromptShouldBeVisible && !window.isVisible())
+  ) {
+    return;
+  }
+
+  const previousFocusedWindow = quickPromptPreviousFocusedWindow;
+  const restoreFocus = options.restoreFocus ?? true;
+  quickPromptPreviousFocusedWindow = null;
+  quickPromptShouldBeVisible = false;
+
+  window.hide();
+
+  if (!restoreFocus) return;
+  if (
+    previousFocusedWindow &&
+    !previousFocusedWindow.isDestroyed() &&
+    previousFocusedWindow !== window
+  ) {
+    previousFocusedWindow.focus();
+  } else if (process.platform === "darwin") {
+    // Hiding a focused floating window otherwise activates this app's main
+    // window. Hide the app only when no Electron window was focused before it.
+    app.hide();
   }
 }
 
@@ -111,14 +138,30 @@ function createQuickPromptWindow(): BrowserWindow {
   }
 
   window.once("ready-to-show", () => {
-    if (window.isDestroyed()) return;
+    if (
+      window.isDestroyed() ||
+      quickPromptWindow !== window ||
+      !quickPromptShouldBeVisible
+    ) {
+      return;
+    }
     positionQuickPromptWindow(window);
     window.show();
     window.focus();
   });
 
+  window.on("blur", () => {
+    if (quickPromptWindow !== window) return;
+    hideQuickPrompt({ restoreFocus: false });
+  });
+
   window.on("closed", () => {
-    if (quickPromptWindow === window) quickPromptWindow = null;
+    if (quickPromptWindow !== window) return;
+    quickPromptWindow = null;
+    quickPromptShouldBeVisible = false;
+    if (quickPromptPreviousFocusedWindow === window) {
+      quickPromptPreviousFocusedWindow = null;
+    }
   });
 
   void window.loadFile(path.join(__dirname, "../renderer/index.html"), {
@@ -132,11 +175,13 @@ function showQuickPrompt(): void {
   if (!app.isReady()) return;
 
   const window = createQuickPromptWindow();
-  if (window.isVisible()) {
+  if (quickPromptShouldBeVisible) {
     hideQuickPrompt();
     return;
   }
 
+  quickPromptPreviousFocusedWindow = BrowserWindow.getFocusedWindow();
+  quickPromptShouldBeVisible = true;
   positionQuickPromptWindow(window);
   window.show();
   window.focus();
@@ -232,7 +277,7 @@ export function registerQuickPromptIpc(
     registerQuickPromptShortcut();
     return getQuickPromptSettings();
   });
-  ipcMain.on(IPC.QUICK_PROMPT_DISMISS, hideQuickPrompt);
+  ipcMain.on(IPC.QUICK_PROMPT_DISMISS, () => hideQuickPrompt());
   ipcMain.handle(
     IPC.QUICK_PROMPT_SUBMIT,
     (_event, request: QuickPromptSubmitRequest) => submitQuickPrompt(request),

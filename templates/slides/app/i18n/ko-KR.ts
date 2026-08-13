@@ -384,6 +384,7 @@ const messages = {
     center: "Center",
     right: "Right",
     justify: "Justify",
+    distribute: "분배",
     fill: "Fill",
     tint: "Tint",
     transparent: "Transparent",
@@ -554,6 +555,11 @@ const messages = {
     dismissLayoutWarning: "레이아웃 경고 닫기",
     slidesAdded_one: "已添加 {{count}} 张幻灯片",
     slidesAdded_other: "已添加 {{count}} 张幻灯片",
+    unsavedChangesTitle: "저장되지 않은 변경 사항",
+    unsavedChangesDescription:
+      "지금 나가거나 새로고침하면 아직 저장되지 않은 변경 사항을 잃을 수 있습니다. 정말 나가시겠어요?",
+    keepEditing: "계속 편집",
+    leaveWithoutSaving: "저장하지 않고 나가기",
   },
   designSystemSetup: {
     importedBrand: "가져온 브랜드",
@@ -653,7 +659,6 @@ const messages = {
     all: "전체",
     showMineDecks: "내가 만든 덱 표시",
     mine: "내 것",
-    deckCount_other: "덱",
     createDeckOrVisual: "프레젠테이션 만들기",
     noMineDecks: "아직 내가 만든 덱이 없습니다.",
     noDecksMatchSearch: "검색과 일치하는 덱이 없습니다.",

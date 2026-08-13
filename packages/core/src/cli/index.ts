@@ -13,6 +13,7 @@ import {
   resolveAgentNativeNitroPreset,
 } from "../deploy/nitro-preset.js";
 import { resolveDeployPostBuildInvocation } from "./deploy-build.js";
+import { cliSpawnOptions } from "./process.js";
 import { shouldTrackCliRun } from "./telemetry-routing.js";
 import { createCliTelemetry } from "./telemetry.js";
 
@@ -447,13 +448,13 @@ function extractNodeInspectFlag(args: string[]): {
 function run(
   cmd: string,
   cmdArgs: string[],
-  opts?: { stdio?: "inherit" | "pipe"; env?: NodeJS.ProcessEnv },
+  opts?: {
+    stdio?: "inherit" | "pipe";
+    env?: NodeJS.ProcessEnv;
+    shell?: boolean;
+  },
 ) {
-  const child = spawn(cmd, cmdArgs, {
-    stdio: opts?.stdio ?? "inherit",
-    shell: process.platform === "win32",
-    env: opts?.env ?? process.env,
-  });
+  const child = spawn(cmd, cmdArgs, cliSpawnOptions(opts));
   child.on("exit", (code) => process.exit(code ?? 0));
   // Forward signals to child so Cmd+C doesn't leave zombie processes holding ports
   for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
@@ -652,7 +653,10 @@ switch (command) {
       NITRO_DEV_RUNNER: process.env.NITRO_DEV_RUNNER ?? "node-process",
     };
     console.log(`[agent-native] API server debugger listening on ${target}`);
-    run(process.execPath, ["--import", preload, viteJsEntry, ...rest], { env });
+    run(process.execPath, ["--import", preload, viteJsEntry, ...rest], {
+      env,
+      shell: false,
+    });
     break;
   }
 

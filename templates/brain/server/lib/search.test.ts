@@ -418,7 +418,7 @@ function resetRows() {
         "The self-serve freemium path was retired because low activation and support load hurt enterprise onboarding.",
       topic: "Growth",
       tagsJson: JSON.stringify(["freemium", "enterprise"]),
-      entitiesJson: "[]",
+      entitiesJson: JSON.stringify([{ type: "person", name: "Nick Nestle" }]),
       evidenceJson: JSON.stringify([
         {
           captureId: "capture-freemium-current",
@@ -618,6 +618,19 @@ describe("Brain universal search regressions", () => {
     });
 
     expect(results).toEqual([]);
+  });
+
+  it("searches structured entity metadata for named-person questions", async () => {
+    const results = await searchEverythingRows({
+      query: "Nick Nestle",
+      type: "knowledge",
+      limit: 5,
+    });
+
+    expect(results[0]).toMatchObject({
+      id: "knowledge-freemium-current",
+      type: "knowledge",
+    });
   });
 
   it("redacts PII in raw capture search output while preserving source links", async () => {

@@ -1,7 +1,19 @@
 import type { AgentLoopFinalResponseGuardContext } from "@agent-native/core/server";
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("../../.generated/actions-registry.js", () => ({ default: {} }));
+vi.mock("../../.generated/actions-registry.js", () => ({
+  default: {
+    bigquery: {
+      readOnly: true,
+      grounding: true,
+      tool: {
+        description: "Query BigQuery",
+        parameters: { type: "object", properties: {} },
+      },
+      run: async () => "ok",
+    },
+  },
+}));
 
 import { realDataFinalGuard } from "./agent-chat";
 

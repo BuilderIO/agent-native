@@ -43,7 +43,7 @@ export interface PublicMeeting {
 export interface PublicMeetingPayload {
   meeting: PublicMeeting;
   viewer: {
-    role: "owner" | "admin" | "editor" | "viewer";
+    role: "owner" | "admin" | "editor" | "commenter" | "viewer";
     canEdit: boolean;
     isOwner: boolean;
   } | null;

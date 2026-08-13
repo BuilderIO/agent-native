@@ -43,7 +43,7 @@ export default defineAction({
     ) {
       await assertAccess("document", comment.documentId, "editor");
     } else {
-      await assertAccess("document", comment.documentId, "viewer");
+      await assertAccess("document", comment.documentId, "commenter");
     }
 
     const updatedAt = new Date().toISOString();

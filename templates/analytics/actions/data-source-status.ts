@@ -68,7 +68,10 @@ async function listWorkspaceConnectionsForStatus(): Promise<{
 }> {
   try {
     return {
-      connections: await listWorkspaceConnections({ includeDisabled: true }),
+      connections: await listWorkspaceConnections({
+        appId: APP_ID,
+        includeDisabled: true,
+      }),
       grants: await listWorkspaceConnectionGrants({ appId: APP_ID }),
       error: null,
     };

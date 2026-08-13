@@ -22,6 +22,8 @@ import {
 import { buildContentDirectoryPickerBridgeScript } from "../lib/content-directory-picker-bridge.js";
 
 const IS_DEV = window.location.protocol !== "file:";
+export const APP_WEBVIEW_PREFERENCES =
+  "contextIsolation=true,nodeIntegration=false,sandbox=true,backgroundThrottling=true";
 
 type WebviewTitleUpdatedEvent = Event & { title?: string };
 type WebviewLoadFailedEvent = Event & {
@@ -678,10 +680,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
                   window.electronAPI.webviewPreloadPath,
                 );
               }
-              wv.setAttribute(
-                "webpreferences",
-                "contextIsolation=true,nodeIntegration=false,sandbox=true,backgroundThrottling=false",
-              );
+              wv.setAttribute("webpreferences", APP_WEBVIEW_PREFERENCES);
               wv.setAttribute(
                 "partition",
                 resolveAppWebviewPartition({

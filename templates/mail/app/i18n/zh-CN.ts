@@ -470,6 +470,10 @@ const messages = {
     when: "当",
     lastRun: "上次运行：",
     automationsDescription: "使用 AI 自动处理新收件箱邮件的规则。",
+    allowAutomationSends: "允许自动化自动发送邮件",
+    allowAutomationSendsDescription:
+      "默认关闭。需要自动化在每次发送邮件时无需请求批准时，请打开此选项。",
+    automationSendSettingSaveFailed: "无法保存自动邮件发送设置。",
     loadingModels: "正在加载模型",
     newRule: "新建规则",
     noAutomationRules: "还没有自动化规则。",

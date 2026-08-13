@@ -140,19 +140,20 @@ const ManageButton = React.forwardRef<
   HTMLButtonElement,
   React.ComponentPropsWithoutRef<typeof ToolkitButton>
 >(({ children = "Manage", className, ...props }, ref) => (
-  <Button
+  <ToolkitButton
     ref={ref}
     type="button"
+    variant="ghost"
     intent="neutral"
     emphasis="outline"
     className={cn(
-      "inline-flex items-center gap-1 rounded-md border border-border px-3 py-1.5 text-sm font-medium text-foreground hover:bg-accent/40",
+      "inline-flex h-9 min-h-9 items-center justify-center gap-1 rounded-md border border-border px-3 text-sm font-medium leading-none text-foreground hover:bg-accent/40 active:scale-100 [&_svg]:!size-4",
       className,
     )}
     {...props}
   >
     {children}
-  </Button>
+  </ToolkitButton>
 ));
 ManageButton.displayName = "SettingsManageButton";
 
@@ -636,6 +637,7 @@ function ManualSetupCard({
   bare = false,
   popover = false,
   popoverLabel = "Manage",
+  summaryContent,
 }: {
   id?: string;
   title?: string;
@@ -652,6 +654,8 @@ function ManualSetupCard({
   popover?: boolean;
   /** Label for the trigger when the form is shown in a popover. */
   popoverLabel?: string;
+  /** Optional connection summary shown above the setup content. */
+  summaryContent?: React.ReactNode;
 }) {
   const isPage = useSettingsSurface() === "page";
   const titleCls = isPage ? "text-sm" : "text-[11px]";
@@ -715,7 +719,10 @@ function ManualSetupCard({
         sideOffset={6}
         className="max-h-[min(640px,calc(100vh-2rem))] w-[min(420px,calc(100vw-2rem))] overflow-y-auto p-4"
       >
-        {content}
+        <div className="space-y-3">
+          {summaryContent}
+          {content}
+        </div>
       </PopoverContent>
     </Popover>
   );
@@ -1245,18 +1252,20 @@ function LLMSectionInner({
             </div>
           )}
           <div className={cn("flex flex-wrap items-center justify-end gap-2")}>
-            <UseBuilderCard
-              builderFlow={builderFlow}
-              connectUrl={connectUrl}
-              connected={connected}
-              orgName={orgName}
-              envManaged={envManaged}
-              credentialSource={credentialSource}
-              trackingSource="llm_settings"
-              trackingFlow="connect_llm"
-              label="Connect Builder.io"
-              compact
-            />
+            {!anyKeyConfigured && (
+              <UseBuilderCard
+                builderFlow={builderFlow}
+                connectUrl={connectUrl}
+                connected={connected}
+                orgName={orgName}
+                envManaged={envManaged}
+                credentialSource={credentialSource}
+                trackingSource="llm_settings"
+                trackingFlow="connect_llm"
+                label="Connect Builder.io"
+                compact
+              />
+            )}
             <ManualSetupCard
               id="llm-manual-setup"
               title="Custom keys"
@@ -1270,6 +1279,21 @@ function LLMSectionInner({
                   : t("agentPanel.addOwnKeys", {
                       defaultValue: "Custom keys",
                     })
+              }
+              summaryContent={
+                anyKeyConfigured ? (
+                  <UseBuilderCard
+                    builderFlow={builderFlow}
+                    connectUrl={connectUrl}
+                    connected={connected}
+                    orgName={orgName}
+                    envManaged={envManaged}
+                    credentialSource={credentialSource}
+                    trackingSource="llm_settings"
+                    trackingFlow="connect_llm"
+                    label="Connect Builder.io"
+                  />
+                ) : undefined
               }
             >
               <div className="space-y-2 mb-1">
@@ -2812,6 +2836,12 @@ export interface AgentSettingsTabsOptions {
   agentAdditionalContent?: React.ReactNode;
   /** Optional app-owned tabs that share the Agent settings scope. */
   agentAdditionalTabFactories?: AgentSettingsTabFactory[];
+  /** App identity used to scope the shared Usage tab. */
+  usageAppId?: string | null;
+  /** Optional progressive-disclosure link to the app's full metrics view. */
+  usageViewAllHref?: string;
+  /** Optional app-owned replacement for the shared Organization tab. */
+  organizationContent?: React.ReactNode;
 }
 
 export interface AgentSettingsTabFactoryContext {
@@ -3133,17 +3163,19 @@ function SettingsPanelContent({
                 description="Deploy the app to the cloud."
                 control={
                   <div className="flex flex-wrap items-center justify-end gap-2">
-                    <UseBuilderCard
-                      builderFlow={builderFlow}
-                      connectUrl={connectUrl}
-                      connected={connected}
-                      orgName={orgName}
-                      envManaged={envManaged}
-                      credentialSource={credentialSource}
-                      trackingSource="hosting_settings"
-                      trackingFlow="hosting"
-                      compact
-                    />
+                    {!connected && (
+                      <UseBuilderCard
+                        builderFlow={builderFlow}
+                        connectUrl={connectUrl}
+                        connected={connected}
+                        orgName={orgName}
+                        envManaged={envManaged}
+                        credentialSource={credentialSource}
+                        trackingSource="hosting_settings"
+                        trackingFlow="hosting"
+                        compact
+                      />
+                    )}
                     <ManualSetupCard
                       title="Set up manually"
                       hint="Deploy manually to Netlify, Vercel, Cloudflare, or any Nitro-supported target."
@@ -3152,6 +3184,20 @@ function SettingsPanelContent({
                       bare
                       popover
                       popoverLabel="Manage"
+                      summaryContent={
+                        connected ? (
+                          <UseBuilderCard
+                            builderFlow={builderFlow}
+                            connectUrl={connectUrl}
+                            connected={connected}
+                            orgName={orgName}
+                            envManaged={envManaged}
+                            credentialSource={credentialSource}
+                            trackingSource="hosting_settings"
+                            trackingFlow="hosting"
+                          />
+                        ) : undefined
+                      }
                     />
                   </div>
                 }
@@ -3164,17 +3210,19 @@ function SettingsPanelContent({
                 description="Connect persistent app storage."
                 control={
                   <div className="flex flex-wrap items-center justify-end gap-2">
-                    <UseBuilderCard
-                      builderFlow={builderFlow}
-                      connectUrl={connectUrl}
-                      connected={connected}
-                      orgName={orgName}
-                      envManaged={envManaged}
-                      credentialSource={credentialSource}
-                      trackingSource="database_settings"
-                      trackingFlow="database"
-                      compact
-                    />
+                    {!connected && (
+                      <UseBuilderCard
+                        builderFlow={builderFlow}
+                        connectUrl={connectUrl}
+                        connected={connected}
+                        orgName={orgName}
+                        envManaged={envManaged}
+                        credentialSource={credentialSource}
+                        trackingSource="database_settings"
+                        trackingFlow="database"
+                        compact
+                      />
+                    )}
                     <ManualSetupCard
                       title="Set up manually"
                       hint="Set DATABASE_URL in your .env to connect a supported database."
@@ -3183,6 +3231,20 @@ function SettingsPanelContent({
                       bare
                       popover
                       popoverLabel="Manage"
+                      summaryContent={
+                        connected ? (
+                          <UseBuilderCard
+                            builderFlow={builderFlow}
+                            connectUrl={connectUrl}
+                            connected={connected}
+                            orgName={orgName}
+                            envManaged={envManaged}
+                            credentialSource={credentialSource}
+                            trackingSource="database_settings"
+                            trackingFlow="database"
+                          />
+                        ) : undefined
+                      }
                     />
                   </div>
                 }
@@ -3195,17 +3257,19 @@ function SettingsPanelContent({
                 description="Store avatars and chat attachments."
                 control={
                   <div className="flex flex-wrap items-center justify-end gap-2">
-                    <UseBuilderCard
-                      builderFlow={builderFlow}
-                      connectUrl={connectUrl}
-                      connected={connected}
-                      orgName={orgName}
-                      envManaged={envManaged}
-                      credentialSource={credentialSource}
-                      trackingSource="file_upload_settings"
-                      trackingFlow="file_upload"
-                      compact
-                    />
+                    {!connected && (
+                      <UseBuilderCard
+                        builderFlow={builderFlow}
+                        connectUrl={connectUrl}
+                        connected={connected}
+                        orgName={orgName}
+                        envManaged={envManaged}
+                        credentialSource={credentialSource}
+                        trackingSource="file_upload_settings"
+                        trackingFlow="file_upload"
+                        compact
+                      />
+                    )}
                     <ManualSetupCard
                       title="Set up manually"
                       hint="Use an S3-compatible bucket with a stable public URL for durable chat attachments."
@@ -3214,6 +3278,20 @@ function SettingsPanelContent({
                       bare
                       popover
                       popoverLabel="Manage"
+                      summaryContent={
+                        connected ? (
+                          <UseBuilderCard
+                            builderFlow={builderFlow}
+                            connectUrl={connectUrl}
+                            connected={connected}
+                            orgName={orgName}
+                            envManaged={envManaged}
+                            credentialSource={credentialSource}
+                            trackingSource="file_upload_settings"
+                            trackingFlow="file_upload"
+                          />
+                        ) : undefined
+                      }
                     >
                       <FileStorageSettingsForm />
                     </ManualSetupCard>
@@ -3228,17 +3306,19 @@ function SettingsPanelContent({
                 description="Set up sign-in and access control."
                 control={
                   <div className="flex flex-wrap items-center justify-end gap-2">
-                    <UseBuilderCard
-                      builderFlow={builderFlow}
-                      connectUrl={connectUrl}
-                      connected={connected}
-                      orgName={orgName}
-                      envManaged={envManaged}
-                      credentialSource={credentialSource}
-                      trackingSource="auth_settings"
-                      trackingFlow="auth"
-                      compact
-                    />
+                    {!connected && (
+                      <UseBuilderCard
+                        builderFlow={builderFlow}
+                        connectUrl={connectUrl}
+                        connected={connected}
+                        orgName={orgName}
+                        envManaged={envManaged}
+                        credentialSource={credentialSource}
+                        trackingSource="auth_settings"
+                        trackingFlow="auth"
+                        compact
+                      />
+                    )}
                     <ManualSetupCard
                       title="Set up manually"
                       hint="Configure Better Auth and optional Google or GitHub providers."
@@ -3247,6 +3327,20 @@ function SettingsPanelContent({
                       bare
                       popover
                       popoverLabel="Manage"
+                      summaryContent={
+                        connected ? (
+                          <UseBuilderCard
+                            builderFlow={builderFlow}
+                            connectUrl={connectUrl}
+                            connected={connected}
+                            orgName={orgName}
+                            envManaged={envManaged}
+                            credentialSource={credentialSource}
+                            trackingSource="auth_settings"
+                            trackingFlow="auth"
+                          />
+                        ) : undefined
+                      }
                     />
                   </div>
                 }
@@ -3603,7 +3697,7 @@ export function ConnectionsSettingsContent({
         {...settingsPanelProps}
         surface="page"
         sections={INTEGRATION_SETTINGS_SECTIONS.filter(
-          (section) => section !== "integrations",
+          (section) => section !== "integrations" && section !== "usage",
         )}
         showCapabilityStrip={false}
         className="w-full"
@@ -3656,6 +3750,9 @@ export function useAgentSettingsTabs(
   const extensionToolsEnabled = areExtensionSettingsEnabled(options);
   const agentAdditionalContent = options.agentAdditionalContent;
   const agentAdditionalTabFactories = options.agentAdditionalTabFactories ?? [];
+  const usageAppId = options.usageAppId ?? null;
+  const usageViewAllHref = options.usageViewAllHref;
+  const organizationContent = options.organizationContent;
   const baseProps = useMemo<SettingsPanelProps>(
     () => ({
       isDevMode,
@@ -3681,7 +3778,7 @@ export function useAgentSettingsTabs(
   return useMemo<SettingsTabItem[]>(() => {
     const searchTabs = getAgentSettingsSearchTabs();
     const searchTab = (
-      id: "agent" | "integrations" | "organization" | "workspace",
+      id: "agent" | "integrations" | "usage" | "organization" | "workspace",
     ) => {
       const tab = searchTabs.find((candidate) => candidate.id === id);
       if (!tab) throw new Error(`Missing agent workspace tab: ${id}`);
@@ -3689,6 +3786,7 @@ export function useAgentSettingsTabs(
     };
     const agent = searchTab("agent");
     const integrations = searchTab("integrations");
+    const usage = searchTab("usage");
     const organization = searchTab("organization");
     const workspace = searchTab("workspace");
     const overviewSearchEntries = (agent.searchEntries ?? []).filter(
@@ -3767,12 +3865,22 @@ export function useAgentSettingsTabs(
         content: <ConnectionsSettingsContent settingsPanelProps={baseProps} />,
       },
       {
+        ...usage,
+        icon: IconCoin,
+        group: "integrations",
+        content: (
+          <div className="w-full">
+            <UsageSection appId={usageAppId} viewAllHref={usageViewAllHref} />
+          </div>
+        ),
+      },
+      {
         ...organization,
         icon: IconUsersGroup,
         group: "workspace",
         content: (
           <div className="w-full">
-            <TeamPage showTitle={false} />
+            {organizationContent ?? <TeamPage showTitle={false} />}
           </div>
         ),
       },
@@ -3883,5 +3991,8 @@ export function useAgentSettingsTabs(
     additionalTabs,
     baseProps,
     extensionToolsEnabled,
+    organizationContent,
+    usageAppId,
+    usageViewAllHref,
   ]);
 }

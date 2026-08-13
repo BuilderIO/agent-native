@@ -1,0 +1,432 @@
+---
+title: "البيانات والمزامنة"
+description: "خطافات actions التي يستخدمها app/ للقراءة والكتابة والبقاء متزامنًا مباشرة مع نفس actions التي يستدعيها الوكيل."
+---
+
+# البيانات والمزامنة
+
+الطريقة الأساسية لقراءة بيانات التطبيق وكتابتها من تطبيق العميل هي من خلال خطافات [action](/docs/actions). من خلال تضمين الطلبات في actions، يمكن لعميلك ووكيلك التفاعل مع تطبيقك بالطريقة نفسها.
+
+في المثال أدناه، يتم تعيين تذكرة للمستخدم الحالي يدويًا من خلال قائمة منسدلة، ثم من خلال وكيل المحادثة. يصل كل من واجهة المستخدم والوكيل إلى نفس action.
+
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa5548a35d1494c1f8a4f960fbe8d9b2c%2Fcompressed?apiKey=YJIGb4i01jvw0SRdL5Bt&token=a5548a35d1494c1f8a4f960fbe8d9b2c&alt=media&optimized=true"
+  alt="مثال على أن إجراء واجهة المستخدم وإجراء الوكيل يحققان نفس النتيجة."
+  align="full"
+  autoplay={true}
+  loop={true}
+  width={600}
+  caption="مثال على أن إجراء واجهة المستخدم وإجراء الوكيل يحققان نفس النتيجة."
+/>
+
+## جلب البيانات وتغييرها {#fetching-mutating}
+
+يبني التطبيق النموذجي طبقة API خاصة به ويستدعيها بطلبات `fetch` مكتوبة يدويًا. يتجاوز تطبيق الوكيل الأصلي هذه الطبقة: يستدعي `app/` نفس actions التي يمتلكها الوكيل بالفعل كأدوات، من خلال الخطافات أدناه.
+
+<Diagram id="doc-block-client-data-fm-1" title="fetch نموذجي مقابل خطاف action" summary="يستدعي المكون النموذجي مسارًا لا يمكن الوصول إليه إلا هو. يستدعي مكون الوكيل الأصلي action يمكن للوكيل استدعاؤه أيضًا.">
+
+```html
+<div class="diagram-fmcmp">
+  <div class="fmcmp-col">
+    <div class="fmcmp-label diagram-muted">نموذجي</div>
+    <div class="diagram-node">Component</div>
+    <div class="fmcmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-node">fetch("/api/leads/:id")</div>
+    <div class="fmcmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-panel" data-rough>
+      <strong>مسار API الخاص بك</strong>
+      <small class="diagram-muted">فقط الواجهة الأمامية يمكنها استدعاءه</small>
+    </div>
+    <div class="fmcmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-box" data-rough>قاعدة البيانات</div>
+  </div>
+  <div class="fmcmp-vs diagram-muted">مقابل</div>
+  <div class="fmcmp-col">
+    <div class="fmcmp-label diagram-muted">Agent Native</div>
+    <div class="diagram-node">Component</div>
+    <div class="fmcmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-node">useActionQuery("get-lead")</div>
+    <div class="fmcmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-panel" data-rough>
+      <span class="diagram-pill accent">get-lead action</span>
+      <small class="diagram-muted">أيضًا أداة وكيل</small>
+    </div>
+    <div class="fmcmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-box" data-rough>قاعدة بيانات SQL</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-fmcmp {
+  display: flex;
+  align-items: flex-start;
+  gap: 28px;
+  flex-wrap: wrap;
+}
+.fmcmp-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 200px;
+}
+.fmcmp-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+.fmcmp-vs {
+  font-size: 13px;
+  font-weight: 600;
+  padding-top: 52px;
+}
+.diagram-fmcmp .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 16px;
+  align-items: center;
+}
+.fmcmp-arrow {
+  font-size: 18px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+### خطافات Action {#action-hooks}
+
+هناك خطافا action من الأرجح أن تستخدمهما: `useActionQuery()` و`useActionMutation()`. يوفر هذان الخطافان الوصول إلى actions تطبيقك.
+
+#### useActionQuery {#use-action-query}
+
+<Signature
+  id="doc-block-client-data-1"
+  name="useActionQuery"
+  params={[
+    {
+      name: "actionName",
+      type: "TName",
+      description: "الاسم المسجل لـ action.",
+    },
+    {
+      name: "params",
+      type: "ActionParams<TName>",
+      optional: true,
+      description: "مدخلات action، مكتوبة من مخطط `defineAction()` الخاص به.",
+    },
+    {
+      name: "options",
+      type: "UseQueryOptions",
+      optional: true,
+      description:
+        "كل شيء من [خيارات useQuery](https://tanstack.com/query/latest/docs/framework/react/reference/useQuery) باستثناء `queryKey` و`queryFn`، التي يضبطها الخطاف نفسه.",
+    },
+  ]}
+  returns={{
+    type: "UseQueryResult<TResult>",
+    description:
+      'مخزّن مؤقتًا تحت `["action", name, params]`. يُعاد جلبه تلقائيًا كل مرة تكتمل فيها action تُغيّر البيانات، دون الحاجة إلى إبطال يدوي.',
+  }}
+/>
+
+يُقصد استخدام هذا الخطاف مع actions للقراءة فقط. إنه غلاف رقيق حول دالة [useQuery()](https://tanstack.com/query/latest/docs/framework/react/reference/useQuery).
+
+في المثال أدناه، يتم استدعاء action `list-tickets`. هذا مشابه لإجراء طلب GET لجميع التذاكر.
+
+```ts
+import { useActionQuery } from "@agent-native/core/client/hooks";
+
+const { data, isLoading } = useActionQuery("list-tickets", {});
+```
+
+يوضح المثال التالي طلبًا لجلب تذكرة واحدة، من خلال action `get-ticket`. يتم تمرير `ticketId` لتحديد نطاق الاستعلام لإرجاع تذكرة معينة فقط. يتم توفير خيار `enabled` الإضافي للتأكد من أن الاستعلام لا يعمل تلقائيًا، وإنما يعمل فقط عند وجود `ticketId`.
+
+```ts
+import { useActionQuery } from "@agent-native/core/client/hooks";
+
+const { data, isLoading } = useActionQuery(
+  "get-ticket",
+  { ticketId: ticketId ?? "" },
+  { enabled: Boolean(ticketId) },
+);
+```
+
+#### useActionMutation {#use-action-mutation}
+
+<Signature
+  id="doc-block-client-data-2"
+  name="useActionMutation"
+  params={[
+    {
+      name: "actionName",
+      type: "TName",
+      description: "الاسم المسجل لـ action.",
+    },
+    {
+      name: "options",
+      type: "UseMutationOptions",
+      optional: true,
+      description:
+        "كل شيء من [خيارات useMutation](https://tanstack.com/query/latest/docs/framework/react/reference/useMutation) باستثناء `mutationFn`، التي يضبطها الخطاف نفسه.",
+      fields: [
+        {
+          name: "method",
+          type: '"POST" | "PUT" | "DELETE"',
+          optional: true,
+          default: '"POST"',
+          description: "يتجاوز طريقة الطلب الافتراضية.",
+        },
+        {
+          name: "skipActionQueryInvalidation",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description:
+            "يلغي الاشتراك في إعادة تحديث ذاكرة التخزين المؤقت التلقائية عند النجاح.",
+        },
+      ],
+    },
+  ]}
+  returns={{
+    type: "UseMutationResult",
+    description:
+      'عند النجاح، يُصدر حدث تغيير بـ `source: "action"`، لذا تتم إعادة جلب كل `useActionQuery()` التي تقرأ البيانات المتأثرة تلقائيًا. لا حاجة إلى إبطال يدوي.',
+  }}
+/>
+
+يُقصد استخدام هذا الخطاف مع actions التي تغيّر البيانات، مثل الإنشاء أو التحديث أو الإرسال. إنه غلاف رقيق حول دالة [useMutation()](https://tanstack.com/query/latest/docs/framework/react/reference/useMutation).
+
+على عكس `useActionQuery()`، لا يتم تمرير مدخلات action إلى الخطاف نفسه. يتم تمريرها إلى `mutate()` أو `mutateAsync()` عندما تكون جاهزًا لتشغيل الطفرة (mutation).
+
+في المثال أدناه، يتم استدعاء action `send-ticket-reply` لنشر رد على تذكرة. استدعِ `mutate()` من معالج حدث، مثل `onClick` لزر.
+
+```ts
+import { useActionMutation } from "@agent-native/core/client/hooks";
+
+const { mutate, isPending } = useActionMutation("send-ticket-reply");
+
+mutate({ ticketId, body: draft });
+```
+
+يوضح المثال التالي نفس الطفرة مع خيار `onSuccess`. يحدث إبطال ذاكرة التخزين المؤقت تلقائيًا بعد كل طفرة، لذا لا يُحتاج إلى `onSuccess` إلا للتأثيرات الجانبية المحلية، مثل مسح مؤلف الرد بعد إرسال الرد.
+
+```ts
+import { useActionMutation } from "@agent-native/core/client/hooks";
+
+const { mutate, isPending } = useActionMutation("send-ticket-reply", {
+  onSuccess: () => setDraft(""),
+});
+
+mutate({ ticketId, body: draft });
+```
+
+### callAction {#call-action}
+
+<Signature
+  id="doc-block-client-data-3"
+  name="callAction"
+  params={[
+    {
+      name: "actionName",
+      type: "TName",
+      description: "الاسم المسجل لـ action.",
+    },
+    {
+      name: "params",
+      type: "ActionParams<TName>",
+      optional: true,
+      description: "مدخلات action، مكتوبة من مخطط `defineAction()` الخاص به.",
+    },
+    {
+      name: "options",
+      type: "ClientActionCallOptions",
+      optional: true,
+      description: "كل ما يلي اختياري.",
+      fields: [
+        {
+          name: "method",
+          type: '"GET" | "POST" | "PUT" | "DELETE"',
+          optional: true,
+          default: '"POST"',
+          description: "يتجاوز طريقة الطلب الافتراضية.",
+        },
+        {
+          name: "signal",
+          type: "AbortSignal",
+          optional: true,
+          description: "يلغي الطلب.",
+        },
+        {
+          name: "timeoutMs",
+          type: "number",
+          optional: true,
+          default: "60000",
+          description:
+            "يتجاوز المهلة الافتراضية البالغة 60 ثانية، لـ actions التي تستغرق وقتًا أطول بشكل مشروع.",
+        },
+      ],
+    },
+  ]}
+  returns={{
+    type: "Promise<TResult>",
+    description:
+      "على عكس الخطافات أعلاه، لا توجد ذاكرة تخزين مؤقت ولا إعادة جلب تلقائية. اقرنه بإبطال يدوي إذا كانت واجهة مستخدم أخرى تعتمد على النتيجة.",
+  }}
+/>
+
+هذه الدالة مخصصة لاستدعاءات action الفورية لمرة واحدة خارج تدفق عرض React، مثل معالج حدث عادي، أو نص برمجي، أو أي مسار كود آخر غير React. تُرجع وعدًا (promise) مباشرة بدلاً من نتيجة خطاف.
+
+في المثال أدناه، يتم استدعاء action `update-ticket` من معالج اختصار لوحة مفاتيح خارج تدفق عرض React، لتعيين التذكرة لممثل.
+
+```ts
+import { callAction } from "@agent-native/core/client/hooks";
+
+await callAction("update-ticket", {
+  ticketId,
+  assignedToEmail: "jordan@example.com",
+});
+```
+
+يوضح المثال التالي نفس الاستدعاء مع خيار `timeoutMs`، وهو مفيد لـ actions التي تستغرق وقتًا أطول بشكل مشروع من المهلة الافتراضية البالغة 60 ثانية.
+
+```ts
+import { callAction } from "@agent-native/core/client/hooks";
+
+await callAction(
+  "update-ticket",
+  { ticketId, assignedToEmail: "jordan@example.com" },
+  { timeoutMs: 120_000 },
+);
+```
+
+كل طلب من `useActionQuery()` و`useActionMutation()` و`callAction()` محكوم بمهلة 60 ثانية، وتظهر انتهاءات المهلة كأخطاء بدلاً من إعادة المحاولة بصمت. يلغي `useActionQuery()` أيضًا الطلبات المتجاوَزة تلقائيًا، باستخدام إشارة الإلغاء (abort signal) الخاصة بـ React Query.
+
+## useDbSync {#usedbsync}
+
+<Signature
+  id="doc-block-client-data-4"
+  name="useDbSync"
+  params={[
+    {
+      name: "options",
+      type: "UseDbSyncOptions",
+      description: "كل حقل اختياري.",
+      fields: [
+        {
+          name: "queryClient",
+          type: "QueryClient",
+          optional: true,
+          description: "عميل React Query المستخدم لإبطال ذاكرة التخزين المؤقت.",
+        },
+        {
+          name: "pollUrl",
+          type: "string",
+          optional: true,
+          default: '"/_agent-native/poll"',
+          description: "عنوان URL لنقطة نهاية الاستقصاء.",
+        },
+        {
+          name: "sseUrl",
+          type: "string | false",
+          optional: true,
+          default: '"/_agent-native/events"',
+          description:
+            "عنوان URL لنقطة نهاية SSE. مرر `false` لاستخدام الاستقصاء فقط.",
+        },
+        {
+          name: "interval",
+          type: "number",
+          optional: true,
+          default: "2000",
+          description: "الفاصل الزمني للاستقصاء بالمللي ثانية.",
+        },
+        {
+          name: "fallbackInterval",
+          type: "number",
+          optional: true,
+          default: "60000",
+          description:
+            "فاصل الاستقصاء بينما يكون SSE متصلاً، كنسخة احتياطية في حال فوات حدث. تستطلع علامة التبويب غير المتصلة بمعدل أسرع `interval` (أو معدل خمول ثابت) بدلاً من ذلك.",
+        },
+        {
+          name: "pauseWhenHidden",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description:
+            "إيقاف الاستقصاء مؤقتًا عندما تكون علامة تبويب المتصفح مخفية. تحافظ العلامات المخفية على اتصال SSE وتستطلع بمعدل لا يتجاوز كل 10 ثوانٍ أثناء النشاط، و60 ثانية عند الخمول.",
+        },
+        {
+          name: "ignoreSource",
+          type: "string",
+          optional: true,
+          description:
+            "مصدر طلب لكل علامة تبويب يتم تجاهله، لذا لا تعيد علامة التبويب الجلب من عمليات الكتابة الخاصة بها.",
+        },
+        {
+          name: "onEvent",
+          type: "(data) => void",
+          optional: true,
+          description:
+            "استدعاء اختياري عندما يستقبل SSE أو الاستقصاء حدث تغيير.",
+        },
+        {
+          name: "actionInvalidatePredicate",
+          type: "(query: Query) => boolean",
+          optional: true,
+          description:
+            "يُصفّي الإبطال الواسع الذي يُحرّكه حدث action. نادرًا ما يُحتاج إليه. استخدمه للحفاظ على استعلام نشط مكلف على قواعد التحديث اليدوي الصريح بينما لا تزال الاستعلامات ذات المصدر المُرقّم العادية تتفاعل من خلال `useChangeVersion`.",
+        },
+        {
+          name: "suppressActionInvalidationFor",
+          type: "string[]",
+          optional: true,
+          description:
+            "أسماء actions التي لا ينبغي لأحداث مزامنتها إبطال جميع استعلامات actions. فقط لـ actions ذات الحجم الكبير في الخلفية التي تنفذ إبطالًا ضيقًا خاصًا بها.",
+        },
+        {
+          name: "queryKeys",
+          type: "string[]",
+          optional: true,
+          description: "مهمَل ومتجاهَل. تم الاحتفاظ به لمواقع الاتصال القديمة.",
+        },
+      ],
+    },
+  ]}
+  returns={{ type: "void" }}
+/>
+
+يُقصد استخدام هذا الخطاف للحفاظ على واجهة المستخدم متزامنة مع تغييرات قاعدة البيانات التي تحدث خارج actions الخاصة بك، مثل كتابة من الوكيل، أو خطاف ويب (webhook)، أو تغيير تم إجراؤه من علامة تبويب متصفح أخرى. يستمع للتغييرات عبر الأحداث المرسلة من الخادم، ويعود إلى الاستقصاء عندما لا تكون الأحداث المرسلة من الخادم متاحة.
+
+```ts
+import { useDbSync } from "@agent-native/core/client/hooks";
+import { useQueryClient } from "@tanstack/react-query";
+
+function App() {
+  const queryClient = useQueryClient();
+
+  useDbSync({
+    queryClient,
+    pollUrl: "/_agent-native/poll",
+    onEvent: (data) => console.log("Data changed:", data),
+  });
+
+  return <div>...</div>;
+}
+```
+
+بالنسبة إلى CRUD العادي، يُفضَّل `useActionQuery()` و`useActionMutation()`. تُصدر actions المُغيّرة `source: "action"`، لذا تُعيد هذه الخطافات الجلب فورًا. تصل التغييرات من الوكيل، أو خطاف ويب، أو علامة تبويب أخرى من خلال `useDbSync()` بدلاً من ذلك، عبر SSE أو الرجوع إلى الاستقصاء. إذا كان استعلام `useQuery()` خام يحتاج إلى المزامنة على مفتاح مخصص، راجع [آليات المزامنة الداخلية](/docs/client-sync-internals). إذا كنت تحتاج إلى الكتابة مباشرة إلى `application_state`، راجع [متقدم](/docs/client-advanced).
+
+## ما هي الخطوة التالية
+
+- [**نظرة عامة**](/docs/client-overview) — تخطيط دليلَي `app/` و`public/` الذي تعيش فيه خطافات هذه الصفحة
+- [**محادثة الوكيل**](/docs/client-agent-chat) — إرسال المطالبات وتهيئة السياق للوكيل
+- [**Actions**](/docs/actions) — سطح `defineAction` الذي يقف خلف كل خطاف في هذه الصفحة
+- [**متقدم**](/docs/client-advanced) — الوصول المباشر إلى `application_state`
+- [**آليات المزامنة الداخلية**](/docs/client-sync-internals) — مزامنة `useQuery` خام باستخدام `useChangeVersion`
+- [**المزامنة المباشرة**](/docs/key-concepts#polling-sync) — كيف يحافظ `useDbSync` على تحديث واجهة المستخدم

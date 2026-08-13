@@ -704,13 +704,20 @@ describe("AISDKEngine streamed tool-input reconciliation", () => {
     vi.unstubAllEnvs();
   });
 
-  async function runToolInputStream(parts: unknown[]) {
-    const streamText = vi.fn().mockReturnValue({
-      fullStream: (async function* () {
-        for (const part of parts) yield part;
-        yield { type: "finish", finishReason: "tool-calls", usage: {} };
-      })(),
-    });
+  async function runToolInputStream(parts: unknown[], stepContent?: unknown[]) {
+    const streamText = vi
+      .fn()
+      .mockImplementation(
+        (options: { onStepFinish?: (step: unknown) => void }) => {
+          if (stepContent) options.onStepFinish?.({ content: stepContent });
+          return {
+            fullStream: (async function* () {
+              for (const part of parts) yield part;
+              yield { type: "finish", finishReason: "tool-calls", usage: {} };
+            })(),
+          };
+        },
+      );
     vi.doMock("ai", () => ({ streamText, jsonSchema: (s: unknown) => s }));
     mockOpenAIProvider();
 
@@ -788,6 +795,57 @@ describe("AISDKEngine streamed tool-input reconciliation", () => {
 
     expect(events.filter((e) => e.type === "tool-call")).toHaveLength(1);
     expect(events.some((e) => e.type === "tool-call-error")).toBe(false);
+  });
+
+  it("recovers complete streamed arguments when the SDK terminal input is empty", async () => {
+    const input = {
+      id: "ext-1",
+      operation: "edit",
+      payloadJson: "{}",
+    };
+    const events = await runToolInputStream(
+      [
+        {
+          type: "tool-input-start",
+          id: "call_1",
+          toolName: "update-extension",
+        },
+        {
+          type: "tool-input-delta",
+          id: "call_1",
+          delta: JSON.stringify(input),
+        },
+        {
+          type: "tool-call",
+          toolCallId: "call_1",
+          toolName: "update-extension",
+          input: {},
+        },
+      ],
+      [
+        {
+          type: "tool-call",
+          toolCallId: "call_1",
+          toolName: "update-extension",
+          input: {},
+        },
+      ],
+    );
+
+    expect(events.find((e) => e.type === "tool-call")).toEqual({
+      type: "tool-call",
+      id: "call_1",
+      name: "update-extension",
+      input,
+    });
+    expect(events.find((e) => e.type === "assistant-content")?.parts).toEqual([
+      {
+        type: "tool-call",
+        id: "call_1",
+        name: "update-extension",
+        input,
+      },
+    ]);
   });
 });
 

@@ -1,6 +1,11 @@
 import type { Visibility } from "../sharing/schema.js";
 
-export type ReviewResourceRole = "viewer" | "editor" | "admin" | "owner";
+export type ReviewResourceRole =
+  | "viewer"
+  | "commenter"
+  | "editor"
+  | "admin"
+  | "owner";
 export type ReviewCommentKind =
   | "comment"
   | "annotation"

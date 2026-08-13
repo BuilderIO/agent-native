@@ -515,10 +515,11 @@ const messages = {
     },
     roles: {
       viewer: "ビューア",
+      commenter: "コメント投稿者",
       editor: "エディタ",
       admin: "管理者",
     },
-    recordingViewer: {
+    recordingCommenter: {
       label: "コメント投稿者",
       description: "視聴、コメント、リアクションができます",
     },
