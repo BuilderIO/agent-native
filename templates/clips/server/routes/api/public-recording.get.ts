@@ -463,6 +463,7 @@ export default defineEventHandler(async (event) => {
       videoUrl: playbackVideoUrl,
       videoFormat: rec.videoFormat,
       videoSizeBytes: rec.videoSizeBytes ?? null,
+      mediaUpdatedAt: rec.mediaUpdatedAt,
       width: rec.width,
       height: rec.height,
       hasAudio: Boolean(rec.hasAudio),

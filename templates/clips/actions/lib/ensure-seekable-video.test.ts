@@ -232,6 +232,7 @@ describe("ensureRecordingSeekable timeline normalization", () => {
     });
 
     expect(mockDb.update).not.toHaveBeenCalled();
+    expect(mockClearSeekableRepairPending).not.toHaveBeenCalled();
     expect(result).toEqual({
       recordingId: recording.id,
       status: "skipped-upload-failed",

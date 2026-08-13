@@ -405,6 +405,7 @@ async function persistPendingMediaVerification(params: {
       videoUrl: media.videoUrl,
       videoFormat: media.videoFormat,
       videoSizeBytes: media.videoSizeBytes,
+      mediaUpdatedAt: now,
       durationMs: media.finalDurationMs,
       width: media.finalWidth,
       height: media.finalHeight,
@@ -583,6 +584,7 @@ async function markRecordingReady(params: {
       videoUrl,
       videoFormat,
       videoSizeBytes,
+      mediaUpdatedAt: now,
       durationMs: finalDurationMs,
       width: finalWidth,
       height: finalHeight,
@@ -1307,6 +1309,7 @@ export default defineAction({
         .set({
           status: "processing",
           uploadProgress: 100,
+          mediaUpdatedAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         })
         .where(eq(schema.recordings.id, id));
@@ -1327,6 +1330,7 @@ export default defineAction({
           .set({
             status: "failed",
             failureReason,
+            mediaUpdatedAt: now,
             updatedAt: now,
           })
           .where(eq(schema.recordings.id, id));
@@ -1647,6 +1651,7 @@ export default defineAction({
               hasAudio: finalHasAudio,
               hasCamera: finalHasCamera,
               uploadProgress: 0,
+              mediaUpdatedAt: now,
               updatedAt: now,
             })
             .where(eq(schema.recordings.id, id));
@@ -1681,6 +1686,7 @@ export default defineAction({
             hasAudio: finalHasAudio,
             hasCamera: finalHasCamera,
             uploadProgress: 100,
+            mediaUpdatedAt: now,
             updatedAt: now,
           })
           .where(eq(schema.recordings.id, id));

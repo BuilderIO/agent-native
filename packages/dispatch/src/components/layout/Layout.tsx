@@ -77,6 +77,7 @@ import {
   IconBrandTelegram,
   IconCopy,
   IconEye,
+  IconHierarchy2,
   IconMessageQuestion,
   IconBroadcast,
   IconLayoutSidebarLeftCollapse,
@@ -182,6 +183,13 @@ const PRIMARY_NAV_ITEMS = [
     to: "/apps",
     label: "Apps",
     icon: IconApps,
+    section: "primary",
+  },
+  {
+    id: "agents",
+    to: "/agents",
+    label: "Agents",
+    icon: IconHierarchy2,
     section: "primary",
   },
 ] as const satisfies readonly DispatchNavItem[];

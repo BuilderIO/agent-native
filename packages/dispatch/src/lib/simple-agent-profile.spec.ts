@@ -4,6 +4,7 @@ import {
   buildSimpleAgentContent,
   normalizeImportedAgent,
   slugifyAgentName,
+  validateImportedAgentTools,
 } from "./simple-agent-profile.js";
 
 describe("simple agent profiles", () => {
@@ -54,6 +55,18 @@ describe("simple agent profiles", () => {
         sourceHash: "abc123",
       }),
     ).toContain("source-hash: abc123");
+  });
+
+  it("keeps resolvable imported tools and warns for the rest", () => {
+    expect(
+      validateImportedAgentTools(
+        "Read, Bash, WebSearch",
+        new Set(["bash", "web-search"]),
+      ),
+    ).toEqual({
+      tools: "bash, web-search",
+      warnings: ["Skipped unmapped tool: Read"],
+    });
   });
 
   it("creates stable slugs for names", () => {

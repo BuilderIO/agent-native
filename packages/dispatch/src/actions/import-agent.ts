@@ -6,6 +6,7 @@ import { z } from "zod";
 import {
   buildSimpleAgentContent,
   normalizeImportedAgent,
+  validateImportedAgentTools,
 } from "../lib/simple-agent-profile.js";
 import {
   createWorkspaceResource,
@@ -33,9 +34,31 @@ export default defineAction({
   }),
   run: async ({ source, fileName, scope }) => {
     const normalized = normalizeImportedAgent(source, fileName);
+    const { dispatchActions } = await import("./index.js");
+    const availableToolNames = new Set([
+      ...Object.keys(dispatchActions),
+      "agent-teams",
+      "bash",
+      "call-agent",
+      "db-query",
+      "db-schema",
+      "refresh-screen",
+      "resources",
+      "set-search-params",
+      "set-url-path",
+      "tool-search",
+      "web-request",
+      "web-search",
+    ]);
+    const toolValidation = validateImportedAgentTools(
+      normalized.tools,
+      availableToolNames,
+    );
+    const warnings = [...normalized.warnings, ...toolValidation.warnings];
     const sourceHash = crypto.createHash("sha256").update(source).digest("hex");
     const content = buildSimpleAgentContent({
       ...normalized,
+      tools: toolValidation.tools,
       source: normalized.source,
       sourcePath: normalized.sourcePath,
       sourceHash,
@@ -52,7 +75,7 @@ export default defineAction({
           status: "unchanged" as const,
           resource: existing,
           source: normalized.source,
-          warnings: normalized.warnings,
+          warnings,
         };
       }
       throw new Error(
@@ -73,7 +96,7 @@ export default defineAction({
       status: "created" as const,
       resource,
       source: normalized.source,
-      warnings: normalized.warnings,
+      warnings,
     };
   },
 });

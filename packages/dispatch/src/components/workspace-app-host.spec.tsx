@@ -44,6 +44,20 @@ vi.mock("@agent-native/core/client/hooks", () => ({
         url: null,
         status: "ready",
       },
+      {
+        id: "documents",
+        name: "Documents",
+        path: "/documents",
+        url: null,
+        status: "ready",
+      },
+      {
+        id: "settings",
+        name: "Settings",
+        path: "/settings",
+        url: null,
+        status: "ready",
+      },
     ],
     isError: false,
     isLoading: false,
@@ -104,5 +118,44 @@ describe("WorkspaceAppKeepAlive", () => {
     expect(calendarEntry?.classList.contains("hidden")).toBe(false);
     expect(calendarEntry?.querySelector("iframe")).not.toBeNull();
     expect(container.querySelectorAll("iframe")).toHaveLength(2);
+  });
+
+  it("evicts the oldest inactive app after reaching the keep-alive limit", async () => {
+    await act(async () => {
+      root.render(<WorkspaceAppKeepAlive activeAppId="mail" />);
+      await Promise.resolve();
+    });
+
+    for (const activeAppId of ["calendar", "documents", "settings"]) {
+      await act(async () => {
+        root.render(<WorkspaceAppKeepAlive activeAppId={activeAppId} />);
+        await Promise.resolve();
+      });
+    }
+
+    expect(
+      container.querySelector(
+        '[data-dispatch-workspace-app-cache-entry="mail"]',
+      ),
+    ).toBeNull();
+    expect(
+      container.querySelector(
+        '[data-dispatch-workspace-app-cache-entry="calendar"]',
+      ),
+    ).not.toBeNull();
+    expect(
+      container.querySelector(
+        '[data-dispatch-workspace-app-cache-entry="documents"]',
+      ),
+    ).not.toBeNull();
+    expect(
+      container.querySelector(
+        '[data-dispatch-workspace-app-cache-entry="settings"]',
+      ),
+    ).not.toBeNull();
+    expect(
+      container.querySelectorAll("[data-dispatch-workspace-app-cache-entry]"),
+    ).toHaveLength(3);
+    expect(container.querySelectorAll("iframe")).toHaveLength(3);
   });
 });

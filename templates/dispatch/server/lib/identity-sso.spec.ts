@@ -17,9 +17,12 @@ interface CodeRow {
 }
 
 const codeRows: CodeRow[] = [];
+const executedSql: string[] = [];
+const productionServerlessMock = vi.fn(() => false);
 
 const exec = async (input: string | { sql: string; args?: unknown[] }) => {
   const sql = (typeof input === "string" ? input : input.sql).trim();
+  executedSql.push(sql);
   const args = (typeof input === "string" ? [] : (input.args ?? [])) as any[];
   if (/^CREATE TABLE/i.test(sql)) return { rows: [], rowsAffected: 0 };
   if (/^DELETE FROM identity_sso_authorization_code/i.test(sql)) {
@@ -64,6 +67,7 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
 vi.mock("@agent-native/core/db", () => ({
   getDbExec: () => ({ execute: exec }),
   intType: () => "INTEGER",
+  isProductionServerlessFunctionRuntime: () => productionServerlessMock(),
 }));
 
 const mod = await import("./identity-sso.js");
@@ -76,6 +80,8 @@ const VERIFIER = "v".repeat(64);
 
 beforeEach(() => {
   codeRows.length = 0;
+  executedSql.length = 0;
+  productionServerlessMock.mockReset().mockReturnValue(false);
   process.env.IDENTITY_SSO_APP_REGISTRY_JSON = "";
 });
 
@@ -154,6 +160,22 @@ describe("strict identity app registration", () => {
 });
 
 describe("authorization-code store", () => {
+  it("does not issue request-time DDL in production serverless runtime", async () => {
+    productionServerlessMock.mockReturnValue(true);
+    const code = await mod.createIdentityAuthorizationCode({
+      state: STATE,
+      appId: "mail",
+      clientId: "mail",
+      redirectUri: CALLBACK,
+      authority: AUTHORITY,
+      codeChallenge: mod.createCodeChallenge(VERIFIER)!,
+      email: "user@example.test",
+    });
+
+    expect(code).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(executedSql.some((sql) => /^CREATE TABLE/i.test(sql))).toBe(false);
+  });
+
   it("stores only a hash and consumes a code once with PKCE and binding", async () => {
     const challenge = mod.createCodeChallenge(VERIFIER)!;
     const code = await mod.createIdentityAuthorizationCode({

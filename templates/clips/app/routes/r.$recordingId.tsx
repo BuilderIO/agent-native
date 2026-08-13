@@ -1598,7 +1598,7 @@ export default function RecordingPage() {
                   recordingId={recording.id}
                   videoUrl={recording.videoUrl}
                   mediaVersion={
-                    recording.updatedAt ?? recording.videoSizeBytes ?? null
+                    recording.mediaUpdatedAt ?? recording.videoSizeBytes ?? null
                   }
                   videoFormat={recording.videoFormat}
                   embedProvider={isLoomEmbedBacked ? "loom" : null}

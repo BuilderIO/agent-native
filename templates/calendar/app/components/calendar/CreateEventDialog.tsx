@@ -236,7 +236,7 @@ export function CreateEventPopover({
   const defaultDurationMinutes = Number.isFinite(rawDefaultDuration)
     ? Math.max(5, rawDefaultDuration)
     : 30;
-  const defaultTimezone = resolveEventTimezone();
+  const defaultTimezone = settings?.timezone || resolveEventTimezone();
   const fallbackStart = "09:00";
   const fallbackEnd = addMinutesToTimeString(
     fallbackStart,

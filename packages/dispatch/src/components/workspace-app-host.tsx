@@ -296,6 +296,8 @@ export function WorkspaceAppHost({ appId }: { appId?: string }) {
   );
 }
 
+const MAX_KEEP_ALIVE_APPS = 3;
+
 export function WorkspaceAppKeepAlive({
   activeAppId,
 }: {
@@ -308,7 +310,10 @@ export function WorkspaceAppKeepAlive({
   useEffect(() => {
     if (!activeAppId) return;
     setVisitedAppIds((current) =>
-      current.includes(activeAppId) ? current : [...current, activeAppId],
+      [activeAppId, ...current.filter((appId) => appId !== activeAppId)].slice(
+        0,
+        MAX_KEEP_ALIVE_APPS,
+      ),
     );
   }, [activeAppId]);
 

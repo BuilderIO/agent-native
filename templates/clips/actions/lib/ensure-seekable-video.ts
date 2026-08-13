@@ -282,6 +282,7 @@ async function ensureRecordingSeekableInternal(params: {
       videoUrl: upload.url,
       videoFormat: outputFormat,
       videoSizeBytes: seekable.bytes.byteLength,
+      mediaUpdatedAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     })
     .where(
@@ -348,9 +349,8 @@ export async function ensureRecordingSeekable(params: {
   force?: boolean;
   normalizeTimeline?: boolean;
 }): Promise<EnsureSeekableResult> {
-  try {
-    return await ensureRecordingSeekableInternal(params);
-  } finally {
+  const result = await ensureRecordingSeekableInternal(params);
+  if (result.changed || result.status === "already-optimized") {
     await clearSeekableRepairPending(params.recordingId).catch((err) => {
       console.warn("[ensure-seekable-video] failed to clear pending marker", {
         recordingId: params.recordingId,
@@ -358,4 +358,5 @@ export async function ensureRecordingSeekable(params: {
       });
     });
   }
+  return result;
 }

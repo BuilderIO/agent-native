@@ -32,13 +32,15 @@ Read the relevant skill before deeper work:
   values or silently widen app access while doing this.
 - Use `view-screen` when the current integration, resource, approval, route, or
   setup item is unclear.
-- Dispatch keeps its primary navigation focused on Overview, Chat, Apps, and
-  the workspace app rail. Workspace management and operator tools live under
-  the top-level `/admin` control plane, which uses grouped navigation for
-  `/admin/operations`, `/admin/metrics`, `/admin/integrations`, `/admin/vault`,
-  `/admin/automations`, `/admin/approvals`, `/admin/destinations`,
-  `/admin/agents`, `/admin/workspace`, `/admin/messaging`, `/admin/identities`,
-  `/admin/audit`, `/admin/dreams`, and `/admin/thread-debug`.
+- Use `import-agent` to normalize safe Claude Markdown or JSON into an
+  `agents/<slug>.md` profile; it skips credentials, hooks, shell, and local env.
+- Use `connect-external-agent` for public HTTP/A2A metadata; authenticate through
+  the normal connection flow.
+- Dispatch's primary nav is Overview, Chat, Apps, Agents, and the app rail.
+  `/agents` creates/imports reusable profiles; `/admin/agents` manages technical
+  MCP/A2A connections. Other workspace/operator tools live under `/admin`:
+  operations, metrics, integrations, vault, automations, approvals,
+  destinations, workspace, messaging, identities, audit, dreams, and thread-debug.
 - Keep approval and routing behavior explicit. Never silently widen access to
   secrets, apps, integrations, or workspace resources.
 - Curated workspace templates are private app sources. Use

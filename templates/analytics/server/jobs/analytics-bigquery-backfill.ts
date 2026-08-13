@@ -844,7 +844,7 @@ async function pressureSnapshot(
     );
     if (
       lockWaiters > 0 ||
-      (waiting > 0 && active >= maxActive) ||
+      active >= maxActive ||
       waiting >= 8 ||
       total >= maxTotal
     ) {

@@ -72,4 +72,25 @@ describe("availability schedule editing", () => {
       { start: "20:00", end: "23:00" },
     ]);
   });
+
+  it("keeps legacy one-digit hour strings when normalizing", () => {
+    expect(
+      normalizeAvailabilitySlots([
+        { start: "9:00", end: "12:00" },
+        { start: "13:00", end: "17:00" },
+      ]),
+    ).toEqual([
+      { start: "9:00", end: "12:00" },
+      { start: "13:00", end: "17:00" },
+    ]);
+  });
+
+  it("detects overlaps for legacy one-digit hour strings", () => {
+    expect(
+      availabilitySlotsOverlap([
+        { start: "9:00", end: "12:00" },
+        { start: "11:00", end: "13:00" },
+      ]),
+    ).toBe(true);
+  });
 });

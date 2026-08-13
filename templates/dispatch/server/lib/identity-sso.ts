@@ -14,7 +14,11 @@
 
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 
-import { getDbExec, intType } from "@agent-native/core/db";
+import {
+  getDbExec,
+  intType,
+  isProductionServerlessFunctionRuntime,
+} from "@agent-native/core/db";
 
 const CONTROL_CHARS = /[\u0000-\u001f\u007f]/;
 const APP_ID = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
@@ -390,6 +394,9 @@ function buildCodeTableSql(): string {
 }
 
 async function ensureCodeTable(): Promise<void> {
+  // The Dispatch release migration owns this table in production serverless
+  // deployments. Do not turn a missing release migration into request-time DDL.
+  if (isProductionServerlessFunctionRuntime()) return;
   if (!codeTableInitPromise) {
     codeTableInitPromise = getDbExec()
       .execute(buildCodeTableSql())

@@ -61,6 +61,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       "dispatch.nav.chat": "Chat",
       "dispatch.nav.overview": "Overview",
       "dispatch.nav.apps": "Apps",
+      "dispatch.nav.agents": "Agents",
       "dispatch.pages.workspaceApps": "Workspace apps",
       "dispatch.nav.operate": "Operate",
       "dispatch.nav.advanced": "Advanced",
@@ -196,6 +197,7 @@ describe("Dispatch NavContent", () => {
     expect(primaryLabels.indexOf("Overview")).toBeLessThan(
       primaryLabels.indexOf("Chat"),
     );
+    expect(primaryLabels).toContain("Agents");
   });
 
   it("keeps collapsed navigation compact and preserves section spacing", async () => {

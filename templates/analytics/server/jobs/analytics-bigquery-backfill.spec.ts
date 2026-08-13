@@ -155,16 +155,19 @@ describe("durable BigQuery backfill worker", () => {
 
   it("pauses before claiming work when the database has lock waiters", async () => {
     const db = { execute: vi.fn() };
-    db.execute.mockResolvedValue({
-      rows: [
-        {
-          total_sessions: "10",
-          active_sessions: "2",
-          waiting_sessions: "4",
-          lock_waiters: "1",
-        },
-      ],
-    });
+    db.execute
+      .mockResolvedValueOnce({ rows: [job] })
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            total_sessions: "10",
+            active_sessions: "2",
+            waiting_sessions: "4",
+            lock_waiters: "1",
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ rowsAffected: 1 });
     mocks.getDbExec.mockReturnValue(db);
 
     await expect(runFirstPartyAnalyticsBigQueryBackfillOnce()).resolves.toEqual(
@@ -174,20 +177,59 @@ describe("durable BigQuery backfill worker", () => {
         remaining: 1,
       }),
     );
-    expect(db.execute).toHaveBeenCalledTimes(1);
+    expect(db.execute).toHaveBeenCalledTimes(3);
     expect(mocks.backfill).not.toHaveBeenCalled();
   });
 
-  it("fails closed when the pressure probe itself times out", async () => {
-    const db = {
-      execute: vi.fn().mockRejectedValue(new Error("database timeout")),
-    };
+  it("pauses on active sessions when there are no waiters", async () => {
+    const db = { execute: vi.fn() };
+    db.execute
+      .mockResolvedValueOnce({ rows: [job] })
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            total_sessions: "10",
+            active_sessions: "80",
+            waiting_sessions: "0",
+            lock_waiters: "0",
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ rowsAffected: 1 });
     mocks.getDbExec.mockReturnValue(db);
 
     await expect(runFirstPartyAnalyticsBigQueryBackfillOnce()).resolves.toEqual(
       expect.objectContaining({
         status: "paused-pressure",
-        reason: expect.stringContaining("pressure probe failed"),
+        batches: 0,
+        remaining: 1,
+      }),
+    );
+    expect(db.execute).toHaveBeenCalledTimes(3);
+    expect(mocks.backfill).not.toHaveBeenCalled();
+  });
+
+  it("continues in a bounded lane when the pressure probe itself times out", async () => {
+    const db = {
+      execute: vi
+        .fn()
+        .mockResolvedValueOnce({ rows: [job] })
+        .mockRejectedValueOnce(new Error("database timeout"))
+        .mockResolvedValueOnce({ rows: [shard] })
+        .mockRejectedValueOnce(new Error("database timeout"))
+        .mockResolvedValueOnce({ rows: [{ remaining: "1" }] }),
+      transaction: vi.fn(async (fn: (transaction: unknown) => unknown) =>
+        fn({ execute: vi.fn().mockResolvedValue({ rows: [] }) }),
+      ),
+    };
+    mocks.getDbExec.mockReturnValue(db);
+
+    await expect(runFirstPartyAnalyticsBigQueryBackfillOnce()).resolves.toEqual(
+      expect.objectContaining({
+        status: "idle",
+        batches: 0,
+        copied: 0,
+        remaining: 1,
       }),
     );
     expect(mocks.backfill).not.toHaveBeenCalled();
@@ -206,6 +248,7 @@ describe("durable BigQuery backfill worker", () => {
     const db = {
       execute: vi
         .fn()
+        .mockResolvedValueOnce({ rows: [job] })
         .mockResolvedValueOnce({
           rows: [
             {
@@ -216,7 +259,6 @@ describe("durable BigQuery backfill worker", () => {
             },
           ],
         })
-        .mockResolvedValueOnce({ rows: [job] })
         .mockResolvedValueOnce({ rows: [shard] })
         .mockResolvedValueOnce({
           rows: [

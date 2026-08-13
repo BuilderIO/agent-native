@@ -101,9 +101,9 @@ function classifyBreakpointSet(
   if (value === null || value === undefined) return "absent";
   if (typeof value !== "object" || Array.isArray(value)) return "malformed";
   const breakpoints = (value as { breakpoints?: unknown }).breakpoints;
-  if (breakpoints === undefined) return "absent";
+  if (breakpoints === undefined) return "malformed";
   if (!Array.isArray(breakpoints)) return "malformed";
-  return breakpoints.length > 0 ? "present" : "absent";
+  return breakpoints.length > 0 ? "present" : "malformed";
 }
 
 function hasBreakpointSet(value: unknown): boolean {

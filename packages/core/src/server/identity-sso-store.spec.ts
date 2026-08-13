@@ -98,6 +98,7 @@ vi.mock("../db/client.js", () => ({
   intType: () => "INTEGER",
   isConnectionError: () => false,
   isPostgres: () => false,
+  isProductionServerlessFunctionRuntime: () => false,
 }));
 
 const store = await import("./identity-sso-store.js");

@@ -172,6 +172,7 @@ function makeRecording(overrides: Record<string, unknown> = {}) {
     spaceIds: null,
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
+    mediaUpdatedAt: "2026-01-01T00:00:00.000Z",
     ...overrides,
   };
 }
@@ -222,6 +223,7 @@ describe("/api/public-recording route", () => {
       recording: {
         videoUrl: "/api/video/rec-1?t=media-token",
         videoSizeBytes: 1200,
+        mediaUpdatedAt: "2026-01-01T00:00:00.000Z",
       },
     });
     expect(mockSignShortLivedToken).toHaveBeenCalledWith({

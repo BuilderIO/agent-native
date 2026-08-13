@@ -28,6 +28,11 @@ export interface ImportedAgentProfile {
   warnings: string[];
 }
 
+export interface ImportedAgentToolValidation {
+  tools?: string;
+  warnings: string[];
+}
+
 const SUPPORTED_FIELDS = new Set([
   "name",
   "description",
@@ -65,10 +70,60 @@ function stringValue(value: unknown): string | undefined {
 
 function toolsValue(value: unknown): string | undefined {
   if (Array.isArray(value)) {
-    const tools = value.filter((item): item is string => typeof item === "string");
+    const tools = value.filter(
+      (item): item is string => typeof item === "string",
+    );
     return tools.length > 0 ? tools.join(", ") : undefined;
   }
   return stringValue(value);
+}
+
+function normalizeToolKey(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+function importedToolNames(value: string): string[] {
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.toLowerCase() === "inherit") return [];
+  const unwrapped = trimmed.replace(/^\[|\]$/g, "");
+  return unwrapped
+    .split(/[\n,]/)
+    .map((tool) => tool.trim().replace(/^['"]|['"]$/g, ""))
+    .filter(Boolean);
+}
+
+/**
+ * Imported tool names are descriptive input, not a permission grant. Keep only
+ * names the current Dispatch surface can resolve and make every omission
+ * visible to the caller instead of persisting a misleading tool list.
+ */
+export function validateImportedAgentTools(
+  tools: string | undefined,
+  availableToolNames: ReadonlySet<string>,
+): ImportedAgentToolValidation {
+  const names = importedToolNames(tools ?? "");
+  if (names.length === 0) return { warnings: [] };
+
+  const resolvable = new Map<string, string>();
+  for (const name of availableToolNames) {
+    resolvable.set(normalizeToolKey(name), name);
+  }
+
+  const mapped: string[] = [];
+  const warnings: string[] = [];
+  for (const name of names) {
+    const resolved = resolvable.get(normalizeToolKey(name));
+    if (resolved) {
+      if (!mapped.includes(resolved)) mapped.push(resolved);
+    } else {
+      warnings.push(`Skipped unmapped tool: ${name}`);
+    }
+  }
+
+  return {
+    tools: mapped.length > 0 ? mapped.join(", ") : undefined,
+    warnings,
+  };
 }
 
 function markdownProfile(
@@ -113,7 +168,9 @@ function jsonProfile(source: string, fileName?: string): ImportedAgentProfile {
       ? (parsed as Record<string, unknown>)
       : null;
   const candidate =
-    record?.agent && typeof record.agent === "object" && !Array.isArray(record.agent)
+    record?.agent &&
+    typeof record.agent === "object" &&
+    !Array.isArray(record.agent)
       ? (record.agent as Record<string, unknown>)
       : record;
   if (!candidate) {
@@ -136,7 +193,8 @@ function jsonProfile(source: string, fileName?: string): ImportedAgentProfile {
       warnings.push(`Skipped unsafe capability: ${key}`);
     }
   }
-  if (!instructions) warnings.push("The imported agent has no instructions yet.");
+  if (!instructions)
+    warnings.push("The imported agent has no instructions yet.");
 
   return {
     name,
@@ -163,7 +221,9 @@ export function normalizeImportedAgent(
   return markdownProfile(trimmed, fileName);
 }
 
-export function buildSimpleAgentContent(input: SimpleAgentProfileInput): string {
+export function buildSimpleAgentContent(
+  input: SimpleAgentProfileInput,
+): string {
   const fields = [
     { key: "name", value: input.name.trim() },
     ...(input.description?.trim()

@@ -101,13 +101,18 @@ export default defineAction({
     if (navigation?.view === "destinations") {
       screen.recentDestinations = overview.recentDestinations;
     }
-    if (navigation?.view === "agents") {
+    if (navigation?.view === "connected-agents") {
       const [connectedAgents, mcpAccess] = await Promise.all([
         runLocalDispatchAction("list-connected-agents", {}),
         runLocalDispatchAction("list-mcp-app-access", {}),
       ]);
       screen.connectedAgents = connectedAgents;
       screen.mcpAppAccess = mcpAccess;
+    }
+    if (navigation?.view === "agents") {
+      screen.simpleAgents = await listWorkspaceResourceOptions({
+        kind: "agent",
+      });
     }
     if (navigation?.view === "operations") {
       const nav = navigation as { operationsView?: string };

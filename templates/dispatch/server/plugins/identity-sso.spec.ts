@@ -101,6 +101,7 @@ vi.mock("@agent-native/core/db", () => ({
     },
   }),
   intType: () => "INTEGER",
+  isProductionServerlessFunctionRuntime: () => false,
 }));
 vi.mock("h3", () => ({
   defineEventHandler: (handler: any) => handler,

@@ -1,13 +1,16 @@
+import { defineAction } from "@agent-native/core";
 import { getDbExec } from "@agent-native/core/db";
 import {
   resourceGetByPath,
   resourcePut,
   sharedResourceOwner,
 } from "@agent-native/core/resources/store";
-import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 
-import { currentOrgId, currentOwnerEmail } from "../server/lib/dispatch-store.js";
+import {
+  currentOrgId,
+  currentOwnerEmail,
+} from "../server/lib/dispatch-store.js";
 
 function slugify(value: string): string {
   return (
@@ -61,7 +64,9 @@ export default defineAction({
     const id = slugify(agentName);
     const path = `remote-agents/${id}.json`;
     const owner =
-      scope === "shared" ? sharedResourceOwner(currentOrgId()) : currentOwnerEmail();
+      scope === "shared"
+        ? sharedResourceOwner(currentOrgId())
+        : currentOwnerEmail();
     const existing = await resourceGetByPath(owner, path);
     if (existing) {
       throw new Error(
@@ -74,7 +79,6 @@ export default defineAction({
       name: agentName,
       ...(description?.trim() ? { description: description.trim() } : {}),
       url: parsed.toString(),
-      color: "#6B7280",
     };
     const resource = await resourcePut(
       owner,

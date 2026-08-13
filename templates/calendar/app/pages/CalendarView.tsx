@@ -1317,7 +1317,7 @@ export default function CalendarView() {
         return;
       }
 
-      const timezone = resolveEventTimezone();
+      const timezone = activeSettings.timezone;
       const defaultDuration = Math.max(
         5,
         activeSettings.defaultEventDuration ?? 30,

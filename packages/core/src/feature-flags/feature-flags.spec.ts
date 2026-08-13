@@ -150,11 +150,29 @@ describe("feature flag evaluator", () => {
     ).resolves.toBe(false);
   });
 
-  it("detects an active org-scoped rollout without exposing its target", async () => {
+  it("uses the rollout index for anonymous discovery on the hot path", async () => {
+    registry.registerFeatureFlags([{ key: "new-editor" }]);
+    globalSettings.set("feature-flag-rollout-index:new-editor", {
+      version: 1,
+      global: false,
+      orgIds: ["builder-org"],
+    });
+
+    await expect(store.hasActiveFeatureFlagRollout("new-editor")).resolves.toBe(
+      true,
+    );
+    expect(executeMock).not.toHaveBeenCalled();
+    expect(getSettingMock).toHaveBeenCalledWith(
+      "feature-flag-rollout-index:new-editor",
+    );
+  });
+
+  it("repairs a missing rollout index once and caches the result", async () => {
     registry.registerFeatureFlags([{ key: "new-editor" }]);
     executeMock.mockResolvedValueOnce({
       rows: [
         {
+          key: "o:builder-org:feature-flag:new-editor",
           value: JSON.stringify({
             mode: "rules",
             orgIds: ["builder-org"],
@@ -167,9 +185,16 @@ describe("feature flag evaluator", () => {
       true,
     );
     expect(executeMock).toHaveBeenCalledWith({
-      sql: expect.stringContaining("WHERE key LIKE ?"),
+      sql: expect.stringContaining("SELECT key, value FROM"),
       args: ["o:%:feature-flag:new-editor"],
     });
+    expect(globalSettings.get("feature-flag-rollout-index:new-editor")).toEqual(
+      {
+        version: 1,
+        global: false,
+        orgIds: ["builder-org"],
+      },
+    );
   });
 
   it("does not advertise empty or explicitly off scoped rules", async () => {
@@ -207,5 +232,12 @@ describe("feature flag evaluator", () => {
     expect(orgSettings.get("org-1:feature-flag:new-editor")).toMatchObject({
       emails: ["first@example.com", "second@example.com"],
     });
+    expect(globalSettings.get("feature-flag-rollout-index:new-editor")).toEqual(
+      {
+        version: 1,
+        global: false,
+        orgIds: ["org-1"],
+      },
+    );
   });
 });
