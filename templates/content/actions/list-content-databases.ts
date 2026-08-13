@@ -64,6 +64,11 @@ export default defineAction({
     const query = args.query?.trim();
     const pattern = query ? `%${escapeLike(query.toLowerCase())}%` : null;
     const exactTitle = args.title?.toLowerCase();
+    const resolvesExactly = !!(
+      args.databaseId ||
+      args.documentId ||
+      exactTitle
+    );
     const excludedDatabaseIds = new Set(
       [
         args.excludeDatabaseId?.trim(),
@@ -120,7 +125,12 @@ export default defineAction({
       )
       .orderBy(asc(schema.documents.position));
 
-    const rows = await queryBuilder;
+    // Exact resolution must inspect every match so ambiguity fails closed.
+    // Ordinary discovery keeps its caller-provided database bound.
+    const rows =
+      resolvesExactly || !args.limit
+        ? await queryBuilder
+        : await queryBuilder.limit(args.limit);
 
     const localTableSources =
       excludedDatabaseIds.size > 0
@@ -158,10 +168,7 @@ export default defineAction({
           !sourceChainIncludesExcludedDatabase(row.id),
       );
 
-    if (
-      (args.databaseId || args.documentId || exactTitle) &&
-      visibleRows.length !== 1
-    ) {
+    if (resolvesExactly && visibleRows.length !== 1) {
       const selector = args.databaseId
         ? `database ID "${args.databaseId}"`
         : args.documentId

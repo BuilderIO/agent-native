@@ -202,11 +202,30 @@ describe("list-content-databases", () => {
         listContentDatabasesAction.run({ title: "Missing Intake" }),
       ).rejects.toThrow(/No accessible Content database matched/);
       await expect(
-        listContentDatabasesAction.run({ title: "Shared Intake" }),
+        listContentDatabasesAction.run({ title: "Shared Intake", limit: 1 }),
       ).rejects.toThrow(/ambiguous across 2 accessible Content databases/);
       await expect(
         listContentDatabasesAction.run({ title: "   " }),
       ).rejects.toThrow();
+    });
+  });
+
+  it("bounds ordinary discovery results", async () => {
+    await createDatabaseDocument({
+      documentId: "db-doc-bounded-a",
+      databaseId: "db-bounded-a",
+      title: "Bounded Intake A",
+    });
+    await createDatabaseDocument({
+      documentId: "db-doc-bounded-b",
+      databaseId: "db-bounded-b",
+      title: "Bounded Intake B",
+    });
+
+    await runWithRequestContext({ userEmail: OWNER }, async () => {
+      await expect(
+        listContentDatabasesAction.run({ query: "Bounded Intake", limit: 1 }),
+      ).resolves.toMatchObject({ databases: [{ databaseId: "db-bounded-a" }] });
     });
   });
 
