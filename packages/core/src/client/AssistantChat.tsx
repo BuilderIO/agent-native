@@ -1990,6 +1990,8 @@ export interface AssistantChatProps {
   composerToolbarSlot?: React.ReactNode;
   /** Optional action rendered beside the voice/send controls. */
   composerExtraActionButton?: React.ReactNode;
+  /** Show the framework model picker in the shared composer. Defaults to true. */
+  showModelSelector?: boolean;
   /** Disable the composer for capability-gated surfaces while still showing history. */
   composerDisabled?: boolean;
   /** Placeholder to show while the composer is disabled by the host surface. */
@@ -2088,6 +2090,12 @@ export interface AssistantChatProps {
     onDeny?: (approvalKey: string) => void;
     onAlwaysAllow?: (approvalKey: string) => void;
   };
+}
+
+export function shouldShowAssistantChatModelSelector(
+  showModelSelector: boolean | undefined,
+): boolean {
+  return showModelSelector !== false;
 }
 
 export const CHAT_STORAGE_PREFIX = "agent-chat:";
@@ -2393,6 +2401,7 @@ const AssistantChatInner = forwardRef<
     emptyStateDisplay = "default",
     composerToolbarSlot,
     composerExtraActionButton,
+    showModelSelector = true,
     composerDisabled = false,
     composerDisabledPlaceholder,
     isNewThread,
@@ -6379,7 +6388,13 @@ const AssistantChatInner = forwardRef<
                                       selectedEffort={selectedEffort}
                                       availableModels={availableModels}
                                       modelListLoading={modelListLoading}
-                                      onModelChange={onModelChange}
+                                      onModelChange={
+                                        shouldShowAssistantChatModelSelector(
+                                          showModelSelector,
+                                        )
+                                          ? onModelChange
+                                          : undefined
+                                      }
                                       onEffortChange={onEffortChange}
                                       imageModelMenu={imageModelMenu}
                                       onConnectProvider={onConnectProvider}

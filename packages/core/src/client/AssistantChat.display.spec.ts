@@ -41,6 +41,7 @@ import {
   resolveAssistantChatRunningState,
   resolveAssistantChatRunningStatusLabel,
   resolveAssistantChatComposerPlaceholder,
+  shouldShowAssistantChatModelSelector,
   resolveAssistantChatSubmitIntent,
   settleInterruptedAssistantToolCallsInRepo,
   shouldAcceptRunError,
@@ -49,6 +50,22 @@ import {
   useAutoResumeStatus,
   waitForThreadRunToClear,
 } from "./AssistantChat.js";
+
+describe("shouldShowAssistantChatModelSelector", () => {
+  it("keeps the framework selector by default and lets hosts replace only its visual control", () => {
+    expect(shouldShowAssistantChatModelSelector(undefined)).toBe(true);
+    expect(shouldShowAssistantChatModelSelector(true)).toBe(true);
+    expect(shouldShowAssistantChatModelSelector(false)).toBe(false);
+
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    expect(source).toContain("showModelSelector?: boolean");
+    expect(source).toContain(
+      "shouldShowAssistantChatModelSelector(\n                                          showModelSelector,",
+    );
+  });
+});
 
 describe("assistantUiMessageListStructureKey", () => {
   it("ignores text changes within existing message resources", () => {
