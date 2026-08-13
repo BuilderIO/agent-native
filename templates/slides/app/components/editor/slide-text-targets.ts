@@ -1,5 +1,7 @@
 import { findEnclosingList } from "./bullet-editing";
 
+type EditingTarget = EventTarget | Element | null;
+
 /** Inline markup changes presentation, but does not create a canvas target. */
 const INLINE_TEXT_TAGS = new Set([
   "SPAN",
@@ -21,6 +23,28 @@ const INLINE_TEXT_TAGS = new Set([
 
 export function isInlineTextElement(element: Element): boolean {
   return INLINE_TEXT_TAGS.has(element.tagName);
+}
+
+function isEditingTarget(target: EditingTarget): boolean {
+  if (!(target instanceof Element)) return false;
+  return (
+    (target instanceof HTMLElement && target.isContentEditable) ||
+    target.closest('[contenteditable="true"], [data-editing-block="true"]') !==
+      null
+  );
+}
+
+/** Whether a keyboard/pointer event belongs to an active slide text edit. */
+export function isSlideTextEditingTarget(
+  target: EditingTarget,
+  activeElement: Element | null = null,
+  editingElement: Element | null = null,
+): boolean {
+  return (
+    isEditingTarget(target) ||
+    isEditingTarget(activeElement) ||
+    isEditingTarget(editingElement)
+  );
 }
 
 export function shouldStampBuilderId(element: HTMLElement): boolean {

@@ -27,6 +27,7 @@ export default defineAction({
   agentTool: false,
   toolCallable: true,
   http: { method: "POST" },
+  grounding: true,
   run: async ({ account, accounts, query, days, pageSize, maxPages }) => {
     if (accounts) {
       const response = (await executeProviderApiRequest({

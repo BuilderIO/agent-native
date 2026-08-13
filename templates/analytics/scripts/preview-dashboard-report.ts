@@ -19,7 +19,8 @@
  */
 
 import { mkdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import path, { join } from "node:path";
+import { pathToFileURL } from "node:url";
 
 import { runWithRequestContext } from "@agent-native/core/server/request-context";
 import { eq } from "drizzle-orm";
@@ -215,7 +216,17 @@ async function renderPreview(
   if (rendered.degradedPanelIds.length) process.exitCode = 1;
 }
 
-main().catch((err) => {
-  console.error("[preview] failed:", err);
-  process.exit(1);
-});
+function isDirectRun(): boolean {
+  const entrypoint = process.argv[1];
+  return Boolean(
+    entrypoint &&
+    import.meta.url === pathToFileURL(path.resolve(entrypoint)).href,
+  );
+}
+
+if (isDirectRun()) {
+  main().catch((err) => {
+    console.error("[preview] failed:", err);
+    process.exit(1);
+  });
+}

@@ -179,6 +179,7 @@ import {
 import { normalizeDatabaseToolsMode } from "../scripts/db/tool-mode.js";
 import type { ResolvedKeyReference } from "../secrets/substitution.js";
 import { getSetting, putSetting } from "../settings/store.js";
+import { docsUrl } from "../shared/docs-url.js";
 import {
   handleSharedThreadRequest,
   type SharedThreadRouteDependencies,
@@ -366,6 +367,25 @@ export { loadResourcesForPrompt };
 export { _agentChatPromptSectionsForTests };
 export { buildPublicAgentA2ASkills };
 export { assembleA2AFinalResponse };
+export function buildLeanSystemPrompt(input: {
+  basePrompt: string;
+  resources: string;
+  additionalFramework?: string;
+  cacheSplit?: string;
+  extra?: string;
+  modelOverlay?: string;
+  runtimeContext?: string;
+}): string {
+  return (
+    input.basePrompt +
+    (input.additionalFramework ?? "") +
+    (input.cacheSplit ?? "") +
+    input.resources +
+    (input.extra ?? "") +
+    (input.modelOverlay ?? "") +
+    (input.runtimeContext ?? "")
+  );
+}
 export type { AgentChatPluginOptions };
 export { runA2AAgentLoop };
 export { runMCPAgentLoop };
@@ -2926,6 +2946,7 @@ export function createAgentChatPlugin(
       const leanActionEntries: Record<string, ActionEntry> = {
         ...templateScripts,
         ...resourceScripts,
+        ...workspaceFileActions,
         ...refreshScreenTool,
         ...urlTools,
         ...chatScripts,
@@ -3286,6 +3307,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               codeEditingSurfaceRestriction,
               prodCodeExecPromptNote,
             );
+            const resources = await loadResourcesForPrompt(
+              owner,
+              true,
+              options?.appId,
+              undefined,
+              { disabledFrameworkGroups },
+            );
             await emitContextXraySystemSections(event, {
               frameworkPrompt: leanBasePrompt.slice(
                 0,
@@ -3293,17 +3321,21 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               ),
               actionsPrompt: leanActionsPrompt,
               additionalFramework: leanRunPolicyPrompt,
+              resources,
               extra,
               modelOverlay,
               runtimeContext,
             });
             return setSystemPromptOnContext(
-              leanBasePrompt +
-                leanRunPolicyPrompt +
-                SYSTEM_PROMPT_CACHE_SPLIT +
-                extra +
-                modelOverlay +
+              buildLeanSystemPrompt({
+                basePrompt: leanBasePrompt,
+                additionalFramework: leanRunPolicyPrompt,
+                cacheSplit: SYSTEM_PROMPT_CACHE_SPLIT,
+                resources,
+                extra,
+                modelOverlay,
                 runtimeContext,
+              }),
             );
           }
           const resources = await loadResourcesForPrompt(
@@ -3568,18 +3600,32 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             // cached prompt prefix as possible. See the prod handler above
             // for the same pattern.
             if (leanPrompt) {
+              const resources = await loadResourcesForPrompt(
+                owner,
+                true,
+                options?.appId,
+                undefined,
+                { disabledFrameworkGroups },
+              );
               await emitContextXraySystemSections(event, {
                 frameworkPrompt: leanBasePrompt.slice(
                   0,
                   Math.max(0, leanBasePrompt.length - leanActionsPrompt.length),
                 ),
                 actionsPrompt: leanActionsPrompt,
+                resources,
                 extra,
                 modelOverlay,
                 runtimeContext,
               });
               return setSystemPromptOnContext(
-                leanBasePrompt + extra + modelOverlay + runtimeContext,
+                buildLeanSystemPrompt({
+                  basePrompt: leanBasePrompt,
+                  resources,
+                  extra,
+                  modelOverlay,
+                  runtimeContext,
+                }),
               );
             }
             const resources = await loadResourcesForPrompt(
@@ -4400,8 +4446,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           } = { skills };
 
           if (skills.length === 0) {
-            result.hint =
-              "No skills found. Add skill files under skills/ in Resources. Learn more: https://agent-native.com/docs/resources#skills";
+            result.hint = `No skills found. Add skill files under skills/ in Resources. Learn more: ${docsUrl("agent-resources", { hash: "skills" })}`;
           }
 
           return result;
@@ -6128,17 +6173,48 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   "Recurring-job sweep reached the synchronous server instead of the durable background worker.",
               };
             }
+            // Stale reaping runs FIRST and site-wide, before the open-ended job
+            // sweep can spend the platform wall. It is the durable driver the
+            // in-process fast sweep below cannot be on serverless: that timer is
+            // off wherever `shouldDisableInProcessSweeps` is on — i.e. every
+            // production Lambda — and nothing replaced it, so a claimed run
+            // whose producer died was only reaped when an unrelated request path
+            // happened to look (prod: 1,216 runs, 12% of all runs, sitting
+            // "running" for up to 59 minutes against a 15s window).
+            //
+            // One reap per site-tick instead of one per warm container is also
+            // the point: the per-container timers are what issued 237k queries
+            // in two minutes and earned that kill switch. `reapAllStaleRuns`
+            // short-circuits on `hasRunningRuns()` (negative-cached), so an idle
+            // app pays one probe.
+            //
+            // Reported, never swallowed, and never fatal to the job sweep: a
+            // reap failure must not take recurring jobs down with it, and
+            // `null` must stay distinguishable from "reaped nothing". The
+            // result carries `failed` and `truncated` for the same reason one
+            // level down — a pass where every row threw, and a pass that hit
+            // the batch cap, both used to be reportable as a clean sweep.
+            const { reapAllStaleRuns } = await import("../agent/run-store.js");
+            const staleRunsReaped = await reapAllStaleRuns().catch(
+              (error: unknown) => {
+                console.error(
+                  "[agent-chat] durable stale-run reap failed:",
+                  error,
+                );
+                return null;
+              },
+            );
             try {
               // Jobs may request MCP tools, and `getActions` is synchronous —
               // hydrate before the sweep so a serverless container that never
               // eagerly initialized still resolves them.
               await ensureMcpInitialized();
               await processRecurringJobs(schedulerDeps);
-              return { ok: true };
+              return { ok: true, staleRunsReaped };
             } catch (error) {
               console.error("[recurring-jobs] Sweep route failed:", error);
               setResponseStatus(event, 500);
-              return { error: "Recurring-job sweep failed" };
+              return { error: "Recurring-job sweep failed", staleRunsReaped };
             }
           }),
         );
@@ -6410,7 +6486,19 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 // against a 45s window). `reapAllStaleRuns` is per-row,
                 // idempotent, re-checks staleness at UPDATE time and honours
                 // the in-flight grace, so it is safe on this cadence.
-                await reapAllStaleRuns().catch(() => {});
+                //
+                // This timer is the driver only where it actually runs — a
+                // long-lived Node host. Wherever `sweepsDisabled` turns it off
+                // (every production serverless function) the signed
+                // RECURRING_JOBS_SWEEP_PATH route above owns the same reap,
+                // driven by the platform scheduler. The two never both fire on
+                // one host, which is why neither needs to coordinate.
+                await reapAllStaleRuns().catch((error: unknown) => {
+                  console.error(
+                    "[agent-chat] in-process stale-run reap failed:",
+                    error,
+                  );
+                });
                 let rows: UnclaimedBackgroundRunRow[];
                 try {
                   rows = await listUnclaimedBackgroundRunRows();

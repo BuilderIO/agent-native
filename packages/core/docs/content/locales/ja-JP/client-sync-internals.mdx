@@ -1,0 +1,125 @@
+---
+title: "同期の内部"
+description: "useDbSync の背後にある変更バージョンの仕組み: 生の useQuery を同期するための useChangeVersion/useChangeVersions と、再フェッチが取りうる 2 つのレイテンシ パス。"
+---
+
+# 同期の内部
+
+[Live Sync](/docs/key-concepts#polling-sync) はメンタル モデルをカバーしています: エージェントの書き込みが変更イベントになり、`useDbSync()` がそれを取り込み、影響を受けるクエリが再フェッチされる、という流れです。このページでは、ほとんどのアプリが直接触れることのない、その下にある仕組みをカバーします。`useDbSync()` がインクリメントする変更バージョン カウンターと、`useActionQuery()` を経由していない生の `useQuery()` 呼び出しにそれらを組み込む方法です。
+
+`useActionQuery()` は、変更アクションが完了すると既に自動的に再フェッチします ([データと同期](/docs/client-data#fetching-mutating) を参照)。`useChangeVersion()`/`useChangeVersions()` に手を伸ばすのは、統合ステータスを読み取る低レベルのクライアント ヘルパーなど、そのパスの外で生の `useQuery()` 呼び出しを同期させている場合だけです。
+
+## 変更バージョンの仕組み {#how-it-works}
+
+サーバー側のデータベースの変更が発生すると、サーバーは `source` キーでタグ付けされた変更イベントを記録します。`useDbSync()` はそのイベントを受け取り、そのソースのローカル カウンターをインクリメントします。カウンターを React Query のキーに組み込むことで、バックエンドがそのソースの新しいアクティビティを報告するたびに、クエリが自動的に再フェッチされます。
+
+## useChangeVersion / useChangeVersions {#use-change-version}
+
+<Signature
+  id="doc-block-client-sync-internals-1"
+  name="useChangeVersion"
+  params={[
+    {
+      name: "source",
+      type: "string",
+      description: '監視する変更イベントのソース。例: `"dashboards"`。',
+    },
+  ]}
+  returns={{
+    type: "number",
+    description:
+      "指定されたソースが変更されるたびにインクリメントされるカウンター。",
+  }}
+/>
+
+<Signature
+  id="doc-block-client-sync-internals-2"
+  name="useChangeVersions"
+  params={[
+    {
+      name: "sources",
+      type: "readonly string[]",
+      description: "一度に監視する複数の変更イベントのソース。",
+    },
+  ]}
+  returns={{
+    type: "number",
+    description: "指定されたソースそれぞれのバージョン カウンターの合計。",
+  }}
+/>
+
+以下の例では、生の `useQuery()` 呼び出しがダッシュボードを直接読み取り、そのソースが変更されるたびに再フェッチされるように `"dashboards"` ソースのバージョン カウンターをクエリ キーに組み込んでいます。
+
+```tsx
+import { useQuery } from "@tanstack/react-query";
+import { useChangeVersion } from "@agent-native/core/client/hooks";
+
+function DashboardView({ id }) {
+  const version = useChangeVersion("dashboards");
+
+  const { data } = useQuery({
+    queryKey: ["dashboard", id, version],
+    queryFn: () => fetchDashboard(id),
+    placeholderData: (prev) => prev,
+  });
+
+  return <div>{data?.title}</div>;
+}
+```
+
+`placeholderData: (prev) => prev` は、再フェッチ中に前のデータを画面に残すため、ビューが読み込み状態にちらつきません。
+
+## 再フェッチへの 2 つのパス {#latency-models}
+
+ミューテーションは 2 つの方法のいずれかで UI に到達し、それぞれレイテンシが異なります。
+
+自分の `useActionMutation()` 呼び出しが行ったローカルなミューテーションは、成功するとすぐに `source: "action"` イベントを発行します。そのアクションに依存するすべてのクエリはすぐに再フェッチされます。書き込みを行ったタブが既にその変更を知っているため、往復の遅延はありません。
+
+エージェント、webhook、別のタブ、別のユーザーによるリモートなミューテーションは、まずこのタブに到達する必要があります。`useDbSync()` は、SSE 経由でほぼ即座にそれを取り込むか、SSE が利用できない場合はポーリング フォールバックで約 2 秒以内に取り込みます。そのイベントが到着してからようやく、関連するバージョン カウンターがインクリメントされ、クエリがバックグラウンドで再フェッチされます。
+
+<Diagram id="doc-block-client-sync-internals-3" title="再フェッチへの 2 つのパス" summary="ローカルなミューテーションは自身のキャッシュを即座に無効化します。リモートの書き込みは SSE、またはフォールバックとしてのポーリングを介してこのタブに到達します。">
+
+```html
+<div class="diagram-latency">
+  <div class="diagram-col">
+    <div class="diagram-card" data-rough>
+      <span class="diagram-pill ok">このタブ</span
+      ><strong>useActionMutation</strong
+      ><small class="diagram-muted"
+        >fires source: "action" on success &rarr; instant local refetch</small
+      >
+    </div>
+    <div class="diagram-card" data-rough>
+      <span class="diagram-pill accent">エージェント · webhook · 別のタブ</span
+      ><strong>リモートの書き込み</strong
+      ><small class="diagram-muted"
+        >SSE push, or the ~2s polling tick as fallback &rarr; version bumps
+        &rarr; background refetch</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-latency .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.diagram-latency .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+}
+```
+
+</Diagram>
+
+## 次は何ですか
+
+- [**Live Sync**](/docs/key-concepts#polling-sync) — このページがその下で扱う、概念的なメンタル モデル
+- [**データと同期**](/docs/client-data) — これらのプリミティブの代わりにほとんどのページで使うべき `useActionQuery`/`useDbSync`
+- [**高度**](/docs/client-advanced) — その他の低レベルなクライアント プリミティブとエスケープ ハッチ
+  </content>

@@ -6,6 +6,7 @@ import {
   type CollabUser,
 } from "@agent-native/core/client/collab";
 import {
+  readClientAppState,
   setClientAppState,
   usePinchZoom,
   useAvatarUrl,
@@ -17,15 +18,7 @@ import {
 } from "@agent-native/toolkit/collab-ui";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import { hashSlideContent } from "@shared/slide-fit";
-import {
-  IconBrush,
-  IconClipboard,
-  IconCopy,
-  IconStackBack,
-  IconStackFront,
-  IconTrash,
-  IconX,
-} from "@tabler/icons-react";
+import { IconX } from "@tabler/icons-react";
 import {
   useState,
   useCallback,
@@ -73,6 +66,7 @@ import {
   MAX_CANVAS_ZOOM,
   MIN_CANVAS_ZOOM,
 } from "@/lib/canvas-zoom";
+import { downloadImage } from "@/lib/image-download";
 import { extractMermaidBlocks } from "@/lib/mermaid-blocks";
 import { publishSlidesSelection } from "@/lib/slide-agent-context";
 import {
@@ -113,6 +107,7 @@ import {
   getInlineTextStyleSnapshot,
   getInlineTextStyleSnapshotForRange,
   restoreEditableTextRange,
+  selectAllEditableText,
   snapshotEditableTextRange,
   type InlineTextStylePatch,
   type InlineTextStyleSnapshot,
@@ -167,6 +162,7 @@ import { type SlideStylePatch, type SlideStyleSnapshot } from "./slide-style";
 import {
   findSmartBlock,
   isInlineTextElement,
+  isSlideTextEditingTarget,
   isTextLeaf,
   shouldStampBuilderId,
 } from "./slide-text-targets";
@@ -1064,6 +1060,13 @@ function syncOverflowToAppState(
   }
 }
 
+function layoutWarningDismissalStateKey(
+  deckId: string | undefined,
+  slideId: string,
+): string {
+  return `slides-layout-warning-dismissed:${deckId ?? "local"}:${slideId}`;
+}
+
 export default function SlideEditor({
   slide,
   onUpdateSlide,
@@ -1222,12 +1225,54 @@ export default function SlideEditor({
   const repairRequestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
-  const [dismissedOverflowWarningKey, setDismissedOverflowWarningKey] =
+  const overflowWarningStateKey = layoutWarningDismissalStateKey(
+    deckId,
+    slide.id,
+  );
+  const overflowContentHash = hashSlideContent(slide.content);
+  const [dismissedOverflowWarningHash, setDismissedOverflowWarningHash] =
     useState<string | null>(null);
-  const overflowWarningKey = `${slide.id}:${hashSlideContent(slide.content)}`;
-  const warningVisible = dismissedOverflowWarningKey !== overflowWarningKey;
-  const dismissWarning = () =>
-    setDismissedOverflowWarningKey(overflowWarningKey);
+  const [overflowWarningDismissalStatus, setOverflowWarningDismissalStatus] =
+    useState<"loading" | "loaded" | "error">("loading");
+  useEffect(() => {
+    let cancelled = false;
+    setDismissedOverflowWarningHash(null);
+    setOverflowWarningDismissalStatus("loading");
+    void readClientAppState<unknown>(overflowWarningStateKey)
+      .then((value) => {
+        if (cancelled) return;
+        setDismissedOverflowWarningHash(
+          typeof value === "string" ? value : null,
+        );
+        setOverflowWarningDismissalStatus("loaded");
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        console.error("Could not read slide overflow warning dismissal", error);
+        setDismissedOverflowWarningHash(null);
+        setOverflowWarningDismissalStatus("error");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [overflowWarningStateKey]);
+  const warningVisible =
+    overflowWarningDismissalStatus === "error" ||
+    (overflowWarningDismissalStatus === "loaded" &&
+      dismissedOverflowWarningHash !== overflowContentHash);
+  const dismissWarning = useCallback(() => {
+    setDismissedOverflowWarningHash(overflowContentHash);
+    setOverflowWarningDismissalStatus("loaded");
+    void setClientAppState(overflowWarningStateKey, overflowContentHash, {
+      keepalive: true,
+      requestSource: TAB_ID,
+    }).catch((error: unknown) => {
+      console.error(
+        "Could not persist slide overflow warning dismissal",
+        error,
+      );
+    });
+  }, [overflowContentHash, overflowWarningStateKey]);
   const dims = getAspectRatioDims(aspectRatio);
   const [fitCanvasZoom, setFitCanvasZoom] = useState(100);
   const userSetCanvasZoomRef = useRef(false);
@@ -1930,6 +1975,17 @@ export default function SlideEditor({
     return () => editingEl.removeEventListener("input", handleInput);
   }, [captureInlineEditDraft, editingEl, slide.id]);
 
+  // Keep canvas gesture handlers from stealing the browser's native text
+  // selection stream once an inline edit has started.
+  useEffect(() => {
+    if (!editingEl) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (event.button === 0) event.stopPropagation();
+    };
+    editingEl.addEventListener("pointerdown", onPointerDown);
+    return () => editingEl.removeEventListener("pointerdown", onPointerDown);
+  }, [editingEl]);
+
   useEffect(() => {
     if (!editingEl) return;
 
@@ -1981,6 +2037,17 @@ export default function SlideEditor({
       (isTextLeaf(editingEl) && RICH_BLOCK_TAGS.has(editingEl.tagName)) ||
       isBulletList(editingEl);
     const onKey = (e: KeyboardEvent) => {
+      const isSelectAll =
+        (e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === "a";
+      if (isSelectAll) {
+        const editing = editingElRef.current;
+        if (!editing || !editing.isConnected) return;
+        e.preventDefault();
+        e.stopPropagation();
+        selectAllEditableText(editing);
+        return;
+      }
+
       // Ignore keys from outside the slide (e.g. the style dock's font-size
       // input). Guard against the LIVE slide content, not `editingEl`, which a
       // re-render may have detached — a stale ref would wrongly bail here and
@@ -2036,6 +2103,7 @@ export default function SlideEditor({
     exitInlineEdit,
     editingEl,
     captureInlineEditDraft,
+    selectAllEditableText,
     slide.id,
     getSlideContent,
   ]);
@@ -4123,10 +4191,12 @@ export default function SlideEditor({
 
   useEffect(() => {
     if (readOnly || editingEl) return;
-    if (multiSelection.size === 0 && !selectedElementSelector) return;
+    if (multiSelection.size === 0 && !selectedElementSelector && !selectedImg)
+      return;
     const onKey = (e: KeyboardEvent) => {
       if (!e.key.startsWith("Arrow")) return;
       const active = document.activeElement;
+      if (isSlideTextEditingTarget(e.target, active, editingEl)) return;
       if (
         active?.tagName === "INPUT" ||
         active?.tagName === "TEXTAREA" ||
@@ -4139,7 +4209,7 @@ export default function SlideEditor({
       if (!nudge) return;
       const { x: dx, y: dy } = nudge.delta;
 
-      if (multiSelection.size > 0 && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
+      if (multiSelection.size > 0 && !e.metaKey && !e.ctrlKey) {
         const slideContent = getSlideContent();
         if (!slideContent) return;
         const elements = Array.from(multiSelection)
@@ -4188,17 +4258,51 @@ export default function SlideEditor({
         return;
       }
 
-      const element = resolveSelectedElement();
-      if (!element || !isPersistedFreeformObject(element)) return;
+      const slideContent = getSlideContent();
+      const element =
+        resolveSelectedElement() ??
+        (selectedImg && slideContent
+          ? (findPersistedImageObject(selectedImg, slideContent) ?? selectedImg)
+          : null);
+      if (!element) return;
+
+      // Arrow nudging is also a first-class way to move flow-layout text and
+      // images. Promote those elements using the same reversible freeform
+      // boundary as a real drag, then persist the exact resulting HTML.
+      const frozen = isPersistedFreeformObject(element)
+        ? { element }
+        : freezeElementForFreeformSelection(element);
+      if (!frozen || !isPersistedFreeformObject(frozen.element)) {
+        frozen?.restoreMarkdownTree?.();
+        return;
+      }
       e.preventDefault();
-      const geometry = getObjectGeometry(element);
+      const geometry = getObjectGeometry(frozen.element);
       geometry.x += dx;
       geometry.y += dy;
-      applyObjectGeometry(element, geometry);
+      applyObjectGeometry(frozen.element, geometry);
       const html = readCurrentSlideContentHtml();
+
+      if (frozen.restoreMarkdownTree) {
+        const objectId = frozen.element.getAttribute("data-slide-object-id");
+        if (objectId) {
+          const owner =
+            frozen.element.parentElement ?? frozen.element.ownerDocument;
+          owner
+            .querySelectorAll<HTMLElement>("[data-slide-layout-spacer-for]")
+            .forEach((spacer) => {
+              if (
+                spacer.getAttribute("data-slide-layout-spacer-for") === objectId
+              ) {
+                spacer.remove();
+              }
+            });
+        }
+        frozen.restoreMarkdownTree();
+      }
       if (html !== null) onUpdateSlideRef.current({ content: html });
-      const selector = getBuilderSelector(element);
-      if (selector) selectElementForStyling(element, selector);
+      const selector = getBuilderSelector(frozen.element);
+      if (selector) selectElementForStyling(frozen.element, selector);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -4206,6 +4310,8 @@ export default function SlideEditor({
     applyObjectGeometry,
     commitMultiObjectChange,
     editingEl,
+    findPersistedImageObject,
+    freezeElementForFreeformSelection,
     getObjectGeometry,
     getSlideContent,
     multiSelection,
@@ -4214,6 +4320,7 @@ export default function SlideEditor({
     refreshMultiSelectionRects,
     resolveSelectedElement,
     selectElementForStyling,
+    selectedImg,
     selectedElementSelector,
   ]);
 
@@ -4268,7 +4375,11 @@ export default function SlideEditor({
         onExitTextBoxMode?.();
         return;
       }
-      if (editingEl) return; // avoid interfering with an active inline edit
+      if (
+        isSlideTextEditingTarget(e.target, document.activeElement, editingEl)
+      ) {
+        return;
+      }
 
       // Pointer-down on a member of the current multi-selection drags the
       // whole group instead of the single-object flow below.
@@ -5003,15 +5114,17 @@ export default function SlideEditor({
   const objectOperationSelection = getObjectOperationSelection();
   const hasObjectSelection = objectOperationSelection !== null;
   const objectSelectionCount = objectOperationSelection?.elements.length ?? 0;
+  const canZoomOut = canvasZoom > MIN_CANVAS_ZOOM;
+  const canZoomIn =
+    canvasZoom < CANVAS_ZOOM_PRESETS[CANVAS_ZOOM_PRESETS.length - 1];
   const zoomControls = slide.excalidrawData
     ? undefined
     : {
         value: canvasZoom,
         onZoomOut: canvasZoomOut,
         onZoomIn: canvasZoomIn,
-        canZoomOut: canvasZoom > MIN_CANVAS_ZOOM,
-        canZoomIn:
-          canvasZoom < CANVAS_ZOOM_PRESETS[CANVAS_ZOOM_PRESETS.length - 1],
+        canZoomOut,
+        canZoomIn,
       };
 
   // Excalidraw slides have no selectable slide content, so the row collapses
@@ -5183,6 +5296,28 @@ export default function SlideEditor({
                                 horizontalOverflow={
                                   overflowInfo.horizontalOverflow
                                 }
+                                warningLabel={t(
+                                  "deckEditor.layoutOverflowWarning",
+                                )}
+                                overflowDetails={[
+                                  overflowInfo.verticalOverflow > 0
+                                    ? t("deckEditor.layoutOverflowVertical", {
+                                        pixels: overflowInfo.verticalOverflow,
+                                      })
+                                    : null,
+                                  overflowInfo.horizontalOverflow > 0
+                                    ? t("deckEditor.layoutOverflowHorizontal", {
+                                        pixels: overflowInfo.horizontalOverflow,
+                                      })
+                                    : null,
+                                ]
+                                  .filter((detail): detail is string =>
+                                    Boolean(detail),
+                                  )
+                                  .join(" · ")}
+                                overflowDetailsLabel={t(
+                                  "deckEditor.layoutOverflowDetails",
+                                )}
                                 isAskingAgentToFix={isAskingAgentToFix}
                                 dismissLabel={t(
                                   "deckEditor.dismissLayoutWarning",
@@ -5198,7 +5333,6 @@ export default function SlideEditor({
                           disabled={!hasObjectSelection}
                           onSelect={copySelectedObjects}
                         >
-                          <IconCopy className="me-2 h-4 w-4" />
                           {t("styleInspector.copy")}
                           <ContextMenuShortcut>
                             {shortcutLabel("cmd+c")}
@@ -5208,7 +5342,6 @@ export default function SlideEditor({
                           disabled={!hasObjectSelection}
                           onSelect={pasteSelectedObjects}
                         >
-                          <IconClipboard className="me-2 h-4 w-4" />
                           {t("styleInspector.paste")}
                           <ContextMenuShortcut>
                             {shortcutLabel("cmd+v")}
@@ -5218,7 +5351,6 @@ export default function SlideEditor({
                           disabled={!hasObjectSelection}
                           onSelect={duplicateSelectedObjects}
                         >
-                          <IconCopy className="me-2 h-4 w-4" />
                           {t("editorSidebar.duplicate")}
                           <ContextMenuShortcut>
                             {shortcutLabel("cmd+d")}
@@ -5228,7 +5360,6 @@ export default function SlideEditor({
                           disabled={!hasObjectSelection}
                           onSelect={deleteSelectedElements}
                         >
-                          <IconTrash className="me-2 h-4 w-4" />
                           {t("editorSidebar.delete")}
                           <ContextMenuShortcut>⌫</ContextMenuShortcut>
                         </ContextMenuItem>
@@ -5237,7 +5368,6 @@ export default function SlideEditor({
                           disabled={getStyleTargets().length === 0}
                           onSelect={copySelectedElementStyle}
                         >
-                          <IconBrush className="me-2 h-4 w-4" />
                           {t("styleInspector.copyStyle")}
                           <ContextMenuShortcut>
                             {shortcutLabel("cmd+alt+c")}
@@ -5250,7 +5380,6 @@ export default function SlideEditor({
                           }
                           onSelect={pasteCopiedElementStyle}
                         >
-                          <IconBrush className="me-2 h-4 w-4" />
                           {t("styleInspector.pasteStyle")}
                           <ContextMenuShortcut>
                             {shortcutLabel("cmd+alt+v")}
@@ -5261,14 +5390,12 @@ export default function SlideEditor({
                           disabled={!selectedElementSelector}
                           onSelect={() => handleArrangeSelected("front")}
                         >
-                          <IconStackFront className="me-2 h-4 w-4" />
                           {t("styleInspector.bringToFront")}
                         </ContextMenuItem>
                         <ContextMenuItem
                           disabled={!selectedElementSelector}
                           onSelect={() => handleArrangeSelected("back")}
                         >
-                          <IconStackBack className="me-2 h-4 w-4" />
                           {t("styleInspector.sendToBack")}
                         </ContextMenuItem>
                       </ContextMenuContent>
@@ -5355,10 +5482,12 @@ export default function SlideEditor({
       {imageOverlay && (
         <ImageOverlay
           anchorRect={imageOverlay.rect}
+          src={imageOverlay.src}
           objectFit={imageOverlay.objectFit}
           onGenerate={onGenerateImage}
           onLibrary={() => onOpenAssetLibrary(imageOverlay.src)}
           onUpload={() => onUploadImage(imageOverlay.src)}
+          onDownload={() => void downloadImage(imageOverlay.src)}
           onToggleObjectFit={() => {
             const newFit =
               imageOverlay.objectFit === "cover" ? "contain" : "cover";

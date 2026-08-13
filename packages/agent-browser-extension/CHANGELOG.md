@@ -1,5 +1,138 @@
 # @agent-native/agent-browser-extension
 
+## 0.1.107
+
+### Patch Changes
+
+- Updated dependencies [99a8c34]
+  - @agent-native/core@0.154.5
+
+## 0.1.106
+
+### Patch Changes
+
+- Updated dependencies [a71862e]
+  - @agent-native/core@0.154.4
+
+## 0.1.105
+
+### Patch Changes
+
+- Updated dependencies [37e4ba3]
+  - @agent-native/core@0.154.3
+
+## 0.1.104
+
+### Patch Changes
+
+- Updated dependencies [4a3849b]
+  - @agent-native/core@0.154.2
+
+## 0.1.103
+
+### Patch Changes
+
+- Updated dependencies [97b3736]
+  - @agent-native/core@0.154.1
+
+## 0.1.102
+
+### Patch Changes
+
+- Updated dependencies [2db503b]
+- Updated dependencies [2db503b]
+- Updated dependencies [2db503b]
+- Updated dependencies [2db503b]
+- Updated dependencies [2db503b]
+- Updated dependencies [2db503b]
+- Updated dependencies [2db503b]
+- Updated dependencies [2db503b]
+- Updated dependencies [2db503b]
+  - @agent-native/core@0.154.0
+
+## 0.1.101
+
+### Patch Changes
+
+- Updated dependencies [8008dfe]
+  - @agent-native/core@0.153.10
+
+## 0.1.100
+
+### Patch Changes
+
+- Updated dependencies [f5dc763]
+- Updated dependencies [f5dc763]
+  - @agent-native/core@0.153.9
+
+## 0.1.99
+
+### Patch Changes
+
+- Updated dependencies [a97789e]
+  - @agent-native/core@0.153.8
+
+## 0.1.98
+
+### Patch Changes
+
+- Updated dependencies [518ebf0]
+  - @agent-native/core@0.153.7
+
+## 0.1.97
+
+### Patch Changes
+
+- Updated dependencies [9f0ae16]
+- Updated dependencies [9f0ae16]
+- Updated dependencies [9f0ae16]
+- Updated dependencies [9f0ae16]
+- Updated dependencies [9f0ae16]
+  - @agent-native/core@0.153.6
+
+## 0.1.96
+
+### Patch Changes
+
+- Updated dependencies [47ba57a]
+- Updated dependencies [47ba57a]
+- Updated dependencies [47ba57a]
+- Updated dependencies [2498cff]
+- Updated dependencies [47ba57a]
+  - @agent-native/core@0.153.5
+
+## 0.1.95
+
+### Patch Changes
+
+- Updated dependencies [73e47fe]
+- Updated dependencies [405e17e]
+  - @agent-native/core@0.153.4
+
+## 0.1.94
+
+### Patch Changes
+
+- Updated dependencies [99ba6a1]
+  - @agent-native/core@0.153.3
+
+## 0.1.93
+
+### Patch Changes
+
+- Updated dependencies [fd32ffd]
+  - @agent-native/core@0.153.2
+
+## 0.1.92
+
+### Patch Changes
+
+- Updated dependencies [b78cde9]
+- Updated dependencies [b78cde9]
+- Updated dependencies [b78cde9]
+- Updated dependencies [b78cde9]
+  - @agent-native/core@0.153.1
+
 ## 0.1.91
 
 ### Patch Changes

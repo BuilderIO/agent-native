@@ -10,7 +10,6 @@ import {
 import { z } from "zod";
 
 import { upsertBuilderProxyDesignSystem } from "../server/lib/builder-design-system-proxy.js";
-import importGithub from "./import-github.js";
 
 const codeFileSchema = z.object({
   filename: z.string().trim().min(1).describe("File name or relative path"),
@@ -33,6 +32,30 @@ const codeFileSchema = z.object({
     ),
 });
 
+const githubSourceSchema = z.object({
+  repoUrl: z.string().trim().min(1).describe("GitHub repository URL"),
+  ref: z
+    .string()
+    .trim()
+    .min(1)
+    .optional()
+    .describe("Optional branch, tag, or commit"),
+  include: z
+    .array(z.string().trim().min(1))
+    .optional()
+    .describe("Optional repository-relative files or folders to include"),
+  exclude: z
+    .array(z.string().trim().min(1))
+    .optional()
+    .describe("Optional repository-relative files or folders to exclude"),
+  instructions: z
+    .string()
+    .trim()
+    .min(1)
+    .optional()
+    .describe("Optional indexing guidance for this repository"),
+});
+
 export default defineAction({
   description:
     "Start Builder DSI design-system indexing from connected code, a GitHub repository, code/design files, and optional design.md guidance. " +
@@ -51,7 +74,15 @@ export default defineAction({
     githubRepoUrl: z
       .string()
       .optional()
-      .describe("GitHub repository URL to index with Builder"),
+      .describe("Legacy single GitHub repository URL to index with Builder"),
+    githubSources: z
+      .array(githubSourceSchema)
+      .min(1)
+      .max(20)
+      .optional()
+      .describe(
+        "GitHub repositories to index in one design system. Each source may specify a branch/tag/commit and repository-relative files or folders.",
+      ),
     connectedProjectId: z
       .string()
       .optional()
@@ -71,21 +102,13 @@ export default defineAction({
     projectName,
     description,
     githubRepoUrl,
+    githubSources,
     connectedProjectId,
     codeFiles,
     designMd,
   }) => {
-    const githubImport = githubRepoUrl
-      ? await importGithub.run({ repoUrl: githubRepoUrl })
-      : null;
-    const githubFiles = githubImport?.rawFiles
-      ? Object.entries(githubImport.rawFiles).map(([filename, content]) => ({
-          filename,
-          content,
-        }))
-      : [];
     const files = buildBuilderDesignSystemIndexFiles({
-      codeFiles: [...(codeFiles ?? []), ...githubFiles],
+      codeFiles,
       designMd,
       // Agent action payloads intentionally stay at the core 2 MB inline
       // budget. Fail loudly instead of silently dropping a larger `.fig`;
@@ -95,10 +118,8 @@ export default defineAction({
     const result = await startBuilderDesignSystemIndex({
       projectName,
       description,
-      // Upload token-authenticated GitHub files as Builder file sources. If
-      // there was nothing relevant to upload, retain the public-repo source
-      // so public repositories still work without a saved token.
-      githubRepoUrl: githubFiles.length > 0 ? undefined : githubRepoUrl,
+      githubRepoUrl,
+      githubRepos: githubSources,
       connectedProjectId,
       files,
     });
@@ -111,12 +132,24 @@ export default defineAction({
       orgId: getRequestOrgId(),
       projectName,
       description,
+      githubSources:
+        githubSources ?? (githubRepoUrl ? [{ repoUrl: githubRepoUrl }] : []),
+      sourceKind:
+        (githubSources?.length || githubRepoUrl) &&
+        (codeFiles?.length || designMd)
+          ? "mixed"
+          : githubSources?.length || githubRepoUrl
+            ? "github"
+            : codeFiles?.length || designMd
+              ? "code"
+              : undefined,
     });
 
     return {
       ...result,
       ...proxy,
       uploadedFileCount: files.length,
+      githubSourceCount: githubSources?.length ?? (githubRepoUrl ? 1 : 0),
     };
   },
 });

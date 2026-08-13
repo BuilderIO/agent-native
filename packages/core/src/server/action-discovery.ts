@@ -215,6 +215,7 @@ function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
     out.requiresAuth = entry.requiresAuth;
   }
   if (typeof entry.readOnly === "boolean") out.readOnly = entry.readOnly;
+  if (typeof entry.grounding === "boolean") out.grounding = entry.grounding;
   if (typeof entry.allowInPlanMode === "boolean") {
     out.allowInPlanMode = entry.allowInPlanMode;
   }

@@ -17,7 +17,7 @@ description: "多使用者協作編輯，其中 AI 代理是一流的同行：CR
 與代理一起編輯感覺就像在協作編輯器中工作
 一位既快速又不知疲倦的同事：
 
-如果您只需要在代理或其他使用者寫入 SQL 時重新整理 UI，則不需要任何這些 — 使用 [`useDbSync`](/docs/client)。此頁面用於對單一富文字檔案進行字符級共同編輯（共用游標、無衝突合併）。兩者都使用相同的 `/_agent-native/poll` 通道。
+如果您只需要在代理或其他使用者寫入 SQL 時重新整理 UI，則不需要任何這些 — 使用 [`useDbSync`](/docs/client-data#usedbsync)。此頁面用於對單一富文字檔案進行字符級共同編輯（共用游標、無衝突合併）。兩者都使用相同的 `/_agent-native/poll` 通道。
 
 它建立在三項經過實战檢驗的技術之上：**Yjs**（CRDT，用於無衝突合併）、**TipTap**（富文字編輯器）和**基於輪詢的同步**（適用於所有部署環境，包括無伺服器和邊緣）。
 
@@ -764,7 +764,7 @@ Use `emailToColor(email)` and `emailToName(email)` from
 
 ## 相關檔案 {#related}
 
-- [Real-Time Sync](/docs/client#usedbsync) — `useDbSync` + `useChangeVersion`
+- [Sync Internals](/docs/client-sync-internals) — `useDbSync` + `useChangeVersion`
   提供 `updatedAt` 碰撞驅動編輯器協調的系統。
 - [Security](/docs/security) — `registerShareableResource`, `resolveAccess`,
   和 `assertAccess`，用於資源範圍內的協作。

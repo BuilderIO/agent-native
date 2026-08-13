@@ -20,8 +20,31 @@ import {
   looksLikeAnalyticsDataRequest,
   needsCorpusWorkflowForCoverageSensitiveRequest,
   needsSourceRecordBodyWorkflowForCoverageSensitiveRequest,
+  registerGroundingActions,
   stripInjectedAnalyticsGuardContext,
 } from "./real-data-actions";
+
+// These tests exercise the predicates, not the derivation: the agent-chat
+// plugin is what reads `grounding: true` off the shipped action definitions.
+registerGroundingActions([
+  "account-deep-dive",
+  "bigquery",
+  "get-session-replay-summary",
+  "get-session-replay-timeline",
+  "gong-calls",
+  "gong-native-insights",
+  "hubspot-deals",
+  "hubspot-records",
+  "jira-search",
+  "list-error-issues",
+  "list-session-recordings",
+  "prometheus",
+  "provider-api-request",
+  "provider-corpus-job",
+  "query-agent-native-analytics",
+  "query-staged-dataset",
+  "slack-messages",
+]);
 
 describe("real data action classification", () => {
   it("treats unstructured source records as real analytics evidence", () => {
@@ -826,6 +849,11 @@ describe("incomplete evidence detection", () => {
         "Use the same source data as Company A, filter for Company B",
       ),
     ).toBe(false);
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Replicate the DevRel Leaderboard dashboard for the sales team",
+      ),
+    ).toBe(true);
   });
 
   it("still treats a plain numeric analytics question as a data request, not construction", () => {
@@ -839,10 +867,23 @@ describe("incomplete evidence detection", () => {
     ).toBe(false);
   });
 
-  it("accepts get-sql-dashboard and extension actions as construction progress", () => {
+  it("accepts dashboard reference and inspection actions as construction progress", () => {
     expect(
       hasDashboardConstructionAttempt([
         { name: "get-sql-dashboard", content: '{"id":"company-a-analysis"}' },
+      ]),
+    ).toBe(true);
+    expect(
+      hasDashboardConstructionAttempt([
+        {
+          name: "get-explorer-dashboard",
+          content: '{"id":"company-a-explorer"}',
+        },
+      ]),
+    ).toBe(true);
+    expect(
+      hasDashboardConstructionAttempt([
+        { name: "search-dashboard-references", content: "[]" },
       ]),
     ).toBe(true);
     expect(
