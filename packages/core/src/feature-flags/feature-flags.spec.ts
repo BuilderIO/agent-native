@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const globalSettings = new Map<string, Record<string, unknown>>();
 const orgSettings = new Map<string, Record<string, unknown>>();
+const executeMock = vi.fn(async () => ({ rows: [] }));
 const getSettingMock = vi.fn(
   async (key: string) => globalSettings.get(key) ?? null,
 );
@@ -23,6 +24,10 @@ vi.mock("../settings/store.js", () => ({
     globalSettings.set(key, next);
     return next;
   },
+}));
+vi.mock("../db/client.js", () => ({
+  getDbExec: () => ({ execute: executeMock }),
+  isPostgres: () => false,
 }));
 vi.mock("../settings/org-settings.js", () => ({
   getOrgSetting: (...args: any[]) => getOrgSettingMock(...args),
@@ -49,6 +54,7 @@ beforeEach(() => {
   globalSettings.clear();
   orgSettings.clear();
   vi.clearAllMocks();
+  executeMock.mockResolvedValue({ rows: [] });
 });
 
 describe("feature flag registry", () => {
@@ -141,6 +147,42 @@ describe("feature flag evaluator", () => {
     getOrgSettingMock.mockRejectedValueOnce(new Error("database unavailable"));
     await expect(
       store.evaluateFeatureFlag("new-editor", { orgId: "org-1" }),
+    ).resolves.toBe(false);
+  });
+
+  it("detects an active org-scoped rollout without exposing its target", async () => {
+    registry.registerFeatureFlags([{ key: "new-editor" }]);
+    executeMock.mockResolvedValueOnce({
+      rows: [
+        {
+          value: JSON.stringify({
+            mode: "rules",
+            orgIds: ["builder-org"],
+          }),
+        },
+      ],
+    });
+
+    await expect(
+      store.hasActiveFeatureFlagRollout("new-editor"),
+    ).resolves.toBe(true);
+    expect(executeMock).toHaveBeenCalledWith({
+      sql: expect.stringContaining("WHERE key LIKE ?"),
+      args: ["o:%:feature-flag:new-editor"],
+    });
+  });
+
+  it("does not advertise empty or explicitly off scoped rules", async () => {
+    registry.registerFeatureFlags([{ key: "new-editor" }]);
+    executeMock.mockResolvedValueOnce({
+      rows: [
+        { value: JSON.stringify({ mode: "off" }) },
+        { value: JSON.stringify({ mode: "rules" }) },
+      ],
+    });
+
+    await expect(
+      store.hasActiveFeatureFlagRollout("new-editor"),
     ).resolves.toBe(false);
   });
 

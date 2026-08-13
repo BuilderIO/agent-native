@@ -1,7 +1,7 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 
 const featureFlagMocks = vi.hoisted(() => ({
-  getRules: vi.fn(),
+  hasActiveRollout: vi.fn(),
   isEnabled: vi.fn(),
 }));
 const getSessionMock = vi.hoisted(() => vi.fn());
@@ -32,7 +32,7 @@ vi.mock("@agent-native/core/feature-flags", async () => {
   >("@agent-native/core/feature-flags");
   return {
     ...actual,
-    getFeatureFlagRules: featureFlagMocks.getRules,
+    hasActiveFeatureFlagRollout: featureFlagMocks.hasActiveRollout,
     isFeatureFlagEnabled: featureFlagMocks.isEnabled,
   };
 });
@@ -145,15 +145,7 @@ beforeEach(() => {
   codeRows.length = 0;
   process.env.APP_URL = AUTHORITY;
   process.env.A2A_SECRET = "test-a2a-secret";
-  featureFlagMocks.getRules.mockResolvedValue({
-    version: 1,
-    mode: "off",
-    emails: [],
-    orgIds: [],
-    percentage: 0,
-    updatedAt: null,
-    updatedBy: null,
-  });
+  featureFlagMocks.hasActiveRollout.mockResolvedValue(false);
   featureFlagMocks.isEnabled.mockResolvedValue(false);
   getSessionMock.mockResolvedValue({
     email: "user@example.test",
@@ -175,13 +167,7 @@ afterEach(() => {
 describe("rollout availability", () => {
   it("keeps ordinary anonymous browser availability false", async () => {
     getSessionMock.mockResolvedValue(null);
-    featureFlagMocks.getRules.mockResolvedValue({
-      version: 1,
-      mode: "on",
-      emails: [],
-      orgIds: [],
-      percentage: 0,
-    });
+    featureFlagMocks.hasActiveRollout.mockResolvedValue(true);
     const response = await availabilityHandler(
       event("/_agent-native/identity/availability"),
     );
@@ -190,13 +176,7 @@ describe("rollout availability", () => {
 
   it("exposes only a Canary availability hint for anonymous Desktop", async () => {
     getSessionMock.mockResolvedValue(null);
-    featureFlagMocks.getRules.mockResolvedValue({
-      version: 1,
-      mode: "rules",
-      emails: ["user@example.test"],
-      orgIds: [],
-      percentage: 0,
-    });
+    featureFlagMocks.hasActiveRollout.mockResolvedValue(true);
     const response = await availabilityHandler(
       event("/_agent-native/identity/availability", {
         headers: {
@@ -208,9 +188,11 @@ describe("rollout availability", () => {
   });
 
   it("fails closed when rollout state is missing or unreadable", async () => {
-    featureFlagMocks.getRules.mockResolvedValue(null);
+    featureFlagMocks.hasActiveRollout.mockResolvedValue(false);
     await expect(canAttemptWorkspaceSso()).resolves.toBe(false);
-    featureFlagMocks.getRules.mockRejectedValue(new Error("unavailable"));
+    featureFlagMocks.hasActiveRollout.mockRejectedValue(
+      new Error("unavailable"),
+    );
     await expect(canAttemptWorkspaceSso()).resolves.toBe(false);
   });
 
