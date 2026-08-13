@@ -367,6 +367,13 @@ export function PositionLayoutProperties({
   const authoredTransform = authoredStyleValue(element, "transform");
   const constraintsValue = deriveConstraintsValue(element);
   const [constraintsExpanded, setConstraintsExpanded] = useState(false);
+  // position:absolute/fixed takes a child out of the parent's flex flow, so it
+  // still anchors and keeps constraints.
+  const constraintsSuppressed =
+    element.isFlexChild &&
+    !["absolute", "fixed"].includes(
+      (element.computedStyles?.position ?? "").toLowerCase(),
+    );
   // 3D rotation/perspective progressive-disclosure expander — mirrors
   // CornerRadiusControl's showIndependentCorners pattern. Default-expanded
   // when the authored transform already has non-zero X/Y rotation or
@@ -544,33 +551,40 @@ export function PositionLayoutProperties({
               hoverRevealClassName="opacity-0 group-hover/field:opacity-100"
             />
           </div>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                aria-label={
-                  "Constraints" /* i18n-ignore design inspector action */
-                }
-                aria-pressed={constraintsExpanded}
-                onClick={() => setConstraintsExpanded((expanded) => !expanded)}
-                className={cn(
-                  "flex size-7 items-center justify-center rounded-md transition-colors",
-                  "hover:bg-[var(--design-editor-control-bg)] hover:text-foreground",
-                  "focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
-                  constraintsExpanded
-                    ? "bg-[var(--design-editor-selection-color)] text-[var(--design-editor-accent-color)] hover:text-[var(--design-editor-accent-color)]"
-                    : "text-muted-foreground",
-                )}
-              >
-                <ConstraintsPreview value={constraintsValue} />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>
-              {"Constraints" /* i18n-ignore design inspector tooltip */}
-            </TooltipContent>
-          </Tooltip>
+          {/* Figma: constraints cannot apply to a child of an auto layout
+              frame — the parent's layout owns the position. An absolutely
+              positioned descendant is out of that flow and still anchors. */}
+          {constraintsSuppressed ? null : (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  aria-label={
+                    "Constraints" /* i18n-ignore design inspector action */
+                  }
+                  aria-pressed={constraintsExpanded}
+                  onClick={() =>
+                    setConstraintsExpanded((expanded) => !expanded)
+                  }
+                  className={cn(
+                    "flex size-7 items-center justify-center rounded-md transition-colors",
+                    "hover:bg-[var(--design-editor-control-bg)] hover:text-foreground",
+                    "focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
+                    constraintsExpanded
+                      ? "bg-[var(--design-editor-selection-color)] text-[var(--design-editor-accent-color)] hover:text-[var(--design-editor-accent-color)]"
+                      : "text-muted-foreground",
+                  )}
+                >
+                  <ConstraintsPreview value={constraintsValue} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {"Constraints" /* i18n-ignore design inspector tooltip */}
+              </TooltipContent>
+            </Tooltip>
+          )}
         </div>
-        {constraintsExpanded ? (
+        {constraintsExpanded && !constraintsSuppressed ? (
           <ConstraintsWidget
             value={constraintsValue}
             onChange={handleConstraintsChange}

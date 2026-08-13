@@ -272,7 +272,7 @@ function retrievalPolicy(
         rawCaptureFallback: "allowed-leads" as const,
         instructions: [
           "Start with reviewed Brain knowledge, then include accessible raw captures and source records as clearly labeled leads.",
-          "Never present raw capture matches as approved company knowledge.",
+          "Never present raw capture matches as approved company knowledge or answer evidence; use them only as leads for review.",
           "Say when a result is unreviewed and needs distillation or review.",
         ],
       };
@@ -282,7 +282,7 @@ function retrievalPolicy(
         rawCaptureFallback: "thin-results" as const,
         instructions: [
           "Prefer reviewed Brain knowledge.",
-          "Use accessible raw captures only when reviewed knowledge is missing or too thin, and label them as raw capture matches.",
+          "Use accessible raw captures only when reviewed knowledge is missing or too thin, return them as clearly labeled leads, and never use their text as answer evidence.",
           "Do not invent facts beyond returned Brain results.",
         ],
       };
@@ -355,8 +355,8 @@ export function buildBrainAgentGuidance(
     response: {
       toneInstruction: toneInstruction(tone),
       citationInstruction: requireCitations
-        ? "Cite Brain evidence or source URLs for factual claims; say when support is missing."
-        : "Include citations when helpful, but concise uncited summaries are allowed by workspace settings.",
+        ? "Cite published Brain knowledge evidence or source URLs for factual claims; raw captures are leads, not answer citations; say when approved support is missing."
+        : "Include published Brain knowledge citations when helpful; raw captures are leads, not answer evidence, and concise uncited summaries are allowed by workspace settings.",
     },
   };
 }
@@ -524,7 +524,7 @@ export function serializeProposal(
 
 export async function getAccessibleSource(
   sourceId: string,
-  role: "viewer" | "editor" | "admin" | "owner" = "viewer",
+  role: "viewer" | "commenter" | "editor" | "admin" | "owner" = "viewer",
 ): Promise<ResolvedAccess> {
   if (role !== "viewer") {
     return assertAccess("brain-source", sourceId, role);
@@ -609,7 +609,7 @@ export async function createSource(values: {
     lastError: null,
     ownerEmail,
     orgId,
-    visibility: values.visibility ?? "org",
+    visibility: values.visibility ?? "private",
     createdAt: now,
     updatedAt: now,
   });
@@ -2183,6 +2183,9 @@ export async function searchKnowledgeRows(args: {
         like(schema.brainKnowledge.title, q),
         like(schema.brainKnowledge.body, q),
         like(schema.brainKnowledge.summary, q),
+        like(schema.brainKnowledge.topic, q),
+        like(schema.brainKnowledge.tagsJson, q),
+        like(schema.brainKnowledge.entitiesJson, q),
       )!,
     );
   }

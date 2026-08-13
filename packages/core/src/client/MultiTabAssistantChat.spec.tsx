@@ -346,12 +346,12 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     expect(chatHandleMocks.sendMessage).not.toHaveBeenCalled();
   });
 
-  it("defaults reasoning to medium", () => {
+  it("defaults effort to high", () => {
     expect(
       container
         .querySelector("[data-testid='assistant-chat']")
         ?.getAttribute("data-reasoning-effort"),
-    ).toBe("medium");
+    ).toBe("high");
   });
 
   // The engines fetch is still in flight when an app-initiated first turn
@@ -509,7 +509,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     ).toBe("claude-sonnet-5");
   });
 
-  it("migrates persisted legacy auto reasoning to medium", async () => {
+  it("migrates persisted legacy auto effort to high", async () => {
     window.localStorage.setItem(
       "agent-native:chat-models:selection:legacy-medium-test",
       JSON.stringify({ model: "claude-sonnet-5", effort: "auto" }),
@@ -525,7 +525,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       container
         .querySelector("[data-testid='assistant-chat']")
         ?.getAttribute("data-reasoning-effort"),
-    ).toBe("medium");
+    ).toBe("high");
   });
 
   it("continues to submit when submit is omitted", () => {
@@ -1837,6 +1837,19 @@ describe("MultiTabAssistantChat history popover", () => {
     });
   }
 
+  async function openRowMenu(trigger: HTMLButtonElement) {
+    await act(async () => {
+      trigger.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          bubbles: true,
+          button: 0,
+          pointerType: "mouse",
+        }),
+      );
+      await Promise.resolve();
+    });
+  }
+
   it("groups pinned threads into a dedicated section, sorted ahead of the rest", async () => {
     await openHistory();
 
@@ -1860,11 +1873,9 @@ describe("MultiTabAssistantChat history popover", () => {
     const trigger = otherRow.querySelector<HTMLButtonElement>(
       ".an-chat-history-row__menu-trigger",
     );
-    act(() => {
-      trigger!.click();
-    });
+    await openRowMenu(trigger!);
     const pinItem = Array.from(
-      otherRow.querySelectorAll(".an-chat-history-row__menu-item"),
+      document.body.querySelectorAll(".an-chat-history-row__menu-item"),
     ).find((el) => el.textContent?.includes("Pin to top"));
     expect(pinItem).toBeDefined();
     act(() => {
@@ -1881,11 +1892,9 @@ describe("MultiTabAssistantChat history popover", () => {
     const trigger = pinnedRow!.querySelector<HTMLButtonElement>(
       ".an-chat-history-row__menu-trigger",
     );
-    act(() => {
-      trigger!.click();
-    });
+    await openRowMenu(trigger!);
     const unpinItem = Array.from(
-      pinnedRow!.querySelectorAll(".an-chat-history-row__menu-item"),
+      document.body.querySelectorAll(".an-chat-history-row__menu-item"),
     ).find((el) => el.textContent?.includes("Unpin from top"));
     expect(unpinItem).toBeDefined();
     act(() => {
@@ -1903,11 +1912,9 @@ describe("MultiTabAssistantChat history popover", () => {
     const trigger = activeRow.querySelector<HTMLButtonElement>(
       ".an-chat-history-row__menu-trigger",
     );
-    act(() => {
-      trigger!.click();
-    });
+    await openRowMenu(trigger!);
     const renameItem = Array.from(
-      activeRow.querySelectorAll(".an-chat-history-row__menu-item"),
+      document.body.querySelectorAll(".an-chat-history-row__menu-item"),
     ).find((el) => el.textContent?.includes("Rename"));
     act(() => {
       (renameItem as HTMLButtonElement).click();
@@ -1944,12 +1951,10 @@ describe("MultiTabAssistantChat history popover", () => {
     const trigger = container.querySelector<HTMLButtonElement>(
       ".an-chat-history-row__menu-trigger",
     );
-    act(() => {
-      trigger!.click();
-    });
+    await openRowMenu(trigger!);
 
     const menuItems = Array.from(
-      container.querySelectorAll(".an-chat-history-row__menu-item"),
+      document.body.querySelectorAll(".an-chat-history-row__menu-item"),
     ).map((el) => el.textContent);
     expect(menuItems.length).toBeGreaterThan(0);
     expect(menuItems.some((text) => text?.includes("Delete"))).toBe(false);

@@ -78,12 +78,14 @@ default, not an exception.
 
 ## Parallel edits are the intended pattern, not a risk
 
-This repo has exactly one collision guard: `scripts/hooks/file-lease.mjs`. It
-denies a write only when another live session leased the same file in the
-last 15 minutes, or the file changed on disk since your session last wrote
-it. Parallel subagents editing disjoint files is normal and expected here —
-give each subagent its own file set up front so leases never collide, and let
-the hook catch the rare real overlap instead of avoiding parallelism to be safe.
+Parallel subagents editing disjoint files is normal and expected here — the
+safety is in giving each subagent its own file set up front, not in a guard
+catching overlap after the fact. `scripts/hooks/file-lease.mjs` denies a write
+when another live Claude Code session leased the same file in the last 15
+minutes, but it only sees writes made through this hook: a Codex peer or a
+plain human edit leaves no lease, so it cannot substitute for disjoint
+ownership. Assign non-overlapping file sets before you fan out; see
+`concurrent-agents` for what the hook does and doesn't catch.
 
 ## Related skills
 

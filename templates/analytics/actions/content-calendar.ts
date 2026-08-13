@@ -18,6 +18,7 @@ export default defineAction({
       ),
   }),
   http: { method: "GET" },
+  grounding: true,
   run: async ({ databaseId }) => {
     const entries = await getContentCalendar(databaseId);
     return { entries, total: Array.isArray(entries) ? entries.length : 0 };

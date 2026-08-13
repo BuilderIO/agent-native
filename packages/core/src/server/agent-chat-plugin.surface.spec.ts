@@ -5,7 +5,9 @@ import { describe, expect, it } from "vitest";
 import type { FrameworkToolGroup } from "../framework-tools.js";
 import {
   _agentChatPromptSectionsForTests,
+  buildLeanSystemPrompt,
   buildLeanRunPolicyPrompt,
+  resolveHostedBuilderHandoff,
   resolveInteractiveAgentRunOptions,
   shouldBlockInProductCodeEditingSurface,
 } from "./agent-chat-plugin.js";
@@ -80,6 +82,21 @@ describe("lean production run policy", () => {
       restriction + codeExecution,
     );
   });
+
+  it("keeps resource-backed AGENTS.md in the lean system prompt", () => {
+    const agents =
+      '<resource name="AGENTS.md" scope="personal" path="AGENTS.md">\n# Saved rule\nAlways preserve the requested format.\n</resource>';
+
+    expect(
+      buildLeanSystemPrompt({
+        basePrompt: "lean base",
+        resources: `\n\n${agents}`,
+        additionalFramework: "policy",
+        cacheSplit: "split",
+        extra: "extra",
+      }),
+    ).toContain(agents);
+  });
 });
 
 describe("interactive agent run options", () => {
@@ -95,6 +112,53 @@ describe("interactive agent run options", () => {
       runNoProgressTimeoutMs: 3 * 60_000,
       durableBackgroundRuns: true,
     });
+  });
+});
+
+describe("hosted Builder handoff surface", () => {
+  const connectBuilder = {
+    tool: { description: "Render the Builder handoff.", parameters: {} },
+    run: async () => "card",
+  };
+
+  it("promotes connect-builder only for hosted registries", () => {
+    expect(
+      resolveHostedBuilderHandoff({ "connect-builder": connectBuilder }, false),
+    ).toEqual({ "connect-builder": connectBuilder });
+    expect(
+      resolveHostedBuilderHandoff({ "connect-builder": connectBuilder }, true),
+    ).toEqual({});
+    expect(resolveHostedBuilderHandoff({}, false)).toEqual({});
+  });
+
+  it("wires the hosted handoff into the first-request and lean registries", () => {
+    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+      encoding: "utf-8",
+    });
+    expect(source).toMatch(
+      /const hostedBuilderHandoff = resolveHostedBuilderHandoff\(\s*browserTools,\s*canToggle,\s*\);/,
+    );
+
+    const initialNamesStart = source.indexOf(
+      "const effectiveInitialToolNames = [",
+    );
+    const initialNamesBlock = source.slice(
+      initialNamesStart,
+      initialNamesStart + 900,
+    );
+    expect(initialNamesBlock).toContain(
+      "...Object.keys(hostedBuilderHandoff),",
+    );
+
+    const leanEntriesStart = source.indexOf(
+      "const leanActionEntries: Record<string, ActionEntry> = {",
+    );
+    const leanEntriesBlock = source.slice(
+      leanEntriesStart,
+      leanEntriesStart + 700,
+    );
+    expect(leanEntriesBlock).toContain("...workspaceFileActions,");
+    expect(leanEntriesBlock).toContain("...hostedBuilderHandoff,");
   });
 });
 
@@ -226,6 +290,20 @@ describe("framework tool gating — wiring guards", () => {
     // bypass the conflict check and split the app's tool surface in two.
     expect(source).not.toContain("options?.databaseTools");
     expect(source).not.toContain("options?.extensionTools");
+  });
+});
+
+describe("lean workspace-app surface — wiring guards", () => {
+  it("keeps cross-app discovery and delegation available when enabled", () => {
+    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+      encoding: "utf-8",
+    });
+
+    expect(source).toContain(
+      "...(a2aAgentDelegationEnabled ? callAgentScript : {}),",
+    );
+    expect(source).toContain('generateActionsPrompt(callAgentScript, "tool")');
+    expect(source).toContain("leanActionsPrompt");
   });
 });
 

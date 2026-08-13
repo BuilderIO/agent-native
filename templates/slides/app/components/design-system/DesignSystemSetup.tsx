@@ -8,7 +8,7 @@ import { openAgentSidebar } from "@agent-native/core/client/navigation";
 import { withBuilderUtmTrackingParams } from "@agent-native/core/shared";
 import {
   IconWorld,
-  IconPalette,
+  IconComponents,
   IconLoader2,
   IconBrandGithub,
   IconBrandFigma,
@@ -19,6 +19,7 @@ import {
   IconCheck,
   IconExternalLink,
   IconChevronDown,
+  IconRefresh,
 } from "@tabler/icons-react";
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { toast } from "sonner";
@@ -59,6 +60,8 @@ interface DesignSystemSetupProps {
 interface GitHubLink {
   id: string;
   url: string;
+  ref?: string;
+  include?: string[];
 }
 
 interface UploadedFile {
@@ -81,6 +84,13 @@ interface BuilderSourceDetails {
   tokenValues?: Record<string, string>;
   docCount?: number;
   warning?: string;
+  githubSources?: Array<{
+    repoUrl: string;
+    ref?: string;
+    include?: string[];
+    exclude?: string[];
+  }>;
+  syncedAt?: string;
 }
 
 interface ExistingDesignSystem {
@@ -89,6 +99,25 @@ interface ExistingDesignSystem {
   data?: string | null;
   customInstructions?: string;
   builder?: BuilderSourceDetails | null;
+}
+
+interface BuilderIndexInput {
+  projectName?: string;
+  description?: string;
+  githubSources?: Array<{
+    repoUrl: string;
+    ref?: string;
+    include?: string[];
+    exclude?: string[];
+  }>;
+  githubRepoUrl?: string;
+  codeFiles?: Array<{
+    filename: string;
+    content: string;
+    mimeType?: string;
+    encoding?: "utf8" | "base64";
+  }>;
+  designMd?: string;
 }
 
 type OtherSource = "brand" | "code" | "files" | "existing" | "context";
@@ -134,6 +163,8 @@ export function DesignSystemSetup({
   const [websiteUrl, setWebsiteUrl] = useState("");
   const [websiteUrls, setWebsiteUrls] = useState<string[]>([]);
   const [githubUrl, setGithubUrl] = useState("");
+  const [githubRef, setGithubRef] = useState("");
+  const [githubPaths, setGithubPaths] = useState("");
   const [githubLinks, setGithubLinks] = useState<GitHubLink[]>([]);
   const [codeFiles, setCodeFiles] = useState<UploadedFile[]>([]);
   const [docFiles, setDocFiles] = useState<UploadedFile[]>([]);
@@ -211,6 +242,13 @@ export function DesignSystemSetup({
   const imageInputRef = useRef<HTMLInputElement>(null);
   const figInputRef = useRef<HTMLInputElement>(null);
   const updateSystemMutation = useActionMutation("update-design-system");
+  const syncSystemMutation = useActionMutation(
+    "sync-design-system-with-builder",
+  );
+  const indexSystemMutation = useActionMutation<
+    BuilderIndexResult,
+    BuilderIndexInput
+  >("index-design-system-with-builder");
 
   const {
     data: existingDs,
@@ -267,6 +305,8 @@ export function DesignSystemSetup({
       setWebsiteUrl("");
       setWebsiteUrls([]);
       setGithubUrl("");
+      setGithubRef("");
+      setGithubPaths("");
       setGithubLinks([]);
       setCodeFiles([]);
       setDocFiles([]);
@@ -323,9 +363,23 @@ export function DesignSystemSetup({
   const addGithubLink = useCallback(() => {
     const url = githubUrl.trim();
     if (!url) return;
-    setGithubLinks((prev) => [...prev, { id: crypto.randomUUID(), url }]);
+    const include = githubPaths
+      .split(/[\n,]/)
+      .map((path) => path.trim().replace(/^\/+|\/+$/g, ""))
+      .filter(Boolean);
+    setGithubLinks((prev) => [
+      ...prev,
+      {
+        id: crypto.randomUUID(),
+        url,
+        ...(githubRef.trim() ? { ref: githubRef.trim() } : {}),
+        ...(include.length > 0 ? { include: [...new Set(include)] } : {}),
+      },
+    ]);
     setGithubUrl("");
-  }, [githubUrl]);
+    setGithubRef("");
+    setGithubPaths("");
+  }, [githubPaths, githubRef, githubUrl]);
 
   const readTextFiles = useCallback(
     (
@@ -432,9 +486,63 @@ export function DesignSystemSetup({
     }
   };
 
+  const handleSync = useCallback(async () => {
+    if (!editingId || !existingDs?.builder?.githubSources?.length) return;
+    setGenerating(true);
+    try {
+      await syncSystemMutation.mutateAsync({ id: editingId });
+      toast.success(t("designSystemSetup.syncStarted"));
+    } catch (error) {
+      toast.error(t("designSystemSetup.syncFailed"), {
+        description:
+          error instanceof Error
+            ? error.message
+            : t("designSystemSetup.syncFailed"),
+      });
+    } finally {
+      setGenerating(false);
+    }
+  }, [editingId, existingDs, syncSystemMutation, t]);
+
   const handleGenerate = useCallback(async () => {
     if (editingId) {
       await handleEditSave();
+      return;
+    }
+
+    const isGithubOnlySource =
+      githubLinks.length > 0 &&
+      websiteUrls.length === 0 &&
+      codeFiles.length === 0 &&
+      !builderIndexResult &&
+      docFiles.length === 0 &&
+      imageFiles.length === 0 &&
+      !selectedSystemId &&
+      !brandNotes.trim() &&
+      !customInstructions.trim();
+    if (isGithubOnlySource) {
+      setGenerating(true);
+      try {
+        await indexSystemMutation.mutateAsync({
+          projectName: companyName.trim() || undefined,
+          githubSources: githubLinks.map((link) => ({
+            repoUrl: link.url,
+            ...(link.ref ? { ref: link.ref } : {}),
+            ...(link.include?.length ? { include: link.include } : {}),
+          })),
+        });
+        toast.success(t("designSystemSetup.generationStarted"));
+        onComplete();
+      } catch (error) {
+        toast.error(t("designSystemSetup.updateFailed"), {
+          description:
+            error instanceof Error
+              ? error.message
+              : t("designSystemSetup.updateFailed"),
+        });
+      } finally {
+        setGenerating(false);
+      }
       return;
     }
 
@@ -485,7 +593,15 @@ export function DesignSystemSetup({
 
     if (githubLinks.length > 0) {
       parts.push(
-        `\n## Connect Code: GitHub Repositories\nStart Builder DSI indexing for each repository with \`index-design-system-with-builder\`:\n${githubLinks.map((l) => `- ${l.url}`).join("\n")}\n\nBuilder is the source of truth for repo/code design-system indexing. The action also creates a local selectable proxy design system for Slides flows. If Builder is not connected, stop and tell me to connect Builder (free tier available) from Settings.`,
+        `\n## Connect Code: GitHub Repositories\nMake one call to \`index-design-system-with-builder\` with \`githubSources\` set to this JSON array:\n\n\`\`\`json\n${JSON.stringify(
+          githubLinks.map((link) => ({
+            repoUrl: link.url,
+            ...(link.ref ? { ref: link.ref } : {}),
+            ...(link.include?.length ? { include: link.include } : {}),
+          })),
+          null,
+          2,
+        )}\n\`\`\`\n\nBuilder is the source of truth for repo/code design-system indexing. The action creates one local selectable proxy design system for Slides flows. If Builder is not connected, stop and tell me to connect Builder (free tier available) from Settings.`,
       );
     }
 
@@ -581,8 +697,15 @@ export function DesignSystemSetup({
       }. Present a summary for review.`,
     );
 
+    const message =
+      parts[0] ?? "Set up a design system from the selected sources.";
+    const contextParts = parts.slice(1);
     openAgentSidebar();
-    sendToAgentChat({ message: parts.join("\n"), submit: true });
+    sendToAgentChat({
+      message,
+      context: contextParts.join("\n"),
+      submit: true,
+    });
     toast(t("designSystemSetup.generationStarted"), {
       description: t("designSystemSetup.generationStartedDescription"),
     });
@@ -603,6 +726,7 @@ export function DesignSystemSetup({
     onComplete,
     t,
     updateSystemMutation,
+    indexSystemMutation,
     existingDs,
   ]);
 
@@ -644,7 +768,16 @@ export function DesignSystemSetup({
               </div>
 
               {editingId && existingDs?.builder ? (
-                <BuilderSourceStatus builder={existingDs.builder} />
+                <BuilderSourceStatus
+                  builder={existingDs.builder}
+                  onSync={
+                    existingDs.builder.githubSources?.length &&
+                    existingDs.builder.sourceKind !== "mixed"
+                      ? handleSync
+                      : undefined
+                  }
+                  syncing={syncSystemMutation.isPending}
+                />
               ) : null}
 
               {!editingId && (
@@ -721,7 +854,7 @@ export function DesignSystemSetup({
                   </div>
 
                   <SourceAccordionRow
-                    icon={IconPalette}
+                    icon={IconComponents}
                     title={t("designSystemSetup.otherSources")}
                     description={t("designSystemSetup.otherSourcesDescription")}
                     expanded={sourcePanel === "other"}
@@ -741,7 +874,7 @@ export function DesignSystemSetup({
                       <div className="divide-y divide-border">
                         <SourceAccordionRow
                           className="rounded-none border-0"
-                          icon={IconPalette}
+                          icon={IconComponents}
                           title={t("designSystemSetup.companyBrand")}
                           description={t(
                             "designSystemSetup.companyBrandPlaceholder",
@@ -771,7 +904,7 @@ export function DesignSystemSetup({
                         {existingSystems.length > 0 && (
                           <SourceAccordionRow
                             className="rounded-none border-0"
-                            icon={IconPalette}
+                            icon={IconComponents}
                             title={t("designSystemSetup.forkExisting")}
                             description={t(
                               "designSystemSetup.customInstructionsDescription",
@@ -888,8 +1021,28 @@ export function DesignSystemSetup({
                         {t("designSystemSetup.add")}
                       </Button>
                     </div>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <Input
+                        value={githubRef}
+                        onChange={(e) => setGithubRef(e.target.value)}
+                        placeholder={t("designSystemSetup.githubRef")}
+                        aria-label={t("designSystemSetup.githubRef")}
+                        className="bg-accent border-border text-foreground placeholder:text-muted-foreground"
+                      />
+                      <Input
+                        value={githubPaths}
+                        onChange={(e) => setGithubPaths(e.target.value)}
+                        placeholder={t("designSystemSetup.githubPaths")}
+                        aria-label={t("designSystemSetup.githubPaths")}
+                        className="bg-accent border-border text-foreground placeholder:text-muted-foreground"
+                      />
+                    </div>
                     <TagList
-                      items={githubLinks.map((l) => l.url)}
+                      items={githubLinks.map((l) =>
+                        [l.url, l.ref, l.include?.join(", ")]
+                          .filter(Boolean)
+                          .join(" · "),
+                      )}
                       onRemove={(i) =>
                         setGithubLinks((p) => p.filter((_, j) => j !== i))
                       }
@@ -1064,7 +1217,7 @@ export function DesignSystemSetup({
                               }`}
                             >
                               <div className="flex items-center gap-2">
-                                <IconPalette className="w-3.5 h-3.5 text-muted-foreground" />
+                                <IconComponents className="w-3.5 h-3.5 text-muted-foreground" />
                                 <span className="text-sm text-foreground/80 truncate">
                                   {ds.title}
                                 </span>
@@ -1246,7 +1399,15 @@ function SourceAccordionRow({
   );
 }
 
-function BuilderSourceStatus({ builder }: { builder: BuilderSourceDetails }) {
+function BuilderSourceStatus({
+  builder,
+  onSync,
+  syncing = false,
+}: {
+  builder: BuilderSourceDetails;
+  onSync?: () => void;
+  syncing?: boolean;
+}) {
   const t = useT();
   const docs = builder.docCount ?? builder.docs?.length ?? 0;
   const tokens = Object.keys(builder.tokenValues ?? {}).length;
@@ -1276,7 +1437,7 @@ function BuilderSourceStatus({ builder }: { builder: BuilderSourceDetails }) {
         ? IconBrandGithub
         : sourceKind === "code"
           ? IconFolder
-          : IconPalette;
+          : IconComponents;
   const sourceTitle =
     sourceKind === "figma"
       ? t("designSystemSetup.sourceFigma")
@@ -1350,20 +1511,39 @@ function BuilderSourceStatus({ builder }: { builder: BuilderSourceDetails }) {
           {statusTitle}
         </div>
       </div>
-      {builder.builderUrl ? (
-        <div className="mt-3 border-t border-border pt-3">
-          <a
-            href={withBuilderUtmTrackingParams(builder.builderUrl, {
-              campaign: "product",
-              content: "design_system_intelligence",
-            })}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1.5 text-xs font-medium text-foreground underline-offset-4 hover:underline"
-          >
-            {t("designSystemSetup.sourceOpenInBuilder")}
-            <IconExternalLink className="size-3.5" />
-          </a>
+      {builder.builderUrl || onSync ? (
+        <div className="mt-3 flex flex-wrap items-center gap-3 border-t border-border pt-3">
+          {builder.builderUrl ? (
+            <a
+              href={withBuilderUtmTrackingParams(builder.builderUrl, {
+                campaign: "product",
+                content: "design_system_intelligence",
+              })}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-foreground underline-offset-4 hover:underline"
+            >
+              {t("designSystemSetup.sourceOpenInBuilder")}
+              <IconExternalLink className="size-3.5" />
+            </a>
+          ) : null}
+          {onSync ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={onSync}
+              disabled={syncing}
+              className="h-7 gap-1.5 px-2 text-xs"
+            >
+              <IconRefresh
+                className={cn("size-3.5", syncing && "animate-spin")}
+              />
+              {syncing
+                ? t("designSystemSetup.syncingSource")
+                : t("designSystemSetup.syncSource")}
+            </Button>
+          ) : null}
         </div>
       ) : null}
     </section>

@@ -95,7 +95,7 @@ export default function LocalizedDocPage() {
       markdownUrl={docsMarkdownPathForDoc(doc.slug, locale) ?? undefined}
     >
       {doc.draft && <DocDraftBanner />}
-      <DocContent markdown={doc.body} />
+      <DocContent markdown={doc.body} locale={locale} />
     </DocsLayout>
   );
 }

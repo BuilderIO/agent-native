@@ -40,6 +40,7 @@ import {
   PopoverTrigger,
 } from "../components/ui/popover.js";
 import { ConnectBuilderCard } from "../ConnectBuilderCard.js";
+import { FileStorageSetupCard } from "../FileStorageSetupCard.js";
 import { useT } from "../i18n.js";
 import { McpAppRenderer } from "../mcp-apps/McpAppRenderer.js";
 import { findMcpIntegrationForToolName } from "../resources/mcp-integration-catalog.js";
@@ -54,13 +55,13 @@ import {
 import {
   humanizeToolName,
   isCallAgentToolCallShadowed,
+  isToolCallActive,
 } from "../tool-display.js";
 import { cn } from "../utils.js";
 import { ActionChatUiSurface } from "./action-chat-ui-surface.js";
 import {
   SmoothMarkdownText,
   HighlightedCodeBlock,
-  useSmoothStreamingText,
 } from "./markdown-renderer.js";
 import { resolveToolRenderer } from "./tool-render-registry.js";
 import {
@@ -71,90 +72,16 @@ import {
 
 // Exported so AssistantChatInner can provide a context value.
 export const ChatRunningContext = React.createContext(false);
+export const ChatRunningRunIdContext = React.createContext<string | null>(null);
+export const ChatRunningTurnIdContext = React.createContext<string | null>(
+  null,
+);
 export const ChatRunDurationContext = React.createContext<number | null>(null);
+export const SuppressInlineOpenAppContext = React.createContext(false);
 export const ASSISTANT_VISIBLE_TOOL_CALL_LIMIT = 3;
-const TOOL_CALL_ENTRY_DURATION_MS = 220;
-const TOOL_CALL_STACK_MOTION_DURATION_MS = 220;
-const TOOL_CALL_STACK_EASING = "cubic-bezier(0.23, 1, 0.32, 1)";
-
-type ToolStackMotionSnapshot = {
-  top: number;
-  left: number;
-  width: number;
-  height: number;
-  clone: HTMLElement;
-};
-
-type ToolStackActiveMotion = {
-  element: HTMLElement;
-  animation: Animation;
-};
-
-function toolStackMotionKey(element: HTMLElement, index: number): string {
-  const toolCallId = element.dataset.agentToolCallId;
-  if (toolCallId) return `tool:${toolCallId}`;
-  const summaryId = element.dataset.agentToolSummary;
-  if (summaryId) return `summary:${summaryId}`;
-  return `anonymous:${index}`;
-}
-
-function prefersReducedMotionForToolStack(): boolean {
-  return (
-    typeof window !== "undefined" &&
-    typeof window.matchMedia === "function" &&
-    window.matchMedia("(prefers-reduced-motion: reduce)").matches
-  );
-}
-
-function startToolStackAnimation(
-  element: HTMLElement,
-  keyframes: Keyframe[],
-): Animation | null {
-  if (typeof element.animate !== "function") return null;
-  return element.animate(keyframes, {
-    duration: TOOL_CALL_STACK_MOTION_DURATION_MS,
-    easing: TOOL_CALL_STACK_EASING,
-    fill: "both",
-  });
-}
-
-function prepareToolStackExitClone(
-  clone: HTMLElement,
-  snapshot: ToolStackMotionSnapshot,
-): void {
-  clone.classList.remove(
-    "agent-tool-call--entering",
-    "agent-tool-call--stack-entering",
-  );
-  clone
-    .querySelectorAll<HTMLElement>(
-      ".agent-tool-call--entering, .agent-tool-call--stack-entering",
-    )
-    .forEach((element) => {
-      element.classList.remove(
-        "agent-tool-call--entering",
-        "agent-tool-call--stack-entering",
-      );
-    });
-  clone.classList.add("agent-tool-call-stack__exit");
-  clone.setAttribute("aria-hidden", "true");
-  clone.removeAttribute("data-agent-tool-call-id");
-  clone.removeAttribute("data-agent-tool-summary");
-  clone.removeAttribute("data-agent-tool-motion-token");
-  clone.style.left = `${snapshot.left}px`;
-  clone.style.top = `${snapshot.top}px`;
-  clone.style.width = `${snapshot.width}px`;
-  clone.style.height = `${snapshot.height}px`;
-  clone.style.transform = "translate3d(0, 0, 0)";
-  clone.style.transition = "none";
-  clone.style.animation = "none";
-  clone.style.opacity = "1";
-}
-
 /**
- * Keeps the visible tool stack spatially continuous as streaming calls change
- * which rows belong to the collapsed history bucket. The rendered data stays
- * untouched; this only animates the DOM's before/after positions.
+ * Keeps the tool-call stack layout-transparent. Tool-entry motion is disabled
+ * until it can stay stable while streaming calls are added and summarized.
  */
 export function ToolCallStackMotion({
   children,
@@ -163,179 +90,8 @@ export function ToolCallStackMotion({
   children: React.ReactNode;
   className?: string;
 }) {
-  const stackRef = useRef<HTMLDivElement>(null);
-  const previousRef = useRef<Map<string, ToolStackMotionSnapshot>>(new Map());
-  const previousStructureRef = useRef<string[]>([]);
-  const activeMotionsRef = useRef<Map<string, ToolStackActiveMotion>>(
-    new Map(),
-  );
-  const exitAnimationsRef = useRef<Map<HTMLElement, Animation>>(new Map());
-
-  useLayoutEffect(() => {
-    const stack = stackRef.current;
-    if (!stack) return;
-
-    const previous = previousRef.current;
-    const visualPrevious = new Map(previous);
-    for (const [key, activeMotion] of activeMotionsRef.current) {
-      if (stack.contains(activeMotion.element)) {
-        const previousSnapshot = previous.get(key);
-        if (previousSnapshot) {
-          const rect = activeMotion.element.getBoundingClientRect();
-          visualPrevious.set(key, {
-            ...previousSnapshot,
-            top: rect.top,
-            left: rect.left,
-          });
-        }
-      }
-      activeMotion.animation.cancel();
-    }
-    activeMotionsRef.current.clear();
-
-    for (const [ghost, animation] of exitAnimationsRef.current) {
-      animation.cancel();
-      ghost.remove();
-    }
-    exitAnimationsRef.current.clear();
-
-    const elements = Array.from(
-      stack.querySelectorAll<HTMLElement>(
-        "[data-agent-tool-call-id], [data-agent-tool-summary]",
-      ),
-    );
-    const structure = elements.map((element, index) =>
-      toolStackMotionKey(element, index),
-    );
-    const previousStructure = previousStructureRef.current;
-    const structureChanged =
-      structure.length !== previousStructure.length ||
-      structure.some((key, index) => key !== previousStructure[index]);
-    previousStructureRef.current = structure;
-    const current = new Map<string, ToolStackMotionSnapshot>();
-    for (const [index, element] of elements.entries()) {
-      const rect = element.getBoundingClientRect();
-      current.set(toolStackMotionKey(element, index), {
-        top: rect.top,
-        left: rect.left,
-        width: rect.width,
-        height: rect.height,
-        clone: element.cloneNode(true) as HTMLElement,
-      });
-    }
-
-    previousRef.current = current;
-    // Entry motion changes the measured transform without changing the stack
-    // structure. Do not turn that animation's cleanup into a second FLIP pass.
-    if (
-      previous.size === 0 ||
-      !structureChanged ||
-      prefersReducedMotionForToolStack()
-    )
-      return;
-
-    const summary = elements.find(
-      (element) => element.dataset.agentToolSummary !== undefined,
-    );
-    const summaryRect = summary?.getBoundingClientRect();
-    const elementsByKey = new Map(
-      elements.map((element, index) => [
-        toolStackMotionKey(element, index),
-        element,
-      ]),
-    );
-
-    for (const [key, after] of current.entries()) {
-      const before = visualPrevious.get(key);
-      if (!before) {
-        const node = elementsByKey.get(key);
-        if (!node) continue;
-        if (node.dataset.agentToolSummary !== undefined) continue;
-        if (
-          node.dataset.agentToolCallId !== undefined &&
-          !node.classList.contains("agent-tool-call--entering")
-        ) {
-          node.classList.add("agent-tool-call--stack-entering");
-          window.setTimeout(() => {
-            node.classList.remove("agent-tool-call--stack-entering");
-          }, TOOL_CALL_ENTRY_DURATION_MS);
-        }
-        continue;
-      }
-
-      const dx = before.left - after.left;
-      const dy = before.top - after.top;
-      if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) continue;
-
-      const node = elementsByKey.get(key);
-      if (!node) continue;
-      if (node.dataset.agentToolSummary !== undefined) continue;
-      const animation = startToolStackAnimation(node, [
-        { transform: `translate3d(${dx}px, ${dy}px, 0)` },
-        { transform: "translate3d(0, 0, 0)" },
-      ]);
-      if (!animation) continue;
-      activeMotionsRef.current.set(key, { element: node, animation });
-      const clearMotion = () => {
-        if (activeMotionsRef.current.get(key)?.animation === animation) {
-          activeMotionsRef.current.delete(key);
-        }
-      };
-      animation.onfinish = clearMotion;
-      animation.oncancel = clearMotion;
-    }
-
-    for (const [key, before] of visualPrevious.entries()) {
-      if (current.has(key) || !key.startsWith("tool:")) continue;
-
-      const ghost = before.clone;
-      prepareToolStackExitClone(ghost, before);
-      document.body?.appendChild(ghost);
-      if (!ghost.isConnected) continue;
-
-      const targetTop = summaryRect?.top ?? before.top - 8;
-      const targetLeft = summaryRect?.left ?? before.left;
-      const animation = startToolStackAnimation(ghost, [
-        { transform: "translate3d(0, 0, 0)", opacity: 1 },
-        {
-          transform: `translate3d(${targetLeft - before.left}px, ${targetTop - before.top}px, 0)`,
-          opacity: 0,
-        },
-      ]);
-      if (!animation) {
-        ghost.remove();
-        continue;
-      }
-      exitAnimationsRef.current.set(ghost, animation);
-      const clearExit = () => {
-        if (exitAnimationsRef.current.get(ghost) === animation) {
-          exitAnimationsRef.current.delete(ghost);
-        }
-        ghost.remove();
-      };
-      animation.onfinish = clearExit;
-      animation.oncancel = clearExit;
-    }
-  });
-
-  useEffect(() => {
-    return () => {
-      for (const { animation } of activeMotionsRef.current.values()) {
-        animation.cancel();
-      }
-      activeMotionsRef.current.clear();
-      for (const [ghost, animation] of exitAnimationsRef.current) {
-        animation.cancel();
-        ghost.remove();
-      }
-      exitAnimationsRef.current.clear();
-    };
-  }, []);
-
   return (
-    <div ref={stackRef} className={cn("agent-tool-call-stack", className)}>
-      {children}
-    </div>
+    <div className={cn("agent-tool-call-stack", className)}>{children}</div>
   );
 }
 
@@ -398,33 +154,17 @@ export const TOOL_LONG_RUNNING_HINT_DELAY_MS = 45_000;
 export function ToolActivityPresentation({
   toolName,
   isRunning,
-  isActiveTail,
   toolCallId,
   suppressLongRunningHint = false,
   children,
 }: {
   toolName: string;
   isRunning: boolean;
-  isActiveTail: boolean;
   toolCallId?: string;
   suppressLongRunningHint?: boolean;
   children: React.ReactNode;
 }) {
   const [showLongRunningHint, setShowLongRunningHint] = useState(false);
-  // A batched update can first reveal a tool with its result already attached.
-  // Presentation follows the active chat tail rather than execution state so
-  // that newly revealed completed tools still get their entrance motion.
-  const [animateEntry, setAnimateEntry] = useState(isActiveTail);
-
-  useEffect(() => {
-    if (!animateEntry) return;
-    const timeout = window.setTimeout(
-      () => setAnimateEntry(false),
-      TOOL_CALL_ENTRY_DURATION_MS,
-    );
-    return () => window.clearTimeout(timeout);
-  }, [animateEntry]);
-
   useEffect(() => {
     if (!isRunning || suppressLongRunningHint) {
       setShowLongRunningHint(false);
@@ -439,10 +179,7 @@ export function ToolActivityPresentation({
 
   return (
     <div
-      className={cn(
-        "agent-tool-call",
-        animateEntry && "agent-tool-call--entering",
-      )}
+      className="agent-tool-call"
       data-agent-tool-call-id={toolCallId}
       data-running={isRunning ? "true" : undefined}
     >
@@ -919,6 +656,7 @@ export function ToolCallDisplay({
   isRunning,
   outcome,
   structuredMeta,
+  activity,
   approval,
   repeatCount,
   isLatestRunning = isRunning,
@@ -935,6 +673,7 @@ export function ToolCallDisplay({
   /** "unknown": the stream ended mid-flight, so the side effect may have landed. */
   outcome?: "unknown";
   structuredMeta?: Record<string, unknown>;
+  activity?: boolean;
   approval?: { approvalKey: string; dismissed?: boolean };
   repeatCount?: number;
   /** The latest tool shown while the overall chat turn is still active. */
@@ -942,6 +681,19 @@ export function ToolCallDisplay({
   /** @deprecated Use isActiveTail. */
   isLatestRunning?: boolean;
 }) {
+  const isDelegatedAgentCall =
+    toolName === "call-agent" || toolName.startsWith("agent:");
+  const effectiveIsRunning =
+    isRunning ||
+    (isDelegatedAgentCall &&
+      isToolCallActive({
+        type: "tool-call",
+        toolName,
+        result,
+        outcome,
+        activity,
+        structuredMeta,
+      }));
   const showActiveTail = isActiveTail ?? isLatestRunning;
   // Delegate to bespoke cells when structured metadata is present.
   // These must be separate components so hook order in ToolCallDisplayGeneric
@@ -950,8 +702,7 @@ export function ToolCallDisplay({
   const wrapToolDisplay = (children: React.ReactNode) => (
     <ToolActivityPresentation
       toolName={toolName}
-      isRunning={isRunning}
-      isActiveTail={showActiveTail}
+      isRunning={effectiveIsRunning}
       toolCallId={toolCallId}
       suppressLongRunningHint={
         toolName === "call-agent" || toolName.startsWith("agent:")
@@ -967,7 +718,7 @@ export function ToolCallDisplay({
           structuredMeta as unknown as Parameters<typeof BashCell>[0]["meta"]
         }
         output={result}
-        isRunning={isRunning}
+        isRunning={effectiveIsRunning}
       />,
     );
   }
@@ -977,7 +728,7 @@ export function ToolCallDisplay({
         meta={
           structuredMeta as unknown as Parameters<typeof EditCell>[0]["meta"]
         }
-        isRunning={isRunning}
+        isRunning={effectiveIsRunning}
       />,
     );
   }
@@ -987,7 +738,7 @@ export function ToolCallDisplay({
         meta={
           structuredMeta as unknown as Parameters<typeof WriteCell>[0]["meta"]
         }
-        isRunning={isRunning}
+        isRunning={effectiveIsRunning}
       />,
     );
   }
@@ -1000,7 +751,7 @@ export function ToolCallDisplay({
       result={result}
       mcpApp={mcpApp}
       chatUI={chatUI}
-      isRunning={isRunning}
+      isRunning={effectiveIsRunning}
       outcome={outcome}
       isActiveTail={showActiveTail}
       structuredMeta={structuredMeta}
@@ -1039,6 +790,7 @@ function ToolCallDisplayGeneric({
   approval?: { approvalKey: string; dismissed?: boolean };
   repeatCount?: number;
 }) {
+  const suppressInlineOpenApp = React.useContext(SuppressInlineOpenAppContext);
   const isRawCallAgent = toolName === "call-agent";
   const isAgentCall = toolName.startsWith("agent:") || isRawCallAgent;
   const [expanded, setExpanded] = useState(isAgentCall);
@@ -1083,6 +835,19 @@ function ToolCallDisplayGeneric({
         );
       }
     } catch {
+      // coercion-ok: malformed tool output should fall through to the default tool pill
+      // fall through to default pill rendering
+    }
+  }
+
+  if (toolName === "connect-file-storage" && result) {
+    try {
+      const parsed = JSON.parse(result);
+      if (parsed?.kind === "connect-file-storage-card") {
+        return <FileStorageSetupCard />;
+      }
+    } catch {
+      // coercion-ok: malformed storage tool output should fall through to the default tool pill
       // fall through to default pill rendering
     }
   }
@@ -1195,7 +960,9 @@ function ToolCallDisplayGeneric({
 
   return (
     <div className="group/tool my-0.5 w-full overflow-hidden">
-      {mcpApp && <McpAppRenderer app={mcpApp} className="mb-1.5" />}
+      {mcpApp && !(suppressInlineOpenApp && toolName === "open_app") && (
+        <McpAppRenderer app={mcpApp} className="mb-1.5" />
+      )}
       <button
         type="button"
         onClick={() => canExpand && setExpanded(!isExpanded)}
@@ -1470,7 +1237,6 @@ function AgentActivityToolCallRow({
     <ToolActivityPresentation
       toolName={tool.name}
       isRunning={isRunning}
-      isActiveTail={isActiveTail}
       toolCallId={tool.id}
       suppressLongRunningHint
     >
@@ -1516,12 +1282,20 @@ export function ToolCallFallback({
   isActiveTail?: boolean;
 }) {
   const chatRunning = React.useContext(ChatRunningContext);
-  // A spinner is a claim that something is running right now, so it needs an
-  // actually-running chat. `chatRunning` already stays true across
-  // auto-continuation gaps and server-active runs (resolveAssistantChatRunningState),
-  // so an activity placeholder alone must never resurrect one on rehydrated
-  // history.
-  const isRunning = result === undefined && chatRunning;
+  // `chatRunning` covers ordinary live activity. An unresolved tool or a
+  // delegated-agent row is also explicit work evidence, while a generic
+  // activity placeholder alone must stay frozen when history is rehydrated.
+  const isRunning =
+    rest.outcome !== "unknown" &&
+    ((result === undefined && chatRunning) ||
+      isToolCallActive({
+        type: "tool-call",
+        toolName,
+        result,
+        outcome: rest.outcome,
+        activity: rest.activity,
+        structuredMeta: rest.structuredMeta,
+      }));
   return (
     <ToolCallDisplay
       toolName={toolName}
@@ -1538,6 +1312,7 @@ export function ToolCallFallback({
       mcpApp={rest.mcpApp}
       chatUI={rest.chatUI}
       structuredMeta={rest.structuredMeta}
+      activity={rest.activity}
       isRunning={isRunning}
       outcome={rest.outcome}
       isActiveTail={rest.isActiveTail}
@@ -1618,6 +1393,7 @@ export function ReconnectStreamMessage({
         mcpApp={part.mcpApp}
         chatUI={part.chatUI}
         structuredMeta={part.structuredMeta}
+        activity={part.activity}
         outcome={part.outcome}
         isRunning={
           part.result === undefined &&
@@ -1759,7 +1535,6 @@ const WorkSummaryContentContext = React.createContext(false);
 export function ReasoningCell({
   text,
   isStreaming = false,
-  resetKey,
   defaultOpen,
   autoCollapse = false,
   collapseWhenReplaced = false,
@@ -1767,7 +1542,7 @@ export function ReasoningCell({
 }: {
   text: string;
   isStreaming?: boolean;
-  /** Stable identity used to restart the reveal when a new reasoning part mounts. */
+  /** Stable identity retained for callers; reasoning renders chunk-natively. */
   resetKey?: string;
   defaultOpen?: boolean;
   /** Animate closed when a live reasoning segment finishes during a run. */
@@ -1787,11 +1562,10 @@ export function ReasoningCell({
   const wasStreamingRef = useRef(isStreaming);
   const wasReplacedRef = useRef(collapseWhenReplaced);
   const trimmed = text.trim();
-  const visibleText = useSmoothStreamingText(
-    trimmed,
-    isStreaming,
-    resetKey ?? "reasoning",
-  );
+  // Reasoning is already a compact live status surface. Rendering the latest
+  // chunk directly avoids a second character-level queue that can lag behind
+  // the model and make the surrounding chat look like it is jumping.
+  const visibleText = trimmed;
 
   useEffect(() => {
     if (autoCollapse && wasStreamingRef.current && !isStreaming) {

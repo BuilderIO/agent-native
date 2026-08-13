@@ -133,6 +133,39 @@ describe("get-recording-insights", () => {
     expect(result.uniqueViewers).toBe(1);
   });
 
+  it("calculates completion from counted viewers, not preview rows", async () => {
+    mockViewerRows.mockResolvedValue([
+      {
+        ...countedViewer("viewer-1", ""),
+        viewerEmail: null,
+        completedPct: 84,
+      },
+      {
+        ...countedViewer("viewer-2", ""),
+        viewerEmail: null,
+        completedPct: 0,
+        countedView: false,
+      },
+      {
+        ...countedViewer("viewer-3", ""),
+        viewerEmail: null,
+        completedPct: 0,
+        countedView: false,
+      },
+    ]);
+    mockViewLogRows.mockResolvedValue([{ value: 1 }]);
+
+    const result = await getRecordingInsights.run({
+      recordingId: "recording-1",
+    });
+
+    expect(result).toMatchObject({
+      views: 1,
+      uniqueViewers: 1,
+      completionRate: 84,
+    });
+  });
+
   it("falls back to counted viewers when the view log is empty", async () => {
     mockViewerRows.mockResolvedValue([
       countedViewer("viewer-1", "a@example.com"),

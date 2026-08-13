@@ -2,6 +2,10 @@
 
 import { readFileSync } from "node:fs";
 
+import {
+  getDesktopVisibleApps,
+  isDesktopAppVisible,
+} from "@shared/app-registry";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -10,7 +14,12 @@ import type { MultiFrontierIpcEvent } from "../../../shared/multi-frontier-ipc.j
 import {
   chatFirstAppSurfaceTab,
   chatFirstPreviewPartitionKey,
+  dispatchControlPlaneUrlParams,
+  dispatchControlPlaneTitle,
+  filterDesktopApps,
+  isDispatchControlPlanePath,
   isChatFirstSurfaceTabActive,
+  orderDesktopApps,
   MultiFrontierModeControl,
 } from "./CodeAgentsHub.js";
 import {
@@ -205,6 +214,110 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     expect(shellCss).toContain('@import "@agent-native/toolkit/styles.css";');
   });
 
+  it("keeps the chat-first composer narrower than its apps grid", () => {
+    const shellCss = readFileSync("src/renderer/shell.css", "utf8");
+
+    expect(shellCss).toContain("width: min(100%, 750px) !important;");
+    expect(shellCss).toMatch(
+      /\.desktop-apps-grid\s*\{[\s\S]*?max-width: 1000px;/,
+    );
+  });
+
+  it("keeps the chat-first rail collapse control beside settings", () => {
+    const hubSource = readFileSync(
+      "src/renderer/components/CodeAgentsHub.tsx",
+      "utf8",
+    );
+    const appSource = readFileSync(
+      "../code-agents-ui/src/CodeAgentsApp.tsx",
+      "utf8",
+    );
+    const shellCss = readFileSync("src/renderer/shell.css", "utf8");
+
+    expect(hubSource).toContain("desktop-chat-first-rail-footer-actions");
+    expect(hubSource).toContain(
+      'desktop-chat-first-rail-settings"\n                      onClick',
+    );
+    expect(hubSource).toContain("IconLayoutSidebarLeftCollapse");
+    expect(hubSource).toContain("desktop-chat-first-rail-collapse");
+    expect(hubSource).toContain("setChatFirstRailCollapsed(true)");
+    expect(hubSource).not.toContain(
+      '{chatFirstRailCollapsed ? "Expand" : "Collapse"}',
+    );
+    expect(appSource).toContain("code-agents-surface--rail-collapsed");
+    expect(shellCss).toContain("grid-template-columns: 56px minmax(0, 1fr);");
+    expect(shellCss).toContain(
+      ".desktop-chat-first-rail-footer-actions > .code-agents-nav-link",
+    );
+    expect(shellCss).toContain("code-agents-primary-new-chat-shell");
+    expect(shellCss).toMatch(
+      /\.code-agents-rail--collapsed[\s\S]*\.code-agents-nav-list\s*>\s*button/,
+    );
+    expect(shellCss).toContain("border-bottom: 0;");
+    expect(shellCss).toMatch(
+      /\.desktop-chat-first-rail-footer-actions\s*>\s*\.desktop-chat-first-rail-settings\s*\{[\s\S]*?flex: 1 1 auto;/,
+    );
+    expect(shellCss).toContain("visibility: hidden;");
+    expect(shellCss).toContain("margin-top: auto;");
+  });
+
+  it("orders pinned desktop apps ahead of unpinned apps and filters by name or description", () => {
+    const apps = [
+      {
+        id: "alpha",
+        name: "Alpha Notes",
+        description: "Write and review",
+        enabled: true,
+      },
+      {
+        id: "bravo",
+        name: "Bravo Mail",
+        description: "Inbox and threads",
+        enabled: true,
+      },
+      {
+        id: "charlie",
+        name: "Charlie Calendar",
+        description: "Plan meetings",
+        enabled: true,
+      },
+    ] as const;
+
+    const ordered = orderDesktopApps([...apps], {
+      pinnedIds: ["charlie"],
+      orderedIds: ["bravo", "alpha"],
+    });
+
+    expect(ordered.map((app) => app.id)).toEqual(["charlie", "bravo", "alpha"]);
+    expect(filterDesktopApps(ordered, "INBOX").map((app) => app.id)).toEqual([
+      "bravo",
+    ]);
+    expect(filterDesktopApps(ordered, "plan").map((app) => app.id)).toEqual([
+      "charlie",
+    ]);
+  });
+
+  it("renders the desktop apps grid controls in the hub source", () => {
+    const hubSource = readFileSync(
+      "src/renderer/components/CodeAgentsHub.tsx",
+      "utf8",
+    );
+
+    expect(hubSource).toContain("Search apps");
+    expect(hubSource).toContain("desktop-apps-grid__search");
+    expect(hubSource).toContain("desktop-app-card__body");
+    expect(hubSource).toContain("AppOpenActions");
+    expect(hubSource).toContain("desktop-app-card__actions");
+    expect(hubSource).toContain("Open in browser");
+    expect(hubSource).toContain("Pin to top");
+    expect(hubSource).toContain("desktop-apps-grid--full-page");
+    expect(hubSource).toContain("chatFirstAllAppsOpen");
+    expect(hubSource).toContain("onOpenAllApps={openChatFirstAllApps}");
+    expect(hubSource).not.toContain("desktop-apps-grid__summary");
+    expect(hubSource).toContain("layout={chatFirstAppLayout}");
+    expect(hubSource).toContain("onTogglePinned={toggleChatFirstAppPinned}");
+  });
+
   it("keeps full-page settings on the shared query and theme contracts", () => {
     const settingsSource = readFileSync(
       "src/renderer/components/AppSettings.tsx",
@@ -280,6 +393,73 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
       path: "/events/42?mode=week#details",
       view: "event",
     });
+  });
+
+  it("opens Dispatch control-plane pages without nested navigation chrome", () => {
+    expect(isDispatchControlPlanePath("/integrations")).toBe(true);
+    expect(isDispatchControlPlanePath("/integrations/stripe")).toBe(true);
+    expect(isDispatchControlPlanePath("/admin/automations?view=all")).toBe(
+      true,
+    );
+    expect(isDispatchControlPlanePath("/admin/integrations/slack/setup")).toBe(
+      true,
+    );
+    expect(isDispatchControlPlanePath("/overview")).toBe(false);
+    expect(isDispatchControlPlanePath("/integrations-extra")).toBe(false);
+    expect(dispatchControlPlaneUrlParams("/automations")).toEqual({
+      embedded: "1",
+      chatFirst: null,
+      electron: "1",
+    });
+    expect(dispatchControlPlaneUrlParams("/apps")).toEqual({
+      embedded: "1",
+      chatFirst: "1",
+    });
+    expect(dispatchControlPlaneTitle("/integrations/slack")).toBe(
+      "Integrations",
+    );
+    expect(dispatchControlPlaneTitle("/admin/automations?view=all")).toBe(
+      "Automations",
+    );
+  });
+
+  it("keeps Dispatch internal while excluding it from Electron app discovery", () => {
+    const apps = [
+      { id: "dispatch" },
+      { id: "calendar" },
+      { id: "agent" },
+    ] as const;
+
+    expect(isDesktopAppVisible({ id: "dispatch" })).toBe(false);
+    expect(isDesktopAppVisible({ id: "calendar" })).toBe(true);
+    expect(getDesktopVisibleApps(apps).map((app) => app.id)).toEqual([
+      "calendar",
+      "agent",
+    ]);
+  });
+
+  it("records whether an app was opened from the rail or the agent", () => {
+    expect(
+      chatFirstAppSurfaceTab(
+        { id: "analytics", name: "Analytics" },
+        "/adhoc/q2",
+        undefined,
+        "side",
+      ),
+    ).toMatchObject({
+      kind: "app",
+      appId: "analytics",
+      placement: "side",
+      path: "/adhoc/q2",
+    });
+    expect(
+      chatFirstAppSurfaceTab(
+        { id: "analytics", name: "Analytics" },
+        "/",
+        undefined,
+        "main",
+      ).placement,
+    ).toBe("main");
   });
 
   it("renders a live provider update in the subscription usage popover", async () => {

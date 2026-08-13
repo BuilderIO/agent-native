@@ -24,7 +24,6 @@ import { toast } from "sonner";
 import { PageHeader } from "@/components/library/page-header";
 import type { AttendeeStackParticipant } from "@/components/meetings/attendee-stack";
 import { DayHeader, formatDayLabel } from "@/components/meetings/day-header";
-import { GoogleOAuthIdentityNotice } from "@/components/meetings/google-oauth-identity-notice";
 import {
   UpcomingMeetingCard,
   MeetingCardSkeleton,
@@ -500,12 +499,11 @@ function ConnectCalendarEmptyState({
             <p className="mt-0.5 text-xs text-muted-foreground leading-relaxed">
               {t("meetingsRoute.desktopReminder")}
             </p>
-            <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
+            <div className="mt-3">
               <CalendarConnectionAction
                 label={t("meetingsRoute.connectGoogleCalendar")}
                 onConnected={onConnected}
               />
-              <GoogleOAuthIdentityNotice />
             </div>
             <div className="mt-4">
               <MeetingNotesSteps />

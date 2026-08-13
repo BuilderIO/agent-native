@@ -50,6 +50,7 @@ import {
   type DesktopAppContextAction,
   type DesktopAppCreationSettings,
   type DesktopAppRuntimeStatus,
+  type DesktopIdentityStatus,
   type DesktopCreateAppRequest,
   type DesktopCreateAppResult,
   type DesktopShortcutActivationRequest,
@@ -220,6 +221,25 @@ const electronAPI = {
     },
   },
 
+  /** Workspace identity commands expose intent and status, never credentials. */
+  identity: {
+    getStatus: (): Promise<DesktopIdentityStatus> =>
+      ipcRenderer.invoke(IPC.IDENTITY_STATUS_GET),
+    signIn: (): Promise<boolean> => ipcRenderer.invoke(IPC.IDENTITY_SIGN_IN),
+    signOut: (): Promise<boolean> => ipcRenderer.invoke(IPC.IDENTITY_SIGN_OUT),
+    onStatusChange: (
+      cb: (status: DesktopIdentityStatus) => void,
+    ): (() => void) => {
+      const handler = (
+        _: Electron.IpcRendererEvent,
+        status: DesktopIdentityStatus,
+      ) => cb(status);
+      ipcRenderer.on(IPC.IDENTITY_STATUS_CHANGED, handler);
+      return () =>
+        ipcRenderer.removeListener(IPC.IDENTITY_STATUS_CHANGED, handler);
+    },
+  },
+
   /** Shared MCP connection management used by the desktop settings surface. */
   mcpServers: {
     list: (): Promise<McpServersList> =>
@@ -253,6 +273,12 @@ const electronAPI = {
   clipboard: {
     writeText: (text: string): Promise<boolean> =>
       ipcRenderer.invoke(IPC.CLIPBOARD_WRITE_TEXT, text),
+  },
+
+  /** Open a validated URL in the user's system browser. */
+  shell: {
+    openExternal: (url: string): Promise<void> =>
+      ipcRenderer.invoke(IPC.SHELL_OPEN_EXTERNAL, url),
   },
 
   /** Local dev frame settings */

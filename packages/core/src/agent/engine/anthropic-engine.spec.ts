@@ -547,7 +547,7 @@ describe("createAnthropicEngine", () => {
     expect(stopEvent?.errorCode).toBe("missing_credentials");
   });
 
-  it("defaults to adaptive thinking at medium effort for a reasoning-capable model", async () => {
+  it("defaults to adaptive thinking at high effort for an effort-capable model", async () => {
     const requestParams = await captureRequestParams({
       model: "claude-sonnet-5",
       systemPrompt: "You are helpful.",
@@ -557,7 +557,7 @@ describe("createAnthropicEngine", () => {
     });
 
     expect(requestParams.thinking).toEqual({ type: "adaptive" });
-    expect(requestParams.output_config).toEqual({ effort: "medium" });
+    expect(requestParams.output_config).toEqual({ effort: "high" });
   });
 
   it("uses manual thinking for Claude Haiku 4.5 instead of adaptive thinking", async () => {
@@ -572,7 +572,7 @@ describe("createAnthropicEngine", () => {
 
     expect(requestParams.thinking).toEqual({
       type: "enabled",
-      budget_tokens: 4_096,
+      budget_tokens: 8_000,
     });
     expect(requestParams.output_config).toBeUndefined();
   });
@@ -884,6 +884,35 @@ describe("createAnthropicEngine streamed tool-input reconciliation", () => {
         id: "toolu_01",
         name: "create_document",
         input: { title: "Q3 plan" },
+      },
+    ]);
+  });
+
+  it("recovers complete streamed arguments when the final message carries an empty input", async () => {
+    const input = {
+      id: "ext-1",
+      operation: "edit",
+      payloadJson: "{}",
+    };
+    const events = await runToolInputStream(
+      [JSON.stringify(input)],
+      [
+        {
+          type: "tool_use",
+          id: "toolu_01",
+          name: "create_document",
+          input: {},
+        },
+      ],
+    );
+
+    expect(events.some((e) => e.type === "tool-call")).toBe(false);
+    expect(events.find((e) => e.type === "assistant-content")?.parts).toEqual([
+      {
+        type: "tool-call",
+        id: "toolu_01",
+        name: "create_document",
+        input,
       },
     ]);
   });

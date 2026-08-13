@@ -93,6 +93,8 @@ export interface SqlPanelConfig {
   rightYKeys?: string[];
   /** Value formatter for the right axis. Falls back to `yFormatter`. */
   rightYFormatter?: "number" | "currency" | "percent";
+  /** Optional display labels for exact series keys, e.g. {"evt_signup_completed_v2":"Signups"}. */
+  seriesLabels?: Record<string, string>;
   description?: string;
   pivot?: PivotConfig;
   /** Stack bar/area series on top of each other instead of side-by-side / overlapping. */

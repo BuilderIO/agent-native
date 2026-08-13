@@ -7,7 +7,7 @@ use crate::state::{
 };
 
 const POPOVER_SHADOW_GUTTER_LOGICAL: f64 = 24.0;
-const POPOVER_DEFAULT_WIDTH_LOGICAL: f64 = 360.0;
+const POPOVER_DEFAULT_WIDTH_LOGICAL: f64 = 320.0;
 const POPOVER_DEFAULT_HEIGHT_LOGICAL: f64 = 520.0;
 
 // ---------------------------------------------------------------------------

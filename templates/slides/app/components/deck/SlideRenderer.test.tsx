@@ -362,4 +362,44 @@ describe("SlideInner autofit", () => {
       );
     });
   });
+
+  it("defers measuring an off-screen slide until it scrolls into view", async () => {
+    let notify: ((entries: { isIntersecting: boolean }[]) => void) | undefined;
+    vi.stubGlobal(
+      "IntersectionObserver",
+      class {
+        constructor(cb: (entries: { isIntersecting: boolean }[]) => void) {
+          notify = cb;
+        }
+        observe() {}
+        disconnect() {}
+      },
+    );
+    // Far below the viewport, the way most thumbnails in a long deck are.
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+      () => rect(0, 100_000, 740, 380),
+    );
+
+    const slide: Slide = {
+      id: "raw-offscreen",
+      layout: "blank",
+      notes: "",
+      content:
+        '<div class="fmd-slide" style="padding: 80px 110px;"><h2>Flow title</h2></div>',
+    };
+    render(<SlideInner slide={slide} />);
+
+    // The fit layer is only ever created by a measure pass, so its absence
+    // proves the expensive per-descendant measurement never ran.
+    await new Promise((resolve) => window.setTimeout(resolve, 20));
+    expect(document.querySelector("[data-fmd-autofit-content]")).toBeNull();
+
+    notify?.([{ isIntersecting: true }]);
+
+    await waitFor(() => {
+      expect(
+        document.querySelector("[data-fmd-autofit-content]"),
+      ).not.toBeNull();
+    });
+  });
 });

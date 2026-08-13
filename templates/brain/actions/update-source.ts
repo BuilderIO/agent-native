@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { getCredentialContext } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
@@ -10,7 +11,10 @@ import {
   serializeSource,
   stableJson,
 } from "../server/lib/brain.js";
-import { assertSourceWorkspaceConnectionAvailable } from "../server/lib/source-credentials.js";
+import {
+  assertSourceCredentialAvailable,
+  assertSourceWorkspaceConnectionAvailable,
+} from "../server/lib/source-credentials.js";
 import { withSourceAnswerPolicy } from "../server/lib/source-policy.js";
 import { normalizeSlackChannelConfig } from "../shared/slack-source-config.js";
 import {
@@ -66,6 +70,11 @@ export default defineAction({
         await assertSourceWorkspaceConnectionAvailable({
           provider: existing.provider,
           workspaceConnectionId,
+        });
+        await assertSourceCredentialAvailable({
+          provider: existing.provider,
+          workspaceConnectionId,
+          ctx: getCredentialContext(),
         });
       } else {
         delete nextConfig.workspaceConnectionId;

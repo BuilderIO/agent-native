@@ -1105,6 +1105,7 @@ export default function BookingLinksPage({
             <ShareButton
               resourceType="booking-link"
               resourceId={selectedLink.id}
+              allowedRoles={["viewer", "editor", "admin"]}
               resourceTitle={draft.title || selectedLink.title}
               variant="compact"
               shareUrl={previewUrl}

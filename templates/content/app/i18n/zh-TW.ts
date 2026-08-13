@@ -33,6 +33,10 @@ const messages = {
     agent: "代理",
     settings: "設定",
   },
+  landing: {
+    previousPageUnavailable: "您先前的頁面已無法使用，因此我們開啟了歡迎頁面。",
+    saveFailed: "無法儲存您的位置",
+  },
   team: {
     metaTitle: "工作區存取 - Content",
     pageTitle: "工作區存取",
@@ -309,6 +313,7 @@ const messages = {
       addPropertyLink: "新增 {{name}} 連結",
       addPropertyPerson: "新增 {{name}} 人",
       addPropertyType: "新增 {{type}} 屬性",
+      connectASource: "連接資料來源",
       addQuoted: '新增"{{value}}"',
       backToColumnMenu: "返回排序與篩選",
       cancel: "取消",
@@ -455,7 +460,7 @@ const messages = {
       equationPlaceholder: String.raw`輸入 LaTeX，例如 \frac{a}{b}`,
       equationPreview: "預覽",
       equationPreviewEmpty: "公式將顯示於此。",
-      equationSubmitHint: "輸入時會即時更新預覽。按 Cmd/Ctrl+Enter 插入。",
+      equationSubmitHint: "輸入時會即時更新預覽。按 Cmd/Ctrl Enter 插入。",
       quote: "報價",
       quoteDescription: "塊報價",
       table: "表",

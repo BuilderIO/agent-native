@@ -72,6 +72,21 @@ describe("buildExtensionHtml", () => {
     expect(html).toContain("_appendActionQuery(path, params)");
   });
 
+  it("hides x-cloak content until Alpine boots", () => {
+    // Extension content is a body snippet, so it cannot supply this rule
+    // itself. Without it an `x-cloak` overlay covers the whole extension
+    // until the deferred Alpine CDN script resolves — and forever if it
+    // never does.
+    const html = buildExtensionHtml(
+      '<div x-cloak class="fixed inset-0">Alerts</div>',
+      ":root{}",
+      false,
+      "extension-1",
+    );
+
+    expect(html).toContain("[x-cloak] { display: none !important; }");
+  });
+
   it("routes extension navigate calls through the app-state command endpoint", () => {
     const html = buildExtensionHtml("<div/>", ":root{}", false, "extension-1");
 
@@ -101,6 +116,8 @@ describe("buildExtensionHtml", () => {
 
     expect(html).toContain("function sendToChat(message, options)");
     expect(html).toContain("type: 'agent-native-send-to-chat'");
+    expect(html).toContain("submit: options.submit === true");
+    expect(html).not.toContain("submit: options.submit !== false");
     expect(html).toContain("sendToChat: sendToChat");
     expect(html).toContain("send: sendToChat");
     expect(html).toContain("window.sendToAgentChat = sendToChat");
@@ -214,6 +231,22 @@ describe("extension iframe sandbox attribute (CI guard)", () => {
       for (const sandbox of sandboxMatches) {
         expect(sandbox).not.toContain("allow-same-origin");
       }
+    });
+  }
+});
+
+describe("extension chat submission policy (CI guard)", () => {
+  const HOST_SUBMISSION_GUARDS = [
+    ["ExtensionViewer.tsx", "submit: message.submit === true"],
+    ["EmbeddedExtension.tsx", "submit: (message as any).submit === true"],
+    ["InlineExtensionFrame.tsx", "submit: (message as any).submit === true"],
+  ] as const;
+
+  for (const [file, guard] of HOST_SUBMISSION_GUARDS) {
+    it(`${file} requires explicit submission opt-in`, () => {
+      const text = readFileSync(join(CLIENT_DIR, file), "utf8");
+      expect(text).toContain(guard);
+      expect(text).not.toContain(guard.replace("=== true", "!== false"));
     });
   }
 });

@@ -67,6 +67,26 @@ describe("action discovery", () => {
     expect(registry["mutating-read"].readOnly).toBe(false);
   });
 
+  it("preserves grounding metadata from static action entries", () => {
+    const registry = loadActionsFromStaticRegistry({
+      "grounded-query": {
+        default: {
+          tool: { description: "Grounded query", parameters: {} },
+          grounding: true,
+          run: async () => ({ ok: true }),
+        },
+      },
+      "metadata-read": {
+        tool: { description: "Metadata read", parameters: {} },
+        grounding: false,
+        run: async () => ({ ok: true }),
+      },
+    });
+
+    expect(registry["grounded-query"].grounding).toBe(true);
+    expect(registry["metadata-read"].grounding).toBe(false);
+  });
+
   it("preserves explicit readOnly false from named action entries", () => {
     const registry = loadActionsFromStaticRegistry({
       "named-mutating-read": {

@@ -13,6 +13,7 @@
   --surface: #f7f7f7;
   --surface-hover: #f0f0f0;
   --surface-strong: #ebebeb;
+  --settings-nav-active: #ffffff;
   --fg: #171717;
   --fg-muted: #737373;
   --fg-subtle: #a3a3a3;
@@ -48,6 +49,7 @@
     --surface: #262626;
     --surface-hover: #2e2e2e;
     --surface-strong: #3d3d3d;
+    --settings-nav-active: var(--surface-hover);
     --fg: #f5f5f5;
     --fg-muted: #a3a3a3;
     --fg-subtle: #737373;
@@ -108,8 +110,7 @@ button {
 
 body[data-clips-route="popover"] #root {
   min-height: 100vh;
-  padding: var(--popover-shadow-gutter-top) var(--popover-shadow-gutter)
-    var(--popover-shadow-gutter);
+  padding: 0;
 }
 
 body[data-clips-route]:not([data-clips-route="popover"]) #root {
@@ -150,6 +151,355 @@ body[data-clips-route="recording-pill"] #root {
   gap: 0;
   padding: 0;
   overflow-y: auto;
+}
+
+/* Settings uses the same calm rail + grouped rows as the hosted workspace
+   settings pages. The native popover keeps its own light/dark tokens, but the
+   hierarchy is intentionally shared: navigate on the left, edit one setting
+   at a time on the right. */
+.settings-page {
+  min-height: 560px;
+  max-height: calc(100vh - 48px);
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
+}
+
+.settings-page-header {
+  flex: 0 0 auto;
+  min-height: 68px;
+  padding: 16px 24px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-page-title {
+  display: grid;
+  gap: 2px;
+}
+
+.settings-page-title h2 {
+  font-size: 17px;
+  letter-spacing: -0.01em;
+}
+
+.settings-page-title p {
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+
+.settings-page-layout {
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1fr);
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.settings-nav {
+  min-width: 0;
+  padding: 18px 12px;
+  border-right: 1px solid var(--border);
+  background: var(--surface);
+  overflow-y: auto;
+}
+
+.settings-nav-group--start:not(:first-child) {
+  margin-top: 18px;
+}
+
+.settings-nav-group-label {
+  padding: 0 10px 7px;
+  color: var(--fg-subtle);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.settings-nav-button {
+  display: block;
+  width: 100%;
+  min-height: 36px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  transition:
+    background 120ms,
+    color 120ms;
+}
+
+.settings-nav-button:hover {
+  background: var(--surface-hover);
+  color: var(--fg);
+}
+
+.settings-nav-button.is-active {
+  background: var(--settings-nav-active);
+  color: var(--fg);
+  box-shadow: none;
+}
+
+.settings-nav-button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--brand-ring);
+}
+
+.settings-page-content {
+  min-width: 0;
+  min-height: 0;
+  padding: 24px 28px 32px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.settings-tab-heading {
+  display: grid;
+  gap: 4px;
+  margin: 0 auto 22px;
+  max-width: 760px;
+}
+
+.settings-tab-heading h3 {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.settings-tab-heading p {
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+
+.settings-tab-content {
+  display: grid;
+  gap: 22px;
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
+}
+
+.settings-group {
+  min-width: 0;
+}
+
+.settings-group-header {
+  display: grid;
+  gap: 3px;
+  padding: 0 2px 9px;
+}
+
+.settings-group-header h4 {
+  margin: 0;
+  color: var(--fg);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.settings-group-header p {
+  color: var(--fg-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.settings-group-body {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.settings-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(230px, 360px);
+  align-items: center;
+  gap: 24px;
+  min-width: 0;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-row:last-child {
+  border-bottom: 0;
+}
+
+.settings-row--stacked {
+  align-items: start;
+}
+
+.settings-row-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.settings-row-copy strong {
+  color: var(--fg);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.settings-row-copy span {
+  color: var(--fg-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.settings-row-control {
+  display: flex;
+  min-width: 0;
+  justify-content: flex-end;
+}
+
+.settings-row-control > .setup-select,
+.settings-row-control > .setup-shortcut-recorder {
+  width: min(100%, 300px);
+}
+
+.settings-row-control > .setup-textarea {
+  width: 100%;
+}
+
+.settings-control-group {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.settings-control-group--wide {
+  flex-wrap: nowrap;
+}
+
+.settings-control-group .setup-select {
+  width: min(100%, 300px);
+}
+
+.settings-control-group .settings-url-input {
+  min-width: 0;
+  flex: 1 1 180px;
+}
+
+.settings-page .secondary,
+.settings-page .link-button {
+  width: auto;
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.settings-url-input {
+  width: 100%;
+}
+
+.settings-row-extra {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding-top: 2px;
+  color: var(--fg-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.settings-row-extra--inline {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.settings-row-extra--inline > span:first-child {
+  flex: 1 1 260px;
+}
+
+.settings-text-button {
+  width: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  text-decoration: underline;
+}
+
+.settings-text-button:hover {
+  color: var(--fg);
+}
+
+.settings-text-button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--brand-ring);
+}
+
+.settings-group-inset {
+  padding: 12px 14px;
+}
+
+@media (max-width: 760px) {
+  .settings-page {
+    min-height: 480px;
+  }
+
+  .settings-page-layout {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .settings-nav {
+    display: flex;
+    gap: 4px;
+    padding: 10px 12px;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+    overflow-x: auto;
+  }
+
+  .settings-nav-group,
+  .settings-nav-group + .settings-nav-group,
+  .settings-nav-group--start:not(:first-child) {
+    display: contents;
+    margin: 0;
+  }
+
+  .settings-nav-group-label {
+    display: none;
+  }
+
+  .settings-nav-button {
+    flex: 0 0 auto;
+    width: auto;
+  }
+
+  .settings-page-content {
+    padding: 20px 16px 24px;
+  }
+
+  .settings-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  .settings-row-control {
+    justify-content: flex-start;
+  }
+
+  .settings-control-group,
+  .settings-control-group--wide {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
 }
 
 /* Recorder Home keeps its navigation present even when active-recording
@@ -665,13 +1015,24 @@ body[data-clips-route="recording-pill"] #root {
   border-radius: 4px;
 }
 
-.system-audio-option {
-  margin-top: 8px;
+.row-menu-divider {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--border);
 }
 
-.system-audio-option-label {
+.row-menu-setting {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
   color: var(--fg);
   font-size: 13px;
+}
+
+.row-menu-setting-label {
+  flex: 1;
+  min-width: 0;
   font-weight: 500;
 }
 
@@ -1010,8 +1371,7 @@ body[data-clips-route="recording-pill"] #root {
   line-height: 1;
 }
 
-.readiness-action svg,
-.rewind-home-state svg {
+.readiness-action svg {
   width: 11px;
   height: 11px;
 }
@@ -1386,110 +1746,6 @@ body[data-clips-route="recording-pill"] #root {
   font-size: 11px;
 }
 
-/* Rewind is a calm everyday status first; configuration is a drill-in. */
-.rewind-home-card {
-  display: grid;
-  gap: 0;
-  padding: 0;
-  border: none;
-  border-radius: 0;
-  background: transparent;
-}
-
-.rewind-home-summary {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  min-height: 36px;
-  padding: 7px 12px;
-  border: none;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--fg-muted);
-  cursor: pointer;
-  text-align: left;
-  transition: color 120ms;
-}
-
-.rewind-home-summary:hover,
-.rewind-home-summary:focus-visible {
-  color: var(--fg);
-}
-
-.rewind-home-summary:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px var(--brand-ring);
-}
-
-.rewind-home-title {
-  font-size: 13px;
-  font-weight: 500;
-  line-height: 1;
-}
-
-.rewind-home-state {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  color: inherit;
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 1;
-}
-
-.rewind-home-details {
-  display: grid;
-  gap: 10px;
-  padding: 0 12px 10px;
-}
-
-.rewind-home-details p {
-  margin: 0;
-  color: var(--fg-muted);
-  font-size: 11px;
-  line-height: 1.4;
-}
-
-.rewind-home-detail-actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.rewind-home-controls {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  margin-left: auto;
-}
-
-.rewind-docs-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 0;
-  border: none;
-  background: transparent;
-  color: var(--fg-muted);
-  cursor: pointer;
-  font-size: 11px;
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-.rewind-docs-link:hover {
-  color: var(--fg);
-}
-
-.rewind-docs-link:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px var(--brand-ring);
-  border-radius: 4px;
-}
-
 .rewind-settings-entry-main {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -1497,7 +1753,6 @@ body[data-clips-route="recording-pill"] #root {
   gap: 9px;
 }
 
-.rewind-home-lock-note,
 .rewind-capture-lock-note {
   margin: 0;
   color: var(--fg-muted);
@@ -1509,28 +1764,6 @@ body[data-clips-route="recording-pill"] #root {
   padding: 9px 10px;
   border-radius: var(--radius-sm);
   background: var(--surface);
-}
-
-.rewind-agent-prompt-copy {
-  width: 28px;
-  height: 28px;
-  display: grid;
-  place-items: center;
-  padding: 0;
-  border: none;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--fg-muted);
-  cursor: pointer;
-}
-
-.rewind-agent-prompt-copy:hover {
-  color: var(--fg);
-}
-
-.rewind-agent-prompt-copy:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px var(--brand-ring);
 }
 
 .rewind-home-dot {
@@ -1548,38 +1781,6 @@ body[data-clips-route="recording-pill"] #root {
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--status-ok) 15%, transparent);
 }
 
-.rewind-home-actions {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 6px;
-}
-
-.rewind-home-actions button {
-  min-width: 0;
-  min-height: 31px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-sm);
-  background: var(--bg);
-  color: var(--fg);
-  cursor: pointer;
-  font-size: 10.5px;
-  font-weight: 600;
-}
-
-.rewind-home-actions button:hover:not(:disabled) {
-  background: var(--surface-hover);
-}
-
-.rewind-home-actions button:disabled {
-  opacity: 0.42;
-  cursor: default;
-}
-
-.rewind-home-actions button:focus-visible,
 .rewind-consent-choices button:focus-visible,
 .rewind-consent-primary:focus-visible,
 .rewind-quiet-button:focus-visible,
@@ -1592,11 +1793,6 @@ body[data-clips-route="recording-pill"] #root {
 .setup-back:focus-visible {
   outline: none;
   box-shadow: 0 0 0 3px var(--brand-ring);
-}
-
-.rewind-home-actions .icon {
-  width: 14px;
-  height: 14px;
 }
 
 .rewind-consent {
@@ -1712,6 +1908,230 @@ body[data-clips-route="recording-pill"] #root {
 
 .rewind-settings-surface {
   padding-bottom: 18px;
+}
+
+/* Settings detail stays inside the existing tray window. The content is a
+   floating layer, so changing a choice never becomes a native window resize. */
+.desktop-settings-popover {
+  z-index: 80;
+  width: min(360px, calc(100vw - 24px));
+  max-height: min(680px, calc(100vh - 24px));
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--fg);
+  box-shadow: var(--shadow-md);
+  outline: none;
+  transform-origin: var(--radix-popover-content-transform-origin);
+}
+
+.desktop-settings-popover[data-state="open"] {
+  animation: feedback-popover-in 120ms ease-out;
+}
+
+.desktop-settings-popover[data-state="closed"] {
+  animation: feedback-popover-out 90ms ease-out;
+}
+
+.desktop-settings-popover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.desktop-settings-popover-title {
+  min-width: 0;
+  color: var(--fg);
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.desktop-settings-popover-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  flex: 0 0 auto;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+
+.desktop-settings-popover-close:hover {
+  background: var(--surface-hover);
+  color: var(--fg);
+}
+
+.desktop-settings-popover-close:focus-visible,
+.rewind-setting-trigger:focus-visible,
+.rewind-choice-option:focus-visible,
+.rewind-manage-button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--brand-ring);
+}
+
+.desktop-settings-popover > .setup {
+  width: auto;
+  max-height: none;
+  padding: 0;
+  overflow: visible;
+  border-radius: 0;
+  background: transparent;
+}
+
+.desktop-settings-popover > .setup > .setup-header {
+  display: none;
+}
+
+.desktop-settings-popover > .rewind-settings-surface,
+.desktop-settings-popover > .rewind-memory-surface {
+  gap: 12px;
+  padding-bottom: 2px;
+}
+
+.rewind-settings-launcher {
+  width: min(430px, calc(100vw - 24px));
+}
+
+.rewind-memory-launcher {
+  width: min(430px, calc(100vw - 24px));
+}
+
+.rewind-popover-content {
+  width: min(380px, calc(100vw - 24px));
+}
+
+.rewind-setting-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 142px;
+  min-height: 34px;
+  padding: 7px 9px 7px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--fg);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  text-align: left;
+}
+
+.rewind-setting-trigger:hover:not(:disabled) {
+  border-color: var(--fg-muted);
+  background: var(--surface-hover);
+}
+
+.rewind-setting-trigger:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+}
+
+.rewind-choice-list {
+  display: grid;
+  gap: 3px;
+}
+
+.rewind-choice-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  min-height: 34px;
+  padding: 8px 9px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+  font-size: 12px;
+  text-align: left;
+}
+
+.rewind-choice-option:hover,
+.rewind-choice-option.is-selected {
+  background: var(--surface-hover);
+  color: var(--fg);
+}
+
+.rewind-choice-option.is-selected {
+  border-color: var(--border);
+}
+
+.rewind-settings-section {
+  display: grid;
+  min-width: 0;
+}
+
+.rewind-setting-copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.rewind-setting-copy > span {
+  overflow: hidden;
+  color: var(--fg-muted);
+  font-size: 10.5px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rewind-setting-row--action {
+  grid-template-columns: minmax(0, 1fr) auto;
+  min-height: 58px;
+}
+
+.rewind-manage-button {
+  width: auto;
+  min-width: 72px;
+  padding: 7px 10px;
+  font-size: 11px;
+}
+
+.rewind-popover-stack {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.rewind-popover-hint {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.rewind-popover-setting-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.rewind-popover-setting-row:last-child {
+  border-bottom: none;
+}
+
+.rewind-popover-setting-row .rewind-setting-trigger {
+  width: 150px;
 }
 
 .rewind-search-row {
@@ -2381,6 +2801,12 @@ body[data-clips-route="recording-pill"] #root {
   max-height: none;
   overflow: visible;
   overscroll-behavior: contain;
+}
+
+.setup.settings-page {
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
 }
 
 /* Meetings / dictation drill-ins: a touch more room under the last row so
@@ -3156,6 +3582,10 @@ body[data-clips-route="recording-pill"] #root {
   border-color: #93c5fd;
 }
 
+.pending-upload-retry-spinning svg {
+  animation: readiness-spin 0.8s linear infinite;
+}
+
 .pending-upload-connect:hover {
   background: #dbeafe;
   border-color: #93c5fd;
@@ -3176,6 +3606,12 @@ body[data-clips-route="recording-pill"] #root {
 .pending-upload-dismiss:disabled {
   cursor: default;
   opacity: 0.6;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pending-upload-retry-spinning svg {
+    animation: none;
+  }
 }
 
 .local-recording-banner,
@@ -4259,6 +4695,7 @@ body[data-clips-route="recording-pill"] #root {
   object-fit: cover;
   border-radius: 50%;
   transform: scaleX(-1); /* Mirror — feels more natural for selfie view. */
+  /* compositing-ok: live <video> is composited regardless. */
   will-change: transform, opacity;
   backface-visibility: hidden;
   /* CRITICAL: clicks MUST pass through the canvas to the
@@ -4441,6 +4878,30 @@ body[data-clips-route="recording-pill"] #root {
   margin-bottom: 2px;
 }
 
+.signin-subtitle {
+  color: var(--fg-muted);
+  font-size: 12px;
+  text-align: center;
+  margin-bottom: 2px;
+}
+
+.signin-success {
+  align-items: center;
+  text-align: center;
+}
+
+.signin-success-copy {
+  color: var(--fg-muted);
+  font-size: 12px;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.signin-success-copy strong {
+  color: var(--fg);
+  font-weight: 600;
+}
+
 .signin input {
   width: 100%;
   padding: 10px 12px;
@@ -4473,6 +4934,16 @@ body[data-clips-route="recording-pill"] #root {
   font-size: 11px;
   text-align: center;
   cursor: pointer;
+}
+
+.signin-mode-link {
+  color: var(--fg-muted);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.signin-mode-link:hover {
+  color: var(--fg);
 }
 
 .signin-divider {

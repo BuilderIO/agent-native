@@ -14,7 +14,7 @@ import {
 } from "./share-controller-helpers.js";
 
 export type ShareButtonVisibility = "private" | "org" | "public";
-export type ShareButtonRole = "viewer" | "editor" | "admin";
+export type ShareButtonRole = "viewer" | "commenter" | "editor" | "admin";
 
 export interface ShareButtonShare {
   id: string;
@@ -62,6 +62,7 @@ export interface ShareButtonControllerOptions {
     onValueChange?: (value: string) => void;
   };
   shareUrl?: string;
+  allowedRoles?: readonly ShareButtonRole[];
   hideInSearchControl?: {
     checked: boolean;
     pending?: boolean;
@@ -91,6 +92,10 @@ export interface ShareButtonController {
   setRole: (role: ShareButtonRole) => void;
   notifyPeople: boolean;
   setNotifyPeople: (notify: boolean) => void;
+  shareMessage: string;
+  setShareMessage: (message: string) => void;
+  messageOpen: boolean;
+  setMessageOpen: (open: boolean) => void;
   shareError: string | null;
   setShareError: (error: string | null) => void;
   suggestionsOpen: boolean;
@@ -146,6 +151,8 @@ export function useShareButtonController(
 
   useEffect(() => {
     setInviteEmail("");
+    setShareMessage("");
+    setMessageOpen(false);
   }, [options.resourceId, options.resourceType]);
 
   useEffect(() => {
@@ -250,7 +257,15 @@ export function useShareButtonController(
   // Keep draft and optimistic state in the controller so closing and reopening
   // the popover cannot drop an in-flight mutation or an unsent invite.
   const [role, setRole] = useState<ShareButtonRole>("viewer");
+  useEffect(() => {
+    const allowedRoles = options.allowedRoles;
+    if (!allowedRoles || allowedRoles.includes(role)) return;
+    const fallbackRole = allowedRoles[0];
+    if (fallbackRole) setRole(fallbackRole);
+  }, [options.allowedRoles, role]);
   const [notifyPeople, setNotifyPeople] = useState(true);
+  const [shareMessage, setShareMessage] = useState("");
+  const [messageOpen, setMessageOpen] = useState(false);
   const [suggestionsOpen, setSuggestionsOpen] = useState(false);
   const [pendingAdds, setPendingAdds] = useState<ShareButtonShare[]>([]);
   const [pendingRemoves, setPendingRemoves] = useState<Set<string>>(new Set());
@@ -343,6 +358,7 @@ export function useShareButtonController(
   const handleAdd = useCallback(() => {
     const trimmed = inviteEmail.trim();
     if (!trimmed || !canManage) return;
+    const message = notifyPeople ? shareMessage.trim() : "";
     const optimistic: ShareButtonShare = {
       id: `pending-${trimmed}`,
       principalType: "user",
@@ -354,6 +370,8 @@ export function useShareButtonController(
     setShareError(null);
     setPendingAdds((previous) => [...previous, optimistic]);
     setInviteEmail("");
+    setShareMessage("");
+    setMessageOpen(false);
     setSuggestionsOpen(false);
     addInFlight(key);
     const previous = optimisticallyUpdateShareCache<ShareButtonSharesResponse>(
@@ -371,6 +389,7 @@ export function useShareButtonController(
         role,
         notify: notifyPeople,
         resourceUrl: getNotificationUrl(options.shareUrl),
+        ...(message ? { message } : {}),
       } as never,
       {
         onSuccess: () => {
@@ -388,6 +407,8 @@ export function useShareButtonController(
           );
           clearInFlight(key);
           setInviteEmail(trimmed);
+          setShareMessage((current) => current || message);
+          setMessageOpen((current) => current || Boolean(message));
           setShareError(extractShareErrorMessage(error));
         },
       },
@@ -403,6 +424,7 @@ export function useShareButtonController(
     options.resourceType,
     options.shareUrl,
     role,
+    shareMessage,
     share,
     queryClient,
     shareQueryKey,
@@ -564,6 +586,10 @@ export function useShareButtonController(
     role,
     setRole,
     notifyPeople,
+    shareMessage,
+    setShareMessage,
+    messageOpen,
+    setMessageOpen,
     setNotifyPeople,
     shareError,
     setShareError,

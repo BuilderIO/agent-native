@@ -414,6 +414,7 @@ export default defineAction({
   http: { method: "GET" },
   readOnly: true,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
+  grounding: true,
   run: async (args) => {
     const trimmedQuery = args.query.trim();
     const gaps: string[] = [];

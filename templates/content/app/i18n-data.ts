@@ -2552,6 +2552,7 @@ const editorPropertiesMessages = {
   addPropertyLink: "Add {{name}} link",
   addPropertyPerson: "Add {{name}} person",
   addPropertyType: "Add {{type}} property",
+  connectASource: "Connect a source",
   addQuoted: 'Add "{{value}}"',
   backToColumnMenu: "Back to sort & filter",
   cancel: "Cancel",
@@ -2914,7 +2915,7 @@ const editorSlashMessages = {
   equationPreview: "Preview",
   equationPreviewEmpty: "Your equation will appear here.",
   equationSubmitHint:
-    "Preview updates as you type. Press Cmd/Ctrl+Enter to insert.",
+    "Preview updates as you type. Press Cmd/Ctrl Enter to insert.",
   quote: "Quote",
   quoteDescription: "Block quote",
   table: "Table",
@@ -3040,6 +3041,11 @@ const enUS = {
     openSidebar: "Open sidebar",
     agent: "Agent",
     settings: "Settings",
+  },
+  landing: {
+    previousPageUnavailable:
+      "Your previous page is no longer available, so we opened Welcome.",
+    saveFailed: "Your place could not be saved",
   },
   team: {
     metaTitle: "Workspace access - Content",
@@ -5744,6 +5750,7 @@ const editorMessagesByLocale = {
       addPropertyLink: "添加 {{name}} 链接",
       addPropertyPerson: "添加 {{name}} 人",
       addPropertyType: "添加 {{type}} 属性",
+      connectASource: "连接数据源",
       addQuoted: '添加"{{value}}"',
       backToColumnMenu: "返回排序和筛选",
       cancel: "取消",
@@ -6094,6 +6101,7 @@ const editorMessagesByLocale = {
       addPropertyLink: "Agregar enlace {{name}}",
       addPropertyPerson: "Agregar persona {{name}}",
       addPropertyType: "Agregar propiedad {{type}}",
+      connectASource: "Conectar una fuente",
       addQuoted: 'Añadir "{{value}}"',
       backToColumnMenu: "Volver a ordenar y filtrar",
       cancel: "Cancelar",
@@ -6457,6 +6465,7 @@ const editorMessagesByLocale = {
       addPropertyLink: "Ajouter un lien {{name}}",
       addPropertyPerson: "Ajouter une personne {{name}}",
       addPropertyType: "Ajouter la propriété {{type}}",
+      connectASource: "Connecter une source",
       addQuoted: 'Ajouter "{{value}}"',
       backToColumnMenu: "Retour au tri et au filtrage",
       cancel: "Annuler",
@@ -6820,6 +6829,7 @@ const editorMessagesByLocale = {
       addPropertyLink: "{{name}}-Link hinzufügen",
       addPropertyPerson: "{{name}}-Person hinzufügen",
       addPropertyType: "{{type}}-Eigenschaft hinzufügen",
+      connectASource: "Datenquelle verbinden",
       addQuoted: '„{{value}}" hinzufügen',
       backToColumnMenu: "Zurück zu Sortieren & Filtern",
       cancel: "Abbrechen",
@@ -7183,6 +7193,7 @@ const editorMessagesByLocale = {
       addPropertyLink: "{{name}} リンクを追加",
       addPropertyPerson: "{{name}} 人を追加",
       addPropertyType: "{{type}}プロパティを追加",
+      connectASource: "ソースを接続",
       addQuoted: "「{{value}}」を追加",
       backToColumnMenu: "並べ替えとフィルターに戻る",
       cancel: "キャンセル",
@@ -7538,6 +7549,7 @@ const editorMessagesByLocale = {
       addPropertyLink: "{{name}} 링크 추가",
       addPropertyPerson: "{{name}} 사람 추가",
       addPropertyType: "{{type}} 속성 추가",
+      connectASource: "소스 연결",
       addQuoted: '"{{value}}" 추가',
       backToColumnMenu: "정렬 및 필터로 돌아가기",
       cancel: "취소",
@@ -7896,6 +7908,7 @@ const editorMessagesByLocale = {
       addPropertyLink: "Adicionar link {{name}}",
       addPropertyPerson: "Adicionar pessoa {{name}}",
       addPropertyType: "Adicionar propriedade {{type}}",
+      connectASource: "Conectar uma fonte",
       addQuoted: 'Adicionar "{{value}}"',
       backToColumnMenu: "Voltar para classificar e filtrar",
       cancel: "Cancelar",
@@ -8254,6 +8267,7 @@ const editorMessagesByLocale = {
       addPropertyLink: "{{name}} लिंक जोड़ें",
       addPropertyPerson: "{{name}} व्यक्ति जोड़ें",
       addPropertyType: "{{type}} गुण जोड़ें",
+      connectASource: "स्रोत कनेक्ट करें",
       addQuoted: '"{{value}}" जोड़ें',
       backToColumnMenu: "क्रमबद्ध करें और फ़िल्टर करें पर वापस जाएं",
       cancel: "रद्द करें",
@@ -8604,6 +8618,7 @@ const editorMessagesByLocale = {
       addPropertyLink: "أضف رابط {{name}}",
       addPropertyPerson: "إضافة شخص {{name}}",
       addPropertyType: "إضافة خاصية {{type}}",
+      connectASource: "توصيل مصدر",
       addQuoted: 'إضافة "{{value}}"',
       backToColumnMenu: "العودة إلى الفرز والتصفية",
       cancel: "إلغاء",
@@ -8959,11 +8974,63 @@ const commentMessagesByLocale = {
   "ar-SA": { unanchored: "التمييز غير متاح" },
 } satisfies Partial<Record<LocaleCode, Partial<typeof enUS.comments>>>;
 
+const landingMessagesByLocale = {
+  "zh-CN": {
+    previousPageUnavailable: "您之前的页面已不可用，因此我们打开了欢迎页面。",
+    saveFailed: "无法保存您的位置",
+  },
+  "zh-TW": {
+    previousPageUnavailable: "您先前的頁面已無法使用，因此我們開啟了歡迎頁面。",
+    saveFailed: "無法儲存您的位置",
+  },
+  "es-ES": {
+    previousPageUnavailable:
+      "Tu página anterior ya no está disponible, así que abrimos la página de bienvenida.",
+    saveFailed: "No se pudo guardar tu ubicación",
+  },
+  "fr-FR": {
+    previousPageUnavailable:
+      "Votre page précédente n’est plus disponible. Nous avons donc ouvert la page de bienvenue.",
+    saveFailed: "Votre emplacement n’a pas pu être enregistré",
+  },
+  "de-DE": {
+    previousPageUnavailable:
+      "Deine vorherige Seite ist nicht mehr verfügbar. Daher wurde die Willkommensseite geöffnet.",
+    saveFailed: "Deine Position konnte nicht gespeichert werden",
+  },
+  "ja-JP": {
+    previousPageUnavailable:
+      "前回のページを利用できないため、ようこそページを開きました。",
+    saveFailed: "現在位置を保存できませんでした",
+  },
+  "ko-KR": {
+    previousPageUnavailable:
+      "이전 페이지를 더 이상 사용할 수 없어 시작 페이지를 열었습니다.",
+    saveFailed: "현재 위치를 저장하지 못했습니다",
+  },
+  "pt-BR": {
+    previousPageUnavailable:
+      "Sua página anterior não está mais disponível, então abrimos a página de boas-vindas.",
+    saveFailed: "Não foi possível salvar sua localização",
+  },
+  "hi-IN": {
+    previousPageUnavailable:
+      "आपका पिछला पेज अब उपलब्ध नहीं है, इसलिए हमने स्वागत पेज खोल दिया है।",
+    saveFailed: "आपकी जगह सेव नहीं की जा सकी",
+  },
+  "ar-SA": {
+    previousPageUnavailable:
+      "لم تعد صفحتك السابقة متاحة، لذلك فتحنا صفحة الترحيب.",
+    saveFailed: "تعذر حفظ موضعك",
+  },
+} satisfies Record<Exclude<LocaleCode, "en-US">, typeof enUS.landing>;
+
 function mergeMessages(overrides: PartialMessages): Messages {
   return {
     root: { ...enUS.root, ...overrides.root },
     theme: { ...enUS.theme, ...overrides.theme },
     navigation: { ...enUS.navigation, ...overrides.navigation },
+    landing: { ...enUS.landing, ...overrides.landing },
     team: { ...enUS.team, ...overrides.team },
     settings: { ...enUS.settings, ...overrides.settings },
     chat: { ...enUS.chat, ...overrides.chat },
@@ -9061,6 +9128,7 @@ function mergeMessagesForLocale(
   return {
     ...base,
     comments: { ...base.comments, ...commentMessagesByLocale[locale] },
+    landing: { ...base.landing, ...landingMessagesByLocale[locale] },
     root: { ...base.root, ...rawLiteralOverrides.root },
     team: { ...base.team, ...rawLiteralOverrides.team },
     settings: { ...base.settings, ...rawLiteralOverrides.settings },
@@ -11127,7 +11195,7 @@ const contentExactEnglishTranslations = {
         equationPlaceholder: String.raw`输入 LaTeX，例如 \frac{a}{b}`,
         equationPreview: "预览",
         equationPreviewEmpty: "公式将在此处显示。",
-        equationSubmitHint: "输入时会实时更新预览。按 Cmd/Ctrl+Enter 插入。",
+        equationSubmitHint: "输入时会实时更新预览。按 Cmd/Ctrl Enter 插入。",
       },
       toolbar: {
         info: "信息",
@@ -11174,7 +11242,7 @@ const contentExactEnglishTranslations = {
         equationPreview: "Vista previa",
         equationPreviewEmpty: "Tu ecuación aparecerá aquí.",
         equationSubmitHint:
-          "La vista previa se actualiza mientras escribes. Pulsa Cmd/Ctrl+Enter para insertar.",
+          "La vista previa se actualiza mientras escribes. Pulsa Cmd/Ctrl Enter para insertar.",
       },
       toolbar: {
         info: "Información",
@@ -11223,7 +11291,7 @@ const contentExactEnglishTranslations = {
         equationPreview: "Aperçu",
         equationPreviewEmpty: "Votre équation apparaîtra ici.",
         equationSubmitHint:
-          "L’aperçu se met à jour pendant la saisie. Appuyez sur Cmd/Ctrl+Entrée pour insérer.",
+          "L’aperçu se met à jour pendant la saisie. Appuyez sur Cmd/Ctrl Entrée pour insérer.",
       },
       toolbar: {
         info: "Informations",
@@ -11273,7 +11341,7 @@ const contentExactEnglishTranslations = {
         equationPreview: "Vorschau",
         equationPreviewEmpty: "Ihre Gleichung wird hier angezeigt.",
         equationSubmitHint:
-          "Die Vorschau wird während der Eingabe aktualisiert. Mit Cmd/Ctrl+Enter einfügen.",
+          "Die Vorschau wird während der Eingabe aktualisiert. Mit Cmd/Ctrl Enter einfügen.",
       },
       toolbar: {
         info: "Informationen",
@@ -11322,7 +11390,7 @@ const contentExactEnglishTranslations = {
         equationPreview: "プレビュー",
         equationPreviewEmpty: "ここに数式が表示されます。",
         equationSubmitHint:
-          "入力中にプレビューが更新されます。Cmd/Ctrl+Enter で挿入します。",
+          "入力中にプレビューが更新されます。Cmd/Ctrl Enter で挿入します。",
       },
       toolbar: {
         info: "情報",
@@ -11370,7 +11438,7 @@ const contentExactEnglishTranslations = {
         equationPreview: "미리보기",
         equationPreviewEmpty: "여기에 수식이 표시됩니다.",
         equationSubmitHint:
-          "입력하는 동안 미리보기가 업데이트됩니다. Cmd/Ctrl+Enter로 삽입하세요.",
+          "입력하는 동안 미리보기가 업데이트됩니다. Cmd/Ctrl Enter로 삽입하세요.",
       },
       toolbar: {
         info: "정보",
@@ -11419,7 +11487,7 @@ const contentExactEnglishTranslations = {
         equationPreview: "Prévia",
         equationPreviewEmpty: "Sua equação aparecerá aqui.",
         equationSubmitHint:
-          "A prévia é atualizada enquanto você digita. Pressione Cmd/Ctrl+Enter para inserir.",
+          "A prévia é atualizada enquanto você digita. Pressione Cmd/Ctrl Enter para inserir.",
       },
       toolbar: {
         info: "Informações",
@@ -11467,7 +11535,7 @@ const contentExactEnglishTranslations = {
         equationPreview: "पूर्वावलोकन",
         equationPreviewEmpty: "आपका समीकरण यहाँ दिखाई देगा।",
         equationSubmitHint:
-          "लिखते समय पूर्वावलोकन अपडेट होता है। सम्मिलित करने के लिए Cmd/Ctrl+Enter दबाएँ।",
+          "लिखते समय पूर्वावलोकन अपडेट होता है। सम्मिलित करने के लिए Cmd/Ctrl Enter दबाएँ।",
       },
       toolbar: {
         info: "जानकारी",
@@ -11513,7 +11581,7 @@ const contentExactEnglishTranslations = {
         equationPreview: "معاينة",
         equationPreviewEmpty: "ستظهر معادلتك هنا.",
         equationSubmitHint:
-          "تتحدث المعاينة أثناء الكتابة. اضغط Cmd/Ctrl+Enter للإدراج.",
+          "تتحدث المعاينة أثناء الكتابة. اضغط Cmd/Ctrl Enter للإدراج.",
       },
       toolbar: {
         info: "معلومات",

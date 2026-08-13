@@ -48,7 +48,8 @@ const messages = {
   },
   agent: {
     emptyState: "Frag mich alles zu deinen Präsentationen",
-    thisDeck: "Dieses Deck",
+    thisSlide: "Diese Folie",
+    currentSelection: "Aktuelle Auswahl",
     suggestionPitch:
       "Erstelle aus diesem Dokument ein Pitch-Deck mit 10 Folien",
     suggestionBrand: "Wende unsere Marke auf dieses Deck an",
@@ -208,6 +209,8 @@ const messages = {
     usingDesignSystem: "{{title}} wird verwendet",
     usingLinkedDesignSystem: "Verknüpftes Designsystem wird verwendet",
     viewOnly: "Nur ansehen",
+    commenterRoleLabel: "Kommentator",
+    commenterRoleDescription: "Kann ansehen und Kommentare hinzufügen",
     slideSettings: "Folieneinstellungen",
     layout: "Layout",
     background: "Hintergrund",
@@ -387,6 +390,7 @@ const messages = {
     center: "Center",
     right: "Right",
     justify: "Justify",
+    distribute: "Verteilen",
     fill: "Fill",
     tint: "Tint",
     transparent: "Transparent",
@@ -441,6 +445,10 @@ const messages = {
     order: "Reihenfolge",
     bringToFront: "In den Vordergrund",
     sendToBack: "In den Hintergrund",
+    copyStyle: "Stil kopieren",
+    pasteStyle: "Stil einfügen",
+    copy: "Kopieren",
+    paste: "Einfügen",
   },
   animations: {
     appear: "Aparecer",
@@ -560,9 +568,18 @@ const messages = {
     deckHasNoSlides: "El deck no tiene diapositivas.",
     pdfRenderFailed: "No se pudo renderizar el PDF.",
     buildingDeck: "Construyendo deck",
+    layoutOverflowWarning: "Layout läuft über",
+    layoutOverflowDetails: "Überlaufdetails anzeigen",
+    layoutOverflowVertical: "Vertikaler Überlauf: {{pixels}} px",
+    layoutOverflowHorizontal: "Horizontaler Überlauf: {{pixels}} px",
     dismissLayoutWarning: "Layout-Warnung schließen",
     slidesAdded_one: "{{count}} diapositiva añadida",
     slidesAdded_other: "{{count}} diapositivas añadidas",
+    unsavedChangesTitle: "Ungespeicherte Änderungen",
+    unsavedChangesDescription:
+      "Wenn du jetzt gehst oder neu lädst, können noch nicht gespeicherte Änderungen verloren gehen. Möchtest du wirklich beenden?",
+    keepEditing: "Weiter bearbeiten",
+    leaveWithoutSaving: "Ohne Speichern beenden",
   },
   designSystemSetup: {
     importedBrand: "Importierte Marke",
@@ -590,6 +607,10 @@ const messages = {
     sourceUnavailableDescription:
       "Builder konnte die neuesten Ergebnisse der Quelle nicht laden.",
     sourceOpenInBuilder: "In Builder öffnen",
+    syncSource: "Quelle synchronisieren",
+    syncingSource: "Quelle wird synchronisiert...",
+    syncStarted: "Synchronisierung des Designsystems gestartet",
+    syncFailed: "Designsystem konnte nicht synchronisiert werden",
     loadFailed:
       "Dieses Designsystem konnte nicht geladen werden. Schließen Sie es und versuchen Sie es erneut.",
     otherSources: "Andere",
@@ -623,6 +644,8 @@ const messages = {
     websitePlaceholder: "example.com oder Nike",
     add: "Hinzufügen",
     githubRepository: "Code verbinden: GitHub-Repository",
+    githubRef: "Branch, Tag oder Commit (optional)",
+    githubPaths: "Dateien oder Ordner, durch Kommas getrennt (optional)",
     codeFiles: "Code-Dateien verbinden",
     codeFilesDrop:
       "CSS, Tailwind-Konfiguration, Theme-Dateien, design.md — ablegen oder klicken",
@@ -667,10 +690,9 @@ const messages = {
     all: "Alle",
     showMineDecks: "Von mir erstellte Decks anzeigen",
     mine: "Meine",
-    deckCount_one: "Deck",
-    deckCount_other: "Decks",
     createDeckOrVisual: "Präsentation erstellen",
     noMineDecks: "Du hast noch keine Decks erstellt.",
+    noDecksMatchSearch: "Keine Decks entsprechen deiner Suche.",
     deleteDeckTitle: "Deck löschen?",
     deleteDeckDescription:
       "Dadurch werden dieses Deck und alle Folien dauerhaft gelöscht. Diese Aktion kann nicht rückgängig gemacht werden.",
@@ -702,6 +724,7 @@ const messages = {
       "Behalte das Standarddesignsystem und das Referenzdeck bei, sofern du sie nicht entfernst. Suche ein anderes Deck, importiere eine Datei oder fahre fort, wenn du bereit bist.",
     chooseAnotherDeck: "Anderes Deck auswählen",
     noMatchingDecks: "Keine passenden Decks gefunden.",
+    googleSlidesImportLabel: "Slides",
     googleSlidesReferenceTitle: "Google-Slides-Decks",
     googleSlidesReferenceConnect:
       "Verbinde Google Drive, um ein Slides-Deck zu importieren.",

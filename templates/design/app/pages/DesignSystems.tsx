@@ -12,6 +12,7 @@ import { VisibilityBadge } from "@agent-native/toolkit/sharing";
 import {
   IconCheckbox,
   IconChecks,
+  IconComponents,
   IconDots,
   IconPlus,
   IconPalette,
@@ -70,8 +71,6 @@ import {
   getCssColorToken,
 } from "@/lib/design-system-preview";
 
-import type { DesignSystemTemplateId } from "../../shared/design-system-templates";
-import { ProductionDesignSystemShowcase } from "../components/design-system/ProductionDesignSystemShowcase";
 import { QueryErrorState } from "../components/QueryErrorState";
 
 interface DesignSystem {
@@ -83,7 +82,7 @@ interface DesignSystem {
   customInstructions?: string | null;
   isDefault: boolean;
   visibility?: "private" | "org" | "public" | null;
-  accessRole?: "owner" | "viewer" | "editor" | "admin";
+  accessRole?: "owner" | "viewer" | "commenter" | "editor" | "admin";
   canManage?: boolean;
   createdAt: string;
   updatedAt?: string;
@@ -110,6 +109,8 @@ interface DesignSystemData {
   logos?: Array<{ url?: string; name?: string; variant?: string }>;
   defaults?: Record<string, unknown>;
   notes?: unknown;
+  /** The source system's own named vocabulary; absent on kits predating it. */
+  tokens?: unknown;
 }
 
 export default function DesignSystems() {
@@ -123,8 +124,6 @@ export default function DesignSystems() {
   const [selectedSystemIds, setSelectedSystemIds] = useState<Set<string>>(
     () => new Set(),
   );
-  const [pendingTemplateId, setPendingTemplateId] =
-    useState<DesignSystemTemplateId | null>(null);
 
   const { data, isLoading, isError, isFetching, refetch } = useActionQuery<{
     designSystems: DesignSystem[];
@@ -133,7 +132,6 @@ export default function DesignSystems() {
   const setDefaultMutation = useActionMutation("set-default-design-system");
   const deleteMutation = useActionMutation("delete-design-system");
   const updateMutation = useActionMutation("update-design-system");
-  const createMutation = useActionMutation("create-design-system");
 
   const designSystems = data?.designSystems ?? [];
   const selectedDesignSystemId = searchParams.get("designSystemId");
@@ -249,33 +247,6 @@ export default function DesignSystems() {
       });
     },
     [queryClient, setDefaultMutation],
-  );
-
-  const handleAddProductionTemplate = useCallback(
-    (templateId: DesignSystemTemplateId) => {
-      setPendingTemplateId(templateId);
-      createMutation.mutate({ templateId } as any, {
-        onSuccess: (result: any) => {
-          setPendingTemplateId(null);
-          toast.success(t("designSystems.showcase.addSuccess"));
-          const id =
-            result && typeof result.id === "string" ? result.id : undefined;
-          navigate(
-            id
-              ? `/design-systems?designSystemId=${encodeURIComponent(id)}`
-              : "/design-systems",
-          );
-        },
-        onError: (error) => {
-          setPendingTemplateId(null);
-          toast.error(t("designSystems.showcase.addError"), {
-            description:
-              error instanceof Error ? error.message : t("common.genericError"),
-          });
-        },
-      });
-    },
-    [createMutation, navigate, t],
   );
 
   const handleDelete = useCallback(() => {
@@ -437,15 +408,7 @@ export default function DesignSystems() {
               retrying={isFetching}
             />
           ) : designSystems.length === 0 ? (
-            <>
-              <EmptyState />
-              <div className="border-t border-border pt-8">
-                <ProductionDesignSystemShowcase
-                  pendingTemplateId={pendingTemplateId}
-                  onAdd={handleAddProductionTemplate}
-                />
-              </div>
-            </>
+            <EmptyState />
           ) : (
             <>
               {isSelectionMode ? (
@@ -502,14 +465,8 @@ export default function DesignSystems() {
                   </div>
                 </div>
               ) : null}
-              <section aria-labelledby="your-design-systems-heading">
-                <h2
-                  id="your-design-systems-heading"
-                  className="mb-4 text-base font-semibold text-foreground"
-                >
-                  {t("designSystems.yoursTitle")}
-                </h2>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              <section aria-label={t("designSystems.yoursTitle")}>
+                <div className="grid grid-cols-[repeat(auto-fit,minmax(230px,1fr))] gap-3">
                   {/* New design system card */}
                   <Link
                     to="/design-systems/setup"
@@ -520,13 +477,10 @@ export default function DesignSystems() {
                         <IconPlus className="w-6 h-6 text-muted-foreground/70 group-hover:text-muted-foreground" />
                       </div>
                     </div>
-                    <div className="p-4">
+                    <div className="p-3">
                       <h3 className="font-medium text-sm text-muted-foreground group-hover:text-foreground/70">
                         {t("designSystems.actions.new")}
                       </h3>
-                      <div className="text-xs text-muted-foreground/70 mt-1">
-                        {t("designSystems.newCardDescription")}
-                      </div>
                     </div>
                   </Link>
 
@@ -587,7 +541,7 @@ export default function DesignSystems() {
                             {!primaryColor &&
                               !secondaryColor &&
                               !accentColor && (
-                                <IconPalette className="w-8 h-8 text-muted-foreground/40" />
+                                <IconComponents className="w-8 h-8 text-muted-foreground/40" />
                               )}
                           </div>
                           <div className="p-4 pb-3">
@@ -616,6 +570,7 @@ export default function DesignSystems() {
                           <ShareButton
                             resourceType="design-system"
                             resourceId={ds.id}
+                            allowedRoles={["viewer", "editor", "admin"]}
                             resourceTitle={ds.title}
                           />
                         </div>
@@ -707,12 +662,6 @@ export default function DesignSystems() {
                   })}
                 </div>
               </section>
-              <div className="mt-12 border-t border-border pt-8">
-                <ProductionDesignSystemShowcase
-                  pendingTemplateId={pendingTemplateId}
-                  onAdd={handleAddProductionTemplate}
-                />
-              </div>
             </>
           )}
         </main>
@@ -1158,10 +1107,22 @@ function getDetailTokens(
   const borders = data?.borders ?? {};
   const defaults = data?.defaults ?? {};
   const logos = data?.logos ?? [];
+  const namedTokenCount = Array.isArray(data?.tokens) ? data.tokens.length : 0;
   return [
     ...objectPreviewItems(t("designSystems.tokenPreview.spacing"), spacing),
     ...objectPreviewItems(t("designSystems.tokenPreview.borders"), borders),
     ...objectPreviewItems(t("designSystems.tokenPreview.defaults"), defaults),
+    // The seven color roles are a summary of an import, not its extent. Without
+    // this the panel renders a 200-token system identically to a 7-token one,
+    // which reads as "it only captured a few colors".
+    namedTokenCount > 0
+      ? {
+          label: t("designSystems.tokenPreview.namedTokens"),
+          value: t("designSystems.tokenPreview.savedCount", {
+            count: namedTokenCount,
+          }),
+        }
+      : null,
     logos.length > 0
       ? {
           label: t("designSystems.tokenPreview.logos"),
@@ -1206,7 +1167,7 @@ function LoadingSkeleton() {
         <div className="h-5 w-40 rounded-md bg-muted animate-pulse" />
         <div className="h-3 w-16 rounded bg-muted animate-pulse" />
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(230px,1fr))] gap-3">
         {Array.from({ length: 4 }).map((_, i) => (
           <div
             key={i}
@@ -1229,7 +1190,7 @@ function EmptyState() {
   return (
     <div className="flex flex-col items-center justify-center py-10 sm:py-14 text-center">
       <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#609FF8]/20 to-[#4080E0]/20 border border-[#609FF8]/20 flex items-center justify-center mb-6">
-        <IconPalette className="w-7 h-7 text-[#609FF8]" />
+        <IconComponents className="w-7 h-7 text-primary" />
       </div>
       <h2 className="text-xl font-semibold text-foreground mb-2">
         {t("designSystems.empty.title")}

@@ -377,6 +377,8 @@ const messages = {
         "기본적으로 비공개입니다. 사람들을 초대하고, 조직과 공유하거나, 링크가 있는 모든 사람이 검토할 수 있도록 공개로 설정하세요.",
       peopleAccess: "{{noun}} 액세스 권한이 있는 사용자",
       generalAccess: "일반 {{noun}} 액세스",
+      commenterRoleLabel: "댓글 작성자",
+      commenterRoleDescription: "보고 댓글을 추가할 수 있음",
       shareAria: "{{noun}} 공유",
       share: "{{noun}} 공유",
       shareThis: "{{noun}} 공유",

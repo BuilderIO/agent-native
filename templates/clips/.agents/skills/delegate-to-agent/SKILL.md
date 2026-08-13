@@ -49,6 +49,34 @@ sendToAgentChat({
 });
 ```
 
+### Keep user text separate from injected context
+
+Treat the visible `message` as the user's request or the shortest clear
+description of an app-initiated operation. Put context the user did not type —
+IDs, URLs, filenames, current selection or screen state, serialized records,
+upload instructions, and bounded source excerpts — in the `context` field.
+`context` is model input carried through the agent turn; it is stripped from
+the rendered user message, so do not concatenate it into `message` with labels,
+blank-line sections, or `<context>` tags yourself.
+
+Use the related surface for each kind of supporting input:
+
+| Surface | Use for |
+| --- | --- |
+| `message` | User-authored intent or a concise app action description |
+| `context` | Derived metadata and bounded text needed to carry out that intent |
+| `setAgentChatContextItem` | Context staged for a later user-submitted prompt; keep it keyed so updates replace stale context |
+| `images`, `referenceImagePaths`, attachments | Binary or visual inputs; describe only the handling instructions in `context` |
+
+If an app builds a prompt from a form, selection, upload, or editor state, keep
+the visible message short and pass the assembled details as `context`. Preserve
+the user's actual freeform text in `message` when it is the request; do not
+restate it as metadata in `context` unless the agent needs a structured copy.
+
+This boundary applies to auto-submitted turns and prefills. A hidden context
+field is not a license to send unbounded records or secrets: cap excerpts,
+prefer stable IDs and URLs, and use an action or resource lookup for full data.
+
 **From the UI, in the background:**
 
 ```ts

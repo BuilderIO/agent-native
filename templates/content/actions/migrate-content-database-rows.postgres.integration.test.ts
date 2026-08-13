@@ -714,11 +714,21 @@ postgresSuite("migrate-content-database-rows PostgreSQL locking", () => {
       deletion = runWithRequestContext({ userEmail: OWNER }, () =>
         permanentlyDeleteDocument.run({ id: seed.databaseDocumentId }),
       );
+      // The losing deletion rejects while the awaits below are still pending,
+      // and Node reports a rejection with no handler attached at that moment as
+      // a run-level unhandled rejection even though the assertion arrives a few
+      // lines later. Capture the outcome as it settles, then assert on it.
+      const deletionOutcome = deletion.then(
+        () => null,
+        (error: unknown) => error,
+      );
       await new Promise((resolve) => setTimeout(resolve, 100));
       releaseHolder();
       await holder;
       await restore;
-      await expect(deletion).rejects.toThrow(
+      const deletionError = await deletionOutcome;
+      expect(deletionError).toBeInstanceOf(Error);
+      expect((deletionError as Error).message).toContain(
         "Document must be in Trash and be a Trash root before permanent deletion",
       );
 

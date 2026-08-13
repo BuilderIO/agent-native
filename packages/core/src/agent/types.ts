@@ -123,6 +123,17 @@ export interface AgentChatAttachment {
   type: string;
   name: string;
   data?: string;
+  /** Stable object-storage URL for this attachment, when uploaded. */
+  url?: string;
+  /** Provider that owns `url` (for example Builder or S3). */
+  uploadProvider?: string;
+  /** SVG and other unsafe files must stay references, never inline content. */
+  referenceOnly?: boolean;
+  securityNote?: string;
+  /** Set when the current turn could not create a durable object-storage URL. */
+  storageRequired?: boolean;
+  /** Set when a configured object-storage provider rejected or failed the upload. */
+  storageUploadFailed?: boolean;
   contentType?: string;
   text?: string;
 }
@@ -211,7 +222,7 @@ export interface AgentChatRequest {
   model?: string;
   /** Per-request engine override (sent alongside model for cross-provider switches). */
   engine?: string;
-  /** Per-request reasoning effort override (ephemeral, from the composer picker). */
+  /** Per-request effort override (ephemeral, from the composer picker). */
   effort?: ReasoningEffort;
   /** Usage-tracking label for this call (e.g. "chat", "summarize"). Default: "chat". */
   usageLabel?: string;
@@ -347,7 +358,11 @@ export type AgentChatEvent =
       taskId: string;
       summary: string;
     }
-  | { type: "done" }
+  | {
+      type: "done";
+      /** Set when a human explicitly stopped the current turn. */
+      reason?: "user";
+    }
   | {
       type: "error";
       error: string;

@@ -12,13 +12,8 @@ Detailed event, availability, booking, storage, and UI rules live in
 - `event-management` for create/update/delete event flows, `list-events` result
   formats and source coverage, and working locations.
 - `availability-booking` for free/busy, booking links, and scheduling.
-- `storing-data`, `real-time-sync`, `security`, `actions`, `frontend-design`,
-  and `shadcn-ui` for framework work.
-
-Before building common workspace or agent UI, read `agent-native-toolkit` to
-inventory existing public kits and installed package seams. Use
-`customizing-agent-native` for the configure → compose → eject → propose seam
-ladder.
+- `capture-learnings` — record a user preference or correction so it outlives
+  the thread.
 
 ## Core Rules
 
@@ -33,8 +28,7 @@ ladder.
   Google Calendar. Return its link to the user; do not `fetch`
   `/_agent-native/google/auth-url` from the agent backend because that route
   requires the signed-in browser session.
-- In dev, call actions with `pnpm action <name>`; in production, use native
-  tools. The action schema is authoritative.
+- The action schema is authoritative when a parameter is unclear.
 - Use the current date from runtime context, not a visible calendar date, when
   the user says today/tomorrow/yesterday.
 - Use `view-screen` when the active date range, selected event, booking link, or
@@ -76,3 +70,8 @@ ladder.
   and `rsvp-event`. These actions target that account's primary calendar. For a
   move, pass the original account as `accountEmail` and the destination as
   `targetAccountEmail` to `update-event`.
+
+## Source Changes
+
+Before building common workspace or agent UI, read `agent-native-toolkit`; read
+`customizing-agent-native` before adapting shared UI.

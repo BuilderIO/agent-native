@@ -523,8 +523,13 @@ const messages = {
     },
     roles: {
       viewer: "Zuschauer",
+      commenter: "Kommentator",
       editor: "Editor",
       admin: "Admin",
+    },
+    recordingCommenter: {
+      label: "Kommentator",
+      description: "Kann ansehen, kommentieren und reagieren",
     },
   },
   quickAsk: {
@@ -666,13 +671,13 @@ const messages = {
     collapse: "Einklappen",
     changelogMarkdown: `# Änderungsprotokoll
 
-Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kannst es jederzeit über das Befehlsmenü (Cmd+K -> "Neuigkeiten") oder über die Einstellungen öffnen.
+Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kannst es jederzeit über das Befehlsmenü (Cmd K -> "Neuigkeiten") oder über die Einstellungen öffnen.
 
 ## 2026-06-23
 
 ### Hinzugefügt
 
-- Du kannst Neuigkeiten jetzt direkt in Clips ansehen. Das Änderungsprotokoll ist im Befehlsmenü (Cmd+K) und in den Einstellungen verfügbar.`,
+- Du kannst Neuigkeiten jetzt direkt in Clips ansehen. Das Änderungsprotokoll ist im Befehlsmenü (Cmd K) und in den Einstellungen verfügbar.`,
     playback: "Wiedergabe",
     defaultPlaybackSpeed: "Standard-Wiedergabegeschwindigkeit",
     playbackDescription:
@@ -1224,7 +1229,7 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     seekTo: "Seek to {{time}} (Lokalisiert)",
   },
   editorToolbar: {
-    undoTooltip: "Undo (Cmd/Ctrl+Z) (Lokalisiert)",
+    undoTooltip: "Undo (Cmd/Ctrl Z) (Lokalisiert)",
     playPauseTooltip: "Play / Pause (Space) (Lokalisiert)",
     sourceDuration: "({{duration}} src) (Lokalisiert)",
     previewSpeed: "Preview speed (Lokalisiert)",
@@ -1577,10 +1582,6 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (Lokalisiert)",
     connectGoogleCalendar: "Connect Google Calendar (Lokalisiert)",
-    googleMayShowWarning: "Google-Zugriff prüfen",
-    googleNotVerifiedTitle: "App vor dem Verbinden überprüfen",
-    googleWarningBeforeAdvanced:
-      "Prüfe, ob App-Name und angeforderter Kalenderzugriff zu der vertrauenswürdigen Clips-Bereitstellung passen. Wenn Google vor einer nicht verifizierten App warnt oder die Identität unbekannt aussieht, brich ab und wende dich an die Workspace-Administration.",
     desktopReminder:
       "Connect Google Calendar, keep Clips Desktop open, then click Start notes from the reminder or the menu bar when your meeting begins. (Lokalisiert)",
     getDesktopApp: "Get desktop app (Lokalisiert)",

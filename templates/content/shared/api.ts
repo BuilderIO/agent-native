@@ -6,7 +6,12 @@ import type {
   DocumentPropertyVisibility,
 } from "./properties";
 
-export type DocumentAccessRole = "owner" | "viewer" | "editor" | "admin";
+export type DocumentAccessRole =
+  | "owner"
+  | "viewer"
+  | "commenter"
+  | "editor"
+  | "admin";
 
 export interface ContentContextPathEntry {
   id: string;
@@ -30,6 +35,7 @@ export interface Document {
   visibility?: "private" | "org" | "public";
   accessRole?: DocumentAccessRole;
   canView?: boolean;
+  canComment?: boolean;
   canEdit?: boolean;
   canManage?: boolean;
   source?: DocumentSourceInfo;
@@ -128,6 +134,16 @@ export interface DocumentMoveRequest {
 
 export interface DocumentListResponse {
   documents: Document[];
+  pagination: DocumentDiscoveryPagination;
+}
+
+export interface DocumentDiscoveryPagination {
+  offset: number;
+  limit: number;
+  totalItems: number;
+  returnedItems: number;
+  hasMore: boolean;
+  nextOffset: number | null;
 }
 
 export interface DocumentTreeNode extends Document {

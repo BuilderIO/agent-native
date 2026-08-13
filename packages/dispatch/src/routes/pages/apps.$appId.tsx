@@ -5,7 +5,7 @@ import {
 import { useT } from "@agent-native/core/client/i18n";
 import { withBuilderUtmTrackingParams } from "@agent-native/core/shared/builder-link-tracking";
 import { IconArrowLeft, IconClockHour4 } from "@tabler/icons-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
 
 import { ActionQueryError } from "../../components/action-query-error";
@@ -13,7 +13,10 @@ import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Skeleton } from "../../components/ui/skeleton";
 import { Spinner } from "../../components/ui/spinner";
+import { isEmbedSessionExpiredMessage } from "../../lib/embed-session-recovery";
 import {
+  workspaceAppDirectHref,
+  workspaceAppEmbedTarget,
   workspaceAppHref,
   type WorkspaceAppSummary,
 } from "../../lib/workspace-apps";
@@ -52,6 +55,7 @@ export default function WorkspaceAppRoute() {
   const [embedUrl, setEmbedUrl] = useState<string | null>(null);
   const [embedError, setEmbedError] = useState<Error | null>(null);
   const [embedAttempt, setEmbedAttempt] = useState(0);
+  const embedFrameRef = useRef<HTMLIFrameElement>(null);
   const createEmbedSession = useActionMutation<
     EmbedSessionResult,
     EmbedSessionInput
@@ -60,12 +64,12 @@ export default function WorkspaceAppRoute() {
   });
   const embedInput = useMemo<EmbedSessionInput | null>(() => {
     if (!app || !href) return null;
-    const path = app.path.trim();
-    if (path.startsWith("/")) {
-      return { app: app.id, path, chrome: "minimal" };
-    }
-    return { app: app.id, url: href, chrome: "minimal" };
-  }, [app?.id, app?.path, href]);
+    return {
+      app: app.id,
+      ...workspaceAppEmbedTarget(app),
+      chrome: "minimal",
+    };
+  }, [app?.id, app?.path, app?.url, href]);
 
   useEffect(() => {
     if (!app || app.status === "pending" || !embedInput) return;
@@ -79,6 +83,8 @@ export default function WorkspaceAppRoute() {
       })
       .catch((cause: unknown) => {
         if (!cancelled) {
+          const directAppUrl = workspaceAppDirectHref(app, "/");
+          if (directAppUrl) setEmbedUrl(directAppUrl);
           setEmbedError(
             cause instanceof Error ? cause : new Error(String(cause)),
           );
@@ -95,6 +101,18 @@ export default function WorkspaceAppRoute() {
     embedAttempt,
     embedInput,
   ]);
+
+  useEffect(() => {
+    const handleEmbedSessionExpired = (event: MessageEvent) => {
+      if (!isEmbedSessionExpiredMessage(event, embedFrameRef.current, null))
+        return;
+      setEmbedAttempt((attempt) => attempt + 1);
+    };
+
+    window.addEventListener("message", handleEmbedSessionExpired);
+    return () =>
+      window.removeEventListener("message", handleEmbedSessionExpired);
+  }, []);
 
   if (appsQuery.isError) {
     return (
@@ -172,11 +190,6 @@ export default function WorkspaceAppRoute() {
               <span className="font-mono text-foreground">{app.path}</span>{" "}
               {t("dispatch.pages.appBuildingSuffix")}
             </p>
-            {app.branchName ? (
-              <p className="text-xs text-muted-foreground">
-                {t("dispatch.pages.branch", { branch: app.branchName })}
-              </p>
-            ) : null}
             {app.builderUrl ? (
               <Button asChild>
                 <a
@@ -187,7 +200,9 @@ export default function WorkspaceAppRoute() {
                   target="_blank"
                   rel="noreferrer"
                 >
-                  {t("dispatch.pages.openBuilderBranch")}
+                  {t("dispatch.pages.openBuilderBranch", {
+                    defaultValue: "Open in Builder",
+                  })}
                 </a>
               </Button>
             ) : null}
@@ -205,9 +220,11 @@ export default function WorkspaceAppRoute() {
       <div className="min-h-0 flex-1 bg-muted/20">
         {embedUrl ? (
           <iframe
+            key={`${embedUrl}:${embedAttempt}`}
             data-dispatch-workspace-app-frame
             src={embedUrl}
             title={app.name}
+            ref={embedFrameRef}
             referrerPolicy="no-referrer"
             className="h-full w-full border-0 bg-background"
           />

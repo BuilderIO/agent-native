@@ -508,8 +508,13 @@ const messages = {
     },
     roles: {
       viewer: "뷰어",
+      commenter: "댓글 작성자",
       editor: "편집자",
       admin: "관리자",
+    },
+    recordingCommenter: {
+      label: "댓글 작성자",
+      description: "보고 댓글을 달고 반응할 수 있습니다",
     },
   },
   quickAsk: {
@@ -646,13 +651,13 @@ const messages = {
     collapse: "접기",
     changelogMarkdown: `# 변경 로그
 
-Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명령 메뉴(Cmd+K -> "새 소식") 또는 설정에서 언제든지 열 수 있습니다.
+Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명령 메뉴(Cmd K -> "새 소식") 또는 설정에서 언제든지 열 수 있습니다.
 
 ## 2026-06-23
 
 ### 추가됨
 
-- 이제 Clips 안에서 바로 새 소식을 볼 수 있습니다. 변경 로그는 명령 메뉴(Cmd+K)와 설정에 있습니다.`,
+- 이제 Clips 안에서 바로 새 소식을 볼 수 있습니다. 변경 로그는 명령 메뉴(Cmd K)와 설정에 있습니다.`,
     playback: "재생",
     defaultPlaybackSpeed: "기본 재생 속도",
     playbackDescription: "녹화를 열 때 자동으로 적용됩니다.",
@@ -1190,7 +1195,7 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     seekTo: "Seek to {{time}} (현지화됨)",
   },
   editorToolbar: {
-    undoTooltip: "Undo (Cmd/Ctrl+Z) (현지화됨)",
+    undoTooltip: "Undo (Cmd/Ctrl Z) (현지화됨)",
     playPauseTooltip: "Play / Pause (Space) (현지화됨)",
     sourceDuration: "({{duration}} src) (현지화됨)",
     previewSpeed: "Preview speed (현지화됨)",
@@ -1541,10 +1546,6 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (현지화됨)",
     connectGoogleCalendar: "Connect Google Calendar (현지화됨)",
-    googleMayShowWarning: "Google 액세스 검토",
-    googleNotVerifiedTitle: "연결하기 전에 앱을 확인하세요",
-    googleWarningBeforeAdvanced:
-      "앱 이름과 요청된 Calendar 액세스가 신뢰하는 Clips 배포와 일치하는지 확인하세요. Google에서 확인되지 않은 앱 경고를 표시하거나 신원이 낯설게 보이면 중단하고 워크스페이스 관리자에게 문의하세요.",
     desktopReminder:
       "Connect Google Calendar, keep Clips Desktop open, then click Start notes from the reminder or the menu bar when your meeting begins. (현지화됨)",
     getDesktopApp: "Get desktop app (현지화됨)",

@@ -434,7 +434,7 @@ describe("createBuilderEngine", () => {
             type: "tool-call-delta",
             id: "toolu_01",
             name: "x",
-            argsTextDelta: "}",
+            argsTextDelta: '"id":"ext"}',
           },
           { type: "tool-call", id: "toolu_01", name: "x", input: {} },
           { type: "stop", reason: "tool_use", requestId: "req_1" },
@@ -456,10 +456,15 @@ describe("createBuilderEngine", () => {
         type: "tool-input-delta",
         id: "toolu_01",
         name: "x",
-        text: "}",
+        text: '"id":"ext"}',
       },
     ]);
-    expect(events.find((e) => e.type === "tool-call")).toBeDefined();
+    expect(events.find((e) => e.type === "tool-call")).toEqual({
+      type: "tool-call",
+      id: "toolu_01",
+      name: "x",
+      input: { id: "ext" },
+    });
   });
 
   it("assembles a tool call whose arguments arrive across multiple deltas without a terminal tool-call frame", async () => {
@@ -1518,7 +1523,7 @@ describe("createBuilderEngine", () => {
     expect(body.reasoning_effort).toBe("xhigh");
   });
 
-  it("sends reasoning_effort medium by default for a reasoning-capable Claude model", async () => {
+  it("sends reasoning_effort high by default for an effort-capable Claude model", async () => {
     const fetchSpy = vi
       .fn()
       .mockResolvedValue(
@@ -1534,10 +1539,10 @@ describe("createBuilderEngine", () => {
     );
 
     const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
-    expect(body.reasoning_effort).toBe("medium");
+    expect(body.reasoning_effort).toBe("high");
   });
 
-  it("sends reasoning_effort medium by default for Luna", async () => {
+  it("sends reasoning_effort high by default for Luna", async () => {
     const fetchSpy = vi
       .fn()
       .mockResolvedValue(
@@ -1551,7 +1556,7 @@ describe("createBuilderEngine", () => {
     await collectEvents(engine.stream({ ...BASE_OPTS, model: "gpt-5-6-luna" }));
 
     const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
-    expect(body.reasoning_effort).toBe("medium");
+    expect(body.reasoning_effort).toBe("high");
   });
 
   // OpenAI rejects reasoning_effort + function tools on Chat Completions,
@@ -1642,7 +1647,7 @@ describe("createBuilderEngine", () => {
     );
 
     const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
-    expect(body.reasoning_effort).toBe("medium");
+    expect(body.reasoning_effort).toBe("high");
   });
 
   it("omits reasoning_effort by default for a non-reasoning model", async () => {

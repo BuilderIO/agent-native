@@ -503,8 +503,13 @@ const messages = {
     },
     roles: {
       viewer: "दर्शक",
+      commenter: "टिप्पणीकार",
       editor: "संपादक",
       admin: "व्यवस्थापक",
+    },
+    recordingCommenter: {
+      label: "टिप्पणीकार",
+      description: "देख, टिप्पणी और प्रतिक्रिया कर सकते हैं",
     },
   },
   quickAsk: {
@@ -638,13 +643,13 @@ const messages = {
     collapse: "समेटें",
     changelogMarkdown: `# बदलाव लॉग
 
-Clips में उपयोगकर्ताओं को दिखने वाले सभी महत्वपूर्ण बदलाव यहां दर्ज किए जाते हैं। आप इसे कमांड मेनू (Cmd+K -> "नया क्या है") या सेटिंग्स से कभी भी खोल सकते हैं।
+Clips में उपयोगकर्ताओं को दिखने वाले सभी महत्वपूर्ण बदलाव यहां दर्ज किए जाते हैं। आप इसे कमांड मेनू (Cmd K -> "नया क्या है") या सेटिंग्स से कभी भी खोल सकते हैं।
 
 ## 2026-06-23
 
 ### जोड़ा गया
 
-- अब आप Clips के अंदर ही नया क्या है देख सकते हैं। बदलाव लॉग अब कमांड मेनू (Cmd+K) और सेटिंग्स में उपलब्ध है।`,
+- अब आप Clips के अंदर ही नया क्या है देख सकते हैं। बदलाव लॉग अब कमांड मेनू (Cmd K) और सेटिंग्स में उपलब्ध है।`,
     playback: "प्लेबैक",
     defaultPlaybackSpeed: "डिफ़ॉल्ट प्लेबैक गति",
     playbackDescription: "रिकॉर्डिंग खोलने पर अपने आप लागू होती है।",
@@ -1179,7 +1184,7 @@ Clips में उपयोगकर्ताओं को दिखने व�
     seekTo: "Seek to {{time}} (स्थानीयकृत)",
   },
   editorToolbar: {
-    undoTooltip: "Undo (Cmd/Ctrl+Z) (स्थानीयकृत)",
+    undoTooltip: "Undo (Cmd/Ctrl Z) (स्थानीयकृत)",
     playPauseTooltip: "Play / Pause (Space) (स्थानीयकृत)",
     sourceDuration: "({{duration}} src) (स्थानीयकृत)",
     previewSpeed: "Preview speed (स्थानीयकृत)",
@@ -1530,10 +1535,6 @@ Clips में उपयोगकर्ताओं को दिखने व�
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (स्थानीयकृत)",
     connectGoogleCalendar: "Connect Google Calendar (स्थानीयकृत)",
-    googleMayShowWarning: "Google एक्सेस की समीक्षा करें",
-    googleNotVerifiedTitle: "कनेक्ट करने से पहले ऐप सत्यापित करें",
-    googleWarningBeforeAdvanced:
-      "पुष्टि करें कि ऐप का नाम और मांगा गया Calendar एक्सेस उस Clips डिप्लॉयमेंट से मेल खाते हैं जिस पर आप भरोसा करते हैं। यदि Google असत्यापित ऐप की चेतावनी दिखाए या पहचान अपरिचित लगे, तो रुकें और अपने वर्कस्पेस एडमिन से संपर्क करें।",
     desktopReminder:
       "Connect Google Calendar, keep Clips Desktop open, then click Start notes from the reminder or the menu bar when your meeting begins. (स्थानीयकृत)",
     getDesktopApp: "Get desktop app (स्थानीयकृत)",

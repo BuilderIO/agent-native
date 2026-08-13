@@ -36,6 +36,10 @@ export interface JobFrontmatter {
   deliveryThreadRef?: string;
   deliveryTenantId?: string;
   model?: string;
+  /** Per-run guard for background automations; omitted uses the app setting. */
+  maxIterations?: number;
+  /** Per-turn input-token guard; omitted uses the app setting. */
+  maxRunInputTokens?: number;
   /** Explicit MCP tool capabilities available to this background run. */
   mcpTools?: string[];
   /** Present only for resources explicitly defined as automations. */
@@ -153,6 +157,11 @@ function parseScalar(rawValue: string): string {
   return value;
 }
 
+function parsePositiveInteger(rawValue: string): number | undefined {
+  const parsed = Number(parseScalar(rawValue));
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
 function parseKnownField(
   meta: JobFrontmatter,
   key: string,
@@ -211,6 +220,12 @@ function parseKnownField(
       break;
     case "model":
       meta.model = value;
+      break;
+    case "maxIterations":
+      meta.maxIterations = parsePositiveInteger(value);
+      break;
+    case "maxRunInputTokens":
+      meta.maxRunInputTokens = parsePositiveInteger(value);
       break;
     case "mcpTools":
       meta.mcpTools = normalizeJobMcpTools(value);
@@ -346,6 +361,12 @@ export function buildJobResourceContent(
   pushString(lines, "deliveryThreadRef", meta.deliveryThreadRef);
   pushString(lines, "deliveryTenantId", meta.deliveryTenantId);
   pushString(lines, "model", meta.model);
+  if (meta.maxIterations !== undefined) {
+    lines.push(`maxIterations: ${meta.maxIterations}`);
+  }
+  if (meta.maxRunInputTokens !== undefined) {
+    lines.push(`maxRunInputTokens: ${meta.maxRunInputTokens}`);
+  }
   if (meta.mcpTools?.length) {
     lines.push(`mcpTools: ${JSON.stringify(meta.mcpTools)}`);
   }

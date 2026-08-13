@@ -1,6 +1,9 @@
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
 
 import {
+  findRunsThatBecameUnread,
   groupCodeAgentModelOptions,
   normalizeModelSelection,
   resolveNewSessionExtensionComposerState,
@@ -12,6 +15,7 @@ import {
   SESSION_WATCH_TRANSCRIPT_EVENT_LIMIT,
 } from "./SessionWatchPanel.js";
 import type { CodeAgentModelOption } from "./types.js";
+import type { CodeAgentRun } from "./types.js";
 import type { CodeAgentTranscriptEvent } from "./types.js";
 
 const extension: CodeAgentsNewSessionExtension = {
@@ -39,6 +43,77 @@ describe("CodeAgentsApp new-session extension seam", () => {
   });
 });
 
+describe("CodeAgentsApp full-page chat width", () => {
+  it("keeps the empty and loading chat rails on the shared wide max", () => {
+    const css = readFileSync("src/styles.css", "utf8");
+
+    expect(css).toContain("--code-agents-chat-max: 750px;");
+    expect(css).toMatch(
+      /\.code-agents-start\s*\{[\s\S]*?max-width: var\(--code-agents-chat-max\);/,
+    );
+    expect(css).toMatch(
+      /\.code-agents-overview-skeleton\s*\{[\s\S]*?max-width: var\(--code-agents-chat-max\);/,
+    );
+  });
+});
+
+describe("CodeAgentsApp chat-first rail scrolling", () => {
+  it("keeps navigation, apps, and chats in one scroll body above the footer", () => {
+    const source = readFileSync("src/CodeAgentsApp.tsx", "utf8");
+    const css = readFileSync("src/styles.css", "utf8");
+
+    expect(source).toContain('className="code-agents-rail-scroll"');
+    expect(source).toContain('className="code-agents-rail-footer"');
+    expect(css).toMatch(
+      /\.code-agents-rail-scroll\s*\{[\s\S]*?overflow-y: auto;/,
+    );
+  });
+});
+
+describe("CodeAgentsApp project folder picker", () => {
+  it("keeps folder creation in the dropdown instead of duplicating its action", () => {
+    const source = readFileSync("src/CodeAgentsApp.tsx", "utf8");
+    const css = readFileSync("src/styles.css", "utf8");
+
+    expect(source).toContain("<span>Add folder...</span>");
+    expect(source).not.toContain('aria-label="Add folder"');
+    expect(css).toContain("margin-top: -10px;");
+  });
+});
+
+describe("CodeAgentsApp unread run state", () => {
+  const run = (id: string, status: CodeAgentRun["status"]) =>
+    ({ id, status }) as CodeAgentRun;
+
+  it("does not infer unread state from the first historical run list", () => {
+    expect(
+      findRunsThatBecameUnread(undefined, [run("old-1", "completed")]),
+    ).toEqual([]);
+  });
+
+  it("only marks a run unread when an observed active run becomes terminal", () => {
+    expect(
+      findRunsThatBecameUnread(
+        [run("run-1", "running")],
+        [run("run-1", "completed")],
+      ),
+    ).toEqual(["run-1"]);
+    expect(
+      findRunsThatBecameUnread(
+        [run("run-1", "running")],
+        [run("run-1", "completed")],
+        "run-1",
+      ),
+    ).toEqual([]);
+    expect(
+      findRunsThatBecameUnread(
+        [run("run-1", "completed")],
+        [run("run-1", "completed")],
+      ),
+    ).toEqual([]);
+  });
+});
+
 describe("code-agent model selection", () => {
   const models: CodeAgentModelOption[] = [
     {
@@ -63,6 +138,23 @@ describe("code-agent model selection", () => {
       model: "claude-sonnet-5",
       effort: "medium",
     });
+  });
+
+  it("defaults an empty selection to Luna with high effort", () => {
+    expect(normalizeModelSelection({}, [])).toEqual({
+      engine: "ai-sdk:openai",
+      model: "gpt-5.6-luna",
+      effort: "high",
+    });
+  });
+
+  it("migrates a legacy Auto effort to high", () => {
+    expect(
+      normalizeModelSelection(
+        { engine: "auto", model: "auto", effort: "auto" },
+        models,
+      ),
+    ).toMatchObject({ effort: "high" });
   });
 
   it("keeps native subscription status on the right-aligned provider group", () => {

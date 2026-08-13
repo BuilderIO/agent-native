@@ -6,12 +6,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   assistantMessageHasCompletedCustomUi,
+  assistantMessageHasActiveTool,
   assistantMessageHasCustomUi,
   assistantMessageHasUnresolvedTool,
-  completedAssistantToolNamesAfterLastText,
   computeActiveTailToolCallId,
   getAssistantWorkSummaryDurationMs,
   getAssistantToolSummaryInfo,
+  groupAssistantWorkParts,
   InlineRunErrorNotice,
   isAlwaysVisibleAssistantTool,
   isCollapsibleAssistantWorkPart,
@@ -26,8 +27,63 @@ import {
   ThinkingIndicator,
   userMessageTextBeforeAssistant,
   isHiddenUserMessage,
+  assistantMessageRunId,
+  assistantMessageTurnId,
+  assistantMessageWasUserStopped,
+  ChatImageAttachmentPreview,
+  resolveAssistantRequestId,
 } from "./message-components.js";
 import { runErrorKey } from "./run-recovery.js";
+
+describe("assistant request ID resolution", () => {
+  it("prefers the server run ID attached to the message", () => {
+    expect(
+      resolveAssistantRequestId(
+        { id: "local-message-id", metadata: { custom: { runId: "run-1" } } },
+        { threadId: "thread-1", runId: "run-2" },
+        "thread-1",
+      ),
+    ).toBe("run-1");
+  });
+
+  it("uses the current thread's active server run ID for an in-flight message", () => {
+    expect(
+      resolveAssistantRequestId(
+        { id: "local-message-id" },
+        { threadId: "thread-1", runId: "run-1" },
+        "thread-1",
+      ),
+    ).toBe("run-1");
+  });
+
+  it("never falls back to a local message ID or another thread's run", () => {
+    expect(
+      resolveAssistantRequestId(
+        { id: "local-message-id" },
+        { threadId: "thread-2", runId: "run-2" },
+        "thread-1",
+      ),
+    ).toBeUndefined();
+    expect(assistantMessageRunId({ id: "local-message-id" })).toBeUndefined();
+  });
+
+  it("reads the stable logical turn ID from assistant metadata", () => {
+    expect(
+      assistantMessageTurnId({
+        metadata: { custom: { turnId: "turn-1" } },
+      }),
+    ).toBe("turn-1");
+  });
+
+  it("recognizes a persisted user stop marker", () => {
+    expect(
+      assistantMessageWasUserStopped({
+        metadata: { custom: { userStopped: true } },
+      }),
+    ).toBe(true);
+    expect(assistantMessageWasUserStopped({})).toBe(false);
+  });
+});
 
 describe("ThinkingIndicator", () => {
   let container: HTMLDivElement;
@@ -61,6 +117,65 @@ describe("ThinkingIndicator", () => {
     expect(
       container.querySelector(".agent-thinking-indicator__logo"),
     ).toBeNull();
+  });
+});
+
+describe("ChatImageAttachmentPreview", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+  const src = "data:image/png;base64,AAAA";
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => {
+      root.unmount();
+    });
+    container.remove();
+    document.body.innerHTML = "";
+    vi.unstubAllGlobals();
+  });
+
+  it("opens the full-size image in a lightbox and closes it", () => {
+    act(() => {
+      root.render(<ChatImageAttachmentPreview src={src} alt="Screenshot" />);
+    });
+
+    const thumbnail = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Preview Screenshot"]',
+    );
+    expect(thumbnail).toBeTruthy();
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull();
+
+    act(() => {
+      thumbnail?.click();
+    });
+
+    const dialog = document.body.querySelector<HTMLElement>('[role="dialog"]');
+    expect(dialog).toBeTruthy();
+    expect(
+      Array.from(dialog?.querySelectorAll("img") ?? []).some(
+        (image) => image.src === src,
+      ),
+    ).toBe(true);
+    expect(
+      dialog?.querySelector('button[aria-label="Close image preview"]'),
+    ).toBeTruthy();
+
+    act(() => {
+      dialog
+        ?.querySelector<HTMLButtonElement>(
+          'button[aria-label="Close image preview"]',
+        )
+        ?.click();
+    });
+
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull();
   });
 });
 
@@ -110,7 +225,19 @@ describe("shouldShowAssistantMessageFooter", () => {
     ).toBe(false);
   });
 
-  it("keeps completed historical assistant controls visible while chat work runs", () => {
+  it("hides controls while a delegated agent is still pending", () => {
+    expect(
+      shouldShowAssistantMessageFooter({
+        isLast: true,
+        chatRunning: false,
+        hasRenderableContent: true,
+        statusIsTerminal: true,
+        hasActiveTool: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("keeps unrelated historical assistant controls while chat work runs", () => {
     expect(
       shouldShowAssistantMessageFooter({
         isLast: false,
@@ -119,6 +246,48 @@ describe("shouldShowAssistantMessageFooter", () => {
         statusIsTerminal: true,
       }),
     ).toBe(true);
+  });
+
+  it("hides historical controls when they belong to the active run", () => {
+    expect(
+      shouldShowAssistantMessageFooter({
+        isLast: false,
+        chatRunning: true,
+        activeRunId: "run-active",
+        messageRunId: "run-active",
+        hasRenderableContent: true,
+        statusIsTerminal: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("hides historical controls across continuation run IDs in the same turn", () => {
+    expect(
+      shouldShowAssistantMessageFooter({
+        isLast: false,
+        chatRunning: true,
+        activeRunId: "run-successor",
+        messageRunId: "run-original",
+        activeTurnId: "turn-shared",
+        messageTurnId: "turn-shared",
+        hasRenderableContent: true,
+        statusIsTerminal: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("does not treat missing turn metadata as a different turn", () => {
+    expect(
+      shouldShowAssistantMessageFooter({
+        isLast: false,
+        chatRunning: true,
+        activeRunId: "run-same",
+        messageRunId: "run-same",
+        activeTurnId: "turn-current",
+        hasRenderableContent: true,
+        statusIsTerminal: true,
+      }),
+    ).toBe(false);
   });
 });
 
@@ -171,6 +340,18 @@ describe("shouldShowMissingFinalResponse", () => {
         statusIsTerminal: true,
         hasAssistantText: false,
         hasUnresolvedTool: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("stays hidden after the user explicitly stops the run", () => {
+    expect(
+      shouldShowMissingFinalResponse({
+        isCurrentTurnRunning: false,
+        statusIsTerminal: true,
+        hasAssistantText: false,
+        hasUnresolvedTool: false,
+        userStoppedRun: true,
       }),
     ).toBe(false);
   });
@@ -401,30 +582,6 @@ describe("assistant completion notices", () => {
       false,
     );
   });
-
-  it("lists completed tools after the latest assistant text in arrival order", () => {
-    expect(
-      completedAssistantToolNamesAfterLastText([
-        { type: "text", text: "I will inspect the workspace." },
-        {
-          type: "tool-call",
-          toolCallId: "call-1",
-          toolName: "view-screen",
-          argsText: "{}",
-          args: {},
-          result: "{}",
-        },
-        {
-          type: "tool-call",
-          toolCallId: "call-2",
-          toolName: "workspace-read",
-          argsText: "{}",
-          args: {},
-          result: "{}",
-        },
-      ]),
-    ).toEqual(["view screen", "workspace read"]);
-  });
 });
 
 describe("latestUserMessageText", () => {
@@ -534,6 +691,19 @@ describe("shouldShowAssistantWorkSummary", () => {
         chatRunning: false,
       }),
     ).toBe(true);
+  });
+
+  it("does not collapse active delegated work into a duration summary", () => {
+    expect(
+      shouldShowAssistantWorkSummary({
+        isLast: true,
+        isComplete: false,
+        hasCollapsibleWork: true,
+        hasUnresolvedTool: false,
+        hasActiveTool: true,
+        chatRunning: false,
+      }),
+    ).toBe(false);
   });
 
   it("groups historical work with a dangling tool", () => {
@@ -761,6 +931,51 @@ describe("getAssistantToolSummaryInfo", () => {
   });
 });
 
+describe("groupAssistantWorkParts", () => {
+  it("keeps a shadowed call-agent row inside the surrounding work group", () => {
+    const parts = [
+      { type: "tool-call", toolName: "read-file" },
+      {
+        type: "tool-call",
+        toolCallId: "call-analytics",
+        toolName: "call-agent",
+        args: { agent: "analytics" },
+      },
+      {
+        type: "tool-call",
+        toolCallId: "agent-analytics",
+        toolName: "agent:Analytics",
+        args: {},
+      },
+      { type: "tool-call", toolName: "query" },
+    ] as const;
+
+    expect(
+      parts.map((part, index) => groupAssistantWorkParts(part, index, parts)),
+    ).toEqual([["group-work"], ["group-work"], ["group-work"], ["group-work"]]);
+  });
+
+  it("does not open a work group for a leading shadowed call-agent row", () => {
+    const parts = [
+      {
+        type: "tool-call",
+        toolCallId: "call-analytics",
+        toolName: "call-agent",
+        args: { agent: "analytics" },
+      },
+      {
+        type: "tool-call",
+        toolCallId: "agent-analytics",
+        toolName: "agent:Analytics",
+        args: {},
+      },
+    ] as const;
+
+    expect(groupAssistantWorkParts(parts[0], 0, parts)).toBeNull();
+    expect(groupAssistantWorkParts(parts[1], 1, parts)).toEqual(["group-work"]);
+  });
+});
+
 describe("isHiddenUserMessage", () => {
   it("detects internal user messages hidden from chat history", () => {
     expect(
@@ -903,6 +1118,40 @@ describe("assistantMessageHasUnresolvedTool", () => {
           argsText: "{}",
           args: {},
           result: "{}",
+        },
+      ]),
+    ).toBe(false);
+  });
+});
+
+describe("assistantMessageHasActiveTool", () => {
+  it("detects a delegated agent that is pending after the parent call returns", () => {
+    expect(
+      assistantMessageHasActiveTool([
+        {
+          type: "tool-call",
+          toolName: "agent:Analytics",
+          toolCallId: "agent-call",
+          argsText: "",
+          args: {},
+          result: "Remote agent task is still pending",
+          activity: true,
+          structuredMeta: { agentPending: true },
+        },
+      ]),
+    ).toBe(true);
+  });
+
+  it("does not treat a generic activity placeholder as active by itself", () => {
+    expect(
+      assistantMessageHasActiveTool([
+        {
+          type: "tool-call",
+          toolName: "edit-design",
+          toolCallId: "activity-only",
+          argsText: "",
+          args: {},
+          activity: true,
         },
       ]),
     ).toBe(false);

@@ -261,6 +261,7 @@ export function AccountSettingsForm({
     "idle",
   );
   const [name, setName] = useState("");
+  const nameEditedRef = useRef(false);
 
   const displayName =
     profileQuery.data?.name ||
@@ -269,6 +270,11 @@ export function AccountSettingsForm({
     t("settings.profileSignedOut");
 
   useEffect(() => {
+    nameEditedRef.current = false;
+  }, [email]);
+
+  useEffect(() => {
+    if (nameEditedRef.current) return;
     const nextName = profileQuery.data?.name || session?.name;
     if (nextName) setName(nextName);
   }, [profileQuery.data?.name, session?.name]);
@@ -369,13 +375,12 @@ export function AccountSettingsForm({
               id="agent-native-profile-name"
               value={name}
               onChange={(value) => {
+                nameEditedRef.current = true;
                 updateProfile.reset();
                 setName(value);
               }}
               placeholder={t("settings.profileNamePlaceholder")}
-              disabled={
-                !email || profileQuery.isLoading || updateProfile.isPending
-              }
+              disabled={!email || updateProfile.isPending}
               aria-label={t("settings.profileNameLabel")}
               className="min-w-0 flex-1"
             />
@@ -385,12 +390,7 @@ export function AccountSettingsForm({
               emphasis="solid"
               size="compact"
               pending={updateProfile.isPending}
-              disabled={
-                !email ||
-                profileQuery.isLoading ||
-                updateProfile.isPending ||
-                !name.trim()
-              }
+              disabled={!email || updateProfile.isPending || !name.trim()}
               onPress={handleProfileSave}
             >
               {updateProfile.isPending

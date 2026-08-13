@@ -4,6 +4,8 @@ const messages = {
   ...messagesByLocale["ar-SA"],
   designEditor: {
     ...messagesByLocale["ar-SA"].designEditor,
+    commenterRoleLabel: "معلّق",
+    commenterRoleDescription: "يمكنه العرض وإضافة تعليقات المراجعة",
     nodeRewrite: {
       composerTitle: "اسأل عن التحديد أو غيّره",
       send: "إرسال",
@@ -55,7 +57,7 @@ const messages = {
     commentMode: "إضافة تعليق",
     sendToAgent: "إرسال إلى الوكيل",
     sendingToAgent: "جارٍ الإرسال إلى الوكيل…",
-    enterToPost: "اضغط Enter للنشر · وShift+Enter لسطر جديد",
+    enterToPost: "اضغط Enter للنشر · وShift Enter لسطر جديد",
     post: "نشر",
     posting: "جارٍ النشر…",
     postFailed: "تعذر نشر هذا التعليق",

@@ -80,6 +80,7 @@ Die grobe Sichtbarkeit lebt von der Ressource selbst; Fein abgestufte Zuteilunge
 Wenn Sie etwas mit einem bestimmten Benutzer oder einer bestimmten Organisation teilen, wählen Sie eine Rolle aus:
 
 - **Viewer** – schreibgeschützt.
+- **Kommentator** – kann lesen und Kommentare hinzufügen, aber die Ressource nicht bearbeiten oder Freigaben verwalten.
 - **Editor** – lesen + schreiben.
 - **Admin** – Freigaben lesen + schreiben + verwalten (kann andere Personen hinzufügen/entfernen).
 
@@ -244,7 +245,7 @@ export const deckShares = createSharesTable("deck_shares");
         {
           name: "role",
           type: "enum",
-          note: "Zuschauer | Herausgeber | Administrator",
+          note: "Zuschauer | Kommentator | Herausgeber | Administrator",
         },
         {
           name: "created_by",

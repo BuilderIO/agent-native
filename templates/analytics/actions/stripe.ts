@@ -74,6 +74,7 @@ export default defineAction({
       .describe("Months of billing history"),
   }),
   http: { method: "GET" },
+  grounding: true,
   run: async (args) => {
     const credentials = await requireActionCredentials(
       ["STRIPE_SECRET_KEY"],

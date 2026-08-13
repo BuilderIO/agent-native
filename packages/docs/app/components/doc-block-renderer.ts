@@ -1,6 +1,11 @@
 import { lazy, type ComponentType } from "react";
 
-type DocBlocksContentComponent = ComponentType<{ markdown: string }>;
+import type { DocsLocale } from "./docs-locale";
+
+type DocBlocksContentComponent = ComponentType<{
+  markdown: string;
+  locale?: DocsLocale;
+}>;
 type DocBlocksContentModule = {
   default: DocBlocksContentComponent;
 };

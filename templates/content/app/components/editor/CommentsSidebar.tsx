@@ -312,6 +312,8 @@ interface CommentsSidebarProps {
   onSelectedThreadChange?: (id: string | null) => void;
   onHoveredThreadChange?: (id: string | null) => void;
   currentUserEmail?: string;
+  canComment?: boolean;
+  canResolve?: boolean;
   alignToAnchors?: boolean;
   forceVisible?: boolean;
 }
@@ -329,6 +331,8 @@ export function CommentsSidebar({
   onSelectedThreadChange,
   onHoveredThreadChange,
   currentUserEmail,
+  canComment = true,
+  canResolve = false,
   alignToAnchors = true,
   forceVisible = false,
 }: CommentsSidebarProps) {
@@ -367,6 +371,7 @@ export function CommentsSidebar({
   }, [pendingComment]);
 
   const handlePendingSubmit = () => {
+    if (!canComment) return;
     if (!pendingText.trim() || createComment.isPending) return;
     createComment.mutate(
       {
@@ -401,6 +406,7 @@ export function CommentsSidebar({
   };
 
   const handleReply = (threadId: string) => {
+    if (!canComment) return;
     if (!replyText.trim() || createComment.isPending) return;
     const thread = threads?.find((t) => t.threadId === threadId);
     createComment.mutate(
@@ -435,7 +441,8 @@ export function CommentsSidebar({
       ? `${t("comments.agentRegardingText", { text: thread.quotedText })}\n\n`
       : "";
     sendToAgentChat({
-      message: `${context}${t("comments.agentThreadHeader")}\n${commentTexts}\n\n${t("comments.agentHelp")}`,
+      message: t("comments.agentHelp"),
+      context: `${context}${t("comments.agentThreadHeader")}\n${commentTexts}`,
     });
   };
 
@@ -582,6 +589,7 @@ export function CommentsSidebar({
   );
 
   const handleResolve = (thread: CommentThread) => {
+    if (!canResolve) return;
     resolveComment.mutate({
       id: thread.comments[0].id,
       documentId,
@@ -596,6 +604,7 @@ export function CommentsSidebar({
   };
 
   const handleReopen = (thread: CommentThread) => {
+    if (!canResolve) return;
     resolveComment.mutate({
       id: thread.comments[0].id,
       documentId,
@@ -705,9 +714,11 @@ export function CommentsSidebar({
                   scrollContainerRef?.current ?? null,
                   threadPositions.get(thread.threadId)?.documentTop,
                 );
-                setReplyingThreadId((current) =>
-                  current === thread.threadId ? null : thread.threadId,
-                );
+                if (canComment) {
+                  setReplyingThreadId((current) =>
+                    current === thread.threadId ? null : thread.threadId,
+                  );
+                }
                 setReplyText("");
                 setReplyMentions([]);
               }}
@@ -724,6 +735,8 @@ export function CommentsSidebar({
               }
               onHeightChange={handleThreadCardHeightChange}
               members={members}
+              canComment={canComment}
+              canResolve={canResolve}
               onSubmitReply={() => handleReply(thread.threadId)}
               onResolve={() => handleResolve(thread)}
               onSendToAI={() => handleSendToAI(thread)}
@@ -752,6 +765,7 @@ export function CommentsSidebar({
                 <ResolvedThreadView
                   key={thread.threadId}
                   thread={thread}
+                  canResolve={canResolve}
                   onReopen={() => handleReopen(thread)}
                   t={t}
                 />
@@ -813,6 +827,8 @@ function ThreadView({
   onHeightChange,
   onSubmitReply,
   onResolve,
+  canComment,
+  canResolve,
   onSendToAI,
   t,
 }: {
@@ -831,6 +847,8 @@ function ThreadView({
   onHeightChange: (threadId: string, height: number) => void;
   onSubmitReply: () => void;
   onResolve: () => void;
+  canComment: boolean;
+  canResolve: boolean;
   onSendToAI: () => void;
   t: ReturnType<typeof useT>;
 }) {
@@ -889,20 +907,22 @@ function ThreadView({
             </TooltipTrigger>
             <TooltipContent>{t("comments.askAi")}</TooltipContent>
           </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onResolve();
-                }}
-                className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-accent"
-              >
-                <IconCheck size={14} />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>{t("comments.resolve")}</TooltipContent>
-          </Tooltip>
+          {canResolve ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onResolve();
+                  }}
+                  className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-accent"
+                >
+                  <IconCheck size={14} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>{t("comments.resolve")}</TooltipContent>
+            </Tooltip>
+          ) : null}
         </div>
 
         {/* Comments */}
@@ -930,7 +950,7 @@ function ThreadView({
       </div>
 
       {/* Expanded: Notion-style reply input */}
-      {isExpanded && (
+      {isExpanded && canComment && (
         <div
           className="flex items-center gap-2 px-3 pb-3 pt-1"
           onClick={(e) => e.stopPropagation()}
@@ -978,10 +998,12 @@ function ThreadView({
 function ResolvedThreadView({
   thread,
   onReopen,
+  canResolve,
   t,
 }: {
   thread: CommentThread;
   onReopen: () => void;
+  canResolve: boolean;
   t: ReturnType<typeof useT>;
 }) {
   const first = thread.comments[0];
@@ -1002,17 +1024,19 @@ function ResolvedThreadView({
         <span className="flex-1 truncate text-[13px] text-muted-foreground">
           {renderCommentBody(first.content, first.mentions)}
         </span>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              onClick={onReopen}
-              className="p-1 text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover/resolved:opacity-100"
-            >
-              <IconArrowBackUp size={14} />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>{t("comments.reopen")}</TooltipContent>
-        </Tooltip>
+        {canResolve ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={onReopen}
+                className="p-1 text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover/resolved:opacity-100"
+              >
+                <IconArrowBackUp size={14} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>{t("comments.reopen")}</TooltipContent>
+          </Tooltip>
+        ) : null}
       </div>
     </div>
   );
