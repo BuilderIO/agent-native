@@ -2277,6 +2277,24 @@ export default function RecordRoute() {
     void doCancel();
   }, [doCancel]);
 
+  // A background upload (e.g. importing a local video file) can finish
+  // independently of user interaction while this dialog is open -- it isn't
+  // gated behind uiState. Once the recording leaves a discardable state,
+  // Discard would be a no-op (there's nothing left for doCancel to abort or
+  // trash), so close the prompt rather than leave a misleading control open.
+  useEffect(() => {
+    if (!discardConfirmOpen) return;
+    if (
+      uiState === "recording" ||
+      uiState === "uploading" ||
+      uiState === "compressing"
+    ) {
+      return;
+    }
+    discardAutoPausedRef.current = false;
+    setDiscardConfirmOpen(false);
+  }, [uiState, discardConfirmOpen]);
+
   useEffect(() => {
     if (typeof navigator === "undefined") return;
     if (!isMobileRecorderRuntime(navigator)) return;
