@@ -1,4 +1,5 @@
 import { getOrgSetting, mutateOrgSetting } from "../settings/org-settings.js";
+import { getDbExec, isPostgres } from "../db/client.js";
 import { getSetting, mutateSetting } from "../settings/store.js";
 import {
   getFeatureFlagDefinition,
@@ -28,6 +29,21 @@ export const FEATURE_FLAG_SETTINGS_PREFIX = "feature-flag:";
 
 function settingKey(key: string): string {
   return `${FEATURE_FLAG_SETTINGS_PREFIX}${key}`;
+}
+
+function parseStoredRules(value: unknown): FeatureFlagRules {
+  if (typeof value === "string") return normalizeFeatureFlagRules(JSON.parse(value));
+  return normalizeFeatureFlagRules(value);
+}
+
+function hasActiveRollout(rules: FeatureFlagRules): boolean {
+  return (
+    rules.mode === "on" ||
+    (rules.mode === "rules" &&
+      (rules.emails.length > 0 ||
+        rules.orgIds.length > 0 ||
+        rules.percentage > 0))
+  );
 }
 
 export function defaultFeatureFlagRules(): FeatureFlagRules {
@@ -99,6 +115,29 @@ export async function getFeatureFlagRules(
     getSetting(settingKey(key)),
   ]);
   return normalizeFeatureFlagRules(orgStored ?? globalStored);
+}
+
+/**
+ * Anonymous discovery hint for a rollout that may be scoped to an org.
+ *
+ * This deliberately answers only whether some active rollout exists. It does
+ * not reveal the target email or organization, and callers must still run
+ * `evaluateFeatureFlag` with the authenticated scope before granting access.
+ * Without this separate hint, an org-only rollout is invisible to Desktop
+ * before the user has authenticated and the org can be resolved.
+ */
+export async function hasActiveFeatureFlagRollout(key: string): Promise<boolean> {
+  if (!getFeatureFlagDefinition(key)) return false;
+
+  const globalStored = await getSetting(settingKey(key));
+  if (hasActiveRollout(parseStoredRules(globalStored))) return true;
+
+  const table = isPostgres() ? "public.settings" : "settings";
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT value FROM ${table} WHERE key LIKE ?`,
+    args: [`o:%:${settingKey(key)}`],
+  });
+  return rows.some((row) => hasActiveRollout(parseStoredRules(row.value)));
 }
 
 /**
