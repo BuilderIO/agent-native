@@ -28,6 +28,10 @@ describe("authenticated recording route loading", () => {
     expect(route).toContain('fetchPublicMeeting(meetingId ?? "", {');
     expect(route).toContain("enabled: !!meetingId && !sessionLoading");
     expect(route).toContain("initialData: initialMeetingResult");
+    expect(route).toContain("privateShareLoaderData");
+    expect(route).toContain(
+      "export function headers({ loaderHeaders }: HeadersArgs)",
+    );
     expect(route).toContain(
       "!meeting && (sessionLoading || meetingQuery.isLoading)",
     );

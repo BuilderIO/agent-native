@@ -6534,7 +6534,10 @@ describe("createAgentChatAdapter", () => {
               "run-bg-tool-only",
             )
           : backgroundSseResponse(
-              [{ type: "text", text: "The source is synced." }, { type: "done" }],
+              [
+                { type: "text", text: "The source is synced." },
+                { type: "done" },
+              ],
               "run-bg-tool-final",
             );
       }
@@ -6579,9 +6582,7 @@ describe("createAgentChatAdapter", () => {
 
     expect(postBodies).toHaveLength(2);
     expect(postBodies[1]).toMatchObject({ internalContinuation: true });
-    expect(postBodies[1].history.at(-1).content).toContain(
-      "Tool: sync-source",
-    );
+    expect(postBodies[1].history.at(-1).content).toContain("Tool: sync-source");
     const last = results.at(-1) as any;
     expect(last.content.at(-1).text).toBe("The source is synced.");
     expect(last.metadata?.custom?.runWarning).toBeUndefined();

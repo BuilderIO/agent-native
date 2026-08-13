@@ -280,7 +280,15 @@ function LinkTab({
         />
       </div>
 
-      <CopyField label={t("clipsFinalRaw.shareLink")} value={shareUrl} />
+      <CopyField
+        label={
+          isPublic
+            ? t("clipsFinalRaw.shareLink")
+            : t("shareDialog.shareWithHumans")
+        }
+        value={shareUrl}
+        disabled={!sharesLoaded}
+      />
 
       {!isPublic && canManage ? (
         <MakePublicCard

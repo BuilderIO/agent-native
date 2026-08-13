@@ -615,7 +615,14 @@ function CalendarAccountMenu({
                   <span className="min-w-0 flex-1 truncate">
                     {calendarAccountLabel(account)}
                   </span>
-                  <span className="shrink-0 text-[11px] text-destructive">
+                  <span
+                    className={
+                      account.status === "needs-reauth" ||
+                      account.status === "disconnected"
+                        ? "shrink-0 text-[11px] text-destructive"
+                        : "shrink-0 text-[11px] text-muted-foreground"
+                    }
+                  >
                     {account.status === "needs-reauth"
                       ? t("meetingsRoute.calendarNeedsReconnectLabel", {
                           defaultValue: "Needs reconnect",
@@ -628,7 +635,9 @@ function CalendarAccountMenu({
                           ? t("meetingsRoute.calendarStatusUnavailable", {
                               defaultValue: "Status unavailable",
                             })
-                          : null}
+                          : t("meetingsRoute.calendarConnectedLabel", {
+                              defaultValue: "Connected",
+                            })}
                   </span>
                 </div>
               ))}

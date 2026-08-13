@@ -19,7 +19,11 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { and, eq, isNull } from "drizzle-orm";
 import { useEffect, useRef, useState } from "react";
-import type { LoaderFunctionArgs, MetaFunction } from "react-router";
+import type {
+  HeadersArgs,
+  LoaderFunctionArgs,
+  MetaFunction,
+} from "react-router";
 import { useLoaderData, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
@@ -40,19 +44,29 @@ import {
 
 import { getDb, schema } from "../../server/db";
 import { CLIPS_MEETING_AGENT_RESOURCE_KIND } from "../../shared/meeting-agent-access";
+import { privateShareLoaderData } from "../../shared/share-loader-response";
 
 type LoaderData = { meeting: PublicMeeting | null };
 
-export async function loader({
-  params,
-  url,
-}: LoaderFunctionArgs): Promise<LoaderData> {
+function shareMeetingLoaderData(
+  payload: LoaderData,
+  privateAgentAccess = false,
+) {
+  return privateAgentAccess ? privateShareLoaderData(payload) : payload;
+}
+
+export function headers({ loaderHeaders }: HeadersArgs) {
+  return loaderHeaders;
+}
+
+export async function loader({ params, url }: LoaderFunctionArgs) {
   const meetingId = params.meetingId;
   if (!meetingId) return { meeting: null };
 
   const { verifyScopedAgentAccessToken } =
     await import("@agent-native/core/server");
   const agentAccessToken = url.searchParams.get(AGENT_ACCESS_PARAM) ?? "";
+  const hasAgentAccessToken = Boolean(agentAccessToken);
   const tokenGrantsAgentAccess = agentAccessToken
     ? verifyScopedAgentAccessToken(agentAccessToken, {
         resourceKind: CLIPS_MEETING_AGENT_RESOURCE_KIND,
@@ -86,7 +100,9 @@ export async function loader({
           ),
     )
     .limit(1);
-  if (!meeting) return { meeting: null };
+  if (!meeting) {
+    return shareMeetingLoaderData({ meeting: null }, hasAgentAccessToken);
+  }
 
   const [participants, actionItems] = await Promise.all([
     getDb()
@@ -121,20 +137,23 @@ export async function loader({
     }
   } catch {}
 
-  return {
-    meeting: {
-      id: meeting.id,
-      title: meeting.title,
-      scheduledStart: meeting.scheduledStart,
-      summaryMd: meeting.summaryMd,
-      bullets,
-      participants,
-      actionItems,
-      actualStart: meeting.actualStart,
-      actualEnd: meeting.actualEnd,
-      transcriptStatus: meeting.transcriptStatus,
+  return shareMeetingLoaderData(
+    {
+      meeting: {
+        id: meeting.id,
+        title: meeting.title,
+        scheduledStart: meeting.scheduledStart,
+        summaryMd: meeting.summaryMd,
+        bullets,
+        participants,
+        actionItems,
+        actualStart: meeting.actualStart,
+        actualEnd: meeting.actualEnd,
+        transcriptStatus: meeting.transcriptStatus,
+      },
     },
-  };
+    hasAgentAccessToken,
+  );
 }
 
 export const meta: MetaFunction<typeof loader> = ({ loaderData }) => {

@@ -3979,7 +3979,7 @@ export function createAgentChatAdapter(
               yield nextResult;
             }
 
-            if (missingFinalResponseResult) {
+            if (isDurableBackgroundDispatch() && missingFinalResponseResult) {
               const warning = missingFinalResponseWarningFromResult(
                 missingFinalResponseResult,
               );
