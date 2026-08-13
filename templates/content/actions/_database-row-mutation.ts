@@ -1272,6 +1272,7 @@ export async function upsertDatabaseRow(
       )
     : undefined;
   if (
+    replayKeyPropertyId &&
     replayKeyDefinition?.type === "text" &&
     Object.prototype.hasOwnProperty.call(
       input.propertyValues ?? {},
