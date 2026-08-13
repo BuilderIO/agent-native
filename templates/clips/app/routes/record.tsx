@@ -2347,6 +2347,7 @@ export default function RecordRoute() {
   // -------------------------------------------------------------------------
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
+      if (discardConfirmOpen) return;
       const alt = e.altKey;
       const shift = e.shiftKey;
       const meta = e.metaKey;
@@ -2415,6 +2416,7 @@ export default function RecordRoute() {
     return () => window.removeEventListener("keydown", onKey);
   }, [
     uiState,
+    discardConfirmOpen,
     togglePause,
     doCancel,
     requestDiscard,
@@ -2732,7 +2734,7 @@ export default function RecordRoute() {
             </>
           )}
           <button
-            onClick={doCancel}
+            onClick={requestDiscard}
             className="mt-1 text-xs text-white/50 underline-offset-2 hover:text-white/80 hover:underline"
           >
             Cancel
