@@ -204,8 +204,8 @@ Required evidence:
 
 ```yaml
 authoritySchemaVersion: 3
-stage: work
-authority-source: "Alice: $work"
+stage: land
+authority-source: "Alice: $land and merge"
 authorized-scope:
   repositories: [BuilderIO/agent-native]
   product-surfaces:
@@ -215,7 +215,8 @@ authorized-scope:
       Dispatch organization directory,
     ]
   outcome: Implement and prove the frozen repair for production cross-app feature-flag administration without changing OAuth PR 2602
-allowed-mutations: [artifact-write, branch, commit, push, pull-request, deploy]
+allowed-mutations:
+  [artifact-write, branch, commit, push, pull-request, deploy, merge]
 write-targets:
   artifacts:
     [plans/feature-flag-fleet-aggregation/production-delegation-diagnosis.md]
@@ -248,7 +249,7 @@ test-resources:
     phase: work
 governing-artifact:
   path: plans/feature-flag-fleet-aggregation/production-delegation-diagnosis.md
-  revision: work-r2
+  revision: land-r3
 architecture-fingerprint:
   outcome: Make Analytics administer target-local flags using verified cross-app workspace identity rather than foreign database IDs
   shipping-surfaces:
@@ -343,11 +344,13 @@ architecture-grounding:
   unresolved-owner-questions: []
 delegation-ceiling: [read-only investigation, bounded technical review]
 acceptance-state:
-  status: passed
-  summary: The isolated local dev-server functional and visual story passes at desktop and the previously failing 768px viewport.
-  blockers: []
-  last-land-packet: null
-ledger-revision: feature-flag-production-delegation-work-r2
+  status: blocked
+  summary: The repaired current head has automated evidence, but its material authorization changes invalidate the prior real-interface and independent-review receipts.
+  blockers:
+    - Current-head CI and GitHub review are pending for 54ea02a82d4f762b703cc6c3d19b2783c12be41e.
+    - The cleaned local acceptance suite expired on 2026-08-12 and cannot be resurrected or silently rebound to the repaired head.
+  last-land-packet: "Passed: current-head focused tests, Core build and typecheck, Analytics typecheck, and all 53 guards. Missing acceptance evidence: current-head same-context real-interface story and current-head independent technical review. Feature flags: implementation changes default no registered flag state. Repository governance: satisfied. Independent technical review: not evidenced. Acceptance story: not satisfied. Merge permitted: no. Enablement permitted: no. May call shipped: no. Task may close: no. Readiness: blocked."
+ledger-revision: feature-flag-production-delegation-land-r3
 status: active
 ```
 
