@@ -844,10 +844,11 @@ const enUS = {
     checking: "Checking",
     checkingUpload: "Checking upload",
     clearAll: "Clear all",
+    clearAllWithCount: "Clear all candidates ({{count}})",
     clearCandidates: "Clear candidates",
     clearCandidatesTitle: "Clear {{count}} candidates?",
     clearCandidatesDescription:
-      "Clears the live stage and deletes unsaved draft candidates.",
+      "Clears the live stage and deletes every unsaved draft candidate. Saved library assets stay untouched.",
     clearGeneratedCandidatesTitle: "Clear generated candidates?",
     clearGeneratedCandidatesDescription:
       "This removes every unsaved candidate from the thread and deletes the generated asset rows behind them. Saved library assets are not touched.",
@@ -986,6 +987,7 @@ const enUS = {
     open: "Open",
     openAssets: "Open Assets",
     openChat: "Open chat",
+    hideDetails: "Hide details",
     openDetails: "Open details",
     preparing: "Preparing...",
     previousImage: "Previous image",
@@ -3728,7 +3730,9 @@ export const messagesByLocale = {
       checkingUpload: "正在检查上传",
       clear: "清除",
       clearAll: "全部清除",
+      clearAllWithCount: "清除所有候选项（{{count}}）",
       clearCandidates: "清除候选项",
+      hideDetails: "隐藏详情",
       clearCandidatesDescription: "清除实时阶段并删除未保存的草稿候选项。",
       clearCandidatesTitle: "清除 {{count}} 个候选项？",
       clearGeneratedCandidatesDescription:
@@ -4552,7 +4556,9 @@ export const messagesByLocale = {
       checkingImageLibraries: "Comprobando bibliotecas de imágenes...",
       checkingUpload: "Comprobando carga",
       clearAll: "Borrar todo",
+      clearAllWithCount: "Borrar todos los candidatos ({{count}})",
       clearCandidates: "Limpiar candidatos",
+      hideDetails: "Ocultar detalles",
       clearCandidatesDescription:
         "Limpia la etapa en vivo y elimina los candidatos de borrador no guardados.",
       clearGeneratedCandidatesDescription:
@@ -5026,7 +5032,9 @@ export const messagesByLocale = {
       checkingImageLibraries: "Vérification des bibliothèques d'images...",
       checkingUpload: "Vérification du téléchargement",
       clearAll: "Tout effacer",
+      clearAllWithCount: "Effacer tous les candidats ({{count}})",
       clearCandidates: "Effacer les candidats",
+      hideDetails: "Masquer les détails",
       clearCandidatesDescription:
         "Efface l'étape en direct et supprime les candidats de brouillon non enregistrés.",
       clearGeneratedCandidatesDescription:
@@ -5479,7 +5487,9 @@ export const messagesByLocale = {
       checkingImageLibraries: "Bildbibliotheken werden geprüft...",
       checkingUpload: "Upload wird überprüft",
       clearAll: "Alles löschen",
+      clearAllWithCount: "Alle Kandidaten löschen ({{count}})",
       clearCandidates: "Kandidaten löschen",
+      hideDetails: "Details ausblenden",
       clearCandidatesDescription:
         "Löscht die Live-Phase und entfernt nicht gespeicherte Entwurfskandidaten.",
       clearGeneratedCandidatesDescription:
@@ -5837,7 +5847,9 @@ export const messagesByLocale = {
       checkingImageLibraries: "画像ライブラリを確認中...",
       checkingUpload: "アップロードを確認しています",
       clearAll: "すべてクリア",
+      clearAllWithCount: "候補をすべてクリア（{{count}}）",
       clearCandidates: "候補をクリアする",
+      hideDetails: "詳細を非表示",
       clearCandidatesDescription:
         "ライブ ステージをクリアし、保存されていないドラフト候補を削除します。",
       clearGeneratedCandidatesDescription:
@@ -6186,7 +6198,9 @@ export const messagesByLocale = {
       checkingImageLibraries: "이미지 라이브러리 확인 중...",
       checkingUpload: "업로드 확인 중",
       clearAll: "모두 지우기",
+      clearAllWithCount: "후보 모두 지우기({{count}})",
       clearCandidates: "후보 제거",
+      hideDetails: "세부정보 숨기기",
       clearCandidatesDescription:
         "라이브 단계를 지우고 저장되지 않은 초안 후보를 삭제합니다.",
       clearGeneratedCandidatesDescription:
@@ -6534,7 +6548,9 @@ export const messagesByLocale = {
       checkingImageLibraries: "Verificando bibliotecas de imagens...",
       checkingUpload: "Verificando upload",
       clearAll: "Limpar tudo",
+      clearAllWithCount: "Limpar todos os candidatos ({{count}})",
       clearCandidates: "Limpar candidatos",
+      hideDetails: "Ocultar detalhes",
       clearCandidatesDescription:
         "Limpa o estágio ao vivo e exclui candidatos de rascunho não salvos.",
       clearGeneratedCandidatesDescription:
@@ -6985,7 +7001,9 @@ export const messagesByLocale = {
       checkingImageLibraries: "Image libraries जांची जा रही हैं...",
       checkingUpload: "अपलोड की जाँच की जा रही है",
       clearAll: "सभी साफ करें",
+      clearAllWithCount: "सभी उम्मीदवार साफ करें ({{count}})",
       clearCandidates: "उम्मीदवारों को साफ करें",
+      hideDetails: "विवरण छिपाएं",
       clearCandidatesDescription:
         "लाइव चरण को साफ करता है और अ सहेजे गए ड्राफ्ट उम्मीदवारों को हटाता है।",
       clearGeneratedCandidatesDescription:
@@ -7331,7 +7349,9 @@ export const messagesByLocale = {
       checkingImageLibraries: "جارٍ فحص مكتبات الصور...",
       checkingUpload: "التحقق من التحميل",
       clearAll: "مسح الكل",
+      clearAllWithCount: "مسح كل المرشحين ({{count}})",
       clearCandidates: "امسح المرشحين",
+      hideDetails: "إخفاء التفاصيل",
       clearCandidatesDescription:
         "مسح مرحلة المرشح وحذف المرشحين الذين تم إنشاؤهم غير المحفوظة. أصول المكتبة المحفوظة تبقى دون تغيير.",
       clearGeneratedCandidatesDescription:
