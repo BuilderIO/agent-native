@@ -9,7 +9,6 @@
     "start": "agent-native start",
     "typecheck": "agent-native typecheck",
     "migrate:production": "tsx scripts/migrate-production.ts",
-    "seed:meeting-fixture": "tsx scripts/seed-meeting-fixture.ts",
     "action": "agent-native action",
     "script": "agent-native script",
     "tauri": "cd desktop && pnpm tauri",
