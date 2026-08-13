@@ -8169,7 +8169,7 @@ mod audio_track_probe_tests {
         audio_filter_chain, decide_prepared_audio_signal, mp4_has_audio_track,
         parse_ffmpeg_volume_db, AudioSignalProbe, PreparedAudioSignalDecision,
         AUDIO_DENOISE_FILTER, AUDIO_DOWNMIX_FILTER, AUDIO_DOWNMIX_MAKEUP_FILTER,
-        AUDIO_LOUDNESS_FILTER, AUDIO_MIC_PREGAIN_FILTER,
+        AUDIO_LOUDNESS_FILTER, AUDIO_MIC_CLEANUP_FILTER, AUDIO_MIC_PREGAIN_FILTER,
     };
     use std::io::Write;
 

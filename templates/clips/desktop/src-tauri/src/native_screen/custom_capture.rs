@@ -203,7 +203,7 @@ fn segmented_output_enabled(output: CustomWriterOutput, live_upload_enabled: boo
 fn live_audio_mixing_enabled(
     output: CustomWriterOutput,
     include_audio: bool,
-    capture_system_audio: bool,
+    _capture_system_audio: bool,
 ) -> bool {
     // Keep every ordinary microphone capture on the realtime mixer so the
     // live-upload path receives the same mic cleanup as finalized files. A
