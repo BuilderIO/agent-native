@@ -967,7 +967,7 @@ export default function RecordingPage() {
               variant="ghost"
               size="icon"
               className="shrink-0"
-              aria-label={t("recordingPage.back")}
+              aria-label={t("recordingPage.backToLibrary")}
             >
               <Link to="/library" replace>
                 <IconArrowLeft className="h-4 w-4 rtl:-scale-x-100" />
@@ -1311,10 +1311,13 @@ export default function RecordingPage() {
             variant="ghost"
             size="icon"
             className="shrink-0"
-            aria-label={t("recordingPage.back")}
+            aria-label={t("recordingPage.backToLibrary")}
           >
             <Link to="/library" replace>
               <IconArrowLeft className="h-4 w-4 rtl:-scale-x-100" />
+              <span className="hidden sm:inline">
+                {t("recordingPage.backToLibrary")}
+              </span>
             </Link>
           </Button>
           <div className="flex-1 min-w-0">

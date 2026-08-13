@@ -2853,7 +2853,7 @@ export function createAgentChatAdapter(
         // persistently unattachable run still terminates loudly).
         const followAttachOnce = async function* (): AsyncGenerator<
           ChatModelRunResult,
-          "completed" | "aborted" | "detached" | "gone",
+          "completed" | "client_continue" | "aborted" | "detached" | "gone",
           unknown
         > {
           if (!runId) return "gone";
@@ -2872,6 +2872,7 @@ export function createAgentChatAdapter(
             updateCurrentRunDispatchMode(
               eventsRes.headers.get("X-Dispatch-Mode"),
             );
+            let missingFinalResponseResult: ChatModelRunResult | null = null;
             for await (const result of readSSEStream(
               eventsRes.body,
               content,
@@ -2889,10 +2890,38 @@ export function createAgentChatAdapter(
               }),
             )) {
               const nextResult = withRequestModeMetadata(result);
+              if (
+                isDurableBackgroundDispatch() &&
+                missingFinalResponseWarningFromResult(nextResult)
+              ) {
+                missingFinalResponseResult = nextResult;
+                continue;
+              }
               if (isTerminalChatModelRunResult(nextResult)) {
                 settleTerminalChatRun();
               }
               yield nextResult;
+            }
+            if (missingFinalResponseResult) {
+              const warning = missingFinalResponseWarningFromResult(
+                missingFinalResponseResult,
+              );
+              const lastContentPart = content.at(-1);
+              if (
+                warning?.message &&
+                lastContentPart?.type === "text" &&
+                lastContentPart.text === warning.message
+              ) {
+                content.pop();
+              }
+              if (continueAfterMissingFinalResponse()) {
+                await delay(250, abortSignal);
+                return "client_continue";
+              }
+              settleTerminalChatRun();
+              yield missingFinalResponseResult;
+              clearActiveRun();
+              return "completed";
             }
             // readSSEStream returned normally: a terminal done/error was
             // consumed and rendered — the turn is over.
@@ -3271,6 +3300,9 @@ export function createAgentChatAdapter(
               }
               const seqBeforeAttach = lastSeq;
               const attach = yield* followAttachOnce();
+              if (attach === "client_continue") {
+                return "client_continue";
+              }
               if (attach === "completed" || attach === "aborted") {
                 return "completed";
               }
@@ -3969,7 +4001,10 @@ export function createAgentChatAdapter(
               currentSSEOptions(),
             )) {
               const nextResult = withRequestModeMetadata(result);
-              if (missingFinalResponseWarningFromResult(nextResult)) {
+              if (
+                isDurableBackgroundDispatch() &&
+                missingFinalResponseWarningFromResult(nextResult)
+              ) {
                 missingFinalResponseResult = nextResult;
                 continue;
               }

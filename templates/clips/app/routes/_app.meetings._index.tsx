@@ -581,7 +581,9 @@ function CalendarAccountMenu({
             aria-label={t("meetingsRoute.calendarSettings")}
           >
             <IconSettings className="h-4 w-4" />
-            Calendar
+            {t("meetingsRoute.calendarAccountsButton", {
+              defaultValue: "Calendars",
+            })}
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-72">

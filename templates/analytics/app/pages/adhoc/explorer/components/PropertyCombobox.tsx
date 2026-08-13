@@ -19,6 +19,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
+import { formatExplorerPropertyLabel } from "../property-label";
 import { KNOWN_PROPERTIES, ENRICHED_PROPERTY_MAP } from "../types";
 import { useDynamicProperties } from "../use-dynamic-schema";
 
@@ -66,6 +67,11 @@ export function PropertyCombobox({
     setOpen(false);
   };
 
+  const displayLabel = useMemo(() => {
+    if (!value) return null;
+    return formatExplorerPropertyLabel(value);
+  }, [value]);
+
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -77,12 +83,12 @@ export function PropertyCombobox({
           size="sm"
         >
           <span className="truncate">
-            {value || triggerLabel || t("explorer.selectProperty")}
+            {displayLabel || triggerLabel || t("explorer.selectProperty")}
           </span>
           <IconSelector className="ml-1 h-3 w-3 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-[280px] p-0" align="start">
+      <PopoverContent className="w-[320px] p-0" align="start">
         <Command shouldFilter={true}>
           <CommandInput
             placeholder={t("explorer.searchOrTypeProperty")}
@@ -137,7 +143,7 @@ export function PropertyCombobox({
                           value === prop ? "opacity-100" : "opacity-0",
                         )}
                       />
-                      {enriched?.label ?? prop}
+                      {enriched?.label ?? formatExplorerPropertyLabel(prop)}
                       {enriched && (
                         <span className="ml-auto text-[9px] bg-primary/10 text-primary px-1.5 py-0.5 rounded">
                           {t("explorer.joined")}

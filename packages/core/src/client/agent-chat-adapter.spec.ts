@@ -6491,6 +6491,98 @@ describe("createAgentChatAdapter", () => {
     expect(last.content.at(-1).text).toContain("Working and done");
   });
 
+  it("continues a followed background run whose done event follows completed tool work", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let postCount = 0;
+    let requestTurnId = "";
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+        postCount += 1;
+        requestTurnId = (JSON.parse(init.body as string) as { turnId: string })
+          .turnId;
+        return postCount === 1
+          ? backgroundSseResponse(
+              [
+                {
+                  type: "tool_start",
+                  id: "blocks-1",
+                  tool: "get-plan-blocks",
+                  input: { format: "reference" },
+                },
+                {
+                  type: "tool_done",
+                  id: "blocks-1",
+                  tool: "get-plan-blocks",
+                  result: '{"count":20}',
+                },
+                { type: "auto_continue", reason: "run_timeout" },
+              ],
+              "run-follow-tool-only",
+            )
+          : backgroundSseResponse(
+              [{ type: "text", text: "The plan is ready." }, { type: "done" }],
+              "run-follow-final",
+            );
+      }
+      if (url.includes("/runs/active")) {
+        return jsonResponse({
+          active: true,
+          runId: "run-follow-tool-only",
+          threadId: "thread-bg-follow-tool-only",
+          turnId: requestTurnId,
+          status: "completed",
+          dispatchMode: "background-processing",
+          heartbeatAt: Date.now(),
+          lastProgressAt: Date.now(),
+        });
+      }
+      if (url.includes("/runs/run-follow-tool-only/events")) {
+        return sseResponse([{ type: "done" }], "run-follow-tool-only");
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-bg-follow-tool-only",
+      threadId: "thread-bg-follow-tool-only",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "visualize this plan" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(5_000);
+    const results = await promise;
+
+    expect(postCount).toBe(2);
+    expect((results.at(-1) as any).content.at(-1).text).toBe(
+      "The plan is ready.",
+    );
+    expect((results.at(-1) as any).metadata?.custom?.runWarning).toBeUndefined();
+  });
+
   it("continues when a terminal followed run contains only completed tool work", async () => {
     vi.useFakeTimers();
     vi.stubGlobal("window", { dispatchEvent: vi.fn() });
