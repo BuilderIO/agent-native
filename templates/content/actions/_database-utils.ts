@@ -502,7 +502,7 @@ export async function resolveContentDatabaseRead(args: {
       canRead = false;
     }
   }
-  if (!canRead) throw new Error(`Database "${databaseId}" not found`);
+  if (!canRead) throw new Error("Content database not found.");
 
   if (database.deletedAt) {
     return {

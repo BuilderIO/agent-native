@@ -286,6 +286,15 @@ export function isStaleBuilderImageSourceComponentSave(args: {
 export default defineAction({
   description:
     "Update an existing document's title, content, icon, or favorite status.",
+  publicAgent: {
+    expose: true,
+    readOnly: false,
+    requiresAuth: true,
+    isConsequential: true,
+    title: "Update Content Document",
+    description:
+      "Delegate a sparse update to an existing Content document while preserving omitted fields.",
+  },
   schema: z.object({
     id: z.string().optional().describe("Document ID (required)"),
     title: z.string().optional().describe("New title"),

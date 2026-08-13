@@ -25,6 +25,15 @@ import { nanoid, normalizedValueJson } from "./_property-utils.js";
 
 export default defineAction({
   description: "Add a page item to a content database table.",
+  publicAgent: {
+    expose: true,
+    readOnly: false,
+    requiresAuth: true,
+    isConsequential: true,
+    title: "Add Content Database Item",
+    description:
+      "Delegate creation of one page item in an existing Content database.",
+  },
   schema: z.object({
     databaseId: z.string().describe("Database ID"),
     title: z.string().optional().describe("New row page title"),
