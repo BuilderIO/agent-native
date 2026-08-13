@@ -92,6 +92,7 @@ const FIRST_PARTY_TARBALL_SYMLINK_EXCLUDES = [
   "*/CLAUDE.md",
   "*/.claude/skills",
 ];
+const TAR_LISTING_MAX_BUFFER = 100 * 1024 * 1024;
 const localPackageTarballs = new Map<string, string>();
 /** VCS/editor files that don't count as "not empty" for an in-place scaffold. */
 const IN_PLACE_ALLOWLIST = new Set([
@@ -2303,6 +2304,7 @@ function archiveSymlinksForExtraction(tarPath: string): ArchiveSymlink[] {
   const listing = execFileSync("tar", ["tvzf", tarPath], {
     encoding: "utf-8",
     stdio: ["ignore", "pipe", "pipe"],
+    maxBuffer: TAR_LISTING_MAX_BUFFER,
   });
 
   return listing.split(/\r?\n/).flatMap((line) => {
@@ -2491,6 +2493,7 @@ function validateCommunityArchive(tarPath: string): void {
   const listing = execFileSync("tar", ["tvzf", tarPath], {
     encoding: "utf-8",
     stdio: ["ignore", "pipe", "pipe"],
+    maxBuffer: TAR_LISTING_MAX_BUFFER,
   });
   assertSafeCommunityArchiveListing(listing);
 }

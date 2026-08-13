@@ -130,6 +130,16 @@ describe("agent discovery", () => {
     expect(slides?.url).toBe("http://localhost:8086");
   });
 
+  it("allows an explicit local URL preference for an isolated dev directory", () => {
+    process.env.NODE_ENV = "production";
+
+    const slides = getBuiltinAgents("content", {
+      preferLocalUrls: true,
+    }).find((agent) => agent.id === "slides");
+
+    expect(slides?.url).toBe("http://localhost:8086");
+  });
+
   it("uses production built-in agent URLs when a public app URL is configured", () => {
     process.env.APP_URL = "https://content.agent-native.com";
 
@@ -327,6 +337,26 @@ describe("agent discovery", () => {
       url: "https://org.example.com",
     });
     expect(resourceGetMock).toHaveBeenCalledTimes(2);
+
+  it("keeps local built-in URLs ahead of seeded production resources", async () => {
+    process.env.NODE_ENV = "production";
+    resourceListMock.mockResolvedValue([
+      { id: "clips-resource", path: "remote-agents/clips.json" },
+    ]);
+    resourceGetMock.mockResolvedValue({
+      id: "clips-resource",
+      content: JSON.stringify({
+        id: "clips",
+        name: "Clips",
+        url: "https://clips.agent-native.com",
+      }),
+    });
+
+    const clips = (
+      await discoverAgents("dispatch", { preferLocalUrls: true })
+    ).find((agent) => agent.id === "clips");
+
+    expect(clips?.url).toBe("http://localhost:8094");
   });
 
   it("discovers sibling workspace apps from the workspace manifest", async () => {
@@ -435,6 +465,27 @@ describe("agent discovery", () => {
       description: "Custom workspace mail app",
       url: "https://mail.workspace.example.test/",
     });
+  });
+
+  it("keeps preferred local built-in URLs ahead of workspace manifests", async () => {
+    process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify({
+      version: 1,
+      apps: [
+        {
+          id: "mail",
+          name: "Workspace Mail",
+          path: "/mail",
+          url: "https://mail.workspace.example.test/",
+        },
+      ],
+    });
+
+    const agents = await discoverAgents("dispatch", {
+      preferLocalUrls: true,
+    });
+    expect(agents.find((agent) => agent.id === "mail")?.url).toBe(
+      "http://localhost:8085",
+    );
   });
 
   it("ignores stale localhost workspace URLs for first-party agents on public runtimes", async () => {

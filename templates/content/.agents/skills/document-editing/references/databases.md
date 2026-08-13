@@ -117,7 +117,9 @@ checkbox filters as initial property values, resolving option labels back to
 stable option IDs for select, status, and multi-select filters, so a row
 created under "Status is Published" remains visible instead of immediately
 disappearing. Agents can mirror that behavior by passing
-`--propertyValues '{"propertyId":"value"}'` to `add-database-item`. Filter
+the discovered property IDs in `propertyValues` to `add-database-item`. The
+action also requires the exact space/database/backing-page target, current
+schema revision, and a caller-stable idempotency key. Filter
 controls are type-aware: option properties choose from their configured
 options, option value editors can search existing options or create a new
 option from the typed query, and property settings can rename option labels
@@ -168,8 +170,10 @@ memberships, but they are references: moving one never reparents, transfers,
 or changes access to the referenced page. Files sidebar Custom order is
 different again: persist it per user and per database view with
 `update-content-database-personal-view`, without changing the shared Files
-membership order. Creating a database row returns the created item IDs and
-opens the new row page in the side preview. Duplicating a database row
+membership order. Creating a database row returns a receipt with stable item
+and document IDs, row link, revisions, affected fields, idempotency outcome,
+and verified read-back, then opens the new row page in the side preview.
+Duplicating a database row
 returns the duplicate item IDs and opens the copied row in the side preview
 so users can continue editing the new page immediately, including from
 table, list, and gallery row action menus. Board, calendar, and timeline
@@ -227,12 +231,24 @@ property definition.
 
 Use `create-content-database`, `create-inline-content-database`,
 `get-content-database`, `list-trashed-content-databases`,
-`restore-content-database`, `add-database-item`, `duplicate-database-item`,
+`restore-content-database`, `add-database-item`, `update-database-item`,
+`upsert-database-item-by-key`, `duplicate-database-item`,
 `duplicate-database-items`, `remove-database-items`, `move-database-item`,
 `update-content-database-view`, `list-document-properties`,
 `configure-document-property`, `set-document-property`,
 `duplicate-document-property`, and `delete-document-property`; do not edit
 property rows or view config via raw SQL when an action can do it.
+
+Read `get-content-database.mutationContract` immediately before a single-row
+mutation. Pass its exact target and schema revision to create, exact item and
+document IDs plus the current row revision to sparse update, and a fresh
+idempotency key for each intended effect. Reusing the same key with the same
+payload replays the durable receipt; reusing it with a different payload fails.
+Configure at most one ordinary text property as the database's natural key,
+then use `upsert-database-item-by-key` with that property. Natural-key upsert
+never accepts an arbitrary property name or silently chooses a field. Blocks,
+computed, system, source-managed, unknown, and relation properties are not
+writable through these actions; use their owning surfaces instead.
 
 For a bounded migration that must rewrite every existing row body while adding
 new property definitions and values, use `migrate-content-database-rows` rather

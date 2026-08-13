@@ -7,7 +7,7 @@ import {
 } from "./migrations.js";
 
 describe("OAuth token migrations", () => {
-  it("adds the current token columns and backfills existing owners", () => {
+  it("adds the current token columns and backfills existing owners and revisions", () => {
     const db = new Database(":memory:");
 
     for (const migration of OAUTH_TOKEN_MIGRATIONS) {
@@ -25,9 +25,7 @@ describe("OAuth token migrations", () => {
 
     const columns = db
       .prepare("PRAGMA table_info(oauth_tokens)")
-      .all() as Array<{
-      name: string;
-    }>;
+      .all() as Array<{ name: string }>;
     expect(columns.map((column) => column.name)).toEqual([
       "provider",
       "account_id",
@@ -35,14 +33,15 @@ describe("OAuth token migrations", () => {
       "updated_at",
       "owner",
       "display_name",
+      "revision",
     ]);
     expect(
       db
         .prepare(
-          "SELECT owner FROM oauth_tokens WHERE provider = ? AND account_id = ?",
+          "SELECT owner, revision FROM oauth_tokens WHERE provider = ? AND account_id = ?",
         )
         .get("google", "person@example.com"),
-    ).toEqual({ owner: "person@example.com" });
+    ).toEqual({ owner: "person@example.com", revision: 1 });
     expect(OAUTH_TOKEN_MIGRATIONS_TABLE).toBe("_oauth_token_migrations");
 
     db.close();

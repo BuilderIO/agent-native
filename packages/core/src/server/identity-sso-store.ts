@@ -7,9 +7,9 @@
  *
  *   - `identity_sso_flow_state` binds state to the exact app, client,
  *     authority, callback, and PKCE challenge. State is single-use.
- *   - `identity_sso_jti` remains a defence-in-depth replay guard for the
- *     server-to-server assertion. The assertion is never sent through the
- *     browser; the one-time authorization code is the only browser credential.
+ *   - `identity_sso_jti` is the legacy-named shared replay guard for short-lived
+ *     server-to-server assertions, including identity SSO and privileged A2A
+ *     mutations.
  *
  * Uses the same portable raw-SQL pattern as the other framework stores. Local
  * development may initialize these tables lazily; production release
@@ -397,7 +397,9 @@ export async function consumeSsoState(
  * guarantee, and refusing a login is safer than accepting an unverifiable
  * replay boundary.
  */
-export async function isJtiReplayed(jti: string | undefined): Promise<boolean> {
+export async function consumeOneTimeJti(
+  jti: string | undefined,
+): Promise<boolean> {
   if (!jti) return true;
   try {
     await ensureTable();
@@ -427,3 +429,5 @@ export async function isJtiReplayed(jti: string | undefined): Promise<boolean> {
     return true;
   }
 }
+
+export const isJtiReplayed = consumeOneTimeJti;
