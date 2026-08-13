@@ -185,7 +185,7 @@ describe("FirstRunOnboarding", () => {
     );
     expect(
       document.body.querySelector(
-        'a[href="https://agent-native.com/docs/environment-variables"]',
+        'a[href="https://www.agent-native.com/docs/environment-variables"]',
       ),
     ).toBeTruthy();
 
