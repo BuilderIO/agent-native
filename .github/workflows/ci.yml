@@ -303,9 +303,12 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       - name: Run Content PostgreSQL lock integration tests
-        run: pnpm test:content-db-postgres
+        run: |
+          pnpm test:content-db-postgres
+          pnpm --filter content exec vitest --run actions/upsert-database-item-by-key.db.test.ts --config vitest.config.ts
         env:
           CONTENT_MIGRATION_POSTGRES_URL: postgres://postgres@127.0.0.1:5432/content_migration_test
+          CONTENT_ROW_MUTATION_POSTGRES_URL: postgres://postgres@127.0.0.1:5432/content_migration_test
 
   core-integration-tests:
     name: Core integration tests
