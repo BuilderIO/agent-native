@@ -12,6 +12,7 @@ vi.mock("dom-to-pptx", () => ({
 
 import {
   addSpeakerNotesToPptxBlob,
+  buildDeckPptxBlob,
   exportDeckAsPptx,
   patchBulletIndentsInPptxBlob,
 } from "./export-pptx-client";
@@ -63,6 +64,30 @@ function setRenderedSlide(html = "Editable title") {
   return slideCanvas;
 }
 
+function setPendingImage() {
+  const slideCanvas = setRenderedSlide(
+    '<img alt="Remote image" src="/remote-image.png" />',
+  );
+  const image = slideCanvas.querySelector<HTMLImageElement>("img");
+  if (!image) throw new Error("test image missing");
+  Object.defineProperties(image, {
+    complete: { configurable: true, value: false },
+    naturalWidth: { configurable: true, value: 0 },
+  });
+  return image;
+}
+
+function markImageAsLoaded(image: HTMLImageElement) {
+  Object.defineProperties(image, {
+    complete: { configurable: true, value: true },
+    naturalWidth: { configurable: true, value: 1 },
+  });
+  Object.defineProperty(image, "decode", {
+    configurable: true,
+    value: vi.fn().mockResolvedValue(undefined),
+  });
+}
+
 beforeEach(async () => {
   vi.clearAllMocks();
   setRenderedSlide();
@@ -96,6 +121,7 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -165,6 +191,70 @@ describe("exportDeckAsPptx", () => {
       height: 10,
       width: 10,
     });
+  });
+});
+
+describe("waitForImagesToSettle", () => {
+  it("continues after a remote image exceeds the bounded wait", async () => {
+    const realSetTimeout = globalThis.setTimeout.bind(globalThis);
+    vi.useFakeTimers();
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      callback(0);
+      return 1;
+    });
+    setPendingImage();
+
+    const exportPromise = buildDeckPptxBlob(
+      "Remote Image Deck",
+      [{ id: "slide-1" }],
+      "16:9",
+    );
+    const settled = Promise.race([
+      exportPromise.then(() => true),
+      new Promise<boolean>((resolve) =>
+        realSetTimeout(() => resolve(false), 250),
+      ),
+    ]);
+
+    await vi.runAllTimersAsync();
+
+    expect(await settled).toBe(true);
+    await exportPromise;
+    expect(mocks.exportToPptx).toHaveBeenCalledTimes(1);
+  });
+
+  it("rechecks completion after attaching load listeners", async () => {
+    const realSetTimeout = globalThis.setTimeout.bind(globalThis);
+    vi.useFakeTimers();
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      callback(0);
+      return 1;
+    });
+    const image = setPendingImage();
+    const nativeAddEventListener = image.addEventListener.bind(image);
+    vi.spyOn(image, "addEventListener").mockImplementation(
+      (type, listener, options) => {
+        nativeAddEventListener(type, listener, options);
+        if (type === "load") markImageAsLoaded(image);
+      },
+    );
+
+    const exportPromise = buildDeckPptxBlob(
+      "Race Deck",
+      [{ id: "slide-1" }],
+      "16:9",
+    );
+    const settled = Promise.race([
+      exportPromise.then(() => true),
+      new Promise<boolean>((resolve) =>
+        realSetTimeout(() => resolve(false), 250),
+      ),
+    ]);
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(await settled).toBe(true);
+    await exportPromise;
+    expect(mocks.exportToPptx).toHaveBeenCalledTimes(1);
   });
 });
 

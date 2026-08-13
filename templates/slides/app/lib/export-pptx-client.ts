@@ -27,31 +27,61 @@ function triggerBlobDownload(blob: Blob, filename: string) {
   window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
-async function waitForImagesToSettle(root: HTMLElement) {
-  const images = Array.from(root.querySelectorAll<HTMLImageElement>("img"));
-  await Promise.all(
-    images.map(async (image) => {
-      if (!image.complete) {
-        await new Promise<void>((resolve) => {
-          const done = () => resolve();
-          image.addEventListener("error", done, { once: true });
-          image.addEventListener("load", done, { once: true });
-        });
+const IMAGE_SETTLE_TIMEOUT_MS = 5_000;
+
+function waitForImageToSettle(image: HTMLImageElement): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    let decodeStarted = false;
+    let settled = false;
+    let timeoutId: number | undefined;
+
+    const cleanup = () => {
+      image.removeEventListener("error", handleLoad);
+      image.removeEventListener("load", handleLoad);
+      if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+    };
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve();
+    };
+    const fail = (error: unknown) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(error);
+    };
+    const decode = () => {
+      if (decodeStarted) return;
+      decodeStarted = true;
+      if (!image.complete || image.naturalWidth <= 0) {
+        finish();
+        return;
       }
-      if (image.complete && image.naturalWidth > 0) {
-        try {
-          await image.decode();
-        } catch (error) {
+      Promise.resolve()
+        .then(() => image.decode())
+        .then(finish, (error: unknown) => {
           if (error instanceof Error && error.name === "EncodingError") {
-            // The exporter still gets the image element; decoding is only a
-            // layout barrier so geometry is measured after intrinsic size settles.
+            finish();
             return;
           }
-          throw error;
-        }
-      }
-    }),
-  );
+          fail(error);
+        });
+    };
+    const handleLoad = () => decode();
+
+    timeoutId = window.setTimeout(finish, IMAGE_SETTLE_TIMEOUT_MS);
+    image.addEventListener("error", handleLoad);
+    image.addEventListener("load", handleLoad);
+    // The image can finish between the initial state read and listener setup.
+    if (image.complete) decode();
+  });
+}
+
+async function waitForImagesToSettle(root: HTMLElement) {
+  const images = Array.from(root.querySelectorAll<HTMLImageElement>("img"));
+  await Promise.all(images.map((image) => waitForImageToSettle(image)));
   if (typeof window.requestAnimationFrame === "function") {
     await new Promise<void>((resolve) => {
       window.requestAnimationFrame(() =>

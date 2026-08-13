@@ -69,6 +69,11 @@ const AUDIO_DOWNMIX_FILTER: &str =
 // not, so reduce steady broadband room/mic hiss during the existing optimize
 // step. Keep this conservative to avoid watery speech artifacts.
 const AUDIO_DENOISE_FILTER: &str = "afftdn=nr=10:nf=-50:tn=1";
+// The FFT pass above is intentionally broad and does not reliably remove a
+// tonal HVAC hum. Apply this narrower chain only to mic-only captures so
+// system audio/music keeps its low end when both sources are recorded.
+const AUDIO_MIC_CLEANUP_FILTER: &str =
+    "highpass=f=65,bandreject=f=50:t=q:w=18,bandreject=f=60:t=q:w=18,bandreject=f=100:t=q:w=18,bandreject=f=120:t=q:w=18,agate=threshold=0.008:ratio=2:range=0.35:attack=10:release=180:knee=4:detection=rms";
 // loudnorm operates internally at 192 kHz and emits at 192 kHz; without an
 // explicit output rate the AAC track ends up at 192 kHz and plays back slow.
 const AUDIO_OUTPUT_SAMPLE_RATE: u32 = 48000;
@@ -96,6 +101,9 @@ fn audio_filter_chain(downmix: bool, denoise: bool, mic_pregain: bool) -> String
         // Undo pan attenuation; do not also apply mic-only pregain here —
         // system audio would get a double boost.
         filters.push(AUDIO_DOWNMIX_MAKEUP_FILTER);
+    }
+    if mic_pregain {
+        filters.push(AUDIO_MIC_CLEANUP_FILTER);
     }
     if denoise {
         filters.push(AUDIO_DENOISE_FILTER);
@@ -8214,7 +8222,9 @@ mod audio_track_probe_tests {
         );
         assert_eq!(
             audio_filter_chain(false, true, true),
-            format!("{AUDIO_DENOISE_FILTER},{AUDIO_MIC_PREGAIN_FILTER},{AUDIO_LOUDNESS_FILTER}")
+            format!(
+                "{AUDIO_MIC_CLEANUP_FILTER},{AUDIO_DENOISE_FILTER},{AUDIO_MIC_PREGAIN_FILTER},{AUDIO_LOUDNESS_FILTER}"
+            )
         );
         assert_eq!(
             audio_filter_chain(true, true, false),
