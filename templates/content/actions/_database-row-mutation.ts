@@ -1293,6 +1293,18 @@ export async function upsertDatabaseRow(
       { keyPropertyId },
     );
   }
+  if (
+    Object.prototype.hasOwnProperty.call(
+      input.propertyValues ?? {},
+      keyPropertyId,
+    ) &&
+    input.propertyValues?.[keyPropertyId] !== input.keyValue
+  ) {
+    invalidProperty(
+      keyDefinition,
+      "must match the upsert keyValue when provided in propertyValues",
+    );
+  }
   const values = await normalizePatch(initial, {
     ...(input.propertyValues ?? {}),
     [keyPropertyId]: input.keyValue,

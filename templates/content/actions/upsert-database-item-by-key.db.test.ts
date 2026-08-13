@@ -443,6 +443,28 @@ describe("reliable Content database row mutations", () => {
       title: "Feedback",
       propertyValues: { [evidenceId]: "first" },
     };
+    await expect(
+      asOwner(() =>
+        upsertRow.run({
+          ...input,
+          idempotencyKey: "feedback-upsert-conflicting-key",
+          propertyValues: {
+            ...input.propertyValues,
+            [keyPropertyId]: "feedback-002",
+          },
+        }),
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "INVALID_PROPERTY_VALUE",
+      details: { propertyId: keyPropertyId },
+    });
+    const [noConflictingRow] = await getDb()
+      .select({ id: schema.contentDatabaseItems.id })
+      .from(schema.contentDatabaseItems)
+      .where(eq(schema.contentDatabaseItems.databaseId, ids.databaseId))
+      .limit(1);
+    expect(noConflictingRow).toBeUndefined();
+
     const created = await asOwner(() => upsertRow.run(input));
     const replayed = await asOwner(() => upsertRow.run(input));
     expect(replayed.receipt).toMatchObject({
