@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
   rows: [] as Record<string, unknown>[],
+  legacySettings: {} as Record<string, Record<string, unknown>>,
   projection: null as Record<string, unknown> | null,
   where: null as unknown,
   limit: null as number | null,
@@ -10,7 +11,7 @@ const state = vi.hoisted(() => ({
 vi.mock("@agent-native/core/db", () => ({ isPostgres: () => false }));
 vi.mock("@agent-native/core/server", () => ({ recordChange: () => undefined }));
 vi.mock("@agent-native/core/settings", () => ({
-  getAllSettings: vi.fn(async () => ({})),
+  getAllSettings: vi.fn(async () => state.legacySettings),
   getOrgSetting: vi.fn(),
   getUserSetting: vi.fn(),
   deleteOrgSetting: vi.fn(),
@@ -29,6 +30,7 @@ vi.mock("drizzle-orm", () => ({
   inArray: vi.fn(),
   isNotNull: (target: unknown) => ({ kind: "isNotNull", target }),
   isNull: (target: unknown) => ({ kind: "isNull", target }),
+  or: (...conditions: unknown[]) => ({ kind: "or", conditions }),
   sql: (strings: TemplateStringsArray, ...values: unknown[]) => ({
     kind: "sql",
     strings: [...strings],
@@ -106,6 +108,7 @@ const { searchDashboardReferences } = await import("./dashboards-store.js");
 describe("searchDashboardReferences", () => {
   beforeEach(() => {
     state.rows = [];
+    state.legacySettings = {};
     state.projection = null;
     state.where = null;
     state.limit = null;
@@ -135,7 +138,7 @@ describe("searchDashboardReferences", () => {
       99,
     );
 
-    expect(state.limit).toBe(24);
+    expect(state.limit).toBe(200);
     expect(state.projection).toHaveProperty("config");
     expect(JSON.stringify(state.where)).toContain("ESCAPE");
     expect(JSON.stringify(state.where)).toContain("%revenue\\\\_\\\\%%");
@@ -152,6 +155,83 @@ describe("searchDashboardReferences", () => {
         matchedFields: ["id", "config"],
       },
     ]);
+  });
+
+  it("ranks exact multi-word names and includes both dashboard kinds", async () => {
+    state.rows = [
+      {
+        id: "dashboard-generic",
+        kind: "sql",
+        name: "Leaderboard overview",
+        description: "DevRel metrics",
+        config: JSON.stringify({ source: "first-party" }),
+        ownerEmail: "alice@example.com",
+        orgId: "org-1",
+        visibility: "org",
+        updatedAt: "2026-08-13T01:00:00.000Z",
+      },
+      {
+        id: "devrel-leaderboard",
+        kind: "explorer",
+        name: "DevRel Leaderboard",
+        description: null,
+        config: JSON.stringify({ source: "bigquery" }),
+        ownerEmail: "alice@example.com",
+        orgId: "org-1",
+        visibility: "org",
+        updatedAt: "2026-08-12T01:00:00.000Z",
+      },
+    ];
+
+    const result = await searchDashboardReferences(
+      { email: "alice@example.com", orgId: "org-1" },
+      "devrel leaderboard",
+      8,
+    );
+
+    expect(result.map((row) => row.id)).toEqual([
+      "devrel-leaderboard",
+      "dashboard-generic",
+    ]);
+    expect(result.map((row) => row.kind)).toEqual(["explorer", "sql"]);
+    expect(result[0]?.matchedFields).toContain("name");
+  });
+
+  it("searches scoped legacy dashboard settings without returning duplicates", async () => {
+    state.legacySettings = {
+      "o:org-1:sql-dashboard-devrel-leaderboard": {
+        name: "DevRel Leaderboard",
+        description: "Legacy reference",
+        updatedAt: "2026-08-13T02:00:00.000Z",
+      },
+      "u:alice@example.com:dashboard-private-devrel": {
+        title: "Private DevRel leaderboard",
+        description: "Personal reference",
+      },
+      "u:other@example.com:dashboard-hidden-devrel": {
+        title: "Do not leak this dashboard",
+      },
+    };
+
+    const result = await searchDashboardReferences(
+      { email: "alice@example.com", orgId: "org-1" },
+      "devrel leaderboard",
+      8,
+    );
+
+    expect(result.map((row) => row.id)).toEqual([
+      "devrel-leaderboard",
+      "private-devrel",
+    ]);
+    expect(result[0]).toMatchObject({
+      kind: "sql",
+      visibility: "org",
+      matchedFields: ["id", "name", "config"],
+    });
+    expect(result[1]).toMatchObject({
+      kind: "explorer",
+      visibility: "private",
+    });
   });
 
   it("does not issue a broad query for blank search input", async () => {

@@ -1,11 +1,8 @@
 # Analytics — Agent Guide
 
 Analytics is an agent-native BI workspace for sources, queries, dashboards,
-charts, and warehouse integrations. Dashboards are canonical; legacy analyses
-remain readable for compatibility.
-
-Use connected sources and MCP tools; reason over fetched data here, not via
-another AI tool.
+charts, and warehouse integrations; dashboards are canonical and legacy
+analyses remain readable.
 
 ## Skills
 
@@ -28,22 +25,18 @@ Read the relevant skill before deeper work:
 ## How To Answer A Data Question
 
 1. **Search existing work first.** For a metric question, call
-   `search-analytics-query-catalog`; for a request to replicate or adapt an
-   existing dashboard, call `search-dashboard-references` first. The latter
-   searches accessible saved dashboard metadata/config and returns references,
-   not an authoritative data source. Inspect a returned dashboard with
-   `get-sql-dashboard` for `kind: "sql"` or `get-explorer-dashboard` for
-   `kind: "explorer"` before copying it.
-   Then adapt
-   the closest saved SQL to the requested filters/window, run it once, and stop.
+   `search-analytics-query-catalog`; for dashboard replication or adaptation,
+   call `search-dashboard-references` first. Inspect each returned reference
+   with `get-sql-dashboard` or `get-explorer-dashboard` by its `kind`; a match
+   is context, not authoritative source data. Then adapt the closest saved SQL
+   to the requested filters/window, run it once, and stop.
 2. **One bounded call.** List/filter/count/cohort questions are one SQL statement
    or one server-side `run-code` script; never page or fan out per item.
 3. **Escalate on a miss.** If the catalog has no usable result, make one discovery
    pass (`list-data-dictionary`, `search-bigquery-schema`, `data-source-status`),
    then query; don't cross-check or add unasked breakdowns.
-4. **Answer in chat.** Return a short table or inline chart, not a dashboard
-   pointer. Native widgets show summarized data (≤50 rows); above that, state the
-   total and top rows.
+4. **Answer in chat.** Return a short table or inline chart, not only a
+   dashboard pointer; for >50 rows, state the total and top rows.
 5. **Deliver exports in chat.** See `analysis-workspace`; don't return only a path.
 6. **Chunk only reading.** Group 5-10 only for 30+ qualitative items when a query
    cannot answer; don't chunk queryable questions. See `adhoc-analysis`.

@@ -875,7 +875,10 @@ describe("incomplete evidence detection", () => {
     ).toBe(true);
     expect(
       hasDashboardConstructionAttempt([
-        { name: "get-explorer-dashboard", content: '{"id":"company-a-explorer"}' },
+        {
+          name: "get-explorer-dashboard",
+          content: '{"id":"company-a-explorer"}',
+        },
       ]),
     ).toBe(true);
     expect(

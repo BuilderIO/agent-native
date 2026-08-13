@@ -273,9 +273,7 @@ describe("Analytics agent Plan mode policy", () => {
     expect(DASHBOARD_REFERENCE_GUIDANCE).toContain(
       "not as proof that its source is authoritative",
     );
-    expect(DASHBOARD_REFERENCE_GUIDANCE).toContain(
-      "get-explorer-dashboard",
-    );
+    expect(DASHBOARD_REFERENCE_GUIDANCE).toContain("get-explorer-dashboard");
     const context = await (
       agentChatPluginOptions[0]?.extraContext as () => Promise<string>
     )?.();

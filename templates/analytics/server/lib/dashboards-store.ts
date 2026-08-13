@@ -192,7 +192,9 @@ type DashboardReferenceSearchQuery = {
   terms: string[];
 };
 
-function dashboardReferenceSearchQuery(search: string): DashboardReferenceSearchQuery {
+function dashboardReferenceSearchQuery(
+  search: string,
+): DashboardReferenceSearchQuery {
   const phrase = search.trim().replace(/\s+/g, " ").toLowerCase();
   return {
     phrase,
@@ -231,10 +233,10 @@ function dashboardReferenceMatch(
     config: dashboardReferenceFieldText(row.config),
   } satisfies Record<DashboardReferenceRecord["matchedFields"][number], string>;
   const matchedFields = Object.entries(fields)
-    .filter(([, value]) =>
-      query.terms.some((term) => value.includes(term)),
-    )
-    .map(([field]) => field as DashboardReferenceRecord["matchedFields"][number]);
+    .filter(([, value]) => query.terms.some((term) => value.includes(term)))
+    .map(
+      ([field]) => field as DashboardReferenceRecord["matchedFields"][number],
+    );
   const matchedTerms = query.terms.filter((term) =>
     Object.values(fields).some((value) => value.includes(term)),
   ).length;
@@ -928,10 +930,15 @@ export async function searchDashboardReferences(
     .orderBy(desc(schema.dashboards.updatedAt))
     .limit(MAX_DASHBOARD_REFERENCE_CANDIDATES);
 
-  const ranked = rows
+  const ranked: Array<{
+    record: DashboardReferenceRecord;
+    score: number;
+  }> = rows
     .map((row: any) => dashboardReferenceMatch(row, query))
     .filter(
-      (match: { record: DashboardReferenceRecord; score: number } | null): match is {
+      (
+        match: { record: DashboardReferenceRecord; score: number } | null,
+      ): match is {
         record: DashboardReferenceRecord;
         score: number;
       } => match !== null,
@@ -949,7 +956,9 @@ export async function searchDashboardReferences(
     if (
       !scope ||
       !scope.id ||
-      (typeof value !== "object" || value === null || Array.isArray(value))
+      typeof value !== "object" ||
+      value === null ||
+      Array.isArray(value)
     ) {
       continue;
     }
