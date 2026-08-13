@@ -17,7 +17,7 @@ description: "AI エージェントがファーストクラスのピアである
 エージェントと一緒に編集すると、共同編集エディターで作業しているような気分になります
 即席で疲れを知らない同僚:
 
-エージェントまたは別のユーザーが SQL に書き込むときに UI を更新するだけの場合は、これは必要ありません。[`useDbSync`](/docs/client) を使用してください。このページは、単一のリッチ テキスト ドキュメントを文字レベルで共同編集するためのものです (共有カーソル、競合のない結合)。どちらも同じ `/_agent-native/poll` チャネルに乗ります。
+エージェントまたは別のユーザーが SQL に書き込むときに UI を更新するだけの場合は、これは必要ありません。[`useDbSync`](/docs/client-data#usedbsync) を使用してください。このページは、単一のリッチ テキスト ドキュメントを文字レベルで共同編集するためのものです (共有カーソル、競合のない結合)。どちらも同じ `/_agent-native/poll` チャネルに乗ります。
 
 これは、**Yjs** (競合のないマージのための CRDT)、**TipTap** (リッチ テキスト エディター)、**ポーリング ベースの同期** (サーバーレスやエッジを含むすべての展開環境で機能します) という 3 つの実績のあるテクノロジーに基づいて構築されています。
 
@@ -774,7 +774,7 @@ undoManager.redo(); // Shift+Cmd+Z
 
 ## 関連ドキュメント {#related}
 
-- [Real-Time Sync](/docs/client#usedbsync) — `useDbSync` + `useChangeVersion`
+- [同期の内部](/docs/client-sync-internals) — `useDbSync` + `useChangeVersion`
   `updatedAt` バンプ ドライビング エディター調整を提供するシステム。
 - [Security](/docs/security) — `registerShareableResource`, `resolveAccess`,
   リソース単位のコラボレーションで使う `assertAccess`。

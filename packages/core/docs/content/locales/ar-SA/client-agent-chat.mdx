@@ -1,0 +1,312 @@
+---
+title: "محادثة الوكيل"
+description: "نقاط الدخول من جانب العميل إلى محادثة الوكيل: sendToAgentChat، وopenAgentSettings، وaskUserQuestion، والاقتراحات الديناميكية، وuseAgentChatGenerating، وحالة سياق محادثة الوكيل المرحلية."
+---
+
+# محادثة الوكيل
+
+يمكن لعميل تطبيقك التحدث إلى الوكيل من خلال مجموعة صغيرة من الأدوات المساعدة الخاصة بالعميل. تغطي هذه الأدوات إرسال مطالبة، وتهيئة سياق مخفي، وسؤال المستخدم سؤالاً معطِّلاً (blocking)، وفتح لوحة الوكيل.
+
+في المثال أدناه، يطلب زر **صياغة رد** من الوكيل أن يسأل المستخدم سؤالاً. بعد أن يجيب المستخدم، يشرع الوكيل في صياغة رد يأخذ في الحسبان سياق الصفحة الحالية ورد المستخدم.
+
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fcc3c9ccac6c6404f99fc27336b78a6d8?alt=media&token=d7aa0f72-eec3-4495-99c2-0d9bea11022e&apiKey=YJIGb4i01jvw0SRdL5Bt"
+  alt="لقطة شاشة تطبيق Dispatch تعرض الشريط الجانبي لتاريخ التشغيل"
+  align="full"
+  autoplay={true}
+  loop={true}
+  width={600}
+  caption="الشريط الجانبي لتاريخ التشغيل في Dispatch."
+/>
+
+## كيف يعمل
+
+باستخدام أساليب الأدوات المساعدة الخاصة بالعميل التي توفرها Agent-Native، يمكن لواجهة المستخدم أن تطلب من الوكيل التفاعل مع المستخدم بطرق متنوعة. يوضح الرسم البياني أدناه كيف يمكن للمستخدم النقر على زر "صياغة رد"، الذي يطلب من الوكيل بعد ذلك التفاعل مع المستخدم قبل إنشاء رد.
+
+<Image
+  src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F59e297f868244e39ba5ad9c62a32281e?width=500&height=500"
+  alt="رسم بياني تسلسلي بعنوان 'من يملك كل خطوة'، يعرض ثلاثة خطوط حياة: كود التطبيق، وواجهة المستخدم، والوكيل. ينقر المستخدم على 'صياغة رد'، مما يُشغّل askUserQuestion(). ملاحظة توضح أن هذا يُعرَض بشكل مضمّن في لوحة الوكيل. يرد المستخدم، ثم يتم استدعاء sendDraftRequest() على الوكيل، الذي يستدعي draft-ticket-reply ويُعيد ردًا مُصاغًا إلى مؤلف واجهة المستخدم."
+  align="full"
+  width={600}
+  caption="رسم بياني تسلسلي يوضح تدفق زر 'صياغة رد'."
+/>
+
+تجربة المستخدم هي كما يلي:
+
+1. ينقر المستخدم على زر **صياغة رد**، الذي يُشغّل استدعاء دالة `askUserQuestion()`. تتم الإجابة على السؤال بشكل مضمّن في لوحة الوكيل.
+
+1. يختار المستخدم **تقديم استرداد**، الذي يُشغّل `sendDraftRequest()` لإرسال المطالبة وسياق التذكرة إلى الوكيل.
+
+1. يستدعي الوكيل [action](/docs/actions) الخاص بـ `draft-ticket-reply`، ويظهر الرد المُصاغ في مؤلف الرد.
+
+## askUserQuestion(opts) {#ask-user-question}
+
+<Signature
+  id="doc-block-client-agent-chat-3"
+  name="askUserQuestion"
+  params={[
+    {
+      name: "input",
+      type: "AskUserQuestionInput",
+      description: "السؤال، وخياراته، وكيف ينبغي أن يتصرف.",
+      fields: [
+        {
+          name: "question",
+          type: "string",
+          description: "السؤال الكامل. واضح، ومحدد، ينتهي بعلامة استفهام.",
+        },
+        {
+          name: "header",
+          type: "string",
+          optional: true,
+          description:
+            'شريحة/عنوان قصير جدًا، حوالي 12 حرفًا، مثل `"Response"`.',
+        },
+        {
+          name: "options",
+          type: "AskUserQuestionOption[]",
+          description:
+            "خياران إلى أربعة خيارات متمايزة. كل واحد هو `{ label, value?, description?, preview?, recommended? }`. القيمة الافتراضية لـ `value` هي `label`.",
+        },
+        {
+          name: "allowFreeText",
+          type: "boolean",
+          optional: true,
+          default: "true",
+          description: 'يضيف خيار نص حر "أخرى" يمكن للممثل الكتابة فيه.',
+        },
+        {
+          name: "allowMultiple",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description: "اختيار متعدد بدلاً من اختيار واحد.",
+        },
+        {
+          name: "stateKey",
+          type: "string",
+          optional: true,
+          default: '"guided-questions"',
+          description: "مفتاح حالة التطبيق الذي تستطلعه لوحة الوكيل.",
+        },
+      ],
+    },
+  ]}
+  returns={{
+    type: "Promise<AskUserQuestionResult>",
+    description:
+      'القيمة `value` المختارة (أو `value[]` عند `allowMultiple`)، أو نص "أخرى" الذي كتبه الممثل، أو `null` إذا تخطى السؤال. تبقى معلَّقة حتى يجيب. تتطلب أن تكون لوحة الوكيل مُثبَّتة، وهي مُثبَّتة في كل قالب.',
+  }}
+/>
+
+تسأل هذه الدالة المستخدم سؤالاً متعدد الاختيارات من كود التطبيق، وتعرضه بشكل مضمّن في لوحة الوكيل، وتنتظر إجابته. استخدمها عندما تحتاج واجهة المستخدم إلى قرار صغير واحد بخيارين إلى أربعة خيارات قبل بدء عمل الوكيل، بدلاً من بناء نافذة منبثقة مخصصة.
+
+في المثال أدناه، يسأل زر "صياغة رد" في صفحة تذكرة الممثل عن كيفية رغبته في الرد قبل إرسال أي شيء إلى الوكيل:
+
+```ts
+import { askUserQuestion } from "@agent-native/core/client/agent-chat";
+
+const answer = await askUserQuestion({
+  question: "How would you like to respond to this ticket?",
+  header: "Response", // optional short chip/heading (≈12 chars)
+  options: [
+    { label: "Offer a refund", value: "refund" },
+    { label: "Offer a reprint", value: "reprint" },
+  ],
+});
+```
+
+## useAgentChatGenerating() {#useagentchatgenerating}
+
+<Signature
+  id="doc-block-client-agent-chat-4"
+  name="useAgentChatGenerating"
+  params={[]}
+  returns={{
+    type: "[boolean, (opts: AgentChatMessage) => string]",
+    description:
+      "زوج (tuple) بشكل `[isGenerating, send]`. تكون `isGenerating` هي `true` من لحظة استدعاء `send()` حتى يُعلن تشغيل محادثة الوكيل أنه توقف. لدى `send(opts)` نفس توقيع `sendToAgentChat()`، وتُعيد معرف علامة التبويب (tab id) التي أرسلت إليها.",
+  }}
+/>
+
+يُغلّف خطاف React هذا دالة `sendToAgentChat()` بتتبع حالة التحميل.
+
+1. المعامل الأول، `isGenerating`، يتحول إلى true عند استدعائه، ثم يُعاد ضبطه إلى false عندما ينتهي الوكيل من الإنشاء.
+
+2. المعامل الثاني، `send()`، يُطابق دالة `sendToAgentChat()`.
+
+لا يُعاد ضبط `isGenerating` إلا بعد أن يبدأ التشغيل فعليًا ويُعلن أنه توقف. يقوم استدعاء بـ `submit: false` بتعبئة مسودة مسبقًا دون بدء تشغيل، لذا تبقى `isGenerating` صحيحة (`true`) إلى الأبد بعد ذلك. استخدم هذا الخطاف فقط لعمليات الإرسال بـ `submit: true`؛ استدعِ `sendToAgentChat()` مباشرة لعمليات التعبئة المسبقة فقط.
+
+يكمل دمج هذا مع مثال `askUserQuestion()` أعلاه معالج الزر:
+
+<AnnotatedCode
+  id="doc-block-client-agent-chat-2"
+  title="إكمال معالج صياغة الرد"
+  language="tsx"
+  code={
+    'import {\n  askUserQuestion,\n  useAgentChatGenerating,\n} from "@agent-native/core/client/agent-chat";\n\nfunction useDraftResponseButton(ticket: { id: string; subject: string }) {\n  const [isDrafting, sendDraftRequest] = useAgentChatGenerating();\n\n  async function requestDraft() {\n    const answer = await askUserQuestion({\n      question: "How would you like to respond to this ticket?",\n      header: "Response",\n      options: [\n        { label: "Offer a refund", value: "refund" },\n        { label: "Offer a reprint", value: "reprint" },\n      ],\n    });\n    if (!answer || Array.isArray(answer)) return;\n\n    const intent =\n      answer === "refund"\n        ? "offering a refund"\n        : answer === "reprint"\n          ? "offering a reprint"\n          : `taking this direction from the rep: "${answer}"`;\n\n    sendDraftRequest({\n      message: `Draft a reply to this ticket ${intent}. Place it in the reply composer with draft-ticket-reply for ticket ${ticket.id}, don\'t send it.`,\n      context: `Ticket ${ticket.id}: "${ticket.subject}"`,\n      submit: true,\n      openSidebar: true,\n    });\n  }\n\n  return { isDrafting, requestDraft };\n}\n\nfunction DraftResponseButton({\n  ticket,\n}: {\n  ticket: { id: string; subject: string };\n}) {\n  const { isDrafting, requestDraft } = useDraftResponseButton(ticket);\n\n  return (\n    <button disabled={isDrafting} onClick={requestDraft}>\n      {isDrafting ? "Drafting..." : "Draft Response"}\n    </button>\n  );\n}'
+  }
+  annotations={[
+    {
+      lines: "7",
+      label: "حالة التحميل + الإرسال، معًا",
+      note: "تُعيد `useAgentChatGenerating()` نفس شكل الزوج الذي يُعيده استدعاء `sendToAgentChat()` الخام، ولكنها تضيف `isDrafting` حتى يتمكن الزر من تعطيل نفسه بينما الطلب قيد التنفيذ.",
+    },
+    {
+      lines: "10-17",
+      label: "إعادة استخدام خطوة السؤال",
+      note: "هذا هو استدعاء `askUserQuestion()` نفسه من القسم أعلاه، الآن داخل معالج الزر نفسه.",
+    },
+    {
+      lines: "18",
+      label: "حدد النوع قبل استخدام الإجابة",
+      note: "يسمح نوع الإرجاع دائمًا بـ `string[]` من `allowMultiple`، لذا يكون هذا الفحص مطلوبًا حتى مع أن هذا الاستدعاء لا يضبطه أبدًا.",
+    },
+    {
+      lines: "20-25",
+      label: "حوّل الاختيار إلى جملة",
+      note: "يُحوّل القيمة المختارة، أو النص الذي كتبه الممثل بنفسه، إلى العبارة التي تقرأها المطالبة أدناه بشكل طبيعي.",
+    },
+    {
+      lines: "27-32",
+      label: "حدد الاسم action والنية",
+      note: "تخبر الرسالة الوكيل بالضبط بأي action يستدعي (`draft-ticket-reply`) وتُذكّره بعدم إرسال الرد مباشرة. يضمن `openSidebar: true` أن يكون الرد المُصاغ مرئيًا حتى إذا كان الشريط الجانبي مغلقًا.",
+    },
+    {
+      lines: "46-48",
+      label: "isDrafting يقود الزر",
+      note: "معطَّل ومُعاد تسميته فقط بينما `sendDraftRequest()` قيد التنفيذ. يبقى الزر قابلاً للنقر بينما ينتظر `askUserQuestion()` رد الممثل، لأن ذلك يحدث قبل استدعاء `sendDraftRequest()` أبدًا.",
+    },
+  ]}
+/>
+
+## sendToAgentChat(opts) {#sendtoagentchat}
+
+أرسل رسالة إلى محادثة الوكيل عبر `postMessage`. هذا هو البدائي (primitive) ذو المستوى الأدنى الذي تُغلّفه `useAgentChatGenerating()` أعلاه، وهو مفيد عندما لا يحتاج تفاعل واجهة المستخدم إلى تتبع حالة تحميل خاص به. مرر `context` لتفصيل إضافي ينبغي أن يراه الوكيل دون أن يراه المستخدم. يُلحَق بالرسالة المرسلة إلى الوكيل، مُغلَّفًا بوسوم `<context>`، ثم يُزال قبل عرض الرسالة في واجهة المحادثة. مرر `submit: true` للإرسال فورًا، أو `submit: false` لتعبئة مسودة يراجعها المستخدم أولًا.
+
+```ts
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
+// إرسال تلقائي لمطالبة مع سياق مخفي
+sendToAgentChat({
+  message: "Generate alt text for this image",
+  context: "Image path: /api/projects/hero.jpg",
+  submit: true,
+});
+
+// Prefill without submitting (user reviews first)
+sendToAgentChat({
+  message: "Rewrite this in a conversational tone",
+  context: selectedText,
+  submit: false,
+});
+```
+
+### AgentChatMessage {#agentchatmessage}
+
+| الخيار        | النوع      | الوصف                                                                        |
+| ------------- | ---------- | ---------------------------------------------------------------------------- |
+| `message`     | `string`   | المطالبة المُرسلة إلى المحادثة، وهي الجزء الوحيد الذي يظهر في واجهة المحادثة |
+| `context`     | `string?`  | سياق يراه الوكيل يُلحَق بالرسالة قبل إرسالها. يُزال من عرض واجهة المحادثة    |
+| `submit`      | `boolean?` | true = إرسال تلقائي، false = تعبئة مسبقة فقط                                 |
+| `newTab`      | `boolean?` | إنشاء سلسلة محادثة منفصلة لهذه المطالبة                                      |
+| `openSidebar` | `boolean?` | اضبطه على false للإرسال/التعبئة المسبقة دون فتح الشريط الجانبي               |
+
+تشغيل هذا من داخل تضمين MCP App، أو تشغيل العمل في الخلفية دون فتح الشريط الجانبي، مُغطّى كلاهما في [متقدم](/docs/client-advanced#background-send).
+
+## الاقتراحات الديناميكية {#dynamic-suggestions}
+
+قبل بدء محادثة، تعرض `<AgentSidebar>`، و`<AgentPanel>`، و`<AssistantChat>` شرائح مطالبات على المحادثة الفارغة. لا تكون هذه افتراضيًا مجرد قائمة `suggestions` الثابتة الخاصة بك فقط: يقرأ إطار العمل `navigation`، و`selection`، و`pending-selection-context`، وعنوان URL الحالي من حالة التطبيق، ويدمج شرائح تطابق ما هو معروض فعليًا على الشاشة.
+
+يقوم بذلك من خلال فحصين. إذا كان هناك شيء محدد، يضيف شرائح عامة مثل "تلخيص هذا التحديد". بشكل منفصل، ينظر إلى `navigation` بحثًا عن أسماء حقول شائعة تستخدمها التطبيقات الحالية، مثل `threadId`/`emailId` لسلسلة بريد إلكتروني أو `dashboardId`/`chartId` لمخطط، ويضيف شرائح مصممة خصيصًا لهذا النوع من الشاشة، مثل "صياغة رد" لسلسلة رسائل أو "البحث عن حالات شاذة في هذه البيانات" لمخطط. أي ما يخرج به يتم دمجه مع `suggestions` الثابتة الخاصة بك، وإزالة التكرار، والتقييد عند `max`.
+
+```tsx
+<AgentSidebar
+  suggestions={["Summarize my inbox"]}
+  dynamicSuggestions={{ max: 4 }}
+>
+  <App />
+</AgentSidebar>
+```
+
+إذا كانت الشاشة الحالية لا تطابق أي شيء يتعرف عليه الاستدلال (heuristic) ولم يكن هناك شيء محدد، فإنها لا تضيف أي شرائح، وتعود المحادثة الفارغة إلى `suggestions` الثابتة الخاصة بك فقط. اضبط `dynamicSuggestions={false}` للاحتفاظ بالشرائح الثابتة فقط. إذا كان شكل التنقل في تطبيقك لا يطابق الاستدلال المدمج، أو كنت تريد شرائح حتمية خاصة بالتطبيق بالكامل، راجع [متقدم](/docs/client-advanced#custom-suggestions).
+
+## openAgentSettings(section?) {#openagentsettings}
+
+استخدم `openAgentSettings()` عندما ينبغي أن تفتح صفحة إعدادات التطبيق أو بطاقة الإعداد
+علامة تبويب الإعدادات في الشريط الجانبي للوكيل. مرر معرف قسم مثل `"llm"`، أو `"secrets"`،
+أو `"automations"`، أو `"voice"`، أو `"limits"` لفتح قسم معين.
+
+```ts
+import { openAgentSettings } from "@agent-native/core/client/navigation";
+openAgentSettings();
+openAgentSettings("secrets");
+```
+
+يُفضَّل هذا المساعد على إرسال `agent-panel:open-settings` مباشرة.
+
+## حالة سياق محادثة الوكيل {#agent-chat-context-state}
+
+واجهات برمجة حالة السياق هي أدوات ربط اختيارية لواجهة المستخدم التي تحتاج إلى مزامنة ثنائية الاتجاه مع شرائح السياق المرحلية: عرض العناصر المرحلية الحالية خارج المؤلف، أو إظهار ما إذا كان عنصر ما مرفقًا بالفعل، أو توفير عناصر تحكم صريحة للإزالة/المسح.
+
+لا تتجه إلى هذه الأدوات المساعدة لتدفقات "أرسل هذا إلى الوكيل" أو "عبّئ هذه المسودة مسبقًا للمراجعة" البسيطة. استخدم [`sendToAgentChat()`](#sendtoagentchat) مع `context` و`submit` لتلك الحالات.
+
+| API                               | استخدم عندما                                                                  |
+| --------------------------------- | ----------------------------------------------------------------------------- |
+| `useAgentChatContext()`           | يحتاج مكون React إلى قائمة السياق المرحلية المباشرة                           |
+| `setAgentChatContextItem(item)`   | يجب أن يُهيّئ الكود الحتمي أو يستبدل عنصر سياق مفتاحي واحد                    |
+| `listAgentChatContext()`          | يحتاج الكود غير الخاص بـ React إلى لقطة لمرة واحدة للسياق المرحلي             |
+| `removeAgentChatContextItem(key)` | يجب أن تُزيل واجهة المستخدم عنصر سياق مرحلي واحد بواسطة `key` الثابت الخاص به |
+| `clearAgentChatContext()`         | يجب أن تمسح واجهة المستخدم كل السياق المرحلي، مثل بعد إعادة ضبط عرض أو وضع    |
+| `refreshAgentChatContext()`       | يجب أن يُعيد الكود الحتمي قراءة أحدث لقطة سياق مستمرة                         |
+
+تُعيد `useAgentChatContext()` `{ items, set, remove, clear, refresh }`.
+
+```tsx
+import { useAgentChatContext } from "@agent-native/core/client/agent-chat";
+
+function SelectedTicketContextButton({ ticket }: { ticket: { id: string } }) {
+  const chatContext = useAgentChatContext();
+  const contextKey = `selected-ticket:${ticket.id}`;
+  const isAttached = chatContext.items.some((item) => item.key === contextKey);
+
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        if (isAttached) {
+          chatContext.remove(contextKey);
+          return;
+        }
+
+        chatContext.set({
+          key: contextKey,
+          title: "Selected Ticket",
+          context: JSON.stringify(ticket, null, 2),
+          openSidebar: false,
+        });
+      }}
+    >
+      {isAttached ? "Remove from prompt context" : "Add to prompt context"}
+    </button>
+  );
+}
+```
+
+`listAgentChatContext()` مخصصة للكود الحتمي الذي يحتاج فقط إلى فحص العناصر المرحلية الحالية مرة واحدة. `clearAgentChatContext()` واسعة عمدًا. استخدم `removeAgentChatContextItem(key)` عندما يتغير اختيار واحد فقط.
+
+### AgentChatContextSetOptions {#agentchatcontextsetoptions}
+
+| الخيار        | النوع      | الوصف                                           |
+| ------------- | ---------- | ----------------------------------------------- |
+| `key`         | `string`   | معرِّف ثابت يُستخدم لاستبدال عنصر موجود         |
+| `title`       | `string`   | تسمية قصيرة تظهر في شريحة المؤلف                |
+| `context`     | `string`   | سياق مخفي يُضمَّن مع المطالبة التالية المُرسَلة |
+| `openSidebar` | `boolean?` | الافتراضي true. مرر false لتهيئة السياق بصمت    |
+
+## ما هي الخطوة التالية
+
+- [**نظرة عامة**](/docs/client-overview) — أين تتناسب هذه الأدوات المساعدة في `app/`
+- [**البيانات والمزامنة**](/docs/client-data) — خطافات actions و`useDbSync` التي تحافظ على تحديث واجهة المستخدم نفسها
+- [**وكيل الدخول**](/docs/drop-in-agent) — تثبيت `<AgentSidebar>`/`<AgentPanel>` حتى يكون لهذه الأدوات المساعدة مكان تُعرض فيه
+- [**متقدم**](/docs/client-advanced) — الإرسال في الخلفية، شرائح الاقتراحات المخصصة، وجسر استضافة MCP App
+- [**واجهة المستخدم التوليدية**](/docs/generative-ui) — بناء عناصر تحكم أكثر ثراءً مضمّنة في المحادثة تتجاوز `askUserQuestion`

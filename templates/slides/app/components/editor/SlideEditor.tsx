@@ -5114,15 +5114,17 @@ export default function SlideEditor({
   const objectOperationSelection = getObjectOperationSelection();
   const hasObjectSelection = objectOperationSelection !== null;
   const objectSelectionCount = objectOperationSelection?.elements.length ?? 0;
+  const canZoomOut = canvasZoom > MIN_CANVAS_ZOOM;
+  const canZoomIn =
+    canvasZoom < CANVAS_ZOOM_PRESETS[CANVAS_ZOOM_PRESETS.length - 1];
   const zoomControls = slide.excalidrawData
     ? undefined
     : {
         value: canvasZoom,
         onZoomOut: canvasZoomOut,
         onZoomIn: canvasZoomIn,
-        canZoomOut: canvasZoom > MIN_CANVAS_ZOOM, // i18n-ignore non-visible zoom metadata
-        canZoomIn:
-          canvasZoom < CANVAS_ZOOM_PRESETS[CANVAS_ZOOM_PRESETS.length - 1],
+        canZoomOut,
+        canZoomIn,
       };
 
   // Excalidraw slides have no selectable slide content, so the row collapses

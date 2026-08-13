@@ -187,6 +187,7 @@ const workspaceSkillExcludes = [
   "visual-plan",
   "visual-recap",
   "visualize-repo",
+  "writing-reference-docs",
 ];
 
 const check = process.argv.includes("--check");

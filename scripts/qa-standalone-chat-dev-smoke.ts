@@ -517,7 +517,8 @@ async function startDev(): Promise<RunningDev> {
       const retryable =
         !authLocked &&
         (message.includes("database is locked") ||
-          message.includes("SQLITE_BUSY"));
+          message.includes("SQLITE_BUSY") ||
+          message.includes("The database connection is not open"));
       if (!retryable || attempt === devStartAttempts - 1) throw err;
       log(
         `dev startup race (attempt ${attempt + 1}/${devStartAttempts}), retrying…`,
