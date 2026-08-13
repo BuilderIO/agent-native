@@ -1,3 +1,12 @@
+const PROPERTY_ACRONYMS: Record<string, string> = {
+  api: "API",
+  fbclid: "FBCLID",
+  gclid: "GCLID",
+  id: "ID",
+  url: "URL",
+  utm: "UTM",
+};
+
 export function formatExplorerPropertyLabel(property: string): string {
   const trimmed = property.trim();
   if (!trimmed) return property;
@@ -10,5 +19,14 @@ export function formatExplorerPropertyLabel(property: string): string {
 
   if (!spaced) return property;
 
-  return spaced.charAt(0).toUpperCase() + spaced.slice(1).toLowerCase();
+  return spaced
+    .split(" ")
+    .map((word, index) => {
+      const lower = word.toLowerCase();
+      return (
+        PROPERTY_ACRONYMS[lower] ??
+        (index === 0 ? lower.charAt(0).toUpperCase() + lower.slice(1) : lower)
+      );
+    })
+    .join(" ");
 }

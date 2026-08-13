@@ -192,9 +192,9 @@ function LinkTab({
       const result = (await createAgentLinkAsyncRef.current({
         resourceType: "meeting",
         resourceId: meetingId,
-      })) as { url?: string };
+      })) as { contextUrl?: string };
       if (agentLinkRequestIdRef.current !== requestId) return;
-      if (result?.url) setAgentLink(result.url);
+      if (result?.contextUrl) setAgentLink(result.contextUrl);
       else setAgentLinkError(true);
     } catch {
       if (agentLinkRequestIdRef.current === requestId) setAgentLinkError(true);

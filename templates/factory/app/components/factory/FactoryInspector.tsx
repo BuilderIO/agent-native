@@ -1,3 +1,6 @@
+import {
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { IconArrowRight, IconPlus, IconTrash } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
@@ -28,6 +31,26 @@ interface FactoryInspectorProps {
   onConnect: (sourceId: string, targetId: string) => void;
 }
 
+interface WorkspaceAgentOption {
+  id: string;
+  name: string;
+  path: string;
+  description?: string | null;
+}
+
+interface WorkspaceAppOption {
+  id: string;
+  name: string;
+  description?: string;
+  status?: "ready" | "pending";
+}
+
+interface AgentTargetOption {
+  id: string;
+  label: string;
+  type: "agent" | "app";
+}
+
 export function FactoryInspector({
   graph,
   selectedNode,
@@ -44,6 +67,28 @@ export function FactoryInspector({
   const t = useT();
   const [searchParams] = useSearchParams();
   const [connectTarget, setConnectTarget] = useState("");
+  const agentsQuery = useActionQuery<WorkspaceAgentOption[]>(
+    "list-workspace-resources",
+    { kind: "agent" },
+  );
+  const appsQuery = useActionQuery<WorkspaceAppOption[]>(
+    "list-workspace-apps",
+    { includeAgentCards: false },
+  );
+  const agentTargets: AgentTargetOption[] = [
+    ...(agentsQuery.data ?? []).map((agent) => ({
+      id: agent.id,
+      label: agent.name,
+      type: "agent" as const,
+    })),
+    ...(appsQuery.data ?? [])
+      .filter((app) => app.id !== "dispatch" && app.status !== "pending")
+      .map((app) => ({
+        id: app.id,
+        label: app.name,
+        type: "app" as const,
+      })),
+  ];
   const outgoingTargets = graph.nodes.filter(
     (node) => node.id !== selectedNode?.id,
   );
@@ -81,6 +126,44 @@ export function FactoryInspector({
       edges: graph.edges.map((edge) =>
         edge.id === selectedEdge.id ? { ...edge, ...patch } : edge,
       ),
+    });
+  }
+
+  function selectedTargetValue() {
+    if (!selectedNode?.agentTargetType || !selectedNode.agentTargetId) {
+      return selectedNode?.agent ? "custom" : "";
+    }
+    return `${selectedNode.agentTargetType}:${selectedNode.agentTargetId}`;
+  }
+
+  function updateAgentTarget(value: string) {
+    if (!selectedNode) return;
+    if (value === "") {
+      updateNode({
+        agent: undefined,
+        agentTargetType: undefined,
+        agentTargetId: undefined,
+      });
+      return;
+    }
+    if (value === "custom") {
+      updateNode({
+        agentTargetType: undefined,
+        agentTargetId: undefined,
+      });
+      return;
+    }
+    const [type, ...idParts] = value.split(":");
+    const id = idParts.join(":");
+    if ((type !== "agent" && type !== "app") || !id) return;
+    const target = agentTargets.find(
+      (option) => option.type === type && option.id === id,
+    );
+    if (!target) return;
+    updateNode({
+      agent: target.label,
+      agentTargetType: target.type,
+      agentTargetId: target.id,
     });
   }
 
@@ -141,15 +224,59 @@ export function FactoryInspector({
               </select>
             </div>
             <div className="grid gap-1.5">
-              <Label htmlFor="factory-node-agent">
+              <Label htmlFor="factory-node-agent-target">
                 {t("factoryInspector.agentOwner")}
               </Label>
-              <Input
-                id="factory-node-agent"
-                value={selectedNode.agent ?? ""}
-                onChange={(event) => updateNode({ agent: event.target.value })}
-                placeholder={t("factoryInspector.optional")}
-              />
+              <select
+                id="factory-node-agent-target"
+                value={selectedTargetValue()}
+                onChange={(event) => updateAgentTarget(event.target.value)}
+                className="h-9 rounded-md border bg-card px-3 text-sm"
+              >
+                <option value="">{t("factoryInspector.noTarget")}</option>
+                <option value="custom">
+                  {selectedNode.agent &&
+                  !selectedNode.agentTargetType &&
+                  !selectedNode.agentTargetId
+                    ? `${t("factoryInspector.customTarget")}: ${selectedNode.agent}`
+                    : t("factoryInspector.customTarget")}
+                </option>
+                {agentTargets.some((target) => target.type === "agent") ? (
+                  <optgroup label={t("factoryInspector.reusableAgents")}>
+                    {agentTargets
+                      .filter((target) => target.type === "agent")
+                      .map((target) => (
+                        <option
+                          key={`${target.type}:${target.id}`}
+                          value={`${target.type}:${target.id}`}
+                        >
+                          {target.label}
+                        </option>
+                      ))}
+                  </optgroup>
+                ) : null}
+                {agentTargets.some((target) => target.type === "app") ? (
+                  <optgroup label={t("factoryInspector.agenticApps")}>
+                    {agentTargets
+                      .filter((target) => target.type === "app")
+                      .map((target) => (
+                        <option
+                          key={`${target.type}:${target.id}`}
+                          value={`${target.type}:${target.id}`}
+                        >
+                          {target.label}
+                        </option>
+                      ))}
+                  </optgroup>
+                ) : null}
+              </select>
+              <p className="text-xs text-muted-foreground">
+                {selectedNode.agentTargetType === "app"
+                  ? t("factoryInspector.appTargetHint")
+                  : selectedNode.agentTargetType === "agent"
+                    ? t("factoryInspector.agentTargetHint")
+                    : t("factoryInspector.customTargetHint")}
+              </p>
             </div>
             <div className="rounded-lg bg-muted/25 p-3 shadow-sm">
               <p className="text-xs font-medium">

@@ -3371,7 +3371,7 @@ const AssistantChatInner = forwardRef<
                 (seq, isProgress) => {
                   markReconnectProgress();
                   reconnectRetryCount = 0;
-                  updateActiveRunSeq(seq, isProgress);
+                  updateActiveRunSeq(threadId, runId, seq, isProgress);
                 },
                 { preparingActionState },
               );

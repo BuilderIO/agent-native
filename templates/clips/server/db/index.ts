@@ -82,7 +82,8 @@ registerShareableResource({
   agentReadable: {
     resourceKind: CLIPS_MEETING_AGENT_RESOURCE_KIND,
     getContextPath: () => CLIPS_MEETING_AGENT_CONTEXT_ENDPOINT,
-    getPagePath: (meeting) => `/share/meeting/${meeting.id}`,
+    getPagePath: (meeting) =>
+      `/share/meeting/${encodeURIComponent(meeting.id)}`,
   },
   getDb,
 });

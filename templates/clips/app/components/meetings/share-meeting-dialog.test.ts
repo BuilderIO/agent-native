@@ -24,6 +24,7 @@ describe("meeting share popover", () => {
   it("offers a separate temporary agent link for private meetings", () => {
     expect(source).toContain('useActionMutation("create-agent-resource-link")');
     expect(source).toContain('resourceType: "meeting"');
+    expect(source).toContain("contextUrl");
     expect(source).toContain('t("shareDialog.shareWithAgents")');
     expect(source).toContain('t("shareMeeting.agentLinkDescription")');
     expect(source).toContain('t("shareDialog.retryAgentLink")');

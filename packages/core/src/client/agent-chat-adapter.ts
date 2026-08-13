@@ -2474,7 +2474,9 @@ export function createAgentChatAdapter(
                 tabId,
                 (seq, isProgress) => {
                   rememberRunSeq(seq);
-                  if (threadId) updateActiveRunSeq(seq, isProgress);
+                  if (threadId && runId) {
+                    updateActiveRunSeq(threadId, runId, seq, isProgress);
+                  }
                 },
                 runId,
                 currentSSEOptions(),
@@ -2880,7 +2882,9 @@ export function createAgentChatAdapter(
               tabId,
               (seq, isProgress) => {
                 rememberRunSeq(seq);
-                if (threadId) updateActiveRunSeq(seq, isProgress);
+                if (threadId && runId) {
+                  updateActiveRunSeq(threadId, runId, seq, isProgress);
+                }
               },
               runId,
               currentSSEOptions({
@@ -3994,7 +3998,7 @@ export function createAgentChatAdapter(
               (seq, isProgress) => {
                 rememberRunSeq(seq);
                 if (runId && threadId) {
-                  updateActiveRunSeq(seq, isProgress);
+                  updateActiveRunSeq(threadId, runId, seq, isProgress);
                 }
               },
               runId,

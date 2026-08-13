@@ -166,6 +166,26 @@ describe("/api/public-meeting route", () => {
     expect(db.select).toHaveBeenCalledTimes(3);
   });
 
+  it("does not treat an invalid agent token as anonymous meeting access", async () => {
+    mockGetQuery.mockReturnValue({
+      id: "meeting-1",
+      agent_access: "wrong-meeting-token",
+    });
+    mockVerifyScopedAgentAccessToken.mockReturnValue({
+      ok: false,
+      reason: "signature_mismatch",
+    });
+    mockResolveAccess.mockResolvedValue(null);
+
+    await expect(handler({} as any)).resolves.toEqual({ error: "Not found" });
+
+    expect(mockResolveAccess).toHaveBeenCalledWith("meeting", "meeting-1", {
+      userEmail: undefined,
+      orgId: undefined,
+    });
+    expect(mockGetDb).not.toHaveBeenCalled();
+  });
+
   it("omits the transcript by default", async () => {
     const db = createDbWithSelectResults([
       [{ email: "guest@example.com", name: "Guest", isOrganizer: false }],

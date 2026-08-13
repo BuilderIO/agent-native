@@ -6580,7 +6580,9 @@ describe("createAgentChatAdapter", () => {
     expect((results.at(-1) as any).content.at(-1).text).toBe(
       "The plan is ready.",
     );
-    expect((results.at(-1) as any).metadata?.custom?.runWarning).toBeUndefined();
+    expect(
+      (results.at(-1) as any).metadata?.custom?.runWarning,
+    ).toBeUndefined();
   });
 
   it("continues when a terminal followed run contains only completed tool work", async () => {

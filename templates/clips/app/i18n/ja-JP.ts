@@ -1574,6 +1574,16 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     calendarConnected: "Calendar connected (ローカライズ済み)",
     calendarDisconnected: "Calendar disconnected (ローカライズ済み)",
     calendarSettings: "Calendar settings (ローカライズ済み)",
+    calendarAccountsButton: "カレンダー",
+    connectedAccounts: "接続済みアカウント",
+    calendarConnectedLabel: "接続済み",
+    calendarNeedsReconnectLabel: "再接続が必要",
+    calendarDisconnectedLabel: "切断済み",
+    calendarStatusUnavailable: "ステータスを取得できません",
+    reconnectCalendar: "カレンダーを再接続",
+    addAnotherCalendarAccount: "別のアカウントを追加",
+    connectCalendar: "カレンダーを接続",
+    disconnectCalendarAccount: "アカウントを切断",
     connectCalendarReminder:
       "Connect Google Calendar for meeting reminders. (ローカライズ済み)",
     disconnectGoogleCalendarTitle:
