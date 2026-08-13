@@ -1265,6 +1265,25 @@ export async function upsertDatabaseRow(
   input: UpsertDatabaseRowMutationInput,
 ): Promise<ContentDatabaseRowMutationResult> {
   const initial = await loadContext(input.target, "editor");
+  const replayKeyPropertyId = initial.database.naturalKeyPropertyId;
+  const replayKeyDefinition = replayKeyPropertyId
+    ? initial.definitions.find(
+        (definition) => definition.id === replayKeyPropertyId,
+      )
+    : undefined;
+  if (
+    replayKeyDefinition?.type === "text" &&
+    Object.prototype.hasOwnProperty.call(
+      input.propertyValues ?? {},
+      replayKeyPropertyId,
+    ) &&
+    input.propertyValues?.[replayKeyPropertyId] !== input.keyValue
+  ) {
+    invalidProperty(
+      replayKeyDefinition,
+      "must match the upsert keyValue when provided in propertyValues",
+    );
+  }
   const inputDigest = payloadDigest("upsert", input);
   const replay = await replayReceipt(
     initial,
@@ -1291,18 +1310,6 @@ export async function upsertDatabaseRow(
       "NATURAL_KEY_INVALID",
       "The configured natural key is missing or no longer a text property.",
       { keyPropertyId },
-    );
-  }
-  if (
-    Object.prototype.hasOwnProperty.call(
-      input.propertyValues ?? {},
-      keyPropertyId,
-    ) &&
-    input.propertyValues?.[keyPropertyId] !== input.keyValue
-  ) {
-    invalidProperty(
-      keyDefinition,
-      "must match the upsert keyValue when provided in propertyValues",
     );
   }
   const values = await normalizePatch(initial, {

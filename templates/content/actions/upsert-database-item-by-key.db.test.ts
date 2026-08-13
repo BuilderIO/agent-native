@@ -466,6 +466,20 @@ describe("reliable Content database row mutations", () => {
     expect(noConflictingRow).toBeUndefined();
 
     const created = await asOwner(() => upsertRow.run(input));
+    await expect(
+      asOwner(() =>
+        upsertRow.run({
+          ...input,
+          propertyValues: {
+            ...input.propertyValues,
+            [keyPropertyId]: "feedback-002",
+          },
+        }),
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "INVALID_PROPERTY_VALUE",
+      details: { propertyId: keyPropertyId },
+    });
     const replayed = await asOwner(() => upsertRow.run(input));
     expect(replayed.receipt).toMatchObject({
       outcome: "created",
