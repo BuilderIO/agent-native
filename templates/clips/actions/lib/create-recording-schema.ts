@@ -64,7 +64,7 @@ export const createRecordingSchema = z.object({
     .enum(["private", "org", "public"])
     .optional()
     .describe(
-      "Initial share visibility for the recording. When omitted, uses the organization default and falls back to public.",
+      "Initial share visibility for the recording. When omitted, uses the organization default and falls back to organization visibility.",
     ),
   mimeType: z
     .string()

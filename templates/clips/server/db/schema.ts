@@ -37,7 +37,7 @@ export const organizationSettings = table("organization_settings", {
     enum: ["private", "org", "public"],
   })
     .notNull()
-    .default("public"),
+    .default("org"),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
 });

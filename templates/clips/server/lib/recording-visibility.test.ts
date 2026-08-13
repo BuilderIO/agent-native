@@ -12,8 +12,8 @@ describe("resolveRecordingVisibility", () => {
     expect(resolveRecordingVisibility("org", "private")).toBe("org");
   });
 
-  it("falls back to public when the configured value is missing or invalid", () => {
-    expect(resolveRecordingVisibility(undefined, undefined)).toBe("public");
-    expect(resolveRecordingVisibility(undefined, "unknown")).toBe("public");
+  it("falls back to organization visibility when the configured value is missing or invalid", () => {
+    expect(resolveRecordingVisibility(undefined, undefined)).toBe("org");
+    expect(resolveRecordingVisibility(undefined, "unknown")).toBe("org");
   });
 });

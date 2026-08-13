@@ -68,7 +68,7 @@ export default defineAction({
       .enum(["private", "org", "public"])
       .optional()
       .describe(
-        "Visibility for the new recording. When omitted, uses the organization default and falls back to public.",
+        "Visibility for the new recording. When omitted, uses the organization default and falls back to organization visibility.",
       ),
     videoUrl: z
       .string()

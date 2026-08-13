@@ -67,7 +67,7 @@ export type OrganizationAccessRole = "owner" | "admin" | "member";
 
 export type RecordingVisibility = "private" | "org" | "public";
 
-export const DEFAULT_RECORDING_VISIBILITY: RecordingVisibility = "public";
+export const DEFAULT_RECORDING_VISIBILITY: RecordingVisibility = "org";
 
 export function isRecordingVisibility(
   value: unknown,

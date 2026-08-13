@@ -66,7 +66,7 @@ export default defineAction({
         .enum(["private", "org", "public"])
         .optional()
         .describe(
-          "Initial visibility. When omitted, uses the organization default and falls back to public.",
+          "Initial visibility. When omitted, uses the organization default and falls back to organization visibility.",
         ),
       source: z
         .enum(["calendar", "adhoc", "manual"])

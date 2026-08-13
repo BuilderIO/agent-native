@@ -196,4 +196,28 @@ describe("getDefaultRecordingVisibility", () => {
 
     await expect(getDefaultRecordingVisibility("org-1")).resolves.toBe("org");
   });
+
+  it("defaults new recordings to organization visibility, not public, when there is no organization", async () => {
+    mocks.getRequestUserEmail.mockReturnValue(undefined);
+
+    await expect(getDefaultRecordingVisibility(undefined)).resolves.toBe(
+      "org",
+    );
+  });
+
+  it("defaults new recordings to organization visibility when the org has no settings row yet", async () => {
+    mocks.getRequestUserEmail.mockReturnValue("owner@example.test");
+    mocks.getUserSetting.mockResolvedValue({});
+    mocks.getDb.mockReturnValue({
+      select: () => ({
+        from: () => ({
+          where: () => ({
+            limit: async () => [],
+          }),
+        }),
+      }),
+    });
+
+    await expect(getDefaultRecordingVisibility("org-1")).resolves.toBe("org");
+  });
 });

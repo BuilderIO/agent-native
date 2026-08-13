@@ -29,7 +29,7 @@ interface BrandingEditorProps {
   disabled?: boolean;
 }
 
-const DEFAULT_VISIBILITY: RecordingVisibility = "public";
+const DEFAULT_VISIBILITY: RecordingVisibility = "org";
 
 const PRESETS = [
   "#18181B",

@@ -15,16 +15,15 @@ description: >-
 Recording sharing uses the framework `sharing` system — not a custom share table. Recordings are registered via `registerShareableResource({ type: "recording", ... })` in `server/db/index.ts`. The `share-resource`, `unshare-resource`, `list-resource-shares`, and `set-resource-visibility` actions are auto-mounted and handle per-user grants, per-org grants, and the three visibility levels (`private` / `org` / `public`).
 
 Unlike the framework-wide private default, normal Clips recordings and uploaded
-videos default to **public** so their copied share links work immediately.
-Embedded bug-report recordings are the exception and default to organization
-visibility. Callers can still explicitly create a private or organization-only
-recording, and owners/admins can change visibility from the Share dialog.
+videos default to **organization** visibility rather than fully private, so
+teammates can find and open them without an explicit share. Callers can still
+explicitly create a private or public recording, and owners/admins can change
+visibility from the Share dialog at any time.
 
 Organization admins can use `set-organization-branding` with
 `defaultVisibility=public|org|private` to choose the visibility applied when new
-recordings omit an explicit visibility. The default remains `public`, and an
-explicit visibility always wins — which is why bug-report recordings still land
-on `org`.
+recordings omit an explicit visibility. The default remains `org`, and an
+explicit visibility always wins.
 
 Clips **adds two things** on top of the framework system:
 
