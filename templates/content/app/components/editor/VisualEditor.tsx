@@ -101,6 +101,7 @@ import {
   imageUploadErrorMessage,
   uploadAudioFile,
   uploadImageFile,
+  waitForRenderedImage,
   uploadVideoFile,
   videoUploadErrorMessage,
 } from "./image-upload";
@@ -1296,11 +1297,14 @@ export function commitPendingImageUpload(
   attrs: Record<string, unknown>,
 ) {
   if (updatePendingMediaNode(view, "image", uploadId, attrs)) return true;
-  return insertImageNodeAtPendingPosition(
-    view,
-    request,
-    { ...attrs, uploadId: null },
-    false,
+  return insertImageNodeAtPendingPosition(view, request, attrs, false);
+}
+
+function findPendingImageElement(view: EditorView, uploadId: string) {
+  return (
+    Array.from(view.dom.querySelectorAll<HTMLElement>("[data-image-upload-id]"))
+      .find((element) => element.dataset.imageUploadId === uploadId)
+      ?.querySelector<HTMLImageElement>("img") ?? null
   );
 }
 
@@ -1317,7 +1321,7 @@ export function restorePendingImagePicker(
     if (found) return false;
     if (node.type.name === "image" && node.attrs.uploadId === currentUploadId) {
       tr = tr.setNodeMarkup(pos, undefined, {
-        ...node.attrs,
+        ...request.attrs,
         uploadId: null,
       });
       nodePosition = pos;
@@ -2376,15 +2380,28 @@ export function VisualEditor({
 
       const toastId = toast.loading(t("editor.media.uploadingImage"));
       try {
+        let staged = false;
         let committed = false;
         await completeImageFileUpload({
           file,
-          updateAttributes: (attributes) => {
+          stageAttributes: (src) => {
+            staged = commitPendingImageUpload(editor.view, request, uploadId, {
+              src,
+              uploadId,
+            });
+          },
+          waitForRender: async () => {
+            if (!staged) throw new Error(t("empty.genericError"));
+            await waitForRenderedImage(() =>
+              findPendingImageElement(editor.view, uploadId),
+            );
+          },
+          commitAttributes: (src) => {
             committed = commitPendingImageUpload(
               editor.view,
               request,
               uploadId,
-              { ...attributes },
+              { src, uploadId: null },
             );
           },
         });

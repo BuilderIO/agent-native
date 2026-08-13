@@ -984,7 +984,11 @@ export function ImageBlock({
   }
 
   return (
-    <NodeViewWrapper className="media-block-wrapper" data-drag-handle>
+    <NodeViewWrapper
+      className="media-block-wrapper"
+      data-drag-handle
+      data-image-upload-id={node.attrs.uploadId || undefined}
+    >
       <div
         ref={mediaBlockRef}
         className={`media-block ${selected ? "media-block--selected" : ""}`}

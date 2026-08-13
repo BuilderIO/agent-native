@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   completeImageFileUpload,
   ImageRenderError,
-  waitForImageLoad,
+  waitForRenderedImage,
 } from "../image-upload";
 
 describe("image node-view upload completion", () => {
@@ -13,72 +13,81 @@ describe("image node-view upload completion", () => {
     type: "image/png",
   });
 
-  it("updates the image node only after the uploaded URL renders", async () => {
+  it("reports success only after the committed image node renders", async () => {
     const events: string[] = [];
     const upload = vi.fn(async () => {
       events.push("uploaded");
       return "https://cdn.example.com/diagram.png";
     });
-    const load = vi.fn(async () => {
+    const waitForRender = vi.fn(async () => {
       events.push("loaded");
     });
-    const updateAttributes = vi.fn(() => {
-      events.push("updated");
+    const stageAttributes = vi.fn(() => {
+      events.push("staged");
+    });
+    const commitAttributes = vi.fn(() => {
+      events.push("committed");
     });
 
     await expect(
-      completeImageFileUpload({ file, upload, load, updateAttributes }),
+      completeImageFileUpload({
+        file,
+        upload,
+        stageAttributes,
+        waitForRender,
+        commitAttributes,
+      }),
     ).resolves.toBe("https://cdn.example.com/diagram.png");
 
-    expect(events).toEqual(["uploaded", "loaded", "updated"]);
-    expect(updateAttributes).toHaveBeenCalledWith({
-      src: "https://cdn.example.com/diagram.png",
-      uploadId: null,
-    });
+    expect(events).toEqual(["uploaded", "staged", "loaded", "committed"]);
+    expect(stageAttributes).toHaveBeenCalledWith(
+      "https://cdn.example.com/diagram.png",
+    );
+    expect(commitAttributes).toHaveBeenCalledWith(
+      "https://cdn.example.com/diagram.png",
+    );
   });
 
-  it("keeps the placeholder unchanged when the uploaded URL cannot render", async () => {
-    const updateAttributes = vi.fn();
+  it("does not complete when the committed image node cannot render", async () => {
+    const stageAttributes = vi.fn();
+    const commitAttributes = vi.fn();
 
     await expect(
       completeImageFileUpload({
         file,
         upload: async () => "https://cdn.example.com/unreachable.png",
-        load: async () => {
+        stageAttributes,
+        waitForRender: async () => {
           throw new ImageRenderError();
         },
-        updateAttributes,
+        commitAttributes,
       }),
     ).rejects.toThrow("Image could not be loaded.");
 
-    expect(updateAttributes).not.toHaveBeenCalled();
+    expect(stageAttributes).toHaveBeenCalledOnce();
+    expect(commitAttributes).not.toHaveBeenCalled();
   });
 
-  it("resolves and cleans up when the browser loads the image", async () => {
-    const image = new Image();
-    const completion = waitForImageLoad(
-      "https://cdn.example.com/diagram.png",
-      () => image,
-    );
+  it("waits for the image element committed into the editor", async () => {
+    const image = document.createElement("img");
+    Object.defineProperty(image, "complete", { value: false });
+    let committed = false;
+    const completion = waitForRenderedImage(() => (committed ? image : null));
 
-    image.onload?.(new Event("load"));
+    committed = true;
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    image.dispatchEvent(new Event("load"));
 
     await expect(completion).resolves.toBeUndefined();
-    expect(image.onload).toBeNull();
-    expect(image.onerror).toBeNull();
   });
 
-  it("rejects and cleans up when the browser rejects the image", async () => {
-    const image = new Image();
-    const completion = waitForImageLoad(
-      "https://cdn.example.com/unreachable.png",
-      () => image,
-    );
+  it("rejects when the committed editor image errors", async () => {
+    const image = document.createElement("img");
+    Object.defineProperty(image, "complete", { value: false });
+    const completion = waitForRenderedImage(() => image);
 
-    image.onerror?.(new Event("error"));
+    image.dispatchEvent(new Event("error"));
 
     await expect(completion).rejects.toBeInstanceOf(ImageRenderError);
-    expect(image.onload).toBeNull();
-    expect(image.onerror).toBeNull();
   });
 });

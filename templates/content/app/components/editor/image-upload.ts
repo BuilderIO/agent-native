@@ -30,54 +30,75 @@ export class ImageRenderError extends Error {
   }
 }
 
-export function waitForImageLoad(
-  src: string,
-  createImage: () => HTMLImageElement = () => new Image(),
+export function waitForRenderedImage(
+  findImage: () => HTMLImageElement | null,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
-    const image = createImage();
-    const timeout = window.setTimeout(() => {
-      cleanup();
-      reject(new ImageRenderError());
-    }, IMAGE_LOAD_TIMEOUT_MS);
+    let image: HTMLImageElement | null = null;
+    let frame = 0;
+    const timeout = window.setTimeout(
+      () => finish(false),
+      IMAGE_LOAD_TIMEOUT_MS,
+    );
 
     function cleanup() {
       window.clearTimeout(timeout);
-      image.onload = null;
-      image.onerror = null;
+      window.cancelAnimationFrame(frame);
+      if (image) {
+        image.removeEventListener("load", handleLoad);
+        image.removeEventListener("error", handleError);
+      }
     }
 
-    image.onload = () => {
+    function finish(loaded: boolean) {
       cleanup();
-      resolve();
-    };
-    image.onerror = () => {
-      cleanup();
-      reject(new ImageRenderError());
-    };
-    image.src = src;
-  });
-}
+      if (loaded) resolve();
+      else reject(new ImageRenderError());
+    }
 
-interface ImageUploadAttributes {
-  src?: string;
-  uploadId: string | null;
+    function handleLoad() {
+      finish(true);
+    }
+
+    function handleError() {
+      finish(false);
+    }
+
+    function observe() {
+      image = findImage();
+      if (!image) {
+        frame = window.requestAnimationFrame(observe);
+        return;
+      }
+      if (image.complete) {
+        finish(image.naturalWidth > 0);
+        return;
+      }
+      image.addEventListener("load", handleLoad, { once: true });
+      image.addEventListener("error", handleError, { once: true });
+    }
+
+    observe();
+  });
 }
 
 export async function completeImageFileUpload({
   file,
-  updateAttributes,
+  stageAttributes,
+  waitForRender,
+  commitAttributes,
   upload = uploadImageFile,
-  load = waitForImageLoad,
 }: {
   file: File;
-  updateAttributes: (attributes: ImageUploadAttributes) => void;
+  stageAttributes: (src: string) => void;
+  waitForRender: () => Promise<void>;
+  commitAttributes: (src: string) => void;
   upload?: (file: File) => Promise<string>;
-  load?: (src: string) => Promise<void>;
 }): Promise<string> {
   const src = await upload(file);
-  await load(src);
-  updateAttributes({ src, uploadId: null });
+  stageAttributes(src);
+  await waitForRender();
+  commitAttributes(src);
   return src;
 }
 

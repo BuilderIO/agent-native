@@ -233,6 +233,27 @@ describe("slash image picker lifecycle", () => {
       editor.destroy();
     }
   });
+
+  it("removes a staged source when the committed image cannot render", () => {
+    const editor = createFullEditor();
+    try {
+      expect(
+        commitPendingImageUpload(editor.view, request, "image-upload-test", {
+          src: "https://cdn.example.com/broken.svg",
+          uploadId: "image-upload-test",
+        }),
+      ).toBe(true);
+      expect(
+        restorePendingImagePicker(editor.view, request, "image-upload-test"),
+      ).toBe(true);
+      const image = editor
+        .getJSON()
+        .content?.find((node) => node.type === "image");
+      expect(image?.attrs).toMatchObject({ src: null, uploadId: null });
+    } finally {
+      editor.destroy();
+    }
+  });
 });
 
 describe("media draft persistence", () => {
