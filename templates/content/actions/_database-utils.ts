@@ -45,6 +45,10 @@ import {
   normalizeContentSpaceEmail,
   resolveContentSpaceAccess,
 } from "./_content-space-access.js";
+import {
+  databaseRowRevision,
+  getDatabaseMutationContract,
+} from "./_database-row-mutation.js";
 import { getAllContentDatabaseSourceSnapshots } from "./_database-source-utils.js";
 import {
   applyFederatedOverlayValues,
@@ -1050,6 +1054,21 @@ export async function getContentDatabasePageResponse(
         queued: bodyHydrationQueued,
       }),
       properties: propertiesByDocumentId.get(document.id) ?? [],
+      rowRevision: databaseRowRevision({
+        itemId: item.id,
+        documentId: document.id,
+        title: document.title,
+        values: (propertiesByDocumentId.get(document.id) ?? [])
+          .filter(
+            (property) =>
+              !isBlocksPropertyType(property.definition.type) &&
+              !isComputedPropertyType(property.definition.type),
+          )
+          .map((property) => ({
+            propertyId: property.definition.id,
+            value: property.value,
+          })),
+      }),
     });
   }
 
@@ -1195,6 +1214,26 @@ export async function getContentDatabaseResponse(
     sources: page.sources,
     pagination: page.pagination,
     tableQueryMode: page.tableQueryMode,
+    mutationContract:
+      page.databaseRecord.spaceId && !page.databaseRecord.systemRole
+        ? await getDatabaseMutationContract(
+            {
+              authorityScope: page.databaseRecord.orgId
+                ? {
+                    kind: "organization",
+                    id: page.databaseRecord.orgId,
+                  }
+                : {
+                    kind: "personal",
+                    id: page.databaseRecord.ownerEmail,
+                  },
+              spaceId: page.databaseRecord.spaceId,
+              databaseId: page.databaseRecord.id,
+              databaseDocumentId: page.databaseRecord.documentId,
+            },
+            { accessAlreadyResolved: true },
+          )
+        : undefined,
   };
 }
 
@@ -1469,6 +1508,11 @@ export async function deleteDatabaseDataForDocument(
       .delete(schema.contentDatabaseMigrationReceipts)
       .where(
         eq(schema.contentDatabaseMigrationReceipts.databaseId, database.id),
+      );
+    await db
+      .delete(schema.contentDatabaseRowMutationReceipts)
+      .where(
+        eq(schema.contentDatabaseRowMutationReceipts.databaseId, database.id),
       );
     await db
       .delete(schema.documentPropertyDefinitions)

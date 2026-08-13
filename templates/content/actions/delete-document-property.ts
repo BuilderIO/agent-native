@@ -69,6 +69,14 @@ export default defineAction({
         tx as unknown as ReturnType<typeof getDb>,
         database.id,
       );
+      const [lockedDatabase] = await tx
+        .select({
+          naturalKeyPropertyId: schema.contentDatabases.naturalKeyPropertyId,
+        })
+        .from(schema.contentDatabases)
+        .where(eq(schema.contentDatabases.id, database.id));
+      if (!lockedDatabase)
+        throw new Error(`Database "${database.id}" not found`);
       const [lockedDefinition] = await tx
         .select()
         .from(schema.documentPropertyDefinitions)
@@ -130,6 +138,16 @@ export default defineAction({
       await tx
         .delete(schema.documentPropertyDefinitions)
         .where(eq(schema.documentPropertyDefinitions.id, propertyId));
+
+      if (lockedDatabase.naturalKeyPropertyId === propertyId) {
+        await tx
+          .update(schema.contentDatabases)
+          .set({
+            naturalKeyPropertyId: null,
+            updatedAt: new Date().toISOString(),
+          })
+          .where(eq(schema.contentDatabases.id, database.id));
+      }
 
       if (isBlocks) {
         await deleteBlocksFieldIdentity({

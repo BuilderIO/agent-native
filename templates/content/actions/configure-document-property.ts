@@ -52,6 +52,12 @@ export default defineAction({
         "Stable guidance describing what this property means and which value belongs here",
       ),
     type: z.enum(CREATABLE_DOCUMENT_PROPERTY_TYPES).describe("Property type"),
+    naturalKey: z
+      .boolean()
+      .optional()
+      .describe(
+        "Declare or clear this ordinary text property as the database's single natural key",
+      ),
     visibility: z
       .enum(DOCUMENT_PROPERTY_VISIBILITIES)
       .optional()
@@ -104,6 +110,7 @@ export default defineAction({
     const now = new Date().toISOString();
     const name = args.name.trim();
     const type = args.type as DocumentPropertyType;
+    const propertyId = args.id ?? nanoid();
     const optionsJson = optionsForNewProperty(type, args.options as any);
     const database = await resolvePropertyDatabaseForDocument(
       document,
@@ -114,6 +121,14 @@ export default defineAction({
       throw new Error(
         "Properties belong to databases. Create or open a database before adding properties.",
       );
+    }
+    if (args.naturalKey === true && type !== "text") {
+      throw new Error(
+        "A database natural key must be an ordinary text property.",
+      );
+    }
+    if (args.naturalKey !== undefined && database.systemRole) {
+      throw new Error("System databases cannot configure a natural key.");
     }
 
     if (args.id) {
@@ -136,6 +151,11 @@ export default defineAction({
           tx as unknown as ReturnType<typeof getDb>,
           database.id,
         );
+        const [lockedDatabase] = await tx
+          .select()
+          .from(schema.contentDatabases)
+          .where(eq(schema.contentDatabases.id, database.id));
+        if (!lockedDatabase) throw new Error("Database not found.");
         let [lockedDefinition] = await tx
           .select()
           .from(schema.documentPropertyDefinitions)
@@ -151,6 +171,14 @@ export default defineAction({
           );
         if (!lockedDefinition)
           throw new Error(`Property "${args.id}" not found`);
+        if (
+          lockedDatabase.naturalKeyPropertyId === args.id &&
+          type !== "text"
+        ) {
+          throw new Error(
+            "Clear the database natural key before changing this property's type.",
+          );
+        }
         if (lockedDefinition.systemRole) {
           throw new Error("System properties cannot be changed.");
         }
@@ -265,6 +293,13 @@ export default defineAction({
             updatedAt: now,
           })
           .where(eq(schema.documentPropertyDefinitions.id, args.id!));
+        await configureNaturalKey(tx, {
+          database: lockedDatabase,
+          propertyId,
+          naturalKey: args.naturalKey,
+          ownerEmail: document.ownerEmail,
+          now,
+        });
       });
     } else {
       await withPositionLock(
@@ -275,6 +310,11 @@ export default defineAction({
               tx as unknown as ReturnType<typeof getDb>,
               database.id,
             );
+            const [lockedDatabase] = await tx
+              .select()
+              .from(schema.contentDatabases)
+              .where(eq(schema.contentDatabases.id, database.id));
+            if (!lockedDatabase) throw new Error("Database not found.");
             const [maxPos] = await tx
               .select({
                 max: sql<number>`COALESCE(MAX(position), -1)`,
@@ -294,7 +334,7 @@ export default defineAction({
               );
 
             await tx.insert(schema.documentPropertyDefinitions).values({
-              id: nanoid(),
+              id: propertyId,
               ownerEmail: document.ownerEmail,
               orgId: document.orgId ?? null,
               databaseId: database.id,
@@ -306,6 +346,13 @@ export default defineAction({
               position: (maxPos?.max ?? -1) + 1,
               createdAt: now,
               updatedAt: now,
+            });
+            await configureNaturalKey(tx, {
+              database: lockedDatabase,
+              propertyId,
+              naturalKey: args.naturalKey,
+              ownerEmail: document.ownerEmail,
+              now,
             });
           });
         },
@@ -321,3 +368,120 @@ export default defineAction({
     };
   },
 });
+
+async function configureNaturalKey(
+  tx: Parameters<Parameters<ReturnType<typeof getDb>["transaction"]>[0]>[0],
+  args: {
+    database: typeof schema.contentDatabases.$inferSelect;
+    propertyId: string;
+    naturalKey: boolean | undefined;
+    ownerEmail: string;
+    now: string;
+  },
+) {
+  if (args.naturalKey === undefined) return;
+  if (!args.naturalKey) {
+    if (args.database.naturalKeyPropertyId === args.propertyId) {
+      await tx
+        .delete(schema.contentDatabaseItemKeyClaims)
+        .where(
+          and(
+            eq(
+              schema.contentDatabaseItemKeyClaims.databaseId,
+              args.database.id,
+            ),
+            eq(schema.contentDatabaseItemKeyClaims.propertyId, args.propertyId),
+          ),
+        );
+      await tx
+        .update(schema.contentDatabases)
+        .set({ naturalKeyPropertyId: null, updatedAt: args.now })
+        .where(eq(schema.contentDatabases.id, args.database.id));
+    }
+    return;
+  }
+  if (
+    args.database.naturalKeyPropertyId &&
+    args.database.naturalKeyPropertyId !== args.propertyId
+  ) {
+    throw new Error(
+      "Clear the existing database natural key before configuring another one.",
+    );
+  }
+  const [sourceField] = await tx
+    .select({ id: schema.contentDatabaseSourceFields.id })
+    .from(schema.contentDatabaseSourceFields)
+    .where(eq(schema.contentDatabaseSourceFields.propertyId, args.propertyId))
+    .limit(1);
+  if (sourceField) {
+    throw new Error("A source-managed property cannot be a natural key.");
+  }
+  const values = await tx
+    .select({
+      valueJson: schema.documentPropertyValues.valueJson,
+      itemId: schema.contentDatabaseItems.id,
+      documentId: schema.contentDatabaseItems.documentId,
+    })
+    .from(schema.contentDatabaseItems)
+    .innerJoin(
+      schema.documentPropertyValues,
+      and(
+        eq(
+          schema.documentPropertyValues.documentId,
+          schema.contentDatabaseItems.documentId,
+        ),
+        eq(schema.documentPropertyValues.propertyId, args.propertyId),
+      ),
+    )
+    .where(eq(schema.contentDatabaseItems.databaseId, args.database.id));
+  const claims = new Map<string, (typeof values)[number]>();
+  for (const value of values) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(value.valueJson);
+    } catch {
+      throw new Error("Natural key values must be readable strings.");
+    }
+    if (parsed === null || parsed === "") continue;
+    if (typeof parsed !== "string") {
+      throw new Error("Natural key values must be non-empty strings.");
+    }
+    if (!parsed.trim()) {
+      throw new Error("Natural key values must be non-empty strings.");
+    }
+    if (claims.has(value.valueJson)) {
+      throw new Error(
+        `Natural key value ${value.valueJson} belongs to more than one row.`,
+      );
+    }
+    claims.set(value.valueJson, value);
+  }
+  await tx
+    .delete(schema.contentDatabaseItemKeyClaims)
+    .where(
+      and(
+        eq(schema.contentDatabaseItemKeyClaims.databaseId, args.database.id),
+        eq(schema.contentDatabaseItemKeyClaims.propertyId, args.propertyId),
+      ),
+    );
+  if (claims.size > 0) {
+    await tx.insert(schema.contentDatabaseItemKeyClaims).values(
+      [...claims.entries()].map(([keyValueJson, value]) => ({
+        id: nanoid(),
+        ownerEmail: args.ownerEmail,
+        orgId: args.database.orgId,
+        databaseId: args.database.id,
+        propertyId: args.propertyId,
+        keyValueJson,
+        itemId: value.itemId,
+        documentId: value.documentId,
+        createdAt: args.now,
+        updatedAt: args.now,
+      })),
+    );
+  }
+  await tx
+    .update(schema.contentDatabases)
+    .set({ naturalKeyPropertyId: args.propertyId, updatedAt: args.now })
+    .where(eq(schema.contentDatabases.id, args.database.id));
+}

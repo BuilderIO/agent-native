@@ -234,6 +234,7 @@ export const contentDatabases = table(
     ownerBlockId: text("owner_block_id"),
     title: text("title").notNull().default("Untitled database"),
     systemRole: text("system_role"),
+    naturalKeyPropertyId: text("natural_key_property_id"),
     viewConfigJson: text("view_config_json").notNull().default("{}"),
     filesSystemPropertiesSeeded: integer("files_system_properties_seeded")
       .notNull()
@@ -287,9 +288,9 @@ export const contentDatabaseItems = table(
   ],
 );
 
-// Opt-in stable-key claims are the durable concurrency fence for the generic
-// database-row upsert action. They intentionally do not constrain ordinary
-// property editing or change add-database-item behavior.
+// Opt-in stable-key claims are the durable concurrency fence for configured
+// natural-key upserts. Ordinary property editing stays independent until a
+// text property is explicitly selected as the database's natural key.
 export const contentDatabaseItemKeyClaims = table(
   "content_database_item_key_claims",
   {
@@ -490,6 +491,41 @@ export const contentDatabaseMigrationReceipts = table(
     index("content_database_migration_receipts_owner_database_idx").on(
       receipt.ownerEmail,
       receipt.databaseId,
+    ),
+  ],
+);
+
+export const contentDatabaseRowMutationReceipts = table(
+  "content_database_row_mutation_receipts",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull().default("local@localhost"),
+    orgId: text("org_id"),
+    spaceId: text("space_id").notNull(),
+    databaseId: text("database_id").notNull(),
+    databaseDocumentId: text("database_document_id").notNull(),
+    operation: text("operation").notNull(),
+    itemId: text("item_id").notNull(),
+    documentId: text("document_id").notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    payloadDigest: text("payload_digest").notNull(),
+    schemaRevision: text("schema_revision").notNull(),
+    preRowRevision: text("pre_row_revision"),
+    postRowRevision: text("post_row_revision").notNull(),
+    resultJson: text("result_json").notNull().default("{}"),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (receipt) => [
+    uniqueIndex(
+      "content_database_row_mutation_receipts_database_key_unique",
+    ).on(receipt.databaseId, receipt.idempotencyKey),
+    index("content_database_row_mutation_receipts_owner_database_idx").on(
+      receipt.ownerEmail,
+      receipt.databaseId,
+    ),
+    index("content_database_row_mutation_receipts_document_idx").on(
+      receipt.documentId,
     ),
   ],
 );
