@@ -141,7 +141,7 @@ describe("booking availability", () => {
     ];
 
     const slots = generateAvailableSlotsForDate({
-      date: "2099-01-05",
+      date: "2026-07-20",
       duration: 60,
       config,
       conflictItems: [],

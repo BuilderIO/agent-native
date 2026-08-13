@@ -1257,7 +1257,7 @@ export default function CalendarView() {
         5,
         activeSettings.defaultEventDuration ?? 30,
       );
-      const timezone = resolveEventTimezone();
+      const timezone = activeSettings.timezone;
       setCreateDefaultStart(startTime);
       setCreateDialogOpen(false);
 

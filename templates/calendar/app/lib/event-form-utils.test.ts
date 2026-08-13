@@ -54,6 +54,14 @@ describe("resolveEventTimezone", () => {
   it("preserves an explicit event timezone", () => {
     expect(resolveEventTimezone("Europe/London")).toBe("Europe/London");
   });
+
+  it("keeps a configured calendar timezone for a displayed wall-clock slot", () => {
+    const calendarTimezone = resolveEventTimezone("America/Los_Angeles");
+
+    expect(
+      dateTimeInTimezoneToIso("2026-01-15", "09:00", calendarTimezone),
+    ).toBe("2026-01-15T17:00:00.000Z");
+  });
 });
 
 describe("getEventEndValidationMessage", () => {

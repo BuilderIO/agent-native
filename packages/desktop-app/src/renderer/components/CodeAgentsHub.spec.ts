@@ -339,6 +339,23 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     expect(hubSource).toContain("onTogglePinned={toggleChatFirstAppPinned}");
   });
 
+  it("keeps normal app opens embedded and makes browser opening explicit", () => {
+    const hubSource = readFileSync(
+      "src/renderer/components/CodeAgentsHub.tsx",
+      "utf8",
+    );
+
+    expect(hubSource).toContain(
+      "(app: ChatFirstAppItem) => openChatFirstApp(app.id)",
+    );
+    expect(hubSource).toContain("(app: AppConfig) => openChatFirstApp(app.id)");
+    expect(hubSource).toContain("<AppWebview");
+    expect(hubSource).toContain("onOpenInBrowser={openChatFirstAppInBrowser}");
+    expect(hubSource).toContain(
+      "void window.electronAPI.shell.openExternal(url)",
+    );
+  });
+
   it("keeps full-page settings on the shared query and theme contracts", () => {
     const settingsSource = readFileSync(
       "src/renderer/components/AppSettings.tsx",

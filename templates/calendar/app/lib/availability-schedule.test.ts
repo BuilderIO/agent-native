@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import type { DaySchedule } from "../../shared/api";
 import {
-  addTimeSlot,
   availabilitySlotsOverlap,
   normalizeAvailabilitySlots,
+} from "../../shared/availability-schedule";
+import {
+  addTimeSlot,
   removeTimeSlot,
   updateTimeSlot,
 } from "./availability-schedule";

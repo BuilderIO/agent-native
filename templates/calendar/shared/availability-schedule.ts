@@ -19,9 +19,7 @@ export function normalizeAvailabilitySlots(slots: TimeSlot[]): TimeSlot[] {
     }))
     .filter(
       (entry): entry is typeof entry & { start: number; end: number } =>
-        entry.start !== null &&
-        entry.end !== null &&
-        entry.start < entry.end,
+        entry.start !== null && entry.end !== null && entry.start < entry.end,
     )
     .sort((a, b) => a.start - b.start || a.end - b.end);
 
@@ -33,8 +31,12 @@ export function normalizeAvailabilitySlots(slots: TimeSlot[]): TimeSlot[] {
   for (const entry of valid) {
     const previous = normalized.at(-1);
     if (previous && entry.start < previous.end) {
-      previous.end = Math.max(previous.end, entry.end);
-      previous.slot = { ...previous.slot, end: entry.end > previous.end ? entry.slot.end : previous.slot.end };
+      const mergedEnd = Math.max(previous.end, entry.end);
+      previous.slot = {
+        ...previous.slot,
+        end: entry.end > previous.end ? entry.slot.end : previous.slot.end,
+      };
+      previous.end = mergedEnd;
       continue;
     }
     normalized.push({ ...entry, slot: { ...entry.slot } });
@@ -51,9 +53,7 @@ export function availabilitySlotsOverlap(slots: TimeSlot[]): boolean {
     }))
     .filter(
       (entry): entry is { start: number; end: number } =>
-        entry.start !== null &&
-        entry.end !== null &&
-        entry.start < entry.end,
+        entry.start !== null && entry.end !== null && entry.start < entry.end,
     )
     .sort((a, b) => a.start - b.start || a.end - b.end);
 
