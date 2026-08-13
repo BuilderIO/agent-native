@@ -151,6 +151,20 @@ export function snapshotEditableTextRange(
   return getEditableTextRange(editable, selection)?.cloneRange() ?? null;
 }
 
+/** Selects the complete contents of one live slide text block. */
+export function selectAllEditableText(
+  editable: HTMLElement,
+  selection: Selection | null = window.getSelection(),
+) {
+  if (!selection) return false;
+  editable.focus({ preventScroll: true });
+  const range = document.createRange();
+  range.selectNodeContents(editable);
+  selection.removeAllRanges();
+  selection.addRange(range);
+  return true;
+}
+
 /** Restores a captured range only while it is still safe to use in this block. */
 export function restoreEditableTextRange(
   editable: HTMLElement,

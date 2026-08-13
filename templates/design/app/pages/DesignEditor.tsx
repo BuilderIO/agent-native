@@ -3854,6 +3854,20 @@ function DesignEditor() {
       readPendingGeneration(id, { allowUntimestamped: true }),
     [id],
   );
+  // The intake turn carries the prompt, screenshots, and design system, but is
+  // forced to stop after asking questions. The continuation is what actually
+  // generates, so it has to carry them again or the design is built blind.
+  const getQuestionFlowGenerationBrief = useCallback(() => {
+    const pending = readPendingGeneration(id, { allowUntimestamped: true });
+    if (!pending) return null;
+    const files = pending.files ?? [];
+    return {
+      prompt: pending.prompt,
+      designSystemId: pending.designSystemId,
+      images: imageAttachmentsFromUploadedFiles(files),
+      uploadedFileContext: formatUploadedFileContext(files),
+    };
+  }, [id]);
   const {
     questions: pendingQuestions,
     title: pendingQuestionsTitle,
@@ -3867,6 +3881,7 @@ function DesignEditor() {
     continuationTabId: generationChatTabId,
     onContinue: handleQuestionFlowContinue,
     getModelSelection: getQuestionFlowModelSelection,
+    getGenerationBrief: getQuestionFlowGenerationBrief,
   });
   const pendingQuestionsVisible = Boolean(
     pendingQuestions && pendingQuestions.length > 0,
@@ -6077,8 +6092,14 @@ function DesignEditor() {
     let cancelled = false;
     void (async () => {
       const shouldExploreVariants = promptRequestsVariantExploration(prompt);
+      // A reference screenshot already answers the questions the intake flow
+      // asks. Spending the one turn that can see the image on a questionnaire
+      // means the turn that writes HTML never sees it.
+      const hasReferenceImages = images.length > 0;
       const shouldSkipQuestions =
-        pending.skipQuestions === true || shouldExploreVariants;
+        pending.skipQuestions === true ||
+        shouldExploreVariants ||
+        hasReferenceImages;
       const designSystemContext = await loadDesignSystemGenerationContext(
         pendingDesignSystemId,
       );
@@ -6103,8 +6124,16 @@ function DesignEditor() {
           : shouldExploreVariants
             ? designVariantGenerationDirectives(id, pendingDesignSystemId)
             : shouldSkipQuestions
-              ? designGenerationDirectives(id, pendingDesignSystemId)
-              : designIntakeQuestionDirectives(id, pendingDesignSystemId)),
+              ? designGenerationDirectives(
+                  id,
+                  pendingDesignSystemId,
+                  images.length,
+                )
+              : designIntakeQuestionDirectives(
+                  id,
+                  pendingDesignSystemId,
+                  images.length,
+                )),
       ].join("\n");
 
       clearGenerationCompleteTimer();
@@ -30703,7 +30732,7 @@ function DesignEditor() {
         >
           <span className="flex-1">{"Zoom in" /* i18n-ignore */}</span>
           <DropdownMenuShortcut className="tracking-normal">
-            ⌘+
+            {"Cmd Plus" /* i18n-ignore shortcut key label */}
           </DropdownMenuShortcut>
         </DropdownMenuItem>
         <DropdownMenuItem
@@ -30712,7 +30741,7 @@ function DesignEditor() {
         >
           <span className="flex-1">{"Zoom out" /* i18n-ignore */}</span>
           <DropdownMenuShortcut className="tracking-normal">
-            ⌘−
+            {"Cmd Minus" /* i18n-ignore shortcut key label */}
           </DropdownMenuShortcut>
         </DropdownMenuItem>
         <DropdownMenuItem

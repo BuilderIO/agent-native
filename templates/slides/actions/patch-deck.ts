@@ -157,6 +157,14 @@ const AddSlideOp = z.object({
       notes: z.string().optional(),
       layout: z.string().optional(),
       background: z.string().optional(),
+      imageUrl: z.string().optional(),
+      imagePrompt: z.string().optional(),
+      excalidrawData: z.string().optional(),
+      transition: z
+        .enum(["instant", "none", "fade", "slide", "zoom"])
+        .optional(),
+      animations: z.array(z.unknown()).optional(),
+      splitByParagraph: z.boolean().optional(),
     })
     .passthrough(),
 });
@@ -382,7 +390,10 @@ export function applyOperation(deck: any, op: Operation): void {
       // Idempotency: if the slide already exists (duplicate delivery), skip.
       if (slides.some((s: { id: string }) => s.id === slideId)) return;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      // Copy every provided field: a duplicated or undo-restored slide has to
+      // keep its transition, animations, and image data, not just its text.
       const newSlide: any = {
+        ...fields,
         id: slideId,
         content:
           typeof fields.content === "string"
@@ -391,9 +402,7 @@ export function applyOperation(deck: any, op: Operation): void {
         notes: fields.notes ?? "",
         layout: fields.layout ?? "content",
       };
-      if (fields.background !== undefined) {
-        newSlide.background = fields.background;
-      }
+      delete newSlide.imageLoading;
       const insertAfterIdx = afterSlideId
         ? slides.findIndex((s: { id: string }) => s.id === afterSlideId)
         : -1;

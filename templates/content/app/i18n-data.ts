@@ -2915,7 +2915,7 @@ const editorSlashMessages = {
   equationPreview: "Preview",
   equationPreviewEmpty: "Your equation will appear here.",
   equationSubmitHint:
-    "Preview updates as you type. Press Cmd/Ctrl+Enter to insert.",
+    "Preview updates as you type. Press Cmd/Ctrl Enter to insert.",
   quote: "Quote",
   quoteDescription: "Block quote",
   table: "Table",
@@ -11195,7 +11195,7 @@ const contentExactEnglishTranslations = {
         equationPlaceholder: String.raw`输入 LaTeX，例如 \frac{a}{b}`,
         equationPreview: "预览",
         equationPreviewEmpty: "公式将在此处显示。",
-        equationSubmitHint: "输入时会实时更新预览。按 Cmd/Ctrl+Enter 插入。",
+        equationSubmitHint: "输入时会实时更新预览。按 Cmd/Ctrl Enter 插入。",
       },
       toolbar: {
         info: "信息",
@@ -11242,7 +11242,7 @@ const contentExactEnglishTranslations = {
         equationPreview: "Vista previa",
         equationPreviewEmpty: "Tu ecuación aparecerá aquí.",
         equationSubmitHint:
-          "La vista previa se actualiza mientras escribes. Pulsa Cmd/Ctrl+Enter para insertar.",
+          "La vista previa se actualiza mientras escribes. Pulsa Cmd/Ctrl Enter para insertar.",
       },
       toolbar: {
         info: "Información",
@@ -11291,7 +11291,7 @@ const contentExactEnglishTranslations = {
         equationPreview: "Aperçu",
         equationPreviewEmpty: "Votre équation apparaîtra ici.",
         equationSubmitHint:
-          "L’aperçu se met à jour pendant la saisie. Appuyez sur Cmd/Ctrl+Entrée pour insérer.",
+          "L’aperçu se met à jour pendant la saisie. Appuyez sur Cmd/Ctrl Entrée pour insérer.",
       },
       toolbar: {
         info: "Informations",
@@ -11341,7 +11341,7 @@ const contentExactEnglishTranslations = {
         equationPreview: "Vorschau",
         equationPreviewEmpty: "Ihre Gleichung wird hier angezeigt.",
         equationSubmitHint:
-          "Die Vorschau wird während der Eingabe aktualisiert. Mit Cmd/Ctrl+Enter einfügen.",
+          "Die Vorschau wird während der Eingabe aktualisiert. Mit Cmd/Ctrl Enter einfügen.",
       },
       toolbar: {
         info: "Informationen",
@@ -11390,7 +11390,7 @@ const contentExactEnglishTranslations = {
         equationPreview: "プレビュー",
         equationPreviewEmpty: "ここに数式が表示されます。",
         equationSubmitHint:
-          "入力中にプレビューが更新されます。Cmd/Ctrl+Enter で挿入します。",
+          "入力中にプレビューが更新されます。Cmd/Ctrl Enter で挿入します。",
       },
       toolbar: {
         info: "情報",
@@ -11438,7 +11438,7 @@ const contentExactEnglishTranslations = {
         equationPreview: "미리보기",
         equationPreviewEmpty: "여기에 수식이 표시됩니다.",
         equationSubmitHint:
-          "입력하는 동안 미리보기가 업데이트됩니다. Cmd/Ctrl+Enter로 삽입하세요.",
+          "입력하는 동안 미리보기가 업데이트됩니다. Cmd/Ctrl Enter로 삽입하세요.",
       },
       toolbar: {
         info: "정보",
@@ -11487,7 +11487,7 @@ const contentExactEnglishTranslations = {
         equationPreview: "Prévia",
         equationPreviewEmpty: "Sua equação aparecerá aqui.",
         equationSubmitHint:
-          "A prévia é atualizada enquanto você digita. Pressione Cmd/Ctrl+Enter para inserir.",
+          "A prévia é atualizada enquanto você digita. Pressione Cmd/Ctrl Enter para inserir.",
       },
       toolbar: {
         info: "Informações",
@@ -11535,7 +11535,7 @@ const contentExactEnglishTranslations = {
         equationPreview: "पूर्वावलोकन",
         equationPreviewEmpty: "आपका समीकरण यहाँ दिखाई देगा।",
         equationSubmitHint:
-          "लिखते समय पूर्वावलोकन अपडेट होता है। सम्मिलित करने के लिए Cmd/Ctrl+Enter दबाएँ।",
+          "लिखते समय पूर्वावलोकन अपडेट होता है। सम्मिलित करने के लिए Cmd/Ctrl Enter दबाएँ।",
       },
       toolbar: {
         info: "जानकारी",
@@ -11581,7 +11581,7 @@ const contentExactEnglishTranslations = {
         equationPreview: "معاينة",
         equationPreviewEmpty: "ستظهر معادلتك هنا.",
         equationSubmitHint:
-          "تتحدث المعاينة أثناء الكتابة. اضغط Cmd/Ctrl+Enter للإدراج.",
+          "تتحدث المعاينة أثناء الكتابة. اضغط Cmd/Ctrl Enter للإدراج.",
       },
       toolbar: {
         info: "معلومات",

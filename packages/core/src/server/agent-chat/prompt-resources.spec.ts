@@ -116,4 +116,19 @@ describe("selectPromptSectionsWithinBudget", () => {
     expect(result.overflowChars).toBe(rendered.length - 1_000);
     expect(rendered).toContain("<context-budget-note>");
   });
+
+  it("does not drop a durable personal AGENTS.md section under compact pressure", () => {
+    const sections = [
+      section("workspace-index", 1_500),
+      section("AGENTS.md (personal)", 1_500, "required"),
+      section("available-apps", 800, "required"),
+    ];
+
+    const result = selectPromptSectionsWithinBudget(sections, 3_200);
+
+    expect(result.sections).toContain(sections[1]!.content);
+    expect(result.skipped).toEqual([
+      { label: "workspace-index (test)", chars: sections[0]!.content.length },
+    ]);
+  });
 });

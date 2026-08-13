@@ -754,7 +754,7 @@ const enUS = {
         big: "Big nudge",
         unit: "px",
         description:
-          "Arrow keys move by the small amount and Shift+arrow by the big one. Inside an auto layout frame, arrows reorder the layer instead of moving it.",
+          "Arrow keys move by the small amount and Shift arrow by the big one. Inside an auto layout frame, arrows reorder the layer instead of moving it.",
       },
       keys: {
         or: "or",
@@ -1487,6 +1487,8 @@ const enUS = {
     websiteUrl: "Website-URL",
     add: "Add",
     githubRepository: "GitHub repository",
+    githubRef: "Branch, tag, or commit (optional)",
+    githubPaths: "Files or folders, comma-separated (optional)",
     privateRepoPrefix: "Private repos need a fine-grained token saved as",
     privateRepoSuffix: "with Contents read access.",
     localCodeFiles: "Connect code files",
@@ -1658,6 +1660,7 @@ const enUS = {
       logos: "Logos",
       assets: "Assets",
       savedCount: "{{count}} saved",
+      namedTokens: "Named tokens",
       colorLabels: {
         primary: "Primary",
         secondary: "Secondary",
@@ -1964,6 +1967,8 @@ const designLocaleOverrides = {
       websiteUrl: "网站URL",
       add: "添加",
       githubRepository: "GitHub 存储库",
+      githubRef: "分支、标签或提交（可选）",
+      githubPaths: "文件或文件夹，以逗号分隔（可选）",
       privateRepoPrefix: "私人仓库需要一个细粒度的令牌，另存为",
       privateRepoSuffix: "具有内容读取权限。",
       localCodeFiles: "连接代码文件",
@@ -2128,6 +2133,7 @@ const designLocaleOverrides = {
         logos: "标志",
         assets: "资产",
         savedCount: "已保存 {{count}} 个",
+        namedTokens: "具名代币",
         colorLabels: {
           primary: "基本的",
           secondary: "中学",
@@ -2379,6 +2385,8 @@ const designLocaleOverrides = {
       websiteUrl: "Sitio web URL",
       add: "Agregar",
       githubRepository: "repositorio GitHub",
+      githubRef: "Rama, etiqueta o commit (opcional)",
+      githubPaths: "Archivos o carpetas, separados por comas (opcional)",
       privateRepoPrefix:
         "Los repositorios privados necesitan un token detallado guardado como",
       privateRepoSuffix: "con acceso de lectura de contenidos.",
@@ -2558,6 +2566,7 @@ const designLocaleOverrides = {
         logos: "Logotipos",
         assets: "Activos",
         savedCount: "{{count}} guardado",
+        namedTokens: "Tokens con nombre",
         colorLabels: {
           primary: "Primario",
           secondary: "Secundario",
@@ -2814,6 +2823,9 @@ const designLocaleOverrides = {
       websiteUrl: "Site Web URL",
       add: "Ajouter",
       githubRepository: "référentiel GitHub",
+      githubRef: "Branche, tag ou commit (facultatif)",
+      githubPaths:
+        "Fichiers ou dossiers, séparés par des virgules (facultatif)",
       privateRepoPrefix:
         "Les dépôts privés nécessitent un jeton à granularité fine enregistré sous",
       privateRepoSuffix: "avec accès en lecture au contenu.",
@@ -2993,6 +3005,7 @@ const designLocaleOverrides = {
         logos: "Logos",
         assets: "Actifs",
         savedCount: "{{count}} enregistré",
+        namedTokens: "Jetons nommés",
         colorLabels: {
           primary: "Primaire",
           secondary: "Secondaire",
@@ -3249,6 +3262,8 @@ const designLocaleOverrides = {
       websiteUrl: "Website URL",
       add: "Hinzufügen",
       githubRepository: "GitHub-Repository",
+      githubRef: "Branch, Tag oder Commit (optional)",
+      githubPaths: "Dateien oder Ordner, durch Kommas getrennt (optional)",
       privateRepoPrefix:
         "Private Repos benötigen einen feinkörnigen Token, der unter gespeichert wird",
       privateRepoSuffix: "mit Lesezugriff auf Inhalte.",
@@ -3429,6 +3444,7 @@ const designLocaleOverrides = {
         logos: "Logos",
         assets: "Vermögenswerte",
         savedCount: "{{count}} gespeichert",
+        namedTokens: "Benannte Tokens",
         colorLabels: {
           primary: "Primär",
           secondary: "Sekundär",
@@ -3684,6 +3700,8 @@ const designLocaleOverrides = {
       websiteUrl: "ウェブサイト URL",
       add: "追加",
       githubRepository: "GitHub リポジトリ",
+      githubRef: "ブランチ、タグ、コミット（任意）",
+      githubPaths: "ファイルまたはフォルダー（カンマ区切り、任意）",
       privateRepoPrefix:
         "プライベート リポジトリには、次のように保存されたきめ細かいトークンが必要です。",
       privateRepoSuffix: "コンテンツ読み取りアクセス付き。",
@@ -3860,6 +3878,7 @@ const designLocaleOverrides = {
         logos: "ロゴ",
         assets: "資産",
         savedCount: "{{count}} 保存しました",
+        namedTokens: "名前付きトークン",
         colorLabels: {
           primary: "主要な",
           secondary: "二次",
@@ -4113,6 +4132,8 @@ const designLocaleOverrides = {
       websiteUrl: "웹사이트 URL",
       add: "추가하다",
       githubRepository: "GitHub 저장소",
+      githubRef: "브랜치, 태그 또는 커밋 (선택 사항)",
+      githubPaths: "파일 또는 폴더, 쉼표로 구분 (선택 사항)",
       privateRepoPrefix:
         "비공개 저장소에는 다음과 같이 저장된 세분화된 토큰이 필요합니다.",
       privateRepoSuffix: "콘텐츠 읽기 액세스 권한이 있습니다.",
@@ -4284,6 +4305,7 @@ const designLocaleOverrides = {
         logos: "로고",
         assets: "자산",
         savedCount: "{{count}}가 저장되었습니다.",
+        namedTokens: "이름이 지정된 토큰",
         colorLabels: {
           primary: "주요한",
           secondary: "반성",
@@ -4538,6 +4560,8 @@ const designLocaleOverrides = {
       websiteUrl: "Site URL",
       add: "Adicionar",
       githubRepository: "repositório GitHub",
+      githubRef: "Branch, tag ou commit (opcional)",
+      githubPaths: "Arquivos ou pastas, separados por vírgulas (opcional)",
       privateRepoPrefix:
         "Os repositórios privados precisam de um token refinado salvo como",
       privateRepoSuffix: "com acesso de leitura de conteúdo.",
@@ -4715,6 +4739,7 @@ const designLocaleOverrides = {
         logos: "Logotipos",
         assets: "Ativos",
         savedCount: "{{count}} salvo",
+        namedTokens: "Tokens nomeados",
         colorLabels: {
           primary: "Primário",
           secondary: "Secundário",
@@ -4967,6 +4992,8 @@ const designLocaleOverrides = {
       websiteUrl: "वेबसाइट URL",
       add: "जोड़ना",
       githubRepository: "GitHub रिपॉजिटरी",
+      githubRef: "ब्रांच, टैग या कमिट (वैकल्पिक)",
+      githubPaths: "फ़ाइलें या फ़ोल्डर, कॉमा से अलग (वैकल्पिक)",
       privateRepoPrefix:
         "निजी रेपो को एक बढ़िया टोकन के रूप में सहेजे जाने की आवश्यकता होती है",
       privateRepoSuffix: "सामग्री पढ़ने की पहुंच के साथ।",
@@ -5137,6 +5164,7 @@ const designLocaleOverrides = {
         logos: "लोगो",
         assets: "संपत्ति",
         savedCount: "{{count}} सहेजा गया",
+        namedTokens: "नामित टोकन",
         colorLabels: {
           primary: "प्राथमिक",
           secondary: "माध्यमिक",
@@ -5387,6 +5415,8 @@ const designLocaleOverrides = {
       websiteUrl: "موقع URL",
       add: "يضيف",
       githubRepository: "مستودع GitHub",
+      githubRef: "فرع أو وسم أو التزام (اختياري)",
+      githubPaths: "الملفات أو المجلدات، مفصولة بفواصل (اختياري)",
       privateRepoPrefix:
         "تحتاج عمليات إعادة الشراء الخاصة إلى رمز مميز محفوظ باسم",
       privateRepoSuffix: "مع محتويات الوصول للقراءة.",
@@ -5558,6 +5588,7 @@ const designLocaleOverrides = {
         logos: "الشعارات",
         assets: "أصول",
         savedCount: "تم حفظ {{count}}",
+        namedTokens: "الرموز المميزة المسماة",
         colorLabels: {
           primary: "أساسي",
           secondary: "ثانوي",

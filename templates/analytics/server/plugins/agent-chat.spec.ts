@@ -90,6 +90,7 @@ import {
   ANALYTICS_CUSTOM_BLOCK_GUIDANCE,
   ANALYTICS_BACKGROUND_RUN_NO_PROGRESS_TIMEOUT_MS,
   BOUNDED_STRUCTURED_LOOKUP_GUIDANCE,
+  DASHBOARD_REFERENCE_GUIDANCE,
   BUILT_IN_FIRST_PARTY_SOURCE_GUIDANCE,
   NON_ANALYTICS_FALLBACK_FINAL_MESSAGE,
   NON_ANALYTICS_FALLBACK_RETRY_MESSAGE,
@@ -264,6 +265,21 @@ describe("Analytics agent Plan mode policy", () => {
     expect(INITIAL_TOOL_NAMES).toContain("query-agent-native-analytics");
   });
 
+  it("keeps dashboard replication discovery bounded and reference-only", async () => {
+    expect(INITIAL_TOOL_NAMES).toContain("search-dashboard-references");
+    expect(DASHBOARD_REFERENCE_GUIDANCE).toContain(
+      "search-dashboard-references",
+    );
+    expect(DASHBOARD_REFERENCE_GUIDANCE).toContain(
+      "not as proof that its source is authoritative",
+    );
+    expect(DASHBOARD_REFERENCE_GUIDANCE).toContain("get-explorer-dashboard");
+    const context = await (
+      agentChatPluginOptions[0]?.extraContext as () => Promise<string>
+    )?.();
+    expect(context).toContain("DASHBOARD REFERENCE DISCOVERY");
+  });
+
   it("keeps Brain handoff tools on the initial tool surface", async () => {
     expect(INITIAL_TOOL_NAMES).toEqual(
       expect.arrayContaining(["describe-workspace-apps", "call-agent"]),
@@ -281,6 +297,7 @@ describe("Analytics agent Plan mode policy", () => {
   it("keeps the complete dashboard build path on the initial tool surface", () => {
     expect(INITIAL_TOOL_NAMES).toEqual(
       expect.arrayContaining([
+        "get-explorer-dashboard",
         "update-dashboard",
         "mutate-dashboard",
         "compose-dashboard",

@@ -623,7 +623,7 @@ const messages = {
     expand: "展開",
     collapse: "收起",
     changelogMarkdown:
-      "# 更新記錄\n\nClips 中所有面向使用者的重要更改都會紀錄在這裡。你可以隨時從指令選單（Cmd+K -> “最新變化”）或設定中開啟。\n\n## 2026-06-23\n\n### 新增\n\n- 現在可以直接在 Clips 中檢視最新變化。更新記錄已加入指令選單（Cmd+K）和設定。",
+      "# 更新記錄\n\nClips 中所有面向使用者的重要更改都會紀錄在這裡。你可以隨時從指令選單（Cmd K -> “最新變化”）或設定中開啟。\n\n## 2026-06-23\n\n### 新增\n\n- 現在可以直接在 Clips 中檢視最新變化。更新記錄已加入指令選單（Cmd K）和設定。",
     playback: "播放",
     defaultPlaybackSpeed: "預設播放速度",
     playbackDescription: "開啟錄製時會自動應用。",
@@ -1144,7 +1144,7 @@ const messages = {
     seekTo: "跳到 {{time}}",
   },
   editorToolbar: {
-    undoTooltip: "復原 (Cmd/Ctrl+Z)",
+    undoTooltip: "復原 (Cmd/Ctrl Z)",
     playPauseTooltip: "播放 / 暫停 (Space)",
     sourceDuration: "（來源 {{duration}}）",
     previewSpeed: "預覽速度",

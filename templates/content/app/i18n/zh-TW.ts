@@ -460,7 +460,7 @@ const messages = {
       equationPlaceholder: String.raw`輸入 LaTeX，例如 \frac{a}{b}`,
       equationPreview: "預覽",
       equationPreviewEmpty: "公式將顯示於此。",
-      equationSubmitHint: "輸入時會即時更新預覽。按 Cmd/Ctrl+Enter 插入。",
+      equationSubmitHint: "輸入時會即時更新預覽。按 Cmd/Ctrl Enter 插入。",
       quote: "報價",
       quoteDescription: "塊報價",
       table: "表",

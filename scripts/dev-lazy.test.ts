@@ -41,6 +41,26 @@ describe("dev-lazy app-local environment", () => {
   });
 });
 
+describe("dev-lazy native binding preflight", () => {
+  it("runs before the first template Vite spawn", () => {
+    const source = fs.readFileSync(
+      new URL("./dev-lazy.ts", import.meta.url),
+      "utf8",
+    );
+    const main = source.indexOf("async function main(): Promise<void>");
+    const preflightCall = source.indexOf("runNativeBindingPreflight();", main);
+    const gatewayCreation = source.indexOf(
+      "const server = createGateway();",
+      main,
+    );
+
+    assert.ok(main >= 0);
+    assert.ok(preflightCall >= 0);
+    assert.ok(gatewayCreation > main);
+    assert.ok(preflightCall < gatewayCreation);
+  });
+});
+
 describe("dev-lazy canonical loopback origin", () => {
   it("redirects localhost to the advertised 127.0.0.1 origin", () => {
     assert.equal(

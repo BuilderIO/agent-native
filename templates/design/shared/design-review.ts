@@ -24,6 +24,7 @@ export const A11Y_FINDING_CATEGORIES = [
   "reduced-motion",
   "role",
   "token-drift",
+  "design-system-drift",
   "other",
 ] as const;
 

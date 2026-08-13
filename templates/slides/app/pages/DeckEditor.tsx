@@ -1194,6 +1194,11 @@ export default function DeckEditor() {
         onDuplicateCurrentSlide={
           currentSlide ? () => duplicateSlide(id, currentSlide.id) : undefined
         }
+        onChangeSlideTransition={
+          canEdit && currentSlide
+            ? (transition) => updateSlide(id, currentSlide.id, { transition })
+            : undefined
+        }
       />
 
       {/* Full-width host for the slide's contextual style toolbar: it spans the
@@ -1312,6 +1317,10 @@ export default function DeckEditor() {
                   }
                   textBoxMode={textBoxMode}
                   onToggleTextBoxMode={toggleTextBoxMode}
+                  slideTransition={currentSlide.transition}
+                  onChangeSlideTransition={(transition) =>
+                    updateSlide(id, currentSlide.id, { transition })
+                  }
                 />
               ) : undefined
             }

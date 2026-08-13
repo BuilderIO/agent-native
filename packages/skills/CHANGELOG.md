@@ -1,5 +1,35 @@
 # @agent-native/skills
 
+## 0.2.543
+
+### Patch Changes
+
+- Updated dependencies [97b3736]
+  - @agent-native/core@0.154.1
+
+## 0.2.542
+
+### Patch Changes
+
+- Updated dependencies [2db503b]
+- Updated dependencies [2db503b]
+- Updated dependencies [2db503b]
+- Updated dependencies [2db503b]
+- Updated dependencies [2db503b]
+- Updated dependencies [2db503b]
+- Updated dependencies [2db503b]
+- Updated dependencies [2db503b]
+- Updated dependencies [2db503b]
+  - @agent-native/core@0.154.0
+
+## 0.2.541
+
+### Patch Changes
+
+- 8008dfe: Centralize product docs links behind `docsUrl()` and retarget Settings, Team, onboarding, and template help links at live agent-native.com docs pages.
+- Updated dependencies [8008dfe]
+  - @agent-native/core@0.153.10
+
 ## 0.2.540
 
 ### Patch Changes

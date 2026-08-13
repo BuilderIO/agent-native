@@ -72,6 +72,21 @@ describe("buildExtensionHtml", () => {
     expect(html).toContain("_appendActionQuery(path, params)");
   });
 
+  it("hides x-cloak content until Alpine boots", () => {
+    // Extension content is a body snippet, so it cannot supply this rule
+    // itself. Without it an `x-cloak` overlay covers the whole extension
+    // until the deferred Alpine CDN script resolves — and forever if it
+    // never does.
+    const html = buildExtensionHtml(
+      '<div x-cloak class="fixed inset-0">Alerts</div>',
+      ":root{}",
+      false,
+      "extension-1",
+    );
+
+    expect(html).toContain("[x-cloak] { display: none !important; }");
+  });
+
   it("routes extension navigate calls through the app-state command endpoint", () => {
     const html = buildExtensionHtml("<div/>", ":root{}", false, "extension-1");
 

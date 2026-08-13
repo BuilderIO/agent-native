@@ -7,6 +7,7 @@ publish = "templates/slides/dist"
 functions = "templates/slides/.netlify/functions-internal"
 
 [build.environment]
+NODE_VERSION = "24.14.0"
 GA_MEASUREMENT_ID = "G-ESF7FYXGN9"
 GTM_CONTAINER_ID = "GTM-N3WSTXZ"
 NITRO_PRESET = "netlify"
