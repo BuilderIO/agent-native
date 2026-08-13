@@ -3,10 +3,7 @@ import {
   parseBuilderDesignSystemProxyReference,
   startBuilderDesignSystemIndex,
 } from "@agent-native/core/server";
-import {
-  getRequestOrgId,
-  getRequestUserEmail,
-} from "@agent-native/core/server/request-context";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess, resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
@@ -48,8 +45,8 @@ export default defineAction({
 
     const proxy = await upsertBuilderProxyDesignSystem({
       result,
-      ownerEmail,
-      orgId: getRequestOrgId(),
+      ownerEmail: access.resource.ownerEmail,
+      orgId: access.resource.orgId,
       projectName: access.resource.title,
       description: access.resource.description ?? undefined,
       sourceKind: reference.sourceKind,
