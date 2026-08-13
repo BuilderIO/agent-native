@@ -67,13 +67,15 @@ function serverUrlsMatch(stored: string, canonical: string): boolean {
   }
 }
 
-function guardedOAuthFetch(): GuardedFetch {
-  const allowedPrivateOrigins = (
-    process.env[MCP_OAUTH_PRIVATE_ORIGINS_ENV] ?? ""
-  )
+function configuredPrivateOrigins(): string[] {
+  return (process.env[MCP_OAUTH_PRIVATE_ORIGINS_ENV] ?? "")
     .split(",")
     .map((origin) => origin.trim())
     .filter(Boolean);
+}
+
+function guardedOAuthFetch(): GuardedFetch {
+  const allowedPrivateOrigins = configuredPrivateOrigins();
   return async (url, init) => {
     let currentUrl = checkedRemoteUrl(url, "request");
     let currentInit: RequestInit = { ...init, redirect: "manual" };
@@ -146,7 +148,7 @@ async function guardedRevocationFetch(
   const endpoint = checkedRemoteUrl(url, "revocation endpoint");
   return ssrfSafeFetch(endpoint.href, init, {
     maxRedirects: 0,
-    httpsOnly: true,
+    allowedPrivateOrigins: configuredPrivateOrigins(),
     assertUrlAllowed: (candidate) => {
       const checked = checkedRemoteUrl(candidate, "revocation redirect");
       if (checked.origin !== endpoint.origin) {

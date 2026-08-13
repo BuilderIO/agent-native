@@ -600,7 +600,10 @@ describe("MCP OAuth client", () => {
     expect(ssrfSafeFetchMock).toHaveBeenCalledWith(
       "https://auth.example.com/revoke",
       expect.any(Object),
-      expect.objectContaining({ maxRedirects: 0, httpsOnly: true }),
+      expect.objectContaining({
+        allowedPrivateOrigins: [],
+        maxRedirects: 0,
+      }),
     );
   });
 
@@ -632,9 +635,54 @@ describe("MCP OAuth client", () => {
     expect(ssrfSafeFetchMock).toHaveBeenCalledWith(
       "http://127.0.0.1:9000/revoke",
       expect.any(Object),
-      expect.objectContaining({ maxRedirects: 0, httpsOnly: true }),
+      expect.objectContaining({
+        allowedPrivateOrigins: [],
+        maxRedirects: 0,
+      }),
     );
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("applies the configured private-origin allowance to revocation", async () => {
+    vi.stubEnv(
+      "AGENT_NATIVE_MCP_OAUTH_PRIVATE_ORIGINS",
+      "http://127.0.0.1:9443",
+    );
+    getOAuthTokensMock.mockResolvedValue({
+      ...credentials,
+      discoveryState: {
+        ...credentials.discoveryState,
+        authorizationServerMetadata: {
+          ...credentials.discoveryState.authorizationServerMetadata,
+          revocation_endpoint: "http://127.0.0.1:9443/revoke",
+        },
+      },
+    });
+    ssrfSafeFetchMock.mockResolvedValueOnce(
+      new Response(null, { status: 200 }),
+    );
+
+    try {
+      await expect(
+        revokeMcpOAuthCredentials({
+          key: "mcp_oauth:test",
+          scope: "user",
+          scopeId: "alice@example.com",
+          serverUrl: "https://mcp.example.com/mcp",
+        }),
+      ).resolves.toEqual({ remote: "succeeded", local: "deleted" });
+
+      expect(ssrfSafeFetchMock).toHaveBeenCalledWith(
+        "http://127.0.0.1:9443/revoke",
+        expect.any(Object),
+        expect.objectContaining({
+          allowedPrivateOrigins: ["http://127.0.0.1:9443"],
+          maxRedirects: 0,
+        }),
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it("rejects malformed stored bundles", async () => {
