@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router";
 
+import { readStoredDeckFilter, resolveDeckFilter } from "@/lib/deck-filter";
 import { TAB_ID } from "@/lib/tab-id";
 
 export interface NavigationState {
@@ -59,7 +60,10 @@ export function useNavigationState() {
     } else {
       const params = new URLSearchParams(location.search);
       state.deckFilter =
-        params.get("createdBy") === "me" ? "created-by-me" : "all";
+        resolveDeckFilter(params.get("createdBy"), readStoredDeckFilter()) ===
+        "mine"
+          ? "created-by-me"
+          : "all";
     }
 
     const write = (key: string) =>

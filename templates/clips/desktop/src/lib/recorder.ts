@@ -55,6 +55,10 @@ import {
   waitForAcceptedRecordingAfterFinalizeError,
   waitForReadyRecordingAfterFinalizeError,
 } from "../../../shared/finalize-recovery";
+import {
+  createMicAudioCleanup,
+  type MicAudioCleanupHandle,
+} from "../../../shared/mic-audio-cleanup";
 import type { LocalRecordingMode } from "../shared/config";
 import { createAudioCue, type AudioCue } from "./audio-cue";
 import { createCameraCompositeStream } from "./camera-composite";
@@ -541,35 +545,45 @@ interface RecordingAudio {
 }
 
 /**
- * Build the audio track(s) for the recording. When BOTH a mic track and a
- * system/display-audio track are present they're mixed into a single track via
- * WebAudio (one audio track keeps players + our finalize step happy). With only
- * one source we pass it through untouched.
+ * Build the audio track(s) for the recording. Microphone tracks pass through
+ * the cleanup graph whether or not system/display audio is also present, then
+ * both sources are mixed into one track when needed.
  */
 function buildRecordingAudio(
   micTracks: MediaStreamTrack[],
   systemTracks: MediaStreamTrack[],
 ): RecordingAudio {
-  if (!micTracks.length || !systemTracks.length) {
-    // 0 or 1 source — no mixing needed (prefer mic when it's the only one).
+  if (!micTracks.length) {
+    // System-only audio keeps its original stereo signal; there is no
+    // microphone path to clean in this branch.
     return {
-      tracks: micTracks.length ? micTracks : systemTracks,
+      tracks: systemTracks,
       cleanup() {},
     };
   }
   const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
   if (!AudioCtx) {
-    // No WebAudio — fall back to mic only.
+    // No WebAudio — keep the capture alive with the raw microphone signal.
     return { tracks: micTracks, cleanup() {} };
   }
   const ctx: AudioContext = new AudioCtx();
   const destination = ctx.createMediaStreamDestination();
-  for (const tracks of [micTracks, systemTracks]) {
+  const micCleanup: MicAudioCleanupHandle[] = [];
+  const cleanedMicTracks = micTracks.map((track) => {
+    const cleanup = createMicAudioCleanup(new MediaStream([track]), {
+      audioContext: ctx,
+    });
+    micCleanup.push(cleanup);
+    return cleanup.stream.getAudioTracks()[0] ?? track;
+  });
+  for (const tracks of [cleanedMicTracks, systemTracks]) {
+    if (!tracks.length) continue;
     ctx.createMediaStreamSource(new MediaStream(tracks)).connect(destination);
   }
   return {
     tracks: destination.stream.getAudioTracks(),
     cleanup() {
+      for (const cleanup of micCleanup) cleanup.stop();
       ctx.close().catch(() => {});
     },
   };

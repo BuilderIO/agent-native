@@ -189,7 +189,7 @@ export default function DeckCard({
           </DropdownMenuTrigger>
           <DropdownMenuContent
             align="end"
-            className="w-40"
+            className="w-56"
             onCloseAutoFocus={(e) => {
               if (pendingRenameRef.current) {
                 e.preventDefault();

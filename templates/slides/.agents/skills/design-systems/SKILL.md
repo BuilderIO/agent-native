@@ -72,12 +72,16 @@ Builder indexing flow.
 
 ### Source: connected code, GitHub, or `design.md`
 
-For any other reusable source — connected code, a GitHub repo, local
-code/design files, or an optional `design.md` — use Builder-backed DSI
-indexing through `index-design-system-with-builder`. Pass readable `design.md`
-content as `designMd`, and use the returned local design system id in the rest
-of the Slides flow. Call `get-design-system` before generation so Builder docs
-and tokens are hydrated when available.
+For any other reusable source - connected code, a GitHub repo, local
+code/design files, or an optional `design.md` - use Builder-backed DSI
+indexing through `index-design-system-with-builder`. Pass GitHub sources as one
+`githubSources` array; each source may pin a branch/tag/commit and include
+repository-relative files or folders. Pass readable `design.md` content as
+`designMd`, and use the returned local design system id in the rest of the
+Slides flow. Call `get-design-system` before generation so Builder docs and
+tokens are hydrated when available. For a saved GitHub-backed system, call
+`sync-design-system-with-builder --id <localDesignSystemId>` to replay its
+persisted source scope after upstream changes.
 
 Never create a duplicate local design system from raw Figma or code sources.
 Builder owns the indexed brand kit; a second local copy drifts from it and
