@@ -157,18 +157,6 @@ const INTERRUPTED_ACTIVITY_RESULT = "Stopped before this action started.";
 const SSE_RENDER_UPDATES_PER_EVENT_LOOP_TURN = 1;
 
 function waitForNextEventLoopTurn(): Promise<void> {
-  if (typeof MessageChannel !== "undefined") {
-    return new Promise<void>((resolve) => {
-      const channel = new MessageChannel();
-      channel.port1.onmessage = () => {
-        channel.port1.close();
-        channel.port2.close();
-        resolve();
-      };
-      channel.port2.postMessage(undefined);
-    });
-  }
-
   return new Promise<void>((resolve) => {
     setTimeout(resolve, 0);
   });

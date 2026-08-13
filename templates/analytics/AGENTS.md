@@ -27,7 +27,13 @@ Read the relevant skill before deeper work:
 
 ## How To Answer A Data Question
 
-1. **Search existing work first.** Call `search-analytics-query-catalog`, adapt
+1. **Search existing work first.** For a metric question, call
+   `search-analytics-query-catalog`; for a request to replicate or adapt an
+   existing dashboard, call `search-dashboard-references` first. The latter
+   searches accessible saved dashboard metadata/config and returns references,
+   not an authoritative data source. Inspect a returned dashboard with
+   `get-sql-dashboard` before copying it.
+   Then adapt
    the closest saved SQL to the requested filters/window, run it once, and stop.
 2. **One bounded call.** List/filter/count/cohort questions are one SQL statement
    or one server-side `run-code` script; never page or fan out per item.

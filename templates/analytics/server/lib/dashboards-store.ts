@@ -28,7 +28,16 @@ import {
   resolveAccess,
   type ShareRole,
 } from "@agent-native/core/sharing";
-import { and, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
+import {
+  and,
+  desc,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  or,
+  sql,
+} from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
 
@@ -76,6 +85,19 @@ export interface DashboardSummaryRecord {
   archivedAt: string | null;
   hiddenAt: string | null;
   hiddenBy: string | null;
+}
+
+/** Compact, access-scoped reference returned by dashboard discovery. */
+export interface DashboardReferenceRecord {
+  id: string;
+  kind: DashboardKind;
+  name: string;
+  description: string | null;
+  ownerEmail: string;
+  orgId: string | null;
+  visibility: "private" | "org" | "public";
+  updatedAt: string;
+  matchedFields: Array<"id" | "name" | "description" | "config">;
 }
 
 /** Hydrated dashboard row for catalog ranking only. */
@@ -150,6 +172,8 @@ const EXPLORER_PREFIX = "dashboard-";
 const ANALYSIS_PREFIX = "adhoc-analysis-";
 const DASHBOARD_REVISION_LIMIT = 50;
 const ANALYSIS_REVISION_LIMIT = 30;
+const MAX_DASHBOARD_REFERENCE_RESULTS = 24;
+const MAX_DASHBOARD_REFERENCE_CANDIDATES = 200;
 
 export function normalizeDashboardName(value: string): string {
   return value.trim().replace(/\s+/g, " ").toLowerCase();
@@ -157,6 +181,10 @@ export function normalizeDashboardName(value: string): string {
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+function escapeLikeLiteral(value: string): string {
+  return value.replace(/[\\%_]/g, "\\$&");
 }
 
 function nanoidFallback(): string {
@@ -705,6 +733,103 @@ export async function listDashboardSummaries(
     // Legacy scan is best-effort.
   }
   return out;
+}
+
+/**
+ * Find active saved dashboards by metadata or serialized config.
+ *
+ * This is deliberately separate from the query catalog: a matching saved
+ * dashboard is a replication reference, not proof that its source is
+ * authoritative for the question being asked.
+ */
+export async function searchDashboardReferences(
+  ctx: AccessCtx,
+  search: string,
+  limit = 8,
+  dbOverride?: any,
+): Promise<DashboardReferenceRecord[]> {
+  const normalizedSearch = search.trim();
+  if (!normalizedSearch) return [];
+  const boundedLimit = Math.min(
+    Math.max(Math.trunc(limit), 1),
+    MAX_DASHBOARD_REFERENCE_RESULTS,
+  );
+  const db = (dbOverride ?? getDb()) as any;
+  const pattern = `%${escapeLikeLiteral(normalizedSearch.toLowerCase())}%`;
+  const access = accessFilter(schema.dashboards, schema.dashboardShares, {
+    userEmail: ctx.email,
+    orgId: ctx.orgId ?? undefined,
+  });
+  const matches = sql<boolean>`(
+    lower(${schema.dashboards.id}) LIKE ${pattern} ESCAPE '\\'
+    OR lower(${schema.dashboards.title}) LIKE ${pattern} ESCAPE '\\'
+    OR lower(coalesce(${schema.dashboards.config}, '')) LIKE ${pattern} ESCAPE '\\'
+  )`;
+  const where = and(
+    access,
+    eq(schema.dashboards.kind, "sql"),
+    isNull(schema.dashboards.archivedAt),
+    isNull(schema.dashboards.hiddenAt),
+    matches,
+  );
+  const rows = await db
+    .select({
+      id: schema.dashboards.id,
+      kind: schema.dashboards.kind,
+      name: schema.dashboards.title,
+      description: isPostgres()
+        ? sql<
+            string | null
+          >`(${schema.dashboards.config}::jsonb ->> 'description')`
+        : sql<
+            string | null
+          >`json_extract(${schema.dashboards.config}, '$.description')`,
+      config: schema.dashboards.config,
+      ownerEmail: schema.dashboards.ownerEmail,
+      orgId: schema.dashboards.orgId,
+      visibility: schema.dashboards.visibility,
+      updatedAt: schema.dashboards.updatedAt,
+    })
+    .from(schema.dashboards)
+    .where(where)
+    .orderBy(desc(schema.dashboards.updatedAt))
+    .limit(boundedLimit);
+
+  return rows.map((row: any) => {
+    const configText = typeof row.config === "string" ? row.config : "";
+    const fields: DashboardReferenceRecord["matchedFields"] = [];
+    const lowered = normalizedSearch.toLowerCase();
+    if (
+      String(row.id ?? "")
+        .toLowerCase()
+        .includes(lowered)
+    )
+      fields.push("id");
+    if (
+      String(row.name ?? "")
+        .toLowerCase()
+        .includes(lowered)
+    )
+      fields.push("name");
+    if (
+      String(row.description ?? "")
+        .toLowerCase()
+        .includes(lowered)
+    )
+      fields.push("description");
+    if (configText.toLowerCase().includes(lowered)) fields.push("config");
+    return {
+      id: String(row.id),
+      kind: row.kind as DashboardKind,
+      name: String(row.name ?? "Untitled dashboard"),
+      description: typeof row.description === "string" ? row.description : null,
+      ownerEmail: String(row.ownerEmail ?? ""),
+      orgId: row.orgId ?? null,
+      visibility: row.visibility,
+      updatedAt: String(row.updatedAt ?? ""),
+      matchedFields: fields,
+    };
+  });
 }
 
 /**
