@@ -122,6 +122,55 @@ describe("mountA2A auth", () => {
     expect(response.url).toBe("https://agent.example/workspace/rpc/a2a");
   });
 
+  it("authenticates custom mounted cards from app or endpoint identity", async () => {
+    process.env.A2A_SECRET = "shared-global-secret";
+    process.env.APP_URL = "https://agent.example";
+    process.env.APP_BASE_PATH = "/workspace";
+    const handler = await mountedAgentCardHandler(
+      {
+        ...config,
+        authenticatedSkills: [
+          {
+            id: "list-records",
+            name: "List records",
+            description: "List records",
+            readOnly: true,
+          },
+        ],
+      },
+      "/rpc",
+    );
+
+    for (const audience of [
+      "https://agent.example/workspace/rpc",
+      "https://agent.example/workspace",
+    ]) {
+      const token = await new jose.SignJWT({
+        sub: "alice+qa@builder.io",
+        aud: audience,
+      })
+        .setProtectedHeader({ alg: "HS256" })
+        .setIssuer("https://dispatch.agent-native.test")
+        .setIssuedAt()
+        .setExpirationTime("15m")
+        .sign(new TextEncoder().encode("shared-global-secret"));
+      const response = await handler({
+        method: "GET",
+        headers: {
+          authorization: `Bearer ${token}`,
+          host: "agent.example",
+          "x-forwarded-proto": "https",
+        },
+        path: "/",
+        context: {},
+      });
+
+      expect(response.skills).toEqual([
+        expect.objectContaining({ id: "list-records", readOnly: true }),
+      ]);
+    }
+  });
+
   it("filters public agent-card skills to explicit public-safe capabilities", async () => {
     const handler = await mountedAgentCardHandler({
       ...config,

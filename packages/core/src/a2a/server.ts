@@ -76,8 +76,11 @@ function addSecretCandidate(
  */
 function expectedJwtAudience(
   event: any | undefined,
-  routePrefix?: string,
-): string | undefined {
+  options?: {
+    routePrefix?: string;
+    allowBaseAudience?: boolean;
+  },
+): string | string[] | undefined {
   const fromEnv =
     process.env.APP_URL ||
     process.env.URL ||
@@ -87,7 +90,7 @@ function expectedJwtAudience(
   if (fromEnv) {
     return audienceForRoute(
       canonicalA2AAudience(String(fromEnv), receiverBasePath),
-      routePrefix,
+      options,
     );
   }
   // Best-effort: derive from the inbound request host. This is forgeable
@@ -99,7 +102,7 @@ function expectedJwtAudience(
     if (host) {
       return audienceForRoute(
         canonicalA2AAudience(`${proto}://${host}`, receiverBasePath),
-        routePrefix,
+        options,
       );
     }
     // coercion-ok: undefined makes audience-bearing token verification fail closed.
@@ -109,12 +112,20 @@ function expectedJwtAudience(
 
 function audienceForRoute(
   baseAudience: string,
-  routePrefix: string | undefined,
-): string {
-  const trimmedPrefix = routePrefix?.replace(/^\/+|\/+$/g, "");
+  options:
+    | {
+        routePrefix?: string;
+        allowBaseAudience?: boolean;
+      }
+    | undefined,
+): string | string[] {
+  const trimmedPrefix = options?.routePrefix?.replace(/^\/+|\/+$/g, "");
   if (!trimmedPrefix || trimmedPrefix === "_agent-native") return baseAudience;
   const normalizedPrefix = `/${trimmedPrefix}`;
-  return `${baseAudience.replace(/\/+$/, "")}${normalizedPrefix}`;
+  const routeAudience = `${baseAudience.replace(/\/+$/, "")}${normalizedPrefix}`;
+  return options?.allowBaseAudience
+    ? [routeAudience, baseAudience]
+    : routeAudience;
 }
 
 function tokenHasAudienceClaim(token: string): boolean {
@@ -148,7 +159,10 @@ function isDirectReadSkill(skill: AgentSkill): boolean {
 export async function verifyA2AToken(
   token: string,
   event?: any,
-  routePrefix?: string,
+  audienceOptions?: {
+    routePrefix?: string;
+    allowBaseAudience?: boolean;
+  },
 ): Promise<A2ATokenPayload> {
   // Step 1: Peek at JWT claims WITHOUT verification to get org_domain.
   // This is safe because we only use org_domain to look up the secret,
@@ -204,7 +218,7 @@ export async function verifyA2AToken(
       // whose `aud` targets ANOTHER service verify against a shared secret. A
       // token that self-declares an audience must be checked against ours, so
       // when we have nothing to check it against we reject rather than skip.
-      const aud = expectedJwtAudience(event, routePrefix);
+      const aud = expectedJwtAudience(event, audienceOptions);
       if (!aud) return { email: null, orgDomain: null };
       verifyOptions.audience = aud;
     }
@@ -284,7 +298,13 @@ export function mountA2A(
           getRequestHeader(event, "authorization"),
         );
         if (bearer) {
-          const payload = await verifyA2AToken(bearer, event);
+          const payload = await verifyA2AToken(bearer, event, {
+            routePrefix,
+            // Capability discovery may begin from either the app URL or an
+            // already-advertised endpoint URL. Both identify this receiver;
+            // direct POST invocation below remains endpoint-bound.
+            allowBaseAudience: true,
+          });
           if (payload.email) {
             skills = tokenHasAudienceClaim(bearer)
               ? config.authenticatedSkills
@@ -514,11 +534,9 @@ export function mountA2A(
 
       // Try JWT verification first (org-level or global A2A_SECRET-based identity)
       if (bearerToken) {
-        const tokenPayload = await verifyA2AToken(
-          bearerToken,
-          event,
+        const tokenPayload = await verifyA2AToken(bearerToken, event, {
           routePrefix,
-        );
+        });
         verifiedCallerEmail = tokenPayload.email;
         verifiedOrgDomain = tokenPayload.orgDomain;
         if (verifiedCallerEmail) {
