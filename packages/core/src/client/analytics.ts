@@ -57,6 +57,15 @@ declare global {
   interface Window {
     gtag?: (...args: any[]) => void;
     __AGENT_NATIVE_CONFIG__?: {
+      /**
+       * This app's origins, projected by server/app-origin-config.ts. These
+       * replace the `VITE_` mirrors of APP_URL / WORKSPACE_* — the prefix only
+       * ever answered "how does this reach the browser", which the shell
+       * answers better. Impersonal, so safe in the CDN-cached shell.
+       */
+      appUrl?: string;
+      workspaceGatewayUrl?: string;
+      workspaceOAuthOrigin?: string;
       sentryDsn?: string;
       sentryEnvironment?: string;
       /**

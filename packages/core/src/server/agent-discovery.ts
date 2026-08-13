@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { getAppConfig } from "../app-config/index.js";
 import { TEMPLATES } from "../cli/templates-meta.js";
 import {
   DEFAULT_WORKSPACE_APP_AUDIENCE,
@@ -631,12 +632,13 @@ function readWorkspaceAppsFromFilesystem(): WorkspaceAppManifestEntry[] | null {
 }
 
 function workspaceBaseUrl(): string | null {
+  const config = getAppConfig();
+  // `URL` / `DEPLOY_URL` stay raw: they are platform facts, not app config.
   return (
-    process.env.WORKSPACE_GATEWAY_URL ||
-    process.env.APP_URL ||
-    process.env.URL ||
-    process.env.DEPLOY_URL ||
-    process.env.BETTER_AUTH_URL ||
+    config.workspace.gatewayUrl ??
+    config.app.url ??
+    process.env.URL ??
+    process.env.DEPLOY_URL ??
     null
   );
 }

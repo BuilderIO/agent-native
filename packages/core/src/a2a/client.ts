@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import * as jose from "jose";
 
+import { getAppConfig } from "../app-config/index.js";
 import { ssrfSafeFetch } from "../extensions/url-safety.js";
 
 /**
@@ -11,16 +12,15 @@ import { ssrfSafeFetch } from "../extensions/url-safety.js";
  * itself — never a value that arrived on a request.
  */
 function workspacePrivateOrigins(): string[] {
+  const config = getAppConfig();
+  // No trimming or blank-dropping here: the config layer trims string values
+  // and `a2a.allowedOrigins` rejects empty entries, so the only thing left to
+  // drop is an unset optional.
   const origins = [
-    process.env.WORKSPACE_GATEWAY_URL,
-    process.env.APP_URL,
-    process.env.BETTER_AUTH_URL,
-    // Escape hatch for contexts that never receive the gateway manifest (the
-    // action CLI, one-off scripts). Comma-separated origins.
-    ...(process.env.AGENT_NATIVE_A2A_ALLOWED_ORIGINS ?? "").split(","),
-  ]
-    .map((value) => value?.trim())
-    .filter((value): value is string => !!value);
+    config.workspace.gatewayUrl,
+    config.app.url,
+    ...config.a2a.allowedOrigins,
+  ].filter((value): value is string => value !== undefined);
 
   // The gateway also hands each child the sibling manifest, and siblings are
   // reached on their own loopback ports rather than through the gateway.
@@ -169,10 +169,7 @@ export async function signA2AToken(
     );
   }
 
-  const appUrl =
-    process.env.APP_URL ||
-    process.env.BETTER_AUTH_URL ||
-    "http://localhost:3000";
+  const appUrl = getAppConfig().app.url ?? "http://localhost:3000";
 
   const jwt = new jose.SignJWT({
     ...(options?.extraClaims ?? {}),

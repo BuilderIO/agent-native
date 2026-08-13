@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { defineAction } from "../../action.js";
+import { getAppConfig } from "../../app-config/index.js";
 import {
   buildAgentAccessApiUrl,
   buildAgentAccessUrl,
@@ -17,8 +18,7 @@ import { requireShareableResource } from "../registry.js";
 function appOrigin(): string {
   const origin =
     getRequestContext()?.requestOrigin ||
-    process.env.APP_URL ||
-    process.env.BETTER_AUTH_URL ||
+    getAppConfig().app.url ||
     "http://localhost:3000";
   try {
     return new URL(origin).origin;

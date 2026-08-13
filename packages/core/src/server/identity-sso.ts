@@ -20,6 +20,7 @@ import type { H3Event } from "h3";
 import { deleteCookie, getCookie, getHeader, getMethod, setCookie } from "h3";
 import * as jose from "jose";
 
+import { getAppConfig } from "../app-config/index.js";
 import {
   GOOGLE_AUTH_REQUIRED_MESSAGE,
   isGoogleSignInRequiredForEmail,
@@ -133,9 +134,11 @@ function normalizeAuthority(raw: string): string | null {
 }
 
 function resolveAppId(event: H3Event): string {
-  const configured =
-    process.env.AGENT_NATIVE_APP_ID?.trim() ||
-    process.env.AGENT_NATIVE_WORKSPACE_APP_ID?.trim();
+  // Generic id first here, unlike credential scoping: SSO identifies this app
+  // instance to an authority, it does not look up a row keyed by the id a
+  // workspace deploy assigned.
+  const app = getAppConfig().app;
+  const configured = app.id ?? app.workspaceId;
   if (configured) return configured;
   const name = getAppName();
   if (name && name !== "app") return name;

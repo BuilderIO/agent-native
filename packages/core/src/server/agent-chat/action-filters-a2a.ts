@@ -17,6 +17,7 @@ import {
 import { runAgentLoopDirectWithSoftTimeout } from "../../agent/run-loop-with-resume.js";
 import { resolveRunSoftTimeoutMs } from "../../agent/run-manager.js";
 import type { AgentChatEvent } from "../../agent/types.js";
+import { getAppConfig } from "../../app-config/index.js";
 import { isFrameworkGroupedAction } from "../../framework-tools.js";
 import {
   isAuthenticatedReadAction,
@@ -231,11 +232,11 @@ export function buildAuthenticatedAgentA2ASkills(
 export function resolveArtifactBaseUrl(
   event: any | undefined,
 ): string | undefined {
+  // An artifact link is user-facing, so the canonical URL wins; the platform's
+  // per-deploy URLs are the fallback, not the other way round (that ordering
+  // belongs to self-dispatch, which has to reach *this* deploy).
   const fromEnv =
-    process.env.APP_URL ||
-    process.env.URL ||
-    process.env.DEPLOY_URL ||
-    process.env.BETTER_AUTH_URL;
+    getAppConfig().app.url ?? process.env.URL ?? process.env.DEPLOY_URL;
   if (fromEnv) return withConfiguredAppBasePath(String(fromEnv));
 
   try {

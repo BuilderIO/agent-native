@@ -1222,6 +1222,41 @@ function getRealtimeClientConfigScript() {
   );
 }
 
+function getAppOriginClientConfigScript() {
+  // MUST stay consistent with resolvePublicAppOriginConfig in
+  // server/app-origin-config.ts, and with the alias order declared on
+  // app.url / workspace.* in app-config (worker bundles a string copy; it
+  // can't import them). Impersonal values only — this ships into the
+  // CDN-cached shell.
+  const env = globalThis.process?.env || {};
+  const appUrl = firstNonEmpty(
+    env.APP_URL,
+    env.VITE_APP_URL,
+    env.BETTER_AUTH_URL,
+    env.VITE_BETTER_AUTH_URL,
+  );
+  const workspaceGatewayUrl = firstNonEmpty(
+    env.WORKSPACE_GATEWAY_URL,
+    env.VITE_WORKSPACE_GATEWAY_URL,
+  );
+  const workspaceOAuthOrigin = firstNonEmpty(
+    env.WORKSPACE_OAUTH_ORIGIN,
+    env.VITE_WORKSPACE_OAUTH_ORIGIN,
+  );
+  const config = {
+    ...(appUrl ? { appUrl } : {}),
+    ...(workspaceGatewayUrl ? { workspaceGatewayUrl } : {}),
+    ...(workspaceOAuthOrigin ? { workspaceOAuthOrigin } : {}),
+  };
+  if (Object.keys(config).length === 0) return null;
+  return (
+    '<script data-agent-native-app-origin-config>' +
+    'window.__AGENT_NATIVE_CONFIG__=Object.assign({},window.__AGENT_NATIVE_CONFIG__,' +
+    JSON.stringify(config) +
+    ");</script>"
+  );
+}
+
 function injectHeadScript(html, script) {
   if (!script) return html;
   const headCloseIdx = html.indexOf("</head>");
@@ -1377,6 +1412,7 @@ async function rewriteMountedResponse(response, basePath, pathname, request) {
       getSentryClientConfigScript(),
       getPostHogClientConfigScript(),
       getRealtimeClientConfigScript(),
+      getAppOriginClientConfigScript(),
     ]
       .filter(Boolean)
       .join("") || null;

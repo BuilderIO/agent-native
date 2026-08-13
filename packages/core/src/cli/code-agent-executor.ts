@@ -28,6 +28,7 @@ import {
   TOOL_SEARCH_ACTION_NAME,
 } from "../agent/tool-search.js";
 import type { AgentChatEvent } from "../agent/types.js";
+import { getAppConfig } from "../app-config/index.js";
 import {
   formatPromptWithAttachments,
   type AgentPromptAttachment,
@@ -222,7 +223,7 @@ export async function executeCodeAgentRun(
   // Without it, `AGENT_ENGINE=codex-cli` skips this Codex branch and is handed
   // to resolveEngine (LLM providers only), which throws `Unknown engine`.
   const requestedEngine = normalizeRequestedEngine(
-    metadataString(existing, "engine") ?? process.env.AGENT_ENGINE,
+    metadataString(existing, "engine") ?? getAppConfig().agent.engine,
   );
   if (requestedEngine === CODEX_CLI_ENGINE_NAME) {
     return executeCodexCliRun({
@@ -280,7 +281,7 @@ export async function executeCodeAgentRun(
   const modelCandidate =
     options.model ??
     metadataString(existing, "model") ??
-    process.env.AGENT_MODEL ??
+    getAppConfig().agent.model ??
     (await getStoredModelForEngine(engine).catch(() => undefined)) ??
     engine.defaultModel;
   const model = normalizeModelForEngine(engine, modelCandidate);
@@ -1534,12 +1535,12 @@ async function resolveExecutorEngine(
   registerBuiltinEngines();
   if (!hasAnyProviderCredential()) return null;
   return resolveEngine({
-    engineOption: requestedEngine ?? process.env.AGENT_ENGINE,
+    engineOption: requestedEngine ?? getAppConfig().agent.engine,
   });
 }
 
 function hasAnyProviderCredential(): boolean {
-  if (process.env.AGENT_ENGINE) return true;
+  if (getAppConfig().agent.engine) return true;
   if (PROVIDER_ENV_VARS.some((key) => Boolean(process.env[key]))) return true;
   return Boolean(
     process.env.BUILDER_PRIVATE_KEY && process.env.BUILDER_PUBLIC_KEY,
