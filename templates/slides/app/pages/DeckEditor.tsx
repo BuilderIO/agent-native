@@ -807,6 +807,50 @@ export default function DeckEditor() {
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [deck, id, activeSlideId, deleteSlideWithUndo, pinMode, drawMode]);
 
+  // Cmd/Ctrl+C then Cmd/Ctrl+V duplicates a slide thumbnail in the film
+  // strip. Scoped to an actually-focused thumbnail (rather than "no other
+  // handler claimed it", like the Delete-key handler below) so the shortcut
+  // can't fire from an unrelated toolbar button, dialog, or menu.
+  const copiedSlideIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!deck || !id) return;
+      if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
+      const key = e.key.toLowerCase();
+      if (key !== "c" && key !== "v") return;
+      if (pinMode || drawMode) return;
+      if (
+        document.querySelector(
+          "[role='dialog'], [role='menu'], [role='listbox']",
+        )
+      ) {
+        return;
+      }
+      if (!canEdit) return;
+      const focusedThumbnail = document.activeElement?.closest(
+        "[data-slide-thumbnail-id]",
+      );
+      if (!focusedThumbnail) return;
+      const focusedSlideId = focusedThumbnail.getAttribute(
+        "data-slide-thumbnail-id",
+      );
+      if (!focusedSlideId) return;
+
+      if (key === "c") {
+        copiedSlideIdRef.current = focusedSlideId;
+        return;
+      }
+      const copiedSlideId = copiedSlideIdRef.current;
+      if (!copiedSlideId) return;
+      if (!deck.slides.some((s) => s.id === copiedSlideId)) return;
+      e.preventDefault();
+      const newSlideId = duplicateSlide(id, copiedSlideId);
+      if (newSlideId) setActiveSlideId(newSlideId);
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [deck, id, duplicateSlide, canEdit, pinMode, drawMode]);
+
   // Resolve the active slide from URL/deck state. Imports replace slide IDs, so
   // keep this valid after deck contents change instead of only on first load.
   // Track the last URL ?slide param we processed so we can tell "the URL changed
@@ -1150,6 +1194,11 @@ export default function DeckEditor() {
         onDuplicateCurrentSlide={
           currentSlide ? () => duplicateSlide(id, currentSlide.id) : undefined
         }
+        onChangeSlideTransition={
+          canEdit && currentSlide
+            ? (transition) => updateSlide(id, currentSlide.id, { transition })
+            : undefined
+        }
       />
 
       {/* Full-width host for the slide's contextual style toolbar: it spans the
@@ -1268,6 +1317,10 @@ export default function DeckEditor() {
                   }
                   textBoxMode={textBoxMode}
                   onToggleTextBoxMode={toggleTextBoxMode}
+                  slideTransition={currentSlide.transition}
+                  onChangeSlideTransition={(transition) =>
+                    updateSlide(id, currentSlide.id, { transition })
+                  }
                 />
               ) : undefined
             }

@@ -12,6 +12,7 @@ import type {
   CancelPreparedBuilderSourceUpdateResponse,
   ChangeContentDatabaseSourceRoleRequest,
   ContentDatabaseResponse,
+  ContentDatabaseRowMutationResult,
   ContentDatabaseSourceAttachmentAck,
   ContentDatabaseSourceAttachmentResult,
   ContentDatabaseItemsPageResponse,
@@ -819,40 +820,40 @@ export function useTrashedContentDatabases() {
 
 export function useAddDatabaseItem(documentId: string) {
   const queryClient = useQueryClient();
-  return useActionMutation<ContentDatabaseResponse, AddDatabaseItemRequest>(
-    "add-database-item",
-    {
-      skipActionQueryInvalidation: true,
-      onSuccess: (data) => {
-        if (data.createdItem) {
-          queryClient.setQueriesData<ContentDatabaseResponse>(
-            {
-              queryKey: ["action", "get-content-database"],
-              predicate: (query) => {
-                if (
-                  !isContentDatabaseQueryForDocument(query.queryKey, documentId)
-                ) {
-                  return false;
-                }
-                const params = query.queryKey[2] as {
-                  tableQuery?: unknown;
-                };
-                return params.tableQuery === undefined;
-              },
+  return useActionMutation<
+    ContentDatabaseRowMutationResult,
+    AddDatabaseItemRequest
+  >("add-database-item", {
+    skipActionQueryInvalidation: true,
+    onSuccess: (data) => {
+      if (data.createdItem) {
+        queryClient.setQueriesData<ContentDatabaseResponse>(
+          {
+            queryKey: ["action", "get-content-database"],
+            predicate: (query) => {
+              if (
+                !isContentDatabaseQueryForDocument(query.queryKey, documentId)
+              ) {
+                return false;
+              }
+              const params = query.queryKey[2] as {
+                tableQuery?: unknown;
+              };
+              return params.tableQuery === undefined;
             },
-            (current) =>
-              applyOptimisticItemToContentDatabase(current, data.createdItem!),
-          );
-        }
-        queryClient.invalidateQueries({
-          queryKey: contentDatabaseQueryKey(documentId),
-        });
-        queryClient.invalidateQueries({
-          queryKey: ["action", "list-documents"],
-        });
-      },
+          },
+          (current) =>
+            applyOptimisticItemToContentDatabase(current, data.createdItem!),
+        );
+      }
+      queryClient.invalidateQueries({
+        queryKey: contentDatabaseQueryKey(documentId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-documents"],
+      });
     },
-  );
+  });
 }
 
 export function useSubmitContentDatabaseForm(documentId: string) {

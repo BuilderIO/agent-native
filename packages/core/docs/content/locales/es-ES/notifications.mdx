@@ -363,7 +363,7 @@ Las automatizaciones pueden encadenar esto, p. _"si se activa una notificación 
 ## Cómo funciona {#internals}
 
 - **Alcance del propietario**: cada fila tiene una columna `owner`; cada consulta se filtra por él; cada ruta utiliza el correo electrónico de la sesión autenticada. Los usuarios nunca ven las notificaciones de los demás.
-- **Integración de encuesta**: cada mutación llama a `recordChange()`, por lo que las plantillas que utilizan [`useDbSync`](/docs/client) se invalidan automáticamente sin ningún cableado adicional.
+- **Integración de encuesta**: cada mutación llama a `recordChange()`, por lo que las plantillas que utilizan [`useDbSync`](/docs/client-data#usedbsync) se invalidan automáticamente sin ningún cableado adicional.
 - **Distribución con el mejor esfuerzo**: los errores de canal se detectan y registran; un canal que falla no bloquea otros ni la escritura en la bandeja de entrada.
 - **Disparar y olvidar**: `notify()` regresa después de que se completa la escritura en la bandeja de entrada; Los canales personalizados se ejecutan en segundo plano.
 

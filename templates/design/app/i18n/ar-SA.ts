@@ -57,7 +57,7 @@ const messages = {
     commentMode: "إضافة تعليق",
     sendToAgent: "إرسال إلى الوكيل",
     sendingToAgent: "جارٍ الإرسال إلى الوكيل…",
-    enterToPost: "اضغط Enter للنشر · وShift+Enter لسطر جديد",
+    enterToPost: "اضغط Enter للنشر · وShift Enter لسطر جديد",
     post: "نشر",
     posting: "جارٍ النشر…",
     postFailed: "تعذر نشر هذا التعليق",

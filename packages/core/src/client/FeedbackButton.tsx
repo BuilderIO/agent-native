@@ -62,7 +62,7 @@ const FEEDBACK_COPY: Record<
     invalidUrl: "Invalid feedback URL",
     emptyError: "Please write something first",
     sendError: "Couldn't send feedback",
-    keyboardHint: "{{shortcut}}+Enter to send",
+    keyboardHint: "{{shortcut}} Enter to send",
   },
   "zh-CN": {
     label: "反馈",
@@ -74,7 +74,7 @@ const FEEDBACK_COPY: Record<
     invalidUrl: "反馈 URL 无效",
     emptyError: "请先写点内容",
     sendError: "无法发送反馈",
-    keyboardHint: "{{shortcut}}+Enter 发送",
+    keyboardHint: "{{shortcut}} Enter 发送",
   },
   "zh-TW": {
     label: "意見回饋",
@@ -86,7 +86,7 @@ const FEEDBACK_COPY: Record<
     invalidUrl: "意見回饋 URL 無效",
     emptyError: "請先輸入內容",
     sendError: "無法送出意見回饋",
-    keyboardHint: "{{shortcut}}+Enter 送出",
+    keyboardHint: "{{shortcut}} Enter 送出",
   },
   "es-ES": {
     label: "Comentarios",
@@ -98,7 +98,7 @@ const FEEDBACK_COPY: Record<
     invalidUrl: "URL de comentarios no válida",
     emptyError: "Escribe algo primero",
     sendError: "No se pudieron enviar los comentarios",
-    keyboardHint: "{{shortcut}}+Enter para enviar",
+    keyboardHint: "{{shortcut}} Enter para enviar",
   },
   "fr-FR": {
     label: "Retour",
@@ -110,7 +110,7 @@ const FEEDBACK_COPY: Record<
     invalidUrl: "URL de retour invalide",
     emptyError: "Écrivez quelque chose d'abord",
     sendError: "Impossible d'envoyer le retour",
-    keyboardHint: "{{shortcut}}+Entrée pour envoyer",
+    keyboardHint: "{{shortcut}} Entrée pour envoyer",
   },
   "de-DE": {
     label: "Feedback",
@@ -122,7 +122,7 @@ const FEEDBACK_COPY: Record<
     invalidUrl: "Ungültige Feedback-URL",
     emptyError: "Bitte zuerst etwas schreiben",
     sendError: "Feedback konnte nicht gesendet werden",
-    keyboardHint: "{{shortcut}}+Enter zum Senden",
+    keyboardHint: "{{shortcut}} Enter zum Senden",
   },
   "ja-JP": {
     label: "フィードバック",
@@ -134,7 +134,7 @@ const FEEDBACK_COPY: Record<
     invalidUrl: "フィードバック URL が無効です",
     emptyError: "先に内容を入力してください",
     sendError: "送信できませんでした",
-    keyboardHint: "{{shortcut}}+Enter で送信",
+    keyboardHint: "{{shortcut}} Enter で送信",
   },
   "ko-KR": {
     label: "피드백",
@@ -146,7 +146,7 @@ const FEEDBACK_COPY: Record<
     invalidUrl: "피드백 URL이 올바르지 않습니다",
     emptyError: "먼저 내용을 입력해 주세요",
     sendError: "피드백을 보낼 수 없습니다",
-    keyboardHint: "{{shortcut}}+Enter로 보내기",
+    keyboardHint: "{{shortcut}} Enter로 보내기",
   },
   "pt-BR": {
     label: "Feedback",
@@ -158,7 +158,7 @@ const FEEDBACK_COPY: Record<
     invalidUrl: "URL de feedback inválida",
     emptyError: "Escreva algo primeiro",
     sendError: "Não foi possível enviar o feedback",
-    keyboardHint: "{{shortcut}}+Enter para enviar",
+    keyboardHint: "{{shortcut}} Enter para enviar",
   },
   "hi-IN": {
     label: "फ़ीडबैक",
@@ -170,7 +170,7 @@ const FEEDBACK_COPY: Record<
     invalidUrl: "फ़ीडबैक URL अमान्य है",
     emptyError: "पहले कुछ लिखें",
     sendError: "फ़ीडबैक भेजा नहीं जा सका",
-    keyboardHint: "भेजने के लिए {{shortcut}}+Enter",
+    keyboardHint: "भेजने के लिए {{shortcut}} Enter",
   },
   "ar-SA": {
     label: "ملاحظات",
@@ -182,7 +182,7 @@ const FEEDBACK_COPY: Record<
     invalidUrl: "رابط الملاحظات غير صالح",
     emptyError: "اكتب شيئا أولا",
     sendError: "تعذر إرسال الملاحظات",
-    keyboardHint: "{{shortcut}}+Enter للإرسال",
+    keyboardHint: "{{shortcut}} Enter للإرسال",
   },
 };
 
@@ -610,7 +610,7 @@ function FeedbackPopoverButton({
                     copy.keyboardHint.replace(
                       "{{shortcut}}",
                       /Mac|iPhone|iPad/.test(navigator.userAgent)
-                        ? "⌘"
+                        ? "Cmd"
                         : "Ctrl",
                     )}
                 </div>

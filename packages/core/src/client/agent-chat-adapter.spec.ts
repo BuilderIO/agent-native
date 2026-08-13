@@ -1822,6 +1822,420 @@ describe("createAgentChatAdapter", () => {
     ]);
   });
 
+  it("stops a loop_limit chain that keeps producing the same tool calls", async () => {
+    // The "it worked for 20 minutes" bug. `loop_limit` used to skip every
+    // client continuation budget AND reset two of them, and the durable
+    // per-turn ledger lives inside one server run, so a model that degenerated
+    // into a tool loop re-POSTed the same turnId forever (production: 186m,
+    // 113m, 77m turns that never answered).
+    vi.useFakeTimers();
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let postCount = 0;
+    const fetchSpy = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method !== "POST") {
+        return jsonResponse({ active: false, status: "idle" });
+      }
+      postCount += 1;
+      return sseResponse([
+        { type: "tool_start", tool: "list-rows", input: { table: "users" } },
+        { type: "tool_done", tool: "list-rows", result: "0 rows" },
+        { type: "tool_start", tool: "list-rows", input: { table: "users" } },
+        { type: "tool_done", tool: "list-rows", result: "0 rows" },
+        { type: "loop_limit", maxIterations: 400 },
+      ]);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-loop-limit-runaway",
+      threadId: "thread-loop-limit-runaway",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          { role: "user", content: [{ type: "text", text: "count users" }] },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(120_000);
+    const results = await promise;
+
+    // Identical work every round collapses to one advance signature, so the
+    // chain stops within MAX_NON_ADVANCING_CONTINUATIONS instead of running
+    // until the user closes the tab.
+    expect(postCount).toBeLessThanOrEqual(5);
+    const last = results.at(-1) as any;
+    expect(last.status).toEqual({ type: "incomplete", reason: "error" });
+  });
+
+  it("keeps continuing a loop_limit chain that completes new work each round", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let postCount = 0;
+    const fetchSpy = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method !== "POST") {
+        return jsonResponse({ active: false, status: "idle" });
+      }
+      postCount += 1;
+      if (postCount <= 8) {
+        return sseResponse([
+          {
+            type: "tool_start",
+            tool: "read-file",
+            input: { path: `src/${postCount}.ts` },
+          },
+          {
+            type: "tool_done",
+            tool: "read-file",
+            result: `contents of ${postCount}`,
+          },
+          { type: "loop_limit", maxIterations: 400 },
+        ]);
+      }
+      return sseResponse([
+        { type: "text", text: "analysis complete" },
+        { type: "done" },
+      ]);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-loop-limit-progress",
+      threadId: "thread-loop-limit-progress",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          { role: "user", content: [{ type: "text", text: "audit the repo" }] },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(120_000);
+    const results = await promise;
+
+    // A genuinely long, PROGRESSING turn must still finish: eight loop_limit
+    // rounds that each read a different file, then the answer.
+    expect(postCount).toBe(9);
+    const last = results.at(-1) as any;
+    expect(last.content.at(-1).text).toBe("analysis complete");
+  });
+
+  it("bounds a progressing loop_limit chain at the work-boundary ceiling, not the transient one", async () => {
+    // Every round completes a DIFFERENT tool at a server work boundary —
+    // nothing failed, so the transient ceiling (12) is the wrong unit and used
+    // to kill this turn at round 13. MAX_LOOP_LIMIT_CONTINUATIONS (25) is the
+    // boundary that binds instead.
+    vi.useFakeTimers();
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let postCount = 0;
+    const fetchSpy = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method !== "POST") {
+        return jsonResponse({ active: false, status: "idle" });
+      }
+      postCount += 1;
+      const tool = `read-file-${postCount}`;
+      return sseResponse([
+        { type: "tool_start", tool, input: { path: `src/${postCount}.ts` } },
+        { type: "tool_done", tool, result: `contents of ${postCount}` },
+        { type: "loop_limit", maxIterations: 400 },
+      ]);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-loop-limit-ceiling",
+      threadId: "thread-loop-limit-ceiling",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          { role: "user", content: [{ type: "text", text: "audit the repo" }] },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(300_000);
+    const results = await promise;
+
+    expect(postCount).toBe(26);
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:run-error",
+        detail: expect.objectContaining({
+          details: expect.stringContaining("loop_limit_continuations: 26"),
+        }),
+      }),
+    );
+    const last = results.at(-1) as any;
+    expect(last.content.at(-1).text).toContain(
+      "reached the limit on how many times it can be automatically continued",
+    );
+  });
+
+  it("keeps a loop_limit chain going when an earlier round left an unresolved Preparing card", async () => {
+    // `visibleContent` accumulates across a loop_limit chain, so an activity
+    // card left unresolved in round 1 used to make every later text-only round
+    // produce the same `preparing X` signature and die as "stuck preparing the
+    // X action" while the model was streaming genuinely new prose.
+    vi.useFakeTimers();
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let postCount = 0;
+    const fetchSpy = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method !== "POST") {
+        return jsonResponse({ active: false, status: "idle" });
+      }
+      postCount += 1;
+      if (postCount === 1) {
+        return sseResponse([
+          {
+            type: "activity",
+            label: "Preparing create-extension action",
+            tool: "create-extension",
+          },
+          { type: "text", text: "Starting the review." },
+          { type: "loop_limit", maxIterations: 400 },
+        ]);
+      }
+      if (postCount <= 5) {
+        return sseResponse([
+          { type: "text", text: `Section ${postCount} of the review.` },
+          { type: "loop_limit", maxIterations: 400 },
+        ]);
+      }
+      return sseResponse([
+        { type: "text", text: "Review done." },
+        { type: "done" },
+      ]);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-loop-limit-preparing",
+      threadId: "thread-loop-limit-preparing",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          { role: "user", content: [{ type: "text", text: "review this" }] },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(120_000);
+    const results = await promise;
+
+    expect(postCount).toBe(6);
+    const last = results.at(-1) as any;
+    const text = JSON.stringify(last.content);
+    expect(text).toContain("Review done.");
+    expect(text).not.toContain("stuck preparing");
+  });
+
+  it("replays a failed prior-turn tool call as a failure, not a success", async () => {
+    // "I tried something repeatedly and it repeatedly failed": without
+    // `isError` the next turn sees the failed call as an ordinary result whose
+    // body happens to read like an error, so the model retries a permanently
+    // failing precondition. The server's repeat-error breaker keys on the flag.
+    const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-failed-tool-history",
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          { role: "user", content: [{ type: "text", text: "send the email" }] },
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                toolCallId: "call-send",
+                toolName: "send-email",
+                args: { to: "a@example.com" },
+                result: "Missing RESEND_API_KEY.",
+                isError: true,
+              },
+              {
+                type: "tool-call",
+                toolCallId: "call-save",
+                toolName: "save-draft",
+                args: { id: "1" },
+                result: "Interrupted before this tool returned a result.",
+                outcome: "unknown",
+              },
+            ],
+          },
+          { role: "user", content: [{ type: "text", text: "try again" }] },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    const results = body.structuredHistory.flatMap((message: any) =>
+      message.content.filter((part: any) => part.type === "tool-result"),
+    );
+    const failed = results.find((part: any) => part.toolName === "send-email");
+    expect(failed.isError).toBe(true);
+    const interrupted = results.find(
+      (part: any) => part.toolName === "save-draft",
+    );
+    // Unknown is neither success nor failure: it keeps the interrupted marker
+    // the server matches on and must never claim the call errored.
+    expect(interrupted.isError).toBeUndefined();
+    expect(interrupted.content).toContain(
+      "Interrupted before this tool returned a result.",
+    );
+  });
+
+  it("prices tool-heavy assistant turns against the history budget", async () => {
+    // Counting only text parts made a turn of large tool calls cost ~0, so it
+    // survived every trim while the user's own prose was evicted around it.
+    const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-history-cost",
+    });
+
+    const bulkyAssistantTurn = (index: number) => ({
+      role: "assistant",
+      content: Array.from({ length: 6 }, (_, i) => ({
+        type: "tool-call",
+        toolCallId: `call-${index}-${i}`,
+        toolName: "query-rows",
+        args: { sql: "x".repeat(7_000) },
+        result: "y".repeat(11_000),
+      })),
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "the original ask" }],
+          },
+          bulkyAssistantTurn(1),
+          { role: "user", content: [{ type: "text", text: "second ask" }] },
+          bulkyAssistantTurn(2),
+          { role: "user", content: [{ type: "text", text: "third ask" }] },
+          bulkyAssistantTurn(3),
+          { role: "user", content: [{ type: "text", text: "now do it" }] },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(JSON.stringify(body.structuredHistory).length).toBeLessThan(400_000);
+  });
+
+  it("prices object tool results by what the request actually carries", async () => {
+    // Action results are objects, not strings. `String(result)` prices every
+    // one of them at 15 chars ("[object Object]"), so a turn of large object
+    // results again survived the trim while older prose was evicted for it.
+    const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-object-result-cost",
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "the original ask" }],
+          },
+          {
+            role: "assistant",
+            content: Array.from({ length: 6 }, (_, i) => ({
+              type: "tool-call",
+              toolCallId: `call-${i}`,
+              toolName: "query-rows",
+              args: { sql: "select 1" },
+              result: { rows: [{ col: "y".repeat(13_000) }] },
+            })),
+          },
+          { role: "user", content: [{ type: "text", text: "now do it" }] },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    const body = fetchSpy.mock.calls[0][1].body as string;
+    expect(body).toContain("now do it");
+    expect(body).not.toContain("the original ask");
+  });
+
   it("preserves structured tool history when auto-continuing after a transient error", async () => {
     vi.stubGlobal("window", { dispatchEvent: vi.fn() });
     vi.stubGlobal(
@@ -2227,7 +2641,12 @@ describe("createAgentChatAdapter", () => {
       } as any),
     );
 
+    // Let the mocked fetch and 409 response settle before advancing the retry
+    // delay; otherwise the fake clock can advance before that timer exists.
+    await Promise.resolve();
+    await Promise.resolve();
     await vi.advanceTimersByTimeAsync(500);
+    await vi.runAllTimersAsync();
     const results = await promise;
 
     expect(postCount).toBe(2);
@@ -2529,7 +2948,12 @@ describe("createAgentChatAdapter", () => {
       } as any),
     );
 
+    // Let the mocked fetch and 409 response settle before advancing the retry
+    // delay; otherwise the fake clock can advance before that timer exists.
+    await Promise.resolve();
+    await Promise.resolve();
     await vi.advanceTimersByTimeAsync(500);
+    await vi.runAllTimersAsync();
     const results = await promise;
 
     // It must retry its own prompt, never fetch the old run's events (replay).
@@ -2892,10 +3316,10 @@ describe("createAgentChatAdapter", () => {
 
     // A run that produces nothing visible no longer gives up on the first
     // soft-timeout (that made heavier prompts feel like they "stop midway").
-    // It retries through the empty-continuation budget
-    // (MAX_EMPTY_TRANSIENT_CONTINUATIONS = 3) — 1 initial + 3 retries = 4
-    // POSTs — then surfaces the "no visible progress" error.
-    expect(postCount).toBe(4);
+    // It retries through the non-advancing budget
+    // (MAX_NON_ADVANCING_CONTINUATIONS = 3) — 1 initial + 2 retries, and the
+    // third non-advancing round stops it — then surfaces the error.
+    expect(postCount).toBe(3);
     expect(dispatchEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "agent-chat:run-error",
@@ -3556,7 +3980,10 @@ describe("createAgentChatAdapter", () => {
     await vi.advanceTimersByTimeAsync(10_000);
     const results = await promise;
 
-    expect(postCount).toBe(5);
+    // The narration differs every round, which is exactly why text alone
+    // cannot be the progress signal: the unstarted action card is what the
+    // advance signature keys on.
+    expect(postCount).toBe(4);
     expect(dispatchEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "agent-chat:run-error",
@@ -3565,9 +3992,7 @@ describe("createAgentChatAdapter", () => {
           message: expect.stringContaining(
             "got stuck preparing the present design variants action input",
           ),
-          details: expect.stringContaining(
-            "repeated_action_preparation_stalls: 4",
-          ),
+          details: expect.stringContaining("non_advancing_continuations: 3"),
         }),
       }),
     );
@@ -3588,12 +4013,12 @@ describe("createAgentChatAdapter", () => {
       "attempted_runs: run-qa",
     );
     expect(dispatchedRunError?.detail.details).toContain(
-      "last_preparing_tool: present-design-variants",
+      "stalled_on_tool: present-design-variants",
     );
     const last = results.at(-1) as any;
     expect(last.status).toEqual({ type: "incomplete", reason: "error" });
     expect(last.metadata.custom.runError.details).toContain(
-      "last_preparing_tool: present-design-variants",
+      "stalled_on_tool: present-design-variants",
     );
     expect(last.content.at(-1).text).toContain(
       "got stuck preparing the present design variants action input",
@@ -4232,7 +4657,7 @@ describe("createAgentChatAdapter", () => {
         type: "agent-chat:run-error",
         detail: expect.objectContaining({
           errorCode: "stale_run",
-          details: expect.stringContaining("stale_run_continuations: 4"),
+          details: expect.stringContaining("non_advancing_continuations: 3"),
         }),
       }),
     );
@@ -5043,7 +5468,7 @@ describe("createAgentChatAdapter", () => {
     await vi.advanceTimersByTimeAsync(10_000);
     const results = await promise;
 
-    expect(chatPostCount).toBe(4);
+    expect(chatPostCount).toBe(5);
     expect(dispatchEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "agent-chat:run-error",
@@ -5396,9 +5821,9 @@ describe("createAgentChatAdapter", () => {
     await vi.advanceTimersByTimeAsync(10_000);
     const results = await promise;
 
-    // 1 initial + 3 empty retries, then the empty cap (3) is exceeded — no
-    // 10-POST runaway up to the stalled cap.
-    expect(postCount).toBe(4);
+    // 1 initial + 2 retries; the third non-advancing round stops it — no
+    // 10-POST runaway.
+    expect(postCount).toBe(3);
     expect(dispatchEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "agent-chat:run-error",
@@ -7748,17 +8173,15 @@ describe("createAgentChatAdapter", () => {
     await vi.advanceTimersByTimeAsync(10_000);
     const results = await promise;
 
-    // 1 initial + 4 repeated continuations, then the repetition cap (3) is
-    // exceeded — far short of MAX_TOTAL_TRANSIENT_CONTINUATIONS (12).
-    expect(postCount).toBe(5);
+    // 1 initial + 3 repeated continuations, then MAX_NON_ADVANCING_CONTINUATIONS
+    // (3) stops it — far short of MAX_TOTAL_TRANSIENT_CONTINUATIONS (12).
+    expect(postCount).toBe(4);
     expect(dispatchEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "agent-chat:run-error",
         detail: expect.objectContaining({
           errorCode: "connection_error",
-          details: expect.stringContaining(
-            "repeated_transient_continuations: 4",
-          ),
+          details: expect.stringContaining("non_advancing_continuations: 3"),
         }),
       }),
     );
@@ -7768,8 +8191,8 @@ describe("createAgentChatAdapter", () => {
   });
 
   it("gives a budget message, not a connection-failure message, when a progressing turn exhausts the total continuation cap", async () => {
-    // A turn that keeps completing a DIFFERENT tool every round never trips
-    // the empty/stalled/repeat/action-prep guards — it is "making real
+    // A turn that keeps completing a DIFFERENT tool every round advances on
+    // every continuation — it is "making real
     // progress" the whole time, exactly what MAX_TOTAL_TRANSIENT_CONTINUATIONS
     // (12) exists to bound. Reported bug: hitting that whole-turn ceiling was
     // told to the user as "the agent connection kept failing", which is not
@@ -8466,6 +8889,37 @@ describe("activeRunLooksAlive", () => {
       }),
     ).resolves.toBe(false);
     expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("treats an unresolved delegated-agent activity card as in-flight work", async () => {
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse({
+        active: true,
+        runId: "run-1",
+        status: "running",
+        hasInFlightWork: false,
+      }),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await expect(
+      activeRunLooksAlive({
+        apiUrl: "/_agent-native/agent-chat",
+        threadId: "thread-1",
+        runId: "run-1",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "agent-call",
+            toolName: "agent:Analytics",
+            argsText: "",
+            args: {},
+            activity: true,
+          },
+        ] as any,
+      }),
+    ).resolves.toBe(true);
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });
 

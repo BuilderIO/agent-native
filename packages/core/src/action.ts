@@ -161,6 +161,49 @@ export interface AgentActionStopOptions {
   toolResult?: string;
 }
 
+export interface ActionContractErrorOptions {
+  /** Stable machine-readable code safe to expose on every action transport. */
+  errorCode: string;
+  /** Safe structured context for callers. Never include secrets or raw driver errors. */
+  details?: Record<string, unknown>;
+  /** HTTP status for the action route. Contract conflicts normally use 409. */
+  statusCode?: number;
+}
+
+/**
+ * A deterministic, caller-correctable action contract failure.
+ *
+ * Unlike an ordinary Error, its code and explicitly safe details survive the
+ * framework HTTP transport. Internal failures remain generic 500 responses.
+ */
+export class ActionContractError extends Error {
+  readonly actionContractError = true;
+  readonly errorCode: string;
+  readonly details?: Record<string, unknown>;
+  readonly statusCode: number;
+
+  constructor(message: string, options: ActionContractErrorOptions) {
+    super(message);
+    this.name = "ActionContractError";
+    this.errorCode = options.errorCode;
+    this.details = options.details;
+    this.statusCode = options.statusCode ?? 409;
+  }
+}
+
+export function isActionContractError(
+  error: unknown,
+): error is ActionContractError {
+  return (
+    error instanceof ActionContractError ||
+    (!!error &&
+      typeof error === "object" &&
+      (error as { actionContractError?: unknown }).actionContractError ===
+        true &&
+      typeof (error as { errorCode?: unknown }).errorCode === "string")
+  );
+}
+
 /**
  * Throw from an action when the agent should stop the current turn instead of
  * feeding the failure back to the model for another retry.
@@ -473,6 +516,15 @@ interface DefineActionWithSchema<
    *  Only set this manually when you need to override the inference — e.g. a
    *  POST action that only reads data but can't use GET for a protocol reason. */
   readOnly?: boolean;
+  /** Declares that a successful call returns real evidence retrieved from a data
+   *  source at call time — a provider API, a warehouse, a connected repo, or the
+   *  app's own event/observability store. Apps that police fabricated answers
+   *  (see the Analytics final-response guard) read this instead of keeping a
+   *  hand-maintained list of action names, which drifts the moment a new source
+   *  action ships. Orthogonal to `readOnly`: a write that probes a live endpoint
+   *  and returns the outcome is still grounding. Metadata-only reads (schema,
+   *  catalogs, saved config) are not. */
+  grounding?: boolean;
   /** Set false for read-only tools that should stay available in Act mode but
    *  must not run during Plan mode because they perform substantive work
    *  rather than lightweight inspection. Defaults to allowed when read-only. */
@@ -631,6 +683,9 @@ interface DefineActionWithParams<
   /** If true, the framework will NOT emit a screen-refresh change event after a
    *  successful call. Auto-inferred as `true` when `http.method === "GET"`. */
   readOnly?: boolean;
+  /** Declares that a successful call returns real evidence retrieved from a data
+   *  source at call time. See the schema overload above. */
+  grounding?: boolean;
   /** Set false for read-only tools that should stay available in Act mode but
    *  must not run during Plan mode. See the schema overload above. */
   allowInPlanMode?: boolean;
@@ -708,6 +763,7 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly maxBodyBytes?: number;
   readonly agentTool?: boolean;
   readonly readOnly?: boolean;
+  readonly grounding?: boolean;
   readonly allowInPlanMode?: boolean;
   readonly planMode?: ActionPlanModeConfig<TInput>;
   readonly parallelSafe?: boolean;
@@ -968,6 +1024,9 @@ export function defineAction(options: any) {
       : {}),
     ...(typeof agentTool === "boolean" ? { agentTool } : {}),
     ...(typeof readOnly === "boolean" ? { readOnly } : {}),
+    ...(typeof options.grounding === "boolean"
+      ? { grounding: options.grounding }
+      : {}),
     ...(typeof options.allowInPlanMode === "boolean"
       ? { allowInPlanMode: options.allowInPlanMode }
       : {}),

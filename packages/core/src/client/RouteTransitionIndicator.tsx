@@ -47,7 +47,7 @@ export function RouteTransitionIndicator() {
 
   return (
     <div
-      aria-label="Loading the next page"
+      aria-label="Loading page..."
       aria-live="polite"
       className="pointer-events-none fixed inset-x-0 top-0 z-50 h-0.5 overflow-hidden bg-primary/15"
       data-route-transition-indicator="true"

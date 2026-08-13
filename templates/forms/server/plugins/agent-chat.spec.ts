@@ -17,4 +17,13 @@ describe("Forms agent public form links", () => {
     expect(FORMS_SYSTEM_PROMPT).toContain("remove the `/f/` path segment");
     expect(FORMS_SYSTEM_PROMPT).toContain("instead of inventing one");
   });
+
+  it("routes product metrics to the owning Analytics app", () => {
+    expect(FORMS_SYSTEM_PROMPT).toContain("agent-native signups");
+    expect(FORMS_SYSTEM_PROMPT).toContain("describe-workspace-apps");
+    expect(FORMS_SYSTEM_PROMPT).toContain("call-agent");
+    expect(FORMS_SYSTEM_PROMPT).toContain(
+      "Do not invent SQL or query another app's database",
+    );
+  });
 });

@@ -12,7 +12,9 @@ vi.mock("dom-to-pptx", () => ({
 
 import {
   addSpeakerNotesToPptxBlob,
+  buildDeckPptxBlob,
   exportDeckAsPptx,
+  patchBulletIndentsInPptxBlob,
 } from "./export-pptx-client";
 
 async function buildMinimalPptxBlob(slideCount = 1): Promise<Blob> {
@@ -62,6 +64,30 @@ function setRenderedSlide(html = "Editable title") {
   return slideCanvas;
 }
 
+function setPendingImage() {
+  const slideCanvas = setRenderedSlide(
+    '<img alt="Remote image" src="/remote-image.png" />',
+  );
+  const image = slideCanvas.querySelector<HTMLImageElement>("img");
+  if (!image) throw new Error("test image missing");
+  Object.defineProperties(image, {
+    complete: { configurable: true, value: false },
+    naturalWidth: { configurable: true, value: 0 },
+  });
+  return image;
+}
+
+function markImageAsLoaded(image: HTMLImageElement) {
+  Object.defineProperties(image, {
+    complete: { configurable: true, value: true },
+    naturalWidth: { configurable: true, value: 1 },
+  });
+  Object.defineProperty(image, "decode", {
+    configurable: true,
+    value: vi.fn().mockResolvedValue(undefined),
+  });
+}
+
 beforeEach(async () => {
   vi.clearAllMocks();
   setRenderedSlide();
@@ -95,6 +121,7 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -167,6 +194,70 @@ describe("exportDeckAsPptx", () => {
   });
 });
 
+describe("waitForImagesToSettle", () => {
+  it("continues after a remote image exceeds the bounded wait", async () => {
+    const realSetTimeout = globalThis.setTimeout.bind(globalThis);
+    vi.useFakeTimers();
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      callback(0);
+      return 1;
+    });
+    setPendingImage();
+
+    const exportPromise = buildDeckPptxBlob(
+      "Remote Image Deck",
+      [{ id: "slide-1" }],
+      "16:9",
+    );
+    const settled = Promise.race([
+      exportPromise.then(() => true),
+      new Promise<boolean>((resolve) =>
+        realSetTimeout(() => resolve(false), 250),
+      ),
+    ]);
+
+    await vi.runAllTimersAsync();
+
+    expect(await settled).toBe(true);
+    await exportPromise;
+    expect(mocks.exportToPptx).toHaveBeenCalledTimes(1);
+  });
+
+  it("rechecks completion after attaching load listeners", async () => {
+    const realSetTimeout = globalThis.setTimeout.bind(globalThis);
+    vi.useFakeTimers();
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      callback(0);
+      return 1;
+    });
+    const image = setPendingImage();
+    const nativeAddEventListener = image.addEventListener.bind(image);
+    vi.spyOn(image, "addEventListener").mockImplementation(
+      (type, listener, options) => {
+        nativeAddEventListener(type, listener, options);
+        if (type === "load") markImageAsLoaded(image);
+      },
+    );
+
+    const exportPromise = buildDeckPptxBlob(
+      "Race Deck",
+      [{ id: "slide-1" }],
+      "16:9",
+    );
+    const settled = Promise.race([
+      exportPromise.then(() => true),
+      new Promise<boolean>((resolve) =>
+        realSetTimeout(() => resolve(false), 250),
+      ),
+    ]);
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(await settled).toBe(true);
+    await exportPromise;
+    expect(mocks.exportToPptx).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("addSpeakerNotesToPptxBlob", () => {
   it("patches speaker notes into the generated PPTX package", async () => {
     const blob = await buildMinimalPptxBlob(1);
@@ -192,5 +283,25 @@ describe("addSpeakerNotesToPptxBlob", () => {
     expect(slideRels).toContain("../notesSlides/notesSlide1.xml");
     expect(presentationXml).toContain("<p:notesMasterIdLst>");
     expect(presentationXml).toContain("<p:notesSz");
+  });
+});
+
+describe("patchBulletIndentsInPptxBlob", () => {
+  it("preserves the measured gap between bullet markers and text", async () => {
+    const blob = await buildMinimalPptxBlob(1);
+    const zip = await JSZip.loadAsync(blob);
+    zip.file(
+      "ppt/slides/slide1.xml",
+      '<p:sld><p:sp><p:txBody><a:p><a:pPr marL="0" indent="0"><a:buChar char="•"/></a:pPr><a:r><a:t>Bullet</a:t></a:r></a:p></p:txBody></p:sp></p:sld>',
+    );
+    const slideBlob = await zip.generateAsync({ type: "blob" });
+
+    const patched = await patchBulletIndentsInPptxBlob(slideBlob, [[19.8]]);
+    const patchedZip = await JSZip.loadAsync(patched);
+    const slideXml = await patchedZip
+      .file("ppt/slides/slide1.xml")
+      ?.async("string");
+
+    expect(slideXml).toContain('marL="251460" indent="-251460"');
   });
 });

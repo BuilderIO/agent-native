@@ -705,7 +705,6 @@ export default function MeetingDetailRoute() {
           ) : null}
           <ShareMeetingPopover
             meetingId={meeting.id}
-            meetingTitle={meeting.title}
             shareTranscript={meeting.shareTranscript === true}
             transcriptReady={
               meeting.transcriptStatus === "ready" &&

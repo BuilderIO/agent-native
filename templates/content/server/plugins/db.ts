@@ -956,6 +956,91 @@ export const runContentMigrations = runMigrations(
       CREATE INDEX IF NOT EXISTS content_database_migration_receipts_owner_database_idx
         ON content_database_migration_receipts (owner_email, database_id)`,
     },
+    {
+      version: 81,
+      name: "content-block-field-identities",
+      sql: `CREATE TABLE IF NOT EXISTS document_block_fields (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+        document_id TEXT NOT NULL,
+        property_id TEXT NOT NULL,
+        revision INTEGER NOT NULL DEFAULT 0,
+        content_hash TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS document_block_fields_document_property_unique
+        ON document_block_fields (document_id, property_id);
+      CREATE INDEX IF NOT EXISTS document_block_fields_owner_document_idx
+        ON document_block_fields (owner_email, document_id)`,
+    },
+    {
+      version: 82,
+      name: "content-block-identities-and-tombstones",
+      sql: `CREATE TABLE IF NOT EXISTS document_blocks (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+        field_id TEXT NOT NULL,
+        parent_id TEXT,
+        kind TEXT NOT NULL,
+        position INTEGER NOT NULL,
+        sort_index INTEGER NOT NULL,
+        addressable INTEGER NOT NULL DEFAULT 1,
+        content_hash TEXT NOT NULL,
+        markdown TEXT NOT NULL DEFAULT '',
+        state TEXT NOT NULL DEFAULT 'live',
+        deleted_at_revision INTEGER,
+        recovered_at_revision INTEGER,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS document_blocks_field_state_sort_idx
+        ON document_blocks (field_id, state, sort_index);
+      CREATE INDEX IF NOT EXISTS document_blocks_parent_idx
+        ON document_blocks (parent_id)`,
+    },
+    // The portable schema maps integer({ mode: "boolean" }) to BOOLEAN on
+    // Postgres, while the raw INTEGER migration above is adapted to BIGINT.
+    // Convert the stored column before Drizzle sends boolean values.
+    {
+      version: 83,
+      name: "content-block-addressable-postgres-boolean",
+      sql: {
+        postgres: `ALTER TABLE document_blocks ALTER COLUMN addressable DROP DEFAULT;
+        ALTER TABLE document_blocks ALTER COLUMN addressable TYPE boolean USING addressable::text::boolean;
+        ALTER TABLE document_blocks ALTER COLUMN addressable SET DEFAULT true`,
+      },
+    },
+    {
+      version: 84,
+      name: "content-database-row-mutation-contract",
+      sql: `ALTER TABLE content_databases ADD COLUMN IF NOT EXISTS natural_key_property_id TEXT;
+      CREATE TABLE IF NOT EXISTS content_database_row_mutation_receipts (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+        org_id TEXT,
+        space_id TEXT NOT NULL,
+        database_id TEXT NOT NULL,
+        database_document_id TEXT NOT NULL,
+        operation TEXT NOT NULL,
+        item_id TEXT NOT NULL,
+        document_id TEXT NOT NULL,
+        idempotency_key TEXT NOT NULL,
+        payload_digest TEXT NOT NULL,
+        schema_revision TEXT NOT NULL,
+        pre_row_revision TEXT,
+        post_row_revision TEXT NOT NULL,
+        result_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_database_row_mutation_receipts_database_key_unique
+        ON content_database_row_mutation_receipts (database_id, idempotency_key);
+      CREATE INDEX IF NOT EXISTS content_database_row_mutation_receipts_owner_database_idx
+        ON content_database_row_mutation_receipts (owner_email, database_id);
+      CREATE INDEX IF NOT EXISTS content_database_row_mutation_receipts_document_idx
+        ON content_database_row_mutation_receipts (document_id)`,
+    },
   ],
   { table: "content_migrations" },
 );

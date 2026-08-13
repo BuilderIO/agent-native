@@ -666,13 +666,13 @@ const messages = {
     collapse: "Contraer",
     changelogMarkdown: `# Registro de cambios
 
-Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puedes abrirlo en cualquier momento desde el menú de comandos (Cmd+K -> "Novedades") o desde Ajustes.
+Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puedes abrirlo en cualquier momento desde el menú de comandos (Cmd K -> "Novedades") o desde Ajustes.
 
 ## 2026-06-23
 
 ### Añadido
 
-- Ahora puedes ver las novedades directamente dentro de Clips. El registro de cambios vive en el menú de comandos (Cmd+K) y en Ajustes.`,
+- Ahora puedes ver las novedades directamente dentro de Clips. El registro de cambios vive en el menú de comandos (Cmd K) y en Ajustes.`,
     playback: "Reproducción",
     defaultPlaybackSpeed: "Velocidad de reproducción predeterminada",
     playbackDescription:
@@ -1227,7 +1227,7 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     seekTo: "Seek to {{time}}",
   },
   editorToolbar: {
-    undoTooltip: "Undo (Cmd/Ctrl+Z)",
+    undoTooltip: "Undo (Cmd/Ctrl Z)",
     playPauseTooltip: "Play / Pause (Space)",
     sourceDuration: "({{duration}} src)",
     previewSpeed: "Preview speed",

@@ -229,6 +229,11 @@ export function buildExtensionHtml(
   </style>
 	  <style>
 	    *, *::before, *::after { border-color: hsl(var(--border)); }
+	    /* Alpine only honours x-cloak when a stylesheet hides it, and extension
+	       content is a body snippet that cannot supply one. Without this, an
+	       x-cloak overlay paints over the whole extension until Alpine boots —
+	       and forever if it never does. */
+	    [x-cloak] { display: none !important; }
 	    html, body {
 	      /* Transparent so the iframe inherits the host surface (dashboard panel,
 	         sidebar, chat) instead of painting the browser's default white canvas.

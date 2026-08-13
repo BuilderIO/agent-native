@@ -6,7 +6,7 @@ name: "Blocks"
 user_promise: "A Block is a stable addressable unit of rich content inside its owning field."
 primary_user_job: "Edit and point to a meaningful part of content without fragile position-only anchors."
 kind: "primitive"
-state: "approved_shape"
+state: "in_progress"
 publicness: "public"
 availability: "universal"
 dependencies: []
@@ -21,9 +21,10 @@ proof_requirements:
     "Comment anchors retain historical target context",
     "Shared Action/UI editing, conflict, undo, and reload behavior",
   ]
-evidence: []
+evidence:
+  ["shared/blocks-field-identity.ts", "actions/blocks-seeding.db.test.ts"]
 superseded_by: null
-last_reviewed: "2026-07-29"
+last_reviewed: "2026-08-10"
 ---
 
 # Blocks
@@ -62,7 +63,7 @@ Given a Block reference in another Page, when an authorized reader opens it, the
 
 ## Current evidence
 
-The current editor stores rich document content and supports anchored comments, but the repository does not yet demonstrate stable universal Block IDs, reference serialization, or recovery across all typed Block operations. This remains `approved_shape`.
+Database Blocks fields now have a field-scoped ordered identity sidecar with deterministic legacy IDs, persisted revisions, and bounded tombstone recovery. Deterministic tests cover editing, reorder, insertion, deletion, recovery, reload, and field independence. Agent-facing exact Block actions, reference/comment anchors, actor-aware history, and real-interface proof remain incomplete, so this is `in_progress`, not verified.
 
 ## Proof plan
 

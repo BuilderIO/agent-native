@@ -494,6 +494,7 @@ export default defineAction({
   }),
   http: { method: "GET" },
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
+  grounding: true,
   run: async ({
     properties,
     owner,

@@ -203,9 +203,13 @@ fn segmented_output_enabled(output: CustomWriterOutput, live_upload_enabled: boo
 fn live_audio_mixing_enabled(
     output: CustomWriterOutput,
     include_audio: bool,
-    capture_system_audio: bool,
+    _capture_system_audio: bool,
 ) -> bool {
-    include_audio && capture_system_audio && !output.preserves_separate_audio()
+    // Keep every ordinary microphone capture on the realtime mixer so the
+    // live-upload path receives the same mic cleanup as finalized files. A
+    // system-only capture has no mic signal to clean and keeps its original
+    // stereo track; Rewind deliberately preserves separate source tracks.
+    include_audio && !output.preserves_separate_audio()
 }
 
 pub(crate) fn audio_sidecar_path(video_path: &Path, source: &str) -> PathBuf {
@@ -1508,14 +1512,19 @@ impl CustomScreenCaptureWriter {
 
             // AVAssetWriter's fragmented profiles reject two independent AAC
             // inputs. Rewind therefore writes video-only fMP4 plus local PCM
-            // sidecars; ordinary recordings retain their existing inputs.
+            // sidecars; ordinary recordings retain a single mixed input when
+            // a microphone is present, including mic-only recordings.
             let (system_audio_input, mic_audio_input, mixed_audio_input, mixer) = if mix_live {
                 let mixed = av_make_audio_writer_input(input_cls, &writer)?;
                 (
                     None,
                     None,
                     Some(mixed),
-                    Some(LiveAudioMixer::new(segmented)?),
+                    Some(LiveAudioMixer::new(
+                        segmented,
+                        include_audio,
+                        capture_system_audio,
+                    )?),
                 )
             } else {
                 let system_audio_input =
@@ -2173,6 +2182,18 @@ const MIC_AGC_BOOST_SECONDS: f32 = 1.5;
 const MIC_AGC_WARMUP_SECONDS: f32 = 0.2;
 /// How close to the target counts as levelled and ends the warmup.
 const MIC_AGC_CONVERGED_TOLERANCE: f32 = 0.05;
+/// Conservative voice cleanup for the realtime microphone path. The browser
+/// recorder gets a comparable Web Audio chain; native live uploads cannot
+/// wait for the later FFmpeg normalization pass, so this stays causal and
+/// source-local here.
+const MIC_CLEANUP_HIGH_PASS_HZ: f32 = 65.0;
+const MIC_CLEANUP_NOTCH_FREQUENCIES_HZ: [f32; 4] = [50.0, 60.0, 100.0, 120.0];
+const MIC_CLEANUP_NOTCH_Q: f32 = 18.0;
+const MIC_EXPANDER_THRESHOLD_DB: f32 = -48.0;
+const MIC_EXPANDER_RATIO: f32 = 2.0;
+const MIC_EXPANDER_MAX_REDUCTION_DB: f32 = 12.0;
+const MIC_EXPANDER_ATTACK_SECONDS: f32 = 0.012;
+const MIC_EXPANDER_RELEASE_SECONDS: f32 = 0.18;
 /// -1.0 dBFS, near the true-peak ceiling the offline loudnorm chain targets.
 const MIX_LIMIT_CEILING: f32 = 0.891;
 const MIX_LIMIT_RELEASE_SECONDS: f32 = 0.15;
@@ -2254,6 +2275,156 @@ impl MicAutoGain {
     }
 }
 
+#[derive(Clone, Copy)]
+struct Biquad {
+    b0: f32,
+    b1: f32,
+    b2: f32,
+    a1: f32,
+    a2: f32,
+    x1: f32,
+    x2: f32,
+    y1: f32,
+    y2: f32,
+}
+
+impl Biquad {
+    fn from_coefficients(b0: f32, b1: f32, b2: f32, a0: f32, a1: f32, a2: f32) -> Self {
+        Self {
+            b0: b0 / a0,
+            b1: b1 / a0,
+            b2: b2 / a0,
+            a1: a1 / a0,
+            a2: a2 / a0,
+            x1: 0.0,
+            x2: 0.0,
+            y1: 0.0,
+            y2: 0.0,
+        }
+    }
+
+    fn high_pass(frequency_hz: f32, q: f32, sample_rate: f32) -> Self {
+        let omega = 2.0 * std::f32::consts::PI * frequency_hz / sample_rate;
+        let cosine = omega.cos();
+        let sine = omega.sin();
+        let alpha = sine / (2.0 * q);
+        Self::from_coefficients(
+            (1.0 + cosine) / 2.0,
+            -(1.0 + cosine),
+            (1.0 + cosine) / 2.0,
+            1.0 + alpha,
+            -2.0 * cosine,
+            1.0 - alpha,
+        )
+    }
+
+    fn notch(frequency_hz: f32, q: f32, sample_rate: f32) -> Self {
+        let omega = 2.0 * std::f32::consts::PI * frequency_hz / sample_rate;
+        let cosine = omega.cos();
+        let sine = omega.sin();
+        let alpha = sine / (2.0 * q);
+        Self::from_coefficients(
+            1.0,
+            -2.0 * cosine,
+            1.0,
+            1.0 + alpha,
+            -2.0 * cosine,
+            1.0 - alpha,
+        )
+    }
+
+    fn process(&mut self, input: f32) -> f32 {
+        let output = self.b0 * input + self.b1 * self.x1 + self.b2 * self.x2
+            - self.a1 * self.y1
+            - self.a2 * self.y2;
+        self.x2 = self.x1;
+        self.x1 = input;
+        self.y2 = self.y1;
+        self.y1 = output;
+        output
+    }
+}
+
+struct MicCleanupChannel {
+    high_pass: Biquad,
+    notches: [Biquad; 4],
+}
+
+impl MicCleanupChannel {
+    fn new(sample_rate: f32) -> Self {
+        Self {
+            high_pass: Biquad::high_pass(MIC_CLEANUP_HIGH_PASS_HZ, 0.707, sample_rate),
+            notches: std::array::from_fn(|index| {
+                Biquad::notch(
+                    MIC_CLEANUP_NOTCH_FREQUENCIES_HZ[index],
+                    MIC_CLEANUP_NOTCH_Q,
+                    sample_rate,
+                )
+            }),
+        }
+    }
+
+    fn process(&mut self, mut sample: f32) -> f32 {
+        sample = self.high_pass.process(sample);
+        for notch in &mut self.notches {
+            sample = notch.process(sample);
+        }
+        sample
+    }
+}
+
+/// Causal microphone cleanup for the native live-upload path. The high-pass
+/// and narrow notches target HVAC/mains hum; the expander only reduces quiet
+/// room tone and never hard-mutes it, so speech tails survive the processing.
+struct MicCleanup {
+    left: MicCleanupChannel,
+    right: MicCleanupChannel,
+    envelope: f32,
+    gain: f32,
+    envelope_coefficient: f32,
+    attack_coefficient: f32,
+    release_coefficient: f32,
+}
+
+impl MicCleanup {
+    fn new(sample_rate: i32) -> Self {
+        let sample_rate = sample_rate as f32;
+        Self {
+            left: MicCleanupChannel::new(sample_rate),
+            right: MicCleanupChannel::new(sample_rate),
+            envelope: 0.0,
+            gain: 1.0,
+            envelope_coefficient: one_pole_coefficient(0.015, sample_rate as i32),
+            attack_coefficient: one_pole_coefficient(
+                MIC_EXPANDER_ATTACK_SECONDS,
+                sample_rate as i32,
+            ),
+            release_coefficient: one_pole_coefficient(
+                MIC_EXPANDER_RELEASE_SECONDS,
+                sample_rate as i32,
+            ),
+        }
+    }
+
+    fn process(&mut self, sample: (f32, f32)) -> (f32, f32) {
+        let filtered = (self.left.process(sample.0), self.right.process(sample.1));
+        let peak = filtered.0.abs().max(filtered.1.abs());
+        self.envelope += (peak - self.envelope) * self.envelope_coefficient;
+        let level_db = 20.0 * self.envelope.max(1.0e-6).log10();
+        let below_threshold = (MIC_EXPANDER_THRESHOLD_DB - level_db).max(0.0);
+        let reduction_db =
+            (below_threshold * (1.0 - 1.0 / MIC_EXPANDER_RATIO)).min(MIC_EXPANDER_MAX_REDUCTION_DB);
+        let target_gain = 10.0_f32.powf(-reduction_db / 20.0);
+        let coefficient = if target_gain > self.gain {
+            self.attack_coefficient
+        } else {
+            self.release_coefficient
+        };
+        self.gain += (target_gain - self.gain) * coefficient;
+        (filtered.0 * self.gain, filtered.1 * self.gain)
+    }
+}
+
 /// Zero-latency peak limiter over the summed mix.
 ///
 /// This replaces a flat 0.5x weight on each source, which bought clip safety
@@ -2287,6 +2458,7 @@ impl PeakLimiter {
 /// is reachable without constructing a `CMFormatDescription` — the reported bug
 /// was a wrong per-frame weight, so that arithmetic is what needs covering.
 struct MixGainStage {
+    mic_cleanup: MicCleanup,
     mic: MicAutoGain,
     limiter: PeakLimiter,
 }
@@ -2294,6 +2466,7 @@ struct MixGainStage {
 impl MixGainStage {
     fn new(sample_rate: i32) -> Self {
         Self {
+            mic_cleanup: MicCleanup::new(sample_rate),
             mic: MicAutoGain::new(sample_rate),
             limiter: PeakLimiter::new(sample_rate),
         }
@@ -2303,6 +2476,7 @@ impl MixGainStage {
     /// at unity and the mic is only ever boosted, with the limiter owning peak
     /// safety for the sum.
     fn frame(&mut self, system: (f32, f32), mic: (f32, f32)) -> (f32, f32) {
+        let mic = self.mic_cleanup.process(mic);
         let mic_gain = self.mic.next_gain(mic.0, mic.1);
         let left = system.0 + mic.0 * mic_gain;
         let right = system.1 + mic.1 * mic_gain;
@@ -2411,6 +2585,8 @@ enum SourceBound {
 struct LiveAudioMixer {
     format_desc: screencapturekit::cm::CMFormatDescription,
     sample_rate: i32,
+    include_microphone: bool,
+    capture_system_audio: bool,
     /// Subtract the writer session start from emitted PTS (segmented mode,
     /// where the session timeline is zero-based). Plain file mode keeps
     /// absolute source time to match `startSessionAtSourceTime:`.
@@ -2432,7 +2608,11 @@ struct LiveAudioMixer {
 }
 
 impl LiveAudioMixer {
-    fn new(rebase_output: bool) -> Result<Self, String> {
+    fn new(
+        rebase_output: bool,
+        include_microphone: bool,
+        capture_system_audio: bool,
+    ) -> Result<Self, String> {
         let sample_rate = AUDIO_OUTPUT_SAMPLE_RATE as i32;
         let asbd = AudioStreamBasicDescription {
             sample_rate: AUDIO_OUTPUT_SAMPLE_RATE as f64,
@@ -2468,6 +2648,8 @@ impl LiveAudioMixer {
         Ok(Self {
             format_desc,
             sample_rate,
+            include_microphone,
+            capture_system_audio,
             rebase_output,
             session_start_seconds: None,
             pause_offset_seconds: 0.0,
@@ -2555,18 +2737,35 @@ impl LiveAudioMixer {
     /// active sources (or everything buffered when flushing at stop).
     fn compute_safe_end(&self, flush: bool) -> i64 {
         if flush {
-            return self.system.end_frame().max(self.mic.end_frame());
+            let mut end = self.out_pos;
+            if self.capture_system_audio {
+                end = end.max(self.system.end_frame());
+            }
+            if self.include_microphone {
+                end = end.max(self.mic.end_frame());
+            }
+            return end;
         }
         let now = Instant::now();
-        let sys = self.classify(&self.system, now);
-        let mic = self.classify(&self.mic, now);
-        if matches!(sys, SourceBound::Pending) || matches!(mic, SourceBound::Pending) {
+        let sys = self
+            .capture_system_audio
+            .then(|| self.classify(&self.system, now));
+        let mic = self
+            .include_microphone
+            .then(|| self.classify(&self.mic, now));
+        if sys
+            .as_ref()
+            .is_some_and(|bound| matches!(bound, SourceBound::Pending))
+            || mic
+                .as_ref()
+                .is_some_and(|bound| matches!(bound, SourceBound::Pending))
+        {
             // Still expecting a source to start; don't run ahead of it.
             return self.out_pos;
         }
         let mut bound = i64::MAX;
         let mut any_active = false;
-        for b in [&sys, &mic] {
+        for b in [sys.as_ref(), mic.as_ref()].into_iter().flatten() {
             if let SourceBound::Active(end) = b {
                 bound = bound.min(*end);
                 any_active = true;
@@ -2576,7 +2775,14 @@ impl LiveAudioMixer {
             bound
         } else {
             // Everything stalled/absent: drain whatever frozen data we have.
-            self.system.end_frame().max(self.mic.end_frame())
+            let mut end = self.out_pos;
+            if self.capture_system_audio {
+                end = end.max(self.system.end_frame());
+            }
+            if self.include_microphone {
+                end = end.max(self.mic.end_frame());
+            }
+            end
         }
     }
 
@@ -4116,6 +4322,16 @@ mod fragment_fence_tests {
             true,
             true
         ));
+        assert!(live_audio_mixing_enabled(
+            CustomWriterOutput::Standard,
+            true,
+            false
+        ));
+        assert!(!live_audio_mixing_enabled(
+            CustomWriterOutput::Standard,
+            false,
+            true
+        ));
         // Clip HLS is forced segmented regardless of the ordinary remote flag,
         // but keeps a single live-mixed AAC track and no Rewind sidecars.
         assert!(segmented_output_enabled(CustomWriterOutput::ClipHls, false));
@@ -4124,6 +4340,40 @@ mod fragment_fence_tests {
             true,
             true
         ));
+    }
+
+    #[test]
+    fn mic_cleanup_reduces_hum_without_hard_muting_speech() {
+        let sample_rate = 48_000.0_f32;
+        let mut cleanup = MicCleanup::new(sample_rate as i32);
+        let mut hum_energy = 0.0_f32;
+        let mut speech_energy = 0.0_f32;
+        for index in 0..(sample_rate as usize) {
+            let time = index as f32 / sample_rate;
+            let hum = (2.0 * std::f32::consts::PI * 60.0 * time).sin() * 0.08;
+            let speech = if (0.2..0.8).contains(&time) {
+                (2.0 * std::f32::consts::PI * 220.0 * time).sin() * 0.08
+            } else {
+                0.0
+            };
+            let output = cleanup.process((hum + speech, hum + speech));
+            if time < 0.15 || time > 0.85 {
+                hum_energy += output.0.abs();
+            } else {
+                speech_energy += output.0.abs();
+            }
+        }
+        assert!(hum_energy < 900.0, "hum remained too loud: {hum_energy}");
+        assert!(
+            speech_energy > 1_000.0,
+            "speech was gated out: {speech_energy}"
+        );
+    }
+
+    #[test]
+    fn mic_only_mixer_does_not_wait_for_a_disabled_system_source() {
+        let mixer = LiveAudioMixer::new(false, true, false).unwrap();
+        assert_eq!(mixer.compute_safe_end(false), 0);
     }
 
     #[test]
