@@ -34,6 +34,14 @@ describe("dispatch action registry", () => {
     ).toEqual([]);
   });
 
+  it("exposes folder-backed agent pack actions", () => {
+    expect(dispatchActions).toHaveProperty("import-agent-pack");
+    expect(dispatchActions).toHaveProperty("list-agent-pack");
+    expect(dispatchActions["import-agent-pack"].tool.description).toContain(
+      "folder-backed agent pack",
+    );
+  });
+
   it("distinguishes mounted workspace apps from connected A2A agents", () => {
     expect(dispatchActions["list-workspace-apps"].tool.description).toContain(
       "not the hosted/connected A2A agent registry",

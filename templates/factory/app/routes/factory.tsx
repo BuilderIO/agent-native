@@ -406,6 +406,28 @@ export default function FactoryRoute() {
     await Promise.all([graphQuery.refetch(), factoryListQuery.refetch()]);
   }
 
+  if (!selectedFactoryId && activeTab === "agents") {
+    return (
+      <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-background">
+        <div className="flex items-center gap-3 px-4 py-4 lg:px-6">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            aria-label={t("factoryRoute.backToFactories")}
+            onClick={() => setActiveTab("overview")}
+          >
+            <IconArrowLeft className="size-4" />
+          </Button>
+          <h1 className="text-sm font-medium sm:text-base">
+            {t("factoryRoute.agentsTitle")}
+          </h1>
+        </div>
+        <FactoryAgentsView />
+      </div>
+    );
+  }
+
   if (!selectedFactoryId) {
     return (
       <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-background">
@@ -413,6 +435,14 @@ export default function FactoryRoute() {
           <div className="flex flex-wrap items-end justify-between gap-4">
             <h1 className="text-2xl font-semibold tracking-tight">Factories</h1>
             <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setActiveTab("agents")}
+              >
+                {t("factoryRoute.agentsTab")}
+              </Button>
               <Button type="button" size="sm" onClick={startNewFactory}>
                 <IconPlus className="size-4" />
                 {t("factoryRoute.newFactory")}

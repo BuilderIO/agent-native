@@ -14,6 +14,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@agent-native/dispatch/components/ui/dialog";
+import { Badge } from "@agent-native/dispatch/components/ui/badge";
 import {
   IconEdit,
   IconExternalLink,
@@ -22,7 +23,6 @@ import {
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";

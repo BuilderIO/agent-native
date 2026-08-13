@@ -34,6 +34,10 @@ Read the relevant skill before deeper work:
   setup item is unclear.
 - Use `import-agent` to normalize safe Claude Markdown or JSON into an
   `agents/<slug>.md` profile; it skips credentials, hooks, shell, and local env.
+- Use `import-agent-pack` for a Claude Project/Cowork-style folder. It keeps the
+  runnable profile at `agents/<slug>.md` and stores text references, context,
+  and agent-owned skills below `agents/<slug>/`. Use `list-agent-pack` to
+  inspect the files and the shared agent pack UI to edit them.
 - Use `connect-external-agent` for public HTTP/A2A metadata; authenticate through
   the normal connection flow.
 - Dispatch's primary nav is Overview, Chat, Apps, Agents, and the app rail.
@@ -42,6 +46,10 @@ Read the relevant skill before deeper work:
   connections. Other workspace/operator tools live under `/admin`:
   operations, metrics, integrations, vault, automations, approvals,
   destinations, workspace, messaging, identities, audit, dreams, and thread-debug.
+- Agent profiles and agentic apps are also managed from Factory's top-level
+  Agents tab. Factory embeds the same agent actions and pack editor and reads
+  mounted app metadata through the shared Dispatch database; it does not create
+  a second agent registry.
 - Keep approval and routing behavior explicit. Never silently widen access to
   secrets, apps, integrations, or workspace resources.
 - Curated workspace templates are private app sources. Use

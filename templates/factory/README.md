@@ -74,6 +74,24 @@ signed callback secret belong in Dispatch workspace credentials and are
 resolved at runtime. The app remains observe-only until a human explicitly
 approves a Factory item.
 
+## Agents and agentic apps
+
+Factory's top-level Agents tab is a shared workspace surface, not a second
+registry. It reads mounted agentic apps and their editable Dispatch metadata,
+then embeds Dispatch's reusable-agent manager for create, chat, import, and
+folder-backed pack editing. A simple agent's profile lives at
+`agents/<slug>.md`; its optional context, references, and private skills live
+under `agents/<slug>/`. Use the folder import to bring in a Claude Project,
+Cowork-style folder, or another text-based agent setup. The importer strips
+credentials, hooks, shell commands, and local environment settings, and All-app
+imports remain subject to Dispatch approval policy.
+
+Use **Build app** on an agent row when the agent needs a full workspace face.
+The handoff carries the profile and every pack resource id into app creation;
+the original agent remains reusable after the app is created. Mounted apps and
+simple agents continue to use the same Dispatch actions, SQL resources, grants,
+and application-state navigation.
+
 ## Development
 
 ```bash

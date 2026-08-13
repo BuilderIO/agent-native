@@ -24,7 +24,8 @@ Powers the `dispatch` template. Provides:
   ...) to splat into a consumer's `app/routes.ts`
 - **React components** — `DispatchShell`, `Layout`/`NavContent`,
   `CreateAppPopover`/`CreateAppFlow`, `AppKeysPopover`, plus a full
-  shadcn/ui-based `components/ui/*` primitive set
+  shadcn/ui-based `components/ui/*` primitive set. `SimpleAgentsPanel` is
+  also exported for embedding the shared agent manager in another workspace UI.
 - **Styles** — `dispatch.css` Tailwind layer
 
 ## Install
@@ -112,6 +113,14 @@ apps:
   scoped per app.
 - **Workspace resources** — cross-app resources (e.g. shared instructions or
   data) with explicit per-app grants and effective-context resolution.
+- **Simple agents and agent packs** — reusable agents keep a Claude-compatible
+  Markdown/JSON profile at `agents/<slug>.md` and can own sibling files under
+  `agents/<slug>/context/`, `references/`, and `skills/<name>/SKILL.md`. The
+  `import-agent-pack` and `list-agent-pack` actions create/read the whole pack;
+  `import-agent` remains the fast single-file path. Unsafe capabilities such as
+  credentials, hooks, shell commands, and local environment settings are
+  stripped or reported as warnings. Pack files are text resources, not an
+  execution grant.
 - **Integrations & destinations** — outbound messaging channel setup (Slack,
   Teams, Discord, Telegram, WhatsApp, email, and more) and a destinations
   queue for delivering agent output.
