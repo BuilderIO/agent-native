@@ -959,8 +959,8 @@ Clips 中所有面向用户的重要更改都会记录在这里。你可以随�
     pauseShortcut: "暂停 (⌥⇧P)",
     stop: "停止录制",
     elapsed: "已用时间",
-    cancel: "取消录制",
-    cancelShortcut: "取消 (⌥⇧C)",
+    cancel: "丢弃录制",
+    cancelShortcut: "丢弃 (⌥⇧C)",
   },
   countdownOverlay: {
     startsIn: "录制将在 {{count}} 后开始",

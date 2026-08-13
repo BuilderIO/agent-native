@@ -1007,8 +1007,8 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     pauseShortcut: "一時停止 (⌥⇧P)",
     stop: "録画を停止",
     elapsed: "経過時間",
-    cancel: "録画をキャンセル",
-    cancelShortcut: "キャンセル (⌥⇧C)",
+    cancel: "録画を破棄",
+    cancelShortcut: "破棄 (⌥⇧C)",
   },
   countdownOverlay: {
     startsIn: "録画は {{count}} で開始します",

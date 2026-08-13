@@ -952,8 +952,8 @@ const messages = {
     pauseShortcut: "暫停 (⌥⇧P)",
     stop: "停止錄製",
     elapsed: "已用時間",
-    cancel: "取消錄製",
-    cancelShortcut: "取消 (⌥⇧C)",
+    cancel: "捨棄錄製",
+    cancelShortcut: "捨棄 (⌥⇧C)",
   },
   countdownOverlay: {
     startsIn: "錄製將在 {{count}} 後開始",

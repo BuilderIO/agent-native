@@ -988,8 +988,8 @@ Clips में उपयोगकर्ताओं को दिखने व�
     pauseShortcut: "रोकें (⌥⇧P)",
     stop: "रिकॉर्डिंग बंद करें",
     elapsed: "बीता समय",
-    cancel: "रिकॉर्डिंग रद्द करें",
-    cancelShortcut: "रद्द करें (⌥⇧C)",
+    cancel: "रिकॉर्डिंग हटाएं",
+    cancelShortcut: "हटाएं (⌥⇧C)",
   },
   countdownOverlay: {
     startsIn: "रिकॉर्डिंग {{count}} में शुरू होगी",

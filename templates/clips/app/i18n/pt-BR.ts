@@ -1019,8 +1019,8 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     pauseShortcut: "Pausar (⌥⇧P)",
     stop: "Parar gravação",
     elapsed: "Tempo decorrido",
-    cancel: "Cancelar gravação",
-    cancelShortcut: "Cancelar (⌥⇧C)",
+    cancel: "Descartar gravação",
+    cancelShortcut: "Descartar (⌥⇧C)",
   },
   countdownOverlay: {
     startsIn: "A gravação começa em {{count}}",
