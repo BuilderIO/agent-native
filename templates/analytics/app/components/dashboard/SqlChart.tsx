@@ -1384,7 +1384,7 @@ export function SqlChart({
         className={`flex flex-1 flex-col items-center justify-center gap-3 px-4 ${placeholderPadY} ${placeholderMinH}`}
         role="alert"
       >
-        <p className="text-center text-sm text-red-400 break-words">
+        <p className="text-center text-sm text-destructive break-words">
           {formatSqlChartError(error)}
         </p>
         <Button
