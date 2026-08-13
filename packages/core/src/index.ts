@@ -153,6 +153,7 @@ export {
   evaluateFeatureFlag,
   getFeatureFlagDefinition,
   getFeatureFlagRules,
+  hasActiveFeatureFlagRollout,
   isFeatureFlagEnabled,
   listFeatureFlags,
   registerFeatureFlags,

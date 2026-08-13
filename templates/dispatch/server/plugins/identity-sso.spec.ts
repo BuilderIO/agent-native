@@ -187,6 +187,20 @@ describe("rollout availability", () => {
     expect(await response.json()).toEqual({ available: true });
   });
 
+  it("keeps authenticated availability strict after the anonymous hint", async () => {
+    featureFlagMocks.hasActiveRollout.mockResolvedValue(true);
+    featureFlagMocks.isEnabled.mockResolvedValue(false);
+    const response = await availabilityHandler(
+      event("/_agent-native/identity/availability", {
+        headers: {
+          "user-agent": "AgentNativeDesktopSsoCanary/1.0",
+        },
+      }),
+    );
+    expect(await response.json()).toEqual({ available: false });
+    expect(featureFlagMocks.isEnabled).toHaveBeenCalled();
+  });
+
   it("fails closed when rollout state is missing or unreadable", async () => {
     featureFlagMocks.hasActiveRollout.mockResolvedValue(false);
     await expect(canAttemptWorkspaceSso()).resolves.toBe(false);
@@ -307,6 +321,24 @@ describe("authorization code and PKCE handlers", () => {
       isDesktopWorkspaceSsoRequest("AgentNativeDesktopSsoCanary/1.0"),
     ).toBe(true);
     expect(response.status).toBe(404);
+  });
+
+  it("does not let anonymous discovery bypass the authenticated target check", async () => {
+    featureFlagMocks.hasActiveRollout.mockResolvedValue(true);
+    featureFlagMocks.isEnabled.mockResolvedValue(false);
+    const response = await authorizeHandler(
+      event(
+        `/_agent-native/identity/authorize?response_type=code&app=mail&client_id=mail&redirect_uri=${encodeURIComponent(CALLBACK)}&state=${STATE}&code_challenge=${"c".repeat(43)}&code_challenge_method=S256`,
+        {
+          headers: { "user-agent": "AgentNativeDesktopSsoCanary/1.0" },
+        },
+      ),
+    );
+    expect(response.status).toBe(404);
+    expect(featureFlagMocks.isEnabled).toHaveBeenCalledWith(
+      expect.objectContaining({ key: "desktop.workspace-sso" }),
+      expect.objectContaining({ orgId: "org-1" }),
+    );
   });
 
   it("bounces a logged-out browser through the existing sign-in journey", async () => {

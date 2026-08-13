@@ -8,6 +8,7 @@ const createOAuthSessionMock = vi.fn(async () => ({
   sessionToken: "fresh-session-token",
 }));
 const signUpEmailMock = vi.fn(async () => ({}));
+const googleAuthRequiredMock = vi.fn(async () => false);
 const adapterUsers: Array<{
   id: string;
   email: string;
@@ -79,7 +80,8 @@ vi.mock("./google-oauth.js", () => ({
 }));
 vi.mock("../org/auth-policy.js", () => ({
   GOOGLE_AUTH_REQUIRED_MESSAGE: "Google sign-in is required.",
-  isGoogleSignInRequiredForEmail: vi.fn(async () => false),
+  isGoogleSignInRequiredForEmail: (...args: any[]) =>
+    googleAuthRequiredMock(...args),
 }));
 vi.mock("./better-auth-instance.js", () => ({
   getBetterAuth: async () => ({
@@ -216,6 +218,7 @@ beforeEach(() => {
   getSessionMock.mockReset().mockResolvedValue(null);
   createOAuthSessionMock.mockClear();
   signUpEmailMock.mockClear();
+  googleAuthRequiredMock.mockReset().mockResolvedValue(false);
   linkAccountMock.mockClear();
   findUserByEmailMock.mockClear();
   process.env.A2A_SECRET = SECRET;
@@ -356,6 +359,24 @@ describe("identity SSO browser contract", () => {
       "/callback",
     );
     expect(badAssertion.status).toBe(400);
+  });
+
+  it("preserves the local Google-required organization policy", async () => {
+    googleAuthRequiredMock.mockResolvedValue(true);
+    const { loginEvent, state } = await startLogin();
+    const response = await handleIdentitySso(
+      event(
+        `/_agent-native/identity/callback?code=${"h".repeat(43)}&state=${state}`,
+        {
+          cookies: { ...loginEvent.cookies },
+        },
+      ),
+      "/callback",
+    );
+    expect(response.status).toBe(400);
+    expect(await response.text()).toContain("Google sign-in is required.");
+    expect(signUpEmailMock).not.toHaveBeenCalled();
+    expect(createOAuthSessionMock).not.toHaveBeenCalled();
   });
 });
 
