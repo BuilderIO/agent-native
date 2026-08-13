@@ -155,13 +155,11 @@ async function delegatedToken(
   scope: "flags:read" | "flags:write",
   resolvedOrgDomain?: string,
 ): Promise<string> {
-  const orgDomain =
-    resolvedOrgDomain ??
-    (await getOrgDomain(admin.orgId))?.trim().toLowerCase();
-  if (!orgDomain) {
-    throw new TargetCallFailure("token-generation");
-  }
   try {
+    const orgDomain =
+      resolvedOrgDomain ??
+      (await getOrgDomain(admin.orgId))?.trim().toLowerCase();
+    if (!orgDomain) throw new TargetCallFailure("token-generation");
     return await signA2AToken(admin.userEmail, orgDomain, undefined, {
       expiresIn: "120s",
       preferGlobalSecret: true,
@@ -296,7 +294,10 @@ async function mapBounded<T, R>(
 export async function listWorkspaceFeatureFlags(
   admin: AnalyticsAdminContext,
 ): Promise<WorkspaceFeatureFlagsResult> {
-  const apps = await fetchOrgApps({ serviceOrgId: admin.orgId });
+  const apps = await fetchOrgApps({
+    selfId: "analytics",
+    serviceOrgId: admin.orgId,
+  });
   if (apps.length === 0) return { directoryStatus: "unavailable", apps: [] };
   const entries = await mapBounded(apps, async (app) => {
     try {
@@ -322,16 +323,23 @@ export async function setWorkspaceFeatureFlag(
   admin: AnalyticsAdminContext,
   input: WorkspaceFeatureFlagMutationInput,
 ): Promise<WorkspaceFeatureFlagMutationResult> {
-  const apps = await fetchOrgApps({ serviceOrgId: admin.orgId });
+  const apps = await fetchOrgApps({
+    selfId: "analytics",
+    serviceOrgId: admin.orgId,
+  });
   const app = apps.find((candidate) => candidate.id === input.appId);
   if (!app)
     throw new Error(
       "The requested app is not available in this organization directory.",
     );
   const targetInput = workspaceFeatureFlagTargetInput(input);
-  const orgDomain = (await getOrgDomain(admin.orgId))?.trim().toLowerCase();
-  if (!orgDomain)
-    throw new Error("The active organization has no verified domain.");
+  let orgDomain: string | undefined;
+  try {
+    orgDomain = (await getOrgDomain(admin.orgId))?.trim().toLowerCase();
+  } catch {
+    throw new TargetCallFailure("token-generation");
+  }
+  if (!orgDomain) throw new TargetCallFailure("token-generation");
   const result = await callTarget(
     app,
     admin,
@@ -376,7 +384,10 @@ export async function getWorkspaceFlagTarget(
   admin: AnalyticsAdminContext,
   appId: string,
 ): Promise<FleetFlagApp> {
-  const apps = await fetchOrgApps({ serviceOrgId: admin.orgId });
+  const apps = await fetchOrgApps({
+    selfId: "analytics",
+    serviceOrgId: admin.orgId,
+  });
   const app = apps.find((candidate) => candidate.id === appId);
   if (!app)
     throw new Error(

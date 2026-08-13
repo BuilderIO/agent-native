@@ -60,7 +60,7 @@ export default defineAction({
     const orgDomain = manager.orgId
       ? (await getOrgDomain(manager.orgId))?.trim().toLowerCase() || null
       : null;
-    if (manager.orgId && !orgDomain) {
+    if (ctx?.caller === "a2a" && manager.orgId && !orgDomain) {
       throw new Error("Feature flag organization domain is unavailable.");
     }
 

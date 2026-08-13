@@ -204,6 +204,22 @@ describe("feature flag action contracts", () => {
     expect(mutateFeatureFlagRulesMock).not.toHaveBeenCalled();
   });
 
+  it("keeps local mutations available when the organization has no domain", async () => {
+    getOrgDomainMock.mockResolvedValue(null);
+
+    await expect(
+      setAction.run(
+        { operation: "off", key: "new-editor" },
+        { caller: "frontend", userEmail: "admin@example.com", orgId: "org-1" },
+      ),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        scope: { orgId: "org-1", orgDomain: null },
+      }),
+    );
+    expect(mutateFeatureFlagRulesMock).toHaveBeenCalledOnce();
+  });
+
   it("does not narrow a globally-on flag when enabling the current user", async () => {
     getFeatureFlagRulesMock.mockResolvedValueOnce({
       version: 1,

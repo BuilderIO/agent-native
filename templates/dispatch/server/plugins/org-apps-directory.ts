@@ -144,7 +144,8 @@ const orgAppsHandler = defineEventHandler(
       { userEmail: verified.email, orgId: localOrg.orgId },
       async () => {
         const discovered = await discoverAgents(undefined, {
-          preferLocalUrls: process.env.AUTH_DISABLED === "1",
+          preferLocalUrls:
+            process.env.AGENT_NATIVE_PREFER_LOCAL_APP_URLS === "1",
         });
         return discovered.map((a) => ({
           id: a.id,
