@@ -6,7 +6,7 @@
 import { isPastedTextAttachmentName } from "@agent-native/toolkit/composer/pasted-text";
 import { PastedTextChip } from "@agent-native/toolkit/composer/PastedTextChip";
 import {
-  useThread,
+  useThreadRuntime,
   useMessageRuntime,
   useComposer,
   MessagePrimitive,
@@ -94,7 +94,6 @@ import {
   ChatRunningTurnIdContext,
   ChatRunDurationContext,
   formatWorkedDuration,
-  RanToolsSummary,
   ReasoningCell,
   WorkedForSummary,
   toolCallHasPendingApproval,
@@ -1376,7 +1375,7 @@ export function getAssistantToolSummaryInfo(
   };
 }
 
-function groupAssistantWorkParts(
+export function groupAssistantWorkParts(
   part: {
     type?: string;
     toolCallId?: string;
@@ -1396,59 +1395,17 @@ function groupAssistantWorkParts(
     mcpApp?: unknown;
     approval?: { approvalKey?: string; dismissed?: boolean };
   }[],
-): ["group-work"] | ["group-work", "group-ran-tools"] | null {
-  if (isCallAgentToolCallShadowed(parts, index)) return null;
-  if (isCollapsibleAssistantWorkPart(part)) {
-    const { startIndex } = getAssistantToolSummaryInfo(parts);
-    if (isAssistantToolSummaryPart(parts, index, startIndex)) {
-      return ["group-work", "group-ran-tools"];
-    }
-    return ["group-work"];
+): ["group-work"] | null {
+  if (isCallAgentToolCallShadowed(parts, index)) {
+    const previousPart = parts[index - 1];
+    const previousPartIsInWorkGroup =
+      previousPart != null &&
+      (isCollapsibleAssistantWorkPart(previousPart) ||
+        isCallAgentToolCallShadowed(parts, index - 1));
+    return previousPartIsInWorkGroup ? ["group-work"] : null;
   }
+  if (isCollapsibleAssistantWorkPart(part)) return ["group-work"];
   return null;
-}
-
-function isAssistantToolSummaryPart(
-  parts: readonly {
-    type?: string;
-    toolCallId?: string;
-    toolName?: string;
-    args?: Record<string, unknown>;
-    chatUI?: unknown;
-    mcpApp?: unknown;
-  }[],
-  index: number,
-  startIndex: number,
-): boolean {
-  if (startIndex < 0 || index >= startIndex) return false;
-  if (
-    isCallAgentToolCallShadowed(parts, index) ||
-    !isCollapsibleAssistantWorkPart(parts[index]!)
-  ) {
-    return false;
-  }
-
-  let segmentStart = index;
-  while (
-    segmentStart > 0 &&
-    !isCallAgentToolCallShadowed(parts, segmentStart - 1) &&
-    isCollapsibleAssistantWorkPart(parts[segmentStart - 1]!)
-  ) {
-    segmentStart--;
-  }
-
-  let segmentEnd = index + 1;
-  while (
-    segmentEnd < startIndex &&
-    !isCallAgentToolCallShadowed(parts, segmentEnd) &&
-    isCollapsibleAssistantWorkPart(parts[segmentEnd]!)
-  ) {
-    segmentEnd++;
-  }
-
-  return parts
-    .slice(segmentStart, segmentEnd)
-    .some((candidate) => candidate.type === "tool-call");
 }
 
 export function shouldShowInlineRunError({
@@ -1558,7 +1515,7 @@ export function AssistantMessage() {
   >("idle");
   const [restoreError, setRestoreError] = useState<string | null>(null);
   const messageRuntime = useMessageRuntime();
-  const thread = useThread();
+  const threadRuntime = useThreadRuntime();
   const chatRunning = React.useContext(ChatRunningContext);
   const activeRunId = React.useContext(ChatRunningRunIdContext);
   const activeTurnId = React.useContext(ChatRunningTurnIdContext);
@@ -1566,9 +1523,7 @@ export function AssistantMessage() {
   const msg = messageRuntime.getState();
   const persistedDurationMs = getAssistantRunDurationMs(msg);
   const timestamp = formatMessageTimestamp(msg.createdAt);
-  const isLast =
-    thread.messages.length > 0 &&
-    thread.messages[thread.messages.length - 1].id === msg.id;
+  const isLast = msg.isLast;
   const wasLiveRef = useRef(false);
   const messageRunId = assistantMessageRunId(msg);
   const messageTurnId = assistantMessageTurnId(msg);
@@ -1646,10 +1601,22 @@ export function AssistantMessage() {
     isLast &&
     ((missingFinalResponseCandidate && !showMissingFinalResponse) ||
       (animateMissingFinalResponse && !missingFinalResponseRevealed));
-  const responseConnectionContext = userMessageTextBeforeAssistant(
-    thread.messages,
-    msg.id,
-  );
+  const responseConnectionContext = React.useMemo(() => {
+    let parentId = msg.parentId;
+    while (parentId) {
+      const parentMessage = threadRuntime.getMessageById(parentId).getState();
+      if (
+        parentMessage.role === "user" &&
+        !isHiddenUserMessage(parentMessage)
+      ) {
+        return displayableUserMessageText(
+          messageTextFromContent(parentMessage.content),
+        );
+      }
+      parentId = parentMessage.parentId;
+    }
+    return "";
+  }, [msg.parentId, threadRuntime]);
   const isComplete =
     !shouldHoldCompletionFooter &&
     shouldShowAssistantMessageFooter({
@@ -1803,6 +1770,13 @@ export function AssistantMessage() {
       style={{ contentVisibility: isComplete ? "auto" : "visible" }}
     >
       <div className="w-full max-w-[95%] text-sm leading-relaxed text-foreground">
+        {isComplete && (
+          <McpConnectionSuggestion
+            text={responseConnectionText}
+            contextText={responseConnectionContext}
+            variant="response"
+          />
+        )}
         <ToolCallStackMotion>
           <MessagePrimitive.GroupedParts groupBy={groupAssistantWorkParts}>
             {({ part, children }) => {
@@ -1828,16 +1802,6 @@ export function AssistantMessage() {
                     >
                       {children}
                     </WorkedForSummary>
-                  );
-                }
-                case "group-ran-tools": {
-                  const toolCount = part.indices.filter(
-                    (index) => msgContent?.[index]?.type === "tool-call",
-                  ).length;
-                  return (
-                    <RanToolsSummary toolCount={toolCount}>
-                      {children}
-                    </RanToolsSummary>
                   );
                 }
                 case "text":
@@ -1915,13 +1879,6 @@ export function AssistantMessage() {
         {isComplete && hasCodeAgentTools && msgContent && (
           <FilesChangedSummary parts={msgContent} />
         )}
-        {isComplete && (
-          <McpConnectionSuggestion
-            text={responseConnectionText}
-            contextText={responseConnectionContext}
-            variant="response"
-          />
-        )}
       </div>
       {isComplete && (
         <div className="mt-1 flex items-center justify-between">
@@ -1995,7 +1952,7 @@ export function AssistantMessage() {
             <ThumbsFeedback
               threadId={cpCtx?.threadId ?? ""}
               runId={messageRunId ?? ""}
-              messageSeq={thread.messages.findIndex((m) => m.id === msg.id)}
+              messageSeq={msg.index}
             />
           )}
         </div>

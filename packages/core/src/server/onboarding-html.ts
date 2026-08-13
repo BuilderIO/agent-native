@@ -4317,7 +4317,7 @@ ${
   function __anCopySignupLocalModeCommand() {
     __anCopyCommandFromPanel('signup-local-mode-note', 'copy-signup-local-mode');
   }
-  }`
+  `
     : ""
 }
 </script>

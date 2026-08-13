@@ -25,7 +25,9 @@ function reviewPreview(value: string) {
   return redactSensitiveText(value).replace(/\s+/g, " ").trim().slice(0, 320);
 }
 
-function canEditSource(role: "viewer" | "editor" | "admin" | "owner") {
+function canEditSource(
+  role: "viewer" | "commenter" | "editor" | "admin" | "owner",
+) {
   return role === "editor" || role === "admin" || role === "owner";
 }
 

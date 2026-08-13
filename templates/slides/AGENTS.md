@@ -40,6 +40,10 @@ Read the relevant skill before deeper work:
 - Preserve freeform objects and their `data-slide-object-id` values. They are
   absolutely positioned `.fmd-slide` children; keep generated flex/grid in
   normal flow and mint ids only for duplicates. Use styled HTML, not inline SVG.
+- Freeform dragging shows transient peer/canvas alignment guides and snaps
+  within tolerance; hold Cmd/Ctrl to bypass snapping. With 2+ compatible
+  selected objects, use the contextual toolbar to align to selection bounds;
+  distribute only when 3+ objects are selected.
 - Follow linked design-system tokens; read `design-systems` for per-source actions.
 - Import/export actions are shortcuts, not capability limits. For exact Google
   Drive API needs, use `provider-api-catalog`, `provider-api-docs`, and

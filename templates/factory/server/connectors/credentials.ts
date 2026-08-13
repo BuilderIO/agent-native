@@ -1,6 +1,7 @@
 import { resolveCredential } from "@agent-native/core/credentials";
 import { orgMembers, resolveOrgIdForEmail } from "@agent-native/core/org";
 import { readAppSecret } from "@agent-native/core/secrets";
+import { resolveWorkspaceConnectionCredentialForApp } from "@agent-native/core/workspace-connections";
 import { eq, sql } from "drizzle-orm";
 
 import { getDb } from "../db/index.js";
@@ -12,6 +13,14 @@ function getVaultOrgId(): string | undefined {
 export interface ResolveConnectorSecretOptions {
   orgId?: string | null;
 }
+
+const WORKSPACE_PROVIDER_BY_KEY: Record<string, string> = {
+  GITHUB_TOKEN: "github",
+  SENTRY_AUTH_TOKEN: "sentry",
+  SENTRY_SERVER_TOKEN: "sentry",
+  SLACK_BOT_TOKEN: "slack",
+  SLACK_BOT_TOKEN_2: "slack",
+};
 
 function isMissingTableError(err: unknown): boolean {
   const message = err instanceof Error ? err.message : String(err);
@@ -78,6 +87,22 @@ export async function resolveConnectorSecret(
   const userEmail = ownerEmail.trim().toLowerCase();
   const primaryOrgId =
     options.orgId?.trim() || (await resolveOrgIdForEmail(userEmail));
+
+  const workspaceProvider = WORKSPACE_PROVIDER_BY_KEY[key];
+  if (workspaceProvider) {
+    try {
+      const connected = await resolveWorkspaceConnectionCredentialForApp({
+        appId: "factory",
+        provider: workspaceProvider,
+        key,
+        userEmail,
+        orgId: primaryOrgId,
+      });
+      if (connected.available && connected.value) return connected.value.trim();
+    } catch (error) {
+      if (!isMissingTableError(error)) throw error;
+    }
+  }
 
   const userSecret = await readVaultSecret(key, "user", userEmail);
   if (userSecret) return userSecret;

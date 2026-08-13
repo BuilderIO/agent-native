@@ -142,6 +142,7 @@ function extensionRole(value: unknown): ExtensionBridgeRole {
   return value === "owner" ||
     value === "admin" ||
     value === "editor" ||
+    value === "commenter" ||
     value === "viewer"
     ? value
     : "viewer";
@@ -780,6 +781,7 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
           binding.role === "owner" ||
           binding.role === "admin" ||
           binding.role === "editor" ||
+          binding.role === "commenter" ||
           binding.role === "viewer"
             ? binding.role
             : "viewer";
@@ -1257,6 +1259,7 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
                 <ShareButton
                   resourceType="extension"
                   resourceId={extensionId}
+                  allowedRoles={["viewer", "editor", "admin"]}
                   resourceTitle={extension.name}
                   onOpenChange={onPopoverOpenChange}
                   accessNote={

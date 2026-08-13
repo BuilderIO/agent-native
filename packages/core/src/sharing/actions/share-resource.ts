@@ -168,9 +168,11 @@ export default defineAction({
       .string()
       .describe("Email (user) or org id (org) of the principal."),
     role: z
-      .enum(["viewer", "editor", "admin"])
+      .enum(["viewer", "commenter", "editor", "admin"])
       .default("viewer")
-      .describe("Role to grant."),
+      .describe(
+        "Role to grant: viewer can only read; commenter can read and add comments; editor can edit; admin can edit and manage access.",
+      ),
     notify: z
       .boolean()
       .default(true)

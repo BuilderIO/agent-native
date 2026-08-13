@@ -188,6 +188,7 @@ export default function AnalysisDetail() {
         <ShareButton
           resourceType="analysis"
           resourceId={analysis.id}
+          allowedRoles={["viewer", "editor", "admin"]}
           resourceTitle={analysis.name}
           variant="compact"
           shareUrl={analysisShareUrl}

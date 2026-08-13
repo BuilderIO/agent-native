@@ -497,6 +497,27 @@
       transform: translateY(0);
     }
   }
+  /* Indeterminate: a route load has no percentage to report, so the bar
+     sweeps rather than pretending to know how far along it is. */
+  @keyframes route-transition-sweep {
+    0% {
+      transform: translateX(-100%);
+    }
+    100% {
+      transform: translateX(100%);
+    }
+  }
+}
+
+.route-transition-indicator-bar {
+  animation: route-transition-sweep 1.1s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .route-transition-indicator-bar {
+    animation: none;
+    opacity: 0.6;
+  }
 }
 
 /* Border-color compatibility shim:

@@ -11,6 +11,7 @@ import { msToClock } from "./scrubber";
 
 interface TimestampedCommentButtonProps {
   enableComments: boolean;
+  canComment: boolean;
   onOpen: () => void;
   className?: string;
 }
@@ -18,11 +19,12 @@ interface TimestampedCommentButtonProps {
 /** Trigger that opens the docked comment composer, pinned to the current time. */
 export function TimestampedCommentButton({
   enableComments,
+  canComment,
   onOpen,
   className,
 }: TimestampedCommentButtonProps) {
   const t = useT();
-  if (!enableComments) return null;
+  if (!enableComments || !canComment) return null;
   return (
     <Button
       type="button"

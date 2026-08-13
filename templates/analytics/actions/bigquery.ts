@@ -75,6 +75,7 @@ export default defineAction({
   }),
   readOnly: true,
   toolCallable: true,
+  grounding: true,
   run: async (args, context?: ActionRunContext) => {
     try {
       return await runQuery(args.sql, { signal: context?.signal });

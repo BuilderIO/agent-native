@@ -1,6 +1,12 @@
 export { ChatFirstAgentsPane } from "./agents-pane.js";
 export { ChatFirstAppPane } from "./app-pane.js";
 export { ChatFirstAppsRail } from "./apps-rail.js";
+export {
+  APP_ACTION_MENU_CONTENT_CLASS,
+  AppOpenActions,
+  type AppOpenActionLabels,
+  type AppOpenActionMenuItem,
+} from "./app-open-actions.js";
 export { ChatFirstBrowserPane } from "./browser-pane.js";
 export { defaultChatFirstCopy } from "./copy.js";
 export {

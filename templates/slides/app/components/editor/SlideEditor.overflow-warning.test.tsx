@@ -16,7 +16,7 @@ const source = readFileSync(
 describe("SlideEditor layout overflow warning", () => {
   afterEach(cleanup);
 
-  it("renders as plain amber text above the slide, not overlapping it", () => {
+  it("renders as a soft card above the slide, not overlapping it", () => {
     render(
       <SlideOverflowWarning
         verticalOverflow={59}
@@ -29,7 +29,9 @@ describe("SlideEditor layout overflow warning", () => {
 
     const status = screen.getByRole("status");
     expect(status.className).toContain("text-foreground");
-    expect(status.className).toContain("border-foreground/40");
+    expect(status.className).toContain("bg-card");
+    expect(status.className).toContain("shadow-sm");
+    expect(status.className).not.toContain("border");
     expect(status.className).toContain("-top-12");
     expect(screen.getByText("Layout overflows by 59px")).toBeTruthy();
   });

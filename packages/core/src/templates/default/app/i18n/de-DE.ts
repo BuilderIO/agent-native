@@ -282,6 +282,8 @@ const messages = {
       "Jeder, der mit dem Link angemeldet ist, kann es ansehen",
     viewer: "Viewer",
     viewerDescription: "Kann angesehen werden",
+    commenter: "Kommentator",
+    commenterDescription: "Kann ansehen und Kommentare hinzufügen",
     editor: "Editor",
     editorDescription: "Kann bearbeiten",
     admin: "Admin",

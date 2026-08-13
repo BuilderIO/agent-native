@@ -278,6 +278,8 @@ const messages = {
       "リンクを使用してサインインしている人は誰でも閲覧できます",
     viewer: "Viewer",
     viewerDescription: "閲覧可能",
+    commenter: "コメント投稿者",
+    commenterDescription: "閲覧してコメントを追加できます",
     editor: "Editor",
     editorDescription: "編集可能",
     admin: "管理者",

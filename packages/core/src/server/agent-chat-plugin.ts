@@ -530,6 +530,15 @@ export async function resolveFetchToolKeyAllowlist(
   return deps.getKeyAllowlist(keyName, "user", owner);
 }
 
+export function resolveHostedBuilderHandoff(
+  browserTools: Record<string, ActionEntry>,
+  canToggle: boolean,
+): Record<string, ActionEntry> {
+  if (canToggle) return {};
+  const connectBuilder = browserTools["connect-builder"];
+  return connectBuilder ? { "connect-builder": connectBuilder } : {};
+}
+
 export function createAgentChatPlugin(
   options?: AgentChatPluginOptions,
 ): NitroPluginDef {
@@ -590,6 +599,7 @@ export function createAgentChatPlugin(
       // `externalAgents` into `mcp`. A2A reads the same object, so the
       // connector policy cannot diverge between the two external surfaces.
       const mcpOptions = resolveAgentChatMcpOptions(options);
+      const backgroundMcpTools = options?.backgroundMcpTools ?? "requested";
 
       // Build the four assembled system prompt strings. These are static for the
       // lifetime of this plugin instance — examples come from options once at
@@ -650,14 +660,15 @@ export function createAgentChatPlugin(
         job?: RecurringJobContext,
       ): Promise<Record<string, ActionEntry>> => {
         const requested = job?.meta.mcpTools ?? [];
-        if (requested.length === 0) return {};
+        if (requested.length === 0 && backgroundMcpTools !== "all") return {};
         // Background action suppliers may be async so event-triggered and
         // scheduled runs can await lazy MCP hydration on serverless cold
         // starts. Runs without requested MCP tools still skip this work.
         await ensureMcpInitialized();
-        const entries = mcpToolsToActionEntries(mcpManager, {
-          toolNames: requested,
-        });
+        const entries = mcpToolsToActionEntries(
+          mcpManager,
+          backgroundMcpTools === "all" ? {} : { toolNames: requested },
+        );
         const missing = requested.filter((toolName) => !entries[toolName]);
         if (missing.length > 0) {
           throw new Error(
@@ -795,6 +806,10 @@ export function createAgentChatPlugin(
         getOwner: () => getRequestRunContext()?.owner ?? getRequestUserEmail(),
         extensionTools: extensionToolsEnabled,
       });
+      const hostedBuilderHandoff = resolveHostedBuilderHandoff(
+        browserTools,
+        canToggle,
+      );
 
       // Auto-mount A2A protocol endpoints so every app is discoverable
       // and callable by other agents via the standard protocol.
@@ -1358,6 +1373,7 @@ export function createAgentChatPlugin(
           ...(browserTools["connect-file-storage"]
             ? ["connect-file-storage"]
             : []),
+          ...Object.keys(hostedBuilderHandoff),
         ]),
       ];
 
@@ -2910,11 +2926,13 @@ export function createAgentChatPlugin(
       const leanActionEntries: Record<string, ActionEntry> = {
         ...templateScripts,
         ...resourceScripts,
+        ...workspaceFileActions,
         ...refreshScreenTool,
         ...urlTools,
         ...chatScripts,
         ...(a2aAgentDelegationEnabled ? callAgentScript : {}),
         ...toolActions,
+        ...hostedBuilderHandoff,
       };
       const anonymousReadOnlyActions = attachToolSearch(
         filterReadOnlyActions(templateScripts),
@@ -6111,17 +6129,48 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   "Recurring-job sweep reached the synchronous server instead of the durable background worker.",
               };
             }
+            // Stale reaping runs FIRST and site-wide, before the open-ended job
+            // sweep can spend the platform wall. It is the durable driver the
+            // in-process fast sweep below cannot be on serverless: that timer is
+            // off wherever `shouldDisableInProcessSweeps` is on — i.e. every
+            // production Lambda — and nothing replaced it, so a claimed run
+            // whose producer died was only reaped when an unrelated request path
+            // happened to look (prod: 1,216 runs, 12% of all runs, sitting
+            // "running" for up to 59 minutes against a 15s window).
+            //
+            // One reap per site-tick instead of one per warm container is also
+            // the point: the per-container timers are what issued 237k queries
+            // in two minutes and earned that kill switch. `reapAllStaleRuns`
+            // short-circuits on `hasRunningRuns()` (negative-cached), so an idle
+            // app pays one probe.
+            //
+            // Reported, never swallowed, and never fatal to the job sweep: a
+            // reap failure must not take recurring jobs down with it, and
+            // `null` must stay distinguishable from "reaped nothing". The
+            // result carries `failed` and `truncated` for the same reason one
+            // level down — a pass where every row threw, and a pass that hit
+            // the batch cap, both used to be reportable as a clean sweep.
+            const { reapAllStaleRuns } = await import("../agent/run-store.js");
+            const staleRunsReaped = await reapAllStaleRuns().catch(
+              (error: unknown) => {
+                console.error(
+                  "[agent-chat] durable stale-run reap failed:",
+                  error,
+                );
+                return null;
+              },
+            );
             try {
               // Jobs may request MCP tools, and `getActions` is synchronous —
               // hydrate before the sweep so a serverless container that never
               // eagerly initialized still resolves them.
               await ensureMcpInitialized();
               await processRecurringJobs(schedulerDeps);
-              return { ok: true };
+              return { ok: true, staleRunsReaped };
             } catch (error) {
               console.error("[recurring-jobs] Sweep route failed:", error);
               setResponseStatus(event, 500);
-              return { error: "Recurring-job sweep failed" };
+              return { error: "Recurring-job sweep failed", staleRunsReaped };
             }
           }),
         );
@@ -6393,7 +6442,19 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 // against a 45s window). `reapAllStaleRuns` is per-row,
                 // idempotent, re-checks staleness at UPDATE time and honours
                 // the in-flight grace, so it is safe on this cadence.
-                await reapAllStaleRuns().catch(() => {});
+                //
+                // This timer is the driver only where it actually runs — a
+                // long-lived Node host. Wherever `sweepsDisabled` turns it off
+                // (every production serverless function) the signed
+                // RECURRING_JOBS_SWEEP_PATH route above owns the same reap,
+                // driven by the platform scheduler. The two never both fire on
+                // one host, which is why neither needs to coordinate.
+                await reapAllStaleRuns().catch((error: unknown) => {
+                  console.error(
+                    "[agent-chat] in-process stale-run reap failed:",
+                    error,
+                  );
+                });
                 let rows: UnclaimedBackgroundRunRow[];
                 try {
                   rows = await listUnclaimedBackgroundRunRows();

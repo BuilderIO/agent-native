@@ -10,6 +10,7 @@ import {
   AgentNativeI18nProvider,
   LanguagePicker,
   LOCALE_STORAGE_KEY,
+  SUPPORTED_LOCALES,
 } from "./i18n.js";
 
 function importI18nCopy(tag: string) {
@@ -48,6 +49,10 @@ describe("LanguagePicker", () => {
           initialLocale="en-US"
           initialPreference="en-US"
           persistPreference={false}
+          catalog={{
+            sourceLocale: "en-US",
+            supportedLocales: SUPPORTED_LOCALES,
+          }}
         >
           <LanguagePicker label="Interface language" variant={variant} />
         </AgentNativeI18nProvider>,

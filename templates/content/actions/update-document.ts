@@ -175,6 +175,15 @@ function canEditRole(role: string) {
   return role === "owner" || role === "admin" || role === "editor";
 }
 
+function canCommentRole(role: string) {
+  return (
+    role === "owner" ||
+    role === "admin" ||
+    role === "editor" ||
+    role === "commenter"
+  );
+}
+
 function builderBodyWithoutImageSourceComponentMarkers(
   content: string | null | undefined,
 ) {
@@ -645,6 +654,7 @@ export default defineAction({
               ),
               visibility: current.visibility,
               accessRole: access.role,
+              canComment: canCommentRole(access.role),
               canEdit: canEditRole(access.role),
               canManage: canManageRole(access.role),
               createdAt: current.createdAt,
@@ -730,6 +740,7 @@ export default defineAction({
         hideFromSearch: parseDocumentHideFromSearch(doc.hideFromSearch),
         visibility: doc.visibility,
         accessRole: access.role,
+        canComment: canCommentRole(access.role),
         canEdit: canEditRole(access.role),
         canManage: canManageRole(access.role),
         createdAt: doc.createdAt,

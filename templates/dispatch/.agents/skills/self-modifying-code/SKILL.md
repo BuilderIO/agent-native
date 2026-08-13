@@ -90,9 +90,9 @@ el.dataset.selectedId = selectedItem?.id || "";
 **Use configuration-driven rendering** — Extract visual decisions (colors, layouts, sizes) into JSON config files in `data/`. The agent can modify the config (Tier 1) instead of the component source (Tier 2).
 
 **Keep localized copy in catalogs** — When editing visible UI copy, labels,
-toasts, empty states, prompts, or formatting, read `internationalization` and
-update `app/i18n/en-US.ts` plus existing locale catalogs instead of leaving new
-inline strings in components.
+toasts, empty states, prompts, or formatting, update the English source catalog.
+Read the optional `internationalization` skill and update additional catalogs
+only when `translations.locales` in `agent-native.config.ts` includes them.
 
 ## Don't
 

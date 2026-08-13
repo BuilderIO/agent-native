@@ -868,6 +868,12 @@ function TriggersSubsection() {
 
 // ─── Automations Section ─────────────────────────────────────────────────────
 
+type AutomationSettings = {
+  engine?: string;
+  model?: string;
+  allowAutomationSends: boolean;
+};
+
 function AutomationsSection() {
   const t = useT();
   const { data: rules = [], isLoading } = useAutomations();
@@ -896,9 +902,9 @@ function AutomationsSection() {
   // Refetch on any settings write or agent action so agent-driven changes
   // (e.g. update-automation-settings) show up without a manual refresh.
   const settingsSync = useChangeVersions(["settings", "action"]);
-  const { data: autoSettings } = useQuery({
+  const { data: autoSettings } = useQuery<AutomationSettings>({
     queryKey: ["automation-settings", settingsSync],
-    queryFn: async () => {
+    queryFn: async (): Promise<AutomationSettings> => {
       try {
         return await callAction(
           "get-automation-settings",
@@ -906,7 +912,7 @@ function AutomationsSection() {
           { method: "GET" },
         );
       } catch {
-        return { model: defaultModel };
+        return { model: defaultModel, allowAutomationSends: false };
       }
     },
     staleTime: 30_000,
@@ -914,6 +920,7 @@ function AutomationsSection() {
   });
 
   const queryClient = useQueryClient();
+  const [isSavingAutomationSends, setIsSavingAutomationSends] = useState(false);
   const selectedModel = autoSettings?.model || defaultModel;
   const selectedEngine =
     autoSettings?.engine ||
@@ -930,12 +937,52 @@ function AutomationsSection() {
   const handleModelChange = async (value: string) => {
     const [engine, model] = value.split("::");
     if (!engine || !model) return;
-    queryClient.setQueryData(["automation-settings"], { engine, model });
+    queryClient.setQueriesData<AutomationSettings>(
+      { queryKey: ["automation-settings"] },
+      (current) =>
+        current
+          ? { ...current, engine, model }
+          : { engine, model, allowAutomationSends: false },
+    );
     await callAction(
       "update-automation-settings",
       { engine, model },
       { method: "PUT" },
     );
+  };
+
+  const handleAutomationSendsChange = async (enabled: boolean) => {
+    if (!autoSettings || isSavingAutomationSends) return;
+    const previous = autoSettings.allowAutomationSends;
+    queryClient.setQueriesData<AutomationSettings>(
+      { queryKey: ["automation-settings"] },
+      (current) =>
+        current ? { ...current, allowAutomationSends: enabled } : current,
+    );
+    setIsSavingAutomationSends(true);
+    try {
+      await callAction(
+        "update-automation-settings",
+        { allowAutomationSends: enabled },
+        { method: "PUT" },
+      );
+    } catch (error) {
+      queryClient.setQueriesData<AutomationSettings>(
+        { queryKey: ["automation-settings"] },
+        (current) =>
+          current ? { ...current, allowAutomationSends: previous } : current,
+      );
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t("settings.automationSendSettingSaveFailed"),
+      );
+    } finally {
+      setIsSavingAutomationSends(false);
+      await queryClient.invalidateQueries({
+        queryKey: ["automation-settings"],
+      });
+    }
   };
 
   const handleCreate = (data: {
@@ -994,6 +1041,20 @@ function AutomationsSection() {
           <IconPlus className="h-3.5 w-3.5" />
           {t("settings.newRule")}
         </Button>
+      </div>
+
+      <div className="max-w-2xl mb-6">
+        {autoSettings ? (
+          <SettingsSwitchRow
+            title={t("settings.allowAutomationSends")}
+            description={t("settings.allowAutomationSendsDescription")}
+            checked={autoSettings.allowAutomationSends}
+            disabled={isSavingAutomationSends}
+            onCheckedChange={handleAutomationSendsChange}
+          />
+        ) : (
+          <Skeleton className="h-16 w-full" />
+        )}
       </div>
 
       {/* Content */}
@@ -1219,7 +1280,7 @@ function DraftingSection() {
   );
 }
 
-function TrackingRow({
+function SettingsSwitchRow({
   title,
   description,
   checked,
@@ -1281,13 +1342,13 @@ function TrackingSection() {
           </>
         ) : (
           <>
-            <TrackingRow
+            <SettingsSwitchRow
               title={t("settings.trackEmailOpens")}
               description={t("settings.trackEmailOpensDescription")}
               checked={tracking.opens}
               onCheckedChange={(v) => update({ opens: v })}
             />
-            <TrackingRow
+            <SettingsSwitchRow
               title={t("settings.trackLinkClicks")}
               description={t("settings.trackLinkClicksDescription")}
               checked={tracking.clicks}

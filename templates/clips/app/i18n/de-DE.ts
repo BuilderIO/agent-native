@@ -523,10 +523,11 @@ const messages = {
     },
     roles: {
       viewer: "Zuschauer",
+      commenter: "Kommentator",
       editor: "Editor",
       admin: "Admin",
     },
-    recordingViewer: {
+    recordingCommenter: {
       label: "Kommentator",
       description: "Kann ansehen, kommentieren und reagieren",
     },

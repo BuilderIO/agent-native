@@ -364,6 +364,7 @@ export function createProviderApiRequestAction<
       summary: (args) =>
         buildProviderApiAuditSummary(args as ProviderRequestActionArgs),
     },
+    grounding: true,
     run: async (rawArgs) => {
       const args = rawArgs as ProviderRequestActionArgs;
       if (args.stageAs) {

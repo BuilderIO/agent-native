@@ -1054,10 +1054,10 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   };
   const getTopBarCount = (viewId: string) => getTabCount(viewId, "total");
   const getUnreadCount = (viewId: string) => getTabCount(viewId, "unread");
-  const inboxSidebarUnreadCount =
-    labelThreadCounts.unread["__inboxTotal"] ??
-    labelThreadCounts.unread["inbox"] ??
-    0;
+  // The rail badge represents the whole inbox. The top-bar "Other" tab can
+  // only count loaded rows when pinned filters are active, but Gmail's label
+  // count covers the mailbox beyond the current page.
+  const inboxSidebarUnreadCount = getInboxCount("unread");
   const railNavItems = [
     {
       id: "inbox",

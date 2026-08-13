@@ -71,6 +71,13 @@ export interface AgentChatPluginOptions {
   /** App ID used to exclude self from agent discovery (e.g., "mail", "calendar") */
   appId?: string;
   /**
+   * Controls connected MCP tools available to unattended recurring and trigger
+   * runs. "requested" only loads tools named by a job; "all" loads every
+   * tool visible to this app's current workspace context and still enforces
+   * the per-request scope gate when a tool is called.
+   */
+  backgroundMcpTools?: "requested" | "all";
+  /**
    * Everything about this app's MCP mount — whether it is mounted, which tools
    * external callers see, and the branding sent during the `initialize`
    * handshake. See `AgentChatMcpOptions`.

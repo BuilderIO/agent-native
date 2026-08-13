@@ -674,6 +674,7 @@ export function FormBuilderPage() {
                 <ShareButton
                   resourceType="form"
                   resourceId={form.id}
+                  allowedRoles={["viewer", "editor", "admin"]}
                   resourceTitle={form.title}
                   triggerClassName="h-10 border-input bg-transparent px-3 text-xs active:scale-[0.96] hover:bg-accent hover:text-accent-foreground"
                   shareUrl={publishedFormUrl}

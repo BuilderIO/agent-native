@@ -29,6 +29,7 @@ import {
 
 const MAX_SOURCE_FILES = 500;
 const MAX_SOURCE_FILE_BYTES = 2 * 1024 * 1024;
+const MAX_DOCUMENT_BODY_BYTES = 512 * 1024;
 const SNAPSHOT_INTERVAL_MS = 5 * 60 * 1000;
 
 function nanoid(size = 12): string {
@@ -281,6 +282,13 @@ export default defineAction({
         errors.push({
           path: file.path,
           reason: `Duplicate source id "${file.id}".`,
+        });
+        continue;
+      }
+      if (Buffer.byteLength(file.content, "utf8") > MAX_DOCUMENT_BODY_BYTES) {
+        errors.push({
+          path: file.path,
+          reason: `Document body exceeds the ${MAX_DOCUMENT_BODY_BYTES}-byte import limit.`,
         });
         continue;
       }

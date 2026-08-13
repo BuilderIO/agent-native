@@ -363,7 +363,7 @@ Les automatisations peuvent enchaîner cela – par ex. _"si une notification 
 ## Comment ça marche {#internals}
 
 - **Portée du propriétaire** — chaque ligne a une colonne `owner` ; chaque requête est filtrée dessus ; chaque itinéraire utilise l'e-mail de la session authentifiée. Les utilisateurs ne voient jamais les notifications des autres.
-- **Intégration de sondage** — chaque mutation appelle `recordChange()` afin que les modèles utilisant [`useDbSync`](/docs/client) s'invalident automatiquement sans aucun câblage supplémentaire.
+- **Intégration de sondage** — chaque mutation appelle `recordChange()` afin que les modèles utilisant [`useDbSync`](/docs/client-data#usedbsync) s'invalident automatiquement sans aucun câblage supplémentaire.
 - **Distribution au mieux** : les erreurs de canal sont détectées et enregistrées ; un canal défaillant ne bloque pas les autres ni l'écriture dans la boîte de réception.
 - **Fire-and-forget** — `notify()` revient une fois l'écriture de la boîte de réception terminée ; les canaux personnalisés s'exécutent en arrière-plan.
 

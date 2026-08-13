@@ -42,6 +42,7 @@ import {
   // The dialog is intentionally reused here so the Agent page remains a thin
   // host for the existing MCP management flow.
 } from "../resources/McpIntegrationDialog.js";
+import { McpIntegrationLogo } from "../resources/McpIntegrationLogo.js";
 import { McpServerDetail } from "../resources/McpServerDetail.js";
 import type { ResourceView } from "../resources/ResourcesPanel.js";
 import {
@@ -298,11 +299,17 @@ export function ConnectionsTab({
       <div
         key={key}
         className={cn(
-          "group/connection-row py-4 transition-colors first:pt-5 last:pb-5",
+          "group/connection-row border-b border-border/60 py-3.5 transition-colors last:border-b-0",
           selected && "bg-accent/20",
         )}
       >
         <div className="flex items-start gap-3">
+          <McpIntegrationLogo
+            name={server.name}
+            logoUrl=""
+            integrationId={server.name.toLowerCase()}
+            className="size-8 rounded-md"
+          />
           <button
             type="button"
             onClick={() => setSelectedServer(selected ? null : server)}
@@ -312,11 +319,16 @@ export function ConnectionsTab({
               <span className="truncate text-sm font-medium text-foreground">
                 {server.name}
               </span>
+              <span className="text-[11px] font-medium text-muted-foreground">
+                {server.scope === "user"
+                  ? t("mcpIntegrations.personal")
+                  : t("mcpIntegrations.sharedWithWorkspace")}
+              </span>
             </div>
-            <code className="mt-1 block truncate text-[11px] text-muted-foreground">
+            <code className="mt-0.5 block truncate text-[11px] text-muted-foreground">
               {server.url}
             </code>
-            <div className="mt-2 flex items-center gap-2">
+            <div className="mt-1 flex items-center gap-2">
               <ServerStatus server={server} />
               {server.description && (
                 <span className="truncate text-[11px] text-muted-foreground/70">
@@ -325,6 +337,9 @@ export function ConnectionsTab({
               )}
             </div>
           </button>
+          <span className="hidden shrink-0 self-center text-xs font-medium text-foreground/70 sm:inline">
+            Manage
+          </span>
           {canDelete && (
             <button
               type="button"
@@ -351,7 +366,7 @@ export function ConnectionsTab({
   return (
     <AgentTabFrame
       title="Agent integrations"
-      description="Tools and services this agent can reach, grouped by where they are configured."
+      description="Tools and services this agent can reach, grouped by personal or workspace access."
       actions={
         <button
           type="button"
@@ -391,10 +406,18 @@ export function ConnectionsTab({
         ) : (
           <div className="space-y-6">
             {[
-              { label: "Personal", servers: data?.user ?? [] },
-              { label: "Organization", servers: data?.org ?? [] },
+              {
+                scope: "user" as const,
+                label: t("mcpIntegrations.personal"),
+                servers: data?.user ?? [],
+              },
+              {
+                scope: "org" as const,
+                label: t("mcpIntegrations.sharedWithWorkspace"),
+                servers: data?.org ?? [],
+              },
             ].map((section) => (
-              <section key={section.label} className="space-y-2">
+              <section key={section.scope} className="space-y-2">
                 <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground/70">
                   {section.label}
                 </h2>
@@ -405,11 +428,15 @@ export function ConnectionsTab({
                 ) : (
                   <AgentEmptyState
                     icon={IconPlugConnected}
-                    title={`No ${section.label.toLowerCase()} agent integrations yet`}
+                    title={
+                      section.scope === "user"
+                        ? "No personal agent integrations yet"
+                        : "No workspace-shared agent integrations yet"
+                    }
                     description={
-                      section.label === "Personal"
+                      section.scope === "user"
                         ? "Connect a service to give the agent access to it."
-                        : "Organization agent integrations shared with this workspace will appear here."
+                        : "Agent integrations shared with this workspace will appear here."
                     }
                   />
                 )}

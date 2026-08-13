@@ -53,7 +53,7 @@ export default defineAction({
       args.resourceType,
       args.resourceId,
       actionCtx,
-      "viewer",
+      "commenter",
     );
     const mentions = normalizeReviewMentions([
       ...normalizeReviewMentions(args.mentions),

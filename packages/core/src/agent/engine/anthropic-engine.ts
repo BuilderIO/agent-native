@@ -236,6 +236,15 @@ class AnthropicEngine implements AgentEngine {
       const finalMessage = await apiStream.finalMessage();
       const assistantContent = anthropicContentToEngine(finalMessage.content);
 
+      // The final content can carry the same tool call with an empty input
+      // even though the stream already delivered complete argument deltas.
+      // Reconcile that copy before marking its id delivered.
+      for (const part of assistantContent) {
+        if (part.type === "tool-call") {
+          observeStreamedToolInput(toolInputs, part);
+        }
+      }
+
       // A tool call the stream announced but the final message never carried
       // would otherwise vanish, leaving the turn claiming an action it never
       // ran. Recover it from its deltas, or tell the model in-band.

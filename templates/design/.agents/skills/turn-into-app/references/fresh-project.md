@@ -28,11 +28,13 @@ Write a compact brief before starting the app:
 ```text
 Source: host-provided Claude/ChatGPT Project context
 Provenance: project instructions, selected knowledge files, and visible runs
+Source artifact type: project context, thread, skill, spreadsheet link, or upload
 Project goal:
 Configuration and constraints:
 Knowledge sources:
 Repeatable workflow:
 Inputs and outputs:
+Workbook candidates and confirmation: worksheet/range options, inferred I/O, selected destinations, unresolved questions
 Judgment and review points:
 Representative runs: none, or 1-3 selected examples
 Integrations and permissions:
@@ -72,9 +74,13 @@ skill.
 The brief is an implementation authorization, not a questionnaire. After a
 repeatable workflow is identifiable, choose any source-recommended option
 automatically. For unresolved non-blocking choices, use the most direct
-conventional default, record it under assumptions, and continue. Ask only when
-there is no identifiable workflow, no authorized target workspace, or a
-destructive/credential boundary genuinely prevents the handoff.
+conventional default, record it under assumptions, and continue. A spreadsheet
+is the narrow exception when its candidate workflows or input/output mapping
+cannot be grounded from the bounded source: show the recommended candidates
+and mapping in one compact multi-select confirmation, then continue after the
+user confirms or corrects it. Ask only for that source-integrity clarification,
+no identifiable workflow, no authorized target workspace, or a
+destructive/credential boundary that genuinely prevents the handoff.
 
 In a new Project chat, say:
 

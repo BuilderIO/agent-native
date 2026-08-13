@@ -57,6 +57,19 @@ describe("CodeAgentsApp full-page chat width", () => {
   });
 });
 
+describe("CodeAgentsApp chat-first rail scrolling", () => {
+  it("keeps navigation, apps, and chats in one scroll body above the footer", () => {
+    const source = readFileSync("src/CodeAgentsApp.tsx", "utf8");
+    const css = readFileSync("src/styles.css", "utf8");
+
+    expect(source).toContain('className="code-agents-rail-scroll"');
+    expect(source).toContain('className="code-agents-rail-footer"');
+    expect(css).toMatch(
+      /\.code-agents-rail-scroll\s*\{[\s\S]*?overflow-y: auto;/,
+    );
+  });
+});
+
 describe("CodeAgentsApp project folder picker", () => {
   it("keeps folder creation in the dropdown instead of duplicating its action", () => {
     const source = readFileSync("src/CodeAgentsApp.tsx", "utf8");

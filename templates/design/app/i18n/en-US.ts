@@ -46,7 +46,7 @@ const messages = {
     applyFeedbackFailed: "Could not apply review feedback",
     sendToAgentFailed: "Could not send this thread to the agent",
     shareLinkDescription:
-      "Anyone with this link can view the design. Signed-in reviewers can comment.",
+      "Anyone with this link can view the design. Signed-in commenters can comment.",
     presentComments: "Comments",
     presentCommentMode: "Comment mode",
     closeComments: "Close comments",

@@ -20,7 +20,7 @@ import {
 } from "../action.js";
 import { readAppState } from "../application-state/script-helpers.js";
 import { isReadOnlyShellCommand } from "../coding-tools/index.js";
-import { getDbExec } from "../db/client.js";
+import { getDbExec, isTransientDatabaseError } from "../db/client.js";
 import { extensionIdFromPathname } from "../extensions/path.js";
 import { preUploadAttachments } from "../file-upload/pre-upload-attachments.js";
 import { isMcpActionResult } from "../mcp-client/app-result.js";
@@ -682,6 +682,8 @@ export interface ActionEntry {
   /** If true, completion does NOT trigger a screen-refresh change event.
    *  Set automatically by `defineAction` when `http.method === "GET"`. */
   readOnly?: boolean;
+  /** If true, a successful call returns evidence retrieved from a live source. */
+  grounding?: boolean;
   /** False keeps a read-only tool available in Act mode but hides/blocks it in
    *  Plan mode. Use for tools that perform substantive work even without
    *  mutating state. */
@@ -1188,6 +1190,35 @@ export async function resolveAgentOwnerEmail(
 }
 
 const MAX_RETRIES = 3;
+const COMPLETION_DATABASE_RETRY_DELAYS_MS = [250, 750, 1_500] as const;
+
+/**
+ * A transient database failure in the completion callback used to prevent a
+ * background continuation from ever being handed off. Keep the retry bounded
+ * and database-only so a permanent persistence error still fails loudly.
+ */
+export async function runCompletionCallbackWithDatabaseRetry(
+  callback: () => void | Promise<void>,
+  options?: { sleep?: (ms: number) => Promise<void> },
+): Promise<void> {
+  const sleep =
+    options?.sleep ??
+    ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      await callback();
+      return;
+    } catch (error) {
+      const retryDelay = COMPLETION_DATABASE_RETRY_DELAYS_MS[attempt];
+      if (!isTransientDatabaseError(error) || retryDelay === undefined) {
+        throw error;
+      }
+      await sleep(retryDelay);
+    }
+  }
+}
+
 /**
  * Retry budget override for `builder_gateway_error` — the no-detail Builder
  * gateway fallback. Production data shows this code is almost never
@@ -2895,6 +2926,22 @@ export const MAX_SAME_ERROR_ACROSS_ARGUMENTS = 6;
  */
 export const MAX_IDENTICAL_TOOL_CALLS = 8;
 
+/**
+ * A stop that ends the turn from inside the tool loop.
+ *
+ * `message` is the last thing the user reads, so it names the remedy in plain
+ * words and does not quote a raw provider/tool error; the raw error goes in
+ * `details`. Both retry sniffers now honour the `recoverable: false` these
+ * stops are sent with, so a stop that happens to say "timeout" is no longer
+ * auto-continued — but the prose still has one reader who cannot ignore it,
+ * and a pasted stack trace is not a remedy.
+ */
+export interface TerminalActionStop {
+  message: string;
+  errorCode?: string;
+  details?: string;
+}
+
 function seedWriteToolInterruptionsFromHistory(
   messages: EngineMessage[],
   actions: Record<string, ActionEntry>,
@@ -3452,6 +3499,13 @@ async function waitForInterruptedToolLedgerEntry(opts: {
  * Dropping the echoed input costs nothing: the fault is already named by the
  * sentence before it, and two failures that differ ONLY in the arguments they
  * echo are the same failure.
+ *
+ * Digits stay. Collapsing them merges failures that are genuinely different:
+ * "Record 41 not found" and "Record 42 not found" are two missing records, so a
+ * seven-item sweep where every item legitimately 404s would trip the
+ * across-arguments breaker at item six. A guard message that varies its own
+ * running tally is fixed where that message is written, not by blinding every
+ * breaker to numbers.
  */
 function normalizeToolErrorForBreaker(error: string): string {
   return (
@@ -3478,6 +3532,62 @@ function rateLimitRecoveryHint(message: string): string {
   }
   return "\n\nProvider rate-limit guidance: stop retrying this provider in this turn. Report the rate limit as a coverage gap, include any evidence already gathered, and ask the user to retry after the provider quota resets if full coverage is required.";
 }
+
+/**
+ * Tool errors the model has no way to clear: the missing thing lives outside
+ * the turn (a credential, a role grant, a connected account, a runtime, the
+ * user's own approval). Every retry costs a full round-trip carrying the whole
+ * transcript and lands on the identical error, so these stop on the FIRST
+ * occurrence rather than after `MAX_SAME_ERROR_ACROSS_ARGUMENTS` of them.
+ *
+ * The distinction is the one `stopForBigQueryNotConfigured` draws in
+ * templates/analytics: a *configuration* gap is permanent for this turn, a
+ * *query* failure is not. Anything the model can act on — a stale read to
+ * rebase, a bad argument, a full quota it can free, a wrong dataset name, a
+ * statement timeout — must stay out of this list and keep its retries.
+ * Precision over recall: a wrong match kills a turn that would have succeeded,
+ * which is worse than one more retry.
+ */
+export function permanentPreconditionRemedy(message: string): string | null {
+  const trimmed = message.replace(/\s+/g, " ").trim();
+  for (const pattern of PERMANENT_PRECONDITION_PATTERNS) {
+    if (pattern.test(trimmed)) return trimmed;
+  }
+  return null;
+}
+
+const PERMANENT_PRECONDITION_PATTERNS: readonly RegExp[] = [
+  // "Requires editor role on deck ZJshjrXhjx (have viewer)". The trailing space
+  // is load-bearing: it keeps "must have required property" out.
+  /\brequires? (?:an? |the )?[\w-]+ role\b/i,
+  // "Gemini API key not configured. Save GEMINI_API_KEY in settings." Only the
+  // not-configured/not-set wordings — "not found" is how providers report a
+  // missing dataset or record, which the model can and should correct.
+  /\b(?:api[ -]?keys?|access tokens?|credentials?|secrets?)\b[^.]{0,60}\bnot (?:configured|set|connected|available)\b/i,
+  /\bsave [A-Z][A-Z0-9_]{3,} in (?:the )?settings\b/i,
+  // "Connect Builder.io before indexing a design system from Figma or code."
+  // Case-sensitive, sentence-initial, and followed by a capitalized service
+  // name, because that is the only shape that separates the imperative remedy
+  // from the retryable network failure: "failed to connect to the warehouse
+  // before the deadline" and "Connect timed out, retry first" both satisfy
+  // every looser reading of the same words.
+  /(?:^|[.:!?]\s+)Connect [A-Z][\w.-]*[^;]{0,40}?\b(?:before|first|in settings)\b/,
+  // "Plan mode blocked `update-extension`. Switch to Act mode …" — cleared by
+  // the user approving the plan, never by the model trying again.
+  /\bplan mode blocked\b/i,
+  // The templates' most-copied throw, and always `if (!getRequestUserEmail())`:
+  // one synchronous AsyncLocalStorage read of a value fixed when the request
+  // context was established. It cannot appear and disappear between tool calls
+  // of the same chunk, so retrying inside this turn lands on it again.
+  /\bno authenticated user\b/i,
+  // "SSRF blocked: refusing to fetch private/internal address (…)"
+  /\bssrf blocked\b/i,
+  // Deliberately absent: "only available in …". Retention windows ("only
+  // available from the last 90 days") share its wording and are fixed by
+  // narrowing the range, so it stopped turns that were one argument away from
+  // succeeding. The count-based breaker still ends a genuine runtime gate
+  // after six.
+];
 
 const SOURCE_SWEEP_TOOL_NAME =
   /\b(?:api|calls?|deals?|docs?|events?|issues?|messages?|metrics?|provider|query|records?|request|search|source|tickets?|transcripts?)\b/i;
@@ -3620,9 +3730,15 @@ function restrictAgentTeamsAfterSourceSweep(tools: EngineTool[]): EngineTool[] {
   });
 }
 
+/**
+ * Deliberately carries no running call count. This decline is recorded as a
+ * tool error, and the breakers key on that text: a message that reports its own
+ * tally ("already made 13 call(s)") mints a fresh key on every decline, so the
+ * decline that exists to stop a spiral becomes the one thing nothing can count.
+ * The fixed threshold below says the same thing without varying.
+ */
 export function repeatedSourceSweepGuardMessage(opts: {
   toolName: string;
-  priorCalls: number;
   threshold?: number;
   scope?: "tool" | "aggregate";
 }): string {
@@ -3632,9 +3748,8 @@ export function repeatedSourceSweepGuardMessage(opts: {
       ? "read-only source/search tools"
       : "the same read-only source/search tool";
   return (
-    `Skipped ${opts.toolName}: this turn already made ${opts.priorCalls} ` +
-    `call(s) to ${target}, which exceeds the ` +
-    `${threshold}-call convergence budget. Stop calling ${opts.toolName} ` +
+    `Skipped ${opts.toolName}: this turn already exhausted its ` +
+    `${threshold}-call convergence budget for ${target}. Stop calling ${opts.toolName} ` +
     `one item at a time and change strategy before answering. If a broader ` +
     `read-only bulk/source mechanism is available, use it now: provider API ` +
     `catalog/docs/request tools with pagination or staging, code execution ` +
@@ -3678,7 +3793,6 @@ export function shouldGuardRepeatedSourceSweep(opts: {
       priorCalls: priorSourceSweepCalls,
       message: repeatedSourceSweepGuardMessage({
         toolName: opts.toolName,
-        priorCalls: priorSourceSweepCalls,
         threshold,
         scope: "aggregate",
       }),
@@ -3690,7 +3804,6 @@ export function shouldGuardRepeatedSourceSweep(opts: {
     priorCalls,
     message: repeatedSourceSweepGuardMessage({
       toolName: opts.toolName,
-      priorCalls,
       threshold,
       scope: "tool",
     }),
@@ -4369,13 +4482,32 @@ export async function runAgentLoop(opts: {
   // calls/results are folded into `toolCallHistory` / `toolResultHistory` so
   // final response guards see evidence from earlier chunks of this turn.
   const consumedJournalKeys = new Set<string>();
-  const {
-    toolCallJournal,
-    priorToolCalls: journaledPriorToolCalls,
-    priorToolResults: journaledPriorToolResults,
-  } = await loadPriorTurnToolCallJournal(opts.threadId, opts.turnId);
+  const journalRead = await loadPriorTurnToolCallJournal(
+    opts.threadId,
+    opts.turnId,
+  );
+  const toolCallJournal =
+    journalRead.status === "read" ? journalRead.toolCallJournal : null;
+  const journaledPriorToolCalls =
+    journalRead.status === "read" ? journalRead.priorToolCalls : [];
+  const journaledPriorToolResults =
+    journalRead.status === "read" ? journalRead.priorToolResults : [];
   toolCallHistory.push(...journaledPriorToolCalls);
   toolResultHistory.push(...journaledPriorToolResults);
+  // Every per-turn ceiling below is seeded from that read, and the write-replay
+  // hard block is enforced from it. On a continuation we cannot tell an
+  // already-completed side effect from a fresh one without it, so a failed read
+  // stops the turn instead of quietly resuming with a blank ledger.
+  const unreadableJournalStop: TerminalActionStop | null =
+    journalRead.status === "unreadable" && isInternalContinuationTurn(messages)
+      ? {
+          message:
+            "I stopped because I could not read this turn's run ledger, so I could not tell which steps had already finished. " +
+            "Retrying would risk repeating a step that already completed. Please send the request again.",
+          errorCode: "tool_call_journal_unreadable",
+          details: journalRead.error,
+        }
+      : null;
 
   const readOnlyToolResultCache = seedReadOnlyToolResultsFromHistory(
     messages,
@@ -4390,25 +4522,34 @@ export async function runAgentLoop(opts: {
     messages,
     actions,
   );
+  // All three repetition ledgers are SEEDED from earlier chunks of this turn,
+  // like `toolCallHistory` and `toolResultHistory` above. A fresh Map makes the
+  // limit per-CHUNK rather than per-turn, and a turn may chain up to
+  // MAX_RUN_LOOP_CONTINUATIONS (6) or MAX_BACKGROUND_RUN_LOOP_CONTINUATIONS
+  // (20) of them — so the real ceiling becomes 20x the constant, and a spiral
+  // resumes with a clean slate at every chunk boundary.
   const repeatedToolErrors = new Map<string, number>();
-  // Keyed WITHOUT the arguments — see MAX_SAME_ERROR_ACROSS_ARGUMENTS.
-  //
-  // SEEDED from earlier chunks of this turn, like `toolCallHistory` and
-  // `toolResultHistory` above. A fresh Map here would make the limit per-CHUNK
-  // rather than per-turn, and a turn may chain up to MAX_RUN_LOOP_CONTINUATIONS
-  // (6) or MAX_BACKGROUND_RUN_LOOP_CONTINUATIONS (20) of them — so the real
-  // ceiling would be 36 or 120 identical failures, not 6, and a spiral would
-  // resume with a clean slate at every chunk boundary.
+  /** Keyed WITHOUT the arguments — see MAX_SAME_ERROR_ACROSS_ARGUMENTS. */
   const repeatedToolErrorsAnyArgs = new Map<string, number>();
-  for (const prior of toolResultHistory) {
+  const repeatedToolCalls = new Map<string, number>();
+  for (const prior of journaledPriorToolCalls) {
+    const key = toolCallCacheKey(prior.name, prior.input);
+    repeatedToolCalls.set(key, (repeatedToolCalls.get(key) ?? 0) + 1);
+  }
+  for (const prior of journaledPriorToolResults) {
     if (!prior.isError) continue;
-    const key = `${prior.name}:${normalizeToolErrorForBreaker(prior.content)}`;
+    const normalized = normalizeToolErrorForBreaker(prior.content);
+    const anyArgsKey = `${prior.name}:${normalized}`;
     repeatedToolErrorsAnyArgs.set(
-      key,
-      (repeatedToolErrorsAnyArgs.get(key) ?? 0) + 1,
+      anyArgsKey,
+      (repeatedToolErrorsAnyArgs.get(anyArgsKey) ?? 0) + 1,
+    );
+    const errorKey = `${toolCallCacheKey(prior.name, prior.input)}:${normalized}`;
+    repeatedToolErrors.set(
+      errorKey,
+      (repeatedToolErrors.get(errorKey) ?? 0) + 1,
     );
   }
-  const repeatedToolCalls = new Map<string, number>();
 
   let finalGuardRetries = 0;
   let emptyFinalResponseRetries = 0;
@@ -4416,7 +4557,34 @@ export async function runAgentLoop(opts: {
   // `loop_limit` and `done` share one terminal-event slot in run-manager, so a
   // trailing `done` would overwrite the boundary the continuation logic reads.
   let endedAtLoopLimit = false;
-  let terminalActionStop: { message: string; errorCode?: string } | null = null;
+  let terminalActionStop: TerminalActionStop | null = null;
+  /**
+   * A stop is either a hand-off to the user (the two `input_required` codes) or
+   * a failed run. Failed runs MUST leave a terminal `error` event behind: the
+   * run row's status, `error_code`, `listErroredRuns`, the outcome counters and
+   * the client's retry affordance all key off that event, and a stop that only
+   * streams text is recorded as `status='completed', terminal_reason='done'` —
+   * a guard trip counted as a success.
+   */
+  const sendTerminalActionStop = (stop: TerminalActionStop) => {
+    if (
+      stop.errorCode === "needs-approval" ||
+      stop.errorCode === "awaiting-user-input"
+    ) {
+      send({ type: "text", text: stop.message });
+      return;
+    }
+    // Sent ONLY as an error: both the live client and the thread rebuild render
+    // an error event's message as assistant text themselves, so also sending it
+    // as `text` prints the same sentence twice.
+    send({
+      type: "error",
+      error: stop.message,
+      errorCode: stop.errorCode ?? "tool_failed",
+      ...(stop.details ? { details: stop.details } : {}),
+      recoverable: false,
+    });
+  };
   // Overridden (raised tokens, lowered effort) only after an empty-final-
   // response retry below — kept separate from `opts.maxOutputTokens`/
   // `opts.reasoningEffort` so the very first attempt is unaffected and later
@@ -4444,6 +4612,11 @@ export async function runAgentLoop(opts: {
 
   while (true) {
     if (signal.aborted) break;
+    if (unreadableJournalStop) {
+      terminalActionStop = unreadableJournalStop;
+      sendTerminalActionStop(unreadableJournalStop);
+      break;
+    }
     const turnInputTokens = priorTurnInputTokens + usage.inputTokens;
     if (turnInputTokens > maxRunInputTokens) {
       // Terminal for the whole TURN, not a chunk boundary: emitting
@@ -5235,8 +5408,7 @@ export async function runAgentLoop(opts: {
 
     flushUnstreamedAssistantText();
 
-    let requestedActionStop: { message: string; errorCode?: string } | null =
-      null;
+    let requestedActionStop: TerminalActionStop | null = null;
     // An `endsTurn` action ran and handed control to the user. Distinct from
     // `requestedActionStop`, which also covers failure stops that must not
     // suppress the remaining tool calls.
@@ -5278,9 +5450,6 @@ export async function runAgentLoop(opts: {
     const runToolCall = async (
       toolCall: import("./engine/types.js").EngineToolCallPart,
     ): Promise<EngineContentPart> => {
-      // Counted before any journal/cache short-circuit: serving a repeat from
-      // cache still means the model is asking the same question again.
-      noteRepeatedToolCall(toolCall.name, toolCall.input);
       const actionEntry = actions[toolCall.name];
       const placeholderNormalization = actionEntry
         ? normalizeOptionalToolPlaceholders(
@@ -5300,6 +5469,11 @@ export async function runAgentLoop(opts: {
       if (jsonStringCoercion.changed) {
         toolCall = { ...toolCall, input: jsonStringCoercion.input };
       }
+      // Count after the same normalization that is persisted in the journal:
+      // a model can send a JSON-encoded object/array, while the action and
+      // ledger both see the coerced value. Serving a repeat from cache still
+      // counts as asking the same question again.
+      noteRepeatedToolCall(toolCall.name, toolCall.input);
       const toolInputNormalized =
         placeholderNormalization.changed || jsonStringCoercion.changed;
       const wireToolInput = JSON.stringify(toolCall.input ?? {});
@@ -5339,6 +5513,24 @@ export async function runAgentLoop(opts: {
       };
       const finalizeToolErrorResult = (rawResult: string): string => {
         const sanitizedResult = sanitizeToolErrorText(rawResult);
+        // Counting is the wrong instrument for a precondition the turn cannot
+        // satisfy: six identical round-trips through a missing API key cost the
+        // user minutes and end where the first one did. Classified first so the
+        // remedy reaches them on attempt one.
+        const permanentRemedy = permanentPreconditionRemedy(sanitizedResult);
+        if (permanentRemedy) {
+          requestedActionStop ??= {
+            message:
+              `I stopped because ${toolCall.name} needs a setup step outside this turn — a credential, a role, a connected account, or an approval — before it can run. ` +
+              "Retrying would not have changed it, and anything completed before this is saved.",
+            errorCode: "permanent_precondition",
+            details: sanitizedResult,
+          };
+          return (
+            `Stopped: ${toolCall.name} cannot run until a setup step outside this turn is fixed. ` +
+            `Do not retry it with different arguments. ${sanitizedResult}`
+          );
+        }
         const errorKey = `${toolCallCacheKey(
           toolCall.name,
           toolCall.input,
@@ -5365,9 +5557,9 @@ export async function runAgentLoop(opts: {
           requestedActionStop ??= {
             message:
               `I stopped because the ${toolCall.name} action rejected ${anyArgsCount} different attempts the same way, ` +
-              "so changing the arguments again would not have worked. Anything completed before this is saved. " +
-              `Error: ${sanitizedResult}`,
+              "so changing the arguments again would not have worked. Anything completed before this is saved.",
             errorCode: "repeated_tool_error_across_arguments",
+            details: sanitizedResult,
           };
           return result;
         }
@@ -5382,15 +5574,23 @@ export async function runAgentLoop(opts: {
         requestedActionStop ??= {
           message:
             `I stopped because the ${toolCall.name} action failed ${count} times in a row the same way, ` +
-            "so retrying it again would not have worked. Anything completed before this is saved. " +
-            `Error: ${sanitizedResult}`,
+            "so retrying it again would not have worked. Anything completed before this is saved.",
           errorCode: "repeated_identical_tool_error",
+          details: sanitizedResult,
         };
         return result;
       };
-      if (sourceSweepGuard) {
-        sourceSweepDelegationGuardActive = true;
-        const result = sourceSweepGuard.message;
+      /**
+       * A guard refused to run the tool. Recorded as an ERROR, not as a plain
+       * result: a decline costs a full model round-trip carrying the whole
+       * transcript, and `noteRepeatedToolCall` keys on name+args, so a model
+       * iterating ids mints a fresh key every time and declines forever until
+       * `maxIterations`. Routing through `finalizeToolErrorResult` gives the
+       * existing breakers something to count — no new counter — while the text
+       * the model reads is still the guard's own guidance.
+       */
+      const declineToolCall = (guidance: string): EngineContentPart => {
+        const result = finalizeToolErrorResult(guidance);
         send({
           type: "tool_start",
           id: toolCall.id,
@@ -5403,9 +5603,10 @@ export async function runAgentLoop(opts: {
           tool: toolCall.name,
           input: toolCall.input as Record<string, unknown>,
           result,
+          isError: true,
           completedSideEffect: false,
         });
-        recordToolResult(result, false);
+        recordToolResult(result, true);
         return {
           type: "tool-result" as const,
           toolCallId: toolCall.id,
@@ -5413,32 +5614,15 @@ export async function runAgentLoop(opts: {
           toolInput: wireToolInput,
           content: result,
         };
+      };
+
+      if (sourceSweepGuard) {
+        sourceSweepDelegationGuardActive = true;
+        return declineToolCall(sourceSweepGuard.message);
       }
 
       if (sourceSweepDelegationGuard) {
-        const result = sourceSweepDelegationGuard;
-        send({
-          type: "tool_start",
-          id: toolCall.id,
-          tool: toolCall.name,
-          input: toolCall.input as Record<string, string>,
-        });
-        send({
-          type: "tool_done",
-          id: toolCall.id,
-          tool: toolCall.name,
-          input: toolCall.input as Record<string, unknown>,
-          result,
-          completedSideEffect: false,
-        });
-        recordToolResult(result, false);
-        return {
-          type: "tool-result" as const,
-          toolCallId: toolCall.id,
-          toolName: toolCall.name,
-          toolInput: wireToolInput,
-          content: result,
-        };
+        return declineToolCall(sourceSweepDelegationGuard);
       }
 
       if (!actionEntry) {
@@ -6347,12 +6531,9 @@ export async function runAgentLoop(opts: {
     messages.push({ role: "user", content: toolResultParts });
     if (requestedActionStop) {
       // TypeScript can't track ??= through async closures; cast to known type.
-      const stop = requestedActionStop as {
-        message: string;
-        errorCode?: string;
-      };
+      const stop = requestedActionStop as TerminalActionStop;
       terminalActionStop = stop;
-      send({ type: "text", text: stop.message });
+      sendTerminalActionStop(stop);
       break;
     }
   }
@@ -6440,6 +6621,11 @@ export async function runAgentLoop(opts: {
     }
   }
 
+  // Assignments happen inside async tool-loop closures, which TypeScript cannot
+  // use for narrowing at this point. Snapshot the runtime value before the
+  // outcome branches so a stop is still represented as a possible value.
+  const finalTerminalActionStop =
+    terminalActionStop as TerminalActionStop | null;
   if (signal.aborted) {
     reportOutcome({ state: "canceled", message: "Agent run was aborted." });
   } else if (endedAtLoopLimit) {
@@ -6449,24 +6635,24 @@ export async function runAgentLoop(opts: {
       retryable: false,
       message: `Agent stopped after ${maxIterations} iterations.`,
     });
-  } else if (terminalActionStop?.errorCode === "needs-approval") {
+  } else if (finalTerminalActionStop?.errorCode === "needs-approval") {
     reportOutcome({
       state: "input_required",
       code: "needs_approval",
-      message: terminalActionStop.message,
+      message: finalTerminalActionStop.message,
     });
-  } else if (terminalActionStop?.errorCode === "awaiting-user-input") {
+  } else if (finalTerminalActionStop?.errorCode === "awaiting-user-input") {
     reportOutcome({
       state: "input_required",
       code: "awaiting_user_input",
-      message: terminalActionStop.message,
+      message: finalTerminalActionStop.message,
     });
-  } else if (terminalActionStop) {
+  } else if (finalTerminalActionStop) {
     reportOutcome({
       state: "failed",
-      code: terminalActionStop.errorCode ?? "tool_failed",
+      code: finalTerminalActionStop.errorCode ?? "tool_failed",
       retryable: false,
-      message: terminalActionStop.message,
+      message: finalTerminalActionStop.message,
     });
   } else {
     reportOutcome({ state: "completed" });
@@ -6492,6 +6678,12 @@ function isRecoverableContinuationError(event: {
   const code = String(event.errorCode ?? "").toLowerCase();
   const message = event.error.toLowerCase();
   if (code === "builder_gateway_error") return false;
+  // An explicit flag outranks the message sniff below, which exists for events
+  // that carry no flag at all. Every guard stop sets `recoverable: false`, and
+  // sniffing its prose is how a stop that merely NAMES a connection or a
+  // timeout gets continued into the spiral it was raised to end. The client
+  // applies the same precedence in `isAutoRecoverableError`.
+  if (event.recoverable === false) return false;
   return (
     event.recoverable === true ||
     code === "builder_gateway_timeout" ||
@@ -7146,11 +7338,11 @@ async function describeTurnProgress(
   threadId: string,
   turnId?: string,
 ): Promise<string> {
-  const { toolCallJournal } = await loadPriorTurnToolCallJournal(
-    threadId,
-    turnId,
-  );
-  const completed = toolCallJournal?.completed ?? [];
+  const journalRead = await loadPriorTurnToolCallJournal(threadId, turnId);
+  if (journalRead.status === "unreadable") {
+    return "I could not read the run ledger, so I cannot say which steps completed.";
+  }
+  const completed = journalRead.toolCallJournal?.completed ?? [];
   if (completed.length === 0) return "No steps had completed yet.";
   const names = [...new Set(completed.map((entry) => entry.tool))];
   const shown = names.slice(0, 8).join(", ");
@@ -9181,7 +9373,9 @@ export function createProductionAgentHandler(
       options.onRunComplete || trackedProgressRunId
         ? async (run: ActiveRun) => {
             try {
-              await options.onRunComplete?.(run, threadId);
+              await runCompletionCallbackWithDatabaseRetry(() =>
+                options.onRunComplete?.(run, threadId),
+              );
             } catch (err) {
               await completeTrackedProgressRun(run, err);
               throw err;

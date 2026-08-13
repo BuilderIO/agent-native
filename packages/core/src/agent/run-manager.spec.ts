@@ -2430,6 +2430,42 @@ describe("run manager soft timeout", () => {
     consoleError.mockRestore();
   });
 
+  it("does not advertise a continuation when completion persistence fails before handoff", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    const events: AgentChatEvent[] = [];
+    const run = startRun(
+      "run-completion-boundary-failed",
+      "thread-completion-boundary-failed",
+      async (send) => {
+        send({ type: "text", text: "partial response" });
+        send({ type: "auto_continue", reason: "stream_ended" });
+      },
+      async () => {
+        throw new Error("thread_data write failed");
+      },
+      { softTimeoutMs: 0 },
+    );
+    run.subscribers.add((event) => events.push(event.event));
+
+    await run.finalized;
+
+    expect(events).toContainEqual({
+      type: "error",
+      error: "Agent response could not be saved.",
+    });
+    expect(events).not.toContainEqual({
+      type: "auto_continue",
+      reason: "stream_ended",
+    });
+    expect(setRunTerminalReason).toHaveBeenCalledWith(
+      "run-completion-boundary-failed",
+      "completion_error",
+    );
+    consoleError.mockRestore();
+  });
+
   it("normalizes missing SQL abort reasons to user aborts", async () => {
     vi.mocked(getRunAbortState).mockResolvedValue({ aborted: true });
     let abortReason: unknown;
@@ -3495,38 +3531,39 @@ describe("run manager soft timeout", () => {
     );
   });
 
-  // checkSqlAbort must fail closed: a rejected getRunAbortState read used to
-  // be swallowed as "not aborted", so a real cross-isolate Stop could go
-  // unseen for the rest of the run. Sustained read failures must self-abort
-  // instead of retrying silently forever.
-  it("fails closed and self-aborts after sustained getRunAbortState read failures", async () => {
+  // checkSqlAbort is a cross-isolate backstop, so an unreadable abort state
+  // must fail OPEN: the outage hides a Stop from every other reader too, and
+  // killing the run only guarantees destroyed work in the common case where
+  // nobody pressed Stop. Sustained read failures used to self-abort with
+  // `abort_check_unavailable` after ~9s.
+  it("keeps running to completion when every abort-state read fails", async () => {
     vi.mocked(getRunAbortState).mockRejectedValue(new Error("read timeout"));
+    vi.mocked(getRunStatus).mockRejectedValue(new Error("read timeout"));
 
     let abortFired = false;
     const run = startRun(
       "run-abort-check-unreadable",
       "thread-abort-check-unreadable",
-      async (_send, signal) => {
-        await new Promise<void>((resolve) => {
-          signal.addEventListener("abort", () => {
-            abortFired = true;
-            resolve();
-          });
+      async (send, signal) => {
+        signal.addEventListener("abort", () => {
+          abortFired = true;
         });
+        // Far longer than the old 3-failure (~9s) kill threshold.
+        await new Promise<void>((resolve) => setTimeout(resolve, 120_000));
+        send({ type: "done" });
       },
       undefined,
       { softTimeoutMs: 0 },
     );
 
-    // First two failed checks (at the 3s poll interval) stay below the
-    // heartbeat handler's own escalation threshold — no self-abort yet.
-    await vi.advanceTimersByTimeAsync(4500);
+    await vi.advanceTimersByTimeAsync(60_000);
     expect(abortFired).toBe(false);
+    expect(run.status).toBe("running");
 
-    // Third consecutive failure crosses the threshold: fail closed.
-    await vi.advanceTimersByTimeAsync(3000);
-    expect(abortFired).toBe(true);
-    expect(run.abortReason).toBe("abort_check_unavailable");
+    await vi.advanceTimersByTimeAsync(61_000);
+    expect(abortFired).toBe(false);
+    expect(run.status).toBe("completed");
+    expect(run.abortReason).toBeUndefined();
   });
 
   // Fix 3: ordered event persistence
