@@ -119,6 +119,16 @@ import {
 } from "@/components/recorder/recorder-engine";
 import { RecordingToolbar } from "@/components/recorder/recording-toolbar";
 import { StorageSetupCard } from "@/components/recorder/storage-setup-card";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 
@@ -787,6 +797,12 @@ export default function RecordRoute() {
   const [error, setError] = useState<string | null>(null);
   const [isPaused, setIsPaused] = useState(false);
   const visibilityAutoPausedRef = useRef(false);
+  const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false);
+  // Tracks whether opening the discard-confirm dialog paused the recording
+  // itself (vs. the user having already paused) — so "Resume" only resumes
+  // when we're the ones who paused it, and the dialog never gets captured in
+  // the recorded screen.
+  const discardAutoPausedRef = useRef(false);
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
   const [cameraSize, setCameraSize] = useState<CameraBubbleSize>(
     () => loadRecorderPreferences().cameraSize ?? "md",
@@ -2229,6 +2245,38 @@ export default function RecordRoute() {
     }
   }, [liveTranscription]);
 
+  // Discarding an in-progress recording is permanent (see doCancel — it
+  // trashes the pending row with no recovery), so route it through a confirm
+  // dialog instead of firing immediately. While live, pause capture first so
+  // the confirmation itself never ends up in the recorded video.
+  const requestDiscard = useCallback(() => {
+    const engine = engineRef.current;
+    if (uiState === "recording" && engine && engine.getState() !== "paused") {
+      engine.pause();
+      liveTranscription.pause();
+      setIsPaused(true);
+      discardAutoPausedRef.current = true;
+    }
+    setDiscardConfirmOpen(true);
+  }, [uiState, liveTranscription]);
+
+  const resumeFromDiscardPrompt = useCallback(() => {
+    setDiscardConfirmOpen(false);
+    if (!discardAutoPausedRef.current) return;
+    discardAutoPausedRef.current = false;
+    const engine = engineRef.current;
+    if (!engine) return;
+    engine.resume();
+    liveTranscription.resume();
+    setIsPaused(false);
+  }, [liveTranscription]);
+
+  const confirmDiscard = useCallback(() => {
+    discardAutoPausedRef.current = false;
+    setDiscardConfirmOpen(false);
+    void doCancel();
+  }, [doCancel]);
+
   useEffect(() => {
     if (typeof navigator === "undefined") return;
     if (!isMobileRecorderRuntime(navigator)) return;
@@ -2333,6 +2381,11 @@ export default function RecordRoute() {
 
       // Opt/Alt+Shift+C — cancel
       if (alt && shift && k === "c") {
+        if (uiState === "recording") {
+          e.preventDefault();
+          requestDiscard();
+          return;
+        }
         if (uiState !== "idle") {
           e.preventDefault();
           void doCancel();
@@ -2360,7 +2413,15 @@ export default function RecordRoute() {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [uiState, togglePause, doCancel, doStop, restart, fireConfetti]);
+  }, [
+    uiState,
+    togglePause,
+    doCancel,
+    requestDiscard,
+    doStop,
+    restart,
+    fireConfetti,
+  ]);
 
   // Query params can preselect recorder controls, but browser capture must
   // still start from the user's Start click. Calling getDisplayMedia from an
@@ -2594,9 +2655,41 @@ export default function RecordRoute() {
           isPaused={isPaused}
           onTogglePause={togglePause}
           onStop={() => void doStop()}
-          onCancel={() => void doCancel()}
+          onCancel={requestDiscard}
         />
       )}
+
+      <AlertDialog
+        open={discardConfirmOpen}
+        onOpenChange={(open) => {
+          if (!open) resumeFromDiscardPrompt();
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("recordingToolbar.discardConfirmTitle")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("recordingToolbar.discardConfirmDescription")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>
+              {t("recordingToolbar.resume")}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault();
+                confirmDiscard();
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {t("recordingToolbar.discardRecording")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Uploading overlay (also covers the compressing pass which can run
           for several minutes on long recordings — without a distinct copy

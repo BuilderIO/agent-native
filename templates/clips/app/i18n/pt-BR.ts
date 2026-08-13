@@ -662,13 +662,13 @@ const messages = {
     collapse: "Recolher",
     changelogMarkdown: `# Registro de alterações
 
-Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Você pode abrir a qualquer momento pelo menu de comandos (Cmd K -> "Novidades") ou pelas Configurações.
+Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Você pode abrir a qualquer momento pelo menu de comandos (Cmd+K -> "Novidades") ou pelas Configurações.
 
 ## 2026-06-23
 
 ### Adicionado
 
-- Agora você pode ver as novidades diretamente dentro do Clips. O registro de alterações fica no menu de comandos (Cmd K) e nas Configurações.`,
+- Agora você pode ver as novidades diretamente dentro do Clips. O registro de alterações fica no menu de comandos (Cmd+K) e nas Configurações.`,
     playback: "Reprodução",
     defaultPlaybackSpeed: "Velocidade padrão de reprodução",
     playbackDescription:
@@ -1021,6 +1021,11 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     elapsed: "Tempo decorrido",
     cancel: "Descartar gravação",
     cancelShortcut: "Descartar (⌥⇧C)",
+    discardConfirmTitle: "Descartar esta gravação?",
+    discardConfirmDescription:
+      "Essa ação não pode ser desfeita. Sua gravação até agora será excluída permanentemente.",
+    resume: "Retomar",
+    discardRecording: "Descartar gravação",
   },
   countdownOverlay: {
     startsIn: "A gravação começa em {{count}}",
@@ -1219,7 +1224,7 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     seekTo: "Seek to {{time}}",
   },
   editorToolbar: {
-    undoTooltip: "Undo (Cmd/Ctrl Z)",
+    undoTooltip: "Undo (Cmd/Ctrl+Z)",
     playPauseTooltip: "Play / Pause (Space)",
     sourceDuration: "({{duration}} src)",
     previewSpeed: "Preview speed",
