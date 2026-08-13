@@ -163,9 +163,9 @@ describe("feature flag evaluator", () => {
       ],
     });
 
-    await expect(
-      store.hasActiveFeatureFlagRollout("new-editor"),
-    ).resolves.toBe(true);
+    await expect(store.hasActiveFeatureFlagRollout("new-editor")).resolves.toBe(
+      true,
+    );
     expect(executeMock).toHaveBeenCalledWith({
       sql: expect.stringContaining("WHERE key LIKE ?"),
       args: ["o:%:feature-flag:new-editor"],
@@ -181,9 +181,9 @@ describe("feature flag evaluator", () => {
       ],
     });
 
-    await expect(
-      store.hasActiveFeatureFlagRollout("new-editor"),
-    ).resolves.toBe(false);
+    await expect(store.hasActiveFeatureFlagRollout("new-editor")).resolves.toBe(
+      false,
+    );
   });
 
   it("starts an atomic org mutation from the global fallback", async () => {

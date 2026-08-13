@@ -1,5 +1,5 @@
-import { getOrgSetting, mutateOrgSetting } from "../settings/org-settings.js";
 import { getDbExec, isPostgres } from "../db/client.js";
+import { getOrgSetting, mutateOrgSetting } from "../settings/org-settings.js";
 import { getSetting, mutateSetting } from "../settings/store.js";
 import {
   getFeatureFlagDefinition,
@@ -32,7 +32,8 @@ function settingKey(key: string): string {
 }
 
 function parseStoredRules(value: unknown): FeatureFlagRules {
-  if (typeof value === "string") return normalizeFeatureFlagRules(JSON.parse(value));
+  if (typeof value === "string")
+    return normalizeFeatureFlagRules(JSON.parse(value));
   return normalizeFeatureFlagRules(value);
 }
 
@@ -126,7 +127,9 @@ export async function getFeatureFlagRules(
  * Without this separate hint, an org-only rollout is invisible to Desktop
  * before the user has authenticated and the org can be resolved.
  */
-export async function hasActiveFeatureFlagRollout(key: string): Promise<boolean> {
+export async function hasActiveFeatureFlagRollout(
+  key: string,
+): Promise<boolean> {
   if (!getFeatureFlagDefinition(key)) return false;
 
   const globalStored = await getSetting(settingKey(key));

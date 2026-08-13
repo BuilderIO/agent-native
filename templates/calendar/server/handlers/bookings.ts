@@ -28,6 +28,7 @@ import type {
   CustomField,
   TimeSlot,
 } from "../../shared/api.js";
+import { normalizeAvailabilitySlots } from "../../shared/availability-schedule.js";
 import { getDb, schema } from "../db/index.js";
 import {
   parseBookingLinkDurations,
@@ -47,7 +48,6 @@ import {
 } from "../lib/booking-link-utils.js";
 import { getOwnerBookingTimeZone } from "../lib/booking-timezone.js";
 import { eventBlocksAvailability } from "../lib/calendar-availability.js";
-import { normalizeAvailabilitySlots } from "../../shared/availability-schedule.js";
 import * as googleCalendar from "../lib/google-calendar.js";
 import { createZoomMeeting } from "../lib/zoom.js";
 
