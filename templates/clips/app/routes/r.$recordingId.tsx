@@ -530,7 +530,7 @@ export default function RecordingPage() {
   // response includes every individually-shared principal's email) or see a
   // raw video download/open action independent of `enableDownloads`.
   const viewerReshareOnly =
-    role === "viewer" &&
+    (role === "viewer" || role === "commenter") &&
     (recording?.visibility === "public" || recording?.visibility === "org");
   const shareVideoUrl =
     canDownloadRecording || isLoomEmbedBacked
