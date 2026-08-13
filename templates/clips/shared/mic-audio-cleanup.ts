@@ -120,6 +120,7 @@ function normalizePreset(preset: MicAudioCleanupPreset | undefined) {
 function hasAudioTrack(stream: MediaStream): boolean {
   try {
     return stream.getAudioTracks().length > 0;
+    // coercion-ok: an unreadable track is a typed inactive cleanup fallback.
   } catch {
     return false;
   }
@@ -156,6 +157,7 @@ function disconnectNode(node: AudioNodeLike | null | undefined): void {
   if (!node) return;
   try {
     node.disconnect();
+    // coercion-ok: disconnect is teardown-only and may race an ended track.
   } catch {
     // ignore — cleanup must be best-effort.
   }
@@ -166,10 +168,12 @@ function stopDestinationStream(stream: MediaStream): void {
     for (const track of stream.getTracks()) {
       try {
         track.stop();
+        // coercion-ok: stopping an already-ended destination track is cleanup-only.
       } catch {
         // ignore
       }
     }
+    // coercion-ok: destination teardown is best-effort after capture has ended.
   } catch {
     // ignore
   }
@@ -272,6 +276,7 @@ function tryBuildMicAudioCleanup(
         } else {
           runtime.gain.gain.value = nextGain;
         }
+        // coercion-ok: a transient analyser/meter failure must not stop recording.
       } catch {
         // Keep the recording alive even if the meter path glitches.
       }
@@ -300,6 +305,7 @@ function tryBuildMicAudioCleanup(
         runtime = null;
         try {
           clearInterval(current.intervalId);
+          // coercion-ok: timer cleanup is best-effort after the interval ends.
         } catch {
           // ignore
         }
