@@ -181,8 +181,9 @@ describe("durable BigQuery backfill worker", () => {
     expect(mocks.backfill).not.toHaveBeenCalled();
   });
 
-  it("pauses on active sessions when there are no waiters", async () => {
+  it("does not pause on active sessions when there are no waiters", async () => {
     const db = { execute: vi.fn() };
+    const tx = { execute: vi.fn().mockResolvedValue({ rows: [] }) };
     db.execute
       .mockResolvedValueOnce({ rows: [job] })
       .mockResolvedValueOnce({
@@ -195,17 +196,31 @@ describe("durable BigQuery backfill worker", () => {
           },
         ],
       })
-      .mockResolvedValueOnce({ rowsAffected: 1 });
+      .mockResolvedValueOnce({ rows: [shard] })
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            total_sessions: "10",
+            active_sessions: "80",
+            waiting_sessions: "0",
+            lock_waiters: "0",
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ rows: [{ remaining: "1" }] });
+    db.transaction = vi.fn(async (fn: (transaction: typeof tx) => unknown) =>
+      fn(tx),
+    );
     mocks.getDbExec.mockReturnValue(db);
 
     await expect(runFirstPartyAnalyticsBigQueryBackfillOnce()).resolves.toEqual(
       expect.objectContaining({
-        status: "paused-pressure",
+        status: "idle",
         batches: 0,
         remaining: 1,
       }),
     );
-    expect(db.execute).toHaveBeenCalledTimes(3);
+    expect(db.execute).toHaveBeenCalledTimes(5);
     expect(mocks.backfill).not.toHaveBeenCalled();
   });
 

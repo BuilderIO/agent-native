@@ -240,7 +240,7 @@ export default function AgentsRoute() {
     return (
       <DispatchShell
         title={t("dispatch.nav.agents")}
-        description="Create reusable agents in minutes, or import a setup you already made in Claude or another agent tool."
+        description={t("dispatch.pages.simpleAgentsDescription")}
       >
         <SimpleAgentsPanel />
       </DispatchShell>

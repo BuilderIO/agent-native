@@ -16,9 +16,9 @@ import {
   IconMessageCircle,
   IconPlugConnected,
   IconPlus,
-  IconSparkles,
   IconTrash,
   IconUpload,
+  IconUser,
 } from "@tabler/icons-react";
 import {
   useEffect,
@@ -614,7 +614,7 @@ function AgentRow({
   return (
     <div className="flex items-start gap-3 rounded-xl border bg-card px-4 py-3">
       <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-        <IconSparkles size={18} />
+        <IconUser size={18} />
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">

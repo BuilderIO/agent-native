@@ -20,7 +20,6 @@ const DEFAULT_MAX_BATCHES_PER_SWEEP = 4;
 const MAX_BATCHES_PER_SWEEP = 4;
 const DEFAULT_PARALLELISM = 8;
 const MAX_PARALLELISM = 8;
-const DEFAULT_MAX_ACTIVE_SESSIONS = 80;
 const DEFAULT_MAX_TOTAL_SESSIONS = 250;
 const PRESSURE_RETRY_MS = 60 * 1000;
 
@@ -834,20 +833,11 @@ async function pressureSnapshot(
     const active = numberValue(row, "active_sessions");
     const waiting = numberValue(row, "waiting_sessions");
     const lockWaiters = numberValue(row, "lock_waiters");
-    const maxActive = positiveEnvNumber(
-      "ANALYTICS_BIGQUERY_BACKFILL_MAX_ACTIVE_SESSIONS",
-      DEFAULT_MAX_ACTIVE_SESSIONS,
-    );
     const maxTotal = positiveEnvNumber(
       "ANALYTICS_BIGQUERY_BACKFILL_MAX_TOTAL_SESSIONS",
       DEFAULT_MAX_TOTAL_SESSIONS,
     );
-    if (
-      lockWaiters > 0 ||
-      active >= maxActive ||
-      waiting >= 8 ||
-      total >= maxTotal
-    ) {
+    if (lockWaiters > 0 || waiting >= 8 || total >= maxTotal) {
       return {
         paused: true,
         reason: `database pressure: total=${total}, active=${active}, waiting=${waiting}, lockWaiters=${lockWaiters}`,
