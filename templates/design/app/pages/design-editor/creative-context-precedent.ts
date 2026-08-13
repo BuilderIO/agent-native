@@ -139,7 +139,12 @@ function cloneDirectives(matches: CreativeContextPrecedentMatch[]): string[] {
       refs +
       ".",
     "Reuse one instead of generating from scratch. Call list-context-memberships to get the contextId for the chosen design, then clone-creative-context-design-native with that contextId, resourceId, and artifactKey design:design:<resourceId>.",
-    "After cloning, call get-design-snapshot once and make one bounded edit-design pass that changes only the copy, imagery, and content this request needs. The clone already carries the correct palette, typography, and canvas dimensions - do not redraw them.",
+    "After cloning, call get-design-snapshot once, then make one bounded edit-design pass with mode search-replace. Do not use replace-file: rewriting the document is how the precedent gets lost.",
+    "Treat the clone as a fixed template. Change only text content, image and icon sources, and the specific elements this request names. Everything else stays byte-for-byte identical.",
+    "Preserve exactly: canvasFrames width and height, primaryViewport, every color value and CSS custom property already present, font families and the full type scale, spacing and sizing values, border radii, shadows, and the order and nesting of sections. Do not add a color, font, or breakpoint that the cloned file does not already use.",
+    "If this request needs a value the clone does not have, derive it from what is there - an existing custom property, an existing spacing step - rather than introducing a new scale.",
+    "Keep every data-agent-native-locked subtree unchanged; the server rejects edits to locked layers.",
+    "After the edit, run take-design-screenshot at the cloned artboard size and confirm the result still reads as the same family as the precedent. If the layout shifted, fix it before summarizing.",
     "If the cloned artifact is the wrong format for this request (a different aspect ratio or surface entirely), abandon the clone and generate fresh rather than deforming it.",
   ];
 }

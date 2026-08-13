@@ -161,6 +161,9 @@ describe("designPrecedentDirectives", () => {
     expect(directives).toContain("clone-creative-context-design-native");
     expect(directives).toContain("design:design:<resourceId>");
     expect(directives).toContain("dsn_123");
+    expect(directives).toContain("search-replace");
+    expect(directives).toContain("canvasFrames width and height");
+    expect(directives).toContain("Do not use replace-file");
     expect(directives).not.toContain("get-context-item");
   });
 
