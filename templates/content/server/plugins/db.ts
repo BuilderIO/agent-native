@@ -959,7 +959,7 @@ export const runContentMigrations = runMigrations(
     {
       version: 81,
       name: "content-database-row-mutation-contract",
-      sql: `ALTER TABLE content_databases ADD COLUMN natural_key_property_id TEXT;
+      sql: `ALTER TABLE content_databases ADD COLUMN IF NOT EXISTS natural_key_property_id TEXT;
       CREATE TABLE IF NOT EXISTS content_database_row_mutation_receipts (
         id TEXT PRIMARY KEY,
         owner_email TEXT NOT NULL DEFAULT 'local@localhost',

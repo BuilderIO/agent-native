@@ -65,6 +65,14 @@ export default defineAction({
         tx as unknown as ReturnType<typeof getDb>,
         database.id,
       );
+      const [lockedDatabase] = await tx
+        .select({
+          naturalKeyPropertyId: schema.contentDatabases.naturalKeyPropertyId,
+        })
+        .from(schema.contentDatabases)
+        .where(eq(schema.contentDatabases.id, database.id));
+      if (!lockedDatabase)
+        throw new Error(`Database "${database.id}" not found`);
       const memberships = await tx
         .select({ id: schema.contentDatabaseItems.id })
         .from(schema.contentDatabaseItems)
@@ -116,7 +124,7 @@ export default defineAction({
         .delete(schema.documentPropertyDefinitions)
         .where(eq(schema.documentPropertyDefinitions.id, propertyId));
 
-      if (database.naturalKeyPropertyId === propertyId) {
+      if (lockedDatabase.naturalKeyPropertyId === propertyId) {
         await tx
           .update(schema.contentDatabases)
           .set({
