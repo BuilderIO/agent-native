@@ -345,13 +345,6 @@ export default function ClipsTemplate() {
             <p className="max-w-[320px] text-lg font-medium leading-[1.15] tracking-[-0.36px] text-[#9a9997]">
               {t("templateLanding.clips.s011")}
             </p>
-            <TemplateDocsLink
-              template={template}
-              location="core_capabilities"
-              className="inline-flex h-10 w-fit items-center justify-center rounded-md border border-[#5e5e5e] bg-white px-5 font-mono text-[14px] font-semibold uppercase leading-[1.2] tracking-[0.28px] text-[#0a0a0a] no-underline transition hover:bg-[#f0f0f0] hover:no-underline"
-            >
-              Read the docs
-            </TemplateDocsLink>
           </div>
 
           <div className="grid flex-1 grid-cols-1 border-t border-[#1a1a1a] sm:grid-cols-2 lg:border-t-0">
