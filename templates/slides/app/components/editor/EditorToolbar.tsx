@@ -121,6 +121,9 @@ interface EditorToolbarProps {
   textBoxMode?: boolean;
   /** Toggle the add-text-box tool */
   onToggleTextBoxMode?: () => void;
+  onChangeSlideTransition?: (
+    transition: NonNullable<Slide["transition"]>,
+  ) => void;
   /** Duplicate the current deck */
   onDuplicateDeck?: () => void;
   /** Export the deck as PDF */
@@ -176,6 +179,7 @@ export default function EditorToolbar({
   onTogglePinMode,
   textBoxMode,
   onToggleTextBoxMode,
+  onChangeSlideTransition,
   onDuplicateDeck,
   onExportPdf,
   onExportPptx,
@@ -567,6 +571,8 @@ export default function EditorToolbar({
           onDuplicateCurrentSlide={onDuplicateCurrentSlide}
           textBoxMode={textBoxMode}
           onToggleTextBoxMode={onToggleTextBoxMode}
+          slideTransition={currentSlide?.transition}
+          onChangeSlideTransition={onChangeSlideTransition}
         />
       )}
 
