@@ -1078,6 +1078,62 @@ describe("A2AClient", () => {
     ).resolves.toMatchObject({ status: "completed", output: "[]" });
   });
 
+  it("re-signs a direct action for a custom endpoint discovered from an app URL", async () => {
+    process.env.A2A_SECRET = "shared-direct-secret";
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      const authorization = new Headers(init?.headers).get("authorization");
+      const token = authorization?.replace(/^Bearer\s+/i, "") ?? "";
+
+      if (init?.method !== "POST") {
+        expect(url).toBe(
+          "https://agent.example/workspace/.well-known/agent-card.json",
+        );
+        expect(authorization).toBeNull();
+        return new Response(
+          JSON.stringify({
+            name: "Custom Agent",
+            description: "Uses a custom A2A endpoint",
+            url: "https://agent.example/workspace/rpc/a2a",
+            version: "1.0.0",
+            protocolVersion: "0.3",
+            capabilities: {},
+            skills: [],
+          }),
+          { status: 200 },
+        );
+      }
+
+      expect(url).toBe("https://agent.example/workspace/rpc/a2a");
+      expect(jose.decodeJwt(token).aud).toBe(
+        "https://agent.example/workspace/rpc",
+      );
+      const body = JSON.parse(String(init.body));
+      return new Response(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: body.id,
+          result: {
+            action: "list-records",
+            status: "completed",
+            output: "[]",
+          },
+        }),
+        { status: 200 },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      callAction(
+        "https://agent.example/workspace",
+        "list-records",
+        {},
+        { userEmail: "alice@example.test" },
+      ),
+    ).resolves.toMatchObject({ status: "completed", output: "[]" });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("retries direct action with the audience-bound token after receiver rejection", async () => {
     process.env.A2A_SECRET = "shared-direct-secret";
     const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {

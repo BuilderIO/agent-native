@@ -253,6 +253,14 @@ export class A2AClient {
     }
   }
 
+  /** Resolve the card-advertised endpoint without sending an RPC request. */
+  async resolveEndpointUrl(): Promise<string> {
+    await this.ensureEndpointCandidates();
+    const endpoint = this.endpointCandidates[0];
+    if (!endpoint) throw new Error("No A2A endpoint candidates available");
+    return endpoint;
+  }
+
   private headers(apiKey = this.apiKey): Record<string, string> {
     const h: Record<string, string> = { "Content-Type": "application/json" };
     if (apiKey) {
@@ -1218,17 +1226,32 @@ export async function callAction(
     throw new Error("A2A action input must be an object");
   }
 
-  const apiKeyAttempts = await buildA2AApiKeyAttempts(
+  const discoveryAudience = normalizeA2AAudience(url);
+  const discoveryApiKeyAttempts = await buildA2AApiKeyAttempts(
     opts,
-    normalizeA2AAudience(url),
+    discoveryAudience,
   );
-  const fallbackApiKeys = apiKeyAttempts
+  const discoveryFallbackApiKeys = discoveryApiKeyAttempts
     .slice(1)
     .filter((token): token is string => token !== undefined);
-  const client = new A2AClient(url, apiKeyAttempts[0], {
-    fallbackApiKeys,
+  let client = new A2AClient(url, discoveryApiKeyAttempts[0], {
+    fallbackApiKeys: discoveryFallbackApiKeys,
     requestTimeoutMs: opts?.requestTimeoutMs,
   });
+  const endpointUrl = await client.resolveEndpointUrl();
+  const invocationAudience = normalizeA2AAudience(endpointUrl);
+  if (invocationAudience !== discoveryAudience) {
+    const invocationApiKeyAttempts = await buildA2AApiKeyAttempts(
+      opts,
+      invocationAudience,
+    );
+    client = new A2AClient(endpointUrl, invocationApiKeyAttempts[0], {
+      fallbackApiKeys: invocationApiKeyAttempts
+        .slice(1)
+        .filter((token): token is string => token !== undefined),
+      requestTimeoutMs: opts?.requestTimeoutMs,
+    });
+  }
   return client.invokeAction(actionName, input, {
     metadata: sanitizeA2ACorrelationMetadata(opts?.correlation),
   });
