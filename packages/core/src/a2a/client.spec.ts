@@ -1134,6 +1134,101 @@ describe("A2AClient", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it("applies the request timeout while discovering a direct action endpoint", async () => {
+    process.env.A2A_SECRET = "shared-direct-secret";
+    const timeoutSpy = vi.spyOn(AbortSignal, "timeout");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        if (init?.method !== "POST") {
+          return new Response("not found", { status: 404 });
+        }
+        const body = JSON.parse(String(init.body));
+        return new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: body.id,
+            result: {
+              action: "list-records",
+              status: "completed",
+              output: "[]",
+            },
+          }),
+          { status: 200 },
+        );
+      }),
+    );
+
+    await callAction(
+      "https://agent.example/workspace",
+      "list-records",
+      {},
+      { userEmail: "alice@example.test", requestTimeoutMs: 123 },
+    );
+
+    expect(timeoutSpy).toHaveBeenCalledWith(123);
+    timeoutSpy.mockRestore();
+  });
+
+  it("retains conventional fallbacks after custom endpoint discovery", async () => {
+    process.env.A2A_SECRET = "shared-direct-secret";
+    const postUrls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if (init?.method !== "POST") {
+          return new Response(
+            JSON.stringify({
+              name: "Custom Agent",
+              description: "Uses a custom A2A endpoint",
+              url: "https://agent.example/workspace/rpc/a2a",
+              version: "1.0.0",
+              protocolVersion: "0.3",
+              capabilities: {},
+              skills: [],
+            }),
+            { status: 200 },
+          );
+        }
+
+        postUrls.push(url);
+        if (url.endsWith("/rpc/a2a")) {
+          return new Response("stale endpoint", { status: 404 });
+        }
+        const authorization = new Headers(init.headers).get("authorization");
+        const token = authorization?.replace(/^Bearer\s+/i, "") ?? "";
+        if (jose.decodeJwt(token).aud !== "https://agent.example/workspace") {
+          return new Response("invalid audience", { status: 401 });
+        }
+        const body = JSON.parse(String(init.body));
+        return new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: body.id,
+            result: {
+              action: "list-records",
+              status: "completed",
+              output: "[]",
+            },
+          }),
+          { status: 200 },
+        );
+      }),
+    );
+
+    await expect(
+      callAction(
+        "https://agent.example/workspace",
+        "list-records",
+        {},
+        { userEmail: "alice@example.test" },
+      ),
+    ).resolves.toMatchObject({ status: "completed", output: "[]" });
+    expect(postUrls).toContain(
+      "https://agent.example/workspace/_agent-native/a2a",
+    );
+  });
+
   it("retries direct action with the audience-bound token after receiver rejection", async () => {
     process.env.A2A_SECRET = "shared-direct-secret";
     const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {

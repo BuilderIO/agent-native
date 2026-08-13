@@ -254,11 +254,17 @@ export class A2AClient {
   }
 
   /** Resolve the card-advertised endpoint without sending an RPC request. */
-  async resolveEndpointUrl(): Promise<string> {
-    await this.ensureEndpointCandidates();
+  async resolveEndpointUrl(timeoutMs?: number): Promise<string> {
+    await this.ensureEndpointCandidates(timeoutMs);
     const endpoint = this.endpointCandidates[0];
     if (!endpoint) throw new Error("No A2A endpoint candidates available");
     return endpoint;
+  }
+
+  /** Replace caller credentials without discarding resolved endpoint fallbacks. */
+  setAuthentication(apiKey?: string, fallbackApiKeys: string[] = []): void {
+    this.apiKey = apiKey;
+    this.apiKeyAttempts = uniqueAuthTokens([apiKey, ...fallbackApiKeys]);
   }
 
   private headers(apiKey = this.apiKey): Record<string, string> {
@@ -1234,23 +1240,27 @@ export async function callAction(
   const discoveryFallbackApiKeys = discoveryApiKeyAttempts
     .slice(1)
     .filter((token): token is string => token !== undefined);
-  let client = new A2AClient(url, discoveryApiKeyAttempts[0], {
+  const client = new A2AClient(url, discoveryApiKeyAttempts[0], {
     fallbackApiKeys: discoveryFallbackApiKeys,
     requestTimeoutMs: opts?.requestTimeoutMs,
   });
-  const endpointUrl = await client.resolveEndpointUrl();
+  const endpointUrl = await client.resolveEndpointUrl(opts?.requestTimeoutMs);
   const invocationAudience = normalizeA2AAudience(endpointUrl);
   if (invocationAudience !== discoveryAudience) {
     const invocationApiKeyAttempts = await buildA2AApiKeyAttempts(
       opts,
       invocationAudience,
     );
-    client = new A2AClient(endpointUrl, invocationApiKeyAttempts[0], {
-      fallbackApiKeys: invocationApiKeyAttempts
+    const combinedApiKeyAttempts = uniqueAuthTokens([
+      ...invocationApiKeyAttempts,
+      ...discoveryApiKeyAttempts,
+    ]);
+    client.setAuthentication(
+      combinedApiKeyAttempts[0],
+      combinedApiKeyAttempts
         .slice(1)
         .filter((token): token is string => token !== undefined),
-      requestTimeoutMs: opts?.requestTimeoutMs,
-    });
+    );
   }
   return client.invokeAction(actionName, input, {
     metadata: sanitizeA2ACorrelationMetadata(opts?.correlation),
