@@ -37,6 +37,7 @@ import {
   resolvedEmbedCapabilityScope,
 } from "./embed-session.js";
 import { getHttpRequestTelemetryId } from "./http-response-telemetry.js";
+import { consumeOneTimeJti } from "./identity-sso-store.js";
 
 declare const __AGENT_NATIVE_BUILD_ID__: string | undefined;
 declare const __AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION__: string | undefined;
@@ -87,6 +88,12 @@ async function resolveFeatureFlagA2ACaller(event: any, actionName: string) {
     throw new Error("Invalid feature flag delegation");
   const localOrg = await resolveOrgByDomain(claims.orgDomain);
   if (!localOrg) throw new Error("Invalid feature flag delegation");
+  if (
+    actionName === "set-feature-flag" &&
+    (await consumeOneTimeJti(claims.jti))
+  ) {
+    throw new Error("Invalid feature flag delegation");
+  }
   return {
     owner: claims.email,
     orgId: localOrg.orgId,

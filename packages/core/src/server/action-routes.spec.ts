@@ -10,6 +10,7 @@ const mockGetOrgContext = vi.hoisted(() =>
   vi.fn(async () => ({ orgId: undefined })),
 );
 const mockVerifyA2ATokenWithClaims = vi.hoisted(() => vi.fn());
+const mockConsumeOneTimeJti = vi.hoisted(() => vi.fn(async () => false));
 const mockResolveEmbedSessionFromRequest = vi.hoisted(() =>
   vi.fn(async () => null),
 );
@@ -80,6 +81,9 @@ vi.mock("../a2a-claims.js", () => ({
   verifyA2ATokenWithClaims: (...args: unknown[]) =>
     mockVerifyA2ATokenWithClaims(...args),
 }));
+vi.mock("./identity-sso-store.js", () => ({
+  consumeOneTimeJti: (...args: unknown[]) => mockConsumeOneTimeJti(...args),
+}));
 
 describe("mountActionRoutes", () => {
   afterEach(() => {
@@ -100,6 +104,8 @@ describe("mountActionRoutes", () => {
     mockGetOrgContext.mockReset();
     mockGetOrgContext.mockResolvedValue({ orgId: undefined });
     mockVerifyA2ATokenWithClaims.mockReset();
+    mockConsumeOneTimeJti.mockReset();
+    mockConsumeOneTimeJti.mockResolvedValue(false);
     mockResolveEmbedSessionFromRequest.mockReset();
     mockResolveEmbedSessionFromRequest.mockResolvedValue(null);
     vi.restoreAllMocks();
@@ -1492,6 +1498,40 @@ describe("mountActionRoutes", () => {
       userEmail: "writer@example.com",
       orgId: "receiver-org",
     });
+    expect(mockConsumeOneTimeJti).toHaveBeenCalledWith("request-2");
+  });
+
+  it("rejects a replayed built-in feature flag mutation", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    mockVerifyA2ATokenWithClaims.mockResolvedValue({
+      email: "writer@example.com",
+      orgId: "org-2",
+      orgDomain: "builder.io",
+      jti: "replayed-request",
+      scope: ["flags:write"],
+    });
+    mockConsumeOneTimeJti.mockResolvedValue(true);
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const run = vi.fn(async () => ({ ok: true }));
+    mountActionRoutes(
+      { use: (path: string, handler: any) => mounted.push({ path, handler }) },
+      { "set-feature-flag": { run } as any },
+    );
+    const token = fakeUnsignedJwt({
+      org_id: "org-2",
+      jti: "replayed-request",
+      scope: "flags:write",
+    });
+
+    await expect(
+      mounted[0].handler({
+        _method: "POST",
+        _headers: { authorization: `Bearer ${token}` },
+        context: {},
+        req: { json: async () => ({}) },
+      }),
+    ).rejects.toMatchObject({ statusCode: 401 });
+    expect(run).not.toHaveBeenCalled();
   });
 
   it("hard-rejects an invalid declared feature flag delegation", async () => {

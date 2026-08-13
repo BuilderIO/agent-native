@@ -193,10 +193,10 @@ Required evidence:
   for a Dispatch caller that explicitly identifies itself.
 - Regression tests proving target-local org IDs still scope rollout storage,
   evaluation, and audit records.
-- Tester-owned real-interface acceptance in an isolated multi-app local dev
-  environment, because this changes an authorization boundary. The tester must use
-  two distinct local org IDs and exercise the actual Analytics UI and target
-  action routes.
+- Same-thread real-interface acceptance in an isolated multi-app local dev
+  environment, as explicitly approved by Alice. The acceptance run must use two
+  distinct local org IDs and exercise the actual Analytics UI and target action
+  routes.
 - Current production smoke after integration is observational follow-through,
   not the first proof of correctness.
 
@@ -227,7 +227,7 @@ test-resources:
     ownership-marker: feature-flag-domain-delegation-local-suite
     baseline: ports unused and task-local databases absent before Work
     allowed-actions: [create, update, exercise, delete]
-    cleanup-trigger: after tester-owned acceptance
+    cleanup-trigger: after same-thread acceptance
     cleanup-method: stop task-owned runtimes and remove only the task-local runtime directory
     cleanup-proof: independently confirm ports are closed and the exact task-local runtime directory is absent
     shared-impact: none
@@ -243,8 +243,8 @@ test-resources:
         no production URLs or credentials,
       ]
     max-lifetime-minutes: 240
-    declared-at: 2026-08-12T17:05:00Z
-    expires-at: 2026-08-12T21:05:00Z
+    declared-at: 2026-08-13T15:21:00Z
+    expires-at: 2026-08-13T19:21:00Z
     status: cleaned
     phase: work
 governing-artifact:
@@ -283,7 +283,7 @@ architecture-fingerprint:
     acceptance-policy:
       modality: real-interface
       independence: not-required
-      custody: main-thread
+      custody: same-context-allowed
       interface: isolated local dev servers for Analytics, Dispatch, and one other target app
       rationale: Alice explicitly accepted same-context browser QA on 2026-08-12; the real-interface story must still prove legitimate access and tenant denial.
   risk-strategy:
@@ -344,13 +344,11 @@ architecture-grounding:
   unresolved-owner-questions: []
 delegation-ceiling: [read-only investigation, bounded technical review]
 acceptance-state:
-  status: blocked
-  summary: The repaired current head has automated evidence, but its material authorization changes invalidate the prior real-interface and independent-review receipts.
-  blockers:
-    - Current-head CI and GitHub review are pending for 54ea02a82d4f762b703cc6c3d19b2783c12be41e.
-    - The cleaned local acceptance suite expired on 2026-08-12 and cannot be resurrected or silently rebound to the repaired head.
-  last-land-packet: "Passed: current-head focused tests, Core build and typecheck, Analytics typecheck, and all 53 guards. Missing acceptance evidence: current-head same-context real-interface story and current-head independent technical review. Feature flags: implementation changes default no registered flag state. Repository governance: satisfied. Independent technical review: not evidenced. Acceptance story: not satisfied. Merge permitted: no. Enablement permitted: no. May call shipped: no. Task may close: no. Readiness: blocked."
-ledger-revision: feature-flag-production-delegation-land-r3
+  status: satisfied
+  summary: Same-thread real-interface acceptance passed on isolated Analytics, Dispatch, and Clips runtimes with different local org IDs; the run also found and repaired a live replay gap at the framework route boundary.
+  blockers: []
+  last-land-packet: "Passed: focused route and feature-flag tests, Core build and typecheck, Analytics tests and typecheck, all 53 guards, same-thread Chrome visual QA, cross-app mutation/read-back, member and cross-org denial, safe unavailable classification, and live single-use write-token replay rejection. Feature flags: implementation changes no registered flag default. Repository governance: satisfied locally. Independent technical review: pending exact-head GitHub review. Acceptance story: satisfied. Merge permitted: pending exact-head CI and review. Enablement permitted: no separate enablement required. May call shipped: no. Task may close: no. Readiness: pending GitHub gates."
+ledger-revision: feature-flag-production-delegation-land-r4
 status: active
 ```
 
@@ -364,7 +362,7 @@ actually requires; its current diff does not itself establish that dependency.
 
 ## Frozen local acceptance script
 
-Persona: An independent Builder.io workspace administrator managing feature flags from Analytics.
+Persona: A Builder.io workspace administrator managing feature flags from Analytics in this thread.
 
 Starting state: Isolated local dev servers for Analytics, Dispatch, and Clips use the same verified workspace domain but deliberately different app-local organization IDs. The tester owns disposable identities and no production data is present.
 
@@ -399,22 +397,21 @@ Regression checks: A Dispatch caller that identifies itself still removes Dispat
 
 ### Local execution result
 
-Supplemental developer verification passed on 2026-08-12 against isolated task-local databases with Analytics, Dispatch, and Clips organization IDs deliberately different:
+Same-thread real-interface acceptance passed on 2026-08-13 against isolated task-local databases with Analytics, Dispatch, and Clips organization IDs deliberately different:
 
 - Analytics returned Dispatch and Clips from the local directory as `ready`, including Dispatch's default-off `desktop.workspace-sso` flag and Clips's three registered flags.
-- Analytics `enable-for-current-user` persisted `dev@local.test` on Clips `uploadRetryResume`; the version-2 acknowledgement returned `scope.orgId = clips-org-local` and `scope.orgDomain = builder.test`, and a fresh Analytics read showed `enabledForCurrentUser: true`.
-- A mapped target member and a same-email user belonging only to another target-local organization both received HTTP 403 from the real Clips mutation action. The successful test rule was then reset to off.
+- Analytics `enable-for-current-user` persisted `dev@local.test` on Clips `uploadRetryResume`; the version-2 acknowledgement returned Clips's distinct local org ID plus `scope.orgDomain = builder.test`, and a fresh Analytics read showed `enabledForCurrentUser: true`.
+- A mapped target member and the same email presented for a different target-local organization both received HTTP 403 from the real Clips mutation action. Direct target-local read-back proved the flag remained off after the denial checks.
+- Reusing one exact-audience `flags:write` token initially succeeded twice, revealing that the framework's built-in action-route authenticator had omitted the replay guard carried by an unused adapter. The guard was moved to the actual shared boundary; after restart the first POST returned 200, the second returned 401, and the JTI had one durable receiver-local record.
 - Unavailable built-in targets remained classified with fixed safe reasons such as `timeout` or `network`; no response body or secret was reflected.
-- The shared in-app browser loaded the real Analytics Feature flags URL, but its snapshot interface failed. The independent tester separately confirmed it has no browser-capable localhost interface, so this is functional developer evidence, not a claim of independent visual acceptance.
+- The shared in-app browser loaded the real Analytics Feature flags URL, but its snapshot interface failed. Chrome reached the same task-local server over its LAN address and supplied the visual evidence.
 - Cleanup completed after verification: ports 8088, 8092, and 8094 were confirmed closed, and the exact task-local runtime directory was moved to Trash and confirmed absent from `/tmp`.
 
 ### Visual QA result
 
-Same-context Chrome visual QA was explicitly accepted by Alice on 2026-08-12 and executed through the real Analytics UI at the current branch head. The desktop story passed: fleet states were legible, Clips and Dispatch flags rendered with clear state badges and controls, `Enable for me` changed the test flag to `Targeted` with `You have access`, the action menu and confirmation dialog stacked correctly, and the UI reset the disposable flag to off without console warnings or errors.
+Same-context Chrome visual QA was explicitly accepted by Alice and executed through the real Analytics UI at the current branch head. The 1280 x 800 desktop story passed: fleet states were legible, Clips and Dispatch flags rendered with clear state badges and controls, and the enabled Clips flag rendered as `Targeted` with `You have access`, without browser console warnings or errors.
 
-The responsive result failed at a 768 x 900 viewport. With the persistent sidebar consuming part of the width, each flag row retained its desktop columns: the flag name and description collapsed into a very narrow strip with near letter-by-letter wrapping while the action buttons kept their full width. Controls remained operable, but the content was not reasonably readable. This is a visual acceptance defect rather than an authorization failure. The in-app browser could navigate to the page but its snapshot operation failed; Chrome supplied the functional and screenshot evidence. Cleanup was repeated after the visual pass, with all three ports closed and the restored task-local fixture directory moved back to Trash.
-
-The responsive defect was then fixed by delaying the shared flag row's two-column layout from the medium to the large breakpoint. A fresh Chrome pass at 768 x 900 showed readable full-width flag descriptions with rollout controls stacked beneath them; a 1280 x 800 regression pass preserved the dense two-column desktop layout. Both passes had no browser console warnings or errors.
+The 768 x 900 responsive pass also succeeded after the earlier breakpoint repair: flag descriptions remained readable, rollout controls stacked below them, and the document reported no horizontal overflow (`scrollWidth = innerWidth = 768`).
 
 Cleanup: Stop the task-owned runtimes and remove the task-local databases/runtime directory, then independently prove the ports and directory are absent.
 
