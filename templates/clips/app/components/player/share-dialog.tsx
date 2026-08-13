@@ -260,32 +260,28 @@ function ShareRecordingContent({
         defaultValue="link"
         className={cn("min-w-0 px-4 py-3", reserveCloseButton && "pe-12")}
       >
-        <TabsList
-          className={`grid w-full ${
-            tabCount === 3
-              ? "grid-cols-3"
-              : tabCount === 2
-                ? "grid-cols-2"
-                : "grid-cols-1"
-          }`}
-        >
-          <TabsTrigger value="link" className="gap-1.5">
-            <IconLink size={14} />
-            {t("shareDialog.link")}
-          </TabsTrigger>
-          {canViewShares ? (
-            <TabsTrigger value="invite" className="gap-1.5">
-              <IconMail size={14} />
-              {t("shareDialog.invite")}
+        {tabCount > 1 ? (
+          <TabsList
+            className={`grid w-full ${tabCount === 3 ? "grid-cols-3" : "grid-cols-2"}`}
+          >
+            <TabsTrigger value="link" className="gap-1.5">
+              <IconLink size={14} />
+              {t("shareDialog.link")}
             </TabsTrigger>
-          ) : null}
-          {canEmbed ? (
-            <TabsTrigger value="embed" className="gap-1.5">
-              <IconCode size={14} />
-              {t("shareDialog.embed")}
-            </TabsTrigger>
-          ) : null}
-        </TabsList>
+            {canViewShares ? (
+              <TabsTrigger value="invite" className="gap-1.5">
+                <IconMail size={14} />
+                {t("shareDialog.invite")}
+              </TabsTrigger>
+            ) : null}
+            {canEmbed ? (
+              <TabsTrigger value="embed" className="gap-1.5">
+                <IconCode size={14} />
+                {t("shareDialog.embed")}
+              </TabsTrigger>
+            ) : null}
+          </TabsList>
+        ) : null}
 
         <TabsContent value="link" className="mt-3">
           <LinkTab
