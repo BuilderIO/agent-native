@@ -327,113 +327,133 @@ export default function ClipsTemplate() {
       </section>
 
       {/* Core capabilities */}
-      <section className="border-t border-[var(--docs-border)] py-16">
-        <h2 className="mb-3 text-2xl font-bold tracking-tight">
-          {t("templateLanding.clips.s010")}
-        </h2>
-        <p className="mb-8 max-w-2xl text-base text-[var(--fg-secondary)]">
-          {t("templateLanding.clips.s011")}
-        </p>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
-            <div className="mb-3 text-[var(--docs-accent)]">
-              <svg
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <circle cx="12" cy="12" r="10" />
-                <circle cx="12" cy="12" r="3" />
-              </svg>
-            </div>
-            <h3 className="mb-1 text-sm font-semibold">
-              {t("templateLanding.clips.s012")}
-            </h3>
-            <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              Loom-style. Capture screen, camera, and microphone in a single
-              take. Pause, resume, trim, and share with a link the moment you
-              stop.
+      <section className="border-t border-[#1a1a1a] bg-[#0a0a0a]">
+        <div
+          aria-hidden="true"
+          className="hidden h-[60px] border-x border-[#1a1a1a] lg:grid lg:grid-cols-3 lg:h-[120px]"
+        >
+          <div />
+          <div className="border-x border-[#1a1a1a]" />
+          <div />
+        </div>
+
+        <div className="flex flex-col border-y border-[#1a1a1a] lg:flex-row lg:items-stretch">
+          <div className="flex shrink-0 flex-col justify-center gap-6 border-b border-[#1a1a1a] bg-[#0f0f0f] px-6 py-10 sm:px-10 lg:w-[416px] lg:border-b-0 lg:border-e lg:ps-8 lg:pe-16 lg:py-0">
+            <h2 className="text-[1.75rem] font-medium leading-[1.15] tracking-[-0.56px] text-white">
+              {t("templateLanding.clips.s010")}
+            </h2>
+            <p className="max-w-[320px] text-lg font-medium leading-[1.15] tracking-[-0.36px] text-[#9a9997]">
+              {t("templateLanding.clips.s011")}
             </p>
+            <TemplateDocsLink
+              template={template}
+              location="core_capabilities"
+              className="inline-flex h-10 w-fit items-center justify-center rounded-md border border-[#5e5e5e] bg-white px-5 font-mono text-[14px] font-semibold uppercase leading-[1.2] tracking-[0.28px] text-[#0a0a0a] no-underline transition hover:bg-[#f0f0f0] hover:no-underline"
+            >
+              Read the docs
+            </TemplateDocsLink>
           </div>
-          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
-            <div className="mb-3 text-[var(--docs-accent)]">
-              <svg
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
+
+          <div className="grid flex-1 grid-cols-1 border-t border-[#1a1a1a] sm:grid-cols-2 lg:border-t-0">
+            {[
+              {
+                icon: (
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 16 16"
+                    fill="none"
+                    xmlns="http://www.w3.org/2000/svg"
+                  >
+                    <path
+                      d="M7.99972 14.6672C11.6819 14.6672 14.6669 11.6822 14.6669 8.00002C14.6669 4.31783 11.6819 1.33282 7.99972 1.33282C4.31753 1.33282 1.33252 4.31783 1.33252 8.00002C1.33252 11.6822 4.31753 14.6672 7.99972 14.6672Z"
+                      stroke="#01C8F1"
+                      strokeWidth="1.33333"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                ),
+                title: t("templateLanding.clips.s012"),
+                body: "Loom-style. Capture screen, camera, and microphone in a single take. Pause, resume, trim, and share with a link the moment you stop.",
+              },
+              {
+                icon: (
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 16 16"
+                    fill="none"
+                    xmlns="http://www.w3.org/2000/svg"
+                  >
+                    <path
+                      d="M9.33299 1.33283H4.00019C3.64661 1.33283 3.3075 1.47331 3.05748 1.72338C2.80745 1.97345 2.66699 2.31262 2.66699 2.66627V13.3338C2.66699 13.6874 2.80745 14.0266 3.05748 14.2767C3.3075 14.5267 3.64661 14.6672 4.00019 14.6672H11.9994C12.353 14.6672 12.6921 14.5267 12.9421 14.2767C13.1921 14.0266 13.3326 13.6874 13.3326 13.3338V5.33315M9.33299 1.33283C9.54401 1.33248 9.753 1.3739 9.94795 1.45468C10.1429 1.53547 10.3199 1.65403 10.4689 1.80353L12.8606 4.19572C13.0105 4.34474 13.1294 4.52198 13.2104 4.7172C13.2914 4.91243 13.3329 5.12178 13.3326 5.33315M9.33299 1.33283V4.66642C9.33299 4.84325 9.40322 5.01283 9.52823 5.13787C9.65324 5.2629 9.8228 5.33314 9.99959 5.33314L13.3326 5.33315M6.66659 5.99986H5.33339M10.6662 8.66674H5.33339M10.6662 11.3336H5.33339"
+                      stroke="#01C8F1"
+                      strokeWidth="1.33333"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                ),
+                title: t("templateLanding.clips.s013"),
+                body: t("templateLanding.clips.s014"),
+              },
+              {
+                icon: (
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 16 16"
+                    fill="none"
+                    xmlns="http://www.w3.org/2000/svg"
+                  >
+                    <path
+                      d="M8.00028 12.6672H13.3331M2.66748 11.3337L6.66708 7.33325L2.66748 3.33279"
+                      stroke="#01C8F1"
+                      strokeWidth="1.33333"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                ),
+                title: t("templateLanding.clips.s003"),
+                body: "Jam-style. Record a bug in your browser and Clips captures the console errors and failed network requests alongside the video — redacted, never headers, bodies, or cookies. Hand the link to an agent and it has the repro plus the logs to fix the issue.",
+              },
+              {
+                icon: (
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 16 16"
+                    fill="none"
+                    xmlns="http://www.w3.org/2000/svg"
+                  >
+                    <path
+                      d="M14.2769 12.2762C14.5269 12.0261 14.6674 11.687 14.6674 11.3334V3.33334C14.6674 2.97972 14.5269 2.64058 14.2769 2.39053C14.0268 2.14048 13.6876 2 13.334 2H2.66645C2.3128 2 1.97363 2.14048 1.72356 2.39053C1.47349 2.64058 1.33301 2.97972 1.33301 3.33334V14.1907C1.33302 14.2843 1.36079 14.3758 1.4128 14.4537C1.46482 14.5315 1.53875 14.5922 1.62524 14.628C1.71173 14.6638 1.8069 14.6732 1.89871 14.6549C1.99053 14.6367 2.07487 14.5916 2.14107 14.5254L3.60919 13.0574C3.8592 12.8073 4.19831 12.6668 4.55193 12.6667H13.334C13.6876 12.6667 14.0268 12.5262 14.2769 12.2762Z"
+                      stroke="#01C8F1"
+                      strokeWidth="1.33333"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                ),
+                title: t("templateLanding.clips.s015"),
+                body: "Wisprflow-style. Hold Fn anywhere on your machine, speak, and the cleaned-up text lands in whatever app you're in. Every dictation kept in a searchable history.",
+              },
+            ].map((card) => (
+              <div
+                key={card.title}
+                className="flex flex-col gap-6 border-b border-[#1a1a1a] p-6 sm:border-e sm:p-8 sm:odd:border-e sm:even:border-e-0 lg:[&:nth-child(3)]:border-b-0 lg:[&:nth-child(4)]:border-b-0"
               >
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                <polyline points="14 2 14 8 20 8" />
-                <line x1="16" y1="13" x2="8" y2="13" />
-                <line x1="16" y1="17" x2="8" y2="17" />
-              </svg>
-            </div>
-            <h3 className="mb-1 text-sm font-semibold">
-              {t("templateLanding.clips.s013")}
-            </h3>
-            <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              {t("templateLanding.clips.s014")}
-            </p>
-          </div>
-          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
-            <div className="mb-3 text-[var(--docs-accent)]">
-              <svg
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <polyline points="4 17 10 11 4 5" />
-                <line x1="12" y1="19" x2="20" y2="19" />
-              </svg>
-            </div>
-            <h3 className="mb-1 text-sm font-semibold">
-              {t("templateLanding.clips.s003")}
-            </h3>
-            <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              Jam-style. Record a bug in your browser and Clips captures the
-              console errors and failed network requests alongside the video —
-              redacted, never headers, bodies, or cookies. Hand the link to an
-              agent and it has the repro plus the logs to fix the issue.
-            </p>
-          </div>
-          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
-            <div className="mb-3 text-[var(--docs-accent)]">
-              <svg
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-              </svg>
-            </div>
-            <h3 className="mb-1 text-sm font-semibold">
-              {t("templateLanding.clips.s015")}
-            </h3>
-            <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              Wisprflow-style. Hold Fn anywhere on your machine, speak, and the
-              cleaned-up text lands in whatever app you're in. Every dictation
-              kept in a searchable history.
-            </p>
+                <div className="flex h-[34px] w-[34px] items-center justify-center rounded-md border border-[#3a3a3a] bg-[#1d1d1d]">
+                  {card.icon}
+                </div>
+                <div className="flex flex-col gap-2">
+                  <h3 className="m-0 text-lg font-medium leading-[1.15] tracking-[-0.36px] text-[#faf9f5]">
+                    {card.title}
+                  </h3>
+                  <p className="m-0 text-lg leading-[1.3] text-[#9a9997]">
+                    {card.body}
+                  </p>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       </section>
