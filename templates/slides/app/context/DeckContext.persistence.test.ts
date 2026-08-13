@@ -1256,6 +1256,74 @@ describe("DeckContext deck creation persistence", () => {
     );
   });
 
+  it("reconciles a deck-change event while a local edit is pending", async () => {
+    window.history.pushState({}, "", "/deck/live-dirty-deck");
+    const initial: Deck = {
+      id: "live-dirty-deck",
+      title: "Live Dirty Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<h1>Local draft</h1>",
+          notes: "",
+          layout: "title",
+        },
+      ],
+    };
+    const { setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+    await waitFor(() =>
+      expect(result.current.getDeck("live-dirty-deck")?.slides).toHaveLength(1),
+    );
+
+    act(() => {
+      result.current.markDeckDirty("live-dirty-deck");
+    });
+    setAccessibleDeck({
+      ...initial,
+      updatedAt: "2026-05-12T00:01:00.000Z",
+      slides: [
+        {
+          ...initial.slides[0]!,
+          content: "<h1>Agent rewrote local slide</h1>",
+        },
+        {
+          id: "slide-2",
+          content: "<h1>Agent added slide</h1>",
+          notes: "",
+          layout: "content",
+        },
+      ],
+    });
+
+    const source = MockEventSource.lastInstance!;
+    await act(async () => {
+      source.onmessage?.(
+        new MessageEvent("message", {
+          data: JSON.stringify({
+            type: "deck-changed",
+            deckId: "live-dirty-deck",
+          }),
+        }),
+      );
+    });
+
+    await waitFor(() =>
+      expect(result.current.getDeck("live-dirty-deck")?.slides).toHaveLength(2),
+    );
+    const deck = result.current.getDeck("live-dirty-deck")!;
+    expect(deck.slides[0]?.content).toBe("<h1>Local draft</h1>");
+    expect(deck.slides[1]?.content).toBe("<h1>Agent added slide</h1>");
+  });
+
   describe("SSE reconnect and resync", () => {
     it("reconnects after a fatal SSE error and closes the old connection (no leak)", async () => {
       window.history.pushState({}, "", "/");

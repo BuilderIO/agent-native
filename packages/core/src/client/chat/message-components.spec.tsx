@@ -6,11 +6,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   assistantMessageHasCompletedCustomUi,
+  assistantMessageHasActiveTool,
   assistantMessageHasCustomUi,
   assistantMessageHasUnresolvedTool,
   computeActiveTailToolCallId,
   getAssistantWorkSummaryDurationMs,
   getAssistantToolSummaryInfo,
+  groupAssistantWorkParts,
   InlineRunErrorNotice,
   isAlwaysVisibleAssistantTool,
   isCollapsibleAssistantWorkPart,
@@ -28,6 +30,7 @@ import {
   assistantMessageRunId,
   assistantMessageTurnId,
   assistantMessageWasUserStopped,
+  ChatImageAttachmentPreview,
   resolveAssistantRequestId,
 } from "./message-components.js";
 import { runErrorKey } from "./run-recovery.js";
@@ -117,6 +120,65 @@ describe("ThinkingIndicator", () => {
   });
 });
 
+describe("ChatImageAttachmentPreview", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+  const src = "data:image/png;base64,AAAA";
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => {
+      root.unmount();
+    });
+    container.remove();
+    document.body.innerHTML = "";
+    vi.unstubAllGlobals();
+  });
+
+  it("opens the full-size image in a lightbox and closes it", () => {
+    act(() => {
+      root.render(<ChatImageAttachmentPreview src={src} alt="Screenshot" />);
+    });
+
+    const thumbnail = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Preview Screenshot"]',
+    );
+    expect(thumbnail).toBeTruthy();
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull();
+
+    act(() => {
+      thumbnail?.click();
+    });
+
+    const dialog = document.body.querySelector<HTMLElement>('[role="dialog"]');
+    expect(dialog).toBeTruthy();
+    expect(
+      Array.from(dialog?.querySelectorAll("img") ?? []).some(
+        (image) => image.src === src,
+      ),
+    ).toBe(true);
+    expect(
+      dialog?.querySelector('button[aria-label="Close image preview"]'),
+    ).toBeTruthy();
+
+    act(() => {
+      dialog
+        ?.querySelector<HTMLButtonElement>(
+          'button[aria-label="Close image preview"]',
+        )
+        ?.click();
+    });
+
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull();
+  });
+});
+
 describe("shouldShowAssistantMessageFooter", () => {
   it("hides controls for the current assistant response while it is running", () => {
     expect(
@@ -159,6 +221,18 @@ describe("shouldShowAssistantMessageFooter", () => {
         hasRenderableContent: true,
         statusIsTerminal: true,
         hasUnresolvedTool: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("hides controls while a delegated agent is still pending", () => {
+    expect(
+      shouldShowAssistantMessageFooter({
+        isLast: true,
+        chatRunning: false,
+        hasRenderableContent: true,
+        statusIsTerminal: true,
+        hasActiveTool: true,
       }),
     ).toBe(false);
   });
@@ -619,6 +693,19 @@ describe("shouldShowAssistantWorkSummary", () => {
     ).toBe(true);
   });
 
+  it("does not collapse active delegated work into a duration summary", () => {
+    expect(
+      shouldShowAssistantWorkSummary({
+        isLast: true,
+        isComplete: false,
+        hasCollapsibleWork: true,
+        hasUnresolvedTool: false,
+        hasActiveTool: true,
+        chatRunning: false,
+      }),
+    ).toBe(false);
+  });
+
   it("groups historical work with a dangling tool", () => {
     expect(
       shouldShowAssistantWorkSummary({
@@ -844,6 +931,51 @@ describe("getAssistantToolSummaryInfo", () => {
   });
 });
 
+describe("groupAssistantWorkParts", () => {
+  it("keeps a shadowed call-agent row inside the surrounding work group", () => {
+    const parts = [
+      { type: "tool-call", toolName: "read-file" },
+      {
+        type: "tool-call",
+        toolCallId: "call-analytics",
+        toolName: "call-agent",
+        args: { agent: "analytics" },
+      },
+      {
+        type: "tool-call",
+        toolCallId: "agent-analytics",
+        toolName: "agent:Analytics",
+        args: {},
+      },
+      { type: "tool-call", toolName: "query" },
+    ] as const;
+
+    expect(
+      parts.map((part, index) => groupAssistantWorkParts(part, index, parts)),
+    ).toEqual([["group-work"], ["group-work"], ["group-work"], ["group-work"]]);
+  });
+
+  it("does not open a work group for a leading shadowed call-agent row", () => {
+    const parts = [
+      {
+        type: "tool-call",
+        toolCallId: "call-analytics",
+        toolName: "call-agent",
+        args: { agent: "analytics" },
+      },
+      {
+        type: "tool-call",
+        toolCallId: "agent-analytics",
+        toolName: "agent:Analytics",
+        args: {},
+      },
+    ] as const;
+
+    expect(groupAssistantWorkParts(parts[0], 0, parts)).toBeNull();
+    expect(groupAssistantWorkParts(parts[1], 1, parts)).toEqual(["group-work"]);
+  });
+});
+
 describe("isHiddenUserMessage", () => {
   it("detects internal user messages hidden from chat history", () => {
     expect(
@@ -986,6 +1118,40 @@ describe("assistantMessageHasUnresolvedTool", () => {
           argsText: "{}",
           args: {},
           result: "{}",
+        },
+      ]),
+    ).toBe(false);
+  });
+});
+
+describe("assistantMessageHasActiveTool", () => {
+  it("detects a delegated agent that is pending after the parent call returns", () => {
+    expect(
+      assistantMessageHasActiveTool([
+        {
+          type: "tool-call",
+          toolName: "agent:Analytics",
+          toolCallId: "agent-call",
+          argsText: "",
+          args: {},
+          result: "Remote agent task is still pending",
+          activity: true,
+          structuredMeta: { agentPending: true },
+        },
+      ]),
+    ).toBe(true);
+  });
+
+  it("does not treat a generic activity placeholder as active by itself", () => {
+    expect(
+      assistantMessageHasActiveTool([
+        {
+          type: "tool-call",
+          toolName: "edit-design",
+          toolCallId: "activity-only",
+          argsText: "",
+          args: {},
+          activity: true,
         },
       ]),
     ).toBe(false);

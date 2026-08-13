@@ -8,6 +8,13 @@ vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: vi.fn(),
 }));
 
+vi.mock("@agent-native/core/server", () => ({
+  getCredentialContext: vi.fn(() => ({
+    userEmail: "owner@example.test",
+    orgId: "org-1",
+  })),
+}));
+
 vi.mock("drizzle-orm", () => ({
   eq: vi.fn(),
 }));
@@ -25,6 +32,7 @@ vi.mock("../server/lib/brain.js", () => ({
 }));
 
 vi.mock("../server/lib/source-credentials.js", () => ({
+  assertSourceCredentialAvailable: vi.fn(),
   assertSourceWorkspaceConnectionAvailable: vi.fn(),
 }));
 

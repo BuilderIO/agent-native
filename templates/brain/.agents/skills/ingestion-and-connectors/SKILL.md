@@ -35,6 +35,13 @@ retrieved again later. Surface it to the user immediately (e.g. for wiring
 into an external system's webhook config) rather than assuming you can read
 it back with `get-source`.
 
+Manual sources are push/import-driven and private by default. Use
+`import-markdown-files` for a bounded folder or batch of `.md` / `.markdown`
+files; it preserves relative paths for deduplication, stores searchable text as
+document captures, and reports each file's import or privacy outcome. Use the
+standard sharing actions to change a source to organization visibility or grant
+specific access. Do not use `sync-source` for a manual source.
+
 ## Blessed FAQ And Docs Publishers
 
 Approved FAQs, docs, handbooks, and similar owned resources use the same

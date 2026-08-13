@@ -7,6 +7,7 @@ import {
   assertAccess,
   resolveAccess,
 } from "@agent-native/core/sharing";
+import type { ShareRole } from "@agent-native/core/sharing";
 import {
   and,
   asc,
@@ -45,6 +46,13 @@ import {
 } from "./helpers.js";
 
 type Rank = "canonical" | "exemplar" | "normal";
+type CreativeContextAccessRole = "viewer" | "editor" | "admin" | "owner";
+
+function creativeContextAccessRole(
+  role: "owner" | ShareRole,
+): CreativeContextAccessRole {
+  return role === "commenter" ? "viewer" : role;
+}
 
 function defaultContextScopeKey(actor: {
   ownerEmail: string;
@@ -664,7 +672,7 @@ export async function getCreativeContextById(
   return mapContext(
     access.resource,
     Number(membershipCount?.value ?? 0),
-    access.role,
+    creativeContextAccessRole(access.role),
   );
 }
 
@@ -752,7 +760,13 @@ export async function listCreativeContexts(input: {
     contexts: page.flatMap((row) => {
       const access = accessById.get(row.id);
       return access
-        ? [mapContext(row, byContext.get(row.id) ?? 0, access.role)]
+        ? [
+            mapContext(
+              row,
+              byContext.get(row.id) ?? 0,
+              creativeContextAccessRole(access.role),
+            ),
+          ]
         : [];
     }),
     nextCursor: rows.length > input.limit ? page.at(-1)?.id : undefined,

@@ -80,4 +80,33 @@ describe("ChartTooltip", () => {
 
     expect(document.body.querySelector('[role="tooltip"]')).toBeNull();
   });
+
+  it("keeps the portaled tooltip below the wide chat drawer", async () => {
+    const sidebar = document.createElement("div");
+    sidebar.className = "agent-sidebar-panel";
+    sidebar.style.position = "fixed";
+    sidebar.style.zIndex = "80";
+    document.body.appendChild(sidebar);
+
+    try {
+      await act(async () => {
+        root.render(
+          <ChartTooltip
+            active
+            label="May 10"
+            payload={[{ name: "signups", value: 12, color: "#10b981" }]}
+          />,
+        );
+      });
+
+      const tooltip =
+        document.body.querySelector<HTMLElement>('[role="tooltip"]');
+      expect(tooltip).not.toBeNull();
+      expect(Number(tooltip?.style.zIndex)).toBeLessThan(
+        Number(sidebar.style.zIndex),
+      );
+    } finally {
+      sidebar.remove();
+    }
+  });
 });

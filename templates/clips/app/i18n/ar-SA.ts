@@ -510,10 +510,11 @@ const messages = {
     },
     roles: {
       viewer: "مشاهد",
+      commenter: "معلّق",
       editor: "محرر",
       admin: "مسؤول",
     },
-    recordingViewer: {
+    recordingCommenter: {
       label: "معلّق",
       description: "يمكنه العرض والتعليق والتفاعل",
     },
@@ -650,13 +651,13 @@ const messages = {
     collapse: "طي",
     changelogMarkdown: `# سجل التغييرات
 
-يتم توثيق كل التغييرات المرئية لمستخدمي Clips هنا. يمكنك فتحه في أي وقت من قائمة الأوامر (Cmd+K -> "ما الجديد") أو من الإعدادات.
+يتم توثيق كل التغييرات المرئية لمستخدمي Clips هنا. يمكنك فتحه في أي وقت من قائمة الأوامر (Cmd K -> "ما الجديد") أو من الإعدادات.
 
 ## 2026-06-23
 
 ### تمت الإضافة
 
-- يمكنك الآن رؤية الجديد مباشرة داخل Clips. أصبح سجل التغييرات متاحًا في قائمة الأوامر (Cmd+K) وفي الإعدادات.`,
+- يمكنك الآن رؤية الجديد مباشرة داخل Clips. أصبح سجل التغييرات متاحًا في قائمة الأوامر (Cmd K) وفي الإعدادات.`,
     playback: "التشغيل",
     defaultPlaybackSpeed: "سرعة التشغيل الافتراضية",
     playbackDescription: "تُطبق تلقائيًا عند فتح تسجيل.",
@@ -1205,7 +1206,7 @@ const messages = {
     seekTo: "Seek to {{time}} (مترجم)",
   },
   editorToolbar: {
-    undoTooltip: "Undo (Cmd/Ctrl+Z) (مترجم)",
+    undoTooltip: "Undo (Cmd/Ctrl Z) (مترجم)",
     playPauseTooltip: "Play / Pause (Space) (مترجم)",
     sourceDuration: "({{duration}} src) (مترجم)",
     previewSpeed: "Preview speed (مترجم)",

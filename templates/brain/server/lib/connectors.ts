@@ -1020,14 +1020,18 @@ async function resolveSlackChannel(
       token,
       "conversations.info",
       { channel: channelRef },
+      { toleratedErrors: ["channel_not_found", "not_in_channel"] },
     );
     return data.channel ?? null;
   }
   const byName = await resolveSlackChannelByName(token, channelRef);
   if (!byName) return null;
-  const data = await slackApi<SlackInfoResponse>(token, "conversations.info", {
-    channel: byName.id,
-  });
+  const data = await slackApi<SlackInfoResponse>(
+    token,
+    "conversations.info",
+    { channel: byName.id },
+    { toleratedErrors: ["channel_not_found", "not_in_channel"] },
+  );
   return data.channel ?? byName;
 }
 
@@ -1252,7 +1256,7 @@ export async function testSlackConnection(
   }
 
   return {
-    ok: true,
+    ok: channels.every((channel) => channel.status === "ok"),
     team: auth.team ?? null,
     teamId: auth.team_id ?? null,
     workspaceUrl: auth.url ?? null,
@@ -1304,6 +1308,16 @@ function slackPilotNextSteps(report: {
     return [
       "Add one or two Slack channel IDs to the source allow-list.",
       "Run the pilot again before attempting any history sync.",
+    ];
+  }
+  if (
+    report.channelValidation.excluded > 0 ||
+    report.channelValidation.missing > 0 ||
+    report.channelValidation.skipped > 0
+  ) {
+    return [
+      "Fix every invalid Slack channel reference before syncing this source.",
+      "Use channel IDs or enable name resolution, and confirm private-channel membership.",
     ];
   }
   if (report.channelValidation.ok === 0) {
@@ -1414,8 +1428,8 @@ export async function runSlackPilot(
     channels,
   };
 
-  if (requestedRefs.length === 0 || !options.readHistory) {
-    const blocked = requestedRefs.length === 0;
+  if (requestedRefs.length === 0 || !credential.ok || !options.readHistory) {
+    const blocked = requestedRefs.length === 0 || !credential.ok;
     const partial = {
       status: blocked ? ("blocked" as const) : ("validated" as const),
       historyRead: false,

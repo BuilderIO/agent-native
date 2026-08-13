@@ -765,7 +765,7 @@ describe("SSE replay render pacing", () => {
     await eventLoopTurn;
 
     expect(firstResultAfterEventLoopAdvance).not.toBeNull();
-    expect(firstResultAfterEventLoopAdvance!).toBeLessThan(textEvents.length);
+    expect(firstResultAfterEventLoopAdvance).toBeLessThan(4);
     expect(results).toHaveLength(textEvents.length + 1);
     expect(results.at(-1)?.content).toEqual([
       {
@@ -955,6 +955,42 @@ describe("SSE replay render pacing", () => {
         activity: true,
       }),
     ]);
+  });
+
+  it("marks pending delegated calls as nonterminal presentation work", async () => {
+    const results = (await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "agent_call",
+            agent: "Analytics",
+            agentCallId: "analytics-pending",
+            status: "start",
+          },
+          {
+            type: "agent_call",
+            agent: "Analytics",
+            agentCallId: "analytics-pending",
+            status: "pending",
+            taskId: "remote-task-1",
+          },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        undefined,
+      ),
+    )) as any[];
+
+    expect(results.at(-1)?.content).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          toolName: "agent:Analytics",
+          result: "Remote agent task is still pending",
+          structuredMeta: { agentPending: true },
+        }),
+      ]),
+    );
   });
 
   it("correlates concurrent same-name agent activity by call id", async () => {
@@ -3374,6 +3410,40 @@ describe("SSE event processor error classification", () => {
     });
   });
 
+  it("keeps narration from earlier steps when a later draft is cleared", async () => {
+    // A `clear` is the server retrying the CURRENT draft, which always resumes
+    // after the last completed tool. Splicing every text part wiped multi-step
+    // narration from the whole turn, which users reported as "it deleted its
+    // reply and started over".
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          { type: "text", text: "Step 1: reading the schema." },
+          { type: "tool_start", tool: "query", input: { sql: "select 1" } },
+          { type: "tool_done", tool: "query", result: "1" },
+          { type: "text", text: "Step 2: rejected draft." },
+          { type: "clear" },
+          { type: "text", text: "Step 2: corrected answer." },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+      ),
+    );
+
+    expect(results.at(-1)).toEqual({
+      content: [
+        { type: "text", text: "Step 1: reading the schema." },
+        expect.objectContaining({
+          type: "tool-call",
+          toolName: "query",
+          result: "1",
+        }),
+        { type: "text", text: "Step 2: corrected answer." },
+      ],
+    });
+  });
+
   it("keeps materialized pending tool calls across clear events", async () => {
     const results = await drain(
       readSSEStream(
@@ -3744,6 +3814,53 @@ describe("SSE event processor error classification", () => {
       | undefined;
     expect(terminal?.status).toEqual({ type: "incomplete", reason: "error" });
     expect(terminal?.metadata?.custom?.runError?.recoverable).toBe(true);
+  });
+
+  it("does not auto-continue a repeat-guard stop whose message names a tool that matches the transient message sniff", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    // The guard interpolates the looping tool's name, and 17 shipped actions
+    // are named `*connection*` — enough to match the "connection" sniff and
+    // auto-continue the exact loop this event exists to break.
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "error",
+            error:
+              "Stopped because `list-workspace-connections` was called 8 times with identical arguments without making progress.",
+            errorCode: "repeated_tool_call",
+            recoverable: false,
+          },
+        ]),
+        [],
+        { value: 0 },
+        "tab-repeat-guard",
+      ),
+    );
+
+    const terminal = results.at(-1) as
+      | {
+          status?: { type: string; reason: string };
+          metadata?: { custom?: { runError?: { errorCode?: string } } };
+        }
+      | undefined;
+    expect(terminal?.status).toEqual({ type: "incomplete", reason: "error" });
+    expect(terminal?.metadata?.custom?.runError?.errorCode).toBe(
+      "repeated_tool_call",
+    );
   });
 });
 

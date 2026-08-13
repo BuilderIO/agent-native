@@ -1,7 +1,9 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { IconInfoCircle } from "@tabler/icons-react";
 import { type ReactNode } from "react";
+import { useLocation } from "react-router";
 
+import { dispatchDocsHrefForPath, DocsLink } from "./docs-link";
 import { useSetPageTitle } from "./layout/HeaderActions";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 
@@ -21,12 +23,16 @@ export function DispatchShell({
   children: ReactNode;
 }) {
   const t = useT();
+  const location = useLocation();
+  const docsHref = dispatchDocsHrefForPath(location.pathname);
   useSetPageTitle(
     <div className="flex items-center gap-2 min-w-0">
       <h1 className="text-lg font-semibold tracking-tight truncate text-foreground">
         {title}
       </h1>
-      {description ? (
+      {docsHref ? (
+        <DocsLink href={docsHref} label={`Open ${title} documentation`} />
+      ) : description ? (
         <Popover>
           <PopoverTrigger asChild>
             <button

@@ -15,6 +15,7 @@ export default defineAction({
     "Get computed HubSpot sales metrics: win rate, ACV, pipeline value, etc.",
   schema: z.object({}),
   http: { method: "GET" },
+  grounding: true,
   run: async () => {
     const [deals, pipelines] = await Promise.all([
       getAllDeals(),

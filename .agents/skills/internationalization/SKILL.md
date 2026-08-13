@@ -3,19 +3,25 @@ name: internationalization
 description: >-
   How to add or edit localized UI copy in agent-native apps. Use when adding,
   removing, or changing user-visible interface text, prompts, toasts, labels,
-  empty states, or date/number/list formatting.
+  empty states, or date/number/list formatting. Apps opt in to additional
+  locales from `agent-native.config.ts`.
 scope: dev
 metadata:
   internal: true
 ---
 
-# Internationalization
+# Internationalization — opt-in translations
+
+English (`en-US`) is the default source locale. Do not create or update
+additional locale catalogs unless the app's `agent-native.config.ts` lists them
+under `translations.locales`.
 
 ## Rule
 
 Visible framework/template UI copy belongs in the app's i18n catalog, not
 inline in components. When you add or edit UI text, update the English source
-catalog first, update existing locale catalogs, and run the i18n guard.
+catalog first, then update only the locale catalogs listed in
+`translations.locales`, and run the i18n guard.
 
 ## Catalogs
 

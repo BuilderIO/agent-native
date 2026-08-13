@@ -27,7 +27,8 @@ describe("recording share popover", () => {
     );
     expect(shareDialogSource).toContain("{!isPublic ? (");
     expect(shareDialogSource).toContain("if (!isPublic)");
-    expect(shareDialogSource).not.toContain("Collapsible");
+    expect(shareDialogSource).toContain("<Collapsible");
+    expect(shareDialogSource).toContain("agentDetailsOpen");
   });
 
   it("uses known recording access while share details load", () => {
@@ -47,6 +48,16 @@ describe("recording share popover", () => {
     expect(shareDialogSource).not.toContain("(!isPublic && canManage)");
   });
 
+  it("keeps copy fields compact and hides the raw URL", () => {
+    const shareUiSource = readSource("../sharing/share-ui.tsx");
+
+    expect(shareUiSource).toContain('t("shareUi.copy")');
+    expect(shareUiSource).toContain("IconLink");
+    expect(shareUiSource).toContain('t("recordRoute.linkCopied")');
+    expect(shareUiSource).toContain("description?: string");
+    expect(shareUiSource).not.toContain("readOnly\n          value={value}");
+  });
+
   it("offers a rich email preview only for public, unprotected clips", () => {
     const shareDialogSource = readSource("./share-dialog.tsx");
 
@@ -56,7 +67,7 @@ describe("recording share popover", () => {
     expect(shareDialogSource).toContain('t("shareDialog.copyEmailPreview")');
   });
 
-  it("labels recording viewers as commenters without changing the stored role", () => {
+  it("offers commenter as a distinct recording role", () => {
     const shareDialogSource = readSource("./share-dialog.tsx");
     const shareUiSource = readSource("../sharing/share-ui.tsx");
     const meetingDialogSource = readSource(
@@ -65,10 +76,10 @@ describe("recording share popover", () => {
 
     expect(shareDialogSource).toContain("roleCopy={{");
     expect(shareDialogSource).toContain(
-      'label: t("shareUi.recordingViewer.label")',
+      'label: t("shareUi.recordingCommenter.label")',
     );
     expect(shareDialogSource).toContain(
-      'description: t("shareUi.recordingViewer.description")',
+      'description: t("shareUi.recordingCommenter.description")',
     );
     expect(shareUiSource).toContain(
       "roleCopy?: Partial<Record<Role, RoleCopy>>",

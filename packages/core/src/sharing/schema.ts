@@ -19,7 +19,7 @@
  *
  *   export const deckShares = createSharesTable("deck_shares");
  *
- * The share row `role` supports `viewer | editor | admin`. `admin` is a
+ * The share row `role` supports `viewer | commenter | editor | admin`. `admin` is a
  * share-level capability — it lets non-owners manage shares. The single
  * `owner_email` column on the resource remains the ground truth for ownership.
  */
@@ -54,7 +54,7 @@ export function ownableColumns() {
  * - `resourceId`      — id of the parent resource
  * - `principalType`   — `'user' | 'org'`
  * - `principalId`     — email (for user) or org id (for org)
- * - `role`            — `'viewer' | 'editor' | 'admin'`
+ * - `role`            — `'viewer' | 'commenter' | 'editor' | 'admin'`
  * - `createdBy`       — email of the user who created the share
  * - `createdAt`       — ISO timestamp
  *
@@ -71,7 +71,9 @@ export function createSharesTable(tableName: string) {
       enum: ["user", "org"],
     }).notNull(),
     principalId: text("principal_id").notNull(),
-    role: text("role", { enum: ["viewer", "editor", "admin"] })
+    role: text("role", {
+      enum: ["viewer", "commenter", "editor", "admin"],
+    })
       .notNull()
       .default("viewer"),
     createdBy: text("created_by").notNull(),
@@ -80,15 +82,16 @@ export function createSharesTable(tableName: string) {
 }
 
 export type Visibility = "private" | "org" | "public";
-export type ShareRole = "viewer" | "editor" | "admin";
+export type ShareRole = "viewer" | "commenter" | "editor" | "admin";
 export type PrincipalType = "user" | "org";
 
 /** Role precedence — higher number = stronger capability. */
 export const ROLE_RANK: Record<ShareRole | "owner", number> = {
   viewer: 1,
-  editor: 2,
-  admin: 3,
-  owner: 4,
+  commenter: 2,
+  editor: 3,
+  admin: 4,
+  owner: 5,
 };
 
 export function roleSatisfies(

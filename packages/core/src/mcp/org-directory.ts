@@ -138,11 +138,13 @@ function scopedCacheKey(
     orgId?: string;
     orgDomain?: string;
   },
+  includeDirectoryApp = false,
 ): string {
   return [
     origin,
     `user:${auth.userEmail ?? ""}`,
     `org:${auth.orgId ?? auth.orgDomain ?? ""}`,
+    `include-directory:${includeDirectoryApp ? "1" : "0"}`,
   ].join("|");
 }
 
@@ -155,8 +157,16 @@ function authTokenAttempts(auth: {
   );
 }
 
-function serviceScopedCacheKey(origin: string, orgId: string): string {
-  return [origin, `service-org:${orgId}`].join("|");
+function serviceScopedCacheKey(
+  origin: string,
+  orgId: string,
+  includeDirectoryApp = false,
+): string {
+  return [
+    origin,
+    `service-org:${orgId}`,
+    `include-directory:${includeDirectoryApp ? "1" : "0"}`,
+  ].join("|");
 }
 
 /**
@@ -170,11 +180,14 @@ function serviceScopedCacheKey(origin: string, orgId: string): string {
  *
  * @param opts.selfId      Current app id (so it's stripped from the result).
  * @param opts.selfOrigin  Current app origin (so it's stripped by origin too).
+ * @param opts.includeDirectoryApp Request the directory authority itself. The
+ *   server keeps legacy self-filtering unless this explicit signal is present.
  * @param opts.env         Injectable env (tests). Defaults to `process.env`.
  */
 export async function fetchOrgApps(opts?: {
   selfId?: string;
   selfOrigin?: string;
+  includeDirectoryApp?: boolean;
   serviceOrgId?: string;
   env?: NodeJS.ProcessEnv;
 }): Promise<OrgApp[]> {
@@ -198,7 +211,11 @@ export async function fetchOrgApps(opts?: {
   let ttl = EMPTY_TTL_MS;
   const serviceOrgId = opts?.serviceOrgId?.trim();
   if (serviceOrgId) {
-    const serviceCacheKey = serviceScopedCacheKey(origin, serviceOrgId);
+    const serviceCacheKey = serviceScopedCacheKey(
+      origin,
+      serviceOrgId,
+      opts?.includeDirectoryApp,
+    );
     const cached = cache.get(serviceCacheKey);
     if (cached && cached.expiresAt > Date.now()) {
       return stripSelf(cached.apps);
@@ -218,7 +235,7 @@ export async function fetchOrgApps(opts?: {
 
     if (!cacheKey) {
       const now = Date.now();
-      cacheKey = scopedCacheKey(origin, auth);
+      cacheKey = scopedCacheKey(origin, auth, opts?.includeDirectoryApp);
       const cached = cache.get(cacheKey);
       if (cached && cached.expiresAt > now) {
         return stripSelf(cached.apps);
@@ -231,6 +248,9 @@ export async function fetchOrgApps(opts?: {
         headers: {
           Authorization: `Bearer ${attempts[i]}`,
           Accept: "application/json",
+          ...(opts?.includeDirectoryApp
+            ? { "X-Agent-Native-Include-Directory-App": "1" }
+            : {}),
         },
         signal: AbortSignal.timeout(4000),
       });

@@ -1777,6 +1777,7 @@ function SqlDashboardPageContent({
           <ShareButton
             resourceType="dashboard"
             resourceId={dashboardId}
+            allowedRoles={["viewer", "editor", "admin"]}
             resourceTitle={dashboard.name}
             variant="compact"
             triggerClassName="border-0 bg-accent text-accent-foreground hover:bg-accent/80 hover:text-accent-foreground"

@@ -6,6 +6,8 @@
  * availability and support maturity before offering a connection flow.
  */
 
+import { docsUrl } from "../shared/docs-url.js";
+
 export const INTEGRATION_CATEGORIES = [
   "channel",
   "provider",
@@ -121,7 +123,7 @@ const BUILT_IN_CHANNEL_CATALOG = [
       "Managed installations select encrypted credentials by workspace; legacy manual installs should use SLACK_ALLOWED_TEAM_IDS.",
     ],
     documentation: {
-      href: "/docs/messaging#slack",
+      href: docsUrl("messaging", { hash: "slack" }),
       externalHref: "https://api.slack.com/apps",
       externalLabel: "Open Slack apps",
     },
@@ -185,7 +187,7 @@ const BUILT_IN_CHANNEL_CATALOG = [
       "Production deployments must allowlist Microsoft Entra tenant IDs; proactive messaging without an inbound conversation reference is not implemented.",
     ],
     documentation: {
-      href: "/docs/messaging#microsoft-teams",
+      href: docsUrl("messaging", { hash: "microsoft-teams" }),
       externalHref: "https://dev.botframework.com/",
       externalLabel: "Open Bot Framework",
     },
@@ -247,7 +249,7 @@ const BUILT_IN_CHANNEL_CATALOG = [
       "Interaction tokens are retained only while the queued task is active and normally expire after 15 minutes.",
     ],
     documentation: {
-      href: "/docs/messaging#discord",
+      href: docsUrl("messaging", { hash: "discord" }),
       externalHref: "https://discord.com/developers/applications",
       externalLabel: "Open Discord applications",
     },
@@ -297,7 +299,7 @@ const BUILT_IN_CHANNEL_CATALOG = [
       "Webhook verification requires TELEGRAM_WEBHOOK_SECRET for production-safe setup.",
     ],
     documentation: {
-      href: "/docs/messaging#telegram",
+      href: docsUrl("messaging", { hash: "telegram" }),
       externalHref: "https://t.me/BotFather",
       externalLabel: "Open BotFather",
     },
@@ -347,7 +349,7 @@ const BUILT_IN_CHANNEL_CATALOG = [
       "Meta pricing and the customer-service conversation window can limit replies; template-message flows are not implemented by this adapter.",
     ],
     documentation: {
-      href: "/docs/messaging#whatsapp",
+      href: docsUrl("messaging", { hash: "whatsapp" }),
       externalHref: "https://developers.facebook.com/apps",
       externalLabel: "Open Meta developer console",
     },
@@ -405,7 +407,7 @@ const BUILT_IN_CHANNEL_CATALOG = [
       "Email replies preserve RFC email threads and reply-all when the agent was CC'd.",
     ],
     documentation: {
-      href: "/docs/messaging#email",
+      href: docsUrl("messaging", { hash: "email" }),
       externalHref: "https://resend.com/webhooks",
       externalLabel: "Open Resend webhooks",
     },
@@ -467,7 +469,7 @@ const AUTOMATION_CATALOG = [
       "Use a configured webhook URL or n8n credential; never put an n8n URL or credential in an agent prompt.",
     ],
     documentation: {
-      href: "/docs/automation-connectors#n8n",
+      href: docsUrl("automation-connectors", { hash: "n8n" }),
       externalHref:
         "https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.webhook/",
       externalLabel: "Open n8n Webhook docs",
@@ -512,7 +514,7 @@ const AUTOMATION_CATALOG = [
       "Zapier MCP is a separately configured remote MCP connection with its own account and authorization flow.",
     ],
     documentation: {
-      href: "/docs/automation-connectors#zapier",
+      href: docsUrl("automation-connectors", { hash: "zapier" }),
       externalHref: "https://docs.zapier.com/mcp/home",
       externalLabel: "Open Zapier MCP docs",
     },

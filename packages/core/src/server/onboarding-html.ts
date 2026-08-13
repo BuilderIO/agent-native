@@ -15,6 +15,7 @@ import {
   SUPPORTED_LOCALES,
   type LocaleCode,
 } from "../localization/shared.js";
+import { docsUrl } from "../shared/docs-url.js";
 import {
   PASSWORD_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
@@ -1663,7 +1664,7 @@ ${localeMenuItemsHtml}
     <button type="button" class="btn-local-dev btn-primary" id="local-dev-btn" title="${esc(t("localDevDescription"))}"${i18nAttr("localDevButton")} data-i18n-title="localDevDescription" aria-describedby="local-dev-description">${esc(t("localDevButton"))}</button>
     <p class="local-dev-description" id="local-dev-description">
       <span${i18nAttr("localDevDescription")}>${esc(t("localDevDescription"))}</span>
-      <a class="local-dev-help" id="local-dev-help" href="https://www.agent-native.com/docs/authentication#local-development-sign-in" target="_blank" rel="noreferrer" aria-label="${esc(t("localDevHelp"))}" title="${esc(t("localDevHelp"))}" data-i18n-title="localDevHelp"${i18nAriaAttr("localDevHelp")}><span class="local-dev-help-glyph" aria-hidden="true">?</span></a>
+      <a class="local-dev-help" id="local-dev-help" href="${docsUrl("authentication", { hash: "local-development-sign-in" })}" target="_blank" rel="noreferrer" aria-label="${esc(t("localDevHelp"))}" title="${esc(t("localDevHelp"))}" data-i18n-title="localDevHelp"${i18nAriaAttr("localDevHelp")}><span class="local-dev-help-glyph" aria-hidden="true">?</span></a>
     </p>
     <button type="button" class="local-dev-full-options" id="local-dev-full-options" hidden${i18nAttr("localDevFullOptions")}>${esc(t("localDevFullOptions"))}</button>
     <p class="msg error" id="local-dev-msg" role="status" aria-live="polite"></p>
@@ -4317,7 +4318,7 @@ ${
   function __anCopySignupLocalModeCommand() {
     __anCopyCommandFromPanel('signup-local-mode-note', 'copy-signup-local-mode');
   }
-  }`
+  `
     : ""
 }
 </script>

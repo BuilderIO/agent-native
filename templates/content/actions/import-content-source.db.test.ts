@@ -245,4 +245,40 @@ describe("import-content-source descriptions", () => {
         ),
     ).resolves.toEqual([]);
   });
+
+  it("rejects oversized document bodies before writing them", async () => {
+    const path = "content/oversized-import.mdx";
+    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+      importContentSourceAction.run({
+        files: {
+          [path]: serializeContentSourceDocument({
+            id: "oversized_import_document",
+            parentId: null,
+            title: "Oversized import",
+            content: "x".repeat(512 * 1024 + 1),
+            icon: null,
+            position: 0,
+            isFavorite: false,
+            hideFromSearch: false,
+            visibility: "private",
+          }),
+        },
+        dryRun: false,
+      }),
+    );
+
+    expect(result.created).toEqual([]);
+    expect(result.errors).toEqual([
+      {
+        path,
+        reason: expect.stringContaining("Document body exceeds"),
+      },
+    ]);
+    await expect(
+      getDb()
+        .select({ id: schema.documents.id })
+        .from(schema.documents)
+        .where(eq(schema.documents.id, "oversized_import_document")),
+    ).resolves.toEqual([]);
+  });
 });

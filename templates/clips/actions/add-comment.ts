@@ -44,8 +44,7 @@ export default defineAction({
       .describe("Display name for the author (falls back to email local part)"),
   }),
   run: async (args) => {
-    // Viewer access is required (public/org recordings allow viewers to comment).
-    await assertAccess("recording", args.recordingId, "viewer");
+    await assertAccess("recording", args.recordingId, "commenter");
 
     const authorEmail = getRequestUserEmail();
     if (!authorEmail) {

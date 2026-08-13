@@ -65,6 +65,7 @@ import {
   AgentNativeI18nProvider,
   type AgentNativeI18nProviderProps,
 } from "./i18n.js";
+import { FirstRunOnboardingStartupGate } from "./onboarding/first-run-startup-gate.js";
 import { RequireSession } from "./require-session.js";
 import { AgentNativeRouteWarmup } from "./route-warmup.js";
 import { RouteTransitionIndicator } from "./RouteTransitionIndicator.js";
@@ -307,7 +308,13 @@ export function AppProviders({
         documentTitleFallback={documentTitleFallback}
       >
         <RequireSession bypass={sessionBypass} fallback={fallback}>
-          {children}
+          {sessionBypass ? (
+            children
+          ) : (
+            <FirstRunOnboardingStartupGate>
+              {children}
+            </FirstRunOnboardingStartupGate>
+          )}
         </RequireSession>
       </ProvidersInner>
     </ClientOnly>

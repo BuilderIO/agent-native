@@ -5,6 +5,66 @@ import { z } from "zod";
 import { hashSlideContent, type DeckFitState } from "../shared/slide-fit.js";
 import { readAppStateForCurrentTab } from "./_tab-state.js";
 
+type CurrentSlideFitMeasurement = DeckFitState["slides"][string] & {
+  slideId: string;
+};
+
+function getCurrentSlideFitMeasurement(
+  value: unknown,
+  slide: { id: string; content?: string },
+  deckId: string,
+): CurrentSlideFitMeasurement | null {
+  if (!value || typeof value !== "object") return null;
+
+  const measurement = value as Record<string, unknown>;
+  const slideId = measurement.slideId;
+  const measurementDeckId = measurement.deckId;
+  const contentHash = measurement.contentHash;
+  const contentHeight = measurement.contentHeight;
+  const contentWidth = measurement.contentWidth;
+  const viewportHeight = measurement.viewportHeight;
+  const viewportWidth = measurement.viewportWidth;
+  const verticalOverflow = measurement.verticalOverflow;
+  const horizontalOverflow = measurement.horizontalOverflow;
+  const measuredAt = measurement.measuredAt;
+
+  if (
+    typeof slideId !== "string" ||
+    slideId !== slide.id ||
+    (measurementDeckId !== undefined && measurementDeckId !== deckId) ||
+    typeof contentHash !== "string" ||
+    contentHash !== hashSlideContent(slide.content ?? "") ||
+    typeof contentHeight !== "number" ||
+    !Number.isFinite(contentHeight) ||
+    typeof contentWidth !== "number" ||
+    !Number.isFinite(contentWidth) ||
+    typeof viewportHeight !== "number" ||
+    !Number.isFinite(viewportHeight) ||
+    typeof viewportWidth !== "number" ||
+    !Number.isFinite(viewportWidth) ||
+    typeof verticalOverflow !== "number" ||
+    !Number.isFinite(verticalOverflow) ||
+    typeof horizontalOverflow !== "number" ||
+    !Number.isFinite(horizontalOverflow) ||
+    typeof measuredAt !== "number" ||
+    !Number.isFinite(measuredAt)
+  ) {
+    return null;
+  }
+
+  return {
+    slideId,
+    contentHash,
+    contentHeight,
+    contentWidth,
+    viewportHeight,
+    viewportWidth,
+    verticalOverflow,
+    horizontalOverflow,
+    measuredAt,
+  };
+}
+
 export default defineAction({
   description:
     "Read the latest browser measurements for every slide in a deck. Returns status unknown until every slide has a finite measurement matching its current HTML, so never use a partial result to claim the deck fits.",
@@ -25,6 +85,10 @@ export default defineAction({
     const state = (await readAppStateForCurrentTab("deck-fit-checks", {
       fallbackToGlobal: false,
     })) as DeckFitState | null;
+    const currentSlideState = await readAppStateForCurrentTab(
+      "slide-fit-check",
+      { fallbackToGlobal: false },
+    );
 
     const unknownSlideIds: string[] = [];
     const overflows: Array<{
@@ -40,10 +104,11 @@ export default defineAction({
 
     slides.forEach((slide, index) => {
       const measurement =
-        state?.deckId === deckId &&
+        getCurrentSlideFitMeasurement(currentSlideState, slide, deckId) ??
+        (state?.deckId === deckId &&
         state.aspectRatio === (deck.aspectRatio ?? "16:9")
           ? state.slides?.[slide.id]
-          : undefined;
+          : undefined);
       if (
         !measurement ||
         measurement.contentHash !== hashSlideContent(slide.content ?? "") ||

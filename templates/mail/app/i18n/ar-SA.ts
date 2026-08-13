@@ -481,6 +481,10 @@ const messages = {
     lastRun: "آخر تشغيل:",
     automationsDescription:
       "قواعد تعالج رسائل البريد الجديدة تلقائيًا باستخدام الذكاء الاصطناعي.",
+    allowAutomationSends: "السماح للأتمتات بإرسال رسائل البريد تلقائيًا",
+    allowAutomationSendsDescription:
+      "مغلق افتراضيًا. فعّله عندما تريد من الأتمتات إرسال الرسائل دون طلب موافقة في كل مرة.",
+    automationSendSettingSaveFailed: "تعذر حفظ إعداد إرسال البريد التلقائي.",
     loadingModels: "جارٍ تحميل النماذج",
     newRule: "قاعدة جديدة",
     noAutomationRules: "لا توجد قواعد أتمتة بعد.",

@@ -127,12 +127,14 @@ import { getConfiguredAppBasePath } from "./app-base-path.js";
 import { getAppProductionUrl } from "./app-url.js";
 import {
   readAnalyticsAnonymousId,
+  readFirstTouchAttribution,
   signupAttributionFromCookieHeader,
 } from "./attribution.js";
 import { getAuthLoginMode } from "./auth-login-mode.js";
 import {
   createBetterAuthSessionForEmail,
   ensureGoogleAuthIdentity,
+  getAuthSecret,
   getBetterAuth,
   getBetterAuthSync,
   isDeployPreview,
@@ -180,6 +182,10 @@ import {
   isIdentitySsoEnabled,
 } from "./identity-sso-store.js";
 import { ensureCanonicalUserForLegacySession } from "./legacy-auth-migration.js";
+import {
+  encodeMagicLinkSignupAttribution,
+  MAGIC_LINK_ATTRIBUTION_PARAM,
+} from "./magic-link-attribution.js";
 import { safeOAuthReturnUrl } from "./oauth-return-url.js";
 import {
   getOnboardingHtml,
@@ -4245,13 +4251,37 @@ async function mountBetterAuthRoutes(
           callbackPath = withDesktopMagicLinkFlow(callbackPath, desktopFlow);
         }
         const callbackURL = betterAuthCallbackURL(callbackPath, true, event);
-        const newUserCallbackPath = `${getAppBasePath()}/_agent-native/auth/magic-link/new-user?return=${encodeURIComponent(callbackPath)}`;
+        const cookieHeader = getHeader(event, "cookie") ?? null;
+        const signupAttribution =
+          signupAttributionFromCookieHeader(cookieHeader);
+        const signupAnonymousId = readAnalyticsAnonymousId(cookieHeader);
+        const hasSignupAttribution =
+          !!readFirstTouchAttribution(cookieHeader) || !!signupAnonymousId;
+        const attributionToken = hasSignupAttribution
+          ? encodeMagicLinkSignupAttribution(
+              {
+                attribution: signupAttribution,
+                anonymousId: signupAnonymousId,
+              },
+              getAuthSecret(),
+            )
+          : undefined;
+        const newUserCallbackUrl = new URL(
+          `${getAppBasePath()}/_agent-native/auth/magic-link/new-user?return=${encodeURIComponent(callbackPath)}`,
+          getOrigin(event),
+        );
+        if (attributionToken) {
+          newUserCallbackUrl.searchParams.set(
+            MAGIC_LINK_ATTRIBUTION_PARAM,
+            attributionToken,
+          );
+        }
         await auth.api.signInMagicLink({
           body: {
             email,
             callbackURL,
             newUserCallbackURL: betterAuthCallbackURL(
-              newUserCallbackPath,
+              `${newUserCallbackUrl.pathname}${newUserCallbackUrl.search}`,
               true,
               event,
             ),

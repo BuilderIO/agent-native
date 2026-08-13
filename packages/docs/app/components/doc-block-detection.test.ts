@@ -8,6 +8,7 @@ describe("hasDocBlockSyntax", () => {
     "```mermaid\ngraph TD\n```",
     '<Diagram title="Request lifecycle" />',
     "  <OpenApiSpec>\n  </OpenApiSpec>",
+    '<AnnotatedCode\n  id="x"\n  code={\n    "const value = 1;"\n  }\n/>',
   ])("detects %s", (markdown) => {
     expect(hasDocBlockSyntax(markdown)).toBe(true);
   });

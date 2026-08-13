@@ -171,9 +171,8 @@ const mockDb = {
       /UPDATE agent_runs SET status = 'errored'/i.test(sql) &&
       /WHERE id = \?/i.test(sql)
     ) {
-      const completedAt = args[0] as number;
-      const id = args[4] as string;
-      const lastBound = args[5] as number;
+      const id = args[3] as string;
+      const lastBound = args[4] as number;
       // Default path inlines the background-aware CASE and binds `now`; the
       // explicit-maxStaleMs path inlines a plain `?` and binds a pre-computed
       // cutoff. Distinguish by the SQL fragment, not the arg type.
@@ -186,10 +185,12 @@ const mockDb = {
         : lastBound; // already (now - maxStaleMs)
       if (liveness(row) < cutoff) {
         row.status = "errored";
-        row.completed_at = completedAt;
-        row.error_code = args[1] as string;
-        row.error_detail = args[2] as string;
-        row.terminal_reason = args[3] as string;
+        // `completed_at = COALESCE(completed_at, <livenessBasis>)` — the reaper
+        // records when the run DIED, not when it was noticed.
+        row.completed_at = row.completed_at ?? liveness(row);
+        row.error_code = args[0] as string;
+        row.error_detail = args[1] as string;
+        row.terminal_reason = args[2] as string;
         return { rows: [], rowsAffected: 1 };
       }
       return { rows: [], rowsAffected: 0 };

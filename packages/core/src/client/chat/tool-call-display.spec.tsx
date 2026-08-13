@@ -233,6 +233,55 @@ describe("ToolCallDisplay native renderers", () => {
     expect(container.textContent).not.toContain("Recent rows");
   });
 
+  it("keeps an unresolved delegated agent visibly running when chat state dips", () => {
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="agent:Analytics"
+          args={{}}
+          isRunning={false}
+          structuredMeta={{
+            agentActivity: {
+              kind: "agent-native/agent-activity",
+              version: 1,
+              sequence: 2,
+              startedAt: 1,
+              updatedAt: 2,
+              durationMs: 1,
+              activePhase: "tool",
+              reasoning: [],
+              toolCalls: [
+                { id: "query-1", name: "query-warehouse", status: "running" },
+              ],
+            },
+          }}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("Asking Analytics...");
+    expect(container.textContent).not.toContain("Asked Analytics");
+    expect(container.querySelector(".animate-spin")).not.toBeNull();
+  });
+
+  it("keeps a remote pending delegation out of the terminal state", () => {
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="agent:Analytics"
+          args={{}}
+          result="Remote agent task is still pending"
+          isRunning={false}
+          structuredMeta={{ agentPending: true }}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("Asking Analytics...");
+    expect(container.textContent).not.toContain("Asked Analytics");
+    expect(container.querySelector(".animate-spin")).not.toBeNull();
+  });
+
   it("shows activity tool cards as running while the chat runs", () => {
     act(() => {
       root.render(
@@ -1493,7 +1542,7 @@ describe("ToolCallDisplay native renderers", () => {
       thoughtButtons.map((button) => button.getAttribute("aria-expanded")),
     ).toEqual(["false", "true"]);
     expect(container.textContent).not.toContain("First thought");
-    expect(container.textContent).not.toContain("Current thought");
+    expect(container.textContent).toContain("Current thought");
 
     act(() => {
       root.render(
@@ -1611,14 +1660,14 @@ describe("ReasoningCell", () => {
     expect(shimmer?.textContent).toBe("Thinking");
   });
 
-  it("smoothly reveals reasoning text while streaming and completes it when done", () => {
+  it("shows the latest reasoning chunk immediately while streaming", () => {
     const text = "Weighing options carefully.";
 
     act(() => {
       root.render(<ReasoningCell text={text} isStreaming />);
     });
 
-    expect(container.textContent).not.toContain(text);
+    expect(container.textContent).toContain(text);
 
     act(() => {
       root.render(<ReasoningCell text={text} isStreaming={false} />);

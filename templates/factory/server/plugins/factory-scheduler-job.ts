@@ -157,22 +157,36 @@ function subscribeToAutomationFailures(): void {
 type AutomationSeed = {
   name: string;
   schedule: string;
+  legacySchedules?: string[];
   timezone?: string;
+  model: string;
+  maxIterations: number;
+  maxRunInputTokens: number;
   body: string;
 };
+
+const FACTORY_DEFAULT_MODEL =
+  process.env.FACTORY_AUTOMATION_MODEL?.trim() || "gpt-5.6-luna";
+const FACTORY_DEFAULT_MAX_ITERATIONS = 32;
+const FACTORY_DEFAULT_MAX_RUN_INPUT_TOKENS = 1_000_000;
 
 const AUTOMATION_SEEDS: AutomationSeed[] = [
   {
     name: "factory-slack-feedback",
-    schedule: "* * * * *",
+    schedule: "*/5 * * * *",
+    legacySchedules: ["* * * * *"],
+    model: FACTORY_DEFAULT_MODEL,
+    maxIterations: FACTORY_DEFAULT_MAX_ITERATIONS,
+    maxRunInputTokens: FACTORY_DEFAULT_MAX_RUN_INPUT_TOKENS,
     body: `
 # Factory Slack feedback triage
 
 Read the Factory configuration. When Slack polling is enabled and a channel is
-configured, call poll-slack-channel first. Then list at most 2 received Slack
-items by passing limit 2, process them sequentially, and call
-get-slack-feedback-context for each item before classifying it. Never use the
-action's default page size.
+configured, call poll-slack-channel first. Then list at most 2 new or changed
+Slack items by passing needsReview true, source slack, and limit 2. Process
+them sequentially, and call get-slack-feedback-context for each item before
+classifying it. Never list the full queue or use the action's default page
+size.
 
 Start work only for a clear bug: a concrete broken behavior, reproducible
 failure, error, regression, stuck run, incorrect result, or a report with a
@@ -200,13 +214,17 @@ PR, merge, or fix unless an action returned that state.
     name: "factory-sentry-errors",
     schedule: "0 9 * * *",
     timezone: "America/Los_Angeles",
+    model: FACTORY_DEFAULT_MODEL,
+    maxIterations: 24,
+    maxRunInputTokens: FACTORY_DEFAULT_MAX_RUN_INPUT_TOKENS,
     body: `
 # Factory Sentry error triage
 
 Read the Factory configuration. When Sentry polling is enabled and a Sentry
-organization is configured, call poll-sentry-errors. List at most 3 received
-Sentry items by passing limit 3 and inspect the title, culprit, level, event
-count, and errorReport metadata. Never use the action's default page size.
+organization is configured, call poll-sentry-errors. List at most 3 new or
+changed errors by passing needsReview true, source sentry, and limit 3. Inspect
+the title, culprit, level, event count, and errorReport metadata. Never list the
+full queue or use the action's default page size.
 
 Only classify a concrete unresolved error as a clear bug when the Sentry
 evidence is sufficient to investigate. Do not dispatch on noise, expected
@@ -221,14 +239,19 @@ run callback or PR observation confirms it.
   },
   {
     name: "factory-github-issues",
-    schedule: "* * * * *",
+    schedule: "0 * * * *",
+    legacySchedules: ["* * * * *", "*/5 * * * *"],
+    model: FACTORY_DEFAULT_MODEL,
+    maxIterations: FACTORY_DEFAULT_MAX_ITERATIONS,
+    maxRunInputTokens: FACTORY_DEFAULT_MAX_RUN_INPUT_TOKENS,
     body: `
 # Factory GitHub issue triage
 
 Read the Factory configuration. When GitHub source polling is enabled and a
 repository is configured, call poll-github-sources with includeIssues true and
-includePullRequests false. List at most 3 received github_issue items by
-passing limit 3. Never use the action's default page size.
+includePullRequests false. List at most 3 new or changed issues by passing
+needsReview true, source github_issue, and limit 3. Never list the full queue or
+use the action's default page size.
 
 Treat an issue as a clear bug only when it has a concrete error report,
 reproduction, incorrect behavior, regression, or specific failing path. Do
@@ -243,14 +266,19 @@ confirmation.
   },
   {
     name: "factory-pr-governance",
-    schedule: "*/5 * * * *",
+    schedule: "*/10 * * * *",
+    legacySchedules: ["*/5 * * * *"],
+    model: FACTORY_DEFAULT_MODEL,
+    maxIterations: 40,
+    maxRunInputTokens: 2_000_000,
     body: `
 # Factory pull-request governance
 
 Read the Factory configuration. When GitHub polling is enabled and a repository
 is configured, call poll-github-sources with includeIssues false and
-includePullRequests true. List at most 3 github pull-request items by passing
-limit 3. Never use the action's default page size.
+includePullRequests true. List at most 3 new or changed pull requests by
+passing needsReview true, source github, and limit 3. Never list the full queue
+or use the action's default page size.
 
 For each open agent-native PR, inspect the item and classify whether it is a
 clear bug fix or has product or UX implications. Call
@@ -272,14 +300,19 @@ governance action confirms it.
   },
   {
     name: "factory-pr-babysit",
-    schedule: "*/2 * * * *",
+    schedule: "*/5 * * * *",
+    legacySchedules: ["*/2 * * * *"],
+    model: FACTORY_DEFAULT_MODEL,
+    maxIterations: FACTORY_DEFAULT_MAX_ITERATIONS,
+    maxRunInputTokens: FACTORY_DEFAULT_MAX_RUN_INPUT_TOKENS,
     body: `
 # Factory builder-io-bot PR babysitting
 
 Read the Factory configuration. When GitHub polling is enabled and a repository
 is configured, call poll-github-sources with includeIssues false and
-includePullRequests true. List at most 3 open github pull-request items by
-passing limit 3. Never use the action's default page size.
+includePullRequests true. List at most 3 new or changed pull requests by
+passing needsReview true, source github, and limit 3. Never list the full queue
+or use the action's default page size.
 
 For each item, call babysit-agent-native-pull-request. That action fetches fresh
 GitHub and ai-services evidence and is the only place allowed to decide whether
@@ -319,14 +352,14 @@ function defaultGithubPollingEnabled(): 0 | 1 {
 function automationPromptGuard(name: string): string | undefined {
   switch (name) {
     case "factory-slack-feedback":
-      return "Runtime safety bound: pass limit 2 to list-triage-items, process at most two Slack items sequentially, and never use the default page size.";
+      return "Runtime safety bound: call list-triage-items with needsReview true, source slack, and limit 2; process at most two Slack items sequentially, and never use the default page size.";
     case "factory-sentry-errors":
-      return "Runtime safety bound: pass limit 3 to list-triage-items and process at most three Sentry items.";
+      return "Runtime safety bound: call list-triage-items with needsReview true, source sentry, and limit 3; process at most three Sentry items.";
     case "factory-github-issues":
-      return "Runtime safety bound: pass limit 3 to list-triage-items and process at most three GitHub issue items.";
+      return "Runtime safety bound: call list-triage-items with needsReview true, source github_issue, and limit 3; process at most three GitHub issue items.";
     case "factory-pr-governance":
     case "factory-pr-babysit":
-      return "Runtime safety bound: pass limit 3 to list-triage-items and process at most three pull-request items.";
+      return "Runtime safety bound: call list-triage-items with needsReview true, source github, and limit 3; process at most three pull-request items.";
     default:
       return undefined;
   }
@@ -348,6 +381,18 @@ function setFrontmatterField(
   return `${content.slice(0, end)}\n${key}: ${value}${content.slice(end)}`;
 }
 
+function frontmatterField(content: string, key: string): string | undefined {
+  if (!content.startsWith("---\n")) return undefined;
+  const end = content.indexOf("\n---", 4);
+  if (end === -1) return undefined;
+  const match = content
+    .slice(4, end)
+    .match(new RegExp(`^${key}:\\s*(.*)$`, "m"));
+  const value = match?.[1]?.trim();
+  if (!value) return undefined;
+  return value.replace(/^(\"|')|((\"|')$)/g, "");
+}
+
 function automationContent(
   ownerEmail: string,
   orgId: string,
@@ -362,6 +407,9 @@ appId: factory
 orgId: ${orgId}
 createdBy: ${ownerEmail}
 runAs: creator
+model: ${seed.model}
+maxIterations: ${seed.maxIterations}
+maxRunInputTokens: ${seed.maxRunInputTokens}
 ---
 ${seed.body.trim()}
 `;
@@ -400,9 +448,9 @@ async function ensureOrganizationAutomations(
         return;
       }
 
-      // Earlier Factory versions created these rows without the metadata the
-      // list and action guards use. Patch only identity metadata and keep the
-      // user's prompt, model, schedule, and enabled state intact.
+      // Earlier Factory versions created these rows without identity and run
+      // budget metadata. Preserve explicit prompt/model/budget edits, while
+      // repairing only missing defaults and the old built-in poll cadence.
       let repaired = existing.content;
       repaired = setFrontmatterField(repaired, "triggerType", "schedule");
       repaired = setFrontmatterField(repaired, "domain", "factory");
@@ -410,6 +458,30 @@ async function ensureOrganizationAutomations(
       repaired = setFrontmatterField(repaired, "orgId", orgId);
       repaired = setFrontmatterField(repaired, "createdBy", ownerEmail);
       repaired = setFrontmatterField(repaired, "runAs", "creator");
+      if (!frontmatterField(repaired, "model")) {
+        repaired = setFrontmatterField(repaired, "model", seed.model);
+      }
+      if (!frontmatterField(repaired, "maxIterations")) {
+        repaired = setFrontmatterField(
+          repaired,
+          "maxIterations",
+          String(seed.maxIterations),
+        );
+      }
+      if (!frontmatterField(repaired, "maxRunInputTokens")) {
+        repaired = setFrontmatterField(
+          repaired,
+          "maxRunInputTokens",
+          String(seed.maxRunInputTokens),
+        );
+      }
+      if (
+        (seed.legacySchedules ?? []).includes(
+          frontmatterField(repaired, "schedule") ?? "",
+        )
+      ) {
+        repaired = setFrontmatterField(repaired, "schedule", seed.schedule);
+      }
       const promptGuard = automationPromptGuard(seed.name);
       if (promptGuard && !repaired.includes(promptGuard)) {
         repaired = `${repaired.trimEnd()}\n\n${promptGuard}\n`;

@@ -201,10 +201,22 @@ it reports an explicit static SSRF-safe fallback when no browser is available.
 ### Source: GitHub Repository
 
 ```bash
-pnpm action index-design-system-with-builder --githubRepoUrl "https://github.com/acme/ui"
+pnpm action index-design-system-with-builder --githubSources '[{"repoUrl":"https://github.com/acme/ui","ref":"main","include":["src/styles","design.md"]}]'
 ```
 
-Starts Builder design-system indexing for the repository. Builder is the source of truth for the indexed brand kit, generated docs, and usage guidance. If Builder is not connected, stop and ask the user to connect Builder.
+Starts one Builder design-system job with one or more GitHub sources. Each
+source can pin a branch, tag, or commit and include repository-relative files or
+folders. Unscoped public repositories stay native Builder sources so large
+codebases are not truncated; private repos and scoped refs stay server-side and
+use the saved `GITHUB_TOKEN` without exposing it to the browser or Builder.
+Builder is the source of truth for the indexed brand kit, generated docs, and
+usage guidance. If Builder is not connected, stop and ask the user to connect
+Builder.
+
+The legacy `githubRepoUrl` argument remains compatible for one unscoped repo.
+For a saved GitHub-backed system, use `sync-design-system-with-builder --id
+<localDesignSystemId>` to replay the stored repository/ref/scope after upstream
+changes. Do not create a second local copy.
 
 ### Source: Local Code Files
 

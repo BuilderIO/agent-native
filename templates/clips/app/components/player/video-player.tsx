@@ -223,7 +223,7 @@ export interface VideoPlayerProps {
    * Viewer role for this recording. When `owner`, we opportunistically capture
    * a visible frame for missing or blank auto-generated library thumbnails.
    */
-  role?: "owner" | "admin" | "editor" | "viewer";
+  role?: "owner" | "admin" | "editor" | "commenter" | "viewer";
   /**
    * Called with the live `<video>` DOM node whenever it is created or
    * destroyed (e.g. swapping to/from the Loom iframe or unsupported-format

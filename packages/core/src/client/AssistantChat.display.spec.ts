@@ -1356,12 +1356,14 @@ describe("missing agent engine setup", () => {
 
     expect(source).toContain("hasComposerAccessoryAboveStack");
     expect(source).toContain("data-agent-composer-adjacent-ui");
-    expect(source).toContain("useNearBottomAutoscroll<HTMLDivElement>");
+    expect(source).toContain("<AssistantChatScrollerControls");
     expect(source).toContain(
       "if (!hideUserMessage) resumeFollowingRef.current()",
     );
-    expect(source).toContain('aria-label="Scroll to bottom"');
-    expect(source).toContain("autoScroll={false}");
+    expect(source).toContain("<MessageScrollerButton />");
+    expect(source).toMatch(/<MessageScrollerProvider[\s\S]*?\bautoScroll\b/);
+    expect(source).not.toContain("autoScroll={false}");
+    expect(source).not.toContain("useNearBottomAutoscroll<HTMLDivElement>");
     expect(source).not.toContain("scrollAnchor");
     expect(source).toContain("composerContextItems.length > 0");
     expect(source).toContain('className="agent-composer-stack"');
@@ -1441,6 +1443,23 @@ describe("chat connection suggestion alignment", () => {
     expect(suggestionSource).toContain(
       "agent-mcp-connection-suggestion-error--composer",
     );
+  });
+
+  it("keeps response connection cards before collapsible assistant work", () => {
+    const messageSource = readFileSync(
+      "src/client/chat/message-components.tsx",
+      { encoding: "utf8" },
+    );
+    const cardIndex = messageSource.indexOf(
+      "<McpConnectionSuggestion\n            text={responseConnectionText}",
+    );
+    const workStackIndex = messageSource.indexOf(
+      "<ToolCallStackMotion>",
+      cardIndex,
+    );
+
+    expect(cardIndex).toBeGreaterThan(-1);
+    expect(workStackIndex).toBeGreaterThan(cardIndex);
   });
 });
 
@@ -2505,7 +2524,9 @@ describe("adapter reconnect handoff", () => {
     });
     expect(source).toContain("adapterHandoffPending");
     expect(source).toContain("setAdapterHandoffPending(true)");
-    expect(source).toContain("suppressToolRepeats: adapterHandoffPending");
+    expect(source).toMatch(
+      /suppressToolRepeats:\s+adapterHandoffPending \|\| isReconnecting \|\| reconnectFrozen/,
+    );
     expect(source).toContain("Do not memoize this on `messages` identity");
     expect(source).toMatch(
       /\(isReconnecting \|\|\s+reconnectFrozen \|\|\s+adapterHandoffPending\)/,
@@ -2593,6 +2614,16 @@ describe("assistantUiRecoverableRenderErrorKind", () => {
         ),
       ),
     ).toBe("assistant-ui-react-fiber-unmount");
+  });
+
+  it("matches React maximum update depth crashes from assistant-ui streaming", () => {
+    expect(
+      assistantUiRecoverableRenderErrorKind(
+        new Error(
+          "Minified React error #185; visit https://react.dev/errors/185",
+        ),
+      ),
+    ).toBe("assistant-ui-react-update-depth");
   });
 
   it("matches duplicate resource-key crashes from assistant-ui composer state", () => {

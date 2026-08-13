@@ -5,6 +5,7 @@ const mockGetSession = vi.fn();
 const mockGetUserSetting = vi.fn();
 const mockPutUserSetting = vi.fn();
 const mockGetSetting = vi.fn();
+const mockAppStatePut = vi.fn();
 
 vi.mock("../db/client.js", async (importOriginal) => ({
   // Real isTransientDatabaseError: the transient-vs-absent split is the
@@ -23,6 +24,9 @@ vi.mock("../settings/user-settings.js", () => ({
 }));
 vi.mock("../settings/store.js", () => ({
   getSetting: (...args: any[]) => mockGetSetting(...args),
+}));
+vi.mock("../application-state/store.js", () => ({
+  appStatePut: (...args: any[]) => mockAppStatePut(...args),
 }));
 
 import { __resetDomainMatchCacheForTests } from "./auto-join-domain.js";
@@ -70,6 +74,7 @@ describe("getOrgContext", () => {
     mockExecute.mockResolvedValue({ rows: [] });
     mockGetUserSetting.mockResolvedValue(null);
     mockGetSetting.mockResolvedValue(null);
+    mockAppStatePut.mockResolvedValue(undefined);
     delete process.env.AUTO_CREATE_DEFAULT_ORG;
     // Fresh event per test so per-event memoization doesn't bleed.
     EVENT = makeEvent();
@@ -628,6 +633,12 @@ describe("getOrgContext", () => {
         "jane@startup.dev",
         "active-org-id",
         { orgId: ctx.orgId },
+      );
+      expect(mockAppStatePut).toHaveBeenCalledWith(
+        "jane@startup.dev",
+        "onboarding:first-run-eligible",
+        { orgId: ctx.orgId, at: expect.any(String) },
+        { requestSource: "org-auto-create" },
       );
     });
 

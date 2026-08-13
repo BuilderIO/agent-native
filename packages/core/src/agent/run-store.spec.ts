@@ -192,6 +192,7 @@ vi.mock("../server/capture-error.js", () => ({
 
 const {
   STALE_RUN_ERROR_EVENT,
+  STALE_RUN_TERMINAL_REASON,
   markRunAborted,
   reapAllStaleRuns,
   reapIfStale,
@@ -522,10 +523,12 @@ describe("run store", () => {
     expect(update?.sql).toContain("error_code = ?");
     expect(update?.sql).toContain("error_detail = ?");
     expect(update?.sql).toContain("terminal_reason = ?");
-    expect(update?.args[1]).toBe(STALE_RUN_ERROR_EVENT.errorCode);
-    expect(update?.args[2]).toBe(STALE_RUN_ERROR_EVENT.details);
-    expect(update?.args[3]).toBe(STALE_RUN_ERROR_EVENT.errorCode);
-    expect(update?.args[4]).toBe("run-stale");
+    // `completed_at` is no longer bound — it comes from the row's liveness
+    // basis, so the SET list binds exactly these three.
+    expect(update?.args[0]).toBe(STALE_RUN_ERROR_EVENT.errorCode);
+    expect(update?.args[1]).toBe(STALE_RUN_ERROR_EVENT.details);
+    expect(update?.args[2]).toBe(STALE_RUN_TERMINAL_REASON);
+    expect(update?.args[3]).toBe("run-stale");
 
     const insert = execCalls.find((call) =>
       /INSERT INTO agent_run_events/i.test(call.sql),
@@ -895,9 +898,9 @@ describe("run store", () => {
     );
     expect(staleUpdates.length).toBeGreaterThanOrEqual(3);
     for (const update of staleUpdates) {
-      expect(update.args[1]).toBe(STALE_RUN_ERROR_EVENT.errorCode);
-      expect(update.args[2]).toBe(STALE_RUN_ERROR_EVENT.details);
-      expect(update.args[3]).toBe(STALE_RUN_ERROR_EVENT.errorCode);
+      expect(update.args[0]).toBe(STALE_RUN_ERROR_EVENT.errorCode);
+      expect(update.args[1]).toBe(STALE_RUN_ERROR_EVENT.details);
+      expect(update.args[2]).toBe(STALE_RUN_TERMINAL_REASON);
     }
   });
 

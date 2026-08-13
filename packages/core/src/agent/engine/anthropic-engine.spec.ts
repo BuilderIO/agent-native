@@ -887,4 +887,33 @@ describe("createAnthropicEngine streamed tool-input reconciliation", () => {
       },
     ]);
   });
+
+  it("recovers complete streamed arguments when the final message carries an empty input", async () => {
+    const input = {
+      id: "ext-1",
+      operation: "edit",
+      payloadJson: "{}",
+    };
+    const events = await runToolInputStream(
+      [JSON.stringify(input)],
+      [
+        {
+          type: "tool_use",
+          id: "toolu_01",
+          name: "create_document",
+          input: {},
+        },
+      ],
+    );
+
+    expect(events.some((e) => e.type === "tool-call")).toBe(false);
+    expect(events.find((e) => e.type === "assistant-content")?.parts).toEqual([
+      {
+        type: "tool-call",
+        id: "toolu_01",
+        name: "create_document",
+        input,
+      },
+    ]);
+  });
 });

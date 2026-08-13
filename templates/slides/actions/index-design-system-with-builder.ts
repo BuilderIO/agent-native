@@ -32,6 +32,30 @@ const codeFileSchema = z.object({
     ),
 });
 
+const githubSourceSchema = z.object({
+  repoUrl: z.string().trim().min(1).describe("GitHub repository URL"),
+  ref: z
+    .string()
+    .trim()
+    .min(1)
+    .optional()
+    .describe("Optional branch, tag, or commit"),
+  include: z
+    .array(z.string().trim().min(1))
+    .optional()
+    .describe("Optional repository-relative files or folders to include"),
+  exclude: z
+    .array(z.string().trim().min(1))
+    .optional()
+    .describe("Optional repository-relative files or folders to exclude"),
+  instructions: z
+    .string()
+    .trim()
+    .min(1)
+    .optional()
+    .describe("Optional indexing guidance for this repository"),
+});
+
 export default defineAction({
   description:
     "Start Builder DSI design-system indexing from connected code, a GitHub repository, code/design files, and optional design.md guidance. " +
@@ -49,7 +73,15 @@ export default defineAction({
     githubRepoUrl: z
       .string()
       .optional()
-      .describe("GitHub repository URL to index with Builder"),
+      .describe("Legacy single GitHub repository URL to index with Builder"),
+    githubSources: z
+      .array(githubSourceSchema)
+      .min(1)
+      .max(20)
+      .optional()
+      .describe(
+        "GitHub repositories to index in one design system. Each source may specify a branch/tag/commit and repository-relative files or folders.",
+      ),
     connectedProjectId: z
       .string()
       .optional()
@@ -69,6 +101,7 @@ export default defineAction({
     projectName,
     description,
     githubRepoUrl,
+    githubSources,
     connectedProjectId,
     codeFiles,
     designMd,
@@ -81,6 +114,7 @@ export default defineAction({
       projectName,
       description,
       githubRepoUrl,
+      githubRepos: githubSources,
       connectedProjectId,
       files,
     });
@@ -93,10 +127,13 @@ export default defineAction({
       orgId: getRequestOrgId(),
       projectName,
       description,
+      githubSources:
+        githubSources ?? (githubRepoUrl ? [{ repoUrl: githubRepoUrl }] : []),
       sourceKind:
-        githubRepoUrl && (codeFiles?.length || designMd)
+        (githubSources?.length || githubRepoUrl) &&
+        (codeFiles?.length || designMd)
           ? "mixed"
-          : githubRepoUrl
+          : githubSources?.length || githubRepoUrl
             ? "github"
             : codeFiles?.length || designMd
               ? "code"
@@ -107,6 +144,7 @@ export default defineAction({
       ...result,
       ...proxy,
       uploadedFileCount: files.length,
+      githubSourceCount: githubSources?.length ?? (githubRepoUrl ? 1 : 0),
     };
   },
 });

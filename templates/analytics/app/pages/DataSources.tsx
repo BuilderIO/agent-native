@@ -13,6 +13,11 @@ import { oauthRedirectUri } from "@agent-native/core/client/host";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { useOrgRole } from "@agent-native/core/client/org";
 import {
+  getDefaultMcpIntegrations,
+  McpIntegrationLogo,
+} from "@agent-native/core/client/resources";
+import { docsUrl } from "@agent-native/core/shared";
+import {
   IconCheck,
   IconChevronDown,
   IconChevronUp,
@@ -80,7 +85,6 @@ import {
   isSourceLocallyConfigured,
   shouldOfferWorkspaceOAuthReconnect,
   shouldShowWorkspaceOAuthAdminNotice,
-  shouldShowWorkspaceOAuthSetup,
   credentialRowsFromStatus,
   type DataSourceStatusResponse,
   type EnvKeyStatus,
@@ -148,6 +152,39 @@ const firstPartyAnalyticsEndpoint =
   (import.meta.env as Record<string, string | undefined>)
     .VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT ||
   "https://analytics.agent-native.com/track";
+
+const MCP_INTEGRATIONS_BY_ID = new Map(
+  getDefaultMcpIntegrations().map((integration) => [
+    integration.id,
+    integration,
+  ]),
+);
+
+const DATA_SOURCE_LOGO_IDS: Record<string, string> = {
+  "google-analytics": "google-workspace",
+  bigquery: "google-workspace",
+  "google-cloud": "google-workspace",
+  jira: "atlassian",
+};
+
+function DataSourceLogo({ source }: { source: DataSource }) {
+  const integration = MCP_INTEGRATIONS_BY_ID.get(
+    DATA_SOURCE_LOGO_IDS[source.id] ?? source.id,
+  );
+  if (!integration?.logoUrl) {
+    const Icon = source.icon;
+    return <Icon className="h-5 w-5" />;
+  }
+  return (
+    <McpIntegrationLogo
+      name={source.name}
+      logoUrl={integration.logoUrl}
+      integrationId={integration.id}
+      className="size-8 rounded-md border-0 bg-transparent"
+      imageClassName="size-full p-0.5"
+    />
+  );
+}
 
 async function saveEnvVars(
   vars: Array<{ key: string; value: string }>,
@@ -415,7 +452,7 @@ function GitHubOAuthView({
     status?.viewer?.name || status?.viewer?.login || status?.viewer?.email;
 
   return (
-    <div className="space-y-3 rounded-md border border-border/50 bg-muted/20 p-3">
+    <div className="space-y-3 rounded-md bg-muted/30 p-3">
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-start gap-3">
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-background text-muted-foreground">
@@ -514,7 +551,7 @@ function WorkspaceOAuthView({
   const t = useT();
 
   return (
-    <div className="space-y-3 rounded-md border border-border/50 bg-muted/20 p-3">
+    <div className="space-y-3 rounded-md bg-muted/30 p-3">
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-start gap-3">
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-background text-muted-foreground">
@@ -550,7 +587,7 @@ function GoogleSheetsExportCard({
   const connected = connection?.grantState === "connected";
 
   return (
-    <Card className="data-source-card bg-card border-border/50">
+    <Card className="data-source-card rounded-xl border-0 bg-muted/35 shadow-none">
       <CardContent className="space-y-4 p-5">
         <div className="flex items-start justify-between gap-4">
           <div className="flex min-w-0 items-start gap-3">
@@ -617,7 +654,7 @@ function SharedConnectionStatusRow({
           : t("dataSources.sharedFallback");
 
   return (
-    <div className="mb-4 flex items-start justify-between gap-3 rounded-md border border-border/50 bg-muted/20 p-3">
+    <div className="mb-4 flex items-start justify-between gap-3 rounded-md bg-muted/30 p-3">
       <div className="min-w-0 space-y-1">
         <div className="flex flex-wrap items-center gap-2">
           <p className="text-xs font-medium text-foreground">
@@ -1125,7 +1162,7 @@ function ConnectedView({
               })}
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <div className="rounded-md border border-border/60 bg-muted/30 p-3 text-xs text-muted-foreground">
+          <div className="rounded-md bg-muted/30 p-3 text-xs text-muted-foreground">
             {t("dataSources.sharedCredentials", {
               credentials: sharedCredentialKeys
                 .map((key) => keyLabels[key] || key)
@@ -1202,7 +1239,6 @@ function DataSourceCard({
     },
   });
 
-  const Icon = source.icon;
   const hasInputValues = Object.values(inputValues).some((v) => v.trim());
   const readyViaWorkspace = sharedConnectionStatus?.kind === "ready";
   const showCredentialSetup =
@@ -1225,23 +1261,23 @@ function DataSourceCard({
   return (
     <Card
       id={`data-source-${source.id}`}
-      className="data-source-card bg-card border-border/50"
+      className="data-source-card rounded-xl border-0 bg-muted/35 shadow-none"
     >
       <button
         onClick={() => setExpanded(!expanded)}
         className="w-full rounded-t-lg text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
       >
-        <CardHeader className="p-5">
-          <div className="flex items-center justify-between gap-6">
+        <CardHeader className="p-3.5">
+          <div className="flex items-center justify-between gap-4">
             <div className="flex min-w-0 items-center gap-3">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                <Icon className="h-5 w-5" />
+              <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-background/80 text-primary">
+                <DataSourceLogo source={source} />
               </div>
               <div className="min-w-0">
                 <CardTitle className="text-sm font-medium">
                   {source.name}
                 </CardTitle>
-                <CardDescription className="mt-0.5 line-clamp-2 text-xs">
+                <CardDescription className="mt-0.5 line-clamp-1 text-xs">
                   {source.description}
                 </CardDescription>
               </div>
@@ -1267,11 +1303,11 @@ function DataSourceCard({
                   {t("dataSources.notConfigured")}
                 </span>
               )}
-              {!isStatusLoading && !statusUnknown && sharedConnectionStatus && (
-                <span className="data-source-shared-badge">
-                  <SharedConnectionBadge status={sharedConnectionStatus} />
-                </span>
-              )}
+              <span className="hidden text-xs font-medium text-foreground/70 sm:inline">
+                {ready
+                  ? t("dataSources.editCredentials")
+                  : t("dataSources.connect")}
+              </span>
               {expanded ? (
                 <IconChevronUp className="h-4 w-4 text-muted-foreground" />
               ) : (
@@ -1283,7 +1319,7 @@ function DataSourceCard({
       </button>
 
       {expanded && showUnknownStatus && (
-        <CardContent className="border-t border-border/50 px-5 py-4">
+        <CardContent className="px-5 py-4">
           <div className="space-y-3">
             <p className="flex items-start gap-2 text-xs text-muted-foreground">
               <IconAlertCircle className="mt-px h-3.5 w-3.5 shrink-0 text-amber-500" />
@@ -1302,9 +1338,9 @@ function DataSourceCard({
       )}
 
       {expanded && !showUnknownStatus && (
-        <CardContent className="border-t border-border/50 px-5 py-4">
+        <CardContent className="px-5 py-4">
           {focused && ready && showAskContinuation && (
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md bg-emerald-500/10 p-3">
               <span className="flex items-center gap-2 text-xs font-medium text-emerald-600 dark:text-emerald-400">
                 <IconCheck className="h-3.5 w-3.5" />
                 {t("dataSources.connectionSuccessful")}
@@ -1322,20 +1358,6 @@ function DataSourceCard({
               />
             </div>
           )}
-          {shouldShowWorkspaceOAuthSetup(
-            source,
-            sharedConnectionStatus,
-            canManageOrg,
-          ) && (
-            <div className="mb-4">
-              <WorkspaceOAuthView
-                provider={source.id}
-                label={source.name}
-                connected={sharedConnectionStatus?.kind === "needs_grant"}
-                returnPath={oauthReturnPath}
-              />
-            </div>
-          )}
           {shouldShowWorkspaceOAuthAdminNotice(
             source,
             ready,
@@ -1343,7 +1365,7 @@ function DataSourceCard({
             orgLoaded,
             hasOrg,
           ) && (
-            <div className="mb-4 rounded-md border border-border/50 bg-muted/20 p-3">
+            <div className="mb-4 rounded-md bg-muted/30 p-3">
               <div className="flex items-start gap-3">
                 <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-background text-muted-foreground">
                   <IconPlugConnected className="h-4 w-4" />
@@ -1383,6 +1405,13 @@ function DataSourceCard({
             />
           ) : workspaceRoleLoading ? (
             <Skeleton className="h-9 w-full rounded-md" />
+          ) : preferWorkspaceSetup && canManageOrg ? (
+            <WorkspaceOAuthView
+              provider={source.id}
+              label={source.name}
+              connected={sharedConnectionStatus?.kind === "needs_grant"}
+              returnPath={oauthReturnPath}
+            />
           ) : preferWorkspaceSetup ? (
             <Button
               size="sm"
@@ -1390,7 +1419,9 @@ function DataSourceCard({
               onClick={() => setShowLocalCredentials(true)}
               className="text-xs"
             >
-              {t("dataSources.addLocalCredentials")}
+              {t("dataSources.useKeyJustInThisApp" /* i18n-key-ignore */, {
+                defaultValue: "Use a key just in this app",
+              })}
             </Button>
           ) : (
             <>
@@ -1483,7 +1514,7 @@ function DataSourceCard({
                 );
               })()}
 
-              <div className="flex items-center gap-2 border-t border-border/30 pt-3">
+              <div className="flex items-center gap-2 pt-1">
                 {hasInputValues && (
                   <Button
                     size="sm"
@@ -1672,7 +1703,7 @@ function FirstPartyAnalyticsCard() {
   };
 
   return (
-    <Card className="data-source-card bg-card border-border/50">
+    <Card className="data-source-card rounded-xl border-0 bg-muted/35 shadow-none">
       <button
         onClick={() => setExpanded(!expanded)}
         className="w-full rounded-t-lg text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
@@ -1729,16 +1760,14 @@ function FirstPartyAnalyticsCard() {
       </button>
 
       {expanded && (
-        <CardContent className="border-t border-border/50 px-5 py-4">
+        <CardContent className="px-5 py-4">
           <div className="space-y-4">
             {isHealthLoading ? (
               <Skeleton className="h-28 w-full rounded-md" />
             ) : (
               <div
-                className={`rounded-md border p-3 text-xs ${
-                  recommendsExternalBackend
-                    ? "border-amber-500/30 bg-amber-500/10"
-                    : "border-border/50 bg-muted/20"
+                className={`rounded-md p-3 text-xs ${
+                  recommendsExternalBackend ? "bg-amber-500/10" : "bg-muted/30"
                 }`}
               >
                 <div className="flex items-start justify-between gap-3">
@@ -1763,7 +1792,7 @@ function FirstPartyAnalyticsCard() {
                   </div>
                 </div>
                 {externalBackends.length > 0 && (
-                  <div className="mt-3 border-t border-border/30 pt-3">
+                  <div className="mt-4">
                     <div className="mb-2 text-muted-foreground">
                       {t("analyticsBackend.options")}
                     </div>
@@ -1797,7 +1826,7 @@ function FirstPartyAnalyticsCard() {
                   </div>
                 )}
                 {health && healthStatus !== "unavailable" && (
-                  <div className="mt-3 grid grid-cols-3 gap-2 border-t border-border/30 pt-3">
+                  <div className="mt-4 grid grid-cols-3 gap-2">
                     <div>
                       <div className="text-muted-foreground">
                         {t("dataSources.analyticsEventCount")}
@@ -1830,7 +1859,7 @@ function FirstPartyAnalyticsCard() {
                 )}
               </div>
             )}
-            <div className="grid gap-2 rounded-md border border-border/50 bg-muted/20 p-3 text-xs">
+            <div className="grid gap-2 rounded-md bg-muted/30 p-3 text-xs">
               <div className="flex items-center justify-between gap-3">
                 <span className="text-muted-foreground">
                   {t("dataSources.endpoint")}
@@ -1860,7 +1889,7 @@ function FirstPartyAnalyticsCard() {
             {/* Error capture note — the analytics SDK also captures uncaught
                 exceptions and links them to session replays. Static English
                 copy because shared i18n is owned elsewhere. */}
-            <div className="rounded-md border border-border/50 bg-muted/20 p-3 text-xs">
+            <div className="rounded-md bg-muted/30 p-3 text-xs">
               <div className="font-medium text-foreground">
                 Error capture{/* i18n-ignore static SDK docs label */}
               </div>
@@ -1875,7 +1904,7 @@ function FirstPartyAnalyticsCard() {
                 each one happened.
               </p>
               <a
-                href="https://www.agent-native.com/docs/tracking#error-capture"
+                href={docsUrl("tracking", { hash: "posthog-error-tracking" })}
                 target="_blank"
                 rel="noreferrer"
                 className="mt-2 inline-flex items-center gap-1 font-medium text-primary hover:underline"
@@ -1916,7 +1945,7 @@ function FirstPartyAnalyticsCard() {
             </div>
 
             {createdKey && (
-              <div className="space-y-2 rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3">
+              <div className="space-y-2 rounded-md bg-emerald-500/10 p-3">
                 <p className="text-xs font-medium text-emerald-600 dark:text-emerald-400">
                   {t("dataSources.newKeyGenerated")}
                 </p>
@@ -1943,7 +1972,7 @@ function FirstPartyAnalyticsCard() {
             )}
 
             {keys.length > 0 && (
-              <div className="space-y-2 border-t border-border/30 pt-3">
+              <div className="space-y-2 pt-1">
                 {keys.map((key) => (
                   <div
                     key={key.id}
@@ -2108,7 +2137,7 @@ export default function DataSources() {
       {unknownFocusedSourceId && (
         <div
           role="status"
-          className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300"
+          className="flex items-start gap-2 rounded-md bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300"
         >
           <IconAlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
           <span>
