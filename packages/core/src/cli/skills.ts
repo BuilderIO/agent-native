@@ -2071,8 +2071,21 @@ function repairScaffoldAgentLinks(states: ScaffoldGuidanceState[]): void {
           if (!entry.isDirectory()) continue;
           const appDir = path.join(appsDir, entry.name);
           if (fs.existsSync(path.join(appDir, "package.json"))) {
-            removeCopiedFrameworkSkills(appDir);
-            linkDefaultWorkspaceSkills(appDir, state.workspaceRoot);
+            const preserved = new Set([
+              ...removeCopiedFrameworkSkills(appDir, {
+                workspaceRoot: state.workspaceRoot,
+              }),
+              ...linkDefaultWorkspaceSkills(appDir, state.workspaceRoot),
+            ]);
+            if (preserved.size > 0) {
+              console.warn(
+                `[skills] Preserved app-local framework-named skills in ${appDir}: ${[
+                  ...preserved,
+                ].join(
+                  ", ",
+                )}. Migrate them explicitly before inheriting workspace copies.`,
+              );
+            }
             setupAgentSymlinks(appDir);
             refreshCopiedClaudeSkills(appDir);
           }

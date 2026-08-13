@@ -1770,6 +1770,110 @@ describe("mountActionRoutes", () => {
     expect(received.orgId).toBeNull();
   });
 
+  it.each([
+    "no such table: org_members",
+    'relation "org_members" does not exist',
+  ])(
+    "suppresses the verified first-boot missing org table error: %s",
+    async (message) => {
+      const { mountActionRoutes } = await import("./action-routes.js");
+      mockResolveOrgIdForEmail.mockRejectedValue(new Error(message));
+      const mounted: Array<{ path: string; handler: any }> = [];
+      const nitroApp = {
+        use: vi.fn((path: string, handler: any) =>
+          mounted.push({ path, handler }),
+        ),
+      };
+      let received: any;
+      mountActionRoutes(
+        nitroApp,
+        {
+          "do-thing": {
+            run: vi.fn(async (_params, ctx) => {
+              received = ctx;
+              return { ok: true };
+            }),
+          } as any,
+        },
+        {
+          getOwnerFromEvent: async () => "steve@example.com",
+          resolveOrgId: async () => null,
+        },
+      );
+
+      await expect(
+        mounted[0].handler({
+          _method: "POST",
+          _headers: { "x-agent-native-frontend": "1" },
+          req: { json: async () => ({}) },
+        }),
+      ).resolves.toEqual({ ok: true });
+      expect(received.orgId).toBeNull();
+    },
+  );
+
+  it("propagates persistent org-resolution failures", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const error = new Error("permission denied for table org_members");
+    mockResolveOrgIdForEmail.mockRejectedValue(error);
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const run = vi.fn(async () => ({ ok: true }));
+    mountActionRoutes(
+      nitroApp,
+      { "do-thing": { run } as any },
+      {
+        getOwnerFromEvent: async () => "steve@example.com",
+        resolveOrgId: async () => null,
+      },
+    );
+
+    await expect(
+      mounted[0].handler({
+        _method: "POST",
+        _headers: { "x-agent-native-frontend": "1" },
+        req: { json: async () => ({}) },
+      }),
+    ).rejects.toBe(error);
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("preserves transient org-resolution failures", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const error = Object.assign(new Error("db query timed out"), {
+      code: "57014",
+    });
+    mockResolveOrgIdForEmail.mockRejectedValue(error);
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const run = vi.fn(async () => ({ ok: true }));
+    mountActionRoutes(
+      nitroApp,
+      { "do-thing": { run } as any },
+      {
+        getOwnerFromEvent: async () => "steve@example.com",
+        resolveOrgId: async () => null,
+      },
+    );
+
+    await expect(
+      mounted[0].handler({
+        _method: "POST",
+        _headers: { "x-agent-native-frontend": "1" },
+        req: { json: async () => ({}) },
+      }),
+    ).rejects.toBe(error);
+    expect(run).not.toHaveBeenCalled();
+  });
+
   it("never lets the ambient session org override the adapter caller's org", async () => {
     // A request can carry BOTH a valid A2A bearer and an unrelated same-origin
     // browser cookie. The identity comes from the token, so the org must too:

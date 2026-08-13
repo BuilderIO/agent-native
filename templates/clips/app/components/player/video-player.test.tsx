@@ -232,6 +232,26 @@ describe("VideoPlayer playback", () => {
     expect(getVideo().getAttribute("src")).toContain("media=repaired");
   });
 
+  it("uses an updated timestamp as the media version when the replacement size is unchanged", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <VideoPlayer
+            recordingId="recording-1"
+            videoUrl="/api/video/recording-1"
+            videoFormat="webm"
+            mediaVersion="2026-08-13T12:00:00.000Z"
+            durationMs={10_000}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(getVideo().getAttribute("src")).toContain(
+      "media=2026-08-13T12%3A00%3A00.000Z",
+    );
+  });
+
   it("starts after an intro cut instead of rewinding into the excluded range", () => {
     act(() => {
       root.render(

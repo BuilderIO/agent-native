@@ -2811,7 +2811,7 @@ describe("agent-native skills", () => {
     expect(fs.existsSync(path.join(root, ".claude", "skills"))).toBe(true);
   });
 
-  it("repairs copied default skills in existing workspace apps", async () => {
+  it("preserves app-owned framework-named skills in existing workspace apps", async () => {
     const root = tmpDir();
     const shared = path.join(root, "packages", "shared");
     const app = path.join(root, "apps", "mail");
@@ -2853,7 +2853,7 @@ describe("agent-native skills", () => {
     );
     fs.writeFileSync(
       path.join(app, ".agents", "skills", "actions", "SKILL.md"),
-      "copied actions skill\n",
+      "old actions skill\n",
     );
     fs.writeFileSync(
       path.join(app, ".agents", "skills", "call-coach", "SKILL.md"),
@@ -2876,19 +2876,11 @@ describe("agent-native skills", () => {
     });
 
     expect(
-      fs
-        .lstatSync(path.join(app, ".agents", "skills", "actions"))
-        .isSymbolicLink(),
-    ).toBe(true);
-    expect(
-      fs.readlinkSync(path.join(app, ".agents", "skills", "actions")),
-    ).toBe("../../../../.agents/skills/actions");
-    expect(
       fs.readFileSync(
         path.join(app, ".agents", "skills", "actions", "SKILL.md"),
         "utf8",
       ),
-    ).toContain("# Agent Actions");
+    ).toBe("old actions skill\n");
     expect(
       fs.readFileSync(
         path.join(app, ".agents", "skills", "call-coach", "SKILL.md"),
@@ -2897,7 +2889,7 @@ describe("agent-native skills", () => {
     ).toBe("app-owned skill\n");
     expect(
       fs.existsSync(path.join(app, ".agents", "skills", "feature-flags")),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("repairs copied skills even when workspace-core is already current", async () => {
@@ -2941,9 +2933,10 @@ describe("agent-native skills", () => {
       path.join(app, "package.json"),
       JSON.stringify({ name: "mail" }, null, 2),
     );
-    fs.writeFileSync(
-      path.join(app, ".agents", "skills", "actions", "SKILL.md"),
-      "copied actions skill\n",
+    fs.cpSync(
+      path.join(shared, ".agents", "skills", "actions"),
+      path.join(app, ".agents", "skills", "actions"),
+      { recursive: true },
     );
 
     const stdout: string[] = [];

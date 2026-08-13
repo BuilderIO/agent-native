@@ -299,6 +299,14 @@ function normalizeOrgId(value: string | null | undefined): string | undefined {
     : undefined;
 }
 
+function isFirstBootMissingOrgTableError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  return (
+    /no such table:?\s*["'`]?org_members["'`]?/i.test(error.message) ||
+    /relation\s+["'`]?org_members["'`]?\s+does not exist/i.test(error.message)
+  );
+}
+
 /**
  * The user's stored active org, for a request whose own org resolution came
  * back empty. An empty `orgId` is not "this user has no org": it silently
@@ -313,8 +321,12 @@ async function storedActiveOrgId(email: string): Promise<string | undefined> {
   try {
     return normalizeOrgId(await resolveOrgIdForEmail(email));
   } catch (error) {
-    if (isTransientDatabaseError(error)) throw error;
-    // Org tables may not exist yet on first boot.
+    if (
+      isTransientDatabaseError(error) ||
+      !isFirstBootMissingOrgTableError(error)
+    ) {
+      throw error;
+    }
     return undefined;
   }
 }

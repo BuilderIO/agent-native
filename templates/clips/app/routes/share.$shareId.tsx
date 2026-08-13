@@ -479,6 +479,7 @@ export default function ShareRoute() {
         rec.durationMs ?? "",
         rec.videoSizeBytes ?? "",
         rec.videoFormat ?? "",
+        rec.updatedAt ?? "",
       ].join(":");
       const now = Date.now();
       if (readyMediaPollRef.current?.key !== mediaKey) {
@@ -1024,7 +1025,9 @@ export default function ShareRoute() {
               onVideoElementChange={setTrackedVideoEl}
               recordingId={recording.id}
               videoUrl={recording.videoUrl}
-              mediaVersion={recording.videoSizeBytes ?? null}
+              mediaVersion={
+                recording.updatedAt ?? recording.videoSizeBytes ?? null
+              }
               videoFormat={recording.videoFormat}
               embedProvider={isLoomEmbedBacked ? "loom" : null}
               durationMs={recording.durationMs}
