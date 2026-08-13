@@ -294,7 +294,7 @@ function FeatureFlagRow({
   return (
     <article
       id={`feature-flag-${flag.key}`}
-      className="grid gap-4 scroll-mt-24 border-b border-border py-5 last:border-b-0 md:grid-cols-[minmax(0,1fr)_auto] md:items-center"
+      className="grid gap-4 scroll-mt-24 border-b border-border py-5 last:border-b-0 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center"
     >
       <div className="min-w-0">
         <div className="flex min-w-0 items-center gap-2">
@@ -346,7 +346,7 @@ function FeatureFlagRow({
           </p>
         ) : null}
       </div>
-      <div className="flex flex-wrap items-center gap-2 md:justify-end">
+      <div className="flex flex-wrap items-center gap-2 lg:justify-end">
         <Button
           type="button"
           variant="outline"

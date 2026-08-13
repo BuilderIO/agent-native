@@ -69,6 +69,7 @@ button[title="Open agent sidebar"] {
   --sidebar-ring: 0 0% 50%;
 
   --accent-cyan: 187 100% 50%;
+  --slides-thumbnail-shadow: 0 0% 0%;
 }
 
 .light {
@@ -113,6 +114,29 @@ button[title="Open agent sidebar"] {
 
   /* Darker than the dark-theme #00E5FF so text stays >= 4.5:1 against a white popover. */
   --accent-cyan: 193 82% 31%;
+}
+
+[data-slides-thumbnail-scroll]::before {
+  position: absolute;
+  z-index: 20;
+  inset: 0.5rem 0.5rem auto;
+  height: 1rem;
+  pointer-events: none;
+  content: "";
+  opacity: 0;
+  background: radial-gradient(
+    ellipse 82% 125% at 50% 0%,
+    hsl(var(--slides-thumbnail-shadow) / 0.18) 0%,
+    hsl(var(--slides-thumbnail-shadow) / 0.08) 48%,
+    transparent 100%
+  );
+  box-shadow: 0 0.2rem 0.45rem -0.25rem
+    hsl(var(--slides-thumbnail-shadow) / 0.64);
+  transition: opacity 150ms ease-out;
+}
+
+[data-slides-thumbnail-scroll="scrolled"]::before {
+  opacity: 1;
 }
 
 /* Slides keeps the shared visual inspector behavior, but the dock and context toolbar need the

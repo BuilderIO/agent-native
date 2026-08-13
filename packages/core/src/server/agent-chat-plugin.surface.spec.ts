@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import type { FrameworkToolGroup } from "../framework-tools.js";
 import {
   _agentChatPromptSectionsForTests,
+  buildLeanSystemPrompt,
   buildLeanRunPolicyPrompt,
   resolveHostedBuilderHandoff,
   resolveInteractiveAgentRunOptions,
@@ -80,6 +81,21 @@ describe("lean production run policy", () => {
     expect(buildLeanRunPolicyPrompt(restriction, codeExecution)).toBe(
       restriction + codeExecution,
     );
+  });
+
+  it("keeps resource-backed AGENTS.md in the lean system prompt", () => {
+    const agents =
+      '<resource name="AGENTS.md" scope="personal" path="AGENTS.md">\n# Saved rule\nAlways preserve the requested format.\n</resource>';
+
+    expect(
+      buildLeanSystemPrompt({
+        basePrompt: "lean base",
+        resources: `\n\n${agents}`,
+        additionalFramework: "policy",
+        cacheSplit: "split",
+        extra: "extra",
+      }),
+    ).toContain(agents);
   });
 });
 

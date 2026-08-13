@@ -572,6 +572,10 @@ const messages = {
     deckHasNoSlides: "El deck no tiene diapositivas.",
     pdfRenderFailed: "No se pudo renderizar el PDF.",
     buildingDeck: "Construyendo deck",
+    layoutOverflowWarning: "O layout transborda",
+    layoutOverflowDetails: "Mostrar detalhes do transbordamento",
+    layoutOverflowVertical: "Transbordamento vertical: {{pixels}} px",
+    layoutOverflowHorizontal: "Transbordamento horizontal: {{pixels}} px",
     dismissLayoutWarning: "Dispensar aviso de layout",
     slidesAdded_one: "{{count}} diapositiva añadida",
     slidesAdded_other: "{{count}} diapositivas añadidas",
@@ -608,6 +612,10 @@ const messages = {
     sourceUnavailableDescription:
       "O Builder não conseguiu carregar os resultados mais recentes da fonte.",
     sourceOpenInBuilder: "Abrir no Builder",
+    syncSource: "Sincronizar fonte",
+    syncingSource: "Sincronizando fonte...",
+    syncStarted: "Sincronização do sistema de design iniciada",
+    syncFailed: "Não foi possível sincronizar o sistema de design",
     loadFailed:
       "Não foi possível carregar este sistema de design. Feche e tente novamente.",
     otherSources: "Outro",
@@ -641,6 +649,8 @@ const messages = {
     websitePlaceholder: "example.com ou Nike",
     add: "Adicionar",
     githubRepository: "Conectar código: repositório GitHub",
+    githubRef: "Branch, tag ou commit (opcional)",
+    githubPaths: "Arquivos ou pastas, separados por vírgulas (opcional)",
     codeFiles: "Conectar arquivos de código",
     codeFilesDrop:
       "CSS, configuração do Tailwind, arquivos de tema, design.md — solte ou clique",

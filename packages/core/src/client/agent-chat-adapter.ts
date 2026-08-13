@@ -36,6 +36,10 @@ import {
   readSSEStream,
   settleInterruptedToolCalls,
 } from "./sse-event-processor.js";
+import {
+  isDelegatedAgentToolCall,
+  isToolCallInFlight,
+} from "./tool-display.js";
 import type { ChatThreadScope } from "./use-chat-threads.js";
 
 export type AgentChatSurfaceKind =
@@ -1135,7 +1139,7 @@ function describeContinuationAdvance(
       }
       continue;
     }
-    if (part.activity === true) {
+    if (part.activity === true && !isDelegatedAgentToolCall(part)) {
       work.add(`preparing ${part.toolName}`);
       stall ??= { kind: "preparing", toolName: part.toolName };
     } else {
@@ -1166,12 +1170,7 @@ function describeContinuationAdvance(
  * must not count this against the stalled/empty continuation budgets.
  */
 export function hasInFlightToolCall(content: ContentPart[]): boolean {
-  return content.some(
-    (part) =>
-      part.type === "tool-call" &&
-      part.result === undefined &&
-      part.activity !== true,
-  );
+  return content.some((part) => isToolCallInFlight(part));
 }
 
 /**

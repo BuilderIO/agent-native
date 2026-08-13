@@ -58,7 +58,7 @@ const messages = {
     sendToAgent: "Enviar ao agente",
     sendingToAgent: "Enviando ao agente…",
     enterToPost:
-      "Pressione Enter para publicar · Shift+Enter para uma nova linha",
+      "Pressione Enter para publicar · Shift Enter para uma nova linha",
     post: "Publicar",
     posting: "Publicando…",
     postFailed: "Não foi possível publicar este comentário",

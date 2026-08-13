@@ -57,7 +57,7 @@ const messages = {
     commentMode: "Comentar",
     sendToAgent: "Enviar al agente",
     sendingToAgent: "Enviando al agente…",
-    enterToPost: "Pulsa Enter para publicar · Shift+Enter para una línea nueva",
+    enterToPost: "Pulsa Enter para publicar · Shift Enter para una línea nueva",
     post: "Publicar",
     posting: "Publicando…",
     postFailed: "No se pudo publicar este comentario",

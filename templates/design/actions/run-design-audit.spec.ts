@@ -12,10 +12,99 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  checkDesignSystemAdherence,
   checkTapTargets,
   checkTokenDrift,
+  designSystemExpectation,
   extractRootTokens,
 } from "./run-design-audit.js";
+
+// ---------------------------------------------------------------------------
+// design-system adherence
+// ---------------------------------------------------------------------------
+
+const KIT = JSON.stringify({
+  colors: { primary: "#00eaff", background: "#0c0d12" },
+  typography: { headingFont: "Space Grotesk", bodyFont: "Inter" },
+  tokens: [{ name: "primary", cssVar: "--color-primary", value: "#00eaff" }],
+});
+
+describe("designSystemExpectation", () => {
+  it("collects fonts, hex colors, and token names from a kit", () => {
+    const expectation = designSystemExpectation("Flo", KIT);
+    expect(expectation).toMatchObject({
+      fonts: ["Space Grotesk", "Inter"],
+      colors: ["#00eaff", "#0c0d12"],
+      cssVars: ["--color-primary"],
+    });
+  });
+
+  it("marks unparseable kit data unreadable instead of silently empty", () => {
+    expect(designSystemExpectation("Flo", "not json")).toMatchObject({
+      unreadable: true,
+    });
+  });
+
+  it("returns null when the kit parses but carries nothing verifiable", () => {
+    expect(designSystemExpectation("Flo", null)).toBeNull();
+    expect(
+      designSystemExpectation("Flo", JSON.stringify({ notes: "x" })),
+    ).toBeNull();
+  });
+
+  it("reports unknown adherence rather than a clean pass for a corrupt kit", () => {
+    const findings = checkDesignSystemAdherence(
+      "<html></html>",
+      designSystemExpectation("Flo", "not json"),
+      "index.html",
+    );
+    expect(findings).toHaveLength(1);
+    expect(findings[0].id).toBe("design-system-drift:index.html:unreadable");
+  });
+});
+
+describe("checkDesignSystemAdherence", () => {
+  const expectation = designSystemExpectation("Flo", KIT);
+
+  it("flags a screen that ignores the linked system entirely", () => {
+    const html =
+      "<html><style>:root{--brand:#6366f1}body{font-family:Roboto}</style></html>";
+    const findings = checkDesignSystemAdherence(
+      html,
+      expectation,
+      "index.html",
+    );
+    expect(findings.map((f) => f.id)).toEqual([
+      "design-system-drift:index.html:fonts",
+      "design-system-drift:index.html:colors",
+      "design-system-drift:index.html:css-vars",
+    ]);
+    expect(findings[0].category).toBe("design-system-drift");
+  });
+
+  it("stays silent when the screen actually uses the system", () => {
+    const html =
+      "<html><style>:root{--color-primary:#00EAFF}h1{font-family:'Space Grotesk'}</style></html>";
+    expect(checkDesignSystemAdherence(html, expectation, "index.html")).toEqual(
+      [],
+    );
+  });
+
+  it("matches shorthand hex against the kit's six-digit value", () => {
+    const shortKit = designSystemExpectation(
+      "Flo",
+      JSON.stringify({ colors: { primary: "#ffffff" } }),
+    );
+    const html = "<html><style>:root{--bg:#FFF}</style></html>";
+    expect(checkDesignSystemAdherence(html, shortKit, "a.html")).toEqual([]);
+  });
+
+  it("reports nothing when there is no linked system to check", () => {
+    expect(checkDesignSystemAdherence("<html></html>", null, "a.html")).toEqual(
+      [],
+    );
+  });
+});
 
 // ---------------------------------------------------------------------------
 // extractRootTokens

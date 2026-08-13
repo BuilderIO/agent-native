@@ -46,6 +46,49 @@ const DEFAULT_RESPONSIVE_BREAKPOINTS = [MOBILE_WIDTH].map((widthPx) => ({
   prefix: widthToPrefix(widthPx),
 }));
 
+const SPECIFICATION_SIGNAL_PATTERNS = [
+  /\b(?:attached|uploaded|reference|mockup|screenshot|wireframe|source of truth|source-of-truth)\b/i,
+  /\b(?:\d+\s*[- ]\s*col(?:umn)?|grid spec|layout spec|section order|feature list)\b/i,
+  /\b(?:design system|brand system|brand kit|visual language|tokens?)\b/i,
+] as const;
+
+/**
+ * Direction summaries are useful for genuinely open-ended exploration, but
+ * the fallback renderer cannot reproduce a supplied layout or system. Keep a
+ * complete-HTML requirement at the action boundary so a model cannot turn a
+ * detailed screen brief into generic cards just by omitting `content`.
+ *
+ * The weakest of the two signals, and never the only one: `prompt` is the chat
+ * caption this same model writes for the picker, so an agent that has just
+ * decided to explore writes an exploration-flavored caption and clears the
+ * check for free. `hasLinkedDesignSystem` below is the fact the server owns.
+ */
+export function hasSpecifiedDesignPrompt(prompt?: string): boolean {
+  const value = prompt?.trim() ?? "";
+  if (!value) return false;
+  return SPECIFICATION_SIGNAL_PATTERNS.some((pattern) => pattern.test(value));
+}
+
+/**
+ * The one specification signal that survives an intake round-trip. Attachments
+ * are turn-scoped (see `ActionRunContext.attachments`), so by the time the
+ * agent asks its questions and comes back to present variants, the reference
+ * screenshot the user supplied is no longer visible to this action — but the
+ * design system they linked still is.
+ */
+async function hasLinkedDesignSystem(designId: string): Promise<boolean> {
+  const [design] = await getDb()
+    .select({ designSystemId: schema.designs.designSystemId })
+    .from(schema.designs)
+    .where(
+      and(
+        eq(schema.designs.id, designId),
+        accessFilter(schema.designs, schema.designShares),
+      ),
+    );
+  return Boolean(design?.designSystemId?.trim());
+}
+
 function hasBreakpointSet(value: unknown): boolean {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return false;
@@ -114,7 +157,7 @@ const variantSchema = z.object({
     .string()
     .optional()
     .describe(
-      "Optional complete self-contained HTML document for this variant. Keep it compact: one representative screen or directional snapshot, not a full multi-screen app. For faster exploration, omit this and provide label/description/features; Design will generate a compact representative screen.",
+      "Complete self-contained HTML document for this variant. Keep it compact: one representative screen or directional snapshot, not a full multi-screen app. Omit it ONLY for genuinely open-ended exploration, where Design renders a generic direction card from label/description/features — that card ignores any supplied reference, layout, or design system, so omitting content is rejected when the design has a linked design system or the prompt specifies one.",
     ),
   width: z
     .number()
@@ -825,9 +868,12 @@ export default defineAction({
     "complex apps, " +
     "make each variant a " +
     "compact representative screen; pass concise labels/descriptions/features " +
-    "and omit content when full HTML would be too large. Design will render " +
-    "compact screens from the direction data. Expand the chosen direction " +
-    "after the user picks. Screens from an earlier variant set are never " +
+    "and omit content only for open-ended exploration. For a prompt with a " +
+    "specific product surface, reference, layout, or design system, provide " +
+    "complete self-contained HTML for every variant; the generic fallback is " +
+    "blocked there. Design will render compact screens from direction data only " +
+    "for open-ended exploration. Expand the chosen direction after the user " +
+    "picks. Screens from an earlier variant set are never " +
     "deleted automatically: if you are knowingly replacing your own earlier " +
     "set that the user never picked from or discussed, pass its set id in " +
     "deleteSupersededSetIds; otherwise leave old sets in place.",
@@ -871,6 +917,24 @@ export default defineAction({
   },
   run: async ({ designId, prompt, variants, deleteSupersededSetIds }) => {
     await assertAccess("design", designId, "editor");
+
+    const omittedContent = variants.filter(
+      (variant) => !variant.content?.trim(),
+    );
+    if (
+      omittedContent.length > 0 &&
+      (hasSpecifiedDesignPrompt(prompt) ||
+        (await hasLinkedDesignSystem(designId)))
+    ) {
+      throw new Error(
+        "present-design-variants requires complete self-contained HTML for " +
+          "every variant when the design has a linked design system, or the " +
+          "prompt specifies a layout, reference, or product surface. The " +
+          "generic direction fallback ignores the brief and the system's " +
+          "tokens; use generate-design, or provide each variant's complete " +
+          "content.",
+      );
+    }
 
     // Before any mutation. These are model-authored screens created by raw
     // insert, so they need the same well-formedness gate as generate-design —
@@ -1089,7 +1153,32 @@ export default defineAction({
       editorView: "overview",
       path: `/design/${encodeURIComponent(designId)}?view=overview`,
     });
+    // The pick opens a continuation turn that inherits nothing from this one,
+    // and that turn is what expands the kept placeholder into the real screen.
+    // Without this, the expansion is design-system-blind even though the user
+    // linked one before generating.
+    const [linkedDesign] = await db
+      .select({ designSystemId: schema.designs.designSystemId })
+      .from(schema.designs)
+      .where(
+        and(
+          eq(schema.designs.id, designId),
+          accessFilter(schema.designs, schema.designShares),
+        ),
+      );
+    const variantPickContext = [
+      prompt?.trim()
+        ? `The user's original request for this design: "${prompt.trim()}". Expand the kept direction into that, not into a generic version of it.`
+        : "",
+      linkedDesign?.designSystemId
+        ? `This design is linked to design system "${linkedDesign.designSystemId}". Call \`get-design-system\` for that id and apply its tokens, typography, and usage notes while expanding the kept screen — do not substitute a generic palette or font.`
+        : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+
     await writeAppStateForCurrentTab("guided-questions", {
+      ...(variantPickContext ? { submitContext: variantPickContext } : {}),
       title: prompt ?? "Pick a direction",
       description:
         "All options are on the board. Choose one to keep; I will delete the others, read only the kept screen, and turn that direction into the final requested screen.",

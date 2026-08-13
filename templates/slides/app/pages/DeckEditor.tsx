@@ -1280,6 +1280,11 @@ export default function DeckEditor() {
           }
           return exportDeckToGoogleSlides(deck.title, slides, deck.aspectRatio);
         }}
+        onChangeSlideTransition={
+          canEdit && currentSlide
+            ? (transition) => updateSlide(id, currentSlide.id, { transition })
+            : undefined
+        }
       />
 
       {/* Full-width host for the slide's contextual style toolbar: it spans the
@@ -1396,6 +1401,11 @@ export default function DeckEditor() {
                   onToggleTextBoxMode={toggleTextBoxMode}
                   onAddEmptySlide={handleNewSlideClick}
                   addSlideGenerating={addSlideGenerating}
+                  currentSlideId={currentSlide.id}
+                  slideTransition={currentSlide.transition}
+                  onChangeSlideTransition={(transition) =>
+                    updateSlide(id, currentSlide.id, { transition })
+                  }
                 />
               ) : undefined
             }

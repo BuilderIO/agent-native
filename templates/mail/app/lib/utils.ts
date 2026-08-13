@@ -194,5 +194,5 @@ export function formatShortcut(key: string): string {
       if (lower === "space") return "Space";
       return token.length === 1 ? token.toUpperCase() : token;
     })
-    .join("+");
+    .join(" ");
 }

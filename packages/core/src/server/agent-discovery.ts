@@ -282,7 +282,10 @@ export function shouldIncludeRemoteAgentManifest(
 /**
  * Get built-in agents (static, no DB). Used as fallback and for seeding.
  */
-export function getBuiltinAgents(selfAppId?: string): DiscoveredAgent[] {
+export function getBuiltinAgents(
+  selfAppId?: string,
+  options?: { preferLocalUrls?: boolean },
+): DiscoveredAgent[] {
   const normalizedSelfAppId = selfAppId ? normalizeAgentId(selfAppId) : "";
   return BUILTIN_AGENTS.filter(
     (app) => app.id !== normalizedSelfAppId && app.url,
@@ -290,7 +293,7 @@ export function getBuiltinAgents(selfAppId?: string): DiscoveredAgent[] {
     id: app.id,
     name: app.name,
     description: app.description,
-    url: resolveAgentUrl(app),
+    url: resolveAgentUrl(app, options?.preferLocalUrls),
     color: app.color,
   }));
 }
@@ -301,8 +304,9 @@ export function getBuiltinAgents(selfAppId?: string): DiscoveredAgent[] {
  */
 export async function discoverAgents(
   selfAppId?: string,
+  options?: { preferLocalUrls?: boolean },
 ): Promise<DiscoveredAgent[]> {
-  const builtins = getBuiltinAgents(selfAppId);
+  const builtins = getBuiltinAgents(selfAppId, options);
   const agentsById = new Map<string, DiscoveredAgent>();
 
   // Start with built-ins
@@ -354,6 +358,12 @@ export async function discoverAgents(
         }
 
         const builtin = agentsById.get(manifestId);
+        if (options?.preferLocalUrls && builtin) {
+          const isBuiltinAgent = BUILTIN_AGENTS.some(
+            (candidate) => candidate.id === manifestId,
+          );
+          if (isBuiltinAgent) url = builtin.url;
+        }
         const isLegacyAssetsManifest =
           manifest.id.trim().toLowerCase() !== manifestId;
         if (isLegacyAssetsManifest && builtin?.url) {
@@ -386,7 +396,7 @@ export async function discoverAgents(
 
   // Overlay sibling workspace apps last so same-origin workspaces prefer the
   // app mounted in this workspace over the public template with the same id.
-  for (const agent of await discoverWorkspaceAgents(selfAppId)) {
+  for (const agent of await discoverWorkspaceAgents(selfAppId, options)) {
     agentsById.set(agent.id, agent);
   }
 
@@ -466,8 +476,8 @@ function shouldUseLocalAgentUrls(): boolean {
   return !isHostedRuntime();
 }
 
-function resolveAgentUrl(app: AgentEntry): string {
-  if (shouldUseLocalAgentUrls()) {
+function resolveAgentUrl(app: AgentEntry, preferLocalUrls = false): string {
+  if (preferLocalUrls || shouldUseLocalAgentUrls()) {
     return app.devUrl || `http://localhost:${app.devPort}`;
   }
   return app.url;
@@ -660,6 +670,7 @@ function workspaceAppUrl(
 
 async function discoverWorkspaceAgents(
   selfAppId?: string,
+  options?: { preferLocalUrls?: boolean },
 ): Promise<DiscoveredAgent[]> {
   const workspaceApps = loadWorkspaceAppsManifest();
   if (!workspaceApps) return [];
@@ -676,7 +687,10 @@ async function discoverWorkspaceAgents(
       const builtin = BUILTIN_AGENTS.find(
         (agent) => agent.id === withOverride.id,
       );
-      const url = workspaceAppUrl(withOverride, builtin?.url);
+      const url =
+        options?.preferLocalUrls && builtin
+          ? resolveAgentUrl(builtin, true)
+          : workspaceAppUrl(withOverride, builtin?.url);
       if (!url) return null;
       return {
         id: withOverride.id,

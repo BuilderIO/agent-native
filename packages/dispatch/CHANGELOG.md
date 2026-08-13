@@ -1,5 +1,18 @@
 # @agent-native/dispatch
 
+## 0.24.6
+
+### Patch Changes
+
+- Updated dependencies [2db503b]
+  - @agent-native/toolkit@0.14.2
+
+## 0.24.5
+
+### Patch Changes
+
+- 8008dfe: Centralize product docs links behind `docsUrl()` and retarget Settings, Team, onboarding, and template help links at live agent-native.com docs pages.
+
 ## 0.24.4
 
 ### Patch Changes

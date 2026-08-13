@@ -20,7 +20,7 @@
   "type": "module",
   "main": "index.js",
   "scripts": {
-    "postinstall": "node scripts/prebuild-workspace-packages.ts postinstall && pnpm rebuild better-sqlite3",
+    "postinstall": "node scripts/prebuild-workspace-packages.ts postinstall",
     "setup": "pnpm install",
     "build": "pnpm -r build",
     "dev": "node scripts/dev-lazy.ts",

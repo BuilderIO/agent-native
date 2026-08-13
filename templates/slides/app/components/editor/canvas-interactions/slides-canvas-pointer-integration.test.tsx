@@ -98,28 +98,29 @@ function SelectedTextObjectHarness() {
 afterEach(cleanup);
 
 describe("mounted selected text body interaction", () => {
-  it("suppresses only the drag compatibility click, then edits on the next stationary click", () => {
+  it("keeps a selected text body's pointer stream available for native selection", () => {
     const { getByTestId } = render(<SelectedTextObjectHarness />);
     const object = getByTestId("selected-text-object");
 
     fireEvent.pointerDown(object, { button: 0, clientX: 10, clientY: 10 });
     fireEvent.pointerMove(object, { clientX: 50, clientY: 30 });
     fireEvent.pointerUp(object, { clientX: 50, clientY: 30 });
-    // Browser compatibility click from the completed drag.
+    // Text interiors are not move candidates. The browser owns the pointer
+    // stream so a drag can select text instead of moving the block.
     fireEvent.click(object);
 
-    expect(object.style.left).toBe("40px");
-    expect(object.style.top).toBe("20px");
+    expect(object.style.left).toBe("0px");
+    expect(object.style.top).toBe("0px");
     expect(object.getAttribute("data-selected")).toBe("true");
-    expect(object.getAttribute("data-editing")).toBe("false");
+    expect(object.getAttribute("data-editing")).toBe("true");
 
-    // A distinct stationary click is not consumed by the completed gesture.
+    // A subsequent stationary click remains in text editing as well.
     fireEvent.pointerDown(object, { button: 0, clientX: 50, clientY: 30 });
     fireEvent.pointerUp(object, { clientX: 50, clientY: 30 });
     fireEvent.click(object);
 
-    expect(object.style.left).toBe("40px");
-    expect(object.style.top).toBe("20px");
+    expect(object.style.left).toBe("0px");
+    expect(object.style.top).toBe("0px");
     expect(object.getAttribute("data-selected")).toBe("true");
     expect(object.getAttribute("data-editing")).toBe("true");
   });

@@ -25,13 +25,22 @@ export interface BrandKitColors {
   textMuted: string;
 }
 
-/** Semantic category a {@link BrandKitToken} belongs to. */
+/**
+ * Semantic category a {@link BrandKitToken} belongs to.
+ *
+ * `motion` covers durations, easings, and transitions — the DTCG `duration`,
+ * `cubicBezier`, and `transition` types. It exists because a design system's
+ * motion is part of its identity, and a category-less token is a dropped one:
+ * extractors discard what they cannot classify, so "no bucket" silently became
+ * "no motion in any imported system".
+ */
 export type BrandKitTokenType =
   | "color"
   | "typography"
   | "spacing"
   | "radius"
   | "shadow"
+  | "motion"
   | "other";
 
 /**
