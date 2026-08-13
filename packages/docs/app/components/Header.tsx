@@ -152,10 +152,10 @@ export default function Header() {
 
   return (
     <header
-      className={`sticky top-0 z-50 transition-[background-color,border-color,backdrop-filter] duration-300 ${
+      className={`sticky top-0 z-50 transition-[background-color,backdrop-filter] duration-300 ${
         showHeaderBg
-          ? "border-b border-[var(--docs-border)] bg-[rgba(10,10,10,0.90)] backdrop-blur-md"
-          : "border-b border-transparent bg-transparent"
+          ? "bg-[rgba(10,10,10,0.90)] backdrop-blur-md"
+          : "bg-transparent"
       }`}
     >
       <nav className="mx-auto flex h-16 w-full max-w-[1440px] items-center justify-between px-6 md:px-12 lg:px-20 xl:px-24">
