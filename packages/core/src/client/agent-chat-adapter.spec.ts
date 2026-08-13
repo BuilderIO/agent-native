@@ -2641,7 +2641,12 @@ describe("createAgentChatAdapter", () => {
       } as any),
     );
 
+    // Let the mocked fetch and 409 response settle before advancing the retry
+    // delay; otherwise the fake clock can advance before that timer exists.
+    await Promise.resolve();
+    await Promise.resolve();
     await vi.advanceTimersByTimeAsync(500);
+    await vi.runAllTimersAsync();
     const results = await promise;
 
     expect(postCount).toBe(2);
@@ -2943,7 +2948,12 @@ describe("createAgentChatAdapter", () => {
       } as any),
     );
 
+    // Let the mocked fetch and 409 response settle before advancing the retry
+    // delay; otherwise the fake clock can advance before that timer exists.
+    await Promise.resolve();
+    await Promise.resolve();
     await vi.advanceTimersByTimeAsync(500);
+    await vi.runAllTimersAsync();
     const results = await promise;
 
     // It must retry its own prompt, never fetch the old run's events (replay).
@@ -8879,6 +8889,37 @@ describe("activeRunLooksAlive", () => {
       }),
     ).resolves.toBe(false);
     expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("treats an unresolved delegated-agent activity card as in-flight work", async () => {
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse({
+        active: true,
+        runId: "run-1",
+        status: "running",
+        hasInFlightWork: false,
+      }),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await expect(
+      activeRunLooksAlive({
+        apiUrl: "/_agent-native/agent-chat",
+        threadId: "thread-1",
+        runId: "run-1",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "agent-call",
+            toolName: "agent:Analytics",
+            argsText: "",
+            args: {},
+            activity: true,
+          },
+        ] as any,
+      }),
+    ).resolves.toBe(true);
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });
 

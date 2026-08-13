@@ -17,8 +17,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import { hashSlideContent, type DeckFitState } from "@shared/slide-fit";
-import { useRef, useEffect } from "react";
-import { useCallback } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import SlideRenderer from "@/components/deck/SlideRenderer";
 import type { SlideOverflowInfo } from "@/components/deck/SlideRenderer";
@@ -34,6 +33,7 @@ import { getAspectRatioDims, type AspectRatio } from "@/lib/aspect-ratios";
 import { TAB_ID } from "@/lib/tab-id";
 
 import type { DesignSystemData } from "../../../shared/api";
+import { isSlideTextEditingTarget } from "./slide-text-targets";
 
 interface EditorSidebarProps {
   slides: Slide[];
@@ -198,7 +198,12 @@ function SortableSlideThumb({
         type="button"
         {...(readOnly ? {} : attributes)}
         {...(readOnly ? {} : listeners)}
-        onClick={onSelect}
+        onClick={(event) => {
+          // Safari does not focus a button on click, and the slide copy/paste
+          // and delete shortcuts are scoped to a focused thumbnail.
+          event.currentTarget.focus();
+          onSelect();
+        }}
         onFocus={onSelect}
         aria-label={t("editorSidebar.selectSlide", { number: index + 1 })}
         aria-current={isActive ? "true" : undefined}
@@ -317,6 +322,7 @@ export default function EditorSidebar({
   generatingSlideSelected = false,
   onSelectGeneratingSlide,
 }: EditorSidebarProps) {
+  const [thumbnailListScrolled, setThumbnailListScrolled] = useState(false);
   const slideButtonRefs = useRef(new Map<string, HTMLButtonElement>());
   const measurementsRef = useRef(
     new Map<
@@ -392,6 +398,10 @@ export default function EditorSidebar({
   }, [deckId, aspectRatio]);
 
   useEffect(() => {
+    setThumbnailListScrolled(false);
+  }, [deckId]);
+
+  useEffect(() => {
     return () => {
       if (writeTimerRef.current) clearTimeout(writeTimerRef.current);
       for (const key of DECK_FIT_STATE_KEYS) {
@@ -419,12 +429,20 @@ export default function EditorSidebar({
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
-      // Don't intercept if user is typing in an input/textarea or contenteditable
+      // Text editing and selected canvas objects own arrow keys. The marker
+      // query also covers a transient focus loss after a native selection.
       const tag = (e.target as HTMLElement)?.tagName;
       if (
         tag === "INPUT" ||
         tag === "TEXTAREA" ||
-        (e.target as HTMLElement)?.isContentEditable
+        isSlideTextEditingTarget(
+          e.target,
+          document.activeElement,
+          document.querySelector(
+            '[contenteditable="true"], [data-editing-block="true"]',
+          ),
+        ) ||
+        document.querySelector('[data-slide-element-selected="true"]')
       )
         return;
 
@@ -454,39 +472,51 @@ export default function EditorSidebar({
 
   return (
     <div className="flex h-full min-h-0 w-48 flex-shrink-0 flex-col bg-background sm:w-52">
-      <div className="relative min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain p-2">
-        <SortableContext
-          items={slides.map((s) => s.id)}
-          strategy={verticalListSortingStrategy}
+      <div
+        className="relative min-h-0 flex-1"
+        data-slides-thumbnail-scroll={
+          thumbnailListScrolled ? "scrolled" : "top"
+        }
+      >
+        <div
+          className="h-full min-h-0 space-y-1 overflow-y-auto overscroll-contain p-2"
+          onScroll={(event) => {
+            setThumbnailListScrolled(event.currentTarget.scrollTop > 1);
+          }}
         >
-          {slides.map((slide, index) => (
-            <SortableSlideThumb
-              key={slide.id}
-              slide={slide}
-              index={index}
-              isActive={slide.id === activeSlideId}
-              onSelect={() => onSelectSlide(slide.id)}
-              readOnly={readOnly}
-              registerButtonRef={registerSlideButton}
-              presenceUsers={slidePresence?.get(slide.id) ?? []}
+          <SortableContext
+            items={slides.map((s) => s.id)}
+            strategy={verticalListSortingStrategy}
+          >
+            {slides.map((slide, index) => (
+              <SortableSlideThumb
+                key={slide.id}
+                slide={slide}
+                index={index}
+                isActive={slide.id === activeSlideId}
+                onSelect={() => onSelectSlide(slide.id)}
+                readOnly={readOnly}
+                registerButtonRef={registerSlideButton}
+                presenceUsers={slidePresence?.get(slide.id) ?? []}
+                aspectRatio={aspectRatio}
+                designSystem={designSystem}
+                aiEditing={aiEditedSlideIds.has(slide.id)}
+                onOverflowChange={(info) =>
+                  handleSlideOverflowChange(slide, info)
+                }
+              />
+            ))}
+          </SortableContext>
+          {generatingSlide && (
+            <GeneratingSlideSkeleton
+              index={generatingSlide.index}
               aspectRatio={aspectRatio}
               designSystem={designSystem}
-              aiEditing={aiEditedSlideIds.has(slide.id)}
-              onOverflowChange={(info) =>
-                handleSlideOverflowChange(slide, info)
-              }
+              selected={generatingSlideSelected}
+              onSelect={onSelectGeneratingSlide}
             />
-          ))}
-        </SortableContext>
-        {generatingSlide && (
-          <GeneratingSlideSkeleton
-            index={generatingSlide.index}
-            aspectRatio={aspectRatio}
-            designSystem={designSystem}
-            selected={generatingSlideSelected}
-            onSelect={onSelectGeneratingSlide}
-          />
-        )}
+          )}
+        </div>
       </div>
     </div>
   );

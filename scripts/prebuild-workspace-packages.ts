@@ -281,3 +281,16 @@ execFileSync(pnpmExecutable(), [...filters, "run", "build"], {
   // .cmd files on Windows require shell:true to be found by execFileSync.
   shell: process.platform === "win32",
 });
+
+const nativeRepairScript = path.resolve(
+  "packages/core/dist/cli/native-dependencies.js",
+);
+if (!existsSync(nativeRepairScript)) {
+  throw new Error(
+    `[prebuild-workspace-packages] Missing native dependency repair script at ${nativeRepairScript}`,
+  );
+}
+execFileSync(process.execPath, [nativeRepairScript, "--repair"], {
+  cwd: process.cwd(),
+  stdio: "inherit",
+});

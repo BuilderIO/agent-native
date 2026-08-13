@@ -244,7 +244,7 @@ export function EventDialog({
               </div>
               <p className="text-xs text-muted-foreground">
                 {t("eventDialog.pressToSave", {
-                  shortcut: `${shortcutModifierLabel()}+↵`,
+                  shortcut: `${shortcutModifierLabel()} Enter`,
                 })}
               </p>
             </div>

@@ -31,7 +31,6 @@ import {
   IconCode,
   IconCopy,
   IconFileTypePdf,
-  IconPlugConnected,
 } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -122,6 +121,9 @@ interface EditorToolbarProps {
   textBoxMode?: boolean;
   /** Toggle the add-text-box tool */
   onToggleTextBoxMode?: () => void;
+  onChangeSlideTransition?: (
+    transition: NonNullable<Slide["transition"]>,
+  ) => void;
   /** Duplicate the current deck */
   onDuplicateDeck?: () => void;
   /** Export the deck as PDF */
@@ -177,6 +179,7 @@ export default function EditorToolbar({
   onTogglePinMode,
   textBoxMode,
   onToggleTextBoxMode,
+  onChangeSlideTransition,
   onDuplicateDeck,
   onExportPdf,
   onExportPptx,
@@ -439,24 +442,14 @@ export default function EditorToolbar({
       },
     );
     if (onExportGoogleSlides) {
-      commands.push(
-        {
-          id: "connect-google",
-          group: "deck",
-          label: t("editorExport.connectGoogle"),
-          keywords: ["google", "drive", "connect"],
-          icon: IconPlugConnected,
-          run: () => void exportMenuRef.current?.connectGoogle(),
-        },
-        {
-          id: "open-in-google-slides",
-          group: "deck",
-          label: t("editorExport.openInGoogleSlides"),
-          keywords: ["google", "slides", "export"],
-          icon: IconBrandGoogle,
-          run: () => void exportMenuRef.current?.exportGoogleSlides(),
-        },
-      );
+      commands.push({
+        id: "export-to-google-slides",
+        group: "deck",
+        label: t("editorExport.openInGoogleSlides"),
+        keywords: ["google", "slides", "export"],
+        icon: IconBrandGoogle,
+        run: () => void exportMenuRef.current?.exportGoogleSlides(),
+      });
     }
     if (onDuplicateDeck) {
       commands.push({
@@ -578,6 +571,8 @@ export default function EditorToolbar({
           onDuplicateCurrentSlide={onDuplicateCurrentSlide}
           textBoxMode={textBoxMode}
           onToggleTextBoxMode={onToggleTextBoxMode}
+          slideTransition={currentSlide?.transition}
+          onChangeSlideTransition={onChangeSlideTransition}
         />
       )}
 
@@ -632,7 +627,7 @@ export default function EditorToolbar({
         agentActive={agentActive}
         showAgentEditingDot={false}
         currentUserEmail={currentUserEmail}
-        className="flex-shrink-0 mr-0.5"
+        className="ml-auto flex-shrink-0 mr-0.5 pl-2"
       />
 
       {/* Consolidated editor menu */}
@@ -657,26 +652,8 @@ export default function EditorToolbar({
           </Tooltip>
           <DropdownMenuContent
             align="end"
-            className="max-h-[min(80vh,32rem)] w-64 overflow-y-auto"
+            className="max-h-[90vh] w-64 overflow-y-auto"
           >
-            {canEdit && (
-              <>
-                <DropdownMenuLabel>
-                  {t("editorToolbar.media")}
-                </DropdownMenuLabel>
-                <DropdownMenuGroup>
-                  <DropdownMenuItem onSelect={onGenerateImage}>
-                    <IconPhoto className="size-4" />
-                    {t("editorToolbar.generateImage")}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={onOpenAssetLibrary}>
-                    <IconFolderOpen className="size-4" />
-                    {t("editorToolbar.assetLibrary")}
-                  </DropdownMenuItem>
-                </DropdownMenuGroup>
-              </>
-            )}
-
             {((canEdit &&
               (onToggleAnimations || onToggleTweaks || onToggleDrawMode)) ||
               (canComment && onTogglePinMode)) && (
@@ -742,12 +719,28 @@ export default function EditorToolbar({
               </>
             )}
 
-            {onToggleComments && (
+            {canEdit && (
               <>
                 <DropdownMenuSeparator />
                 <DropdownMenuLabel>
-                  {t("editorToolbar.comments")}
+                  {t("editorToolbar.media")}
                 </DropdownMenuLabel>
+                <DropdownMenuGroup>
+                  <DropdownMenuItem onSelect={onGenerateImage}>
+                    <IconPhoto className="size-4" />
+                    {t("editorToolbar.generateImage")}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={onOpenAssetLibrary}>
+                    <IconFolderOpen className="size-4" />
+                    {t("editorToolbar.assetLibrary")}
+                  </DropdownMenuItem>
+                </DropdownMenuGroup>
+              </>
+            )}
+
+            {onToggleComments && (
+              <>
+                <DropdownMenuSeparator />
                 <DropdownMenuItem
                   onSelect={onToggleComments}
                   className={

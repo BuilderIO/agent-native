@@ -1,5 +1,68 @@
 # @agent-native/core
 
+## 0.154.5
+
+### Patch Changes
+
+- 99a8c34: Preserve typed action contract conflicts across the shared HTTP action transport.
+
+## 0.154.4
+
+### Patch Changes
+
+- a71862e: Add reusable owner- and resource-bound OAuth credential lifecycle primitives with concurrency-safe refresh, revocation, and explicit connection states.
+
+## 0.154.3
+
+### Patch Changes
+
+- 37e4ba3: Increase the buffer available when listing downloaded template archives.
+
+## 0.154.2
+
+### Patch Changes
+
+- 4a3849b: Authorize delegated feature-flag actions through verified organization domains while preserving receiver-local organization scope, reject replayed mutation tokens, keep domainless local administration available, and keep flag details readable by stacking actions at narrow widths.
+
+## 0.154.1
+
+### Patch Changes
+
+- 97b3736: Advertise explicitly exposed authenticated write actions as message-only A2A capabilities while keeping direct invocation read-only.
+
+## 0.154.0
+
+### Minor Changes
+
+- 2db503b: Support durable, scoped GitHub sources and replayable sync for Builder design-system imports.
+
+### Patch Changes
+
+- 2db503b: Add `motion` to `BrandKitTokenType` so durations, easings, and transitions have
+  a real category. Extractors drop tokens they cannot classify, so the missing
+  bucket meant no imported design system ever carried its motion.
+- 2db503b: Open agent chat image attachments in a full-size lightbox when their thumbnails are clicked.
+- 2db503b: Simplify share controls with compact copy-link rows and always-visible access details.
+- 2db503b: Ensure durable resource instructions remain in lean agent prompts and fail loudly when AGENTS.md cannot be read.
+- 2db503b: Hide `x-cloak` content in the extension iframe shell until Alpine boots.
+  Extension content is a body snippet, so it cannot define the rule itself: an
+  `x-cloak` overlay painted over the whole extension until the deferred Alpine
+  CDN script resolved, and permanently when it failed to.
+- 2db503b: Repair and validate native SQLite bindings against the Node runtime used by development, builds, and production starts.
+- 2db503b: Add an optional `submitContext` to the guided-questions payload, appended to the
+  context of whichever message the card sends. A question card's answer opens a
+  continuation turn that inherits nothing from the turn that posed it, so context
+  the follow-up work depends on had no way to survive the hop.
+- 2db503b: Prevent assistant panel crashes when dense chat replays synchronously update React.
+- Updated dependencies [2db503b]
+  - @agent-native/toolkit@0.14.2
+
+## 0.153.10
+
+### Patch Changes
+
+- 8008dfe: Centralize product docs links behind `docsUrl()` and retarget Settings, Team, onboarding, and template help links at live agent-native.com docs pages.
+
 ## 0.153.9
 
 ### Patch Changes

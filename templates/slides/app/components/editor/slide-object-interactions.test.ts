@@ -356,7 +356,7 @@ describe("slide object interactions", () => {
     },
   );
 
-  it("uses Shift aspect locking for corners while midpoint handles remain axis-only", () => {
+  it("uses Shift aspect locking for corners and midpoint handles", () => {
     expect(
       resizeSlideObject(
         { x: 100, y: 50, width: 200, height: 100 },
@@ -369,7 +369,7 @@ describe("slide object interactions", () => {
         { x: 100, y: 50, width: 200, height: 100 },
         { handle: "w", dx: 30, dy: 99, preserveAspectRatio: true },
       ),
-    ).toEqual({ x: 130, y: 50, width: 170, height: 100 });
+    ).toEqual({ x: 130, y: 57.5, width: 170, height: 85 });
   });
 
   it("freezes an in-flow text block without removing its layout slot", () => {

@@ -25,7 +25,7 @@ const messages = {
     commentMode: "Comment",
     sendToAgent: "Send to agent",
     sendingToAgent: "Sending to agent…",
-    enterToPost: "Enter to post · Shift+Enter for a new line",
+    enterToPost: "Enter to post · Shift Enter for a new line",
     post: "Post",
     posting: "Posting…",
     postFailed: "Could not post this comment",

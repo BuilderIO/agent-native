@@ -647,13 +647,13 @@ const messages = {
     collapse: "Collapse",
     changelogMarkdown: `# Changelog
 
-All notable user-facing changes to Clips are documented here. Open it any time from the command menu (Cmd+K -> "What's new") or from Settings.
+All notable user-facing changes to Clips are documented here. Open it any time from the command menu (Cmd K -> "What's new") or from Settings.
 
 ## 2026-06-23
 
 ### Added
 
-- See what's new right inside Clips. A changelog now lives in the command menu (Cmd+K) and in Settings.`,
+- See what's new right inside Clips. A changelog now lives in the command menu (Cmd K) and in Settings.`,
     playback: "Playback",
     defaultPlaybackSpeed: "Default playback speed",
     playbackDescription: "Applied automatically when you open a recording.",
@@ -1193,7 +1193,7 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     seekTo: "Seek to {{time}}",
   },
   editorToolbar: {
-    undoTooltip: "Undo (Cmd/Ctrl+Z)",
+    undoTooltip: "Undo (Cmd/Ctrl Z)",
     playPauseTooltip: "Play / Pause (Space)",
     sourceDuration: "({{duration}} src)",
     previewSpeed: "Preview speed",

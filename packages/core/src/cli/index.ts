@@ -13,6 +13,12 @@ import {
   resolveAgentNativeNitroPreset,
 } from "../deploy/nitro-preset.js";
 import { resolveDeployPostBuildInvocation } from "./deploy-build.js";
+import {
+  assertNativeDependencies,
+  assertNodeRuntimeMarker,
+  ensureNativeDependencies,
+  writeNodeRuntimeMarker,
+} from "./native-dependencies.js";
 import { cliSpawnOptions } from "./process.js";
 import { shouldTrackCliRun } from "./telemetry-routing.js";
 import { createCliTelemetry } from "./telemetry.js";
@@ -614,6 +620,12 @@ if (shouldTrackCliRun(command, args)) trackCli("cli.run");
 
 switch (command) {
   case "dev": {
+    try {
+      ensureNativeDependencies({ repair: true, label: "dev" });
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : String(error));
+      process.exit(1);
+    }
     if (isWorkspaceRoot()) {
       import("./workspace-dev.js")
         .then((m) => m.runWorkspaceDev({ args }))
@@ -680,6 +692,8 @@ switch (command) {
     // child exits non-zero, runBuildStep calls process.exit itself; the
     // continuation only runs on success.
     (async () => {
+      ensureNativeDependencies({ repair: true, label: "build" });
+
       // Doctor pre-step: scans app source for the security-critical guard
       // invariants (see `agent-native doctor --help`). Findings fail by
       // default; only an explicit `doctor.failOnBuild: false` opt-out keeps
@@ -740,6 +754,15 @@ switch (command) {
         }
       }
 
+      const serverDirectory = path.resolve(".output/server");
+      if (fs.existsSync(serverDirectory)) {
+        assertNativeDependencies({
+          fromDirectory: serverDirectory,
+          label: "build output",
+        });
+        writeNodeRuntimeMarker(serverDirectory);
+      }
+
       console.log("\nBuild complete.");
     })().catch((err) => {
       // runBuildStep handles its own failures and exits, so reaching here
@@ -765,7 +788,18 @@ switch (command) {
       );
       process.exit(1);
     }
-    run("node", [serverEntry, ...args]);
+    const serverDirectory = path.dirname(serverEntry);
+    try {
+      assertNodeRuntimeMarker(serverDirectory);
+      assertNativeDependencies({
+        fromDirectory: serverDirectory,
+        label: "start output",
+      });
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : String(error));
+      process.exit(1);
+    }
+    run(process.execPath, [serverEntry, ...args]);
     break;
   }
 

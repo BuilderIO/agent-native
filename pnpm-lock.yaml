@@ -1009,6 +1009,9 @@ importers:
       tweetnacl:
         specifier: ^1.0.3
         version: 1.0.3
+      undici:
+        specifier: ^7.28.0
+        version: 7.28.0
       y-protocols:
         specifier: 'catalog:'
         version: 1.0.7(yjs@13.6.31)
