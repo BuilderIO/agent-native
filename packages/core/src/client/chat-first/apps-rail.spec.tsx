@@ -88,4 +88,24 @@ describe("ChatFirstAppsRail", () => {
         ?.getAttribute("data-icon-inactive"),
     ).toBe("false");
   });
+
+  it("does not add an outer selection background in the expanded rail", () => {
+    act(() => {
+      root.render(
+        <ChatFirstAppsRail
+          apps={[{ id: "content", name: "Content" }]}
+          activeAppId="content"
+          onOpenApp={vi.fn()}
+          renderIcon={(app, options) => (
+            <span data-icon-inactive={options?.isInactive}>{app.name}</span>
+          )}
+        />,
+      );
+    });
+
+    const appRow = container.querySelector<HTMLElement>(
+      '[data-chat-first-app][data-app-id="content"]',
+    );
+    expect(appRow?.className).not.toContain("bg-sidebar-accent");
+  });
 });

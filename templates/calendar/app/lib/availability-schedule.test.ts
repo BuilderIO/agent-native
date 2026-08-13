@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import type { DaySchedule } from "../../shared/api";
 import {
   addTimeSlot,
+  availabilitySlotsOverlap,
+  normalizeAvailabilitySlots,
   removeTimeSlot,
   updateTimeSlot,
 } from "./availability-schedule";
@@ -39,5 +41,33 @@ describe("availability schedule editing", () => {
       enabled: true,
       slots: [{ start: "20:00", end: "23:00" }],
     });
+  });
+
+  it("detects overlapping windows, including exact duplicates", () => {
+    expect(
+      availabilitySlotsOverlap([
+        { start: "09:00", end: "12:00" },
+        { start: "09:00", end: "12:00" },
+      ]),
+    ).toBe(true);
+    expect(
+      availabilitySlotsOverlap([
+        { start: "09:00", end: "12:00" },
+        { start: "12:00", end: "17:00" },
+      ]),
+    ).toBe(false);
+  });
+
+  it("merges overlapping windows before slot generation", () => {
+    expect(
+      normalizeAvailabilitySlots([
+        { start: "13:00", end: "16:00" },
+        { start: "15:00", end: "18:00" },
+        { start: "20:00", end: "23:00" },
+      ]),
+    ).toEqual([
+      { start: "13:00", end: "18:00" },
+      { start: "20:00", end: "23:00" },
+    ]);
   });
 });

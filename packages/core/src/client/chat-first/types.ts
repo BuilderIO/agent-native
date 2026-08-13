@@ -75,7 +75,7 @@ export interface ChatFirstAppRailProps {
   createAppTrigger?: ReactNode;
   renderIcon: (
     app: ChatFirstAppItem,
-    options: ChatFirstAppIconRenderOptions,
+    options?: ChatFirstAppIconRenderOptions,
   ) => ReactNode;
   copy?: ChatFirstCopy;
 }

@@ -43,7 +43,7 @@ function ChatFirstRailAppIcon({
   activeAppId?: string;
   renderIcon: (
     app: ChatFirstAppItem,
-    options: ChatFirstAppIconRenderOptions,
+    options?: ChatFirstAppIconRenderOptions,
   ) => ReactNode;
 }) {
   const isActive = activeAppId !== undefined && activeAppId === app.id;
@@ -85,7 +85,7 @@ function AppRows({
   onMove: (id: string, direction: -1 | 1) => void;
   renderIcon: (
     app: ChatFirstAppItem,
-    options: ChatFirstAppIconRenderOptions,
+    options?: ChatFirstAppIconRenderOptions,
   ) => ReactNode;
   copy: ChatFirstCopy;
 }) {
@@ -114,7 +114,7 @@ function AppRows({
                 className={cn(
                   "group flex h-8 w-full min-w-0 items-center gap-1 rounded-md px-0 text-sm",
                   active
-                    ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
+                    ? "font-medium text-sidebar-foreground"
                     : "text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
                 )}
                 onDragStart={(event) => {

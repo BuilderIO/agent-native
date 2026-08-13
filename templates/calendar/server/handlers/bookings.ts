@@ -47,6 +47,7 @@ import {
 } from "../lib/booking-link-utils.js";
 import { getOwnerBookingTimeZone } from "../lib/booking-timezone.js";
 import { eventBlocksAvailability } from "../lib/calendar-availability.js";
+import { normalizeAvailabilitySlots } from "../../shared/availability-schedule.js";
 import * as googleCalendar from "../lib/google-calendar.js";
 import { createZoomMeeting } from "../lib/zoom.js";
 
@@ -626,7 +627,7 @@ export function generateAvailableSlotsForDate({
     timezone,
   );
 
-  for (const scheduleSlot of daySchedule.slots) {
+  for (const scheduleSlot of normalizeAvailabilitySlots(daySchedule.slots)) {
     const [startHour, startMin] = scheduleSlot.start.split(":").map(Number);
     const [endHour, endMin] = scheduleSlot.end.split(":").map(Number);
     if (

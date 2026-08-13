@@ -133,6 +133,25 @@ describe("booking availability", () => {
     ]);
   });
 
+  it("does not publish duplicate slots from overlapping availability windows", () => {
+    const config = availabilityConfig();
+    config.weeklySchedule.monday.slots = [
+      { start: "09:00", end: "12:00" },
+      { start: "11:00", end: "14:00" },
+    ];
+
+    const slots = generateAvailableSlotsForDate({
+      date: "2099-01-05",
+      duration: 60,
+      config,
+      conflictItems: [],
+    });
+
+    expect(new Set(slots.map((slot) => `${slot.start}/${slot.end}`)).size).toBe(
+      slots.length,
+    );
+  });
+
   it("marks owner availability unavailable when Google is not connected", async () => {
     vi.mocked(googleCalendar.isConnected).mockResolvedValue(false);
 
