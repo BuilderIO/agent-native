@@ -1,0 +1,215 @@
+---
+title: "Overview"
+description: "Actions are the single source of truth for anything your app does. Define one with defineAction() and it fans out to an agent tool, UI hooks, HTTP, an MCP tool, an A2A tool, and a CLI command."
+draft: true
+---
+
+# Overview
+
+Actions are the single source of truth for anything your app does. Define one with `defineAction()` and drop it in `actions/`. Every surface below picks it up automatically. You write the logic once. No surface gets its own copy, and none can drift out of sync with the others.
+
+<Cards columns={2}>
+
+### :robot: [Agent Tool](/docs/agent-surfaces)
+
+The agent reads the description and schema as a callable tool. Ask for it in chat, like "reply to this ticket" or "summarize this thread."
+
+### :components: [UI Hooks](/docs/client-data)
+
+`useActionQuery()`, `useActionMutation()`, and `callAction()` call the same action from React. A click and a chat message run the exact same operation.
+
+### :server: [Framework Transport](/docs/http-api)
+
+Auto-mounted at `/_agent-native/actions/<name>` on startup. The UI hooks call this route under the hood, and an external HTTP client can call it directly too.
+
+### :plug: [MCP Tool](/docs/actions-other-surfaces#mcp)
+
+Shows up as a tool to any MCP host: Claude, Claude Desktop, Cursor, Codex. Use it when a different AI client should drive your app.
+
+### :network: [A2A Tool](/docs/actions-other-surfaces#a2a)
+
+Other agent-native apps discover and call it over A2A. Use it when a second app in your workspace needs this one to act on its behalf.
+
+### :terminal: [CLI Command](/docs/actions-other-surfaces#cli)
+
+`pnpm action <name>` runs it from a terminal. Use it for scripts, cron jobs, and quick manual tests.
+
+</Cards>
+
+Most apps build a separate API layer between the frontend and the database, one that only the browser can call. An agent that wants the same capability needs its own, separate integration, written and maintained again. Agent-native apps skip that split. The UI and the agent call the exact same action, so there is only one implementation to write, and only one place for a bug to hide.
+
+<Diagram id="doc-block-actions-overview-2" title="Traditional frontend vs. Agent Native" summary="A traditional frontend calls its own API layer, which only it can reach. In Agent Native, app/ and the agent both call the same actions, so every capability built here is agent-callable for free.">
+
+```html
+<div class="diagram-cocmp">
+  <div class="cocmp-col">
+    <div class="cocmp-label diagram-muted">Traditional</div>
+    <div class="diagram-node">app/ (React frontend)</div>
+    <div class="cocmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-panel" data-rough>
+      <strong>API layer</strong>
+      <small class="diagram-muted">only the frontend calls it</small>
+    </div>
+    <div class="cocmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-box" data-rough>Database</div>
+  </div>
+  <div class="cocmp-vs diagram-muted">vs</div>
+  <div class="cocmp-col">
+    <div class="cocmp-label diagram-muted">Agent Native</div>
+    <div class="cocmp-callers">
+      <div class="diagram-node">app/ (React frontend)</div>
+      <div class="diagram-node">Agent</div>
+    </div>
+    <div class="cocmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-panel" data-rough>
+      <span class="diagram-pill accent">Actions</span
+      ><small class="diagram-muted">equal partners, same operations</small>
+    </div>
+    <div class="cocmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-box" data-rough>SQL database</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-cocmp {
+  display: flex;
+  align-items: flex-start;
+  gap: 28px;
+  flex-wrap: wrap;
+}
+.cocmp-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 180px;
+}
+.cocmp-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+.cocmp-callers {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.cocmp-vs {
+  font-size: 13px;
+  font-weight: 600;
+  padding-top: 52px;
+}
+.diagram-cocmp .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 16px;
+  align-self: stretch;
+  align-items: center;
+}
+.cocmp-arrow {
+  font-size: 18px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+If the UI and the agent both need to do something, reach for an action instead of a custom route. For the rare case where a route-shaped protocol is the right call, visit [Prefer Actions For App Operations](/docs/server-overview#actions-first).
+
+## Where Actions Fit {#role}
+
+`app/` (visit [Client Overview](/docs/client-overview#role)) and the agent both resolve to the same actions and the same SQL database. There is no separate "app backend" this layer talks to that the agent can't also reach. Building a feature means defining an operation here and getting a UI, an agent tool, and every other surface for it at the same time.
+
+`actions/` itself is a flat folder. Each file is one action: a `defineAction()` call exported as the file's default export. The framework scans this folder on startup and mounts every file it finds. There is no registration step and no index file to keep up to date.
+
+An action's `run()` body is regular server code, so it commonly reaches into a few other directories:
+
+<FileTree
+  id="doc-block-actions-overview-filetree"
+  entries={[
+    {
+      path: "actions/reply-to-email.ts",
+      note: "One action per file. Exports a defineAction() call, and the framework mounts it automatically.",
+    },
+    {
+      path: "server/db/schema.ts",
+      note: "Drizzle table definitions most actions read and write through.",
+    },
+    {
+      path: "server/lib/access.ts",
+      note: "Shared access guards (accessFilter, assertAccess, authorize) reused across actions.",
+    },
+    {
+      path: "shared/feature-flags.ts",
+      note: "Flag definitions an action and a server plugin both check.",
+    },
+    {
+      path: "app/components/ReplyButton.tsx",
+      note: "Calls the action from the UI with useActionMutation.",
+    },
+  ]}
+/>
+
+Nothing outside `actions/` should import an action's `run` function directly. Call it through one of the surfaces above instead: the agent tool, a UI hook, HTTP, MCP, A2A, or the CLI. Every one of those paths runs the same schema validation, access checks, and audit trail.
+
+## Start with one action {#hello-action}
+
+The first operation in a chat-first app can be tiny. In the Chat template,
+replace `actions/hello.ts` or add a new file beside it:
+
+```ts
+// actions/hello.ts
+import { defineAction } from "@agent-native/core/action";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Say hello from the local agent.",
+  schema: z.object({
+    name: z.string().default("world"),
+  }),
+  http: { method: "GET" },
+  readOnly: true,
+  run: async ({ name }) => {
+    return { message: `Hello, ${name}!` };
+  },
+});
+```
+
+Run it from the same folder:
+
+```bash
+pnpm action hello '{"name":"Steve"}'
+```
+
+The CLI accepts a JSON object as the action input, which matches the structured
+tool calls agents already make. Simple flags still work for quick manual runs:
+
+```bash
+pnpm action hello --name Steve
+```
+
+Then run the app-agent loop against the folder:
+
+```bash
+npx agent-native agent "Call hello for Steve and explain the result"
+```
+
+That is the same app-agent loop your scheduled jobs, chat UI, external MCP
+tools, and future screens will use. Chat and domain templates are for adding UI
+around actions, not a required prerequisite for the action itself.
+
+## What's next
+
+- [**Defining Actions**](/docs/actions-defining) — `defineAction()` anatomy, schema, and HTTP config
+- [**Access & Authorization**](/docs/actions-access-control) — exposure flags, `ctx` scoping, and `authorize`
+- [**Run Context**](/docs/actions-run-context) — the full `ctx` field table
+- [**Other Surfaces**](/docs/actions-other-surfaces) — native chat UI, CLI, A2A, MCP, and standard actions
+- [**Advanced & Legacy**](/docs/actions-advanced) — feature-flag gating and legacy CLI-style actions
+- [**Overview**](/docs/client-overview) — the `app/` side of this same contract
+- [**Data & Sync**](/docs/client-data) — `useActionQuery`, `useActionMutation`, and `callAction` in the UI
+- [**Agent Surfaces**](/docs/agent-surfaces) — how one action grows from chat tool to full screen

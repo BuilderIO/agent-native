@@ -154,6 +154,49 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
       },
       { id: "actions", labelKey: "actions", slug: "actions" },
       {
+        id: "actions-section",
+        labelKey: "actions",
+        draft: true,
+        children: [
+          {
+            id: "actions-overview",
+            labelKey: "actionsOverview",
+            slug: "actions-overview",
+            draft: true,
+          },
+          {
+            id: "actions-defining",
+            labelKey: "actionsDefining",
+            slug: "actions-defining",
+            draft: true,
+          },
+          {
+            id: "actions-access-control",
+            labelKey: "actionsAccessControl",
+            slug: "actions-access-control",
+            draft: true,
+          },
+          {
+            id: "actions-run-context",
+            labelKey: "actionsRunContext",
+            slug: "actions-run-context",
+            draft: true,
+          },
+          {
+            id: "actions-other-surfaces",
+            labelKey: "actionsOtherSurfaces",
+            slug: "actions-other-surfaces",
+            draft: true,
+          },
+          {
+            id: "actions-advanced",
+            labelKey: "actionsAdvanced",
+            slug: "actions-advanced",
+            draft: true,
+          },
+        ],
+      },
+      {
         id: "human-approval",
         labelKey: "humanApproval",
         slug: "human-approval",
