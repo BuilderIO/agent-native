@@ -48,12 +48,20 @@ describe("ChatFirstAppsRail", () => {
     );
 
     expect(selectedIcon?.className).not.toContain("grayscale");
-    expect(selectedIcon?.closest("[data-chat-first-app]")?.className).not.toContain(
-      "bg-sidebar-accent",
-    );
-    expect(selectedIcon?.querySelector("[data-icon-inactive]")?.getAttribute("data-icon-inactive")).toBe("false");
+    expect(
+      selectedIcon?.closest("[data-chat-first-app]")?.className,
+    ).not.toContain("bg-sidebar-accent");
+    expect(
+      selectedIcon
+        ?.querySelector("[data-icon-inactive]")
+        ?.getAttribute("data-icon-inactive"),
+    ).toBe("false");
     expect(inactiveIcon?.className).toContain("grayscale");
-    expect(inactiveIcon?.querySelector("[data-icon-inactive]")?.getAttribute("data-icon-inactive")).toBe("true");
+    expect(
+      inactiveIcon
+        ?.querySelector("[data-icon-inactive]")
+        ?.getAttribute("data-icon-inactive"),
+    ).toBe("true");
   });
 
   it("keeps app icons in color when no app is selected", () => {
@@ -74,6 +82,10 @@ describe("ChatFirstAppsRail", () => {
       "[data-chat-first-app-icon]",
     );
     expect(icon?.className).not.toContain("grayscale");
-    expect(icon?.querySelector("[data-icon-inactive]")?.getAttribute("data-icon-inactive")).toBe("false");
+    expect(
+      icon
+        ?.querySelector("[data-icon-inactive]")
+        ?.getAttribute("data-icon-inactive"),
+    ).toBe("false");
   });
 });
