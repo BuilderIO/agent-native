@@ -1,10 +1,19 @@
-import { IconAlertTriangle, IconX } from "@tabler/icons-react";
+import { IconAlertTriangle, IconInfoCircle, IconX } from "@tabler/icons-react";
 
 import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface SlideOverflowWarningProps {
   verticalOverflow: number;
   horizontalOverflow?: number;
+  warningLabel: string;
+  overflowDetails: string;
+  overflowDetailsLabel: string;
   isAskingAgentToFix: boolean;
   dismissLabel: string;
   onFix: () => void;
@@ -12,21 +21,14 @@ interface SlideOverflowWarningProps {
 }
 
 export function SlideOverflowWarning({
-  verticalOverflow,
-  horizontalOverflow = 0,
+  warningLabel,
+  overflowDetails,
+  overflowDetailsLabel,
   isAskingAgentToFix,
   dismissLabel,
   onFix,
   onDismiss,
 }: SlideOverflowWarningProps) {
-  const overflowLabel = [
-    verticalOverflow > 0 ? `vertical ${verticalOverflow}px` : "",
-    horizontalOverflow > 0 ? `horizontal ${horizontalOverflow}px` : "",
-  ]
-    .filter(Boolean)
-    .join(", ");
-  const visibleOverflowLabel =
-    horizontalOverflow > 0 ? overflowLabel : `${verticalOverflow}px`;
   return (
     <div
       role="status"
@@ -42,9 +44,23 @@ export function SlideOverflowWarning({
         className="h-3.5 w-3.5 flex-shrink-0 text-foreground"
         stroke={2}
       />
-      <span className="leading-tight">
-        Layout overflows by {visibleOverflowLabel}
-      </span>
+      <span className="leading-tight">{warningLabel}</span>
+      <TooltipProvider delayDuration={200}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              className="size-6 cursor-help text-muted-foreground hover:bg-transparent hover:text-foreground"
+              aria-label={overflowDetailsLabel}
+            >
+              <IconInfoCircle className="size-3.5" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="top">{overflowDetails}</TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
       <Button
         size="sm"
         variant="ghost"

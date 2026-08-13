@@ -48,6 +48,16 @@ describe("recording share popover", () => {
     expect(shareDialogSource).not.toContain("(!isPublic && canManage)");
   });
 
+  it("keeps copy fields compact and hides the raw URL", () => {
+    const shareUiSource = readSource("../sharing/share-ui.tsx");
+
+    expect(shareUiSource).toContain('t("shareUi.copy")');
+    expect(shareUiSource).toContain("IconLink");
+    expect(shareUiSource).toContain('t("recordRoute.linkCopied")');
+    expect(shareUiSource).toContain("description?: string");
+    expect(shareUiSource).not.toContain("readOnly\n          value={value}");
+  });
+
   it("offers a rich email preview only for public, unprotected clips", () => {
     const shareDialogSource = readSource("./share-dialog.tsx");
 

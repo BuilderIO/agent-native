@@ -1,5 +1,20 @@
 # @agent-native/agent-browser-extension
 
+## 0.1.102
+
+### Patch Changes
+
+- Updated dependencies [2db503b]
+- Updated dependencies [2db503b]
+- Updated dependencies [2db503b]
+- Updated dependencies [2db503b]
+- Updated dependencies [2db503b]
+- Updated dependencies [2db503b]
+- Updated dependencies [2db503b]
+- Updated dependencies [2db503b]
+- Updated dependencies [2db503b]
+  - @agent-native/core@0.154.0
+
 ## 0.1.101
 
 ### Patch Changes

@@ -57,7 +57,7 @@ const messages = {
     commentMode: "评论",
     sendToAgent: "发送给智能体",
     sendingToAgent: "正在发送给智能体…",
-    enterToPost: "按 Enter 发布 · 按 Shift+Enter 换行",
+    enterToPost: "按 Enter 发布 · 按 Shift Enter 换行",
     post: "发布",
     posting: "正在发布…",
     postFailed: "无法发布此评论",

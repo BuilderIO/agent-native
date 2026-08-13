@@ -27,6 +27,98 @@ describe("Design HTML integrity", () => {
     ).not.toThrow();
   });
 
+  it("rejects x-cloak without the CSS rule that hides it before Alpine starts", () => {
+    const document = `<!doctype html><html><head><script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.15.11/dist/cdn.min.js"></script><style>.panel{display:block}</style></head><body><div x-cloak class="panel">Hidden until ready</div></body></html>`;
+    const result = inspectDesignHtmlDocumentIntegrity(document);
+    expect(result.valid).toBe(false);
+    expect(result.issue).toBe("runtime-cloak-missing");
+    expect(result.detail?.[0]).toMatchObject({
+      tag: "div",
+      attribute: "x-cloak",
+    });
+    expect(() =>
+      assertDesignHtmlCreateIntegrity({
+        content: document,
+        fileType: "html",
+        filename: "index.html",
+      }),
+    ).toThrow(/x-cloak/);
+  });
+
+  it("accepts x-cloak when the document defines its pre-Alpine hiding rule", () => {
+    const document = `<!doctype html><html><head><script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.15.11/dist/cdn.min.js"></script><style>[x-cloak] { display: none !important; } .panel{display:block}</style></head><body><div x-cloak class="panel">Hidden until ready</div></body></html>`;
+    expect(inspectDesignHtmlDocumentIntegrity(document)).toEqual({
+      valid: true,
+    });
+  });
+
+  it("rejects x-cloak when the Alpine script URL is malformed", () => {
+    const document = `<!doctype html><html><head><script defer src="https://cdn.jsdelivr.net/npm/[email protected]/dist/cdn.min.js"></script><style>[x-cloak]{display:none!important}</style></head><body><div x-cloak>Hidden forever</div></body></html>`;
+    const result = inspectDesignHtmlDocumentIntegrity(document);
+    expect(result.valid).toBe(false);
+    expect(result.issue).toBe("runtime-alpine-missing");
+    expect(result.detail).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ issue: "runtime-alpine-missing" }),
+      ]),
+    );
+  });
+
+  it.each([
+    ["a grouped selector", "[x-cloak], .cloak { display: none !important; }"],
+    ["the Tailwind idiom", "[x-cloak] { @apply hidden; }"],
+    ["visibility instead of display", "[x-cloak] { visibility: hidden; }"],
+  ])("accepts a pre-Alpine hiding rule written as %s", (_name, rule) => {
+    const document = `<!doctype html><html><head><script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.15.11/dist/cdn.min.js"></script><style>${rule}</style></head><body><div x-cloak class="fixed inset-0">Alerts</div></body></html>`;
+    expect(inspectDesignHtmlDocumentIntegrity(document)).toEqual({
+      valid: true,
+    });
+  });
+
+  it("accepts x-cloak when the hiding rule could only live in a linked stylesheet", () => {
+    // A stylesheet this parser cannot read is unknown, not missing — reporting
+    // it as missing is the coercion this module exists to prevent.
+    const document = `<!doctype html><html><head><script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.15.11/dist/cdn.min.js"></script><link rel="stylesheet" href="theme.css"></head><body><div x-cloak class="fixed inset-0">Alerts</div></body></html>`;
+    expect(inspectDesignHtmlDocumentIntegrity(document)).toEqual({
+      valid: true,
+    });
+  });
+
+  it("accepts x-cloak pre-hidden by the element's own inline style", () => {
+    const document = `<!doctype html><html><head><script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.15.11/dist/cdn.min.js"></script></head><body><div x-cloak style="display:none" class="fixed inset-0">Alerts</div></body></html>`;
+    expect(inspectDesignHtmlDocumentIntegrity(document)).toEqual({
+      valid: true,
+    });
+  });
+
+  it("lets an unrelated edit save a screen that already lacked the rule", () => {
+    // The person dragging on the canvas did not author this markup and cannot
+    // add a CSS rule; refusing their edit would strand the screen.
+    const broken = `<!doctype html><html><head><script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.15.11/dist/cdn.min.js"></script></head><body><h1>Ops</h1><div x-cloak class="fixed inset-0">Alerts</div></body></html>`;
+    expect(() =>
+      assertDesignHtmlEditIntegrity({
+        previousContent: broken,
+        nextContent: broken.replace("<h1>Ops</h1>", "<h1>Operations</h1>"),
+        fileType: "html",
+      }),
+    ).not.toThrow();
+    // Still refused where it is authored rather than inherited.
+    expect(() => assertDesignHtmlWellFormed({ content: broken })).toThrow(
+      /x-cloak/,
+    );
+  });
+
+  it("still blocks an edit that introduces the missing rule", () => {
+    const sound = `<!doctype html><html><head><script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.15.11/dist/cdn.min.js"></script><style>[x-cloak]{display:none!important}</style></head><body><div x-cloak class="fixed inset-0">Alerts</div></body></html>`;
+    expect(() =>
+      assertDesignHtmlEditIntegrity({
+        previousContent: sound,
+        nextContent: sound.replace("[x-cloak]{display:none!important}", ""),
+        fileType: "html",
+      }),
+    ).toThrow(/x-cloak/);
+  });
+
   it("rejects the screenshot-like missing managed style opener", () => {
     const corrupted = DOCUMENT.replace(
       "<style data-agent-native-breakpoints>",
@@ -717,6 +809,14 @@ describe("assertDesignHtmlWellFormed", () => {
         content: '<section class="grid gap-4><div>Hi</div></section>',
       }),
     ).toThrow(DESIGN_HTML_INTEGRITY_ERROR_CODE);
+  });
+
+  it("rejects x-cloak without its hiding rule in a fragment too", () => {
+    expect(() =>
+      assertDesignHtmlWellFormed({
+        content: '<section><div x-cloak class="panel">Hi</div></section>',
+      }),
+    ).toThrow(/x-cloak/);
   });
 });
 

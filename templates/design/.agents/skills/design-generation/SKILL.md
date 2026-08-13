@@ -35,6 +35,53 @@ them:
 
 Jumping straight to code is how you get slop. Let the phases (below) do the work.
 
+## First decide the mode: reproduce or explore
+
+The workflow above assumes an under-specified prompt. When the user has already
+specified the design, that same workflow is the failure — exploration reads to
+them as "the agent ignored everything I gave it".
+
+Before Phase 1, check for **specification signals**:
+
+- an attached screenshot, mockup, or photo of a UI,
+- a linked design system / Brand Kit,
+- a written outline naming concrete screens, sections, components, or copy,
+- a named existing product/page to match, or pasted markup or tokens.
+
+**Any one of these puts you in reproduce mode.** In reproduce mode:
+
+- Do **not** call `present-design-variants`. Three divergent directions when the
+  user handed you one is not exploration, it is discarding their work. Produce
+  the one thing they specified.
+- Do **not** call `show-design-questions` about anything the supplied material
+  already answers. Ask only about a genuine gap, and prefer stating an
+  assumption over asking.
+- Every "Do" in the aesthetic quality bar below is **off** wherever it would
+  contradict the supplied material. Those rules break ties in the absence of a
+  spec; they never outvote one.
+- Reproduce first, improve second. Match the structure, then raise quality
+  *within* it, and say what you changed and why.
+
+Mixed input is normal: reproduce what was given, use the quality bar only for
+the parts genuinely left open. When a supplied reference and the linked design
+system disagree, follow the design system for tokens (color, type, spacing,
+radius) and the reference for layout and composition, then say you did.
+
+### A reference screenshot is a specification, not a mood board
+
+When the user attaches an image of a UI, read it as a layout spec and
+reproduce it: the same regions in the same positions, the same navigation
+pattern, the same information hierarchy and density, the same component
+grammar (tabs vs. pills, cards vs. rows, sidebar vs. topbar), the same
+approximate proportions. Name what you see before you build, so the user can
+correct a misread early. Deviate only where the image is genuinely unreadable
+or an explicit instruction overrides it — and say which, rather than
+silently substituting your own composition.
+
+An attached image is only guaranteed to be visible on the turn it arrived.
+If a screenshot was described earlier in the thread but you cannot see one now,
+say so and ask for a re-attach — never quietly design from the text alone.
+
 ## Authority and direction record
 
 Before generating, make a compact direction record: the job this surface must
@@ -69,13 +116,21 @@ change the design. Never smooth an evidence gap into confident copy.
 
 ## Aesthetic quality bar — beat distributional convergence
 
-The rules in this section are fallback quality heuristics. They do not
-override an active Agent-Native design system or an explicit brand constraint.
+The rules in this section are fallback quality heuristics for prompts that
+leave the look open. They do not override an active Agent-Native design system,
+a supplied reference, or an explicit brand constraint. **A banned item stops
+being banned the moment the user's own material specifies it** — if their Brand
+Kit's body font is Inter, the design ships Inter; if their screenshot is a
+centered hero with three icon cards, the design ships that. Substituting a
+"better" choice for a specified one is the single most-reported failure of this
+app. When you follow a specified value that appears on a "don't" list below,
+just follow it — no apology, no note, no compensating flourish elsewhere.
 
 You sample toward the "on-distribution" center by default; refuse it. **Every
 "don't" here carries a "do"** — a banned default plus where to go instead —
 because banning Inter alone just makes you reach for Roboto next. Use a banned
-item only if the user explicitly asks.
+item only if the user explicitly asks, or their design system or reference
+already uses it.
 
 - **Fonts.** Don't: Inter, Roboto, Arial, Open Sans, system-ui. Do: a distinctive
   Google Font pairing matched to the chosen aesthetic (see the table) — editorial
@@ -97,7 +152,10 @@ item only if the user explicitly asks.
 
 **Second-order convergence is real.** Even your "creative" picks converge (Space
 Grotesk everywhere; teal accent + blinking dot + left accent bars). Vary
-deliberately across generations so two designs never share a fingerprint.
+deliberately across generations so two designs never share a fingerprint —
+but only across designs *you* had to invent. A token the user's own system
+specifies is theirs, not your fingerprint: consistency with their brand is the
+goal, and varying away from it to avoid repeating yourself is a bug.
 
 **Principles to quote back while building:** color creates hierarchy, not
 decoration · density over decoration · earn every animation · commit to one point
@@ -293,9 +351,15 @@ The WIDEST requested device is the base/primary frame; narrower devices become b
 
 ### Phase 2 — Generate side-by-side variations (2-5, three by default)
 
-For new designs, default to **three** variations (`present-design-variants`
-accepts 2-5; three is the sweet spot). Call `present-design-variants` for both
-first-party and external MCP-host flows. It saves each candidate as a normal
+Skip this phase entirely in reproduce mode (see "First decide the mode" above) —
+a screenshot, a written outline, or a linked design system means the direction
+is already chosen, and offering three alternatives to it is the behavior users
+report as "the agent ignored my design".
+
+For new designs whose direction is genuinely open, default to **three**
+variations (`present-design-variants` accepts 2-5; three is the sweet spot).
+Call `present-design-variants` for both first-party and external MCP-host
+flows. It saves each candidate as a normal
 overview-board screen, then renders an inline chat choice with one button per
 screen name.
 
@@ -388,6 +452,14 @@ every `error`-severity finding with `fixAvailable: true`, call
 structural issues, token drift), fix them directly with `edit-design`. **A
 design with audit errors is not ready** — don't report a design as done while
 `run-design-audit` still returns unresolved errors.
+
+A `design-system-drift` finding means the screen uses none of the linked
+system's fonts, colors, or token names. That is a generation bug, not a style
+disagreement: the user linked that system precisely so the output would use it.
+Call `get-design-system` for the linked id, apply the real values through
+`edit-design`, and re-audit — never resolve it by explaining the deviation or
+by unlinking the system. It is the one check that can catch a design that
+looks fine and is still not the user's.
 
 After the audit is clean, call `take-design-screenshot` on each changed screen
 (default: 1280px desktop + 375px mobile). Fix everything its `diagnostics`
