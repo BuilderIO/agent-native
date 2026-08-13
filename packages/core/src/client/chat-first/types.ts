@@ -22,6 +22,11 @@ export type ChatFirstCopy = (
   values?: Record<string, string>,
 ) => string;
 
+export interface ChatFirstAppIconRenderOptions {
+  isActive: boolean;
+  isInactive: boolean;
+}
+
 export interface ChatFirstEmbedTarget {
   url: string;
   title?: string;
@@ -68,7 +73,10 @@ export interface ChatFirstAppRailProps {
   onOpenAllApps?: () => void;
   onCreateApp?: () => void;
   createAppTrigger?: ReactNode;
-  renderIcon: (app: ChatFirstAppItem) => ReactNode;
+  renderIcon: (
+    app: ChatFirstAppItem,
+    options: ChatFirstAppIconRenderOptions,
+  ) => ReactNode;
   copy?: ChatFirstCopy;
 }
 

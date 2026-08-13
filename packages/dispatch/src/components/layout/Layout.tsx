@@ -1074,11 +1074,12 @@ export function NavContent({
         onNavigate?.();
       }}
       createAppTrigger={chatFirstCreateAppTrigger}
-      renderIcon={(app) => (
+      renderIcon={(app, { isInactive }) => (
         <AppIcon
           id={app.id}
           name={app.name}
           size="sm"
+          monochrome={isInactive}
           className="size-7 rounded-lg"
         />
       )}

@@ -29,6 +29,7 @@ import { cn } from "../utils.js";
 import { defaultChatFirstCopy } from "./copy.js";
 import type {
   ChatFirstAppItem,
+  ChatFirstAppIconRenderOptions,
   ChatFirstAppRailProps,
   ChatFirstCopy,
 } from "./types.js";
@@ -40,16 +41,20 @@ function ChatFirstRailAppIcon({
 }: {
   app: ChatFirstAppItem;
   activeAppId?: string;
-  renderIcon: (app: ChatFirstAppItem) => ReactNode;
+  renderIcon: (
+    app: ChatFirstAppItem,
+    options: ChatFirstAppIconRenderOptions,
+  ) => ReactNode;
 }) {
-  const inactive = activeAppId !== undefined && activeAppId !== app.id;
+  const isActive = activeAppId !== undefined && activeAppId === app.id;
+  const isInactive = activeAppId !== undefined && !isActive;
 
   return (
     <span
       data-chat-first-app-icon
-      className={cn("transition-[filter]", inactive && "grayscale")}
+      className={cn("transition-[filter]", isInactive && "grayscale")}
     >
-      {renderIcon(app)}
+      {renderIcon(app, { isActive, isInactive })}
     </span>
   );
 }
@@ -321,7 +326,7 @@ export const ChatFirstAppsRail = memo(function ChatFirstAppsRail({
                 className={cn(
                   "flex size-9 items-center justify-center rounded-md",
                   activeAppId === app.id
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                    ? "text-sidebar-foreground"
                     : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
                 )}
                 onClick={() => onOpenApp(app)}

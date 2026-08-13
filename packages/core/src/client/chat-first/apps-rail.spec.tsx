@@ -33,7 +33,9 @@ describe("ChatFirstAppsRail", () => {
           activeAppId="content"
           collapsed
           onOpenApp={vi.fn()}
-          renderIcon={(app) => <span>{app.name}</span>}
+          renderIcon={(app, options) => (
+            <span data-icon-inactive={options.isInactive}>{app.name}</span>
+          )}
         />,
       );
     });
@@ -46,7 +48,12 @@ describe("ChatFirstAppsRail", () => {
     );
 
     expect(selectedIcon?.className).not.toContain("grayscale");
+    expect(selectedIcon?.closest("[data-chat-first-app]")?.className).not.toContain(
+      "bg-sidebar-accent",
+    );
+    expect(selectedIcon?.querySelector("[data-icon-inactive]")?.getAttribute("data-icon-inactive")).toBe("false");
     expect(inactiveIcon?.className).toContain("grayscale");
+    expect(inactiveIcon?.querySelector("[data-icon-inactive]")?.getAttribute("data-icon-inactive")).toBe("true");
   });
 
   it("keeps app icons in color when no app is selected", () => {
@@ -56,7 +63,9 @@ describe("ChatFirstAppsRail", () => {
           apps={[{ id: "content", name: "Content" }]}
           collapsed
           onOpenApp={vi.fn()}
-          renderIcon={(app) => <span>{app.name}</span>}
+          renderIcon={(app, options) => (
+            <span data-icon-inactive={options.isInactive}>{app.name}</span>
+          )}
         />,
       );
     });
@@ -65,5 +74,6 @@ describe("ChatFirstAppsRail", () => {
       "[data-chat-first-app-icon]",
     );
     expect(icon?.className).not.toContain("grayscale");
+    expect(icon?.querySelector("[data-icon-inactive]")?.getAttribute("data-icon-inactive")).toBe("false");
   });
 });

@@ -1008,6 +1008,11 @@ body {
   color: var(--desktop-app-icon-color, hsl(var(--desktop-app-icon-hue)));
 }
 
+.desktop-app-icon--monochrome {
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+}
+
 .desktop-app-card__icon .desktop-app-icon {
   width: 28px;
   height: 28px;
