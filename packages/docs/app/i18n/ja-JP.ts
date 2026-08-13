@@ -21,6 +21,7 @@ const jaJP = {
     copyLogoSvg: "ロゴ SVG をコピー",
     copyWordmark: "ワードマークをコピー",
     brandAssets: "ブランド素材",
+    tryNow: "今すぐ試す",
   },
   footer: {
     download: "ダウンロード",

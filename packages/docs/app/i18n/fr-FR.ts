@@ -21,6 +21,7 @@ const frFR = {
     copyLogoSvg: "Copier le logo SVG",
     copyWordmark: "Copier le logotype",
     brandAssets: "Ressources de marque",
+    tryNow: "Essayer",
   },
   footer: {
     download: "Télécharger",

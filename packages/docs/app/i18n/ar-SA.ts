@@ -21,6 +21,7 @@ const arSA = {
     copyLogoSvg: "نسخ شعار SVG",
     copyWordmark: "نسخ الاسم التجاري",
     brandAssets: "أصول العلامة التجارية",
+    tryNow: "جرّب الآن",
   },
   footer: {
     download: "تنزيل",

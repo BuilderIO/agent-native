@@ -21,6 +21,7 @@ const koKR = {
     copyLogoSvg: "로고 SVG 복사",
     copyWordmark: "워드마크 복사",
     brandAssets: "브랜드 자료",
+    tryNow: "지금 사용해보기",
   },
   footer: {
     download: "다운로드",

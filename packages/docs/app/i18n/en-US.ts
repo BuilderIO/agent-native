@@ -19,6 +19,7 @@ const enUS = {
     copyLogoSvg: "Copy Logo SVG",
     copyWordmark: "Copy Wordmark",
     brandAssets: "Brand Assets",
+    tryNow: "Try Now",
   },
   footer: {
     download: "Download",

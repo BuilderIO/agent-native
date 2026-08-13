@@ -21,6 +21,7 @@ const hiIN = {
     copyLogoSvg: "लोगो SVG कॉपी करें",
     copyWordmark: "वर्डमार्क कॉपी करें",
     brandAssets: "ब्रांड सामग्री",
+    tryNow: "अभी आज़माएँ",
   },
   footer: {
     download: "डाउनलोड",

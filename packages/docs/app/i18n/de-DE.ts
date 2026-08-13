@@ -21,6 +21,7 @@ const deDE = {
     copyLogoSvg: "Logo-SVG kopieren",
     copyWordmark: "Wortmarke kopieren",
     brandAssets: "Markenmaterial",
+    tryNow: "Jetzt testen",
   },
   footer: {
     download: "Herunterladen",

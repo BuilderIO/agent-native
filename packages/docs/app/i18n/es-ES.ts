@@ -21,6 +21,7 @@ const esES = {
     copyLogoSvg: "Copiar SVG del logotipo",
     copyWordmark: "Copiar logotipo textual",
     brandAssets: "Recursos de marca",
+    tryNow: "Probar ahora",
   },
   footer: {
     download: "Descargar",

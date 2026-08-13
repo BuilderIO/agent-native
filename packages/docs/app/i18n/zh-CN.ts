@@ -21,6 +21,7 @@ const zhCN = {
     copyLogoSvg: "复制徽标 SVG",
     copyWordmark: "复制文字标志",
     brandAssets: "品牌资源",
+    tryNow: "立即试用",
   },
   footer: {
     download: "下载",

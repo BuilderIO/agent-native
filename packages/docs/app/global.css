@@ -1179,7 +1179,8 @@ h4 {
 
 /* Header nav */
 .header-link {
-  font-size: 14px;
+  font-size: 15px;
+  font-weight: 500;
   color: var(--fg-secondary);
   text-decoration: none;
   transition: color 120ms;
@@ -1192,7 +1193,6 @@ h4 {
 
 .header-link.is-active {
   color: var(--fg);
-  font-weight: 500;
 }
 
 /* Mobile menu Cloud link */

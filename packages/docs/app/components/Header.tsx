@@ -2,11 +2,14 @@ import { useLocale, useT } from "@agent-native/core/client/i18n";
 import { FeedbackButton } from "@agent-native/core/client/ui";
 import { IconMessage } from "@tabler/icons-react";
 import { useState, useEffect, lazy, Suspense } from "react";
+import type { MouseEvent as ReactMouseEvent } from "react";
 import { Link, NavLink, useLocation, useNavigate } from "react-router";
 
 import { DEFAULT_DOCS_LOCALE, sitePathForLocale } from "./docs-locale";
 import DocsLanguagePicker from "./DocsLanguagePicker";
 import DocsLanguageSuggestion from "./DocsLanguageSuggestion";
+import { applyFirstTouchAttributionToLink } from "./marketing-attribution";
+import { templates, trackEvent } from "./TemplateCard";
 import ThemeToggle, { useDocsTheme } from "./ThemeToggle";
 import {
   ContextMenu,
@@ -23,7 +26,10 @@ const SearchModal = lazy(() =>
 );
 
 const feedbackTriggerClassName =
-  "h-8 items-center rounded-md border border-[var(--docs-border)] bg-transparent px-3 text-sm text-[var(--fg-secondary)] transition hover:border-[var(--fg-secondary)] hover:text-[var(--fg)]";
+  "h-9 items-center rounded-md border border-[var(--docs-border)] bg-transparent px-4 font-mono text-xs font-semibold uppercase tracking-wider text-[var(--fg-secondary)] transition hover:border-[var(--fg-secondary)] hover:text-[var(--fg)]";
+
+const TRY_NOW_CLASSNAME =
+  "inline-flex h-9 shrink-0 items-center justify-center rounded-md border border-[#00dff6] bg-[#01c8f1] px-4 font-mono text-xs font-semibold uppercase tracking-wider text-[#0a0a0a] no-underline transition hover:bg-[#3ad4f4] hover:no-underline";
 
 function SearchTrigger({
   onClick,
@@ -179,6 +185,46 @@ export default function Header() {
   const closeMobileMenu = () => setMobileMenuOpen(false);
   const feedbackLabel = t("feedback.label");
   const feedbackPlaceholder = t("feedback.placeholder");
+
+  const localizedPathname = sitePathForLocale(
+    location.pathname,
+    DEFAULT_DOCS_LOCALE,
+  );
+  const activeAppSlug = localizedPathname.match(/^\/apps\/([a-z0-9-]+)/)?.[1];
+  const activeTemplate = activeAppSlug
+    ? templates.find((template) => template.slug === activeAppSlug)
+    : undefined;
+  const tryNowHref = activeTemplate?.demoUrl ?? localizedPath("/apps");
+  const tryNowLabel = t("header.tryNow");
+
+  function handleTryNowClick(event: ReactMouseEvent<HTMLAnchorElement>) {
+    if (activeTemplate) applyFirstTouchAttributionToLink(event.currentTarget);
+    trackEvent("click try now", {
+      template: activeTemplate?.slug ?? null,
+      location: "header",
+    });
+  }
+
+  const tryNowButton = activeTemplate ? (
+    <a
+      href={tryNowHref}
+      target="_blank"
+      rel="noopener noreferrer"
+      className={TRY_NOW_CLASSNAME}
+      onClick={handleTryNowClick}
+    >
+      {tryNowLabel}
+    </a>
+  ) : (
+    <Link
+      data-an-prefetch="viewport"
+      to={tryNowHref}
+      className={TRY_NOW_CLASSNAME}
+      onClick={handleTryNowClick}
+    >
+      {tryNowLabel}
+    </Link>
+  );
 
   return (
     <>
@@ -347,6 +393,8 @@ export default function Header() {
             >
               <IconMessage size={16} stroke={1.5} />
             </button>
+
+            {tryNowButton}
 
             {/* Mobile hamburger */}
             <button

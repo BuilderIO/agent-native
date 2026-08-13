@@ -21,6 +21,7 @@ const ptBR = {
     copyLogoSvg: "Copiar SVG do logotipo",
     copyWordmark: "Copiar logotipo textual",
     brandAssets: "Recursos da marca",
+    tryNow: "Experimente agora",
   },
   footer: {
     download: "Baixar",

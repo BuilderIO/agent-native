@@ -19,6 +19,7 @@ const messages = {
     copyLogoSvg: "複製標誌 SVG",
     copyWordmark: "複製文字標誌",
     brandAssets: "品牌資源",
+    tryNow: "立即試用",
   },
   footer: {
     download: "下載",
