@@ -159,8 +159,9 @@ describe("createMicAudioCleanup", () => {
 
     expect(ctx.sourceNodes[0].connections[0]).toBe(highPass);
     expect(highPass.connections[0]).toBe(notches[0]);
-    expect(notches.at(-1)?.connections[0]).toBe(ctx.gain);
-    expect(notches.at(-1)?.connections[1]).toBe(ctx.analyser);
+    const lastNotch = notches[notches.length - 1];
+    expect(lastNotch?.connections[0]).toBe(ctx.gain);
+    expect(lastNotch?.connections[1]).toBe(ctx.analyser);
     expect(ctx.gain.connections[0]).toBe(ctx.destination);
 
     expect(ctx.gain.gain.targetCalls).toHaveLength(0);

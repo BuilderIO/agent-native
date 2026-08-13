@@ -70,7 +70,7 @@ type BiquadFilterNodeLike = AudioNodeLike & {
 
 type AnalyserNodeLike = AudioNodeLike & {
   fftSize: number;
-  getFloatTimeDomainData: (dataArray: Float32Array) => void;
+  getFloatTimeDomainData: (dataArray: Float32Array<ArrayBuffer>) => void;
 };
 
 type MediaStreamDestinationNodeLike = AudioNodeLike & {
