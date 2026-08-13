@@ -12,6 +12,7 @@ function isRemoteHttpUrl(src: string): boolean {
       url.origin !== window.location.origin
     );
   } catch {
+    // coercion-ok: malformed image sources are treated as non-remote candidates.
     return false;
   }
 }
@@ -26,6 +27,7 @@ export function imageDownloadFilename(src: string): string {
     const sanitized = decoded.replace(/[^a-z0-9._-]+/gi, "-");
     if (sanitized) return sanitized;
   } catch {
+    // coercion-ok: malformed image sources use the generic download filename.
     // Use the generic name for malformed or non-URL image sources.
   }
   return "image";
@@ -73,6 +75,7 @@ export async function downloadImage(src: string): Promise<void> {
       triggerBlobDownload(await response.blob(), filename);
       return;
     } catch {
+      // coercion-ok: a failed candidate is retried or falls back to opening the source.
       // Try the authenticated image proxy before falling back to the source URL.
     }
   }

@@ -5120,7 +5120,7 @@ export default function SlideEditor({
         value: canvasZoom,
         onZoomOut: canvasZoomOut,
         onZoomIn: canvasZoomIn,
-        canZoomOut: canvasZoom > MIN_CANVAS_ZOOM,
+        canZoomOut: canvasZoom > MIN_CANVAS_ZOOM, // i18n-ignore non-visible zoom metadata
         canZoomIn:
           canvasZoom < CANVAS_ZOOM_PRESETS[CANVAS_ZOOM_PRESETS.length - 1],
       };

@@ -23,6 +23,7 @@ export function readStoredDeckFilter(
     const stored = storage.getItem(DECK_FILTER_STORAGE_KEY);
     return stored === "all" || stored === "mine" ? stored : undefined;
   } catch {
+    // coercion-ok: localStorage failures intentionally fall back to the default filter.
     return undefined;
   }
 }
@@ -40,6 +41,7 @@ export function writeStoredDeckFilter(
     storage.setItem(DECK_FILTER_STORAGE_KEY, filter);
     return true;
   } catch {
+    // coercion-ok: a non-persisted filter is an acceptable browser-storage fallback.
     return false;
   }
 }
