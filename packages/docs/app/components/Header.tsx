@@ -1,16 +1,12 @@
 import { useLocale, useT } from "@agent-native/core/client/i18n";
 import { FeedbackButton } from "@agent-native/core/client/ui";
-import { IconMessage } from "@tabler/icons-react";
-import { useState, useEffect, lazy, Suspense } from "react";
+import { useState, useEffect } from "react";
 import type { MouseEvent as ReactMouseEvent } from "react";
 import { Link, NavLink, useLocation, useNavigate } from "react-router";
 
 import { DEFAULT_DOCS_LOCALE, sitePathForLocale } from "./docs-locale";
-import DocsLanguagePicker from "./DocsLanguagePicker";
-import DocsLanguageSuggestion from "./DocsLanguageSuggestion";
 import { applyFirstTouchAttributionToLink } from "./marketing-attribution";
 import { templates, trackEvent } from "./TemplateCard";
-import ThemeToggle, { useDocsTheme } from "./ThemeToggle";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -21,51 +17,11 @@ import {
 const DOCS_FEEDBACK_URL =
   "https://forms.agent-native.com/f/agent-native-feedback/_16ewV";
 
-const SearchModal = lazy(() =>
-  import("./SearchModal").then((m) => ({ default: m.SearchModal })),
-);
-
 const feedbackTriggerClassName =
-  "h-9 items-center rounded-md border border-[var(--docs-border)] bg-transparent px-4 font-mono text-xs font-semibold uppercase tracking-wider text-[var(--fg-secondary)] transition hover:border-[var(--fg-secondary)] hover:text-[var(--fg)]";
+  "inline-flex h-10 items-center justify-center rounded-md border border-[#5e5e5e] bg-[#0a0a0a] px-5 font-mono text-xs sm:text-sm font-semibold uppercase tracking-wider text-[#faf9f5] transition hover:border-[var(--fg-secondary)] hover:text-white";
 
 const TRY_NOW_CLASSNAME =
-  "inline-flex h-9 shrink-0 items-center justify-center rounded-md border border-[#00dff6] bg-[#01c8f1] px-4 font-mono text-xs font-semibold uppercase tracking-wider text-[#0a0a0a] no-underline transition hover:bg-[#3ad4f4] hover:no-underline";
-
-function SearchTrigger({
-  onClick,
-  label,
-  placeholder,
-}: {
-  onClick: () => void;
-  label: string;
-  placeholder: string;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      aria-label={label}
-      className="flex shrink-0 items-center gap-2 rounded-md border border-[var(--docs-border)] bg-[var(--bg-secondary)] px-2 py-1.5 text-sm text-[var(--fg-secondary)] transition hover:border-[var(--fg-secondary)] sm:px-3"
-    >
-      <svg
-        width="14"
-        height="14"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <circle cx="11" cy="11" r="8" />
-        <line x1="21" y1="21" x2="16.65" y2="16.65" />
-      </svg>
-      <span className="hidden sm:inline">{placeholder}</span>
-      <kbd className="hidden rounded border border-[var(--docs-border)] px-1.5 py-0.5 text-[10px] sm:inline-block">
-        ⌘K
-      </kbd>
-    </button>
-  );
-}
+  "inline-flex h-10 shrink-0 items-center justify-center rounded-md border border-[#00dff6] bg-[#01c8f1] px-5 font-mono text-xs sm:text-sm font-semibold uppercase tracking-wider text-[#0a0a0a] no-underline transition hover:bg-[#3ad4f4] hover:no-underline";
 
 function HamburgerIcon() {
   return (
@@ -104,37 +60,11 @@ function CloseIcon() {
   );
 }
 
-function useSearchModal() {
-  const [open, setOpen] = useState(false);
-  const [everOpened, setEverOpened] = useState(false);
-
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
-        e.preventDefault();
-        setEverOpened(true);
-        setOpen(true);
-      }
-    }
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, []);
-
-  const openModal = () => {
-    setEverOpened(true);
-    setOpen(true);
-  };
-
-  return { open, setOpen, everOpened, openModal };
-}
-
 export default function Header() {
-  const { open, setOpen, everOpened, openModal } = useSearchModal();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
   const { locale } = useLocale();
-  const { theme } = useDocsTheme();
   const isHome =
     sitePathForLocale(location.pathname, DEFAULT_DOCS_LOCALE) === "/";
   const [scrolled, setScrolled] = useState(false);
@@ -148,18 +78,12 @@ export default function Header() {
       const svg = await response.text();
       await navigator.clipboard.writeText(svg);
     } catch {
-      // Network or clipboard-permission failures have nothing actionable to
-      // surface here; just avoid copying an error response or throwing an
-      // unhandled rejection.
+      // Ignore clipboard failures
     }
   };
 
   useEffect(() => {
     if (!isHome) return;
-    // AgentSidebar wraps content in an overflow-auto div, so the window
-    // typically doesn't scroll. Listening on document with capture: true
-    // catches scroll events from any descendant scroll container, regardless
-    // of when AgentSidebar mounts or which element is actually scrolling.
     const onScroll = (e: Event) => {
       const target = e.target;
       let top = 0;
@@ -227,132 +151,209 @@ export default function Header() {
   );
 
   return (
-    <>
-      <header
-        className={`sticky top-0 z-50 transition-[background-color,border-color,backdrop-filter] duration-300 ${showHeaderBg ? "border-b border-[var(--docs-border)] bg-[var(--header-bg)] backdrop-blur-lg" : "border-b border-transparent bg-transparent"}`}
-      >
-        <nav className="mx-auto flex h-16 w-full max-w-[1600px] items-center gap-3 px-4 sm:gap-6 sm:px-6">
-          <ContextMenu>
-            <ContextMenuTrigger asChild>
-              <Link
-                data-an-prefetch="viewport"
-                to={localizedPath("/")}
-                aria-label="Agent-Native"
-                className="flex min-w-0 shrink-0 items-center gap-2 text-[var(--fg)] no-underline"
-                suppressHydrationWarning
-              >
-                <img
-                  src="/agent-native-icon-light.svg"
-                  alt=""
-                  className="block h-6 w-6 min-[380px]:hidden dark:hidden"
-                  aria-hidden="true"
-                  loading="lazy"
-                  decoding="async"
-                />
-                <img
-                  src="/agent-native-icon-dark.svg"
-                  alt=""
-                  className="hidden h-6 w-6 dark:block min-[380px]:dark:hidden"
-                  aria-hidden="true"
-                  loading="lazy"
-                  decoding="async"
-                />
-                <img
-                  src="/agent-native-logo-light.svg"
-                  alt="Agent-Native"
-                  width={1286}
-                  height={317}
-                  className="hidden aspect-[1286/317] h-6 w-auto min-[380px]:block dark:hidden"
-                  loading="lazy"
-                  decoding="async"
-                />
-                <img
-                  src="/agent-native-logo-dark.svg"
-                  alt="Agent-Native"
-                  width={1286}
-                  height={317}
-                  className="hidden aspect-[1286/317] h-6 w-auto min-[380px]:dark:block"
-                  loading="lazy"
-                  decoding="async"
-                />
-              </Link>
-            </ContextMenuTrigger>
-            <ContextMenuContent>
-              <ContextMenuItem
-                onSelect={() =>
-                  void copySvgToClipboard(
-                    theme === "dark"
-                      ? "/agent-native-icon-dark.svg"
-                      : "/agent-native-icon-light.svg",
-                  )
-                }
-              >
-                {t("header.copyLogoSvg")}
-              </ContextMenuItem>
-              <ContextMenuItem
-                onSelect={() =>
-                  void copySvgToClipboard(
-                    theme === "dark"
-                      ? "/agent-native-logo-dark.svg"
-                      : "/agent-native-logo-light.svg",
-                  )
-                }
-              >
-                {t("header.copyWordmark")}
-              </ContextMenuItem>
-              <ContextMenuItem
-                onSelect={() => navigate(localizedPath("/brand"))}
-              >
-                {t("header.brandAssets")}
-              </ContextMenuItem>
-            </ContextMenuContent>
-          </ContextMenu>
-
-          {/* Desktop nav links */}
-          <div className="hidden lg:flex items-center gap-5 text-sm">
-            <NavLink
+    <header
+      className={`sticky top-0 z-50 transition-[background-color,border-color,backdrop-filter] duration-300 ${
+        showHeaderBg
+          ? "border-b border-[var(--docs-border)] bg-[rgba(10,10,10,0.90)] backdrop-blur-md"
+          : "border-b border-transparent bg-transparent"
+      }`}
+    >
+      <nav className="mx-auto flex h-16 w-full max-w-[1440px] items-center justify-between px-6 md:px-12 lg:px-20 xl:px-24">
+        <ContextMenu>
+          <ContextMenuTrigger asChild>
+            <Link
               data-an-prefetch="viewport"
-              to={localizedPath("/docs")}
-              className={({ isActive }) =>
-                isActive ? "header-link is-active" : "header-link"
+              to={localizedPath("/")}
+              aria-label="Agent-Native"
+              className="flex shrink-0 items-center gap-2 text-[var(--fg)] no-underline lg:w-[320px] xl:w-[380px]"
+              suppressHydrationWarning
+            >
+              <img
+                src="/agent-native-icon-light.svg"
+                alt=""
+                className="block h-7 w-7 min-[380px]:hidden dark:hidden"
+                aria-hidden="true"
+                loading="lazy"
+                decoding="async"
+              />
+              <img
+                src="/agent-native-icon-dark.svg"
+                alt=""
+                className="hidden h-7 w-7 dark:block min-[380px]:dark:hidden"
+                aria-hidden="true"
+                loading="lazy"
+                decoding="async"
+              />
+              <img
+                src="/agent-native-logo-light.svg"
+                alt="Agent-Native"
+                width={1286}
+                height={317}
+                className="hidden aspect-[1286/317] h-8 lg:h-[34px] w-auto min-[380px]:block dark:hidden"
+                loading="lazy"
+                decoding="async"
+              />
+              <img
+                src="/agent-native-logo-dark.svg"
+                alt="Agent-Native"
+                width={1286}
+                height={317}
+                className="hidden aspect-[1286/317] h-8 lg:h-[34px] w-auto min-[380px]:dark:block"
+                loading="lazy"
+                decoding="async"
+              />
+            </Link>
+          </ContextMenuTrigger>
+          <ContextMenuContent>
+            <ContextMenuItem
+              onSelect={() =>
+                void copySvgToClipboard("/agent-native-icon-dark.svg")
               }
             >
-              {t("header.docs")}
-            </NavLink>
-            <NavLink
-              data-an-prefetch="viewport"
-              to={localizedPath("/apps")}
-              className={({ isActive }) =>
-                isActive ? "header-link is-active" : "header-link"
+              {t("header.copyLogoSvg")}
+            </ContextMenuItem>
+            <ContextMenuItem
+              onSelect={() =>
+                void copySvgToClipboard("/agent-native-logo-dark.svg")
               }
             >
-              {t("header.templates")}
-            </NavLink>
-            <a
-              href="https://github.com/BuilderIO/agent-native"
-              target="_blank"
-              rel="noreferrer"
-              className="header-link"
+              {t("header.copyWordmark")}
+            </ContextMenuItem>
+            <ContextMenuItem
+              onSelect={() => navigate(localizedPath("/brand"))}
             >
-              GitHub
-              <span className="text-[0.6em] align-super ms-0.5 opacity-70">
-                ↗
-              </span>
-            </a>
-            <a
-              href="https://discord.gg/qm82StQ2NC"
-              target="_blank"
-              rel="noreferrer"
-              className="header-link"
-            >
-              Discord
-              <span className="text-[0.6em] align-super ms-0.5 opacity-70">
-                ↗
-              </span>
-            </a>
-          </div>
+              {t("header.brandAssets")}
+            </ContextMenuItem>
+          </ContextMenuContent>
+        </ContextMenu>
 
-          <div className="ms-auto flex min-w-0 items-center gap-2 sm:gap-3">
+        {/* Desktop nav links */}
+        <div className="hidden lg:flex items-center gap-1 text-[15px] font-medium">
+          <NavLink
+            data-an-prefetch="viewport"
+            to={localizedPath("/docs")}
+            className={({ isActive }) =>
+              `px-2 py-1 rounded-md transition ${
+                isActive
+                  ? "text-[var(--fg)] font-medium"
+                  : "text-[#9a9997] hover:text-[var(--fg)]"
+              }`
+            }
+          >
+            {t("header.docs")}
+          </NavLink>
+          <NavLink
+            data-an-prefetch="viewport"
+            to={localizedPath("/apps")}
+            className={({ isActive }) =>
+              `px-2 py-1 rounded-md transition ${
+                isActive
+                  ? "text-[var(--fg)] font-medium"
+                  : "text-[#9a9997] hover:text-[var(--fg)]"
+              }`
+            }
+          >
+            {t("header.templates")}
+          </NavLink>
+          <a
+            href="https://github.com/BuilderIO/agent-native"
+            target="_blank"
+            rel="noreferrer"
+            className="px-2 py-1 rounded-md text-[#9a9997] transition hover:text-[var(--fg)]"
+          >
+            GitHub
+          </a>
+          <a
+            href="https://discord.gg/qm82StQ2NC"
+            target="_blank"
+            rel="noreferrer"
+            className="px-2 py-1 rounded-md text-[#9a9997] transition hover:text-[var(--fg)]"
+          >
+            Discord
+          </a>
+        </div>
+
+        {/* Right actions */}
+        <div className="flex shrink-0 items-center justify-end gap-3 lg:w-[320px] xl:w-[380px]">
+          <FeedbackButton
+            url={DOCS_FEEDBACK_URL}
+            label={feedbackLabel}
+            placeholder={feedbackPlaceholder}
+            trigger={
+              <button
+                type="button"
+                aria-label={feedbackLabel}
+                className={`${feedbackTriggerClassName} hidden lg:inline-flex`}
+              >
+                {feedbackLabel}
+              </button>
+            }
+            align="end"
+            side="bottom"
+          />
+
+          {tryNowButton}
+
+          {/* Mobile hamburger */}
+          <button
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            className="flex h-8 w-8 shrink-0 items-center justify-center text-[var(--fg-secondary)] transition hover:text-[var(--fg)] lg:hidden"
+            aria-label={t("header.toggleNavigation")}
+            aria-expanded={mobileMenuOpen}
+          >
+            {mobileMenuOpen ? <CloseIcon /> : <HamburgerIcon />}
+          </button>
+        </div>
+      </nav>
+
+      {/* Mobile dropdown menu */}
+      {mobileMenuOpen && (
+        <div className="lg:hidden border-t border-[var(--docs-border)] bg-[rgba(10,10,10,0.95)] backdrop-blur-lg px-6 py-5 flex flex-col gap-4">
+          <NavLink
+            data-an-prefetch="viewport"
+            to={localizedPath("/docs")}
+            className={({ isActive }) =>
+              `text-base font-medium transition ${
+                isActive
+                  ? "text-[var(--fg)]"
+                  : "text-[#9a9997] hover:text-[var(--fg)]"
+              }`
+            }
+            onClick={closeMobileMenu}
+          >
+            {t("header.docs")}
+          </NavLink>
+          <NavLink
+            data-an-prefetch="viewport"
+            to={localizedPath("/apps")}
+            className={({ isActive }) =>
+              `text-base font-medium transition ${
+                isActive
+                  ? "text-[var(--fg)]"
+                  : "text-[#9a9997] hover:text-[var(--fg)]"
+              }`
+            }
+            onClick={closeMobileMenu}
+          >
+            {t("header.templates")}
+          </NavLink>
+          <a
+            href="https://github.com/BuilderIO/agent-native"
+            target="_blank"
+            rel="noreferrer"
+            className="text-base font-medium text-[#9a9997] transition hover:text-[var(--fg)]"
+          >
+            GitHub
+          </a>
+          <a
+            href="https://discord.gg/qm82StQ2NC"
+            target="_blank"
+            rel="noreferrer"
+            className="text-base font-medium text-[#9a9997] transition hover:text-[var(--fg)]"
+          >
+            Discord
+          </a>
+          <div className="pt-2 flex flex-col gap-3">
             <FeedbackButton
               url={DOCS_FEEDBACK_URL}
               label={feedbackLabel}
@@ -361,119 +362,7 @@ export default function Header() {
                 <button
                   type="button"
                   aria-label={feedbackLabel}
-                  className={`${feedbackTriggerClassName} hidden lg:flex`}
-                >
-                  {feedbackLabel}
-                </button>
-              }
-              align="end"
-              side="bottom"
-            />
-            <div className="hidden lg:block">
-              <SearchTrigger
-                onClick={openModal}
-                label={t("header.searchAria")}
-                placeholder={t("header.searchPlaceholder")}
-              />
-            </div>
-            <div className="hidden shrink-0 items-center lg:flex">
-              <DocsLanguagePicker />
-              <DocsLanguageSuggestion />
-            </div>
-            <div className="hidden lg:block">
-              <ThemeToggle />
-            </div>
-            <button
-              onClick={() =>
-                window.dispatchEvent(new Event("agent-panel:toggle"))
-              }
-              aria-label={t("header.askAssistant")}
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[var(--docs-border)] text-[var(--fg-secondary)] hover:border-[var(--fg-secondary)] hover:text-[var(--fg)]"
-              title={t("header.askAssistant")}
-            >
-              <IconMessage size={16} stroke={1.5} />
-            </button>
-
-            {tryNowButton}
-
-            {/* Mobile hamburger */}
-            <button
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="flex h-8 w-8 shrink-0 items-center justify-center text-[var(--fg-secondary)] transition hover:text-[var(--fg)] lg:hidden"
-              aria-label={t("header.toggleNavigation")}
-              aria-expanded={mobileMenuOpen}
-            >
-              {mobileMenuOpen ? <CloseIcon /> : <HamburgerIcon />}
-            </button>
-          </div>
-        </nav>
-
-        {/* Mobile dropdown menu */}
-        {mobileMenuOpen && (
-          <div className="lg:hidden border-t border-[var(--docs-border)] bg-[var(--header-bg)] backdrop-blur-lg px-6 py-4 flex flex-col gap-4">
-            <div className="flex items-center gap-2">
-              <SearchTrigger
-                onClick={() => {
-                  closeMobileMenu();
-                  openModal();
-                }}
-                label={t("header.searchAria")}
-                placeholder={t("header.searchPlaceholder")}
-              />
-              <DocsLanguagePicker />
-              <ThemeToggle />
-            </div>
-            <NavLink
-              data-an-prefetch="viewport"
-              to={localizedPath("/docs")}
-              className={({ isActive }) =>
-                isActive ? "header-link is-active" : "header-link"
-              }
-              onClick={closeMobileMenu}
-            >
-              {t("header.docs")}
-            </NavLink>
-            <NavLink
-              data-an-prefetch="viewport"
-              to={localizedPath("/apps")}
-              className={({ isActive }) =>
-                isActive ? "header-link is-active" : "header-link"
-              }
-              onClick={closeMobileMenu}
-            >
-              {t("header.templates")}
-            </NavLink>
-            <a
-              href="https://github.com/BuilderIO/agent-native"
-              target="_blank"
-              rel="noreferrer"
-              className="header-link"
-            >
-              GitHub
-              <span className="text-[0.6em] align-super ms-0.5 opacity-70">
-                ↗
-              </span>
-            </a>
-            <a
-              href="https://discord.gg/qm82StQ2NC"
-              target="_blank"
-              rel="noreferrer"
-              className="header-link"
-            >
-              Discord
-              <span className="text-[0.6em] align-super ms-0.5 opacity-70">
-                ↗
-              </span>
-            </a>
-            <FeedbackButton
-              url={DOCS_FEEDBACK_URL}
-              label={feedbackLabel}
-              placeholder={feedbackPlaceholder}
-              trigger={
-                <button
-                  type="button"
-                  aria-label={feedbackLabel}
-                  className={`${feedbackTriggerClassName} inline-flex self-start`}
+                  className={`${feedbackTriggerClassName} w-full`}
                 >
                   {feedbackLabel}
                 </button>
@@ -481,14 +370,35 @@ export default function Header() {
               align="start"
               side="bottom"
             />
+            {activeTemplate ? (
+              <a
+                href={tryNowHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={`${TRY_NOW_CLASSNAME} w-full`}
+                onClick={(e) => {
+                  handleTryNowClick(e);
+                  closeMobileMenu();
+                }}
+              >
+                {tryNowLabel}
+              </a>
+            ) : (
+              <Link
+                data-an-prefetch="viewport"
+                to={tryNowHref}
+                className={`${TRY_NOW_CLASSNAME} w-full`}
+                onClick={(e) => {
+                  handleTryNowClick(e);
+                  closeMobileMenu();
+                }}
+              >
+                {tryNowLabel}
+              </Link>
+            )}
           </div>
-        )}
-      </header>
-      {everOpened && (
-        <Suspense fallback={null}>
-          <SearchModal open={open} onClose={() => setOpen(false)} />
-        </Suspense>
+        </div>
       )}
-    </>
+    </header>
   );
 }
