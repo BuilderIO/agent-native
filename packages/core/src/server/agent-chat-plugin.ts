@@ -179,6 +179,7 @@ import {
 import { normalizeDatabaseToolsMode } from "../scripts/db/tool-mode.js";
 import type { ResolvedKeyReference } from "../secrets/substitution.js";
 import { getSetting, putSetting } from "../settings/store.js";
+import { docsUrl } from "../shared/docs-url.js";
 import {
   handleSharedThreadRequest,
   type SharedThreadRouteDependencies,
@@ -4401,8 +4402,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           } = { skills };
 
           if (skills.length === 0) {
-            result.hint =
-              "No skills found. Add skill files under skills/ in Resources. Learn more: https://agent-native.com/docs/resources#skills";
+            result.hint = `No skills found. Add skill files under skills/ in Resources. Learn more: ${docsUrl("agent-resources", { hash: "skills" })}`;
           }
 
           return result;

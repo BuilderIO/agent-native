@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.153.10
+
+### Patch Changes
+
+- 8008dfe: Centralize product docs links behind `docsUrl()` and retarget Settings, Team, onboarding, and template help links at live agent-native.com docs pages.
+
 ## 0.153.9
 
 ### Patch Changes
