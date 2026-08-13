@@ -11,6 +11,13 @@ export interface SkillMetadata {
   description?: string;
 }
 
+export interface AgentWorkspaceResource {
+  path: string;
+  kind: ResourceKind;
+  name?: string;
+  description?: string;
+}
+
 export interface CustomAgentProfile {
   id: string;
   path: string;
@@ -21,6 +28,10 @@ export interface CustomAgentProfile {
   color?: string;
   delegateDefault?: boolean;
   instructions: string;
+  workspace?: {
+    root: string;
+    resources: AgentWorkspaceResource[];
+  };
 }
 
 export interface RemoteAgentManifest {
@@ -136,8 +147,11 @@ export function frontmatterFieldsToObject(
 }
 
 export function isSkillPath(path: string): boolean {
-  if (!path.startsWith("skills/") || !path.endsWith(".md")) return false;
-  const relative = path.replace(/^skills\//, "");
+  const prefix = path.startsWith("skills/")
+    ? "skills/"
+    : path.match(/^agents\/[^/]+\/skills\//)?.[0];
+  if (!prefix || !path.endsWith(".md")) return false;
+  const relative = path.slice(prefix.length);
   return (
     relative.endsWith("/SKILL.md") ||
     (relative.endsWith(".md") && !relative.includes("/"))
@@ -147,6 +161,7 @@ export function isSkillPath(path: string): boolean {
 export function getSkillNameFromPath(path: string): string {
   const relative = path
     .replace(/^\.agents\/skills\//, "")
+    .replace(/^agents\/[^/]+\/skills\//, "")
     .replace(/^skills\//, "");
   if (relative.endsWith("/SKILL.md")) {
     return (

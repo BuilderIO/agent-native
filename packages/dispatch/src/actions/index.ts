@@ -33,8 +33,10 @@ import getWorkspaceResourceEffectiveContext from "./get-workspace-resource-effec
 import grantVaultSecretsToApp from "./grant-vault-secrets-to-app.js";
 import grantWorkspaceResourcesToApp from "./grant-workspace-resources-to-app.js";
 import importAgent from "./import-agent.js";
+import importAgentPack from "./import-agent-pack.js";
 import listAgentRunFailures from "./list-agent-run-failures.js";
 import listAgentThreadSources from "./list-agent-thread-sources.js";
+import listAgentPack from "./list-agent-pack.js";
 import listAvailableWorkspaceTemplates from "./list-available-workspace-templates.js";
 import listConnectedAgents from "./list-connected-agents.js";
 import listCuratedWorkspaceTemplates from "./list-curated-workspace-templates.js";
@@ -164,6 +166,8 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "list-workspace-resources-for-app": listWorkspaceResourcesForApp,
   "list-workspace-resources": listWorkspaceResources,
   "import-agent": importAgent,
+  "import-agent-pack": importAgentPack,
+  "list-agent-pack": listAgentPack,
   navigate: navigate,
   open_app: openApp,
   "apply-dream-proposal": applyDreamProposal,

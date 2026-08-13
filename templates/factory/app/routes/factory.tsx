@@ -22,6 +22,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 
 import { FactoryAuditView } from "@/components/factory/FactoryAuditView";
+import { FactoryAgentsView } from "@/components/factory/FactoryAgentsView";
 import {
   FactoryCanvas,
   type FactoryCanvasEdge,
@@ -123,6 +124,7 @@ type WorkspaceTab =
   | "inbox"
   | "rules"
   | "automations"
+  | "agents"
   | "audit"
   | "settings";
 
@@ -610,6 +612,12 @@ export default function FactoryRoute() {
               {t("factoryRoute.automationsTab")}
             </TabButton>
             <TabButton
+              active={activeTab === "agents"}
+              onClick={() => setActiveTab("agents")}
+            >
+              {t("factoryRoute.agentsTab")}
+            </TabButton>
+            <TabButton
               active={activeTab === "audit"}
               onClick={() => setActiveTab("audit")}
             >
@@ -696,6 +704,8 @@ export default function FactoryRoute() {
           <RulesView t={t} />
         ) : activeTab === "automations" ? (
           <AutomationsView factoryId={factoryId} t={t} />
+        ) : activeTab === "agents" ? (
+          <FactoryAgentsView />
         ) : activeTab === "audit" ? (
           <FactoryAuditView
             factoryId={factoryId}
@@ -735,6 +745,7 @@ function parseWorkspaceTab(value: string | null): WorkspaceTab {
     value === "inbox" ||
     value === "rules" ||
     value === "automations" ||
+    value === "agents" ||
     value === "audit" ||
     value === "settings"
     ? value

@@ -162,6 +162,18 @@ const messages = {
     metricRuns: "Runs",
     rulesTab: "Rules",
     automationsTab: "Automations",
+    agentsTab: "Agents",
+    agenticAppsTitle: "Agentic apps",
+    agenticAppsEmpty: "No agentic apps in this workspace yet.",
+    editAppDetails: "Edit app details",
+    editAppDetailsDescription:
+      "Update the shared display name and description for this workspace app.",
+    appName: "Name",
+    appDescription: "Description",
+    openApp: "Open app",
+    saveChanges: "Save changes",
+    savingChanges: "Saving...",
+    agentsTitle: "Agents",
     auditTab: "Audit",
     auditTitle: "Run audit",
     auditDescription:
