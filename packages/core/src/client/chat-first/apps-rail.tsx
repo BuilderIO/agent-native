@@ -83,7 +83,10 @@ function AppRows({
   onRemoveApp?: (app: ChatFirstAppItem) => void;
   onTogglePinned: (id: string) => void;
   onMove: (id: string, direction: -1 | 1) => void;
-  renderIcon: (app: ChatFirstAppItem) => ReactNode;
+  renderIcon: (
+    app: ChatFirstAppItem,
+    options: ChatFirstAppIconRenderOptions,
+  ) => ReactNode;
   copy: ChatFirstCopy;
 }) {
   const orderedIds = orderChatFirstAppIds(

@@ -190,7 +190,7 @@ describe("ExtensionsSidebarSection", () => {
     expect(popover?.dataset.collisionPadding).toBe("8");
 
     const docsLink = popover?.querySelector(
-      'a[href="https://agent-native.com/docs/extensions"]',
+      'a[href="https://www.agent-native.com/docs/extensions"]',
     ) as HTMLAnchorElement | null;
     expect(docsLink).not.toBeNull();
     expect(docsLink?.getAttribute("aria-label")).toBe("Learn more");

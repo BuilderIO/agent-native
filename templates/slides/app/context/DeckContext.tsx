@@ -40,12 +40,10 @@ type GranularOp =
       op: "add-slide";
       slideId: string;
       afterSlideId?: string;
-      fields: {
-        content: string;
-        notes?: string;
-        layout?: string;
-        background?: string;
-      };
+      /** Everything but `id` and the transient `imageLoading` flag. A slide
+       * copied or restored through this op keeps its transition, animations,
+       * and image/Excalidraw data instead of silently losing them on reload. */
+      fields: Omit<Partial<Slide>, "id" | "imageLoading"> & { content: string };
     }
   | {
       op: "patch-deck-fields";
@@ -57,6 +55,16 @@ type GranularOp =
   | { op: "full-replace"; deck: Deck };
 
 export type PatchDeckOp = Exclude<GranularOp, { op: "full-replace" }>;
+
+/** Slide payload for an `add-slide` op. `imageLoading` is transient UI state
+ * and must not persist; everything else on the slide has to survive the round
+ * trip or a duplicated/restored slide comes back missing fields. */
+function addSlideFields(
+  slide: Slide,
+): Extract<GranularOp, { op: "add-slide" }>["fields"] {
+  const { id: _id, imageLoading: _imageLoading, ...fields } = slide;
+  return fields;
+}
 export type DeckReloadStatus = "loaded" | "failed" | "stale";
 export interface UpdateSlideOptions {
   persistence?: "debounced" | "immediate";
@@ -683,13 +691,11 @@ export function applyOpToDeck(deck: Deck, op: PatchDeckOp): Deck {
     case "add-slide": {
       if (deck.slides.some((s) => s.id === op.slideId)) return deck; // idempotent
       const newSlide: Slide = {
+        ...op.fields,
         id: op.slideId,
         content: op.fields.content,
         notes: op.fields.notes ?? "",
         layout: (op.fields.layout as SlideLayout) ?? "content",
-        ...(op.fields.background !== undefined
-          ? { background: op.fields.background }
-          : {}),
       };
       const slides = [...deck.slides];
       const afterIdx = op.afterSlideId
@@ -822,14 +828,7 @@ export function deriveInverseOp(
           op: "add-slide",
           slideId: prior.id,
           afterSlideId,
-          fields: {
-            content: prior.content,
-            notes: prior.notes,
-            layout: prior.layout,
-            ...(prior.background !== undefined
-              ? { background: prior.background }
-              : {}),
-          },
+          fields: addSlideFields(prior),
         },
         {
           op: "reorder-slides",
@@ -2127,12 +2126,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         op: "add-slide",
         slideId: newSlide.id,
         afterSlideId,
-        fields: {
-          content: newSlide.content,
-          notes: newSlide.notes,
-          layout: newSlide.layout,
-          background: newSlide.background,
-        },
+        fields: addSlideFields(newSlide),
       };
       enqueueDeckOp(deckId, op);
       if (before) recordUndo(before, op, { label: "Add slide" });
@@ -2240,17 +2234,11 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       // Granular add-slide op — inserts the copy after the original. Build it
       // from the current deck before scheduling the React state update; the
       // functional updater runs later and cannot be used to produce the op.
-      const { id: newSlideId, ...rest } = copiedSlide;
       const op: PatchDeckOp = {
         op: "add-slide",
-        slideId: newSlideId,
+        slideId: copiedSlide.id,
         afterSlideId: slideId,
-        fields: {
-          content: rest.content,
-          notes: rest.notes,
-          layout: rest.layout,
-          background: rest.background,
-        },
+        fields: addSlideFields(copiedSlide),
       };
       enqueueDeckOp(deckId, op);
       recordUndo(before, op, { label: "Duplicate slide" });

@@ -768,7 +768,10 @@ export default function CodeAgentsHub({
     void window.electronAPI.shell.openExternal(url);
   }, []);
   const renderChatFirstAppIcon = useCallback(
-    (app: ChatFirstAppItem, { isInactive }: { isInactive: boolean }) => (
+    (
+      app: ChatFirstAppItem,
+      { isInactive }: { isInactive: boolean } = { isInactive: false },
+    ) => (
       <CodeAgentsAppIcon
         id={app.id}
         name={app.name}

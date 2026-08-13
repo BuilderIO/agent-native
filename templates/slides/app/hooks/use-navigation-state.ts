@@ -156,22 +156,21 @@ export function useNavigationState() {
       path = `/deck/${cmd.deckId}`;
       if (cmd.view === "present") {
         path += "/present";
-      } else {
-        const internalSlideIndex =
-          typeof cmd.slideNumber === "number" &&
-          Number.isFinite(cmd.slideNumber) &&
-          cmd.slideNumber >= 1
-            ? cmd.slideNumber - 1
-            : cmd.slideIndex;
-        if (
-          typeof internalSlideIndex === "number" &&
-          Number.isFinite(internalSlideIndex) &&
-          internalSlideIndex >= 0
-        ) {
-          // Convert the internal zero-based value back to the 1-based
-          // ?slide=N URL param the editor reads.
-          path += `?slide=${internalSlideIndex + 1}`;
-        }
+      }
+      const internalSlideIndex =
+        typeof cmd.slideNumber === "number" &&
+        Number.isFinite(cmd.slideNumber) &&
+        cmd.slideNumber >= 1
+          ? cmd.slideNumber - 1
+          : cmd.slideIndex;
+      if (
+        typeof internalSlideIndex === "number" &&
+        Number.isFinite(internalSlideIndex) &&
+        internalSlideIndex >= 0
+      ) {
+        // Convert the internal zero-based value back to the 1-based
+        // ?slide=N URL param both the editor and presentation view read.
+        path += `?slide=${internalSlideIndex + 1}`;
       }
     }
 

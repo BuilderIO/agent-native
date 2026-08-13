@@ -385,7 +385,7 @@ const MIC_ON_KEY = "clips:mic-on";
 const SYSTEM_AUDIO_KEY = "clips:system-audio";
 const READINESS_REVIEWED_KEY = "clips:readiness-reviewed";
 const REWIND_DOCS_URL =
-  "https://www.agent-native.com/docs/template-clips#agent-readable-clips";
+  "https://www.agent-native.com/docs/template-clips-capture-everywhere#rewind-quick-save";
 
 // Sensible defaults so the user never has to type a URL on first launch.
 // Dev builds point at the local dev server; production builds point at the
