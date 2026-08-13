@@ -37,8 +37,10 @@ export const meta = () =>
   );
 
 const template = templates.find((t) => t.slug === "clips")!;
-const AI_PROMPT =
-  "Watch https://clips.agent-native.com/share/B0AgxdvzuZ7H. Tell me the most impactful way I could be using agent-native clips in my own work projects this week.";
+const CLIPS_PROMPT_URL = "https://clips.agent-native.com/share/B0AgxdvzuZ7H";
+const CLIPS_PROMPT_INSTRUCTION =
+  "Tell me the most impactful way I could be using agent-native clips in my own work projects this week.";
+const AI_PROMPT = `Watch ${CLIPS_PROMPT_URL}. ${CLIPS_PROMPT_INSTRUCTION}`;
 
 const CLIP_PREVIEWS = [
   {
@@ -157,92 +159,21 @@ function ClipPreviewSlider() {
   );
 }
 
-function CliCopy({
-  value = template.cliCommand,
-  location = "landing_page",
-  multiline = false,
-}: {
-  value?: string;
-  location?: string;
-  multiline?: boolean;
-} = {}) {
-  const [copied, setCopied] = useState(false);
-  function handleCopy() {
-    navigator.clipboard.writeText(value);
-    setCopied(true);
-    trackEvent("copy cli command", {
-      template: template.slug,
-      location,
-    });
-    setTimeout(() => setCopied(false), 2000);
-  }
-  return (
-    <button
-      type="button"
-      onClick={handleCopy}
-      data-template-cli-copy={multiline ? undefined : true}
-      className={`group col-span-full flex w-full min-w-0 max-w-full gap-3 rounded-md border border-[var(--code-border)] bg-[var(--code-bg)] px-4 py-3 font-mono text-sm transition hover:border-[var(--fg-secondary)] sm:px-5 ${
-        multiline
-          ? "items-start"
-          : "items-center sm:w-auto sm:max-w-[min(100%,36rem)]"
-      }`}
-    >
-      {!multiline ? (
-        <span className="shrink-0 text-[var(--fg-secondary)]">$</span>
-      ) : null}
-      <span
-        data-template-cli-copy-text={multiline ? undefined : true}
-        className={`min-w-0 text-[var(--fg)] ${
-          multiline
-            ? "flex-1 whitespace-normal text-left leading-relaxed [overflow-wrap:anywhere]"
-            : "truncate"
-        }`}
-      >
-        {value}
-      </span>
-      <span
-        className={`ml-auto inline-flex shrink-0 items-center gap-1.5 transition ${
-          multiline
-            ? "text-[var(--fg)] opacity-100 group-hover:text-[var(--docs-accent)]"
-            : "text-[var(--fg-secondary)] opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
-        }`}
-      >
-        {copied ? (
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <polyline points="20 6 9 17 4 12" />
-          </svg>
-        ) : (
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-          </svg>
-        )}
-      </span>
-    </button>
-  );
-}
-
 export default function ClipsTemplate() {
   const t = useT();
   const { locale } = useLocale();
+  const [aiPromptCopied, setAiPromptCopied] = useState(false);
+
+  function handleCopyAiPrompt() {
+    navigator.clipboard.writeText(AI_PROMPT);
+    setAiPromptCopied(true);
+    trackEvent("copy cli command", {
+      template: template.slug,
+      location: "landing_page_prompt",
+    });
+    setTimeout(() => setAiPromptCopied(false), 2000);
+  }
+
   return (
     <main className="template-detail-page mx-auto w-full max-w-[1200px] overflow-x-clip px-4 sm:px-6">
       {/* Hero */}
@@ -291,15 +222,73 @@ export default function ClipsTemplate() {
             />
           </div>
         </div>
+      </section>
 
+      {/* Try with AI */}
+      <section
+        id="try-with-ai"
+        className="scroll-mt-24 border-t border-[#1a1a1a] bg-[#0a0a0a]"
+      >
         <div
-          id="try-with-ai"
-          className="mx-auto mt-10 max-w-3xl scroll-mt-24 lg:mt-12"
+          aria-hidden="true"
+          className="hidden h-20 border-x border-[#1a1a1a] lg:grid lg:grid-cols-3"
         >
-          <h2 className="mb-4 text-2xl font-bold tracking-tight sm:text-3xl">
-            Paste this into Claude, ChatGPT, or Cursor:
-          </h2>
-          <CliCopy value={AI_PROMPT} location="landing_page_prompt" multiline />
+          <div />
+          <div className="border-x border-[#1a1a1a]" />
+          <div />
+        </div>
+
+        <div className="flex flex-col border-y border-[#1a1a1a] lg:flex-row lg:items-stretch">
+          <div className="flex items-center border-b border-[#1a1a1a] px-6 py-8 sm:px-10 lg:w-[416px] lg:shrink-0 lg:border-b-0 lg:border-e lg:py-0 lg:ps-8 lg:pe-16">
+            <h2 className="max-w-[320px] font-sans text-2xl font-medium leading-[1.3] tracking-[-0.24px] text-[#faf9f5]">
+              Try pasting this into Claude, ChatGPT, or Cursor:
+            </h2>
+          </div>
+
+          <div className="flex flex-1 items-center gap-6 px-6 py-8 sm:px-10 lg:py-8">
+            <p className="min-w-0 flex-1 font-mono text-[15px] leading-6 text-[#9a9997] sm:text-lg">
+              <span>Watch </span>
+              <span className="text-white">
+                {CLIPS_PROMPT_URL}.
+              </span>
+              <span> {CLIPS_PROMPT_INSTRUCTION}</span>
+            </p>
+
+            <button
+              type="button"
+              onClick={handleCopyAiPrompt}
+              aria-label="Copy prompt"
+              className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-md border border-[#3a3a3a] bg-[#1d1d1d] text-[#faf9f5] transition hover:border-[var(--fg-secondary)]"
+            >
+              {aiPromptCopied ? (
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              ) : (
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 18 18"
+                  fill="none"
+                  xmlns="http://www.w3.org/2000/svg"
+                >
+                  <path
+                    d="M14.4375 7.5C14.4375 7.25136 14.3387 7.01297 14.1628 6.83716C13.987 6.66134 13.7486 6.5625 13.5 6.5625H7.5C7.25136 6.5625 7.01297 6.66134 6.83716 6.83716C6.66134 7.01297 6.5625 7.25136 6.5625 7.5V13.5C6.5625 13.7486 6.66134 13.987 6.83716 14.1628C7.01297 14.3387 7.25136 14.4375 7.5 14.4375H13.5C13.7486 14.4375 13.987 14.3387 14.1628 14.1628C14.3387 13.987 14.4375 13.7486 14.4375 13.5V7.5ZM11.4375 4.5C11.4375 4.25136 11.3387 4.01297 11.1628 3.83716C10.987 3.66134 10.7486 3.5625 10.5 3.5625H4.5C4.25136 3.5625 4.01297 3.66134 3.83716 3.83716C3.66134 4.01297 3.5625 4.25136 3.5625 4.5V10.5C3.5625 10.7486 3.66134 10.987 3.83716 11.1628C4.01297 11.3387 4.25136 11.4375 4.5 11.4375H5.4375V7.5C5.4375 6.95299 5.65495 6.42854 6.04175 6.04175C6.42854 5.65495 6.95299 5.4375 7.5 5.4375H11.4375V4.5ZM12.5625 5.4375H13.5C14.047 5.4375 14.5715 5.65495 14.9583 6.04175C15.345 6.42854 15.5625 6.95299 15.5625 7.5V13.5C15.5625 14.047 15.345 14.5715 14.9583 14.9583C14.5715 15.345 14.047 15.5625 13.5 15.5625H7.5C6.95299 15.5625 6.42854 15.345 6.04175 14.9583C5.65495 14.5715 5.4375 14.047 5.4375 13.5V12.5625H4.5C3.95299 12.5625 3.42854 12.345 3.04175 11.9583C2.65495 11.5715 2.4375 11.047 2.4375 10.5V4.5C2.4375 3.95299 2.65495 3.42854 3.04175 3.04175C3.42854 2.65495 3.95299 2.4375 4.5 2.4375H10.5C11.047 2.4375 11.5715 2.65495 11.9583 3.04175C12.345 3.42854 12.5625 3.95299 12.5625 4.5V5.4375Z"
+                    fill="#FAF9F5"
+                  />
+                </svg>
+              )}
+            </button>
+          </div>
         </div>
       </section>
 
