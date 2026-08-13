@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.154.3
+
+### Patch Changes
+
+- 37e4ba3: Increase the buffer available when listing downloaded template archives.
+
 ## 0.154.2
 
 ### Patch Changes
