@@ -247,32 +247,47 @@ export default function ClipsTemplate() {
     <main className="template-detail-page mx-auto w-full max-w-[1200px] overflow-x-clip px-4 sm:px-6">
       {/* Hero */}
       <section className="py-12 sm:py-16 lg:py-20">
-        <div className="grid min-w-0 gap-10 lg:grid-cols-2 lg:items-start lg:gap-12">
-          <div>
-            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] bg-[var(--bg-secondary)] px-3 py-1 text-xs text-[var(--fg-secondary)]">
-              <span
-                className="inline-block h-2 w-2 rounded-full"
-                style={{ background: template.color }}
-              />
-              Agent-Native {template.name}
-            </div>
-
-            <h1 className="mb-4 text-[2rem] font-bold leading-[1.08] tracking-tight sm:text-4xl md:text-5xl">
-              {t("templateLanding.clips.s007")}
-            </h1>
-
-            <p className="mb-6 text-base leading-7 text-[var(--fg-secondary)] sm:text-lg sm:leading-relaxed">
-              {t("templateLanding.clips.s008")}
-            </p>
+        <div className="relative overflow-hidden border border-[var(--docs-border)]">
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 hidden lg:grid lg:grid-cols-3"
+          >
+            <div />
+            <div className="border-x border-[var(--docs-border)]" />
+            <div />
           </div>
 
-          <div className="overflow-hidden rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)]">
+          <div className="relative grid gap-3 px-6 pb-10 pt-12 sm:gap-4 sm:px-10 sm:pb-14 sm:pt-16 lg:grid-cols-3 lg:gap-6 lg:pb-20 lg:pt-24">
+            <p
+              className="font-mono text-sm font-semibold uppercase tracking-[0.14em] lg:col-start-1 lg:row-start-1"
+              style={{ color: template.color }}
+            >
+              Agent-Native {template.name}
+            </p>
+
+            <h1 className="text-[2rem] font-medium leading-[1.05] tracking-tight sm:text-4xl lg:col-span-2 lg:col-start-1 lg:row-start-2 lg:text-[2.875rem]">
+              <span className="text-[var(--fg)]">
+                Screen recordings your AI{" "}
+              </span>
+              <span className="text-[var(--fg-secondary)]">
+                can actually watch
+              </span>
+            </h1>
+
+            <div className="lg:col-start-3 lg:row-start-2 lg:self-center lg:ps-8">
+              <p className="max-w-[300px] text-sm leading-relaxed text-[var(--fg-secondary)]">
+                {t("templateLanding.clips.s008")}
+              </p>
+            </div>
+          </div>
+
+          <div className="relative border-t border-[var(--docs-border)]">
             <img
               src={template.screenshot}
               alt={t("templateLanding.clips.s001")}
               loading="lazy"
               decoding="async"
-              className="w-full object-cover object-top"
+              className="h-auto max-h-[536px] w-full object-cover object-top"
             />
           </div>
         </div>
