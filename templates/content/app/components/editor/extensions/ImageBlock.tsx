@@ -545,7 +545,10 @@ export function ImageBlock({
       ) {
         return;
       }
-      if (!src && node.attrs.uploadId) {
+      if (
+        !src &&
+        String(node.attrs.uploadId ?? "").startsWith("image-picker-")
+      ) {
         updateAttributes({ uploadId: null });
       }
       setSourcePanelOpen(false);
@@ -841,11 +844,19 @@ export function ImageBlock({
     toast.success(t("editor.media.imageAdded"));
   }
 
+  function handleAssetsPickerOpenChange(open: boolean) {
+    setAssetsPickerOpen(open);
+    if (!open && !src) {
+      updateAttributes({ uploadId: null });
+      restoreEmptyPlaceholderSelection();
+    }
+  }
+
   function renderAssetsPickerDialog() {
     return (
       <AssetsPickerDialog
         open={assetsPickerOpen}
-        onOpenChange={setAssetsPickerOpen}
+        onOpenChange={handleAssetsPickerOpenChange}
         url={assetsPickerUrl()}
         title={t("editor.media.assets")}
         embeddedTitle={t("editor.media.assetsImagePicker")}
