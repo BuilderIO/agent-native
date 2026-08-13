@@ -36,7 +36,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { addedLines } from "./lib/changed-lines.mjs";
+import { requireAddedLines } from "./lib/changed-lines.mjs";
 
 const REPO_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -235,15 +235,7 @@ function checkFile(file, addedSet) {
 }
 
 function main() {
-  const added = addedLines(REPO_ROOT);
-  if (added === null) {
-    console.error(
-      "guard-no-silent-coercion: could not determine diff base (no origin/main or main ref, or git diff failed) — skipping check. " +
-        "This is NOT a pass; it means the check did not run.",
-    );
-    process.exit(0);
-    return;
-  }
+  const added = requireAddedLines(REPO_ROOT, "guard-no-silent-coercion");
 
   const violations = [];
   for (const [file, addedSet] of added) {

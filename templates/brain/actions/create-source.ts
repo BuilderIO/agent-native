@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { getCredentialContext } from "@agent-native/core/server";
 import { z } from "zod";
 
 import {
@@ -7,7 +8,10 @@ import {
   serializeSource,
   sha256Hex,
 } from "../server/lib/brain.js";
-import { assertSourceWorkspaceConnectionAvailable } from "../server/lib/source-credentials.js";
+import {
+  assertSourceCredentialAvailable,
+  assertSourceWorkspaceConnectionAvailable,
+} from "../server/lib/source-credentials.js";
 import { withSourceAnswerPolicy } from "../server/lib/source-policy.js";
 import {
   jsonRecordSchema,
@@ -31,7 +35,7 @@ export default defineAction({
       .string()
       .optional()
       .describe("Optional signed-ingest bearer token; stored only as a hash"),
-    visibility: z.enum(["private", "org"]).default("org"),
+    visibility: z.enum(["private", "org"]).default("private"),
     policy: sourceAnswerPolicySchema
       .optional()
       .describe(
@@ -55,6 +59,11 @@ export default defineAction({
       await assertSourceWorkspaceConnectionAvailable({
         provider: args.provider,
         workspaceConnectionId,
+      });
+      await assertSourceCredentialAvailable({
+        provider: args.provider,
+        workspaceConnectionId,
+        ctx: getCredentialContext(),
       });
     } else {
       delete config.workspaceConnectionId;

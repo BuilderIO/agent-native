@@ -45,6 +45,7 @@ describe("SlideCommentsPanel", () => {
       <SlideCommentsPanel
         deckId="deck-1"
         slideId="slide-1"
+        canComment
         pendingComment={null}
         onPendingDone={vi.fn()}
         onClose={vi.fn()}

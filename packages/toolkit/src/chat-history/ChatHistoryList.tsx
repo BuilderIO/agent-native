@@ -1,3 +1,4 @@
+import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
 import {
   IconDots,
   IconPencil,
@@ -6,7 +7,7 @@ import {
   IconSearch,
   IconTrash,
 } from "@tabler/icons-react";
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 
 import { cn } from "../utils.js";
 
@@ -288,7 +289,6 @@ const ChatHistoryRow = React.memo(function ChatHistoryRow({
   const [draftTitle, setDraftTitle] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
   const renameInputRef = useRef<HTMLInputElement | null>(null);
-  const menuRef = useRef<HTMLDivElement | null>(null);
 
   const hasMenu = Boolean(
     onTogglePin ||
@@ -297,24 +297,6 @@ const ChatHistoryRow = React.memo(function ChatHistoryRow({
     renderRowActions ||
     renderAdditionalRowActions,
   );
-
-  useEffect(() => {
-    if (!menuOpen) return;
-    function handlePointerDown(event: PointerEvent) {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
-        setMenuOpen(false);
-      }
-    }
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") setMenuOpen(false);
-    }
-    document.addEventListener("pointerdown", handlePointerDown);
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", handlePointerDown);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [menuOpen]);
 
   function startRename() {
     setDraftTitle(item.titleText ?? "");
@@ -409,79 +391,90 @@ const ChatHistoryRow = React.memo(function ChatHistoryRow({
       )}
 
       {!isRenaming && hasMenu && (
-        <div className="an-chat-history-row__menu" ref={menuRef}>
-          <button
-            type="button"
-            className={cn(
-              "an-chat-history-row__menu-trigger",
-              item.pinned && "an-chat-history-row__menu-trigger--pinned",
-            )}
-            aria-label={optionsLabel}
-            aria-haspopup="menu"
-            aria-expanded={menuOpen}
-            onClick={() => setMenuOpen((open) => !open)}
-          >
-            {item.pinned ? (
-              <IconPinned size={13} strokeWidth={1.8} />
-            ) : (
-              <IconDots size={14} strokeWidth={1.8} />
-            )}
-          </button>
-          {menuOpen && (
-            <div className="an-chat-history-row__menu-content" role="menu">
-              {renderRowActions ? (
-                renderRowActions(item)
-              ) : (
-                <>
-                  {onRename && (
-                    <button
-                      type="button"
-                      role="menuitem"
-                      className="an-chat-history-row__menu-item"
-                      onClick={startRename}
-                    >
-                      <IconPencil size={13} strokeWidth={1.8} />
-                      <span>{labels.rename}</span>
-                    </button>
-                  )}
-                  {onTogglePin && (
-                    <button
-                      type="button"
-                      role="menuitem"
-                      className="an-chat-history-row__menu-item"
-                      onClick={() => {
-                        setMenuOpen(false);
-                        onTogglePin(item.id);
-                      }}
-                    >
-                      {item.pinned ? (
-                        <IconPinnedOff size={13} strokeWidth={1.8} />
-                      ) : (
-                        <IconPinned size={13} strokeWidth={1.8} />
-                      )}
-                      <span>{item.pinned ? labels.unpin : labels.pin}</span>
-                    </button>
-                  )}
-                  {renderAdditionalRowActions?.(item, () => setMenuOpen(false))}
-                  {onDelete && (
-                    <button
-                      type="button"
-                      role="menuitem"
-                      className="an-chat-history-row__menu-item an-chat-history-row__menu-item--danger"
-                      onClick={() => {
-                        setMenuOpen(false);
-                        onDelete(item.id);
-                      }}
-                    >
-                      <IconTrash size={13} strokeWidth={1.8} />
-                      <span>{labels.delete}</span>
-                    </button>
-                  )}
-                </>
-              )}
-            </div>
-          )}
-        </div>
+        <DropdownMenuPrimitive.Root open={menuOpen} onOpenChange={setMenuOpen}>
+          <div className="an-chat-history-row__menu">
+            <DropdownMenuPrimitive.Trigger asChild>
+              <button
+                type="button"
+                className={cn(
+                  "an-chat-history-row__menu-trigger",
+                  item.pinned && "an-chat-history-row__menu-trigger--pinned",
+                )}
+                aria-label={optionsLabel}
+                aria-haspopup="menu"
+                aria-expanded={menuOpen}
+              >
+                {item.pinned ? (
+                  <IconPinned size={13} strokeWidth={1.8} />
+                ) : (
+                  <IconDots size={14} strokeWidth={1.8} />
+                )}
+              </button>
+            </DropdownMenuPrimitive.Trigger>
+            <DropdownMenuPrimitive.Portal>
+              <DropdownMenuPrimitive.Content
+                className="an-chat-history-row__menu-content"
+                align="end"
+                collisionPadding={8}
+                side="bottom"
+                sideOffset={4}
+              >
+                {renderRowActions ? (
+                  renderRowActions(item)
+                ) : (
+                  <>
+                    {onRename && (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="an-chat-history-row__menu-item"
+                        onClick={startRename}
+                      >
+                        <IconPencil size={13} strokeWidth={1.8} />
+                        <span>{labels.rename}</span>
+                      </button>
+                    )}
+                    {onTogglePin && (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="an-chat-history-row__menu-item"
+                        onClick={() => {
+                          setMenuOpen(false);
+                          onTogglePin(item.id);
+                        }}
+                      >
+                        {item.pinned ? (
+                          <IconPinnedOff size={13} strokeWidth={1.8} />
+                        ) : (
+                          <IconPinned size={13} strokeWidth={1.8} />
+                        )}
+                        <span>{item.pinned ? labels.unpin : labels.pin}</span>
+                      </button>
+                    )}
+                    {renderAdditionalRowActions?.(item, () =>
+                      setMenuOpen(false),
+                    )}
+                    {onDelete && (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="an-chat-history-row__menu-item an-chat-history-row__menu-item--danger"
+                        onClick={() => {
+                          setMenuOpen(false);
+                          onDelete(item.id);
+                        }}
+                      >
+                        <IconTrash size={13} strokeWidth={1.8} />
+                        <span>{labels.delete}</span>
+                      </button>
+                    )}
+                  </>
+                )}
+              </DropdownMenuPrimitive.Content>
+            </DropdownMenuPrimitive.Portal>
+          </div>
+        </DropdownMenuPrimitive.Root>
       )}
     </div>
   );

@@ -177,11 +177,15 @@ describe("update-slide-comment", () => {
     );
   });
 
-  it("allows the author to edit their own comment content with only viewer access", async () => {
+  it("allows the author to edit their own comment content with commenter access", async () => {
     const result = await run({ id: "c-1", content: "Updated text" });
 
     expect(result).toEqual({ ok: true });
-    expect(mockAssertAccess).toHaveBeenCalledWith("deck", "deck-1", "viewer");
+    expect(mockAssertAccess).toHaveBeenCalledWith(
+      "deck",
+      "deck-1",
+      "commenter",
+    );
     expect(state.rows[0].content).toBe("Updated text");
     expect(state.rows[1].content).toBe("A reply"); // untouched — content edits are single-row
   });

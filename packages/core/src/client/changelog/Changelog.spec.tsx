@@ -82,7 +82,7 @@ describe("Changelog UI", () => {
     expect(document.body.textContent).toContain("June 23, 2026");
   });
 
-  it("ChangelogSettingsCard shows a limited set with a 'View all' affordance", () => {
+  it("ChangelogSettingsCard expands older updates inline", () => {
     act(() => {
       root.render(<ChangelogSettingsCard markdown={MARKDOWN} limit={2} />);
     });
@@ -91,6 +91,20 @@ describe("Changelog UI", () => {
     // Third (oldest) entry is hidden behind "View all".
     expect(document.body.textContent).not.toContain("Older fix.");
     expect(document.body.textContent).toContain("View all updates");
+
+    const toggle = container.querySelector("button");
+    expect(toggle).toBeTruthy();
+    expect(toggle?.getAttribute("aria-expanded")).toBe("false");
+
+    act(() => {
+      toggle?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true }),
+      );
+    });
+
+    expect(document.body.textContent).toContain("Older fix.");
+    expect(document.body.textContent).toContain("Show fewer updates");
+    expect(toggle?.getAttribute("aria-expanded")).toBe("true");
   });
 
   it("ChangelogSettingsCard renders nothing for an empty changelog", () => {

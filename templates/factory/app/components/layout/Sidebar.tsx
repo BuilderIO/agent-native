@@ -37,7 +37,7 @@ const navItems = [
   {
     icon: IconMessageCircle,
     labelKey: "navigation.chat",
-    href: "/",
+    href: "/chat",
     view: "chat",
   },
   {
@@ -160,7 +160,9 @@ function ChatThreadsSection({ open }: { open: boolean }) {
   );
   const displayedActiveThreadId =
     threadIdFromPath(location.pathname) ??
-    (location.pathname === "/" ? null : activeThreadId);
+    (location.pathname === "/" || location.pathname === "/chat"
+      ? null
+      : activeThreadId);
   const chatItems = useMemo<ChatHistoryItem[]>(
     () =>
       visibleThreads.map((thread) => ({
@@ -200,7 +202,7 @@ function ChatThreadsSection({ open }: { open: boolean }) {
     persistActiveThreadId(threadId);
     navigateWithAgentChatViewTransition(
       navigate,
-      options?.isNew ? "/" : chatThreadPath(threadId),
+      options?.isNew ? "/chat" : chatThreadPath(threadId),
     );
     window.requestAnimationFrame(() => {
       window.dispatchEvent(
@@ -285,7 +287,9 @@ export function Sidebar({
   const navigate = useNavigate();
   const t = useT();
   const isChatRoute =
-    location.pathname === "/" || location.pathname.startsWith("/chat/");
+    location.pathname === "/" ||
+    location.pathname === "/chat" ||
+    location.pathname.startsWith("/chat/");
   const ToggleIcon = collapsed
     ? IconLayoutSidebarLeftExpand
     : IconLayoutSidebarLeftCollapse;
@@ -447,7 +451,7 @@ export function Sidebar({
                     !event.altKey
                   ) {
                     event.preventDefault();
-                    navigateWithAgentChatViewTransition(navigate, "/");
+                    navigateWithAgentChatViewTransition(navigate, "/chat");
                   }
                 }}
                 className={navClass({ isActive })}

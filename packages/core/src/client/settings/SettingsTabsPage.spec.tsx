@@ -112,6 +112,27 @@ describe("SettingsTabsPage", () => {
     ).toBe(true);
   });
 
+  it("centers the content panel while keeping the navigation rail compact", () => {
+    act(() => {
+      root.render(
+        <SettingsTabsPage
+          general={<div>General content</div>}
+          team={<div>Team members</div>}
+        />,
+      );
+    });
+
+    const navShell = container.firstElementChild
+      ?.firstElementChild as HTMLElement | null;
+    const tabpanel = container.querySelector<HTMLElement>('[role="tabpanel"]');
+
+    expect(navShell?.className).toContain("sm:w-56");
+    expect(navShell?.className).toContain("lg:w-60");
+    expect(tabpanel?.className).toContain("overflow-y-auto");
+    expect(tabpanel?.firstElementChild?.className).toContain("max-w-6xl");
+    expect(tabpanel?.firstElementChild?.className).toContain("mx-auto");
+  });
+
   it("does not focus the settings search on mobile entry", () => {
     stubMobileViewport(true);
     runAnimationFramesImmediately();

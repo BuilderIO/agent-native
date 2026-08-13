@@ -34,12 +34,12 @@ describe("Slides canvas interaction adapter", () => {
     expect(SLIDES_CANVAS_EDGE_MOVE_BAND).toBe(8);
   });
 
-  it("keeps snapping and object alignment disabled until Slides implements them", () => {
+  it("advertises the supported snapping and multi-object layout capabilities", () => {
     const core = createSlidesCanvasInteractionCore();
 
-    expect(core.capabilities.snapping).toBe(false);
-    expect(core.capabilities.alignment).toBe(false);
-    expect(core.capabilities.distribution).toBe(false);
+    expect(core.capabilities.snapping).toBe(true);
+    expect(core.capabilities.alignment).toBe(true);
+    expect(core.capabilities.distribution).toBe(true);
     expect(core.capabilities.grouping).toBe(false);
     expect(core.capabilities.rotation).toBe(false);
   });

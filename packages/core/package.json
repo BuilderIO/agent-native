@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.152.0",
+  "version": "0.153.9",
   "description": "Framework for agent-native application development — where AI agents and UI share SQL state, actions, and context",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -279,6 +279,9 @@
     "./mcp-client": "./dist/mcp-client/index.js",
     "./tracking": "./dist/tracking/index.js",
     "./usage": "./dist/usage/store.js",
+    "./usage/actions/get-usage-alerts": "./dist/usage/actions/get-usage-alerts.js",
+    "./usage/actions/manage-usage-alert": "./dist/usage/actions/manage-usage-alert.js",
+    "./usage/actions/get-usage-metrics": "./dist/usage/actions/get-usage-metrics.js",
     "./connections": "./dist/connections/index.js",
     "./connections/runtime": "./dist/connections/runtime.js",
     "./provider-api": "./dist/provider-api/index.js",
@@ -310,6 +313,11 @@
       "default": "./dist/local-artifacts/index.js"
     },
     "./workspace-files": "./dist/workspace-files/index.js",
+    "./workspace-connections/credential-key-aliases": "./dist/workspace-connections/credential-key-aliases.js",
+    "./workspace-connections/actions/list-workspace-user-groups": "./dist/workspace-connections/actions/list-workspace-user-groups.js",
+    "./workspace-connections/actions/upsert-workspace-user-group": "./dist/workspace-connections/actions/upsert-workspace-user-group.js",
+    "./workspace-connections/actions/bulk-update-workspace-user-groups": "./dist/workspace-connections/actions/bulk-update-workspace-user-groups.js",
+    "./workspace-connections/actions/delete-workspace-user-group": "./dist/workspace-connections/actions/delete-workspace-user-group.js",
     "./package-lifecycle": {
       "types": "./dist/package-lifecycle/index.d.ts",
       "default": "./dist/package-lifecycle/index.js"

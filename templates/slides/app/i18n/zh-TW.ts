@@ -374,6 +374,7 @@ const messages = {
     center: "Center",
     right: "Right",
     justify: "Justify",
+    distribute: "分佈",
     fill: "Fill",
     tint: "Tint",
     transparent: "Transparent",
@@ -548,6 +549,11 @@ const messages = {
     dismissLayoutWarning: "關閉版面警告",
     slidesAdded_one: "已新增 {{count}} 張幻燈片",
     slidesAdded_other: "已新增 {{count}} 張幻燈片",
+    unsavedChangesTitle: "未儲存的變更",
+    unsavedChangesDescription:
+      "如果現在離開或重新載入，可能會遺失尚未儲存的變更。確定要退出嗎？",
+    keepEditing: "繼續編輯",
+    leaveWithoutSaving: "不儲存並退出",
   },
   designSystemSetup: {
     importedBrand: "匯入的品牌",
@@ -642,7 +648,6 @@ const messages = {
     all: "全部",
     showMineDecks: "顯示我建立的幻燈片",
     mine: "我的",
-    deckCount_other: "份幻燈片",
     createDeckOrVisual: "建立簡報",
     noMineDecks: "你還沒有建立任何幻燈片。",
     noDecksMatchSearch: "沒有符合搜尋條件的簡報。",

@@ -33,6 +33,7 @@ import {
   SelectValue,
 } from "../../components/ui/select";
 import { Skeleton } from "../../components/ui/skeleton";
+import { UsageAlertsPanel } from "../../components/usage-alerts-panel";
 import { cn } from "../../lib/utils";
 
 export function meta() {
@@ -1037,6 +1038,13 @@ export default function MetricsRoute() {
               </span>
               <ReviewUsageButton metrics={metrics} billing={billing} />
             </div>
+
+            <UsageAlertsPanel
+              scope={scope === "workspace" ? "workspace" : "user"}
+              appOptions={metrics.byApp
+                .filter((row) => row.key && row.key !== "unattributed")
+                .map((row) => ({ id: row.key, label: displayApp(row.key) }))}
+            />
 
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
               <MetricCard

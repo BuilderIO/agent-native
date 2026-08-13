@@ -14,12 +14,6 @@ import {
   type ProductionDesignSystemTemplate,
 } from "../../../shared/design-system-templates";
 
-const descriptionKeys: Record<DesignSystemTemplateId, string> = {
-  "material-3": "designSystems.showcase.descriptions.material3",
-  "carbon-white": "designSystems.showcase.descriptions.carbon",
-  "primer-light": "designSystems.showcase.descriptions.primer",
-};
-
 export function ProductionDesignSystemShowcase({
   pendingTemplateId,
   onAdd,
@@ -31,7 +25,7 @@ export function ProductionDesignSystemShowcase({
 
   return (
     <section aria-labelledby="production-design-systems-heading">
-      <div className="mb-4 flex max-w-2xl items-start gap-3">
+      <div className="mb-4 flex items-center gap-3">
         <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg border border-border bg-muted/40">
           <IconRosetteDiscountCheck className="size-4 text-muted-foreground" />
         </div>
@@ -42,13 +36,10 @@ export function ProductionDesignSystemShowcase({
           >
             {t("designSystems.showcase.title")}
           </h2>
-          <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-            {t("designSystems.showcase.description")}
-          </p>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(230px,1fr))] gap-3">
         {PRODUCTION_DESIGN_SYSTEM_TEMPLATES.map((template) => {
           const isPending = pendingTemplateId === template.id;
           return (
@@ -57,7 +48,7 @@ export function ProductionDesignSystemShowcase({
               className="overflow-hidden rounded-xl border border-border bg-card"
             >
               <ProductionSystemPreview template={template} />
-              <div className="p-4">
+              <div className="p-3">
                 <div className="flex items-center justify-between gap-3">
                   <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
                     {template.organization}
@@ -66,13 +57,10 @@ export function ProductionDesignSystemShowcase({
                     {template.version}
                   </span>
                 </div>
-                <h3 className="mt-3 text-sm font-semibold text-foreground">
+                <h3 className="mt-2 text-sm font-semibold text-foreground">
                   {template.title}
                 </h3>
-                <p className="mt-1 min-h-16 text-xs leading-relaxed text-muted-foreground">
-                  {t(descriptionKeys[template.id])}
-                </p>
-                <div className="mt-4 flex items-center gap-2">
+                <div className="mt-3 flex items-center gap-2">
                   <Button
                     type="button"
                     size="sm"
@@ -108,7 +96,7 @@ export function ProductionDesignSystemShowcase({
                     </a>
                   </Button>
                 </div>
-                <p className="mt-3 text-[10px] text-muted-foreground/70">
+                <p className="mt-2 text-[10px] text-muted-foreground/70">
                   {t("designSystems.showcase.license", {
                     license: template.license,
                   })}

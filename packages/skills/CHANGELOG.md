@@ -1,5 +1,119 @@
 # @agent-native/skills
 
+## 0.2.540
+
+### Patch Changes
+
+- Updated dependencies [f5dc763]
+- Updated dependencies [f5dc763]
+  - @agent-native/core@0.153.9
+
+## 0.2.539
+
+### Patch Changes
+
+- Updated dependencies [a97789e]
+  - @agent-native/core@0.153.8
+
+## 0.2.538
+
+### Patch Changes
+
+- Updated dependencies [518ebf0]
+  - @agent-native/core@0.153.7
+
+## 0.2.537
+
+### Patch Changes
+
+- Updated dependencies [9f0ae16]
+- Updated dependencies [9f0ae16]
+- Updated dependencies [9f0ae16]
+- Updated dependencies [9f0ae16]
+- Updated dependencies [9f0ae16]
+  - @agent-native/core@0.153.6
+
+## 0.2.536
+
+### Patch Changes
+
+- Updated dependencies [47ba57a]
+- Updated dependencies [47ba57a]
+- Updated dependencies [47ba57a]
+- Updated dependencies [2498cff]
+- Updated dependencies [47ba57a]
+  - @agent-native/core@0.153.5
+
+## 0.2.535
+
+### Patch Changes
+
+- Updated dependencies [73e47fe]
+- Updated dependencies [405e17e]
+  - @agent-native/core@0.153.4
+
+## 0.2.534
+
+### Patch Changes
+
+- Updated dependencies [99ba6a1]
+  - @agent-native/core@0.153.3
+
+## 0.2.533
+
+### Patch Changes
+
+- Updated dependencies [fd32ffd]
+  - @agent-native/core@0.153.2
+
+## 0.2.532
+
+### Patch Changes
+
+- Updated dependencies [b78cde9]
+- Updated dependencies [b78cde9]
+- Updated dependencies [b78cde9]
+- Updated dependencies [b78cde9]
+  - @agent-native/core@0.153.1
+
+## 0.2.531
+
+### Patch Changes
+
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+  - @agent-native/core@0.153.0
+
+## 0.2.530
+
+### Patch Changes
+
+- Updated dependencies [2f4a788]
+  - @agent-native/core@0.152.1
+
 ## 0.2.529
 
 ### Patch Changes

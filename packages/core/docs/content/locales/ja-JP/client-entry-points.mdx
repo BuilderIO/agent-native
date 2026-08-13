@@ -1,0 +1,28 @@
+---
+title: "エントリーポイント"
+description: "app/entry.client.tsx と app/entry.server.tsx: 薄いハイドレーションと SSR ブートストラップのラッパー、そしてストリーミングの振る舞いをカスタマイズするタイミング。"
+---
+
+# エントリーポイント
+
+`app/entry.client.tsx` はサーバーでレンダリングされた HTML をブラウザでハイドレートし、`app/entry.server.tsx` はその HTML をサーバー上でレンダリングします。どちらも React Router によって生成される薄いラッパーです。これらを編集する必要はほとんどありません。
+
+```ts filename="app/entry.server.tsx"
+import {
+  createDocumentRequestHandler,
+  streamTimeout,
+} from "@agent-native/core/server/entry-server";
+import { ServerRouter } from "react-router";
+
+export default createDocumentRequestHandler(ServerRouter);
+export { streamTimeout };
+```
+
+これらに手を伸ばすのは、ストリーミングの振る舞いの変更など、高度な SSR のカスタマイズのためだけにしてください。通常のページ、レイアウト、データにはここでの変更は不要です。ページを追加する場合は、代わりに [Routing](/docs/client-routing) を参照してください。
+
+## 次は何ですか
+
+- [**概要**](/docs/client-overview) — これらのファイルが `app/` の中でどこに位置するか
+- [**Routing**](/docs/client-routing) — `app/` を拡張する通常の方法である、ページの追加
+- [**高度**](/docs/client-advanced) — その他の低レベルなクライアント プリミティブとエスケープ ハッチ
+  </content>

@@ -13,6 +13,7 @@ import { cn } from "../lib/utils";
 import { AppIcon } from "./app-icon";
 import { AppListRow } from "./app-list-row";
 import { AppOpenActions } from "./app-open-actions";
+import { AppRowSettings } from "./app-row-settings";
 import { Button } from "./ui/button";
 import {
   Dialog,
@@ -211,20 +212,16 @@ export function WorkspaceTemplateCard({
               <AppOpenActions
                 name={template.name}
                 href={liveUrl}
-                target="_blank"
                 rel="noreferrer"
                 labels={{ openApp: labels.openApp }}
+                showNewTabOption
               />
             ) : null}
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setOpen(true)}
-            >
-              <IconPlus />
-              {labels.remix}
-            </Button>
+            <AppRowSettings
+              name={template.name}
+              addAppLabel={labels.remix}
+              onAddApp={() => setOpen(true)}
+            />
           </>
         ) : liveUrl ? (
           <Button variant="ghost" size="sm" className="shrink-0" asChild>

@@ -80,6 +80,7 @@ La visibilidad aproximada vive del recurso mismo; Las subvenciones detalladas se
 Cuando compartes con un usuario u organización específica, eliges una función:
 
 - **Visor**: solo lectura.
+- **Comentarista**: puede leer y añadir comentarios, pero no editar el recurso ni administrar el acceso.
 - **Editor**: lectura y escritura.
 - **Administrador**: leer, escribir y administrar recursos compartidos (puede agregar o eliminar otras personas).
 
@@ -244,7 +245,7 @@ export const deckShares = createSharesTable("deck_shares");
         {
           name: "role",
           type: "enum",
-          note: "visor | redactor | administración",
+          note: "visor | comentarista | redactor | administración",
         },
         {
           name: "created_by",

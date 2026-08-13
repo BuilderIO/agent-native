@@ -174,6 +174,12 @@ when the saved HTML is rendered.
 
 Background is pure black (`bg-[#000000]`) — set by the renderer, not the slide HTML.
 
+When no reference deck or hydrated design system is available, use a restrained,
+content-first visual language. Do not invent colorful cards, boxes, or
+decorative rectangles behind or over text. Add a colored shape only when it has
+a clear semantic role and leaves the text unobscured; prefer typography,
+spacing, alignment, and one restrained accent.
+
 ## Bounded visual QA
 
 Before calling the deck complete, render every changed slide at its canonical

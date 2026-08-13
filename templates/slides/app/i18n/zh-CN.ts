@@ -379,6 +379,7 @@ const messages = {
     center: "Center",
     right: "Right",
     justify: "Justify",
+    distribute: "分布",
     fill: "Fill",
     tint: "Tint",
     transparent: "Transparent",
@@ -553,6 +554,11 @@ const messages = {
     dismissLayoutWarning: "关闭布局警告",
     slidesAdded_one: "已添加 {{count}} 张幻灯片",
     slidesAdded_other: "已添加 {{count}} 张幻灯片",
+    unsavedChangesTitle: "未保存的更改",
+    unsavedChangesDescription:
+      "如果现在离开或刷新，可能会丢失尚未保存的更改。确定要退出吗？",
+    keepEditing: "继续编辑",
+    leaveWithoutSaving: "不保存退出",
   },
   designSystemSetup: {
     importedBrand: "导入的品牌",
@@ -647,7 +653,6 @@ const messages = {
     all: "全部",
     showMineDecks: "显示我创建的幻灯片",
     mine: "我的",
-    deckCount_other: "份幻灯片",
     createDeckOrVisual: "创建演示文稿",
     noMineDecks: "你还没有创建任何幻灯片。",
     noDecksMatchSearch: "没有符合搜索条件的演示文稿。",

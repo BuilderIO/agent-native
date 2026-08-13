@@ -10,6 +10,7 @@ import {
 import { z } from "zod";
 
 import { upsertBuilderProxyDesignSystem } from "../server/lib/builder-design-system-proxy.js";
+import importGithub from "./import-github.js";
 
 const codeFileSchema = z.object({
   filename: z.string().trim().min(1).describe("File name or relative path"),
@@ -36,6 +37,7 @@ export default defineAction({
   description:
     "Start Builder DSI design-system indexing from connected code, a GitHub repository, code/design files, and optional design.md guidance. " +
     "Use this instead of local import-code/import-github when the user wants a reusable brand kit or design system. " +
+    "Private GitHub repositories use the saved GITHUB_TOKEN server-side; the token is never sent to Builder or exposed to the client. " +
     "Requires Builder.io to be connected (free tier available); Builder owns the indexed design-system docs, generated guidance, token/component extraction, and job state.",
   schema: z.object({
     projectName: z
@@ -73,8 +75,17 @@ export default defineAction({
     codeFiles,
     designMd,
   }) => {
+    const githubImport = githubRepoUrl
+      ? await importGithub.run({ repoUrl: githubRepoUrl })
+      : null;
+    const githubFiles = githubImport?.rawFiles
+      ? Object.entries(githubImport.rawFiles).map(([filename, content]) => ({
+          filename,
+          content,
+        }))
+      : [];
     const files = buildBuilderDesignSystemIndexFiles({
-      codeFiles,
+      codeFiles: [...(codeFiles ?? []), ...githubFiles],
       designMd,
       // Agent action payloads intentionally stay at the core 2 MB inline
       // budget. Fail loudly instead of silently dropping a larger `.fig`;
@@ -84,7 +95,10 @@ export default defineAction({
     const result = await startBuilderDesignSystemIndex({
       projectName,
       description,
-      githubRepoUrl,
+      // Upload token-authenticated GitHub files as Builder file sources. If
+      // there was nothing relevant to upload, retain the public-repo source
+      // so public repositories still work without a saved token.
+      githubRepoUrl: githubFiles.length > 0 ? undefined : githubRepoUrl,
       connectedProjectId,
       files,
     });

@@ -1,0 +1,434 @@
+---
+title: "데이터 및 동기화"
+description: "app/이 에이전트가 호출하는 동일한 actions를 읽고 쓰며 실시간으로 동기화하는 데 사용하는 action 후크."
+---
+
+# 데이터 및 동기화
+
+클라이언트 애플리케이션에서 앱 데이터를 읽고 쓰는 주된 방법은 [action](/docs/actions) 후크를 사용하는 것입니다. 요청을 actions에 담아 보내면 클라이언트와 에이전트가 동일한 방식으로 애플리케이션과 상호작용할 수 있습니다.
+
+아래 예시에서는 티켓이 드롭다운을 통해 수동으로, 그리고 채팅 에이전트를 통해 현재 사용자에게 배정됩니다. UI와 에이전트는 동일한 action에 접근합니다.
+
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa5548a35d1494c1f8a4f960fbe8d9b2c%2Fcompressed?apiKey=YJIGb4i01jvw0SRdL5Bt&token=a5548a35d1494c1f8a4f960fbe8d9b2c&alt=media&optimized=true"
+  alt="UI 작업과 에이전트 작업이 동일한 결과를 내는 예시."
+  align="full"
+  autoplay={true}
+  loop={true}
+  width={600}
+  caption="UI 작업과 에이전트 작업이 동일한 결과를 내는 예시."
+/>
+
+## 데이터 가져오기 및 변경하기 {#fetching-mutating}
+
+일반적인 앱은 자체 API 레이어를 만들고 직접 작성한 `fetch` 요청으로 이를 호출합니다. 에이전트 네이티브 앱은 그 레이어를 건너뜁니다: `app/`은 아래 후크를 통해 에이전트가 이미 도구로 가지고 있는 동일한 actions를 호출합니다.
+
+<Diagram id="doc-block-client-data-fm-1" title={"일반적인 fetch vs. action 후크"} summary={"일반적인 컴포넌트는 자신만 접근할 수 있는 경로를 호출합니다. 에이전트 네이티브 컴포넌트는 에이전트도 호출할 수 있는 action을 호출합니다."}>
+
+```html
+<div class="diagram-fmcmp">
+  <div class="fmcmp-col">
+    <div class="fmcmp-label diagram-muted">일반적인 방식</div>
+    <div class="diagram-node">Component</div>
+    <div class="fmcmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-node">fetch("/api/leads/:id")</div>
+    <div class="fmcmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-panel" data-rough>
+      <strong>여러분의 API 경로</strong>
+      <small class="diagram-muted">프런트엔드만 호출 가능</small>
+    </div>
+    <div class="fmcmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-box" data-rough>데이터베이스</div>
+  </div>
+  <div class="fmcmp-vs diagram-muted">vs</div>
+  <div class="fmcmp-col">
+    <div class="fmcmp-label diagram-muted">Agent Native</div>
+    <div class="diagram-node">Component</div>
+    <div class="fmcmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-node">useActionQuery("get-lead")</div>
+    <div class="fmcmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-panel" data-rough>
+      <span class="diagram-pill accent">get-lead action</span>
+      <small class="diagram-muted">에이전트 도구이기도 함</small>
+    </div>
+    <div class="fmcmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-box" data-rough>SQL 데이터베이스</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-fmcmp {
+  display: flex;
+  align-items: flex-start;
+  gap: 28px;
+  flex-wrap: wrap;
+}
+.fmcmp-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 200px;
+}
+.fmcmp-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+.fmcmp-vs {
+  font-size: 13px;
+  font-weight: 600;
+  padding-top: 52px;
+}
+.diagram-fmcmp .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 16px;
+  align-items: center;
+}
+.fmcmp-arrow {
+  font-size: 18px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+### Action 후크 {#action-hooks}
+
+가장 많이 사용하게 될 두 개의 action 후크는 `useActionQuery()`와 `useActionMutation()`입니다. 이 두 후크는 앱의 actions에 접근할 수 있게 해줍니다.
+
+#### useActionQuery {#use-action-query}
+
+<Signature
+  id="doc-block-client-data-1"
+  name="useActionQuery"
+  params={[
+    {
+      name: "actionName",
+      type: "TName",
+      description: "등록된 action의 이름입니다.",
+    },
+    {
+      name: "params",
+      type: "ActionParams<TName>",
+      optional: true,
+      description:
+        "action의 입력값으로, `defineAction()` 스키마에서 타입이 지정됩니다.",
+    },
+    {
+      name: "options",
+      type: "UseQueryOptions",
+      optional: true,
+      description:
+        "[useQuery 옵션](https://tanstack.com/query/latest/docs/framework/react/reference/useQuery) 중 `queryKey`와 `queryFn`을 제외한 모든 것입니다. 이 둘은 후크가 직접 설정합니다.",
+    },
+  ]}
+  returns={{
+    type: "UseQueryResult<TResult>",
+    description:
+      '`["action", name, params]` 아래에 캐시됩니다. 변형 작업이 완료될 때마다 별도의 수동 무효화 없이 자동으로 다시 가져옵니다.',
+  }}
+/>
+
+이 후크는 읽기 전용 actions에 사용하기 위한 것입니다. [useQuery()](https://tanstack.com/query/latest/docs/framework/react/reference/useQuery) 함수를 얇게 감싼 래퍼입니다.
+
+아래 예시에서는 `list-tickets` action이 호출됩니다. 이는 모든 티켓에 대한 GET 요청을 보내는 것과 비슷합니다.
+
+```ts
+import { useActionQuery } from "@agent-native/core/client/hooks";
+
+const { data, isLoading } = useActionQuery("list-tickets", {});
+```
+
+다음 예시는 `get-ticket` action을 통해 단일 티켓을 가져오는 요청을 보여줍니다. 쿼리 범위를 특정 티켓으로 좁히기 위해 `ticketId`를 전달합니다. 쿼리가 자동으로 실행되지 않고 `ticketId`가 있을 때만 실행되도록 보장하기 위해 `enabled` 옵션이 추가로 제공됩니다.
+
+```ts
+import { useActionQuery } from "@agent-native/core/client/hooks";
+
+const { data, isLoading } = useActionQuery(
+  "get-ticket",
+  { ticketId: ticketId ?? "" },
+  { enabled: Boolean(ticketId) },
+);
+```
+
+#### useActionMutation {#use-action-mutation}
+
+<Signature
+  id="doc-block-client-data-2"
+  name="useActionMutation"
+  params={[
+    {
+      name: "actionName",
+      type: "TName",
+      description: "등록된 action의 이름입니다.",
+    },
+    {
+      name: "options",
+      type: "UseMutationOptions",
+      optional: true,
+      description:
+        "[useMutation 옵션](https://tanstack.com/query/latest/docs/framework/react/reference/useMutation) 중 `mutationFn`을 제외한 모든 것입니다. 이는 후크가 직접 설정합니다.",
+      fields: [
+        {
+          name: "method",
+          type: '"POST" | "PUT" | "DELETE"',
+          optional: true,
+          default: '"POST"',
+          description: "기본 요청 메서드를 재정의합니다.",
+        },
+        {
+          name: "skipActionQueryInvalidation",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description: "성공 시 자동 캐시 갱신을 건너뜁니다.",
+        },
+      ],
+    },
+  ]}
+  returns={{
+    type: "UseMutationResult",
+    description:
+      '성공 시 `source: "action"`으로 변경 이벤트를 내보내므로, 영향을 받는 데이터를 읽는 모든 `useActionQuery()`가 자동으로 다시 가져옵니다. 수동 무효화가 필요하지 않습니다.',
+  }}
+/>
+
+이 후크는 생성, 수정, 전송처럼 데이터를 변경하는 actions에 사용하기 위한 것입니다. [useMutation()](https://tanstack.com/query/latest/docs/framework/react/reference/useMutation) 함수를 얇게 감싼 래퍼입니다.
+
+`useActionQuery()`와 달리 action의 입력값은 후크 자체에 전달되지 않습니다. 변경을 실행할 준비가 되었을 때 `mutate()` 또는 `mutateAsync()`에 전달합니다.
+
+아래 예시에서는 `send-ticket-reply` action이 호출되어 티켓에 답글이 게시됩니다. 버튼의 `onClick`과 같은 이벤트 핸들러에서 `mutate()`를 호출합니다.
+
+```ts
+import { useActionMutation } from "@agent-native/core/client/hooks";
+
+const { mutate, isPending } = useActionMutation("send-ticket-reply");
+
+mutate({ ticketId, body: draft });
+```
+
+다음 예시는 동일한 변경 작업에 `onSuccess` 옵션을 추가한 모습을 보여줍니다. 캐시 무효화는 모든 변경 작업 후에 자동으로 일어나므로, `onSuccess`는 답글이 전송된 뒤 작성기를 비우는 것과 같은 로컬 부수 효과에만 필요합니다.
+
+```ts
+import { useActionMutation } from "@agent-native/core/client/hooks";
+
+const { mutate, isPending } = useActionMutation("send-ticket-reply", {
+  onSuccess: () => setDraft(""),
+});
+
+mutate({ ticketId, body: draft });
+```
+
+### callAction {#call-action}
+
+<Signature
+  id="doc-block-client-data-3"
+  name="callAction"
+  params={[
+    {
+      name: "actionName",
+      type: "TName",
+      description: "등록된 action의 이름입니다.",
+    },
+    {
+      name: "params",
+      type: "ActionParams<TName>",
+      optional: true,
+      description:
+        "action의 입력값으로, `defineAction()` 스키마에서 타입이 지정됩니다.",
+    },
+    {
+      name: "options",
+      type: "ClientActionCallOptions",
+      optional: true,
+      description: "아래 항목은 모두 선택 사항입니다.",
+      fields: [
+        {
+          name: "method",
+          type: '"GET" | "POST" | "PUT" | "DELETE"',
+          optional: true,
+          default: '"POST"',
+          description: "기본 요청 메서드를 재정의합니다.",
+        },
+        {
+          name: "signal",
+          type: "AbortSignal",
+          optional: true,
+          description: "요청을 취소합니다.",
+        },
+        {
+          name: "timeoutMs",
+          type: "number",
+          optional: true,
+          default: "60000",
+          description:
+            "정당하게 더 오래 걸리는 actions를 위해 기본 60초 타임아웃을 재정의합니다.",
+        },
+      ],
+    },
+  ]}
+  returns={{
+    type: "Promise<TResult>",
+    description:
+      "위 후크들과 달리 캐시도 자동 다시 가져오기도 없습니다. 다른 UI가 이 결과에 의존한다면 수동 무효화와 함께 사용하세요.",
+  }}
+/>
+
+이 함수는 React 렌더 흐름 밖에서 일회성으로 action을 명령형으로 호출하기 위한 것입니다. 일반 이벤트 핸들러, 스크립트, 그 외 React가 아닌 어떤 코드 경로에서도 사용할 수 있습니다. 후크 결과 대신 프로미스를 직접 반환합니다.
+
+아래 예시에서는 React 렌더 흐름 밖의 키보드 단축키 핸들러에서 `update-ticket` action을 호출하여 티켓을 담당자에게 배정합니다.
+
+```ts
+import { callAction } from "@agent-native/core/client/hooks";
+
+await callAction("update-ticket", {
+  ticketId,
+  assignedToEmail: "jordan@example.com",
+});
+```
+
+다음 예시는 동일한 호출에 `timeoutMs` 옵션을 추가한 모습입니다. 기본 60초 타임아웃보다 정당하게 더 오래 걸리는 actions에 유용합니다.
+
+```ts
+import { callAction } from "@agent-native/core/client/hooks";
+
+await callAction(
+  "update-ticket",
+  { ticketId, assignedToEmail: "jordan@example.com" },
+  { timeoutMs: 120_000 },
+);
+```
+
+모든 `useActionQuery()`, `useActionMutation()`, `callAction()` 요청은 60초 타임아웃으로 제한되며, 타임아웃은 조용히 재시도하지 않고 오류로 나타납니다. `useActionQuery()`는 React Query의 abort signal을 이용해 이전 요청이 대체될 때 자동으로 취소하기도 합니다.
+
+## useDbSync {#usedbsync}
+
+<Signature
+  id="doc-block-client-data-4"
+  name="useDbSync"
+  params={[
+    {
+      name: "options",
+      type: "UseDbSyncOptions",
+      description: "모든 필드는 선택 사항입니다.",
+      fields: [
+        {
+          name: "queryClient",
+          type: "QueryClient",
+          optional: true,
+          description: "캐시 무효화에 사용되는 React Query 클라이언트입니다.",
+        },
+        {
+          name: "pollUrl",
+          type: "string",
+          optional: true,
+          default: '"/_agent-native/poll"',
+          description: "폴링 엔드포인트 URL입니다.",
+        },
+        {
+          name: "sseUrl",
+          type: "string | false",
+          optional: true,
+          default: '"/_agent-native/events"',
+          description:
+            "SSE 엔드포인트 URL입니다. 폴링만 사용하려면 `false`를 전달하세요.",
+        },
+        {
+          name: "interval",
+          type: "number",
+          optional: true,
+          default: "2000",
+          description: "폴링 간격(ms)입니다.",
+        },
+        {
+          name: "fallbackInterval",
+          type: "number",
+          optional: true,
+          default: "60000",
+          description:
+            "SSE가 연결되어 있는 동안, 이벤트를 놓쳤을 때를 대비한 백업으로 사용되는 폴링 간격입니다. 연결이 끊긴 탭은 더 빠른 `interval`(또는 고정된 유휴 주기)로 폴링합니다.",
+        },
+        {
+          name: "pauseWhenHidden",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description:
+            "브라우저 탭이 숨겨져 있을 때 폴링을 일시 중지합니다. 숨겨진 탭도 SSE 연결은 유지하며, 활성 상태에서는 10초, 유휴 상태가 되면 60초보다 빠르게 폴링하지 않습니다.",
+        },
+        {
+          name: "ignoreSource",
+          type: "string",
+          optional: true,
+          description:
+            "무시할 탭별 요청 소스로, 탭이 자신의 쓰기로 인해 다시 가져오지 않도록 합니다.",
+        },
+        {
+          name: "onEvent",
+          type: "(data) => void",
+          optional: true,
+          description:
+            "SSE 또는 폴링이 변경 이벤트를 수신했을 때 실행되는 선택적 콜백입니다.",
+        },
+        {
+          name: "actionInvalidatePredicate",
+          type: "(query: Query) => boolean",
+          optional: true,
+          description:
+            "action 이벤트가 촉발하는 광범위한 무효화를 필터링합니다. 거의 필요하지 않습니다. 비용이 큰 활성 쿼리를 명시적 새로 고침 방식으로 유지하면서, 일반적인 소스 버전 관리 쿼리들은 여전히 `useChangeVersion`으로 반응하도록 하는 데 사용하세요.",
+        },
+        {
+          name: "suppressActionInvalidationFor",
+          type: "string[]",
+          optional: true,
+          description:
+            "동기화 이벤트가 모든 action 쿼리를 무효화하지 않도록 할 action 이름들입니다. 이미 자체적으로 좁은 무효화를 수행하는 대용량 백그라운드 actions에만 사용하세요.",
+        },
+        {
+          name: "queryKeys",
+          type: "string[]",
+          optional: true,
+          description:
+            "더 이상 사용되지 않으며 무시됩니다. 기존 호출 지점을 위해 유지됩니다.",
+        },
+      ],
+    },
+  ]}
+  returns={{ type: "void" }}
+/>
+
+이 후크는 여러분의 actions 밖에서 일어나는 데이터베이스 변경 — 에이전트의 쓰기, 웹훅, 다른 브라우저 탭에서의 변경 등 — 과 UI를 동기화하기 위한 것입니다. 서버-전송 이벤트(server-sent events)로 변경을 수신하며, 서버-전송 이벤트를 사용할 수 없을 때는 폴링으로 대체합니다.
+
+```ts
+import { useDbSync } from "@agent-native/core/client/hooks";
+import { useQueryClient } from "@tanstack/react-query";
+
+function App() {
+  const queryClient = useQueryClient();
+
+  useDbSync({
+    queryClient,
+    pollUrl: "/_agent-native/poll",
+    onEvent: (data) => console.log("Data changed:", data),
+  });
+
+  return <div>...</div>;
+}
+```
+
+일반적인 CRUD에는 `useActionQuery()`와 `useActionMutation()`을 사용하세요. 변형 actions는 `source: "action"`을 내보내므로 이 후크들은 즉시 다시 가져옵니다. 에이전트, 웹훅, 다른 탭에서 온 변경은 대신 `useDbSync()`를 통해 SSE 또는 폴링 폴백으로 도착합니다. 원시 `useQuery()` 호출을 커스텀 키로 동기화해야 한다면 [동기화 내부](/docs/client-sync-internals)를 참조하세요. `application_state`에 직접 써야 한다면 [고급](/docs/client-advanced)을 참조하세요.
+
+## 다음 단계
+
+- [**개요**](/docs/client-overview) — 이 페이지의 후크들이 속한 `app/` 및 `public/` 디렉터리 구조
+- [**Agent 채팅**](/docs/client-agent-chat) — 프롬프트 전송과 에이전트를 위한 컨텍스트 준비
+- [**Actions**](/docs/actions) — 이 페이지의 모든 후크 뒤에 있는 `defineAction` 표면
+- [**고급**](/docs/client-advanced) — `application_state` 직접 접근
+- [**동기화 내부**](/docs/client-sync-internals) — `useChangeVersion`으로 원시 `useQuery` 동기화하기
+- [**Real-Time Sync**](/docs/key-concepts#polling-sync) — `useDbSync`가 UI를 최신 상태로 유지하는 방법

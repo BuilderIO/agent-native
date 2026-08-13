@@ -17,7 +17,7 @@ modelo de colaboración nativo del agente.
 Editar junto al agente es como trabajar en un editor colaborativo con
 un compañero de trabajo instantáneo e incansable:
 
-Si solo necesita que el UI se actualice cuando el agente u otro usuario escribe en SQL, no necesita nada de esto: use [`useDbSync`](/docs/client). Esta página es para la coedición a nivel de carácter de un único documento de texto enriquecido (cursores compartidos, fusión sin conflictos). Ambos utilizan el mismo canal `/_agent-native/poll`.
+Si solo necesita que el UI se actualice cuando el agente u otro usuario escribe en SQL, no necesita nada de esto: use [`useDbSync`](/docs/client-data#usedbsync). Esta página es para la coedición a nivel de carácter de un único documento de texto enriquecido (cursores compartidos, fusión sin conflictos). Ambos utilizan el mismo canal `/_agent-native/poll`.
 
 Esto se basa en tres tecnologías probadas en batalla: **Yjs** (CRDT para fusión sin conflictos), **TipTap** (editor de texto enriquecido) y **sincronización basada en encuestas** (funciona en todos los entornos de implementación, incluidos los sin servidor y perimetrales).
 
@@ -778,7 +778,7 @@ capas encima del mismo estado de conciencia.
 
 ## Documentos relacionados {#related}
 
-- [Real-Time Sync](/docs/client#usedbsync): el `useDbSync` + `useChangeVersion`
+- [Sincronización interna](/docs/client-sync-internals): el `useDbSync` + `useChangeVersion`
   sistema que ofrece la conciliación del editor de conducción de golpes `updatedAt`.
 - [Security](/docs/security) — `registerShareableResource`, `resolveAccess`,
   y `assertAccess` para la colaboración con alcance de recurso.

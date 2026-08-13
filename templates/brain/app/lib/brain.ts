@@ -128,6 +128,7 @@ export interface BrainSource {
   lastSyncedAt?: string | null;
   nextSyncAt?: string | null;
   reviewRequired?: boolean;
+  visibility?: "private" | "org" | "public";
   config?: Record<string, unknown>;
   cursor?: Record<string, unknown>;
   lastError?: string | null;
@@ -144,6 +145,27 @@ export interface BrainSource {
 export interface CreateSourceResponse {
   source: BrainSource;
   ingestToken?: string;
+}
+
+export interface MarkdownImportFileResult {
+  path: string;
+  status: "imported" | "blocked" | "failed";
+  captureId?: string;
+  distillation?: "queued" | "existing" | "skipped" | "failed";
+  error?: string;
+  sensitivityReceipt?: Record<string, unknown>;
+}
+
+export interface MarkdownImportResponse {
+  source?: BrainSource;
+  files: MarkdownImportFileResult[];
+  summary: {
+    requested: number;
+    imported: number;
+    queued: number;
+    blocked: number;
+    failed: number;
+  };
 }
 
 export interface BrainOverviewResponse {
@@ -1113,7 +1135,7 @@ export function sourceDescription(source: BrainSource) {
     case "generic":
       return "Signed webhook or manual API source for transcripts and structured context.";
     case "manual":
-      return "Direct imports created from the agent or UI.";
+      return "Import Markdown folders, pasted notes, or agent-created captures. Imported files remain searchable captures and follow this source's access setting.";
     default:
       return "Company knowledge source.";
   }

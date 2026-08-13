@@ -21,8 +21,8 @@ import {
   IconPhoto,
   IconComponents,
   IconCheck,
-  IconExternalLink,
   IconChevronDown,
+  IconExternalLink,
 } from "@tabler/icons-react";
 import { useState, useCallback, useRef, useMemo, useEffect } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
@@ -69,6 +69,20 @@ interface BuilderIndexResult {
   instructions?: string;
 }
 
+interface BuilderIndexInput {
+  projectName?: string;
+  description?: string;
+  githubRepoUrl?: string;
+  connectedProjectId?: string;
+  codeFiles?: Array<{
+    filename: string;
+    content: string;
+    mimeType?: string;
+    encoding?: "utf8" | "base64";
+  }>;
+  designMd?: string;
+}
+
 export default function DesignSystemSetup() {
   const t = useT();
   const navigate = useNavigate();
@@ -88,7 +102,7 @@ export default function DesignSystemSetup() {
   const [notes, setNotes] = useState("");
   const [customInstructions, setCustomInstructions] = useState("");
   const [validationError, setValidationError] = useState<string | null>(null);
-  const [sourcePanel, setSourcePanel] = useState<"figma" | "other">("figma");
+  const [sourcePanel, setSourcePanel] = useState<"figma" | "other">("other");
   const [otherSource, setOtherSource] = useState<OtherSource | null>(null);
 
   const docInputRef = useRef<HTMLInputElement>(null);
@@ -105,6 +119,10 @@ export default function DesignSystemSetup() {
     designSystems: Array<{ id: string; title: string }>;
   }>("list-design-systems");
   const updateSystemMutation = useActionMutation("update-design-system");
+  const indexSystemMutation = useActionMutation<
+    BuilderIndexResult,
+    BuilderIndexInput
+  >("index-design-system-with-builder");
 
   const existingProjects = designsData?.designs ?? [];
   const existingSystems = designSystemsData?.designSystems ?? [];
@@ -223,11 +241,13 @@ export default function DesignSystemSetup() {
       existingProjects.some((project) => project.id === sourceId);
     if (!sourceExists) return;
     setSelectedProjectId(sourceId);
+    setSourcePanel("other");
+    setOtherSource("existing");
     appliedSourceIdRef.current = sourceId;
   }, [sourceId, existingProjects, existingSystems]);
 
   const hasAnySources = useMemo(() => {
-    return (
+    return Boolean(
       companyInfo.trim() ||
       websiteUrl.trim() ||
       websiteUrls.length > 0 ||
@@ -240,7 +260,7 @@ export default function DesignSystemSetup() {
       assets.length > 0 ||
       selectedProjectId ||
       notes.trim() ||
-      customInstructions.trim()
+      customInstructions.trim(),
     );
   }, [
     companyInfo,
@@ -260,7 +280,7 @@ export default function DesignSystemSetup() {
 
   const selectOtherSource = useCallback((source: OtherSource) => {
     setSourcePanel("other");
-    setOtherSource((current) => (current === source ? null : source));
+    setOtherSource(source);
   }, []);
 
   const addWebsiteUrl = useCallback(() => {
@@ -424,6 +444,43 @@ export default function DesignSystemSetup() {
     const normalizedGithubLinks = pendingGithubUrl
       ? [...githubLinks, { id: "pending", url: pendingGithubUrl }]
       : githubLinks;
+
+    const isSingleGithubSource =
+      normalizedGithubLinks.length === 1 &&
+      normalizedWebsiteUrls.length === 0 &&
+      codeFiles.length === 0 &&
+      !builderIndexResult &&
+      docFiles.length === 0 &&
+      imageFiles.length === 0 &&
+      assets.length === 0 &&
+      !selectedProjectId;
+
+    if (isSingleGithubSource) {
+      const githubRepoUrl = normalizedGithubLinks[0]?.url;
+      if (!githubRepoUrl) return;
+
+      setValidationError(null);
+      try {
+        await indexSystemMutation.mutateAsync({
+          projectName: companyInfo.trim() || undefined,
+          description:
+            [notes.trim(), customInstructions.trim()]
+              .filter(Boolean)
+              .join("\n\n") || undefined,
+          githubRepoUrl,
+        });
+        toast.success(t("designSystemSetup.githubIndexStarted"));
+        navigate("/design-systems");
+      } catch (error) {
+        setValidationError(
+          error instanceof Error
+            ? error.message
+            : t("designSystemSetup.errors.githubIndex"),
+        );
+      }
+      return;
+    }
+
     const readableCodeFiles = codeFiles.filter((f) => f.textContent);
     const designMdFiles = readableCodeFiles.filter(isDesignMdFile);
     const builderCodeFiles = readableCodeFiles.filter(
@@ -586,7 +643,10 @@ export default function DesignSystemSetup() {
     navigate,
     t,
     updateSystemMutation,
+    indexSystemMutation,
   ]);
+
+  const isSubmitting = builderIndexing || indexSystemMutation.isPending;
 
   useSetPageTitle(
     <div className="flex items-center gap-2 min-w-0">
@@ -607,10 +667,18 @@ export default function DesignSystemSetup() {
     <Button
       size="sm"
       onClick={handleContinue}
-      aria-disabled={!hasAnySources}
-      className="cursor-pointer aria-disabled:opacity-50"
+      disabled={!hasAnySources || isSubmitting}
+      aria-busy={isSubmitting}
+      className="cursor-pointer"
     >
-      {t("designSystemSetup.continue")}
+      {isSubmitting ? (
+        <>
+          <Spinner className="size-3.5" />
+          {t("designSystemSetup.starting")}
+        </>
+      ) : (
+        t("designSystemSetup.continue")
+      )}
     </Button>,
   );
 
@@ -637,15 +705,61 @@ export default function DesignSystemSetup() {
           )}
 
           <div className="space-y-5">
+            <section className="rounded-lg border border-border bg-card p-4">
+              <div className="mb-3">
+                <h2 className="text-sm font-medium text-foreground/90">
+                  {t("designSystemSetup.chooseSourcePrompt")}
+                </h2>
+              </div>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                <SourceChoice
+                  icon={IconBrandFigma}
+                  title={t("designSystemSetup.sections.figma.title")}
+                  selected={sourcePanel === "figma"}
+                  onClick={() => {
+                    setSourcePanel("figma");
+                    setOtherSource(null);
+                  }}
+                />
+                <SourceChoice
+                  icon={IconWorld}
+                  title={t("designSystemSetup.sections.company.title")}
+                  selected={sourcePanel === "other" && otherSource === "brand"}
+                  onClick={() => selectOtherSource("brand")}
+                />
+                <SourceChoice
+                  icon={IconBrandGithub}
+                  title={t("designSystemSetup.sections.code.title")}
+                  selected={sourcePanel === "other" && otherSource === "code"}
+                  onClick={() => selectOtherSource("code")}
+                />
+                <SourceChoice
+                  icon={IconFileDescription}
+                  title={t("designSystemSetup.sections.designFiles.title")}
+                  selected={sourcePanel === "other" && otherSource === "files"}
+                  onClick={() => selectOtherSource("files")}
+                />
+                {(existingProjects.length > 0 ||
+                  existingSystems.length > 0) && (
+                  <SourceChoice
+                    icon={IconComponents}
+                    title={t("designSystemSetup.sections.importExisting.title")}
+                    selected={
+                      sourcePanel === "other" && otherSource === "existing"
+                    }
+                    onClick={() => selectOtherSource("existing")}
+                  />
+                )}
+                <SourceChoice
+                  icon={IconFileDescription}
+                  title={t("designSystemSetup.sections.notes.title")}
+                  selected={sourcePanel === "other" && otherSource === "notes"}
+                  onClick={() => selectOtherSource("notes")}
+                />
+              </div>
+            </section>
+
             {/* Start from a Figma file via Builder DSI. */}
-            <SourceAccordionRow
-              icon={IconBrandFigma}
-              title={t("designSystemSetup.sections.figma.title")}
-              description={t("designSystemSetup.sections.figma.description")}
-              expanded={sourcePanel === "figma"}
-              onClick={() => setSourcePanel("figma")}
-              panelId="design-system-figma-source"
-            />
             <Section
               title={t("designSystemSetup.sections.figma.title")}
               description={t("designSystemSetup.sections.figma.description")}
@@ -716,89 +830,6 @@ export default function DesignSystemSetup() {
                 />
               )}
             </Section>
-
-            <SourceAccordionRow
-              icon={IconComponents}
-              title={t("designSystemSetup.otherSources")}
-              description={t("designSystemSetup.otherSourcesDescription")}
-              expanded={sourcePanel === "other"}
-              onClick={() => setSourcePanel("other")}
-              panelId="design-system-other-sources"
-            />
-            {sourcePanel === "other" && (
-              <div
-                id="design-system-other-sources"
-                className="overflow-hidden rounded-lg border border-border"
-              >
-                <div className="border-b border-border px-4 py-3">
-                  <p className="text-xs font-medium text-foreground/70">
-                    {t("designSystemSetup.chooseSourcePrompt")}
-                  </p>
-                </div>
-                <div className="divide-y divide-border">
-                  <SourceAccordionRow
-                    className="rounded-none border-0"
-                    icon={IconComponents}
-                    title={t("designSystemSetup.sections.company.title")}
-                    description={t(
-                      "designSystemSetup.sections.company.description",
-                    )}
-                    expanded={otherSource === "brand"}
-                    onClick={() => selectOtherSource("brand")}
-                    panelId="design-system-brand-source"
-                  />
-                  <SourceAccordionRow
-                    className="rounded-none border-0"
-                    icon={IconBrandGithub}
-                    title={t("designSystemSetup.sections.code.title")}
-                    description={t(
-                      "designSystemSetup.sections.code.description",
-                    )}
-                    expanded={otherSource === "code"}
-                    onClick={() => selectOtherSource("code")}
-                    panelId="design-system-code-source"
-                  />
-                  <SourceAccordionRow
-                    className="rounded-none border-0"
-                    icon={IconFileDescription}
-                    title={t("designSystemSetup.sections.designFiles.title")}
-                    description={t(
-                      "designSystemSetup.sections.designFiles.description",
-                    )}
-                    expanded={otherSource === "files"}
-                    onClick={() => selectOtherSource("files")}
-                    panelId="design-system-file-source"
-                  />
-                  {(existingProjects.length > 0 ||
-                    existingSystems.length > 0) && (
-                    <SourceAccordionRow
-                      className="rounded-none border-0"
-                      icon={IconComponents}
-                      title={t(
-                        "designSystemSetup.sections.importExisting.title",
-                      )}
-                      description={t(
-                        "designSystemSetup.sections.importExisting.description",
-                      )}
-                      expanded={otherSource === "existing"}
-                      onClick={() => selectOtherSource("existing")}
-                      panelId="design-system-existing-source"
-                    />
-                  )}
-                  <SourceAccordionRow
-                    className="rounded-none border-0"
-                    icon={IconFileDescription}
-                    title={t("designSystemSetup.sections.notes.title")}
-                    description={t(
-                      "designSystemSetup.sections.notes.description",
-                    )}
-                    expanded={otherSource === "notes"}
-                    onClick={() => selectOtherSource("notes")}
-                    panelId="design-system-notes-source"
-                  />
-                </div>
-              </div>
-            )}
 
             {/* Company / Brand */}
             <Section
@@ -1217,11 +1248,19 @@ export default function DesignSystemSetup() {
             <div className="pt-4">
               <Button
                 onClick={handleContinue}
-                aria-disabled={!hasAnySources}
-                className="w-full cursor-pointer aria-disabled:opacity-50"
+                disabled={!hasAnySources || isSubmitting}
+                aria-busy={isSubmitting}
+                className="w-full cursor-pointer"
                 size="lg"
               >
-                {t("designSystemSetup.continue")}
+                {isSubmitting ? (
+                  <>
+                    <Spinner className="size-4" />
+                    {t("designSystemSetup.starting")}
+                  </>
+                ) : (
+                  t("designSystemSetup.continue")
+                )}
               </Button>
             </div>
           </div>
@@ -1264,50 +1303,33 @@ function Section({
   );
 }
 
-function SourceAccordionRow({
+function SourceChoice({
   icon: Icon,
   title,
-  description,
-  expanded,
+  selected,
   onClick,
-  panelId,
-  className,
 }: {
   icon: React.ComponentType<{ className?: string }>;
   title: string;
-  description: string;
-  expanded: boolean;
+  selected: boolean;
   onClick: () => void;
-  panelId: string;
-  className?: string;
 }) {
   return (
     <button
       type="button"
-      aria-controls={panelId}
-      aria-expanded={expanded}
+      aria-pressed={selected}
       onClick={onClick}
-      className={cn(
-        "flex w-full items-center gap-3 rounded-lg border border-border px-4 py-3 text-left transition-[background-color,border-color] duration-150 hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-        expanded && "bg-accent/40",
-        className,
-      )}
+      className={`flex min-h-16 items-center gap-2 rounded-lg border px-3 py-2 text-start transition-[background-color,border-color] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+        selected
+          ? "border-primary/50 bg-primary/5 text-foreground"
+          : "border-border hover:bg-accent/50"
+      }`}
     >
       <Icon className="size-4 shrink-0 text-muted-foreground" />
-      <span className="min-w-0 flex-1">
-        <span className="block text-sm font-medium text-foreground/90">
-          {title}
-        </span>
-        <span className="mt-0.5 block truncate text-xs text-muted-foreground">
-          {description}
-        </span>
+      <span className="min-w-0 flex-1 truncate text-sm font-medium">
+        {title}
       </span>
-      <IconChevronDown
-        className={cn(
-          "size-4 shrink-0 text-muted-foreground transition-transform duration-150",
-          expanded && "rotate-180",
-        )}
-      />
+      {selected ? <IconCheck className="size-4 shrink-0 text-primary" /> : null}
     </button>
   );
 }

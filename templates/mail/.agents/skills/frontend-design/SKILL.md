@@ -36,7 +36,7 @@ Before coding, decide:
   can wait until context or intent makes it relevant?
 - **Differentiation**: What makes this feel designed for this exact domain?
 
-Then implement working code that is cohesive, accessible, responsive, and polished in small details: typography, spacing, copy, motion, empty states, loading states, focus states, and error states.
+Then implement working code that is cohesive, accessible, responsive, and polished in small details: typography, spacing, motion, empty states, loading states, focus states, and error states. Polish means removing copy, not writing more of it.
 
 ## Visual Direction Contract
 
@@ -54,80 +54,72 @@ before selecting its accent family. Shared behavior and semantic token names
 should stay consistent; palette, density, composition, type contrast, and
 shape language should not be identical by default.
 
-## High-Signal Minimalism And Progressive Disclosure
+## Default Surface Density
 
-Minimalism means fewer competing kinds of UI, not less useful information. Keep
-surfaces dense and scannable: reduce redundant prose, decorative containers,
-borders, badges, accent colors, and persistent controls before removing content
-that helps the user orient, compare, decide, or recover. The reference class is
-calm productivity software such as ChatGPT/Codex, Linear, and Vercel, not empty
-whitespace.
+This is the most repeated correction in this repo, tracked as `text-heavy-ui` in
+`node scripts/agent-friction-report.mjs`. Every item below has been asked for by
+name more than once, usually right after a previous surface was corrected for the
+same thing. So treat the list as the default shape you apply, not a tradeoff you
+weigh per surface. If the user wants one of these, they will ask.
 
-### Product UX Philosophy
+Density comes from data, not from prose. Linear, Vercel, and ChatGPT/Codex are
+dense — with rows, values, and state, and almost no explanatory sentences. That
+is the target: a surface full of information and nearly empty of narration. So
+"make it minimal" is never satisfied by removing data or by burying it behind
+extra clicks, and never blocked by deleting a sentence.
 
-Apply these principles as binding decision rules:
+Do not add, unless asked:
 
-- **Purpose over presence**: Every visible element must support orientation,
-  state comprehension, a decision, an action, or recovery. Before adding one,
-  name which; if it supports none or duplicates another element, remove or
-  defer it.
-- **Clarity over cleverness**: Use plain language, familiar patterns, explicit
-  hierarchy, and visible state. Do not make decoration or invented terminology
-  carry meaning. Preserve the labels, hit targets, focus states, and recovery
-  paths required for accessible use.
-- **Simple first, powerful on demand**: Keep the current task and state in the
-  default presentation. Put advanced, rare, diagnostic, and secondary work
-  behind contextual disclosure, menus, or Settings. Do not turn a discoverability
-  concern into permanent chrome, and do not hide information needed for the
-  current decision.
-- **Hierarchy over chrome**: Use typography, spacing, alignment, and restrained
-  emphasis to organize information. Treat prose, controls, borders, cards,
-  badges, and accent colors as a competition budget: reduce competing kinds of
-  elements before reducing useful information. When a surface has one clear
-  next decision, give it dominant emphasis and move secondary actions out of
-  the default path. Do not wrap every section in a card or add borders for
-  grouping alone; use spacing, alignment, typography, or dividers first. A
-  container must communicate grouping, state, or interaction.
-- **Coherence over novelty**: Reuse the product's primitives, interaction
-  patterns, and language. When given a screenshot or reference product, match
-  its underlying hierarchy, density, and behavior; do not copy decoration or
-  introduce a second visual language without a product reason.
-- **Quiet continuity**: Feedback must be immediate, contextual, and honest.
-  Preserve the user's place and layout, make loading, empty, and error states
-  understandable, and use motion only to explain a change.
-- **Respect repeated use**: Optimize for the hundredth use, not the first
-  impression. If a control repeats an explanation, occupies persistent space
-  for an occasional task, or turns routine work into ceremony, remove it or
-  move it to the contextual surface that owns it.
+- A page title that repeats the nav item or route the user just clicked, or a
+  breadcrumb on a page that already has a back arrow.
+- A description, subtitle, tagline, or eyebrow under any title — page, card,
+  panel, tab, dialog, settings group, or list row. A surface gets a title or a
+  description, never both.
+- A count, stat, or summary strip over content already on screen: "11 apps",
+  "25 results", "0 signals · 0 decisions · 0 runs".
+- An About, help, or "what this does" section in settings.
+- Helper text under each option in a chooser. The option label carries it.
+- A placeholder that restates its own label.
 
-### Progressive Disclosure And Information Timing
+The explanation goes in a tooltip, a `Manage` popover, a menu, or nowhere.
+Settings use one shape: a compact row with the label and its current state, one
+action on the right, and `Manage` revealing the form once something is
+configured. Do not spell every input out on the default surface.
 
-Expose information and controls according to relevance, frequency, and
-consequence. Before coding, inventory the content and actions and assign them to
-the smallest useful visibility layer:
+**Chrome is not content.** These rules govern strings you write into JSX. A
+`description` the user typed and the app stored is data — render it, and render
+nothing when it is empty. Never add a `|| "No description yet."` fallback; an
+empty field is empty, not an opening to explain the feature.
 
-1. **Orient and act**: location, current state, and context needed for the next
-   meaningful choice.
-2. **Support active work**: details and controls for the selected item or
-   current workflow.
-3. **Available on demand**: advanced settings, diagnostics, credentials,
-   metadata, destructive actions, documentation, and rare tools.
+### The Shape That Got Approved
 
-Use a disclosure pattern that matches the task. Keep independent concerns easy
-to scan inside an expanded area instead of dumping every form, explanation,
-and secondary action into the first reveal. A collapsed row must retain its
-label and essential state; remove explanatory subtext unless it changes the
-next decision. For configuration with a known current state, show that state
-first and expose editing contextually instead of defaulting to a full form.
+A multi-step connect flow the user accepted on 2026-08-12, after rejecting a
+dense dialog of the same content as "HORRIBLE ... overwhelming":
+
+- Full-screen takeover rather than a crowded modal. Generous empty space is fine.
+- One question per step as the heading ("Who should use this?"), at most one
+  short line under it, and nothing under the options.
+- Choices are single-line rows — icon plus label — with the common one
+  preselected, so the happy path is one click.
+- "Step 2 of 2" and a thin progress bar instead of every field at once.
+- Advanced and rare detail behind a labeled collapsed row ("Advanced details",
+  "App grants"): label only, no preview of the contents.
+- Current state shown rather than explained: "Dispatch can reuse this account".
+- Quiet Cancel on the left, primary action on the right.
+
+Use that same treatment for sibling flows. When the user points at another
+surface — "like forms", "like the integrations grid" — copy that surface's
+structure instead of inventing a second language for the same job.
+`templates/forms/` is the reference implementation: no page title, no
+breadcrumbs, no eyebrows, no card descriptions, and row subtext only where it
+renders a user-authored field.
 
 Before shipping, verify collapsed, expanded, loading, empty, error, and
 narrow-width states. The default state fails review when its first viewport
-contains multiple unrelated forms, repeated explanatory copy, documentation
-links, or controls for unrelated tasks. It also fails when useful information
-has been replaced with empty whitespace or extra clicks solely to look minimal.
-The default state passes when users can identify their location, current state,
-current task, and relevant next choice without reading documentation, while
-the useful information remains dense and scannable.
+carries explanatory paragraphs, several unrelated forms, or controls for another
+task. `guard:no-default-chrome` checks the structural half of this on lines your
+branch adds; it cannot see a sentence you wrote, so the list above is still
+yours to apply.
 
 ## Aesthetic Guidelines
 
@@ -212,8 +204,9 @@ the useful information remains dense and scannable.
 Before shipping a new app or a substantial redesign, review the surface as an
 operator would use it repeatedly:
 
-- Can users identify where they are, what state they are in, and what
-  meaningful choices or next steps are available?
+- Count the sentences in the first viewport. If any of them explains the UI
+  rather than reporting state, delete it. "Could a user identify where they are?"
+  is a question every surface passes; a sentence count is not.
 - Remove competing or redundant elements, then place optional inputs, provider
   choices, diagnostics, long explanations, and secondary actions where they
   remain discoverable without crowding the current task.
@@ -229,8 +222,8 @@ operator would use it repeatedly:
   consistent, but a repeated palette, hero composition, type pairing, and
   radius language without a product reason is visual drift, not consistency.
 - Check the result with realistic content at the target desktop width and a
-  narrow width. If it feels like documentation instead of a tool, reduce noise
-  or clarify the hierarchy.
+  narrow width. If it feels like documentation instead of a tool, subtract until
+  it does not — restyling it is not the fix.
 
 ## shadcn/ui Design Rules
 
@@ -241,7 +234,7 @@ operator would use it repeatedly:
 - Use `cn()` from the local utils alias for conditional classes.
 - Dialog, Sheet, Drawer, and AlertDialog content must have an accessible title. Use `sr-only` only when the visible design already communicates the title.
 - Put menu/list items inside their group primitives: `SelectGroup`, `DropdownMenuGroup`, `CommandGroup`, and equivalents.
-- Use full `Card` composition when the content has a title, description, content, or actions. Do not dump complex cards into a single `CardContent`.
+- Compose cards from `CardHeader`, `CardTitle`, `CardContent`, and `CardFooter`. Do not add `CardDescription`, and do not hand-roll a muted `<p>` under a `CardTitle` — a card gets a title or a description, never both.
 - Use `ToggleGroup` for small option sets, `Switch` for binary settings, `Checkbox` for multi-select, `RadioGroup` for one-of-many, and `Slider`/inputs for numeric values.
 - For forms, prefer the app's existing shadcn form pattern. If newer `Field`, `FieldGroup`, or `InputGroup` primitives are installed or appropriate to add, use them instead of raw layout divs.
 - Page and section data loading uses layout-matching `Skeleton` geometry. Do
@@ -263,9 +256,9 @@ task without a clear product reason:
   preserve discoverability and reduce noise.
 - Full-width banners, persistent helper rows, decorative cards, or explanatory
   chrome for status that could be communicated more clearly with less weight.
-- Hiding essential meaning or operability behind progressive disclosure. Defer
-  complexity when it is contextual or infrequent, but preserve labels, focus,
-  hit targets, accessibility, and recovery paths.
+- Dropping a label, focus state, hit target, accessible name, or recovery path in
+  the name of minimalism. Defer complexity freely; never defer the ability to
+  operate the control.
 - UI cards nested inside other cards.
 - Text or icons that resize or shift fixed-format UI on hover/loading.
 

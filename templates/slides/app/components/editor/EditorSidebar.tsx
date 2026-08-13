@@ -499,9 +499,9 @@ export default function EditorSidebar({
         const nextSlideId = slides[nextIndex].id;
         onSelectSlide(nextSlideId);
         requestAnimationFrame(() => {
-          slideButtonRefs.current.get(nextSlideId)?.focus({
-            preventScroll: true,
-          });
+          const nextButton = slideButtonRefs.current.get(nextSlideId);
+          nextButton?.focus({ preventScroll: true });
+          nextButton?.scrollIntoView({ block: "nearest" });
         });
       }
     };

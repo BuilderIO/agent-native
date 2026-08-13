@@ -61,9 +61,9 @@ const slidesCanvasInteractionConfig = {
   minSize: MIN_SLIDE_OBJECT_SIZE,
   capabilities: {
     multiSelection: true,
-    snapping: false,
-    alignment: false,
-    distribution: false,
+    snapping: true,
+    alignment: true,
+    distribution: true,
     grouping: false,
     rotation: false,
     marquee: true,

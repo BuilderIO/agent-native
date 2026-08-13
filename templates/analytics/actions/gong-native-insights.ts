@@ -66,6 +66,7 @@ export default defineAction({
     Boolean(operation && allowCreditRequest),
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   http: false,
+  grounding: true,
   run: async ({ operation, allowCreditRequest, arguments: args }) => {
     const tools = gongNativeTools(await listVisibleMcpTools());
     if (!operation) {

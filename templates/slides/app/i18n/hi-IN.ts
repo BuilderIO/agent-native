@@ -382,6 +382,7 @@ const messages = {
     center: "Center",
     right: "Right",
     justify: "Justify",
+    distribute: "वितरित करें",
     fill: "Fill",
     tint: "Tint",
     transparent: "Transparent",
@@ -561,6 +562,11 @@ const messages = {
     dismissLayoutWarning: "लेआउट चेतावनी बंद करें",
     slidesAdded_one: "{{count}} स्लाइड जोड़ी गई",
     slidesAdded_other: "{{count}} स्लाइड जोड़ी गईं",
+    unsavedChangesTitle: "बिना सहेजे बदलाव",
+    unsavedChangesDescription:
+      "अगर आप अभी बाहर निकलते हैं या पेज फिर से लोड करते हैं, तो बिना सहेजे बदलाव खो सकते हैं। क्या आप वाकई बाहर निकलना चाहते हैं?",
+    keepEditing: "संपादन जारी रखें",
+    leaveWithoutSaving: "बिना सहेजे बाहर निकलें",
   },
   designSystemSetup: {
     importedBrand: "आयात किया गया ब्रांड",
@@ -658,8 +664,6 @@ const messages = {
     all: "सभी",
     showMineDecks: "मेरे बनाए डेक दिखाएं",
     mine: "मेरे",
-    deckCount_one: "डेक",
-    deckCount_other: "डेक",
     createDeckOrVisual: "प्रेज़ेंटेशन बनाएं",
     noMineDecks: "आपने अभी तक कोई डेक नहीं बनाया है।",
     noDecksMatchSearch: "आपकी खोज से कोई डेक मेल नहीं खाता।",

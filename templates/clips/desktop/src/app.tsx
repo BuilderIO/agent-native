@@ -1,7 +1,10 @@
+import * as PopoverPrimitive from "@radix-ui/react-popover";
 import {
   IconAlertTriangle,
   IconArrowLeft,
   IconCalendarEvent,
+  IconCheck,
+  IconChevronDown,
   IconCircleCheck,
   IconCopy,
   IconDownload,
@@ -24,6 +27,7 @@ import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 import {
+  type ReactElement,
   type ReactNode,
   type RefObject,
   useCallback,
@@ -796,6 +800,10 @@ function measurePopoverHeight(el: HTMLElement): number {
   // by the current viewport height.
   let lowestBottom = rect.bottom;
   for (const child of Array.from(el.querySelectorAll<HTMLElement>("*"))) {
+    // Floating settings layers are intentionally independent of the native
+    // window size. Their content can scroll inside the layer without changing
+    // the tray popover underneath it.
+    if (child.closest('[data-popover-overlay="true"]')) continue;
     const childStyle = window.getComputedStyle(child);
     if (childStyle.display === "none") continue;
     const childRect = child.getBoundingClientRect();
@@ -2625,11 +2633,12 @@ export function App() {
   const appRef = useRef<HTMLDivElement | null>(null);
   usePopoverAutoSize(appRef, {
     disabled:
+      popoverView === "rewind-settings" ||
       (popoverView !== "settings" && !popoverVisible) ||
       isRecording ||
       recordingFlowActive,
     width:
-      popoverView === "settings" ? 920 : popoverView === "memory" ? 440 : 360,
+      popoverView === "settings" ? 920 : popoverView === "memory" ? 440 : 320,
   });
 
   const loadPendingUploads = useCallback(async () => {
@@ -2693,6 +2702,29 @@ export function App() {
   useEffect(() => {
     loadPendingUploads();
   }, [loadPendingUploads, popoverVisible]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void invoke<{ recovered: number }>(
+      "native_fullscreen_recover_orphaned_uploads",
+      { serverUrl },
+    )
+      .then((result) => {
+        if (!cancelled && result.recovered > 0) {
+          return loadPendingUploads();
+        }
+        return undefined;
+      })
+      .catch((error) => {
+        console.warn(
+          "[clips-tray] orphaned recording recovery lookup failed:",
+          error,
+        );
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [loadPendingUploads, serverUrl]);
 
   // ---- persist selections -------------------------------------------------
 
@@ -3741,8 +3773,6 @@ export function App() {
           rewindAgentPromptCopied={rewindAgentPromptCopied}
           onCopyRewindAgentPrompt={copyRewindAgentPrompt}
           onOpenRewindDocs={openRewindDocs}
-          onOpenRewind={() => setPopoverView("rewind-settings")}
-          onOpenMemory={() => setPopoverView("memory")}
           onCancel={() => {
             setPromptRewindEnable(false);
             setPopoverView(
@@ -3790,11 +3820,6 @@ export function App() {
           rewindAgentPromptCopied={rewindAgentPromptCopied}
           onCopyRewindAgentPrompt={copyRewindAgentPrompt}
           onOpenRewindDocs={openRewindDocs}
-          onOpenRewind={() => {
-            setPromptRewindEnable(false);
-            setRewindSettingsReturnView("settings");
-            setPopoverView("rewind-settings");
-          }}
           onCancel={() => setPopoverView("recorder")}
         />
       </div>
@@ -4386,9 +4411,10 @@ function PendingUploadBanner({
             ) : null}
             <button
               type="button"
-              className="pending-upload-retry"
+              className={`pending-upload-retry${retrying ? " pending-upload-retry-spinning" : ""}`}
               disabled={actionsDisabled}
               onClick={() => onRetry(latest)}
+              aria-busy={retrying}
             >
               <IconRefresh size={14} stroke={2} />
               {retrying ? (retryingUploadStatus ?? "Retrying") : "Retry"}
@@ -5284,8 +5310,6 @@ function Setup({
   rewindAgentPromptCopied,
   onCopyRewindAgentPrompt,
   onOpenRewindDocs,
-  onOpenRewind,
-  onOpenMemory,
   onCancel,
   onSignOut,
 }: {
@@ -5314,14 +5338,19 @@ function Setup({
   rewindAgentPromptCopied: boolean;
   onCopyRewindAgentPrompt: () => void;
   onOpenRewindDocs: () => void;
-  onOpenRewind?: () => void;
-  onOpenMemory?: () => void;
   onCancel?: () => void;
   onSignOut?: () => void;
 }) {
   const [url, setUrl] = useState(initial ?? DEFAULT_URL);
   const [readinessOpen, setReadinessOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState<SettingsTabId>("general");
+  const [rewindSettingsOpen, setRewindSettingsOpen] = useState(false);
+  const [rewindActivityOpen, setRewindActivityOpen] = useState(false);
+  const [rewindMemoryOpen, setRewindMemoryOpen] = useState(false);
+  const [rewindSearchOpen, setRewindSearchOpen] = useState(false);
+  const [rewindPrivacyOpen, setRewindPrivacyOpen] = useState(false);
+  const [rewindAgentSetupOpen, setRewindAgentSetupOpen] = useState(false);
+  const [rewindHandoffOpen, setRewindHandoffOpen] = useState(false);
   const featureConfig = useFeatureConfig();
   const updateStatus = useUpdateStatus();
   const voiceEnabled = featureConfig?.voiceEnabled !== false;
@@ -5390,7 +5419,6 @@ function Setup({
   const [rewindEgressEvents, setRewindEgressEvents] = useState<
     RewindEgressEvent[]
   >([]);
-  const [rewindEgressOpen, setRewindEgressOpen] = useState(false);
   const [rewindLocalQuery, setRewindLocalQuery] = useState("");
   const [rewindLocalResult, setRewindLocalResult] =
     useState<RewindLocalAskResult | null>(null);
@@ -6314,6 +6342,13 @@ function Setup({
   }
 
   if (surface === "rewind") {
+    const captureDisabled = screenMemoryConfigBusy || captureControlsLocked;
+    const excludedAppsSummary =
+      excludedAppGroups.length === 0
+        ? "No apps excluded"
+        : `${excludedAppGroups.length} app${excludedAppGroups.length === 1 ? "" : "s"} excluded`;
+    const storageLabel = formatStorageBytes(screenMemory.maxBytes);
+
     return (
       <div className="setup popover-view rewind-settings-surface">
         <div className="setup-header">
@@ -6327,465 +6362,650 @@ function Setup({
           </button>
           <h2>Rewind settings</h2>
         </div>
-        <div className="rewind-setting-row">
-          <SettingLabel
-            label="Rewind"
-            hint={
-              !screenMemory.enabled
-                ? "Off"
-                : screenMemory.paused
-                  ? "Paused · existing local memory is still available"
-                  : "Remembering locally"
-            }
-          />
-          <Switch
-            on={screenMemory.enabled}
-            disabled={screenMemoryConfigBusy || captureControlsLocked}
-            onChange={(enabled) => {
-              if (enabled) setRewindConsentOpen(true);
-              else
-                void setScreenMemoryConfig({ enabled: false, paused: false });
-            }}
-            label="Enable Rewind"
-          />
+        <div className="rewind-settings-section">
+          <div className="rewind-setting-row">
+            <SettingLabel
+              label="Rewind"
+              hint={
+                !screenMemory.enabled
+                  ? "Off"
+                  : screenMemory.paused
+                    ? "Paused · existing local memory is still available"
+                    : "Remembering locally"
+              }
+            />
+            <Switch
+              on={screenMemory.enabled}
+              disabled={captureDisabled}
+              onChange={(enabled) => {
+                if (enabled) setRewindConsentOpen(true);
+                else
+                  void setScreenMemoryConfig({ enabled: false, paused: false });
+              }}
+              label="Enable Rewind"
+            />
+          </div>
+          {captureControlsLocked ? (
+            <p className="rewind-capture-lock-note" role="status">
+              Capture settings unlock when this Clip ends.
+            </p>
+          ) : null}
+          {screenMemory.enabled ? (
+            <>
+              <div className="rewind-setting-row">
+                <SettingLabel
+                  label="Remember"
+                  hint="Choose whether audio joins the local screen memory."
+                />
+                <RewindChoicePopover
+                  title="Remember"
+                  value={screenMemory.captureMode}
+                  options={[
+                    { value: "visuals", label: "Visuals" },
+                    { value: "visuals-audio", label: "Visuals + audio" },
+                  ]}
+                  disabled={captureDisabled}
+                  onChange={(value) =>
+                    void setScreenMemoryConfig({
+                      captureMode: value as "visuals" | "visuals-audio",
+                    })
+                  }
+                />
+              </div>
+              <div className="rewind-setting-row">
+                <SettingLabel
+                  label="Remember the last…"
+                  hint="How long Rewind keeps recent moments available."
+                />
+                <RewindChoicePopover
+                  title="Remember the last"
+                  value={String(screenMemory.retentionHours)}
+                  options={[
+                    { value: "8", label: "8 hours" },
+                    { value: "24", label: "24 hours" },
+                  ]}
+                  disabled={screenMemoryConfigBusy}
+                  onChange={(value) =>
+                    void setScreenMemoryConfig({
+                      retentionHours: Number(value),
+                    })
+                  }
+                />
+              </div>
+              <div className="rewind-setting-row">
+                <SettingLabel
+                  label="Keep up to"
+                  hint="Older moments are removed when this local limit is reached."
+                />
+                <RewindChoicePopover
+                  title="Keep up to"
+                  value={String(screenMemory.maxBytes)}
+                  options={[
+                    {
+                      value: String(5 * 1024 * 1024 * 1024),
+                      label: "5 GB",
+                    },
+                    {
+                      value: String(20 * 1024 * 1024 * 1024),
+                      label: "20 GB",
+                    },
+                    {
+                      value: String(50 * 1024 * 1024 * 1024),
+                      label: "50 GB",
+                    },
+                  ]}
+                  disabled={screenMemoryConfigBusy}
+                  onChange={(value) =>
+                    void setScreenMemoryConfig({ maxBytes: Number(value) })
+                  }
+                />
+              </div>
+              <div className="rewind-settings-status">
+                <span
+                  className={`rewind-home-dot ${rewindStatusPresentation.isLive ? "is-live" : ""}`}
+                />
+                <span className="rewind-settings-status-copy">
+                  <strong>{rewindStatusPresentation.title}</strong>
+                  <span>
+                    {rewindStatusPresentation.kind === "recording" &&
+                    !rewindStatusPresentation.hasError
+                      ? `${screenMemorySegments.length} retained segment${screenMemorySegments.length === 1 ? "" : "s"} · ${formatStorageBytes(screenMemoryTotalBytes)}`
+                      : rewindStatusPresentation.detail}
+                  </span>
+                </span>
+              </div>
+            </>
+          ) : null}
         </div>
-        {captureControlsLocked ? (
-          <p className="rewind-capture-lock-note" role="status">
-            Rewind capture settings unlock when this Clip ends. This keeps one
-            screen and audio recorder running at a time.
-          </p>
-        ) : null}
         {screenMemory.enabled ? (
           <>
-            <div className="rewind-setting-row">
-              <SettingLabel
-                label="Remember"
-                hint="Choose whether audio joins the local screen memory."
-                htmlFor="rewind-capture-mode"
-              />
-              <select
-                id="rewind-capture-mode"
-                className="setup-select rewind-setting-control"
-                disabled={screenMemoryConfigBusy || captureControlsLocked}
-                value={screenMemory.captureMode}
-                onChange={(event) =>
-                  void setScreenMemoryConfig({
-                    captureMode: event.target.value as
-                      | "visuals"
-                      | "visuals-audio",
-                  })
-                }
-              >
-                <option value="visuals">Visuals</option>
-                <option value="visuals-audio">Visuals + audio</option>
-              </select>
-            </div>
-            <div className="rewind-setting-row">
-              <SettingLabel
-                label="Remember the last…"
-                hint={`${formatStorageBytes(screenMemory.maxBytes)} maximum on disk`}
-                htmlFor="rewind-retention"
-              />
-              <select
-                id="rewind-retention"
-                className="setup-select rewind-setting-control"
-                disabled={screenMemoryConfigBusy}
-                value={screenMemory.retentionHours}
-                onChange={(event) =>
-                  void setScreenMemoryConfig({
-                    retentionHours: Number(event.target.value),
-                  })
-                }
-              >
-                <option value={8}>8 hours</option>
-                <option value={24}>24 hours</option>
-              </select>
-            </div>
-            <div className="rewind-setting-row">
-              <SettingLabel
-                label="Keep up to"
-                hint="Older moments are removed automatically when this limit is reached."
-                htmlFor="rewind-disk-cap"
-              />
-              <select
-                id="rewind-disk-cap"
-                className="setup-select rewind-setting-control"
-                disabled={screenMemoryConfigBusy}
-                value={screenMemory.maxBytes}
-                onChange={(event) =>
-                  void setScreenMemoryConfig({
-                    maxBytes: Number(event.target.value),
-                  })
-                }
-              >
-                <option value={5 * 1024 * 1024 * 1024}>5 GB</option>
-                <option value={20 * 1024 * 1024 * 1024}>20 GB</option>
-                <option value={50 * 1024 * 1024 * 1024}>50 GB</option>
-              </select>
-            </div>
-            <div className="rewind-settings-status">
-              <span
-                className={`rewind-home-dot ${rewindStatusPresentation.isLive ? "is-live" : ""}`}
-              />
-              <span className="rewind-settings-status-copy">
-                <strong>{rewindStatusPresentation.title}</strong>
-                <span>
-                  {rewindStatusPresentation.kind === "recording" &&
-                  !rewindStatusPresentation.hasError
-                    ? `${screenMemorySegments.length} retained segment${screenMemorySegments.length === 1 ? "" : "s"} · ${formatStorageBytes(screenMemoryTotalBytes)}`
-                    : rewindStatusPresentation.detail}
-                </span>
-              </span>
-            </div>
             <div className="setup-section-heading">Privacy</div>
-            <div className="rewind-excluded-apps">
-              <div className="rewind-excluded-apps-header">
-                <SettingLabel
-                  label="Excluded apps"
-                  hint="Rewind never remembers these applications."
-                />
-                <button
-                  type="button"
-                  className="secondary rewind-choose-apps"
-                  disabled={excludedAppsBusy || screenMemoryConfigBusy}
-                  onClick={() => void chooseExcludedApplications()}
-                >
-                  <IconFolderOpen size={14} stroke={1.9} />
-                  {excludedAppsBusy ? "Choosing…" : "Choose applications…"}
-                </button>
-              </div>
-              {excludedAppGroups.length > 0 ? (
-                <div className="rewind-excluded-app-list">
-                  {excludedAppGroups.map((app) => (
-                    <div
-                      className={`rewind-excluded-app ${app.installed ? "" : "is-missing"}`}
-                      key={app.bundleId}
+            <div className="rewind-settings-section">
+              <div className="rewind-setting-row rewind-setting-row--action">
+                <div className="rewind-setting-copy">
+                  <SettingLabel
+                    label="Excluded apps"
+                    hint="Rewind never remembers these applications."
+                  />
+                  <span>{excludedAppsSummary}</span>
+                </div>
+                <DesktopSettingsPopover
+                  title="Excluded apps"
+                  open={rewindPrivacyOpen}
+                  onOpenChange={setRewindPrivacyOpen}
+                  side="bottom"
+                  contentClassName="rewind-popover-content"
+                  trigger={
+                    <button
+                      type="button"
+                      className="secondary rewind-manage-button"
+                      disabled={screenMemoryConfigBusy}
                     >
-                      <div
-                        className="rewind-excluded-app-mark"
-                        aria-hidden="true"
-                      >
-                        {app.name.slice(0, 1).toUpperCase()}
+                      Manage
+                    </button>
+                  }
+                >
+                  <div className="rewind-popover-stack">
+                    <p className="rewind-popover-hint">
+                      These applications are always excluded from local Rewind
+                      memory.
+                    </p>
+                    <button
+                      type="button"
+                      className="secondary"
+                      disabled={excludedAppsBusy || screenMemoryConfigBusy}
+                      onClick={() => void chooseExcludedApplications()}
+                    >
+                      <IconFolderOpen size={14} stroke={1.9} />
+                      {excludedAppsBusy ? "Choosing…" : "Add applications…"}
+                    </button>
+                    {excludedAppGroups.length > 0 ? (
+                      <div className="rewind-excluded-app-list">
+                        {excludedAppGroups.map((app) => (
+                          <div
+                            className={`rewind-excluded-app ${app.installed ? "" : "is-missing"}`}
+                            key={app.bundleId}
+                          >
+                            <div
+                              className="rewind-excluded-app-mark"
+                              aria-hidden="true"
+                            >
+                              {app.name.slice(0, 1).toUpperCase()}
+                            </div>
+                            <div className="rewind-excluded-app-copy">
+                              <strong>{app.name}</strong>
+                              <span>
+                                {app.installed
+                                  ? "Excluded"
+                                  : "Not currently installed · still excluded"}
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              className="rewind-excluded-app-remove"
+                              aria-label={`Remove ${app.name}`}
+                              disabled={screenMemoryConfigBusy}
+                              onClick={() =>
+                                removeExcludedApplications(app.bundleIds)
+                              }
+                            >
+                              <IconX size={14} stroke={2} />
+                            </button>
+                          </div>
+                        ))}
                       </div>
-                      <div className="rewind-excluded-app-copy">
-                        <strong>{app.name}</strong>
-                        <span>
-                          {app.installed
-                            ? "Excluded"
-                            : "Not currently installed · still excluded"}
-                        </span>
+                    ) : (
+                      <p className="setup-hint">No apps are excluded.</p>
+                    )}
+                  </div>
+                </DesktopSettingsPopover>
+              </div>
+            </div>
+            <div className="setup-section-heading">Agent</div>
+            <div className="rewind-settings-section">
+              <div className="rewind-setting-row rewind-setting-row--action">
+                <div className="rewind-setting-copy">
+                  <SettingLabel
+                    label="Agent setup"
+                    hint="Install the reusable Rewind instructions for a local agent."
+                  />
+                  <span>Prompt and local connection</span>
+                </div>
+                <DesktopSettingsPopover
+                  title="Agent setup"
+                  open={rewindAgentSetupOpen}
+                  onOpenChange={setRewindAgentSetupOpen}
+                  side="bottom"
+                  contentClassName="rewind-popover-content"
+                  trigger={
+                    <button
+                      type="button"
+                      className="secondary rewind-manage-button"
+                    >
+                      Manage
+                    </button>
+                  }
+                >
+                  <div className="rewind-popover-stack">
+                    <div className="rewind-agent-guide">
+                      <div className="rewind-agent-guide-icon">
+                        <IconHistory size={17} stroke={1.8} />
                       </div>
+                      <div>
+                        <strong>Set up your agent once</strong>
+                        <p>
+                          Copy the setup prompt into a compatible agent. It
+                          installs Rewind's instructions and repairs the local
+                          connection.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="setup-button-row">
                       <button
                         type="button"
-                        className="rewind-excluded-app-remove"
-                        aria-label={`Remove ${app.name}`}
-                        disabled={screenMemoryConfigBusy}
-                        onClick={() =>
-                          removeExcludedApplications(app.bundleIds)
-                        }
+                        className="secondary"
+                        onClick={onCopyRewindAgentPrompt}
                       >
-                        <IconX size={14} stroke={2} />
+                        <IconCopy size={14} stroke={1.9} />
+                        {rewindAgentPromptCopied
+                          ? "Setup prompt copied"
+                          : "Copy setup prompt"}
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary"
+                        onClick={onOpenRewindDocs}
+                      >
+                        <IconExternalLink size={14} stroke={1.9} />
+                        Learn about Rewind
                       </button>
                     </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="setup-hint">No additional apps are excluded.</p>
-              )}
-            </div>
-            <div className="setup-section-heading">Agent handoff</div>
-            <div className="rewind-agent-guide">
-              <div className="rewind-agent-guide-icon">
-                <IconHistory size={17} stroke={1.8} />
-              </div>
-              <div>
-                <strong>Set up your agent once</strong>
-                <p>
-                  Copy the setup prompt into any compatible agent. It installs
-                  Rewind's reusable instructions and repairs the local
-                  connection, so later you can simply say “Look at Rewind.”
-                </p>
-                <div className="setup-button-row">
-                  <button
-                    type="button"
-                    className="secondary"
-                    onClick={onCopyRewindAgentPrompt}
-                  >
-                    <IconCopy size={14} stroke={1.9} />
-                    {rewindAgentPromptCopied
-                      ? "Setup prompt copied"
-                      : "Copy setup prompt"}
-                  </button>
-                  <button
-                    type="button"
-                    className="secondary"
-                    onClick={onOpenRewindDocs}
-                  >
-                    <IconExternalLink size={14} stroke={1.9} />
-                    Learn about Rewind
-                  </button>
-                </div>
-              </div>
-            </div>
-            <details className="setup-advanced rewind-agent-repair">
-              <summary className="setup-advanced-summary">
-                Repair an agent connection
-              </summary>
-              <div className="setup-advanced-body">
-                <p className="setup-hint">
-                  Usually your agent can install Rewind from the copied prompt.
-                  These buttons are a manual repair for known clients.
-                </p>
-                <div className="rewind-memory-actions">
-                  <button
-                    type="button"
-                    className="secondary"
-                    disabled={agentConnectionBusy !== null}
-                    onClick={() => void installRewindAgentConnection("codex")}
-                  >
-                    {agentConnectionBusy === "codex"
-                      ? "Repairing…"
-                      : "Repair Codex connection"}
-                  </button>
-                  <button
-                    type="button"
-                    className="secondary"
-                    disabled={agentConnectionBusy !== null}
-                    onClick={() =>
-                      void installRewindAgentConnection("claude-code")
-                    }
-                  >
-                    {agentConnectionBusy === "claude-code"
-                      ? "Repairing…"
-                      : "Repair Claude Code connection"}
-                  </button>
-                </div>
-                {agentConnectionMessage ? (
-                  <p
-                    className={
-                      agentConnectionMessage.kind === "error"
-                        ? "setup-error"
-                        : "setup-hint"
-                    }
-                    role="status"
-                  >
-                    {agentConnectionMessage.text}
-                  </p>
-                ) : null}
-              </div>
-            </details>
-            <div className="rewind-setting-row rewind-agent-row">
-              <SettingLabel
-                label="Review before sending"
-                hint="Preview and trim any visual or audio range before it becomes a private Clip."
-              />
-              <Switch
-                on={screenMemory.reviewBeforeSending}
-                disabled={screenMemoryConfigBusy}
-                onChange={(enabled) =>
-                  void setScreenMemoryConfig({
-                    reviewBeforeSending: enabled,
-                  })
-                }
-                label="Review visual and audio ranges before sending"
-              />
-            </div>
-            <div className="rewind-setting-row rewind-agent-row">
-              <SettingLabel
-                label="Open local preview automatically"
-                hint="When review is on, prepare the selected range in QuickTime when an agent asks for it."
-              />
-              <Switch
-                on={screenMemory.autoPreviewBeforeSending}
-                disabled={
-                  screenMemoryConfigBusy || !screenMemory.reviewBeforeSending
-                }
-                onChange={(enabled) =>
-                  void setScreenMemoryConfig({
-                    autoPreviewBeforeSending: enabled,
-                  })
-                }
-                label="Open a local preview automatically before sending"
-              />
-            </div>
-            <p className="rewind-boundary-note">
-              Asking your agent authorizes bounded matching text. Raw Rewind
-              files stay local. If this review is off, an agent-requested media
-              range becomes a private Clip immediately and leaves a receipt.
-            </p>
-            <div className="rewind-setting-row">
-              <SettingLabel
-                label="Agent-created Clip retention"
-                hint="Applies to future private Clips created for an agent."
-                htmlFor="rewind-agent-clip-retention"
-              />
-              <select
-                id="rewind-agent-clip-retention"
-                className="setup-select rewind-setting-control"
-                disabled={screenMemoryConfigBusy}
-                value={screenMemory.agentClipRetention}
-                onChange={(event) =>
-                  void setScreenMemoryConfig({
-                    agentClipRetention: event.target.value as
-                      | "forever"
-                      | "24-hours"
-                      | "7-days"
-                      | "30-days",
-                  })
-                }
-              >
-                <option value="forever">Keep forever</option>
-                <option value="24-hours">Delete after 24 hours</option>
-                <option value="7-days">Delete after 7 days</option>
-                <option value="30-days">Delete after 30 days</option>
-              </select>
-            </div>
-            <div className="rewind-agent-guide">
-              <div className="rewind-agent-guide-icon">
-                <IconHistory size={17} stroke={1.8} />
-              </div>
-              <div>
-                <strong>Ask your agent</strong>
-                <p>
-                  Try “What was the Terminal error?” or “Replay Tuesday’s design
-                  review.”
-                </p>
-                <button
-                  type="button"
-                  className="rewind-text-button"
-                  onClick={onOpenMemory}
-                >
-                  Search manually
-                </button>
-              </div>
-            </div>
-            <details
-              className="setup-advanced"
-              open={rewindEgressOpen}
-              onToggle={(event) => {
-                const open = event.currentTarget.open;
-                setRewindEgressOpen(open);
-                if (open) refreshRewindEgressLog();
-              }}
-            >
-              <summary className="setup-advanced-summary">
-                Agent activity
-              </summary>
-              <div className="setup-advanced-body">
-                <p className="setup-hint">
-                  See when an agent searched bounded local evidence. Raw Rewind
-                  media remains on this Mac unless you explicitly create a
-                  private Clip.
-                </p>
-                {rewindEgressEvents.length === 0 ? (
-                  <p className="setup-hint">No matching-text requests yet.</p>
-                ) : (
-                  rewindEgressEvents.slice(0, 10).map((event) => (
-                    <p
-                      className="setup-hint"
-                      key={`${event.requestId}-${event.state}`}
-                    >
-                      <strong>
-                        {new Date(event.occurredAt).toLocaleString()}
-                      </strong>
-                      {` · ${event.state} · ${event.evidenceCount} item${event.evidenceCount === 1 ? "" : "s"}`}
-                    </p>
-                  ))
-                )}
-              </div>
-            </details>
-            <details className="setup-advanced">
-              <summary className="setup-advanced-summary">
-                Manage local memory
-              </summary>
-              <div className="setup-advanced-body">
-                <div className="rewind-memory-actions">
-                  <div className="rewind-memory-action">
-                    <div className="rewind-memory-action-copy">
-                      <strong>Save a local Clip</strong>
-                      <p>
-                        Export the previous five minutes as a video on this Mac.
-                        Nothing is uploaded.
-                      </p>
-                      {screenMemoryExportResult ? (
-                        <div className="rewind-inline-receipt" role="status">
-                          <span>Saved locally</span>
+                    <details className="setup-advanced rewind-agent-repair">
+                      <summary className="setup-advanced-summary">
+                        Repair an agent connection
+                      </summary>
+                      <div className="setup-advanced-body">
+                        <p className="setup-hint">
+                          Use this only when the copied setup prompt cannot
+                          repair a known client.
+                        </p>
+                        <div className="rewind-memory-actions">
                           <button
                             type="button"
-                            className="rewind-text-button"
+                            className="secondary"
+                            disabled={agentConnectionBusy !== null}
                             onClick={() =>
-                              void invoke("open_local_recording_folder", {
-                                path: screenMemoryExportResult.folderPath,
-                              })
+                              void installRewindAgentConnection("codex")
                             }
                           >
-                            Show in Finder
+                            {agentConnectionBusy === "codex"
+                              ? "Repairing…"
+                              : "Repair Codex connection"}
+                          </button>
+                          <button
+                            type="button"
+                            className="secondary"
+                            disabled={agentConnectionBusy !== null}
+                            onClick={() =>
+                              void installRewindAgentConnection("claude-code")
+                            }
+                          >
+                            {agentConnectionBusy === "claude-code"
+                              ? "Repairing…"
+                              : "Repair Claude Code connection"}
                           </button>
                         </div>
-                      ) : null}
-                    </div>
-                    <button
-                      type="button"
-                      className="secondary"
-                      disabled={
-                        screenMemoryBusy || screenMemorySegments.length === 0
-                      }
-                      onClick={exportScreenMemoryRecent}
-                    >
-                      <IconDownload size={15} stroke={1.9} /> Save previous 5
-                      minutes
-                    </button>
+                        {agentConnectionMessage ? (
+                          <p
+                            className={
+                              agentConnectionMessage.kind === "error"
+                                ? "setup-error"
+                                : "setup-hint"
+                            }
+                            role="status"
+                          >
+                            {agentConnectionMessage.text}
+                          </p>
+                        ) : null}
+                      </div>
+                    </details>
                   </div>
-                  <div className="rewind-memory-action">
-                    <div>
-                      <strong>View Rewind files</strong>
-                      <p>
-                        Open the private folder where Rewind keeps its temporary
-                        local memory.
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      className="secondary"
-                      onClick={openScreenMemoryFolder}
-                    >
-                      <IconFolderOpen size={15} stroke={1.9} /> Open Rewind
-                      folder
-                    </button>
-                  </div>
-                  <div className="rewind-memory-action is-danger">
-                    <div>
-                      <strong>Erase Rewind memory</strong>
-                      <p>
-                        Permanently delete all retained media and indexes from
-                        this Mac.
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      className="secondary rewind-danger-button"
-                      disabled={
-                        screenMemoryBusy || screenMemorySegments.length === 0
-                      }
-                      onClick={clearScreenMemory}
-                    >
-                      <IconTrash size={15} stroke={1.9} /> Erase all memory…
-                    </button>
-                  </div>
-                </div>
+                </DesktopSettingsPopover>
               </div>
-            </details>
-            {screenMemoryMessage ? (
-              <p
-                className={
-                  screenMemoryMessage.kind === "ok"
-                    ? "setup-success"
-                    : "setup-warning"
-                }
-              >
-                {screenMemoryMessage.text}
-              </p>
-            ) : null}
+              <div className="rewind-setting-row rewind-setting-row--action">
+                <div className="rewind-setting-copy">
+                  <SettingLabel
+                    label="Before sending"
+                    hint="Control how an agent-created private Clip is prepared."
+                  />
+                  <span>
+                    {screenMemory.reviewBeforeSending
+                      ? "Review media before sending"
+                      : "Send private Clips immediately"}
+                  </span>
+                </div>
+                <DesktopSettingsPopover
+                  title="Before sending"
+                  open={rewindHandoffOpen}
+                  onOpenChange={setRewindHandoffOpen}
+                  side="bottom"
+                  contentClassName="rewind-popover-content"
+                  trigger={
+                    <button
+                      type="button"
+                      className="secondary rewind-manage-button"
+                    >
+                      Manage
+                    </button>
+                  }
+                >
+                  <div className="rewind-popover-stack">
+                    <div className="rewind-popover-setting-row">
+                      <div className="rewind-setting-copy">
+                        <strong>Review before sending</strong>
+                        <span>
+                          Preview and trim a visual or audio range before it
+                          becomes a private Clip.
+                        </span>
+                      </div>
+                      <Switch
+                        on={screenMemory.reviewBeforeSending}
+                        disabled={screenMemoryConfigBusy}
+                        onChange={(enabled) =>
+                          void setScreenMemoryConfig({
+                            reviewBeforeSending: enabled,
+                          })
+                        }
+                        label="Review visual and audio ranges before sending"
+                      />
+                    </div>
+                    <div className="rewind-popover-setting-row">
+                      <div className="rewind-setting-copy">
+                        <strong>Open local preview automatically</strong>
+                        <span>
+                          Prepare the selected range in QuickTime when an agent
+                          asks for it.
+                        </span>
+                      </div>
+                      <Switch
+                        on={screenMemory.autoPreviewBeforeSending}
+                        disabled={
+                          screenMemoryConfigBusy ||
+                          !screenMemory.reviewBeforeSending
+                        }
+                        onChange={(enabled) =>
+                          void setScreenMemoryConfig({
+                            autoPreviewBeforeSending: enabled,
+                          })
+                        }
+                        label="Open a local preview automatically before sending"
+                      />
+                    </div>
+                    <div className="rewind-popover-setting-row">
+                      <div className="rewind-setting-copy">
+                        <strong>Agent-created Clip retention</strong>
+                        <span>Applies to future private Clips.</span>
+                      </div>
+                      <RewindChoicePopover
+                        title="Agent-created Clip retention"
+                        value={screenMemory.agentClipRetention}
+                        options={[
+                          { value: "forever", label: "Keep forever" },
+                          {
+                            value: "24-hours",
+                            label: "Delete after 24 hours",
+                          },
+                          { value: "7-days", label: "Delete after 7 days" },
+                          {
+                            value: "30-days",
+                            label: "Delete after 30 days",
+                          },
+                        ]}
+                        disabled={screenMemoryConfigBusy}
+                        onChange={(value) =>
+                          void setScreenMemoryConfig({
+                            agentClipRetention: value as
+                              | "forever"
+                              | "24-hours"
+                              | "7-days"
+                              | "30-days",
+                          })
+                        }
+                      />
+                    </div>
+                    <p className="rewind-boundary-note">
+                      Raw Rewind files stay local. If review is off, an
+                      agent-requested media range becomes a private Clip
+                      immediately.
+                    </p>
+                  </div>
+                </DesktopSettingsPopover>
+              </div>
+              <div className="rewind-setting-row rewind-setting-row--action">
+                <div className="rewind-setting-copy">
+                  <SettingLabel
+                    label="Agent activity"
+                    hint="Review when an agent searched bounded local evidence."
+                  />
+                  <span>
+                    {rewindEgressEvents.length === 0
+                      ? "No matching-text requests yet"
+                      : `${rewindEgressEvents.length} recent request${rewindEgressEvents.length === 1 ? "" : "s"}`}
+                  </span>
+                </div>
+                <DesktopSettingsPopover
+                  title="Agent activity"
+                  open={rewindActivityOpen}
+                  onOpenChange={(open) => {
+                    setRewindActivityOpen(open);
+                    if (open) refreshRewindEgressLog();
+                  }}
+                  side="bottom"
+                  contentClassName="rewind-popover-content"
+                  trigger={
+                    <button
+                      type="button"
+                      className="secondary rewind-manage-button"
+                    >
+                      View
+                    </button>
+                  }
+                >
+                  <div className="rewind-popover-stack">
+                    <p className="rewind-popover-hint">
+                      Raw Rewind media remains on this Mac unless you explicitly
+                      create a private Clip.
+                    </p>
+                    {rewindEgressEvents.length === 0 ? (
+                      <p className="setup-hint">
+                        No matching-text requests yet.
+                      </p>
+                    ) : (
+                      rewindEgressEvents.slice(0, 10).map((event) => (
+                        <p
+                          className="setup-hint"
+                          key={`${event.requestId}-${event.state}`}
+                        >
+                          <strong>
+                            {new Date(event.occurredAt).toLocaleString()}
+                          </strong>
+                          {` · ${event.state} · ${event.evidenceCount} item${event.evidenceCount === 1 ? "" : "s"}`}
+                        </p>
+                      ))
+                    )}
+                  </div>
+                </DesktopSettingsPopover>
+              </div>
+              <div className="rewind-setting-row rewind-setting-row--action">
+                <div className="rewind-setting-copy">
+                  <SettingLabel
+                    label="Manual search"
+                    hint="Search retained local evidence without asking an agent."
+                  />
+                  <span>Find and replay a source moment</span>
+                </div>
+                <DesktopSettingsPopover
+                  title="Manual search"
+                  open={rewindSearchOpen}
+                  onOpenChange={setRewindSearchOpen}
+                  side="bottom"
+                  contentClassName="rewind-memory-launcher"
+                  trigger={
+                    <button
+                      type="button"
+                      className="secondary rewind-manage-button"
+                    >
+                      Search
+                    </button>
+                  }
+                >
+                  <Setup
+                    surface="memory"
+                    recordingActive={recordingActive}
+                    promptRewindEnable={false}
+                    initial={initial}
+                    serverUrl={serverUrl}
+                    signedInAs={signedInAs}
+                    voiceShortcut={voiceShortcut}
+                    voiceCustomShortcut={voiceCustomShortcut}
+                    popoverCustomShortcut={popoverCustomShortcut}
+                    recordCustomShortcut={recordCustomShortcut}
+                    voiceMode={voiceMode}
+                    voiceProvider={voiceProvider}
+                    voiceInstructions={voiceInstructions}
+                    shortcutRegistrationError={shortcutRegistrationError}
+                    onVoiceShortcutChange={onVoiceShortcutChange}
+                    onVoiceCustomShortcutChange={onVoiceCustomShortcutChange}
+                    onPopoverCustomShortcutChange={
+                      onPopoverCustomShortcutChange
+                    }
+                    onRecordCustomShortcutChange={onRecordCustomShortcutChange}
+                    onVoiceModeChange={onVoiceModeChange}
+                    onVoiceProviderChange={onVoiceProviderChange}
+                    onVoiceInstructionsChange={onVoiceInstructionsChange}
+                    onConnect={onConnect}
+                    rewindAgentPromptCopied={rewindAgentPromptCopied}
+                    onCopyRewindAgentPrompt={onCopyRewindAgentPrompt}
+                    onOpenRewindDocs={onOpenRewindDocs}
+                    onCancel={() => setRewindSearchOpen(false)}
+                  />
+                </DesktopSettingsPopover>
+              </div>
+              <div className="rewind-setting-row rewind-setting-row--action">
+                <div className="rewind-setting-copy">
+                  <SettingLabel
+                    label="Local memory"
+                    hint="Save, open, or erase the private Rewind archive on this Mac."
+                  />
+                  <span>
+                    {screenMemorySegments.length} retained segment
+                    {screenMemorySegments.length === 1 ? "" : "s"} ·{" "}
+                    {storageLabel}
+                  </span>
+                </div>
+                <DesktopSettingsPopover
+                  title="Local memory"
+                  open={rewindMemoryOpen}
+                  onOpenChange={setRewindMemoryOpen}
+                  side="bottom"
+                  contentClassName="rewind-popover-content"
+                  trigger={
+                    <button
+                      type="button"
+                      className="secondary rewind-manage-button"
+                    >
+                      Manage
+                    </button>
+                  }
+                >
+                  <div className="rewind-popover-stack">
+                    <div className="rewind-memory-actions">
+                      <div className="rewind-memory-action">
+                        <div className="rewind-memory-action-copy">
+                          <strong>Save a local Clip</strong>
+                          <p>
+                            Export the previous five minutes as a video on this
+                            Mac. Nothing is uploaded.
+                          </p>
+                          {screenMemoryExportResult ? (
+                            <div
+                              className="rewind-inline-receipt"
+                              role="status"
+                            >
+                              <span>Saved locally</span>
+                              <button
+                                type="button"
+                                className="rewind-text-button"
+                                onClick={() =>
+                                  void invoke("open_local_recording_folder", {
+                                    path: screenMemoryExportResult.folderPath,
+                                  })
+                                }
+                              >
+                                Show in Finder
+                              </button>
+                            </div>
+                          ) : null}
+                        </div>
+                        <button
+                          type="button"
+                          className="secondary"
+                          disabled={
+                            screenMemoryBusy ||
+                            screenMemorySegments.length === 0
+                          }
+                          onClick={exportScreenMemoryRecent}
+                        >
+                          <IconDownload size={15} stroke={1.9} /> Save previous
+                          5 minutes
+                        </button>
+                      </div>
+                      <div className="rewind-memory-action">
+                        <div>
+                          <strong>View Rewind files</strong>
+                          <p>Open the private folder for local memory.</p>
+                        </div>
+                        <button
+                          type="button"
+                          className="secondary"
+                          onClick={openScreenMemoryFolder}
+                        >
+                          <IconFolderOpen size={15} stroke={1.9} /> Open folder
+                        </button>
+                      </div>
+                      <div className="rewind-memory-action is-danger">
+                        <div>
+                          <strong>Erase Rewind memory</strong>
+                          <p>Permanently delete retained media and indexes.</p>
+                        </div>
+                        <button
+                          type="button"
+                          className="secondary rewind-danger-button"
+                          disabled={
+                            screenMemoryBusy ||
+                            screenMemorySegments.length === 0
+                          }
+                          onClick={clearScreenMemory}
+                        >
+                          <IconTrash size={15} stroke={1.9} /> Erase all memory…
+                        </button>
+                      </div>
+                    </div>
+                    {screenMemoryMessage ? (
+                      <p
+                        className={
+                          screenMemoryMessage.kind === "ok"
+                            ? "setup-success"
+                            : "setup-warning"
+                        }
+                      >
+                        {screenMemoryMessage.text}
+                      </p>
+                    ) : null}
+                  </div>
+                </DesktopSettingsPopover>
+              </div>
+            </div>
           </>
         ) : (
           <div className="popover-empty-card rewind-memory-empty">
@@ -6804,6 +7024,17 @@ function Setup({
             </button>
           </div>
         )}
+        {screenMemoryMessage && screenMemory.enabled ? (
+          <p
+            className={
+              screenMemoryMessage.kind === "ok"
+                ? "setup-success"
+                : "setup-warning"
+            }
+          >
+            {screenMemoryMessage.text}
+          </p>
+        ) : null}
       </div>
     );
   }
@@ -6994,13 +7225,47 @@ function Setup({
             label="Rewind"
             description={rewindStatusPresentation.title}
             control={
-              <button
-                type="button"
-                className="secondary"
-                onClick={() => onOpenRewind?.()}
+              <DesktopSettingsPopover
+                title="Rewind settings"
+                open={rewindSettingsOpen}
+                onOpenChange={setRewindSettingsOpen}
+                side="left"
+                contentClassName="rewind-settings-launcher"
+                trigger={
+                  <button type="button" className="secondary">
+                    Manage
+                  </button>
+                }
               >
-                Open Rewind settings
-              </button>
+                <Setup
+                  surface="rewind"
+                  recordingActive={recordingActive}
+                  promptRewindEnable={false}
+                  initial={initial}
+                  serverUrl={serverUrl}
+                  signedInAs={signedInAs}
+                  voiceShortcut={voiceShortcut}
+                  voiceCustomShortcut={voiceCustomShortcut}
+                  popoverCustomShortcut={popoverCustomShortcut}
+                  recordCustomShortcut={recordCustomShortcut}
+                  voiceMode={voiceMode}
+                  voiceProvider={voiceProvider}
+                  voiceInstructions={voiceInstructions}
+                  shortcutRegistrationError={shortcutRegistrationError}
+                  onVoiceShortcutChange={onVoiceShortcutChange}
+                  onVoiceCustomShortcutChange={onVoiceCustomShortcutChange}
+                  onPopoverCustomShortcutChange={onPopoverCustomShortcutChange}
+                  onRecordCustomShortcutChange={onRecordCustomShortcutChange}
+                  onVoiceModeChange={onVoiceModeChange}
+                  onVoiceProviderChange={onVoiceProviderChange}
+                  onVoiceInstructionsChange={onVoiceInstructionsChange}
+                  onConnect={onConnect}
+                  rewindAgentPromptCopied={rewindAgentPromptCopied}
+                  onCopyRewindAgentPrompt={onCopyRewindAgentPrompt}
+                  onOpenRewindDocs={onOpenRewindDocs}
+                  onCancel={() => setRewindSettingsOpen(false)}
+                />
+              </DesktopSettingsPopover>
             }
           />
           <DesktopSettingsRow
@@ -7597,6 +7862,117 @@ function Setup({
         </main>
       </div>
     </div>
+  );
+}
+
+function DesktopSettingsPopover({
+  title,
+  trigger,
+  children,
+  open,
+  onOpenChange,
+  side = "left",
+  contentClassName,
+}: {
+  title: string;
+  trigger: ReactElement;
+  children: ReactNode;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  side?: "bottom" | "left" | "right" | "top";
+  contentClassName?: string;
+}) {
+  return (
+    <PopoverPrimitive.Root open={open} onOpenChange={onOpenChange}>
+      <PopoverPrimitive.Trigger asChild>{trigger}</PopoverPrimitive.Trigger>
+      <PopoverPrimitive.Content
+        side={side}
+        align="start"
+        sideOffset={10}
+        collisionPadding={12}
+        className={`desktop-settings-popover ${contentClassName ?? ""}`}
+        data-popover-overlay="true"
+      >
+        <div className="desktop-settings-popover-header">
+          <div
+            className="desktop-settings-popover-title"
+            role="heading"
+            aria-level={2}
+          >
+            {title}
+          </div>
+          <PopoverPrimitive.Close
+            type="button"
+            className="desktop-settings-popover-close"
+            aria-label={`Close ${title}`}
+          >
+            <IconX size={15} stroke={1.9} />
+          </PopoverPrimitive.Close>
+        </div>
+        {children}
+      </PopoverPrimitive.Content>
+    </PopoverPrimitive.Root>
+  );
+}
+
+function RewindChoicePopover({
+  title,
+  value,
+  options,
+  onChange,
+  disabled = false,
+}: {
+  title: string;
+  value: string;
+  options: Array<{ value: string; label: string }>;
+  onChange: (value: string) => void;
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const selectedOption =
+    options.find((option) => option.value === value)?.label ?? value;
+
+  return (
+    <DesktopSettingsPopover
+      title={title}
+      open={open}
+      onOpenChange={setOpen}
+      side="bottom"
+      trigger={
+        <button
+          type="button"
+          className="rewind-setting-trigger"
+          disabled={disabled}
+          aria-haspopup="listbox"
+          aria-expanded={open}
+        >
+          <span>{selectedOption}</span>
+          <IconChevronDown size={15} stroke={1.8} aria-hidden="true" />
+        </button>
+      }
+    >
+      <div className="rewind-choice-list" role="listbox" aria-label={title}>
+        {options.map((option) => {
+          const selected = option.value === value;
+          return (
+            <button
+              type="button"
+              role="option"
+              aria-selected={selected}
+              className={`rewind-choice-option ${selected ? "is-selected" : ""}`}
+              key={option.value}
+              onClick={() => {
+                onChange(option.value);
+                setOpen(false);
+              }}
+            >
+              <span>{option.label}</span>
+              {selected ? <IconCheck size={15} stroke={2.1} /> : null}
+            </button>
+          );
+        })}
+      </div>
+    </DesktopSettingsPopover>
   );
 }
 

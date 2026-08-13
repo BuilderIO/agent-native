@@ -390,6 +390,7 @@ const messages = {
     center: "Center",
     right: "Right",
     justify: "Justify",
+    distribute: "Verteilen",
     fill: "Fill",
     tint: "Tint",
     transparent: "Transparent",
@@ -575,6 +576,11 @@ const messages = {
     dismissLayoutWarning: "Layout-Warnung schließen",
     slidesAdded_one: "{{count}} diapositiva añadida",
     slidesAdded_other: "{{count}} diapositivas añadidas",
+    unsavedChangesTitle: "Ungespeicherte Änderungen",
+    unsavedChangesDescription:
+      "Wenn du jetzt gehst oder neu lädst, können noch nicht gespeicherte Änderungen verloren gehen. Möchtest du wirklich beenden?",
+    keepEditing: "Weiter bearbeiten",
+    leaveWithoutSaving: "Ohne Speichern beenden",
   },
   designSystemSetup: {
     importedBrand: "Importierte Marke",
@@ -679,8 +685,6 @@ const messages = {
     all: "Alle",
     showMineDecks: "Von mir erstellte Decks anzeigen",
     mine: "Meine",
-    deckCount_one: "Deck",
-    deckCount_other: "Decks",
     createDeckOrVisual: "Präsentation erstellen",
     noMineDecks: "Du hast noch keine Decks erstellt.",
     noDecksMatchSearch: "Keine Decks entsprechen deiner Suche.",

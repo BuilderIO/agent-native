@@ -387,6 +387,7 @@ const messages = {
     center: "Center",
     right: "Right",
     justify: "Justify",
+    distribute: "分布",
     fill: "Fill",
     tint: "Tint",
     transparent: "Transparent",
@@ -562,6 +563,11 @@ const messages = {
     dismissLayoutWarning: "レイアウト警告を閉じる",
     slidesAdded_one: "已添加 {{count}} 张幻灯片",
     slidesAdded_other: "已添加 {{count}} 张幻灯片",
+    unsavedChangesTitle: "未保存の変更",
+    unsavedChangesDescription:
+      "今終了または再読み込みすると、まだ保存されていない変更が失われる可能性があります。本当に終了しますか？",
+    keepEditing: "編集を続ける",
+    leaveWithoutSaving: "保存せずに終了",
   },
   designSystemSetup: {
     importedBrand: "インポートしたブランド",
@@ -665,7 +671,6 @@ const messages = {
     all: "すべて",
     showMineDecks: "自分が作成したデッキを表示",
     mine: "自分",
-    deckCount_other: "デッキ",
     createDeckOrVisual: "プレゼンテーションを作成",
     noMineDecks: "自分が作成したデッキはまだありません。",
     noDecksMatchSearch: "検索に一致するデッキはありません。",

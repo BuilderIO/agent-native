@@ -74,12 +74,44 @@ function isProviderRateLimit(text: string, errorCode?: string): boolean {
     code === "http_429" ||
     code === "rate_limited" ||
     code === "rate_limit_exceeded" ||
+    code === "overloaded_error" ||
     /^429 status code(?:\s*\(no body\))?$/i.test(text) ||
     /\b(?:http\s*)?429\b.*\b(?:status|too many requests|rate[-_\s]?limit|no body)\b/i.test(
       text,
     ) ||
     /\b(?:too many requests|rate[-_\s]?limit(?:ed| exceeded)?)\b/i.test(text)
   );
+}
+
+interface ParsedProviderErrorPayload {
+  message?: string;
+  errorCode?: string;
+}
+
+function parseProviderErrorPayload(
+  raw: string,
+): ParsedProviderErrorPayload | null {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    const record = parsed as Record<string, unknown>;
+    const error = record.error;
+    if (!error || typeof error !== "object") return null;
+
+    const errorRecord = error as Record<string, unknown>;
+    const errorCode =
+      typeof errorRecord.type === "string" ? errorRecord.type : undefined;
+    const message =
+      typeof errorRecord.message === "string"
+        ? errorRecord.message.trim()
+        : undefined;
+
+    if (!errorCode && !message) return null;
+    return { message, errorCode };
+    // coercion-ok: invalid provider payloads are expected and fall back to the raw error text
+  } catch {
+    return null;
+  }
 }
 
 export function isProviderAuthenticationError(
@@ -125,8 +157,13 @@ export function normalizeChatError(
   const raw = String(errorMessage || "Unknown error");
   const looksHtml = /<html[\s>]|<body[\s>]|<head[\s>]/i.test(raw);
   const text = looksHtml ? htmlToText(raw) : raw.trim();
+  const providerPayload = looksHtml ? null : parseProviderErrorPayload(text);
 
-  const code = normalizeErrorCode(errorCode);
+  const code = normalizeErrorCode(errorCode ?? providerPayload?.errorCode);
+  const providerMessage =
+    providerPayload?.errorCode === "overloaded_error"
+      ? "The model provider is overloaded right now. Wait a moment, then retry."
+      : providerPayload?.message;
 
   if (code === "builder_model_unauthorized") {
     return {
@@ -169,9 +206,10 @@ export function normalizeChatError(
     };
   }
 
-  if (isProviderRateLimit(text, errorCode)) {
+  if (isProviderRateLimit(text, code)) {
     return {
       message:
+        providerMessage ??
         "The model provider is rate-limiting this chat right now. Wait a moment, then retry.",
       details: text,
     };
