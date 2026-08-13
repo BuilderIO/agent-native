@@ -73,6 +73,10 @@ function isInternalContinuationError(event: {
   return (
     event.recoverable === true ||
     code === "builder_gateway_timeout" ||
+    // Carries what `msg.includes("stream ended")` below used to: a
+    // Builder-credits deployment replaces that sentence with one visitor line,
+    // and the code is the only thing left that says the turn was truncated.
+    code === "builder_gateway_stream_ended" ||
     code === "stale_run" ||
     code === "timeout" ||
     code === "timeout_error" ||

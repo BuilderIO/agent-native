@@ -152,6 +152,26 @@ describe("interactive agent run options — wiring guards", () => {
     );
   });
 
+  // `/runs/active` is the only server surface the background-follow client can
+  // still read once a run is terminal, and its response object is field-picked
+  // by hand. The client owns the copy for terminal reasons that produce no error
+  // event, so without this field it has to guess who is reading a
+  // missing-credential failure — and guessed the owner, on a site whose visitors
+  // have no Builder account. No route test can see a hand-picked field, so this
+  // guard stands in for one.
+  it("reports whether the deployment pays for its own AI on /runs/active", () => {
+    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+      encoding: "utf-8",
+    });
+
+    expect(source).toMatch(
+      /terminalReason: run\.terminalReason \?\? null,\s*(?:\/\/[^\n]*\n\s*)*deploymentPaysForAi: isBuilderGatewayDeployConfigured\(\),/,
+    );
+    expect(source).toContain(
+      'const { isBuilderGatewayDeployConfigured } =\n              await import("./credential-provider.js");',
+    );
+  });
+
   it("keeps background workers alive through run-manager finalization", () => {
     const source = readFileSync("src/agent/production-agent.ts", {
       encoding: "utf-8",

@@ -529,6 +529,12 @@ export {
   resolveHasCompleteBuilderConnection,
   resolveBuilderCredentials,
   resolveBuilderCredentialsDetailed,
+  // Gateway lane, for the metered surfaces a deployed site can call without an
+  // identity — image and video generation, realtime transcription. Falls
+  // through to the identity credential first, so a consumer moves lane by
+  // swapping the resolver and changing nothing else.
+  resolveBuilderGatewayCredentials,
+  resolveBuilderGatewayCredentialsDetailed,
   resolveBuilderCredentialSource,
   resolveBuilderCredential,
   readDeployCredentialEnv,

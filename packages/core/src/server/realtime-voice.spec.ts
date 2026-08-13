@@ -23,14 +23,17 @@ vi.mock("./auth.js", () => ({
 }));
 
 const resolveSecret = vi.hoisted(() => vi.fn());
-const resolveBuilderCredentials = vi.hoisted(() => vi.fn());
+const resolveBuilderGatewayCredentials = vi.hoisted(() => vi.fn());
 const gatewayBaseUrl = vi.hoisted(() => ({
   value: "https://api.builder.io/agent-native/gateway/v1",
 }));
-vi.mock("./credential-provider.js", () => ({
+// Real `gatewayLaneUnavailableMessage`: which audience the setup-required copy
+// is written for is under test here, so that decision must not be stubbed.
+vi.mock("./credential-provider.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./credential-provider.js")>()),
   resolveSecret: (...args: unknown[]) => resolveSecret(...args),
-  resolveBuilderCredentials: (...args: unknown[]) =>
-    resolveBuilderCredentials(...args),
+  resolveBuilderGatewayCredentials: (...args: unknown[]) =>
+    resolveBuilderGatewayCredentials(...args),
   getBuilderGatewayBaseUrl: () => gatewayBaseUrl.value,
 }));
 
@@ -55,6 +58,7 @@ vi.mock("../agent/production-agent.js", () => ({
   actionsToEngineTools: (...args: unknown[]) => actionsToEngineTools(...args),
 }));
 
+import { GATEWAY_UNAVAILABLE_VISITOR_MESSAGE } from "../agent/engine/credential-errors.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import {
   mountRealtimeVoiceRoutes,
@@ -247,7 +251,7 @@ beforeEach(() => {
     orgId: "org-session",
   });
   resolveSecret.mockResolvedValue("sk-test-example");
-  resolveBuilderCredentials.mockResolvedValue({
+  resolveBuilderGatewayCredentials.mockResolvedValue({
     privateKey: null,
     publicKey: null,
     userId: null,
@@ -328,7 +332,7 @@ describe("mountRealtimeVoiceRoutes", () => {
     });
     expect(tool.statusCode).toBe(403);
     expect(getSession).not.toHaveBeenCalled();
-    expect(resolveBuilderCredentials).not.toHaveBeenCalled();
+    expect(resolveBuilderGatewayCredentials).not.toHaveBeenCalled();
     expect(resolveSecret).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
     expect(executeTool).not.toHaveBeenCalled();
@@ -370,7 +374,7 @@ describe("realtime voice inline preferences", () => {
 
 describe("realtime voice session route", () => {
   it("keeps navigation tools visible when a template registry exceeds the tool cap", async () => {
-    resolveBuilderCredentials.mockResolvedValue({
+    resolveBuilderGatewayCredentials.mockResolvedValue({
       privateKey: "builder-private-example",
       publicKey: "builder-public-example",
       userId: null,
@@ -432,7 +436,7 @@ describe("realtime voice session route", () => {
   });
 
   it("caps tools to the Builder realtime gateway contract", async () => {
-    resolveBuilderCredentials.mockResolvedValue({
+    resolveBuilderGatewayCredentials.mockResolvedValue({
       privateKey: "builder-private-example",
       publicKey: "builder-public-example",
       userId: null,
@@ -463,7 +467,7 @@ describe("realtime voice session route", () => {
   });
 
   it("packs tools within the Builder realtime session byte budget", async () => {
-    resolveBuilderCredentials.mockResolvedValue({
+    resolveBuilderGatewayCredentials.mockResolvedValue({
       privateKey: "builder-private-example",
       publicKey: "builder-public-example",
       userId: null,
@@ -499,7 +503,7 @@ describe("realtime voice session route", () => {
   });
 
   it("rejects tool schemas over the UTF-8 byte limit", async () => {
-    resolveBuilderCredentials.mockResolvedValue({
+    resolveBuilderGatewayCredentials.mockResolvedValue({
       privateKey: "builder-private-example",
       publicKey: "builder-public-example",
       userId: null,
@@ -705,8 +709,34 @@ describe("realtime voice session route", () => {
     });
   });
 
+  it("answers a credits-site visitor with the one line, and its owner with the fix", async () => {
+    const { handlers } = mount();
+    resolveSecret.mockResolvedValue(null);
+
+    process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
+    try {
+      const visitorEvent = sessionEvent();
+      await expect(
+        handlers.get(REALTIME_VOICE_SESSION_PATH)!(visitorEvent),
+      ).resolves.toEqual({
+        error: GATEWAY_UNAVAILABLE_VISITOR_MESSAGE,
+        code: "realtime_voice_setup_required",
+      });
+      expect(visitorEvent.statusCode).toBe(409);
+    } finally {
+      delete process.env.BUILDER_GATEWAY_TOKEN;
+    }
+
+    const ownerEvent = sessionEvent();
+    const ownerResult = (await handlers.get(REALTIME_VOICE_SESSION_PATH)!(
+      ownerEvent,
+    )) as { error: string };
+    expect(ownerResult.error).toContain("Connect Builder");
+    expect(ownerResult.error).toContain("OpenAI API key");
+  });
+
   it("uses Builder managed realtime automatically when connected", async () => {
-    resolveBuilderCredentials.mockResolvedValue({
+    resolveBuilderGatewayCredentials.mockResolvedValue({
       privateKey: "bpk-private-test",
       publicKey: "space-public-test",
       userId: "builder-user-test",
@@ -755,8 +785,59 @@ describe("realtime voice session route", () => {
     });
   });
 
+  // The pre-flight gate above only fires when nothing resolves. On a credits
+  // deployment the injected pair does resolve, so what a visitor actually
+  // reaches is the gateway's own rejection — which used to arrive verbatim,
+  // status code and upstream sentence included.
+  it("hides the Builder gateway's realtime rejection behind the one visitor line", async () => {
+    resolveBuilderGatewayCredentials.mockResolvedValue({
+      privateKey: "btk-site-token",
+      publicKey: "space-public-test",
+      userId: null,
+    });
+    vi.stubGlobal(
+      "fetch",
+      // A fresh Response per call: both passes below read the body, and a shared
+      // instance would leave the second one with an already-consumed stream.
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              error: {
+                message: "credits exhausted",
+                code: "credits-limit-reached",
+              },
+            }),
+            {
+              status: 402,
+              headers: { "content-type": "application/json" },
+            },
+          ),
+      ),
+    );
+    const { handlers } = mount();
+
+    process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
+    try {
+      const visitorEvent = sessionEvent();
+      await expect(
+        handlers.get(REALTIME_VOICE_SESSION_PATH)!(visitorEvent),
+      ).resolves.toEqual({ error: GATEWAY_UNAVAILABLE_VISITOR_MESSAGE });
+      expect(visitorEvent.statusCode).toBe(402);
+    } finally {
+      delete process.env.BUILDER_GATEWAY_TOKEN;
+    }
+
+    const ownerEvent = sessionEvent();
+    const ownerResult = (await handlers.get(REALTIME_VOICE_SESSION_PATH)!(
+      ownerEvent,
+    )) as { error: string };
+    expect(ownerResult.error).toContain("rejected the realtime session (402)");
+    expect(ownerResult.error).toContain("credits exhausted");
+  });
+
   it("accepts same-origin SDP through a host-rewriting reverse proxy", async () => {
-    resolveBuilderCredentials.mockResolvedValue({
+    resolveBuilderGatewayCredentials.mockResolvedValue({
       privateKey: "bpk-private-test",
       publicKey: "space-public-test",
       userId: "builder-user-test",
@@ -786,7 +867,7 @@ describe("realtime voice session route", () => {
 
   it("honors a local Builder gateway base URL", async () => {
     gatewayBaseUrl.value = "http://127.0.0.1:8181/agent-native/gateway/v1";
-    resolveBuilderCredentials.mockResolvedValue({
+    resolveBuilderGatewayCredentials.mockResolvedValue({
       privateKey: "bpk-private-test",
       publicKey: "space-public-test",
       userId: "builder-user-test",

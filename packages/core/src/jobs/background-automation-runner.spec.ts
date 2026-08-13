@@ -73,6 +73,15 @@ vi.mock("../agent/production-agent.js", () => ({
   runAgentLoop: vi.fn(),
 }));
 
+// The credential store answers "no rows" cleanly. A Builder-credits site has no
+// per-user connection to find, which is exactly the case the engine capture
+// below has to survive.
+vi.mock("../secrets/storage.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../secrets/storage.js")>()),
+  readAppSecret: vi.fn(async () => null),
+  readAppSecrets: vi.fn(async () => new Map()),
+}));
+
 const { runBackgroundAutomation } =
   await import("./background-automation-runner.js");
 
@@ -209,6 +218,96 @@ describe("runBackgroundAutomation — background-run self-claim", () => {
       startSpy.mockRestore();
       attachSpy.mockRestore();
       finishSpy.mockRestore();
+    }
+  });
+});
+
+// Every test above supplies `deps.engine`, which is what let the credential
+// capture below stay broken: production never sets it (agent-chat-plugin builds
+// SchedulerDeps without one) and both jobs/scheduler.ts and
+// triggers/dispatcher.ts reach this path. On a Builder-credits site the engine
+// must resolve through the gateway lane; resolving the identity lane by hand
+// here left every scheduled and event automation dead while chat still worked.
+describe("runBackgroundAutomation — engine credentials with no deps.engine", () => {
+  const GATEWAY_TOKEN = "btk-site-token";
+  const GATEWAY_SPACE_ID = "space-abc";
+
+  it("streams through the deployment's Builder-credits pair", async () => {
+    const { runAgentLoopDirectWithSoftTimeout } =
+      await import("../agent/run-loop-with-resume.js");
+    vi.mocked(runAgentLoopDirectWithSoftTimeout).mockClear();
+
+    delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.BUILDER_PRIVATE_KEY;
+    delete process.env.BUILDER_PUBLIC_KEY;
+    vi.stubEnv("BUILDER_GATEWAY_TOKEN", GATEWAY_TOKEN);
+    vi.stubEnv("BUILDER_GATEWAY_SPACE_ID", GATEWAY_SPACE_ID);
+    vi.stubEnv("BUILDER_GATEWAY_BASE_URL", "https://test.example/gateway/v1");
+
+    const { registerBuiltinEngines } = await import("../agent/engine/index.js");
+    registerBuiltinEngines();
+
+    try {
+      await runBackgroundAutomation(
+        {
+          automation: {
+            name: "credits-digest",
+            meta: { schedule: "* * * * *", enabled: true },
+            body: "Summarize the inbox.",
+            resource: {
+              owner: "alice@agent-native.test",
+              path: "jobs/credits-digest.md",
+            } as any,
+          },
+          ownerEmail: "alice@agent-native.test",
+          prompt: "Summarize the inbox.",
+          threadTitle: "Job: credits-digest",
+          runIdPrefix: "job-credits-digest",
+          usageLabel: "recurring-job:credits-digest",
+        },
+        { getActions: () => ({}), getSystemPrompt: async () => "system" },
+      );
+
+      const engine = vi
+        .mocked(runAgentLoopDirectWithSoftTimeout)
+        .mock.calls.at(-1)?.[0].engine;
+      expect(engine?.name).toBe("builder");
+
+      // The capture is only correct if a turn taken later, detached from this
+      // stack, actually authenticates. A captured identity-lane result yields
+      // missing_credentials here and never reaches fetch.
+      const fetchSpy = vi
+        .fn()
+        .mockResolvedValue(
+          new Response(
+            `${JSON.stringify({ type: "stop", reason: "end_turn" })}\n`,
+            { status: 200, headers: { "Content-Type": "application/jsonl" } },
+          ),
+        );
+      vi.stubGlobal("fetch", fetchSpy);
+
+      const events: any[] = [];
+      for await (const event of engine!.stream({
+        model: engine!.defaultModel,
+        systemPrompt: "system",
+        messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+        tools: [],
+        abortSignal: new AbortController().signal,
+      })) {
+        events.push(event);
+      }
+
+      expect(events.at(-1)).toMatchObject({ type: "stop", reason: "end_turn" });
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      const headers = fetchSpy.mock.calls[0][1].headers as Record<
+        string,
+        string
+      >;
+      expect(headers.Authorization).toBe(`Bearer ${GATEWAY_TOKEN}`);
+      expect(headers["x-builder-api-key"]).toBe(GATEWAY_SPACE_ID);
+    } finally {
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
     }
   });
 });

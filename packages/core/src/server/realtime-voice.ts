@@ -22,8 +22,9 @@ import { TOOL_SEARCH_ACTION_NAME } from "../agent/tool-search.js";
 import { parseAcceptLanguage } from "../localization/server.js";
 import { getSession } from "./auth.js";
 import {
+  gatewayLaneUnavailableMessage,
   getBuilderGatewayBaseUrl,
-  resolveBuilderCredentials,
+  resolveBuilderGatewayCredentials,
   resolveSecret,
 } from "./credential-provider.js";
 import { getH3App } from "./framework-request-handler.js";
@@ -576,7 +577,7 @@ function createSessionHandler(
           : undefined,
       },
       async () => {
-        const builderCredentials = await resolveBuilderCredentials();
+        const builderCredentials = await resolveBuilderGatewayCredentials();
         const builderConfigured = Boolean(
           builderCredentials.privateKey?.trim() &&
           builderCredentials.publicKey?.trim(),
@@ -587,8 +588,9 @@ function createSessionHandler(
         if (!builderConfigured && !apiKey) {
           setResponseStatus(event, 409);
           return {
-            error:
+            error: gatewayLaneUnavailableMessage(
               "Connect Builder (free tier available) or configure an OpenAI API key to use realtime voice.",
+            ),
             code: "realtime_voice_setup_required",
           };
         }
@@ -682,7 +684,9 @@ function createSessionHandler(
           setResponseStatus(event, 502);
           return {
             error: builderConfigured
-              ? "Could not reach the Builder realtime voice gateway"
+              ? gatewayLaneUnavailableMessage(
+                  "Could not reach the Builder realtime voice gateway",
+                )
               : "Could not reach the OpenAI Realtime API",
           };
         }
@@ -693,16 +697,22 @@ function createSessionHandler(
             builderConfigured ? builderCredentials.privateKey! : apiKey!,
           );
           setResponseStatus(event, builderConfigured ? upstream.status : 502);
+          const rejection = `${builderConfigured ? "Builder" : "OpenAI"} rejected the realtime session (${upstream.status})${detail ? `: ${detail}` : ""}`;
           return {
-            error: `${builderConfigured ? "Builder" : "OpenAI"} rejected the realtime session (${upstream.status})${detail ? `: ${detail}` : ""}`,
+            error: builderConfigured
+              ? gatewayLaneUnavailableMessage(rejection)
+              : rejection,
           };
         }
 
         const answerSdp = await upstream.text().catch(() => "");
         if (!answerSdp.trim()) {
           setResponseStatus(event, 502);
+          const emptyAnswer = `${builderConfigured ? "Builder" : "OpenAI"} returned an empty realtime session answer`;
           return {
-            error: `${builderConfigured ? "Builder" : "OpenAI"} returned an empty realtime session answer`,
+            error: builderConfigured
+              ? gatewayLaneUnavailableMessage(emptyAnswer)
+              : emptyAnswer,
           };
         }
 

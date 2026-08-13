@@ -104,6 +104,8 @@ export interface SSEEvent {
   upgradeUrl?: string;
   details?: string;
   recoverable?: boolean;
+  /** The engine said another attempt may succeed — see `AgentChatEvent`. */
+  providerRetryable?: boolean;
   maxIterations?: number;
 }
 
@@ -806,7 +808,12 @@ function isAutoRecoverableError(ev: SSEEvent, errMsg: string): boolean {
     code === "http_504" ||
     code === "rate_limited" ||
     code === "too_many_concurrent_requests" ||
-    code === "overloaded_error"
+    code === "overloaded_error" ||
+    // A gateway stream that ended without a stop event. The partial turn is
+    // real, so this continues rather than retrying: the code carries what the
+    // message used to (`msg.includes("stream ended")` below), which a
+    // Builder-credits deployment replaces with its one visitor line.
+    code === "builder_gateway_stream_ended"
   ) {
     return true;
   }
@@ -814,6 +821,12 @@ function isAutoRecoverableError(ev: SSEEvent, errMsg: string): boolean {
   if (ev.recoverable === true) return true;
 
   if (msg.includes("daily gateway request cap")) return false;
+
+  // The engine's structural verdict, checked after every terminal code above so
+  // it can never revive a quota or auth rejection. It is the only retry signal
+  // left once the message is one visitor line: an upstream "Overloaded" carries
+  // no code, and its text is what the rewrite removed.
+  if (ev.providerRetryable === true) return true;
 
   // "gateway error" intentionally absent — that's the no-detail Builder
   // gateway fallback and the production-agent already retries it

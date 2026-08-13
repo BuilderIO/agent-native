@@ -9687,6 +9687,39 @@ describe("isRetryableError", () => {
     expect(isRetryableError(err)).toBe(false);
   });
 
+  // On a Builder-credits site the gateway's message is replaced by one
+  // visitor-facing line before it ever reaches here, so the org concurrency
+  // throttle has no retryable keyword left in it. The structured fields
+  // builder-engine attaches are the whole retry decision; the first assertion
+  // is what fails if anyone re-couples this to wording.
+  it("retries the gateway concurrency throttle from structure alone, not wording", () => {
+    const visitorLine = "AI features aren't available on this site right now.";
+    expect(
+      isRetryableError(
+        new EngineError(visitorLine, {
+          errorCode: "too_many_concurrent_requests",
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      isRetryableError(
+        new EngineError(visitorLine, {
+          errorCode: "too_many_concurrent_requests",
+          statusCode: 429,
+          providerRetryable: true,
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      isRetryableError(
+        new EngineError(visitorLine, {
+          errorCode: "rate_limited",
+          providerRetryable: true,
+        }),
+      ),
+    ).toBe(true);
+  });
+
   it("retries on Anthropic bare 'Connection error.' transport failures", () => {
     // Anthropic SDK APIConnectionError defaults to this exact message with no
     // HTTP status. Slides prod was dying in ~3s on this and storming client
@@ -10228,6 +10261,51 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
         foregroundSelfChainEligible: true,
       }),
     ).toBe(false);
+  });
+
+  // `providerRetryable` is the engine's "another attempt may succeed", carried
+  // on the error event because a Builder-credits deployment replaces the message
+  // the client keyword-matched. It must NOT be read as a continuation boundary
+  // here: a provider throttle would self-chain up to
+  // MAX_BACKGROUND_RUN_CONTINUATIONS background invocations into the very limit
+  // that just rejected the call, on every lane. `recoverable` — the server's own
+  // boundary signal — still chains, which is the distinction.
+  it("does NOT chain on the engine's retry verdict alone", () => {
+    for (const errorCode of [
+      "rate_limited",
+      "too_many_concurrent_requests",
+      "upstream_unavailable",
+    ]) {
+      expect(
+        shouldChainBackgroundContinuation({
+          isBackgroundWorker: true,
+          run: makeRun([
+            {
+              type: "error",
+              error: "AI features aren't available on this site right now.",
+              errorCode,
+              providerRetryable: true,
+            },
+          ]),
+          continuationCount: 0,
+        }),
+      ).toBe(false);
+    }
+
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: true,
+        run: makeRun([
+          {
+            type: "error",
+            error: "AI features aren't available on this site right now.",
+            errorCode: "stale_run",
+            recoverable: true,
+          },
+        ]),
+        continuationCount: 0,
+      }),
+    ).toBe(true);
   });
 
   it("preserves the specific continuation reason for recoverable background errors", () => {

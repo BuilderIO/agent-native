@@ -9,7 +9,7 @@ import {
 } from "./generation.js";
 import type { GenerateProviderInput } from "./generation.js";
 
-const resolveBuilderCredentialsMock = vi.hoisted(() => vi.fn());
+const resolveBuilderGatewayCredentialsMock = vi.hoisted(() => vi.fn());
 const resolveSecretMock = vi.hoisted(() => vi.fn());
 const resolveHasBuilderPrivateKeyMock = vi.hoisted(() => vi.fn());
 const googleGenerateContentMock = vi.hoisted(() => vi.fn());
@@ -39,7 +39,7 @@ vi.mock("@agent-native/core/server", () => {
     getBuilderImageGenerationBaseUrl: vi.fn(
       () => "https://builder.test/agent-native/images/v1",
     ),
-    resolveBuilderCredentials: resolveBuilderCredentialsMock,
+    resolveBuilderGatewayCredentials: resolveBuilderGatewayCredentialsMock,
     resolveHasBuilderPrivateKey: resolveHasBuilderPrivateKeyMock,
     resolveSecret: resolveSecretMock,
   };
@@ -125,7 +125,7 @@ describe("generateWithManagedImageProvider", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.stubEnv("BUILDER_IMAGE_GENERATION_ENABLED", "true");
-    resolveBuilderCredentialsMock.mockResolvedValue({
+    resolveBuilderGatewayCredentialsMock.mockResolvedValue({
       privateKey: "bpk-builder-key",
       publicKey: "space-test",
       userId: null,
@@ -164,7 +164,7 @@ describe("generateWithManagedImageProvider", () => {
   });
 
   it("keeps missing Builder credentials on reconnect guidance", async () => {
-    resolveBuilderCredentialsMock.mockResolvedValue({
+    resolveBuilderGatewayCredentialsMock.mockResolvedValue({
       privateKey: null,
       publicKey: null,
       userId: null,
@@ -182,7 +182,7 @@ describe("generateWithManagedImageProvider", () => {
   });
 
   it("fails before calling Builder when the public key is missing", async () => {
-    resolveBuilderCredentialsMock.mockResolvedValue({
+    resolveBuilderGatewayCredentialsMock.mockResolvedValue({
       privateKey: "bpk-builder-key",
       publicKey: null,
       userId: null,
@@ -203,7 +203,7 @@ describe("generateWithManagedImageProvider", () => {
   });
 
   it("uses OpenAI as a manual image fallback when Builder is unavailable", async () => {
-    resolveBuilderCredentialsMock.mockResolvedValue({
+    resolveBuilderGatewayCredentialsMock.mockResolvedValue({
       privateKey: null,
       publicKey: null,
       userId: null,
@@ -244,7 +244,7 @@ describe("generateWithManagedImageProvider", () => {
 
   it("fails loudly when board references would use manual OpenAI fallback", async () => {
     vi.stubEnv("BUILDER_IMAGE_GENERATION_ENABLED", "false");
-    resolveBuilderCredentialsMock.mockResolvedValue({
+    resolveBuilderGatewayCredentialsMock.mockResolvedValue({
       privateKey: null,
       publicKey: null,
       userId: null,
@@ -283,7 +283,7 @@ describe("generateWithManagedImageProvider", () => {
 
   it("refuses to reroute gpt board-reference runs into the manual Gemini fallback", async () => {
     vi.stubEnv("BUILDER_IMAGE_GENERATION_ENABLED", "false");
-    resolveBuilderCredentialsMock.mockResolvedValue({
+    resolveBuilderGatewayCredentialsMock.mockResolvedValue({
       privateKey: null,
       publicKey: null,
       userId: null,
@@ -319,7 +319,7 @@ describe("generateWithManagedImageProvider", () => {
   });
 
   it("passes board references through the manual Gemini fallback", async () => {
-    resolveBuilderCredentialsMock.mockResolvedValue({
+    resolveBuilderGatewayCredentialsMock.mockResolvedValue({
       privateKey: null,
       publicKey: null,
       userId: null,
@@ -380,7 +380,7 @@ describe("generateWithManagedImageProvider", () => {
   });
 
   it("preserves gpt-image-1 for transparent OpenAI fallback requests", async () => {
-    resolveBuilderCredentialsMock.mockResolvedValue({
+    resolveBuilderGatewayCredentialsMock.mockResolvedValue({
       privateKey: null,
       publicKey: null,
       userId: null,
@@ -566,7 +566,7 @@ describe("generateWithManagedImageProvider", () => {
   });
 
   it("guards restyle and edit runs when only OpenAI fallback is available", async () => {
-    resolveBuilderCredentialsMock.mockResolvedValue({
+    resolveBuilderGatewayCredentialsMock.mockResolvedValue({
       privateKey: null,
       publicKey: null,
       userId: null,
@@ -600,7 +600,7 @@ describe("generateWithManagedImageProvider", () => {
   });
 
   it("guards mask edit mode from plain manual fallback generation", async () => {
-    resolveBuilderCredentialsMock.mockResolvedValue({
+    resolveBuilderGatewayCredentialsMock.mockResolvedValue({
       privateKey: null,
       publicKey: null,
       userId: null,

@@ -39,16 +39,23 @@ vi.mock("../settings/store.js", () => ({
   deleteSetting: (...args: any[]) => mockDeleteSetting(...args),
 }));
 
-import { isLlmCredentialError } from "../agent/engine/credential-errors.js";
+import {
+  GATEWAY_UNAVAILABLE_VISITOR_MESSAGE,
+  isLlmCredentialError,
+} from "../agent/engine/credential-errors.js";
 import {
   BUILDER_AUTH_FAILURE_TTL_MS,
   builderCredentialFingerprint,
   canUseDeployCredentialFallbackForRequest,
+  clearBuilderGatewayAuthFailure,
   CredentialStoreUnavailableError,
   getBuilderCredentialAuthFailure,
+  gatewayLaneUnavailableMessage,
   getProviderCredentialAuthFailure,
+  isBuilderGatewayDeployConfigured,
   providerCredentialFingerprint,
   recordBuilderCredentialAuthFailure,
+  recordBuilderGatewayAuthFailure,
   recordProviderCredentialAuthFailure,
   resolveCredentialWriteScope,
   writeBuilderCredentials,
@@ -57,6 +64,11 @@ import {
   resolveBuilderCredentials,
   resolveBuilderCredentialsDetailed,
   resolveBuilderCredentialSource,
+  resolveBuilderGatewayAuth,
+  resolveBuilderGatewayCredentials,
+  resolveBuilderGatewayCredentialsDetailed,
+  resolveHasBuilderGatewayCredential,
+  resolveHasBuilderPrivateKey,
   resolveHasCompleteBuilderConnection,
   resolveSecret,
   resolveSecretDetailed,
@@ -114,6 +126,8 @@ beforeEach(() => {
   delete process.env.BUILDER_SUBSCRIPTION_NAME;
   delete process.env.BUILDER_IS_ENTERPRISE;
   delete process.env.BUILDER_IS_FREE_ACCOUNT;
+  delete process.env.BUILDER_GATEWAY_TOKEN;
+  delete process.env.BUILDER_GATEWAY_SPACE_ID;
   delete process.env.ANTHROPIC_API_KEY;
   delete process.env.OPENAI_API_KEY;
   delete process.env.OPENAI_BASE_URL;
@@ -1569,5 +1583,297 @@ describe("unreadable credential store is not 'not configured'", () => {
     expect(isLlmCredentialError(new CredentialStoreUnavailableError())).toBe(
       false,
     );
+  });
+});
+
+describe("Builder gateway credential lane", () => {
+  const hostedVisitor = () => {
+    process.env.NODE_ENV = "production";
+    mockIsLocalDatabase.mockReturnValue(false);
+    mockGetRequestUserEmail.mockReturnValue("visitor@example.com");
+    mockGetRequestOrgId.mockReturnValue(undefined);
+    mockReadAppSecret.mockResolvedValue(null);
+  };
+
+  it("treats the Builder-credits pair as app-provided for a signed-in hosted user", () => {
+    process.env.AGENT_NATIVE_WORKSPACE = "1";
+    mockGetRequestUserEmail.mockReturnValue("visitor@example.com");
+
+    expect(
+      canUseDeployCredentialFallbackForRequest("BUILDER_GATEWAY_TOKEN"),
+    ).toBe(true);
+    expect(
+      canUseDeployCredentialFallbackForRequest("BUILDER_GATEWAY_SPACE_ID"),
+    ).toBe(true);
+    expect(
+      canUseDeployCredentialFallbackForRequest("BUILDER_PRIVATE_KEY"),
+    ).toBe(false);
+  });
+
+  it("resolves the deploy pair on a hosted app with no per-user connection", async () => {
+    hostedVisitor();
+    process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
+    process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc";
+
+    await expect(resolveBuilderGatewayCredentials()).resolves.toMatchObject({
+      privateKey: "btk-site-token",
+      publicKey: "space-abc",
+      userId: null,
+    });
+    await expect(
+      resolveBuilderGatewayCredentialsDetailed(),
+    ).resolves.toMatchObject({ lane: "gateway-deploy" });
+    expect(isBuilderGatewayDeployConfigured()).toBe(true);
+  });
+
+  it("keeps the identity resolver off the gateway token", async () => {
+    hostedVisitor();
+    process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
+    process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc";
+
+    await expect(resolveBuilderCredentials()).resolves.toMatchObject({
+      privateKey: null,
+      publicKey: null,
+    });
+    expect(await resolveBuilderCredential("BUILDER_PRIVATE_KEY")).toBeNull();
+    expect(await resolveBuilderCredentialSource()).toBeNull();
+  });
+
+  it("does not resolve a gateway token without its space id", async () => {
+    hostedVisitor();
+    process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
+
+    await expect(resolveBuilderGatewayCredentials()).resolves.toMatchObject({
+      privateKey: null,
+      publicKey: null,
+    });
+    await expect(resolveBuilderGatewayAuth()).resolves.toBeNull();
+  });
+
+  it("lets a user's own connection outrank the deploy pair", async () => {
+    hostedVisitor();
+    process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
+    process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc";
+    mockReadAppSecret.mockImplementation(async ({ key, scope }: any) => {
+      if (scope !== "user") return null;
+      if (key === "BUILDER_PRIVATE_KEY") return { key, value: "bpk-user" };
+      if (key === "BUILDER_PUBLIC_KEY") return { key, value: "space-user" };
+      return null;
+    });
+
+    await expect(
+      resolveBuilderGatewayCredentialsDetailed(),
+    ).resolves.toMatchObject({
+      privateKey: "bpk-user",
+      publicKey: "space-user",
+      lane: "identity",
+    });
+  });
+
+  it("skips a gateway token the gateway already rejected", async () => {
+    hostedVisitor();
+    process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
+    process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc";
+    const fingerprint = providerCredentialFingerprint(
+      "BUILDER_GATEWAY_TOKEN",
+      "btk-site-token",
+    );
+    mockGetSetting.mockImplementation(async (key: string) =>
+      key === `provider-auth-failure:${fingerprint}`
+        ? {
+            fingerprint,
+            key: "BUILDER_GATEWAY_TOKEN",
+            message: "Invalid or inactive personal access token",
+            status: 403,
+            at: Date.now(),
+          }
+        : null,
+    );
+
+    await expect(resolveBuilderGatewayCredentials()).resolves.toMatchObject({
+      privateKey: null,
+      publicKey: null,
+    });
+  });
+
+  it("sends the space id as the gateway auth space", async () => {
+    hostedVisitor();
+    process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
+    process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc";
+
+    await expect(resolveBuilderGatewayAuth()).resolves.toEqual({
+      authorization: "Bearer btk-site-token",
+      spaceId: "space-abc",
+      userId: null,
+    });
+  });
+
+  it("still authenticates a legacy single-key deployment", async () => {
+    process.env.BUILDER_PRIVATE_KEY = "bpk-legacy";
+    mockGetRequestUserEmail.mockReturnValue(undefined);
+
+    await expect(resolveBuilderGatewayAuth()).resolves.toEqual({
+      authorization: "Bearer bpk-legacy",
+      spaceId: null,
+      userId: null,
+    });
+  });
+
+  it("fingerprints the gateway token when the deploy pair is rejected", async () => {
+    hostedVisitor();
+    process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
+    process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc";
+
+    await recordBuilderGatewayAuthFailure({
+      status: 403,
+      code: "http_403",
+      message: "Invalid or inactive personal access token",
+    });
+
+    const fingerprint = providerCredentialFingerprint(
+      "BUILDER_GATEWAY_TOKEN",
+      "btk-site-token",
+    );
+    expect(mockPutSetting).toHaveBeenCalledWith(
+      `provider-auth-failure:${fingerprint}`,
+      expect.objectContaining({
+        key: "BUILDER_GATEWAY_TOKEN",
+        status: 403,
+      }),
+    );
+    // The legacy pair marker is a no-op without both legacy keys, so it must
+    // not be the one this lane writes.
+    expect(builderCredentialFingerprint("btk-site-token", null)).toBeNull();
+  });
+
+  it("falls back to the legacy pair marker on the identity lane", async () => {
+    process.env.BUILDER_PRIVATE_KEY = "bpk-legacy";
+    process.env.BUILDER_PUBLIC_KEY = "space-legacy";
+    mockGetRequestUserEmail.mockReturnValue(undefined);
+
+    await recordBuilderGatewayAuthFailure({
+      status: 401,
+      code: "unauthorized",
+    });
+
+    const fingerprint = builderCredentialFingerprint(
+      "bpk-legacy",
+      "space-legacy",
+    );
+    expect(mockPutSetting).toHaveBeenCalledWith(
+      `builder-auth-failure:${fingerprint}`,
+      expect.objectContaining({ status: 401 }),
+    );
+  });
+
+  it("clears both markers for an accepted pair", async () => {
+    await clearBuilderGatewayAuthFailure({
+      privateKey: "btk-site-token",
+      publicKey: "space-abc",
+    });
+
+    expect(mockDeleteSetting).toHaveBeenCalledWith(
+      `builder-auth-failure:${builderCredentialFingerprint(
+        "btk-site-token",
+        "space-abc",
+      )}`,
+    );
+    expect(mockDeleteSetting).toHaveBeenCalledWith(
+      `provider-auth-failure:${providerCredentialFingerprint(
+        "BUILDER_GATEWAY_TOKEN",
+        "btk-site-token",
+      )}`,
+    );
+  });
+
+  // A LEGACY env deployment now gets an x-builder-api-key it did not send
+  // before. That is only safe because the token and the space id always come
+  // from ONE scope, so the space id is the key's own ownerId: ai-services' bpk-
+  // branch 403s "Private key does not match spaceId" for any other combination.
+  it("pairs a legacy env deployment's key with its own space id", async () => {
+    process.env.BUILDER_PRIVATE_KEY = "bpk-legacy";
+    process.env.BUILDER_PUBLIC_KEY = "space-legacy";
+    mockGetRequestUserEmail.mockReturnValue(undefined);
+
+    await expect(resolveBuilderGatewayAuth()).resolves.toEqual({
+      authorization: "Bearer bpk-legacy",
+      spaceId: "space-legacy",
+      userId: null,
+    });
+  });
+
+  it("does not mix a user's private key with a deploy-level space id", async () => {
+    process.env.BUILDER_PRIVATE_KEY = "bpk-deploy";
+    process.env.BUILDER_PUBLIC_KEY = "space-deploy";
+    mockGetRequestUserEmail.mockReturnValue("owner@example.com");
+    mockGetRequestOrgId.mockReturnValue(undefined);
+    // A partial user row is a miss, so the complete deploy scope answers whole.
+    mockReadAppSecret.mockImplementation(async ({ key, scope }: any) =>
+      scope === "user" && key === "BUILDER_PRIVATE_KEY"
+        ? { key, value: "bpk-user-only" }
+        : null,
+    );
+
+    await expect(resolveBuilderGatewayAuth()).resolves.toEqual({
+      authorization: "Bearer bpk-deploy",
+      spaceId: "space-deploy",
+      userId: null,
+    });
+  });
+
+  // The gate for every gateway-lane feature. Answering the identity-only
+  // question here is what left transcription dead on credits-only sites.
+  it("reports a usable Builder credential on the credits lane alone", async () => {
+    hostedVisitor();
+    process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
+    process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc";
+
+    await expect(resolveHasBuilderGatewayCredential()).resolves.toBe(true);
+    await expect(resolveHasBuilderPrivateKey()).resolves.toBe(false);
+  });
+
+  it("reports no usable Builder credential when neither lane resolves", async () => {
+    hostedVisitor();
+
+    await expect(resolveHasBuilderGatewayCredential()).resolves.toBe(false);
+  });
+
+  it("rewrites a gateway-lane rejection for a visitor and leaves an owner's alone", () => {
+    const ownerFacing = "Connect Builder.io in Settings to enable this.";
+    expect(gatewayLaneUnavailableMessage(ownerFacing)).toBe(ownerFacing);
+
+    process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
+    expect(gatewayLaneUnavailableMessage(ownerFacing)).toBe(
+      GATEWAY_UNAVAILABLE_VISITOR_MESSAGE,
+    );
+  });
+
+  // The dev-preview pod is injected with the SAME gateway token as the published
+  // site, so a token-only test cannot tell the two apart — and the reader there
+  // is the project owner in the Fusion editor, who needs the real reason.
+  it("keeps owner-facing copy in the dev-preview runtime", () => {
+    process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
+    process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc";
+    process.env.FUSION_ENVIRONMENT = "preview";
+
+    expect(isBuilderGatewayDeployConfigured()).toBe(false);
+    expect(gatewayLaneUnavailableMessage("Add a provider key.")).toBe(
+      "Add a provider key.",
+    );
+  });
+
+  it("still resolves the credits lane inside the dev-preview runtime", async () => {
+    hostedVisitor();
+    process.env.AGENT_NATIVE_WORKSPACE = "1";
+    process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
+    process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc";
+
+    await expect(
+      resolveBuilderGatewayCredentialsDetailed(),
+    ).resolves.toMatchObject({
+      privateKey: "btk-site-token",
+      publicKey: "space-abc",
+      lane: "gateway-deploy",
+    });
   });
 });
