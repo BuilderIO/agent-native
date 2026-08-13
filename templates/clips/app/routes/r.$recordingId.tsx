@@ -1310,7 +1310,7 @@ export default function RecordingPage() {
             asChild
             variant="ghost"
             size="icon"
-            className="shrink-0"
+            className="shrink-0 sm:w-auto sm:px-2"
             aria-label={t("recordingPage.backToLibrary")}
           >
             <Link to="/library" replace>

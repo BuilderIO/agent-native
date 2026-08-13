@@ -267,6 +267,13 @@ const messages = {
     stepName: "步驟名稱",
     stepDescription: "這裡會發生什麼事",
     agentOwner: "代理或負責人",
+    noTarget: "未連結目標",
+    customTarget: "自訂目標",
+    reusableAgents: "可重複使用的代理",
+    agenticApps: "代理應用程式",
+    agentTargetHint: "此 Factory 步驟會使用選取的可重複使用代理。",
+    appTargetHint: "此 Factory 步驟會委派給選取的代理應用程式。",
+    customTargetHint: "步驟準備好後，連結共用代理或應用程式。",
     optional: "選填",
     connectStep: "連接此步驟",
     connectDescription:

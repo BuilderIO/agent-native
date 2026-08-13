@@ -279,6 +279,14 @@ const messages = {
     stepName: "단계 이름",
     stepDescription: "여기서 일어나는 일",
     agentOwner: "에이전트 또는 담당자",
+    noTarget: "연결된 대상 없음",
+    customTarget: "사용자 지정 대상",
+    reusableAgents: "재사용 가능한 에이전트",
+    agenticApps: "에이전트 앱",
+    agentTargetHint:
+      "이 Factory 단계는 선택한 재사용 가능한 에이전트를 사용합니다.",
+    appTargetHint: "이 Factory 단계는 선택한 에이전트 앱에 작업을 위임합니다.",
+    customTargetHint: "단계가 준비되면 공유 에이전트 또는 앱을 연결하세요.",
     optional: "선택 사항",
     connectStep: "이 단계 연결",
     connectDescription:

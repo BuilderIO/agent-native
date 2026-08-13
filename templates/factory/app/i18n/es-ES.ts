@@ -293,6 +293,16 @@ const messages = {
     stepName: "Nombre del paso",
     stepDescription: "Qué ocurre aquí",
     agentOwner: "Agente o propietario",
+    noTarget: "Sin objetivo vinculado",
+    customTarget: "Objetivo personalizado",
+    reusableAgents: "Agentes reutilizables",
+    agenticApps: "Aplicaciones agenticas",
+    agentTargetHint:
+      "Este paso de la fábrica usa el agente reutilizable seleccionado.",
+    appTargetHint:
+      "Este paso de la fábrica delega en la aplicación agentica seleccionada.",
+    customTargetHint:
+      "Vincula un agente o una aplicación compartida cuando el paso esté listo.",
     optional: "Opcional",
     connectStep: "Conectar este paso",
     connectDescription:

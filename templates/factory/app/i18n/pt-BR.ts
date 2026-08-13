@@ -288,6 +288,16 @@ const messages = {
     stepName: "Nome da etapa",
     stepDescription: "O que acontece aqui",
     agentOwner: "Agente ou responsável",
+    noTarget: "Nenhum destino vinculado",
+    customTarget: "Destino personalizado",
+    reusableAgents: "Agentes reutilizáveis",
+    agenticApps: "Apps agentivos",
+    agentTargetHint:
+      "Esta etapa da Factory usa o agente reutilizável selecionado.",
+    appTargetHint:
+      "Esta etapa da Factory delega para o app agentivo selecionado.",
+    customTargetHint:
+      "Vincule um agente ou app compartilhado quando a etapa estiver pronta.",
     optional: "Opcional",
     connectStep: "Conectar esta etapa",
     connectDescription:

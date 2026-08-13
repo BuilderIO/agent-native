@@ -267,6 +267,13 @@ const messages = {
     stepName: "步骤名称",
     stepDescription: "这里会发生什么",
     agentOwner: "代理或负责人",
+    noTarget: "未链接目标",
+    customTarget: "自定义目标",
+    reusableAgents: "可复用代理",
+    agenticApps: "代理应用",
+    agentTargetHint: "此工厂步骤使用所选的可复用代理。",
+    appTargetHint: "此工厂步骤委托给所选的代理应用。",
+    customTargetHint: "步骤准备就绪后，链接共享代理或应用。",
     optional: "可选",
     connectStep: "连接此步骤",
     connectDescription:

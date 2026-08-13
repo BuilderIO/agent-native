@@ -281,6 +281,13 @@ const messages = {
     stepName: "Step name",
     stepDescription: "What happens here",
     agentOwner: "Agent or owner",
+    noTarget: "No linked target",
+    customTarget: "Custom target",
+    reusableAgents: "Reusable agents",
+    agenticApps: "Agentic apps",
+    agentTargetHint: "This factory step uses the selected reusable agent.",
+    appTargetHint: "This factory step delegates to the selected agentic app.",
+    customTargetHint: "Link a shared agent or app when this step is ready.",
     optional: "Optional",
     connectStep: "Connect this step",
     connectDescription:

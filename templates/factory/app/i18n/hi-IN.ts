@@ -274,6 +274,13 @@ const messages = {
     stepName: "चरण का नाम",
     stepDescription: "यहाँ क्या होता है",
     agentOwner: "एजेंट या स्वामी",
+    noTarget: "कोई लिंक किया हुआ लक्ष्य नहीं",
+    customTarget: "कस्टम लक्ष्य",
+    reusableAgents: "पुन: उपयोग योग्य एजेंट",
+    agenticApps: "एजेंटिक ऐप्स",
+    agentTargetHint: "यह फ़ैक्टरी चरण चुने गए पुन: उपयोग योग्य एजेंट का उपयोग करता है।",
+    appTargetHint: "यह फ़ैक्टरी चरण चुने गए एजेंटिक ऐप को काम सौंपता है।",
+    customTargetHint: "चरण तैयार होने पर साझा एजेंट या ऐप लिंक करें।",
     optional: "वैकल्पिक",
     connectStep: "इस चरण को कनेक्ट करें",
     connectDescription:

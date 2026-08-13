@@ -1,6 +1,4 @@
-import {
-  useActionQuery,
-} from "@agent-native/core/client/hooks";
+import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { IconArrowRight, IconPlus, IconTrash } from "@tabler/icons-react";
 import { useMemo, useState } from "react";

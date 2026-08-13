@@ -271,6 +271,14 @@ const messages = {
     stepName: "اسم الخطوة",
     stepDescription: "ما الذي يحدث هنا",
     agentOwner: "الوكيل أو المالك",
+    noTarget: "لا يوجد هدف مرتبط",
+    customTarget: "هدف مخصص",
+    reusableAgents: "الوكلاء القابلون لإعادة الاستخدام",
+    agenticApps: "التطبيقات الوكيلة",
+    agentTargetHint:
+      "تستخدم خطوة المصنع هذه الوكيل القابل لإعادة الاستخدام المحدد.",
+    appTargetHint: "تفوض خطوة المصنع هذه إلى التطبيق الوكيل المحدد.",
+    customTargetHint: "اربط وكيلاً أو تطبيقًا مشتركًا عندما تصبح هذه الخطوة جاهزة.",
     optional: "اختياري",
     connectStep: "ربط هذه الخطوة",
     connectDescription:

@@ -287,6 +287,16 @@ const messages = {
     stepName: "Schrittname",
     stepDescription: "Was passiert hier",
     agentOwner: "Agent oder Besitzer",
+    noTarget: "Kein verknüpftes Ziel",
+    customTarget: "Benutzerdefiniertes Ziel",
+    reusableAgents: "Wiederverwendbare Agenten",
+    agenticApps: "Agentische Apps",
+    agentTargetHint:
+      "Dieser Factory-Schritt verwendet den ausgewählten Agenten.",
+    appTargetHint:
+      "Dieser Factory-Schritt delegiert an die ausgewählte agentische App.",
+    customTargetHint:
+      "Verknüpfe einen gemeinsamen Agenten oder eine App, sobald der Schritt bereit ist.",
     optional: "Optional",
     connectStep: "Diesen Schritt verbinden",
     connectDescription:

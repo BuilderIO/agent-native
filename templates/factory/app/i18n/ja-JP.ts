@@ -284,6 +284,16 @@ const messages = {
     stepName: "ステップ名",
     stepDescription: "ここで行われること",
     agentOwner: "エージェントまたは担当者",
+    noTarget: "リンクされた対象なし",
+    customTarget: "カスタム対象",
+    reusableAgents: "再利用可能なエージェント",
+    agenticApps: "エージェントアプリ",
+    agentTargetHint:
+      "この Factory ステップは選択した再利用可能なエージェントを使用します。",
+    appTargetHint:
+      "この Factory ステップは選択したエージェントアプリに委譲します。",
+    customTargetHint:
+      "ステップの準備ができたら共有エージェントまたはアプリをリンクします。",
     optional: "任意",
     connectStep: "このステップを接続",
     connectDescription:
