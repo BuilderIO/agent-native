@@ -44,7 +44,7 @@ import { CommentComposer, type MentionEntry } from "./CommentComposer";
 
 /**
  * Render a comment body, styling any `@mention` tokens that match the comment's
- * stored mentions. Plain text otherwise — no HTML is interpreted.
+ * stored mentions. Raw HTML is never interpreted.
  */
 function commentMentionSpans(
   mentions: CommentMention[],
@@ -63,8 +63,8 @@ function renderCommentBody(content: string, mentions: CommentMention[]) {
   return (
     <InlineMarkdown
       content={content}
+      inline
       protectedSpans={commentMentionSpans(mentions)}
-      className="text-sm leading-6"
     />
   );
 }
@@ -951,9 +951,9 @@ function ThreadView({
                 {formatDate(c.created_at)}
               </span>
             </div>
-            <p className="text-[13px] text-foreground/90 pl-8 leading-relaxed whitespace-pre-wrap">
+            <div className="text-[13px] text-foreground/90 pl-8 leading-relaxed">
               {renderCommentBody(c.content, c.mentions)}
-            </p>
+            </div>
           </div>
         ))}
       </div>

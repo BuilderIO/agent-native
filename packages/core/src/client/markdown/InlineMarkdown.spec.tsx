@@ -78,4 +78,29 @@ describe("InlineMarkdown", () => {
     expect(container.querySelector("a")).toBeNull();
     expect(container.textContent).toContain("unsafe");
   });
+
+  it("keeps protected inline spans intact while rendering surrounding Markdown", () => {
+    act(() => {
+      root.render(
+        <InlineMarkdown
+          content="**Before** @Taylor *after*"
+          inline
+          protectedSpans={[
+            {
+              source: "@Taylor",
+              label: "@Taylor",
+            },
+          ]}
+          renderProtectedSpan={(span, children) => (
+            <mark data-protected={span.label}>{children}</mark>
+          )}
+        />,
+      );
+    });
+
+    expect(container.querySelector("strong")?.textContent).toBe("Before");
+    expect(container.querySelector("mark")?.textContent).toBe("@Taylor");
+    expect(container.querySelector("em")?.textContent).toBe("after");
+    expect(container.querySelector("p")).toBeNull();
+  });
 });

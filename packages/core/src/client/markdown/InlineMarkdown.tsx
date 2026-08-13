@@ -23,6 +23,7 @@ export interface InlineMarkdownProps {
   className?: string;
   linkClassName?: string;
   codeClassName?: string;
+  inline?: boolean;
   protectedSpans?: readonly InlineMarkdownProtectedSpan[];
   renderProtectedSpan?: (
     span: InlineMarkdownProtectedSpan,
@@ -48,6 +49,7 @@ export function InlineMarkdown({
   className,
   linkClassName,
   codeClassName,
+  inline = false,
   protectedSpans = [],
   renderProtectedSpan,
 }: InlineMarkdownProps) {
@@ -106,11 +108,14 @@ export function InlineMarkdown({
         {children}
       </code>
     ),
-    p: ({ children }) => <p className="m-0">{children}</p>,
+    p: ({ children }) =>
+      inline ? <span>{children}</span> : <p className="m-0">{children}</p>,
   };
 
+  const Root = inline ? "span" : "div";
+
   return (
-    <div className={cn("whitespace-pre-wrap break-words", className)}>
+    <Root className={cn("whitespace-pre-wrap break-words", className)}>
       <ReactMarkdown
         allowedElements={INLINE_MARKDOWN_ELEMENTS}
         components={components}
@@ -120,7 +125,7 @@ export function InlineMarkdown({
       >
         {renderedContent}
       </ReactMarkdown>
-    </div>
+    </Root>
   );
 }
 

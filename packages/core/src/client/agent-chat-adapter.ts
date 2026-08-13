@@ -20,6 +20,11 @@ import {
   clearActiveRunIfMatches,
   setPendingTurn,
 } from "./active-run-state.js";
+import {
+  createRunStreamToken,
+  preemptRunStream,
+  releaseRunStream,
+} from "./run-stream-ownership.js";
 import { getOrCreateAnalyticsSessionId } from "./analytics-session.js";
 import { captureError } from "./analytics.js";
 import { agentNativePath } from "./api-path.js";
@@ -2055,7 +2060,19 @@ export function createAgentChatAdapter(
             activeRun.runId === runId)
         );
       };
+      // The adapter's own stream outranks AssistantChat's reconnect fallback:
+      // when it attaches to a run, any reconnect reader folding the same run
+      // must stop writing UI state or both folds render at once.
+      const streamOwnershipToken = createRunStreamToken(`adapter:${turnId}`);
+      const takeRunStreamOwnership = () => {
+        if (threadId && runId) {
+          preemptRunStream(threadId, runId, streamOwnershipToken);
+        }
+      };
       const settleTerminalChatRun = () => {
+        if (threadId && runId) {
+          releaseRunStream(threadId, runId, streamOwnershipToken);
+        }
         if (!ownsActiveRunState()) return;
         if (threadId && runId) {
           clearActiveRunIfMatches(threadId, runId);

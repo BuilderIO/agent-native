@@ -3145,6 +3145,12 @@ const AssistantChatInner = forwardRef<
       if (isRuntimeRunningRef.current || isAutoResumingRef.current) {
         return false;
       }
+      // The refs above lag a render and are per-component-instance, while
+      // MultiTabAssistantChat mounts several instances against one run. The
+      // claim is the actual mutual exclusion: module-scoped, synchronous, and
+      // re-checked on every state write below.
+      const ownershipToken = createRunStreamToken(`reconnect:${runId}`);
+      if (!claimRunStream(threadId, runId, ownershipToken)) return false;
 
       // SUPERSEDE THE PREVIOUS RECONNECT GENERATION. A turn that keeps failing
       // (e.g. repeated stale_run at "Contacting model") produces a new runId
@@ -3359,7 +3365,8 @@ const AssistantChatInner = forwardRef<
                 rafPending = false;
                 if (
                   !reconnectOwnerMountedRef.current ||
-                  reconnectRunIdRef.current !== runId
+                  reconnectRunIdRef.current !== runId ||
+                  !ownsRunStream(threadId, runId, ownershipToken)
                 ) {
                   return;
                 }
@@ -3375,6 +3382,10 @@ const AssistantChatInner = forwardRef<
                 tabId,
                 scheduleUpdate,
                 (seq, isProgress) => {
+                  // The adapter can preempt this reader mid-stream. Advancing
+                  // the cursor after that would move a run this reader no
+                  // longer represents.
+                  if (!ownsRunStream(threadId, runId, ownershipToken)) return;
                   markReconnectProgress();
                   reconnectRetryCount = 0;
                   updateActiveRunSeq(threadId, runId, seq, isProgress);
@@ -3428,6 +3439,7 @@ const AssistantChatInner = forwardRef<
           threadPollEngine?.stop();
           watchdog.stop();
           clearInterval(idleCheck);
+          releaseRunStream(threadId, runId, ownershipToken);
         }
 
         // A newer reader, live adapter, stop action, or component unmount took
