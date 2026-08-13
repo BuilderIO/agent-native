@@ -474,6 +474,29 @@ describe("mountA2A auth", () => {
     expect(event.context.__a2aAudienceVerified).toBe(true);
   });
 
+  it("accepts direct action identity bound to a custom mounted endpoint", async () => {
+    process.env.A2A_SECRET = "shared-global-secret";
+    process.env.APP_URL = "https://agent.example";
+    process.env.APP_BASE_PATH = "/workspace";
+    const token = await new jose.SignJWT({
+      sub: "alice+qa@builder.io",
+      aud: "https://agent.example/workspace/rpc",
+    })
+      .setProtectedHeader({ alg: "HS256" })
+      .setIssuer("https://dispatch.agent-native.test")
+      .setIssuedAt()
+      .setExpirationTime("15m")
+      .sign(new TextEncoder().encode("shared-global-secret"));
+    const handler = await mountedA2AHandler(config, "/rpc");
+
+    const event = postEvent({ authorization: `Bearer ${token}` });
+    const response = await handler(event);
+
+    expect(response).toEqual({ jsonrpc: "2.0", id: 1, result: { ok: true } });
+    expect(event.context.__a2aVerifiedEmail).toBe("alice+qa@builder.io");
+    expect(event.context.__a2aAudienceVerified).toBe(true);
+  });
+
   it("requires a bearer token on hosted runtimes when A2A_SECRET is configured", async () => {
     process.env.A2A_SECRET = "shared-global-secret";
     process.env.NODE_ENV = "development";
@@ -772,11 +795,12 @@ async function mountedAgentCardHandler(
 
 async function mountedA2AHandler(
   config: A2AConfig,
+  routePrefix = "/_agent-native",
 ): Promise<(event: any) => any> {
   const { mountA2A } = await import("./server.js");
   const app = { routes: [] as Array<{ path: string; handler: any }> };
-  mountA2A(app, config);
-  const route = app.routes.find((entry) => entry.path === "/_agent-native/a2a");
+  mountA2A(app, config, routePrefix);
+  const route = app.routes.find((entry) => entry.path === `${routePrefix}/a2a`);
   if (!route) throw new Error("A2A route was not mounted");
   return route.handler;
 }

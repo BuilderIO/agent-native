@@ -74,7 +74,10 @@ function addSecretCandidate(
  * service must not verify here). Only tokens without an `aud` claim (minted
  * before the audience claim shipped) skip the audience check.
  */
-function expectedJwtAudience(event: any | undefined): string | undefined {
+function expectedJwtAudience(
+  event: any | undefined,
+  routePrefix?: string,
+): string | undefined {
   const fromEnv =
     process.env.APP_URL ||
     process.env.URL ||
@@ -82,7 +85,10 @@ function expectedJwtAudience(event: any | undefined): string | undefined {
     process.env.BETTER_AUTH_URL;
   const receiverBasePath = process.env.APP_BASE_PATH;
   if (fromEnv) {
-    return canonicalA2AAudience(String(fromEnv), receiverBasePath);
+    return audienceForRoute(
+      canonicalA2AAudience(String(fromEnv), receiverBasePath),
+      routePrefix,
+    );
   }
   // Best-effort: derive from the inbound request host. This is forgeable
   // (Host-header attack), but only useful as a hint when env-derived URL
@@ -91,11 +97,24 @@ function expectedJwtAudience(event: any | undefined): string | undefined {
     const proto = getRequestHeader(event, "x-forwarded-proto") || "https";
     const host = getRequestHeader(event, "host");
     if (host) {
-      return canonicalA2AAudience(`${proto}://${host}`, receiverBasePath);
+      return audienceForRoute(
+        canonicalA2AAudience(`${proto}://${host}`, receiverBasePath),
+        routePrefix,
+      );
     }
     // coercion-ok: undefined makes audience-bearing token verification fail closed.
   } catch {}
   return undefined;
+}
+
+function audienceForRoute(
+  baseAudience: string,
+  routePrefix: string | undefined,
+): string {
+  const trimmedPrefix = routePrefix?.replace(/^\/+|\/+$/g, "");
+  if (!trimmedPrefix || trimmedPrefix === "_agent-native") return baseAudience;
+  const normalizedPrefix = `/${trimmedPrefix}`;
+  return `${baseAudience.replace(/\/+$/, "")}${normalizedPrefix}`;
 }
 
 function tokenHasAudienceClaim(token: string): boolean {
@@ -122,11 +141,14 @@ function isDirectReadSkill(skill: AgentSkill): boolean {
  * Exported so workspaces can accept A2A callers on the HTTP action route with
  * the same routine — including org-level fallback secrets — instead of
  * reimplementing a partial verifier. Pass the H3 `event` to enable org-domain →
- * org-secret lookup and audience derivation; it is optional.
+ * org-secret lookup and audience derivation; it is optional. A custom mounted
+ * JSON-RPC route also passes its prefix so endpoint-bound tokens verify against
+ * the same audience the client derived from the advertised URL.
  */
 export async function verifyA2AToken(
   token: string,
   event?: any,
+  routePrefix?: string,
 ): Promise<A2ATokenPayload> {
   // Step 1: Peek at JWT claims WITHOUT verification to get org_domain.
   // This is safe because we only use org_domain to look up the secret,
@@ -182,7 +204,7 @@ export async function verifyA2AToken(
       // whose `aud` targets ANOTHER service verify against a shared secret. A
       // token that self-declares an audience must be checked against ours, so
       // when we have nothing to check it against we reject rather than skip.
-      const aud = expectedJwtAudience(event);
+      const aud = expectedJwtAudience(event, routePrefix);
       if (!aud) return { email: null, orgDomain: null };
       verifyOptions.audience = aud;
     }
@@ -492,7 +514,11 @@ export function mountA2A(
 
       // Try JWT verification first (org-level or global A2A_SECRET-based identity)
       if (bearerToken) {
-        const tokenPayload = await verifyA2AToken(bearerToken, event);
+        const tokenPayload = await verifyA2AToken(
+          bearerToken,
+          event,
+          routePrefix,
+        );
         verifiedCallerEmail = tokenPayload.email;
         verifiedOrgDomain = tokenPayload.orgDomain;
         if (verifiedCallerEmail) {
