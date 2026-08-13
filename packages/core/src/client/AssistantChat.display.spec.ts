@@ -1421,6 +1421,26 @@ describe("missing agent engine setup", () => {
   });
 });
 
+describe("tool approval continuation", () => {
+  it("keeps the approval acknowledgement out of visible chat history", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const start = source.indexOf("onApprove: (approvalKey: string) => {");
+    const end = source.indexOf("...(approvalActions?.onDeny", start);
+    const approvalSource = source.slice(start, end);
+
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    expect(approvalSource).toContain(
+      '"Approved. Go ahead and run the requested action."',
+    );
+    expect(approvalSource).toContain(
+      "true, // hideUserMessage: this is a protocol continuation, not a new prompt",
+    );
+  });
+});
+
 describe("chat connection suggestion alignment", () => {
   it("uses the fullscreen composer width contract and removes page-only insets", () => {
     const panelSource = readFileSync("src/client/AgentPanel.tsx", {

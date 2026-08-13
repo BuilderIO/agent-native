@@ -7,6 +7,10 @@ const adhocAnalysisSkill = readFileSync(
   new URL("../../.agents/skills/adhoc-analysis/SKILL.md", import.meta.url),
   "utf8",
 );
+const accountHealthSkill = readFileSync(
+  new URL("../../.agents/skills/account-health/SKILL.md", import.meta.url),
+  "utf8",
+);
 
 const { agentChatPluginOptions, representativeAnalyticsActions } = vi.hoisted(
   () => ({
@@ -89,6 +93,7 @@ import {
   ANALYTICS_CROSS_APP_ROUTING_GUIDANCE,
   ANALYTICS_CUSTOM_BLOCK_GUIDANCE,
   ANALYTICS_BACKGROUND_RUN_NO_PROGRESS_TIMEOUT_MS,
+  ANALYTICS_ACCOUNT_HEALTH_GUIDANCE,
   BOUNDED_STRUCTURED_LOOKUP_GUIDANCE,
   DASHBOARD_REFERENCE_GUIDANCE,
   BUILT_IN_FIRST_PARTY_SOURCE_GUIDANCE,
@@ -119,6 +124,7 @@ describe("Analytics agent Plan mode policy", () => {
 
     expect(guidance).toContain("<data-source-guidance>");
     expect(guidance).toContain(BOUNDED_STRUCTURED_LOOKUP_GUIDANCE);
+    expect(guidance).toContain(ANALYTICS_ACCOUNT_HEALTH_GUIDANCE);
     expect(guidance).toContain(ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE);
     expect(guidance).toContain(ANALYTICS_CROSS_APP_ROUTING_GUIDANCE);
     expect(guidance).toContain(BUILT_IN_FIRST_PARTY_SOURCE_GUIDANCE);
@@ -148,6 +154,26 @@ describe("Analytics agent Plan mode policy", () => {
     );
     expect(BOUNDED_STRUCTURED_LOOKUP_GUIDANCE).toContain(
       "Never repeat an identical invalid or failed tool call",
+    );
+  });
+
+  it("guards named account health against scope and metric-definition drift", () => {
+    for (const phrase of [
+      "org ID as a lookup key",
+      "different customer, mixed IDs",
+      "deprecated or retired",
+      "current partial-period snapshot",
+      "total distinct contracted users",
+      "utilization at or above 100%",
+      "each requested product or feature dimension separately",
+    ]) {
+      expect(ANALYTICS_ACCOUNT_HEALTH_GUIDANCE).toContain(phrase);
+    }
+  });
+
+  it("keeps account-health guidance organization- and provider-neutral", () => {
+    expect(accountHealthSkill).not.toMatch(
+      /Builder|Fusion|enterprise_pageview_utilization|monthly_pageviews_and_bandwidth_by_org/i,
     );
   });
 

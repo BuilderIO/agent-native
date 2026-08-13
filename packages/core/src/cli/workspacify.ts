@@ -186,33 +186,38 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
 }
 
 function linkInheritedWorkspaceSkills(opts: WorkspacifyOptions): void {
-  const appSkillsDir = path.join(opts.appDir, ".agents", "skills");
   const workspaceSkillsDir = path.join(opts.workspaceRoot, ".agents", "skills");
   if (!fs.existsSync(workspaceSkillsDir)) return;
 
-  fs.mkdirSync(appSkillsDir, { recursive: true });
+  removeCopiedFrameworkSkills(opts.appDir);
+  linkDefaultWorkspaceSkills(opts.appDir, opts.workspaceRoot);
+}
 
+export function removeCopiedFrameworkSkills(appDir: string): void {
+  const appSkillsDir = path.join(appDir, ".agents", "skills");
   for (const skill of FRAMEWORK_TEMPLATE_SHARED_SKILLS) {
     const localPath = path.join(appSkillsDir, skill);
-    if (
-      fs.existsSync(localPath) ||
-      fs.lstatSync(localPath, { throwIfNoEntry: false })
-    ) {
-      fs.rmSync(localPath, { recursive: true, force: true });
-    }
+    const stat = fs.lstatSync(localPath, { throwIfNoEntry: false });
+    if (!stat || stat.isSymbolicLink()) continue;
+    fs.rmSync(localPath, { recursive: true, force: true });
   }
+}
 
+export function linkDefaultWorkspaceSkills(
+  appDir: string,
+  workspaceRoot: string,
+): void {
+  const appSkillsDir = path.join(appDir, ".agents", "skills");
+  const workspaceSkillsDir = path.join(workspaceRoot, ".agents", "skills");
+  if (!fs.existsSync(workspaceSkillsDir)) return;
+
+  fs.mkdirSync(appSkillsDir, { recursive: true });
   for (const skill of DEFAULT_WORKSPACE_SKILLS) {
     const inheritedPath = path.join(workspaceSkillsDir, skill);
     if (!fs.existsSync(inheritedPath)) continue;
 
     const linkPath = path.join(appSkillsDir, skill);
-    if (
-      fs.existsSync(linkPath) ||
-      fs.lstatSync(linkPath, { throwIfNoEntry: false })
-    ) {
-      fs.rmSync(linkPath, { recursive: true, force: true });
-    }
+    fs.rmSync(linkPath, { recursive: true, force: true });
 
     try {
       fs.symlinkSync(

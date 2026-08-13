@@ -12,6 +12,7 @@ import {
 import { verifyA2ATokenWithClaims } from "../a2a-claims.js";
 import { isAgentActionStopError } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
+import { isTransientDatabaseError } from "../db/client.js";
 import { declaresFeatureFlagDelegation } from "../feature-flags/a2a-action-route.js";
 import { resolveOrgIdForEmail } from "../org/context.js";
 import { readBody } from "../server/h3-helpers.js";
@@ -298,6 +299,26 @@ function normalizeOrgId(value: string | null | undefined): string | undefined {
     : undefined;
 }
 
+/**
+ * The user's stored active org, for a request whose own org resolution came
+ * back empty. An empty `orgId` is not "this user has no org": it silently
+ * narrows every scoped read to rows with a null `org_id`, so a session minted
+ * before org selection — or one whose membership read failed — stops seeing
+ * the user's own org-scoped dashboards, credentials, and resources. This
+ * honors an explicit Personal selection by returning undefined, so it can
+ * never promote a user into an org they left. A transient database failure is
+ * not an answer and propagates.
+ */
+async function storedActiveOrgId(email: string): Promise<string | undefined> {
+  try {
+    return normalizeOrgId(await resolveOrgIdForEmail(email));
+  } catch (error) {
+    if (isTransientDatabaseError(error)) throw error;
+    // Org tables may not exist yet on first boot.
+    return undefined;
+  }
+}
+
 function isAuthResolutionFailure(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
   const maybeStatus = error as {
@@ -502,18 +523,13 @@ export function mountActionRoutes(
         if (resolvedCaller) {
           orgId = normalizeOrgId(resolvedCaller.orgId);
           if (!orgId && resolvedCaller.owner && !resolvedCaller.anonymous) {
-            try {
-              orgId = normalizeOrgId(
-                await resolveOrgIdForEmail(resolvedCaller.owner),
-              );
-            } catch {
-              // Org tables may not exist yet on first boot.
-            }
+            orgId = await storedActiveOrgId(resolvedCaller.owner);
           }
         } else {
           orgId = options?.resolveOrgId
             ? ((await options.resolveOrgId(event)) ?? undefined)
             : undefined;
+          if (!orgId && userEmail) orgId = await storedActiveOrgId(userEmail);
         }
         const timezone = readTimezoneHeader(event);
         const browserSessionId = readBrowserSessionIdHeader(event);

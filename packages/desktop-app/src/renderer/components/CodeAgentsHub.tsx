@@ -380,10 +380,13 @@ function DesktopAppsGrid({
             const pinned = layout.pinnedIds.includes(app.id);
             return (
               <div key={app.id} className="desktop-app-card">
-                <div
+                <button
+                  type="button"
                   className="desktop-app-card__body"
                   data-desktop-app-card
                   data-app-id={app.id}
+                  onClick={() => onOpenApp(app)}
+                  aria-label={`Open ${app.name}`}
                 >
                   <span className="desktop-app-card__icon" aria-hidden="true">
                     <CodeAgentsAppIcon
@@ -399,7 +402,7 @@ function DesktopAppsGrid({
                       {app.description}
                     </span>
                   </span>
-                </div>
+                </button>
                 <AppOpenActions
                   name={app.name}
                   labels={{ openApp: "Open" }}
@@ -2110,7 +2113,11 @@ export default function CodeAgentsHub({
                 onTogglePinned={toggleChatFirstAppPinned}
               />
             ) : chatFirstAppTakesMain && activeChatFirstSurfaceTab ? (
-              renderChatFirstSurfaceTab(activeChatFirstSurfaceTab)
+              <ChatFirstSurfaceContent
+                tabs={visibleChatFirstSurfaceTabs}
+                activeTabId={visibleActiveChatFirstSurfaceTabId}
+                renderTab={renderChatFirstSurfaceTab}
+              />
             ) : undefined
           }
           suppressChatFirstUnavailableNotice={chatFirstMode}

@@ -33,6 +33,27 @@ import type {
   ChatFirstCopy,
 } from "./types.js";
 
+function ChatFirstRailAppIcon({
+  app,
+  activeAppId,
+  renderIcon,
+}: {
+  app: ChatFirstAppItem;
+  activeAppId?: string;
+  renderIcon: (app: ChatFirstAppItem) => ReactNode;
+}) {
+  const inactive = activeAppId !== undefined && activeAppId !== app.id;
+
+  return (
+    <span
+      data-chat-first-app-icon
+      className={cn("transition-[filter]", inactive && "grayscale")}
+    >
+      {renderIcon(app)}
+    </span>
+  );
+}
+
 function AppRows({
   apps,
   activeAppId,
@@ -113,7 +134,11 @@ function AppRows({
                   aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
                   aria-label={copy("openApp", { name: app.name })}
                 >
-                  {renderIcon(app)}
+                  <ChatFirstRailAppIcon
+                    app={app}
+                    activeAppId={activeAppId}
+                    renderIcon={renderIcon}
+                  />
                   <span className="truncate">{app.name}</span>
                 </button>
                 <button
@@ -303,7 +328,11 @@ export const ChatFirstAppsRail = memo(function ChatFirstAppsRail({
                 aria-label={copy("openApp", { name: app.name })}
                 title={app.name}
               >
-                {renderIcon(app)}
+                <ChatFirstRailAppIcon
+                  app={app}
+                  activeAppId={activeAppId}
+                  renderIcon={renderIcon}
+                />
               </button>
             ))}
         {onOpenAllApps ? (

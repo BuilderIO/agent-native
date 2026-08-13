@@ -231,6 +231,9 @@ export function formatSqlChartError(error: unknown): string {
   if (/inactivity timeout|too much time has passed/i.test(readableMessage)) {
     return "This chart took too long to load. Try again.";
   }
+  if (/abort(?:ed|ing)?|signal is aborted/i.test(readableMessage)) {
+    return "This chart load was interrupted. Try again.";
+  }
   if (/internal server error/i.test(readableMessage)) {
     return "This chart could not be loaded. Try again.";
   }
@@ -1381,7 +1384,7 @@ export function SqlChart({
         className={`flex flex-1 flex-col items-center justify-center gap-3 px-4 ${placeholderPadY} ${placeholderMinH}`}
         role="alert"
       >
-        <p className="text-center text-sm text-red-400 break-all">
+        <p className="text-center text-sm text-red-400 break-words">
           {formatSqlChartError(error)}
         </p>
         <Button

@@ -72,7 +72,9 @@ run "npx @agent-native/core@latest recap setup" / "npx @agent-native/core@latest
 verify GitHub Actions. Docs: https://www.agent-native.com/docs/pr-visual-recap.
 
 The status/update commands inspect copied Agent Native skill folders and refresh
-their instruction files from the current @agent-native/core package. In generated
-apps/workspaces, "skills update scaffold --project" refreshes the framework
-skills copied into the scaffold and repairs AGENTS.md / CLAUDE.md and
-.agents/skills / .claude/skills compatibility links.`;
+their instruction files from the current @agent-native/core package. In a
+standalone generated app, "skills update scaffold --project" refreshes the
+framework skill copies. In a generated workspace, it refreshes workspace-core,
+removes stale generic framework copies, repairs inherited .agents/skills links
+for every app, and repairs AGENTS.md / CLAUDE.md / .claude/skills compatibility
+links.`;

@@ -50,6 +50,10 @@ import {
 } from "../server/lib/resumable-session.js";
 import { resolveResumableUploadProvider } from "../server/lib/resumable-upload-provider.js";
 import { fetchS3ObjectByUrl } from "../server/lib/s3-upload-provider.js";
+import {
+  clearSeekableRepairPending,
+  markSeekableRepairPending,
+} from "../server/lib/seekable-media-state.js";
 import { isStreamingUploadDisabled } from "../server/lib/streaming-upload-mode.js";
 import {
   probeHasAudioStream,
@@ -59,7 +63,10 @@ import {
   requiresConfiguredVideoStorage,
   STORAGE_SETUP_REQUIRED_REASON,
 } from "../server/lib/video-storage.js";
-import { markRecordingSeekable } from "./lib/ensure-seekable-video.js";
+import {
+  isRemoteProviderUrl,
+  markRecordingSeekable,
+} from "./lib/ensure-seekable-video.js";
 
 // Recordings up to this size get their seekable rewrite applied inline during
 // finalize (we already hold the assembled bytes). Larger recordings are handed
@@ -667,6 +674,12 @@ async function markRecordingReady(params: {
   if (seekableApplied) {
     // Uploaded bytes are already start-playable and seekable — remember it so
     // later reprocess sweeps skip this clip.
+    await clearSeekableRepairPending(id).catch((err) => {
+      console.warn("[finalize] failed to clear seekable repair marker", {
+        id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
     await markRecordingSeekable(id, videoUrl).catch((err) => {
       console.warn("[finalize] failed to write seekable marker", {
         id,
@@ -679,6 +692,17 @@ async function markRecordingReady(params: {
     // without a Cues index buffers on load and re-buffers on every seek. A
     // fresh self-dispatched request owns the repair so serverless runtimes do
     // not freeze it when this finalize request returns.
+    if (isRemoteProviderUrl(videoUrl)) {
+      await markSeekableRepairPending({
+        recordingId: id,
+        videoUrl,
+      }).catch((err) => {
+        console.warn("[finalize] failed to mark seekable repair pending", {
+          id,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+    }
     await dispatchPostFinalizeJob({
       recordingId: id,
       kind: "seekable",

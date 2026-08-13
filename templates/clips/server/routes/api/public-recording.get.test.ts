@@ -17,6 +17,7 @@ const mockVerifySharePassword = vi.hoisted(() => vi.fn());
 const mockResolvePlayerVideoUrl = vi.hoisted(() => vi.fn());
 const mockBuildAgentApiUrls = vi.hoisted(() => vi.fn());
 const mockIsMediaVerificationPending = vi.hoisted(() => vi.fn());
+const mockIsSeekableRepairPending = vi.hoisted(() => vi.fn());
 const mockCountRecordingViews = vi.hoisted(() => vi.fn());
 const mockCountRecordingAgentViews = vi.hoisted(() => vi.fn());
 const mockHasExplicitRecordingShare = vi.hoisted(() => vi.fn());
@@ -95,6 +96,11 @@ vi.mock("../../lib/player-video-url.js", () => ({
 vi.mock("../../lib/media-verification-state.js", () => ({
   isMediaVerificationPending: (...args: unknown[]) =>
     mockIsMediaVerificationPending(...args),
+}));
+
+vi.mock("../../lib/seekable-media-state.js", () => ({
+  isSeekableRepairPending: (...args: unknown[]) =>
+    mockIsSeekableRepairPending(...args),
 }));
 
 vi.mock("../../lib/share-password.js", () => ({
@@ -198,6 +204,7 @@ describe("/api/public-recording route", () => {
       contextUrl: "https://clips.example/api/agent-context.json?id=rec-1",
     });
     mockIsMediaVerificationPending.mockResolvedValue(false);
+    mockIsSeekableRepairPending.mockResolvedValue(false);
     mockCountRecordingViews.mockResolvedValue(7);
     mockCountRecordingAgentViews.mockResolvedValue(2);
     mockHasExplicitRecordingShare.mockResolvedValue(false);
@@ -262,6 +269,32 @@ describe("/api/public-recording route", () => {
       ownerEmail: "owner@example.com",
       recordingId: "rec-1",
       recordingStatus: "processing",
+    });
+  });
+
+  it("exposes pending seekable repair to ready players", async () => {
+    const event = { setCookies: [] as unknown[] };
+    mockIsSeekableRepairPending.mockResolvedValue(true);
+    mockGetDb.mockReturnValue(
+      createDbWithSelectResults([
+        [makeRecording({ videoUrl: "https://cdn.example.com/rec-1.webm" })],
+        [],
+        [],
+        [],
+        [],
+      ]),
+    );
+
+    const result = await handler(event as any);
+
+    expect(result).toMatchObject({
+      recording: { status: "ready", seekableRepairPending: true },
+    });
+    expect(mockIsSeekableRepairPending).toHaveBeenCalledWith({
+      ownerEmail: "owner@example.com",
+      recordingId: "rec-1",
+      recordingStatus: "ready",
+      videoUrl: "https://cdn.example.com/rec-1.webm",
     });
   });
 

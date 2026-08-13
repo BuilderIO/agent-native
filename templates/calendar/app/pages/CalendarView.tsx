@@ -6,6 +6,7 @@ import type {
   CalendarEventDraft,
   UpdateEventScope,
 } from "@shared/api";
+import { getWeekStartsOn } from "@shared/calendar-week";
 import {
   IconCheck,
   IconChevronLeft,
@@ -89,8 +90,8 @@ import {
   buildEventTitleUpdate,
   dateTimeInTimezoneToIso,
   getEditableEventTitle,
-  getLocalTimezone,
   UNNAMED_EVENT_TITLE,
+  resolveEventTimezone,
 } from "@/lib/event-form-utils";
 import { buildDeleteEventMutationInput } from "@/lib/event-mutation-inputs";
 import { getLocationSuggestions } from "@/lib/location-suggestions";
@@ -373,6 +374,7 @@ export default function CalendarView() {
   const defaultAccountEmail = googleStatus.data?.accounts?.[0]?.email;
   const settingsQuery = useSettings();
   const { data: settings } = settingsQuery;
+  const weekStartsOn = getWeekStartsOn(settings?.weekStart);
   const { data: rawOverlayPeople } = useOverlayPeople();
   const overlayPeople = Array.isArray(rawOverlayPeople) ? rawOverlayPeople : [];
   const overlayEmails = useMemo(
@@ -398,14 +400,14 @@ export default function CalendarView() {
         const ms = startOfMonth(selectedDate);
         const me = endOfMonth(selectedDate);
         return {
-          from: startOfWeek(ms).toISOString(),
-          to: endOfWeek(me).toISOString(),
+          from: startOfWeek(ms, { weekStartsOn }).toISOString(),
+          to: endOfWeek(me, { weekStartsOn }).toISOString(),
         };
       }
       case "week": {
         return {
-          from: startOfWeek(selectedDate).toISOString(),
-          to: endOfWeek(selectedDate).toISOString(),
+          from: startOfWeek(selectedDate, { weekStartsOn }).toISOString(),
+          to: endOfWeek(selectedDate, { weekStartsOn }).toISOString(),
         };
       }
       case "day": {
@@ -416,7 +418,7 @@ export default function CalendarView() {
         return { from: dayStart.toISOString(), to: dayEnd.toISOString() };
       }
     }
-  }, [viewMode, selectedDate]);
+  }, [viewMode, selectedDate, weekStartsOn]);
 
   const {
     data: rawEventsData,
@@ -470,8 +472,8 @@ export default function CalendarView() {
           const next = addMonths(selectedDate, 1);
           const prev = subMonths(selectedDate, 1);
           return [next, prev].map((d) => ({
-            from: startOfWeek(startOfMonth(d)).toISOString(),
-            to: endOfWeek(endOfMonth(d)).toISOString(),
+            from: startOfWeek(startOfMonth(d), { weekStartsOn }).toISOString(),
+            to: endOfWeek(endOfMonth(d), { weekStartsOn }).toISOString(),
           }));
         }
         case "week": {
@@ -480,8 +482,8 @@ export default function CalendarView() {
           const next2 = addWeeks(selectedDate, 2);
           const prev = subWeeks(selectedDate, 1);
           return [next, next2, prev].map((d) => ({
-            from: startOfWeek(d).toISOString(),
-            to: endOfWeek(d).toISOString(),
+            from: startOfWeek(d, { weekStartsOn }).toISOString(),
+            to: endOfWeek(d, { weekStartsOn }).toISOString(),
           }));
         }
         case "day": {
@@ -500,7 +502,14 @@ export default function CalendarView() {
     for (const range of ranges) {
       void prefetchEvents(queryClient, range.from, range.to, overlayEmails);
     }
-  }, [isLoading, viewMode, selectedDate, overlayEmails, queryClient]);
+  }, [
+    isLoading,
+    viewMode,
+    selectedDate,
+    overlayEmails,
+    queryClient,
+    weekStartsOn,
+  ]);
 
   // Show the skeleton only when there is genuinely nothing to show for the
   // current date range — the first load, or navigating to a range we have not
@@ -675,7 +684,9 @@ export default function CalendarView() {
       }
 
       const location = draft.location ?? draft.workingLocationLabel ?? "";
-      const timezone = draft.startTimeZone ?? getLocalTimezone();
+      const timezone = resolveEventTimezone(
+        draft.startTimeZone ?? draft.endTimeZone,
+      );
       const semanticFullDay =
         eventType === "outOfOffice" &&
         draft.fullDay === true &&
@@ -1143,7 +1154,9 @@ export default function CalendarView() {
       if (newEnd.getTime() <= newStart.getTime()) return;
 
       if (calendarDraftIdFromEventId(eventId)) {
-        const timezone = settings?.timezone || getLocalTimezone();
+        const timezone = resolveEventTimezone(
+          event.startTimeZone ?? event.endTimeZone,
+        );
         updateDraftEvent(eventId, {
           start: newStart.toISOString(),
           end: newEnd.toISOString(),
@@ -1244,7 +1257,7 @@ export default function CalendarView() {
         5,
         activeSettings.defaultEventDuration ?? 30,
       );
-      const timezone = activeSettings.timezone;
+      const timezone = resolveEventTimezone();
       setCreateDefaultStart(startTime);
       setCreateDialogOpen(false);
 
@@ -1304,7 +1317,7 @@ export default function CalendarView() {
         return;
       }
 
-      const timezone = activeSettings.timezone;
+      const timezone = resolveEventTimezone();
       const defaultDuration = Math.max(
         5,
         activeSettings.defaultEventDuration ?? 30,
@@ -1592,8 +1605,8 @@ export default function CalendarView() {
           ? format(selectedDate, "MMM yyyy")
           : format(selectedDate, "MMMM yyyy");
       case "week": {
-        const ws = startOfWeek(selectedDate);
-        const we = endOfWeek(selectedDate);
+        const ws = startOfWeek(selectedDate, { weekStartsOn });
+        const we = endOfWeek(selectedDate, { weekStartsOn });
         return isMobile
           ? `${format(ws, "MMM d")} – ${format(we, "d")}`
           : `${format(ws, "MMM d")} – ${format(we, "d, yyyy")}`;
@@ -1801,6 +1814,7 @@ export default function CalendarView() {
                 onDraftCreate={createDraftEvent}
                 onDraftDiscard={discardDraftEvent}
                 isLoading={eventsLoading}
+                weekStartsOn={weekStartsOn}
               />
             )}
             {viewMode === "week" && (
@@ -1819,6 +1833,7 @@ export default function CalendarView() {
                 onDraftCreate={createDraftEvent}
                 onDraftDiscard={discardDraftEvent}
                 isLoading={eventsLoading}
+                weekStartsOn={weekStartsOn}
               />
             )}
             {viewMode === "day" && (

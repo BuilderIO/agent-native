@@ -310,6 +310,10 @@ export default function RecordingPage() {
           readyMediaPollRef.current = null;
           return 1000;
         }
+        if (rec.seekableRepairPending === true) {
+          readyMediaPollRef.current = null;
+          return READY_MEDIA_SETTLE_POLL_INTERVAL_MS;
+        }
         // Fresh streaming uploads can become `ready` before the background
         // seekable/faststart repair swaps in the final player URL. Keep polling
         // briefly so the first post-recording page catches that URL update
@@ -1592,10 +1596,7 @@ export default function RecordingPage() {
                   onVideoElementChange={setTrackedVideoEl}
                   recordingId={recording.id}
                   videoUrl={recording.videoUrl}
-                  mediaVersion={[
-                    recording.videoSizeBytes ?? "",
-                    recording.updatedAt ?? "",
-                  ].join(":")}
+                  mediaVersion={recording.videoSizeBytes ?? null}
                   videoFormat={recording.videoFormat}
                   embedProvider={isLoomEmbedBacked ? "loom" : null}
                   durationMs={recording.durationMs}

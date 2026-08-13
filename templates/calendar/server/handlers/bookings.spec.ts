@@ -111,6 +111,28 @@ describe("booking availability", () => {
     ]);
   });
 
+  it("offers slots from each disjoint availability window", () => {
+    const config = availabilityConfig();
+    config.weeklySchedule.monday.slots = [
+      { start: "09:00", end: "10:00" },
+      { start: "14:00", end: "15:00" },
+    ];
+
+    const slots = generateAvailableSlotsForDate({
+      date: "2026-07-20",
+      duration: 30,
+      config,
+      conflictItems: [],
+    });
+
+    expect(slots.map((slot) => slot.start)).toEqual([
+      "2026-07-20T16:00:00.000Z",
+      "2026-07-20T16:30:00.000Z",
+      "2026-07-20T21:00:00.000Z",
+      "2026-07-20T21:30:00.000Z",
+    ]);
+  });
+
   it("marks owner availability unavailable when Google is not connected", async () => {
     vi.mocked(googleCalendar.isConnected).mockResolvedValue(false);
 

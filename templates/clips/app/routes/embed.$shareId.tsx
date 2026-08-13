@@ -132,6 +132,10 @@ export default function EmbedRoute() {
         readyMediaPollRef.current = null;
         return 2000;
       }
+      if (rec.seekableRepairPending === true) {
+        readyMediaPollRef.current = null;
+        return READY_MEDIA_SETTLE_POLL_INTERVAL_MS;
+      }
       const mediaKey = [
         rec.id,
         rec.durationMs ?? "",
@@ -225,10 +229,7 @@ export default function EmbedRoute() {
         onVideoElementChange={setTrackedVideoEl}
         recordingId={recording.id}
         videoUrl={recording.videoUrl}
-        mediaVersion={[
-          recording.videoSizeBytes ?? "",
-          recording.updatedAt ?? "",
-        ].join(":")}
+        mediaVersion={recording.videoSizeBytes ?? null}
         videoFormat={recording.videoFormat}
         embedProvider={isLoomEmbedBacked ? "loom" : null}
         durationMs={recording.durationMs}

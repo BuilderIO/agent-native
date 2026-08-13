@@ -102,13 +102,11 @@ import {
 import { Link, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
-import { isEmbedSessionExpiredMessage } from "../../lib/embed-session-recovery";
 import { cn } from "../../lib/utils";
 import {
   isDispatchWorkspaceAppId,
   isWorkspaceAppVisibleInDefaultLaunchers,
   mergeChatFirstWorkspaceApps,
-  workspaceAppDirectHref,
   workspaceAppIdFromRoute,
   workspaceAppRoute,
   type WorkspaceAppSummary,
@@ -124,8 +122,14 @@ import {
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "../ui/sheet";
 import { Skeleton } from "../ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
+import {
+  WorkspaceAppFrame,
+  WorkspaceAppKeepAlive,
+} from "../workspace-app-host";
 import { Header } from "./Header";
 import { HeaderActionsProvider } from "./HeaderActions";
+
+export { buildChatFirstEmbedSessionInput } from "../workspace-app-host";
 
 export type DispatchNavSection = "primary" | "operations";
 
@@ -212,17 +216,6 @@ interface DispatchChatFirstPane {
   view?: string;
 }
 
-interface ChatFirstEmbedSessionResult {
-  startUrl: string;
-}
-
-interface ChatFirstEmbedSessionInput {
-  app?: string;
-  path?: string;
-  url?: string;
-  chrome: "minimal";
-}
-
 interface ChatFirstGrantedAppSummary {
   id: string;
   name: string;
@@ -231,13 +224,6 @@ interface ChatFirstGrantedAppSummary {
 
 interface ChatFirstGrantedAppsResult {
   apps: ChatFirstGrantedAppSummary[];
-}
-
-export function buildChatFirstEmbedSessionInput(
-  appId: string,
-  path: string,
-): ChatFirstEmbedSessionInput {
-  return { app: appId, path, chrome: "minimal" };
 }
 
 interface DispatchAgentThreadSummary {
@@ -1369,6 +1355,10 @@ export function Layout({
   const isWorkspaceAppRoute = shouldAutoCollapseDispatchSidebar(
     location.pathname,
   );
+  const workspaceAppId = isWorkspaceAppRoute
+    ? workspaceAppIdFromRoute(localPathname)
+    : null;
+  const workspaceAppRouteActive = Boolean(workspaceAppId);
   const isWorkspaceAppHostRoute =
     isWorkspaceAppRoute &&
     typeof window !== "undefined" &&
@@ -1446,20 +1436,8 @@ export function Layout({
     [chatFirstAppRegistrations],
   );
   const chatFirstCopy = useMemo(() => createDispatchChatFirstCopy(t), [t]);
-  const createChatFirstEmbedSession = useActionMutation<
-    ChatFirstEmbedSessionResult,
-    ChatFirstEmbedSessionInput
-  >("create_embed_session", { skipActionQueryInvalidation: true });
   const [chatFirstPane, setChatFirstPane] =
     useState<DispatchChatFirstPane | null>(null);
-  const [chatFirstEmbedUrl, setChatFirstEmbedUrl] = useState<string | null>(
-    null,
-  );
-  const [chatFirstEmbedError, setChatFirstEmbedError] = useState<string | null>(
-    null,
-  );
-  const [chatFirstEmbedAttempt, setChatFirstEmbedAttempt] = useState(0);
-  const chatFirstAppFrameRef = useRef<HTMLIFrameElement>(null);
   const [chatFirstNotice, setChatFirstNotice] = useState<string | null>(null);
   const chatFirstSessionWatch = useChatFirstSessionWatch();
   const chatFirstSurfaceTabs = useChatFirstSurfaceTabs(chatFirstSurfaceScope);
@@ -1512,28 +1490,6 @@ export function Layout({
     : chatFirstAppSelected && activeChatFirstSurfaceTab?.kind === "app"
       ? activeChatFirstSurfaceTab.appId
       : undefined;
-  const activeChatFirstAppRegistration = useMemo(
-    () =>
-      activeChatFirstSurfaceTab?.kind === "app" &&
-      activeChatFirstSurfaceTab.appId
-        ? (chatFirstAppRegistrations.find(
-            (app) => app.id === activeChatFirstSurfaceTab.appId,
-          ) ?? null)
-        : null,
-    [activeChatFirstSurfaceTab, chatFirstAppRegistrations],
-  );
-  const activeChatFirstApp = useMemo(
-    () =>
-      activeChatFirstAppRegistration
-        ? {
-            id: activeChatFirstAppRegistration.id,
-            name:
-              activeChatFirstAppRegistration.name ??
-              activeChatFirstAppRegistration.id,
-          }
-        : null,
-    [activeChatFirstAppRegistration],
-  );
   const chatFirstAgentActivities = useMemo<ChatFirstAgentActivity[]>(
     () =>
       (chatFirstAgentsQuery.data?.threads ?? []).map((thread) => ({
@@ -1546,82 +1502,6 @@ export function Layout({
       })),
     [chatFirstAgentsQuery.data, chatFirstCopy],
   );
-  const chatFirstEmbedPath =
-    activeChatFirstSurfaceTab?.kind === "app"
-      ? (activeChatFirstSurfaceTab.path ??
-        chatFirstPane?.path ??
-        activeChatFirstAppRegistration?.path ??
-        "/")
-      : null;
-  useEffect(() => {
-    if (!chatFirstMode || !isChatRoute || !activeChatFirstApp) {
-      setChatFirstEmbedUrl(null);
-      setChatFirstEmbedError(null);
-      return;
-    }
-    if (!chatFirstEmbedPath?.startsWith("/")) {
-      setChatFirstEmbedUrl(null);
-      setChatFirstEmbedError(chatFirstCopy("appUnavailable"));
-      return;
-    }
-    let cancelled = false;
-    setChatFirstEmbedUrl(null);
-    setChatFirstEmbedError(null);
-    void createChatFirstEmbedSession
-      .mutateAsync(
-        buildChatFirstEmbedSessionInput(
-          activeChatFirstApp.id,
-          chatFirstEmbedPath,
-        ),
-      )
-      .then((result) => {
-        if (!cancelled) setChatFirstEmbedUrl(result.startUrl);
-      })
-      .catch((cause: unknown) => {
-        if (!cancelled) {
-          const directAppUrl = activeChatFirstAppRegistration
-            ? workspaceAppDirectHref(
-                activeChatFirstAppRegistration,
-                chatFirstEmbedPath,
-              )
-            : null;
-          if (directAppUrl) setChatFirstEmbedUrl(directAppUrl);
-          setChatFirstEmbedError(
-            cause instanceof Error
-              ? cause.message
-              : chatFirstCopy("appUnavailable"),
-          );
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    activeChatFirstApp,
-    chatFirstCopy,
-    chatFirstEmbedAttempt,
-    chatFirstEmbedPath,
-    chatFirstMode,
-    createChatFirstEmbedSession.mutateAsync,
-    isChatRoute,
-  ]);
-
-  useEffect(() => {
-    if (!chatFirstMode || !isChatRoute || !activeChatFirstApp) return;
-
-    const handleEmbedSessionExpired = (event: MessageEvent) => {
-      if (
-        !isEmbedSessionExpiredMessage(event, chatFirstAppFrameRef.current, null)
-      )
-        return;
-      setChatFirstEmbedAttempt((attempt) => attempt + 1);
-    };
-
-    window.addEventListener("message", handleEmbedSessionExpired);
-    return () =>
-      window.removeEventListener("message", handleEmbedSessionExpired);
-  }, [activeChatFirstApp, chatFirstMode, isChatRoute]);
-
   const persistChatFirstPane = useCallback(
     (pane: DispatchChatFirstPane | null) => {
       setChatFirstPane(pane);
@@ -1962,8 +1842,6 @@ export function Layout({
     }
     previousChatFirstSurfaceScopeRef.current = chatFirstSurfaceScope;
     persistChatFirstPane(null);
-    setChatFirstEmbedUrl(null);
-    setChatFirstEmbedError(null);
     setChatFirstNotice(null);
     pendingChatFirstOpenAppRef.current = null;
     chatFirstPaneHydratedRef.current = true;
@@ -2151,47 +2029,45 @@ export function Layout({
   const renderChatFirstSurfaceTab = useCallback(
     (tab: ChatFirstSurfaceTab) => {
       if (tab.kind === "app") {
-        if (tab.id !== chatFirstSurfaceTabs.activeTabId) return null;
         const registration = tab.appId
           ? (chatFirstAppRegistrations.find(
               (candidate) => candidate.id === tab.appId,
             ) ?? null)
           : null;
-        const app = registration
-          ? {
+        if (!registration) {
+          return (
+            <ChatFirstAppPane
+              app={null}
+              status={chatFirstAppsQuery.isLoading ? "loading" : "unresolved"}
+              renderEmbed={() => null}
+              copy={chatFirstCopy}
+            />
+          );
+        }
+        const embedPath = tab.path ?? registration.path ?? "/";
+        if (!embedPath.startsWith("/")) {
+          return (
+            <ChatFirstAppPane
+              app={{
+                id: registration.id,
+                name: registration.name ?? registration.id,
+              }}
+              status="error"
+              errorMessage={chatFirstCopy("appUnavailable")}
+              renderEmbed={() => null}
+              copy={chatFirstCopy}
+            />
+          );
+        }
+        return (
+          <WorkspaceAppFrame
+            app={{
               id: registration.id,
               name: registration.name ?? registration.id,
-            }
-          : null;
-        return (
-          <ChatFirstAppPane
-            app={app}
-            status={
-              chatFirstEmbedUrl
-                ? "ready"
-                : chatFirstEmbedError
-                  ? "error"
-                  : chatFirstAppsQuery.isLoading
-                    ? "loading"
-                    : app
-                      ? "loading"
-                      : "unresolved"
-            }
-            embedUrl={chatFirstEmbedUrl}
-            errorMessage={chatFirstEmbedError}
-            onRetry={() => setChatFirstEmbedAttempt((value) => value + 1)}
-            renderEmbed={({ url, title }: ChatFirstEmbedTarget) => (
-              <iframe
-                key={`${url}:${chatFirstEmbedAttempt}`}
-                data-dispatch-chat-first-app-frame
-                src={url}
-                title={title ?? chatFirstCopy("appUnavailable")}
-                ref={chatFirstAppFrameRef}
-                referrerPolicy="no-referrer"
-                allow="clipboard-read; clipboard-write"
-                className="h-full w-full border-0 bg-background"
-              />
-            )}
+              path: registration.path,
+              url: registration.url,
+            }}
+            embedPath={embedPath}
             copy={chatFirstCopy}
           />
         );
@@ -2263,8 +2139,6 @@ export function Layout({
       chatFirstAgentsQuery.isLoading,
       chatFirstAppsQuery.isLoading,
       chatFirstCopy,
-      chatFirstEmbedError,
-      chatFirstEmbedUrl,
       chatFirstSessionWatch.target,
       chatFirstSurfaceTabs.activeTabId,
       chatFirstAppRegistrations,
@@ -2449,7 +2323,7 @@ export function Layout({
         </>
       )}
     </div>
-  ) : isWorkspaceAppRoute ? (
+  ) : workspaceAppRouteActive ? null : isWorkspaceAppRoute ? (
     appContent
   ) : (
     <AgentSidebar
@@ -2553,7 +2427,12 @@ export function Layout({
             </SheetContent>
           </Sheet>
 
-          {content}
+          <div className="relative min-w-0 flex-1 overflow-hidden">
+            {content}
+            <WorkspaceAppKeepAlive
+              activeAppId={workspaceAppRouteActive ? workspaceAppId : null}
+            />
+          </div>
         </div>
       </HeaderActionsProvider>
     </DispatchExtensionsContext.Provider>

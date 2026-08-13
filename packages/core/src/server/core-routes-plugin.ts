@@ -1016,7 +1016,7 @@ export async function resolveBuilderOwnerContextForRequest(
   } = {},
   mode?: "connect" | "callback",
 ): Promise<BuilderOwnerContext> {
-  const searchParams = getRequestURL(event).searchParams;
+  const searchParams = getFrameworkRouteRequestUrl(event).searchParams;
   const signedOwner =
     mode === "connect"
       ? verifyBuilderConnectTokenAndGetOwner(

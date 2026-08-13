@@ -5504,7 +5504,7 @@ const AssistantChatInner = forwardRef<
           false,
           false,
           false,
-          false,
+          true, // hideUserMessage: this is a protocol continuation, not a new prompt
           undefined,
           [approvalKey],
         );

@@ -1696,6 +1696,80 @@ describe("mountActionRoutes", () => {
     expect(received.requestOrgId).toBe("org-owner-derived");
   });
 
+  it("falls back to the stored active org for a cookie session that resolved none", async () => {
+    // A session minted before org selection — or one whose membership read
+    // failed — yields no org, and an undefined org narrows every scoped read
+    // to rows with a null org_id, hiding the user's own org-scoped data.
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const { getRequestOrgId } = await import("./request-context.js");
+    mockResolveOrgIdForEmail.mockResolvedValue("org-stored-active");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    let received: any;
+    const actions: Record<string, ActionEntry> = {
+      "do-thing": {
+        run: vi.fn(async (_params, ctx) => {
+          received = { ctx, requestOrgId: getRequestOrgId() };
+          return { ok: true };
+        }),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions, {
+      getOwnerFromEvent: async () => "steve@example.com",
+      resolveOrgId: async () => null,
+    });
+
+    await mounted[0].handler({
+      _method: "POST",
+      _headers: { "x-agent-native-frontend": "1" },
+      req: { json: async () => ({}) },
+    });
+
+    expect(mockResolveOrgIdForEmail).toHaveBeenCalledWith("steve@example.com");
+    expect(received.ctx.orgId).toBe("org-stored-active");
+    expect(received.requestOrgId).toBe("org-stored-active");
+  });
+
+  it("keeps an explicit Personal selection personal", async () => {
+    // resolveOrgIdForEmail returns null for an explicit Personal choice, so
+    // the fallback must not promote the user into their oldest membership.
+    const { mountActionRoutes } = await import("./action-routes.js");
+    mockResolveOrgIdForEmail.mockResolvedValue(null);
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    let received: any;
+    const actions: Record<string, ActionEntry> = {
+      "do-thing": {
+        run: vi.fn(async (_params, ctx) => {
+          received = ctx;
+          return { ok: true };
+        }),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions, {
+      getOwnerFromEvent: async () => "steve@example.com",
+      resolveOrgId: async () => null,
+    });
+
+    await mounted[0].handler({
+      _method: "POST",
+      _headers: { "x-agent-native-frontend": "1" },
+      req: { json: async () => ({}) },
+    });
+
+    expect(received.orgId).toBeNull();
+  });
+
   it("never lets the ambient session org override the adapter caller's org", async () => {
     // A request can carry BOTH a valid A2A bearer and an unrelated same-origin
     // browser cookie. The identity comes from the token, so the org must too:
