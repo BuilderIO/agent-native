@@ -441,6 +441,9 @@ async function configureNaturalKey(
     if (typeof parsed !== "string") {
       throw new Error("Natural key values must be non-empty strings.");
     }
+    if (!parsed.trim()) {
+      throw new Error("Natural key values must be non-empty strings.");
+    }
     if (claims.has(value.valueJson)) {
       throw new Error(
         `Natural key value ${value.valueJson} belongs to more than one row.`,

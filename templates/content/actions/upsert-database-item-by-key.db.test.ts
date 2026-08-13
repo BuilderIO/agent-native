@@ -688,6 +688,48 @@ describe("reliable Content database row mutations", () => {
     ).rejects.toMatchObject({ errorCode: "NATURAL_KEY_IMMUTABLE" });
   });
 
+  it("rejects natural-key configuration when an existing value is only whitespace", async () => {
+    const ids = await fixture();
+    const keyPropertyId = await addProperty({
+      ...ids,
+      name: "Candidate key",
+      type: "text",
+    });
+    const discovered = await contract(ids.databaseId);
+    await asOwner(() =>
+      createRow.run({
+        ...envelope(discovered, "whitespace-key"),
+        propertyValues: { [keyPropertyId]: "   " },
+      }),
+    );
+
+    await expect(
+      asOwner(() =>
+        configureProperty.run({
+          id: keyPropertyId,
+          documentId: ids.databaseDocumentId,
+          databaseId: ids.databaseId,
+          name: "Candidate key",
+          type: "text",
+          naturalKey: true,
+        }),
+      ),
+    ).rejects.toThrow("Natural key values must be non-empty strings");
+
+    const [database] = await getDb()
+      .select()
+      .from(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.id, ids.databaseId));
+    expect(database.naturalKeyPropertyId).toBeNull();
+    const claims = await getDb()
+      .select()
+      .from(schema.contentDatabaseItemKeyClaims)
+      .where(
+        eq(schema.contentDatabaseItemKeyClaims.databaseId, ids.databaseId),
+      );
+    expect(claims).toHaveLength(0);
+  });
+
   it("rejects stale schema, target mismatch, duplicate natural-key configuration, and unauthorized writes without side effects", async () => {
     const ids = await fixture();
     const keyId = await addProperty({
