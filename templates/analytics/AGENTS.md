@@ -43,33 +43,23 @@ Read the relevant skill before deeper work:
 
 ## Core Rules
 
-- A sibling app asking over A2A sends a question or shaped input, never SQL.
-  Raw-query actions (`sql`, `code`, `script`, `expression`) are not
-  sibling-invocable because this app owns schema, source selection, and tools.
-  Prefer natural-language delegation; shaped reads are stable contracts, not
-  delegation workarounds.
+- A sibling app sends natural-language or shaped input over A2A, never SQL; this
+  app owns schema, source selection, and tools. Prefer natural-language
+  delegation; shaped reads are stable contracts.
 - Analytics owns first-party product usage, app/template events, agent-native
   signups, conversions, and other curated product metrics. Answer sibling-app
   delegations with the built-in source and query catalog; sibling agents should
   send a natural-language question, never SQL.
 - For open-ended delegated requests, choose a safe default and label partial.
 - Data integrity first. Never invent numbers, dimensions, filters, or source
-  semantics; only present values you actually retrieved, and state uncertainty.
-- Every analytical answer carries audit context: source(s), time window,
-  filters, row count/sample size, join method, caveats.
+  semantics; present only retrieved values with source, window, filters,
+  row-count/sample-size, join method, and caveats.
 - Use actions for sources, queries, charts, dashboards, and sharing. Don't bypass
   access checks with raw SQL for ownable resources.
 - Provider actions are bounded shortcuts, not limits. For broad or
-  absence-sensitive Gong work, stage raw API data and use
-  `query-staged-dataset` or a Data Program; use `provider-corpus-job` for raw
-  transcript bodies. See `provider-api`, `data-programs`, and `gong`.
-- Custom APIs use `provider-api-register` for public HTTPS provider metadata and
-  `test-custom-api-connection` for bounded GET previews. Store credential values
-  in Settings, pass only key names to provider actions, and hand successful
-  endpoint tests to `save-data-program` for refreshable panels.
-- Hosted Analytics cannot reach localhost or private network APIs. Use a
-  deployed HTTPS endpoint or an explicitly supported secure tunnel; never
-  weaken the provider runtime's SSRF boundary.
+  absence-sensitive Gong work, stage raw API data and use `query-staged-dataset`
+  or a Data Program; see `provider-api`, `data-programs`, and `gong` for secure
+  provider and hosted-endpoint boundaries.
 - Create dashboards, panels, or saved artifacts only when explicitly asked;
   suggest and wait otherwise. Scope them to the question, avoid decorative
   metrics, and never modify existing dashboards without a directive.
@@ -87,8 +77,8 @@ Read the relevant skill before deeper work:
 - External MCP callers default to `ask_app` for interpretation, source choice,
   analysis, or multi-step work. Direct reads require exact, complete input;
   writes stay `ask_app`-only.
-- Dashboard email reports and alert rules are SQL-backed, self-describing action
-  surfaces — don't hand-wire routes around them. Reports cap at five recipients.
+- Dashboard reports and alert rules use their SQL-backed action surfaces; reports
+  cap at five recipients.
 
 ## Application State
 
