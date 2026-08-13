@@ -86,7 +86,7 @@ function pathForView(view?: string): string {
     case "chat":
     case "home":
     case "ask":
-      return "/";
+      return "/chat";
     case "database":
       return "/database";
     case "extensions":
@@ -111,7 +111,7 @@ function pathForCommand(command: any): string {
   if (path !== "/") return path;
   const threadId =
     typeof command?.threadId === "string" ? command.threadId.trim() : "";
-  return threadId ? `/chat/${encodeURIComponent(threadId)}` : "/";
+  return threadId ? `/chat/${encodeURIComponent(threadId)}` : "/chat";
 }
 
 function routerPath(path: string): string {
@@ -125,5 +125,7 @@ function routerPath(path: string): string {
 }
 
 function isChatPath(pathname: string): boolean {
-  return pathname === "/" || pathname.startsWith("/chat/");
+  return (
+    pathname === "/" || pathname === "/chat" || pathname.startsWith("/chat/")
+  );
 }

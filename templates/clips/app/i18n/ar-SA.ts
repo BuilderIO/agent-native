@@ -510,8 +510,13 @@ const messages = {
     },
     roles: {
       viewer: "مشاهد",
+      commenter: "معلّق",
       editor: "محرر",
       admin: "مسؤول",
+    },
+    recordingCommenter: {
+      label: "معلّق",
+      description: "يمكنه العرض والتعليق والتفاعل",
     },
   },
   quickAsk: {
@@ -646,13 +651,13 @@ const messages = {
     collapse: "طي",
     changelogMarkdown: `# سجل التغييرات
 
-يتم توثيق كل التغييرات المرئية لمستخدمي Clips هنا. يمكنك فتحه في أي وقت من قائمة الأوامر (Cmd+K -> "ما الجديد") أو من الإعدادات.
+يتم توثيق كل التغييرات المرئية لمستخدمي Clips هنا. يمكنك فتحه في أي وقت من قائمة الأوامر (Cmd K -> "ما الجديد") أو من الإعدادات.
 
 ## 2026-06-23
 
 ### تمت الإضافة
 
-- يمكنك الآن رؤية الجديد مباشرة داخل Clips. أصبح سجل التغييرات متاحًا في قائمة الأوامر (Cmd+K) وفي الإعدادات.`,
+- يمكنك الآن رؤية الجديد مباشرة داخل Clips. أصبح سجل التغييرات متاحًا في قائمة الأوامر (Cmd K) وفي الإعدادات.`,
     playback: "التشغيل",
     defaultPlaybackSpeed: "سرعة التشغيل الافتراضية",
     playbackDescription: "تُطبق تلقائيًا عند فتح تسجيل.",
@@ -1201,7 +1206,7 @@ const messages = {
     seekTo: "Seek to {{time}} (مترجم)",
   },
   editorToolbar: {
-    undoTooltip: "Undo (Cmd/Ctrl+Z) (مترجم)",
+    undoTooltip: "Undo (Cmd/Ctrl Z) (مترجم)",
     playPauseTooltip: "Play / Pause (Space) (مترجم)",
     sourceDuration: "({{duration}} src) (مترجم)",
     previewSpeed: "Preview speed (مترجم)",
@@ -1550,10 +1555,6 @@ const messages = {
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (مترجم)",
     connectGoogleCalendar: "Connect Google Calendar (مترجم)",
-    googleMayShowWarning: "مراجعة صلاحيات Google",
-    googleNotVerifiedTitle: "تحقق من التطبيق قبل الاتصال",
-    googleWarningBeforeAdvanced:
-      "تأكد من أن اسم التطبيق وصلاحيات Calendar المطلوبة تتطابق مع بيئة Clips التي تثق بها. إذا عرض Google تحذيرًا بأن التطبيق غير موثّق أو بدت الهوية غير مألوفة، فتوقف وتواصل مع مسؤول مساحة العمل.",
     desktopReminder:
       "Connect Google Calendar, keep Clips Desktop open, then click Start notes from the reminder or the menu bar when your meeting begins. (مترجم)",
     getDesktopApp: "Get desktop app (مترجم)",

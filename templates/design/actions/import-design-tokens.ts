@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import type { BrandKitTokenType } from "@agent-native/core/brand-kit";
 import { buildDeepLink } from "@agent-native/core/server";
 import {
   CODE_MAX_FILES,
@@ -28,13 +29,10 @@ import {
   resolveTweaksToCssVars,
 } from "../shared/resolve-tweaks.js";
 
-type ImportedTokenType =
-  | "color"
-  | "typography"
-  | "spacing"
-  | "radius"
-  | "shadow"
-  | "other";
+// Aliased, not re-declared: this was a hand-copy of BrandKitTokenType that
+// drifted, so tokens classified here could name a category the stored kit had
+// no word for.
+type ImportedTokenType = BrandKitTokenType;
 
 interface ImportedDesignToken {
   name: string;
@@ -116,6 +114,23 @@ function designDeepLink(designId: string): string {
   });
 }
 
+/** `120ms`, `0.2s`, `cubic-bezier(...)`, `ease-in-out`, `steps(4, end)`. */
+function isMotionValue(value: string): boolean {
+  const v = value.trim().toLowerCase();
+  return (
+    /^-?\d*\.?\d+m?s$/.test(v) ||
+    /^(cubic-bezier|steps|linear)\s*\(/.test(v) ||
+    /^(linear|ease|ease-in|ease-out|ease-in-out|step-start|step-end)$/.test(v)
+  );
+}
+
+/** An offset/blur triple in px/rem/em with any color notation, or `none`. */
+function isShadowValue(value: string): boolean {
+  const v = value.trim().toLowerCase();
+  if (v === "none") return true;
+  return /\d/.test(v) && /(px|rem|em)\b/.test(v);
+}
+
 function classifyVar(name: string, value: string): ImportedTokenType {
   const n = name.toLowerCase();
   if (isColorValue(value)) return "color";
@@ -124,7 +139,10 @@ function classifyVar(name: string, value: string): ImportedTokenType {
     return "typography";
   }
   if (/spacing|gap|padding|margin|space/i.test(n)) return "spacing";
-  if (/shadow|blur|drop/i.test(n)) return "shadow";
+  if (/shadow|blur|drop|elevation/i.test(n)) return "shadow";
+  if (/duration|easing|ease|transition|animation|motion|delay/i.test(n)) {
+    return "motion";
+  }
   if (
     /color|bg|background|text|border|accent|primary|secondary|surface|muted|foreground|fill|stroke/i.test(
       n,
@@ -272,6 +290,17 @@ function parseNamedLines(
         cssVar = tokenVar("spacing", label);
       } else if (/font|typeface|typography/.test(lower)) {
         cssVar = tokenVar("font", label);
+      } else if (/shadow|elevation/.test(lower) && isShadowValue(value)) {
+        cssVar = tokenVar("shadow", label);
+      } else if (
+        /duration|easing|ease|transition|animation|motion|delay/.test(lower) &&
+        isMotionValue(value)
+      ) {
+        // Motion is part of the brand. Dropping these here is why an imported
+        // system arrives with colors and type but nothing that moves. The
+        // value guard keeps prose out: this runs over free-text design.md
+        // lines, where "Release notes: v2" matches the label pattern.
+        cssVar = tokenVar("motion", label);
       }
 
       if (!cssVar) continue;

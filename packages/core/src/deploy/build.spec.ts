@@ -896,6 +896,7 @@ export default (event) =>
     );
     expect(html).toContain('import("/assets/entry.client-abc.js")');
     expect(html).toContain('href="/assets/root.css"');
+    expect(html).not.toContain('rel="manifest"');
     expect(html).toContain("streamController.enqueue");
     expect(html).not.toContain("dev server");
     expect(html).not.toContain("browser console");
@@ -2168,6 +2169,10 @@ describe("durable-background Netlify function emit (single-template, default-on)
     expect(entry).toContain("__agentNativeProcessorRoute");
     expect(entry).toContain("A2A_SECRET is required");
     expect(entry).toContain("return new URL(request.url).origin");
+    // The entry imports node:crypto, so the deploy packager rejects it unless
+    // includedFiles is declared.
+    expect(entry).toContain('import { createHmac } from "node:crypto"');
+    expect(entry).toContain('includedFiles: ["**"]');
   });
 
   describe("keep-warm opt-in and cadence", () => {

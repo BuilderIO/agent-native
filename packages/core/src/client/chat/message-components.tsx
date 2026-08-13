@@ -1,11 +1,12 @@
 // Owns: message-timestamp helpers, SelectionAttachedPill, UserMessage,
 // AssistantMessage, MessageBranchPicker, CheckpointContext, MessageActionsContext,
-// RunningActivityStatus, ThinkingIndicator, and displayableUserMessageText.
+// UserStoppedRunContext, RunningActivityStatus, ThinkingIndicator, and
+// displayableUserMessageText.
 
 import { isPastedTextAttachmentName } from "@agent-native/toolkit/composer/pasted-text";
 import { PastedTextChip } from "@agent-native/toolkit/composer/PastedTextChip";
 import {
-  useThread,
+  useThreadRuntime,
   useMessageRuntime,
   useComposer,
   MessagePrimitive,
@@ -49,6 +50,12 @@ import { getActiveRun } from "../active-run-state.js";
 import { agentNativePath } from "../api-path.js";
 import { writeClipboardText } from "../clipboard.js";
 import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogTitle,
+} from "../components/ui/dialog.js";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -66,8 +73,8 @@ import { ThumbsFeedback } from "../observability/ThumbsFeedback.js";
 import { McpConnectionSuggestion } from "../resources/McpConnectionSuggestion.js";
 import type { ContentPart } from "../sse-event-processor.js";
 import {
-  humanizeToolName,
   isCallAgentToolCallShadowed,
+  isToolCallActive,
   shadowedCallAgentToolCallIds,
 } from "../tool-display.js";
 import { cn } from "../utils.js";
@@ -90,9 +97,10 @@ import {
   FilesChangedSummary,
   ASSISTANT_VISIBLE_TOOL_CALL_LIMIT,
   ChatRunningContext,
+  ChatRunningRunIdContext,
+  ChatRunningTurnIdContext,
   ChatRunDurationContext,
   formatWorkedDuration,
-  RanToolsSummary,
   ReasoningCell,
   WorkedForSummary,
   toolCallHasPendingApproval,
@@ -353,6 +361,38 @@ export function assistantMessageRunId(message: unknown): string | undefined {
       : undefined;
 }
 
+/** Stable logical-turn identity shared by chained continuation run IDs. */
+export function assistantMessageTurnId(message: unknown): string | undefined {
+  const metadata = (message as { metadata?: unknown })?.metadata as
+    | { custom?: { turnId?: unknown }; turnId?: unknown }
+    | undefined;
+  return typeof metadata?.custom?.turnId === "string"
+    ? metadata.custom.turnId
+    : typeof metadata?.turnId === "string"
+      ? metadata.turnId
+      : undefined;
+}
+
+export function assistantMessageWasUserStopped(message: unknown): boolean {
+  const metadata = (message as { metadata?: unknown })?.metadata as
+    | { custom?: { userStopped?: unknown }; userStopped?: unknown }
+    | undefined;
+  return (
+    metadata?.custom?.userStopped === true || metadata?.userStopped === true
+  );
+}
+
+export function resolveAssistantRequestId(
+  message: unknown,
+  activeRun: { threadId: string; runId: string } | null,
+  threadId: string,
+): string | undefined {
+  return (
+    assistantMessageRunId(message) ||
+    (activeRun?.threadId === threadId ? activeRun.runId : undefined)
+  );
+}
+
 // ─── MessageBranchPicker ──────────────────────────────────────────────────────
 
 export function MessageBranchPicker() {
@@ -524,17 +564,11 @@ function UserMessageAttachments() {
         const imageSrc = uploadUrl || imagePart?.image || null;
         if (imageSrc) {
           return (
-            <div
+            <ChatImageAttachmentPreview
               key={att.id}
-              className="h-16 w-16 overflow-hidden rounded-lg border border-border/70 bg-muted/50"
-              title={att.name}
-            >
-              <img
-                src={imageSrc}
-                alt={att.name}
-                className="h-full w-full object-cover"
-              />
-            </div>
+              src={imageSrc}
+              alt={att.name}
+            />
           );
         }
         return (
@@ -549,6 +583,65 @@ function UserMessageAttachments() {
         );
       })}
     </div>
+  );
+}
+
+export function ChatImageAttachmentPreview({
+  src,
+  alt,
+}: {
+  src: string;
+  alt: string;
+}) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <>
+      <button
+        type="button"
+        aria-label={`Preview ${alt}`}
+        title={alt}
+        onClick={() => setOpen(true)}
+        className="h-16 w-16 cursor-zoom-in overflow-hidden rounded-lg border border-border/70 bg-muted/50 p-0 transition-[border-color,box-shadow] hover:border-foreground/40 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+      >
+        <img src={src} alt={alt} className="h-full w-full object-cover" />
+      </button>
+
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent
+          hideClose
+          aria-describedby={undefined}
+          className="fixed inset-0 left-0 top-0 flex h-screen max-h-none w-screen max-w-none translate-x-0 translate-y-0 items-center justify-center gap-0 overflow-hidden rounded-none border-0 bg-foreground/90 p-0 text-background shadow-none backdrop-blur-sm dark:bg-background/95 dark:text-foreground"
+          onOpenAutoFocus={(event) => event.preventDefault()}
+        >
+          <DialogTitle className="sr-only">
+            {alt || "Image preview"}
+          </DialogTitle>
+          <div
+            className="flex h-full w-full items-center justify-center overflow-auto p-6"
+            onClick={(event) => {
+              if (event.target === event.currentTarget) setOpen(false);
+            }}
+          >
+            <img
+              src={src}
+              alt={alt}
+              draggable={false}
+              className="max-h-[90vh] max-w-[92vw] rounded-lg object-contain shadow-2xl"
+            />
+          </div>
+          <DialogClose asChild>
+            <button
+              type="button"
+              aria-label="Close image preview"
+              className="absolute end-4 top-4 inline-flex size-9 items-center justify-center rounded-full border border-background/25 bg-background/10 text-background transition-colors hover:bg-background/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-foreground/25 dark:bg-foreground/10 dark:text-foreground dark:hover:bg-foreground/20"
+            >
+              <IconX className="size-4" />
+            </button>
+          </DialogClose>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
@@ -589,9 +682,11 @@ function UserMessageEditComposer() {
 export function MessageActionsMenu({
   showRevert,
   onRevert,
+  threadId = "",
 }: {
   showRevert?: boolean;
   onRevert?: () => void;
+  threadId?: string;
 } = {}) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
@@ -620,24 +715,23 @@ export function MessageActionsMenu({
 
   const handleCopyRequestId = useCallback(() => {
     const m = messageRuntime.getState();
-    // If the message carries no run id (e.g. the run is still in flight and
-    // this is the first message), fall back to the active-run state so a hung /
-    // mid-stream chat still surfaces a usable trace ID. Last resort is the
-    // assistant-ui local message id.
-    const runId =
-      assistantMessageRunId(m) ||
-      (typeof window !== "undefined" ? getActiveRun()?.runId : null) ||
-      m.id ||
-      "";
+    const runId = resolveAssistantRequestId(m, getActiveRun(), threadId);
+    if (!runId) {
+      setCopied("id-unavailable");
+      return;
+    }
     void writeClipboardText(runId).then((ok) => {
-      if (!ok) return;
+      if (!ok) {
+        setCopied("id-failed");
+        return;
+      }
       setCopied("id");
       setTimeout(() => {
         setCopied(null);
         setOpen(false);
       }, 1000);
     });
-  }, [messageRuntime]);
+  }, [messageRuntime, threadId]);
 
   const handleForkChat = useCallback(() => {
     setOpen(false);
@@ -697,7 +791,13 @@ export function MessageActionsMenu({
           ) : (
             <IconId className="h-3.5 w-3.5" />
           )}
-          {copied === "id" ? "Copied!" : "Copy Request ID"}
+          {copied === "id"
+            ? "Copied!"
+            : copied === "id-unavailable"
+              ? "Request ID unavailable"
+              : copied === "id-failed"
+                ? "Copy failed"
+                : "Copy Request ID"}
         </DropdownMenuItem>
         {showRevert && (
           <DropdownMenuItem onSelect={handleRevert}>
@@ -954,35 +1054,6 @@ function missingFinalResponseWarningText(content: unknown): string | null {
   return null;
 }
 
-export function completedAssistantToolNamesAfterLastText(
-  content: readonly ContentPart[],
-): string[] {
-  let lastTextIndex = -1;
-  for (let index = content.length - 1; index >= 0; index -= 1) {
-    if (content[index]?.type === "text") {
-      lastTextIndex = index;
-      break;
-    }
-  }
-
-  const names = new Set<string>();
-  for (let index = lastTextIndex + 1; index < content.length; index += 1) {
-    const part = content[index];
-    if (
-      part?.type !== "tool-call" ||
-      part.activity === true ||
-      part.result === undefined ||
-      part.isError === true ||
-      part.outcome === "unknown" ||
-      isCallAgentToolCallShadowed(content, index)
-    ) {
-      continue;
-    }
-    names.add(humanizeToolName(part.toolName));
-  }
-  return [...names];
-}
-
 export function latestUserMessageText(messages: readonly unknown[]): string {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
@@ -1020,6 +1091,14 @@ export function assistantMessageHasUnresolvedTool(content: unknown): boolean {
     if (!part || typeof part !== "object") return false;
     const record = part as { type?: unknown; result?: unknown };
     return record.type === "tool-call" && record.result === undefined;
+  });
+}
+
+export function assistantMessageHasActiveTool(content: unknown): boolean {
+  if (!Array.isArray(content)) return false;
+  return content.some((part): boolean => {
+    if (!part || typeof part !== "object") return false;
+    return isToolCallActive(part as ContentPart);
   });
 }
 
@@ -1116,19 +1195,43 @@ export function computeActiveTailToolCallId(
 export function shouldShowAssistantMessageFooter({
   isLast,
   chatRunning,
+  activeRunId,
+  messageRunId,
+  activeTurnId,
+  messageTurnId,
   hasRenderableContent,
   statusIsTerminal,
   hasUnresolvedTool,
+  hasActiveTool,
 }: {
   isLast: boolean;
   chatRunning: boolean;
+  activeRunId?: string | null;
+  messageRunId?: string;
+  activeTurnId?: string | null;
+  messageTurnId?: string;
   hasRenderableContent: boolean;
   statusIsTerminal: boolean;
   hasUnresolvedTool?: boolean;
+  hasActiveTool?: boolean;
 }): boolean {
   if (!hasRenderableContent) return false;
+  const ownsActiveTurn =
+    activeTurnId != null &&
+    (messageTurnId == null || activeTurnId === messageTurnId);
+  // Keep the run-id comparison only for legacy messages that predate the
+  // turn-id metadata. Once either side has a logical-turn identity, absent
+  // turn evidence must not be treated as proof of a different run.
+  const ownsLegacyRun =
+    activeTurnId == null &&
+    messageTurnId == null &&
+    activeRunId != null &&
+    messageRunId != null &&
+    activeRunId === messageRunId;
+  const ownsActiveRun = isLast || ownsActiveTurn || ownsLegacyRun;
+  if (chatRunning && ownsActiveRun) return false;
+  if (hasActiveTool) return false;
   if (!isLast) return true;
-  if (chatRunning) return false;
   if (hasUnresolvedTool) return false;
   return statusIsTerminal;
 }
@@ -1140,6 +1243,9 @@ export function shouldShowAssistantMessageFooter({
  * that the agent stopped.
  */
 export const ServerRunActiveContext = React.createContext(false);
+export const UserStoppedRunContext = React.createContext<
+  (runId?: string) => boolean
+>(() => false);
 
 export function shouldShowMissingFinalResponse({
   isCurrentTurnRunning,
@@ -1148,6 +1254,8 @@ export function shouldShowMissingFinalResponse({
   hasAssistantText,
   hasUnresolvedTool,
   hasCompletedCustomUi,
+  hasActiveTool,
+  userStoppedRun,
 }: {
   isCurrentTurnRunning: boolean;
   serverRunActive?: boolean;
@@ -1155,7 +1263,10 @@ export function shouldShowMissingFinalResponse({
   hasAssistantText: boolean;
   hasUnresolvedTool: boolean;
   hasCompletedCustomUi?: boolean;
+  hasActiveTool?: boolean;
+  userStoppedRun?: boolean;
 }): boolean {
+  if (userStoppedRun) return false;
   if (serverRunActive) return false;
   // A completed tool can make the latest message look terminal before the
   // active turn attaches its follow-up text.
@@ -1164,6 +1275,7 @@ export function shouldShowMissingFinalResponse({
     statusIsTerminal &&
     !hasAssistantText &&
     !hasUnresolvedTool &&
+    !hasActiveTool &&
     !hasCompletedCustomUi
   );
 }
@@ -1194,15 +1306,18 @@ export function shouldShowAssistantWorkSummary({
   isComplete,
   hasCollapsibleWork,
   hasUnresolvedTool,
+  hasActiveTool,
   chatRunning,
 }: {
   isLast: boolean;
   isComplete: boolean;
   hasCollapsibleWork: boolean;
   hasUnresolvedTool: boolean;
+  hasActiveTool?: boolean;
   chatRunning: boolean;
 }): boolean {
   if (!hasCollapsibleWork) return false;
+  if (hasActiveTool) return false;
 
   // An unresolved tool means "still working" only while the turn is actually
   // running. On a stalled or interrupted turn it used to hide the summary
@@ -1265,7 +1380,10 @@ function ReasoningMessagePart() {
   );
 }
 
-const ALWAYS_VISIBLE_ASSISTANT_TOOLS = new Set(["connect-builder"]);
+const ALWAYS_VISIBLE_ASSISTANT_TOOLS = new Set([
+  "connect-builder",
+  "connect-file-storage",
+]);
 
 export function isAlwaysVisibleAssistantTool(part: {
   type?: unknown;
@@ -1334,7 +1452,7 @@ export function getAssistantToolSummaryInfo(
   };
 }
 
-function groupAssistantWorkParts(
+export function groupAssistantWorkParts(
   part: {
     type?: string;
     toolCallId?: string;
@@ -1354,59 +1472,17 @@ function groupAssistantWorkParts(
     mcpApp?: unknown;
     approval?: { approvalKey?: string; dismissed?: boolean };
   }[],
-): ["group-work"] | ["group-work", "group-ran-tools"] | null {
-  if (isCallAgentToolCallShadowed(parts, index)) return null;
-  if (isCollapsibleAssistantWorkPart(part)) {
-    const { startIndex } = getAssistantToolSummaryInfo(parts);
-    if (isAssistantToolSummaryPart(parts, index, startIndex)) {
-      return ["group-work", "group-ran-tools"];
-    }
-    return ["group-work"];
+): ["group-work"] | null {
+  if (isCallAgentToolCallShadowed(parts, index)) {
+    const previousPart = parts[index - 1];
+    const previousPartIsInWorkGroup =
+      previousPart != null &&
+      (isCollapsibleAssistantWorkPart(previousPart) ||
+        isCallAgentToolCallShadowed(parts, index - 1));
+    return previousPartIsInWorkGroup ? ["group-work"] : null;
   }
+  if (isCollapsibleAssistantWorkPart(part)) return ["group-work"];
   return null;
-}
-
-function isAssistantToolSummaryPart(
-  parts: readonly {
-    type?: string;
-    toolCallId?: string;
-    toolName?: string;
-    args?: Record<string, unknown>;
-    chatUI?: unknown;
-    mcpApp?: unknown;
-  }[],
-  index: number,
-  startIndex: number,
-): boolean {
-  if (startIndex < 0 || index >= startIndex) return false;
-  if (
-    isCallAgentToolCallShadowed(parts, index) ||
-    !isCollapsibleAssistantWorkPart(parts[index]!)
-  ) {
-    return false;
-  }
-
-  let segmentStart = index;
-  while (
-    segmentStart > 0 &&
-    !isCallAgentToolCallShadowed(parts, segmentStart - 1) &&
-    isCollapsibleAssistantWorkPart(parts[segmentStart - 1]!)
-  ) {
-    segmentStart--;
-  }
-
-  let segmentEnd = index + 1;
-  while (
-    segmentEnd < startIndex &&
-    !isCallAgentToolCallShadowed(parts, segmentEnd) &&
-    isCollapsibleAssistantWorkPart(parts[segmentEnd]!)
-  ) {
-    segmentEnd++;
-  }
-
-  return parts
-    .slice(segmentStart, segmentEnd)
-    .some((candidate) => candidate.type === "tool-call");
 }
 
 export function shouldShowInlineRunError({
@@ -1481,31 +1557,6 @@ export function InlineRunErrorNotice({
   );
 }
 
-function AssistantCompletionProgress({
-  messageId,
-  toolNames,
-}: {
-  messageId: string;
-  toolNames: readonly string[];
-}) {
-  if (toolNames.length === 0) return null;
-  return (
-    <div
-      className="my-1 w-full text-[13px] text-muted-foreground"
-      role="status"
-      aria-live="polite"
-      data-testid="assistant-completion-progress"
-    >
-      <SmoothMarkdownText
-        text={`The agent completed these actions: ${toolNames.join(", ")}`}
-        streaming
-        resetKey={`assistant-completion-progress:${messageId}`}
-        statusType="running"
-      />
-    </div>
-  );
-}
-
 function MissingFinalResponseNotice({
   messageId,
   text,
@@ -1541,18 +1592,24 @@ export function AssistantMessage() {
   >("idle");
   const [restoreError, setRestoreError] = useState<string | null>(null);
   const messageRuntime = useMessageRuntime();
-  const thread = useThread();
+  const threadRuntime = useThreadRuntime();
   const chatRunning = React.useContext(ChatRunningContext);
+  const activeRunId = React.useContext(ChatRunningRunIdContext);
+  const activeTurnId = React.useContext(ChatRunningTurnIdContext);
   const lastRunDurationMs = React.useContext(ChatRunDurationContext);
   const msg = messageRuntime.getState();
   const persistedDurationMs = getAssistantRunDurationMs(msg);
   const timestamp = formatMessageTimestamp(msg.createdAt);
-  const isLast =
-    thread.messages.length > 0 &&
-    thread.messages[thread.messages.length - 1].id === msg.id;
+  const isLast = msg.isLast;
   const wasLiveRef = useRef(false);
+  const messageRunId = assistantMessageRunId(msg);
+  const messageTurnId = assistantMessageTurnId(msg);
+  const userStoppedRun = React.useContext(UserStoppedRunContext);
+  const isUserStoppedRun =
+    assistantMessageWasUserStopped(msg) || userStoppedRun(messageRunId);
   const hasRenderableContent = assistantMessageHasRenderableContent(msg);
   const hasUnresolvedTool = assistantMessageHasUnresolvedTool(msg.content);
+  const hasActiveTool = assistantMessageHasActiveTool(msg.content);
   const missingWarningText = missingFinalResponseWarningText(msg.content);
   const responseConnectionText = finalResponseTextFromContent(msg.content);
   const statusIsTerminal = assistantMessageStatusIsTerminal(msg);
@@ -1563,10 +1620,12 @@ export function AssistantMessage() {
   const serverRunActive = React.useContext(ServerRunActiveContext);
   const messageRunError = getRunErrorMetadata(msg);
   const messageActions = React.useContext(MessageActionsContext);
-  const showInlineRunError = shouldShowInlineRunError({
-    runError: messageRunError,
-    bannerRunErrorKey: messageActions?.bannerRunErrorKey,
-  });
+  const showInlineRunError =
+    !isUserStoppedRun &&
+    shouldShowInlineRunError({
+      runError: messageRunError,
+      bannerRunErrorKey: messageActions?.bannerRunErrorKey,
+    });
   const missingFinalResponseCandidate =
     missingWarningText == null &&
     shouldShowMissingFinalResponse({
@@ -1575,17 +1634,24 @@ export function AssistantMessage() {
       statusIsTerminal,
       hasAssistantText: responseConnectionText.trim().length > 0,
       hasUnresolvedTool,
+      hasActiveTool,
       hasCompletedCustomUi,
+      userStoppedRun: isUserStoppedRun,
     });
   const showMissingFinalResponse = useSettledFlag(
     missingFinalResponseCandidate,
     isLast ? MISSING_FINAL_RESPONSE_SETTLE_MS : 0,
   );
-  const missingFinalResponseNoticeText =
-    missingWarningText ??
-    (showMissingFinalResponse
-      ? "The agent stopped without sending a final message. Ask the agent to continue or retry."
-      : null);
+  const shouldShowUserStoppedNotice =
+    isUserStoppedRun && isLast && responseConnectionText.trim().length === 0;
+  const missingFinalResponseNoticeText = shouldShowUserStoppedNotice
+    ? "Stopped"
+    : isUserStoppedRun
+      ? null
+      : (missingWarningText ??
+        (showMissingFinalResponse
+          ? "The agent stopped without sending a final message. Ask the agent to continue or retry."
+          : null));
   const animateMissingFinalResponse = Boolean(
     isLast && missingFinalResponseNoticeText && wasLiveRef.current,
   );
@@ -1610,26 +1676,39 @@ export function AssistantMessage() {
     if (missingFinalResponseAnimationKey == null) return;
     setRevealedMissingFinalResponseKey(missingFinalResponseAnimationKey);
   }, [missingFinalResponseAnimationKey]);
-  const completedToolNames =
-    isLast && chatRunning && !hasCompletedCustomUi && Array.isArray(msg.content)
-      ? completedAssistantToolNamesAfterLastText(msg.content)
-      : [];
   const shouldHoldCompletionFooter =
     isLast &&
     ((missingFinalResponseCandidate && !showMissingFinalResponse) ||
       (animateMissingFinalResponse && !missingFinalResponseRevealed));
-  const responseConnectionContext = userMessageTextBeforeAssistant(
-    thread.messages,
-    msg.id,
-  );
+  const responseConnectionContext = React.useMemo(() => {
+    let parentId = msg.parentId;
+    while (parentId) {
+      const parentMessage = threadRuntime.getMessageById(parentId).getState();
+      if (
+        parentMessage.role === "user" &&
+        !isHiddenUserMessage(parentMessage)
+      ) {
+        return displayableUserMessageText(
+          messageTextFromContent(parentMessage.content),
+        );
+      }
+      parentId = parentMessage.parentId;
+    }
+    return "";
+  }, [msg.parentId, threadRuntime]);
   const isComplete =
     !shouldHoldCompletionFooter &&
     shouldShowAssistantMessageFooter({
       isLast,
       chatRunning,
+      activeRunId,
+      messageRunId,
+      activeTurnId,
+      messageTurnId,
       hasRenderableContent,
       statusIsTerminal,
       hasUnresolvedTool,
+      hasActiveTool,
     });
   const cpCtx = React.useContext(CheckpointContext);
 
@@ -1674,8 +1753,6 @@ export function AssistantMessage() {
     }
     wasRunningRef.current = chatRunning && isLast;
   }, [chatRunning, isComplete, isLast]);
-
-  const messageRunId = assistantMessageRunId(msg);
 
   const handleRestore = useCallback(async () => {
     if (restoreState === "idle" || restoreState === "error") {
@@ -1773,6 +1850,13 @@ export function AssistantMessage() {
       style={{ contentVisibility: isComplete ? "auto" : "visible" }}
     >
       <div className="w-full max-w-[95%] text-sm leading-relaxed text-foreground">
+        {isComplete && (
+          <McpConnectionSuggestion
+            text={responseConnectionText}
+            contextText={responseConnectionContext}
+            variant="response"
+          />
+        )}
         <ToolCallStackMotion>
           <MessagePrimitive.GroupedParts groupBy={groupAssistantWorkParts}>
             {({ part, children }) => {
@@ -1783,6 +1867,7 @@ export function AssistantMessage() {
                     isComplete,
                     hasCollapsibleWork,
                     hasUnresolvedTool,
+                    hasActiveTool,
                     chatRunning,
                   });
                   if (!showSummary) return <>{children}</>;
@@ -1800,17 +1885,19 @@ export function AssistantMessage() {
                     </WorkedForSummary>
                   );
                 }
-                case "group-ran-tools": {
-                  const toolCount = part.indices.filter(
-                    (index) => msgContent?.[index]?.type === "tool-call",
-                  ).length;
-                  return (
-                    <RanToolsSummary toolCount={toolCount}>
-                      {children}
-                    </RanToolsSummary>
-                  );
-                }
                 case "text":
+                  if (
+                    isUserStoppedRun &&
+                    isMissingFinalResponseWarningText(part.text)
+                  ) {
+                    return shouldShowUserStoppedNotice ? (
+                      <MissingFinalResponseNotice
+                        messageId={msg.id}
+                        text="Stopped"
+                        animate={false}
+                      />
+                    ) : null;
+                  }
                   if (
                     missingWarningText != null &&
                     part.text === missingWarningText
@@ -1833,7 +1920,6 @@ export function AssistantMessage() {
                     <ToolActivityPresentation
                       toolName={part.toolName}
                       isRunning={part.status?.type === "running"}
-                      isActiveTail={part.toolCallId === activeTailToolCallId}
                       toolCallId={part.toolCallId}
                     >
                       {part.toolUI}
@@ -1850,12 +1936,6 @@ export function AssistantMessage() {
             }}
           </MessagePrimitive.GroupedParts>
         </ToolCallStackMotion>
-        {completedToolNames.length > 0 && !showInlineRunError && (
-          <AssistantCompletionProgress
-            messageId={msg.id}
-            toolNames={completedToolNames}
-          />
-        )}
         {showInlineRunError && messageRunError && (
           <InlineRunErrorNotice
             info={messageRunError}
@@ -1880,13 +1960,6 @@ export function AssistantMessage() {
         {isComplete && hasCodeAgentTools && msgContent && (
           <FilesChangedSummary parts={msgContent} />
         )}
-        {isComplete && (
-          <McpConnectionSuggestion
-            text={responseConnectionText}
-            contextText={responseConnectionContext}
-            variant="response"
-          />
-        )}
       </div>
       {isComplete && (
         <div className="mt-1 flex items-center justify-between">
@@ -1894,6 +1967,7 @@ export function AssistantMessage() {
             <MessageActionsMenu
               showRevert={showRestore && restoreState === "idle"}
               onRevert={handleRestore}
+              threadId={cpCtx?.threadId ?? ""}
             />
             {/* Regenerate button — only on the last assistant message, auto-disabled while running */}
             {isLast && (
@@ -1959,7 +2033,7 @@ export function AssistantMessage() {
             <ThumbsFeedback
               threadId={cpCtx?.threadId ?? ""}
               runId={messageRunId ?? ""}
-              messageSeq={thread.messages.findIndex((m) => m.id === msg.id)}
+              messageSeq={msg.index}
             />
           )}
         </div>

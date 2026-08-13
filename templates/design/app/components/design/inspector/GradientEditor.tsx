@@ -75,7 +75,10 @@ export interface GradientEditSessionTarget {
 
 // ─── Checkerboard (matches DesignColorPicker) ───────────────────────────────────
 
-const CHECKER_A = "#d4d4d4";
+// guard:allow-raw-color — fixed light checkerboard tile keeps transparency visible.
+const CHECKER_A = "#e5e5e5";
+// guard:allow-raw-color — fixed light checkerboard tile keeps transparency visible.
+const CHECKER_B = "#f5f5f5";
 const CHECKERBOARD_IMAGE = `linear-gradient(45deg, ${CHECKER_A} 25%, transparent 25%), linear-gradient(-45deg, ${CHECKER_A} 25%, transparent 25%), linear-gradient(45deg, transparent 75%, ${CHECKER_A} 75%), linear-gradient(-45deg, transparent 75%, ${CHECKER_A} 75%)`;
 const CHECKER_SIZE = "8px 8px, 8px 8px, 8px 8px, 8px 8px";
 const CHECKER_POS = "0 0, 0 4px, 4px -4px, -4px 0";
@@ -635,6 +638,7 @@ export function GradientEditor({
           style={{
             height: BAR_HEIGHT,
             backgroundImage: CHECKERBOARD_IMAGE,
+            backgroundColor: CHECKER_B,
             backgroundSize: CHECKER_SIZE,
             backgroundPosition: CHECKER_POS,
           }}

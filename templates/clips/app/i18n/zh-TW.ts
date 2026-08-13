@@ -489,8 +489,13 @@ const messages = {
     },
     roles: {
       viewer: "觀眾",
+      commenter: "留言者",
       editor: "編輯",
       admin: "管理員",
+    },
+    recordingCommenter: {
+      label: "留言者",
+      description: "可以檢視、留言和回應",
     },
   },
   quickAsk: {
@@ -618,7 +623,7 @@ const messages = {
     expand: "展開",
     collapse: "收起",
     changelogMarkdown:
-      "# 更新記錄\n\nClips 中所有面向使用者的重要更改都會紀錄在這裡。你可以隨時從指令選單（Cmd+K -> “最新變化”）或設定中開啟。\n\n## 2026-06-23\n\n### 新增\n\n- 現在可以直接在 Clips 中檢視最新變化。更新記錄已加入指令選單（Cmd+K）和設定。",
+      "# 更新記錄\n\nClips 中所有面向使用者的重要更改都會紀錄在這裡。你可以隨時從指令選單（Cmd K -> “最新變化”）或設定中開啟。\n\n## 2026-06-23\n\n### 新增\n\n- 現在可以直接在 Clips 中檢視最新變化。更新記錄已加入指令選單（Cmd K）和設定。",
     playback: "播放",
     defaultPlaybackSpeed: "預設播放速度",
     playbackDescription: "開啟錄製時會自動應用。",
@@ -1139,7 +1144,7 @@ const messages = {
     seekTo: "跳到 {{time}}",
   },
   editorToolbar: {
-    undoTooltip: "復原 (Cmd/Ctrl+Z)",
+    undoTooltip: "復原 (Cmd/Ctrl Z)",
     playPauseTooltip: "播放 / 暫停 (Space)",
     sourceDuration: "（來源 {{duration}}）",
     previewSpeed: "預覽速度",
@@ -1471,10 +1476,6 @@ const messages = {
     calendarNeedsReconnect:
       "需要重新連線 Google Calendar，才能繼續顯示即將到來的會議。",
     connectGoogleCalendar: "連線 Google Calendar",
-    googleMayShowWarning: "檢查 Google 存取權",
-    googleNotVerifiedTitle: "連線前請驗證應用程式",
-    googleWarningBeforeAdvanced:
-      "請確認應用程式名稱和要求的 Calendar 存取權與你信任的 Clips 部署相符。如果 Google 顯示未驗證應用程式警告，或應用程式身分看起來陌生，請停止操作並聯絡工作區管理員。",
     desktopReminder:
       "連線 Google Calendar，保持 Clips Desktop 開啟，會議開始時從提醒或選單列點選 Start notes。",
     getDesktopApp: "取得桌面應用程式",

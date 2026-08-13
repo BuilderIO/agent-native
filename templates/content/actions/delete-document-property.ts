@@ -11,6 +11,10 @@ import {
   parsePropertyOptions,
   type DocumentPropertyType,
 } from "../shared/properties.js";
+import {
+  deleteBlocksFieldIdentity,
+  lockPrimaryBlocksFieldsForDocuments,
+} from "./_blocks-field-identity.js";
 import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import {
@@ -73,14 +77,6 @@ export default defineAction({
         .where(eq(schema.contentDatabases.id, database.id));
       if (!lockedDatabase)
         throw new Error(`Database "${database.id}" not found`);
-      const memberships = await tx
-        .select({ id: schema.contentDatabaseItems.id })
-        .from(schema.contentDatabaseItems)
-        .where(eq(schema.contentDatabaseItems.databaseId, database.id));
-      await lockDatabaseMemberships(
-        tx,
-        memberships.map((membership) => membership.id),
-      );
       const [lockedDefinition] = await tx
         .select()
         .from(schema.documentPropertyDefinitions)
@@ -108,6 +104,25 @@ export default defineAction({
         isPrimaryBlocksField(
           parsePropertyOptions(lockedDefinition.optionsJson),
         );
+      const items = await tx
+        .select({
+          id: schema.contentDatabaseItems.id,
+          documentId: schema.contentDatabaseItems.documentId,
+        })
+        .from(schema.contentDatabaseItems)
+        .where(eq(schema.contentDatabaseItems.databaseId, database.id));
+      const primaryFieldsByDocument = isPrimaryBlocks
+        ? await lockPrimaryBlocksFieldsForDocuments(
+            tx as unknown as ReturnType<typeof getDb>,
+            items.map((item) => item.documentId),
+          )
+        : new Map();
+      if (!isPrimaryBlocks) {
+        await lockDatabaseMemberships(
+          tx,
+          items.map((item) => item.id),
+        );
+      }
 
       await tx
         .delete(schema.documentPropertyValues)
@@ -135,6 +150,10 @@ export default defineAction({
       }
 
       if (isBlocks) {
+        await deleteBlocksFieldIdentity({
+          db: tx as unknown as ReturnType<typeof getDb>,
+          propertyId,
+        });
         await tx
           .delete(schema.documentBlockFieldContents)
           .where(eq(schema.documentBlockFieldContents.propertyId, propertyId));
@@ -148,20 +167,22 @@ export default defineAction({
             })
             .where(eq(schema.contentDatabases.id, database.id));
 
-          const items = await tx
-            .select({ documentId: schema.contentDatabaseItems.documentId })
-            .from(schema.contentDatabaseItems)
-            .where(eq(schema.contentDatabaseItems.databaseId, database.id));
-          if (items.length > 0) {
+          const documentsWithoutSurvivingPrimary = items
+            .filter(
+              (item) =>
+                !(primaryFieldsByDocument.get(item.documentId) ?? []).some(
+                  (field: { propertyId: string }) =>
+                    field.propertyId !== propertyId,
+                ),
+            )
+            .map((item) => item.documentId);
+          if (documentsWithoutSurvivingPrimary.length > 0) {
             const now = new Date().toISOString();
             await tx
               .update(schema.documents)
               .set({ content: "", updatedAt: now })
               .where(
-                inArray(
-                  schema.documents.id,
-                  items.map((item) => item.documentId),
-                ),
+                inArray(schema.documents.id, documentsWithoutSurvivingPrimary),
               );
           }
         }

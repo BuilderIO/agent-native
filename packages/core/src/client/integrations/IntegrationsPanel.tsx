@@ -9,7 +9,6 @@ import {
   IconCopy,
   IconCheck,
   IconChevronLeft,
-  IconChevronRight,
   IconExternalLink,
   IconCircleCheck,
   IconInfoCircle,
@@ -27,10 +26,7 @@ import {
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
 import { useT } from "../i18n.js";
-import {
-  getDefaultMcpIntegrations,
-  type DefaultMcpIntegration,
-} from "../resources/mcp-integration-catalog.js";
+import { getDefaultMcpIntegrations } from "../resources/mcp-integration-catalog.js";
 import { McpIntegrationDialog } from "../resources/McpIntegrationDialog.js";
 import { McpIntegrationLogo } from "../resources/McpIntegrationLogo.js";
 import {
@@ -40,6 +36,7 @@ import {
   useReconnectMcpServer,
   type McpServer,
 } from "../resources/use-mcp-servers.js";
+import { IntegrationGrid } from "./IntegrationGrid.js";
 import {
   useIntegrationStatus,
   type IntegrationStatus,
@@ -664,63 +661,6 @@ export function LegacyIntegrationsPanel() {
   );
 }
 
-function IntegrationGalleryCard({
-  platform,
-  status,
-  onSelect,
-}: {
-  platform: PlatformInfo;
-  status?: IntegrationStatus;
-  onSelect: (platform: PlatformInfo) => void;
-}) {
-  const connected = Boolean(status?.configured || status?.enabled);
-  const active = Boolean(status?.enabled && status?.configured);
-  const stateLabel = platform.isClient
-    ? "Available"
-    : active
-      ? "Connected"
-      : connected
-        ? "Ready to enable"
-        : "Set up";
-
-  return (
-    <button
-      type="button"
-      onClick={() => onSelect(platform)}
-      className="group flex min-h-28 items-start gap-3 rounded-xl border border-border/80 bg-card p-4 text-start transition-colors hover:border-foreground/25 hover:bg-accent/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-    >
-      <span className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-border/70 bg-background text-foreground shadow-sm">
-        <platform.icon size={21} strokeWidth={1.8} />
-      </span>
-      <span className="flex min-w-0 flex-1 flex-col gap-1">
-        <span className="flex items-center gap-2">
-          <span className="truncate text-sm font-semibold text-foreground">
-            {platform.label}
-          </span>
-          <span
-            className={
-              active
-                ? "shrink-0 text-[10px] font-medium text-emerald-600 dark:text-emerald-400"
-                : connected
-                  ? "shrink-0 text-[10px] font-medium text-amber-600 dark:text-amber-400"
-                  : "shrink-0 text-[10px] text-muted-foreground"
-            }
-          >
-            {stateLabel}
-          </span>
-        </span>
-        <span className="line-clamp-2 text-xs leading-5 text-muted-foreground">
-          {platform.description}
-        </span>
-        <span className="mt-1 flex items-center gap-1 text-[11px] font-medium text-foreground/70 transition-colors group-hover:text-foreground">
-          {connected || platform.isClient ? "Manage" : "Connect"}
-          <IconChevronRight className="size-3.5 rtl:-scale-x-100" />
-        </span>
-      </span>
-    </button>
-  );
-}
-
 function compareMcpUrl(value: string): string {
   try {
     const url = new URL(value.trim());
@@ -802,55 +742,17 @@ function McpServerStatus({
   );
 }
 
-function McpCatalogItem({
-  integration,
-  connected,
-  onConnect,
-}: {
-  integration: DefaultMcpIntegration;
-  connected: boolean;
-  onConnect: (integrationId: string) => void;
-}) {
-  return (
-    <div className="flex min-w-0 items-center gap-3 border-b border-border/60 py-4 last:border-b-0">
-      <McpIntegrationLogo
-        name={integration.name}
-        logoUrl={integration.logoUrl}
-        integrationId={integration.id}
-      />
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <span className="truncate text-sm font-medium text-foreground">
-            {integration.name}
-          </span>
-          {connected && (
-            <span className="shrink-0 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
-              Connected
-            </span>
-          )}
-        </div>
-        <p className="mt-0.5 line-clamp-1 text-xs leading-5 text-muted-foreground">
-          {integration.description || integration.useCase}
-        </p>
-      </div>
-      <button
-        type="button"
-        onClick={() => onConnect(integration.id)}
-        className="shrink-0 rounded-md border border-border bg-background px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent"
-      >
-        {connected ? "Manage" : "Connect"}
-      </button>
-    </div>
-  );
-}
-
 function McpIntegrationsSection({ query }: { query: string }) {
+  const t = useT();
   const serversQuery = useMcpServers();
   const createServer = useCreateMcpServer();
   const deleteServer = useDeleteMcpServer();
   const reconnectServer = useReconnectMcpServer();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [initialIntegrationId, setInitialIntegrationId] = useState<
+    string | null
+  >(null);
+  const [connectIntegrationId, setConnectIntegrationId] = useState<
     string | null
   >(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
@@ -888,8 +790,40 @@ function McpIntegrationsSection({ query }: { query: string }) {
 
   const openCatalog = useCallback((integrationId?: string) => {
     setInitialIntegrationId(integrationId ?? null);
+    setConnectIntegrationId(null);
     setDialogOpen(true);
   }, []);
+
+  const openQuickConnect = useCallback((integrationId: string) => {
+    setInitialIntegrationId(null);
+    setConnectIntegrationId(integrationId);
+    setDialogOpen(true);
+  }, []);
+
+  const openConnection = useCallback(
+    (integrationId: string, connected: boolean) => {
+      if (connected) {
+        openCatalog(integrationId);
+        return;
+      }
+
+      const integration = catalog.find((item) => item.id === integrationId);
+      const requiresSetup = Boolean(
+        integration &&
+        !integration.managedOAuth &&
+        (integration.connectionMode === "manual" ||
+          integration.availability === "provider-setup" ||
+          integration.availability === "client-restricted" ||
+          integration.authMode === "headers"),
+      );
+      if (requiresSetup) {
+        openCatalog(integrationId);
+      } else {
+        openQuickConnect(integrationId);
+      }
+    },
+    [catalog, openCatalog, openQuickConnect],
+  );
 
   const removeServer = useCallback(
     async (server: McpServer) => {
@@ -998,8 +932,8 @@ function McpIntegrationsSection({ query }: { query: string }) {
                         </span>
                         <span className="text-[11px] text-muted-foreground">
                           {server.scope === "user"
-                            ? "Personal"
-                            : "Organization"}
+                            ? t("mcpIntegrations.personal")
+                            : t("mcpIntegrations.sharedWithWorkspace")}
                         </span>
                       </div>
                       <McpServerStatus
@@ -1045,16 +979,33 @@ function McpIntegrationsSection({ query }: { query: string }) {
               {filteredCatalog.length} integrations
             </span>
           </div>
-          <div className="grid gap-x-8 overflow-hidden rounded-xl border border-border/70 bg-card px-4 sm:grid-cols-2">
-            {filteredCatalog.map((integration) => (
-              <McpCatalogItem
-                key={integration.id}
-                integration={integration}
-                connected={connectedUrls.has(compareMcpUrl(integration.url))}
-                onConnect={openCatalog}
-              />
-            ))}
-          </div>
+          <IntegrationGrid
+            items={filteredCatalog.map((integration) => {
+              const connected = connectedUrls.has(
+                compareMcpUrl(integration.url),
+              );
+              return {
+                id: integration.id,
+                name: integration.name,
+                description: integration.description || integration.useCase,
+                logo: (
+                  <McpIntegrationLogo
+                    name={integration.name}
+                    logoUrl={integration.logoUrl}
+                    integrationId={integration.id}
+                    className="size-7 rounded-md"
+                    imageClassName="size-full p-1"
+                  />
+                ),
+                status: connected ? t("mcpIntegrations.connected") : undefined,
+                statusClassName: "text-emerald-600 dark:text-emerald-400",
+                actionLabel: connected
+                  ? "Manage"
+                  : t("mcpIntegrations.connect"),
+                onAction: () => openConnection(integration.id, connected),
+              };
+            })}
+          />
         </div>
       )}
 
@@ -1066,8 +1017,15 @@ function McpIntegrationsSection({ query }: { query: string }) {
 
       <McpIntegrationDialog
         open={dialogOpen}
-        onOpenChange={setDialogOpen}
+        onOpenChange={(open) => {
+          setDialogOpen(open);
+          if (!open) {
+            setInitialIntegrationId(null);
+            setConnectIntegrationId(null);
+          }
+        }}
         initialIntegrationId={initialIntegrationId}
+        connectIntegrationId={connectIntegrationId}
         defaultScope="user"
         canCreateOrgMcp={canCreateOrgMcp}
         hasOrg={hasOrg}
@@ -1163,14 +1121,28 @@ export function IntegrationsPanel() {
                 </span>
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
-                {connectedPlatforms.map((platform) => (
-                  <IntegrationGalleryCard
-                    key={platform.id}
-                    platform={platform}
-                    status={statusMap.get(platform.id)}
-                    onSelect={setSelectedPlatform}
-                  />
-                ))}
+                <IntegrationGrid
+                  items={connectedPlatforms.map((platform) => {
+                    const status = statusMap.get(platform.id);
+                    return {
+                      id: platform.id,
+                      name: platform.label,
+                      description: platform.description,
+                      logo: <platform.icon size={18} strokeWidth={1.8} />,
+                      status: platform.isClient
+                        ? "Available"
+                        : status?.enabled && status.configured
+                          ? "Connected"
+                          : "Ready to enable",
+                      statusClassName:
+                        status?.enabled && status.configured
+                          ? "text-emerald-600 dark:text-emerald-400"
+                          : "text-amber-600 dark:text-amber-400",
+                      actionLabel: "Manage",
+                      onAction: () => setSelectedPlatform(platform),
+                    };
+                  })}
+                />
               </div>
             </section>
           )}
@@ -1188,16 +1160,31 @@ export function IntegrationsPanel() {
                   <h2 className="text-sm font-semibold text-foreground">
                     {category}
                   </h2>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    {platforms.map((platform) => (
-                      <IntegrationGalleryCard
-                        key={platform.id}
-                        platform={platform}
-                        status={statusMap.get(platform.id)}
-                        onSelect={setSelectedPlatform}
-                      />
-                    ))}
-                  </div>
+                  <IntegrationGrid
+                    items={platforms.map((platform) => {
+                      const status = statusMap.get(platform.id);
+                      const connected = Boolean(
+                        status?.configured || status?.enabled,
+                      );
+                      return {
+                        id: platform.id,
+                        name: platform.label,
+                        description: platform.description,
+                        logo: <platform.icon size={18} strokeWidth={1.8} />,
+                        status: connected
+                          ? status?.enabled && status.configured
+                            ? "Connected"
+                            : "Ready to enable"
+                          : undefined,
+                        statusClassName:
+                          status?.enabled && status.configured
+                            ? "text-emerald-600 dark:text-emerald-400"
+                            : "text-amber-600 dark:text-amber-400",
+                        actionLabel: connected ? "Manage" : "Connect",
+                        onAction: () => setSelectedPlatform(platform),
+                      };
+                    })}
+                  />
                 </section>
               );
             },

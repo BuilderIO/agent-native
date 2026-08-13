@@ -63,6 +63,13 @@ export interface DefaultMcpIntegration {
   brandAliases?: string[];
   aliases?: string[];
   keywords: string[];
+  /**
+   * Overrides `name` for prose intent matching in `findMcpIntegrationForText`
+   * when the display name is a common English word (e.g. "Box") that would
+   * otherwise false-positive on unrelated text. Leave unset unless the name
+   * itself is the ambiguous term; `brandAliases` still apply.
+   */
+  promptAliases?: string[];
 }
 
 export interface McpIntegrationFormDefaults {
@@ -771,6 +778,16 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
     docsUrl: "https://developer.box.com/guides/box-mcp",
     setupNoteKey: "mcpIntegrations.catalog.box.setupNote",
     keywords: ["files", "folders", "documents", "enterprise content"],
+    // "Box" alone collides with everyday nouns (text box, checkbox, bounding
+    // box), so require a qualified phrase before suggesting the connection.
+    promptAliases: [
+      "Box.com",
+      "Box file",
+      "Box files",
+      "Box folder",
+      "Box folders",
+      "Box drive",
+    ],
   },
   {
     id: "builder-cms",
@@ -1105,9 +1122,10 @@ export function findMcpIntegrationForText(
     isMcpConnectionFailureText(normalizedText);
   if (!hasResourceIntent) return null;
   const matchesCanonicalName = (integration: DefaultMcpIntegration) =>
-    [integration.name, ...(integration.brandAliases ?? [])].some((alias) =>
-      textContainsTerm(normalizedText, alias),
-    );
+    [
+      ...(integration.promptAliases ?? [integration.name]),
+      ...(integration.brandAliases ?? []),
+    ].some((alias) => textContainsTerm(normalizedText, alias));
   const canonicalMatch = integrations.find(matchesCanonicalName);
   if (canonicalMatch) return canonicalMatch;
   return null;
@@ -1139,6 +1157,59 @@ export function findMcpIntegrationForToolName(
 export function isMcpConnectionFailureText(text: string): boolean {
   return /\b(?:can(?:not|'t|’t)|could(?: not|n't|n’t)|unable|failed|don't have access|don’t have access|not connected|not able)\b[\s\S]{0,80}\b(?:read|access|open|see|fetch|connect)\b/i.test(
     text,
+  );
+}
+
+/**
+ * Agent responses need a stronger signal than a provider name alone before
+ * they create an actionable card. This intentionally accepts both an
+ * imperative ("connect HubSpot") and a blocked-work explanation ("HubSpot
+ * access is required"), while avoiding positive status text such as
+ * "HubSpot is connected".
+ */
+export function isMcpConnectionSuggestionText(text: string): boolean {
+  const normalized = text.trim();
+  if (!normalized) return false;
+
+  const hasConnectionAction = /\b(?:connect|authorize|link)\b/i.test(
+    normalized,
+  );
+  const hasConnectionNeed =
+    /\b(?:please|need(?:s)?|required?|requires?|must|should|unable|can(?:not|'t|’t)|could(?: not|n't|n’t)|don't|do not|no|without|before|continue|access|account|workspace)\b/i.test(
+      normalized,
+    );
+  const isImperativeConnectionAction =
+    /^\s*(?:please\s+)?(?:connect|authorize|link)\b/i.test(normalized);
+  const isConnectionQuestion =
+    /^\s*(?:can|could|would)\s+you\s+(?:please\s+)?(?:connect|authorize|link)\b/i.test(
+      normalized,
+    );
+  const hasMissingConnection =
+    /\b(?:isn't|is not|aren't|are not|hasn't|has not|not|never)\s+(?:currently\s+)?connected\b/i.test(
+      normalized,
+    ) ||
+    /\b(?:no|without)\s+(?:a\s+)?(?:connection|access)\b/i.test(normalized);
+  const hasMissingAccess =
+    /\b(?:don't|do not|cannot|can't|unable)\b[\s\S]{0,80}\baccess\b/i.test(
+      normalized,
+    );
+  const hasRequiredConnection =
+    /\b(?:connection|access)\b[\s\S]{0,60}\b(?:required|needed|missing|unavailable)\b/i.test(
+      normalized,
+    );
+  const hasRequiredAccess =
+    /\b(?:need(?:s)?|require(?:s|d)?|must\s+have)\b[\s\S]{0,40}\b(?:access|connection|authorization)\b/i.test(
+      normalized,
+    );
+
+  return (
+    (hasConnectionAction && hasConnectionNeed) ||
+    isImperativeConnectionAction ||
+    isConnectionQuestion ||
+    hasMissingConnection ||
+    hasMissingAccess ||
+    hasRequiredConnection ||
+    hasRequiredAccess
   );
 }
 

@@ -1361,7 +1361,7 @@ export function sharedDbPool<T extends ClosablePool>(
   url: string,
   create: () => T,
 ): T {
-  const key = `${driver} ${url}`;
+  const key = `${driver}\u0000${url}`;
   const existing = _sharedDbPools.get(key);
   if (existing) return existing as T;
   const created = create();
@@ -1380,7 +1380,7 @@ export function replaceSharedDbPool<T extends ClosablePool>(
   previous: T,
   next: T,
 ): void {
-  const key = `${driver} ${url}`;
+  const key = `${driver}\u0000${url}`;
   if (_sharedDbPools.get(key) !== previous) return;
   _sharedDbPools.set(key, next);
   for (const hook of _sharedDbPoolReplacementHooks.get(key) ?? []) {

@@ -86,4 +86,10 @@ describe("writeClipboardText", () => {
     expect(write).toHaveBeenCalledTimes(1);
     expect(writeText).toHaveBeenCalledWith("**hi**");
   });
+
+  it("returns false when no clipboard path is available", async () => {
+    vi.stubGlobal("navigator", {});
+
+    await expect(writeClipboardText("copy me")).resolves.toBe(false);
+  });
 });

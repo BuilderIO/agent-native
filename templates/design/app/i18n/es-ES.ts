@@ -4,6 +4,8 @@ const messages = {
   ...messagesByLocale["es-ES"],
   designEditor: {
     ...messagesByLocale["es-ES"].designEditor,
+    commenterRoleLabel: "Comentarista",
+    commenterRoleDescription: "Puede ver y añadir comentarios de revisión",
     nodeRewrite: {
       composerTitle: "Pregunta o cambia la selección",
       send: "Enviar",
@@ -55,7 +57,7 @@ const messages = {
     commentMode: "Comentar",
     sendToAgent: "Enviar al agente",
     sendingToAgent: "Enviando al agente…",
-    enterToPost: "Pulsa Enter para publicar · Shift+Enter para una línea nueva",
+    enterToPost: "Pulsa Enter para publicar · Shift Enter para una línea nueva",
     post: "Publicar",
     posting: "Publicando…",
     postFailed: "No se pudo publicar este comentario",

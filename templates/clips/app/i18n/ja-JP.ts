@@ -515,8 +515,13 @@ const messages = {
     },
     roles: {
       viewer: "ビューア",
+      commenter: "コメント投稿者",
       editor: "エディタ",
       admin: "管理者",
+    },
+    recordingCommenter: {
+      label: "コメント投稿者",
+      description: "視聴、コメント、リアクションができます",
     },
   },
   quickAsk: {
@@ -654,13 +659,13 @@ const messages = {
     collapse: "折りたたむ",
     changelogMarkdown: `# 変更履歴
 
-Clips のユーザー向けの主な変更はここに記録されます。コマンドメニュー（Cmd+K -> "最新情報"）または設定からいつでも開けます。
+Clips のユーザー向けの主な変更はここに記録されます。コマンドメニュー（Cmd K -> "最新情報"）または設定からいつでも開けます。
 
 ## 2026-06-23
 
 ### 追加
 
-- Clips 内で最新情報を直接確認できるようになりました。変更履歴はコマンドメニュー（Cmd+K）と設定にあります。`,
+- Clips 内で最新情報を直接確認できるようになりました。変更履歴はコマンドメニュー（Cmd K）と設定にあります。`,
     playback: "再生",
     defaultPlaybackSpeed: "デフォルト再生速度",
     playbackDescription: "録画を開いたときに自動的に適用されます。",
@@ -1203,7 +1208,7 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     seekTo: "Seek to {{time}} (ローカライズ済み)",
   },
   editorToolbar: {
-    undoTooltip: "Undo (Cmd/Ctrl+Z) (ローカライズ済み)",
+    undoTooltip: "Undo (Cmd/Ctrl Z) (ローカライズ済み)",
     playPauseTooltip: "Play / Pause (Space) (ローカライズ済み)",
     sourceDuration: "({{duration}} src) (ローカライズ済み)",
     previewSpeed: "Preview speed (ローカライズ済み)",
@@ -1559,10 +1564,6 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (ローカライズ済み)",
     connectGoogleCalendar: "Connect Google Calendar (ローカライズ済み)",
-    googleMayShowWarning: "Google アクセスを確認",
-    googleNotVerifiedTitle: "接続前にアプリを確認してください",
-    googleWarningBeforeAdvanced:
-      "アプリ名と要求される Calendar へのアクセスが、信頼する Clips のデプロイと一致することを確認してください。Google に未確認アプリの警告が表示された場合や、見覚えのない識別情報が表示された場合は中止し、ワークスペース管理者に連絡してください。",
     desktopReminder:
       "Connect Google Calendar, keep Clips Desktop open, then click Start notes from the reminder or the menu bar when your meeting begins. (ローカライズ済み)",
     getDesktopApp: "Get desktop app (ローカライズ済み)",

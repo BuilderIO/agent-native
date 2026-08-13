@@ -61,6 +61,7 @@ import { actionTypesPlugin } from "./action-types-plugin.js";
 import {
   createAgentNativeConfigContext,
   loadAgentNativeConfigFile,
+  loadWorkspaceAgentNativeConfigFile,
   readAgentNativeJsonConfig,
 } from "./agent-native-config-loader.js";
 import { agentsBundlePlugin } from "./agents-bundle-plugin.js";
@@ -1093,6 +1094,7 @@ const CORE_CLIENT_SUBPATHS = [
   "@agent-native/core/client/notifications",
   "@agent-native/core/client/progress",
   "@agent-native/core/client/transcription/use-live-transcription",
+  "@agent-native/core/workspace-connections/credential-key-aliases",
   "@agent-native/core/voice",
 ];
 
@@ -1565,6 +1567,8 @@ function getCoreSourceAliases(
       coreSrc,
       "workspace-connections/index.ts",
     ),
+    "@agent-native/core/workspace-connections/credential-key-aliases":
+      path.join(coreSrc, "workspace-connections/credential-key-aliases.ts"),
     "@agent-native/core/provider-api": path.join(
       coreSrc,
       "provider-api/index.ts",
@@ -3714,16 +3718,25 @@ function createAgentNativeConfigPlugin(
     name: "agent-native-config",
     enforce: "pre",
     async config(config: UserConfig, env: ConfigEnv) {
+      const context = createAgentNativeConfigContext(env.command, env.mode);
+      const workspaceConfig = await loadWorkspaceAgentNativeConfigFile(
+        process.cwd(),
+      );
       const projectConfig =
-        options.agentNativeConfig === undefined
-          ? await loadAgentNativeConfigFile(process.cwd())
-          : undefined;
+        options.agentNativeConfig ??
+        (await loadAgentNativeConfigFile(process.cwd()));
+      const resolvedConfig = mergeAgentNativeConfigs(
+        workspaceConfig
+          ? resolveAgentNativeConfig(workspaceConfig, context)
+          : {},
+        projectConfig ? resolveAgentNativeConfig(projectConfig, context) : {},
+      );
       return createAgentNativeConfig(
         options,
         env.command,
         config,
         env.mode,
-        projectConfig,
+        resolvedConfig,
       );
     },
   };

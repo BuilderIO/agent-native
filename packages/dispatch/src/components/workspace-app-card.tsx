@@ -1,10 +1,10 @@
+import { APP_ACTION_MENU_CONTENT_CLASS } from "@agent-native/core/client/chat-first";
 import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
-import { useFormatters, useT } from "@agent-native/core/client/i18n";
+import { useT } from "@agent-native/core/client/i18n";
 import {
-  IconCalendar,
   IconChevronDown,
   IconChevronRight,
   IconClockHour4,
@@ -13,6 +13,7 @@ import {
   IconEyeOff,
   IconFileText,
   IconKey,
+  IconPin,
   IconSettings,
   IconTrash,
   IconUser,
@@ -25,7 +26,6 @@ import { toast } from "sonner";
 
 import { cn } from "../lib/utils";
 import {
-  isPendingBuilderHref,
   workspaceAppHref,
   workspaceAppRoute,
   type WorkspaceAppSummary,
@@ -65,15 +65,21 @@ const APP_CARD_ACTION_CLASS =
 export function WorkspaceAppCard({
   app,
   className,
+  isPinned = false,
+  onTogglePinned,
 }: {
   app: WorkspaceAppSummary;
   className?: string;
+  isPinned?: boolean;
+  onTogglePinned?: () => void;
 }) {
   const t = useT();
-  const { formatDate } = useFormatters();
   const href = workspaceAppHref(app);
   const isPending = app.status === "pending";
   const pendingLabel = app.statusLabel || "Builder branch";
+  const pendingOpenLabel = t("dispatch.pages.openBuilderBranch", {
+    defaultValue: "Open in Builder",
+  });
   const isArchived = !!app.archived;
   const audience = app.audience ?? "internal";
   const [editOpen, setEditOpen] = useState(false);
@@ -136,6 +142,13 @@ export function WorkspaceAppCard({
       description: draftDescription.trim(),
     });
   };
+  const pinLabel = t(
+    isPinned ? "dispatch.pages.unpinApp" : "dispatch.pages.pinApp",
+    {
+      name: app.name,
+      defaultValue: `${isPinned ? "Unpin" : "Pin"} ${app.name}`,
+    },
+  );
 
   return (
     <>
@@ -175,16 +188,19 @@ export function WorkspaceAppCard({
                 Public
               </span>
             ) : null}
-            {isPending && app.branchName ? (
-              <span className="min-w-0 truncate">{app.branchName}</span>
-            ) : null}
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <WorkspaceAppOpenActions app={app} href={href} />
+          <WorkspaceAppOpenActions
+            app={app}
+            href={href}
+            isPinned={isPinned}
+            pinLabel={pinLabel}
+            pendingOpenLabel={pendingOpenLabel}
+            onTogglePinned={onTogglePinned}
+          />
           <WorkspaceAppSettings
             app={app}
-            formatDate={formatDate}
             isArchived={isArchived}
             isPending={isPending}
             onEdit={() => setEditOpen(true)}
@@ -194,11 +210,9 @@ export function WorkspaceAppCard({
             onUnarchive={handleUnarchive}
             onRemovePending={handleRemovePending}
             labels={{
-              created: t("agents.dashboardMetadataCreated"),
               createdBy: t("agents.dashboardMetadataCreatedBy"),
               owner: t("dispatch.pages.appMetadataOwner"),
               teams: t("dispatch.pages.appMetadataTeams"),
-              notTracked: t("agents.notTracked"),
             }}
           />
         </div>
@@ -271,13 +285,35 @@ export function WorkspaceAppCard({
 function WorkspaceAppOpenActions({
   app,
   href,
+  isPinned,
+  pinLabel,
+  pendingOpenLabel,
+  onTogglePinned,
 }: {
   app: WorkspaceAppSummary;
   href: string | null;
+  isPinned: boolean;
+  pinLabel: string;
+  pendingOpenLabel: string;
+  onTogglePinned?: () => void;
 }) {
   const navigate = useNavigate();
-  const openInNewTab = isPendingBuilderHref(app);
   const appRoute = workspaceAppRoute(app.id);
+  const isPending = app.status === "pending";
+
+  if (isPending) {
+    return href ? (
+      <Button asChild size="sm" variant="outline">
+        <a href={href} target="_blank" rel="noreferrer">
+          {pendingOpenLabel}
+        </a>
+      </Button>
+    ) : (
+      <Button size="sm" variant="outline" disabled>
+        {pendingOpenLabel}
+      </Button>
+    );
+  }
 
   if (!href) {
     return (
@@ -290,29 +326,35 @@ function WorkspaceAppOpenActions({
   return (
     <AppOpenActions
       name={app.name}
-      href={openInNewTab ? href : appRoute}
-      target={openInNewTab ? "_blank" : undefined}
-      rel={openInNewTab ? "noreferrer" : undefined}
-      showInlineOption={openInNewTab}
-      onOpenInline={() => {
+      href={href}
+      showNewTabOption
+      onOpen={() => {
         navigate(appRoute);
       }}
-      showNewTabOption={openInNewTab}
+      menuItems={
+        onTogglePinned
+          ? [
+              {
+                id: "pin",
+                label: pinLabel,
+                icon: <IconPin size={14} strokeWidth={isPinned ? 2.2 : 1.7} />,
+                onSelect: onTogglePinned,
+              },
+            ]
+          : undefined
+      }
     />
   );
 }
 
 type WorkspaceAppMetadataLabels = {
-  created: string;
   createdBy: string;
   owner: string;
   teams: string;
-  notTracked: string;
 };
 
 function WorkspaceAppSettings({
   app,
-  formatDate,
   isArchived,
   isPending,
   onEdit,
@@ -324,7 +366,6 @@ function WorkspaceAppSettings({
   labels,
 }: {
   app: WorkspaceAppSummary;
-  formatDate: ReturnType<typeof useFormatters>["formatDate"];
   isArchived: boolean;
   isPending: boolean;
   onEdit: () => void;
@@ -353,19 +394,22 @@ function WorkspaceAppSettings({
         </TooltipTrigger>
         <TooltipContent>App settings</TooltipContent>
       </Tooltip>
-      <DropdownMenuContent align="end" className="w-72">
+      <DropdownMenuContent
+        align="end"
+        className={APP_ACTION_MENU_CONTENT_CLASS}
+      >
         <DropdownMenuItem onSelect={onEdit}>
-          <IconEdit size={14} className="mr-2" />
+          <IconEdit size={14} aria-hidden="true" />
           Edit details
         </DropdownMenuItem>
         {!isPending && !isArchived ? (
           <>
             <DropdownMenuItem onSelect={onKeys}>
-              <IconKey size={14} className="mr-2" />
+              <IconKey size={14} aria-hidden="true" />
               Manage keys
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={onResources}>
-              <IconFileText size={14} className="mr-2" />
+              <IconFileText size={14} aria-hidden="true" />
               Agent resources
             </DropdownMenuItem>
           </>
@@ -375,28 +419,21 @@ function WorkspaceAppSettings({
             onSelect={onRemovePending}
             className="text-destructive focus:text-destructive"
           >
-            <IconTrash size={14} className="mr-2" />
+            <IconTrash size={14} aria-hidden="true" />
             Remove from list
           </DropdownMenuItem>
         ) : isArchived ? (
           <DropdownMenuItem onSelect={onUnarchive}>
-            <IconEye size={14} className="mr-2" />
+            <IconEye size={14} aria-hidden="true" />
             Restore to list
           </DropdownMenuItem>
         ) : (
           <DropdownMenuItem onSelect={onArchive}>
-            <IconEyeOff size={14} className="mr-2" />
+            <IconEyeOff size={14} aria-hidden="true" />
             Hide from list
           </DropdownMenuItem>
         )}
-        <DropdownMenuSeparator />
-        <DropdownMenuLabel className="font-normal">
-          <WorkspaceAppMetadata
-            app={app}
-            formatDate={formatDate}
-            labels={labels}
-          />
-        </DropdownMenuLabel>
+        <WorkspaceAppMetadata app={app} labels={labels} />
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -404,51 +441,68 @@ function WorkspaceAppSettings({
 
 function WorkspaceAppMetadata({
   app,
-  formatDate,
   labels,
 }: {
   app: WorkspaceAppSummary;
-  formatDate: ReturnType<typeof useFormatters>["formatDate"];
   labels: WorkspaceAppMetadataLabels;
 }) {
-  function formatMetadataDate(value: string | null | undefined): string {
-    if (!value) return labels.notTracked;
-    try {
-      return formatDate(value, {
-        year: "numeric",
-        month: "short",
-        day: "numeric",
-        hour: "numeric",
-        minute: "2-digit",
-      });
-    } catch {
-      return value;
-    }
+  const trackedText = (value: string | null | undefined): string | null => {
+    const normalized = value?.trim();
+    return normalized && normalized.toLowerCase() !== "not tracked"
+      ? normalized
+      : null;
+  };
+  const rows: Array<{
+    id: string;
+    icon: typeof IconUser;
+    label: string;
+    value: string;
+  }> = [];
+
+  const createdBy = trackedText(app.createdBy);
+  if (createdBy) {
+    rows.push({
+      id: "created-by",
+      icon: IconUser,
+      label: labels.createdBy,
+      value: createdBy,
+    });
+  }
+  const owner = trackedText(app.owner);
+  if (owner) {
+    rows.push({
+      id: "owner",
+      icon: IconUser,
+      label: labels.owner,
+      value: owner,
+    });
+  }
+  const teams = app.teams
+    ?.map(trackedText)
+    .filter((team): team is string => Boolean(team))
+    .join(", ");
+  if (teams) {
+    rows.push({
+      id: "teams",
+      icon: IconUsersGroup,
+      label: labels.teams,
+      value: teams,
+    });
   }
 
+  if (rows.length === 0) return null;
+
   return (
-    <div className="flex flex-col gap-1.5 text-xs text-muted-foreground">
-      <WorkspaceAppMetadataRow
-        icon={IconCalendar}
-        label={labels.created}
-        value={formatMetadataDate(app.createdAt)}
-      />
-      <WorkspaceAppMetadataRow
-        icon={IconUser}
-        label={labels.createdBy}
-        value={app.createdBy || labels.notTracked}
-      />
-      <WorkspaceAppMetadataRow
-        icon={IconUser}
-        label={labels.owner}
-        value={app.owner || labels.notTracked}
-      />
-      <WorkspaceAppMetadataRow
-        icon={IconUsersGroup}
-        label={labels.teams}
-        value={app.teams?.join(", ") || labels.notTracked}
-      />
-    </div>
+    <>
+      <DropdownMenuSeparator />
+      <DropdownMenuLabel className="font-normal">
+        <div className="flex flex-col gap-1.5 text-xs text-muted-foreground">
+          {rows.map((row) => (
+            <WorkspaceAppMetadataRow key={row.id} {...row} />
+          ))}
+        </div>
+      </DropdownMenuLabel>
+    </>
   );
 }
 
@@ -457,7 +511,7 @@ function WorkspaceAppMetadataRow({
   label,
   value,
 }: {
-  icon: typeof IconCalendar;
+  icon: typeof IconUser;
   label: string;
   value: string;
 }) {

@@ -38,6 +38,7 @@ import {
   IconLibraryPhoto,
   IconPhotoPlus,
   IconSearch,
+  IconTrash,
   IconX,
 } from "@tabler/icons-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -60,8 +61,19 @@ import { toast } from "sonner";
 
 import { AssetPreviewDialog as SharedAssetPreviewDialog } from "@/components/asset/AssetPreviewDialog";
 import { LibraryPresetGrid } from "@/components/library/LibraryPresetGrid";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import {
   Popover,
@@ -77,6 +89,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -110,6 +123,8 @@ import {
 } from "./brand-kits.$id";
 
 type AssetTab = "all" | "generated" | "drafts" | "references";
+
+const LIBRARY_SEARCH_DEBOUNCE_MS = 300;
 
 function isGeneratedAsset(asset: Asset) {
   const role = asset.role ?? "";
@@ -1159,12 +1174,23 @@ function AllAssetsBrowser({
     [searchParamsKey],
   );
   const [query, setQuery] = useState(urlQuery);
+  const [debouncedQuery, setDebouncedQuery] = useState(urlQuery);
   const [assetTab, setAssetTab] = useState<AssetTab>(urlAssetTab);
   const [previewAsset, setPreviewAsset] = useState<Asset | null>(null);
   const [standaloneSelection, setStandaloneSelection] = useState<ReturnType<
     typeof assetPayload
   > | null>(null);
   const [standaloneCopyOk, setStandaloneCopyOk] = useState(false);
+  const [selectedAssetIds, setSelectedAssetIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [optimisticallyDeletedAssetIds, setOptimisticallyDeletedAssetIds] =
+    useState<Set<string>>(() => new Set());
+  const [deletingAssetIds, setDeletingAssetIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [confirmDeleteIds, setConfirmDeleteIds] = useState<string[]>([]);
+  const deleteAssets = useActionMutation("delete-assets");
 
   const isDraftsTab = assetTab === "drafts";
 
@@ -1179,7 +1205,7 @@ function AllAssetsBrowser({
   } = useActionQuery(
     "list-assets",
     {
-      query: query.trim() || undefined,
+      query: debouncedQuery.trim() || undefined,
     } as any,
     { enabled: !isDraftsTab } as any,
   ) as {
@@ -1195,7 +1221,17 @@ function AllAssetsBrowser({
     () => allAssets.filter((asset) => assetMatchesTab(asset, assetTab)),
     [allAssets, assetTab],
   );
-  const visibleAssetCount = assets.length;
+  const visibleAssets = useMemo(
+    () =>
+      assets.filter((asset) => !optimisticallyDeletedAssetIds.has(asset.id)),
+    [assets, optimisticallyDeletedAssetIds],
+  );
+  const selectedCount = selectedAssetIds.size;
+  const allVisibleSelected =
+    visibleAssets.length > 0 &&
+    visibleAssets.every((asset) => selectedAssetIds.has(asset.id));
+  const deleting = deleteAssets.isPending || deletingAssetIds.size > 0;
+  const visibleAssetCount = visibleAssets.length;
   // The badge only renders on the Generated/References tabs, which are always a
   // filtered subset, so report the shown count rather than the library total.
   const assetCountLabel = isLoading
@@ -1235,6 +1271,99 @@ function AllAssetsBrowser({
     void copyStandaloneSelection(payload);
   }
 
+  function toggleAsset(assetId: string, checked: boolean) {
+    setSelectedAssetIds((current) => {
+      const next = new Set(current);
+      if (checked) next.add(assetId);
+      else next.delete(assetId);
+      return next;
+    });
+  }
+
+  function toggleAllVisible(checked: boolean) {
+    setSelectedAssetIds((current) => {
+      const next = new Set(current);
+      for (const asset of visibleAssets) {
+        if (checked) next.add(asset.id);
+        else next.delete(asset.id);
+      }
+      return next;
+    });
+  }
+
+  function confirmDelete(ids: string[]) {
+    const uniqueIds = [...new Set(ids)];
+    if (uniqueIds.length) setConfirmDeleteIds(uniqueIds);
+  }
+
+  function markDeleting(ids: string[]) {
+    setDeletingAssetIds((current) => {
+      const next = new Set(current);
+      for (const id of ids) next.add(id);
+      return next;
+    });
+    setOptimisticallyDeletedAssetIds((current) => {
+      const next = new Set(current);
+      for (const id of ids) next.add(id);
+      return next;
+    });
+    setSelectedAssetIds((current) => {
+      const next = new Set(current);
+      for (const id of ids) next.delete(id);
+      return next;
+    });
+  }
+
+  function finishDeleting(ids: string[]) {
+    setDeletingAssetIds((current) => {
+      const next = new Set(current);
+      for (const id of ids) next.delete(id);
+      return next;
+    });
+  }
+
+  function restoreAfterDeleteError(ids: string[]) {
+    finishDeleting(ids);
+    setOptimisticallyDeletedAssetIds((current) => {
+      const next = new Set(current);
+      for (const id of ids) next.delete(id);
+      return next;
+    });
+    setSelectedAssetIds((current) => {
+      const next = new Set(current);
+      for (const id of ids) next.add(id);
+      return next;
+    });
+  }
+
+  function handleDeleteConfirmed() {
+    if (!confirmDeleteIds.length || deleting) return;
+    const ids = [...confirmDeleteIds];
+    setConfirmDeleteIds([]);
+    markDeleting(ids);
+    deleteAssets.mutate(
+      { ids },
+      {
+        onSuccess: (result: any) => {
+          finishDeleting(ids);
+          void refetch();
+          const count = Number(result?.deletedCount ?? ids.length);
+          toast.success(
+            count === 1
+              ? t("library.deletedAsset")
+              : t("library.deletedAssets", { count }),
+          );
+        },
+        onError: (error) => {
+          restoreAfterDeleteError(ids);
+          toast.error(
+            error.message || t("library.couldNotDeleteSelectedAssets"),
+          );
+        },
+      },
+    );
+  }
+
   // Keep local state in sync when the URL changes externally (back/forward,
   // agent navigation, deep links) since the component stays mounted.
   useEffect(() => {
@@ -1243,7 +1372,22 @@ function AllAssetsBrowser({
   useEffect(() => {
     setQuery(urlQuery);
   }, [urlQuery]);
-
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      setDebouncedQuery(query);
+      if (query === urlQuery) return;
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          if (query.trim()) next.set("q", query);
+          else next.delete("q");
+          return next;
+        },
+        { replace: true },
+      );
+    }, LIBRARY_SEARCH_DEBOUNCE_MS);
+    return () => window.clearTimeout(timeoutId);
+  }, [query, setSearchParams, urlQuery]);
   const handleAssetTabChange = useCallback(
     (value: AssetTab) => {
       setAssetTab(value);
@@ -1261,21 +1405,9 @@ function AllAssetsBrowser({
     [setSearchParams],
   );
 
-  const handleQueryChange = useCallback(
-    (value: string) => {
-      setQuery(value);
-      setSearchParams(
-        (prev) => {
-          const next = new URLSearchParams(prev);
-          if (value.trim()) next.set("q", value);
-          else next.delete("q");
-          return next;
-        },
-        { replace: true },
-      );
-    },
-    [setSearchParams],
-  );
+  const handleQueryChange = useCallback((value: string) => {
+    setQuery(value);
+  }, []);
 
   // The Drafts tab's candidate queries live inside LibraryCandidateStage;
   // refetch them by key so the error state offers a working retry.
@@ -1313,6 +1445,26 @@ function AllAssetsBrowser({
                 {assetCountLabel}
               </Badge>
             )}
+            {!isDraftsTab && visibleAssets.length > 0 && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-8 shrink-0 px-2 text-xs"
+                onClick={() => toggleAllVisible(!allVisibleSelected)}
+                disabled={deleting}
+                aria-pressed={allVisibleSelected}
+                aria-label={
+                  allVisibleSelected
+                    ? t("library.deselectAll")
+                    : t("library.selectAllVisibleAssets")
+                }
+              >
+                {allVisibleSelected
+                  ? t("library.deselectAll")
+                  : t("library.selectAll")}
+              </Button>
+            )}
           </div>
           {!isDraftsTab && (
             <div className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-md border border-border/70 bg-background px-3 focus-within:ring-1 focus-within:ring-ring sm:max-w-sm">
@@ -1320,9 +1472,6 @@ function AllAssetsBrowser({
               <input
                 type="search"
                 value={query}
-                onInput={(event) =>
-                  handleQueryChange(event.currentTarget.value)
-                }
                 onChange={(event) => handleQueryChange(event.target.value)}
                 placeholder={t("library.searchAssets")}
                 className="h-full min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
@@ -1403,6 +1552,90 @@ function AllAssetsBrowser({
         </section>
       )}
 
+      <AlertDialog
+        open={confirmDeleteIds.length > 0}
+        onOpenChange={(open) => {
+          if (!open) setConfirmDeleteIds([]);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {confirmDeleteIds.length > 1
+                ? t("library.deleteAssetsTitle", {
+                    count: confirmDeleteIds.length,
+                  })
+                : t("library.deleteAssetTitle")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("assetDetail.deleteDescription")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("library.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={deleting}
+              onClick={(event) => {
+                event.preventDefault();
+                handleDeleteConfirmed();
+              }}
+            >
+              {deleting ? (
+                <Spinner className="h-4 w-4" />
+              ) : (
+                t("assetDetail.delete")
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {!isDraftsTab && (selectedCount > 0 || deletingAssetIds.size > 0) && (
+        <div className="mx-4 mb-1 flex min-h-10 flex-wrap items-center justify-between gap-2 rounded-md border border-border/70 bg-background px-3 py-2 md:mx-6">
+          {deletingAssetIds.size > 0 ? (
+            <div
+              className="flex min-w-0 items-center gap-2 text-sm font-medium"
+              role="status"
+              aria-live="polite"
+            >
+              <Spinner className="h-4 w-4" />
+              <span className="truncate">
+                {t("library.deletingAssets", {
+                  count: deletingAssetIds.size,
+                })}
+              </span>
+            </div>
+          ) : (
+            <span className="text-sm font-medium">
+              {t("library.selectedCount", { count: selectedCount })}
+            </span>
+          )}
+          {deletingAssetIds.size === 0 && (
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setSelectedAssetIds(new Set())}
+              >
+                {t("library.clear")}
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                size="sm"
+                onClick={() => confirmDelete([...selectedAssetIds])}
+                disabled={deleting}
+              >
+                <IconTrash className="h-4 w-4" />
+                {t("assetDetail.delete")}
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
+
       <main className="p-4 md:p-6">
         {isDraftsTab ? (
           <LibraryCandidateStage
@@ -1449,7 +1682,7 @@ function AllAssetsBrowser({
               {t("brandKitDetail.refresh")}
             </Button>
           </div>
-        ) : assets.length === 0 ? (
+        ) : visibleAssets.length === 0 ? (
           <div className="flex min-h-64 items-center justify-center text-center">
             <div className="max-w-sm text-sm text-muted-foreground">
               {query
@@ -1459,72 +1692,97 @@ function AllAssetsBrowser({
           </div>
         ) : (
           <div className="assets-library-grid grid grid-cols-2 gap-4">
-            {assets.map((asset) => (
-              <div
-                key={asset.id}
-                className="group relative overflow-hidden rounded-lg border border-border/80 bg-background transition hover:border-foreground/25 hover:bg-muted/10 focus-within:ring-2 focus-within:ring-ring"
-              >
-                <button
-                  type="button"
-                  aria-label={t("library.selectAsset", {
-                    title: assetDisplayTitle(asset),
-                  })}
-                  onClick={() => setPreviewAsset(asset)}
-                  title={assetDisplayTitle(asset)}
-                  className="block w-full text-left focus-visible:outline-none"
+            {visibleAssets.map((asset) => {
+              const selected = selectedAssetIds.has(asset.id);
+              return (
+                <div
+                  key={asset.id}
+                  className={cn(
+                    "group relative overflow-hidden rounded-lg border border-border/80 bg-background transition-[border-color,background-color,box-shadow] hover:border-foreground/25 hover:bg-muted/10 focus-within:ring-2 focus-within:ring-ring",
+                    selected && "border-primary ring-1 ring-primary/30",
+                  )}
                 >
-                  <div className="aspect-[4/3] bg-muted/40">
-                    {asset.mediaType === "video" ||
-                    asset.mimeType?.startsWith("video/") ? (
-                      <video
-                        src={asset.previewUrl ?? asset.downloadUrl ?? asset.url}
-                        poster={asset.thumbnailUrl}
-                        muted
-                        playsInline
-                        className="h-full w-full object-cover transition group-hover:scale-[1.02]"
-                      />
-                    ) : (
-                      <AssetThumbnail asset={asset} />
+                  <div
+                    className={cn(
+                      "absolute start-2 top-2 z-10 flex size-9 items-center justify-center rounded-md bg-background/90 shadow-sm backdrop-blur transition-[opacity]",
+                      "opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100",
+                      selected && "opacity-100 sm:opacity-100",
                     )}
-                  </div>
-                </button>
-                {(asset as any).libraryTitle ? (
-                  <Link
-                    to={`/library/${asset.libraryId}`}
-                    className="absolute bottom-2 left-2 z-10 max-w-[calc(100%-1rem)] truncate rounded-full bg-background/95 px-2.5 py-1 text-[11px] font-medium shadow-sm transition hover:bg-background"
                   >
-                    {(asset as any).libraryTitle}
-                  </Link>
-                ) : null}
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        aria-label={t("library.copyToClipboard")}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          chooseAsset(asset);
-                        }}
-                        className="absolute right-2 top-2 z-10 inline-flex h-8 w-8 items-center justify-center rounded-full bg-background/90 text-foreground opacity-0 shadow-sm transition hover:bg-primary hover:text-primary-foreground focus:outline-none focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100"
-                      >
-                        <IconClipboard className="h-4 w-4" />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {t("library.copyToClipboard")}
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              </div>
-            ))}
+                    <Checkbox
+                      checked={selected}
+                      disabled={deleting}
+                      onCheckedChange={(checked) =>
+                        toggleAsset(asset.id, checked === true)
+                      }
+                      aria-label={t("library.selectAsset", {
+                        title: assetDisplayTitle(asset),
+                      })}
+                      className="size-5"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    aria-label={`${t("library.openDetails")}: ${assetDisplayTitle(asset)}`}
+                    onClick={() => setPreviewAsset(asset)}
+                    title={assetDisplayTitle(asset)}
+                    className="block w-full text-left focus-visible:outline-none"
+                  >
+                    <div className="aspect-[4/3] bg-muted/40">
+                      {asset.mediaType === "video" ||
+                      asset.mimeType?.startsWith("video/") ? (
+                        <video
+                          src={
+                            asset.previewUrl ?? asset.downloadUrl ?? asset.url
+                          }
+                          poster={asset.thumbnailUrl}
+                          muted
+                          playsInline
+                          className="h-full w-full object-cover transition group-hover:scale-[1.02]"
+                        />
+                      ) : (
+                        <AssetThumbnail asset={asset} />
+                      )}
+                    </div>
+                  </button>
+                  {(asset as any).libraryTitle ? (
+                    <Link
+                      to={`/library/${asset.libraryId}`}
+                      className="absolute bottom-2 left-2 z-10 max-w-[calc(100%-1rem)] truncate rounded-full bg-background/95 px-2.5 py-1 text-[11px] font-medium shadow-sm transition hover:bg-background"
+                    >
+                      {(asset as any).libraryTitle}
+                    </Link>
+                  ) : null}
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          aria-label={t("library.copyToClipboard")}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            chooseAsset(asset);
+                          }}
+                          className="absolute right-2 top-2 z-10 inline-flex h-8 w-8 items-center justify-center rounded-full bg-background/90 text-foreground opacity-100 shadow-sm transition hover:bg-primary hover:text-primary-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
+                        >
+                          <IconClipboard className="h-4 w-4" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {t("library.copyToClipboard")}
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </div>
+              );
+            })}
           </div>
         )}
       </main>
 
       <AssetPreviewDialog
         asset={previewAsset}
-        assets={assets}
+        assets={visibleAssets}
         onAssetChange={setPreviewAsset}
       />
     </div>

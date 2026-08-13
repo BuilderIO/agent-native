@@ -30,6 +30,7 @@ interface ContentPart {
   completedSideEffect?: boolean;
   mcpApp?: AgentMcpAppPayload;
   chatUI?: ActionChatUIConfig;
+  activity?: boolean;
   approval?: { approvalKey: string; dismissed?: boolean };
 }
 
@@ -54,13 +55,6 @@ const INTERRUPTED_TOOL_RESULT =
 export const ASSISTANT_RUN_DURATION_METADATA_KEY = "agentNativeRunDurationMs";
 
 const MAX_STORED_ATTACHMENT_CHARS = 60_000;
-/**
- * When no file-upload provider is configured we fall back to storing base64
- * directly in the SQL thread_data column. Cap the raw base64 per attachment to
- * avoid unbounded row growth. Attachments larger than this get a '[truncated]'
- * marker so the transcript still renders but the column stays sane.
- */
-const MAX_STORED_BASE64_BYTES = 2 * 1024 * 1024; // 2 MB per attachment
 
 function isInternalContinuationError(event: {
   error: string;
@@ -354,19 +348,34 @@ export function buildAssistantMessage(
   };
 }
 
+/**
+ * The rebuild half of the live client's `clearAssistantDraftContent`
+ * (client/sse-event-processor.ts). The two bodies are asserted identical by
+ * `keeps clearAssistantDraftContent identical to the live client copy` in
+ * thread-data-builder.spec.ts — a rebuild that clears more than the live stream
+ * did makes narration vanish on reload, which is worse than clearing nothing.
+ */
 function clearAssistantDraftContent(content: ContentPart[]): void {
   for (let index = content.length - 1; index >= 0; index--) {
     const part = content[index];
     if (!part) continue;
+    if (
+      part.type === "tool-call" &&
+      part.activity !== true &&
+      part.result !== undefined
+    ) {
+      return;
+    }
     if (part.type === "text" || part.type === "reasoning") {
       content.splice(index, 1);
       continue;
     }
     if (part.type === "tool-call" && part.result === undefined) {
-      // Keep materialized in-flight tool cards across retry clears so persisted
-      // thread rebuilds match the live SSE processor and avoid hide→show flicker.
+      // Only drop ephemeral placeholders. Materialized in-flight tool cards
+      // (real args from tool_start) stay mounted so a retry/auto-continue clear
+      // does not hide→show the same call when the next chunk re-emits it.
       const isEphemeral =
-        (part as { activity?: boolean }).activity === true ||
+        part.activity === true ||
         part.argsText === "" ||
         Object.keys(part.args ?? {}).length === 0;
       if (isEphemeral) content.splice(index, 1);
@@ -1216,22 +1225,6 @@ function textAttachmentEnvelope(
   return `<attachment ${attrs.join(" ")}>\n${truncateStoredAttachment(text)}\n</attachment>`;
 }
 
-/**
- * Cap a base64 data-URL string for storage. When the encoded string is over
- * the limit we replace the base64 payload with a truncation marker so the
- * transcript still renders the attachment chip but doesn't bloat SQL.
- */
-function capBase64DataUrl(dataUrl: string): string {
-  const commaIdx = dataUrl.indexOf(",");
-  if (commaIdx === -1) return dataUrl;
-  const header = dataUrl.slice(0, commaIdx + 1);
-  const b64 = dataUrl.slice(commaIdx + 1);
-  // Each base64 char encodes 6 bits; 4 chars = 3 bytes.
-  const approxBytes = Math.floor((b64.length * 3) / 4);
-  if (approxBytes <= MAX_STORED_BASE64_BYTES) return dataUrl;
-  return `${header}[base64 truncated — ${approxBytes.toLocaleString()} bytes exceeds storage limit]`;
-}
-
 function buildStoredAttachments(
   attachments: AgentChatAttachment[] | undefined,
   runId: string | undefined,
@@ -1278,33 +1271,6 @@ function buildStoredAttachments(
         };
       }
 
-      if (att.type === "image" && att.data) {
-        return {
-          id,
-          type: "image",
-          name: att.name,
-          contentType: att.contentType,
-          status: { type: "complete" },
-          content: [{ type: "image", image: capBase64DataUrl(att.data) }],
-        };
-      }
-      if (att.data) {
-        return {
-          id,
-          type: "file",
-          name: att.name,
-          contentType: att.contentType,
-          status: { type: "complete" },
-          content: [
-            {
-              type: "file",
-              data: capBase64DataUrl(att.data),
-              mimeType: att.contentType,
-              filename: att.name,
-            },
-          ],
-        };
-      }
       if (typeof att.text === "string" && att.text.length > 0) {
         return {
           id,
@@ -1315,6 +1281,33 @@ function buildStoredAttachments(
           content: [
             { type: "text", text: textAttachmentEnvelope(att, att.text) },
           ],
+        };
+      }
+
+      // Binary attachment data is request-scoped input, not thread state. If
+      // the provider was unavailable or failed, retain only a visible marker
+      // so the transcript can explain why the attachment needs storage setup
+      // without putting base64 bytes in SQL.
+      if (att.storageRequired === true || typeof att.data === "string") {
+        const uploadFailed = att.storageUploadFailed === true;
+        return {
+          id,
+          type: att.type === "image" ? "image" : "file",
+          name: att.name,
+          contentType: att.contentType,
+          status: { type: "complete" },
+          content: [
+            {
+              type: "text",
+              text: uploadFailed
+                ? "Attachment not retained: the configured object-storage upload failed. Retry the upload to keep files available throughout this thread."
+                : "Attachment not retained: connect object storage to keep files available throughout this thread.",
+            },
+          ],
+          metadata: {
+            storageRequired: true,
+            ...(uploadFailed ? { storageUploadFailed: true } : {}),
+          },
         };
       }
       return null;

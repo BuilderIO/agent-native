@@ -322,7 +322,7 @@ export default function MeetingDetailRoute() {
       segmentsJson?: TranscriptSegment[] | null;
     } | null;
     recording?: { id: string; durationMs?: number | null } | null;
-    role?: "owner" | "admin" | "editor" | "viewer";
+    role?: "owner" | "admin" | "editor" | "commenter" | "viewer";
   };
 
   const { data, isLoading, isError } = useActionQuery<GetMeetingResp>(
@@ -704,7 +704,6 @@ export default function MeetingDetailRoute() {
           ) : null}
           <ShareMeetingPopover
             meetingId={meeting.id}
-            meetingTitle={meeting.title}
             shareTranscript={meeting.shareTranscript === true}
             transcriptReady={
               meeting.transcriptStatus === "ready" &&

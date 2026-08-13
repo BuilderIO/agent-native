@@ -8,6 +8,8 @@ import {
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import type { Deck } from "@/context/DeckContext";
+
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string, options?: { title?: string }) => {
     if (key === "home.referenceImportSelected") {
@@ -18,14 +20,22 @@ vi.mock("@agent-native/core/client/i18n", () => ({
         "home.chooseReferences": "Choose references",
         "home.importFrom": "Import from",
         "home.imported": "Imported",
+        "home.googleSlidesImportLabel": "Slides",
         "home.googleSlidesReferenceTitle": "Google Slides",
         "home.referenceImportSuccess": "Imported successfully",
+        "home.none": "None",
         "home.continue": "Continue",
         "home.continueToGenerate": "Continue to generate",
         "home.noMatchingDecks": "No matching decks found.",
       }[key] ?? key
     );
   },
+}));
+
+vi.mock("./GoogleDriveConnectionCta", () => ({
+  GoogleDriveConnectionCta: () => (
+    <div data-testid="google-drive-connection-cta" />
+  ),
 }));
 
 import {
@@ -54,7 +64,6 @@ function renderStep(
       decks={[]}
       defaultDesignSystemId="ds-1"
       defaultReferenceDeckId={null}
-      recentReferences={[]}
       onSelect={onSelect}
       onImport={onImport}
       onImportSource={onImportSource}
@@ -66,8 +75,6 @@ function renderStep(
       chooseDeckLabel="Match the style of an existing deck"
       importingLabel="Importing..."
       skipLabel="Skip"
-      starredLabel="Starred"
-      otherDecksLabel="Other decks"
       searchDecksLabel="Search decks"
       {...overrides}
     />,
@@ -161,7 +168,7 @@ describe("<NewDeckReferenceStep>", () => {
     const { onSelect, onImportSource } = renderStep();
     onImportSource.mockResolvedValue(imported);
 
-    fireEvent.click(screen.getByRole("button", { name: "Google Slides" }));
+    fireEvent.click(screen.getByRole("button", { name: "Slides" }));
     fireEvent.change(
       screen.getByRole("textbox", { name: "Google Slides link" }),
       {
@@ -181,6 +188,98 @@ describe("<NewDeckReferenceStep>", () => {
     });
     expect(onSelect).not.toHaveBeenCalled();
     expect(screen.getByRole("status").textContent).toContain("Quarterly plan");
-    expect(screen.getByLabelText("Google Slides - Imported")).toBeTruthy();
+    expect(screen.getByLabelText("Slides - Imported")).toBeTruthy();
+  });
+
+  it("drops the imported reference deck when Slides is deselected", async () => {
+    const imported: ImportedReference = {
+      id: "deck-google",
+      title: "Quarterly plan",
+      source: "google-slides",
+    };
+    const { onSelect, onImportSource } = renderStep();
+    onImportSource.mockResolvedValue(imported);
+
+    fireEvent.click(screen.getByRole("button", { name: "Slides" }));
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "Google Slides link" }),
+      {
+        target: {
+          value: "https://docs.google.com/presentation/d/deck-google/edit",
+        },
+      },
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Slides - Imported" }));
+    expect(screen.queryByRole("status")).toBeNull();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    });
+
+    expect(onSelect).toHaveBeenCalledWith({
+      designSystemId: null,
+      referenceDeckId: null,
+      referenceSource: null,
+    });
+  });
+
+  it("only shows Google connection recovery after choosing Slides", () => {
+    renderStep();
+
+    expect(screen.queryByTestId("google-drive-connection-cta")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Slides" }));
+
+    expect(screen.getByTestId("google-drive-connection-cta")).toBeTruthy();
+  });
+
+  it("hides the recent section and sorts reference decks by recency", () => {
+    const deck = (id: string, title: string, updatedAt: string): Deck => ({
+      id,
+      title,
+      createdAt: updatedAt,
+      updatedAt,
+      slides: [],
+    });
+
+    renderStep({
+      decks: [
+        deck("older", "Older deck", "2026-08-01T00:00:00.000Z"),
+        deck("newer", "Newer deck", "2026-08-10T00:00:00.000Z"),
+      ],
+    });
+
+    expect(screen.queryByText("Recent")).toBeNull();
+    fireEvent.click(screen.getByRole("combobox", { name: "Reference deck" }));
+
+    const options = screen.getAllByRole("option");
+    expect(options.map((option) => option.textContent?.trim())).toEqual([
+      "None",
+      "Newer deck",
+      "Older deck",
+    ]);
+  });
+
+  it("shows the last selected reference deck when the step opens", () => {
+    renderStep({
+      decks: [
+        {
+          id: "deck-last-used",
+          title: "Last used deck",
+          createdAt: "2026-08-01T00:00:00.000Z",
+          updatedAt: "2026-08-10T00:00:00.000Z",
+          slides: [],
+        },
+      ],
+      defaultReferenceDeckId: "deck-last-used",
+    });
+
+    expect(
+      screen.getByRole("combobox", { name: "Reference deck" }).textContent,
+    ).toContain("Last used deck");
   });
 });

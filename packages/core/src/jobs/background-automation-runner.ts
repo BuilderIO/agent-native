@@ -42,7 +42,7 @@ import {
 } from "./run-history.js";
 
 const BACKGROUND_RUN_STUCK_MS = 10 * 60_000;
-const BACKGROUND_RUN_HARD_TIMEOUT_MS = 5 * 60_000;
+export const BACKGROUND_RUN_HARD_TIMEOUT_MS = 10 * 60_000;
 
 export interface BackgroundAutomationContext {
   name: string;
@@ -482,6 +482,8 @@ async function executeBackgroundAutomation(
                 actionCaller: options.actionCaller,
                 automation: options.actionAutomation,
                 runId,
+                maxIterations: automation.meta.maxIterations,
+                maxRunInputTokens: automation.meta.maxRunInputTokens,
               },
               softTimeoutMs,
               { backgroundFunction: true },
@@ -527,7 +529,9 @@ async function executeBackgroundAutomation(
           if (activeRun.status === "running") {
             activeRun.abort.abort("background_automation_hard_timeout");
             reject(
-              new Error("Background automation timed out after 5 minutes"),
+              new Error(
+                `Background automation timed out after ${BACKGROUND_RUN_HARD_TIMEOUT_MS / 60_000} minutes`,
+              ),
             );
           }
         }, BACKGROUND_RUN_HARD_TIMEOUT_MS);

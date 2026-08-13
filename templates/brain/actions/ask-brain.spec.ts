@@ -130,6 +130,34 @@ function policy(sourceId: string, overrides: Record<string, unknown> = {}) {
   };
 }
 
+function capture(args: {
+  id: string;
+  sourceId: string;
+  title: string;
+  snippet: string;
+}) {
+  return {
+    type: "capture",
+    id: args.id,
+    title: args.title,
+    snippet: args.snippet,
+    summary: args.snippet,
+    status: "distilled",
+    provider: "slack",
+    source: {
+      id: args.sourceId,
+      title: "Slack feedback",
+      provider: "slack",
+      status: "active",
+    },
+    sourceUrl: `https://slack.example.test/${args.id}`,
+    citation: null,
+    confidence: null,
+    updatedAt: "2026-07-29T00:00:00.000Z",
+    score: 10,
+  };
+}
+
 describe("ask-brain source answer policy", () => {
   beforeEach(() => {
     mocks.knowledgeRows = [];
@@ -240,5 +268,69 @@ describe("ask-brain source answer policy", () => {
     expect(
       (result.knowledge as Array<{ id: string }>).map((item) => item.id),
     ).toEqual(["blessed"]);
+  });
+
+  it("keeps raw Slack feedback out of the answer when approved knowledge exists", async () => {
+    mocks.knowledgeRows = [
+      knowledge({
+        id: "agent-native-synthesis",
+        sourceId: "source-approved",
+        title: "Approved Agent-Native synthesis",
+      }),
+    ];
+    mocks.captures = [
+      capture({
+        id: "raw-brent-feedback",
+        sourceId: "source-slack",
+        title: "Brent's individual feedback",
+        snippet: "Brent's individual feedback is not the product direction.",
+      }),
+    ];
+    mocks.policies.set(
+      "source-approved",
+      policy("source-approved", { trustTier: "blessed", authority: 100 }),
+    );
+    mocks.policies.set("source-slack", policy("source-slack"));
+
+    const result = await action.run({
+      question: "What is our Agent-Native product direction?",
+      mode: "cited",
+    });
+
+    expect(result.answer).toContain("Approved Agent-Native synthesis");
+    expect(result.answer).not.toContain("Brent's individual feedback");
+    expect(result.answerSource).toBe("approved-knowledge");
+    expect(result.citations).toEqual([
+      expect.objectContaining({ knowledgeId: "agent-native-synthesis" }),
+    ]);
+    expect(result.leadCitations).toEqual([
+      expect.objectContaining({ captureId: "raw-brent-feedback" }),
+    ]);
+  });
+
+  it("returns raw matches as leads without turning them into answer citations", async () => {
+    mocks.captures = [
+      capture({
+        id: "raw-retailer-lead",
+        sourceId: "source-slack",
+        title: "Retailer demo lead",
+        snippet:
+          "A raw Slack message mentions a retailer demo, but it is not approved knowledge.",
+      }),
+    ];
+    mocks.policies.set("source-slack", policy("source-slack"));
+
+    const result = await action.run({
+      question: "What retailer is Nick Nestle demoing to?",
+      mode: "cited",
+    });
+
+    expect(result.answer).toContain("raw Brain capture leads");
+    expect(result.answer).not.toContain("A raw Slack message mentions");
+    expect(result.answerSource).toBe("unreviewed-leads");
+    expect(result.citations).toEqual([]);
+    expect(result.leadCitations).toEqual([
+      expect.objectContaining({ captureId: "raw-retailer-lead" }),
+    ]);
   });
 });

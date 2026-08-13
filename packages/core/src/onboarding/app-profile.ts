@@ -19,6 +19,17 @@ const DESIGN_SYSTEM_INTELLIGENCE_CAPABILITY: OnboardingCapability = {
   why: "Uses your brand and design-system guidance to keep generated work on brand.",
 };
 
+const FILE_UPLOAD_STORAGE_CAPABILITY: OnboardingCapability = {
+  id: "file-storage",
+  label: "File uploads and storage",
+  required: false,
+  suggested: true,
+  builderIncluded: true,
+  keySummary:
+    "Builder file storage or an S3-compatible bucket, credentials, and public base URL",
+  why: "Uploaded images and files need durable object storage so the agent can reuse them throughout a thread.",
+};
+
 const PROFILES: Record<string, OnboardingAppProfile> = {
   analytics: {
     appId: "analytics",
@@ -394,8 +405,27 @@ export function resolveOnboardingAppId(explicit?: string): string {
 export function getOnboardingAppProfile(appId?: string): OnboardingAppProfile {
   const resolvedId = resolveOnboardingAppId(appId);
   const profile = PROFILES[resolvedId] ?? FALLBACK_PROFILE;
+  const capabilities = profile.capabilities.some(
+    (capability) => capability.id === FILE_UPLOAD_STORAGE_CAPABILITY.id,
+  )
+    ? profile.capabilities.map((capability) =>
+        capability.id === FILE_UPLOAD_STORAGE_CAPABILITY.id
+          ? {
+              ...FILE_UPLOAD_STORAGE_CAPABILITY,
+              // Assets and other domain-specific profiles can still make
+              // storage required while sharing the framework-wide contract.
+              required: capability.required,
+              builderIncluded: capability.builderIncluded,
+            }
+          : { ...capability },
+      )
+    : profile.capabilities.flatMap((capability, index) =>
+        index === 0
+          ? [{ ...capability }, { ...FILE_UPLOAD_STORAGE_CAPABILITY }]
+          : [{ ...capability }],
+      );
   return {
     ...profile,
-    capabilities: profile.capabilities.map((capability) => ({ ...capability })),
+    capabilities,
   };
 }

@@ -580,7 +580,7 @@ export interface TiptapComposerProps {
     references: Reference[],
     attachments?: ReadonlyArray<unknown>,
     options?: TiptapComposerSubmitOptions,
-  ) => void;
+  ) => void | Promise<void>;
   /** Return false to stop a submit before it enters the chat runtime. */
   onBeforeSubmit?: () => boolean | Promise<boolean>;
   /**
@@ -631,7 +631,7 @@ export interface TiptapComposerProps {
   voiceEnabled?: boolean;
   /** Selected model override for this conversation */
   selectedModel?: string;
-  /** Selected reasoning effort override for this conversation */
+  /** Selected effort override for this conversation */
   selectedEffort?: ReasoningEffort;
   /** Show the legacy provider-level Auto model option (default: true). */
   showAutoModelOption?: boolean;
@@ -648,7 +648,7 @@ export interface TiptapComposerProps {
   modelListLoading?: boolean;
   /** Callback when user picks a model */
   onModelChange?: (model: string, engine: string) => void;
-  /** Callback when user picks a reasoning effort */
+  /** Callback when user picks an effort */
   onEffortChange?: (effort: ReasoningEffort) => void;
   /**
    * Disable Builder/provider status polling for hosts that supply provider
@@ -963,7 +963,7 @@ function latestModelsOnly(models: string[]): string[] {
       return true;
     }
     // GPT: family = gpt-{major} (e.g. gpt-5.6-sol and gpt-5.6-luna are different)
-    // OpenAI reasoning: each is its own family
+    // OpenAI effort: each is its own family
     // Gemini: family = gemini-{major} + variant
     const gemini = m.match(/^gemini-(\d+(?:\.\d+)?)-(.+?)(?:-preview)?$/);
     if (gemini) {
@@ -1133,12 +1133,12 @@ function ModelSelector({
     });
   }, []);
 
-  // The reasoning effort list is collapsed by default — it's a secondary
+  // The effort list is collapsed by default — it's a secondary
   // control most users don't touch, so it stays tucked behind a header that
   // reveals the current effort at a glance. Reset to collapsed on each open.
-  const [reasoningExpanded, setReasoningExpanded] = useState(false);
+  const [effortExpanded, setEffortExpanded] = useState(false);
   useEffect(() => {
-    if (open) setReasoningExpanded(false);
+    if (open) setEffortExpanded(false);
   }, [open]);
 
   // The optional image-model section follows the same collapsed-by-default
@@ -1202,7 +1202,7 @@ function ModelSelector({
           data-agent-composer-slot="model-button"
           aria-label={`Model: ${friendlyModelName(model)}${
             effortOptions.length > 0
-              ? `. Reasoning: ${effortLabel(selectedEffort)}`
+              ? `. Effort: ${effortLabel(selectedEffort)}`
               : ""
           }`}
           className="agent-composer-model-button flex min-w-0 max-w-[10.5rem] shrink items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground"
@@ -1466,26 +1466,26 @@ function ModelSelector({
               <div className="flex items-center hover:bg-accent/30">
                 <button
                   type="button"
-                  aria-expanded={reasoningExpanded}
-                  onClick={() => setReasoningExpanded((prev) => !prev)}
+                  aria-expanded={effortExpanded}
+                  onClick={() => setEffortExpanded((prev) => !prev)}
                   className="flex flex-1 min-w-0 items-center gap-1.5 px-2 py-1.5 cursor-pointer text-start"
                 >
-                  {reasoningExpanded ? (
+                  {effortExpanded ? (
                     <IconChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
                   ) : (
                     <IconChevronRight className="h-3 w-3 shrink-0 text-muted-foreground rtl:-scale-x-100" />
                   )}
                   <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide shrink-0">
-                    Reasoning
+                    Effort
                   </span>
-                  {!reasoningExpanded && (
+                  {!effortExpanded && (
                     <span className="text-[11px] text-muted-foreground/80 truncate">
                       {effortLabel(selectedEffort)}
                     </span>
                   )}
                 </button>
               </div>
-              {reasoningExpanded &&
+              {effortExpanded &&
                 effortOptions.map((option) => (
                   <button
                     key={option}
@@ -2651,7 +2651,13 @@ export function TiptapComposer({
       }
 
       if (onSubmit) {
-        onSubmit(text, references, attachments, { intent });
+        try {
+          await onSubmit(text, references, attachments, { intent });
+        } catch {
+          // Hosts own their submit errors. Keep the draft and attachments
+          // available for recovery when a host rejects the submission.
+          return;
+        }
         // Clear any pending attachments now that the host has them.
         void composerRuntime.clearAttachments().catch(() => {});
         if (!clearOnSubmit) {

@@ -35,6 +35,7 @@ function makeWorkspace(rootCoreVersion: string | undefined): {
   );
   const appDir = path.join(root, "apps", "mail");
   fs.mkdirSync(appDir, { recursive: true });
+  fs.mkdirSync(path.join(root, ".agents", "skills"), { recursive: true });
   fs.writeFileSync(
     path.join(appDir, "package.json"),
     JSON.stringify(
@@ -83,5 +84,54 @@ describe("workspacifyApp core pinning", () => {
       });
       expect(appCoreVersion(appDir)).toBe("0.131.4");
     }
+  });
+
+  it("links inherited skills and removes template copies while preserving app skills", () => {
+    const { root, appDir } = makeWorkspace(undefined);
+    const workspaceSkillsDir = path.join(root, ".agents", "skills");
+    fs.mkdirSync(path.join(workspaceSkillsDir, "actions"), {
+      recursive: true,
+    });
+    fs.writeFileSync(
+      path.join(workspaceSkillsDir, "actions", "SKILL.md"),
+      "workspace actions\n",
+    );
+
+    const appSkillsDir = path.join(appDir, ".agents", "skills");
+    fs.mkdirSync(path.join(appSkillsDir, "actions"), { recursive: true });
+    fs.writeFileSync(
+      path.join(appSkillsDir, "actions", "SKILL.md"),
+      "copied template actions\n",
+    );
+    fs.mkdirSync(path.join(appSkillsDir, "feature-flags"), {
+      recursive: true,
+    });
+    fs.writeFileSync(
+      path.join(appSkillsDir, "feature-flags", "SKILL.md"),
+      "copied optional skill\n",
+    );
+    fs.mkdirSync(path.join(appSkillsDir, "call-coach"), { recursive: true });
+    fs.writeFileSync(
+      path.join(appSkillsDir, "call-coach", "SKILL.md"),
+      "app skill\n",
+    );
+
+    workspacifyApp({
+      appDir,
+      appName: "mail",
+      workspaceRoot: root,
+      workspaceCoreName: "@ws/shared",
+    });
+
+    expect(
+      fs.lstatSync(path.join(appSkillsDir, "actions")).isSymbolicLink(),
+    ).toBe(true);
+    expect(
+      fs.readFileSync(path.join(appSkillsDir, "actions", "SKILL.md"), "utf8"),
+    ).toBe("workspace actions\n");
+    expect(fs.existsSync(path.join(appSkillsDir, "feature-flags"))).toBe(false);
+    expect(
+      fs.existsSync(path.join(appSkillsDir, "call-coach", "SKILL.md")),
+    ).toBe(true);
   });
 });

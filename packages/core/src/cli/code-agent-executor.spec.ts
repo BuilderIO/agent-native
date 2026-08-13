@@ -268,6 +268,7 @@ describe("executeCodeAgentRun", () => {
       goalId: "task",
       title: "Use Claude",
       status: "queued",
+      permissionMode: "auto-edit",
       cwd: process.cwd(),
       metadata: {
         engine: "claude-cli",
@@ -297,6 +298,12 @@ describe("executeCodeAgentRun", () => {
     expect(args[args.indexOf("--model") + 1]).toBe("claude-sonnet-5");
     expect(args).toContain("--effort");
     expect(args[args.indexOf("--effort") + 1]).toBe("high");
+    expect(args).toEqual(
+      expect.arrayContaining(["--permission-mode", "acceptEdits"]),
+    );
+    expect(args).not.toEqual(
+      expect.arrayContaining(["--permission-mode", "plan"]),
+    );
     expect(listCodeAgentTranscriptEvents(run.id)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({

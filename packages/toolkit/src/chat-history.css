@@ -234,7 +234,7 @@
 .an-chat-history--rail .an-chat-history-row__button {
   min-height: 32px;
   padding-block: 6px;
-  padding-inline: 10px 36px;
+  padding-inline: 10px;
   border-radius: inherit;
   color: hsl(var(--muted-foreground));
 }
@@ -290,12 +290,30 @@
 .an-chat-history--rail .an-chat-history-row__timestamp {
   font-size: 11px;
   color: hsl(var(--muted-foreground) / 0.62);
+  transition: opacity 100ms ease;
 }
 
 .an-chat-history--rail
   .an-chat-history-row--active
   .an-chat-history-row__timestamp {
   color: hsl(var(--accent-foreground));
+}
+
+/* Hide trailing metadata while the absolute menu takes its place so hover
+   never changes the title's available width or moves the rest of the rail. */
+.an-chat-history--rail
+  .an-chat-history-row--has-menu:hover
+  .an-chat-history-row__timestamp,
+.an-chat-history--rail
+  .an-chat-history-row--has-menu:focus-within
+  .an-chat-history-row__timestamp,
+.an-chat-history--rail
+  .an-chat-history-row--has-menu.an-chat-history-row--menu-open
+  .an-chat-history-row__timestamp,
+.an-chat-history--rail
+  .an-chat-history-row--has-menu.an-chat-history-row--pinned
+  .an-chat-history-row__timestamp {
+  opacity: 0;
 }
 
 .an-chat-history-row__subtitle {
@@ -349,6 +367,11 @@
   position: absolute;
   top: 4px;
   inset-inline-end: 4px;
+  z-index: 1;
+}
+
+.an-chat-history--rail .an-chat-history-row__menu {
+  inset-inline-end: 8px;
 }
 
 .an-chat-history-row__menu-trigger {
@@ -369,11 +392,26 @@
     opacity 100ms ease;
 }
 
+.an-chat-history--rail .an-chat-history-row__menu-trigger {
+  pointer-events: none;
+}
+
 .an-chat-history-row:hover .an-chat-history-row__menu-trigger,
 .an-chat-history-row:focus-within .an-chat-history-row__menu-trigger,
 .an-chat-history-row__menu-trigger[aria-expanded="true"],
 .an-chat-history-row__menu-trigger--pinned {
   opacity: 1;
+}
+
+.an-chat-history--rail
+  .an-chat-history-row:hover
+  .an-chat-history-row__menu-trigger,
+.an-chat-history--rail
+  .an-chat-history-row:focus-within
+  .an-chat-history-row__menu-trigger,
+.an-chat-history--rail .an-chat-history-row__menu-trigger[aria-expanded="true"],
+.an-chat-history--rail .an-chat-history-row__menu-trigger--pinned {
+  pointer-events: auto;
 }
 
 .an-chat-history-row__menu-trigger:hover,
@@ -383,10 +421,7 @@
 }
 
 .an-chat-history-row__menu-content {
-  position: absolute;
-  top: calc(100% + 4px);
-  inset-inline-end: 0;
-  z-index: 30;
+  z-index: 290;
   min-width: 160px;
   padding: 4px;
   border: 1px solid hsl(var(--border));

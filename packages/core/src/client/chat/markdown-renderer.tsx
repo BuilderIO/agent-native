@@ -2,11 +2,7 @@
 // HighlightedCodeBlock wrapper, and the markdownComponents/markdownUrlTransform
 // used by every markdown render path in AssistantChat.
 
-import {
-  useThread,
-  useMessageRuntime,
-  useMessagePartText,
-} from "@assistant-ui/react";
+import { useMessageRuntime, useMessagePartText } from "@assistant-ui/react";
 import { IconPlus, IconExternalLink } from "@tabler/icons-react";
 import React, {
   useState,
@@ -437,6 +433,9 @@ function rememberStreamingText(
   if (oldestKey !== undefined) smoothStreamingTextCache.delete(oldestKey);
 }
 
+/** Stable placeholder so the grapheme ref stays `string[]` before it is seeded. */
+const EMPTY_GRAPHEMES: string[] = [];
+
 export function useSmoothStreamingText(
   targetText: string,
   streaming: boolean,
@@ -455,11 +454,23 @@ export function useSmoothStreamingText(
     );
   });
   const visibleTextRef = useRef(visibleText);
-  const visibleCountRef = useRef(
-    splitStreamingTextGraphemes(visibleText).length,
-  );
   const targetTextRef = useRef(targetText);
-  const targetGraphemesRef = useRef(splitStreamingTextGraphemes(targetText));
+  // `useRef(expr)` evaluates `expr` on EVERY render and throws it away after
+  // mount. Segmenting here therefore ran a full Intl.Segmenter pass per commit
+  // — up to 60Hz per streaming message — and, because `visibleText` is a strict
+  // prefix of `targetText`, that pass could never hit the incremental path and
+  // evicted the shared segmenter cache for every other live stream too. Seed
+  // once; the streaming effect below keeps both refs authoritative after that.
+  const visibleCountRef = useRef(-1);
+  const targetGraphemesRef = useRef<string[]>(EMPTY_GRAPHEMES);
+  if (visibleCountRef.current < 0) {
+    if (streaming && !prefersReducedMotion) {
+      targetGraphemesRef.current = splitStreamingTextGraphemes(targetText);
+      visibleCountRef.current = splitStreamingTextGraphemes(visibleText).length;
+    } else {
+      visibleCountRef.current = 0;
+    }
+  }
   const frameRef = useRef<number | null>(null);
   const lastCommitAtRef = useRef(0);
   const pauseUntilRef = useRef(0);
@@ -571,18 +582,24 @@ export function useSmoothStreamingText(
   };
 
   useEffect(() => {
-    const targetGraphemes = splitStreamingTextGraphemes(targetText);
     targetTextRef.current = targetText;
-    targetGraphemesRef.current = targetGraphemes;
 
     const keyChanged = resetKeyRef.current !== resetKey;
     resetKeyRef.current = resetKey;
 
     if (!streaming || prefersReducedMotion) {
       cancelFrame();
-      commitVisibleCount(targetGraphemes.length);
+      targetGraphemesRef.current = EMPTY_GRAPHEMES;
+      visibleCountRef.current = 0;
+      if (visibleTextRef.current !== targetText) {
+        visibleTextRef.current = targetText;
+        setVisibleText(targetText);
+      }
       return;
     }
+
+    const targetGraphemes = splitStreamingTextGraphemes(targetText);
+    targetGraphemesRef.current = targetGraphemes;
 
     const visibleNoLongerMatchesTarget =
       visibleTextRef.current.length > 0 &&
@@ -661,10 +678,6 @@ export function useMarkdownReady(): boolean {
   return ready;
 }
 
-// ─── MemoizedMarkdownBlock ────────────────────────────────────────────────────
-// Renders a single stable markdown block. Wrapped in React.memo so React
-// skips re-rendering completed blocks when only the tail changes.
-
 export const MemoizedMarkdownBlock = React.memo(function MemoizedMarkdownBlock({
   blockText,
 }: {
@@ -691,60 +704,55 @@ export function SmoothMarkdownText({
   streaming,
   resetKey,
   statusType = "complete",
+  animateStreaming = true,
   onRevealComplete,
 }: {
   text: string;
   streaming: boolean;
   resetKey: string;
   statusType?: string;
+  /** Allow callers to opt out for static or deliberately chunk-native surfaces. */
+  animateStreaming?: boolean;
   onRevealComplete?: () => void;
 }) {
   const mdReady = useMarkdownReady();
-  const visibleText = useSmoothStreamingText(text, streaming, resetKey);
-  const isVisuallyStreaming = streaming && visibleText !== text;
+  const shouldAnimate = streaming && animateStreaming;
+  const visibleText = useSmoothStreamingText(text, shouldAnimate, resetKey);
   const ReactMarkdown = markdownModule?.default;
   const gfm = remarkGfmFn;
+  const markdownBlocks = useMemo(
+    () => (streaming ? splitMarkdownBlocks(visibleText) : null),
+    [streaming, visibleText],
+  );
 
   useEffect(() => {
-    if (!onRevealComplete || !streaming || visibleText !== text) return;
+    if (!onRevealComplete || !shouldAnimate || visibleText !== text) return;
     onRevealComplete();
-  }, [onRevealComplete, streaming, text, visibleText]);
-
-  // Block-memoized rendering: during streaming split the visible text into
-  // stable completed blocks + an in-progress tail.  Only the tail re-renders
-  // on every commit; completed blocks are React.memo'd and skipped.
-  // On completion we fall through to a single ReactMarkdown pass to guarantee
-  // byte-identical final output (no block-split artifacts).
-  const split = useMemo(
-    () => (isVisuallyStreaming ? splitMarkdownBlocks(visibleText) : null),
-    [isVisuallyStreaming, visibleText],
-  );
+  }, [onRevealComplete, shouldAnimate, text, visibleText]);
 
   return (
     <div
       className="agent-markdown break-words"
       data-status={statusType}
-      data-streaming={isVisuallyStreaming ? "true" : undefined}
+      data-streaming={streaming ? "true" : undefined}
     >
       {mdReady && ReactMarkdown && gfm ? (
-        split ? (
-          // Streaming: render completed blocks (memoized) + live tail block
+        markdownBlocks ? (
           <>
-            {split.completedBlocks.map((block, i) => (
-              <MemoizedMarkdownBlock key={i} blockText={block} />
+            {markdownBlocks.completedBlocks.map((blockText, index) => (
+              <MemoizedMarkdownBlock key={index} blockText={blockText} />
             ))}
-            {split.tail ? (
+            {markdownBlocks.tail ? (
               <ReactMarkdown
                 remarkPlugins={[gfm]}
                 components={markdownComponents}
                 urlTransform={markdownUrlTransform}
               >
-                {wrapLegacyChartShorthandLines(split.tail)}
+                {wrapLegacyChartShorthandLines(markdownBlocks.tail)}
               </ReactMarkdown>
             ) : null}
           </>
         ) : (
-          // Not streaming (or streaming complete): single-pass render
           <ReactMarkdown
             remarkPlugins={[gfm]}
             components={markdownComponents}
@@ -754,9 +762,6 @@ export function SmoothMarkdownText({
           </ReactMarkdown>
         )
       ) : (
-        // Plain text while the react-markdown chunk is in flight.
-        // The chunk is already being fetched by loadMarkdown() above, so
-        // this placeholder is typically only visible for one render frame.
         <span style={{ whiteSpace: "pre-wrap" }}>{visibleText}</span>
       )}
     </div>
@@ -769,11 +774,8 @@ export function MarkdownText() {
   const textPart = useMessagePartText();
   const messageRuntime = useMessageRuntime();
   const message = messageRuntime.getState();
-  const thread = useThread();
   const textStreaming = React.useContext(TextStreamingContext);
-  const lastMessage = thread.messages[thread.messages.length - 1];
-  const isLastAssistantMessage =
-    message.role === "assistant" && lastMessage?.id === message.id;
+  const isLastAssistantMessage = message.role === "assistant" && message.isLast;
   const statusType =
     textPart.status?.type ?? message.status?.type ?? "complete";
 

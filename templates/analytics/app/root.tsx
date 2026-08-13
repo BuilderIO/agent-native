@@ -65,7 +65,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
           suppressHydrationWarning
           dangerouslySetInnerHTML={{ __html: LOCALE_INIT_SCRIPT }}
         />
-        <link rel="manifest" href={appPath("/manifest.json")} />
         <meta name="theme-color" content="#F59E0B" />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta

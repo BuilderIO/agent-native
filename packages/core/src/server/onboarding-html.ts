@@ -15,6 +15,7 @@ import {
   SUPPORTED_LOCALES,
   type LocaleCode,
 } from "../localization/shared.js";
+import { docsUrl } from "../shared/docs-url.js";
 import {
   PASSWORD_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
@@ -1500,18 +1501,6 @@ export interface OnboardingHtmlOptions {
   requestPath?: string;
   requestOrigin?: string;
   /**
-   * Optional preflight copy shown before redirecting through Google sign-in.
-   * Use this when a hosted app needs to warn about provider-specific consent
-   * screens while leaving self-hosted deployments untouched.
-   */
-  googleSignInNotice?: {
-    host?: string;
-    title: string;
-    body: string | string[];
-    continueLabel?: string;
-    cancelLabel?: string;
-  };
-  /**
    * Optional email signup legal copy. Builder-hosted `*.agent-native.com`
    * deployments get the Agent Native links automatically; self-hosted and
    * custom-domain apps must opt in with their own URLs.
@@ -1669,68 +1658,13 @@ ${localeMenuItemsHtml}
         <button type="button" class="copy-run-local" id="copy-signup-local-mode" onclick="__anCopySignupLocalModeCommand()"${i18nAttr("copyCommand")}>${esc(t("copyCommand"))}</button>
       </div>`
     : "";
-  const googleSignInNotice = opts.googleSignInNotice;
-  const googleNoticeBodyParts = googleSignInNotice
-    ? (Array.isArray(googleSignInNotice.body)
-        ? googleSignInNotice.body
-        : [googleSignInNotice.body]
-      ).filter((body) => body.trim().length > 0)
-    : [];
-  const googleNoticeBodyHtml = googleNoticeBodyParts
-    .map(
-      (body, index) =>
-        `<p class="google-preflight-copy"${index === 0 ? ' id="google-preflight-copy"' : ""}>${esc(body)}</p>`,
-    )
-    .join("\n");
-  const googleNoticeRunLocalHtml = runLocalCommand
-    ? `
-      <button type="button" class="btn-secondary google-preflight-local" id="google-preflight-run-local" onclick="__anChooseRunLocalFromGoogleNotice()"${i18nAttr(googleSignInNotice?.cancelLabel === undefined ? "runLocallySentence" : undefined)}>${esc(googleSignInNotice?.cancelLabel ?? t("runLocallySentence"))}</button>`
-    : `
-      <button type="button" class="btn-secondary" onclick="__anHideGoogleNotice()"${i18nAttr(googleSignInNotice?.cancelLabel === undefined ? "close" : undefined)}>${esc(googleSignInNotice?.cancelLabel ?? t("close"))}</button>`;
-  const googleNoticeRunLocalPanelHtml = runLocalCommand
-    ? `
-    <div class="google-preflight-command" id="google-preflight-run-local-panel" hidden data-command="${esc(runLocalCommand)}">
-      <p class="google-preflight-command-label"${i18nAttr("useOwnGoogleClient")}>${esc(t("useOwnGoogleClient"))}</p>
-      <code>${esc(runLocalCommand)}</code>
-      <button type="button" class="copy-run-local" id="copy-google-preflight-run-local" onclick="__anCopyGoogleNoticeRunLocalCommand()"${i18nAttr("copyCommand")}>${esc(t("copyCommand"))}</button>
-    </div>`
-    : "";
-  const googleNoticeHtml =
-    renderGoogleButton && googleSignInNotice
-      ? `
-  <div
-    class="google-preflight"
-    id="google-preflight"
-    data-host="${esc(googleSignInNotice.host ?? "")}"
-    role="dialog"
-    aria-labelledby="google-preflight-title"
-    aria-describedby="google-preflight-copy"
-    tabindex="-1"
-  >
-    <button type="button" class="google-preflight-close" aria-label="${esc(t("closeGoogleChoices"))}"${i18nAriaAttr("closeGoogleChoices")} onclick="__anHideGoogleNotice()">&times;</button>
-    <div class="google-preflight-main">
-      <span class="google-preflight-icon" aria-hidden="true">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.24 3.957l-8.422 14.06a1.989 1.989 0 0 0 1.7 2.983h16.845a1.989 1.989 0 0 0 1.7 -2.983l-8.423 -14.06a1.989 1.989 0 0 0 -3.4 0z"/><path d="M12 9v4"/><path d="M12 16h.01"/></svg>
-      </span>
-      <div class="google-preflight-text">
-        <p class="google-preflight-title" id="google-preflight-title">${esc(googleSignInNotice.title)}</p>
-${googleNoticeBodyHtml}
-      </div>
-    </div>
-    <div class="google-preflight-actions">
-      <button type="button" class="btn-primary" id="google-preflight-continue" onclick="__anAcceptGoogleNotice()"${i18nAttr(googleSignInNotice.continueLabel === undefined ? "continue" : undefined)}>${esc(googleSignInNotice.continueLabel ?? t("continue"))}</button>
-${googleNoticeRunLocalHtml}
-    </div>
-${googleNoticeRunLocalPanelHtml}
-  </div>`
-      : "";
   const identitySsoHtml = identitySsoLoginButtonHtml();
   const localDevHtml = `
   <div class="local-dev-signin" id="local-dev-signin" hidden>
     <button type="button" class="btn-local-dev btn-primary" id="local-dev-btn" title="${esc(t("localDevDescription"))}"${i18nAttr("localDevButton")} data-i18n-title="localDevDescription" aria-describedby="local-dev-description">${esc(t("localDevButton"))}</button>
     <p class="local-dev-description" id="local-dev-description">
       <span${i18nAttr("localDevDescription")}>${esc(t("localDevDescription"))}</span>
-      <a class="local-dev-help" id="local-dev-help" href="https://www.agent-native.com/docs/authentication#local-development-sign-in" target="_blank" rel="noreferrer" aria-label="${esc(t("localDevHelp"))}" title="${esc(t("localDevHelp"))}" data-i18n-title="localDevHelp"${i18nAriaAttr("localDevHelp")}><span class="local-dev-help-glyph" aria-hidden="true">?</span></a>
+      <a class="local-dev-help" id="local-dev-help" href="${docsUrl("authentication", { hash: "local-development-sign-in" })}" target="_blank" rel="noreferrer" aria-label="${esc(t("localDevHelp"))}" title="${esc(t("localDevHelp"))}" data-i18n-title="localDevHelp"${i18nAriaAttr("localDevHelp")}><span class="local-dev-help-glyph" aria-hidden="true">?</span></a>
     </p>
     <button type="button" class="local-dev-full-options" id="local-dev-full-options" hidden${i18nAttr("localDevFullOptions")}>${esc(t("localDevFullOptions"))}</button>
     <p class="msg error" id="local-dev-msg" role="status" aria-live="polite"></p>
@@ -2666,126 +2600,6 @@ ${identitySsoMagicLinkSelector}
     word-break: break-word;
   }
   .google-debug.show { display: block; }
-  .google-preflight {
-    display: none;
-    position: absolute;
-    top: calc(100% + 0.625rem);
-    left: 0;
-    right: 0;
-    z-index: 20;
-    padding: 0.875rem;
-    border: 1px solid rgba(255,255,255,0.12);
-    border-radius: 10px;
-    background: #1b1b1b;
-    box-shadow: 0 18px 50px rgba(0,0,0,0.48);
-  }
-  .google-preflight.show { display: block; }
-  .google-preflight::before {
-    content: '';
-    position: absolute;
-    top: -6px;
-    left: 50%;
-    width: 10px;
-    height: 10px;
-    transform: translateX(-50%) rotate(45deg);
-    background: #1b1b1b;
-    border-left: 1px solid rgba(255,255,255,0.12);
-    border-top: 1px solid rgba(255,255,255,0.12);
-  }
-  .google-preflight-main {
-    display: flex;
-    align-items: flex-start;
-    gap: 0.625rem;
-    padding-right: 1.25rem;
-  }
-  .google-preflight-icon {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    flex: none;
-    width: 1.75rem;
-    height: 1.75rem;
-    border-radius: 7px;
-    background: rgba(245,158,11,0.15);
-    color: #fcd34d;
-  }
-  .google-preflight-icon svg { width: 1rem; height: 1rem; }
-  .google-preflight-text { min-width: 0; }
-  .google-preflight-title {
-    color: #fff;
-    font-size: 0.8125rem;
-    font-weight: 600;
-    margin-bottom: 0.25rem;
-  }
-  .google-preflight-close {
-    position: absolute;
-    top: 0.5rem;
-    right: 0.5rem;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 1.5rem;
-    height: 1.5rem;
-    background: transparent;
-    border: none;
-    border-radius: 999px;
-    color: #888;
-    cursor: pointer;
-    font-size: 1.125rem;
-    line-height: 1;
-  }
-  .google-preflight-close:hover { color: #fff; background: rgba(255,255,255,0.07); }
-  .google-preflight-copy {
-    color: #b4b4b8;
-    font-size: 0.75rem;
-    line-height: 1.55;
-  }
-  .google-preflight-copy + .google-preflight-copy { margin-top: 0.5rem; }
-  .google-preflight-actions {
-    display: flex;
-    gap: 0.5rem;
-    margin-top: 0.875rem;
-  }
-  .google-preflight-actions .btn-primary,
-  .google-preflight-actions .btn-secondary {
-    flex: 1;
-    width: auto;
-    margin-top: 0;
-    white-space: nowrap;
-  }
-  .google-preflight-command {
-    margin-top: 0.75rem;
-    padding: 0.75rem;
-    border: 1px solid rgba(255,255,255,0.1);
-    border-radius: 8px;
-    background: rgba(0,0,0,0.24);
-  }
-  .google-preflight-command[hidden] { display: none; }
-  .google-preflight-command-label {
-    margin-bottom: 0.5rem;
-    color: #d4d4d8;
-    font-size: 0.75rem;
-    font-weight: 500;
-  }
-  .google-preflight-command code {
-    display: block;
-    overflow-x: auto;
-    color: #e5e5e5;
-    font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
-    font-size: 0.71875rem;
-    line-height: 1.45;
-    white-space: nowrap;
-  }
-  @media (max-width: 480px) {
-    .google-preflight {
-      position: static;
-      margin-top: 0.625rem;
-    }
-    .google-preflight::before { display: none; }
-    .google-preflight-actions { flex-direction: column; }
-    .google-preflight-actions .btn-primary,
-    .google-preflight-actions .btn-secondary { width: 100%; }
-  }
   .local-note {
     display: none;
     max-width: 400px;
@@ -2829,13 +2643,12 @@ ${
   renderGoogleButton
     ? `
   <div class="google-signin" id="google-signin">
-  <button class="btn-google" id="google-btn" onclick="signInWithGoogle()"${googleSignInNotice ? ' aria-haspopup="dialog" aria-expanded="false" aria-controls="google-preflight"' : ""}>
+  <button class="btn-google" id="google-btn" onclick="signInWithGoogle()">
     <svg viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
     <span${i18nAttr("googleButton")}>${esc(t("googleButton"))}</span>
   </button>
   <p class="google-error" id="google-err"></p>
   <p class="google-debug" id="google-debug"></p>
-${googleNoticeHtml}
   </div>
 ${googleOnly ? "" : `\n  <div class="divider" id="auth-divider"${i18nAttr("dividerOr")}>${esc(t("dividerOr"))}</div>\n`}
 `
@@ -3236,6 +3049,7 @@ ${signInJourneyInlineScript()}
     }
     function __anFinishOAuthExchange(ret, flowId, sessionToken) {
       __anGoogleSignInInFlight = false;
+      __anMagicLinkInFlight = false;
       if (__anIsBuilderPreview()) {
         if (sessionToken) {
           __anSetOAuthDebug('OAuth exchange redeemed; applying session bridge to embedded app', flowId);
@@ -3304,37 +3118,54 @@ ${signInJourneyInlineScript()}
       var container = document.getElementById('local-dev-signin');
       var button = document.getElementById('local-dev-btn');
       var fullOptionsButton = document.getElementById('local-dev-full-options');
-      var message = document.getElementById('local-dev-msg');
       if (!container || !button || !__anCanUseLocalDevSignin()) return;
-      container.hidden = false;
-      var startWithLocalDev = __anShouldStartWithLocalDev();
-      __anSetFullAuthOptionsVisible(!startWithLocalDev);
-      if (startWithLocalDev) button.focus();
-      if (fullOptionsButton) fullOptionsButton.addEventListener('click', function() {
-        __anSetFullAuthOptionsVisible(true);
-        var firstInput = document.querySelector('#full-auth-options input, #full-auth-options button, #full-auth-options a');
-        if (firstInput) firstInput.focus();
-      });
-      button.addEventListener('click', function() {
-        button.disabled = true;
-        button.textContent = __anT('localDevSigningIn');
-        fetch(__anPath('/_agent-native/auth/local-dev'), {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'Accept': 'application/json' },
-        }).then(function(response) {
-          if (!response.ok) throw new Error('local-dev-auth-failed');
-        }).then(function() {
-          __anRedirectToSignedInApp(__anResumeHref());
-        }).catch(function() {
-          button.disabled = false;
-          button.textContent = __anT('localDevButton');
+      function __anShowLocalDevSignin() {
+        container.hidden = false;
+        var startWithLocalDev = __anShouldStartWithLocalDev();
+        __anSetFullAuthOptionsVisible(!startWithLocalDev);
+        if (startWithLocalDev) button.focus();
+        if (fullOptionsButton) fullOptionsButton.addEventListener('click', function() {
           __anSetFullAuthOptionsVisible(true);
-          if (message) {
-            message.textContent = __anT('localDevFailed');
-            message.classList.add('show');
-          }
+          var firstInput = document.querySelector('#full-auth-options input, #full-auth-options button, #full-auth-options a');
+          if (firstInput) firstInput.focus();
         });
+        button.addEventListener('click', function() {
+          button.disabled = true;
+          button.textContent = __anT('localDevSigningIn');
+          fetch(__anPath('/_agent-native/auth/local-dev'), {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Accept': 'application/json' },
+          }).then(function(response) {
+            if (!response.ok) throw new Error('local-dev-auth-failed');
+          }).then(function() {
+            __anRedirectToSignedInApp(__anResumeHref());
+          }).catch(function() {
+            container.hidden = true;
+            __anSetFullAuthOptionsVisible(true);
+          });
+        });
+      }
+      fetch(__anPath('/_agent-native/auth/local-dev'), {
+        method: 'GET',
+        credentials: 'include',
+        cache: 'no-store',
+        headers: { 'Accept': 'application/json' },
+      }).then(function(response) {
+        if (!response.ok) return null;
+        return response.json().then(function(data) {
+          return data;
+        }, function() {
+          return null;
+        });
+      }, function() {
+        return null;
+      }).then(function(data) {
+        if (data && data.available === true) {
+          __anShowLocalDevSignin();
+        } else {
+          __anSetFullAuthOptionsVisible(true);
+        }
       });
     })();
 ${identitySsoScript}
@@ -3491,6 +3322,7 @@ ${identitySsoScript}
     var __anOAuthPollTimer = null;
     var __anOAuthPollCount = 0;
     var __anGoogleSignInInFlight = false;
+    var __anMagicLinkInFlight = false;
     var __anGoogleRecoverBound = false;
     function __anNewOAuthFlowId() {
       try {
@@ -3524,15 +3356,26 @@ ${identitySsoScript}
         if (showDebugOverlay) debug.classList.add('show');
       }
     }
-    function __anShowOAuthError(err, btn, message) {
+    function __anStopOAuthExchangePolling() {
       if (__anOAuthPollTimer) {
         clearInterval(__anOAuthPollTimer);
         __anOAuthPollTimer = null;
       }
+    }
+    function __anShowAuthExchangeError(err, btn, message, kind) {
+      __anStopOAuthExchangePolling();
       err.textContent = message;
-      err.classList.add('show');
+      err.classList.add('show', 'error');
       btn.disabled = false;
-      __anGoogleSignInInFlight = false;
+      if (kind === 'magic-link') {
+        __anMagicLinkInFlight = false;
+        showMagicLinkForm();
+      } else {
+        __anGoogleSignInInFlight = false;
+      }
+    }
+    function __anShowOAuthError(err, btn, message) {
+      __anShowAuthExchangeError(err, btn, message, 'google');
     }
     function __anRecoverGoogleSignInAfterReturn() {
       // The user left for the Google sign-in window and came back. If the flow
@@ -3582,14 +3425,17 @@ ${identitySsoScript}
         __anShowOAuthError(err, btn, __anT('failedToConnect'));
       }
     }
-    function __anWaitForOAuthExchange(flowId, ret, btn, err) {
+    function __anWaitForOAuthExchange(flowId, ret, btn, err, kind, verifier) {
       var started = Date.now();
       var timeoutMs = 5 * 60 * 1000;
+      var isMagicLink = kind === 'magic-link';
       __anOAuthPollCount = 0;
       async function check() {
         __anOAuthPollCount++;
         try {
-          var res = await fetch(__anPath('/_agent-native/auth/desktop-exchange') + '?flow_id=' + encodeURIComponent(flowId), { credentials: 'include' });
+          var exchangeParams = '?flow_id=' + encodeURIComponent(flowId);
+          if (verifier) exchangeParams += '&verifier=' + encodeURIComponent(verifier);
+          var res = await fetch(__anPath('/_agent-native/auth/desktop-exchange') + exchangeParams, { credentials: 'include' });
           var data = await res.json().catch(function() { return {}; });
           if (data && (data.email || data.token)) {
             if (__anOAuthPollTimer) clearInterval(__anOAuthPollTimer);
@@ -3599,7 +3445,12 @@ ${identitySsoScript}
           }
           if (data && data.error) {
             __anSetOAuthDebug('OAuth exchange returned an error: ' + (data.message || data.error), flowId);
-            __anShowOAuthError(err, btn, __anAuthErrorText(data, __anT('googleNotConfigured')));
+            __anShowAuthExchangeError(
+              err,
+              btn,
+              __anAuthErrorText(data, isMagicLink ? __anT('magicLinkFailed') : __anT('googleNotConfigured')),
+              isMagicLink ? 'magic-link' : 'google',
+            );
             return;
           }
           if (data && data.pending && (__anOAuthPollCount === 1 || __anOAuthPollCount % 5 === 0)) {
@@ -3611,10 +3462,17 @@ ${identitySsoScript}
           }
         }
         if (Date.now() - started > timeoutMs) {
-          __anShowOAuthError(err, btn, __anT('googleNeverFinished') + ' Flow ' + __anFlowDebugId(flowId) + '.');
+          __anShowAuthExchangeError(
+            err,
+            btn,
+            isMagicLink
+              ? __anT('magicLinkFailed')
+              : __anT('googleNeverFinished') + ' Flow ' + __anFlowDebugId(flowId) + '.',
+            isMagicLink ? 'magic-link' : 'google',
+          );
         }
       }
-      if (__anOAuthPollTimer) clearInterval(__anOAuthPollTimer);
+      __anStopOAuthExchangePolling();
       __anOAuthPollTimer = setInterval(check, 1000);
       setTimeout(check, 500);
     }
@@ -3751,6 +3609,8 @@ ${
       __anSetAuthView('magicLinkSent');
     }
     function showMagicLinkForm() {
+      __anStopOAuthExchangePolling();
+      __anMagicLinkInFlight = false;
       var form = document.getElementById('magic-link-form');
       if (!form) return;
       hideMagicLinkSuccess();
@@ -4123,6 +3983,7 @@ ${
     var msg = document.getElementById('m-msg');
     var emailInput = document.getElementById('m-email');
     var email = __anNormalizeAuthEmail(emailInput && emailInput.value);
+    var isDesktopMagicLink = __anIsAgentNativeDesktop();
     msg.classList.remove('show', 'error', 'success');
     if (!__anIsValidAuthEmail(email)) {
       __anShowEmailValidationError(emailInput, msg);
@@ -4130,12 +3991,18 @@ ${
     }
     var originalLabel = btn.textContent;
     btn.disabled = true;
+    __anMagicLinkInFlight = isDesktopMagicLink;
     btn.textContent = __anT('sending');
     try {
       var res = await fetch(__anPath('/_agent-native/auth/magic-link'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email, callbackURL: __anResumeHref() }),
+        body: JSON.stringify({
+          email: email,
+          callbackURL: isDesktopMagicLink
+            ? __anPath('/_agent-native/auth/magic-link/desktop-callback')
+            : __anResumeHref(),
+        }),
       });
       var data = await res.json().catch(function(error) {
         console.warn('[auth] Could not parse magic-link response', error);
@@ -4145,13 +4012,23 @@ ${
         btn.disabled = false;
         btn.textContent = originalLabel;
         showMagicLinkSuccess(email);
+        if (isDesktopMagicLink) {
+          var magicFlowId = data && typeof data.flowId === 'string' ? data.flowId : '';
+          var magicVerifier = data && typeof data.verifier === 'string' ? data.verifier : '';
+          if (!magicFlowId || !magicVerifier) {
+            throw new Error('The sign-in flow was not initialized.');
+          }
+          __anWaitForOAuthExchange(magicFlowId, __anResumeHref(), btn, msg, 'magic-link', magicVerifier);
+        }
         return;
       }
+      __anMagicLinkInFlight = false;
       msg.textContent = __anAuthErrorText(data, __anT('magicLinkFailed'));
       msg.classList.add('show', 'error');
       btn.disabled = false;
       btn.textContent = originalLabel;
     } catch (err) {
+      __anMagicLinkInFlight = false;
       msg.textContent = __anT('networkErrorDashRetry');
       msg.classList.add('show', 'error');
       btn.disabled = false;
@@ -4360,13 +4237,6 @@ ${
   renderGoogleButton
     ? `
     async function signInWithGoogle() {
-    if (__anShouldShowGoogleNotice()) {
-      __anShowGoogleNotice();
-      return;
-    }
-    return __anStartGoogleSignIn();
-  }
-    async function __anStartGoogleSignIn() {
     var btn = document.getElementById('google-btn');
     var err = document.getElementById('google-err');
     var ret = __anResumeHref();
@@ -4408,68 +4278,6 @@ ${
   }`
     : ""
 }
-${
-  googleSignInNotice
-    ? `
-  window.__anGoogleNoticeAccepted = false;
-  function __anShouldShowGoogleNotice() {
-    var notice = document.getElementById('google-preflight');
-    if (!notice || window.__anGoogleNoticeAccepted) return false;
-    var host = notice.getAttribute('data-host');
-    return !host || window.location.hostname === host;
-  }
-  function __anSetGoogleNoticeOpen(open) {
-    var notice = document.getElementById('google-preflight');
-    var trigger = document.getElementById('google-btn');
-    if (!notice) return;
-    if (open) {
-      notice.classList.add('show');
-      if (trigger) trigger.setAttribute('aria-expanded', 'true');
-    } else {
-      notice.classList.remove('show');
-      if (trigger) trigger.setAttribute('aria-expanded', 'false');
-    }
-  }
-  function __anShowGoogleNotice() {
-    var notice = document.getElementById('google-preflight');
-    if (!notice) return;
-    __anSetGoogleNoticeOpen(true);
-    var continueBtn = document.getElementById('google-preflight-continue');
-    if (continueBtn) continueBtn.focus();
-  }
-  function __anHideGoogleNotice() {
-    __anSetGoogleNoticeOpen(false);
-  }
-  function __anChooseRunLocalFromGoogleNotice() {
-    var panel = document.getElementById('google-preflight-run-local-panel');
-    if (!panel) {
-      __anHideGoogleNotice();
-      return;
-    }
-    panel.removeAttribute('hidden');
-    var copy = document.getElementById('copy-google-preflight-run-local');
-    if (copy) copy.focus();
-  }
-  function __anAcceptGoogleNotice() {
-    window.__anGoogleNoticeAccepted = true;
-    __anHideGoogleNotice();
-    __anStartGoogleSignIn();
-  }
-  (function __anInstallGoogleNoticeDismissal() {
-    document.addEventListener('keydown', function(event) {
-      if (event.key === 'Escape') __anHideGoogleNotice();
-    });
-    document.addEventListener('click', function(event) {
-      var notice = document.getElementById('google-preflight');
-      if (!notice || !notice.classList.contains('show')) return;
-      var wrapper = document.getElementById('google-signin');
-      if (wrapper && wrapper.contains(event.target)) return;
-      __anHideGoogleNotice();
-    });
-  })();`
-    : `
-  function __anShouldShowGoogleNotice() { return false; }`
-}
 ${starfieldScript}
 ${
   runLocalCommand || signupLocalModeNote
@@ -4510,9 +4318,7 @@ ${
   function __anCopySignupLocalModeCommand() {
     __anCopyCommandFromPanel('signup-local-mode-note', 'copy-signup-local-mode');
   }
-  function __anCopyGoogleNoticeRunLocalCommand() {
-    __anCopyCommandFromPanel('google-preflight-run-local-panel', 'copy-google-preflight-run-local');
-  }`
+  `
     : ""
 }
 </script>

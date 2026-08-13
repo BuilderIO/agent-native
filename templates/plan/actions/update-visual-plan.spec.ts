@@ -51,6 +51,16 @@ vi.mock("@agent-native/core/sharing", () => {
 
   return {
     ForbiddenError,
+    roleSatisfies: (actual: string, minimum: string) => {
+      const rank: Record<string, number> = {
+        viewer: 1,
+        commenter: 2,
+        editor: 3,
+        admin: 4,
+        owner: 5,
+      };
+      return (rank[actual] ?? 0) >= (rank[minimum] ?? 0);
+    },
     currentAccess: () => ({ userEmail: request.email }),
     resolveAccess: (...args: unknown[]) => resolveAccessMock(...args),
   };
@@ -344,7 +354,10 @@ describe("update-visual-plan comments", () => {
 
   it("allows comment-only requests with a client note without using it as the activity message", async () => {
     request.email = "reviewer@example.com";
-    resolveAccessMock.mockResolvedValueOnce({ resource: {} });
+    resolveAccessMock.mockResolvedValueOnce({
+      role: "commenter",
+      resource: {},
+    });
     const txUpdateMock = vi.fn(() => ({
       set: vi.fn(() => ({
         where: vi.fn(() => ({
@@ -404,7 +417,10 @@ describe("update-visual-plan comments", () => {
 
   it("allows authenticated reviewers to add comment-backed canvas markup without editor access", async () => {
     request.email = "reviewer@example.com";
-    resolveAccessMock.mockResolvedValueOnce({ resource: {} });
+    resolveAccessMock.mockResolvedValueOnce({
+      role: "commenter",
+      resource: {},
+    });
     buildUpdatedPlanCommentRowsMock.mockReturnValueOnce([
       {
         id: "comment_test",

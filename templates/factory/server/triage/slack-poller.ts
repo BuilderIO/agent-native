@@ -67,6 +67,7 @@ function toEnvelope(
     summary: compactText(message.text),
     channelId,
     threadTs,
+    metadata: { messageTs: message.ts },
     coverage:
       message.reply_count && message.reply_count > 0 ? "partial" : "complete",
   };

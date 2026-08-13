@@ -43,6 +43,17 @@ const mockCountRecordingViews = vi.hoisted(() =>
 const mockResolvePlayerVideoUrl = vi.hoisted(() =>
   vi.fn(() => "/api/video/rec-1"),
 );
+const mockResolvePlayerThumbnailUrl = vi.hoisted(() =>
+  vi.fn(
+    (recording: {
+      thumbnailUrl?: string | null;
+      animatedThumbnailUrl?: string | null;
+    }) =>
+      recording.thumbnailUrl || recording.animatedThumbnailUrl
+        ? "/api/thumbnail/rec-1"
+        : null,
+  ),
+);
 
 vi.mock("@agent-native/core", () => ({
   defineAction: (options: unknown) => options,
@@ -123,6 +134,11 @@ vi.mock("../server/lib/agent-recording-access.js", () => ({
 vi.mock("../server/lib/player-video-url.js", () => ({
   resolvePlayerVideoUrl: (...args: unknown[]) =>
     mockResolvePlayerVideoUrl(...args),
+}));
+
+vi.mock("../server/lib/player-thumbnail-url.js", () => ({
+  resolvePlayerThumbnailUrl: (...args: unknown[]) =>
+    mockResolvePlayerThumbnailUrl(...args),
 }));
 
 vi.mock("../server/lib/media-verification-state.js", () => ({
@@ -267,6 +283,22 @@ describe("get-recording-player-data view count", () => {
   });
 
   it("keeps owner media behind the same-origin video proxy", async () => {
+    mockResolveAccess.mockResolvedValueOnce({
+      role: "owner",
+      resource: {
+        id: "rec-1",
+        ownerEmail: "owner@example.com",
+        visibility: "private",
+        password: null,
+        expiresAt: null,
+        status: "ready",
+        chaptersJson: "[]",
+        videoUrl: "https://cdn.example.com/rec-1.webm",
+        videoSizeBytes: 1234,
+        thumbnailUrl: "https://cdn.example.com/rec-1.jpg",
+      },
+    });
+
     const result = await action.run({ recordingId: "rec-1" });
 
     expect(mockResolvePlayerVideoUrl).toHaveBeenCalledWith(
@@ -280,6 +312,13 @@ describe("get-recording-player-data view count", () => {
       },
     );
     expect(result.recording.videoUrl).toBe("/api/video/rec-1");
+    expect(mockResolvePlayerThumbnailUrl).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "rec-1",
+        thumbnailUrl: "https://cdn.example.com/rec-1.jpg",
+      }),
+    );
+    expect(result.recording.thumbnailUrl).toBe("/api/thumbnail/rec-1");
     expect(result.recording.videoSizeBytes).toBe(1234);
   });
 });

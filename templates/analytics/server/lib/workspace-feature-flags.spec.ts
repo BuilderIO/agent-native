@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  classifyWorkspaceFeatureFlagTargetFailure,
   classifyWorkspaceFeatureFlagList,
   validateWorkspaceFeatureFlagMutation,
   workspaceFeatureFlagTargetInput,
@@ -39,10 +40,27 @@ describe("fleet feature flag contracts", () => {
       classifyWorkspaceFeatureFlagList(app, { status: 404, body: null }).state,
     ).toBe("unsupported");
   });
+  it("exposes safe target failure classes without reflecting error text", () => {
+    expect(
+      classifyWorkspaceFeatureFlagTargetFailure(
+        Object.assign(new Error("secret-bearing timeout"), {
+          name: "TimeoutError",
+        }),
+      ),
+    ).toBe("timeout");
+    expect(
+      classifyWorkspaceFeatureFlagTargetFailure(
+        new Error("getaddrinfo ENOTFOUND private-host"),
+      ),
+    ).toBe("network");
+    expect(
+      classifyWorkspaceFeatureFlagList(app, { status: 500, body: null }),
+    ).toMatchObject({ state: "unknown-legacy", reason: "target-execution" });
+  });
   it("rejects legacy or mismatched mutation responses", () => {
     const expected = {
       key: "new-editor",
-      orgId: "org-1",
+      orgDomain: "builder.io",
       rules: { percentage: 50 },
     };
     expect(() =>
@@ -54,11 +72,11 @@ describe("fleet feature flag contracts", () => {
     expect(() =>
       validateWorkspaceFeatureFlagMutation(
         {
-          contractVersion: 1,
+          contractVersion: 2,
           status: "ready",
           key: "new-editor",
           rules: { percentage: 25 },
-          scope: { orgId: "org-1" },
+          scope: { orgDomain: "builder.io" },
         },
         expected,
       ),
@@ -69,29 +87,29 @@ describe("fleet feature flag contracts", () => {
     expect(
       validateWorkspaceFeatureFlagMutation(
         {
-          contractVersion: 1,
+          contractVersion: 2,
           status: "ready",
           key: "new-editor",
           rules,
-          scope: { orgId: "org-1" },
+          scope: { orgDomain: "builder.io" },
         },
-        { key: "new-editor", orgId: "org-1", rules },
+        { key: "new-editor", orgDomain: "builder.io", rules },
       ),
-    ).toMatchObject({ contractVersion: 1, key: "new-editor", rules });
+    ).toMatchObject({ contractVersion: 2, key: "new-editor", rules });
   });
   it("verifies off and enable-for-operator persisted semantics", () => {
     const base = {
-      contractVersion: 1 as const,
+      contractVersion: 2 as const,
       status: "ready" as const,
       key: "new-editor",
-      scope: { orgId: "org-1" },
+      scope: { orgDomain: "builder.io" },
     };
     expect(() =>
       validateWorkspaceFeatureFlagMutation(
         { ...base, rules: { mode: "on", percentage: 100 } },
         {
           key: "new-editor",
-          orgId: "org-1",
+          orgDomain: "builder.io",
           rules: { mode: "off", emails: [], orgIds: [], percentage: 0 },
         },
       ),
@@ -101,7 +119,7 @@ describe("fleet feature flag contracts", () => {
         { ...base, rules: { mode: "off", percentage: 0 } },
         {
           key: "new-editor",
-          orgId: "org-1",
+          orgDomain: "builder.io",
           rules: { mode: "off", emails: [], orgIds: [], percentage: 0 },
         },
       ),
@@ -111,7 +129,7 @@ describe("fleet feature flag contracts", () => {
         { ...base, rules: { mode: "rules", emails: [] } },
         {
           key: "new-editor",
-          orgId: "org-1",
+          orgDomain: "builder.io",
           enabledForEmail: "admin@example.com",
         },
       ),
@@ -124,7 +142,7 @@ describe("fleet feature flag contracts", () => {
         },
         {
           key: "new-editor",
-          orgId: "org-1",
+          orgDomain: "builder.io",
           enabledForEmail: "admin@example.com",
         },
       ),
@@ -134,7 +152,7 @@ describe("fleet feature flag contracts", () => {
     expect(
       validateWorkspaceFeatureFlagMutation(
         {
-          contractVersion: 1,
+          contractVersion: 2,
           status: "ready",
           key: "new-editor",
           rules: {
@@ -142,11 +160,11 @@ describe("fleet feature flag contracts", () => {
             emails: ["a@example.com", "B@example.com"],
             orgIds: ["org-a", "org-b"],
           },
-          scope: { orgId: "org-1" },
+          scope: { orgDomain: "builder.io" },
         },
         {
           key: "new-editor",
-          orgId: "org-1",
+          orgDomain: "builder.io",
           rules: {
             mode: "rules",
             emails: ["b@example.com", "A@example.com"],
@@ -160,7 +178,7 @@ describe("fleet feature flag contracts", () => {
     expect(() =>
       validateWorkspaceFeatureFlagMutation(
         {
-          contractVersion: 1,
+          contractVersion: 2,
           status: "ready",
           key: "new-editor",
           rules: {
@@ -169,11 +187,11 @@ describe("fleet feature flag contracts", () => {
             orgIds: [],
             percentage: 50,
           },
-          scope: { orgId: "org-1" },
+          scope: { orgDomain: "builder.io" },
         },
         {
           key: "new-editor",
-          orgId: "org-1",
+          orgDomain: "builder.io",
           rules: {
             mode: "rules",
             emails: [],
@@ -188,7 +206,7 @@ describe("fleet feature flag contracts", () => {
     expect(() =>
       validateWorkspaceFeatureFlagMutation(
         {
-          contractVersion: 1,
+          contractVersion: 2,
           status: "ready",
           key: "new-editor",
           rules: {
@@ -197,11 +215,11 @@ describe("fleet feature flag contracts", () => {
             orgIds: [],
             percentage: 50,
           },
-          scope: { orgId: "org-1" },
+          scope: { orgDomain: "builder.io" },
         },
         {
           key: "new-editor",
-          orgId: "org-1",
+          orgDomain: "builder.io",
           rules: {
             mode: "rules",
             emails: [],

@@ -42,10 +42,12 @@ If a suitable backend is not configured, use its returned setup link or
 Data Sources walkthrough. Connecting a query backend alone does not move the
 collector or copy existing Neon events. For the Builder.io production
 organization, the hidden `migrate-first-party-analytics-to-bigquery` action is
-the explicit state machine: prepare dual-write, backfill with its cursor, then
-cut over with confirmation. After cutover, `/track` writes and event queries
-use BigQuery; public-key metadata, derived exception issues, and session-replay
-data remain in SQL.
+the explicit state machine: prepare dual-write, backfill through bounded,
+newest-first UTC time shards with per-shard leases, then cut over with
+confirmation. The worker excludes `http.response` by default and uses
+BigQuery `insertId` values for retry-safe writes. After cutover, `/track`
+writes and event queries use BigQuery; public-key metadata, derived exception
+issues, and session-replay data remain in SQL.
 
 Example pageviews query for a local calendar day:
 

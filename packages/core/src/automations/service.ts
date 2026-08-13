@@ -21,6 +21,9 @@ import {
 
 export type AutomationScope = "personal" | "organization";
 
+/** Conservative default for new scheduled automations when no cadence is given. */
+export const DEFAULT_AUTOMATION_SCHEDULE = "0 * * * *";
+
 export interface AutomationActor {
   userEmail: string;
   orgId?: string | null;
@@ -311,7 +314,10 @@ export async function defineAutomation(
   const body = input.body.trim();
   if (!body) throw httpError("body is required.", 400);
 
-  const schedule = input.schedule?.trim() ?? "";
+  const schedule =
+    input.triggerType === "schedule"
+      ? input.schedule?.trim() || DEFAULT_AUTOMATION_SCHEDULE
+      : "";
   const event = input.event?.trim() ?? "";
   if (input.triggerType === "schedule" && !isValidCron(schedule)) {
     throw httpError(

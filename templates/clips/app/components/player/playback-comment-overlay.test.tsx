@@ -30,7 +30,7 @@ const comment: PlaybackComment = {
 };
 
 describe("playback comment timing", () => {
-  it("shows a root comment from its timestamp for one second", () => {
+  it("shows a root comment from its timestamp for three seconds", () => {
     expect(getActivePlaybackComments([comment], 11_999)).toEqual([]);
     expect(getActivePlaybackComments([comment], 12_000)).toEqual([comment]);
     expect(
@@ -48,11 +48,11 @@ describe("playback comment timing", () => {
   });
 
   it("scales the media-time window with playback speed", () => {
-    expect(getPlaybackCommentVisibleMs(2.5)).toBe(2_500);
-    expect(getActivePlaybackComments([comment], 12_000 + 2_499, 2.5)).toEqual([
+    expect(getPlaybackCommentVisibleMs(2.5)).toBe(7_500);
+    expect(getActivePlaybackComments([comment], 12_000 + 7_499, 2.5)).toEqual([
       comment,
     ]);
-    expect(getActivePlaybackComments([comment], 12_000 + 2_500, 2.5)).toEqual(
+    expect(getActivePlaybackComments([comment], 12_000 + 7_500, 2.5)).toEqual(
       [],
     );
   });

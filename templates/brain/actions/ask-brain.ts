@@ -173,7 +173,7 @@ function sourcePolicyEnforcement(args: {
 
 export default defineAction({
   description:
-    "Answer a company-knowledge question from published Brain knowledge, falling back to cited raw capture matches when approved knowledge is thin. Use this for every company-specific factual question instead of answering from general model knowledge. Returns a cited answer plus deep links into the Brain knowledge/capture records.",
+    "Answer a company-knowledge question from published Brain knowledge, with raw captures returned separately as clearly labeled leads when approved knowledge is thin. Use this for every company-specific factual question instead of answering from general model knowledge. Raw captures are never answer evidence. Returns a cited answer plus deep links into the Brain knowledge/capture records.",
   schema: z.object({
     question: z.string().min(1),
     mode: z.enum(["cited"]).default("cited"),
@@ -286,7 +286,9 @@ export default defineAction({
           guidance.retrieval.rawCaptureFallback === "never-answer"
             ? "I could not find enough reviewed Brain knowledge for that question yet."
             : "I could not find approved Brain knowledge or matching raw captures for that question yet.",
+        answerSource: "none",
         citations: [],
+        leadCitations: [],
         knowledge: [],
         captures: [],
         results: [],
@@ -320,14 +322,22 @@ export default defineAction({
       deepLink: captureDeepLink(item.id),
       sourcePolicy: item.answerPolicy,
     }));
+    const answerSource = knowledge.length
+      ? "approved-knowledge"
+      : eligibleCaptures.length
+        ? "unreviewed-leads"
+        : "none";
     const answerParts = [];
-    const hasCitations = knowledgeCitations.length || captureCitations.length;
+    const hasCitations = knowledgeCitations.length;
     if (guidance.retrieval.requireCitations && !hasCitations) {
       const federatedCoverage = await federatedCoveragePromise;
       return {
-        answer:
-          "I found possible Brain context, but workspace settings require citations and these results did not include usable evidence.",
+        answer: eligibleCaptures.length
+          ? "I could not find approved Brain knowledge. I found raw Brain capture leads, but they need review before they can support an answer."
+          : "I found possible Brain context, but workspace settings require citations and these results did not include usable evidence.",
+        answerSource,
         citations: [],
+        leadCitations: captureCitations,
         knowledge,
         captures: eligibleCaptures,
         results: eligibleCaptures,
@@ -344,27 +354,20 @@ export default defineAction({
           .join("\n\n"),
       );
     }
-    if (eligibleCaptures.length) {
-      const prefix = knowledge.length
-        ? "Related raw capture matches:"
-        : "I could not find approved Brain knowledge, but I found matching raw captures:";
+    if (!knowledge.length && eligibleCaptures.length) {
       answerParts.push(
-        [
-          prefix,
-          ...eligibleCaptures.map(
-            (item) =>
-              `${item.title}${item.source?.title ? ` (${item.source.title})` : ""}: ${item.snippet}`,
-          ),
-        ].join("\n\n"),
+        "I could not find approved Brain knowledge. I found matching raw Brain capture leads, but they need review before they can support an answer.",
       );
     }
 
     const federatedCoverage = await federatedCoveragePromise;
-    const citations = [...knowledgeCitations, ...captureCitations];
+    const citations = knowledgeCitations;
     const primary = citations[0] ?? null;
     return {
       answer: formatAnswer(answerParts.join("\n\n"), guidance),
+      answerSource,
       citations,
+      leadCitations: captureCitations,
       deepLink: primary?.deepLink ?? null,
       knowledge,
       captures: eligibleCaptures,

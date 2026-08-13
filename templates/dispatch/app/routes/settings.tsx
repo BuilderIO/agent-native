@@ -16,12 +16,14 @@ import {
 } from "@agent-native/core/client/settings";
 import { Button } from "@agent-native/dispatch/components/ui/button";
 import { Switch } from "@agent-native/dispatch/components/ui/switch";
+import { IconShield } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
 import { Link } from "react-router";
 
 import { messagesByLocale } from "@/i18n-data";
 
 import changelog from "../../CHANGELOG.md?raw";
+import { dispatchAccessDescriptor } from "../../shared/app-roles";
 
 export function meta() {
   return [{ title: messagesByLocale["en-US"].routeTitles.settings }];
@@ -29,7 +31,30 @@ export function meta() {
 
 export default function SettingsRoute() {
   const t = useT();
-  const agentSettingsTabs = useAgentSettingsTabs();
+  const agentSettingsTabs = useAgentSettingsTabs({
+    usageAppId: "dispatch",
+    usageViewAllHref: "/admin/metrics",
+    organizationContent: (
+      <div className="mx-auto w-full max-w-3xl">
+        <TeamPage
+          showTitle={false}
+          appRoles={dispatchAccessDescriptor}
+          createOrgDescription="Set up a team to share dispatch destinations and approvals with your colleagues."
+        />
+      </div>
+    ),
+  });
+  const settingsTabs = [
+    ...agentSettingsTabs,
+    {
+      id: "admin",
+      label: t("dispatch.nav.admin", { defaultValue: "Admin" }),
+      icon: IconShield,
+      group: "Admin",
+      href: "/admin",
+      content: null,
+    },
+  ];
   const [chatFirstModeState] = useState(() => readChatFirstModeState());
   const [chatFirstMode, setChatFirstMode] = useState(
     () => chatFirstModeState.enabled,
@@ -84,7 +109,7 @@ export default function SettingsRoute() {
   return (
     <SettingsTabsPage
       account={<AccountSettingsCard />}
-      extraTabs={agentSettingsTabs}
+      extraTabs={settingsTabs}
       generalSearchEntries={generalSearchEntries}
       general={
         <div className="mx-auto w-full max-w-2xl space-y-6">
@@ -139,14 +164,6 @@ export default function SettingsRoute() {
               ) : null}
             </SettingsRow>
           </SettingsGroup>
-        </div>
-      }
-      team={
-        <div className="mx-auto w-full max-w-3xl">
-          <TeamPage
-            showTitle={false}
-            createOrgDescription="Set up a team to share dispatch destinations and approvals with your colleagues."
-          />
         </div>
       }
       whatsNew={

@@ -206,12 +206,11 @@ import { PromptComposer } from "@agent-native/core/client/composer";
 대본 스타일 렌더링에 `@agent-native/core/client/conversation` 사용
 전체 에이전트 런타임 외부
 
-| API                                             | 다음 경우에 사용                                        |
-| ----------------------------------------------- | ------------------------------------------------------- |
-| `<AgentConversation>`                           | 정규화된 에이전트 메시지 목록을 렌더링합니다.           |
-| `<AgentConversationMessageView>`                | 정규화된 메시지 하나를 렌더링합니다.                    |
-| `normalizeCodeAgentTranscriptForConversation()` | 코드 에이전트 기록 이벤트를 대화 메시지로 변환합니다.   |
-| `useNearBottomAutoscroll()`                     | 스트리밍하는 동안 맞춤 스크립트를 하단에 고정해 두세요. |
+| API                                             | 다음 경우에 사용                                      |
+| ----------------------------------------------- | ----------------------------------------------------- |
+| `<AgentConversation>`                           | 정규화된 에이전트 메시지 목록을 렌더링합니다.         |
+| `<AgentConversationMessageView>`                | 정규화된 메시지 하나를 렌더링합니다.                  |
+| `normalizeCodeAgentTranscriptForConversation()` | 코드 에이전트 기록 이벤트를 대화 메시지로 변환합니다. |
 
 이 레이어는 의도적으로 데이터 우선입니다. 메시지의 출처를 소유하고
 렌더러는 일관된 마크다운, 첨부 파일, 공지, 아티팩트 및

@@ -27,6 +27,11 @@ import type { AgentChatSettings } from "@/lib/agent-chat/use-agent-chat";
 
 const SETTINGS_KEY = "agent-native:chat-settings";
 
+export const DEFAULT_CHAT_SETTINGS: AgentChatSettings = {
+  model: "gpt-5-6-luna",
+  effort: "high",
+};
+
 const EFFORT_OPTIONS: Array<{
   value: string | undefined;
   label: string;
@@ -39,9 +44,10 @@ const EFFORT_OPTIONS: Array<{
 export async function loadChatSettings(): Promise<AgentChatSettings> {
   try {
     const raw = await AsyncStorage.getItem(SETTINGS_KEY);
-    if (!raw) return {};
+    if (!raw) return { ...DEFAULT_CHAT_SETTINGS };
     const parsed = JSON.parse(raw) as AgentChatSettings;
     return {
+      ...DEFAULT_CHAT_SETTINGS,
       ...(typeof parsed.model === "string" ? { model: parsed.model } : {}),
       ...(typeof parsed.engine === "string" ? { engine: parsed.engine } : {}),
       ...(typeof parsed.effort === "string" ? { effort: parsed.effort } : {}),
@@ -284,10 +290,10 @@ export function ChatSettingsSheet({
         }
       }
 
-      // Auto-expand reasoning if effort is selected
+      // Auto-expand effort if one is selected
       if (settings.effort) {
-        if (!nextExpanded["reasoning"]) {
-          nextExpanded["reasoning"] = true;
+        if (!nextExpanded["effort"]) {
+          nextExpanded["effort"] = true;
           updated = true;
         }
       }
@@ -378,15 +384,15 @@ export function ChatSettingsSheet({
                 );
               })}
 
-              {/* Reasoning Section */}
+              {/* Effort Section */}
               <View>
                 <GroupHeader
-                  label="Reasoning"
+                  label="Effort"
                   valueSuffix={activeEffortLabel}
-                  expanded={!!expandedGroups["reasoning"]}
-                  onPress={() => toggleGroup("reasoning")}
+                  expanded={!!expandedGroups["effort"]}
+                  onPress={() => toggleGroup("effort")}
                 />
-                {!!expandedGroups["reasoning"] && (
+                {!!expandedGroups["effort"] && (
                   <>
                     <ModelItem
                       label="Default"
@@ -466,7 +472,9 @@ export function useChatSettings(): [
   AgentChatSettings,
   (settings: AgentChatSettings) => void,
 ] {
-  const [settings, setSettings] = useState<AgentChatSettings>({});
+  const [settings, setSettings] = useState<AgentChatSettings>(
+    DEFAULT_CHAT_SETTINGS,
+  );
   useEffect(() => {
     void loadChatSettings().then(setSettings);
   }, []);

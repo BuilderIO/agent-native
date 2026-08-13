@@ -9,7 +9,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 
-import { useDeleteForm } from "./use-forms";
+import { useDeleteForm, useSubmitForm } from "./use-forms";
 
 type FormListItem = { id: string; title: string };
 
@@ -135,5 +135,51 @@ describe("useDeleteForm", () => {
     expect(queryClient.getQueryData(["action", "list-forms", {}])).toEqual(
       active,
     );
+  });
+
+  it("sends a scrubbed current page URL with public submissions", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ success: true }), {
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.replaceState(
+      {},
+      "",
+      "/f/feedback?utm_source=newsletter&token=example-token",
+    );
+
+    const queryClient = new QueryClient({
+      defaultOptions: { mutations: { retry: false } },
+    });
+    let mutation: any;
+    function SubmitProbe({ onReady }: { onReady: (value: any) => void }) {
+      onReady(useSubmitForm());
+      return null;
+    }
+
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    act(() => {
+      root?.render(
+        <QueryClientProvider client={queryClient}>
+          <SubmitProbe onReady={(value) => (mutation = value)} />
+        </QueryClientProvider>,
+      );
+    });
+
+    await act(async () => {
+      await mutation.mutateAsync({
+        formId: "form-1",
+        data: { message: "hello" },
+      });
+    });
+
+    const [, request] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(String(request.body));
+    expect(body._meta.pageUrl).toContain("utm_source=newsletter");
+    expect(body._meta.pageUrl).toContain("token=%3Credacted%3E");
   });
 });

@@ -39,7 +39,7 @@ deployment environments including serverless and edge).
 
 <Callout tone="info">
 
-**Just need the UI to refresh, not character-level co-editing?** Use [`useDbSync`](/docs/client#usedbsync) instead — it's for reacting to SQL writes from the agent or other users. This page covers real-time character-level co-editing of a single rich-text document (shared cursors, conflict-free merging). Both ride the same `/_agent-native/poll` channel.
+**Just need the UI to refresh, not character-level co-editing?** Use [`useDbSync`](/docs/client-data#usedbsync) instead — it's for reacting to SQL writes from the agent or other users. This page covers real-time character-level co-editing of a single rich-text document (shared cursors, conflict-free merging). Both ride the same `/_agent-native/poll` channel.
 
 </Callout>
 
@@ -780,7 +780,7 @@ Key properties:
 
 ## What's next {#whats-next}
 
-- [Real-Time Sync](/docs/client#usedbsync) — the `useDbSync` + `useChangeVersion`
+- [Sync Internals](/docs/client-sync-internals) — the `useDbSync` + `useChangeVersion`
   system that delivers the `updatedAt` bump driving editor reconciliation.
 - [Security](/docs/security) — `registerShareableResource`, `resolveAccess`,
   and `assertAccess` for resource-scoped collaboration.

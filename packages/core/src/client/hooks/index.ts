@@ -2,8 +2,10 @@ export { getBrowserTabId } from "../browser-tab-id.js";
 export {
   deleteClientAppState,
   readClientAppState,
+  readClientAppStateMany,
   setClientAppState,
   writeClientAppState,
+  type ClientAppStateBatch,
   type ClientAppStateReadOptions,
   type ClientAppStateWriteOptions,
 } from "../application-state.js";
@@ -23,7 +25,11 @@ export {
   type DemoModeStatus,
 } from "../use-demo-mode-status.js";
 export { useReconciledState } from "../use-external-value.js";
-export { useSession, type AuthSession } from "../use-session.js";
+export {
+  notifySessionInvalidated,
+  useSession,
+  type AuthSession,
+} from "../use-session.js";
 export {
   ACTION_KEEPALIVE_BODY_BUDGET_BYTES,
   callAction,

@@ -35,15 +35,29 @@ describe("onboarding app profiles", () => {
     expect(
       profile.capabilities.some((capability) => capability.builderIncluded),
     ).toBe(true);
+    expect(profile.capabilities).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "file-storage",
+          builderIncluded: true,
+          suggested: true,
+        }),
+      ]),
+    );
   });
 
   it("tailors Clips requirements without sharing mutable profile state", () => {
     const clips = getOnboardingAppProfile("clips");
     const ids = clips.capabilities.map((capability) => capability.id);
 
-    expect(ids).toEqual(["llm", "video-storage", "transcription"]);
-    expect(clips.capabilities[1]?.keySummary).toContain("S3");
-    expect(clips.capabilities[2]?.required).toBe(false);
+    expect(ids).toEqual([
+      "llm",
+      "file-storage",
+      "video-storage",
+      "transcription",
+    ]);
+    expect(clips.capabilities[2]?.keySummary).toContain("S3");
+    expect(clips.capabilities[3]?.required).toBe(false);
 
     clips.capabilities[0]!.label = "Changed locally";
     expect(getOnboardingAppProfile("clips").capabilities[0]?.label).toBe(

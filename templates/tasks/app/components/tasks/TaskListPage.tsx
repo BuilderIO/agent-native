@@ -87,7 +87,6 @@ export function TaskListPage() {
         <>
           <ListViewHeader
             title={t("tasks.pageTitle")}
-            description={t("tasks.pageDescription")}
             isPending={false}
             showSelectToggle={false}
             selection={null}

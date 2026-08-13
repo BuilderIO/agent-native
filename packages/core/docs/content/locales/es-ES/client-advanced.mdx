@@ -1,0 +1,201 @@
+---
+title: "Avanzado"
+description: "Primitivos de bajo nivel de app/ y vías de escape: acceso directo al estado de la aplicación, envíos de chat en segundo plano, chips de sugerencias personalizadas y el puente de host de aplicaciones MCP."
+---
+
+# Avanzado
+
+Resumen, Datos y sincronización, Chat del Agent y Enrutamiento cubren el caso típico: los hooks y helpers que necesita la mayoría de las páginas. Esta página cubre los primitivos de más bajo nivel y las vías de escape más específicas que hay debajo. La mayoría de las apps nunca los tocan directamente. Recurre a uno cuando estés construyendo algo más personalizado de lo que soportan los hooks predeterminados, como una sincronización de selección personalizada o una aplicación MCP embebida. Para sincronizar un `useQuery` sin procesar con una clave hecha a mano, consulta [Sincronización interna](/docs/client-sync-internals) en su lugar.
+
+## Estado de la aplicación {#application-state}
+
+`application_state` es el almacén clave/valor respaldado por SQL que lee el agente para saber qué está mirando actualmente la UI, incluyendo navegación, selección y otro contexto de objeto enfocado (consulta [Conciencia del contexto](/docs/context-awareness)). `useAgentRouteState` y `useSemanticNavigationState` (también cubiertos en Conciencia del contexto) ya envuelven esto para el caso común de navegación. Recurre a los primitivos siguientes directamente cuando estés sincronizando algo que ellos no cubren, como una selección personalizada, o escribiendo desde fuera del renderizado de un componente.
+
+### readClientAppState {#read-client-app-state}
+
+Lee el valor actual de una clave. Se resuelve con lo último que se escribió para esa clave, o `null` si nunca se ha escrito la clave.
+
+```ts
+import { readClientAppState } from "@agent-native/core/client/hooks";
+
+const selection = await readClientAppState("selection");
+// selection is exactly what was last written to that key, e.g.:
+// { kind: "tickets.rows", ids: ["tik_182", "tik_209"] }
+//
+// or, if nothing has written "selection" yet:
+// null
+```
+
+### writeClientAppState {#write-client-app-state}
+
+Escribe un valor para una clave. A diferencia de `setClientAppState` de abajo, siempre escribe, incluso si pasas `null`. Pasar `undefined` lanza un error en su lugar, ya que `undefined` no es JSON válido. Usa `setClientAppState(key, undefined)` o `deleteClientAppState()` para borrar una clave.
+
+```ts
+import { writeClientAppState } from "@agent-native/core/client/hooks";
+
+await writeClientAppState(
+  "selection",
+  { id: recordId },
+  { requestSource: TAB_ID },
+);
+```
+
+### setClientAppState {#set-client-app-state}
+
+El wrapper de conveniencia al que debería recurrir la mayoría del código de UI: escribe el valor, o borra la clave cuando pasas `null`/`undefined`. Usa este en lugar de `writeClientAppState` a menos que un sitio de llamada realmente necesite "siempre escribir, nunca borrar."
+
+```ts
+import { setClientAppState } from "@agent-native/core/client/hooks";
+
+await setClientAppState(
+  "selection",
+  { id: recordId },
+  { requestSource: TAB_ID },
+);
+await setClientAppState("selection", null); // clears the key, same as deleteClientAppState
+```
+
+### deleteClientAppState {#delete-client-app-state}
+
+Elimina una clave por completo.
+
+```ts
+import { deleteClientAppState } from "@agent-native/core/client/hooks";
+
+await deleteClientAppState("pending-selection-context");
+```
+
+### readClientAppStateMany {#read-client-app-state-many}
+
+Lee varias claves en una sola solicitud. Devuelve `{ values, missing }`. `values` tiene una entrada para cada clave para la que el servidor tiene una fila, incluyendo una clave que se escribió explícitamente como `null`. `missing` lista las claves que nunca se han escrito en absoluto. Así es como "nunca escrito" se mantiene distinguible de "escrito como null."
+
+```ts
+import { readClientAppStateMany } from "@agent-native/core/client/hooks";
+
+const { values, missing } = await readClientAppStateMany([
+  "selection",
+  "pending-selection-context",
+]);
+```
+
+Las solicitudes de más de 100 claves se dividen en fragmentos automáticamente. `readClientAppState()` en sí está construido sobre esto: las llamadas realizadas en el mismo tick se combinan en una sola solicitud por lotes internamente, así que llamarlo muchas veces en un solo ciclo de renderizado cuesta un viaje de ida y vuelta, no uno por llamada.
+
+### Opciones {#application-state-options}
+
+`signal` es aceptado por las cinco funciones anteriores, para cancelar una llamada en curso. `requestSource` y `keepalive` solo aplican a las tres funciones de escritura, ya que no significan nada para una lectura.
+
+| Opción          | Tipo           | Aplica a                                                           | Descripción                                                                                                              |
+| --------------- | -------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
+| `requestSource` | `string?`      | `writeClientAppState`, `setClientAppState`, `deleteClientAppState` | Etiqueta la escritura con un id para que un `useDbSync({ ignoreSource })` coincidente pueda omitir su recuperación       |
+| `keepalive`     | `boolean?`     | `writeClientAppState`, `setClientAppState`, `deleteClientAppState` | Permite que la solicitud sobreviva al descargarse la página. Úsalo para escrituras de limpieza como borrar una selección |
+| `signal`        | `AbortSignal?` | las cinco funciones                                                | Cancela la solicitud                                                                                                     |
+
+### Comportamiento ante fallos {#failure-behavior}
+
+Las cinco funciones lanzan un error ante una solicitud fallida, una respuesta no-2xx, o un cuerpo que no se puede analizar. El `Error` lanzado lleva una propiedad `.status` cuando el servidor respondió, para que quien llama pueda bifurcar según el estado HTTP si es necesario. Envuelve una llamada en `try`/`catch`, o déjala propagarse a un límite de error, igual que cualquier otra llamada de red.
+
+### Qué es TAB_ID {#tab-id}
+
+`requestSource` se establece comúnmente como `TAB_ID`, una constante simple que cada plantilla exporta desde `app/lib/tab-id.ts`: una cadena aleatoria corta que permanece igual durante la vida de una pestaña y difiere entre pestañas. Emparejar `requestSource: TAB_ID` en una escritura con `useDbSync({ ignoreSource: TAB_ID })` en el lado de lectura es cómo una pestaña evita recuperar su propia escritura mientras sigue reaccionando a todas las demás. Consulta [Conciencia del contexto](/docs/context-awareness#jitter-prevention) para el recorrido completo.
+
+## sendToAgentChat: envíos en segundo plano {#background-send}
+
+Usa `background: true` cuando una acción de UI deba iniciar trabajo real del agente sin
+abrir ni enfocar la barra lateral. Esto sigue creando un hilo/ejecución de chat normal,
+usa las herramientas/acciones/contexto del agente y mantiene el trabajo observable a través de
+la bandeja de ejecuciones. No es una llamada al modelo puntual y sin procesar.
+
+```ts
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
+
+const tabId = sendToAgentChat({
+  message: "Analyze this import and create any missing records",
+  context: `Import batch id: ${batchId}`,
+  submit: true,
+  newTab: true,
+  background: true,
+  openSidebar: false,
+});
+```
+
+`background` está pensado para combinarse con `newTab` para que el trabajo oculto no
+sobrescriba la conversación activa del usuario. Usa el `tabId` devuelto si la UI
+necesita correlacionar el estado de seguimiento o enlazar profundamente con la ejecución más adelante.
+
+Existen algunas opciones más de `AgentChatMessage` además de las cubiertas en [Chat del Agent](/docs/client-agent-chat#agentchatmessage), sobre todo para casos embebidos o de integración downstream:
+
+| Opción                | Tipo        | Descripción                                                                       |
+| --------------------- | ----------- | --------------------------------------------------------------------------------- |
+| `background`          | `boolean?`  | Con `newTab`, ejecuta sin enfocar la pestaña y muestra la ejecución en `RunsTray` |
+| `projectSlug`         | `string?`   | Slug de proyecto opcional para contexto estructurado                              |
+| `preset`              | `string?`   | Nombre de preset opcional para consumidores downstream                            |
+| `referenceImagePaths` | `string[]?` | Rutas opcionales de imágenes de referencia                                        |
+
+## Puente de host de aplicaciones MCP {#mcp-app-host-bridge}
+
+Las rutas embebidas como aplicaciones MCP deben ser URL-first: cargar el artefacto actual desde
+parámetros de ruta/consulta, renderizar la ruta React real o un componente compartido enfocado,
+y usar el puente de host solo para comportamiento propiedad del host. `@agent-native/core/client`
+exporta los helpers que llaman las rutas embebidas:
+
+```ts
+import {
+  getMcpAppHostContext,
+  openMcpAppHostLink,
+  requestMcpAppDisplayMode,
+  updateMcpAppModelContext,
+  useMcpAppHostContext,
+} from "@agent-native/core/client/agent-chat";
+```
+
+`getMcpAppHostContext()` lee la última instantánea de contexto de host enviada.
+`useMcpAppHostContext()` suscribe componentes de React a los cambios. Los helpers de solicitud
+(`openMcpAppHostLink`, `requestMcpAppDisplayMode`,
+`updateMcpAppModelContext`) devuelven `false` fuera de un marco de aplicación MCP embebido, o
+`Promise<boolean>` dentro de un marco.
+
+`sendToAgentChat()` (consulta [Chat del Agent](/docs/client-agent-chat#sendtoagentchat)) usa el mismo puente para prompts autoenviados desde rutas embebidas. Dentro de una inserción de aplicación MCP creada con `embedApp()`, los mensajes autoenviados (`submit` omitido o `true`) se reenvían al puente, que le pide al host contenedor que agregue contexto oculto y envíe el turno visible del usuario. `context` permanece visible para el modelo sin publicarse como chat de cara al usuario. `submit: false` conserva el comportamiento local de precompletar/revisar porque las aplicaciones MCP no definen una API estándar de borrador previo. Internamente esta es la ruta de chat enviado, a veces expuesta como `agentNative.submitChat`. El código de la app debería seguir llamando a `sendToAgentChat()` en lugar de publicar ese evento directamente.
+
+El puente en sí, los mensajes JSON-RPC `ui/*`, el relé wrapper
+`agentNative.mcpHost.*`, el trasplante frente al renderizado de marco controlado, el contexto de host, y
+las solicitudes de modo de visualización, son propiedad de
+[Agentes externos](/docs/external-agents#mcp-app-bridge). Consulta [Aplicaciones MCP](/docs/mcp-apps) para el protocolo completo.
+
+## Chips de sugerencias personalizadas {#custom-suggestions}
+
+`dynamicSuggestions` de `<AgentSidebar>` (consulta [Chat del Agent](/docs/client-agent-chat#dynamic-suggestions)) ya combina las `suggestions` estáticas con la propia heurística consciente del contexto del framework. Pasa una función `getSuggestions` dentro de `dynamicSuggestions` en su lugar cuando una app quiera chips deterministas y específicos de dominio calculados a partir del mismo contexto de `application_state` en lugar de la heurística predeterminada del framework.
+
+```tsx
+<AgentSidebar
+  suggestions={["Summarize my inbox"]}
+  dynamicSuggestions={{
+    getSuggestions: ({ navigation }) => {
+      if (
+        typeof navigation !== "object" ||
+        navigation === null ||
+        (navigation as { view?: unknown }).view !== "inbox"
+      ) {
+        return [];
+      }
+      const label = (navigation as { label?: unknown }).label;
+      return [`Summarize ${typeof label === "string" ? label : "this"} label`];
+    },
+  }}
+>
+  <App />
+</AgentSidebar>
+```
+
+`getSuggestions` recibe la misma instantánea de `navigation`/`selection`/`pendingSelection` que lee la heurística incorporada, tipada como `unknown` porque su forma la define la app, así que hay que acotarla antes de leer sus campos. Una implementación personalizada puede reaccionar exactamente al mismo estado que la predeterminada, solo que con reglas específicas de la app en lugar de genéricas.
+
+## ¿Qué sigue?
+
+- [**Resumen**](/docs/client-overview) — la disposición de directorios `app/` y `public/` en la que viven estos primitivos
+- [**Datos y sincronización**](/docs/client-data) — los hooks de acciones predeterminados y `useDbSync` que debería usar la mayoría de las páginas en su lugar
+- [**Sincronización interna**](/docs/client-sync-internals) — `useChangeVersion`/`useChangeVersions` y las dos rutas de latencia que puede tomar una recuperación
+- [**Chat del Agent**](/docs/client-agent-chat) — los helpers predeterminados `sendToAgentChat`/`askUserQuestion` que debería usar la mayoría de la UI en su lugar, y las API de estado de contexto de chat del agente preparado
+- [**Puntos de entrada**](/docs/client-entry-points) — `app/entry.client.tsx`/`app/entry.server.tsx` y personalización de streaming de SSR
+- [**Conciencia del contexto**](/docs/context-awareness) — la semántica de `navigation`/`selection` construida sobre `application_state`, y el recorrido de `TAB_ID`/prevención de fluctuaciones
+- [**Interfaz generativa**](/docs/generative-ui) — controles de chat en línea más ricos más allá de `askUserQuestion`
+- [**Agentes externos**](/docs/external-agents#mcp-app-bridge) — los detalles completos del puente de host de aplicaciones MCP
+  </content>

@@ -8,18 +8,21 @@ import {
 import type { H3Event } from "h3";
 import { getHeader } from "h3";
 
+import { getSetting } from "../settings/store.js";
 import { applyBuilderUtmTrackingParams } from "../shared/builder-link-tracking.js";
 import {
   getAuthSecret,
   resolveSignupTrackingIdentity,
 } from "./better-auth-instance.js";
 import { getAppBasePath, getOrigin } from "./google-oauth.js";
+import { getRequestOrgId, getRequestUserEmail } from "./request-context.js";
 
 const DEFAULT_BUILDER_APP_HOST = "https://builder.io";
 const DEFAULT_BUILDER_API_HOST = "https://api.builder.io";
 const BUILDER_API_REQUEST_TIMEOUT_MS = 30_000;
 const BUILDER_BROWSER_HOST = "agent-native-browser";
 const BUILDER_BROWSER_CLIENT_ID = "Agent Native Browser";
+const DISPATCH_APP_CREATION_SETTINGS_KEY = "dispatch-app-creation-settings";
 
 export const BUILDER_CALLBACK_PATH = "/_agent-native/builder/callback";
 export const BUILDER_RELAY_PATH = "/_agent-native/builder/relay";
@@ -828,7 +831,41 @@ export function isBuilderBranchingEnabled(): boolean {
   return !!getConfiguredBuilderBranchProjectId();
 }
 
+type DispatchBuilderProjectResolution =
+  | { status: "absent" }
+  | { status: "present"; projectId: string | null }
+  | { status: "unreadable" };
+
+async function resolveDispatchBuilderProjectId(): Promise<DispatchBuilderProjectResolution> {
+  const orgId = getRequestOrgId()?.trim();
+  const userEmail = orgId ? undefined : getRequestUserEmail()?.trim();
+  const scopedKey = orgId
+    ? `${DISPATCH_APP_CREATION_SETTINGS_KEY}:org:${orgId}`
+    : userEmail
+      ? `${DISPATCH_APP_CREATION_SETTINGS_KEY}:user:${userEmail}`
+      : null;
+
+  if (!scopedKey) return { status: "absent" };
+
+  try {
+    const setting = await getSetting(scopedKey);
+    if (setting === null) return { status: "absent" };
+    const projectId =
+      typeof setting.builderProjectId === "string"
+        ? setting.builderProjectId.trim()
+        : "";
+    return { status: "present", projectId: projectId || null };
+  } catch {
+    return { status: "unreadable" };
+  }
+}
+
 export async function resolveBuilderBranchProjectId(): Promise<string> {
+  const dispatchProject = await resolveDispatchBuilderProjectId();
+  if (dispatchProject.status === "unreadable") return "";
+  if (dispatchProject.status === "present")
+    return dispatchProject.projectId ?? "";
+
   const envProjectId = getConfiguredBuilderBranchProjectId();
   if (envProjectId) return envProjectId;
 

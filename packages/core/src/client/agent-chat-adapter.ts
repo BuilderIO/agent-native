@@ -13,9 +13,11 @@ import type {
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 import {
   clearPendingTurnIfMatches,
+  getActiveRun,
   setActiveRun,
   updateActiveRunSeq,
   clearActiveRun,
+  clearActiveRunIfMatches,
   setPendingTurn,
 } from "./active-run-state.js";
 import { getOrCreateAnalyticsSessionId } from "./analytics-session.js";
@@ -24,6 +26,7 @@ import { agentNativePath } from "./api-path.js";
 import { formatChatErrorText, normalizeChatError } from "./error-format.js";
 import {
   AgentAutoContinueSignal,
+  INTERRUPTED_TOOL_RESULT,
   appendMissingFinalResponseWarning,
   type AgentActivityTrailEntry,
   type AgentAutoContinueErrorInfo,
@@ -33,6 +36,10 @@ import {
   readSSEStream,
   settleInterruptedToolCalls,
 } from "./sse-event-processor.js";
+import {
+  isDelegatedAgentToolCall,
+  isToolCallInFlight,
+} from "./tool-display.js";
 import type { ChatThreadScope } from "./use-chat-threads.js";
 
 export type AgentChatSurfaceKind =
@@ -63,6 +70,10 @@ type AgentChatAdapterAttachment = {
   name: string;
   contentType?: string;
   data?: string;
+  url?: string;
+  uploadProvider?: string;
+  referenceOnly?: boolean;
+  securityNote?: string;
   text?: string;
 };
 
@@ -86,37 +97,29 @@ const AUTO_CONTINUE_COMPLETION_GUARD =
 const MAX_RECONNECT_ATTEMPTS = 5;
 const MAX_STARTUP_RECOVERY_ATTEMPTS = 8;
 const MAX_QUEUED_CONFLICT_RETRIES = 120;
-const MAX_STALE_RUN_CONTINUATIONS = 3;
-const MAX_STALLED_TRANSIENT_CONTINUATIONS = 8;
-// Ceiling across the whole turn. Every attempt re-POSTs the full history plus
-// attachments, so a high ceiling only burns tokens and wall time. Unproductive
-// turns are already stopped far earlier by the empty/stalled/repeat budgets;
-// this one only ever binds turns that keep making real progress, so it stays
-// just above the longest recovery we deliberately support.
+// The consecutive non-advancing continuation (see `describeContinuationAdvance`)
+// that ends the turn: the third one stops it, so two are tolerated. This
+// replaced five separate budgets — stale-run, stalled, empty, repeated-narration
+// and repeated-action-preparation — each of which existed because the rung above
+// it had a hole the next one patched. One question answers all five: a round
+// that produced nothing, or produced exactly what the round before it
+// produced, did not advance.
+const MAX_NON_ADVANCING_CONTINUATIONS = 3;
+// Ceiling across the whole turn for TRANSIENT continuations — rounds that
+// followed a failure (timeout, dropped stream, stale run). Every attempt
+// re-POSTs the full history plus attachments, so a high ceiling only burns
+// tokens and wall time on a connection that keeps breaking.
 const MAX_TOTAL_TRANSIENT_CONTINUATIONS = 12;
-// How many consecutive continuations that produce NO progress (no streamed
-// text, no completed/in-flight tool) we tolerate before giving up. A complex
-// first turn can spend the whole soft-timeout window (~40s) "thinking" with no
-// visible output; giving up after a single such window made the agent feel like
-// it "craps out / stops midway" on heavier prompts (Analytics). Retrying a few
-// times lets a transient slow start recover, while the cap still terminates a
-// genuinely stuck turn with a clear message instead of looping forever.
-const MAX_EMPTY_TRANSIENT_CONTINUATIONS = 3;
-// How many consecutive continuations that re-stream the SAME narration without
-// advancing (no in-flight tool, no completed tool) we tolerate before giving
-// up. A model that degenerates into repeating one phrase ("I have the full
-// HTML. Creating the extension now!") emits "new" text every continuation,
-// which keeps resetting the stalled/empty budgets — so without this guard the
-// stuck turn burns the entire MAX_TOTAL_TRANSIENT_CONTINUATIONS budget (each
-// round re-sending any large pasted payload) before bailing. Catching the
-// repeat ends it in a few rounds with a clear, actionable message instead.
-const MAX_REPEATED_TRANSIENT_CONTINUATIONS = 3;
-// How many consecutive continuations that only reach the SAME "preparing
-// action" activity card we tolerate before giving up. This catches runs that
-// keep timing out while assembling a large tool payload: they are not empty,
-// and the narration may vary enough to bypass the text-repeat guard, but the
-// real tool never starts.
-const MAX_REPEATED_ACTION_PREPARATION_CONTINUATIONS = 3;
+// Ceiling across the whole turn for WORK-boundary continuations. A `loop_limit`
+// round is not a failure — the server spent a full iteration budget on real
+// tool work and handed the turn back — so counting it against the transient
+// ceiling killed progressing turns at round 13 that had never failed once.
+// Sized against the server's own limits: at its default budget of 400
+// iterations per run this is ~10,000 tool calls, two orders past the deepest
+// legitimate production turn (117 tool calls) that sized that budget. It still
+// has to exist, because the server's per-turn token backstop rides the request
+// body between server-chained chunks and resets on every client re-POST.
+const MAX_LOOP_LIMIT_CONTINUATIONS = 25;
 const RETRY_BASE_DELAY_MS = 500;
 const RETRY_MAX_DELAY_MS = 8_000;
 const MAX_HISTORY_ATTACHMENT_CHARS = 60_000;
@@ -147,6 +150,27 @@ const LARGE_INPUT_TOOL_NAMES = new Set([
 ]);
 const MAX_HISTORY_LARGE_TOOL_ARGS_CHARS = 200_000;
 const STARTUP_RESPONSE_TIMEOUT_MS = 45_000;
+
+function dispatchTerminalChatUiCleanup(tabId: string | undefined): void {
+  if (typeof window === "undefined") return;
+
+  // Some terminal outcomes are synthesized by the adapter after recovery
+  // (for example, a completed tool whose final response timed out) and never
+  // pass through a terminal SSE frame. Clear both halves of the status UI so
+  // the wrap-up result cannot leave a preparation label or "Resuming" state.
+  window.dispatchEvent(
+    new CustomEvent("agent-chat:activity-clear", { detail: { tabId } }),
+  );
+  window.dispatchEvent(
+    new CustomEvent("agent-chat:stream-progress", { detail: { tabId } }),
+  );
+}
+
+function isTerminalChatModelRunResult(result: ChatModelRunResult): boolean {
+  return (
+    result.status?.type === "complete" || result.status?.type === "incomplete"
+  );
+}
 
 // ── Background follow mode ──────────────────────────────────────────────────
 // For server-continued runs (dispatchMode starts with "background" or equals
@@ -276,6 +300,14 @@ const BACKGROUND_CONTINUATION_TERMINAL_REASONS = new Set<string>([
   "no_progress",
 ]);
 
+function isUserInitiatedTerminalReason(reason: string): boolean {
+  return (
+    reason === "aborted:user" ||
+    reason === "aborted:abort" ||
+    reason.startsWith("aborted:user_")
+  );
+}
+
 /**
  * True when the given `/runs/active` snapshot, if surfaced as a background
  * terminal outcome right now, would render as an error rather than a
@@ -292,6 +324,7 @@ function isBackgroundTerminalErrorOutcome(
     typeof lastKnown?.terminalReason === "string"
       ? lastKnown.terminalReason
       : "";
+  if (isUserInitiatedTerminalReason(rawTerminalReason)) return false;
   const hasErrorTerminalReason = rawTerminalReason.startsWith("error:");
   const terminalReason = rawTerminalReason.replace(/^error:/, "");
   const mappedMessage = terminalReason
@@ -455,38 +488,78 @@ function extractAttachmentsFromMessage(message: {
   for (const att of message.attachments ?? []) {
     for (const part of att.content) {
       if (part.type === "image" && typeof part.image === "string") {
+        const persistedMetadata =
+          att && typeof (att as any).metadata === "object"
+            ? ((att as any).metadata as Record<string, unknown>)
+            : undefined;
+        const imageIsDataUrl = part.image.startsWith("data:");
         attachments.push({
           type: "image",
           name: att.name,
           contentType: att.contentType,
-          data: part.image,
+          ...(imageIsDataUrl ? { data: part.image } : { url: part.image }),
+          ...(typeof persistedMetadata?.uploadProvider === "string"
+            ? { uploadProvider: persistedMetadata.uploadProvider }
+            : {}),
+          ...(persistedMetadata?.referenceOnly === true
+            ? {
+                referenceOnly: true,
+                ...(typeof persistedMetadata.securityNote === "string"
+                  ? { securityNote: persistedMetadata.securityNote }
+                  : {}),
+              }
+            : {}),
         });
-      } else if (part.type === "file" && typeof part.data === "string") {
+      } else if (
+        part.type === "file" &&
+        (typeof part.data === "string" || typeof part.url === "string")
+      ) {
         const contentType =
           att.contentType ??
           (typeof part.mimeType === "string" ? part.mimeType : undefined);
+        const data = typeof part.data === "string" ? part.data : undefined;
+        const url = typeof part.url === "string" ? part.url : undefined;
+        const persistedMetadata =
+          att && typeof (att as any).metadata === "object"
+            ? ((att as any).metadata as Record<string, unknown>)
+            : undefined;
         const preserveDataUrl =
-          part.data.startsWith("data:") &&
+          typeof data === "string" &&
+          data.startsWith("data:") &&
           shouldPreserveFileDataUrl({ name: att.name, contentType });
-        const decodedText = part.data.startsWith("data:")
-          ? decodeTextDataUrl(part.data)
+        const decodedText = data?.startsWith("data:")
+          ? decodeTextDataUrl(data)
           : null;
         attachments.push({
           type: "file",
           name: att.name,
           contentType,
+          ...(url ? { url } : {}),
           ...(preserveDataUrl
             ? {
-                data: part.data,
+                data,
                 ...(decodedText !== null
                   ? { text: truncateOutboundAttachment(decodedText) }
                   : {}),
               }
             : decodedText !== null
               ? { text: truncateOutboundAttachment(decodedText) }
-              : part.data.startsWith("data:")
-                ? { data: part.data }
-                : { text: truncateOutboundAttachment(part.data) }),
+              : data?.startsWith("data:")
+                ? { data }
+                : url
+                  ? {}
+                  : { text: truncateOutboundAttachment(data ?? "") }),
+          ...(typeof persistedMetadata?.uploadProvider === "string"
+            ? { uploadProvider: persistedMetadata.uploadProvider }
+            : {}),
+          ...(persistedMetadata?.referenceOnly === true
+            ? {
+                referenceOnly: true,
+                ...(typeof persistedMetadata.securityNote === "string"
+                  ? { securityNote: persistedMetadata.securityNote }
+                  : {}),
+              }
+            : {}),
         });
       } else if (part.type === "text" && typeof part.text === "string") {
         attachments.push({
@@ -500,11 +573,12 @@ function extractAttachmentsFromMessage(message: {
   }
   for (const part of message.content ?? []) {
     if (part.type === "image" && typeof part.image === "string") {
+      const imageIsDataUrl = part.image.startsWith("data:");
       attachments.push({
         type: "image",
         name: "image",
         contentType: /^data:([^;,]+)/.exec(part.image)?.[1],
-        data: part.image,
+        ...(imageIsDataUrl ? { data: part.image } : { url: part.image }),
       });
     }
   }
@@ -550,12 +624,16 @@ function attachmentHistoryText(
       attachment.type
         ? `type="${escapeAttachmentAttribute(attachment.type)}"`
         : null,
+      attachment.url
+        ? `url="${escapeAttachmentAttribute(attachment.url)}"`
+        : null,
     ].filter(Boolean);
     return `<attachment ${attrs.join(" ")}>\n${truncateHistoryAttachment(attachment.text)}\n</attachment>`;
   }
 
   if (attachment.name) {
-    return `[Attached ${attachment.type || "file"}: ${attachment.name}${attachment.contentType ? ` (${attachment.contentType})` : ""}]`;
+    const hostedUrl = attachment.url ? `; hosted URL: ${attachment.url}` : "";
+    return `[Attached ${attachment.type || "file"}: ${attachment.name}${attachment.contentType ? ` (${attachment.contentType})` : ""}${hostedUrl}]`;
   }
   return null;
 }
@@ -730,18 +808,30 @@ function contentToStructuredMessages(
           : (part.args ?? {}),
       });
       if (part.result !== undefined) {
+        const body = truncate
+          ? truncateForHistory(
+              toolResultContent(part.result, part.toolName),
+              MAX_HISTORY_TOOL_RESULT_CHARS,
+              "Tool result",
+            )
+          : toolResultContent(part.result, part.toolName);
         pendingToolResults.push({
           type: "tool-result",
           toolCallId,
           toolName: part.toolName,
           toolInput: JSON.stringify(part.args ?? {}),
-          content: truncate
-            ? truncateForHistory(
-                toolResultContent(part.result, part.toolName),
-                MAX_HISTORY_TOOL_RESULT_CHARS,
-                "Tool result",
-              )
-            : toolResultContent(part.result, part.toolName),
+          // A settled-interrupted tool has a result whose outcome is UNKNOWN.
+          // It is neither a success nor a failure, so it carries the marker the
+          // server's write-interruption breaker matches on instead of claiming
+          // either.
+          content:
+            part.outcome === "unknown" &&
+            !body.includes(INTERRUPTED_TOOL_RESULT)
+              ? `${INTERRUPTED_TOOL_RESULT} ${body}`
+              : body,
+          ...(part.isError === true && part.outcome !== "unknown"
+            ? { isError: true }
+            : {}),
         });
       } else {
         pendingToolResults.push({
@@ -749,7 +839,7 @@ function contentToStructuredMessages(
           toolCallId,
           toolName: part.toolName,
           toolInput: JSON.stringify(part.args ?? {}),
-          content: "Interrupted before this tool returned a result.",
+          content: INTERRUPTED_TOOL_RESULT,
         });
       }
     }
@@ -820,6 +910,14 @@ function assistantUiMessagesToStructuredHistory(
           ...(part.result !== undefined
             ? { result: toolResultContent(part.result, toolName) }
             : {}),
+          // A failed call replayed without `isError` reads to the next turn as
+          // an ordinary success whose body happens to contain error prose, so
+          // the model cannot tell it already tried this and failed. The
+          // server's repeat-error breaker keys on exactly this flag.
+          ...(part.isError === true ? { isError: true } : {}),
+          ...(part.outcome === "unknown"
+            ? { outcome: "unknown" as const }
+            : {}),
         });
       }
     }
@@ -833,11 +931,42 @@ function assistantUiMessagesToStructuredHistory(
   return structured;
 }
 
+/**
+ * Size this message will actually contribute to the request, AFTER the
+ * per-part truncation `assistantUiMessagesToStructuredHistory` applies. Tool
+ * calls are most of a tool-heavy turn, so counting only text parts priced a
+ * turn of 40 tool calls at ~0: it survived every trim against
+ * MAX_HISTORY_TOTAL_CHARS while the user's own prose was evicted around it.
+ */
 function estimateHistoryMessageCost(message: {
   content: readonly { type: string; text?: string }[];
   attachments?: readonly AssistantUiAttachment[];
 }): number {
-  return Math.max(1, messageTextForHistory(message).length);
+  let cost = messageTextForHistory(message).length;
+  for (const part of message.content) {
+    if (part.type !== "tool-call") continue;
+    const tool = part as {
+      toolName?: string;
+      argsText?: string;
+      args?: unknown;
+      result?: unknown;
+    };
+    const argsCap = LARGE_INPUT_TOOL_NAMES.has(tool.toolName ?? "")
+      ? MAX_HISTORY_LARGE_TOOL_ARGS_CHARS
+      : MAX_HISTORY_TOOL_ARGS_CHARS;
+    const argsText = tool.argsText ?? stableJson(tool.args ?? {});
+    cost += Math.min(argsText.length, argsCap);
+    if (tool.result !== undefined) {
+      cost += Math.min(
+        // Price the string the request actually carries. `String(result)` is
+        // 15 chars ("[object Object]") for every object result, which is most
+        // of them.
+        toolResultContent(tool.result, tool.toolName).length,
+        MAX_HISTORY_TOOL_RESULT_CHARS,
+      );
+    }
+  }
+  return Math.max(1, cost);
 }
 
 function limitPriorMessagesForRequest<
@@ -965,6 +1094,74 @@ function continuationRepeatSignature(content: ContentPart[]): string {
   return Array.from(new Set(segments)).sort().join("\u0000");
 }
 
+type ContinuationAdvance = {
+  signature: string;
+  /**
+   * What the round was left sitting on. Only the give-up wording reads this;
+   * the control flow is the signature comparison alone.
+   */
+  stall: {
+    kind: "in-flight" | "preparing" | "repeat" | "empty";
+    toolName?: string;
+  };
+};
+
+/**
+ * Everything a continuation could have advanced, as one signature over the
+ * work it produced: the distinct tool results it completed, the tool it left
+ * in flight, and the action card it left unstarted. Two consecutive
+ * continuations with the same signature moved the turn nowhere, whatever the
+ * server's reason code called it.
+ *
+ * DISTINCT, not per-occurrence: a round that degenerates into four hundred
+ * copies of one tool call collapses to the same signature as the round before
+ * it, which is exactly the shape production shows (up to 28 identical calls in
+ * one turn).
+ *
+ * Narration counts only when the round left NO unfinished work. A model stuck
+ * re-wording "I have the file, creating it now!" while the same action never
+ * starts emits new prose every round, and prose alone is why that used to look
+ * like progress.
+ */
+function describeContinuationAdvance(
+  content: ContentPart[],
+  preparingToolName: string | undefined,
+): ContinuationAdvance {
+  const work = new Set<string>();
+  let stall: ContinuationAdvance["stall"] | null = null;
+  for (const part of content) {
+    if (part.type !== "tool-call") continue;
+    if (part.result !== undefined) {
+      if (part.activity !== true) {
+        work.add(
+          `done ${part.toolName} ${inFlightToolInputSignature(part)} ${part.result.length} ${part.result.slice(0, 256)}`,
+        );
+      }
+      continue;
+    }
+    if (part.activity === true && !isDelegatedAgentToolCall(part)) {
+      work.add(`preparing ${part.toolName}`);
+      stall ??= { kind: "preparing", toolName: part.toolName };
+    } else {
+      work.add(`pending ${part.toolName} ${inFlightToolInputSignature(part)}`);
+      stall = { kind: "in-flight", toolName: part.toolName };
+    }
+  }
+  // A "Preparing X action" card is an activity-trail entry, not a content
+  // part, so a round can sit on an unstarted action while its content holds
+  // nothing but narration.
+  if (preparingToolName && !stall) {
+    work.add(`preparing ${preparingToolName}`);
+    stall = { kind: "preparing", toolName: preparingToolName };
+  }
+  if (!stall) {
+    const text = continuationRepeatSignature(content);
+    if (text) work.add(`text ${text}`);
+    stall = text ? { kind: "repeat" } : { kind: "empty" };
+  }
+  return { signature: Array.from(work).sort().join(""), stall };
+}
+
 /**
  * True when an action was streamed but never returned a result yet — i.e. a
  * `tool_start` with no matching `tool_done`. The server is still executing it,
@@ -972,13 +1169,8 @@ function continuationRepeatSignature(content: ContentPart[]): string {
  * actively working and `foldAssistantTurn` persisted the in-flight call. We
  * must not count this against the stalled/empty continuation budgets.
  */
-function hasInFlightToolCall(content: ContentPart[]): boolean {
-  return content.some(
-    (part) =>
-      part.type === "tool-call" &&
-      part.result === undefined &&
-      part.activity !== true,
-  );
+export function hasInFlightToolCall(content: ContentPart[]): boolean {
+  return content.some((part) => isToolCallInFlight(part));
 }
 
 /**
@@ -1012,7 +1204,10 @@ export async function activeRunLooksAlive(args: {
     if (data?.active !== true || String(data.runId ?? "") !== args.runId) {
       return false;
     }
-    return data.hasInFlightWork === true || data.status === "running";
+    // `running` only says the server row has not terminalized. It is not proof
+    // that a tool is executing, and treating it as proof skips the client
+    // rescue precisely when a stalled run has no in-flight work.
+    return data.hasInFlightWork === true;
   } catch {
     return true;
   }
@@ -1756,11 +1951,18 @@ export function createAgentChatAdapter(
       const effort =
         (runConfigSelection("effort") as ReasoningEffort | undefined) ??
         effortRef?.current;
+      const requestedTurnId = (() => {
+        const raw =
+          runConfig?.custom && typeof runConfig.custom === "object"
+            ? (runConfig.custom as { turnId?: unknown }).turnId
+            : undefined;
+        return typeof raw === "string" && raw.trim() ? raw.trim() : undefined;
+      })();
+      const turnId = requestedTurnId ?? generateTurnId();
 
       const withRequestModeMetadata = (
         result: ChatModelRunResult,
       ): ChatModelRunResult => {
-        if (!requestMode) return result;
         const metadata = (result.metadata ?? {}) as Record<string, unknown>;
         const custom =
           metadata.custom && typeof metadata.custom === "object"
@@ -1770,7 +1972,11 @@ export function createAgentChatAdapter(
           ...result,
           metadata: {
             ...metadata,
-            custom: { ...custom, requestMode },
+            custom: {
+              ...custom,
+              turnId,
+              ...(requestMode ? { requestMode } : {}),
+            },
           },
         };
       };
@@ -1813,10 +2019,34 @@ export function createAgentChatAdapter(
 
       const content: ContentPart[] = [];
       const toolCallCounter = { value: 0 };
-      const turnId = generateTurnId();
       if (threadId) setPendingTurn({ threadId, turnId });
       let runId: string | null = null;
       let lastSeq = -1;
+      const ownsActiveRunState = () => {
+        const activeRun = getActiveRun();
+        return (
+          !activeRun ||
+          (!!threadId &&
+            !!runId &&
+            activeRun.threadId === threadId &&
+            activeRun.runId === runId)
+        );
+      };
+      const settleTerminalChatRun = () => {
+        if (!ownsActiveRunState()) return;
+        if (threadId && runId) {
+          clearActiveRunIfMatches(threadId, runId);
+        } else {
+          clearActiveRun();
+        }
+        if (typeof window === "undefined") return;
+        dispatchTerminalChatUiCleanup(tabId);
+        window.dispatchEvent(
+          new CustomEvent("agentNative.chatRunning", {
+            detail: { isRunning: false, tabId },
+          }),
+        );
+      };
       const seenRunSeqs = new Map<string, number>();
       const preparingActionStatesByRun = new Map<
         string,
@@ -1834,36 +2064,30 @@ export function createAgentChatAdapter(
       let internalContinuationRequest = latestUserIsRecovery;
       let startupRecoveryAttempts = 0;
       let queuedConflictRetries = 0;
-      let staleRunContinuationAttempts = 0;
-      let stalledTransientContinuationAttempts = 0;
-      let emptyTransientContinuationAttempts = 0;
       let totalTransientContinuationAttempts = 0;
-      let repeatedTransientContinuationAttempts = 0;
-      let lastContinuationRepeatSignature: string | null = null;
-      let recoveryGaveUpOnRepetition = false;
-      // Track when the same write tool is stuck in-flight across consecutive
-      // continuations (connection keeps dropping mid-execution). This is
-      // orthogonal to the text-repeat guard — in-flight tools reset
-      // madeProgress=true so the stalled/empty budgets never fire, but the tool
-      // never actually completes. After MAX_REPEATED_INFLIGHT_TOOL_STALLS
-      // consecutive interruptions of the same tool, bail with a clear message.
-      let lastInFlightToolName: string | undefined;
-      // Signature of the stuck tool's input. A retry with a changed payload
-      // (different signature) resets the stall count so the new attempt gets
-      // its own budget rather than inheriting the prior payload's.
-      let lastInFlightToolSignature: string | undefined;
-      let repeatedInFlightToolCount = 0;
-      let recoveryGaveUpOnInFlightTool = false;
-      const MAX_REPEATED_INFLIGHT_TOOL_STALLS = 3;
-      let lastPreparingToolName: string | undefined;
-      let repeatedActionPreparationCount = 0;
-      let recoveryGaveUpOnActionPreparation = false;
-      // Set when the turn is stopped by MAX_TOTAL_TRANSIENT_CONTINUATIONS —
-      // the whole-turn continuation ceiling, not a dropped connection. This
-      // can trip on a turn that was making real progress the entire time, so
-      // it needs its own honest message instead of falling through to the
-      // generic "connection kept failing" copy below.
-      let recoveryGaveUpOnTransientBudget = false;
+      // Work-boundary continuations (`loop_limit`), counted apart from the
+      // transient ones — see MAX_LOOP_LIMIT_CONTINUATIONS.
+      let loopLimitContinuations = 0;
+      // Consecutive continuations whose advance signature matched the previous
+      // round's (or was empty). Reset by any real advance.
+      let nonAdvancingContinuations = 0;
+      let lastAdvanceSignature: string | null = null;
+      // Set at the moment we give up, so the user-facing message can name what
+      // the turn was stuck on without a counter per shape of stuck.
+      let recoveryStall: ContinuationAdvance["stall"] | null = null;
+      // Content already accounted for by a previous advance check. Tracked
+      // separately from `visibleContinuationPrefix`, which deliberately does
+      // NOT advance on a `loop_limit` boundary so that round's output stays in
+      // continuation history; the advance check needs the per-round delta for
+      // every reason code, `loop_limit` included.
+      let advanceCheckPrefix: ContentPart[] = [];
+      // Set when the turn is stopped by a whole-turn continuation ceiling
+      // (MAX_TOTAL_TRANSIENT_CONTINUATIONS or MAX_LOOP_LIMIT_CONTINUATIONS)
+      // rather than by a dropped connection. Either can trip on a turn that was
+      // making real progress the entire time, so it needs its own honest
+      // message instead of falling through to the generic "connection kept
+      // failing" copy below.
+      let recoveryGaveUpOnContinuationBudget = false;
       const continuationHistoryFragments: string[] = [];
       const structuredContinuationFragments: AgentChatStructuredMessage[] = [];
       let visibleContinuationPrefix: ContentPart[] = [];
@@ -1914,22 +2138,16 @@ export function createAgentChatAdapter(
           lastRecoverableRunError?.message
             ? `last_recoverable_error: ${lastRecoverableRunError.message}`
             : "",
-          `stale_run_continuations: ${staleRunContinuationAttempts}`,
-          `stalled_transient_continuations: ${stalledTransientContinuationAttempts}`,
-          `empty_transient_continuations: ${emptyTransientContinuationAttempts}`,
-          `repeated_transient_continuations: ${repeatedTransientContinuationAttempts}`,
-          `repeated_inflight_tool_stalls: ${repeatedInFlightToolCount}`,
-          lastInFlightToolName
-            ? `last_inflight_tool: ${lastInFlightToolName}`
-            : "",
-          `repeated_action_preparation_stalls: ${repeatedActionPreparationCount}`,
-          lastPreparingToolName
-            ? `last_preparing_tool: ${lastPreparingToolName}`
+          `non_advancing_continuations: ${nonAdvancingContinuations}`,
+          recoveryStall ? `stalled_on: ${recoveryStall.kind}` : "",
+          recoveryStall?.toolName
+            ? `stalled_on_tool: ${recoveryStall.toolName}`
             : "",
           formatActivityTrail(lastActivityTrail)
             ? `activity_trail: ${formatActivityTrail(lastActivityTrail)}`
             : "",
           `total_transient_continuations: ${totalTransientContinuationAttempts}`,
+          `loop_limit_continuations: ${loopLimitContinuations}`,
           `background_follow_no_progress_detaches: ${backgroundFollowNoProgressDetaches}`,
           `background_follow_consecutive_no_progress_detaches: ${backgroundFollowConsecutiveNoProgressDetaches}`,
           backgroundFollowLastDetachReason
@@ -1951,19 +2169,19 @@ export function createAgentChatAdapter(
       };
 
       const exhaustedRecoveryMessage = (reason?: string): string => {
-        if (recoveryGaveUpOnInFlightTool) {
+        if (recoveryStall?.kind === "in-flight") {
           return "The agent got stuck waiting for the same tool to finish, so I stopped the automatic retries. The tool did not report a completed result.";
         }
-        if (recoveryGaveUpOnRepetition) {
+        if (recoveryStall?.kind === "repeat") {
           return "The agent got stuck repeating the same response without finishing, so I stopped the automatic retries. This often happens when it tries to re-type a large pasted file into one action — starting a new chat, or asking for a smaller first step, usually gets it unstuck.";
         }
-        if (recoveryGaveUpOnActionPreparation) {
-          const tool = lastPreparingToolName
-            ? ` the ${humanizeActionName(lastPreparingToolName)} action`
+        if (recoveryStall?.kind === "preparing") {
+          const tool = recoveryStall.toolName
+            ? ` the ${humanizeActionName(recoveryStall.toolName)} action`
             : " the same action";
           return `The agent got stuck preparing${tool} input and never started the tool, so I stopped the automatic retries. Try a smaller first step or a more compact version of the request.`;
         }
-        if (recoveryGaveUpOnTransientBudget) {
+        if (recoveryGaveUpOnContinuationBudget) {
           return "This turn reached the limit on how many times it can be automatically continued, so I stopped it here. It may have still been making progress — retry as a single, narrower request so it can finish within fewer continuations.";
         }
         if (
@@ -1973,6 +2191,9 @@ export function createAgentChatAdapter(
             reason === "stream_ended")
         ) {
           return "The agent request started but did not produce any visible progress before timing out. I stopped the automatic retries so this chat would not stay stuck on Thinking.";
+        }
+        if (recoveryStall?.kind === "empty") {
+          return "The agent stopped producing new output across several automatic retries, so I stopped it here rather than leaving the chat stuck on Thinking.";
         }
         return "The agent connection kept failing after several automatic recovery attempts.";
       };
@@ -2103,6 +2324,7 @@ export function createAgentChatAdapter(
           "noProgressTimeoutMs" | "actionPreparationStallTimeoutMs"
         > = {},
       ): SSEStreamOptions => ({
+        markTerminalResults: true,
         durableBackgroundRun:
           currentRunDispatchMode?.startsWith("background") === true,
         ...(runId
@@ -2134,14 +2356,9 @@ export function createAgentChatAdapter(
             attemptedRunIds: [...attemptedRunIds],
             activityTrail: [...lastActivityTrail],
             startupRecoveryAttempts,
-            staleRunContinuationAttempts,
-            stalledTransientContinuationAttempts,
-            emptyTransientContinuationAttempts,
-            repeatedTransientContinuationAttempts,
-            repeatedInFlightToolCount,
-            lastInFlightToolName,
-            repeatedActionPreparationCount,
-            lastPreparingToolName,
+            nonAdvancingContinuations,
+            stalledOn: recoveryStall?.kind,
+            stalledOnTool: recoveryStall?.toolName,
             totalTransientContinuationAttempts,
             ...extra,
           },
@@ -2153,14 +2370,9 @@ export function createAgentChatAdapter(
               lastSeq,
               contentParts: content.length,
               startupRecoveryAttempts,
-              staleRunContinuationAttempts,
-              stalledTransientContinuationAttempts,
-              emptyTransientContinuationAttempts,
-              repeatedTransientContinuationAttempts,
-              repeatedInFlightToolCount,
-              lastInFlightToolName,
-              repeatedActionPreparationCount,
-              lastPreparingToolName,
+              nonAdvancingContinuations,
+              stalledOn: recoveryStall?.kind,
+              stalledOnTool: recoveryStall?.toolName,
               totalTransientContinuationAttempts,
             },
           },
@@ -2237,16 +2449,22 @@ export function createAgentChatAdapter(
                 content,
                 toolCallCounter,
                 tabId,
-                (seq) => {
+                (seq, isProgress) => {
                   rememberRunSeq(seq);
-                  if (threadId) updateActiveRunSeq(seq);
+                  if (threadId) updateActiveRunSeq(seq, isProgress);
                 },
                 runId,
                 currentSSEOptions(),
               )) {
-                yield withRequestModeMetadata(result);
+                const nextResult = withRequestModeMetadata(result);
+                if (isTerminalChatModelRunResult(nextResult)) {
+                  settleTerminalChatRun();
+                }
+                yield nextResult;
               }
-              clearActiveRun();
+              if (ownsActiveRunState()) {
+                clearActiveRun();
+              }
               return true;
             } catch (reconnectErr: unknown) {
               if (
@@ -2272,11 +2490,9 @@ export function createAgentChatAdapter(
           return false;
         };
 
-        const reconnectActiveRunForThread = async function* (): AsyncGenerator<
-          ChatModelRunResult,
-          boolean,
-          unknown
-        > {
+        const reconnectActiveRunForThread = async function* (options?: {
+          requireCurrentTurn?: boolean;
+        }): AsyncGenerator<ChatModelRunResult, boolean, unknown> {
           if (!threadId) return false;
           let lastActiveRunError: unknown = null;
           for (let attempt = 0; attempt < MAX_RECONNECT_ATTEMPTS; attempt++) {
@@ -2306,6 +2522,9 @@ export function createAgentChatAdapter(
                 const activeRunId = String(active.runId);
                 const activeTurnId =
                   typeof active.turnId === "string" ? active.turnId : "";
+                if (options?.requireCurrentTurn && activeTurnId !== turnId) {
+                  return false;
+                }
                 if (!canAttachRun(activeRunId, activeTurnId)) {
                   return false;
                 }
@@ -2316,7 +2535,12 @@ export function createAgentChatAdapter(
                   attemptedRunIds.push(activeRunId);
                 }
                 reconnectCursorForRun(activeRunId, previousRunId);
-                setActiveRun({ threadId, runId: activeRunId, lastSeq });
+                setActiveRun({
+                  threadId,
+                  runId: activeRunId,
+                  turnId,
+                  lastSeq,
+                });
                 const reconnected = yield* reconnectCurrentRun();
                 if (reconnected) return true;
               }
@@ -2396,7 +2620,12 @@ export function createAgentChatAdapter(
                   attemptedRunIds.push(activeRunId);
                 }
                 reconnectCursorForRun(activeRunId, previousRunId);
-                setActiveRun({ threadId, runId: activeRunId, lastSeq });
+                setActiveRun({
+                  threadId,
+                  runId: activeRunId,
+                  turnId,
+                  lastSeq,
+                });
                 const reconnected = yield* reconnectCurrentRun();
                 if (reconnected) return true;
               } catch (activeErr: unknown) {
@@ -2456,6 +2685,7 @@ export function createAgentChatAdapter(
             type: "text",
             text: formatChatErrorText(args.message, undefined, args.errorCode),
           });
+          settleTerminalChatRun();
           yield {
             content: [...content],
             status: { type: "incomplete" as const, reason: "error" as const },
@@ -2478,6 +2708,27 @@ export function createAgentChatAdapter(
             typeof lastKnown?.terminalReason === "string"
               ? lastKnown.terminalReason
               : "";
+          if (isUserInitiatedTerminalReason(rawTerminalReason)) {
+            settleInterruptedToolCalls(content, undefined, {
+              includeActivity: true,
+            });
+            settleTerminalChatRun();
+            yield {
+              content: [...content],
+              status: {
+                type: "complete" as const,
+                reason: "stop" as const,
+              },
+              metadata: {
+                custom: {
+                  ...(runId ? { runId } : {}),
+                  userStopped: true,
+                },
+              },
+            } as ChatModelRunResult;
+            clearActiveRun();
+            return;
+          }
           // terminal_reason is either a bare reason ("dispatch_payload_missing")
           // or "error:<errorCode>" when derived from a terminal error event.
           const hasErrorTerminalReason = rawTerminalReason.startsWith("error:");
@@ -2530,6 +2781,7 @@ export function createAgentChatAdapter(
               includeActivity: true,
             });
             const runWarning = appendMissingFinalResponseWarning(content);
+            settleTerminalChatRun();
             yield {
               content: [...content],
               status: { type: "complete" as const, reason: "stop" as const },
@@ -2602,9 +2854,9 @@ export function createAgentChatAdapter(
               content,
               toolCallCounter,
               tabId,
-              (seq) => {
+              (seq, isProgress) => {
                 rememberRunSeq(seq);
-                if (threadId) updateActiveRunSeq(seq);
+                if (threadId) updateActiveRunSeq(seq, isProgress);
               },
               runId,
               currentSSEOptions({
@@ -2613,7 +2865,11 @@ export function createAgentChatAdapter(
                   BACKGROUND_FOLLOW_ATTACH_WATCHDOG_MS,
               }),
             )) {
-              yield withRequestModeMetadata(result);
+              const nextResult = withRequestModeMetadata(result);
+              if (isTerminalChatModelRunResult(nextResult)) {
+                settleTerminalChatRun();
+              }
+              yield nextResult;
             }
             // readSSEStream returned normally: a terminal done/error was
             // consumed and rendered — the turn is over.
@@ -2871,6 +3127,14 @@ export function createAgentChatAdapter(
             if (activeRunId && isOurRun) {
               lastSeenActive = active;
               updateCurrentRunDispatchMode(active?.dispatchMode);
+              const activeTerminalReason =
+                typeof active?.terminalReason === "string"
+                  ? active.terminalReason
+                  : "";
+              if (isUserInitiatedTerminalReason(activeTerminalReason)) {
+                yield* emitBackgroundTerminalOutcome(active);
+                return "completed";
+              }
               const isTerminal =
                 activeStatus === "completed" || activeStatus === "errored";
               if (isTerminal && replayedTerminalRunIds.has(activeRunId)) {
@@ -2968,7 +3232,12 @@ export function createAgentChatAdapter(
               }
               reconnectCursorForRun(activeRunId, previousRunId);
               if (threadId) {
-                setActiveRun({ threadId, runId: activeRunId, lastSeq });
+                setActiveRun({
+                  threadId,
+                  runId: activeRunId,
+                  turnId,
+                  lastSeq,
+                });
               }
               const seqBeforeAttach = lastSeq;
               const attach = yield* followAttachOnce();
@@ -3195,7 +3464,7 @@ export function createAgentChatAdapter(
           ok: boolean;
           resetVisibleContent: boolean;
           completedToolName?: string;
-          emptyRun?: boolean;
+          nonAdvancing?: boolean;
         } => {
           lastAutoContinueReason = signal.reason;
           lastActivityTrail = [...signal.activityTrail];
@@ -3206,216 +3475,87 @@ export function createAgentChatAdapter(
           const visibleContent = visibleContentForContinuation();
           let currentPartialHistory =
             contentToContinuationHistory(visibleContent);
-          // Real, content-weight progress: streamed text or a completed tool
-          // result. Used to reset the stalled/empty counters so trivial
-          // whitespace-only output cannot keep the run alive indefinitely.
           const madeContentProgress = hasContinuationProgress(visibleContent);
-          // An action was streamed but has not returned yet (a tool_start with
-          // no tool_done). This is durable enough to survive continuation: the
-          // server already emitted a real tool call. A tool-scoped activity
-          // card ("Preparing generate-design") is useful UI, but it happens
-          // before tool_start; treating it as progress caused silent retry
-          // loops when the LLM timed out while assembling a large tool input.
-          const hasInFlightTool = hasInFlightToolCall(visibleContent);
+          // THE boundary. One question — did this continuation advance the
+          // turn? — decides every reason code, `loop_limit` included. It used
+          // to skip this block entirely AND reset two of the budgets, so a
+          // model that degenerated into a tool loop re-POSTed the same turnId
+          // until the user gave up (measured in production at 186 minutes with
+          // no answer). The durable per-turn ledger lives server-side inside
+          // one run and never sees a client re-POST, so nothing else bounds it.
+          const advanceDelta = contentAfterContinuationPrefix(
+            content,
+            advanceCheckPrefix,
+          );
+          // Everything that asks "what did THIS round do" reads the delta.
+          // `visibleContent` accumulates across a `loop_limit` chain — its
+          // prefix deliberately does not advance there — so one unresolved
+          // "Preparing X" card from an earlier round would otherwise stall
+          // every later round on the same name and kill a turn that was
+          // streaming new prose the whole time.
+          // An action streamed but not returned yet (a tool_start with no
+          // tool_done) means the SERVER is still executing it, so a run_timeout
+          // in that window can still deliver the result on reconnect; every
+          // other reason means the stream is dead and nothing will complete it.
+          const hasInFlightTool = hasInFlightToolCall(advanceDelta);
           const completedTool = lastCompletedTimeoutCandidateTool(content);
-          // Either real output or an actively-running tool counts as progress
-          // for the stalled/empty caps.
-          const madeProgress = madeContentProgress || hasInFlightTool;
-          const emptyRun = !madeProgress && signal.reason !== "loop_limit";
-          const madeDurableToolProgress = visibleContent.some(
-            (part) =>
-              part.type === "tool-call" &&
-              part.activity !== true &&
-              part.result !== undefined,
-          );
           const currentPreparingToolName =
-            lastUnresolvedToolActivity(visibleContent) ??
+            lastUnresolvedToolActivity(advanceDelta) ??
             lastPreparingActionTool(signal.activityTrail);
-          // In-flight tool stall guard. When the same write tool is stuck
-          // in-flight because the connection keeps dropping (stream_ended),
-          // hasInFlightTool=true keeps madeProgress=true and completely
-          // bypasses the stalled/empty budgets. Track the last in-flight tool
-          // name; when the same tool is still unresolved after
-          // MAX_REPEATED_INFLIGHT_TOOL_STALLS consecutive stream_ended events,
-          // bail with a clear message.
-          //
-          // Count broken streams (connection drop / reconnect failed) and
-          // no_progress stalls (the client aborts a stream that stayed open but
-          // stopped producing events). Do NOT count run_timeout: with an
-          // in-flight tool that means the server is still actively executing a
-          // slow action and reconnection may recover the result.
-          const currentInFlightToolPart = visibleContent.find(
-            (p): p is Extract<ContentPart, { type: "tool-call" }> =>
-              p.type === "tool-call" &&
-              p.result === undefined &&
-              p.activity !== true,
+
+          const advance = describeContinuationAdvance(
+            advanceDelta,
+            currentPreparingToolName,
           );
-          const currentInFlightToolName = currentInFlightToolPart?.toolName;
-          const currentInFlightToolSignature = currentInFlightToolPart
-            ? inFlightToolInputSignature(currentInFlightToolPart)
-            : undefined;
-          const isBrokenInFlightTool =
-            signal.reason === "stream_ended" || signal.reason === "no_progress";
-          if (currentInFlightToolName && isBrokenInFlightTool) {
-            if (
-              currentInFlightToolName === lastInFlightToolName &&
-              currentInFlightToolSignature === lastInFlightToolSignature
-            ) {
-              repeatedInFlightToolCount += 1;
-            } else {
-              // New tool, or the same tool retried with a CHANGED (e.g.
-              // smaller) payload — give the changed input a fresh stall budget
-              // instead of aborting it as a repeat of the prior payload.
-              repeatedInFlightToolCount = 0;
-              lastInFlightToolName = currentInFlightToolName;
-              lastInFlightToolSignature = currentInFlightToolSignature;
-            }
-          } else if (!currentInFlightToolName) {
-            repeatedInFlightToolCount = 0;
-          }
-
-          const isRepeatedActionPreparationCandidate =
-            signal.reason !== "loop_limit" &&
-            currentPreparingToolName !== undefined &&
-            !hasInFlightTool &&
-            !madeDurableToolProgress;
-          if (isRepeatedActionPreparationCandidate) {
-            if (currentPreparingToolName === lastPreparingToolName) {
-              repeatedActionPreparationCount += 1;
-            } else {
-              repeatedActionPreparationCount = 0;
-              lastPreparingToolName = currentPreparingToolName;
-            }
-          } else if (
-            !currentPreparingToolName ||
-            hasInFlightTool ||
-            madeDurableToolProgress
-          ) {
-            repeatedActionPreparationCount = 0;
-            lastPreparingToolName = undefined;
-          }
-
-          // Degenerate repetition guard. When the model gets stuck re-streaming
-          // the SAME narration every continuation without ever starting or
-          // finishing a tool, each round is "new" text — so madeProgress stays
-          // true and the stalled/empty budgets never trip. Compare this round's
-          // unique-sentence signature to the previous round's; a match with no
-          // tool progress is a non-advancing loop. Tracked by its own counter
-          // so it bails after a few rounds instead of the full transient budget,
-          // without perturbing the stalled/empty/stale accounting.
-          const repeatSignature = continuationRepeatSignature(visibleContent);
-          const isNonAdvancingRepeat =
-            signal.reason !== "loop_limit" &&
-            repeatSignature !== "" &&
-            repeatSignature === lastContinuationRepeatSignature &&
-            !hasInFlightTool &&
-            !madeDurableToolProgress;
-
-          if (signal.reason === "loop_limit") {
-            stalledTransientContinuationAttempts = 0;
-            emptyTransientContinuationAttempts = 0;
-          } else {
+          const serverStillRunningTool =
+            signal.reason === "run_timeout" && hasInFlightTool;
+          const advanced =
+            serverStillRunningTool ||
+            (advance.signature !== "" &&
+              advance.signature !== lastAdvanceSignature);
+          // Only remember a non-empty signature, so an empty round between two
+          // identical rounds cannot launder the second one into "new work".
+          if (advance.signature) lastAdvanceSignature = advance.signature;
+          nonAdvancingContinuations = advanced
+            ? 0
+            : nonAdvancingContinuations + 1;
+          if (isTransient) {
             totalTransientContinuationAttempts += 1;
-            // If a tool already completed, do not turn a missing closing
-            // sentence into a scary connection failure. Give the model one
-            // continuation opportunity (the completed tool itself counts as
-            // progress on the first timeout); if the follow-up produces no new
-            // content, stop locally with a clear completed-tool warning.
-            if (
-              signal.reason === "run_timeout" &&
-              completedTool &&
-              !hasInFlightToolCall(content) &&
-              !currentPreparingToolName &&
-              !madeContentProgress &&
-              !hasInFlightTool
-            ) {
-              return {
-                ok: false,
-                resetVisibleContent: false,
-                completedToolName: completedTool.toolName,
-              };
-            }
-            // Bail when the same write tool is stuck in-flight across too many
-            // consecutive continuations. Checked before the text-repeat guard
-            // because hasInFlightTool=true would mask the repeat as progress.
-            if (
-              repeatedInFlightToolCount >= MAX_REPEATED_INFLIGHT_TOOL_STALLS
-            ) {
-              recoveryGaveUpOnInFlightTool = true;
-              return { ok: false, resetVisibleContent: false };
-            }
-            if (
-              repeatedActionPreparationCount >
-              MAX_REPEATED_ACTION_PREPARATION_CONTINUATIONS
-            ) {
-              recoveryGaveUpOnActionPreparation = true;
-              return { ok: false, resetVisibleContent: false };
-            }
-            // Bail fast on a non-advancing repetition loop, well before the
-            // stalled/empty/total budgets would (each round otherwise re-sends
-            // the whole pasted payload). Tracked separately so it never trips
-            // on legitimately-progressing runs that happen to be slow.
-            if (isNonAdvancingRepeat) {
-              repeatedTransientContinuationAttempts += 1;
-              if (
-                repeatedTransientContinuationAttempts >
-                MAX_REPEATED_TRANSIENT_CONTINUATIONS
-              ) {
-                recoveryGaveUpOnRepetition = true;
-                return { ok: false, resetVisibleContent: false };
-              }
-            } else {
-              repeatedTransientContinuationAttempts = 0;
-            }
-            if (repeatSignature) {
-              lastContinuationRepeatSignature = repeatSignature;
-            }
-            // A run_timeout that produced nothing visible and no activity (the
-            // model spent the whole soft-timeout window thinking before its
-            // first output) is NOT an immediate give-up: a transient slow start
-            // routinely recovers on the next continuation. Let it fall through
-            // to the empty-continuation budget below so it retries a bounded
-            // number of times before surfacing the "no visible progress" error.
-            // Reset the empty-continuation counter on real progress — streamed
-            // text/completed tool OR an in-flight tool the server is running —
-            // not merely on a non-zero part count, which whitespace-only or
-            // unresolved-only output would falsely satisfy.
-            if (!madeProgress) {
-              emptyTransientContinuationAttempts += 1;
-              if (
-                emptyTransientContinuationAttempts >
-                MAX_EMPTY_TRANSIENT_CONTINUATIONS
-              ) {
-                return { ok: false, resetVisibleContent: false };
-              }
-            } else {
-              emptyTransientContinuationAttempts = 0;
-            }
-            if (signal.reason === "stale_run") {
-              staleRunContinuationAttempts = madeDurableToolProgress
-                ? 0
-                : staleRunContinuationAttempts + 1;
-              if (staleRunContinuationAttempts > MAX_STALE_RUN_CONTINUATIONS) {
-                return { ok: false, resetVisibleContent: false };
-              }
-            }
-            stalledTransientContinuationAttempts = madeProgress
-              ? 0
-              : stalledTransientContinuationAttempts + 1;
-            if (
-              totalTransientContinuationAttempts >
-              MAX_TOTAL_TRANSIENT_CONTINUATIONS
-            ) {
-              recoveryGaveUpOnTransientBudget = true;
-            }
-            if (
-              stalledTransientContinuationAttempts >
-                MAX_STALLED_TRANSIENT_CONTINUATIONS ||
-              totalTransientContinuationAttempts >
-                MAX_TOTAL_TRANSIENT_CONTINUATIONS
-            ) {
-              return { ok: false, resetVisibleContent: false };
-            }
+          } else {
+            loopLimitContinuations += 1;
+          }
+          advanceCheckPrefix = snapshotContent(content);
+
+          // If a tool already completed, do not turn a missing closing
+          // sentence into a scary connection failure. Give the model one
+          // continuation opportunity (the completed tool itself counts as an
+          // advance on the first timeout); if the follow-up produces no new
+          // content, stop locally with a clear completed-tool warning.
+          if (
+            signal.reason === "run_timeout" &&
+            completedTool &&
+            !hasInFlightToolCall(content) &&
+            !currentPreparingToolName &&
+            !madeContentProgress &&
+            !hasInFlightTool
+          ) {
+            return {
+              ok: false,
+              resetVisibleContent: false,
+              completedToolName: completedTool.toolName,
+            };
+          }
+          if (nonAdvancingContinuations >= MAX_NON_ADVANCING_CONTINUATIONS) {
+            recoveryStall = advance.stall;
+            return { ok: false, resetVisibleContent: false };
+          }
+          if (
+            totalTransientContinuationAttempts >
+              MAX_TOTAL_TRANSIENT_CONTINUATIONS ||
+            loopLimitContinuations > MAX_LOOP_LIMIT_CONTINUATIONS
+          ) {
+            recoveryGaveUpOnContinuationBudget = true;
+            return { ok: false, resetVisibleContent: false };
           }
 
           if (isTransient) {
@@ -3476,14 +3616,22 @@ export function createAgentChatAdapter(
           startupRecoveryAttempts = 0;
           clearActiveRun();
           if (!isTransient) {
-            return { ok: true, resetVisibleContent: false, emptyRun };
+            return {
+              ok: true,
+              resetVisibleContent: false,
+              nonAdvancing: !advanced,
+            };
           }
 
           // Keep everything visible during transient recovery. The continuation
           // prefix diff tracks what the next request has already seen, so
           // preserving text no longer causes duplicate continuation history.
           visibleContinuationPrefix = snapshotContent(content);
-          return { ok: true, resetVisibleContent: false, emptyRun };
+          return {
+            ok: true,
+            resetVisibleContent: false,
+            nonAdvancing: !advanced,
+          };
         };
 
         while (true) {
@@ -3573,12 +3721,10 @@ export function createAgentChatAdapter(
                 // internal continuation is only adoptable after /runs/active
                 // proves it carries this turnId; a bare 409 run id is not
                 // enough ownership evidence.
-                if (
-                  activeRunId !== null &&
-                  internalContinuationRequest &&
-                  !attemptedRunIds.includes(activeRunId)
-                ) {
-                  const reconnected = yield* reconnectActiveRunForThread();
+                if (activeRunId !== null && internalContinuationRequest) {
+                  const reconnected = yield* reconnectActiveRunForThread({
+                    requireCurrentTurn: true,
+                  });
                   if (reconnected) return;
                 }
                 const shouldRetryConflictingActiveRun = activeRunId !== null;
@@ -3622,6 +3768,7 @@ export function createAgentChatAdapter(
                     type: "text",
                     text: `Something went wrong: ${message}`,
                   });
+                  settleTerminalChatRun();
                   yield {
                     content: [...content],
                     status: {
@@ -3630,7 +3777,6 @@ export function createAgentChatAdapter(
                     },
                     metadata: { custom: { runError } },
                   } as ChatModelRunResult;
-                  clearActiveRun();
                   return;
                 }
               }
@@ -3644,6 +3790,7 @@ export function createAgentChatAdapter(
                   type: "text",
                   text: authErrorText("auth-required"),
                 });
+                settleTerminalChatRun();
                 yield {
                   content: [...content],
                   status: {
@@ -3665,6 +3812,7 @@ export function createAgentChatAdapter(
                   type: "text",
                   text: authErrorText("session-expired"),
                 });
+                settleTerminalChatRun();
                 yield {
                   content: [...content],
                   status: {
@@ -3689,6 +3837,7 @@ export function createAgentChatAdapter(
                     type: "text",
                     text: authErrorText(reason, body),
                   });
+                  settleTerminalChatRun();
                   yield {
                     content: [...content],
                     status: {
@@ -3709,6 +3858,7 @@ export function createAgentChatAdapter(
                     );
                   }
                   content.push({ type: "text", text: failure.text });
+                  settleTerminalChatRun();
                   yield {
                     content: [...content],
                     status: {
@@ -3755,7 +3905,7 @@ export function createAgentChatAdapter(
             }
             if (runId && threadId) {
               clearPendingTurnIfMatches(threadId, turnId);
-              setActiveRun({ threadId, runId, lastSeq: -1 });
+              setActiveRun({ threadId, runId, turnId, lastSeq: -1 });
             }
 
             for await (const result of readSSEStream(
@@ -3763,16 +3913,20 @@ export function createAgentChatAdapter(
               content,
               toolCallCounter,
               tabId,
-              (seq) => {
+              (seq, isProgress) => {
                 rememberRunSeq(seq);
                 if (runId && threadId) {
-                  updateActiveRunSeq(seq);
+                  updateActiveRunSeq(seq, isProgress);
                 }
               },
               runId,
               currentSSEOptions(),
             )) {
-              yield withRequestModeMetadata(result);
+              const nextResult = withRequestModeMetadata(result);
+              if (isTerminalChatModelRunResult(nextResult)) {
+                settleTerminalChatRun();
+              }
+              yield nextResult;
             }
 
             // Run completed normally — clear active run state
@@ -3826,6 +3980,7 @@ export function createAgentChatAdapter(
                     continuation.completedToolName,
                   );
                   content.push({ type: "text", text: message });
+                  settleTerminalChatRun();
                   yield {
                     content: [...content],
                     status: {
@@ -3894,6 +4049,7 @@ export function createAgentChatAdapter(
                     preservedError ? errorCode : undefined,
                   ),
                 });
+                settleTerminalChatRun();
                 yield {
                   content: [...content],
                   status: {
@@ -3921,12 +4077,12 @@ export function createAgentChatAdapter(
                   }),
                 );
               }
-              // A run that produced nothing visible never got past
+              // A run that advanced nothing usually never got past
               // startup/gateway; re-POSTing the identical payload immediately
               // just hits the identical wall. Back that case off instead.
-              if (continuation.emptyRun) {
+              if (continuation.nonAdvancing) {
                 await retryDelay(
-                  Math.max(0, emptyTransientContinuationAttempts - 1),
+                  Math.max(0, nonAdvancingContinuations - 1),
                   abortSignal,
                 );
               } else {
@@ -3970,6 +4126,7 @@ export function createAgentChatAdapter(
                 type: "text",
                 text: `Something went wrong: ${normalized.message}`,
               });
+              settleTerminalChatRun();
               yield {
                 content: [...content],
                 status: {
@@ -3999,6 +4156,7 @@ export function createAgentChatAdapter(
                 type: "text",
                 text: authErrorText(reason, errMsg),
               });
+              settleTerminalChatRun();
               yield {
                 content: [...content],
                 status: {
@@ -4021,6 +4179,7 @@ export function createAgentChatAdapter(
                 );
               }
               content.push({ type: "text", text: failure.text });
+              settleTerminalChatRun();
               yield {
                 content: [...content],
                 status: {
@@ -4084,6 +4243,7 @@ export function createAgentChatAdapter(
                 type: "text",
                 text: `Something went wrong: ${message}`,
               });
+              settleTerminalChatRun();
               yield {
                 content: [...content],
                 status: {
@@ -4108,6 +4268,7 @@ export function createAgentChatAdapter(
                     continuation.completedToolName,
                   );
                   content.push({ type: "text", text: message });
+                  settleTerminalChatRun();
                   yield {
                     content: [...content],
                     status: {
@@ -4151,6 +4312,7 @@ export function createAgentChatAdapter(
                   type: "text",
                   text: `Something went wrong: ${message}`,
                 });
+                settleTerminalChatRun();
                 yield {
                   content: [...content],
                   status: {
@@ -4216,6 +4378,7 @@ export function createAgentChatAdapter(
                 ? errMsg
                 : `Something went wrong: ${normalized.message}`,
             });
+            settleTerminalChatRun();
             yield {
               content: [...content],
               status: {
@@ -4228,7 +4391,8 @@ export function createAgentChatAdapter(
           }
         }
       } finally {
-        if (typeof window !== "undefined") {
+        if (typeof window !== "undefined" && ownsActiveRunState()) {
+          dispatchTerminalChatUiCleanup(tabId);
           window.dispatchEvent(
             new CustomEvent("agentNative.chatRunning", {
               detail: { isRunning: false, tabId },

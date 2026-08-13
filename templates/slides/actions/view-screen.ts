@@ -11,6 +11,66 @@ import { getDb, schema } from "../server/db/index.js";
 import { hashSlideContent, type DeckFitState } from "../shared/slide-fit.js";
 import { readAppStateForCurrentTab } from "./_tab-state.js";
 
+type CurrentSlideFitMeasurement = DeckFitState["slides"][string] & {
+  slideId: string;
+};
+
+function getCurrentSlideFitMeasurement(
+  value: unknown,
+  slide: { id: string; content?: string } | null,
+  deckId: string,
+): CurrentSlideFitMeasurement | null {
+  if (!slide || !value || typeof value !== "object") return null;
+
+  const measurement = value as Record<string, unknown>;
+  const slideId = measurement.slideId;
+  const measurementDeckId = measurement.deckId;
+  const contentHash = measurement.contentHash;
+  const contentHeight = measurement.contentHeight;
+  const contentWidth = measurement.contentWidth;
+  const viewportHeight = measurement.viewportHeight;
+  const viewportWidth = measurement.viewportWidth;
+  const verticalOverflow = measurement.verticalOverflow;
+  const horizontalOverflow = measurement.horizontalOverflow;
+  const measuredAt = measurement.measuredAt;
+
+  if (
+    typeof slideId !== "string" ||
+    slideId !== slide.id ||
+    (measurementDeckId !== undefined && measurementDeckId !== deckId) ||
+    typeof contentHash !== "string" ||
+    contentHash !== hashSlideContent(slide.content ?? "") ||
+    typeof contentHeight !== "number" ||
+    !Number.isFinite(contentHeight) ||
+    typeof contentWidth !== "number" ||
+    !Number.isFinite(contentWidth) ||
+    typeof viewportHeight !== "number" ||
+    !Number.isFinite(viewportHeight) ||
+    typeof viewportWidth !== "number" ||
+    !Number.isFinite(viewportWidth) ||
+    typeof verticalOverflow !== "number" ||
+    !Number.isFinite(verticalOverflow) ||
+    typeof horizontalOverflow !== "number" ||
+    !Number.isFinite(horizontalOverflow) ||
+    typeof measuredAt !== "number" ||
+    !Number.isFinite(measuredAt)
+  ) {
+    return null;
+  }
+
+  return {
+    slideId,
+    contentHash,
+    contentHeight,
+    contentWidth,
+    viewportHeight,
+    viewportWidth,
+    verticalOverflow,
+    horizontalOverflow,
+    measuredAt,
+  };
+}
+
 export default defineAction({
   description:
     "See what the user is currently looking at. Returns the CURRENT deck ID, current slide ID, and the full list of slide IDs in the open deck (or the deck list if the user is on the home page). Call this before any slide operation to get the exact IDs you need for add-slide / update-slide / create-deck.",
@@ -162,12 +222,12 @@ export default defineAction({
           style?: Record<string, unknown>;
         }>;
       } | null;
-      if (
-        selection &&
-        (!selection.slideId || selection.slideId === currentSlide?.id)
-      ) {
+      if (selection && currentSlide && selection.slideId === currentSlide.id) {
         lines.push(``);
         lines.push(`### Current visual selection`);
+        lines.push(
+          `selectionSlideId: ${selection.slideId}   (matches currentSlideId)`,
+        );
         lines.push(`mode: ${selection.mode ?? "unknown"}`);
         lines.push(`activeTool: ${selection.activeTool ?? "select"}`);
         if (Array.isArray(selection.items) && selection.items.length > 0) {
@@ -195,36 +255,23 @@ export default defineAction({
       // here whenever the natural content bounds exceed the canvas content
       // area. If this block is present, the current slide's HTML needs to be
       // rewritten to fit the canvas.
-      const overflow = (await readAppStateForCurrentTab("slide-fit-check")) as {
-        slideId?: string;
-        contentHash?: string;
-        verticalOverflow?: number;
-        horizontalOverflow?: number;
-        contentHeight?: number;
-        contentWidth?: number;
-        viewportHeight?: number;
-        viewportWidth?: number;
-      } | null;
-      const verticalOverflow = overflow?.verticalOverflow ?? 0;
-      const horizontalOverflow = overflow?.horizontalOverflow ?? 0;
+      const currentSlideMeasurement = getCurrentSlideFitMeasurement(
+        await readAppStateForCurrentTab("slide-fit-check"),
+        currentSlide,
+        rows[0].id,
+      );
+      const verticalOverflow = currentSlideMeasurement?.verticalOverflow ?? 0;
+      const horizontalOverflow =
+        currentSlideMeasurement?.horizontalOverflow ?? 0;
       if (
-        overflow &&
-        typeof overflow.contentHash === "string" &&
-        currentSlide?.content &&
-        overflow.contentHash === hashSlideContent(currentSlide.content) &&
-        Number.isFinite(overflow.verticalOverflow) &&
-        (overflow.horizontalOverflow === undefined ||
-          Number.isFinite(overflow.horizontalOverflow)) &&
-        Number.isFinite(overflow.contentHeight) &&
-        Number.isFinite(overflow.viewportHeight) &&
-        (verticalOverflow > 0 || horizontalOverflow > 0) &&
-        overflow.slideId === currentSlide?.id
+        currentSlideMeasurement &&
+        (verticalOverflow > 0 || horizontalOverflow > 0)
       ) {
         lines.push(``);
         lines.push(`### ⚠ Layout overflows the canvas`);
         lines.push(
-          `This slide's natural rendered content is ${overflow.contentWidth ?? "unknown"}x${overflow.contentHeight}px, ` +
-            `but the canvas content area is ${overflow.viewportWidth ?? "unknown"}x${overflow.viewportHeight}px ` +
+          `This slide's natural rendered content is ${currentSlideMeasurement.contentWidth}x${currentSlideMeasurement.contentHeight}px, ` +
+            `but the canvas content area is ${currentSlideMeasurement.viewportWidth}x${currentSlideMeasurement.viewportHeight}px ` +
             `(overflow: ${verticalOverflow}px vertical, ${horizontalOverflow}px horizontal). The renderer no longer ` +
             `auto-shrinks overflowing slides — you must rewrite the slide HTML so ` +
             `the rendered content fits the measured content area. Options, ` +
@@ -255,7 +302,10 @@ export default defineAction({
             };
         const measured: DeckFitSummary[] = slides.flatMap(
           (slide, index): DeckFitSummary[] => {
-            const measurement = deckFit.slides[slide.id];
+            const measurement =
+              slide.id === currentSlideMeasurement?.slideId
+                ? currentSlideMeasurement
+                : deckFit.slides[slide.id];
             if (
               !measurement ||
               measurement.contentHash !==
