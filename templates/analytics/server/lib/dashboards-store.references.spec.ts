@@ -2,6 +2,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
   rows: [] as Record<string, unknown>[],
+  // One entry per `select` when a test needs the candidate query and the
+  // out-of-scope probe to answer differently; otherwise every call sees `rows`.
+  rowsByCall: [] as Record<string, unknown>[][],
   legacySettings: {} as Record<string, Record<string, unknown>>,
   projection: null as Record<string, unknown> | null,
   where: null as unknown,
@@ -72,7 +75,9 @@ vi.mock("../db/index.js", () => {
     orderBy: () => query,
     limit: (value: number) => {
       state.limit = value;
-      return Promise.resolve(state.rows);
+      return Promise.resolve(
+        state.rowsByCall.length ? (state.rowsByCall.shift() ?? []) : state.rows,
+      );
     },
   };
   const db = {
@@ -108,6 +113,7 @@ const { searchDashboardReferences } = await import("./dashboards-store.js");
 describe("searchDashboardReferences", () => {
   beforeEach(() => {
     state.rows = [];
+    state.rowsByCall = [];
     state.legacySettings = {};
     state.projection = null;
     state.where = null;
@@ -232,6 +238,37 @@ describe("searchDashboardReferences", () => {
       kind: "explorer",
       visibility: "private",
     });
+  });
+
+  it("fails loudly when the only matches are org-scoped and the session has no org", async () => {
+    state.rowsByCall = [
+      [],
+      [{ id: "devrel-leaderboard-v3", name: "DevRel Leaderboard v3" }],
+    ];
+
+    await expect(
+      searchDashboardReferences(
+        { email: "Steve@Builder.io", orgId: null },
+        "devrel leaderboard v3",
+        8,
+      ),
+    ).rejects.toThrow(/DevRel Leaderboard v3.*no active organization/s);
+  });
+
+  it("returns empty without probing when the session carries an org", async () => {
+    state.rowsByCall = [
+      [],
+      [{ id: "should-not-be-read", name: "Unreachable" }],
+    ];
+
+    await expect(
+      searchDashboardReferences(
+        { email: "alice@example.com", orgId: "org-1" },
+        "devrel leaderboard v3",
+        8,
+      ),
+    ).resolves.toEqual([]);
+    expect(state.rowsByCall).toHaveLength(1);
   });
 
   it("does not issue a broad query for blank search input", async () => {

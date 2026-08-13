@@ -174,6 +174,7 @@ const DASHBOARD_REVISION_LIMIT = 50;
 const ANALYSIS_REVISION_LIMIT = 30;
 const MAX_DASHBOARD_REFERENCE_RESULTS = 24;
 const MAX_DASHBOARD_REFERENCE_CANDIDATES = 200;
+const OUT_OF_SCOPE_REFERENCE_PROBE_LIMIT = 5;
 
 export function normalizeDashboardName(value: string): string {
   return value.trim().replace(/\s+/g, " ").toLowerCase();
@@ -989,6 +990,10 @@ export async function searchDashboardReferences(
     ranked.push(match);
   }
 
+  if (ranked.length === 0) {
+    await assertNoOwnedReferenceHiddenByScope(db, ctx, search, query);
+  }
+
   return ranked
     .sort(
       (a, b) =>
@@ -997,6 +1002,59 @@ export async function searchDashboardReferences(
     )
     .slice(0, boundedLimit)
     .map(({ record }) => record);
+}
+
+/**
+ * With no active organization, `ownerScopeFilter` narrows the owner clause to
+ * `org_id IS NULL` and drops the `visibility = 'org'` clause entirely, so every
+ * dashboard the caller owns under an organization vanishes from this search.
+ * An empty result then reads as "no such dashboard" and the agent answers by
+ * querying raw event tables instead of the dashboard the user named. Probe on
+ * the empty path only, so an ordinary miss stays one query.
+ */
+async function assertNoOwnedReferenceHiddenByScope(
+  db: any,
+  ctx: AccessCtx,
+  search: string,
+  query: ReturnType<typeof dashboardReferenceSearchQuery>,
+): Promise<void> {
+  if (ctx.orgId || !ctx.email) return;
+  const nameMatches = (term: string) => {
+    const pattern = `%${escapeLikeLiteral(term)}%`;
+    return or(
+      sql<boolean>`lower(${schema.dashboards.id}) LIKE ${pattern} ESCAPE '\\'`,
+      sql<boolean>`lower(${schema.dashboards.title}) LIKE ${pattern} ESCAPE '\\'`,
+    );
+  };
+  const rows = await db
+    .select({
+      id: schema.dashboards.id,
+      name: schema.dashboards.title,
+      orgId: schema.dashboards.orgId,
+    })
+    .from(schema.dashboards)
+    .where(
+      and(
+        sql<boolean>`lower(${schema.dashboards.ownerEmail}) = ${ctx.email.toLowerCase()}`,
+        isNotNull(schema.dashboards.orgId),
+        isNull(schema.dashboards.archivedAt),
+        isNull(schema.dashboards.hiddenAt),
+        or(
+          nameMatches(query.phrase),
+          query.terms.length === 1
+            ? nameMatches(query.terms[0]!)
+            : and(...query.terms.map(nameMatches)),
+        ),
+      ),
+    )
+    .limit(OUT_OF_SCOPE_REFERENCE_PROBE_LIMIT);
+  if (!rows?.length) return;
+  const named = rows
+    .map((row: any) => `"${row.name ?? row.id}" (id ${row.id})`)
+    .join(", ");
+  throw new Error(
+    `No dashboard readable in this session matches "${search}", but ${rows.length} organization-scoped dashboard(s) owned by ${ctx.email} do: ${named}. This session resolved no active organization, so they cannot be read. Tell the user their organization context is missing and that the dashboard exists — do not answer from a different data source.`,
+  );
 }
 
 /**

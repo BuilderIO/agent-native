@@ -825,7 +825,12 @@ export default defineAction({
         schema.designSystems,
         eq(schema.designs.designSystemId, schema.designSystems.id),
       )
-      .where(eq(schema.designs.id, designId))
+      .where(
+        and(
+          eq(schema.designs.id, designId),
+          accessFilter(schema.designSystems, schema.designSystemShares),
+        ),
+      )
       .limit(1);
     const designSystemFindings = linkedSystem
       ? checkDesignSystemAdherence(
