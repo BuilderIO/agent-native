@@ -370,6 +370,27 @@ describe("agent discovery", () => {
     });
   });
 
+  it("keeps preferred local built-in URLs ahead of workspace manifests", async () => {
+    process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify({
+      version: 1,
+      apps: [
+        {
+          id: "mail",
+          name: "Workspace Mail",
+          path: "/mail",
+          url: "https://mail.workspace.example.test/",
+        },
+      ],
+    });
+
+    const agents = await discoverAgents("dispatch", {
+      preferLocalUrls: true,
+    });
+    expect(agents.find((agent) => agent.id === "mail")?.url).toBe(
+      "http://localhost:8085",
+    );
+  });
+
   it("ignores stale localhost workspace URLs for first-party agents on public runtimes", async () => {
     process.env.APP_URL = "https://content.agent-native.com";
     process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify({

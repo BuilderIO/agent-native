@@ -396,7 +396,7 @@ export async function discoverAgents(
 
   // Overlay sibling workspace apps last so same-origin workspaces prefer the
   // app mounted in this workspace over the public template with the same id.
-  for (const agent of await discoverWorkspaceAgents(selfAppId)) {
+  for (const agent of await discoverWorkspaceAgents(selfAppId, options)) {
     agentsById.set(agent.id, agent);
   }
 
@@ -670,6 +670,7 @@ function workspaceAppUrl(
 
 async function discoverWorkspaceAgents(
   selfAppId?: string,
+  options?: { preferLocalUrls?: boolean },
 ): Promise<DiscoveredAgent[]> {
   const workspaceApps = loadWorkspaceAppsManifest();
   if (!workspaceApps) return [];
@@ -686,7 +687,10 @@ async function discoverWorkspaceAgents(
       const builtin = BUILTIN_AGENTS.find(
         (agent) => agent.id === withOverride.id,
       );
-      const url = workspaceAppUrl(withOverride, builtin?.url);
+      const url =
+        options?.preferLocalUrls && builtin
+          ? resolveAgentUrl(builtin, true)
+          : workspaceAppUrl(withOverride, builtin?.url);
       if (!url) return null;
       return {
         id: withOverride.id,
