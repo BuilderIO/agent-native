@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import { defineAction } from "@agent-native/core";
 import {
@@ -30,11 +30,15 @@ const WELCOME_CONTENT = `Start here with a page that is wholly yours.
 - Use the sidebar to find and organize your work.
 - Ask the agent when you want a hand.`;
 
-function welcomeDocumentId(userEmail: string, generation: number) {
+function legacyWelcomeDocumentId(userEmail: string, generation: number) {
   const identity = normalizeContentSpaceEmail(userEmail);
   const input = generation === 0 ? identity : `${identity}:${generation}`;
   const digest = createHash("sha256").update(input).digest("hex");
   return `content_welcome_${digest.slice(0, 32)}`;
+}
+
+function randomWelcomeDocumentId() {
+  return `content_welcome_${randomUUID().replace(/-/g, "")}`;
 }
 
 function welcomeGeneration(state: Record<string, unknown>): number {
@@ -75,6 +79,7 @@ function isUniqueConstraintError(error: unknown): boolean {
 
 async function resolveWelcomeState(): Promise<{
   generation: number;
+  documentId: string | null;
   expectedValue: Record<string, unknown>;
 }> {
   while (true) {
@@ -88,6 +93,10 @@ async function resolveWelcomeState(): Promise<{
       }
       return {
         generation: welcomeGeneration(entry.value),
+        documentId:
+          typeof entry.value.documentId === "string" && entry.value.documentId
+            ? entry.value.documentId
+            : null,
         expectedValue: entry.value,
       };
     }
@@ -96,7 +105,7 @@ async function resolveWelcomeState(): Promise<{
     if (
       await compareAndSetAppState(CONTENT_WELCOME_PAGE_STATE_KEY, null, initial)
     ) {
-      return { generation: 0, expectedValue: initial };
+      return { generation: 0, documentId: null, expectedValue: initial };
     }
   }
 }
@@ -114,8 +123,7 @@ async function resolveUsableDocument(documentId: string) {
   return access.resource;
 }
 
-async function resolveWelcomeDocument(userEmail: string, generation: number) {
-  const documentId = welcomeDocumentId(userEmail, generation);
+async function resolveWelcomeDocument(userEmail: string, documentId: string) {
   const access = await resolveContentDocumentAccess(documentId);
   const document = access?.resource;
   if (!document) {
@@ -149,29 +157,37 @@ async function resolveWelcome(userEmail: string): Promise<{
   const normalizedEmail = normalizeContentSpaceEmail(userEmail);
   while (true) {
     const state = await resolveWelcomeState();
-    const existing = await resolveWelcomeDocument(
-      normalizedEmail,
-      state.generation,
-    );
+    const documentId =
+      state.documentId ??
+      legacyWelcomeDocumentId(normalizedEmail, state.generation);
+    const existing = await resolveWelcomeDocument(normalizedEmail, documentId);
     if (existing.status === "usable") {
+      if (!state.documentId) {
+        await compareAndSetAppState(
+          CONTENT_WELCOME_PAGE_STATE_KEY,
+          state.expectedValue,
+          { ...state.expectedValue, documentId },
+        );
+      }
       return {
         documentId: existing.documentId,
         resolution: "welcome-reused",
       };
     }
 
-    if (existing.status === "unavailable") {
+    if (!state.documentId || existing.status === "unavailable") {
       await compareAndSetAppState(
         CONTENT_WELCOME_PAGE_STATE_KEY,
         state.expectedValue,
         {
+          ...state.expectedValue,
           generation: state.generation + 1,
+          documentId: randomWelcomeDocumentId(),
         },
       );
       continue;
     }
 
-    const documentId = welcomeDocumentId(normalizedEmail, state.generation);
     try {
       await runWithRequestContext({ userEmail: normalizedEmail }, () =>
         createDocumentAction.run({
@@ -182,10 +198,7 @@ async function resolveWelcome(userEmail: string): Promise<{
       );
       return { documentId, resolution: "welcome-created" };
     } catch (error) {
-      const raced = await resolveWelcomeDocument(
-        normalizedEmail,
-        state.generation,
-      );
+      const raced = await resolveWelcomeDocument(normalizedEmail, documentId);
       if (raced.status === "usable") {
         return {
           documentId: raced.documentId,
@@ -197,7 +210,11 @@ async function resolveWelcome(userEmail: string): Promise<{
         await compareAndSetAppState(
           CONTENT_WELCOME_PAGE_STATE_KEY,
           state.expectedValue,
-          { generation: state.generation + 1 },
+          {
+            ...state.expectedValue,
+            generation: state.generation + 1,
+            documentId: randomWelcomeDocumentId(),
+          },
         );
         continue;
       }

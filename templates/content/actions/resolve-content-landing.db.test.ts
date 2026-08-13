@@ -19,9 +19,13 @@ const TEST_DB_PATH = join(
 );
 const WELCOME_TITLE = "Welcome to Agent-Native Content";
 
-function initialWelcomeDocumentId(userEmail: string) {
+function legacyWelcomeDocumentId(userEmail: string, generation = 0) {
   const digest = createHash("sha256")
-    .update(userEmail.trim().toLowerCase())
+    .update(
+      generation === 0
+        ? userEmail.trim().toLowerCase()
+        : `${userEmail.trim().toLowerCase()}:${generation}`,
+    )
     .digest("hex");
   return `content_welcome_${digest.slice(0, 32)}`;
 }
@@ -213,12 +217,17 @@ describe("resolve-content-landing", () => {
     expect(original.trashedAt).toBe(trashedAt);
   });
 
-  it("advances past an inaccessible deterministic ID collision", async () => {
+  it("leaves the predictable ID sequence after one legacy collision", async () => {
     const userEmail = "landing-collision-target@example.com";
-    const collidingDocumentId = initialWelcomeDocumentId(userEmail);
+    const collidingDocumentId = legacyWelcomeDocumentId(userEmail);
+    const nextPredictableDocumentId = legacyWelcomeDocumentId(userEmail, 1);
     await createPersonalDocument(
       "landing-collision-owner@example.com",
       collidingDocumentId,
+    );
+    await createPersonalDocument(
+      "landing-next-collision-owner@example.com",
+      nextPredictableDocumentId,
     );
     await runWithRequestContext({ userEmail }, () =>
       writeAppState(CONTENT_WELCOME_PAGE_STATE_KEY, {
@@ -233,6 +242,21 @@ describe("resolve-content-landing", () => {
 
     expect(result).toMatchObject({ resolution: "welcome-created" });
     expect(result.documentId).not.toBe(collidingDocumentId);
+    expect(result.documentId).not.toBe(nextPredictableDocumentId);
+    const welcomeState = await runWithRequestContext(
+      { userEmail },
+      async () => {
+        const [{ value }] = await (
+          await import("@agent-native/core/application-state")
+        ).listAppState(CONTENT_WELCOME_PAGE_STATE_KEY);
+        return value;
+      },
+    );
+    expect(welcomeState).toMatchObject({
+      generation: 1,
+      documentId: result.documentId,
+      futureField: "preserved for CAS",
+    });
   });
 
   it("fails loudly for a stored null welcome state", async () => {
