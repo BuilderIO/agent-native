@@ -22,6 +22,7 @@ export const INITIAL_TOOL_NAMES = [
   // build request should not stop at inspection or an empty extension shell
   // while the agent lazily discovers the next mutating action.
   "get-sql-dashboard",
+  "get-explorer-dashboard",
   "list-sql-dashboards",
   "list-extensions",
   "get-extension",

@@ -273,6 +273,9 @@ describe("Analytics agent Plan mode policy", () => {
     expect(DASHBOARD_REFERENCE_GUIDANCE).toContain(
       "not as proof that its source is authoritative",
     );
+    expect(DASHBOARD_REFERENCE_GUIDANCE).toContain(
+      "get-explorer-dashboard",
+    );
     const context = await (
       agentChatPluginOptions[0]?.extraContext as () => Promise<string>
     )?.();
@@ -296,6 +299,7 @@ describe("Analytics agent Plan mode policy", () => {
   it("keeps the complete dashboard build path on the initial tool surface", () => {
     expect(INITIAL_TOOL_NAMES).toEqual(
       expect.arrayContaining([
+        "get-explorer-dashboard",
         "update-dashboard",
         "mutate-dashboard",
         "compose-dashboard",

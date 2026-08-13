@@ -32,7 +32,8 @@ Read the relevant skill before deeper work:
    existing dashboard, call `search-dashboard-references` first. The latter
    searches accessible saved dashboard metadata/config and returns references,
    not an authoritative data source. Inspect a returned dashboard with
-   `get-sql-dashboard` before copying it.
+   `get-sql-dashboard` for `kind: "sql"` or `get-explorer-dashboard` for
+   `kind: "explorer"` before copying it.
    Then adapt
    the closest saved SQL to the requested filters/window, run it once, and stop.
 2. **One bounded call.** List/filter/count/cohort questions are one SQL statement

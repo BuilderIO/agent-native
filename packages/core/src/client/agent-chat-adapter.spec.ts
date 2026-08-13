@@ -2641,7 +2641,12 @@ describe("createAgentChatAdapter", () => {
       } as any),
     );
 
+    // Let the mocked fetch and 409 response settle before advancing the retry
+    // delay; otherwise the fake clock can advance before that timer exists.
+    await Promise.resolve();
+    await Promise.resolve();
     await vi.advanceTimersByTimeAsync(500);
+    await vi.runAllTimersAsync();
     const results = await promise;
 
     expect(postCount).toBe(2);
@@ -2943,7 +2948,12 @@ describe("createAgentChatAdapter", () => {
       } as any),
     );
 
+    // Let the mocked fetch and 409 response settle before advancing the retry
+    // delay; otherwise the fake clock can advance before that timer exists.
+    await Promise.resolve();
+    await Promise.resolve();
     await vi.advanceTimersByTimeAsync(500);
+    await vi.runAllTimersAsync();
     const results = await promise;
 
     // It must retry its own prompt, never fetch the old run's events (replay).

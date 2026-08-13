@@ -187,6 +187,133 @@ function escapeLikeLiteral(value: string): string {
   return value.replace(/[\\%_]/g, "\\$&");
 }
 
+type DashboardReferenceSearchQuery = {
+  phrase: string;
+  terms: string[];
+};
+
+function dashboardReferenceSearchQuery(search: string): DashboardReferenceSearchQuery {
+  const phrase = search.trim().replace(/\s+/g, " ").toLowerCase();
+  return {
+    phrase,
+    terms: phrase.split(" ").filter(Boolean).slice(0, 8),
+  };
+}
+
+function dashboardReferenceFieldText(value: unknown): string {
+  if (typeof value === "string") return value.toLowerCase();
+  if (!value || typeof value !== "object") return "";
+  try {
+    return JSON.stringify(value).toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+function dashboardReferenceMatch(
+  row: {
+    id?: unknown;
+    kind?: unknown;
+    name?: unknown;
+    description?: unknown;
+    config?: unknown;
+    ownerEmail?: unknown;
+    orgId?: unknown;
+    visibility?: unknown;
+    updatedAt?: unknown;
+  },
+  query: DashboardReferenceSearchQuery,
+): { record: DashboardReferenceRecord; score: number } | null {
+  const fields = {
+    id: dashboardReferenceFieldText(row.id),
+    name: dashboardReferenceFieldText(row.name),
+    description: dashboardReferenceFieldText(row.description),
+    config: dashboardReferenceFieldText(row.config),
+  } satisfies Record<DashboardReferenceRecord["matchedFields"][number], string>;
+  const matchedFields = Object.entries(fields)
+    .filter(([, value]) =>
+      query.terms.some((term) => value.includes(term)),
+    )
+    .map(([field]) => field as DashboardReferenceRecord["matchedFields"][number]);
+  const matchedTerms = query.terms.filter((term) =>
+    Object.values(fields).some((value) => value.includes(term)),
+  ).length;
+  if (matchedTerms !== query.terms.length) return null;
+
+  let score = matchedTerms * 100;
+  for (const [field, value] of Object.entries(fields)) {
+    const weight =
+      field === "name"
+        ? 80
+        : field === "description"
+          ? 45
+          : field === "id"
+            ? 30
+            : 10;
+    if (value.includes(query.phrase)) score += 100 + weight;
+    if (field === "name" && value === query.phrase) score += 300;
+    if (field === "name" && value.startsWith(query.phrase)) score += 40;
+  }
+
+  return {
+    record: {
+      id: String(row.id ?? ""),
+      kind: row.kind === "explorer" ? "explorer" : "sql",
+      name: String(row.name ?? "Untitled dashboard"),
+      description: typeof row.description === "string" ? row.description : null,
+      ownerEmail: String(row.ownerEmail ?? ""),
+      orgId: typeof row.orgId === "string" ? row.orgId : null,
+      visibility:
+        row.visibility === "public" || row.visibility === "org"
+          ? row.visibility
+          : "private",
+      updatedAt: String(row.updatedAt ?? ""),
+      matchedFields,
+    },
+    score,
+  };
+}
+
+function legacyDashboardReferenceScope(
+  key: string,
+  ctx: AccessCtx,
+): {
+  id: string;
+  kind: DashboardKind;
+  ownerEmail: string;
+  orgId: string | null;
+  visibility: DashboardReferenceRecord["visibility"];
+} | null {
+  if (ctx.orgId && key.startsWith(`o:${ctx.orgId}:${SQL_PREFIX}`)) {
+    return {
+      id: key.slice(`o:${ctx.orgId}:${SQL_PREFIX}`.length),
+      kind: "sql",
+      ownerEmail: ctx.email,
+      orgId: ctx.orgId,
+      visibility: "org",
+    };
+  }
+  if (ctx.email && key.startsWith(`u:${ctx.email}:${SQL_PREFIX}`)) {
+    return {
+      id: key.slice(`u:${ctx.email}:${SQL_PREFIX}`.length),
+      kind: "sql",
+      ownerEmail: ctx.email,
+      orgId: null,
+      visibility: "private",
+    };
+  }
+  if (ctx.email && key.startsWith(`u:${ctx.email}:${EXPLORER_PREFIX}`)) {
+    return {
+      id: key.slice(`u:${ctx.email}:${EXPLORER_PREFIX}`.length),
+      kind: "explorer",
+      ownerEmail: ctx.email,
+      orgId: null,
+      visibility: "private",
+    };
+  }
+  return null;
+}
+
 function nanoidFallback(): string {
   return (
     Math.random().toString(36).slice(2, 10) +
@@ -748,29 +875,35 @@ export async function searchDashboardReferences(
   limit = 8,
   dbOverride?: any,
 ): Promise<DashboardReferenceRecord[]> {
-  const normalizedSearch = search.trim();
-  if (!normalizedSearch) return [];
+  const query = dashboardReferenceSearchQuery(search);
+  if (!query.phrase || query.terms.length === 0) return [];
   const boundedLimit = Math.min(
-    Math.max(Math.trunc(limit), 1),
+    Math.max(Number.isFinite(limit) ? Math.trunc(limit) : 8, 1),
     MAX_DASHBOARD_REFERENCE_RESULTS,
   );
   const db = (dbOverride ?? getDb()) as any;
-  const pattern = `%${escapeLikeLiteral(normalizedSearch.toLowerCase())}%`;
   const access = accessFilter(schema.dashboards, schema.dashboardShares, {
     userEmail: ctx.email,
     orgId: ctx.orgId ?? undefined,
   });
-  const matches = sql<boolean>`(
-    lower(${schema.dashboards.id}) LIKE ${pattern} ESCAPE '\\'
-    OR lower(${schema.dashboards.title}) LIKE ${pattern} ESCAPE '\\'
-    OR lower(coalesce(${schema.dashboards.config}, '')) LIKE ${pattern} ESCAPE '\\'
-  )`;
+  const wildcardMatches = (term: string) => {
+    const pattern = `%${escapeLikeLiteral(term)}%`;
+    return or(
+      sql<boolean>`lower(${schema.dashboards.id}) LIKE ${pattern} ESCAPE '\\'`,
+      sql<boolean>`lower(${schema.dashboards.title}) LIKE ${pattern} ESCAPE '\\'`,
+      sql<boolean>`lower(coalesce(${schema.dashboards.config}, '')) LIKE ${pattern} ESCAPE '\\'`,
+    );
+  };
+  const phraseMatch = wildcardMatches(query.phrase);
+  const tokenMatch =
+    query.terms.length === 1
+      ? wildcardMatches(query.terms[0]!)
+      : and(...query.terms.map(wildcardMatches));
   const where = and(
     access,
-    eq(schema.dashboards.kind, "sql"),
     isNull(schema.dashboards.archivedAt),
     isNull(schema.dashboards.hiddenAt),
-    matches,
+    or(phraseMatch, tokenMatch),
   );
   const rows = await db
     .select({
@@ -793,43 +926,70 @@ export async function searchDashboardReferences(
     .from(schema.dashboards)
     .where(where)
     .orderBy(desc(schema.dashboards.updatedAt))
-    .limit(boundedLimit);
+    .limit(MAX_DASHBOARD_REFERENCE_CANDIDATES);
 
-  return rows.map((row: any) => {
-    const configText = typeof row.config === "string" ? row.config : "";
-    const fields: DashboardReferenceRecord["matchedFields"] = [];
-    const lowered = normalizedSearch.toLowerCase();
+  const ranked = rows
+    .map((row: any) => dashboardReferenceMatch(row, query))
+    .filter(
+      (match: { record: DashboardReferenceRecord; score: number } | null): match is {
+        record: DashboardReferenceRecord;
+        score: number;
+      } => match !== null,
+    );
+
+  // Older Analytics deployments still have dashboards in settings KV. Search
+  // that scoped fallback too, but keep SQL rows authoritative when an id has
+  // already been migrated.
+  const seen = new Set(
+    ranked.map(({ record }) => `${record.kind}:${record.id}`),
+  );
+  const allSettings = await getAllSettings();
+  for (const [key, value] of Object.entries(allSettings)) {
+    const scope = legacyDashboardReferenceScope(key, ctx);
     if (
-      String(row.id ?? "")
-        .toLowerCase()
-        .includes(lowered)
+      !scope ||
+      !scope.id ||
+      (typeof value !== "object" || value === null || Array.isArray(value))
+    ) {
+      continue;
+    }
+    const { title, config } = configFromSettings(
+      value as Record<string, unknown>,
+    );
+    const match = dashboardReferenceMatch(
+      {
+        id: scope.id,
+        kind: scope.kind,
+        name: title,
+        description: configDescriptionFromValue(config),
+        config,
+        ownerEmail: scope.ownerEmail,
+        orgId: scope.orgId,
+        visibility: scope.visibility,
+        updatedAt:
+          typeof config.updatedAt === "string"
+            ? config.updatedAt
+            : typeof config.createdAt === "string"
+              ? config.createdAt
+              : "",
+      },
+      query,
+    );
+    if (!match || seen.has(`${match.record.kind}:${match.record.id}`)) {
+      continue;
+    }
+    seen.add(`${match.record.kind}:${match.record.id}`);
+    ranked.push(match);
+  }
+
+  return ranked
+    .sort(
+      (a, b) =>
+        b.score - a.score ||
+        b.record.updatedAt.localeCompare(a.record.updatedAt),
     )
-      fields.push("id");
-    if (
-      String(row.name ?? "")
-        .toLowerCase()
-        .includes(lowered)
-    )
-      fields.push("name");
-    if (
-      String(row.description ?? "")
-        .toLowerCase()
-        .includes(lowered)
-    )
-      fields.push("description");
-    if (configText.toLowerCase().includes(lowered)) fields.push("config");
-    return {
-      id: String(row.id),
-      kind: row.kind as DashboardKind,
-      name: String(row.name ?? "Untitled dashboard"),
-      description: typeof row.description === "string" ? row.description : null,
-      ownerEmail: String(row.ownerEmail ?? ""),
-      orgId: row.orgId ?? null,
-      visibility: row.visibility,
-      updatedAt: String(row.updatedAt ?? ""),
-      matchedFields: fields,
-    };
-  });
+    .slice(0, boundedLimit)
+    .map(({ record }) => record);
 }
 
 /**
