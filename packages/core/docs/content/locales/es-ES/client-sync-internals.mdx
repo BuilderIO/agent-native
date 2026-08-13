@@ -1,0 +1,128 @@
+---
+title: "Sincronización interna"
+description: "El mecanismo de versión de cambio detrás de useDbSync: useChangeVersion/useChangeVersions para sincronizar un useQuery sin procesar, y las dos rutas de latencia que puede tomar una recuperación."
+---
+
+# Sincronización interna
+
+[Sincronización en vivo](/docs/key-concepts#polling-sync) cubre el modelo mental: una escritura del agente se convierte en un evento de cambio, `useDbSync()` lo recoge, y las consultas afectadas se recuperan. Esta página cubre el mecanismo subyacente que la mayoría de las apps nunca tocan directamente: los contadores de versión de cambio que incrementa `useDbSync()`, y cómo incorporarlos en una llamada `useQuery()` sin procesar que no pasa por `useActionQuery()`.
+
+`useActionQuery()` ya se recupera automáticamente cuando se completa una acción mutante (consulta [Datos y sincronización](/docs/client-data#fetching-mutating)). Recurre a `useChangeVersion()`/`useChangeVersions()` solo cuando estés sincronizando una llamada `useQuery()` sin procesar fuera de esa ruta, como un helper de cliente de bajo nivel que lee el estado de una integración.
+
+## Cómo funcionan las versiones de cambio {#how-it-works}
+
+Cuando ocurre una mutación de base de datos del lado del servidor, el servidor registra un evento de cambio etiquetado con una clave `source`. `useDbSync()` recibe ese evento e incrementa un contador local para esa fuente. Incorporar el contador en una clave de consulta de React Query hace que la consulta se recupere automáticamente cada vez que el backend reporta nueva actividad para esa fuente.
+
+## useChangeVersion / useChangeVersions {#use-change-version}
+
+<Signature
+  id="doc-block-client-sync-internals-1"
+  name="useChangeVersion"
+  params={[
+    {
+      name: "source",
+      type: "string",
+      description:
+        'La fuente de evento de cambio a observar, p. ej. `"dashboards"`.',
+    },
+  ]}
+  returns={{
+    type: "number",
+    description:
+      "Un contador que se incrementa cada vez que se muta la fuente dada.",
+  }}
+/>
+
+<Signature
+  id="doc-block-client-sync-internals-2"
+  name="useChangeVersions"
+  params={[
+    {
+      name: "sources",
+      type: "readonly string[]",
+      description: "Varias fuentes de eventos de cambio a observar a la vez.",
+    },
+  ]}
+  returns={{
+    type: "number",
+    description: "La suma de los contadores de versión de cada fuente dada.",
+  }}
+/>
+
+En el ejemplo siguiente, una llamada `useQuery()` sin procesar lee un dashboard directamente, incorporando el contador de versión de la fuente `"dashboards"` en su clave de consulta para que se recupere cada vez que cambie esa fuente:
+
+```tsx
+import { useQuery } from "@tanstack/react-query";
+import { useChangeVersion } from "@agent-native/core/client/hooks";
+
+function DashboardView({ id }) {
+  const version = useChangeVersion("dashboards");
+
+  const { data } = useQuery({
+    queryKey: ["dashboard", id, version],
+    queryFn: () => fetchDashboard(id),
+    placeholderData: (prev) => prev,
+  });
+
+  return <div>{data?.title}</div>;
+}
+```
+
+`placeholderData: (prev) => prev` mantiene los datos anteriores en pantalla durante la recuperación, así que la vista no parpadea a un estado de carga.
+
+## Dos rutas hacia una recuperación {#latency-models}
+
+Una mutación llega a la UI de una de dos formas, y tienen latencia distinta.
+
+Una mutación local, una que acaba de hacer tu propia llamada a `useActionMutation()`, emite un evento `source: "action"` en cuanto tiene éxito. Cada consulta que depende de esa acción se recupera de inmediato. No hay retraso de ida y vuelta, ya que la pestaña que hizo la escritura ya sabe de ella.
+
+Una mutación remota, del agente, un webhook, otra pestaña, u otro usuario, tiene que llegar primero a esta pestaña. `useDbSync()` la recoge por SSE casi de inmediato, o por el respaldo de sondeo dentro de unos dos segundos si SSE no está disponible. Solo una vez que llega ese evento, el contador de versión correspondiente se incrementa y la consulta se recupera en segundo plano.
+
+<Diagram id="doc-block-client-sync-internals-3" title="Dos rutas hacia una recuperación" summary="Una mutación local invalida sus propias cachés al instante. Una escritura remota llega a esta pestaña por SSE, o por el tick de sondeo como respaldo.">
+
+```html
+<div class="diagram-latency">
+  <div class="diagram-col">
+    <div class="diagram-card" data-rough>
+      <span class="diagram-pill ok">Esta pestaña</span
+      ><strong>useActionMutation</strong
+      ><small class="diagram-muted"
+        >emite source: "action" al tener éxito &rarr; recuperación local
+        instantánea</small
+      >
+    </div>
+    <div class="diagram-card" data-rough>
+      <span class="diagram-pill accent">Agente · webhook · otra pestaña</span
+      ><strong>Escritura remota</strong
+      ><small class="diagram-muted"
+        >push por SSE, o el tick de sondeo de ~2s como respaldo &rarr; el
+        contador de versión se incrementa &rarr; recuperación en segundo
+        plano</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-latency .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.diagram-latency .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+}
+```
+
+</Diagram>
+
+## ¿Qué sigue?
+
+- [**Sincronización en vivo**](/docs/key-concepts#polling-sync) — el modelo mental conceptual bajo el cual está esta página
+- [**Datos y sincronización**](/docs/client-data) — `useActionQuery`/`useDbSync`, que debería usar la mayoría de las páginas en lugar de estos primitivos
+- [**Avanzado**](/docs/client-advanced) — los otros primitivos de cliente de bajo nivel y vías de escape
+  </content>

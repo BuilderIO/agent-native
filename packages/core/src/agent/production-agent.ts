@@ -3033,12 +3033,12 @@ export const MAX_IDENTICAL_TOOL_CALLS = 8;
 /**
  * A stop that ends the turn from inside the tool loop.
  *
- * `message` is the last thing the user reads, so it must name the remedy and
- * must NOT quote a raw provider/tool error: both `isAutoRecoverableError`
- * (client) and `isRecoverableContinuationError` (below) sniff this string for
- * "timeout"/"connection"/"network", and a stop whose text happens to contain
- * one is auto-continued into the very spiral it was raised to end. The raw
- * error belongs in `details`, which nothing retries on.
+ * `message` is the last thing the user reads, so it names the remedy in plain
+ * words and does not quote a raw provider/tool error; the raw error goes in
+ * `details`. Both retry sniffers now honour the `recoverable: false` these
+ * stops are sent with, so a stop that happens to say "timeout" is no longer
+ * auto-continued — but the prose still has one reader who cannot ignore it,
+ * and a pasted stack trace is not a remedy.
  */
 export interface TerminalActionStop {
   message: string;
@@ -3604,10 +3604,12 @@ async function waitForInterruptedToolLedgerEntry(opts: {
  * sentence before it, and two failures that differ ONLY in the arguments they
  * echo are the same failure.
  *
- * Numbers go the same way, for the same reason. A guard that reports its own
- * running tally ("this turn already made 13 call(s)") hands the breaker a new
- * key on every single decline, so the decline that exists to stop a spiral is
- * itself uncountable.
+ * Digits stay. Collapsing them merges failures that are genuinely different:
+ * "Record 41 not found" and "Record 42 not found" are two missing records, so a
+ * seven-item sweep where every item legitimately 404s would trip the
+ * across-arguments breaker at item six. A guard message that varies its own
+ * running tally is fixed where that message is written, not by blinding every
+ * breaker to numbers.
  */
 function normalizeToolErrorForBreaker(error: string): string {
   return (
@@ -3619,7 +3621,6 @@ function normalizeToolErrorForBreaker(error: string): string {
       )
       // Bare JSON payloads some providers inline instead of a Received: span.
       .replace(/\{[\s\S]{0,2000}?\}/g, "{}")
-      .replace(/\d+/g, "#")
       .replace(/\s+/g, " ")
       .trim()
   );
@@ -3669,16 +3670,27 @@ const PERMANENT_PRECONDITION_PATTERNS: readonly RegExp[] = [
   /\b(?:api[ -]?keys?|access tokens?|credentials?|secrets?)\b[^.]{0,60}\bnot (?:configured|set|connected|available)\b/i,
   /\bsave [A-Z][A-Z0-9_]{3,} in (?:the )?settings\b/i,
   // "Connect Builder.io before indexing a design system from Figma or code."
-  /\bconnect\b[^;]{1,40}?\b(?:before|first|in settings)\b/i,
-  // "…is only available in local Plan runtime." Excludes "only available after
-  // …", which names a condition that clears on its own.
-  /\bonly available (?:in|on|from|to)\b/i,
+  // Case-sensitive, sentence-initial, and followed by a capitalized service
+  // name, because that is the only shape that separates the imperative remedy
+  // from the retryable network failure: "failed to connect to the warehouse
+  // before the deadline" and "Connect timed out, retry first" both satisfy
+  // every looser reading of the same words.
+  /(?:^|[.:!?]\s+)Connect [A-Z][\w.-]*[^;]{0,40}?\b(?:before|first|in settings)\b/,
   // "Plan mode blocked `update-extension`. Switch to Act mode …" — cleared by
   // the user approving the plan, never by the model trying again.
   /\bplan mode blocked\b/i,
+  // The templates' most-copied throw, and always `if (!getRequestUserEmail())`:
+  // one synchronous AsyncLocalStorage read of a value fixed when the request
+  // context was established. It cannot appear and disappear between tool calls
+  // of the same chunk, so retrying inside this turn lands on it again.
   /\bno authenticated user\b/i,
   // "SSRF blocked: refusing to fetch private/internal address (…)"
   /\bssrf blocked\b/i,
+  // Deliberately absent: "only available in …". Retention windows ("only
+  // available from the last 90 days") share its wording and are fixed by
+  // narrowing the range, so it stopped turns that were one argument away from
+  // succeeding. The count-based breaker still ends a genuine runtime gate
+  // after six.
 ];
 
 const SOURCE_SWEEP_TOOL_NAME =
@@ -3822,9 +3834,15 @@ function restrictAgentTeamsAfterSourceSweep(tools: EngineTool[]): EngineTool[] {
   });
 }
 
+/**
+ * Deliberately carries no running call count. This decline is recorded as a
+ * tool error, and the breakers key on that text: a message that reports its own
+ * tally ("already made 13 call(s)") mints a fresh key on every decline, so the
+ * decline that exists to stop a spiral becomes the one thing nothing can count.
+ * The fixed threshold below says the same thing without varying.
+ */
 export function repeatedSourceSweepGuardMessage(opts: {
   toolName: string;
-  priorCalls: number;
   threshold?: number;
   scope?: "tool" | "aggregate";
 }): string {
@@ -3834,9 +3852,8 @@ export function repeatedSourceSweepGuardMessage(opts: {
       ? "read-only source/search tools"
       : "the same read-only source/search tool";
   return (
-    `Skipped ${opts.toolName}: this turn already made ${opts.priorCalls} ` +
-    `call(s) to ${target}, which exceeds the ` +
-    `${threshold}-call convergence budget. Stop calling ${opts.toolName} ` +
+    `Skipped ${opts.toolName}: this turn already exhausted its ` +
+    `${threshold}-call convergence budget for ${target}. Stop calling ${opts.toolName} ` +
     `one item at a time and change strategy before answering. If a broader ` +
     `read-only bulk/source mechanism is available, use it now: provider API ` +
     `catalog/docs/request tools with pagination or staging, code execution ` +
@@ -3880,7 +3897,6 @@ export function shouldGuardRepeatedSourceSweep(opts: {
       priorCalls: priorSourceSweepCalls,
       message: repeatedSourceSweepGuardMessage({
         toolName: opts.toolName,
-        priorCalls: priorSourceSweepCalls,
         threshold,
         scope: "aggregate",
       }),
@@ -3892,7 +3908,6 @@ export function shouldGuardRepeatedSourceSweep(opts: {
     priorCalls,
     message: repeatedSourceSweepGuardMessage({
       toolName: opts.toolName,
-      priorCalls,
       threshold,
       scope: "tool",
     }),
@@ -5609,7 +5624,9 @@ export async function runAgentLoop(opts: {
         const permanentRemedy = permanentPreconditionRemedy(sanitizedResult);
         if (permanentRemedy) {
           requestedActionStop ??= {
-            message: `I stopped because ${toolCall.name} cannot run until this is fixed: ${permanentRemedy} Retrying would not have changed it, and anything completed before this is saved.`,
+            message:
+              `I stopped because ${toolCall.name} needs a setup step outside this turn — a credential, a role, a connected account, or an approval — before it can run. ` +
+              "Retrying would not have changed it, and anything completed before this is saved.",
             errorCode: "permanent_precondition",
             details: sanitizedResult,
           };
@@ -6765,6 +6782,12 @@ function isRecoverableContinuationError(event: {
   const code = String(event.errorCode ?? "").toLowerCase();
   const message = event.error.toLowerCase();
   if (code === "builder_gateway_error") return false;
+  // An explicit flag outranks the message sniff below, which exists for events
+  // that carry no flag at all. Every guard stop sets `recoverable: false`, and
+  // sniffing its prose is how a stop that merely NAMES a connection or a
+  // timeout gets continued into the spiral it was raised to end. The client
+  // applies the same precedence in `isAutoRecoverableError`.
+  if (event.recoverable === false) return false;
   return (
     event.recoverable === true ||
     code === "builder_gateway_timeout" ||

@@ -1,0 +1,429 @@
+---
+title: "数据与同步"
+description: "app/ 用来读取、写入数据，并与代理调用的同一批 actions 保持实时同步的 action 钩子。"
+---
+
+# 数据与同步
+
+从客户端应用读取和写入应用数据的主要方式是通过 [action](/docs/actions) 钩子。通过将请求封装进 actions，您的客户端和代理都能以相同的方式与应用交互。
+
+在下面的示例中，一个工单先通过下拉菜单手动分配给当前用户，然后再通过聊天代理分配。UI 和代理访问的是同一个 action。
+
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa5548a35d1494c1f8a4f960fbe8d9b2c%2Fcompressed?apiKey=YJIGb4i01jvw0SRdL5Bt&token=a5548a35d1494c1f8a4f960fbe8d9b2c&alt=media&optimized=true"
+  alt="UI action 和 agent action 产生相同结果的示例。"
+  align="full"
+  autoplay={true}
+  loop={true}
+  width={600}
+  caption="UI action 和 agent action 产生相同结果的示例。"
+/>
+
+## 获取和修改数据 {#fetching-mutating}
+
+典型的应用会构建自己的 API 层，并用手写的 `fetch` 请求调用它。代理本机应用则跳过这一层：`app/` 通过下面这些钩子，调用代理已经拥有的同一批 actions 作为工具。
+
+<Diagram id="doc-block-client-data-fm-1" title="典型的 fetch 与 action 钩子对比" summary="典型组件调用一个只有它自己能访问的路由。代理本机组件调用的是一个代理也能调用的 action。">
+
+```html
+<div class="diagram-fmcmp">
+  <div class="fmcmp-col">
+    <div class="fmcmp-label diagram-muted">典型</div>
+    <div class="diagram-node">组件</div>
+    <div class="fmcmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-node">fetch("/api/leads/:id")</div>
+    <div class="fmcmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-panel" data-rough>
+      <strong>您的 API 路由</strong>
+      <small class="diagram-muted">只有前端才能调用它</small>
+    </div>
+    <div class="fmcmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-box" data-rough>数据库</div>
+  </div>
+  <div class="fmcmp-vs diagram-muted">vs</div>
+  <div class="fmcmp-col">
+    <div class="fmcmp-label diagram-muted">Agent Native</div>
+    <div class="diagram-node">组件</div>
+    <div class="fmcmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-node">useActionQuery("get-lead")</div>
+    <div class="fmcmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-panel" data-rough>
+      <span class="diagram-pill accent">get-lead action</span>
+      <small class="diagram-muted">同时也是一个 Agent 工具</small>
+    </div>
+    <div class="fmcmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-box" data-rough>SQL 数据库</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-fmcmp {
+  display: flex;
+  align-items: flex-start;
+  gap: 28px;
+  flex-wrap: wrap;
+}
+.fmcmp-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 200px;
+}
+.fmcmp-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+.fmcmp-vs {
+  font-size: 13px;
+  font-weight: 600;
+  padding-top: 52px;
+}
+.diagram-fmcmp .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 16px;
+  align-items: center;
+}
+.fmcmp-arrow {
+  font-size: 18px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+### Action 钩子 {#action-hooks}
+
+您最可能用到的两个 action 钩子是：`useActionQuery()` 和 `useActionMutation()`。这两个钩子提供对您应用中 actions 的访问。
+
+#### useActionQuery {#use-action-query}
+
+<Signature
+  id="doc-block-client-data-1"
+  name="useActionQuery"
+  params={[
+    {
+      name: "actionName",
+      type: "TName",
+      description: "该 action 注册时使用的名称。",
+    },
+    {
+      name: "params",
+      type: "ActionParams<TName>",
+      optional: true,
+      description: "该 action 的输入，类型来自其 `defineAction()` schema。",
+    },
+    {
+      name: "options",
+      type: "UseQueryOptions",
+      optional: true,
+      description:
+        "[useQuery 选项](https://tanstack.com/query/latest/docs/framework/react/reference/useQuery) 中除 `queryKey` 和 `queryFn`（由该钩子自行设置）之外的所有内容。",
+    },
+  ]}
+  returns={{
+    type: "UseQueryResult<TResult>",
+    description:
+      '缓存于 `["action", name, params]` 下。每当有变更类 action 完成时会自动重新获取，无需手动失效。',
+  }}
+/>
+
+该钩子用于只读 actions，是围绕 [useQuery()](https://tanstack.com/query/latest/docs/framework/react/reference/useQuery) 函数的一层轻量封装。
+
+在下面的示例中，调用了 `list-tickets` action，这类似于对所有工单发起一次 GET 请求。
+
+```ts
+import { useActionQuery } from "@agent-native/core/client/hooks";
+
+const { data, isLoading } = useActionQuery("list-tickets", {});
+```
+
+下面的示例展示了通过 `get-ticket` action 获取单个工单的请求。提供 `ticketId` 用于将查询限定为只返回特定工单。额外提供的 `enabled` 选项确保该查询不会自动运行，而是只在存在 `ticketId` 时才运行。
+
+```ts
+import { useActionQuery } from "@agent-native/core/client/hooks";
+
+const { data, isLoading } = useActionQuery(
+  "get-ticket",
+  { ticketId: ticketId ?? "" },
+  { enabled: Boolean(ticketId) },
+);
+```
+
+#### useActionMutation {#use-action-mutation}
+
+<Signature
+  id="doc-block-client-data-2"
+  name="useActionMutation"
+  params={[
+    {
+      name: "actionName",
+      type: "TName",
+      description: "该 action 注册时使用的名称。",
+    },
+    {
+      name: "options",
+      type: "UseMutationOptions",
+      optional: true,
+      description:
+        "[useMutation 选项](https://tanstack.com/query/latest/docs/framework/react/reference/useMutation) 中除 `mutationFn`（由该钩子自行设置）之外的所有内容。",
+      fields: [
+        {
+          name: "method",
+          type: '"POST" | "PUT" | "DELETE"',
+          optional: true,
+          default: '"POST"',
+          description: "覆盖默认的请求方法。",
+        },
+        {
+          name: "skipActionQueryInvalidation",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description: "在成功时跳过自动缓存刷新。",
+        },
+      ],
+    },
+  ]}
+  returns={{
+    type: "UseMutationResult",
+    description:
+      '成功后会发出一个 `source: "action"` 的变更事件，因此每个读取了受影响数据的 `useActionQuery()` 都会自动重新获取，无需手动失效。',
+  }}
+/>
+
+该钩子用于会改变数据的 actions，例如创建、更新或发送某些内容，是围绕 [useMutation()](https://tanstack.com/query/latest/docs/framework/react/reference/useMutation) 函数的一层轻量封装。
+
+与 `useActionQuery()` 不同，action 的输入不会传给钩子本身，而是在您准备运行该变更时传给 `mutate()` 或 `mutateAsync()`。
+
+在下面的示例中，调用 `send-ticket-reply` action 来为工单发布一条回复。从事件处理函数（例如按钮的 `onClick`）中调用 `mutate()`。
+
+```ts
+import { useActionMutation } from "@agent-native/core/client/hooks";
+
+const { mutate, isPending } = useActionMutation("send-ticket-reply");
+
+mutate({ ticketId, body: draft });
+```
+
+下面的示例展示了带有 `onSuccess` 选项的同一个变更。每次变更后缓存失效都会自动发生，所以 `onSuccess` 只在需要处理本地副作用时才用到，例如回复发送后清空回复输入框。
+
+```ts
+import { useActionMutation } from "@agent-native/core/client/hooks";
+
+const { mutate, isPending } = useActionMutation("send-ticket-reply", {
+  onSuccess: () => setDraft(""),
+});
+
+mutate({ ticketId, body: draft });
+```
+
+### callAction {#call-action}
+
+<Signature
+  id="doc-block-client-data-3"
+  name="callAction"
+  params={[
+    {
+      name: "actionName",
+      type: "TName",
+      description: "该 action 注册时使用的名称。",
+    },
+    {
+      name: "params",
+      type: "ActionParams<TName>",
+      optional: true,
+      description: "该 action 的输入，类型来自其 `defineAction()` schema。",
+    },
+    {
+      name: "options",
+      type: "ClientActionCallOptions",
+      optional: true,
+      description: "下面的内容全部可选。",
+      fields: [
+        {
+          name: "method",
+          type: '"GET" | "POST" | "PUT" | "DELETE"',
+          optional: true,
+          default: '"POST"',
+          description: "覆盖默认的请求方法。",
+        },
+        {
+          name: "signal",
+          type: "AbortSignal",
+          optional: true,
+          description: "取消该请求。",
+        },
+        {
+          name: "timeoutMs",
+          type: "number",
+          optional: true,
+          default: "60000",
+          description:
+            "覆盖默认的 60 秒超时，用于那些确实需要更长时间的 actions。",
+        },
+      ],
+    },
+  ]}
+  returns={{
+    type: "Promise<TResult>",
+    description:
+      "与上面的钩子不同，这里没有缓存也没有自动重新获取。如果其他 UI 依赖该结果，请配合手动失效一起使用。",
+  }}
+/>
+
+该函数用于 React 渲染流程之外的一次性命令式 action 调用，例如普通的事件处理函数、脚本，或任何其他非 React 代码路径。它直接返回一个 promise，而不是一个钩子结果。
+
+在下面的示例中，`update-ticket` action 在 React 渲染流程之外，从一个键盘快捷键处理函数中被调用，将工单分配给一名客服。
+
+```ts
+import { callAction } from "@agent-native/core/client/hooks";
+
+await callAction("update-ticket", {
+  ticketId,
+  assignedToEmail: "jordan@example.com",
+});
+```
+
+下面的示例展示了带有 `timeoutMs` 选项的同一个调用，适用于那些确实需要比默认 60 秒超时更长时间的 actions。
+
+```ts
+import { callAction } from "@agent-native/core/client/hooks";
+
+await callAction(
+  "update-ticket",
+  { ticketId, assignedToEmail: "jordan@example.com" },
+  { timeoutMs: 120_000 },
+);
+```
+
+每个 `useActionQuery()`、`useActionMutation()` 和 `callAction()` 请求都受 60 秒超时限制，超时会以错误的形式呈现，而不会静默重试。`useActionQuery()` 还会使用 React Query 的 abort signal 自动取消被替代的请求。
+
+## useDbSync {#usedbsync}
+
+<Signature
+  id="doc-block-client-data-4"
+  name="useDbSync"
+  params={[
+    {
+      name: "options",
+      type: "UseDbSyncOptions",
+      description: "每个字段都是可选的。",
+      fields: [
+        {
+          name: "queryClient",
+          type: "QueryClient",
+          optional: true,
+          description: "用于缓存失效的 React Query 客户端。",
+        },
+        {
+          name: "pollUrl",
+          type: "string",
+          optional: true,
+          default: '"/_agent-native/poll"',
+          description: "轮询端点 URL。",
+        },
+        {
+          name: "sseUrl",
+          type: "string | false",
+          optional: true,
+          default: '"/_agent-native/events"',
+          description: "SSE 端点 URL。传入 `false` 则只使用轮询。",
+        },
+        {
+          name: "interval",
+          type: "number",
+          optional: true,
+          default: "2000",
+          description: "轮询间隔，单位毫秒。",
+        },
+        {
+          name: "fallbackInterval",
+          type: "number",
+          optional: true,
+          default: "60000",
+          description:
+            "SSE 已连接时的轮询间隔，作为遗漏事件时的备用手段。已断开连接的标签页则会以更快的 `interval`（或固定的空闲节奏）进行轮询。",
+        },
+        {
+          name: "pauseWhenHidden",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description:
+            "当浏览器标签页隐藏时暂停轮询。隐藏的标签页会保持 SSE 连接，活动时轮询间隔不超过每 10 秒一次，进入空闲后为每 60 秒一次。",
+        },
+        {
+          name: "ignoreSource",
+          type: "string",
+          optional: true,
+          description:
+            "要忽略的每个标签页的请求来源，这样一个标签页就不会因为自己的写入而重新获取。",
+        },
+        {
+          name: "onEvent",
+          type: "(data) => void",
+          optional: true,
+          description: "当 SSE 或轮询收到变更事件时的可选回调。",
+        },
+        {
+          name: "actionInvalidatePredicate",
+          type: "(query: Query) => boolean",
+          optional: true,
+          description:
+            "过滤 action 事件触发的大范围失效。很少需要用到。用它可以让某个开销较大的活动查询保持显式刷新语义，同时让普通的按来源版本化的查询依然通过 `useChangeVersion` 响应。",
+        },
+        {
+          name: "suppressActionInvalidationFor",
+          type: "string[]",
+          optional: true,
+          description:
+            "其同步事件不应使所有 action 查询失效的 action 名称列表。仅用于那些已经自行执行了精确失效的高频后台 actions。",
+        },
+        {
+          name: "queryKeys",
+          type: "string[]",
+          optional: true,
+          description: "已弃用并被忽略。为旧的调用点保留。",
+        },
+      ],
+    },
+  ]}
+  returns={{ type: "void" }}
+/>
+
+该钩子用于让 UI 与发生在您自己的 actions 之外的数据库变更保持同步，例如代理写入、webhook，或来自另一个浏览器标签页的变更。它通过 server-sent events 监听变更，在 server-sent events 不可用时回退到轮询。
+
+```ts
+import { useDbSync } from "@agent-native/core/client/hooks";
+import { useQueryClient } from "@tanstack/react-query";
+
+function App() {
+  const queryClient = useQueryClient();
+
+  useDbSync({
+    queryClient,
+    pollUrl: "/_agent-native/poll",
+    onEvent: (data) => console.log("Data changed:", data),
+  });
+
+  return <div>...</div>;
+}
+```
+
+对于普通的 CRUD，优先使用 `useActionQuery()` 和 `useActionMutation()`。变更类 actions 会发出 `source: "action"`，因此这些钩子会立即重新获取。来自代理、webhook 或另一个标签页的变更，则是通过 `useDbSync()`（经由 SSE 或轮询回退）到达的。如果某个原始 `useQuery()` 调用需要基于自定义 key 同步，见 [同步内部机制](/docs/client-sync-internals)。如果您需要直接写入 `application_state`，见 [高级](/docs/client-advanced)。
+
+## 下一步
+
+- [**概览**](/docs/client-overview) — 本页这些钩子所在的 `app/` 与 `public/` 目录布局
+- [**Agent 聊天**](/docs/client-agent-chat) — 向代理发送提示并暂存上下文
+- [**Actions**](/docs/actions) — 本页每个钩子背后的 `defineAction` 界面
+- [**高级**](/docs/client-advanced) — 直接访问 `application_state`
+- [**同步内部机制**](/docs/client-sync-internals) — 使用 `useChangeVersion` 同步原始 `useQuery`
+- [**实时同步**](/docs/key-concepts#polling-sync) — `useDbSync` 如何让 UI 保持最新

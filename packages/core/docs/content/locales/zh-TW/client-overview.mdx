@@ -1,0 +1,206 @@
+---
+title: "總覽"
+description: "app/ 與 public/ 目錄：您在此建置 agent-native 應用程式的實際外觀，以及它用來與代理保持同步的瀏覽器 API。"
+---
+
+# 總覽
+
+`app/` 是您建置 agent-native 應用程式實際外觀的地方：頁面、版面配置、元件、樣式。`public/` 存放與其一起提供的靜態資源 — 圖示、manifest、品牌標誌。這是一個典型的 React Router v8 應用程式，不是特殊的僅供代理使用的介面，也是大部分開發時間投入的地方。
+
+與典型前端唯一的架構差異：此層沒有屬於自己的 backend-for-frontend。它透過代理所呼叫的相同 actions 來讀取和寫入資料，因此在這裡連接的任何功能自動也是代理可以執行的功能。
+
+<Diagram id="doc-block-client-overview-1" title="傳統前端 vs. Agent Native" summary="傳統前端呼叫自己的 API 層，只有它自己能存取。在 Agent Native 中，app/ 和代理都呼叫相同的 actions，因此這裡建置的每項功能都能免費供代理呼叫。">
+
+```html
+<div class="diagram-cocmp">
+  <div class="cocmp-col">
+    <div class="cocmp-label diagram-muted">傳統</div>
+    <div class="diagram-node">app/（React 前端）</div>
+    <div class="cocmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-panel" data-rough>
+      <strong>API 層</strong>
+      <small class="diagram-muted">只有前端會呼叫它</small>
+    </div>
+    <div class="cocmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-box" data-rough>資料庫</div>
+  </div>
+  <div class="cocmp-vs diagram-muted">vs</div>
+  <div class="cocmp-col">
+    <div class="cocmp-label diagram-muted">Agent Native</div>
+    <div class="cocmp-callers">
+      <div class="diagram-node">app/（React 前端）</div>
+      <div class="diagram-node">代理</div>
+    </div>
+    <div class="cocmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-panel" data-rough>
+      <span class="diagram-pill accent">Actions</span
+      ><small class="diagram-muted">平等的夥伴，相同的操作</small>
+    </div>
+    <div class="cocmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-box" data-rough>SQL 資料庫</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-cocmp {
+  display: flex;
+  align-items: flex-start;
+  gap: 28px;
+  flex-wrap: wrap;
+}
+.cocmp-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 180px;
+}
+.cocmp-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+.cocmp-callers {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.cocmp-vs {
+  font-size: 13px;
+  font-weight: 600;
+  padding-top: 52px;
+}
+.diagram-cocmp .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 16px;
+  align-self: stretch;
+  align-items: center;
+}
+.cocmp-arrow {
+  font-size: 18px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## Client 在架構中的位置 {#role}
+
+瀏覽器請求、代理迴圈和外部 API 用戶端都會解析到相同的 actions 和相同的 SQL 資料庫 — 這一層並沒有另一個代理無法觸及的獨立「應用後端」。在這裡建置一項功能，意味著在代理已經擁有的操作之上建置一個 UI，或是同時定義一個新的 action 並為它取得一個 UI。關於契約中操作端的內容，請參閱 [Actions](/docs/actions)。
+
+此頁面涵蓋您建置所在的目錄，以及沒有其他文件說明的瀏覽器執行階段部分（`root.tsx`、`public/`）。將您的元件連接到 actions 與代理的 React 掛鉤則各有專屬頁面：
+
+| 頁面                                            | 涵蓋內容                                                                                        |
+| ----------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| **[資料與同步](/docs/client-data)**             | `useActionQuery`、`useActionMutation`、`callAction` 和 `useDbSync`                              |
+| **[Agent 聊天](/docs/client-agent-chat)**       | `sendToAgentChat`、`askUserQuestion`、`openAgentSettings`、動態建議，以及暫存的代理聊天脈絡狀態 |
+| **[進階](/docs/client-advanced)**               | 直接存取 `application_state`、背景聊天傳送、自訂建議標籤，以及 MCP App 主機橋接                 |
+| **[同步內部機制](/docs/client-sync-internals)** | 用於同步原始 `useQuery` 的 `useChangeVersion`/`useChangeVersions`                               |
+| **[入口點](/docs/client-entry-points)**         | `app/entry.client.tsx`/`app/entry.server.tsx` 與 SSR 自訂                                       |
+
+## app/ 與 public/ 中的內容 {#project-directories}
+
+| 路徑                                                | 涵蓋內容                                                                                                |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| **`app/root.tsx`**                                  | HTML 外殼與提供者堆疊 — 請參閱下方[瀏覽器外殼](#app-shell)                                              |
+| **`app/entry.client.tsx` / `app/entry.server.tsx`** | 水合與 SSR 啟動 — 請參閱[入口點](/docs/client-entry-points)                                             |
+| **`app/routes.ts` + `app/routes/`**                 | 基於檔案的頁面與導覽 — 請參閱[路由](/docs/client-routing)                                               |
+| **`app/components/`**                               | 您的 UI：shadcn 風格的基礎元件與應用專屬元件 — 請參閱[shadcn/ui](/docs/toolkit-ui)                      |
+| **`app/hooks/`**                                    | 資料、同步與代理聊天掛鉤 — 請參閱[資料與同步](/docs/client-data)與[Agent 聊天](/docs/client-agent-chat) |
+| **`app/lib/`**                                      | 共用的用戶端工具（應用設定、分頁 id、`cn`）— 請參閱下方[實用工具](#utilities)                           |
+| **`app/design-system.ts`**                          | 選用的自訂設計系統適配器 — 請參閱[自訂設計系統](/docs/custom-design-system)                             |
+| **`app/i18n/`**                                     | 本地化的 UI 文字目錄 — 請參閱[國際化](/docs/internationalization)                                       |
+| **`app/global.css`**                                | 基礎樣式與 Tailwind 進入點                                                                              |
+| **`public/`**                                       | 原樣提供的靜態資源 — 請參閱下方[靜態資源](#public-directory)                                            |
+
+## 瀏覽器外殼：root.tsx 與 AppProviders {#app-shell}
+
+`app/root.tsx` 位於 React 樹的最上層：HTML 文件外殼（`<html>`、`<head>`、`<Meta>`、`<Links>`、`<Scripts>`）加上每個路由都會渲染在其中的提供者堆疊。
+
+```tsx filename="app/root.tsx"
+import {
+  AppProviders,
+  createAgentNativeQueryClient,
+} from "@agent-native/core/client/hooks";
+import { useState } from "react";
+import { Outlet } from "react-router";
+import { i18nCatalog } from "./i18n";
+
+export default function Root() {
+  const [queryClient] = useState(() => createAgentNativeQueryClient());
+
+  return (
+    <AppProviders queryClient={queryClient} i18n={{ catalog: i18nCatalog }}>
+      <Outlet />
+    </AppProviders>
+  );
+}
+```
+
+`AppProviders` 是連接以下項目的單一包裝器：
+
+- `useActionQuery`/`useActionMutation` 使用的 React Query 用戶端（請參閱[資料與同步](/docs/client-data#fetching-mutating)）。
+- 以 `i18n.catalog` 形式傳入的 i18n 目錄（請參閱[國際化](/docs/internationalization)）。
+- 用戶端工作階段檢查：在私人路徑上，匿名訪客會在任何私人 UI 掛載之前被重新導向到登入頁面。針對公開/SEO 路由傳入 `isPublicPath`，或針對以其他方式驗證的介面（例如 MCP 嵌入權杖）傳入 `sessionBypass`。請參閱[驗證](/docs/authentication)。
+
+大多數應用程式也會在這裡掛載 `<AgentSidebar>` 或 `<AgentPanel>`，讓每個路由都能免費取得代理面板。請參閱[臨時代理](/docs/drop-in-agent#sidebar)。
+
+## 靜態資源：public/ {#public-directory}
+
+`public/` 中的每個檔案都會原樣在網站根目錄提供，不經過建置處理。每個範本都會提供：
+
+```text
+public/
+  favicon.svg           -> browser tab icon
+  icon-180.svg           -> apple-touch-icon
+  icon-192.svg, icon-512.svg -> PWA icons referenced from manifest.json
+  manifest.json          -> web app manifest (name, theme color, icons)
+  *-logo-*.svg, *-icon-*.svg -> brand marks used in the default UI
+```
+
+`manifest.json` 控制訪客將應用程式安裝到主畫面或應用程式列時顯示的內容 — 名稱、簡稱、主題/背景顏色，以及圖示集：
+
+```json filename="public/manifest.json"
+{
+  "name": "My App",
+  "short_name": "My App",
+  "theme_color": "#18181B",
+  "icons": [
+    { "src": "icon-192.svg", "sizes": "192x192", "type": "image/svg+xml" }
+  ]
+}
+```
+
+透過替換這些檔案並更新 `manifest.json`，以及 `root.tsx` 中引用它們的 `<link rel="icon">`/`<link rel="apple-touch-icon">` 標籤，即可為應用程式換牌 — 沒有另外的註冊步驟。若要從現有網站拉取完整的品牌系統（顏色、字型、favicon），而不是手動編輯這些檔案，請參閱[品牌系統與 Figma](/docs/template-design-brand-and-figma)。
+
+## 實用工具：cn {#utilities}
+
+```ts
+import { cn } from "@agent-native/toolkit/utils";
+
+<div className={cn(
+  "px-4 py-2 rounded",
+  isActive && "bg-primary text-primary-foreground",
+  className
+)} />
+```
+
+`cn` 合併類別名稱（clsx + tailwind-merge），是在整個 `app/components/` 中組合條件式 Tailwind 類別的標準方式。
+
+## 下一步是什麼
+
+- [**資料與同步**](/docs/client-data) — action 掛鉤與 `useDbSync`
+- [**Agent 聊天**](/docs/client-agent-chat) — `sendToAgentChat`、`askUserQuestion` 與動態建議
+- [**進階**](/docs/client-advanced) — 應用程式狀態、背景聊天傳送，以及 MCP App 主機橋接
+- [**同步內部機制**](/docs/client-sync-internals) — 用於同步 `useQuery` 的 `useChangeVersion`
+- [**入口點**](/docs/client-entry-points) — SSR 啟動自訂
+- [**路由**](/docs/client-routing) — 基於檔案的頁面、動態參數與導覽
+- [**Actions**](/docs/actions) — 每個資料掛鉤背後的 `defineAction` 介面
+- [**自訂設計系統**](/docs/custom-design-system) — 透過 `app/design-system.ts` 換入您自己的元件庫
+- [**驗證**](/docs/authentication) — `AppProviders` 在私人路徑上執行的工作階段檢查

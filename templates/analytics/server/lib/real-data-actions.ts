@@ -91,33 +91,57 @@ function isToolName(name: string, expected: string): boolean {
 let groundingActionNames: ReadonlySet<string> | null = null;
 
 /**
- * Publish the action names whose definitions declare `grounding: true`.
+ * Read the action names whose definitions declare `grounding: true`.
  *
- * The set is pushed in rather than read from `.generated/actions-registry`
- * because that registry imports every action, and `save-analysis` imports this
- * module — importing it back here would close an evaluation cycle. The
- * agent-chat plugin derives the set once at module load; nothing else may.
+ * Takes the registry as an argument rather than importing
+ * `.generated/actions-registry` because that registry imports every action, and
+ * `save-analysis` imports this module — importing it back here would close an
+ * evaluation cycle. The agent-chat plugin passes it in once at module load.
  */
+export function deriveGroundingActionNames(
+  registry: Record<string, unknown>,
+): string[] {
+  return Object.entries(registry)
+    .filter(([, module]) => {
+      // Action modules reach the registry either as the module namespace or as
+      // an already-unwrapped definition, the same two shapes
+      // `loadActionsFromStaticRegistry` normalizes.
+      const candidate = module as
+        | { grounding?: boolean; default?: { grounding?: boolean } }
+        | undefined;
+      return (
+        candidate?.grounding === true || candidate?.default?.grounding === true
+      );
+    })
+    .map(([name]) => name);
+}
+
+/** Publish the derived set for the response guard to consult. */
 export function registerGroundingActions(names: Iterable<string>): void {
-  const normalized = new Set(
+  groundingActionNames = new Set(
     [...names].map((name) => normalizeActionToolName(name)),
   );
   // An empty set is never a real deployment: it means the installed core build
-  // predates `grounding` and dropped it from every definition. Left unchecked,
-  // the guard would replace every correct grounded answer with "connect data
-  // sources" — the exact silent failure this flag replaced.
-  if (normalized.size === 0) {
-    throw new Error(
-      "no action declares grounding: true; the installed @agent-native/core cannot carry the flag",
+  // predates `grounding` and dropped it from every definition. Registration
+  // runs at plugin module scope, so throwing here would take the whole server
+  // down for a response-guard heuristic; the failure is raised at first use
+  // instead, where it costs one turn.
+  if (groundingActionNames.size === 0) {
+    console.error(
+      "[analytics] no action declares grounding: true; the installed @agent-native/core cannot carry the flag, so the response guard is unusable",
     );
   }
-  groundingActionNames = normalized;
 }
 
 function isGroundingActionName(name: string): boolean {
   if (!groundingActionNames) {
     throw new Error(
       "grounding actions were never registered: the analytics response guard cannot tell a grounded turn from an ungrounded one",
+    );
+  }
+  if (groundingActionNames.size === 0) {
+    throw new Error(
+      "no action declares grounding: true; the installed @agent-native/core cannot carry the flag",
     );
   }
   return groundingActionNames.has(normalizeActionToolName(name));

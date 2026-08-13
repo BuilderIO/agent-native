@@ -1,0 +1,206 @@
+---
+title: "نظرة عامة"
+description: "دليلا `app/` و`public/`: حيث تبني عرض تطبيق الوكيل الأصلي، وواجهات برمجة المتصفح التي يستخدمها للبقاء متزامنًا مع الوكيل."
+---
+
+# نظرة عامة
+
+`app/` هو المكان الذي تبني فيه العرض الفعلي لتطبيق وكيل أصلي: الصفحات، والتخطيط، والمكونات، والأنماط. يحتوي `public/` على الأصول الثابتة التي تُقدَّم بجانبه - الأيقونات، وملف البيان (manifest)، وعلامات الهوية التجارية. هذا تطبيق React Router v8 عادي، لا سطح خاص بالوكيل فقط، وهو المكان الذي يذهب إليه معظم وقت التطوير.
+
+الاختلاف المعماري الوحيد عن الواجهة الأمامية العادية: هذه الطبقة لا تمتلك خلفية خاصة بالواجهة الأمامية (backend-for-frontend) من تلقاء نفسها. إنها تقرأ وتكتب البيانات من خلال نفس actions التي يستدعيها الوكيل، لذا فإن أي شيء يتم توصيله هنا يصبح تلقائيًا شيئًا يمكن للوكيل القيام به أيضًا.
+
+<Diagram id="doc-block-client-overview-1" title="الواجهة الأمامية التقليدية مقابل الوكيل الأصلي" summary="تستدعي الواجهة الأمامية التقليدية طبقة API الخاصة بها، التي لا يصل إليها إلا هي. في Agent Native، يستدعي app/ والوكيل نفس actions، لذا تصبح كل قدرة تُبنى هنا قابلة للاستدعاء من الوكيل مجانًا.">
+
+```html
+<div class="diagram-cocmp">
+  <div class="cocmp-col">
+    <div class="cocmp-label diagram-muted">تقليدي</div>
+    <div class="diagram-node">app/ (واجهة React الأمامية)</div>
+    <div class="cocmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-panel" data-rough>
+      <strong>طبقة API</strong>
+      <small class="diagram-muted">فقط الواجهة الأمامية تستدعيها</small>
+    </div>
+    <div class="cocmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-box" data-rough>قاعدة البيانات</div>
+  </div>
+  <div class="cocmp-vs diagram-muted">مقابل</div>
+  <div class="cocmp-col">
+    <div class="cocmp-label diagram-muted">Agent Native</div>
+    <div class="cocmp-callers">
+      <div class="diagram-node">app/ (واجهة React الأمامية)</div>
+      <div class="diagram-node">الوكيل</div>
+    </div>
+    <div class="cocmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-panel" data-rough>
+      <span class="diagram-pill accent">Actions</span
+      ><small class="diagram-muted">شريكان متساويان، العمليات نفسها</small>
+    </div>
+    <div class="cocmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-box" data-rough>قاعدة بيانات SQL</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-cocmp {
+  display: flex;
+  align-items: flex-start;
+  gap: 28px;
+  flex-wrap: wrap;
+}
+.cocmp-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 180px;
+}
+.cocmp-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+.cocmp-callers {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.cocmp-vs {
+  font-size: 13px;
+  font-weight: 600;
+  padding-top: 52px;
+}
+.diagram-cocmp .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 16px;
+  align-self: stretch;
+  align-items: center;
+}
+.cocmp-arrow {
+  font-size: 18px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## أين يتناسب العميل {#role}
+
+تتحول طلبات المتصفح، وحلقة الوكيل، وعملاء API الخارجيون جميعًا إلى نفس actions ونفس قاعدة بيانات SQL - لا توجد "خلفية تطبيق" منفصلة تتحدث معها هذه الطبقة ولا يستطيع الوكيل الوصول إليها أيضًا. بناء ميزة هنا يعني بناء واجهة مستخدم فوق عملية يمتلكها الوكيل بالفعل، أو تعريف action جديد والحصول على واجهة مستخدم له في الوقت نفسه. راجع [Actions](/docs/actions) للتعرف على جانب العملية من هذا العقد.
+
+تغطي هذه الصفحة الدلائل التي تبني فيها والأجزاء من وقت تشغيل المتصفح التي لا توثقها أي صفحة أخرى (`root.tsx`، `public/`). خطافات React التي تربط مكوناتك بـ actions وبالوكيل تعيش في صفحاتها المخصصة الخاصة بها:
+
+| الصفحة                                                     | ما تغطيه                                                                                                             |
+| ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| **[البيانات والمزامنة](/docs/client-data)**                | `useActionQuery`، `useActionMutation`، `callAction`، و`useDbSync`                                                    |
+| **[محادثة الوكيل](/docs/client-agent-chat)**               | `sendToAgentChat`، `askUserQuestion`، `openAgentSettings`، الاقتراحات الديناميكية، وحالة سياق محادثة الوكيل المرحلية |
+| **[متقدم](/docs/client-advanced)**                         | الوصول المباشر إلى `application_state`، إرسال محادثة في الخلفية، شرائح اقتراحات مخصصة، وجسر استضافة MCP App          |
+| **[آليات المزامنة الداخلية](/docs/client-sync-internals)** | `useChangeVersion`/`useChangeVersions` لمزامنة `useQuery` خام                                                        |
+| **[نقاط الدخول](/docs/client-entry-points)**               | `app/entry.client.tsx`/`app/entry.server.tsx` وتخصيص SSR                                                             |
+
+## ما يوجد في app/ وpublic/ {#project-directories}
+
+| المسار                                              | ما يغطيه                                                                                                                            |
+| --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| **`app/root.tsx`**                                  | غلاف HTML ومجموعة الموفرات (providers) - راجع [غلاف المتصفح](#app-shell) أدناه                                                      |
+| **`app/entry.client.tsx` / `app/entry.server.tsx`** | إقلاع الترطيب (hydration) وSSR - راجع [نقاط الدخول](/docs/client-entry-points)                                                      |
+| **`app/routes.ts` + `app/routes/`**                 | الصفحات المستندة إلى الملفات والتنقل - راجع [التوجيه](/docs/client-routing)                                                         |
+| **`app/components/`**                               | واجهة المستخدم الخاصة بك: عناصر أساسية بأسلوب shadcn بالإضافة إلى مكونات خاصة بالتطبيق - راجع [shadcn/ui](/docs/toolkit-ui)         |
+| **`app/hooks/`**                                    | خطافات البيانات، والمزامنة، ومحادثة الوكيل - راجع [البيانات والمزامنة](/docs/client-data) و[محادثة الوكيل](/docs/client-agent-chat) |
+| **`app/lib/`**                                      | أدوات مساعدة مشتركة للعميل (تكوين التطبيق، معرف اللسان (tab id)، `cn`) - راجع [الأدوات المساعدة](#utilities) أدناه                  |
+| **`app/design-system.ts`**                          | محول نظام تصميم مخصص اختياري - راجع [أنظمة التصميم المخصصة](/docs/custom-design-system)                                             |
+| **`app/i18n/`**                                     | كتالوجات نصوص واجهة المستخدم المترجمة - راجع [التدويل](/docs/internationalization)                                                  |
+| **`app/global.css`**                                | الأنماط الأساسية ونقطة دخول Tailwind                                                                                                |
+| **`public/`**                                       | الأصول الثابتة التي تُقدَّم كما هي - راجع [الأصول الثابتة](#public-directory) أدناه                                                 |
+
+## غلاف المتصفح: root.tsx وAppProviders {#app-shell}
+
+`app/root.tsx` هو أعلى شجرة React: غلاف مستند HTML (`<html>`، `<head>`، `<Meta>`، `<Links>`، `<Scripts>`) بالإضافة إلى مجموعة الموفرات التي يتم عرضها داخل كل مسار.
+
+```tsx filename="app/root.tsx"
+import {
+  AppProviders,
+  createAgentNativeQueryClient,
+} from "@agent-native/core/client/hooks";
+import { useState } from "react";
+import { Outlet } from "react-router";
+import { i18nCatalog } from "./i18n";
+
+export default function Root() {
+  const [queryClient] = useState(() => createAgentNativeQueryClient());
+
+  return (
+    <AppProviders queryClient={queryClient} i18n={{ catalog: i18nCatalog }}>
+      <Outlet />
+    </AppProviders>
+  );
+}
+```
+
+`AppProviders` هو الغلاف الوحيد الذي يوصل:
+
+- عميل React Query الذي يستخدمه `useActionQuery`/`useActionMutation` (راجع [البيانات والمزامنة](/docs/client-data#fetching-mutating)).
+- كتالوج i18n الذي يتم تمريره كـ `i18n.catalog` (راجع [التدويل](/docs/internationalization)).
+- فحوصات الجلسة من جانب العميل: في مسار خاص، تتم إعادة توجيه الزائر المجهول إلى تسجيل الدخول قبل تحميل أي واجهة مستخدم خاصة. مرر `isPublicPath` للمسارات العامة/الخاصة بتحسين محركات البحث، أو `sessionBypass` لسطح يتم مصادقته بطريقة أخرى، مثل رمز تضمين MCP. راجع [المصادقة](/docs/authentication).
+
+تقوم معظم التطبيقات أيضًا بتثبيت `<AgentSidebar>` أو `<AgentPanel>` هنا حتى يحصل كل مسار على لوحة الوكيل مجانًا. راجع [وكيل الدخول](/docs/drop-in-agent#sidebar).
+
+## الأصول الثابتة: public/ {#public-directory}
+
+كل ما في `public/` يتم تقديمه كما هو عند جذر الموقع، دون معالجة من عملية البناء. يشحن كل قالب:
+
+```text
+public/
+  favicon.svg           -> browser tab icon
+  icon-180.svg           -> apple-touch-icon
+  icon-192.svg, icon-512.svg -> PWA icons referenced from manifest.json
+  manifest.json          -> web app manifest (name, theme color, icons)
+  *-logo-*.svg, *-icon-*.svg -> brand marks used in the default UI
+```
+
+يتحكم `manifest.json` في ما يظهر إذا قام الزائر بتثبيت التطبيق على شاشة رئيسية أو رصيف تطبيقات - الاسم، والاسم المختصر، وألوان السمة/الخلفية، ومجموعة الأيقونات:
+
+```json filename="public/manifest.json"
+{
+  "name": "My App",
+  "short_name": "My App",
+  "theme_color": "#18181B",
+  "icons": [
+    { "src": "icon-192.svg", "sizes": "192x192", "type": "image/svg+xml" }
+  ]
+}
+```
+
+أعد تصميم هوية التطبيق عن طريق استبدال هذه الملفات وتحديث `manifest.json` وعلامات `<link rel="icon">`/`<link rel="apple-touch-icon">` في `root.tsx` التي تشير إليها - لا توجد خطوة تسجيل منفصلة. لسحب نظام هوية تجارية كامل (الألوان، والخطوط، وأيقونة المفضلة) من موقع موجود بدلاً من تحرير هذه الملفات يدويًا، راجع [أنظمة الهوية التجارية وFigma](/docs/template-design-brand-and-figma).
+
+## الأدوات المساعدة: cn {#utilities}
+
+```ts
+import { cn } from "@agent-native/toolkit/utils";
+
+<div className={cn(
+  "px-4 py-2 rounded",
+  isActive && "bg-primary text-primary-foreground",
+  className
+)} />
+```
+
+يقوم `cn` بدمج أسماء الفئات (clsx + tailwind-merge) وهو الطريقة القياسية لتركيب فئات Tailwind الشرطية عبر `app/components/`.
+
+## ما هي الخطوة التالية
+
+- [**البيانات والمزامنة**](/docs/client-data) — خطافات actions و`useDbSync`
+- [**محادثة الوكيل**](/docs/client-agent-chat) — `sendToAgentChat`، `askUserQuestion`، والاقتراحات الديناميكية
+- [**متقدم**](/docs/client-advanced) — حالة التطبيق، إرسال المحادثة في الخلفية، وجسر استضافة MCP App
+- [**آليات المزامنة الداخلية**](/docs/client-sync-internals) — `useChangeVersion` لمزامنة `useQuery` خام
+- [**نقاط الدخول**](/docs/client-entry-points) — تخصيص إقلاع SSR
+- [**التوجيه**](/docs/client-routing) — الصفحات المستندة إلى الملفات، والمعلمات الديناميكية، والتنقل
+- [**Actions**](/docs/actions) — سطح `defineAction` الذي يقف خلف كل خطاف بيانات
+- [**أنظمة التصميم المخصصة**](/docs/custom-design-system) — استبدال مكتبة المكونات الخاصة بك عبر `app/design-system.ts`
+- [**المصادقة**](/docs/authentication) — فحوصات الجلسة التي يقوم بها `AppProviders` في المسارات الخاصة

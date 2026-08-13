@@ -93,20 +93,29 @@ const AUTO_CONTINUE_COMPLETION_GUARD =
 const MAX_RECONNECT_ATTEMPTS = 5;
 const MAX_STARTUP_RECOVERY_ATTEMPTS = 8;
 const MAX_QUEUED_CONFLICT_RETRIES = 120;
-// How many consecutive continuations that did not advance the turn (see
-// `describeContinuationAdvance`) we tolerate before giving up. This replaced
-// five separate budgets — stale-run, stalled, empty, repeated-narration and
-// repeated-action-preparation — each of which existed because the rung above
+// The consecutive non-advancing continuation (see `describeContinuationAdvance`)
+// that ends the turn: the third one stops it, so two are tolerated. This
+// replaced five separate budgets — stale-run, stalled, empty, repeated-narration
+// and repeated-action-preparation — each of which existed because the rung above
 // it had a hole the next one patched. One question answers all five: a round
 // that produced nothing, or produced exactly what the round before it
 // produced, did not advance.
 const MAX_NON_ADVANCING_CONTINUATIONS = 3;
-// Ceiling across the whole turn. Every attempt re-POSTs the full history plus
-// attachments, so a high ceiling only burns tokens and wall time. Non-advancing
-// turns are already stopped far earlier by the budget above; this one only ever
-// binds turns that keep making real progress, so it stays just above the
-// longest recovery we deliberately support.
+// Ceiling across the whole turn for TRANSIENT continuations — rounds that
+// followed a failure (timeout, dropped stream, stale run). Every attempt
+// re-POSTs the full history plus attachments, so a high ceiling only burns
+// tokens and wall time on a connection that keeps breaking.
 const MAX_TOTAL_TRANSIENT_CONTINUATIONS = 12;
+// Ceiling across the whole turn for WORK-boundary continuations. A `loop_limit`
+// round is not a failure — the server spent a full iteration budget on real
+// tool work and handed the turn back — so counting it against the transient
+// ceiling killed progressing turns at round 13 that had never failed once.
+// Sized against the server's own limits: at its default budget of 400
+// iterations per run this is ~10,000 tool calls, two orders past the deepest
+// legitimate production turn (117 tool calls) that sized that budget. It still
+// has to exist, because the server's per-turn token backstop rides the request
+// body between server-chained chunks and resets on every client re-POST.
+const MAX_LOOP_LIMIT_CONTINUATIONS = 25;
 const RETRY_BASE_DELAY_MS = 500;
 const RETRY_MAX_DELAY_MS = 8_000;
 const MAX_HISTORY_ATTACHMENT_CHARS = 60_000;
@@ -945,7 +954,10 @@ function estimateHistoryMessageCost(message: {
     cost += Math.min(argsText.length, argsCap);
     if (tool.result !== undefined) {
       cost += Math.min(
-        String(tool.result).length,
+        // Price the string the request actually carries. `String(result)` is
+        // 15 chars ("[object Object]") for every object result, which is most
+        // of them.
+        toolResultContent(tool.result, tool.toolName).length,
         MAX_HISTORY_TOOL_RESULT_CHARS,
       );
     }
@@ -2054,6 +2066,9 @@ export function createAgentChatAdapter(
       let startupRecoveryAttempts = 0;
       let queuedConflictRetries = 0;
       let totalTransientContinuationAttempts = 0;
+      // Work-boundary continuations (`loop_limit`), counted apart from the
+      // transient ones — see MAX_LOOP_LIMIT_CONTINUATIONS.
+      let loopLimitContinuations = 0;
       // Consecutive continuations whose advance signature matched the previous
       // round's (or was empty). Reset by any real advance.
       let nonAdvancingContinuations = 0;
@@ -2067,12 +2082,13 @@ export function createAgentChatAdapter(
       // continuation history; the advance check needs the per-round delta for
       // every reason code, `loop_limit` included.
       let advanceCheckPrefix: ContentPart[] = [];
-      // Set when the turn is stopped by MAX_TOTAL_TRANSIENT_CONTINUATIONS —
-      // the whole-turn continuation ceiling, not a dropped connection. This
-      // can trip on a turn that was making real progress the entire time, so
-      // it needs its own honest message instead of falling through to the
-      // generic "connection kept failing" copy below.
-      let recoveryGaveUpOnTransientBudget = false;
+      // Set when the turn is stopped by a whole-turn continuation ceiling
+      // (MAX_TOTAL_TRANSIENT_CONTINUATIONS or MAX_LOOP_LIMIT_CONTINUATIONS)
+      // rather than by a dropped connection. Either can trip on a turn that was
+      // making real progress the entire time, so it needs its own honest
+      // message instead of falling through to the generic "connection kept
+      // failing" copy below.
+      let recoveryGaveUpOnContinuationBudget = false;
       const continuationHistoryFragments: string[] = [];
       const structuredContinuationFragments: AgentChatStructuredMessage[] = [];
       let visibleContinuationPrefix: ContentPart[] = [];
@@ -2132,6 +2148,7 @@ export function createAgentChatAdapter(
             ? `activity_trail: ${formatActivityTrail(lastActivityTrail)}`
             : "",
           `total_transient_continuations: ${totalTransientContinuationAttempts}`,
+          `loop_limit_continuations: ${loopLimitContinuations}`,
           `background_follow_no_progress_detaches: ${backgroundFollowNoProgressDetaches}`,
           `background_follow_consecutive_no_progress_detaches: ${backgroundFollowConsecutiveNoProgressDetaches}`,
           backgroundFollowLastDetachReason
@@ -2165,7 +2182,7 @@ export function createAgentChatAdapter(
             : " the same action";
           return `The agent got stuck preparing${tool} input and never started the tool, so I stopped the automatic retries. Try a smaller first step or a more compact version of the request.`;
         }
-        if (recoveryGaveUpOnTransientBudget) {
+        if (recoveryGaveUpOnContinuationBudget) {
           return "This turn reached the limit on how many times it can be automatically continued, so I stopped it here. It may have still been making progress — retry as a single, narrower request so it can finish within fewer continuations.";
         }
         if (
@@ -3460,17 +3477,6 @@ export function createAgentChatAdapter(
           let currentPartialHistory =
             contentToContinuationHistory(visibleContent);
           const madeContentProgress = hasContinuationProgress(visibleContent);
-          // An action was streamed but has not returned yet (a tool_start with
-          // no tool_done). Only a run_timeout in that window means the SERVER
-          // is still executing it and a reconnect can still deliver the result;
-          // every other reason means the stream is dead and nothing will
-          // complete the tool.
-          const hasInFlightTool = hasInFlightToolCall(visibleContent);
-          const completedTool = lastCompletedTimeoutCandidateTool(content);
-          const currentPreparingToolName =
-            lastUnresolvedToolActivity(visibleContent) ??
-            lastPreparingActionTool(signal.activityTrail);
-
           // THE boundary. One question — did this continuation advance the
           // turn? — decides every reason code, `loop_limit` included. It used
           // to skip this block entirely AND reset two of the budgets, so a
@@ -3482,6 +3488,22 @@ export function createAgentChatAdapter(
             content,
             advanceCheckPrefix,
           );
+          // Everything that asks "what did THIS round do" reads the delta.
+          // `visibleContent` accumulates across a `loop_limit` chain — its
+          // prefix deliberately does not advance there — so one unresolved
+          // "Preparing X" card from an earlier round would otherwise stall
+          // every later round on the same name and kill a turn that was
+          // streaming new prose the whole time.
+          // An action streamed but not returned yet (a tool_start with no
+          // tool_done) means the SERVER is still executing it, so a run_timeout
+          // in that window can still deliver the result on reconnect; every
+          // other reason means the stream is dead and nothing will complete it.
+          const hasInFlightTool = hasInFlightToolCall(advanceDelta);
+          const completedTool = lastCompletedTimeoutCandidateTool(content);
+          const currentPreparingToolName =
+            lastUnresolvedToolActivity(advanceDelta) ??
+            lastPreparingActionTool(signal.activityTrail);
+
           const advance = describeContinuationAdvance(
             advanceDelta,
             currentPreparingToolName,
@@ -3498,7 +3520,11 @@ export function createAgentChatAdapter(
           nonAdvancingContinuations = advanced
             ? 0
             : nonAdvancingContinuations + 1;
-          totalTransientContinuationAttempts += 1;
+          if (isTransient) {
+            totalTransientContinuationAttempts += 1;
+          } else {
+            loopLimitContinuations += 1;
+          }
           advanceCheckPrefix = snapshotContent(content);
 
           // If a tool already completed, do not turn a missing closing
@@ -3526,9 +3552,10 @@ export function createAgentChatAdapter(
           }
           if (
             totalTransientContinuationAttempts >
-            MAX_TOTAL_TRANSIENT_CONTINUATIONS
+              MAX_TOTAL_TRANSIENT_CONTINUATIONS ||
+            loopLimitContinuations > MAX_LOOP_LIMIT_CONTINUATIONS
           ) {
-            recoveryGaveUpOnTransientBudget = true;
+            recoveryGaveUpOnContinuationBudget = true;
             return { ok: false, resetVisibleContent: false };
           }
 

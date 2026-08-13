@@ -12,20 +12,25 @@ import {
   getPreloadedDocBlocksContent,
   preloadDocBlocksContent,
 } from "./doc-block-renderer";
+import { DEFAULT_DOCS_LOCALE, type DocsLocale } from "./docs-locale";
 import MarkdownRenderer from "./MarkdownRenderer";
 
 interface Props {
   markdown: string;
+  locale?: DocsLocale;
 }
 
-export default function DocContent({ markdown }: Props) {
+export default function DocContent({
+  markdown,
+  locale = DEFAULT_DOCS_LOCALE,
+}: Props) {
   if (!hasDocBlockSyntax(markdown)) {
-    return <MarkdownRenderer markdown={markdown} />;
+    return <MarkdownRenderer markdown={markdown} locale={locale} />;
   }
 
   const PreloadedDocBlocksContent = getPreloadedDocBlocksContent();
   if (PreloadedDocBlocksContent) {
-    return <PreloadedDocBlocksContent markdown={markdown} />;
+    return <PreloadedDocBlocksContent markdown={markdown} locale={locale} />;
   }
 
   // Hydration can receive prerendered loader data without rerunning the route
@@ -34,8 +39,10 @@ export default function DocContent({ markdown }: Props) {
   void preloadDocBlocksContent();
 
   return (
-    <Suspense fallback={<MarkdownRenderer markdown={markdown} />}>
-      <DocBlocksContent markdown={markdown} />
+    <Suspense
+      fallback={<MarkdownRenderer markdown={markdown} locale={locale} />}
+    >
+      <DocBlocksContent markdown={markdown} locale={locale} />
     </Suspense>
   );
 }
