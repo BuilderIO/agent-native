@@ -1,5 +1,20 @@
 # @agent-native/skills
 
+## 0.2.542
+
+### Patch Changes
+
+- Updated dependencies [2db503b]
+- Updated dependencies [2db503b]
+- Updated dependencies [2db503b]
+- Updated dependencies [2db503b]
+- Updated dependencies [2db503b]
+- Updated dependencies [2db503b]
+- Updated dependencies [2db503b]
+- Updated dependencies [2db503b]
+- Updated dependencies [2db503b]
+  - @agent-native/core@0.154.0
+
 ## 0.2.541
 
 ### Patch Changes
