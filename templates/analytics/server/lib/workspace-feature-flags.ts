@@ -296,6 +296,7 @@ export async function listWorkspaceFeatureFlags(
 ): Promise<WorkspaceFeatureFlagsResult> {
   const apps = await fetchOrgApps({
     selfId: "analytics",
+    includeDirectoryApp: true,
     serviceOrgId: admin.orgId,
   });
   if (apps.length === 0) return { directoryStatus: "unavailable", apps: [] };
@@ -325,6 +326,7 @@ export async function setWorkspaceFeatureFlag(
 ): Promise<WorkspaceFeatureFlagMutationResult> {
   const apps = await fetchOrgApps({
     selfId: "analytics",
+    includeDirectoryApp: true,
     serviceOrgId: admin.orgId,
   });
   const app = apps.find((candidate) => candidate.id === input.appId);
@@ -386,6 +388,7 @@ export async function getWorkspaceFlagTarget(
 ): Promise<FleetFlagApp> {
   const apps = await fetchOrgApps({
     selfId: "analytics",
+    includeDirectoryApp: true,
     serviceOrgId: admin.orgId,
   });
   const app = apps.find((candidate) => candidate.id === appId);

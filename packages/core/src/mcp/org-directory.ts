@@ -170,11 +170,14 @@ function serviceScopedCacheKey(origin: string, orgId: string): string {
  *
  * @param opts.selfId      Current app id (so it's stripped from the result).
  * @param opts.selfOrigin  Current app origin (so it's stripped by origin too).
+ * @param opts.includeDirectoryApp Request the directory authority itself. The
+ *   server keeps legacy self-filtering unless this explicit signal is present.
  * @param opts.env         Injectable env (tests). Defaults to `process.env`.
  */
 export async function fetchOrgApps(opts?: {
   selfId?: string;
   selfOrigin?: string;
+  includeDirectoryApp?: boolean;
   serviceOrgId?: string;
   env?: NodeJS.ProcessEnv;
 }): Promise<OrgApp[]> {
@@ -231,6 +234,9 @@ export async function fetchOrgApps(opts?: {
         headers: {
           Authorization: `Bearer ${attempts[i]}`,
           Accept: "application/json",
+          ...(opts?.includeDirectoryApp
+            ? { "X-Agent-Native-Include-Directory-App": "1" }
+            : {}),
         },
         signal: AbortSignal.timeout(4000),
       });

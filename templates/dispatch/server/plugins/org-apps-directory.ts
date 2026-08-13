@@ -143,10 +143,16 @@ const orgAppsHandler = defineEventHandler(
     const apps: DiscoveredAppLike[] = await runWithRequestContext(
       { userEmail: verified.email, orgId: localOrg.orgId },
       async () => {
-        const discovered = await discoverAgents(undefined, {
-          preferLocalUrls:
-            process.env.AGENT_NATIVE_PREFER_LOCAL_APP_URLS === "1",
-        });
+        const includeDirectoryApp =
+          getRequestHeader(event, "x-agent-native-include-directory-app") ===
+          "1";
+        const discovered = await discoverAgents(
+          includeDirectoryApp ? undefined : SELF_APP_ID,
+          {
+            preferLocalUrls:
+              process.env.AGENT_NATIVE_PREFER_LOCAL_APP_URLS === "1",
+          },
+        );
         return discovered.map((a) => ({
           id: a.id,
           name: a.name,
@@ -168,6 +174,10 @@ const orgAppsHandler = defineEventHandler(
     const body = buildOrgAppsResponse({
       org: orgLabel,
       apps,
+      selfId:
+        getRequestHeader(event, "x-agent-native-include-directory-app") === "1"
+          ? undefined
+          : SELF_APP_ID,
     });
 
     // Short, cacheable, read-only. Private (per-org) so shared caches must
