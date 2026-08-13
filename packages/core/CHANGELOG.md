@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.154.4
+
+### Patch Changes
+
+- a71862e: Add reusable owner- and resource-bound OAuth credential lifecycle primitives with concurrency-safe refresh, revocation, and explicit connection states.
+
 ## 0.154.3
 
 ### Patch Changes
