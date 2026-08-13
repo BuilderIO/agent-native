@@ -814,9 +814,12 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
   it("does not retry a rejected stale draft when unmounted before refetch", async () => {
     vi.useFakeTimers();
     const calls: SaveCall[] = [];
+    let rejectSave!: (error: unknown) => void;
     const save = (req: SaveCall) => {
       calls.push(req);
-      return Promise.reject({ status: 409 });
+      return new Promise((_resolve, reject) => {
+        rejectSave = reject;
+      });
     };
     let onChange!: (markdown: string) => void;
 
@@ -842,14 +845,84 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
     await act(async () => {
       vi.advanceTimersByTime(600);
       await Promise.resolve();
-      await Promise.resolve();
     });
 
+    // Collapse before the in-flight request reports its conflict. The shared
+    // controller must still discard that rejected payload after this hook's
+    // instance ref has gone away.
     await act(async () => {
       root!.render(createElement("div", null));
+      rejectSave({ status: 409 });
       await Promise.resolve();
       await Promise.resolve();
     });
     expect(calls).toHaveLength(1);
+  });
+
+  it("preserves a newer draft typed while the conflict winner refetches", async () => {
+    vi.useFakeTimers();
+    const calls: SaveCall[] = [];
+    const save = (req: SaveCall) => {
+      calls.push(req);
+      if (calls.length === 1) return Promise.reject({ status: 409 });
+      return Promise.resolve({
+        properties: [
+          {
+            definition: { id: "field" },
+            blocksField: { revision: 12 },
+          },
+        ],
+      });
+    };
+    let onChange!: (markdown: string) => void;
+    let seenContent = "";
+    let seenEditorResetVersion = -1;
+
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    const render = (initialContent: string, initialRevision: number) =>
+      root!.render(
+        createElement(Harness, {
+          key: "doc:field",
+          documentId: "doc",
+          propertyId: "field",
+          initialContent,
+          initialRevision,
+          save,
+          onReady: (fn) => {
+            onChange = fn;
+          },
+          onContent: (content, editorResetVersion) => {
+            seenContent = content;
+            seenEditorResetVersion = editorResetVersion;
+          },
+        }),
+      );
+
+    act(() => render("server base", 10));
+    act(() => onChange("rejected draft"));
+    await act(async () => {
+      vi.advanceTimersByTime(600);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    act(() => onChange("newer local draft"));
+    act(() => render("accepted server winner", 11));
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(seenContent).toBe("newer local draft");
+    expect(seenEditorResetVersion).toBe(0);
+    await act(async () => {
+      vi.advanceTimersByTime(600);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(calls[1]).toMatchObject({
+      value: "newer local draft",
+      expectedBlocksFieldRevision: 11,
+    });
   });
 });

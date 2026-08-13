@@ -743,7 +743,10 @@ export function useBlockFieldEditor({
           // A stale payload is not a retryable draft. If this editor unmounts
           // before the invalidated query returns, flush must not replay it
           // against the newly advanced revision and overwrite the winner.
-          controllerRef.current?.discardPending();
+          // The request can reject after this hook unmounts. The per-field
+          // controller outlives that mount, so clear the rejected payload at
+          // the shared boundary instead of relying on the instance ref.
+          peekBlockFieldSaveController(key)?.discardPending();
           onRevisionConflictRef.current?.();
         }
         console.error("Failed to save Blocks field content", {
@@ -823,6 +826,13 @@ export function useBlockFieldEditor({
     if (!controller) return;
     const rejectedRevision = rejectedRevisionRef.current;
     if (rejectedRevision !== null && initialRevision > rejectedRevision) {
+      if (controller.pending !== controller.lastSaved) {
+        // The user typed again while the winner was being refetched. Preserve
+        // that newer draft; revisionRef already reflects initialRevision, so
+        // its pending save will use the newly accepted boundary.
+        rejectedRevisionRef.current = null;
+        return;
+      }
       // The server rejected our stale revision and the invalidated query has
       // now delivered the winner. The rejected draft is not retryable against
       // the new baseline: adopt the accepted value and clear the dirty latch.
