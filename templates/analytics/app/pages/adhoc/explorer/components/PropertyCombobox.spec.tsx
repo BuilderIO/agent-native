@@ -9,7 +9,10 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 }));
 
 vi.mock("../use-dynamic-schema", () => ({
-  useDynamicProperties: () => ({ properties: [], isLoading: false }),
+  useDynamicProperties: () => ({
+    properties: [{ name: "userId", count: 3 }],
+    isLoading: false,
+  }),
 }));
 
 import { PropertyCombobox } from "./PropertyCombobox";
@@ -37,5 +40,14 @@ describe("PropertyCombobox", () => {
     expect(container.querySelector("button")?.textContent).toContain(
       "Model name",
     );
+  });
+
+  it("humanizes dynamically discovered properties in the list", async () => {
+    await act(async () => {
+      root.render(<PropertyCombobox value="" onChange={vi.fn()} autoOpen />);
+    });
+
+    expect(document.body.textContent).toContain("User ID");
+    expect(document.body.textContent).not.toContain("userId");
   });
 });

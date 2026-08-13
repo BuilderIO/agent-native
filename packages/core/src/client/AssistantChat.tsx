@@ -60,6 +60,12 @@ import {
   updateActiveRunSeq,
 } from "./active-run-state.js";
 import {
+  claimRunStream,
+  createRunStreamToken,
+  ownsRunStream,
+  releaseRunStream,
+} from "./run-stream-ownership.js";
+import {
   activeRunLooksAlive,
   createAgentChatAdapter,
   hasInFlightToolCall,

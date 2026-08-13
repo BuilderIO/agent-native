@@ -3,6 +3,7 @@ import ReactMarkdown, {
   type Components,
 } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import type { ReactNode } from "react";
 
 import { cn } from "../utils.js";
 
@@ -22,6 +23,18 @@ export interface InlineMarkdownProps {
   className?: string;
   linkClassName?: string;
   codeClassName?: string;
+  protectedSpans?: readonly InlineMarkdownProtectedSpan[];
+  renderProtectedSpan?: (
+    span: InlineMarkdownProtectedSpan,
+    children: ReactNode,
+  ) => ReactNode;
+}
+
+export interface InlineMarkdownProtectedSpan {
+  source: string;
+  label: string;
+  className?: string;
+  title?: string;
 }
 
 /**
@@ -35,9 +48,34 @@ export function InlineMarkdown({
   className,
   linkClassName,
   codeClassName,
+  protectedSpans = [],
+  renderProtectedSpan,
 }: InlineMarkdownProps) {
+  const protectedSpanByHref = new Map(
+    protectedSpans
+      .map((span, index) => [
+        `${PROTECTED_SPAN_PREFIX}${index}`,
+        span,
+      ] as const)
+      .filter(([, span]) => span.source.length > 0),
+  );
+  const renderedContent = protectInlineMarkdownSpans(content, protectedSpans);
   const components: Components = {
     a: ({ children, href }) => {
+      const protectedSpan = href ? protectedSpanByHref.get(href) : undefined;
+      if (protectedSpan) {
+        return renderProtectedSpan ? (
+          renderProtectedSpan(protectedSpan, children)
+        ) : (
+          <span
+            className={protectedSpan.className}
+            title={protectedSpan.title}
+          >
+            {children}
+          </span>
+        );
+      }
+
       const safeHref = href
         ? defaultUrlTransform(normalizeInlineMarkdownHref(href))
         : "";
@@ -80,10 +118,33 @@ export function InlineMarkdown({
         skipHtml
         unwrapDisallowed
       >
-        {content}
+        {renderedContent}
       </ReactMarkdown>
     </div>
   );
+}
+
+const PROTECTED_SPAN_PREFIX = "inline-markdown-protected:";
+
+function protectInlineMarkdownSpans(
+  content: string,
+  spans: readonly InlineMarkdownProtectedSpan[],
+): string {
+  return [...spans]
+    .map((span, index) => ({ span, index }))
+    .filter(({ span }) => span.source.length > 0)
+    .sort((a, b) => b.span.source.length - a.span.source.length)
+    .reduce(
+      (markdown, { span, index }) =>
+        markdown.split(span.source).join(
+          `[${escapeProtectedSpanLabel(span.label)}](${PROTECTED_SPAN_PREFIX}${index})`,
+        ),
+      content,
+    );
+}
+
+function escapeProtectedSpanLabel(label: string): string {
+  return label.replace(/[\\[\]]/g, "\\$&");
 }
 
 function normalizeInlineMarkdownHref(href: string): string {

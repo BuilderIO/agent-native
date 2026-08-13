@@ -172,7 +172,9 @@ export function PropertyCombobox({
                         value === p.name ? "opacity-100" : "opacity-0",
                       )}
                     />
-                    <span className="truncate">{p.name}</span>
+                    <span className="truncate">
+                      {formatExplorerPropertyLabel(p.name)}
+                    </span>
                     <span className="ml-auto text-[10px] text-muted-foreground">
                       {p.count.toLocaleString()}
                     </span>
