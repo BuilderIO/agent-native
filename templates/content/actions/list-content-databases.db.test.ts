@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { runWithRequestContext } from "@agent-native/core/server";
 import { eq } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 const TEST_DB_PATH = join(
   tmpdir(),
@@ -46,6 +46,7 @@ async function createDatabaseDocument(args: {
   description?: string;
   spaceId?: string;
   systemRole?: string;
+  hideFromSearch?: boolean;
   ownerEmail?: string;
 }) {
   const db = getDb();
@@ -59,6 +60,7 @@ async function createDatabaseDocument(args: {
     title: args.title,
     content: "",
     description: args.description ?? "",
+    hideFromSearch: args.hideFromSearch ? 1 : 0,
     position: 1,
     visibility: "private",
     createdAt: now,
@@ -242,6 +244,12 @@ describe("list-content-databases", () => {
       title: "Private Other",
       ownerEmail: "other@example.com",
     });
+    await createDatabaseDocument({
+      documentId: "db-doc-hidden",
+      databaseId: "db-hidden",
+      title: "Hidden Intake",
+      hideFromSearch: true,
+    });
 
     await runWithRequestContext({ userEmail: OWNER }, async () => {
       await expect(
@@ -249,6 +257,9 @@ describe("list-content-databases", () => {
       ).rejects.toThrow(/No accessible Content database matched/);
       await expect(
         listContentDatabasesAction.run({ databaseId: "db-private-other" }),
+      ).rejects.toThrow(/No accessible Content database matched/);
+      await expect(
+        listContentDatabasesAction.run({ databaseId: "db-hidden" }),
       ).rejects.toThrow(/No accessible Content database matched/);
       await expect(
         describeContentDatabaseAction.run({ databaseId: "db-system" }),
@@ -270,6 +281,19 @@ describe("list-content-databases", () => {
         "db-private-other",
       );
     });
+  });
+
+  it("preserves unexpected database discovery failures", async () => {
+    const discovery = vi
+      .spyOn(listContentDatabasesAction, "run")
+      .mockRejectedValueOnce(new Error("database unavailable"));
+
+    await runWithRequestContext({ userEmail: OWNER }, async () => {
+      await expect(
+        describeContentDatabaseAction.run({ databaseId: "db-exact" }),
+      ).rejects.toThrow("database unavailable");
+    });
+    discovery.mockRestore();
   });
 
   it("excludes a database when its document id is passed (no source attached yet)", async () => {

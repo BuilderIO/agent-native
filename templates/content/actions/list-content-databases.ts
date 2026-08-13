@@ -11,6 +11,8 @@ function escapeLike(s: string): string {
   return s.replace(/([\\%_])/g, "\\$1");
 }
 
+export class ContentDatabaseResolutionError extends Error {}
+
 export default defineAction({
   description:
     "Discover ordinary Content databases the user can access from their live title and user-authored description. Returns stable database, document, and space IDs. Use exact filters before reading a selected database's schema.",
@@ -95,6 +97,10 @@ export default defineAction({
           accessFilter(schema.documents, schema.documentShares),
           isNull(schema.documents.trashedAt),
           documentDiscoveryFilter(),
+          or(
+            eq(schema.documents.hideFromSearch, 0),
+            isNull(schema.documents.hideFromSearch),
+          ),
           isNull(schema.contentDatabases.deletedAt),
           isNull(schema.contentDatabases.systemRole),
           args.spaceId
@@ -174,7 +180,7 @@ export default defineAction({
         : args.documentId
           ? `document ID "${args.documentId}"`
           : `title "${args.title?.trim()}"`;
-      throw new Error(
+      throw new ContentDatabaseResolutionError(
         visibleRows.length === 0
           ? `No accessible Content database matched exact ${selector}.`
           : `Exact ${selector} is ambiguous across ${visibleRows.length} accessible Content databases.`,

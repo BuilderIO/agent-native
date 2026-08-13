@@ -1,15 +1,22 @@
 import { defineAction } from "@agent-native/core";
+import { accessFilter } from "@agent-native/core/sharing";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
+import { getDb, schema } from "../server/db/index.js";
+import { getDocumentContextPath } from "../server/lib/document-context.js";
 import type {
   ContentDatabaseDescriptionResponse,
   ContentDatabaseUnavailableResponse,
 } from "../shared/api.js";
+import { resolveContentDatabaseRead } from "./_database-utils.js";
 import {
-  getContentDatabaseResponse,
-  resolveContentDatabaseRead,
-} from "./_database-utils.js";
-import listContentDatabases from "./list-content-databases.js";
+  listPropertiesForDatabase,
+  serializeDatabase,
+} from "./_property-utils.js";
+import listContentDatabases, {
+  ContentDatabaseResolutionError,
+} from "./list-content-databases.js";
 
 export default defineAction({
   description:
@@ -39,7 +46,8 @@ export default defineAction({
     let selection: Awaited<ReturnType<typeof listContentDatabases.run>>;
     try {
       selection = await listContentDatabases.run({ databaseId, documentId });
-    } catch {
+    } catch (error) {
+      if (!(error instanceof ContentDatabaseResolutionError)) throw error;
       throw new Error("Content database not found.");
     }
     const selected = selection.databases[0];
@@ -53,14 +61,32 @@ export default defineAction({
       throw new Error("Content database not found.");
     }
 
-    const response = await getContentDatabaseResponse(resolved.database.id, {
-      limit: 1,
-      database: resolved.database,
-    });
+    const db = getDb();
+    const [databaseDocument] = await db
+      .select({
+        id: schema.documents.id,
+        parentId: schema.documents.parentId,
+      })
+      .from(schema.documents)
+      .where(
+        and(
+          eq(schema.documents.id, selected.documentId),
+          accessFilter(schema.documents, schema.documentShares),
+        ),
+      );
+    if (!databaseDocument) throw new Error("Content database not found.");
+
+    const [properties, contextPath] = await Promise.all([
+      listPropertiesForDatabase(resolved.database.id),
+      getDocumentContextPath(databaseDocument),
+    ]);
     return {
-      database: response.database,
-      contextPath: response.contextPath ?? [],
-      properties: response.properties,
+      database: serializeDatabase(
+        { ...resolved.database, title: selected.title },
+        selected.description,
+      ),
+      contextPath,
+      properties,
     };
   },
 });
