@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.154.1
+
+### Patch Changes
+
+- 97b3736: Advertise explicitly exposed authenticated write actions as message-only A2A capabilities while keeping direct invocation read-only.
+
 ## 0.154.0
 
 ### Minor Changes

@@ -2,13 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const getAgentCard = vi.fn();
 const getRequestUserEmail = vi.fn<() => string | undefined>(() => undefined);
+const signA2AToken = vi.fn(async () => "tok");
 
 vi.mock("../a2a/client.js", () => ({
   A2AClient: class {
     constructor(readonly url: string) {}
     getAgentCard = getAgentCard;
   },
-  signA2AToken: vi.fn(async () => "tok"),
+  signA2AToken,
 }));
 
 vi.mock("./request-context.js", () => ({
@@ -26,6 +27,7 @@ describe("peer capability card caching", () => {
     _resetCapabilityCacheForTests();
     getAgentCard.mockReset();
     getRequestUserEmail.mockReturnValue(undefined);
+    signA2AToken.mockClear();
     getAgentCard.mockResolvedValue({ skills: [{ id: "make-deck" }] });
   });
 
@@ -87,5 +89,45 @@ describe("peer capability card caching", () => {
     await loadCapabilities(PEER);
 
     expect(getAgentCard).toHaveBeenCalledTimes(2);
+  });
+
+  it("audience-binds authenticated discovery to the receiving app", async () => {
+    getRequestUserEmail.mockReturnValue("alice@example.com");
+
+    await loadCapabilities(PEER);
+
+    expect(signA2AToken).toHaveBeenCalledWith(
+      "alice@example.com",
+      undefined,
+      undefined,
+      {
+        preferGlobalSecret: true,
+        audience: "http://127.0.0.1:8080/slides",
+      },
+    );
+    expect(getAgentCard).toHaveBeenCalledWith({
+      timeoutMs: expect.any(Number),
+      token: "tok",
+    });
+  });
+
+  it("strips an explicit A2A endpoint from the discovery audience", async () => {
+    getRequestUserEmail.mockReturnValue("alice@example.com");
+    const endpointPeer = {
+      ...PEER,
+      url: "https://workspace.example/slides/_agent-native/a2a",
+    };
+
+    await loadCapabilities(endpointPeer);
+
+    expect(signA2AToken).toHaveBeenCalledWith(
+      "alice@example.com",
+      undefined,
+      undefined,
+      {
+        preferGlobalSecret: true,
+        audience: "https://workspace.example/slides",
+      },
+    );
   });
 });
