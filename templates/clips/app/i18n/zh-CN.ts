@@ -962,7 +962,8 @@ Clips 中所有面向用户的重要更改都会记录在这里。你可以随�
     cancel: "丢弃录制",
     cancelShortcut: "丢弃 (⌥⇧C)",
     discardConfirmTitle: "要丢弃此录制吗?",
-    discardConfirmDescription: "此操作无法撤销,到目前为止的录制内容将被永久删除。",
+    discardConfirmDescription:
+      "此操作无法撤销,到目前为止的录制内容将被永久删除。",
     resume: "继续",
     discardRecording: "丢弃录制",
   },

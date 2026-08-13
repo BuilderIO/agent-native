@@ -955,7 +955,8 @@ const messages = {
     cancel: "捨棄錄製",
     cancelShortcut: "捨棄 (⌥⇧C)",
     discardConfirmTitle: "要捨棄這段錄製嗎?",
-    discardConfirmDescription: "此操作無法復原,目前為止的錄製內容將被永久刪除。",
+    discardConfirmDescription:
+      "此操作無法復原,目前為止的錄製內容將被永久刪除。",
     resume: "繼續",
     discardRecording: "捨棄錄製",
   },
