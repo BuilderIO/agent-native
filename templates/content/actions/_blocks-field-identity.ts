@@ -20,6 +20,15 @@ export interface PrimaryBlocksField {
   ownerEmail: string;
 }
 
+export class BlocksFieldRevisionConflictError extends Error {
+  readonly statusCode = 409;
+
+  constructor(message: string) {
+    super(message);
+    this.name = "BlocksFieldRevisionConflictError";
+  }
+}
+
 function nanoid(size = 12): string {
   const chars =
     "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
@@ -265,7 +274,7 @@ export async function persistBlocksFieldIdentity(args: {
     args.expectedRevision !== undefined &&
     args.expectedRevision !== actualRevision
   ) {
-    throw new Error(
+    throw new BlocksFieldRevisionConflictError(
       `Blocks field revision conflict: expected ${args.expectedRevision}, current ${actualRevision}`,
     );
   }
@@ -351,7 +360,7 @@ export async function persistBlocksFieldIdentity(args: {
       )
       .returning({ id: schema.documentBlockFields.id });
     if (applied.length === 0) {
-      throw new Error(
+      throw new BlocksFieldRevisionConflictError(
         `Blocks field revision conflict: expected ${actualRevision}, current revision changed`,
       );
     }
@@ -371,7 +380,7 @@ export async function persistBlocksFieldIdentity(args: {
       .onConflictDoNothing()
       .returning({ id: schema.documentBlockFields.id });
     if (inserted.length === 0) {
-      throw new Error(
+      throw new BlocksFieldRevisionConflictError(
         "Blocks field revision conflict: concurrent first materialization",
       );
     }

@@ -817,7 +817,10 @@ describe("database Blocks field identity sidecar", () => {
           now: new Date().toISOString(),
         });
       }),
-    ).rejects.toThrow("Blocks field revision conflict");
+    ).rejects.toMatchObject({
+      message: expect.stringContaining("Blocks field revision conflict"),
+      statusCode: 409,
+    });
 
     const [document] = await db
       .select({ content: schema.documents.content })

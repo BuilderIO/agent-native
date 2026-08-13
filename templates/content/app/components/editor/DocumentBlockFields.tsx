@@ -59,10 +59,12 @@ function isBlocksFieldRevisionConflict(error: unknown): boolean {
   }
   if (!error || typeof error !== "object") return false;
   const candidate = error as {
+    status?: unknown;
     message?: unknown;
     error?: unknown;
     cause?: unknown;
   };
+  if (candidate.status === 409) return true;
   return [candidate.message, candidate.error, candidate.cause].some(
     (value) =>
       typeof value === "string" &&
@@ -690,7 +692,11 @@ export function useBlockFieldEditor({
     expectedBlocksFieldRevision: number;
   }) => Promise<unknown>;
   onRevisionConflict?: () => void;
-}): { content: string; onChange: (markdown: string) => void } {
+}): {
+  content: string;
+  editorResetVersion: number;
+  onChange: (markdown: string) => void;
+} {
   const key = `${documentId}:${propertyId}`;
 
   // The shared controller calls the freshest save impl through a per-key ref. The
@@ -719,6 +725,8 @@ export function useBlockFieldEditor({
     return response;
   };
 
+  const controllerRef = useRef<BlockFieldSaveController | null>(null);
+
   // Build (but do not yet ref-count) the controller factory for this key. The
   // formal acquire/release happens in the effect below; we only need the factory
   // here so the first acquire can create the instance.
@@ -732,6 +740,10 @@ export function useBlockFieldEditor({
       onError: (error) => {
         if (isBlocksFieldRevisionConflict(error)) {
           rejectedRevisionRef.current = revisionRef.current;
+          // A stale payload is not a retryable draft. If this editor unmounts
+          // before the invalidated query returns, flush must not replay it
+          // against the newly advanced revision and overwrite the winner.
+          controllerRef.current?.discardPending();
           onRevisionConflictRef.current?.();
         }
         console.error("Failed to save Blocks field content", {
@@ -754,7 +766,6 @@ export function useBlockFieldEditor({
   // `factory`/`implRef` are intentionally not effect deps: the impl ref is updated
   // every render, and the identity key forces a remount for a DIFFERENT key, so
   // within one mount the key is stable and we acquire exactly once.
-  const controllerRef = useRef<BlockFieldSaveController | null>(null);
   useEffect(() => {
     controllerRef.current = acquireBlockFieldSaveController(key, factory);
     return () => {
@@ -789,6 +800,7 @@ export function useBlockFieldEditor({
     }
     return initialContent;
   });
+  const [editorResetVersion, setEditorResetVersion] = useState(0);
 
   // Adopt fresh server content when it is a GENUINELY newer external update (e.g.
   // an agent edit) — not when it is merely stale server props lagging a local
@@ -817,6 +829,10 @@ export function useBlockFieldEditor({
       setContent(initialContent);
       controller.mark(initialContent);
       rejectedRevisionRef.current = null;
+      // VisualEditor owns an imperative TipTap instance. Reset it only for this
+      // explicit conflict recovery so the accepted server value replaces the
+      // rejected draft without disrupting ordinary save cursor/undo state.
+      setEditorResetVersion((version) => version + 1);
       return;
     }
     // Never adopt over a dirty local edit.
@@ -850,7 +866,7 @@ export function useBlockFieldEditor({
     controllerRef.current?.change(markdown);
   }
 
-  return { content, onChange };
+  return { content, editorResetVersion, onChange };
 }
 
 /**
@@ -878,7 +894,7 @@ function AdditionalBlockEditor({
   const propertyId = property.definition.id;
   const initialContent =
     typeof property.value === "string" ? property.value : "";
-  const { content, onChange } = useBlockFieldEditor({
+  const { content, editorResetVersion, onChange } = useBlockFieldEditor({
     documentId,
     propertyId,
     initialContent,
@@ -890,7 +906,7 @@ function AdditionalBlockEditor({
 
   return (
     <VisualEditor
-      key={propertyId}
+      key={`${propertyId}:${editorResetVersion}`}
       documentId={documentId}
       content={content}
       onChange={onChange}

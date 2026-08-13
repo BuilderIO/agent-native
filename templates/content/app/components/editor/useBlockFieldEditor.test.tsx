@@ -52,10 +52,10 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
     initialRevision?: number;
     save: (req: SaveCall) => Promise<unknown>;
     onReady: (onChange: (markdown: string) => void) => void;
-    onContent?: (content: string) => void;
+    onContent?: (content: string, editorResetVersion: number) => void;
     onRevisionConflict?: () => void;
   }) {
-    const { content, onChange } = useBlockFieldEditor({
+    const { content, editorResetVersion, onChange } = useBlockFieldEditor({
       documentId,
       propertyId,
       initialContent,
@@ -64,7 +64,7 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
       onRevisionConflict,
     });
     onReady(onChange);
-    onContent?.(content);
+    onContent?.(content, editorResetVersion);
     return null;
   }
 
@@ -721,11 +721,8 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
       calls.push(req);
       if (calls.length === 1) {
         // The action transport can cross a worker/realm boundary and reject
-        // with an Error-shaped object rather than an instanceof Error value.
-        return Promise.reject({
-          message:
-            "Action set-document-property failed: Blocks field revision conflict",
-        });
+        // with only the HTTP status preserved on a plain object.
+        return Promise.reject({ status: 409 });
       }
       return Promise.resolve({
         properties: [
@@ -742,8 +739,10 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
       onChange = fn;
     };
     let seenContent = "";
-    const onContent = (content: string) => {
+    let seenEditorResetVersion = -1;
+    const onContent = (content: string, editorResetVersion: number) => {
       seenContent = content;
+      seenEditorResetVersion = editorResetVersion;
     };
 
     container = document.createElement("div");
@@ -774,6 +773,7 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
 
     expect(onRevisionConflict).toHaveBeenCalledTimes(1);
     expect(calls[0]?.expectedBlocksFieldRevision).toBe(10);
+    expect(seenEditorResetVersion).toBe(0);
 
     // The mutation invalidates the field query after rejection. Once that
     // refetch carries a newer revision, the editor must display the accepted
@@ -797,6 +797,7 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
       await Promise.resolve();
     });
     expect(seenContent).toBe("accepted server winner");
+    expect(seenEditorResetVersion).toBe(1);
 
     act(() => onChange("edit after conflict"));
     await act(async () => {
@@ -808,5 +809,47 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
       value: "edit after conflict",
       expectedBlocksFieldRevision: 11,
     });
+  });
+
+  it("does not retry a rejected stale draft when unmounted before refetch", async () => {
+    vi.useFakeTimers();
+    const calls: SaveCall[] = [];
+    const save = (req: SaveCall) => {
+      calls.push(req);
+      return Promise.reject({ status: 409 });
+    };
+    let onChange!: (markdown: string) => void;
+
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    act(() => {
+      root!.render(
+        createElement(Harness, {
+          key: "doc:field",
+          documentId: "doc",
+          propertyId: "field",
+          initialContent: "server base",
+          initialRevision: 10,
+          save,
+          onReady: (fn) => {
+            onChange = fn;
+          },
+        }),
+      );
+    });
+    act(() => onChange("stale local draft"));
+    await act(async () => {
+      vi.advanceTimersByTime(600);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      root!.render(createElement("div", null));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(calls).toHaveLength(1);
   });
 });
