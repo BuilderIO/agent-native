@@ -1277,6 +1277,29 @@ function snapshotContent(content: ContentPart[]): ContentPart[] {
   );
 }
 
+function hasMissingFinalResponseAfterTool(content: ContentPart[]): boolean {
+  const warning = appendMissingFinalResponseWarning(snapshotContent(content));
+  return warning?.errorCode === "final_response_missing_after_tool";
+}
+
+function missingFinalResponseWarningFromResult(
+  result: ChatModelRunResult,
+): { message: string } | null {
+  const metadata = result.metadata as { custom?: unknown } | undefined;
+  const custom = metadata?.custom;
+  if (!custom || typeof custom !== "object") return null;
+  const warning = (custom as Record<string, unknown>).runWarning;
+  if (!warning || typeof warning !== "object") return null;
+  const warningRecord = warning as Record<string, unknown>;
+  if (warningRecord.errorCode !== "final_response_missing_after_tool") {
+    return null;
+  }
+  return {
+    message:
+      typeof warningRecord.message === "string" ? warningRecord.message : "",
+  };
+}
+
 function stableJson(value: unknown): string {
   try {
     return JSON.stringify(value);
@@ -3213,6 +3236,13 @@ export function createAgentChatAdapter(
                     continue;
                   }
                 }
+                if (
+                  hasMissingFinalResponseAfterTool(content) &&
+                  continueAfterMissingFinalResponse()
+                ) {
+                  await delay(250, abortSignal);
+                  return "client_continue";
+                }
                 yield* emitBackgroundTerminalOutcome(active);
                 return "completed";
               }
@@ -3634,6 +3664,21 @@ export function createAgentChatAdapter(
           };
         };
 
+        const continueAfterMissingFinalResponse = (): boolean => {
+          const continuation = prepareAutoContinuation(
+            new AgentAutoContinueSignal({ reason: "stream_ended" }),
+          );
+          if (!continuation.ok) return false;
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(
+              new CustomEvent("agent-chat:auto-continue", {
+                detail: { tabId },
+              }),
+            );
+          }
+          return true;
+        };
+
         while (true) {
           try {
             runId = null;
@@ -3908,6 +3953,7 @@ export function createAgentChatAdapter(
               setActiveRun({ threadId, runId, turnId, lastSeq: -1 });
             }
 
+            let missingFinalResponseResult: ChatModelRunResult | null = null;
             for await (const result of readSSEStream(
               res.body,
               content,
@@ -3923,10 +3969,35 @@ export function createAgentChatAdapter(
               currentSSEOptions(),
             )) {
               const nextResult = withRequestModeMetadata(result);
+              if (missingFinalResponseWarningFromResult(nextResult)) {
+                missingFinalResponseResult = nextResult;
+                continue;
+              }
               if (isTerminalChatModelRunResult(nextResult)) {
                 settleTerminalChatRun();
               }
               yield nextResult;
+            }
+
+            if (missingFinalResponseResult) {
+              const warning = missingFinalResponseWarningFromResult(
+                missingFinalResponseResult,
+              );
+              const lastContentPart = content.at(-1);
+              if (
+                warning?.message &&
+                lastContentPart?.type === "text" &&
+                lastContentPart.text === warning.message
+              ) {
+                content.pop();
+              }
+              if (continueAfterMissingFinalResponse()) {
+                continue;
+              }
+              settleTerminalChatRun();
+              yield missingFinalResponseResult;
+              clearActiveRun();
+              return;
             }
 
             // Run completed normally — clear active run state

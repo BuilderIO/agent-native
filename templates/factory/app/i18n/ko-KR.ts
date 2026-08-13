@@ -170,6 +170,7 @@ const messages = {
     appDescription: "설명",
     openApp: "앱 열기",
     saveChanges: "변경사항 저장",
+    appDetailsUpdated: "앱 세부 정보가 업데이트되었습니다",
     savingChanges: "저장 중...",
     agentsTitle: "에이전트",
     auditTab: "감사",

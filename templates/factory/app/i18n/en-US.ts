@@ -172,6 +172,7 @@ const messages = {
     appDescription: "Description",
     openApp: "Open app",
     saveChanges: "Save changes",
+    appDetailsUpdated: "App details updated",
     savingChanges: "Saving...",
     agentsTitle: "Agents",
     auditTab: "Audit",

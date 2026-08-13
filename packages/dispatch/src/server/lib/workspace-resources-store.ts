@@ -533,7 +533,7 @@ async function writeStarterSeedMarker(ctx: WorkspaceResourceCtx) {
   }
 }
 
-async function getWorkspaceResourceByPath(
+export async function getWorkspaceResourceByPath(
   resourcePath: string,
   ctx: WorkspaceResourceCtx,
 ) {

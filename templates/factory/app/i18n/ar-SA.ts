@@ -163,6 +163,7 @@ const messages = {
     appDescription: "الوصف",
     openApp: "فتح التطبيق",
     saveChanges: "حفظ التغييرات",
+    appDetailsUpdated: "تم تحديث تفاصيل التطبيق",
     savingChanges: "جارٍ الحفظ...",
     agentsTitle: "الوكلاء",
     auditTab: "التدقيق",

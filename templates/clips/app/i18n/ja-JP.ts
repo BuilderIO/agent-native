@@ -982,6 +982,8 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     includeTranscriptDescription:
       "この会議にアクセスできるすべてのユーザーが、文字起こし全文を閲覧できます。",
     transcriptUnavailable: "文字起こしはまだ準備できていません。",
+    agentLinkDescription:
+      "この一時リンクを使うと、会議メモを公開せずにエージェントが読めます。2時間後に期限切れになります。",
     transcript: "文字起こし",
     copyTranscript: "文字起こしをコピー",
     transcriptCopied: "文字起こしをコピーしました",

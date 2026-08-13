@@ -25,7 +25,7 @@ describe("authenticated recording route loading", () => {
 
   it("waits for the browser session before the meeting share payload request", () => {
     const route = readRoute("share.meeting.$meetingId.tsx");
-    expect(route).toContain('fetchPublicMeeting(meetingId ?? "", { signal })');
+    expect(route).toContain('fetchPublicMeeting(meetingId ?? "", {');
     expect(route).toContain("enabled: !!meetingId && !sessionLoading");
     expect(route).toContain("initialData: initialMeetingResult");
     expect(route).toContain(
@@ -69,5 +69,13 @@ describe("authenticated recording route loading", () => {
       'canEdit ? trigger("insights", t("recordingPage.insights")) : null,',
     );
     expect(recordingRoute).not.toContain("InsightsUnavailableState");
+  });
+
+  it("keeps meeting agent links scoped through both page and context loading", () => {
+    const meetingRoute = readRoute("share.meeting.$meetingId.tsx");
+    expect(meetingRoute).toContain("verifyScopedAgentAccessToken");
+    expect(meetingRoute).toContain("CLIPS_MEETING_AGENT_RESOURCE_KIND");
+    expect(meetingRoute).toContain("agentAccessToken");
+    expect(meetingRoute).toContain('fetchPublicMeeting(meetingId ?? "", {');
   });
 });

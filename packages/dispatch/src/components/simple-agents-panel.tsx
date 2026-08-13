@@ -400,11 +400,15 @@ function AgentPackDialog({
       toast.error("Use a relative pack path without ..");
       return;
     }
-    const name = relativePath.split("/").pop() || relativePath;
+    const packPath =
+      newKind === "skill" && !relativePath.startsWith("skills/")
+        ? `skills/${relativePath}`
+        : relativePath;
+    const name = packPath.split("/").pop() || packPath;
     create.mutate({
       kind: newKind,
       name,
-      path: `${query.data?.root || `agents/${slugifyAgentName(resource.name)}`}/${relativePath}`,
+      path: `${query.data?.root || `agents/${slugifyAgentName(resource.name)}`}/${packPath}`,
       content: newContent,
       scope: resource.scope,
     });

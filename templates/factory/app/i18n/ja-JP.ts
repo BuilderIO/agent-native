@@ -172,6 +172,7 @@ const messages = {
     appDescription: "説明",
     openApp: "アプリを開く",
     saveChanges: "変更を保存",
+    appDetailsUpdated: "アプリの詳細を更新しました",
     savingChanges: "保存中...",
     agentsTitle: "エージェント",
     auditTab: "監査",

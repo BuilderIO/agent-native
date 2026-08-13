@@ -6491,7 +6491,7 @@ describe("createAgentChatAdapter", () => {
     expect(last.content.at(-1).text).toContain("Working and done");
   });
 
-  it("adds final text when a terminal followed run contains only completed tool work", async () => {
+  it("continues when a terminal followed run contains only completed tool work", async () => {
     vi.useFakeTimers();
     vi.stubGlobal("window", { dispatchEvent: vi.fn() });
     vi.stubGlobal(
@@ -6507,28 +6507,36 @@ describe("createAgentChatAdapter", () => {
     );
 
     let requestTurnId = "";
+    const postBodies: Array<Record<string, any>> = [];
     const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
       if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
-        requestTurnId = JSON.parse(init.body as string).turnId;
-        return backgroundSseResponse(
-          [
-            {
-              type: "tool_start",
-              id: "sync-1",
-              tool: "sync-source",
-              input: {},
-            },
-            {
-              type: "tool_done",
-              id: "sync-1",
-              tool: "sync-source",
-              result: '{"synced":4}',
-              completedSideEffect: true,
-            },
-            { type: "auto_continue", reason: "run_timeout" },
-          ],
-          "run-bg-tool-only",
-        );
+        const body = JSON.parse(init.body as string) as Record<string, any>;
+        postBodies.push(body);
+        requestTurnId = body.turnId;
+        return postBodies.length === 1
+          ? backgroundSseResponse(
+              [
+                {
+                  type: "tool_start",
+                  id: "sync-1",
+                  tool: "sync-source",
+                  input: {},
+                },
+                {
+                  type: "tool_done",
+                  id: "sync-1",
+                  tool: "sync-source",
+                  result: '{"synced":4}',
+                  completedSideEffect: true,
+                },
+                { type: "auto_continue", reason: "run_timeout" },
+              ],
+              "run-bg-tool-only",
+            )
+          : backgroundSseResponse(
+              [{ type: "text", text: "The source is synced." }, { type: "done" }],
+              "run-bg-tool-final",
+            );
       }
       if (url.includes("/runs/active")) {
         return jsonResponse({
@@ -6569,13 +6577,84 @@ describe("createAgentChatAdapter", () => {
     await vi.advanceTimersByTimeAsync(5_000);
     const results = await promise;
 
-    const last = results.at(-1) as any;
-    expect(last.status).toEqual({ type: "complete", reason: "stop" });
-    expect(last.metadata?.custom?.runWarning?.errorCode).toBe(
-      "final_response_missing_after_tool",
+    expect(postBodies).toHaveLength(2);
+    expect(postBodies[1]).toMatchObject({ internalContinuation: true });
+    expect(postBodies[1].history.at(-1).content).toContain(
+      "Tool: sync-source",
     );
-    expect(last.content.at(-1).text).toContain(
-      "stopped before sending a final message",
+    const last = results.at(-1) as any;
+    expect(last.content.at(-1).text).toBe("The source is synced.");
+    expect(last.metadata?.custom?.runWarning).toBeUndefined();
+  });
+
+  it("recovers a background response whose done event follows completed tool work", async () => {
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let postCount = 0;
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url !== "/_agent-native/agent-chat" || init?.method !== "POST") {
+        return jsonResponse({ active: false, status: "idle" });
+      }
+      postCount += 1;
+      return postCount === 1
+        ? backgroundSseResponse(
+            [
+              {
+                type: "tool_start",
+                id: "blocks-1",
+                tool: "get-plan-blocks",
+                input: { format: "reference" },
+              },
+              {
+                type: "tool_done",
+                id: "blocks-1",
+                tool: "get-plan-blocks",
+                result: '{"count":20}',
+              },
+              { type: "done" },
+            ],
+            "run-bg-done-tool-only",
+          )
+        : backgroundSseResponse(
+            [{ type: "text", text: "The plan is ready." }, { type: "done" }],
+            "run-bg-done-final",
+          );
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-bg-done-tool-only",
+      threadId: "thread-bg-done-tool-only",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "visualize this plan" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    const results = await promise;
+
+    expect(postCount).toBe(2);
+    expect((results.at(-1) as any).content.at(-1).text).toBe(
+      "The plan is ready.",
     );
   });
 

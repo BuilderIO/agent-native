@@ -993,6 +993,8 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     includeTranscriptDescription:
       "Qualquer pessoa com acesso a esta reunião pode ler a transcrição completa.",
     transcriptUnavailable: "A transcrição ainda não está pronta.",
+    agentLinkDescription:
+      "Este link temporário permite que os agentes leiam estas notas da reunião sem torná-las públicas. Ele expira após duas horas.",
     transcript: "Transcrição",
     copyTranscript: "Copiar transcrição",
     transcriptCopied: "Transcrição copiada",

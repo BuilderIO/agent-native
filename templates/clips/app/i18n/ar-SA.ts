@@ -983,6 +983,8 @@ const messages = {
     includeTranscriptDescription:
       "يمكن لأي شخص لديه حق الوصول إلى هذا الاجتماع قراءة النص الكامل.",
     transcriptUnavailable: "النص ليس جاهزًا بعد.",
+    agentLinkDescription:
+      "يتيح هذا الرابط المؤقت للوكلاء قراءة ملاحظات الاجتماع هذه من دون جعلها عامة. تنتهي صلاحيته بعد ساعتين.",
     transcript: "النص",
     copyTranscript: "نسخ النص",
     transcriptCopied: "تم نسخ النص",

@@ -14,6 +14,8 @@ const INITIAL_TOOL_NAMES = [
   "create-workspace-resource",
   "update-workspace-resource",
   "import-agent",
+  "import-agent-pack",
+  "list-agent-pack",
   "connect-external-agent",
   "list-vault-secrets",
   "request-vault-secret",
@@ -67,6 +69,10 @@ Use the standard workspace primitives:
 - For a Claude-style Markdown or JSON agent setup, use import-agent so the
   profile is normalized into agents/<slug>.md. Never import credentials, hooks,
   shell commands, or local environment settings.
+- For a folder of agent instructions, references, or skills, use
+  import-agent-pack. It preserves the text files under agents/<slug>/ and
+  creates the normalized profile alongside them. Use list-agent-pack to inspect
+  the pack before editing or handing it off to an app.
 - For an existing HTTP/A2A endpoint, use connect-external-agent and let the
   normal A2A/MCP connection flow handle authentication.
 - You receive a compact available-apps block with sibling workspace app names and descriptions. Use it to pick the right A2A target, and call list-connected-agents or tool-search only when you need fresh details.

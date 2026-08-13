@@ -934,6 +934,8 @@ Clips 中所有面向用户的重要更改都会记录在这里。你可以随�
     includeTranscript: "包含完整转写",
     includeTranscriptDescription: "任何有权访问此会议的人都可以阅读完整转写。",
     transcriptUnavailable: "转写尚未准备好。",
+    agentLinkDescription:
+      "此临时链接可让代理读取这些会议记录，而无需将其公开。两小时后过期。",
     transcript: "转写",
     copyTranscript: "复制转写",
     transcriptCopied: "已复制转写",

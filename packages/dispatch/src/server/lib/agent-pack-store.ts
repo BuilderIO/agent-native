@@ -1,6 +1,7 @@
 import {
   applyWorkspaceResourceCreate,
-  listWorkspaceResources,
+  getWorkspaceResourceByPath,
+  requireWorkspaceResourceCtx,
   type WorkspaceResourceInput,
 } from "./workspace-resources-store.js";
 
@@ -14,9 +15,11 @@ export async function applyAgentPackCreate(
   actor?: string,
   ctx?: { ownerEmail: string; orgId: string | null },
 ) {
-  const existing = await listWorkspaceResources();
-  const existingPaths = new Set(existing.map((resource) => resource.path));
-  const duplicate = inputs.find((input) => existingPaths.has(input.path));
+  const resourceCtx = ctx ?? requireWorkspaceResourceCtx();
+  const existing = await Promise.all(
+    inputs.map((input) => getWorkspaceResourceByPath(input.path, resourceCtx)),
+  );
+  const duplicate = existing.find(Boolean);
   if (duplicate) {
     throw new Error(
       `An agent pack resource already exists at ${duplicate.path}. Rename the source before importing it.`,

@@ -11,15 +11,18 @@ import {
   SHARED_OWNER,
 } from "./store.js";
 
-function metadataFields(metadata: string | null) {
+function metadataFields(
+  metadata: string | null,
+): Record<string, unknown> | null {
   if (!metadata) return {};
   try {
     const parsed = JSON.parse(metadata);
     return parsed && typeof parsed === "object" && !Array.isArray(parsed)
       ? (parsed as Record<string, unknown>)
-      : {};
-  } catch {
-    return {};
+      : null;
+    // coercion-ok: malformed resource metadata is absent, not a valid profile field
+  } catch (_error) {
+    return null;
   }
 }
 
@@ -30,7 +33,7 @@ async function enrichAgentProfile(
   const root = profile.path.replace(/\.md$/i, "");
   const resources = await resourceListAccessible(owner, `${root}/`);
   const workspace: AgentWorkspaceResource[] = resources.map((resource) => {
-    const metadata = metadataFields(resource.metadata);
+    const metadata = metadataFields(resource.metadata) ?? {};
     return {
       path: resource.path,
       kind: getResourceKind(resource.path),

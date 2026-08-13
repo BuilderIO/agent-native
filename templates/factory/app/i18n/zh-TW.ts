@@ -160,6 +160,7 @@ const messages = {
     appDescription: "描述",
     openApp: "開啟應用程式",
     saveChanges: "儲存變更",
+    appDetailsUpdated: "應用程式詳細資料已更新",
     savingChanges: "儲存中...",
     agentsTitle: "代理",
     auditTab: "稽核",

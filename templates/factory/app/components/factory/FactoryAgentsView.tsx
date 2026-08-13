@@ -5,6 +5,7 @@ import {
 import { useT } from "@agent-native/core/client/i18n";
 import { SimpleAgentsPanel } from "@agent-native/dispatch/components";
 import { ActionQueryError } from "@agent-native/dispatch/components";
+import { Badge } from "@agent-native/dispatch/components/ui/badge";
 import {
   Dialog,
   DialogContent,
@@ -14,7 +15,6 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@agent-native/dispatch/components/ui/dialog";
-import { Badge } from "@agent-native/dispatch/components/ui/badge";
 import {
   IconEdit,
   IconExternalLink,
@@ -32,7 +32,7 @@ import { Textarea } from "@/components/ui/textarea";
 interface WorkspaceAppSummary {
   id: string;
   name: string;
-  description: string;
+  description?: string;
   path: string;
   url: string | null;
   isDispatch: boolean;
@@ -51,10 +51,10 @@ function EditAppDialog({
 }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState(app.name);
-  const [description, setDescription] = useState(app.description);
+  const [description, setDescription] = useState(app.description ?? "");
   const update = useActionMutation("update-workspace-app-metadata", {
     onSuccess: () => {
-      toast.success("App details updated");
+      toast.success(t("factoryRoute.appDetailsUpdated"));
       setOpen(false);
       onSaved();
     },
@@ -64,7 +64,7 @@ function EditAppDialog({
   useEffect(() => {
     if (!open) return;
     setName(app.name);
-    setDescription(app.description);
+    setDescription(app.description ?? "");
   }, [app, open]);
 
   return (

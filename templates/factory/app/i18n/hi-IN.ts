@@ -165,6 +165,7 @@ const messages = {
     appDescription: "विवरण",
     openApp: "ऐप खोलें",
     saveChanges: "परिवर्तन सहेजें",
+    appDetailsUpdated: "ऐप विवरण अपडेट किया गया",
     savingChanges: "सहेजा जा रहा है...",
     agentsTitle: "एजेंट",
     auditTab: "ऑडिट",

@@ -5,6 +5,7 @@ const mockSetResponseHeader = vi.hoisted(() => vi.fn());
 const mockSetResponseStatus = vi.hoisted(() => vi.fn());
 const mockGetSession = vi.hoisted(() => vi.fn());
 const mockRunWithRequestContext = vi.hoisted(() => vi.fn());
+const mockVerifyScopedAgentAccessToken = vi.hoisted(() => vi.fn());
 const mockResolveAccess = vi.hoisted(() => vi.fn());
 const mockGetDb = vi.hoisted(() => vi.fn());
 
@@ -23,6 +24,8 @@ vi.mock("@agent-native/core/server", () => ({
   getSession: (...args: unknown[]) => mockGetSession(...args),
   runWithRequestContext: (...args: unknown[]) =>
     mockRunWithRequestContext(...args),
+  verifyScopedAgentAccessToken: (...args: unknown[]) =>
+    mockVerifyScopedAgentAccessToken(...args),
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
@@ -32,6 +35,9 @@ vi.mock("@agent-native/core/sharing", () => ({
 vi.mock("../../db/index.js", () => ({
   getDb: (...args: unknown[]) => mockGetDb(...args),
   schema: {
+    meetings: {
+      id: "meetings.id",
+    },
     meetingParticipants: {
       email: "participants.email",
       name: "participants.name",
@@ -103,6 +109,10 @@ describe("/api/public-meeting route", () => {
     mockRunWithRequestContext.mockImplementation(
       (_context: unknown, callback: () => unknown) => callback(),
     );
+    mockVerifyScopedAgentAccessToken.mockReturnValue({
+      ok: false,
+      reason: "missing",
+    });
     mockResolveAccess.mockResolvedValue({
       role: "viewer",
       resource: makeMeeting(),
@@ -127,6 +137,33 @@ describe("/api/public-meeting route", () => {
 
     expect(mockSetResponseStatus).toHaveBeenCalledWith({}, 404);
     expect(mockGetDb).not.toHaveBeenCalled();
+  });
+
+  it("uses a valid meeting-scoped agent token without requiring a browser session", async () => {
+    const meeting = makeMeeting({ visibility: "private" });
+    const db = createDbWithSelectResults([[meeting], [], []]);
+    mockGetQuery.mockReturnValue({
+      id: "meeting-1",
+      agent_access: "meeting-token",
+    });
+    mockVerifyScopedAgentAccessToken.mockReturnValue({
+      ok: true,
+      viewerEmail: "owner@example.com",
+    });
+    mockGetDb.mockReturnValue(db);
+
+    const result = await handler({} as any);
+
+    expect(mockVerifyScopedAgentAccessToken).toHaveBeenCalledWith(
+      "meeting-token",
+      { resourceKind: "clips:meeting", resourceId: "meeting-1" },
+    );
+    expect(mockResolveAccess).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      meeting: { id: "meeting-1", title: "Weekly sync" },
+      viewer: null,
+    });
+    expect(db.select).toHaveBeenCalledTimes(3);
   });
 
   it("omits the transcript by default", async () => {

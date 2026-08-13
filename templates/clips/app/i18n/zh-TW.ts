@@ -927,6 +927,8 @@ const messages = {
     includeTranscriptDescription:
       "任何有權存取此會議的人都可以閱讀完整逐字稿。",
     transcriptUnavailable: "逐字稿尚未準備好。",
+    agentLinkDescription:
+      "此臨時連結可讓 Agent 閱讀這些會議筆記，而不必公開內容。兩小時後過期。",
     transcript: "逐字稿",
     copyTranscript: "複製逐字稿",
     transcriptCopied: "已複製逐字稿",
