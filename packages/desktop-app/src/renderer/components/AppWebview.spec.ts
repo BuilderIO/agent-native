@@ -122,7 +122,7 @@ describe("AppWebview per-app chat state propagation", () => {
     window.addEventListener("agent-native:per-app-chat-state", handleState);
 
     try {
-      new Function(buildGuestAppChatSidebarStateScript(true))();
+      window.eval(buildGuestAppChatSidebarStateScript(true));
       expect(open).toBe(true);
     } finally {
       window.removeEventListener(
