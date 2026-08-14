@@ -93,6 +93,7 @@ vi.mock("./better-auth-instance.js", () => ({
   }),
 }));
 vi.mock("./identity-sso-store.js", () => ({
+  CANONICAL_IDENTITY_SSO_HUB_URL: "https://dispatch.agent-native.com",
   SSO_STATE_TTL_MS: 600_000,
   getIdentityHubUrl: () => {
     const raw = process.env.AGENT_NATIVE_IDENTITY_HUB_URL?.trim();
@@ -109,8 +110,12 @@ vi.mock("./identity-sso-store.js", () => ({
   isCanonicalAgentNativeAppRequest: (host: string, protocol: string) =>
     protocol === "https" &&
     ["mail.agent-native.com", "dispatch.agent-native.com"].includes(host),
+  isCanonicalIdentitySsoClientRequest: (host: string, protocol: string) =>
+    protocol === "https" && host === "mail.agent-native.com",
   isDesktopSsoCanaryUserAgent: (userAgent: string | undefined) =>
     /AgentNativeDesktopSsoCanary\//i.test(userAgent ?? ""),
+  isIdentitySsoExplicitlyEnabled: () =>
+    !!process.env.AGENT_NATIVE_IDENTITY_HUB_URL,
   isIdentitySsoEnabled: () => !!process.env.AGENT_NATIVE_IDENTITY_HUB_URL,
   isJtiReplayed: vi.fn(async (jti: string | undefined) => {
     if (!jti) return true;
@@ -242,10 +247,12 @@ afterEach(() => {
 });
 
 describe("identity SSO browser contract", () => {
-  it("is a true no-op when the hub env is unset", async () => {
+  it("is a true no-op for self-hosted apps when the hub env is unset", async () => {
     delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
     const response = await handleIdentitySso(
-      event("/_agent-native/identity/login"),
+      event("/_agent-native/identity/login", {
+        headers: { host: "workspace.example.test" },
+      }),
       "/login",
     );
     expect(response.status).toBe(404);
@@ -257,6 +264,15 @@ describe("identity SSO browser contract", () => {
     const request = event("/_agent-native/identity/login?return=/inbox", {
       headers: { "user-agent": "AgentNativeDesktopSsoCanary/1.0" },
     });
+    getSessionMock.mockResolvedValue(null);
+    const response = await handleIdentitySso(request, "/login");
+    expect(resolveIdentityHubUrl(request)).toBe(HUB);
+    expect(response.status).toBe(302);
+  });
+
+  it("allows ordinary browsers to reach canonical apps without per-app env", async () => {
+    delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
+    const request = event("/_agent-native/identity/login?return=/inbox");
     getSessionMock.mockResolvedValue(null);
     const response = await handleIdentitySso(request, "/login");
     expect(resolveIdentityHubUrl(request)).toBe(HUB);

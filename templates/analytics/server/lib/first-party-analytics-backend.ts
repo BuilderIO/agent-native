@@ -651,6 +651,45 @@ function rewriteSqlFunctionCalls(
   return match ? result : result + sql.slice(cursor);
 }
 
+function coerceEventDateComparisonOperands(sql: string): string {
+  const comparisonRe =
+    /\b(?:[A-Za-z_][A-Za-z0-9_]*\.)?event_date\s*(?:<=|>=|<>|=|<|>)\s*/gi;
+  let cursor = 0;
+  let result = "";
+  let match = comparisonRe.exec(sql);
+  while (match) {
+    const operandStart = match.index + match[0].length;
+    const formatMatch = /^FORMAT_DATE\s*\(/i.exec(sql.slice(operandStart));
+    if (formatMatch) {
+      const openIndex = operandStart + formatMatch[0].lastIndexOf("(");
+      const closeIndex = findMatchingSqlParen(sql, openIndex);
+      if (closeIndex === -1) {
+        throw new Error(
+          "First-party BigQuery query has an unterminated FORMAT_DATE call",
+        );
+      }
+      const args = splitTopLevelSqlArgs(sql.slice(openIndex + 1, closeIndex));
+      if (args.length === 2 && /^'%Y-%m-%d'$/i.test(args[0] ?? "")) {
+        result += sql.slice(cursor, operandStart) + (args[1] ?? "");
+        cursor = closeIndex + 1;
+        comparisonRe.lastIndex = cursor;
+        match = comparisonRe.exec(sql);
+        continue;
+      }
+    }
+    const matchEnd = match.index + match[0].length;
+    result += sql.slice(cursor, matchEnd);
+    cursor = matchEnd;
+    comparisonRe.lastIndex = cursor;
+    match = comparisonRe.exec(sql);
+  }
+  result += sql.slice(cursor);
+  return result.replace(
+    /(\b(?:[A-Za-z_][A-Za-z0-9_]*\.)?event_date\s*(?:<=|>=|<>|=|<|>)\s*)'(\d{4}-\d{2}-\d{2})'/gi,
+    "$1DATE '$2'",
+  );
+}
+
 function replacePostgresCastsInCode(code: string): string {
   const castType = new RegExp(
     "::\\s*(date|timestamp|timestamptz|int|int2|int4|int8|integer|float|float4|float8|double\\s+precision|numeric|text|varchar|boolean|bool|json|jsonb)\\b",
@@ -936,7 +975,7 @@ export function renderFirstPartyAnalyticsBigQuerySql(
     translateFirstPartyAnalyticsBigQuerySql(normalizedScopeSql);
   const bound = bindSqlArguments(translated, args);
   return addPartitionPrunedEventDeduplication(
-    qualifyQuerySources(bound, table),
+    coerceEventDateComparisonOperands(qualifyQuerySources(bound, table)),
     table,
   );
 }

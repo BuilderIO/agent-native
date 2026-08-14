@@ -95,7 +95,12 @@ import type {
   MultiFrontierRendererState,
 } from "../../../shared/multi-frontier-ipc.js";
 import type { SubscriptionStatus } from "../../../shared/subscription-status.js";
-import AppWebview, { resolveAppWebviewUrl } from "./AppWebview.js";
+import { useRendererTheme } from "../lib/theme.js";
+import AppWebview, {
+  resolveAppWebviewUrl,
+  type AppWebviewAuthState,
+  type AppWebviewHandle,
+} from "./AppWebview.js";
 import CodeAgentsAppIcon from "./CodeAgentsAppIcon.js";
 import CreateAppPromptPopover from "./CreateAppPromptPopover.js";
 import DesktopAppChatShell from "./DesktopAppChatShell.js";
@@ -485,6 +490,7 @@ export default function CodeAgentsHub({
   onChatFirstAppSelectionChange,
   chatFirstMode = false,
 }: CodeAgentsHubProps) {
+  const theme = useRendererTheme();
   const emitChatFirstOpenAppStable = useCallback(
     (detail: ChatFirstOpenAppDetail) => emitChatFirstOpenApp(detail),
     [],
@@ -496,6 +502,21 @@ export default function CodeAgentsHub({
   const { setOpen: setChatFirstSurfacePanelOpen } = chatFirstSurfacePanel;
   const [chatFirstAppLayout, setChatFirstAppLayout] =
     useState<ChatFirstAppLayoutPreference>(() => readChatFirstAppLayout());
+  const [chatFirstAppAuthStates, setChatFirstAppAuthStates] = useState<
+    Record<string, AppWebviewAuthState>
+  >({});
+  const chatFirstAppWebviewRefs = useRef(new Map<string, AppWebviewHandle>());
+  const handleChatFirstAppAuthStateChange = useCallback(
+    (appId: string, state: AppWebviewAuthState) => {
+      setChatFirstAppAuthStates((current) =>
+        current[appId] === state ? current : { ...current, [appId]: state },
+      );
+    },
+    [],
+  );
+  const focusChatFirstApp = useCallback((tabId: string) => {
+    chatFirstAppWebviewRefs.current.get(tabId)?.focus();
+  }, []);
   const chatFirstSessionWatch = useChatFirstSessionWatch();
   const [chatFirstWatchedRun, setChatFirstWatchedRun] =
     useState<CodeAgentRun | null>(null);
@@ -1990,6 +2011,8 @@ export default function CodeAgentsHub({
                     : undefined
                 }
                 refreshKey={isPreviewTab ? refreshKey : 0}
+                syncTheme={isPreviewTab}
+                theme={theme}
               />
             )}
             copy={defaultChatFirstCopy}
@@ -2018,17 +2041,32 @@ export default function CodeAgentsHub({
               <DesktopAppChatShell
                 appId={surfaceApp.id}
                 appName={surfaceApp.name}
+                authState={chatFirstAppAuthStates[surfaceApp.id] ?? "unknown"}
+                onSignInRequest={() => focusChatFirstApp(tab.id)}
               >
                 <AppWebview
+                  ref={(instance) => {
+                    if (instance) {
+                      chatFirstAppWebviewRefs.current.set(tab.id, instance);
+                    } else {
+                      chatFirstAppWebviewRefs.current.delete(tab.id);
+                    }
+                  }}
                   app={toAppDefinition(surfaceApp)}
                   appConfig={surfaceApp}
                   isActive={isTabActive}
+                  theme={theme}
                   urlPath={tab.path}
                   urlParams={
                     dispatchControlPlane
                       ? dispatchControlPlaneUrlParams(tab.path)
                       : { embedded: "1", chatFirst: "1" }
                   }
+                  onAuthStateChange={(state) => {
+                    if (isTabActive) {
+                      handleChatFirstAppAuthStateChange(surfaceApp.id, state);
+                    }
+                  }}
                 />
               </DesktopAppChatShell>
             )}
@@ -2059,8 +2097,11 @@ export default function CodeAgentsHub({
       chatFirstWatchedRun,
       chatFirstWatchedSourceRunId,
       closeChatFirstSurfaceTab,
+      focusChatFirstApp,
+      handleChatFirstAppAuthStateChange,
       host,
       isActive,
+      chatFirstAppAuthStates,
       refreshKey,
       watchChatFirstAgent,
     ],
@@ -2217,6 +2258,7 @@ export default function CodeAgentsHub({
                 app={toAppDefinition(app)}
                 appConfig={app}
                 isActive={isActive}
+                theme={theme}
                 urlParams={urlParams}
                 refreshKey={appRefreshKey}
               />

@@ -295,6 +295,7 @@ const messages = {
     creatingLink: "Creating link...",
     createShareLink: "Create Share Link",
     copyLink: "Copy link",
+    copied: "Copied",
     openSharedLink: "Open shared link",
     anyoneWithLink: "Anyone with this link can view this presentation.",
   },

@@ -5,7 +5,10 @@ import {
   appendRealtimeVoiceTranscriptToRepository,
   realtimeVoiceTranscriptRegistry,
 } from "@agent-native/toolkit/composer/realtime-voice-transcript";
-import type { ComposerImageModelMenu } from "@agent-native/toolkit/composer/TiptapComposer";
+import type {
+  ComposerAgentOption,
+  ComposerImageModelMenu,
+} from "@agent-native/toolkit/composer/TiptapComposer";
 import {
   AssistantRuntimeProvider,
   useLocalRuntime,
@@ -67,6 +70,7 @@ import {
 } from "./agent-chat-adapter.js";
 import {
   appendAgentChatContextToMessage,
+  filterAgentChatContextItems,
   formatAgentChatContextItemsForPrompt,
   getAgentChatContextState,
   isAgentChatSubmitCancelled,
@@ -1908,6 +1912,8 @@ export interface AssistantChatProps {
   threadId?: string;
   /** Resource scope to include with chat requests for server-side context. */
   contextScope?: ChatThreadScope | null;
+  /** Namespace used to hide ambient composer context from other host surfaces. */
+  contextNamespace?: string;
   /** Whether this chat owns the active visible composer context snapshot. */
   isActiveComposer?: boolean;
   /**
@@ -2012,6 +2018,12 @@ export interface AssistantChatProps {
   onModelChange?: (model: string, engine: string) => void;
   /** Callback when user picks an effort from the picker */
   onEffortChange?: (effort: ReasoningEffort) => void;
+  /** Local or hosted agent runtimes shown above the model list. */
+  availableAgents?: ComposerAgentOption[];
+  /** Selected agent runtime identifier. */
+  selectedAgent?: string;
+  /** Callback when the user picks an agent runtime. */
+  onAgentChange?: (agent: string) => void;
   /**
    * Optional secondary model menu (e.g. an image-generation model) shown inside
    * the composer's model picker. Opt-in; chat-only apps omit it.
@@ -2368,6 +2380,7 @@ const AssistantChatInner = forwardRef<
     browserTabId,
     threadId,
     contextScope,
+    contextNamespace,
     isActiveComposer = true,
     onMessageCountChange,
     onSaveThread,
@@ -2401,6 +2414,9 @@ const AssistantChatInner = forwardRef<
     modelListLoading,
     onModelChange,
     onEffortChange,
+    availableAgents,
+    selectedAgent,
+    onAgentChange,
     imageModelMenu,
     onForkChat,
     onConnectProvider,
@@ -2589,12 +2605,21 @@ const AssistantChatInner = forwardRef<
   const composerContextItemsRef = useRef<AgentChatContextItem[]>([]);
   const isActiveComposerRef = useRef(isActiveComposer);
   isActiveComposerRef.current = isActiveComposer;
+  const normalizedContextNamespace = contextNamespace?.trim() || undefined;
   const publishComposerContextItems = useCallback(
     (items: AgentChatContextItem[]) => {
       if (!isActiveComposerRef.current) return;
-      publishAgentChatContextItems(items);
+      const hiddenItems = normalizedContextNamespace
+        ? getAgentChatContextState().items.filter((item) => {
+            const itemNamespace = item.contextNamespace?.trim();
+            return (
+              itemNamespace && itemNamespace !== normalizedContextNamespace
+            );
+          })
+        : [];
+      publishAgentChatContextItems([...hiddenItems, ...items]);
     },
-    [],
+    [normalizedContextNamespace],
   );
   const updateComposerContextItems = useCallback(
     (updater: (previous: AgentChatContextItem[]) => AgentChatContextItem[]) => {
@@ -2621,6 +2646,12 @@ const AssistantChatInner = forwardRef<
     (rawItem: AgentChatContextItem) => {
       const item = normalizeAgentChatContextItem(rawItem);
       if (!item) return;
+      if (
+        filterAgentChatContextItems([item], normalizedContextNamespace)
+          .length === 0
+      ) {
+        return;
+      }
       updateComposerContextItems((previous) => {
         const index = previous.findIndex((current) => current.key === item.key);
         if (index === -1) return [...previous, item];
@@ -2672,20 +2703,28 @@ const AssistantChatInner = forwardRef<
     let cancelled = false;
     void refreshAgentChatContext().then((state) => {
       if (cancelled || !isActiveComposerRef.current) return;
-      composerContextItemsRef.current = state.items;
-      setComposerContextItems(state.items);
+      const visibleItems = filterAgentChatContextItems(
+        state.items,
+        normalizedContextNamespace,
+      );
+      composerContextItemsRef.current = visibleItems;
+      setComposerContextItems(visibleItems);
     });
     const unsubscribe = subscribeAgentChatContext(() => {
       if (cancelled || !isActiveComposerRef.current) return;
       const state = getAgentChatContextState();
-      composerContextItemsRef.current = state.items;
-      setComposerContextItems(state.items);
+      const visibleItems = filterAgentChatContextItems(
+        state.items,
+        normalizedContextNamespace,
+      );
+      composerContextItemsRef.current = visibleItems;
+      setComposerContextItems(visibleItems);
     });
     return () => {
       cancelled = true;
       unsubscribe();
     };
-  }, [isActiveComposer]);
+  }, [isActiveComposer, normalizedContextNamespace]);
   // Tracks the JSON of the last queue we successfully persisted so the
   // debounced save effect can skip no-op writes (e.g. restore-from-server
   // on mount, or queue state that hasn't actually changed).
@@ -6284,6 +6323,8 @@ const AssistantChatInner = forwardRef<
                                       }
                                       selectedEffort={selectedEffort}
                                       availableModels={availableModels}
+                                      availableAgents={availableAgents}
+                                      selectedAgent={selectedAgent}
                                       modelListLoading={modelListLoading}
                                       onModelChange={
                                         shouldShowAssistantChatModelSelector(
@@ -6293,6 +6334,7 @@ const AssistantChatInner = forwardRef<
                                           : undefined
                                       }
                                       onEffortChange={onEffortChange}
+                                      onAgentChange={onAgentChange}
                                       imageModelMenu={imageModelMenu}
                                       onConnectProvider={onConnectProvider}
                                       onConnectLocalRuntime={
@@ -6393,6 +6435,7 @@ export const AssistantChat = forwardRef<
     browserTabId,
     threadId,
     contextScope,
+    contextNamespace,
     isActiveComposer,
     ...props
   },
@@ -6480,6 +6523,7 @@ export const AssistantChat = forwardRef<
               {...props}
               browserTabId={browserTabId}
               contextScope={contextScope}
+              contextNamespace={contextNamespace}
               isActiveComposer={isActiveComposer}
               apiUrl={apiUrl}
               tabId={tabId}

@@ -2,6 +2,7 @@ import {
   AgentSidebar,
   AgentToggleButton,
 } from "@agent-native/core/client/agent-chat";
+import { usePerAppChatOpen } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { InvitationBanner } from "@agent-native/core/client/org";
 import { useAppearanceSync } from "@agent-native/core/client/ui";
@@ -234,6 +235,7 @@ export function AppLayout({ children }: AppLayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] =
     useState(readSidebarCollapsed);
+  const perAppChatOpen = usePerAppChatOpen();
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [viewMode, setViewMode] = useState<ViewMode>(isMobile ? "day" : "week");
   const [peopleSearchOpen, setPeopleSearchOpen] = useState(false);
@@ -387,7 +389,7 @@ export function AppLayout({ children }: AppLayoutProps) {
             <Sidebar
               open={sidebarOpen}
               onClose={() => setSidebarOpen(false)}
-              collapsed={!isMobile && sidebarCollapsed}
+              collapsed={!isMobile && (sidebarCollapsed || perAppChatOpen)}
               onCollapsedChange={isMobile ? undefined : setSidebarCollapsed}
             />
             <AgentSidebar

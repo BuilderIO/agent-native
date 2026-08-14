@@ -301,6 +301,7 @@ const messages = {
     creatingLink: "Link wird erstellt...",
     createShareLink: "Freigabelink erstellen",
     copyLink: "Link kopieren",
+    copied: "Kopiert",
     openSharedLink: "Geteilten Link öffnen",
     anyoneWithLink: "Jeder mit diesem Link kann diese Präsentation ansehen.",
   },
