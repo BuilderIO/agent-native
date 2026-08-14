@@ -248,6 +248,15 @@ const messages = {
     passwordProtected: "該剪輯受密碼保護",
     linkExpired: "連結已過期",
     linkExpiredMessage: "建立者為此共用連結設定了過期時間。",
+    privateClip: "私人剪輯",
+    privateClipMessage: "此剪輯為私人內容。請求存取權限後，擁有者會收到通知。",
+    privateClipSignedOutMessage:
+      "此剪輯為私人內容。登入後即可向擁有者請求存取權限。",
+    requestAccess: "請求存取權限",
+    requestingAccess: "正在請求存取權限...",
+    accessRequested: "已請求存取權限",
+    accessRequestSent: "剪輯擁有者已收到通知。",
+    accessRequestFailed: "無法請求存取權限。請再試一次。",
     clipUnavailable: "剪輯不可用",
     clipUnavailableMessage:
       "該錄音不公開，或者連結無效。如果這是您的剪輯，請登入以檢查存取權限。",

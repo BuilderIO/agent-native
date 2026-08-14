@@ -213,6 +213,19 @@
   transition: none !important;
 }
 
+.agent-sidebar-resize-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  cursor: col-resize;
+  user-select: none;
+}
+
+.agent-sidebar-shell[data-agent-sidebar-resizing="true"] iframe,
+.agent-sidebar-shell[data-agent-sidebar-resizing="true"] webview {
+  pointer-events: none !important;
+}
+
 .agent-native-app-main {
   container: agent-native-main / inline-size;
 }

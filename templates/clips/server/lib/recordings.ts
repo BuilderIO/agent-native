@@ -112,8 +112,9 @@ export async function getOrganizationDefaultVisibility(
  */
 export async function getDefaultRecordingVisibility(
   organizationId: string | null | undefined,
+  userEmail: string | null | undefined = getRequestUserEmail(),
 ): Promise<RecordingVisibility> {
-  const email = getRequestUserEmail();
+  const email = userEmail;
   if (email) {
     const prefs = (await getUserSetting(
       normalizeOwnerEmail(email),

@@ -314,6 +314,7 @@ export interface AuthOptions {
     tagline: string;
     description?: string;
     features?: string[];
+    /** @deprecated Local execution is no longer offered from auth pages. */
     runLocalCommand?: string;
   };
   /**
@@ -4221,6 +4222,28 @@ async function mountBetterAuthRoutes(
   app.use(
     "/_agent-native/auth/magic-link",
     defineEventHandler(async (event) => {
+      if (getMethod(event) === "GET") {
+        const query = getQuery(event);
+        if (typeof query.token === "string") {
+          const verificationUrl = new URL(
+            `${getAppBasePath()}/_agent-native/auth/ba/magic-link/verify`,
+            getOrigin(event),
+          );
+          for (const key of [
+            "token",
+            "callbackURL",
+            "newUserCallbackURL",
+            "errorCallbackURL",
+          ]) {
+            const value = query[key];
+            if (typeof value === "string") {
+              verificationUrl.searchParams.set(key, value);
+            }
+          }
+          return redirectWithStagedCookies(event, verificationUrl.toString());
+        }
+      }
+
       if (getMethod(event) !== "POST") {
         setResponseStatus(event, 405);
         return { error: "Method not allowed" };

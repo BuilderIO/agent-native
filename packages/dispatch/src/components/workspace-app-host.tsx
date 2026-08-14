@@ -1,3 +1,4 @@
+import { AgentSidebar } from "@agent-native/core/client/agent-chat";
 import {
   ChatFirstAppPane,
   defaultChatFirstCopy,
@@ -56,12 +57,15 @@ interface WorkspaceAppFrameProps {
   app: WorkspaceAppFrameApp;
   /** Chat-first app tabs use their own route while standalone hosts use app metadata. */
   embedPath?: string;
+  /** Chat-first app surfaces own the parent chat rail around the iframe. */
+  chatSidebar?: boolean;
   copy?: ChatFirstCopy;
 }
 
 export function WorkspaceAppFrame({
   app,
   embedPath,
+  chatSidebar = false,
   copy = defaultChatFirstCopy,
 }: WorkspaceAppFrameProps) {
   const [embedUrl, setEmbedUrl] = useState<string | null>(null);
@@ -154,7 +158,7 @@ export function WorkspaceAppFrame({
       window.removeEventListener("message", handleEmbedSessionExpired);
   }, [embedUrl]);
 
-  return (
+  const appPane = (
     <ChatFirstAppPane
       app={app}
       status={
@@ -185,6 +189,31 @@ export function WorkspaceAppFrame({
       )}
       copy={copy}
     />
+  );
+
+  if (!chatSidebar) return appPane;
+
+  return (
+    <AgentSidebar
+      position="left"
+      defaultOpen
+      openStorageKey="dispatch-app-chat"
+      storageKey={`dispatch-app-chat:${app.id}`}
+      scope={{
+        type: "workspace-app",
+        id: app.id,
+        label: app.name,
+        contextKey: `workspace-app:${app.id}`,
+      }}
+      agentChatSurface="app"
+      showTabBar
+      suppressInlineOpenApp
+      dynamicSuggestions={false}
+      suggestions={[]}
+      emptyStateText={`Ask about ${app.name}`}
+    >
+      {appPane}
+    </AgentSidebar>
   );
 }
 

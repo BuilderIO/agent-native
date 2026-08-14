@@ -376,6 +376,50 @@ describe("/api/public-recording route", () => {
     );
   });
 
+  it("hides private recording existence from anonymous API callers", async () => {
+    const event = { setCookies: [] as unknown[] };
+    mockGetQuery.mockReturnValue({ id: "rec-1" });
+    mockGetDb.mockReturnValue(
+      createDbWithSelectResults([
+        [makeRecording({ visibility: "private", password: null })],
+      ]),
+    );
+
+    await expect(handler(event as any)).resolves.toEqual({
+      error: "Not found",
+    });
+    expect(mockSetResponseStatus).toHaveBeenCalledWith(event, 404);
+    expect(mockSetResponseHeader).toHaveBeenCalledWith(
+      event,
+      "Cache-Control",
+      "private, max-age=0, no-store",
+    );
+  });
+
+  it("hides private recording existence from authenticated outsiders", async () => {
+    const event = { setCookies: [] as unknown[] };
+    mockGetQuery.mockReturnValue({ id: "rec-1" });
+    mockGetSession.mockResolvedValue({
+      email: "viewer@example.com",
+      orgId: "org-1",
+    });
+    mockGetDb.mockReturnValue(
+      createDbWithSelectResults([
+        [makeRecording({ visibility: "private", password: null })],
+      ]),
+    );
+
+    await expect(handler(event as any)).resolves.toEqual({
+      error: "Not found",
+    });
+    expect(mockSetResponseStatus).toHaveBeenCalledWith(event, 404);
+    expect(mockSetResponseHeader).toHaveBeenCalledWith(
+      event,
+      "Cache-Control",
+      "private, max-age=0, no-store",
+    );
+  });
+
   it("allows an authenticated viewer with an explicit user share", async () => {
     const event = { setCookies: [] as unknown[] };
     mockGetSession.mockResolvedValue({

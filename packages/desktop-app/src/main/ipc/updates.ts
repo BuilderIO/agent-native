@@ -45,6 +45,7 @@ let currentUpdateStatus: UpdateStatus = !UPDATE_SUPPORT.supported
 let updateCheckInFlight: Promise<unknown> | null = null;
 let lastUpdateCheckStartedAt = 0;
 let notifiedUpdateVersion: string | null = null;
+let updateInstallInFlight = false;
 let pendingDownloadedUpdate: Extract<
   UpdateStatus,
   { state: "downloaded" }
@@ -53,6 +54,7 @@ let pendingDownloadedUpdate: Extract<
 export interface UpdatesIpcDeps {
   refreshApplicationMenu: () => void;
   focusMainWindow: () => void;
+  prepareForUpdate?: () => Promise<void>;
 }
 
 export interface UpdateCheckOptions {
@@ -74,6 +76,31 @@ function getDeps(): UpdatesIpcDeps {
 /** Current cached update status, for callers outside the IPC surface (e.g. the app menu). */
 export function getCurrentUpdateStatus(): UpdateStatus {
   return currentUpdateStatus;
+}
+
+export async function installDownloadedUpdate(): Promise<void> {
+  if (
+    !UPDATE_SUPPORT.supported ||
+    !hasUpdateReadyToInstall() ||
+    updateInstallInFlight
+  ) {
+    return;
+  }
+  updateInstallInFlight = true;
+  try {
+    // Native helpers can outlive the Electron window. Close them before
+    // Squirrel checks whether the old app is still running.
+    await getDeps().prepareForUpdate?.();
+    // isSilent=false so any installer UI shows; isForceRunAfter=true so the
+    // app relaunches after the update completes.
+    autoUpdater.quitAndInstall(false, true);
+  } catch (err) {
+    updateInstallInFlight = false;
+    broadcastUpdateStatus({
+      state: "error",
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
 }
 
 function broadcastUpdateStatus(status: UpdateStatus) {
@@ -214,9 +241,8 @@ export function registerUpdatesIpc(ipcDeps: UpdatesIpcDeps): void {
   deps = ipcDeps;
 
   if (UPDATE_SUPPORT.supported) {
-    // The GitHub provider reads the repository-wide latest release feed, which
-    // also contains npm package releases and Clips desktop releases. Use the
-    // Agent Native feed that filters the shared repo down to desktop assets.
+    // The public feed filters the shared repository's releases down to desktop
+    // assets, so npm and Clips releases never enter this updater.
     autoUpdater.setFeedURL({
       provider: "generic",
       url: DESKTOP_UPDATE_FEED_URL,
@@ -315,10 +341,5 @@ export function registerUpdatesIpc(ipcDeps: UpdatesIpcDeps): void {
     return currentUpdateStatus;
   });
 
-  ipcMain.handle(IPC.UPDATE_INSTALL, () => {
-    if (!UPDATE_SUPPORT.supported) return;
-    // isSilent=false so any installer UI shows; isForceRunAfter=true so the
-    // app relaunches after the update completes.
-    autoUpdater.quitAndInstall(false, true);
-  });
+  ipcMain.handle(IPC.UPDATE_INSTALL, () => installDownloadedUpdate());
 }

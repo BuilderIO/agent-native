@@ -4,9 +4,8 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { ShareCopyRow } from "@agent-native/toolkit/sharing";
 import {
-  IconCheck,
-  IconLink,
   IconLock,
   IconSend2,
   IconTrash,
@@ -281,35 +280,19 @@ export function CopyField({
   description?: string;
 }) {
   const t = useT();
-  const [copied, setCopied] = useState(false);
-  const copy = () => {
-    if (disabled) return;
-    copyToClipboard(value);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1400);
-  };
   return (
-    <div className="flex items-center justify-between gap-3">
-      <div className="min-w-0">
-        {label ? <div className="text-sm font-medium">{label}</div> : null}
-        {description ? (
-          <div className="text-xs text-muted-foreground">{description}</div>
-        ) : null}
-      </div>
-      <div aria-live="polite" className="shrink-0">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={copy}
-          disabled={disabled}
-          className="h-9"
-        >
-          {copied ? <IconCheck size={14} /> : <IconLink size={14} />}
-          {copied ? t("recordRoute.linkCopied") : t("shareUi.copy")}
-        </Button>
-      </div>
-    </div>
+    <ShareCopyRow
+      label={label}
+      value={value}
+      description={description}
+      disabled={disabled}
+      copyLabel={t("shareUi.copy")}
+      copiedLabel={t("recordRoute.linkCopied")}
+      onCopy={(nextValue) => {
+        copyToClipboard(nextValue);
+        return true;
+      }}
+    />
   );
 }
 

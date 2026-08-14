@@ -16,8 +16,6 @@ export default createAuthPlugin({
       "Manages availability and booking links automatically",
       "Answers schedule questions and resolves conflicts instantly",
     ],
-    runLocalCommand:
-      "npx @agent-native/core@latest create my-calendar-app --template calendar",
   },
   publicPaths: [
     "/book",

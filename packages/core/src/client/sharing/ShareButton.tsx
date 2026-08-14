@@ -1,3 +1,4 @@
+import { ShareCopyRow, ShareTrigger } from "@agent-native/toolkit/sharing";
 import * as Select from "@radix-ui/react-select";
 import {
   IconLock,
@@ -6,10 +7,8 @@ import {
   IconCheck,
   IconChevronDown,
   IconLoader2,
-  IconLink,
   IconSearch,
   IconSearchOff,
-  IconShare3,
   IconUsersGroup,
 } from "@tabler/icons-react";
 import {
@@ -51,8 +50,7 @@ export interface ShareButtonProps {
   /** @deprecated No longer affects rendering — trigger always says
    *  "Share". Kept for callsite compatibility. */
   variant?: "compact" | "label";
-  /** Optional trigger style. Defaults to a text-only "Share" label.
-   *  "label-icon" opts into an icon plus label; "icon" is icon-only. */
+  /** @deprecated Share triggers are standardized as text-only buttons. */
   trigger?: "label" | "icon" | "label-icon";
   /** @deprecated No longer affects rendering — kept for callsite compatibility. */
   hideTriggerIcon?: boolean;
@@ -154,10 +152,6 @@ type Share = ShareButtonShare;
 // sits flush next to other controls while staying transparent at rest.
 const BUTTON_BASE =
   "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0";
-const BUTTON_OUTLINE_SM = cn(
-  BUTTON_BASE,
-  "h-9 px-3 border border-[hsl(var(--sidebar-border,var(--input)))] bg-transparent text-foreground hover:bg-[hsl(var(--sidebar-accent,var(--accent)))] hover:text-[hsl(var(--sidebar-accent-foreground,var(--accent-foreground)))]",
-);
 const BUTTON_PRIMARY_SM = cn(
   BUTTON_BASE,
   "h-9 px-4 bg-primary text-primary-foreground hover:bg-primary/90",
@@ -317,38 +311,16 @@ export function ShareButton(props: ShareButtonProps) {
     allowedRoles: props.allowedRoles,
     hideInSearchControl: props.hideInSearchControl,
   });
-  const triggerVisibility = controller.triggerVisibility;
-  const triggerMeta = triggerVisibility
-    ? visibilityMeta(triggerVisibility, t, props.visibilityCopy)
-    : null;
-  const TriggerIcon = triggerMeta?.Icon ?? IconShare3;
-  const iconOnly = props.trigger === "icon";
-  const showTriggerIcon = iconOnly || props.trigger === "label-icon";
-  const triggerLabel =
-    iconOnly && triggerMeta
-      ? t("agentChat.share.triggerWithVisibility", {
-          defaultValue: "Share ({{visibility}})",
-          visibility: triggerMeta.label,
-        })
-      : t("agentChat.share.share", { defaultValue: "Share" });
-
+  const triggerLabel = t("agentChat.share.share", { defaultValue: "Share" });
   return (
     <Popover open={controller.open} onOpenChange={controller.handleOpenChange}>
       <PopoverTrigger asChild>
-        <button
-          type="button"
-          className={cn(
-            iconOnly ? BUTTON_GHOST_ICON : BUTTON_OUTLINE_SM,
-            props.triggerClassName,
-          )}
+        <ShareTrigger
+          label={triggerLabel}
+          className={props.triggerClassName}
           aria-label={triggerLabel}
           title={triggerLabel}
-        >
-          {showTriggerIcon && <TriggerIcon size={16} strokeWidth={1.75} />}
-          {!iconOnly && (
-            <span>{t("agentChat.share.share", { defaultValue: "Share" })}</span>
-          )}
-        </button>
+        />
       </PopoverTrigger>
       <PopoverContent
         align="end"
@@ -1119,54 +1091,18 @@ function CopyLinkField({
   description?: ReactNode;
 }) {
   const t = useT();
-  const [copied, setCopied] = useState(false);
-  const resetRef = useRef<ReturnType<typeof setTimeout>>(undefined);
-
-  useEffect(() => {
-    return () => {
-      if (resetRef.current) clearTimeout(resetRef.current);
-    };
-  }, []);
-
-  const handleCopy = async () => {
-    if (await writeClipboardText(value)) {
-      setCopied(true);
-      if (resetRef.current) clearTimeout(resetRef.current);
-      resetRef.current = setTimeout(() => setCopied(false), 1400);
-    } else {
-      setCopied(false);
-    }
-  };
-
   return (
-    <div className="mb-4 flex items-center justify-between gap-4">
-      <div className="min-w-0">
-        <div className="text-sm font-semibold">
-          {label ??
-            t("agentChat.share.shareLink", { defaultValue: "Share link" })}
-        </div>
-        {description ? (
-          <div className="mt-1 text-xs text-muted-foreground">
-            {description}
-          </div>
-        ) : null}
-      </div>
-      <button
-        type="button"
-        onClick={handleCopy}
-        aria-label={
-          copied
-            ? t("agentChat.share.copied", { defaultValue: "Copied" })
-            : t("agentChat.share.copy", { defaultValue: "Copy" })
-        }
-        className="inline-flex h-9 shrink-0 items-center gap-2 whitespace-nowrap rounded-md border border-input bg-card px-3 text-sm font-medium text-foreground hover:bg-accent"
-      >
-        {copied ? <IconCheck size={15} /> : <IconLink size={15} />}
-        {copied
-          ? t("agentChat.share.copied", { defaultValue: "Copied" })
-          : t("agentChat.share.copy", { defaultValue: "Copy" })}
-      </button>
-    </div>
+    <ShareCopyRow
+      value={value}
+      label={
+        label ?? t("agentChat.share.shareLink", { defaultValue: "Share link" })
+      }
+      description={description}
+      copyLabel={t("agentChat.share.copy", { defaultValue: "Copy" })}
+      copiedLabel={t("agentChat.share.copied", { defaultValue: "Copied" })}
+      onCopy={writeClipboardText}
+      className="mb-4"
+    />
   );
 }
 

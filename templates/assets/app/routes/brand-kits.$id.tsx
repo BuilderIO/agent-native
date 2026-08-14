@@ -1217,12 +1217,11 @@ export function BrandKitDetailRoute({
   );
   const shareAction = (
     <ShareButton
-      trigger="label-icon"
       resourceType="asset-library"
       resourceId={library.id}
       allowedRoles={["viewer", "editor", "admin"]}
       resourceTitle={library.title}
-      triggerClassName="h-10 gap-2 px-4 border-input bg-background hover:bg-accent hover:text-accent-foreground"
+      triggerClassName="h-10 px-4 border-input bg-background hover:bg-accent hover:text-accent-foreground"
     />
   );
   const headerActions = (

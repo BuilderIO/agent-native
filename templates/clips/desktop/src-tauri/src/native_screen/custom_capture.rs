@@ -1206,6 +1206,7 @@ pub(crate) fn prepare_clip_sink(
     height: u32,
     include_mic: bool,
     include_system_audio: bool,
+    voice_cleanup_enabled: bool,
 ) -> Result<PreparedClipSink, String> {
     let mut installed = slot.lock().map_err(|e| e.to_string())?;
     if installed.is_some() {
@@ -1222,6 +1223,7 @@ pub(crate) fn prepare_clip_sink(
             include_mic,
             include_system_audio,
         ),
+        voice_cleanup_enabled,
         CustomWriterOutput::ClipHls,
         None,
     )?;
@@ -1374,6 +1376,7 @@ impl CustomScreenCaptureWriter {
         capture_system_audio: bool,
         include_audio: bool,
         mix_live: bool,
+        voice_cleanup_enabled: bool,
         output: CustomWriterOutput,
         audio_producer: Option<crate::capture_audio_bus::AudioProducer>,
     ) -> Result<Self, String> {
@@ -1524,6 +1527,7 @@ impl CustomScreenCaptureWriter {
                         segmented,
                         include_audio,
                         capture_system_audio,
+                        voice_cleanup_enabled,
                     )?),
                 )
             } else {
@@ -2182,18 +2186,6 @@ const MIC_AGC_BOOST_SECONDS: f32 = 1.5;
 const MIC_AGC_WARMUP_SECONDS: f32 = 0.2;
 /// How close to the target counts as levelled and ends the warmup.
 const MIC_AGC_CONVERGED_TOLERANCE: f32 = 0.05;
-/// Conservative voice cleanup for the realtime microphone path. The browser
-/// recorder gets a comparable Web Audio chain; native live uploads cannot
-/// wait for the later FFmpeg normalization pass, so this stays causal and
-/// source-local here.
-const MIC_CLEANUP_HIGH_PASS_HZ: f32 = 65.0;
-const MIC_CLEANUP_NOTCH_FREQUENCIES_HZ: [f32; 4] = [50.0, 60.0, 100.0, 120.0];
-const MIC_CLEANUP_NOTCH_Q: f32 = 18.0;
-const MIC_EXPANDER_THRESHOLD_DB: f32 = -48.0;
-const MIC_EXPANDER_RATIO: f32 = 2.0;
-const MIC_EXPANDER_MAX_REDUCTION_DB: f32 = 12.0;
-const MIC_EXPANDER_ATTACK_SECONDS: f32 = 0.012;
-const MIC_EXPANDER_RELEASE_SECONDS: f32 = 0.18;
 /// -1.0 dBFS, near the true-peak ceiling the offline loudnorm chain targets.
 const MIX_LIMIT_CEILING: f32 = 0.891;
 const MIX_LIMIT_RELEASE_SECONDS: f32 = 0.15;
@@ -2275,153 +2267,99 @@ impl MicAutoGain {
     }
 }
 
-#[derive(Clone, Copy)]
-struct Biquad {
-    b0: f32,
-    b1: f32,
-    b2: f32,
-    a1: f32,
-    a2: f32,
-    x1: f32,
-    x2: f32,
-    y1: f32,
-    y2: f32,
+/// RNNoise-derived denoising for the native live-upload path. ScreenCaptureKit
+/// hands us stereo f32 PCM, while `nnnoiseless` consumes mono 16-bit-scaled
+/// f32 frames at 48 kHz. Keep the frame buffering here, before the source
+/// timeline, so the denoiser never sees zero-filled timeline gaps as speech.
+struct MicDenoiser {
+    state: Box<nnnoiseless::DenoiseState<'static>>,
+    pending: Vec<f32>,
+    pending_start_pts: Option<f64>,
+    first_frame: bool,
 }
 
-impl Biquad {
-    fn from_coefficients(b0: f32, b1: f32, b2: f32, a0: f32, a1: f32, a2: f32) -> Self {
+impl MicDenoiser {
+    const SAMPLE_RATE: f64 = 48_000.0;
+    const SCALE: f32 = 32_768.0;
+
+    fn new() -> Self {
         Self {
-            b0: b0 / a0,
-            b1: b1 / a0,
-            b2: b2 / a0,
-            a1: a1 / a0,
-            a2: a2 / a0,
-            x1: 0.0,
-            x2: 0.0,
-            y1: 0.0,
-            y2: 0.0,
+            state: nnnoiseless::DenoiseState::new(),
+            pending: Vec::new(),
+            pending_start_pts: None,
+            first_frame: true,
         }
     }
 
-    fn high_pass(frequency_hz: f32, q: f32, sample_rate: f32) -> Self {
-        let omega = 2.0 * std::f32::consts::PI * frequency_hz / sample_rate;
-        let cosine = omega.cos();
-        let sine = omega.sin();
-        let alpha = sine / (2.0 * q);
-        Self::from_coefficients(
-            (1.0 + cosine) / 2.0,
-            -(1.0 + cosine),
-            (1.0 + cosine) / 2.0,
-            1.0 + alpha,
-            -2.0 * cosine,
-            1.0 - alpha,
-        )
+    fn reset(&mut self) {
+        self.state = nnnoiseless::DenoiseState::new();
+        self.pending.clear();
+        self.pending_start_pts = None;
+        self.first_frame = true;
     }
 
-    fn notch(frequency_hz: f32, q: f32, sample_rate: f32) -> Self {
-        let omega = 2.0 * std::f32::consts::PI * frequency_hz / sample_rate;
-        let cosine = omega.cos();
-        let sine = omega.sin();
-        let alpha = sine / (2.0 * q);
-        Self::from_coefficients(
-            1.0,
-            -2.0 * cosine,
-            1.0,
-            1.0 + alpha,
-            -2.0 * cosine,
-            1.0 - alpha,
-        )
-    }
+    fn process(&mut self, interleaved: &[f32], pts_seconds: f64) -> Vec<(Vec<f32>, f64)> {
+        let frame_count = interleaved.len() / 2;
+        if frame_count == 0 {
+            return Vec::new();
+        }
 
-    fn process(&mut self, input: f32) -> f32 {
-        let output = self.b0 * input + self.b1 * self.x1 + self.b2 * self.x2
-            - self.a1 * self.y1
-            - self.a2 * self.y2;
-        self.x2 = self.x1;
-        self.x1 = input;
-        self.y2 = self.y1;
-        self.y1 = output;
+        if let Some(start) = self.pending_start_pts {
+            let expected = start + self.pending.len() as f64 / Self::SAMPLE_RATE;
+            if (pts_seconds - expected).abs() > 0.02 {
+                self.reset();
+            }
+        }
+        if self.pending_start_pts.is_none() {
+            self.pending_start_pts = Some(pts_seconds);
+        }
+        self.pending
+            .extend(interleaved[..frame_count * 2].chunks_exact(2).map(|frame| {
+                ((frame[0] + frame[1]) * 0.5 * Self::SCALE).clamp(-Self::SCALE, Self::SCALE)
+            }));
+
+        let frame_size = nnnoiseless::DenoiseState::FRAME_SIZE;
+        let mut output = Vec::new();
+        while self.pending.len() >= frame_size {
+            let start = self.pending_start_pts.unwrap_or(pts_seconds);
+            let input = self.pending[..frame_size].to_vec();
+            let mut denoised = vec![0.0_f32; frame_size];
+            self.state.process_frame(&mut denoised, &input);
+            let samples = if self.first_frame { &input } else { &denoised };
+            output.push((Self::stereo_samples(samples), start));
+            self.first_frame = false;
+            self.pending.drain(..frame_size);
+            self.pending_start_pts = Some(start + frame_size as f64 / Self::SAMPLE_RATE);
+        }
         output
     }
-}
 
-struct MicCleanupChannel {
-    high_pass: Biquad,
-    notches: [Biquad; 4],
-}
-
-impl MicCleanupChannel {
-    fn new(sample_rate: f32) -> Self {
-        Self {
-            high_pass: Biquad::high_pass(MIC_CLEANUP_HIGH_PASS_HZ, 0.707, sample_rate),
-            notches: std::array::from_fn(|index| {
-                Biquad::notch(
-                    MIC_CLEANUP_NOTCH_FREQUENCIES_HZ[index],
-                    MIC_CLEANUP_NOTCH_Q,
-                    sample_rate,
-                )
-            }),
+    fn flush(&mut self) -> Vec<(Vec<f32>, f64)> {
+        if self.pending.is_empty() {
+            return Vec::new();
         }
+        let frame_size = nnnoiseless::DenoiseState::FRAME_SIZE;
+        let count = self.pending.len();
+        let start = self.pending_start_pts.unwrap_or(0.0);
+        let mut input = vec![0.0_f32; frame_size];
+        input[..count].copy_from_slice(&self.pending);
+        let mut denoised = vec![0.0_f32; frame_size];
+        self.state.process_frame(&mut denoised, &input);
+        let samples = if self.first_frame { &input } else { &denoised };
+        let result = vec![(Self::stereo_samples(&samples[..count]), start)];
+        self.pending.clear();
+        self.pending_start_pts = None;
+        self.first_frame = false;
+        result
     }
 
-    fn process(&mut self, mut sample: f32) -> f32 {
-        sample = self.high_pass.process(sample);
-        for notch in &mut self.notches {
-            sample = notch.process(sample);
+    fn stereo_samples(mono: &[f32]) -> Vec<f32> {
+        let mut stereo = Vec::with_capacity(mono.len() * 2);
+        for &sample in mono {
+            let sample = (sample / Self::SCALE).clamp(-1.0, 1.0);
+            stereo.extend([sample, sample]);
         }
-        sample
-    }
-}
-
-/// Causal microphone cleanup for the native live-upload path. The high-pass
-/// and narrow notches target HVAC/mains hum; the expander only reduces quiet
-/// room tone and never hard-mutes it, so speech tails survive the processing.
-struct MicCleanup {
-    left: MicCleanupChannel,
-    right: MicCleanupChannel,
-    envelope: f32,
-    gain: f32,
-    envelope_coefficient: f32,
-    attack_coefficient: f32,
-    release_coefficient: f32,
-}
-
-impl MicCleanup {
-    fn new(sample_rate: i32) -> Self {
-        let sample_rate = sample_rate as f32;
-        Self {
-            left: MicCleanupChannel::new(sample_rate),
-            right: MicCleanupChannel::new(sample_rate),
-            envelope: 0.0,
-            gain: 1.0,
-            envelope_coefficient: one_pole_coefficient(0.015, sample_rate as i32),
-            attack_coefficient: one_pole_coefficient(
-                MIC_EXPANDER_ATTACK_SECONDS,
-                sample_rate as i32,
-            ),
-            release_coefficient: one_pole_coefficient(
-                MIC_EXPANDER_RELEASE_SECONDS,
-                sample_rate as i32,
-            ),
-        }
-    }
-
-    fn process(&mut self, sample: (f32, f32)) -> (f32, f32) {
-        let filtered = (self.left.process(sample.0), self.right.process(sample.1));
-        let peak = filtered.0.abs().max(filtered.1.abs());
-        self.envelope += (peak - self.envelope) * self.envelope_coefficient;
-        let level_db = 20.0 * self.envelope.max(1.0e-6).log10();
-        let below_threshold = (MIC_EXPANDER_THRESHOLD_DB - level_db).max(0.0);
-        let reduction_db =
-            (below_threshold * (1.0 - 1.0 / MIC_EXPANDER_RATIO)).min(MIC_EXPANDER_MAX_REDUCTION_DB);
-        let target_gain = 10.0_f32.powf(-reduction_db / 20.0);
-        let coefficient = if target_gain > self.gain {
-            self.attack_coefficient
-        } else {
-            self.release_coefficient
-        };
-        self.gain += (target_gain - self.gain) * coefficient;
-        (filtered.0 * self.gain, filtered.1 * self.gain)
+        stereo
     }
 }
 
@@ -2458,15 +2396,15 @@ impl PeakLimiter {
 /// is reachable without constructing a `CMFormatDescription` — the reported bug
 /// was a wrong per-frame weight, so that arithmetic is what needs covering.
 struct MixGainStage {
-    mic_cleanup: MicCleanup,
+    voice_cleanup_enabled: bool,
     mic: MicAutoGain,
     limiter: PeakLimiter,
 }
 
 impl MixGainStage {
-    fn new(sample_rate: i32) -> Self {
+    fn new(sample_rate: i32, voice_cleanup_enabled: bool) -> Self {
         Self {
-            mic_cleanup: MicCleanup::new(sample_rate),
+            voice_cleanup_enabled,
             mic: MicAutoGain::new(sample_rate),
             limiter: PeakLimiter::new(sample_rate),
         }
@@ -2476,8 +2414,11 @@ impl MixGainStage {
     /// at unity and the mic is only ever boosted, with the limiter owning peak
     /// safety for the sum.
     fn frame(&mut self, system: (f32, f32), mic: (f32, f32)) -> (f32, f32) {
-        let mic = self.mic_cleanup.process(mic);
-        let mic_gain = self.mic.next_gain(mic.0, mic.1);
+        let mic_gain = if self.voice_cleanup_enabled {
+            self.mic.next_gain(mic.0, mic.1)
+        } else {
+            1.0
+        };
         let left = system.0 + mic.0 * mic_gain;
         let right = system.1 + mic.1 * mic_gain;
         let limit = self.limiter.next_gain(left.abs().max(right.abs()));
@@ -2601,6 +2542,7 @@ struct LiveAudioMixer {
     out_pos: i64,
     system: MixerTimeline,
     mic: MixerTimeline,
+    mic_denoiser: Option<MicDenoiser>,
     /// Gain stage, carried across chunks: emitted frames are already uploaded,
     /// so its state is the only memory the mix has.
     gain: MixGainStage,
@@ -2612,6 +2554,7 @@ impl LiveAudioMixer {
         rebase_output: bool,
         include_microphone: bool,
         capture_system_audio: bool,
+        voice_cleanup_enabled: bool,
     ) -> Result<Self, String> {
         let sample_rate = AUDIO_OUTPUT_SAMPLE_RATE as i32;
         let asbd = AudioStreamBasicDescription {
@@ -2657,7 +2600,8 @@ impl LiveAudioMixer {
             out_pos: 0,
             system: MixerTimeline::new(),
             mic: MixerTimeline::new(),
-            gain: MixGainStage::new(sample_rate),
+            mic_denoiser: voice_cleanup_enabled.then(MicDenoiser::new),
+            gain: MixGainStage::new(sample_rate, voice_cleanup_enabled),
             created_at: Instant::now(),
         })
     }
@@ -2666,6 +2610,22 @@ impl LiveAudioMixer {
     /// position, zero-filling any gap since the previous push (capped so a
     /// glitched timestamp can't allocate gigabytes).
     fn push(&mut self, source: MixSource, interleaved: &[f32], pts_seconds: f64) {
+        if source == MixSource::Mic {
+            let processed = self
+                .mic_denoiser
+                .as_mut()
+                .map(|denoiser| denoiser.process(interleaved, pts_seconds));
+            if let Some(processed) = processed {
+                for (processed, processed_pts) in processed {
+                    self.push_timeline(MixSource::Mic, &processed, processed_pts);
+                }
+                return;
+            }
+        }
+        self.push_timeline(source, interleaved, pts_seconds);
+    }
+
+    fn push_timeline(&mut self, source: MixSource, interleaved: &[f32], pts_seconds: f64) {
         let frames = interleaved.len() / 2;
         if frames == 0 {
             return;
@@ -2694,6 +2654,11 @@ impl LiveAudioMixer {
     /// Update the accumulated pause offset (seconds) applied to incoming
     /// source PTS in `push`. Set from the writer's shared offset on resume.
     fn set_pause_offset(&mut self, seconds: f64) {
+        if seconds > self.pause_offset_seconds + f64::EPSILON {
+            if let Some(denoiser) = self.mic_denoiser.as_mut() {
+                denoiser.reset();
+            }
+        }
         self.pause_offset_seconds = seconds;
     }
 
@@ -2799,6 +2764,14 @@ impl LiveAudioMixer {
         &mut self,
         flush: bool,
     ) -> Result<Vec<screencapturekit::cm::CMSampleBuffer>, String> {
+        if flush {
+            let processed = self.mic_denoiser.as_mut().map(MicDenoiser::flush);
+            if let Some(processed) = processed {
+                for (processed, processed_pts) in processed {
+                    self.push_timeline(MixSource::Mic, &processed, processed_pts);
+                }
+            }
+        }
         if self.anchor_seconds.is_none() {
             return Ok(Vec::new());
         }
@@ -4117,6 +4090,7 @@ pub(crate) fn start_custom_screencapturekit_backend_at(
         CustomWriterOutput::Standard
     };
     let mix_live = live_audio_mixing_enabled(output, include_audio, capture_system_audio);
+    let voice_cleanup_enabled = crate::config::feature_config(app).voice_cleanup_enabled;
     // The active custom capture is the single physical owner of mic/system
     // audio for both Rewind and ordinary Clips. Live transcription subscribes
     // to this producer instead of opening a competing SCK/AVAudioEngine input,
@@ -4135,6 +4109,7 @@ pub(crate) fn start_custom_screencapturekit_backend_at(
         capture_system_audio,
         include_audio,
         mix_live,
+        voice_cleanup_enabled,
         output,
         audio_producer,
     )?;
@@ -4343,36 +4318,39 @@ mod fragment_fence_tests {
     }
 
     #[test]
-    fn mic_cleanup_reduces_hum_without_hard_muting_speech() {
-        let sample_rate = 48_000.0_f32;
-        let mut cleanup = MicCleanup::new(sample_rate as i32);
-        let mut hum_energy = 0.0_f32;
-        let mut speech_energy = 0.0_f32;
-        for index in 0..(sample_rate as usize) {
-            let time = index as f32 / sample_rate;
-            let hum = (2.0 * std::f32::consts::PI * 60.0 * time).sin() * 0.08;
-            let speech = if (0.2..0.8).contains(&time) {
-                (2.0 * std::f32::consts::PI * 220.0 * time).sin() * 0.08
-            } else {
-                0.0
-            };
-            let output = cleanup.process((hum + speech, hum + speech));
-            if time < 0.15 || time > 0.85 {
-                hum_energy += output.0.abs();
-            } else {
-                speech_energy += output.0.abs();
-            }
-        }
-        assert!(hum_energy < 900.0, "hum remained too loud: {hum_energy}");
-        assert!(
-            speech_energy > 1_000.0,
-            "speech was gated out: {speech_energy}"
-        );
+    fn mic_denoiser_preserves_frame_boundaries_and_duration() {
+        let mut denoiser = MicDenoiser::new();
+        let first = vec![0.08_f32; 300 * 2];
+        let second = vec![0.12_f32; 300 * 2];
+
+        assert!(denoiser.process(&first, 10.0).is_empty());
+        let processed = denoiser.process(&second, 10.0 + 300.0 / 48_000.0);
+        assert_eq!(processed.len(), 1);
+        assert_eq!(processed[0].0.len(), 480 * 2);
+        assert_eq!(processed[0].1, 10.0);
+        assert!(processed[0].0.iter().all(|sample| sample.is_finite()));
+        assert!(processed[0].0.iter().any(|sample| sample.abs() > 0.01));
+
+        let flushed = denoiser.flush();
+        assert_eq!(flushed.len(), 1);
+        assert_eq!(flushed[0].0.len(), 120 * 2);
+        assert!(flushed[0].0.iter().all(|sample| sample.is_finite()));
+    }
+
+    #[test]
+    fn mic_denoiser_resets_pending_audio_after_pause() {
+        let mut denoiser = MicDenoiser::new();
+        let input = vec![0.1_f32; 120 * 2];
+        assert!(denoiser.process(&input, 10.0).is_empty());
+        denoiser.reset();
+        assert!(denoiser.flush().is_empty());
+        assert!(denoiser.process(&input, 20.0).is_empty());
+        assert_eq!(denoiser.flush()[0].1, 20.0);
     }
 
     #[test]
     fn mic_only_mixer_does_not_wait_for_a_disabled_system_source() {
-        let mixer = LiveAudioMixer::new(false, true, false).unwrap();
+        let mixer = LiveAudioMixer::new(false, true, false, true).unwrap();
         assert_eq!(mixer.compute_safe_end(false), 0);
     }
 

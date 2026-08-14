@@ -39,6 +39,7 @@ const messages = {
     unpinChat: "إلغاء تثبيت المحادثة",
   },
   navigation: {
+    agents: "الوكلاء",
     chat: "المحادثة",
     collapseSidebar: "طي الشريط الجانبي",
     database: "قاعدة البيانات",
@@ -50,7 +51,7 @@ const messages = {
     openNavigation: "فتح التنقل",
     settings: "الإعدادات",
     team: "الفريق",
-    triage: "Factory",
+    triage: "المصانع",
   },
   triage: {
     title: "Factory",
@@ -157,6 +158,7 @@ const messages = {
     agentsTab: "الوكلاء",
     agenticAppsTitle: "التطبيقات الوكيلة",
     agenticAppsEmpty: "لا توجد تطبيقات وكيلة في مساحة العمل هذه بعد.",
+    createApp: "إنشاء تطبيق",
     editAppDetails: "تعديل تفاصيل التطبيق",
     editAppDetailsDescription: "تحديث اسم العرض والوصف المشتركين لهذا التطبيق.",
     appName: "الاسم",
