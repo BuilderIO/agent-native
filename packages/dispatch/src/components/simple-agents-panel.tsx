@@ -250,9 +250,9 @@ function AgentEditorDialog({ resource, trigger, onSaved }: AgentEditorProps) {
               : "Create a reusable agent profile."}
           </DialogDescription>
         </DialogHeader>
-        <div className="space-y-4 py-2">
+        <div className="flex flex-col gap-4 py-2">
           <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
+            <div className="flex flex-col gap-2">
               <Label htmlFor="simple-agent-name">Name</Label>
               <Input
                 id="simple-agent-name"
@@ -261,7 +261,7 @@ function AgentEditorDialog({ resource, trigger, onSaved }: AgentEditorProps) {
                 placeholder="User Research"
               />
             </div>
-            <div className="space-y-2">
+            <div className="flex flex-col gap-2">
               <Label htmlFor="simple-agent-scope">Availability</Label>
               <Select
                 value={scope}
@@ -277,7 +277,7 @@ function AgentEditorDialog({ resource, trigger, onSaved }: AgentEditorProps) {
               </Select>
             </div>
           </div>
-          <div className="space-y-2">
+          <div className="flex flex-col gap-2">
             <Label htmlFor="simple-agent-description">Description</Label>
             <Input
               id="simple-agent-description"
@@ -304,7 +304,7 @@ function AgentEditorDialog({ resource, trigger, onSaved }: AgentEditorProps) {
             </CollapsibleTrigger>
             <CollapsibleContent className="pt-3">
               <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-2">
+                <div className="flex flex-col gap-2">
                   <Label htmlFor="simple-agent-model">Model</Label>
                   <Input
                     id="simple-agent-model"
@@ -313,7 +313,7 @@ function AgentEditorDialog({ resource, trigger, onSaved }: AgentEditorProps) {
                     placeholder="inherit"
                   />
                 </div>
-                <div className="space-y-2">
+                <div className="flex flex-col gap-2">
                   <Label htmlFor="simple-agent-tools">Tools</Label>
                   <Input
                     id="simple-agent-tools"
@@ -325,7 +325,7 @@ function AgentEditorDialog({ resource, trigger, onSaved }: AgentEditorProps) {
               </div>
             </CollapsibleContent>
           </Collapsible>
-          <div className="space-y-2">
+          <div className="flex flex-col gap-2">
             <Label htmlFor="simple-agent-instructions">Instructions</Label>
             <Textarea
               id="simple-agent-instructions"
@@ -477,7 +477,7 @@ function AgentPackDialog({
           </DialogDescription>
         </DialogHeader>
         <div className="grid min-h-0 gap-4 md:grid-cols-[220px_minmax(0,1fr)]">
-          <div className="min-w-0 space-y-2">
+          <div className="flex min-w-0 flex-col gap-2">
             <div className="flex items-center justify-between gap-2">
               <span className="text-xs font-medium text-muted-foreground">
                 Files
@@ -496,8 +496,8 @@ function AgentPackDialog({
                       Add a text reference or agent-owned skill to this pack.
                     </DialogDescription>
                   </DialogHeader>
-                  <div className="space-y-4 py-2">
-                    <div className="space-y-2">
+                  <div className="flex flex-col gap-4 py-2">
+                    <div className="flex flex-col gap-2">
                       <Label htmlFor="agent-pack-file-path">Path</Label>
                       <Input
                         id="agent-pack-file-path"
@@ -506,7 +506,7 @@ function AgentPackDialog({
                         placeholder="context/brief.md"
                       />
                     </div>
-                    <div className="space-y-2">
+                    <div className="flex flex-col gap-2">
                       <Label htmlFor="agent-pack-file-kind">Type</Label>
                       <Select
                         value={newKind}
@@ -525,7 +525,7 @@ function AgentPackDialog({
                         </SelectContent>
                       </Select>
                     </div>
-                    <div className="space-y-2">
+                    <div className="flex flex-col gap-2">
                       <Label htmlFor="agent-pack-file-content">Content</Label>
                       <Textarea
                         id="agent-pack-file-content"
@@ -550,7 +550,7 @@ function AgentPackDialog({
             {query.isLoading ? (
               <Skeleton className="h-24 w-full" />
             ) : (
-              <div className="space-y-1">
+              <div className="flex flex-col gap-1">
                 {files.map((file) => (
                   <Button
                     key={file.id}
@@ -567,7 +567,7 @@ function AgentPackDialog({
               </div>
             )}
           </div>
-          <div className="min-w-0 space-y-3">
+          <div className="flex min-w-0 flex-col gap-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="min-w-0">
                 <div className="truncate text-sm font-medium">
@@ -777,7 +777,7 @@ function ImportAgentDialog({ onImported }: { onImported?: () => void }) {
             <TabsTrigger value="folder">Agent folder</TabsTrigger>
             <TabsTrigger value="endpoint">Connect endpoint</TabsTrigger>
           </TabsList>
-          <TabsContent value="file" className="space-y-4 py-4">
+          <TabsContent value="file" className="flex flex-col gap-4 py-4">
             <div className="flex flex-wrap items-center gap-3">
               <Button
                 type="button"
@@ -798,7 +798,7 @@ function ImportAgentDialog({ onImported }: { onImported?: () => void }) {
                 {fileName || "Claude .md or JSON agent definition"}
               </span>
             </div>
-            <div className="space-y-2">
+            <div className="flex flex-col gap-2">
               <Label htmlFor="import-agent-source">Definition</Label>
               <Textarea
                 id="import-agent-source"
@@ -809,7 +809,7 @@ function ImportAgentDialog({ onImported }: { onImported?: () => void }) {
                 placeholder="Paste a Claude-style agent file or a JSON definition"
               />
             </div>
-            <div className="space-y-2">
+            <div className="flex flex-col gap-2">
               <Label htmlFor="import-agent-scope">Availability</Label>
               <Select
                 value={scope}
@@ -839,7 +839,7 @@ function ImportAgentDialog({ onImported }: { onImported?: () => void }) {
               </Button>
             </DialogFooter>
           </TabsContent>
-          <TabsContent value="folder" className="space-y-4 py-4">
+          <TabsContent value="folder" className="flex flex-col gap-4 py-4">
             <div className="flex flex-wrap items-center gap-3">
               <Button
                 type="button"
@@ -867,7 +867,7 @@ function ImportAgentDialog({ onImported }: { onImported?: () => void }) {
                 {packWarnings.join(" ")}
               </div>
             ) : null}
-            <div className="space-y-2">
+            <div className="flex flex-col gap-2">
               <Label htmlFor="import-agent-pack-scope">Availability</Label>
               <Select
                 value={scope}
@@ -891,8 +891,8 @@ function ImportAgentDialog({ onImported }: { onImported?: () => void }) {
               </Button>
             </DialogFooter>
           </TabsContent>
-          <TabsContent value="endpoint" className="space-y-4 py-4">
-            <div className="space-y-2">
+          <TabsContent value="endpoint" className="flex flex-col gap-4 py-4">
+            <div className="flex flex-col gap-2">
               <Label htmlFor="external-agent-url">Endpoint URL</Label>
               <Input
                 id="external-agent-url"
@@ -902,7 +902,7 @@ function ImportAgentDialog({ onImported }: { onImported?: () => void }) {
               />
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
+              <div className="flex flex-col gap-2">
                 <Label htmlFor="external-agent-name">Name</Label>
                 <Input
                   id="external-agent-name"
@@ -911,14 +911,14 @@ function ImportAgentDialog({ onImported }: { onImported?: () => void }) {
                   placeholder="Research partner"
                 />
               </div>
-              <div className="space-y-2">
+              <div className="flex flex-col gap-2">
                 <Label>Availability</Label>
                 <div className="flex h-10 items-center">
                   <Badge variant="secondary">Workspace</Badge>
                 </div>
               </div>
             </div>
-            <div className="space-y-2">
+            <div className="flex flex-col gap-2">
               <Label htmlFor="external-agent-description">Description</Label>
               <Input
                 id="external-agent-description"
@@ -1177,13 +1177,13 @@ export function SimpleAgentsPanel() {
   }
 
   return (
-    <section className="space-y-4">
+    <section className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-end gap-2">
         <ImportAgentDialog onImported={() => void query.refetch()} />
         <AgentEditorDialog onSaved={() => void query.refetch()} />
       </div>
       {query.isLoading && agents.length === 0 ? (
-        <div className="space-y-3">
+        <div className="flex flex-col gap-3">
           {[0, 1, 2].map((item) => (
             <div key={item} className="rounded-xl border bg-card px-4 py-3">
               <Skeleton className="h-4 w-1/3" />
@@ -1192,7 +1192,7 @@ export function SimpleAgentsPanel() {
           ))}
         </div>
       ) : agents.length > 0 ? (
-        <div className="space-y-2">
+        <div className="flex flex-col gap-2">
           {agents.map((agent) => (
             <AgentRow
               key={agent.id}
