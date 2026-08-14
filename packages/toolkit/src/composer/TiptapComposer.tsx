@@ -1416,11 +1416,12 @@ function ModelSelector({
   );
   const showBuilderAction =
     hasUnconfiguredVisibleModels &&
-    !builderFlow.configured &&
-    !builderFlow.envManaged &&
-    !hasConfiguredBuilderModels &&
-    !hasConnectedSubscription &&
-    Boolean(onConnectProvider || providerConnectStatusEnabled);
+    (Boolean(onConnectProvider) ||
+      (providerConnectStatusEnabled &&
+        !builderFlow.configured &&
+        !builderFlow.envManaged &&
+        !hasConfiguredBuilderModels &&
+        !hasConnectedSubscription));
   const showAddKeysAction = hasUnconfiguredVisibleModels;
   const showProviderActions = showBuilderAction || showAddKeysAction;
   const onlyConnectPathAvailable =
