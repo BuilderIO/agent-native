@@ -175,7 +175,7 @@ export default function ClipsTemplate() {
   }
 
   return (
-    <main className="template-detail-page mx-auto w-full max-w-[1200px] overflow-x-clip px-4 sm:px-6">
+    <main className="template-detail-page mx-auto w-full max-w-[1200px] overflow-x-clip bg-[#0a0a0a] px-4 sm:px-6">
       {/* Hero */}
       <section className="py-12 sm:py-16 lg:py-20">
         <div className="relative overflow-hidden border border-[var(--docs-border)]">
@@ -248,9 +248,7 @@ export default function ClipsTemplate() {
           <div className="flex flex-1 items-center gap-6 px-6 py-8 sm:px-10 lg:py-8">
             <p className="min-w-0 flex-1 font-mono text-[15px] leading-6 text-[#9a9997] sm:text-lg">
               <span>Watch </span>
-              <span className="text-white">
-                {CLIPS_PROMPT_URL}.
-              </span>
+              <span className="text-white">{CLIPS_PROMPT_URL}.</span>
               <span> {CLIPS_PROMPT_INSTRUCTION}</span>
             </p>
 
@@ -296,24 +294,21 @@ export default function ClipsTemplate() {
       <section className="border-t border-[var(--docs-border)] py-16">
         <div className="grid overflow-hidden rounded-xl border border-[var(--docs-border)] sm:grid-cols-3">
           {[
-            { title: "Record", caption: "Share your screen", bg: "var(--bg)" },
+            { title: "Record", caption: "Share your screen" },
             {
               title: "AI Agents",
               caption: "Can See + Hear",
-              bg: "var(--bg-secondary)",
             },
             {
               title: "Auto",
               caption: t("templateLanding.clips.s003"),
-              bg: "var(--bg)",
             },
           ].map((stat, index) => (
             <div
               key={stat.title}
-              className={`flex min-h-[220px] flex-col justify-center gap-3 border-[var(--docs-border)] p-8 sm:min-h-[260px] sm:p-10 ${
+              className={`flex min-h-[220px] flex-col justify-center gap-3 border-[var(--docs-border)] bg-[#0a0a0a] p-8 sm:min-h-[260px] sm:p-10 ${
                 index > 0 ? "border-t sm:border-t-0 sm:border-s" : ""
               }`}
-              style={{ background: stat.bg }}
             >
               <div className="text-3xl font-medium tracking-tight text-[var(--fg)] sm:text-4xl">
                 {stat.title}
@@ -338,7 +333,7 @@ export default function ClipsTemplate() {
         </div>
 
         <div className="flex flex-col border-y border-[#1a1a1a] lg:flex-row lg:items-stretch">
-          <div className="flex shrink-0 flex-col justify-center gap-6 border-b border-[#1a1a1a] bg-[#0f0f0f] px-6 py-10 sm:px-10 lg:w-[416px] lg:border-b-0 lg:border-e lg:ps-8 lg:pe-16 lg:py-0">
+          <div className="flex shrink-0 flex-col justify-center gap-6 border-b border-[#1a1a1a] bg-[#0a0a0a] px-6 py-10 sm:px-10 lg:w-[416px] lg:border-b-0 lg:border-e lg:ps-8 lg:pe-16 lg:py-0">
             <h2 className="text-[1.75rem] font-medium leading-[1.15] tracking-[-0.56px] text-white">
               {t("templateLanding.clips.s010")}
             </h2>
