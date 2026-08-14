@@ -1493,7 +1493,7 @@ function ModelSelector({
                       )}
                     </span>
                     {isSelected && isConfigured && (
-                      <IconCheck className="h-3.5 w-3.5 shrink-0 text-blue-500" />
+                      <IconCheck className="h-3.5 w-3.5 shrink-0 text-primary" />
                     )}
                   </button>
                   {!isConfigured && statusLabel && (

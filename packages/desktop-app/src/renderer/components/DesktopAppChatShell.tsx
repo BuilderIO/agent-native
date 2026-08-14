@@ -56,6 +56,7 @@ export default function DesktopAppChatShell({
     try {
       const stored = localStorage.getItem(`desktop-app-agent:${appId}`);
       if (stored) setSelectedAgent(stored);
+      // coercion-ok: localStorage is optional renderer state; the explicit default remains active.
     } catch {
       // Keep the default agent when storage is unavailable.
     }
@@ -101,6 +102,7 @@ export default function DesktopAppChatShell({
       setSelectedAgent(agent);
       try {
         localStorage.setItem(`desktop-app-agent:${appId}`, agent);
+        // coercion-ok: localStorage is optional renderer state; this mount already has the selection.
       } catch {
         // The selection still applies for this mount when storage is unavailable.
       }
