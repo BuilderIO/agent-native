@@ -160,7 +160,7 @@ export default function PricingPage() {
               >
                 Builder.io
               </a>{" "}
-              or configure another all-in-one provider within your app settings.
+              or configure another all-in-one provider within your app settings after logging in.
             </p>
           </div>
         </div>
