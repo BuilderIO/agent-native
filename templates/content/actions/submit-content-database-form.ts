@@ -195,6 +195,15 @@ function resolveSubmittedProperties(
 export default defineAction({
   description:
     "Submit one row through a Content database form. Validates that form's required questions, resolves option labels safely, writes the title, Blocks, and property values atomically, verifies the saved row, and returns its exact page link.",
+  publicAgent: {
+    expose: true,
+    readOnly: false,
+    requiresAuth: true,
+    isConsequential: true,
+    title: "Submit Content Database Form",
+    description:
+      "Delegate a validated, atomic submission to an existing Content database form.",
+  },
   schema: submitContentDatabaseFormSchema,
   mcpApp: {
     compactCatalog: true,
