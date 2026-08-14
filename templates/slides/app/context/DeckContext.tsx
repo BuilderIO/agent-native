@@ -315,6 +315,8 @@ function normalizeActionDeck(value: unknown): Deck | null {
 const pendingSaves = new Map<string, ReturnType<typeof setTimeout>>();
 const inFlightSaves = new Set<string>();
 const inFlightSaveChains = new Map<string, Promise<void>>();
+const inFlightSaveControllers = new Map<string, AbortController>();
+const deckSaveGenerations = new Map<string, number>();
 const immediateFlushRequests = new Set<string>();
 const deckSaveRetryAttempts = new Map<string, number>();
 const failedSaveDecks = new Set<string>();
@@ -406,7 +408,11 @@ function deckPayload(deck: Deck): Record<string, unknown> {
  * the `save-deck` action is called first, then any trailing granular ops are
  * sent through `patch-deck`.
  */
-async function persistDeckOps(deckId: string, ops: GranularOp[]) {
+async function persistDeckOps(
+  deckId: string,
+  ops: GranularOp[],
+  signal?: AbortSignal,
+) {
   if (ops[0].op === "full-replace") {
     // Legacy full-deck write — used by undo/redo and setDeckSlides.
     // `callAction` bounds it so a stalled save can't wedge `inFlightSaves`
@@ -416,20 +422,28 @@ async function persistDeckOps(deckId: string, ops: GranularOp[]) {
     await callAction(
       "save-deck",
       { deckId, deck: deckPayload(deck) },
-      { method: "PUT" },
+      { method: "PUT", signal },
     );
     const trailingOps = ops.slice(1) as PatchDeckOp[];
     if (trailingOps.length > 0) {
-      await callAction("patch-deck", {
-        deckId,
-        operations: trailingOps,
-      });
+      await callAction(
+        "patch-deck",
+        {
+          deckId,
+          operations: trailingOps,
+        },
+        { signal },
+      );
     }
   } else {
-    await callAction("patch-deck", {
-      deckId,
-      operations: ops as PatchDeckOp[],
-    });
+    await callAction(
+      "patch-deck",
+      {
+        deckId,
+        operations: ops as PatchDeckOp[],
+      },
+      { signal },
+    );
   }
 }
 
@@ -458,15 +472,23 @@ function drainPendingDeckOps(deckId: string): Promise<void> {
     return Promise.resolve();
   }
 
+  const generation = deckSaveGenerations.get(deckId) ?? 0;
+  const controller =
+    typeof AbortController === "undefined" ? null : new AbortController();
+  if (controller) inFlightSaveControllers.set(deckId, controller);
   inFlightSaves.add(deckId);
-  let succeeded = false;
-  const next = persistDeckOps(deckId, ops)
+  const isCurrentGeneration = () =>
+    (deckSaveGenerations.get(deckId) ?? 0) === generation;
+  const next = persistDeckOps(deckId, ops, controller?.signal)
     .then(() => {
-      succeeded = true;
+      if (!isCurrentGeneration()) return;
       deckSaveRetryAttempts.delete(deckId);
       failedSaveDecks.delete(deckId);
     })
     .catch((err) => {
+      // A restore or delete invalidated this request. Its result must not
+      // resurrect the old queue or schedule a retry after the boundary.
+      if (!isCurrentGeneration()) return;
       console.error(`Failed to save deck ${deckId}:`, err);
       const pending = pendingOpsQueue.get(deckId) ?? [];
       pendingOpsQueue.set(deckId, [...ops, ...pending]);
@@ -491,10 +513,13 @@ function drainPendingDeckOps(deckId: string): Promise<void> {
     .finally(() => {
       if (inFlightSaveChains.get(deckId) === next) {
         inFlightSaveChains.delete(deckId);
+        if (controller && inFlightSaveControllers.get(deckId) === controller) {
+          inFlightSaveControllers.delete(deckId);
+        }
         inFlightSaves.delete(deckId);
         const flushImmediately = immediateFlushRequests.delete(deckId);
         notifySaveListeners();
-        if (succeeded && flushImmediately) {
+        if (flushImmediately) {
           void drainPendingDeckOps(deckId);
         }
       }
@@ -650,6 +675,8 @@ function flushPendingSaves() {
 }
 
 function discardPendingDeckOps(deckId: string) {
+  deckSaveGenerations.set(deckId, (deckSaveGenerations.get(deckId) ?? 0) + 1);
+  inFlightSaveControllers.get(deckId)?.abort();
   const timer = pendingSaves.get(deckId);
   if (timer) clearTimeout(timer);
   pendingSaves.delete(deckId);

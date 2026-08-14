@@ -56,6 +56,7 @@ function AgenticAppsSection({ t }: { t: ReturnType<typeof useT> }) {
           <CreateAppPopover
             align="end"
             trigger={<CreateAppButton label={createAppLabel} />}
+            onCreated={() => void query.refetch()}
           />
         ) : null}
       </div>
@@ -86,6 +87,7 @@ function AgenticAppsSection({ t }: { t: ReturnType<typeof useT> }) {
           <div className="mt-4 flex justify-center">
             <CreateAppPopover
               trigger={<CreateAppButton label={createAppLabel} />}
+              onCreated={() => void query.refetch()}
             />
           </div>
         </div>

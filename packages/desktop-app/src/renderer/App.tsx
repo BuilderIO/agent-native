@@ -868,6 +868,11 @@ export default function App() {
       const isSidebarToggle = isAgentSidebarToggleShortcut(e);
       if (!isSidebarToggle && isEditableTarget(e.target)) return;
       e.preventDefault();
+      // AgentSidebar owns the document-level shell shortcut. The App listener
+      // only needs to handle the same key when Electron forwards a guest
+      // webview keydown through the main process; letting both paths dispatch
+      // would toggle the rail twice for shell-originated keydowns.
+      if (isSidebarToggle) return;
       handleShortcut(
         e.code === "Backslash" ? "\\" : e.key,
         e.shiftKey,

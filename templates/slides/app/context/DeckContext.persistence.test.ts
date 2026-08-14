@@ -76,11 +76,15 @@ function wrapper({ children }: { children: ReactNode }) {
 
 function setupFetch(options?: {
   hangPut?: boolean;
+  deferredPut?: boolean;
   failDeckList?: boolean;
   deleteDeckNotFound?: boolean;
   patchFailures?: { deckId: string; count: number };
 }) {
   let resolveCreate: (response: Response) => void = () => {};
+  let resolveDeferredPut: (() => void) | null = null;
+  let rejectDeferredPut: ((error: unknown) => void) | null = null;
+  let firstPutSignal: AbortSignal | undefined;
   let accessibleDeck: Deck | null = null;
   const patchAttempts = new Map<string, number>();
   let putAttempts = 0;
@@ -98,6 +102,16 @@ function setupFetch(options?: {
     // timeout drains `inFlightSaves` instead of wedging it.
     if (href.includes("/_agent-native/actions/save-deck")) {
       putAttempts += 1;
+      if (options?.deferredPut && putAttempts === 1) {
+        firstPutSignal = init?.signal ?? undefined;
+        return new Promise<Response>((resolve, reject) => {
+          resolveDeferredPut = () =>
+            resolve(
+              new Response(JSON.stringify({ ok: true }), { status: 200 }),
+            );
+          rejectDeferredPut = reject;
+        });
+      }
       if (options?.hangPut && putAttempts === 1) {
         return new Promise<Response>((_resolve, reject) => {
           const signal = init?.signal;
@@ -179,6 +193,10 @@ function setupFetch(options?: {
   return {
     fetchMock,
     resolveCreate: (response: Response) => resolveCreate(response),
+    resolveDeferredPut: () => resolveDeferredPut?.(),
+    rejectDeferredPut: (error: unknown = new Error("late save failure")) =>
+      rejectDeferredPut?.(error),
+    getFirstPutSignal: () => firstPutSignal,
     setAccessibleDeck: (deck: Deck) => {
       accessibleDeck = deck;
     },
@@ -1291,6 +1309,91 @@ describe("DeckContext deck creation persistence", () => {
         }),
       ]),
     });
+
+    vi.useRealTimers();
+  });
+
+  it("aborts and ignores an in-flight save when restoring an authoritative version", async () => {
+    window.history.pushState({}, "", "/deck/restore-race-deck");
+    const initial: Deck = {
+      id: "restore-race-deck",
+      title: "Restore Race Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<h1>Before</h1>",
+          notes: "",
+          layout: "title",
+        },
+      ],
+    };
+    const restored: Deck = {
+      ...initial,
+      updatedAt: "2026-05-12T00:01:00.000Z",
+      slides: [
+        {
+          ...initial.slides[0]!,
+          content: "<h1>Restored version</h1>",
+        },
+      ],
+    };
+    const {
+      fetchMock,
+      setAccessibleDeck,
+      rejectDeferredPut,
+      getFirstPutSignal,
+    } = setupFetch({ deferredPut: true });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+    await waitFor(() =>
+      expect(result.current.getDeck(initial.id)?.slides[0]?.content).toBe(
+        "<h1>Before</h1>",
+      ),
+    );
+
+    vi.useFakeTimers();
+    act(() => {
+      result.current.setDeckSlides(initial.id, [
+        {
+          ...initial.slides[0]!,
+          content: "<h1>Stale local edit</h1>",
+        },
+      ]);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    expect(getFirstPutSignal()).toBeDefined();
+
+    setAccessibleDeck(restored);
+    await act(async () => {
+      await result.current.refreshOpenDeck(initial.id, {
+        clearPendingWrites: true,
+      });
+    });
+    expect(getFirstPutSignal()?.aborted).toBe(true);
+    expect(result.current.getDeck(initial.id)?.slides[0]?.content).toBe(
+      "<h1>Restored version</h1>",
+    );
+
+    // A transport can still reject after it observes the abort. That late
+    // result must not resurrect the stale queue or schedule a retry.
+    await act(async () => {
+      rejectDeferredPut();
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+    const saveCalls = fetchMock.mock.calls.filter(([url]) =>
+      String(url).includes("/_agent-native/actions/save-deck"),
+    );
+    expect(saveCalls).toHaveLength(1);
+    expect(hasUncommittedDeckChanges(initial.id, new Set())).toBe(false);
 
     vi.useRealTimers();
   });

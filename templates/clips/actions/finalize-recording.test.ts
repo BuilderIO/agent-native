@@ -920,4 +920,72 @@ describe("finalize-recording resumable recovery", () => {
     );
     expect(deleteResumableSession).toHaveBeenCalledWith("rec_1", null);
   });
+
+  it("aborts the provider session and preserves the real completion error", async () => {
+    vi.clearAllMocks();
+    const { deleteResumableSession, getResumableSession } =
+      await import("../server/lib/resumable-session.js");
+    const { resolveResumableUploadProvider } =
+      await import("../server/lib/resumable-upload-provider.js");
+    const completeSession = vi.fn(async () => {
+      throw new Error("S3 CompleteMultipartUpload failed (500): R2 failure");
+    });
+    const abortSession = vi.fn(async () => undefined);
+    vi.mocked(getResumableSession).mockResolvedValue({
+      providerId: "s3",
+      sessionId: "upload-failed",
+      meta: {
+        filename: "rec_1.webm",
+        objectKey: "clips/rec_1.webm",
+      },
+      bytesUploaded: 157_500_000,
+    });
+    vi.mocked(resolveResumableUploadProvider).mockResolvedValue({
+      id: "s3",
+      name: "S3",
+      isConfigured: () => true,
+      upload: vi.fn(),
+      resumable: {
+        startSession: vi.fn(),
+        relayChunk: vi.fn(),
+        completeSession,
+        abortSession,
+      },
+    });
+    mockState.uploadState = {
+      mimeType: "video/webm",
+      durationMs: 1234,
+      width: 1280,
+      height: 720,
+      hasAudio: true,
+      hasCamera: false,
+    };
+    mockState.existingRecording.status = "uploading";
+    mockState.existingRecording.uploadGenerationId = null;
+    mockState.selectRows = [];
+    mockReadAppState.mockImplementation(async (key: string) =>
+      key === "recording-upload-rec_1" ? mockState.uploadState : null,
+    );
+    mockUpdateWhere.mockImplementation(() => ({
+      returning: mockUpdateReturning,
+    }));
+
+    await expect(
+      finalizeRecording.run({
+        id: "rec_1",
+        mimeType: "video/webm",
+      }),
+    ).rejects.toThrow(
+      "Upload completion failed: S3 CompleteMultipartUpload failed (500): R2 failure",
+    );
+
+    expect(abortSession).toHaveBeenCalledWith({
+      sessionId: "upload-failed",
+      meta: {
+        filename: "rec_1.webm",
+        objectKey: "clips/rec_1.webm",
+      },
+    });
+    expect(deleteResumableSession).toHaveBeenCalledWith("rec_1", null);
+  });
 });

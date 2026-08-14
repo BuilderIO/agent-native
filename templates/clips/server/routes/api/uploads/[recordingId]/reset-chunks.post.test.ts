@@ -12,6 +12,7 @@ const mockIsFeatureFlagEnabled = vi.hoisted(() => vi.fn());
 const mockGetEventOwnerContext = vi.hoisted(() => vi.fn());
 const mockOwnerEmailMatches = vi.hoisted(() => vi.fn());
 const mockDeleteResumableSession = vi.hoisted(() => vi.fn());
+const mockGetResumableSession = vi.hoisted(() => vi.fn());
 const mockSetResumableSession = vi.hoisted(() => vi.fn());
 const mockStartSession = vi.hoisted(() => vi.fn());
 const mockAbortSession = vi.hoisted(() => vi.fn());
@@ -120,6 +121,7 @@ vi.mock("../../../../lib/media-verification-state.js", () => ({
 vi.mock("../../../../lib/resumable-session.js", () => ({
   deleteResumableSession: (...args: unknown[]) =>
     mockDeleteResumableSession(...args),
+  getResumableSession: (...args: unknown[]) => mockGetResumableSession(...args),
   setResumableSession: (...args: unknown[]) => mockSetResumableSession(...args),
 }));
 
@@ -152,6 +154,7 @@ describe("/api/uploads/:recordingId/reset-chunks route", () => {
     mockOwnerEmailMatches.mockReturnValue("owner-match");
     mockDeleteRecordingChunks.mockResolvedValue(3);
     mockDeleteResumableSession.mockResolvedValue(undefined);
+    mockGetResumableSession.mockResolvedValue(null);
     mockSetResumableSession.mockResolvedValue(undefined);
     mockWriteAppState.mockResolvedValue(undefined);
     mockReadAppState.mockResolvedValue({
@@ -238,6 +241,43 @@ describe("/api/uploads/:recordingId/reset-chunks route", () => {
         lastCommittedIndex: -1,
       },
       expect.any(String),
+    );
+  });
+
+  it("aborts the discarded provider session before replacing its local handle", async () => {
+    mockExistingRecording.current.uploadGenerationId = "generation-old";
+    mockReadBody.mockResolvedValue({
+      requestStreaming: true,
+      mimeType: "video/webm",
+      uploadGenerationId: "generation-old",
+      useGenerationFence: true,
+    });
+    mockGetResumableSession.mockResolvedValue({
+      providerId: "test-provider",
+      sessionId: "old-session",
+      meta: { objectKey: "clips/rec-1.webm" },
+      bytesUploaded: 12,
+    });
+
+    await expect(handler({} as any)).resolves.toEqual(
+      expect.objectContaining({
+        ok: true,
+        uploadMode: "streaming",
+        uploadGenerationId: expect.any(String),
+      }),
+    );
+
+    expect(mockGetResumableSession).toHaveBeenCalledWith(
+      "rec-1",
+      "generation-old",
+    );
+    expect(mockAbortSession).toHaveBeenCalledWith({
+      sessionId: "old-session",
+      meta: { objectKey: "clips/rec-1.webm" },
+    });
+    expect(mockDeleteResumableSession).toHaveBeenCalledWith(
+      "rec-1",
+      "generation-old",
     );
   });
 
