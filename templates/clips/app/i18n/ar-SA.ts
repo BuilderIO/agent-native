@@ -1590,7 +1590,10 @@ const messages = {
     title: "Meetings (مترجم)",
     intro:
       "Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time. (مترجم)",
-    searchPlaceholder: "Search meetings... (مترجم)",
+    searchPlaceholder: "Search meetings, attendees, and transcripts... (مترجم)",
+    comingUp: "Coming up (مترجم)",
+    loadOlder: "Load older (مترجم)",
+    searchFailed: "Couldn't search meetings. Try again in a moment. (مترجم)",
     clearSearch: "Clear search (مترجم)",
     noMeetingsYet: "No meetings yet (مترجم)",
     noMeetingsDescription:

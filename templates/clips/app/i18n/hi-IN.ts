@@ -1571,7 +1571,11 @@ Clips में उपयोगकर्ताओं को दिखने व�
     title: "Meetings (स्थानीयकृत)",
     intro:
       "Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time. (स्थानीयकृत)",
-    searchPlaceholder: "Search meetings... (स्थानीयकृत)",
+    searchPlaceholder:
+      "Search meetings, attendees, and transcripts... (स्थानीयकृत)",
+    comingUp: "Coming up (स्थानीयकृत)",
+    loadOlder: "Load older (स्थानीयकृत)",
+    searchFailed: "Couldn't search meetings. Try again in a moment. (स्थानीयकृत)",
     clearSearch: "Clear search (स्थानीयकृत)",
     noMeetingsYet: "No meetings yet (स्थानीयकृत)",
     noMeetingsDescription:

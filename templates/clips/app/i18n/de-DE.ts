@@ -1619,7 +1619,12 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     title: "Meetings (Lokalisiert)",
     intro:
       "Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time. (Lokalisiert)",
-    searchPlaceholder: "Search meetings... (Lokalisiert)",
+    searchPlaceholder:
+      "Search meetings, attendees, and transcripts... (Lokalisiert)",
+    comingUp: "Coming up (Lokalisiert)",
+    loadOlder: "Load older (Lokalisiert)",
+    searchFailed:
+      "Couldn't search meetings. Try again in a moment. (Lokalisiert)",
     clearSearch: "Clear search (Lokalisiert)",
     noMeetingsYet: "No meetings yet (Lokalisiert)",
     noMeetingsDescription:

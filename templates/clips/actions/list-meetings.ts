@@ -7,6 +7,10 @@
  *   - view='all'      — every visible meeting (excluding trashed)
  *   - view='trash'    — trashed_at is not null
  *
+ *   `hasContent` narrows any view to meetings that actually hold something —
+ *   see `./lib/meeting-content.ts`. The Meetings history list uses it so notes
+ *   taken without a linked recording still appear.
+ *
  * Calendar behavior:
  *   Connected Google Calendar accounts are read live on every call. We only
  *   materialize a calendar event into `clips_meetings` when the user records
@@ -21,11 +25,13 @@ import {
   asc,
   desc,
   eq,
+  inArray,
   isNull,
   isNotNull,
   lt,
   gte,
   lte,
+  ne,
   or,
   sql,
 } from "drizzle-orm";
@@ -48,8 +54,22 @@ import {
 } from "../server/lib/calendar-event-meetings.js";
 import { listEvents } from "../server/lib/google-calendar-client.js";
 import { booleanParam } from "./lib/cli-params.js";
+import { meetingRowHasContent } from "./lib/meeting-content.js";
 
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+
+/** SQL mirror of `meetingRowHasContent`. Keep the two in lockstep. */
+function meetingHasContentFilter() {
+  return or(
+    isNotNull(schema.meetings.recordingId),
+    isNotNull(schema.meetings.actualStart),
+    isNotNull(schema.meetings.actualEnd),
+    sql`trim(${schema.meetings.summaryMd}) <> ''`,
+    sql`trim(${schema.meetings.userNotesMd}) <> ''`,
+    ne(schema.meetings.bulletsJson, "[]"),
+    ne(schema.meetings.actionItemsJson, "[]"),
+  )!;
+}
 
 export default defineAction({
   description:
@@ -64,6 +84,11 @@ export default defineAction({
     recordedOnly: booleanParam
       .default(false)
       .describe("Only return persisted meetings that have a linked recording."),
+    hasContent: booleanParam
+      .default(false)
+      .describe(
+        "Only return persisted meetings that hold something worth reopening — a linked recording, an actual start/end, notes, a summary, bullets, or action items. Prefer this over recordedOnly for history: live notes taken without a linked recording still count.",
+      ),
     includeLiveCalendar: booleanParam
       .default(true)
       .describe(
@@ -111,6 +136,8 @@ export default defineAction({
     // offset + limit window before merging — fetching only `limit` would drop
     // events once offset > 0 or the calendar is large. Keep the hard caps
     // (500 persisted, 250 live) so a huge calendar can't blow up the request.
+    // We fetch one row past the window purely as a `hasMore` probe: the extra
+    // row is never returned, it only tells the caller another page exists.
     const windowCount = args.offset + args.limit;
     const upcomingWindowMaxIso = args.upcomingWithinMin
       ? new Date(
@@ -160,6 +187,9 @@ export default defineAction({
     if (args.recordedOnly) {
       whereClauses.push(isNotNull(schema.meetings.recordingId));
     }
+    if (args.hasContent) {
+      whereClauses.push(meetingHasContentFilter());
+    }
 
     const orderBy =
       args.view === "upcoming"
@@ -175,8 +205,25 @@ export default defineAction({
       .from(schema.meetings)
       .where(and(...whereClauses))
       .orderBy(...orderBy)
-      .limit(Math.min(500, windowCount))
+      .limit(Math.min(500, windowCount + 1))
       .offset(0);
+
+    // Participants drive the history row's avatar stack and "who was on this
+    // call" subtitle. Live calendar events carry their own attendees, so this
+    // only backfills persisted rows, in one batched read rather than per row.
+    const persistedIds = rows.map((m) => m.id);
+    const participantRows = persistedIds.length
+      ? await db
+          .select()
+          .from(schema.meetingParticipants)
+          .where(inArray(schema.meetingParticipants.meetingId, persistedIds))
+      : [];
+    const participantsByMeeting = new Map<string, typeof participantRows>();
+    for (const participant of participantRows) {
+      const list = participantsByMeeting.get(participant.meetingId) ?? [];
+      list.push(participant);
+      participantsByMeeting.set(participant.meetingId, list);
+    }
 
     // Add a derived `summaryPreview` (first ~100 chars of summaryMd) so the
     // Granola-style cards can render a one-liner without re-parsing markdown.
@@ -185,7 +232,11 @@ export default defineAction({
       const preview = summary
         ? summary.replace(/\s+/g, " ").slice(0, 100)
         : null;
-      return { ...m, summaryPreview: preview };
+      return {
+        ...m,
+        summaryPreview: preview,
+        participants: participantsByMeeting.get(m.id) ?? [],
+      };
     });
 
     const liveMeetings: any[] = [];
@@ -383,13 +434,7 @@ export default defineAction({
       if (
         liveEventEmitted &&
         meeting.source === "calendar" &&
-        !meeting.recordingId &&
-        !meeting.actualStart &&
-        !meeting.actualEnd &&
-        !(meeting.summaryMd ?? "").trim() &&
-        !(meeting.userNotesMd ?? "").trim() &&
-        (meeting.bulletsJson ?? "[]") === "[]" &&
-        (meeting.actionItemsJson ?? "[]") === "[]"
+        !meetingRowHasContent(meeting)
       ) {
         continue;
       }
@@ -406,7 +451,8 @@ export default defineAction({
     });
 
     const meetings = combined.slice(args.offset, args.offset + args.limit);
+    const hasMore = combined.length > args.offset + args.limit;
 
-    return { meetings, calendarErrors };
+    return { meetings, calendarErrors, hasMore };
   },
 });

@@ -88,6 +88,7 @@ video sharing app. The agent and the UI share the same SQL data and actions.
 | `regenerate-title`, `-summary`, `-chapters` | AI metadata |
 | `trim-`, `split-recording`, `remove-silences`, `remove-filler-words` | Edits |
 | `list-meetings`, `get-`, `update-`, `finalize-meeting` | Meetings |
+| `search-meetings` | Find a meeting by title, summary, notes, attendee, or transcript |
 | `list-dictations`, `cleanup-dictation` | Dictation history |
 | `add-comment`, `update-comment`, `create-folder`, `create-space` | Comments, folders |
 | `share-resource`, `set-resource-visibility`, `build-embed-url` | Share, embed |

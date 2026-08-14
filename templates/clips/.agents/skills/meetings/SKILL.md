@@ -25,9 +25,9 @@ For press-and-hold dictations (Hold-Fn / Cmd+Shift+Space) and the `/dictate` tab
 
 ## Design reference
 
-The Meetings tab intentionally mirrors **Granola**: card grid grouped by day, two-pane detail (transcript left + AI notes right), inline title edit, "Generate notes" button, per-attendee action items. See `templates/clips/desktop/design-refs/granola-ux.md` for the source-of-truth interaction notes — read this before redesigning any Meetings surface. (Wispr-style press-and-hold patterns belong in the Dictate skill, not here.)
+The Meetings tab intentionally mirrors **Granola**: a compact "Coming up" card over a dense reverse-chronological history, two-pane detail (transcript left + AI notes right), inline title edit, "Generate notes" button, per-attendee action items. See `templates/clips/desktop/design-refs/granola-ux.md` for the source-of-truth interaction notes — read this before redesigning any Meetings surface. (Wispr-style press-and-hold patterns belong in the Dictate skill, not here.)
 
-> If `granola-ux.md` is missing, treat that as a TODO — the Wispr ref has been written but the Granola ref hasn't landed yet.
+The list was a grid of tiles until 2026-08-14. That contradicted §2 of the ref ("list-row style rather than tile cards") and cost so much vertical space that history sat below the fold, which is how a user ends up unable to find last month's call.
 
 ## Data model touched
 
@@ -75,7 +75,8 @@ When meetings are enabled, the Clips desktop app also watches for native Zoom (`
 
 | Action                    | What it does                                                          |
 | ------------------------- | --------------------------------------------------------------------- |
-| `list-meetings`           | Upcoming + past, scoped via `accessFilter`; reads connected Google Calendar live |
+| `list-meetings`           | Upcoming + past, scoped via `accessFilter`; reads connected Google Calendar live. `hasContent` filters to meetings worth reopening; `offset` + `hasMore` page the history |
+| `search-meetings`         | Find a meeting by title, summary, notes, attendee, or linked transcript text, with a match snippet. Use this — not `list-meetings` — when the user describes what was said rather than when it happened |
 | `get-meeting`             | One meeting + participants + segments + notes                         |
 | `create-meeting`          | Create a meeting row (`source`: `calendar` / `adhoc` / `manual`); desktop adhoc Zoom/Teams detection passes `source: "adhoc"` |
 | `update-meeting`          | Inline title/notes edits; owners/admins can opt the full transcript into or out of the meeting share link with `shareTranscript` |
@@ -159,20 +160,24 @@ When on `view: "dictate"`, the block instead contains a `dictation` object with 
 | "Summarize the standup I just finished"       | `pnpm action finalize-meeting --id=<id>` (delegates to agent for Gemini cleanup)        |
 | "Create a meeting note for the call I just finished" | Prefer the current calendar event. If it was not on the calendar, send the user to `/record` instead of creating a fake meeting from the UI. |
 | "Connect my Google Calendar"                  | `pnpm action connect-calendar --provider=google` then open returned `authUrl`           |
-| "Show my action items from last week"         | `list-meetings --since=<iso>`, then collect `actionItemsJson` and filter by `assigneeEmail` |
+| "Show my action items from last week"         | `list-meetings --view=past --hasContent`, then collect `actionItemsJson` and filter by `assigneeEmail` |
 
 ## How the agent uses Meetings
 
 These flows are common enough to memorize:
 
-- **"Summarize my last meeting with Alice"** — `list-meetings` filtered by participant, pick the most recent, `get-meeting`, then `finalize-meeting` if `summaryMd` is empty.
+- **"Summarize my last meeting with Alice"** — `search-meetings --query=alice`, pick the most recent, `get-meeting`, then `finalize-meeting` if `summaryMd` is empty.
+- **"Find the call where we discussed the renewal"** — `search-meetings --query="renewal"`. It reads transcripts, so it finds calls the user never titled usefully; `list-meetings` cannot answer this.
 - **"Show me action items I owe Bob"** — `list-meetings` (recent), aggregate `actionItemsJson`, filter `assigneeEmail` matching Bob's email. Mention the mic+system caveat if the user expects coverage of remote attendees.
 - **"Create a meeting note for the call I just finished"** — prefer an existing calendar-synced meeting. If the call was not on the calendar, send the user to `/record`; do not invent a fake calendar meeting in the visible Meetings list.
 - **"What did Alice commit to in last Tuesday's standup?"** — `get-meeting`, scan `actionItemsJson` filtered by assignee, fall back to grepping the transcript segments tagged `source: "system"` (since Alice is remote).
 
 ## UI conventions (don't break)
 
-- **Card grid** for meeting lists, grouped by day with a date header (Today / Tomorrow / Weekday Date).
+- **Upcoming is one compact card** ("Coming up"), never a tile grid: a date column per day, one line per event, and Join / Open notes only on the live or imminent row. It must not push history below the fold.
+- **History is dense one-line rows**, grouped by day with a date header (Today / Yesterday / Weekday Date): attendee avatars, title, attendee names, right-aligned time. No summary preview and no per-row status pills — transcript/notes state belongs on the detail page, not repeated down a list.
+- **History is paged, never capped.** The list reads `list-meetings` with `hasContent: true` (not `recordedOnly`) so desktop live notes without a linked recording still appear, and pages with `offset` + `hasMore` behind a "Load older" button.
+- **The search box is server-side**, calling `search-meetings`. Never filter the loaded page client-side: the meeting a user is hunting for is usually one they have not scrolled to.
 - **Calendar-sourced list**: no "New meeting" CTA and no manual sync requirement in the Meetings list. Users connect/reconnect/disconnect the calendar from the calendar settings menu; events are fetched live from Google Calendar.
 - **Two-pane detail**: transcript (left) + AI notes (right) with a "Generate notes" button in the header.
 - **Live indicator** is a red animated dot — never a sparkle or a robot icon.

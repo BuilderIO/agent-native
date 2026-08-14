@@ -1509,7 +1509,10 @@ const messages = {
     title: "會議",
     intro:
       "即將到來的日曆會議與您的錄製筆記。會議時間到了，請從 Clips Desktop 開始即時筆記。",
-    searchPlaceholder: "搜尋會議...",
+    searchPlaceholder: "搜尋會議、與會者和逐字稿...",
+    comingUp: "即將到來",
+    loadOlder: "載入較舊的",
+    searchFailed: "無法搜尋會議。請稍後再試。",
     clearSearch: "清除搜尋",
     noMeetingsYet: "還沒有會議",
     noMeetingsDescription:

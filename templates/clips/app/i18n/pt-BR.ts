@@ -1599,7 +1599,11 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     title: "Meetings",
     intro:
       "Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time.",
-    searchPlaceholder: "Search meetings...",
+    searchPlaceholder: "Pesquisar reuniões, participantes e transcrições...",
+    comingUp: "Em breve",
+    loadOlder: "Carregar anteriores",
+    searchFailed:
+      "Não foi possível pesquisar as reuniões. Tente novamente em instantes.",
     clearSearch: "Clear search",
     noMeetingsYet: "No meetings yet",
     noMeetingsDescription:
