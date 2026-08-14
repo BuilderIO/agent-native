@@ -196,10 +196,14 @@ export default function DispatchTemplate() {
           </>
         }
       >
-        {capabilities.map(({ icon: Icon, title, body }) => (
+        {capabilities.map(({ icon: Icon, title, body }, index) => (
           <div
             key={title}
-            className="flex flex-col gap-6 border-b border-[var(--docs-border)] p-6 sm:border-e sm:p-8 sm:even:border-e-0 sm:[&:nth-child(3)]:border-b-0 sm:[&:nth-child(4)]:border-b-0"
+            className={`flex flex-col gap-6 border-b border-[var(--docs-border)] p-6 sm:border-e sm:p-8 sm:even:border-e-0 sm:[&:nth-child(3)]:border-b-0 sm:[&:nth-child(4)]:border-b-0 ${
+              [1, 2].includes(index)
+                ? "!border !border-[var(--docs-border)] sm:!border"
+                : ""
+            }`}
           >
             <div
               className="inline-flex size-9 items-center justify-center rounded-md border border-[var(--docs-border)]"
