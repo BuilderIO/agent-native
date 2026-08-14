@@ -205,10 +205,13 @@ product-boundary-gates:
     lifecycle improvement without Alice's vault, machine, or private orchestration.
   bowerbird-product-boundary: not-applicable
 acceptance-state:
-  status: pending
+  status: blocked
   summary: >-
-    V4 implementation and exact-artifact real-interface proof are in progress.
-  blockers: []
+    V4 implementation and static gates pass, but the exact disposable
+    real-interface transaction has not started because its frozen port baseline
+    is occupied by another live task.
+  blockers:
+    - port 8080 is owned by t3code-16270186; alternate-port authority is not present
   last-land-packet: null
 ledger-revision: shape-pr2344-verification-v4-work-r1
 status: active
