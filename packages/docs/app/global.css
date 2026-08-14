@@ -2,6 +2,7 @@
 @import "@agent-native/core/styles/agent-native.css";
 @import "@fontsource-variable/geist";
 @import "@fontsource-variable/geist-mono";
+@import "@fontsource/poppins/500.css";
 
 /* shadcn CSS variables required by agent-native sidebar components */
 :root {
@@ -72,6 +73,7 @@
   --font-mono:
     "Geist Mono Variable", ui-monospace, SFMono-Regular, "SF Mono", Menlo,
     Consolas, "Liberation Mono", monospace;
+  --font-poppins: "Poppins", -apple-system, Roboto, Helvetica, sans-serif;
 }
 
 :root {
