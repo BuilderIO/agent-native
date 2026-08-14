@@ -2369,8 +2369,14 @@ export function createAgentChatPlugin(
             getRequestRunContext()?.allowedActionNames,
           )) + resolveRequestActionsPrompt("tool");
 
+      // `leanPrompt` means "the template's own prompt is enough". A template
+      // that sets it without supplying one gets no behavioral guidance at all,
+      // which is indistinguishable from an app that needs none — hosted
+      // Analytics ran that way and was never told that editing an extension is
+      // an `update-extension` call, so it re-explained the fix instead.
       const resolveRequestLeanPrompt = (): string =>
-        (options?.systemPrompt ?? "") + resolveRequestLeanActionsPrompt();
+        (options?.systemPrompt ?? PROD_FRAMEWORK_PROMPT_COMPACT) +
+        resolveRequestLeanActionsPrompt();
 
       const resolveRequestDevPrompt = (): string => {
         if (devNative) return resolveRequestBasePrompt();

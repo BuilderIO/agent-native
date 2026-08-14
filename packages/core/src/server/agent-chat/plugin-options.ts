@@ -205,6 +205,10 @@ export interface AgentChatPluginOptions {
    * inventory. Intended for minimal or voice-first apps where a long,
    * generic preamble adds latency and iteration noise without adding value.
    *
+   * Pair it with a `systemPrompt`. Without one there is no behavioral guidance
+   * left to serve, so the compact framework prompt is used instead of an empty
+   * preamble.
+   *
    * When set, the same lean prompt is used in both dev and prod modes. In
    * dev mode the tool registry is ALSO swapped to the template's actions
    * (same set as prod) — the dev-only bash/db-exec/file-system tools

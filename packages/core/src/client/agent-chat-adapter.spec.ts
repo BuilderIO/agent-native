@@ -2228,7 +2228,10 @@ describe("createAgentChatAdapter", () => {
     await drain(
       adapter.run({
         messages: [
-          { role: "user", content: [{ type: "text", text: "why is it empty" }] },
+          {
+            role: "user",
+            content: [{ type: "text", text: "why is it empty" }],
+          },
           {
             role: "assistant",
             content: [
