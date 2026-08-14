@@ -184,7 +184,7 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
         transcriptStatus: meeting.transcriptStatus,
         transcript: transcript
           ? {
-              status: transcriptPresentation.status,
+              status: transcriptPresentation.status ?? transcript.status,
               language: transcript.language,
               fullText: transcript.fullText,
               segments: transcriptSegments,
