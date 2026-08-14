@@ -10,7 +10,7 @@ describe("desktop local agent runtime", () => {
       threadId: "thread-a",
     });
 
-    await firstSession.dispose();
+    await firstSession.dispose?.();
 
     const secondSession = await runtime.createSession({
       id: "session-1",
