@@ -279,6 +279,7 @@ function localRuntimeUnavailable(message: string): never {
 function createSessionView(
   state: SessionState,
   runtime: AgentChatRuntime,
+  onDispose: () => void,
 ): AgentChatRuntimeSession {
   const cancelActiveTurn = async (
     reason = "cancelled",
@@ -413,11 +414,15 @@ function createSessionView(
     sendMessage: startTurn,
     cancelTurn: (input) => cancelActiveTurn(input?.reason),
     dispose: async () => {
-      if (state.active && !state.active.finished) {
-        await cancelActiveTurn("dispose");
+      try {
+        if (state.active && !state.active.finished) {
+          await cancelActiveTurn("dispose");
+        }
+      } finally {
+        state.active?.unsubscribe?.();
+        state.active = undefined;
+        onDispose();
       }
-      state.active?.unsubscribe?.();
-      state.active = undefined;
     },
   };
 }
@@ -450,7 +455,9 @@ export function createDesktopLocalAgentRuntime(
         knownEventIds: new Set<string>(),
       };
       sessions.set(id, state);
-      return createSessionView(state, runtime);
+      return createSessionView(state, runtime, () => {
+        if (sessions.get(id) === state) sessions.delete(id);
+      });
     },
   };
   return runtime;

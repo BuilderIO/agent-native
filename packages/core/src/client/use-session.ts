@@ -6,6 +6,7 @@ import {
   fetchAuthSessionStatus,
   invalidateClientStatusRequest,
 } from "./client-status-requests.js";
+import { getFrameOrigin, getFramePostMessageTargetOrigin } from "./frame.js";
 
 export type { AuthSession };
 
@@ -74,13 +75,18 @@ function notifyParentAuthState(
   status: "authenticated" | "unauthenticated",
 ): void {
   if (typeof window === "undefined" || window.parent === window) return;
+  // The frame-origin handshake validates the direct parent before this state
+  // crosses the frame boundary. Opaque sandbox frames still require "*".
+  if (!getFrameOrigin()) return;
+  const targetOrigin = getFramePostMessageTargetOrigin();
+  if (!targetOrigin) return;
   try {
     window.parent.postMessage(
       {
         type: "agentNative.authState",
         data: { status },
       },
-      "*",
+      targetOrigin,
     );
     // coercion-ok: Posting auth state is best-effort when an embedded host is being detached.
   } catch {

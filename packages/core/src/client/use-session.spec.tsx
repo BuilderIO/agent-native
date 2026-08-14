@@ -102,6 +102,17 @@ describe("useSession", () => {
       configurable: true,
       value: parentWindow,
     });
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        data: {
+          type: "agentNative.frameOrigin",
+          origin: "https://host.example",
+        },
+        origin: "https://host.example",
+        source: parentWindow as Window,
+      }),
+    );
+    postMessage.mockClear();
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => jsonResponse({ error: "signed out" })),
@@ -115,7 +126,7 @@ describe("useSession", () => {
           type: "agentNative.authState",
           data: { status: "unauthenticated" },
         },
-        "*",
+        "https://host.example",
       );
     } finally {
       if (parentDescriptor) {

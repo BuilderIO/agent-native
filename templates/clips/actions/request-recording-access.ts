@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { defineAction } from "@agent-native/core";
 import { notify } from "@agent-native/core/notifications";
 import {
@@ -20,7 +22,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { nanoid, normalizeOwnerEmail } from "../server/lib/recordings.js";
+import { normalizeOwnerEmail } from "../server/lib/recordings.js";
 import {
   CLIPS_ACCESS_APPROVAL_TOKEN_PREFIX,
   CLIPS_ACCESS_APPROVAL_TOKEN_TTL_SECONDS,
@@ -30,6 +32,20 @@ import {
 } from "../shared/recording-link.js";
 
 export const CLIPS_ACCESS_REQUEST_EMAIL_ID = "clips.access-request";
+
+function accessRequestEventId(
+  recordingId: string,
+  requesterEmail: string,
+): string {
+  return (
+    "access-request-" +
+    createHash("sha256")
+      .update(recordingId)
+      .update("\0")
+      .update(requesterEmail)
+      .digest("hex")
+  );
+}
 
 function httpError(message: string, statusCode: number): Error {
   return Object.assign(new Error(message), { statusCode });
@@ -264,19 +280,36 @@ export default defineAction({
       getRequestUserName()?.trim() ||
       displayNameForEmail(normalizedRequesterEmail);
     const requestedAt = new Date().toISOString();
-    await db.insert(schema.recordingEvents).values({
-      id: nanoid(),
-      recordingId,
-      viewerId: null,
-      kind: "access-request",
-      timestampMs: 0,
-      payload: JSON.stringify({
-        requesterEmail: normalizedRequesterEmail,
-        requesterName,
-        requestedAt,
-      }),
-      createdAt: requestedAt,
-    });
+    const [insertedRequest] = await db
+      .insert(schema.recordingEvents)
+      .values({
+        id: accessRequestEventId(recordingId, normalizedRequesterEmail),
+        recordingId,
+        viewerId: null,
+        kind: "access-request",
+        timestampMs: 0,
+        payload: JSON.stringify({
+          requesterEmail: normalizedRequesterEmail,
+          requesterName,
+          requestedAt,
+        }),
+        createdAt: requestedAt,
+      })
+      .onConflictDoNothing()
+      .returning({ id: schema.recordingEvents.id });
+
+    // Historical requests use random IDs, so the read above still handles
+    // them. New requests use a deterministic primary key so concurrent
+    // callers have one database-backed winner before notifications are sent.
+    if (!insertedRequest) {
+      return {
+        ok: true as const,
+        alreadyHasAccess: false,
+        alreadyRequested: true,
+        notifiedOwner: false,
+        message: "Your access request is already with the clip owner.",
+      };
+    }
 
     const ownerEmail = recording.ownerEmail
       ? normalizeOwnerEmail(recording.ownerEmail)
