@@ -858,6 +858,11 @@ export function createAgentChatPlugin(
       const refreshScreenTool = createRefreshScreenEntry();
       const frameworkContextTool = createFrameworkContextEntry();
       const leanPrompt = options?.leanPrompt === true;
+      if (leanPrompt && !options?.systemPrompt) {
+        console.warn(
+          `[agent-chat] ${options?.appId ?? "app"}: leanPrompt is set without a systemPrompt, so the template supplies no behavioral guidance. Falling back to the compact framework prompt — add a systemPrompt or drop leanPrompt.`,
+        );
+      }
       const lazyContext = options?.lazyContext !== false && !leanPrompt;
       const skipFilesContext =
         leanPrompt || (options?.skipFilesContext ?? lazyContext);
