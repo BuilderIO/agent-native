@@ -328,7 +328,7 @@ export default function ClipsTemplate() {
       {/* Core capabilities */}
       <section className="border-t border-[#1a1a1a] bg-[#0a0a0a]">
         <div className="flex flex-col border-y border-[#1a1a1a] lg:flex-row lg:items-stretch">
-          <div className="flex shrink-0 flex-col justify-center gap-6 border-b border-[#1a1a1a] bg-[#0a0a0a] px-6 py-10 sm:px-10 lg:w-[416px] lg:border-b-0 lg:border-e lg:ps-8 lg:pe-16 lg:py-0">
+          <div className="flex shrink-0 flex-col gap-6 border-b border-[#1a1a1a] bg-[#0a0a0a] py-2 ps-2 pe-4 sm:py-4 sm:ps-4 sm:pe-8 lg:w-[416px] lg:border-b-0 lg:border-e lg:py-8 lg:ps-8 lg:pe-16">
             <h2 className="text-[1.75rem] font-medium leading-[1.15] tracking-[-0.56px] text-white">
               {t("templateLanding.clips.s010")}
             </h2>
