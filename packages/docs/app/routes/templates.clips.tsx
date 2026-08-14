@@ -614,6 +614,7 @@ export default function ClipsTemplate() {
           <div className="flex items-center justify-center px-6 py-10 sm:px-10 lg:w-2/3 lg:py-16">
             <img
               src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F82f67949705e405898c665ecf4a2d8d4?format=webp&width=800&height=1200"
+              crossOrigin="anonymous"
               alt={t("templateLanding.clips.s026")}
               loading="lazy"
               decoding="async"
