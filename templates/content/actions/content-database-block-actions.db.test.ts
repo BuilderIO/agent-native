@@ -2,7 +2,10 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { runWithRequestContext } from "@agent-native/core/server";
+import {
+  runFrameworkReleaseMigrations,
+  runWithRequestContext,
+} from "@agent-native/core/server";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
@@ -56,6 +59,9 @@ beforeAll(async () => {
   compareAndSwapAdditionalBlocksField = (
     await import("./_database-block-actions.js")
   ).compareAndSwapAdditionalBlocksField;
+  if (TEST_DATABASE_URL.startsWith("postgres")) {
+    await runFrameworkReleaseMigrations(undefined);
+  }
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as any);
 }, 60_000);
