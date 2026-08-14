@@ -40,6 +40,7 @@ import {
   countRecordingViews,
   parseSpaceIds,
 } from "../server/lib/recordings.js";
+import { isSeekableRepairPending } from "../server/lib/seekable-media-state.js";
 import { parseBrowserDiagnosticsRow } from "../shared/browser-diagnostics.js";
 import {
   CLIPS_BUILDER_CREDITS_STATE_KEY,
@@ -161,6 +162,7 @@ export default defineAction({
       cleanupStateRaw,
       builderCreditsRaw,
       verificationPending,
+      seekableRepairPending,
       viewCount,
       agentViewCount,
     ] = await Promise.all([
@@ -172,6 +174,12 @@ export default defineAction({
         ownerEmail: rec.ownerEmail,
         recordingId: args.recordingId,
         recordingStatus: rec.status,
+      }),
+      isSeekableRepairPending({
+        ownerEmail: rec.ownerEmail,
+        recordingId: args.recordingId,
+        recordingStatus: rec.status,
+        videoUrl: rec.videoUrl,
       }),
       countRecordingViews(args.recordingId).catch(() => 0),
       countRecordingAgentViews(args.recordingId).catch(() => 0),
@@ -336,6 +344,7 @@ export default defineAction({
         hasCamera: Boolean(rec.hasCamera),
         status: rec.status,
         verificationPending,
+        seekableRepairPending,
         uploadProgress: rec.uploadProgress,
         failureReason: rec.failureReason,
         // Don't leak the password to clients (especially to MCP hosts that

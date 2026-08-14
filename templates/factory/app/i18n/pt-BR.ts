@@ -167,6 +167,19 @@ const messages = {
     metricRuns: "Execuções",
     rulesTab: "Regras",
     automationsTab: "Automações",
+    agentsTab: "Agentes",
+    agenticAppsTitle: "Apps agentivos",
+    agenticAppsEmpty: "Ainda não há apps agentivos neste workspace.",
+    editAppDetails: "Editar detalhes do app",
+    editAppDetailsDescription:
+      "Atualize o nome de exibição e a descrição compartilhados deste app.",
+    appName: "Nome",
+    appDescription: "Descrição",
+    openApp: "Abrir app",
+    saveChanges: "Salvar alterações",
+    appDetailsUpdated: "Detalhes do app atualizados",
+    savingChanges: "Salvando...",
+    agentsTitle: "Agentes",
     auditTab: "Auditoria",
     auditTitle: "Auditoria das execuções",
     auditDescription:
@@ -275,6 +288,16 @@ const messages = {
     stepName: "Nome da etapa",
     stepDescription: "O que acontece aqui",
     agentOwner: "Agente ou responsável",
+    noTarget: "Nenhum destino vinculado",
+    customTarget: "Destino personalizado",
+    reusableAgents: "Agentes reutilizáveis",
+    agenticApps: "Apps agentivos",
+    agentTargetHint:
+      "Esta etapa da Factory usa o agente reutilizável selecionado.",
+    appTargetHint:
+      "Esta etapa da Factory delega para o app agentivo selecionado.",
+    customTargetHint:
+      "Vincule um agente ou app compartilhado quando a etapa estiver pronta.",
     optional: "Opcional",
     connectStep: "Conectar esta etapa",
     connectDescription:

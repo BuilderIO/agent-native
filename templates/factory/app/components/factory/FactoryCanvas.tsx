@@ -44,6 +44,8 @@ export type FactoryCanvasNode = {
     | "human"
     | "factory";
   agent?: string;
+  agentTargetType?: "agent" | "app";
+  agentTargetId?: string;
   metricsKey?: string;
   position: { x: number; y: number };
 };

@@ -316,15 +316,25 @@ export async function discoverAgents(
 
   // Overlay custom agents from resources
   try {
-    const { resourceList, resourceGet, SHARED_OWNER } =
+    const { resourceList, resourceGet, SHARED_OWNER, sharedResourceOwner } =
       await import("../resources/store.js");
 
     const { parseRemoteAgentManifest, REMOTE_AGENT_RESOURCE_PREFIXES } =
       await import("../resources/metadata.js");
 
+    const activeOwner = sharedResourceOwner(getRequestOrgId());
+    const owners = [...new Set([SHARED_OWNER, activeOwner])];
     const resources: Array<{ id: string; path: string }> = [];
-    for (const prefix of [...REMOTE_AGENT_RESOURCE_PREFIXES].reverse()) {
-      resources.push(...(await resourceList(SHARED_OWNER, prefix)));
+    const seenResources = new Set<string>();
+    for (const owner of owners) {
+      for (const prefix of [...REMOTE_AGENT_RESOURCE_PREFIXES].reverse()) {
+        for (const resource of await resourceList(owner, prefix)) {
+          const resourceKey = `${owner}\0${resource.id}`;
+          if (seenResources.has(resourceKey)) continue;
+          seenResources.add(resourceKey);
+          resources.push(resource);
+        }
+      }
     }
 
     for (const r of resources) {

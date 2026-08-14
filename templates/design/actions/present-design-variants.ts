@@ -89,12 +89,25 @@ async function hasLinkedDesignSystem(designId: string): Promise<boolean> {
   return Boolean(design?.designSystemId?.trim());
 }
 
-function hasBreakpointSet(value: unknown): boolean {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return false;
-  }
+/**
+ * Absent, or present but unreadable — the caller must not treat these alike.
+ * A malformed set is still the user's data: overwriting it with the generated
+ * default silently discards breakpoints they configured, so it reports
+ * `"malformed"` and the install is skipped rather than clobbering it.
+ */
+function classifyBreakpointSet(
+  value: unknown,
+): "absent" | "malformed" | "present" {
+  if (value === null || value === undefined) return "absent";
+  if (typeof value !== "object" || Array.isArray(value)) return "malformed";
   const breakpoints = (value as { breakpoints?: unknown }).breakpoints;
-  return Array.isArray(breakpoints) && breakpoints.length > 0;
+  if (breakpoints === undefined) return "malformed";
+  if (!Array.isArray(breakpoints)) return "malformed";
+  return breakpoints.length > 0 ? "present" : "malformed";
+}
+
+function hasBreakpointSet(value: unknown): boolean {
+  return classifyBreakpointSet(value) === "present";
 }
 
 function designDeepLink(designId: string): string {
@@ -1042,9 +1055,16 @@ export default defineAction({
       });
     }
 
+    // Presenting options should not silently reconfigure the design. When it
+    // does, the overview paints an extra preview beside EVERY primary frame
+    // from then on — including screens created later — so the caller is told.
+    let installedBreakpointSet = false;
+
     await mutateDesignData({
       designId,
       mutate: (current, { updatedAt }) => {
+        installedBreakpointSet =
+          classifyBreakpointSet(current.breakpointSet) === "absent";
         // Placement depends on the breakpoint set in effect after this call, so
         // it is resolved here (inside the compare-and-set body) rather than
         // against a design snapshot that a concurrent write may have moved on
@@ -1106,7 +1126,9 @@ export default defineAction({
           canvasFrames: mergedFrames.canvasFrames,
           screenMetadata: previousMetadata,
           designVariantSets: previousVariantSets,
-          ...(hasBreakpointSet(current.breakpointSet)
+          // Only when genuinely absent. A malformed set is the user's data in
+          // a shape this action cannot read, not a blank slate to overwrite.
+          ...(classifyBreakpointSet(current.breakpointSet) !== "absent"
             ? {}
             : {
                 breakpointSet: {
@@ -1227,6 +1249,13 @@ export default defineAction({
       embed: true,
       cleanedUpPreviousVariantScreens: variantSetCleanup.removedFileIds.length,
       deletedSupersededSetIds: variantSetCleanup.removedSetIds,
+      ...(installedBreakpointSet
+        ? {
+            installedBreakpointSet: DEFAULT_RESPONSIVE_BREAKPOINTS.map(
+              (breakpoint) => breakpoint.widthPx,
+            ),
+          }
+        : {}),
       fallbackInstructions: FALLBACK_INSTRUCTIONS,
       nextRequiredAction:
         'Wait for the user to pick a screen in chat. Then delete each unchosen variant screen with delete-file at most once, call get-design-snapshot exactly once with fileId for the chosen screen, and call edit-design with that same fileId in a bounded pass. Use mode "replace-file" to replace the representative direction screen with a complete but compact requested app/product UI in the chosen visual style. Prioritize the primary workflow and render secondary details as visible controls, states, or affordances if the full feature list is too large for one reliable edit. Do not leave a direction board, variant brief, or summary card as the final result. Do not repeat delete/snapshot cycles. Do not call generate-design after a variant pick. Stop after the first successful edit-design save.',

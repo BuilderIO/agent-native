@@ -25,6 +25,11 @@ import { captureError } from "./analytics.js";
 import { agentNativePath } from "./api-path.js";
 import { formatChatErrorText, normalizeChatError } from "./error-format.js";
 import {
+  createRunStreamToken,
+  preemptRunStream,
+  releaseRunStream,
+} from "./run-stream-ownership.js";
+import {
   AgentAutoContinueSignal,
   INTERRUPTED_TOOL_RESULT,
   appendMissingFinalResponseWarning,
@@ -1277,6 +1282,29 @@ function snapshotContent(content: ContentPart[]): ContentPart[] {
   );
 }
 
+function hasMissingFinalResponseAfterTool(content: ContentPart[]): boolean {
+  const warning = appendMissingFinalResponseWarning(snapshotContent(content));
+  return warning?.errorCode === "final_response_missing_after_tool";
+}
+
+function missingFinalResponseWarningFromResult(
+  result: ChatModelRunResult,
+): { message: string } | null {
+  const metadata = result.metadata as { custom?: unknown } | undefined;
+  const custom = metadata?.custom;
+  if (!custom || typeof custom !== "object") return null;
+  const warning = (custom as Record<string, unknown>).runWarning;
+  if (!warning || typeof warning !== "object") return null;
+  const warningRecord = warning as Record<string, unknown>;
+  if (warningRecord.errorCode !== "final_response_missing_after_tool") {
+    return null;
+  }
+  return {
+    message:
+      typeof warningRecord.message === "string" ? warningRecord.message : "",
+  };
+}
+
 function stableJson(value: unknown): string {
   try {
     return JSON.stringify(value);
@@ -2032,7 +2060,19 @@ export function createAgentChatAdapter(
             activeRun.runId === runId)
         );
       };
+      // The adapter's own stream outranks AssistantChat's reconnect fallback:
+      // when it attaches to a run, any reconnect reader folding the same run
+      // must stop writing UI state or both folds render at once.
+      const streamOwnershipToken = createRunStreamToken(`adapter:${turnId}`);
+      const takeRunStreamOwnership = () => {
+        if (threadId && runId) {
+          preemptRunStream(threadId, runId, streamOwnershipToken);
+        }
+      };
       const settleTerminalChatRun = () => {
+        if (threadId && runId) {
+          releaseRunStream(threadId, runId, streamOwnershipToken);
+        }
         if (!ownsActiveRunState()) return;
         if (threadId && runId) {
           clearActiveRunIfMatches(threadId, runId);
@@ -2444,6 +2484,7 @@ export function createAgentChatAdapter(
                 reconnectRes.headers.get("X-Dispatch-Mode"),
               );
 
+              takeRunStreamOwnership();
               for await (const result of readSSEStream(
                 reconnectRes.body,
                 content,
@@ -2451,7 +2492,9 @@ export function createAgentChatAdapter(
                 tabId,
                 (seq, isProgress) => {
                   rememberRunSeq(seq);
-                  if (threadId) updateActiveRunSeq(seq, isProgress);
+                  if (threadId && runId) {
+                    updateActiveRunSeq(threadId, runId, seq, isProgress);
+                  }
                 },
                 runId,
                 currentSSEOptions(),
@@ -2830,7 +2873,7 @@ export function createAgentChatAdapter(
         // persistently unattachable run still terminates loudly).
         const followAttachOnce = async function* (): AsyncGenerator<
           ChatModelRunResult,
-          "completed" | "aborted" | "detached" | "gone",
+          "completed" | "client_continue" | "aborted" | "detached" | "gone",
           unknown
         > {
           if (!runId) return "gone";
@@ -2849,6 +2892,8 @@ export function createAgentChatAdapter(
             updateCurrentRunDispatchMode(
               eventsRes.headers.get("X-Dispatch-Mode"),
             );
+            takeRunStreamOwnership();
+            let missingFinalResponseResult: ChatModelRunResult | null = null;
             for await (const result of readSSEStream(
               eventsRes.body,
               content,
@@ -2856,7 +2901,9 @@ export function createAgentChatAdapter(
               tabId,
               (seq, isProgress) => {
                 rememberRunSeq(seq);
-                if (threadId) updateActiveRunSeq(seq, isProgress);
+                if (threadId && runId) {
+                  updateActiveRunSeq(threadId, runId, seq, isProgress);
+                }
               },
               runId,
               currentSSEOptions({
@@ -2866,10 +2913,38 @@ export function createAgentChatAdapter(
               }),
             )) {
               const nextResult = withRequestModeMetadata(result);
+              if (
+                isDurableBackgroundDispatch() &&
+                missingFinalResponseWarningFromResult(nextResult)
+              ) {
+                missingFinalResponseResult = nextResult;
+                continue;
+              }
               if (isTerminalChatModelRunResult(nextResult)) {
                 settleTerminalChatRun();
               }
               yield nextResult;
+            }
+            if (missingFinalResponseResult) {
+              const warning = missingFinalResponseWarningFromResult(
+                missingFinalResponseResult,
+              );
+              const lastContentPart = content.at(-1);
+              if (
+                warning?.message &&
+                lastContentPart?.type === "text" &&
+                lastContentPart.text === warning.message
+              ) {
+                content.pop();
+              }
+              if (continueAfterMissingFinalResponse()) {
+                await delay(250, abortSignal);
+                return "client_continue";
+              }
+              settleTerminalChatRun();
+              yield missingFinalResponseResult;
+              clearActiveRun();
+              return "completed";
             }
             // readSSEStream returned normally: a terminal done/error was
             // consumed and rendered — the turn is over.
@@ -3213,6 +3288,13 @@ export function createAgentChatAdapter(
                     continue;
                   }
                 }
+                if (
+                  hasMissingFinalResponseAfterTool(content) &&
+                  continueAfterMissingFinalResponse()
+                ) {
+                  await delay(250, abortSignal);
+                  return "client_continue";
+                }
                 yield* emitBackgroundTerminalOutcome(active);
                 return "completed";
               }
@@ -3241,6 +3323,9 @@ export function createAgentChatAdapter(
               }
               const seqBeforeAttach = lastSeq;
               const attach = yield* followAttachOnce();
+              if (attach === "client_continue") {
+                return "client_continue";
+              }
               if (attach === "completed" || attach === "aborted") {
                 return "completed";
               }
@@ -3634,6 +3719,21 @@ export function createAgentChatAdapter(
           };
         };
 
+        const continueAfterMissingFinalResponse = (): boolean => {
+          const continuation = prepareAutoContinuation(
+            new AgentAutoContinueSignal({ reason: "stream_ended" }),
+          );
+          if (!continuation.ok) return false;
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(
+              new CustomEvent("agent-chat:auto-continue", {
+                detail: { tabId },
+              }),
+            );
+          }
+          return true;
+        };
+
         while (true) {
           try {
             runId = null;
@@ -3908,6 +4008,8 @@ export function createAgentChatAdapter(
               setActiveRun({ threadId, runId, turnId, lastSeq: -1 });
             }
 
+            takeRunStreamOwnership();
+            let missingFinalResponseResult: ChatModelRunResult | null = null;
             for await (const result of readSSEStream(
               res.body,
               content,
@@ -3916,17 +4018,45 @@ export function createAgentChatAdapter(
               (seq, isProgress) => {
                 rememberRunSeq(seq);
                 if (runId && threadId) {
-                  updateActiveRunSeq(seq, isProgress);
+                  updateActiveRunSeq(threadId, runId, seq, isProgress);
                 }
               },
               runId,
               currentSSEOptions(),
             )) {
               const nextResult = withRequestModeMetadata(result);
+              if (
+                isDurableBackgroundDispatch() &&
+                missingFinalResponseWarningFromResult(nextResult)
+              ) {
+                missingFinalResponseResult = nextResult;
+                continue;
+              }
               if (isTerminalChatModelRunResult(nextResult)) {
                 settleTerminalChatRun();
               }
               yield nextResult;
+            }
+
+            if (isDurableBackgroundDispatch() && missingFinalResponseResult) {
+              const warning = missingFinalResponseWarningFromResult(
+                missingFinalResponseResult,
+              );
+              const lastContentPart = content.at(-1);
+              if (
+                warning?.message &&
+                lastContentPart?.type === "text" &&
+                lastContentPart.text === warning.message
+              ) {
+                content.pop();
+              }
+              if (continueAfterMissingFinalResponse()) {
+                continue;
+              }
+              settleTerminalChatRun();
+              yield missingFinalResponseResult;
+              clearActiveRun();
+              return;
             }
 
             // Run completed normally — clear active run state

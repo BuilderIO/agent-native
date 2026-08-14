@@ -246,6 +246,9 @@ const messages = {
     defaultDurationLabel: "預設事件時長（分鐘）",
     defaultDurationHelp:
       "新行事曆事件和預約時段的預設長度。預約連結可按連結覆蓋此設定。",
+    weekStartLabel: "每週開始日",
+    weekStartSunday: "週日 - 週六",
+    weekStartMonday: "週一 - 週日",
   },
   eventDialog: {
     eventUpdated: "事件已更新",

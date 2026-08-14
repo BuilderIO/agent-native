@@ -2189,6 +2189,41 @@ describe("ApprovalAffordance", () => {
     expect(container.textContent).toContain("Denied. bash did not run.");
   });
 
+  it("keeps approval copy and every action visible in narrow chat cards", () => {
+    act(() => {
+      root.render(
+        <ApprovalContext.Provider
+          value={{ onApprove: vi.fn(), onAlwaysAllow: vi.fn() }}
+        >
+          <ToolCallDisplay
+            toolName="send-email"
+            args={{}}
+            approval={{ approvalKey: "approval-1" }}
+            isRunning={false}
+          />
+        </ApprovalContext.Provider>,
+      );
+    });
+
+    const approvalCopy = Array.from(container.querySelectorAll("span")).find(
+      (span) => span.textContent === "Approve to run send-email?",
+    ) as HTMLSpanElement;
+    const approvalCard = approvalCopy.parentElement as HTMLDivElement;
+    const actionButtons = Array.from(approvalCard.querySelectorAll("button"));
+
+    expect(approvalCard.className).toContain("flex-wrap");
+    expect(approvalCopy.className).toContain("min-w-0");
+    expect(approvalCopy.className).toContain("flex-1");
+    expect(actionButtons.map((button) => button.textContent)).toEqual([
+      "Approve",
+      "Always allow",
+      "Deny",
+    ]);
+    for (const button of actionButtons) {
+      expect(button.className).toContain("shrink-0");
+    }
+  });
+
   it("keeps the default two-button layout when only onApprove is provided", () => {
     const onApprove = vi.fn();
     act(() => {

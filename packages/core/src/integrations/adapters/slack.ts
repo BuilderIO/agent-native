@@ -1078,6 +1078,10 @@ function markdownToSlackMrkdwn(text: string): string {
       // Newlines are allowed because `[^*]` excludes only the asterisk
       // itself, so multi-line bold spans still match.
       .replace(/\*\*([^*]{1,5000})\*\*/g, "*$1*")
+      // Agent output sometimes uses Markdown-style bare Slack user IDs.
+      // Leave native `<@...>` mentions untouched while converting the bare
+      // user/member forms Slack expects in mrkdwn.
+      .replace(/(?<![<\w])@([UW][A-Z0-9]+)(?![A-Z0-9])/g, "<@$1>")
   );
 }
 

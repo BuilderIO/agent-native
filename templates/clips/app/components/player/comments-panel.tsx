@@ -3,6 +3,7 @@ import {
   useAvatarUrl,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { InlineMarkdown } from "@agent-native/core/client/markdown";
 import {
   IconSend,
   IconCheck,
@@ -895,7 +896,6 @@ function CommentCard({
     return updatedReactions;
   }
 
-  const commentContent = linkifyCommentContent(comment.content);
   const avatarUrl = useAvatarUrl(comment.authorEmail);
 
   return (
@@ -940,9 +940,10 @@ function CommentCard({
           />
         ) : (
           <>
-            <p className="text-sm text-foreground whitespace-pre-wrap break-words mt-0.5">
-              {commentContent}
-            </p>
+            <InlineMarkdown
+              content={comment.content}
+              className="mt-0.5 text-sm text-foreground"
+            />
 
             <div className="flex items-center gap-2 mt-1.5 text-xs text-muted-foreground">
               {canComment ? (
@@ -1068,101 +1069,6 @@ function CommentCard({
       </div>
     </div>
   );
-}
-
-const COMMENT_URL_PATTERN = /\b(?:https?:\/\/|www\.)[^\s<]+/gi;
-const ALWAYS_TRAILING_PUNCTUATION = new Set([
-  ".",
-  ",",
-  "!",
-  "?",
-  ";",
-  ":",
-  "'",
-  '"',
-]);
-const PAIRED_TRAILING_PUNCTUATION: Record<string, string> = {
-  ")": "(",
-  "]": "[",
-  "}": "{",
-};
-
-function trimTrailingUrlPunctuation(value: string): {
-  url: string;
-  trailing: string;
-} {
-  let end = value.length;
-
-  while (end > 0) {
-    const lastCharacter = value[end - 1];
-    if (ALWAYS_TRAILING_PUNCTUATION.has(lastCharacter)) {
-      end -= 1;
-      continue;
-    }
-
-    const openingCharacter = PAIRED_TRAILING_PUNCTUATION[lastCharacter];
-    if (openingCharacter) {
-      const candidate = value.slice(0, end);
-      const openingCount = candidate.split(openingCharacter).length - 1;
-      const closingCount = candidate.split(lastCharacter).length - 1;
-      if (closingCount > openingCount) {
-        end -= 1;
-        continue;
-      }
-    }
-
-    break;
-  }
-
-  return {
-    url: value.slice(0, end),
-    trailing: value.slice(end),
-  };
-}
-
-function linkifyCommentContent(content: string): React.ReactNode[] {
-  const result: React.ReactNode[] = [];
-  let lastIndex = 0;
-
-  for (const match of content.matchAll(COMMENT_URL_PATTERN)) {
-    const matchIndex = match.index;
-    const matchedText = match[0];
-    const { url, trailing } = trimTrailingUrlPunctuation(matchedText);
-    const href = url.toLowerCase().startsWith("www.") ? `https://${url}` : url;
-
-    let isValidUrl = false;
-    try {
-      isValidUrl = Boolean(new URL(href).hostname);
-    } catch {
-      // Leave malformed URL-like text unlinked.
-    }
-
-    if (!isValidUrl) continue;
-
-    if (matchIndex > lastIndex) {
-      result.push(content.slice(lastIndex, matchIndex));
-    }
-    result.push(
-      <a
-        key={`${matchIndex}-${url}`}
-        href={href}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="text-primary hover:underline"
-      >
-        {url}
-      </a>,
-    );
-    if (trailing) result.push(trailing);
-
-    lastIndex = matchIndex + matchedText.length;
-  }
-
-  if (lastIndex < content.length) {
-    result.push(content.slice(lastIndex));
-  }
-
-  return result;
 }
 
 function parseReactions(raw: string): Record<string, string[]> {

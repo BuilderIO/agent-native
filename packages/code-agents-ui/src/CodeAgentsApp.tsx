@@ -2156,6 +2156,7 @@ export default function CodeAgentsApp({
               onOpenScheduled={() => chatFirstNavigation?.onOpenScheduled()}
               onSearch={openSearchPanel}
               activeTab={chatFirstNavigation?.activeTab}
+              collapsed={railCollapsed}
               stickyNewChat
             />
           ) : (

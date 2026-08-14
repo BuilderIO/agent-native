@@ -18,7 +18,8 @@ const schema = z.object({
 });
 
 export default defineAction({
-  description: "Resolve an inline comment or review thread.",
+  description:
+    "Resolve an inline comment or review thread. An optional resolution note supports inline Markdown without headings.",
   schema,
   run: async (args, ctx) => {
     const actionCtx = ctx as ReviewResourceContext | undefined;

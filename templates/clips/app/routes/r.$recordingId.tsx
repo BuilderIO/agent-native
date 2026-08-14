@@ -310,6 +310,10 @@ export default function RecordingPage() {
           readyMediaPollRef.current = null;
           return 1000;
         }
+        if (rec.seekableRepairPending === true) {
+          readyMediaPollRef.current = null;
+          return READY_MEDIA_SETTLE_POLL_INTERVAL_MS;
+        }
         // Fresh streaming uploads can become `ready` before the background
         // seekable/faststart repair swaps in the final player URL. Keep polling
         // briefly so the first post-recording page catches that URL update
@@ -319,6 +323,7 @@ export default function RecordingPage() {
           rec.durationMs ?? "",
           rec.videoSizeBytes ?? "",
           rec.videoFormat ?? "",
+          rec.updatedAt ?? "",
         ].join(":");
         const now = Date.now();
         if (readyMediaPollRef.current?.key !== mediaKey) {
@@ -962,7 +967,7 @@ export default function RecordingPage() {
               variant="ghost"
               size="icon"
               className="shrink-0"
-              aria-label={t("recordingPage.back")}
+              aria-label={t("recordingPage.backToLibrary")}
             >
               <Link to="/library" replace>
                 <IconArrowLeft className="h-4 w-4 rtl:-scale-x-100" />
@@ -1305,11 +1310,14 @@ export default function RecordingPage() {
             asChild
             variant="ghost"
             size="icon"
-            className="shrink-0"
-            aria-label={t("recordingPage.back")}
+            className="shrink-0 sm:w-auto sm:px-2"
+            aria-label={t("recordingPage.backToLibrary")}
           >
             <Link to="/library" replace>
               <IconArrowLeft className="h-4 w-4 rtl:-scale-x-100" />
+              <span className="hidden sm:inline">
+                {t("recordingPage.backToLibrary")}
+              </span>
             </Link>
           </Button>
           <div className="flex-1 min-w-0">
@@ -1592,10 +1600,9 @@ export default function RecordingPage() {
                   onVideoElementChange={setTrackedVideoEl}
                   recordingId={recording.id}
                   videoUrl={recording.videoUrl}
-                  mediaVersion={[
-                    recording.videoSizeBytes ?? "",
-                    recording.updatedAt ?? "",
-                  ].join(":")}
+                  mediaVersion={
+                    recording.mediaUpdatedAt ?? recording.videoSizeBytes ?? null
+                  }
                   videoFormat={recording.videoFormat}
                   embedProvider={isLoomEmbedBacked ? "loom" : null}
                   durationMs={recording.durationMs}
