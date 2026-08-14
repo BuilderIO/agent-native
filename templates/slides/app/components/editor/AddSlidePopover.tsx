@@ -113,7 +113,9 @@ export function AddSlidePopover({
   useEffect(() => {
     if (!open || !panelRef.current) return;
     const observer = new ResizeObserver(([entry]) => {
-      setPanelHeight(entry.borderBoxSize?.[0]?.blockSize ?? entry.contentRect.height);
+      setPanelHeight(
+        entry.borderBoxSize?.[0]?.blockSize ?? entry.contentRect.height,
+      );
     });
     observer.observe(panelRef.current);
     return () => observer.disconnect();
