@@ -94,6 +94,7 @@ function makeMeeting(overrides: Record<string, unknown> = {}) {
     transcriptStatus: "ready",
     summaryMd: "The team agreed on the launch plan.",
     bulletsJson: JSON.stringify([{ text: "Ship on Tuesday" }]),
+    ownerEmail: "owner@example.com",
     recordingId: "recording-1",
     shareTranscript: false,
     trashedAt: null,
@@ -195,7 +196,7 @@ describe("/api/public-meeting route", () => {
       resource: makeMeeting({ shareTranscript: true }),
     });
     const db = createDbWithSelectResults([
-      [{ email: "guest@example.com", name: "Guest", isOrganizer: false }],
+      [{ email: "OWNER@example.com", name: "Owner", isOrganizer: true }],
       [
         {
           id: "item-1",
@@ -216,7 +217,7 @@ describe("/api/public-meeting route", () => {
         summaryMd: "The team agreed on the launch plan.",
         bullets: [{ text: "Ship on Tuesday" }],
         participants: [
-          { email: "guest@example.com", name: "Guest", isOrganizer: false },
+          { email: "OWNER@example.com", name: "Owner", isOrganizer: true },
         ],
         actionItems: [
           {
@@ -226,6 +227,9 @@ describe("/api/public-meeting route", () => {
             completedAt: null,
           },
         ],
+        // The owner is already a listed participant (case-insensitively),
+        // so their email is already public on this page — safe to include.
+        ownerEmail: "owner@example.com",
         transcript: null,
       },
       viewer: null,
@@ -236,6 +240,20 @@ describe("/api/public-meeting route", () => {
       "Cache-Control",
       "private, max-age=0, no-store",
     );
+  });
+
+  it("does not expose the owner's email when they aren't a public participant", async () => {
+    const db = createDbWithSelectResults([
+      [{ email: "guest@example.com", name: "Guest", isOrganizer: false }],
+      [],
+    ]);
+    mockGetDb.mockReturnValue(db);
+
+    const result = await handler({} as any);
+
+    expect(result).toMatchObject({
+      meeting: { ownerEmail: null },
+    });
   });
 
   it("includes a normalized transcript when shareTranscript is enabled", async () => {

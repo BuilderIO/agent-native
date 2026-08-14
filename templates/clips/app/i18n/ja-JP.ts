@@ -1139,6 +1139,10 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     searchNextMatch: "次の一致",
     searchClose: "検索を閉じる",
   },
+  bulletLink: {
+    jumpToTranscript: "文字起こしの{{time}}にジャンプ",
+    noMatchingMoment: "一致する箇所が見つかりません",
+  },
   editorLayout: {
     trimmed: "トリミングしました",
     trimFailed: "トリミングに失敗しました",

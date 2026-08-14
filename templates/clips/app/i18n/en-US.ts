@@ -1122,6 +1122,10 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     searchNextMatch: "Next match",
     searchClose: "Close search",
   },
+  bulletLink: {
+    jumpToTranscript: "Jump to {{time}} in transcript",
+    noMatchingMoment: "No matching moment found",
+  },
   editorLayout: {
     trimmed: "Trimmed",
     trimFailed: "Trim failed",

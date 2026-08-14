@@ -1153,6 +1153,10 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     searchNextMatch: "Résultat suivant",
     searchClose: "Fermer la recherche",
   },
+  bulletLink: {
+    jumpToTranscript: "Aller à {{time}} dans la transcription",
+    noMatchingMoment: "Aucun moment correspondant trouvé",
+  },
   editorLayout: {
     trimmed: "Découpé",
     trimFailed: "Échec du découpage",

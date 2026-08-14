@@ -378,7 +378,7 @@ const messages = {
     attendee_other: "الحضور {{count}}",
     joinCall: "الانضمام إلى المكالمة",
     myNotes: "ملاحظاتي",
-    aiNotes: "تلاحظ منظمة العفو الدولية",
+    aiNotes: "ملاحظات الذكاء الاصطناعي",
     summary: "الملخص",
     actionItems: "عناصر العمل",
     working: "عمل…",
@@ -1133,6 +1133,10 @@ const messages = {
     searchPrevMatch: "النتيجة السابقة",
     searchNextMatch: "النتيجة التالية",
     searchClose: "إغلاق البحث",
+  },
+  bulletLink: {
+    jumpToTranscript: "الانتقال إلى {{time}} في النص",
+    noMatchingMoment: "لم يتم العثور على لحظة مطابقة",
   },
   editorLayout: {
     trimmed: "تم القص",
