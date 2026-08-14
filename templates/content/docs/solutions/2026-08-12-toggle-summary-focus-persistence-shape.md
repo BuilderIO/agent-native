@@ -721,6 +721,11 @@ a node with inline content (notionToggle)` warning while hydrating the exact
   position and focuses only that node's summary. A focused regression proves
   the position target in the presence of an earlier nested summary; the two
   editor test files pass 70 of 70.
+- Before merge, `main` advanced from `52b87653f` to `65dfa621c` through changes
+  overlapping `VisualEditor` and its focused tests. Land classified that drift
+  as acceptance-coupled, merged current `main` without conflict, and reran the
+  affected contract: the two focused editor files passed 75 of 75, the current
+  scoped toolkit suite passed 396 of 396, and the full formatter check passed.
 
 ## Natural next stage
 
