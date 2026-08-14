@@ -332,6 +332,19 @@ export function focusMostRecentEmptyToggleSummary(editor: {
   schedule(() => focusSummary(0));
 }
 
+export function focusToggleSummaryAtPosition(
+  editor: Pick<Editor, "view">,
+  pos: number,
+) {
+  const nodeDom = editor.view.nodeDOM(pos);
+  if (!(nodeDom instanceof HTMLElement)) return;
+  const target = nodeDom.querySelector<HTMLInputElement>(
+    ".notion-toggle__summary",
+  );
+  target?.focus();
+  target?.select();
+}
+
 function ToggleView({ node, editor, getPos }: NodeViewProps) {
   const open = !!node.attrs.open;
   const summary = (node.attrs.summary || "") as string;
@@ -484,14 +497,7 @@ function ToggleView({ node, editor, getPos }: NodeViewProps) {
       );
       if (destination === "sibling-toggle") {
         setTimeout(() => {
-          const inputs = Array.from(
-            editor.view.dom.querySelectorAll<HTMLInputElement>(
-              ".notion-toggle__summary",
-            ),
-          );
-          const index = inputs.indexOf(currentInput);
-          inputs[index + 1]?.focus();
-          inputs[index + 1]?.select();
+          focusToggleSummaryAtPosition(editor, pos + node.nodeSize);
         }, 0);
       }
     } else if (e.key === "Backspace" && summary === "") {

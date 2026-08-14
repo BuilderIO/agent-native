@@ -714,6 +714,13 @@ a node with inline content (notionToggle)` warning while hydrating the exact
   from `/tmp` back to Trash, then verified absent from `/tmp`.
 - This initial-selection repair does not change the accepted Toggle gestures or
   broaden the claim about the original freeze, which remains unreproduced.
+- GitHub's review agent then identified a distinct nested-Toggle focus edge:
+  collapsed-summary Enter selected the next summary in DOM order, which could
+  be a nested child rather than the newly inserted sibling. The repair now
+  resolves the sibling node view by its exact post-transaction document
+  position and focuses only that node's summary. A focused regression proves
+  the position target in the presence of an earlier nested summary; the two
+  editor test files pass 70 of 70.
 
 ## Natural next stage
 

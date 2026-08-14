@@ -2,11 +2,12 @@
 import { Editor } from "@tiptap/core";
 import type { EditorState, Transaction } from "@tiptap/pm/state";
 import StarterKit from "@tiptap/starter-kit";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   NotionToggle,
   applyToggleSummaryEnter,
+  focusToggleSummaryAtPosition,
   outdentDirectToggleChild,
 } from "./extensions/NotionExtensions";
 
@@ -111,6 +112,26 @@ describe("Notion Toggle interactions", () => {
       toggle("", false),
       { type: "paragraph" },
     ]);
+  });
+
+  it("focuses the inserted sibling by document position past nested Toggles", () => {
+    const nestedInput = document.createElement("input");
+    const siblingInput = document.createElement("input");
+    const siblingDom = document.createElement("div");
+    siblingDom.appendChild(siblingInput);
+    siblingInput.className = "notion-toggle__summary";
+    const nodeDOM = (pos: number) => (pos === 9 ? siblingDom : nestedInput);
+    const focus = vi.spyOn(siblingInput, "focus");
+    const select = vi.spyOn(siblingInput, "select");
+
+    focusToggleSummaryAtPosition(
+      { view: { nodeDOM } } as unknown as Pick<Editor, "view">,
+      9,
+    );
+
+    expect(nodeDOM(1)).toBe(nestedInput);
+    expect(focus).toHaveBeenCalledOnce();
+    expect(select).toHaveBeenCalledOnce();
   });
 
   it("removes only the new empty sibling when Enter is pressed again", () => {
