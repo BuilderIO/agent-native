@@ -541,6 +541,19 @@ const arSA = {
     },
   },
   templateLanding: {
+    faq: {
+      eyebrow: "FAQs",
+      title: "Get answers to common questions",
+      question1: "Lorem ipsum dolor sit amet?",
+      answer1:
+        "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.",
+      question2: "Consectetur adipiscing elit?",
+      answer2:
+        "Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.",
+      question3: "Sed do eiusmod tempor incididunt?",
+      answer3:
+        "Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.",
+    },
     analytics: {
       s001: "Analytics لقطة شاشة للنموذج",
       s002: "موصلات البيانات",

@@ -4,6 +4,12 @@ import { forwardRef, useImperativeHandle, useRef, useState } from "react";
 import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import { SectionDivider } from "../components/SectionDivider";
 import { TemplateDocsLink } from "../components/template-docs";
+import {
+  TemplateComparisonTable,
+  TemplateHero,
+  TemplateLandingFaq,
+  TemplateLandingShell,
+} from "../components/template-landing";
 import { templates, trackEvent } from "../components/TemplateCard";
 import { withTemplateSocialImage } from "../seo";
 
@@ -83,15 +89,18 @@ const COMPARISON_ROWS = [
 
 const FAQ_ITEMS = [
   {
+    id: "free",
     question: "Is Clips free?",
     answer: "Yes. Clips is free and open source.",
   },
   {
+    id: "agent-readable",
     question: "Can AI read a screen recording?",
     answer:
       "Yes. Every clip ships with a transcript, summary, and timestamped frames an agent can read directly.",
   },
   {
+    id: "loom-comparison",
     question: "How is Clips different from Loom?",
     answer:
       "Clips is open source, you own the data, and every share link is readable by AI agents — not just people.",
@@ -178,7 +187,6 @@ const ClipPreviewSlider = forwardRef<ClipPreviewSliderHandle>(
 export default function ClipsTemplate() {
   const t = useT();
   const [aiPromptCopied, setAiPromptCopied] = useState(false);
-  const [openFaqIndex, setOpenFaqIndex] = useState(0);
   const sliderHandleRef = useRef<ClipPreviewSliderHandle>(null);
 
   function handleCopyAiPrompt() {
@@ -192,54 +200,34 @@ export default function ClipsTemplate() {
   }
 
   return (
-    <main className="template-detail-page mx-auto w-full max-w-[1200px] overflow-x-clip px-4 sm:px-6">
+    <TemplateLandingShell>
       {/* Hero */}
-      <section className="pt-3 sm:pt-4 lg:pt-5">
-        <div className="relative overflow-hidden border-x border-[var(--docs-border)]">
-          <div
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-0 hidden lg:grid lg:grid-cols-3"
-          >
-            <div />
-            <div className="border-x border-[var(--docs-border)]" />
-            <div />
-          </div>
-
-          <div className="relative grid gap-3 px-6 pb-10 pt-12 sm:gap-4 sm:px-10 sm:pb-14 sm:pt-16 lg:grid-cols-3 lg:gap-6 lg:pb-20 lg:pt-24">
-            <p
-              className="font-mono text-sm font-semibold uppercase tracking-[0.14em] lg:col-start-1 lg:row-start-1"
-              style={{ color: template.color }}
-            >
-              Agent-Native {template.name}
-            </p>
-
-            <h1 className="text-[2rem] font-medium leading-[1.05] tracking-tight sm:text-4xl lg:col-span-2 lg:col-start-1 lg:row-start-2 lg:text-[2.875rem]">
-              <span className="text-[var(--fg)]">
-                Screen recordings your AI{" "}
-              </span>
-              <span className="text-[var(--fg-secondary)]">
-                can actually watch
-              </span>
-            </h1>
-
-            <div className="lg:col-start-3 lg:row-start-2 lg:self-center lg:ps-8">
-              <p className="max-w-[300px] font-sans text-[15px] font-normal leading-[1.4] text-[var(--fg-secondary)]">
-                {t("templateLanding.clips.s008")}
-              </p>
-            </div>
-          </div>
-
-          <div className="relative bg-black py-3 sm:py-4 lg:py-5">
-            <img
-              src={template.screenshot}
-              alt={t("templateLanding.clips.s001")}
-              loading="lazy"
-              decoding="async"
-              className="h-auto max-h-[536px] w-full object-cover object-top"
-            />
-          </div>
-        </div>
-      </section>
+      <TemplateHero
+        eyebrow={
+          <span style={{ color: template.color }}>
+            Agent-Native {template.name}
+          </span>
+        }
+        title={
+          <>
+            <span className="text-[var(--fg)]">Screen recordings your AI </span>
+            <span className="text-[var(--fg-secondary)]">
+              can actually watch
+            </span>
+          </>
+        }
+        description={<p>{t("templateLanding.clips.s008")}</p>}
+        mediaClassName="bg-black"
+        media={
+          <img
+            src={template.screenshot}
+            alt={t("templateLanding.clips.s001")}
+            loading="lazy"
+            decoding="async"
+            className="h-auto max-h-[536px] w-full object-cover object-top"
+          />
+        }
+      />
 
       {/* Try with AI */}
       <section
@@ -309,7 +297,7 @@ export default function ClipsTemplate() {
 
       {/* By the numbers */}
       <section className="border-t border-[var(--docs-border)]">
-        <SectionDivider />
+        <SectionDivider showOnSmallScreens={false} />
         <div className="grid overflow-hidden border border-[var(--docs-border)] sm:grid-cols-3">
           {[
             { title: "Record", caption: "Share your screen" },
@@ -339,7 +327,7 @@ export default function ClipsTemplate() {
         </div>
       </section>
 
-      <SectionDivider borderColorClassName="border-[#1a1a1a]" />
+      <SectionDivider showOnSmallScreens={false} />
 
       {/* Core capabilities */}
       <section className="border-t border-[#1a1a1a]">
@@ -464,7 +452,7 @@ export default function ClipsTemplate() {
         </div>
       </section>
 
-      <SectionDivider borderColorClassName="border-[#1a1a1a]" />
+      <SectionDivider showOnSmallScreens={false} />
 
       {/* Library + Search split */}
       <section className="border border-[#1a1a1a]">
@@ -600,7 +588,7 @@ export default function ClipsTemplate() {
         </div>
       </section>
 
-      <SectionDivider borderColorClassName="border-[#1a1a1a]" />
+      <SectionDivider showOnSmallScreens={false} />
 
       {/* Agent actions */}
       <section className="border-t border-[#1a1a1a]">
@@ -635,81 +623,76 @@ export default function ClipsTemplate() {
             {t("templateLanding.clips.s032")}
           </h2>
         </div>
-        <div className="overflow-x-auto border border-[var(--docs-border)]">
-          <table className="comparison-table min-w-[42rem] w-full text-sm">
-            <thead>
-              <tr className="border border-[#1a1a1a] bg-[#0f0f0f]">
-                <th className="w-[18%] border border-[#1a1a1a] px-5 py-3"></th>
-                <th className="w-[30%] border border-[#1a1a1a] px-8 py-3 text-center text-[15px] font-medium leading-[1.4] text-[#faf9f5]">
-                  <span className="inline-flex items-center gap-2">
-                    <img
-                      src="/agent-native-icon-dark.svg"
-                      alt=""
-                      aria-hidden="true"
-                      className="h-5 w-5"
-                      loading="lazy"
-                      decoding="async"
-                    />
-                    <span className="font-semibold uppercase tracking-tight">
-                      Agent-Native{" "}
-                      <span style={{ color: template.color }}>
-                        {template.name}
-                      </span>
+        <TemplateComparisonTable
+          caption={t("templateLanding.clips.s032")}
+          columns={[
+            {
+              id: "clips",
+              className: "w-[30%]",
+              emphasized: true,
+              header: (
+                <span className="inline-flex items-center gap-2">
+                  <img
+                    src="/agent-native-icon-dark.svg"
+                    alt=""
+                    aria-hidden="true"
+                    className="size-5"
+                    loading="lazy"
+                    decoding="async"
+                  />
+                  <span className="font-semibold uppercase tracking-tight">
+                    Agent-Native{" "}
+                    <span style={{ color: template.color }}>
+                      {template.name}
                     </span>
                   </span>
-                </th>
-                <th className="w-[20%] border border-[#1a1a1a] px-8 py-3 text-center text-[15px] font-medium leading-[1.4] text-[#faf9f5]">
-                  Loom
-                </th>
-                <th className="w-[32%] border border-[#1a1a1a] px-8 py-3 text-center text-[15px] font-medium leading-[1.4] text-[#faf9f5]">
-                  Tella, Screenpal, Vidyard
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {COMPARISON_ROWS.map((row) => {
-                const [clipsFirstLine, ...clipsRestLines] =
-                  row.clips.split("\n");
+                </span>
+              ),
+            },
+            { id: "loom", className: "w-[20%]", header: "Loom" },
+            {
+              id: "alternatives",
+              className: "w-[32%]",
+              header: "Tella, Screenpal, Vidyard",
+            },
+          ]}
+          rows={[
+            ...COMPARISON_ROWS.map((row) => {
+              const [clipsFirstLine, ...clipsRestLines] = row.clips.split("\n");
 
-                return (
-                  <tr key={row.feature}>
-                    <td className="min-h-14 border border-[#1a1a1a] px-5 py-3 text-[15px] font-medium leading-[1.4] text-[#e0e0d7] sm:px-8">
-                      {row.feature}
-                    </td>
-                    <td className="min-h-14 border border-[#1a1a1a] px-5 py-3 text-center text-[15px] leading-[1.4] sm:px-8">
-                      <span className="text-[#faf9f5]">{clipsFirstLine}</span>
+              return {
+                id: row.feature,
+                label: row.feature,
+                cells: {
+                  clips: (
+                    <>
+                      <span>{clipsFirstLine}</span>
                       {clipsRestLines.map((line) => (
-                        <span key={line} className="block text-[#9a9997]">
+                        <span
+                          key={line}
+                          className="block text-[var(--fg-secondary)]"
+                        >
                           {line}
                         </span>
                       ))}
-                    </td>
-                    <td className="min-h-14 border border-[#1a1a1a] px-5 py-3 text-center text-[15px] leading-[1.4] text-[#9a9997] sm:px-8">
-                      {row.loom}
-                    </td>
-                    <td className="min-h-14 border border-[#1a1a1a] px-5 py-3 text-center text-[15px] leading-[1.4] text-[#9a9997] sm:px-8">
-                      {row.alternatives}
-                    </td>
-                  </tr>
-                );
-              })}
-              <tr>
-                <td className="min-h-14 border border-[#1a1a1a] px-5 py-3 text-[15px] font-medium leading-[1.4] text-[#e0e0d7] sm:px-8">
-                  {t("templateLanding.clips.s053")}
-                </td>
-                <td className="min-h-14 border border-[#1a1a1a] px-5 py-3 text-center text-[15px] leading-[1.4] text-[#faf9f5] sm:px-8">
-                  {t("templateLanding.clips.s058")}
-                </td>
-                <td className="min-h-14 border border-[#1a1a1a] px-5 py-3 text-center text-[15px] leading-[1.4] text-[#9a9997] sm:px-8">
-                  {t("templateLanding.clips.s054")}
-                </td>
-                <td className="min-h-14 border border-[#1a1a1a] px-5 py-3 text-center text-[15px] leading-[1.4] text-[#9a9997] sm:px-8">
-                  {t("templateLanding.clips.s055")}
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+                    </>
+                  ),
+                  loom: row.loom,
+                  alternatives: row.alternatives,
+                },
+              };
+            }),
+            {
+              id: "pricing",
+              label: t("templateLanding.clips.s053"),
+              cells: {
+                clips: t("templateLanding.clips.s058"),
+                loom: t("templateLanding.clips.s054"),
+                alternatives: t("templateLanding.clips.s055"),
+              },
+            },
+          ]}
+        />
       </section>
 
       {/* CTA */}
@@ -810,67 +793,18 @@ export default function ClipsTemplate() {
         </div>
       </section>
 
-      <SectionDivider borderColorClassName="border-[#1a1a1a]" />
+      <SectionDivider showOnSmallScreens={false} />
 
       {/* FAQs */}
-      <section className="border border-[#1a1a1a]">
-        <div className="flex flex-col lg:flex-row lg:items-stretch">
-          <div className="flex shrink-0 flex-col gap-3 border-b border-[#1a1a1a] px-6 py-8 sm:px-8 lg:w-1/3 lg:border-b-0 lg:border-e lg:py-8 lg:ps-8 lg:pe-16">
-            <p className="m-0 font-mono text-sm font-semibold uppercase tracking-[0.28px] text-[#01c8f1]">
-              FAQs
-            </p>
-            <h2 className="m-0 text-[1.75rem] font-medium leading-[1.15] tracking-[-0.56px] text-[#faf9f5]">
-              Get answers to common questions
-            </h2>
-          </div>
-
-          <div className="flex flex-1 flex-col border-t border-[#1a1a1a] lg:border-t-0">
-            {FAQ_ITEMS.map((item, index) => {
-              const isOpen = openFaqIndex === index;
-
-              return (
-                <div
-                  key={item.question}
-                  className={`border-t border-[#1a1a1a] first:border-t-0 ${isOpen ? "" : "bg-[#0f0f0f]"}`}
-                >
-                  <button
-                    type="button"
-                    onClick={() => setOpenFaqIndex(isOpen ? -1 : index)}
-                    aria-expanded={isOpen}
-                    className="flex w-full items-center justify-between gap-4 px-6 py-4 text-left sm:px-8"
-                  >
-                    <span className="text-lg font-medium leading-[1.15] tracking-[-0.36px] text-[#faf9f5]">
-                      {item.question}
-                    </span>
-                    <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-[#5e5e5e] bg-[#0a0a0a] transition hover:border-[var(--fg-secondary)]">
-                      <svg
-                        width="18"
-                        height="18"
-                        viewBox="0 0 18 18"
-                        fill="none"
-                        xmlns="http://www.w3.org/2000/svg"
-                        className={`transition-transform ${isOpen ? "rotate-180" : ""}`}
-                      >
-                        <path
-                          d="M13.1023 6.35225C13.3219 6.13258 13.678 6.13258 13.8977 6.35225C14.1173 6.57192 14.1173 6.92799 13.8977 7.14766L9.39766 11.6477C9.17799 11.8673 8.82192 11.8673 8.60225 11.6477L4.10225 7.14766C3.88258 6.92799 3.88258 6.57192 4.10225 6.35225C4.32192 6.13258 4.67799 6.13258 4.89766 6.35225L8.99996 10.4545L13.1023 6.35225Z"
-                          fill="#FAF9F5"
-                        />
-                      </svg>
-                    </span>
-                  </button>
-                  {isOpen ? (
-                    <div className="px-6 pb-6 pe-16 sm:px-8 sm:pe-20">
-                      <p className="m-0 text-lg leading-[1.3] text-[#9a9997]">
-                        {item.answer}
-                      </p>
-                    </div>
-                  ) : null}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </section>
-    </main>
+      <TemplateLandingFaq
+        idPrefix="clips-faq"
+        eyebrow={<span style={{ color: template.color }}>FAQs</span>}
+        title="Get answers to common questions"
+        items={FAQ_ITEMS.map((item) => ({
+          ...item,
+          answer: <p className="m-0">{item.answer}</p>,
+        }))}
+      />
+    </TemplateLandingShell>
   );
 }

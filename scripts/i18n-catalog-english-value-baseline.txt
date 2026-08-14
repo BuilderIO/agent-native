@@ -3,24 +3,94 @@
 # Format: relative/catalog/locale|key|English source string
 packages/docs/app/i18n/ar-SA|nav.gettingStartedActions|Add an Action
 packages/docs/app/i18n/ar-SA|nav.gettingStartedPages|Add a Page
+packages/docs/app/i18n/ar-SA|templateLanding.faq.answer1|Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.
+packages/docs/app/i18n/ar-SA|templateLanding.faq.answer2|Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.
+packages/docs/app/i18n/ar-SA|templateLanding.faq.answer3|Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.
+packages/docs/app/i18n/ar-SA|templateLanding.faq.question1|Lorem ipsum dolor sit amet?
+packages/docs/app/i18n/ar-SA|templateLanding.faq.question2|Consectetur adipiscing elit?
+packages/docs/app/i18n/ar-SA|templateLanding.faq.question3|Sed do eiusmod tempor incididunt?
+packages/docs/app/i18n/ar-SA|templateLanding.faq.title|Get answers to common questions
 packages/docs/app/i18n/de-DE|nav.gettingStartedActions|Add an Action
 packages/docs/app/i18n/de-DE|nav.gettingStartedPages|Add a Page
+packages/docs/app/i18n/de-DE|templateLanding.faq.answer1|Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.
+packages/docs/app/i18n/de-DE|templateLanding.faq.answer2|Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.
+packages/docs/app/i18n/de-DE|templateLanding.faq.answer3|Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.
+packages/docs/app/i18n/de-DE|templateLanding.faq.question1|Lorem ipsum dolor sit amet?
+packages/docs/app/i18n/de-DE|templateLanding.faq.question2|Consectetur adipiscing elit?
+packages/docs/app/i18n/de-DE|templateLanding.faq.question3|Sed do eiusmod tempor incididunt?
+packages/docs/app/i18n/de-DE|templateLanding.faq.title|Get answers to common questions
 packages/docs/app/i18n/es-ES|nav.gettingStartedActions|Add an Action
 packages/docs/app/i18n/es-ES|nav.gettingStartedPages|Add a Page
+packages/docs/app/i18n/es-ES|templateLanding.faq.answer1|Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.
+packages/docs/app/i18n/es-ES|templateLanding.faq.answer2|Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.
+packages/docs/app/i18n/es-ES|templateLanding.faq.answer3|Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.
+packages/docs/app/i18n/es-ES|templateLanding.faq.question1|Lorem ipsum dolor sit amet?
+packages/docs/app/i18n/es-ES|templateLanding.faq.question2|Consectetur adipiscing elit?
+packages/docs/app/i18n/es-ES|templateLanding.faq.question3|Sed do eiusmod tempor incididunt?
+packages/docs/app/i18n/es-ES|templateLanding.faq.title|Get answers to common questions
 packages/docs/app/i18n/fr-FR|nav.gettingStartedActions|Add an Action
 packages/docs/app/i18n/fr-FR|nav.gettingStartedPages|Add a Page
+packages/docs/app/i18n/fr-FR|templateLanding.faq.answer1|Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.
+packages/docs/app/i18n/fr-FR|templateLanding.faq.answer2|Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.
+packages/docs/app/i18n/fr-FR|templateLanding.faq.answer3|Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.
+packages/docs/app/i18n/fr-FR|templateLanding.faq.question1|Lorem ipsum dolor sit amet?
+packages/docs/app/i18n/fr-FR|templateLanding.faq.question2|Consectetur adipiscing elit?
+packages/docs/app/i18n/fr-FR|templateLanding.faq.question3|Sed do eiusmod tempor incididunt?
+packages/docs/app/i18n/fr-FR|templateLanding.faq.title|Get answers to common questions
 packages/docs/app/i18n/hi-IN|nav.gettingStartedActions|Add an Action
 packages/docs/app/i18n/hi-IN|nav.gettingStartedPages|Add a Page
+packages/docs/app/i18n/hi-IN|templateLanding.faq.answer1|Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.
+packages/docs/app/i18n/hi-IN|templateLanding.faq.answer2|Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.
+packages/docs/app/i18n/hi-IN|templateLanding.faq.answer3|Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.
+packages/docs/app/i18n/hi-IN|templateLanding.faq.question1|Lorem ipsum dolor sit amet?
+packages/docs/app/i18n/hi-IN|templateLanding.faq.question2|Consectetur adipiscing elit?
+packages/docs/app/i18n/hi-IN|templateLanding.faq.question3|Sed do eiusmod tempor incididunt?
+packages/docs/app/i18n/hi-IN|templateLanding.faq.title|Get answers to common questions
 packages/docs/app/i18n/ja-JP|nav.gettingStartedActions|Add an Action
 packages/docs/app/i18n/ja-JP|nav.gettingStartedPages|Add a Page
+packages/docs/app/i18n/ja-JP|templateLanding.faq.answer1|Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.
+packages/docs/app/i18n/ja-JP|templateLanding.faq.answer2|Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.
+packages/docs/app/i18n/ja-JP|templateLanding.faq.answer3|Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.
+packages/docs/app/i18n/ja-JP|templateLanding.faq.question1|Lorem ipsum dolor sit amet?
+packages/docs/app/i18n/ja-JP|templateLanding.faq.question2|Consectetur adipiscing elit?
+packages/docs/app/i18n/ja-JP|templateLanding.faq.question3|Sed do eiusmod tempor incididunt?
+packages/docs/app/i18n/ja-JP|templateLanding.faq.title|Get answers to common questions
 packages/docs/app/i18n/ko-KR|nav.gettingStartedActions|Add an Action
 packages/docs/app/i18n/ko-KR|nav.gettingStartedPages|Add a Page
+packages/docs/app/i18n/ko-KR|templateLanding.faq.answer1|Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.
+packages/docs/app/i18n/ko-KR|templateLanding.faq.answer2|Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.
+packages/docs/app/i18n/ko-KR|templateLanding.faq.answer3|Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.
+packages/docs/app/i18n/ko-KR|templateLanding.faq.question1|Lorem ipsum dolor sit amet?
+packages/docs/app/i18n/ko-KR|templateLanding.faq.question2|Consectetur adipiscing elit?
+packages/docs/app/i18n/ko-KR|templateLanding.faq.question3|Sed do eiusmod tempor incididunt?
+packages/docs/app/i18n/ko-KR|templateLanding.faq.title|Get answers to common questions
 packages/docs/app/i18n/pt-BR|nav.gettingStartedActions|Add an Action
 packages/docs/app/i18n/pt-BR|nav.gettingStartedPages|Add a Page
+packages/docs/app/i18n/pt-BR|templateLanding.faq.answer1|Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.
+packages/docs/app/i18n/pt-BR|templateLanding.faq.answer2|Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.
+packages/docs/app/i18n/pt-BR|templateLanding.faq.answer3|Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.
+packages/docs/app/i18n/pt-BR|templateLanding.faq.question1|Lorem ipsum dolor sit amet?
+packages/docs/app/i18n/pt-BR|templateLanding.faq.question2|Consectetur adipiscing elit?
+packages/docs/app/i18n/pt-BR|templateLanding.faq.question3|Sed do eiusmod tempor incididunt?
+packages/docs/app/i18n/pt-BR|templateLanding.faq.title|Get answers to common questions
 packages/docs/app/i18n/zh-CN|nav.gettingStartedActions|Add an Action
 packages/docs/app/i18n/zh-CN|nav.gettingStartedPages|Add a Page
+packages/docs/app/i18n/zh-CN|templateLanding.faq.answer1|Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.
+packages/docs/app/i18n/zh-CN|templateLanding.faq.answer2|Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.
+packages/docs/app/i18n/zh-CN|templateLanding.faq.answer3|Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.
+packages/docs/app/i18n/zh-CN|templateLanding.faq.question1|Lorem ipsum dolor sit amet?
+packages/docs/app/i18n/zh-CN|templateLanding.faq.question2|Consectetur adipiscing elit?
+packages/docs/app/i18n/zh-CN|templateLanding.faq.question3|Sed do eiusmod tempor incididunt?
+packages/docs/app/i18n/zh-CN|templateLanding.faq.title|Get answers to common questions
 packages/docs/app/i18n/zh-TW|nav.gettingStartedActions|Add an Action
 packages/docs/app/i18n/zh-TW|nav.gettingStartedPages|Add a Page
+packages/docs/app/i18n/zh-TW|templateLanding.faq.answer1|Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.
+packages/docs/app/i18n/zh-TW|templateLanding.faq.answer2|Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.
+packages/docs/app/i18n/zh-TW|templateLanding.faq.answer3|Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.
+packages/docs/app/i18n/zh-TW|templateLanding.faq.question1|Lorem ipsum dolor sit amet?
+packages/docs/app/i18n/zh-TW|templateLanding.faq.question2|Consectetur adipiscing elit?
+packages/docs/app/i18n/zh-TW|templateLanding.faq.question3|Sed do eiusmod tempor incididunt?
+packages/docs/app/i18n/zh-TW|templateLanding.faq.title|Get answers to common questions
 templates/assets/app/i18n/ar-SA|brandKitDetail.addReference|Add reference
 templates/assets/app/i18n/ar-SA|brandKitDetail.chooseReferenceImage|Choose from library
 templates/assets/app/i18n/ar-SA|brandKitDetail.couldNotUploadReferenceImage|Could not upload reference image.

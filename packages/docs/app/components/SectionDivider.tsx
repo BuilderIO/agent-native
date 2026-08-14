@@ -1,17 +1,23 @@
-export function SectionDivider({
-  borderColorClassName = "border-[var(--docs-border)]",
-  className = "",
-}: {
-  borderColorClassName?: string;
+type SectionDividerProps = {
   className?: string;
-}) {
+  showOnSmallScreens?: boolean;
+};
+
+export function SectionDivider({
+  className = "",
+  showOnSmallScreens = true,
+}: SectionDividerProps) {
+  const responsiveSizeClassName = showOnSmallScreens
+    ? "grid h-12 sm:h-20 lg:h-[120px]"
+    : "hidden lg:grid lg:h-[120px]";
+
   return (
     <div
       aria-hidden="true"
-      className={`hidden border-x lg:grid lg:h-[120px] lg:grid-cols-3 ${borderColorClassName} ${className}`}
+      className={`${responsiveSizeClassName} grid-cols-3 border-x border-[var(--docs-border)] ${className}`}
     >
       <div />
-      <div className={`border-x ${borderColorClassName}`} />
+      <div className="border-x border-[var(--docs-border)]" />
       <div />
     </div>
   );
