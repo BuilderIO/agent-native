@@ -4,6 +4,7 @@ import { type CollabUser } from "@agent-native/core/client/collab";
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { ShareButton } from "@agent-native/core/client/sharing";
+import { ShareTrigger } from "@agent-native/toolkit/sharing";
 import { CreativeContextShareTab } from "@agent-native/creative-context/client";
 import { PresenceBar } from "@agent-native/toolkit/collab-ui";
 import type { DocumentSourceInfo } from "@shared/api";
@@ -31,7 +32,6 @@ import {
   IconLink,
   IconMessageCircle,
   IconRefresh,
-  IconShare3,
   IconTrash,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -891,22 +891,13 @@ export function DocumentToolbar({
             className="mr-1"
           />
           {isLocalFileDocument ? (
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-9 gap-1.5 rounded-lg px-3"
+            <ShareTrigger
+              className="h-9 rounded-lg px-3"
+              pending={shareLocalFile.isPending}
               disabled={shareLocalFile.isPending}
-              onClick={() => void handleShareLocalFile()}
-            >
-              {shareLocalFile.isPending ? (
-                <IconLoader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <IconShare3 className="h-4 w-4" />
-              )}
-              <span className="hidden sm:inline">
-                {t("editor.toolbar.share")}
-              </span>
-            </Button>
+              label={t("editor.toolbar.share")}
+              onPress={() => void handleShareLocalFile()}
+            />
           ) : (
             <>
               <ShareButton

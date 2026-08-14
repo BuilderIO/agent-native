@@ -196,4 +196,34 @@ describe("getDefaultRecordingVisibility", () => {
 
     await expect(getDefaultRecordingVisibility("org-1")).resolves.toBe("org");
   });
+
+  it("uses public when neither personal nor organization defaults exist", async () => {
+    mocks.getRequestUserEmail.mockReturnValue("owner@example.com");
+    mocks.getUserSetting.mockResolvedValue(null);
+    mocks.getDb.mockReturnValue({
+      select: () => ({
+        from: () => ({
+          where: () => ({
+            limit: async () => [],
+          }),
+        }),
+      }),
+    });
+
+    await expect(getDefaultRecordingVisibility("org-1")).resolves.toBe(
+      "public",
+    );
+  });
+
+  it("honors an explicit personal public preference", async () => {
+    mocks.getRequestUserEmail.mockReturnValue("owner@example.com");
+    mocks.getUserSetting.mockResolvedValue({
+      defaultRecordingVisibility: "public",
+    });
+
+    await expect(getDefaultRecordingVisibility("org-1")).resolves.toBe(
+      "public",
+    );
+    expect(mocks.getDb).not.toHaveBeenCalled();
+  });
 });
