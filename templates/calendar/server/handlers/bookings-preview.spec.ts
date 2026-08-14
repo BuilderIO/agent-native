@@ -160,6 +160,11 @@ describe("draft booking availability previews", () => {
     expect(mocks.getFreeBusy.mock.calls[0]?.[2]).not.toContain(
       "old-host@example.com",
     );
-    expect(mocks.accessFilter).toHaveBeenCalled();
+    expect(mocks.accessFilter).toHaveBeenCalledWith(
+      schema.bookingLinks,
+      schema.bookingLinkShares,
+      undefined,
+      "editor",
+    );
   });
 });
