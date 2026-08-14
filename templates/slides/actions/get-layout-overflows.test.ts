@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockResolveAccess = vi.fn();
 const mockReadAppStateForCurrentTab = vi.fn();
+const mockWriteAppStateForCurrentTab = vi.fn();
 
 vi.mock("@agent-native/core", () => ({
   defineAction: (action: unknown) => action,
@@ -14,6 +15,8 @@ vi.mock("@agent-native/core/sharing", () => ({
 vi.mock("./_tab-state.js", () => ({
   readAppStateForCurrentTab: (...args: unknown[]) =>
     mockReadAppStateForCurrentTab(...args),
+  writeAppStateForCurrentTab: (...args: unknown[]) =>
+    mockWriteAppStateForCurrentTab(...args),
 }));
 
 import { hashSlideContent } from "../shared/slide-fit";
@@ -95,6 +98,68 @@ describe("get-layout-overflows", () => {
     expect(mockReadAppStateForCurrentTab).toHaveBeenCalledWith(
       "slide-fit-check",
       { fallbackToGlobal: false },
+    );
+  });
+
+  it("tells the agent to stop re-checking after repeated unresolved overflow", async () => {
+    let history: { deckId: string; count: number; lastCheckAt: number } | null =
+      null;
+    const deckFitState = {
+      deckId: "deck-1",
+      aspectRatio: "16:9",
+      slides: {
+        "slide-a": measurement(slideAContent, 225),
+        "slide-b": measurement(slideBContent),
+      },
+    };
+    mockReadAppStateForCurrentTab.mockImplementation(async (key: string) => {
+      if (key === "layout-overflow-check-history") return history;
+      if (key === "deck-fit-checks") return deckFitState;
+      return null;
+    });
+    mockWriteAppStateForCurrentTab.mockImplementation(
+      async (_key: string, value: typeof history) => {
+        history = value;
+      },
+    );
+
+    let result;
+    for (let i = 0; i < 3; i += 1) {
+      result = await action.run({ deckId: "deck-1" });
+    }
+
+    expect(result).toMatchObject({
+      status: "measured",
+      canClaimDeckFits: false,
+      guidance: expect.stringContaining("checked 3 times"),
+    });
+  });
+
+  it("resets the repeat count once the deck fits", async () => {
+    mockReadAppStateForCurrentTab.mockImplementation(async (key: string) => {
+      if (key === "layout-overflow-check-history") {
+        return { deckId: "deck-1", count: 5, lastCheckAt: Date.now() };
+      }
+      if (key === "deck-fit-checks") {
+        return {
+          deckId: "deck-1",
+          aspectRatio: "16:9",
+          slides: {
+            "slide-a": measurement(slideAContent),
+            "slide-b": measurement(slideBContent),
+          },
+        };
+      }
+      return null;
+    });
+
+    const result = await action.run({ deckId: "deck-1" });
+
+    expect(result).toMatchObject({ canClaimDeckFits: true });
+    expect(result.guidance).toBeUndefined();
+    expect(mockWriteAppStateForCurrentTab).toHaveBeenCalledWith(
+      "layout-overflow-check-history",
+      { deckId: "deck-1", count: 0, lastCheckAt: expect.any(Number) },
     );
   });
 });

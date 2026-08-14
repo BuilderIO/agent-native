@@ -3,7 +3,52 @@ import { resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
 import { hashSlideContent, type DeckFitState } from "../shared/slide-fit.js";
-import { readAppStateForCurrentTab } from "./_tab-state.js";
+import {
+  readAppStateForCurrentTab,
+  writeAppStateForCurrentTab,
+} from "./_tab-state.js";
+
+// The layout-fit skill tells the agent to make one bounded repair pass and
+// verify, never to loop. Nothing stopped it from ignoring that and thrashing
+// between get-layout-overflows and update-slide on the same deck until the
+// framework's generic identical-tool-call guard killed the whole turn many
+// calls later. Surface a directive after a few unresolved checks so the
+// agent stops and reports instead of grinding toward that guard.
+const REPEATED_CHECK_WARNING_THRESHOLD = 3;
+const REPEATED_CHECK_WINDOW_MS = 30 * 60_000;
+
+interface LayoutOverflowCheckHistory {
+  deckId: string;
+  count: number;
+  lastCheckAt: number;
+}
+
+async function noteLayoutOverflowCheck(
+  deckId: string,
+  stillOverflowing: boolean,
+): Promise<number> {
+  const key = "layout-overflow-check-history";
+  const now = Date.now();
+  if (!stillOverflowing) {
+    await writeAppStateForCurrentTab(key, {
+      deckId,
+      count: 0,
+      lastCheckAt: now,
+    });
+    return 0;
+  }
+  const prior = (await readAppStateForCurrentTab(key, {
+    fallbackToGlobal: false,
+  })) as LayoutOverflowCheckHistory | null;
+  const carriesOver =
+    prior?.deckId === deckId &&
+    typeof prior.count === "number" &&
+    typeof prior.lastCheckAt === "number" &&
+    now - prior.lastCheckAt <= REPEATED_CHECK_WINDOW_MS;
+  const count = (carriesOver ? prior!.count : 0) + 1;
+  await writeAppStateForCurrentTab(key, { deckId, count, lastCheckAt: now });
+  return count;
+}
 
 type CurrentSlideFitMeasurement = DeckFitState["slides"][string] & {
   slideId: string;
@@ -140,6 +185,13 @@ export default defineAction({
       }
     });
 
+    const canClaimDeckFits =
+      unknownSlideIds.length === 0 && overflows.length === 0;
+    const checkCount = await noteLayoutOverflowCheck(
+      deckId,
+      overflows.length > 0,
+    );
+
     return {
       deckId,
       status: unknownSlideIds.length > 0 ? "unknown" : "measured",
@@ -147,7 +199,12 @@ export default defineAction({
       slideCount: slides.length,
       unknownSlideIds,
       overflows,
-      canClaimDeckFits: unknownSlideIds.length === 0 && overflows.length === 0,
+      canClaimDeckFits,
+      ...(checkCount >= REPEATED_CHECK_WARNING_THRESHOLD
+        ? {
+            guidance: `This deck has been checked ${checkCount} times with overflow still present. Stop re-measuring and patching one slide at a time. Report the exact remaining overflow (slide, pixels, dimension) to the user instead of calling get-layout-overflows again this turn.`,
+          }
+        : {}),
     };
   },
 });
