@@ -28,7 +28,6 @@ import { randomUUID } from "node:crypto";
 
 import {
   compareAndSetAppState,
-  deleteAppState,
   readAppState,
   writeAppState,
 } from "@agent-native/core/application-state";
@@ -77,7 +76,10 @@ interface CompressionMeta {
 }
 
 interface PendingResumableCleanup {
+  recordingId: string;
   generationId: string | null;
+  ownerGenerationId: string | null;
+  claimId: string | null;
   session: StoredResumableSession;
 }
 
@@ -88,12 +90,18 @@ function parsePendingResumableCleanup(
   if (!raw) return null;
   const session = raw.session;
   const generationId = raw.generationId;
+  const ownerGenerationId = raw.ownerGenerationId;
+  const claimId = raw.claimId;
   if (
     raw.recordingId !== recordingId ||
     !session ||
     typeof session !== "object" ||
     Array.isArray(session) ||
-    !(generationId === null || typeof generationId === "string")
+    !(generationId === null || typeof generationId === "string") ||
+    (ownerGenerationId !== undefined &&
+      ownerGenerationId !== null &&
+      typeof ownerGenerationId !== "string") ||
+    (claimId !== undefined && claimId !== null && typeof claimId !== "string")
   ) {
     throw new Error(
       `Invalid resumable cleanup state for recording ${recordingId}`,
@@ -118,7 +126,11 @@ function parsePendingResumableCleanup(
   }
 
   return {
+    recordingId,
     generationId,
+    ownerGenerationId:
+      ownerGenerationId === undefined ? null : ownerGenerationId,
+    claimId: claimId === undefined ? null : claimId,
     session: candidate as unknown as StoredResumableSession,
   };
 }
@@ -269,25 +281,23 @@ export default defineEventHandler(async (event: H3Event) => {
     const uploadStateKey = `recording-upload-${recordingId}`;
     const uploadStateSnapshot = await readAppState(uploadStateKey);
     const cleanupStateKey = `recording-resumable-cleanup-${recordingId}`;
-    const pendingCleanup = parsePendingResumableCleanup(
-      await readAppState(cleanupStateKey),
+    const cleanupStateSnapshot = await readAppState(cleanupStateKey);
+    const parsedCleanup = parsePendingResumableCleanup(
+      cleanupStateSnapshot,
       recordingId,
     );
+    const pendingCleanup =
+      parsedCleanup &&
+      (parsedCleanup.ownerGenerationId === null ||
+        parsedCleanup.ownerGenerationId === existingGenerationId)
+        ? parsedCleanup
+        : null;
     const discardedGenerationId = pendingCleanup
       ? pendingCleanup.generationId
       : existingGenerationId;
     const discardedResumableSession =
       pendingCleanup?.session ??
       (await getResumableSession(recordingId, existingGenerationId));
-    if (discardedResumableSession) {
-      // Persist the old handle before changing the generation. If provider
-      // cleanup fails after the fence, the next retry can still find it.
-      await writeAppState(cleanupStateKey, {
-        recordingId,
-        generationId: discardedGenerationId,
-        session: discardedResumableSession,
-      });
-    }
     const reset = await db
       .update(schema.recordings)
       .set({
@@ -322,19 +332,50 @@ export default defineEventHandler(async (event: H3Event) => {
       };
     }
 
+    let cleanupClaim: PendingResumableCleanup | null = null;
     if (discardedResumableSession) {
-      const cleaned = await abortResumableUploadSession(
-        discardedResumableSession,
-        { label: `reset-${recordingId}` },
+      // A cleanup claim belongs to the generation that won this fence. A
+      // losing reset must never resurrect a claim after the winner releases
+      // it, and a later winner must be able to transfer an unfinished claim.
+      const candidate: PendingResumableCleanup = {
+        recordingId,
+        generationId: discardedGenerationId,
+        ownerGenerationId: nextGenerationId,
+        claimId: randomUUID(),
+        session: discardedResumableSession,
+      };
+      const claimed = await compareAndSetAppState(
+        cleanupStateKey,
+        cleanupStateSnapshot,
+        candidate as unknown as Record<string, unknown>,
       );
-      if (!cleaned) {
-        setResponseStatus(event, 502);
-        return {
-          error:
-            "The previous recording upload could not be cleaned up. Retry the upload restart.",
-        };
+      if (claimed) cleanupClaim = candidate;
+    }
+
+    if (discardedResumableSession) {
+      if (cleanupClaim) {
+        const cleaned = await abortResumableUploadSession(
+          discardedResumableSession,
+          { label: `reset-${recordingId}` },
+        );
+        if (!cleaned) {
+          setResponseStatus(event, 502);
+          return {
+            error:
+              "The previous recording upload could not be cleaned up. Retry the upload restart.",
+          };
+        }
+        const released = await compareAndSetAppState(
+          cleanupStateKey,
+          cleanupClaim as unknown as Record<string, unknown>,
+          null,
+        );
+        if (!released) {
+          console.warn(
+            `[reset-chunks-${recordingId}] cleanup claim changed while releasing it`,
+          );
+        }
       }
-      await deleteAppState(cleanupStateKey);
     }
     const cleared = await deleteRecordingChunks(
       ownerEmail,
@@ -343,9 +384,11 @@ export default defineEventHandler(async (event: H3Event) => {
     );
     // Clear any stale resumable session so a buffered retry does not
     // accidentally route through handleResumableChunk with stale offsets.
-    await deleteResumableSession(recordingId, discardedGenerationId).catch(
-      () => {},
-    );
+    if (!discardedResumableSession || cleanupClaim) {
+      await deleteResumableSession(recordingId, discardedGenerationId).catch(
+        () => {},
+      );
+    }
 
     let uploadMode: UploadMode = "buffered";
     let compensateStartedSession: (() => Promise<void>) | null = null;
