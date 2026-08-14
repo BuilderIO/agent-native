@@ -212,4 +212,24 @@ describe("desktop passive-access regressions", () => {
     expect(modelList).toContain('statusLabel: "Claude subscription"');
     expect(modelList).not.toContain('engine: "auto"');
   });
+
+  it("closes both desktop bridges during update preparation and quit", () => {
+    const main = source("./index.ts");
+    const closeLifecycle = between(
+      main,
+      "async function closeDesktopComputerMcpBridge(): Promise<void> {",
+      "function isShellIdentityIpc(",
+    );
+
+    expect(closeLifecycle).toContain("if (computerBridge)");
+    expect(closeLifecycle).toContain("computerBridge.close()");
+    expect(closeLifecycle).toContain("if (browserBridge)");
+    expect(closeLifecycle).toContain("browserBridge.close()");
+    expect(closeLifecycle).toContain("Promise.allSettled(closePromises)");
+    expect(closeLifecycle).not.toContain("} else {");
+    expect(closeLifecycle).toContain(
+      "prepareForUpdate: closeDesktopComputerMcpBridge",
+    );
+    expect(main).toContain("void closeDesktopComputerMcpBridge().catch(");
+  });
 });

@@ -1185,10 +1185,12 @@ async function closeDesktopComputerMcpBridge(): Promise<void> {
   const browserBridge = desktopBrowserControlBridge;
   desktopComputerMcpBridge = null;
   desktopBrowserControlBridge = null;
-  if (computerBridge) {
-    await computerBridge.close();
-  } else {
-    await browserBridge?.close();
+
+  const closePromises: Promise<void>[] = [];
+  if (computerBridge) closePromises.push(computerBridge.close());
+  if (browserBridge) closePromises.push(browserBridge.close());
+  for (const result of await Promise.allSettled(closePromises)) {
+    if (result.status === "rejected") throw result.reason;
   }
 }
 
@@ -10330,7 +10332,12 @@ app.on("before-quit", (event) => {
     }
     remoteConnectorProcess?.kill("SIGTERM");
     remoteConnectorProcess = null;
-    void closeDesktopComputerMcpBridge();
+    void closeDesktopComputerMcpBridge().catch((error) => {
+      console.warn(
+        "[computer-control] failed to close desktop bridges during shutdown:",
+        error instanceof Error ? error.message : error,
+      );
+    });
   }
   if (multiFrontierAppIntegration) multiFrontierQuitGuard(event);
 });

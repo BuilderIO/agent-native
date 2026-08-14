@@ -98,6 +98,7 @@ import type { SubscriptionStatus } from "../../../shared/subscription-status.js"
 import AppWebview, { resolveAppWebviewUrl } from "./AppWebview.js";
 import CodeAgentsAppIcon from "./CodeAgentsAppIcon.js";
 import CreateAppPromptPopover from "./CreateAppPromptPopover.js";
+import DesktopAppChatShell from "./DesktopAppChatShell.js";
 import {
   initialMultiFrontierRunAutoContinue,
   locksMultiFrontierMode,
@@ -2014,17 +2015,22 @@ export default function CodeAgentsHub({
             status="ready"
             embedUrl={tab.path ?? "/"}
             renderEmbed={() => (
-              <AppWebview
-                app={toAppDefinition(surfaceApp)}
-                appConfig={surfaceApp}
-                isActive={isTabActive}
-                urlPath={tab.path}
-                urlParams={
-                  dispatchControlPlane
-                    ? dispatchControlPlaneUrlParams(tab.path)
-                    : { embedded: "1", chatFirst: "1" }
-                }
-              />
+              <DesktopAppChatShell
+                appId={surfaceApp.id}
+                appName={surfaceApp.name}
+              >
+                <AppWebview
+                  app={toAppDefinition(surfaceApp)}
+                  appConfig={surfaceApp}
+                  isActive={isTabActive}
+                  urlPath={tab.path}
+                  urlParams={
+                    dispatchControlPlane
+                      ? dispatchControlPlaneUrlParams(tab.path)
+                      : { embedded: "1", chatFirst: "1" }
+                  }
+                />
+              </DesktopAppChatShell>
             )}
             copy={defaultChatFirstCopy}
           />
