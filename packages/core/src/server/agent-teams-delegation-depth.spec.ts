@@ -5,6 +5,7 @@ const appState = vi.hoisted(() => new Map<string, Record<string, unknown>>());
 const requestContextState = vi.hoisted(() => ({
   active: false,
   orgId: undefined as string | undefined,
+  allowedActionNames: undefined as readonly string[] | undefined,
 }));
 
 vi.mock("../application-state/script-helpers.js", () => ({
@@ -61,6 +62,9 @@ vi.mock("../progress/registry.js", () => ({
 
 vi.mock("./request-context.js", () => ({
   getRequestOrgId: () => requestContextState.orgId,
+  getRequestRunContext: () => ({
+    allowedActionNames: requestContextState.allowedActionNames,
+  }),
   getRequestUserEmail: () => "owner@example.com",
   hasRequestContext: () => requestContextState.active,
   runWithRequestContext: (_ctx: unknown, fn: () => unknown) => fn(),
@@ -93,6 +97,7 @@ describe("agent-teams delegation-depth guardrail", () => {
     resolveOrgIdForEmailMock.mockResolvedValue("email-selected-org");
     requestContextState.active = false;
     requestContextState.orgId = undefined;
+    requestContextState.allowedActionNames = undefined;
     delete process.env.AGENT_NATIVE_MAX_SUBAGENT_DEPTH;
   });
 
@@ -118,6 +123,7 @@ describe("agent-teams delegation-depth guardrail", () => {
 
   it("persists the exact spawned action surface for durable execution", async () => {
     const { spawnTask } = await import("./agent-teams.js");
+    requestContextState.allowedActionNames = ["agent-teams"];
 
     await spawnTask({
       ...baseSpawnOptions(),
@@ -133,6 +139,28 @@ describe("agent-teams delegation-depth guardrail", () => {
       expect.objectContaining({
         payload: expect.objectContaining({
           allowedActionNames: ["allowed"],
+        }),
+      }),
+    );
+  });
+
+  it("keeps unscoped durable tasks on their legacy action behavior", async () => {
+    const { spawnTask } = await import("./agent-teams.js");
+
+    await spawnTask({
+      ...baseSpawnOptions(),
+      actions: {
+        reader: {
+          tool: { description: "Reader", parameters: {} },
+          run: async () => "ok",
+        },
+      },
+    });
+
+    expect(enqueueAgentTeamRunMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.not.objectContaining({
+          allowedActionNames: expect.anything(),
         }),
       }),
     );

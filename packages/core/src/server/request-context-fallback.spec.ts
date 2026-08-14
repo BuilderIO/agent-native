@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const requestContextGlobalKeys = [
@@ -79,15 +81,16 @@ describe("server/request-context fallback", () => {
     }
   });
 
-  it("rejects configured action surfaces before creating a handler", async () => {
-    const { createProductionAgentHandler } =
-      await import("../agent/production-agent.js");
+  it("guards configured action surfaces before handler setup", async () => {
+    const { assertRequestActionSurfaceIsolation } =
+      await import("./request-context.js");
+    const source = readFileSync("src/agent/production-agent.ts", "utf8");
 
-    expect(() =>
-      createProductionAgentHandler({
-        systemPrompt: "Test",
-        resolveActionSurface: async () => ({ allowedActionNames: [] }),
-      }),
-    ).toThrow("continuation-local");
+    expect(() => assertRequestActionSurfaceIsolation()).toThrow(
+      "continuation-local",
+    );
+    expect(source).toMatch(
+      /createProductionAgentHandler\([\s\S]*?if \(options\.resolveActionSurface\) \{\s*assertRequestActionSurfaceIsolation\(\);/,
+    );
   });
 });

@@ -96,6 +96,7 @@ import {
 } from "./agent-teams-run-queue.js";
 import {
   getRequestOrgId,
+  getRequestRunContext,
   getRequestUserEmail,
   hasRequestContext,
   runWithRequestContext,
@@ -1412,7 +1413,9 @@ export async function spawnTask(opts: SpawnTaskOptions): Promise<AgentTask> {
     ...(opts.parentThreadId ? { parentThreadId: opts.parentThreadId } : {}),
     ...(opts.parentRunId ? { parentRunId: opts.parentRunId } : {}),
     ...(opts.name ? { name: opts.name } : {}),
-    allowedActionNames: Object.keys(opts.actions),
+    ...(getRequestRunContext()?.allowedActionNames !== undefined
+      ? { allowedActionNames: Object.keys(opts.actions) }
+      : {}),
     // Stable across continuation chunks so the durable assistant message folds.
     turnId: runId,
   };
