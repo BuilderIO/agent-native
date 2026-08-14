@@ -754,7 +754,7 @@ export default function ClipsTemplate() {
           <ClipPreviewSlider ref={sliderHandleRef} />
         </div>
 
-        <div className="template-detail-cta-actions flex flex-col items-stretch justify-center gap-3 border-x border-t border-[#1a1a1a] px-6 py-10 sm:flex-row sm:items-center sm:gap-4 sm:px-8">
+        <div className="template-detail-cta-actions flex flex-col items-stretch justify-center gap-3 border-x border-t border-[#1a1a1a] px-6 py-10 sm:flex-row sm:items-center sm:gap-[120px] sm:px-8">
           <a
             href={template.demoUrl}
             target="_blank"
