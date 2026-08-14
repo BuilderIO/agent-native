@@ -150,6 +150,7 @@ export default function SlidesTemplate() {
         media={
           <img
             src={template.screenshot}
+            crossOrigin="anonymous"
             alt={t("templateLanding.slides.s001")}
             loading="lazy"
             decoding="async"

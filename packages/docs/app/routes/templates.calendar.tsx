@@ -118,6 +118,7 @@ export default function CalendarTemplate() {
         media={
           <img
             src={template.screenshot}
+            crossOrigin="anonymous"
             alt={t("templateLanding.calendar.s001")}
             loading="lazy"
             decoding="async"

@@ -145,6 +145,7 @@ export default function PlanTemplate() {
         media={
           <img
             src={template.screenshot}
+            crossOrigin="anonymous"
             alt={t("templateLanding.plan.s001")}
             loading="lazy"
             decoding="async"

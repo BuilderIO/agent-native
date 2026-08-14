@@ -108,6 +108,7 @@ export default function DesignTemplate() {
         media={
           <img
             src={template.screenshot}
+            crossOrigin="anonymous"
             alt={t("templateLanding.design.s001")}
             loading="lazy"
             decoding="async"

@@ -222,6 +222,7 @@ export default function ClipsTemplate() {
         media={
           <img
             src={template.screenshot}
+            crossOrigin="anonymous"
             alt={t("templateLanding.clips.s001")}
             loading="lazy"
             decoding="async"

@@ -61,6 +61,7 @@ function TemplateFallbackArt({ template }: { template: Template }) {
     return (
       <img
         src={template.screenshot}
+        crossOrigin="anonymous"
         alt={t("templateCard.screenshotAlt", { name: template.name })}
         loading="lazy"
         decoding="async"

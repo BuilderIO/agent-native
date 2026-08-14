@@ -153,6 +153,7 @@ export default function AnalyticsTemplate() {
         media={
           <img
             src={template.screenshot}
+            crossOrigin="anonymous"
             alt={t("templateLanding.analytics.s001")}
             loading="lazy"
             decoding="async"

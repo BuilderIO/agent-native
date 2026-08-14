@@ -110,6 +110,7 @@ export default function FormsTemplate() {
         media={
           <img
             src={template.screenshot}
+            crossOrigin="anonymous"
             alt={t("templateLanding.forms.s001")}
             loading="lazy"
             decoding="async"

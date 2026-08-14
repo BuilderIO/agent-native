@@ -127,6 +127,7 @@ export default function MailTemplate() {
         media={
           <img
             src={template.screenshot}
+            crossOrigin="anonymous"
             alt={t("templateLanding.mail.s001")}
             loading="lazy"
             decoding="async"

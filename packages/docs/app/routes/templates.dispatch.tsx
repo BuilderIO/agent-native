@@ -118,6 +118,7 @@ export default function DispatchTemplate() {
         media={
           <img
             src={template.screenshot}
+            crossOrigin="anonymous"
             alt={t("templateLanding.dispatch.s001")}
             loading="lazy"
             decoding="async"

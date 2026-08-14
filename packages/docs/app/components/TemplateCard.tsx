@@ -397,6 +397,7 @@ export function TemplateCard({ template }: { template: Template }) {
         {template.screenshot ? (
           <img
             src={template.screenshot}
+            crossOrigin="anonymous"
             alt={t("templateCard.screenshotAlt", { name: template.name })}
             loading="lazy"
             decoding="async"

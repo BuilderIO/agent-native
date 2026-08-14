@@ -117,6 +117,7 @@ export default function ContentTemplate() {
         media={
           <img
             src={template.screenshot}
+            crossOrigin="anonymous"
             alt={t("templateLanding.content.s001")}
             loading="lazy"
             decoding="async"
