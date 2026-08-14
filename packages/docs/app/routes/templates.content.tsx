@@ -146,23 +146,18 @@ export default function ContentTemplate() {
       body: t("templateLanding.content.s026"),
     },
   ];
-  const faqItems = [
-    {
-      id: "content-question-1",
-      question: t("templateLanding.faq.question1"),
-      answer: <p className="m-0">{t("templateLanding.faq.answer1")}</p>,
-    },
-    {
-      id: "content-question-2",
-      question: t("templateLanding.faq.question2"),
-      answer: <p className="m-0">{t("templateLanding.faq.answer2")}</p>,
-    },
-    {
-      id: "content-question-3",
-      question: t("templateLanding.faq.question3"),
-      answer: <p className="m-0">{t("templateLanding.faq.answer3")}</p>,
-    },
-  ];
+  const faqItems = Array.from({ length: 5 }, (_, index) => {
+    const itemNumber = index + 1;
+    return {
+      id: `content-question-${itemNumber}`,
+      question: t(`templateLanding.content.faq.question${itemNumber}`),
+      answer: (
+        <p className="m-0">
+          {t(`templateLanding.content.faq.answer${itemNumber}`)}
+        </p>
+      ),
+    };
+  });
 
   return (
     <TemplateLandingShell>

@@ -137,23 +137,18 @@ export default function MailTemplate() {
       body: t("templateLanding.mail.s018"),
     },
   ];
-  const faqItems = [
-    {
-      id: "mail-question-1",
-      question: t("templateLanding.faq.question1"),
-      answer: <p className="m-0">{t("templateLanding.faq.answer1")}</p>,
-    },
-    {
-      id: "mail-question-2",
-      question: t("templateLanding.faq.question2"),
-      answer: <p className="m-0">{t("templateLanding.faq.answer2")}</p>,
-    },
-    {
-      id: "mail-question-3",
-      question: t("templateLanding.faq.question3"),
-      answer: <p className="m-0">{t("templateLanding.faq.answer3")}</p>,
-    },
-  ];
+  const faqItems = Array.from({ length: 5 }, (_, index) => {
+    const itemNumber = index + 1;
+    return {
+      id: `mail-question-${itemNumber}`,
+      question: t(`templateLanding.mail.faq.question${itemNumber}`),
+      answer: (
+        <p className="m-0">
+          {t(`templateLanding.mail.faq.answer${itemNumber}`)}
+        </p>
+      ),
+    };
+  });
 
   return (
     <TemplateLandingShell>

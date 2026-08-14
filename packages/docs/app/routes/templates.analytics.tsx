@@ -167,23 +167,18 @@ export default function AnalyticsTemplate() {
       body: "Common Room, Pylon — member engagement and support tickets.",
     },
   ];
-  const faqItems = [
-    {
-      id: "analytics-question-1",
-      question: t("templateLanding.faq.question1"),
-      answer: <p className="m-0">{t("templateLanding.faq.answer1")}</p>,
-    },
-    {
-      id: "analytics-question-2",
-      question: t("templateLanding.faq.question2"),
-      answer: <p className="m-0">{t("templateLanding.faq.answer2")}</p>,
-    },
-    {
-      id: "analytics-question-3",
-      question: t("templateLanding.faq.question3"),
-      answer: <p className="m-0">{t("templateLanding.faq.answer3")}</p>,
-    },
-  ];
+  const faqItems = Array.from({ length: 5 }, (_, index) => {
+    const itemNumber = index + 1;
+    return {
+      id: `analytics-question-${itemNumber}`,
+      question: t(`templateLanding.analytics.faq.question${itemNumber}`),
+      answer: (
+        <p className="m-0">
+          {t(`templateLanding.analytics.faq.answer${itemNumber}`)}
+        </p>
+      ),
+    };
+  });
 
   return (
     <TemplateLandingShell>

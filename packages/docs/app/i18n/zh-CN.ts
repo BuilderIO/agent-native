@@ -533,17 +533,8 @@ const zhCN = {
   },
   templateLanding: {
     faq: {
-      eyebrow: "FAQs",
-      title: "Get answers to common questions",
-      question1: "Lorem ipsum dolor sit amet?",
-      answer1:
-        "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.",
-      question2: "Consectetur adipiscing elit?",
-      answer2:
-        "Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.",
-      question3: "Sed do eiusmod tempor incididunt?",
-      answer3:
-        "Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.",
+      eyebrow: "常见问题",
+      title: "常见问题解答",
     },
     analytics: {
       s001: "Analytics 模板屏幕截图",
@@ -610,6 +601,22 @@ const zhCN = {
       s062: "从模板开始，连接数据，开始构建仪表板。",
       s063: "阅读文档",
       s064: "查看所有模板",
+      faq: {
+        question1: "我可以用自然语言询问分析问题吗？",
+        answer1:
+          "可以。提出问题后，代理会编写 SQL，在 BigQuery 中运行查询并生成图表。查询会保留历史记录、行数和可共享 URL。",
+        question2: "Analytics 与 Amplitude 或 Mixpanel 有什么不同？",
+        answer2:
+          "Amplitude 和 Mixpanel 按席位和事件计费，而且界面由它们决定。Analytics 免费且开源，代理还能按需扩展应用本身，例如添加新图表和新连接器。",
+        question3: "可以连接哪些数据源？",
+        answer3:
+          "内置十多种连接器，包括 HubSpot、Stripe、GitHub、Jira、Sentry、Slack、Gong、Notion、Google Cloud 等。如果缺少你需要的连接器，代理可以构建它。",
+        question4: "我需要会 SQL 吗？",
+        answer4:
+          "不需要，自然语言就是操作界面。不过，当你需要时，SQL 资源管理器就在旁边，可直接访问 BigQuery 并查看完整查询历史。",
+        question5: "Analytics 免费吗？",
+        answer5: "免费且开源，不按事件计费。你的数据会留在自己的数据仓库中。",
+      },
     },
     calendar: {
       s001: "Calendar 模板屏幕截图",
@@ -670,6 +677,51 @@ const zhCN = {
       s056: "查看所有模板",
       s057: "托管演示说明",
       s058: "双向同步",
+      faq: {
+        question1: "AI 能帮我安排会议吗？",
+        answer1:
+          "可以。让代理查找时段、创建事件、检查空闲时间或重新安排即可；它会在你的真实日历中操作，并尊重现有事件。",
+        question2: "Calendar 能像 Calendly 一样提供预约链接吗？",
+        answer2:
+          "可以。它提供可自定义的预约页面，支持按类型设置空闲时间、收集访客信息、发送确认以及使用自定义域名。",
+        question3: "它能与 Google Calendar 同步吗？",
+        answer3:
+          "可以。它通过 OAuth 同步，支持多个账户和自动刷新令牌，并可直接在 Google 上创建、更新和删除事件。",
+        question4: "Calendar 免费吗？",
+        answer4: "免费且开源，预约页面也包含在内。",
+      },
+    },
+    brain: {
+      faq: {
+        question1: "AI 能记住团队掌握的知识吗？",
+        answer1:
+          "这正是 Brain 的用途：从经过批准的 Slack、Clips、Granola、GitHub 和转录来源构建共享记忆。在公司聊天中提问，答案会附带引用。",
+        question2: "Brain 与 Wiki 有什么不同？",
+        answer2:
+          "Wiki 要等人撰写，之后还会逐渐过时。Brain 从工作实际发生的地方捕获知识，通过审核控制哪些内容可以进入，并在回答时引用来源。",
+        question3: "我如何相信它的回答？",
+        answer3:
+          "有两层保障：审核关卡控制哪些内容进入记忆，每个答案也会引用来源。因此，“Wiki 上这么说”会变成“来自这条 Slack 讨论、这段录制和这次提交”。",
+        question4: "我的其他应用会共享这些记忆吗？",
+        answer4:
+          "这正是它的目的。Brain 是其他 Agent-Native 应用连接的记忆层，因此一个应用学到的内容会成为整个应用栈的知识。",
+      },
+    },
+    assets: {
+      faq: {
+        question1: "AI 能生成符合品牌的图片吗？",
+        answer1:
+          "可以。生成会以你上传的品牌素材库和参考资料为依据，而不是依赖通用模型的审美。代理会实际读取规则，据此生成符合品牌的图片和视频。",
+        question2: "Assets 与 DAM 有什么不同？",
+        answer2:
+          "DAM 存储经过批准的文件，供人搜索。Assets 不仅能做到这一点，还会让品牌信息变得机器可读，使代理默认就能生成并选择符合品牌的媒体。",
+        question3: "我的其他应用可以使用它吗？",
+        answer3:
+          "可以。任何 Agent-Native 应用都能通过 A2A 调用 Assets，或将其嵌入为选择器，因此 Slides、Design 等应用可使用同一个经过批准的素材库。",
+        question4: "Assets 免费吗？",
+        answer4:
+          "免费且开源。运行 `npx @agent-native/core@latest create my-assets-app --template assets`，它就属于你。",
+      },
     },
     clips: {
       s001: "Clips 模板屏幕截图",
@@ -813,6 +865,23 @@ const zhCN = {
       s060: "带上您的 MDX 文档，生成交互式块，然后开始使用 AI 进行写作。",
       s061: "阅读文档",
       s062: "查看所有模板",
+      faq: {
+        question1: "AI 代理无需导出或 API 就能编辑我的文档吗？",
+        answer1:
+          "可以。Content 直接处理本地 Markdown/MDX 文件，也就是仓库中的同一批文件。代理已经可以在磁盘上访问它们，无需 API、同步或导出步骤。",
+        question2: "Content 与 Notion 或 Obsidian 有什么不同？",
+        answer2:
+          "Notion 将文档保存在自己的数据库中，并通过 API 访问。Content 像 Obsidian 一样使用本地文件，同时提供富文本编辑器，以及能按你的风格起草、重写和发布的代理。",
+        question3: "AI 能用我的风格写作吗？",
+        answer3:
+          "可以。代理会学习你的表达方式、风格指南和语气，让草稿听起来像你；你也可以对任何选区执行重写、扩写、总结或改变语气。",
+        question4: "我可以发布到自己的 CMS 吗？",
+        answer4:
+          "可以。通过脚本连接任意无头 CMS。支持 WordPress、Contentful 和 Builder，Notion 可双向同步，代理还能自主运行发布脚本。",
+        question5: "Content 免费吗？",
+        answer5:
+          "免费且开源。由于文档就是普通的本地文件，即使以后离开，也没有任何内容需要导出。",
+      },
     },
     design: {
       s001: "Design 模板屏幕截图",
@@ -875,6 +944,23 @@ const zhCN = {
       s058: "从模板开始，并开始使用编辑源的代理生成交互式原型。",
       s059: "阅读文档",
       s060: "查看所有模板",
+      faq: {
+        question1: "AI 能生成真正的代码设计，而不只是模型图吗？",
+        answer1:
+          "可以。Design 会输出完整、独立的 HTML，并使用 Tailwind 设置样式、使用 Alpine 实现交互。原型本身就是实现，不需要再交接给别人重建。",
+        question2: "Design 与 Figma 有什么不同？",
+        answer2:
+          "Figma 面向在像素层面工作的设计团队，输出的是需要他人重新实现的画面。Design 从提示开始，以可直接发布或继续迭代的 HTML/CSS/JS 结束。",
+        question3: "它能遵循我的设计系统吗？",
+        answer3:
+          "可以。保存可复用的设计系统偏好，然后可视化调整常用变量，同时让代理处理结构和文案变化，例如“使用更温暖的配色”或“让标题更醒目”。",
+        question4: "导出时会得到什么？",
+        answer4:
+          "得到的是真正的成品：可导出为文件、ZIP 或 PDF 的完整 HTML/CSS/JS。内容完全独立，不使用专有格式，可以发布到任何地方。",
+        question5: "Design 免费吗？",
+        answer5:
+          "免费且开源；相比之下，许多设计工具按席位每月收费，或按点数计量。",
+      },
     },
     dispatch: {
       s001: "Dispatch 模板屏幕截图",
@@ -931,6 +1017,25 @@ const zhCN = {
       s052: "从模板开始，连接 Slack 或 Telegram，并将您的代理放入每个对话中。",
       s053: "阅读文档",
       s054: "查看所有模板",
+      faq: {
+        question1: "如何同时运行多个 AI 代理，而不必逐个盯着它们？",
+        answer1:
+          "Dispatch 是统一控制中心：从 Slack 或 Telegram 给它发消息，它会通过 A2A 将工作路由到 Mail、Slides、Design 等其他代理，并在一个地方管理审批和日程。",
+        question2: "我可以从 Slack 与代理对话吗？",
+        answer2:
+          "可以。Slack 和 Telegram 都支持带对话串上下文和内联审批的双向消息，代理的结果会回到同一段对话中。",
+        question3: "代理可以按计划运行吗？",
+        answer3:
+          "可以。它支持基于 cron 的任务，例如每日站会、每周摘要和每小时检查。结果会发送到你的消息工具，而不是留在一个需要你记得打开的仪表板中。",
+        question4: "它会记住以前的对话吗？",
+        answer4:
+          "会。每次对话中的经验都会自动捕获，并可按用户、组织或全局限定范围。记忆可查看、可编辑，不是黑箱。",
+        question5: "如果我不希望它自行采取行动怎么办？",
+        answer5:
+          "内置审批工作流：发送邮件、发布更新或运行自动化等敏感操作，会等待 Slack 中的一键批准。你可以配置哪些操作需要签字确认。",
+        question6: "Dispatch 免费吗？",
+        answer6: "免费且开源；相比之下，许多代理平台按席位每月收费。",
+      },
     },
     forms: {
       s001: "Forms 模板屏幕截图",
@@ -992,6 +1097,23 @@ const zhCN = {
       s057: "从模板开始并收集您完全拥有的提交内容。",
       s058: "阅读文档",
       s059: "查看所有模板",
+      faq: {
+        question1: "AI 能帮我创建表单吗？",
+        answer1:
+          "可以。描述需求后，完整表单就会出现；你可以用对话继续调整，例如“添加必填的经验级别下拉框”，也可以在带实时预览和撤销功能的可视化编辑器中拖动字段。",
+        question2: "有人提交表单后会发生什么？",
+        answer2:
+          "提交内容会以结构化形式进入你自己的 SQL 数据库，并在到达时路由到 Slack、Discord、Google Sheets 或 Webhook。提交会进入代理可以采取行动的地方，而不是无人查看的导出文件。",
+        question3: "Forms 与 Typeform 有什么不同？",
+        answer3:
+          "Typeform 专注于美化填写体验。Forms 更关注提交之后：回复保存在你自己的数据库中并路由到你的工具，不按回复计费，表单本身也能通过提示持续迭代。",
+        question4: "Forms 免费吗？有回复数量限制吗？",
+        answer4:
+          "免费且开源，不按回复收费，也没有数量上限。数据在你的数据库中，因此限制取决于你的数据库。",
+        question5: "我可以把表单放在自己的网站上吗？",
+        answer5:
+          "可以。可嵌入任何网站，也可托管在自定义域名上。每个表单还会获得自己的 SEO 友好公开 URL。",
+      },
     },
     mail: {
       s001: "Mail 模板屏幕截图",
@@ -1054,6 +1176,21 @@ const zhCN = {
       s058: "阅读文档",
       s059: "查看所有模板",
       s060: "托管演示说明",
+      faq: {
+        question1: "AI 能帮我整理收件箱吗？",
+        answer1:
+          "可以。代理会读取收件箱、突出显示优先事项、添加标签并分类、起草回复、设置自动归档规则，还会汇总未读邮件并提取行动项。",
+        question2: "Mail 与 Superhuman 有什么不同？",
+        answer2:
+          "键盘优先的速度只是基础：撰写、归档和回复都支持快捷键。不同之处在于，这里有一个真正处理收件箱的代理，没有订阅费，而且代码归你所有。",
+        question3: "Mail 支持 Gmail 吗？",
+        answer3: "支持 Gmail，并支持多个账户。",
+        question4: "我的邮件是私密的吗？",
+        answer4:
+          "Mail 开源并在本地运行，因此邮件留在你的基础设施中，你可以查看处理邮件的每一行代码。",
+        question5: "Mail 免费吗？",
+        answer5: "免费且开源，没有订阅费，也不会被供应商锁定。",
+      },
     },
     plan: {
       s001: "计划模板截图",
@@ -1130,6 +1267,26 @@ const zhCN = {
       s072: "// 示例计划块",
       s073: "ChatGPT Canvas 与 Notion",
       s074: "不适用",
+      faq: {
+        question1: "我可以在 AI 编码代理写代码前审阅它的计划吗？",
+        answer1:
+          "可以。Plans 会把代理的意图转成线框图、图表和带注释的代码，并生成可共享 URL。团队发表评论，代理据此修订，然后才开始写代码；审阅发生在代码出现之前，而不是之后。",
+        question2: "Plans 支持 Claude Code、Codex 和 Cursor 吗？",
+        answer2:
+          "支持，还包括 GitHub Copilot、OpenCode 和其他编码代理。只需一条命令即可将其添加为技能：`npx @agent-native/core@latest skills add visual-plan`。无需部署单独的应用。",
+        question3: "整个团队都能审阅计划，而不只是我一个人吗？",
+        answer3:
+          "每份计划都会获得一个内置评论功能的公开 URL。团队成员可以异步审阅线框图和带注释的差异，无需使用终端；代理会读取反馈并修订计划。",
+        question4: "这与 Claude Code 的 plan mode 有什么不同？",
+        answer4:
+          "plan mode 是终端中的文字，只对一个人可见，批准后就会消失。Plans 是可视化的，包含线框图、图表和带注释的差异；它可共享、可持久保存，代理能在功能的整个生命周期中创建、读取和更新计划。",
+        question5: "我可以在代码旁边查看计划吗？",
+        answer5:
+          "可以。VS Code 扩展会在侧边面板打开计划，Agent Native Desktop 还会把托管计划镜像为本地 MDX 文件。",
+        question6: "Plans 免费吗？",
+        answer6:
+          "免费、开源，并采用 MIT 许可证。Plans 提供托管的分享链接，你也可以把所有内容镜像到本地文件。",
+      },
     },
     slides: {
       s001: "Slides 模板屏幕截图",
@@ -1190,6 +1347,22 @@ const zhCN = {
       s056: "选择你的设计偏好和提示词即可开始。永久免费。",
       s057: "阅读文档",
       s058: "查看所有模板",
+      faq: {
+        question1: "我可以从 Claude 或 ChatGPT 创建演示文稿吗？",
+        answer1:
+          "可以。让 Claude 或 ChatGPT 制作一份演示文稿，成品会直接进入 Slides，已经符合品牌、可编辑、可导出，无需你在演示网站里从头再做。",
+        question2: "AI 做错的地方可以修改吗？",
+        answer2:
+          "有三种方式：通过提示修改、手动修改（单击任意元素，双击任意文字），或直接编辑代码。你永远不会被困在反复重新生成、只能碰运气的流程中。",
+        question3: "演示文稿如何保持品牌一致？",
+        answer3:
+          "将你满意的演示文稿标为星标。每份新演示文稿都会继承它的版式、标题、视觉风格和品牌令牌。一次性生成器只做出一份演示文稿，而这里建立的是可持续复用的演示体系。",
+        question4: "Slides 与 Gamma 有什么不同？",
+        answer4:
+          "Gamma 能快速一次性生成一份不错的演示文稿，但之后你会受限于它的画布和订阅，并在结果只有 85% 正确时不断重新生成。Slides 免费、开源、继承你的品牌，而且任何内容都可以编辑。",
+        question5: "Slides 免费吗？",
+        answer5: "免费且开源，没有订阅费、点数计量或按演示文稿收费。",
+      },
       howItWorksDescribe:
         "描述你的主题、受众和语气。附上参考演示文稿。从 UI 或你自己的 AI 工作流开始。",
       signInIntegration:
@@ -1262,6 +1435,19 @@ const zhCN = {
         findingHeadingFont: "标题字体",
         findingBodyFont: "正文字体",
         styleGuidePrefix: "适用于以下网站的风格指南：",
+      },
+    },
+    chat: {
+      faq: {
+        question1: "Chat 模板是什么？",
+        answer1:
+          "这是一个面向自有代理的极简 ChatGPT 风格脚手架，提供持久对话串、认证、actions、实时同步和标准侧边栏，并能清晰地扩展新页面或接入你的后端。",
+        question2: "它与 ChatGPT 有什么不同？",
+        answer2:
+          "ChatGPT 是 OpenAI 围绕自家模型打造的应用。这个模板属于你：使用你的代理后端、你的数据和你的页面；它是可扩展的起点，而不是租用的产品。",
+        question3: "它可以直接用于生产环境吗？",
+        answer3:
+          "它是一个刻意保持极简的脚手架，是聊天应用诚实的起点，而不是完整成品。如果需要完成度更高的产品，请从其他应用之一开始。",
       },
     },
   },

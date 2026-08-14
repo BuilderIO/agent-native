@@ -161,23 +161,18 @@ export default function PlanTemplate() {
       body: t("templateLanding.plan.s013"),
     },
   ];
-  const faqItems = [
-    {
-      id: "plan-question-1",
-      question: t("templateLanding.faq.question1"),
-      answer: <p className="m-0">{t("templateLanding.faq.answer1")}</p>,
-    },
-    {
-      id: "plan-question-2",
-      question: t("templateLanding.faq.question2"),
-      answer: <p className="m-0">{t("templateLanding.faq.answer2")}</p>,
-    },
-    {
-      id: "plan-question-3",
-      question: t("templateLanding.faq.question3"),
-      answer: <p className="m-0">{t("templateLanding.faq.answer3")}</p>,
-    },
-  ];
+  const faqItems = Array.from({ length: 6 }, (_, index) => {
+    const itemNumber = index + 1;
+    return {
+      id: `plan-question-${itemNumber}`,
+      question: t(`templateLanding.plan.faq.question${itemNumber}`),
+      answer: (
+        <p className="m-0">
+          {t(`templateLanding.plan.faq.answer${itemNumber}`)}
+        </p>
+      ),
+    };
+  });
 
   return (
     <TemplateLandingShell>

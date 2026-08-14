@@ -545,17 +545,70 @@ const enUS = {
     faq: {
       eyebrow: "FAQs",
       title: "Get answers to common questions",
-      question1: "Lorem ipsum dolor sit amet?",
-      answer1:
-        "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.",
-      question2: "Consectetur adipiscing elit?",
-      answer2:
-        "Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.",
-      question3: "Sed do eiusmod tempor incididunt?",
-      answer3:
-        "Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.",
+    },
+    brain: {
+      faq: {
+        question1: "Can AI remember what my team knows?",
+        answer1:
+          "That's Brain: shared memory built from approved Slack, Clips, Granola, GitHub, and transcript sources. Ask in company chat; answers come back with citations.",
+        question2: "How is Brain different from a wiki?",
+        answer2:
+          "A wiki waits for someone to write it, then goes stale. Brain captures from where work already happens, gates what gets in with reviews, and cites its sources when it answers.",
+        question3: "How do I trust what it says?",
+        answer3:
+          'Two ways: review gates control what enters memory, and every answer cites where it came from — so "the wiki said so" becomes "this Slack thread, this recording, this commit."',
+        question4: "Do my other apps share this memory?",
+        answer4:
+          "That's the point — Brain is the memory layer other Agent-Native apps connect to, so what one app learns, the stack knows.",
+      },
+    },
+    assets: {
+      faq: {
+        question1: "Can AI generate on-brand images?",
+        answer1:
+          "Yes — generation grounded in your uploaded brand libraries and references, not a generic model's taste. On-brand image and video, from rules the agent actually read.",
+        question2: "How is Assets different from a DAM?",
+        answer2:
+          "A DAM stores approved files for humans to search. Assets does that and makes the brand machine-readable — so agents generate and pick media that's on-brand by default.",
+        question3: "Can my other apps use it?",
+        answer3:
+          "Yes — any Agent-Native app can invoke Assets through A2A or embed it as a picker, so apps like Slides and Design pull from the same approved library.",
+        question4: "Is Assets free?",
+        answer4:
+          "Yes — free and open source. `npx @agent-native/core@latest create my-assets-app --template assets` and it's yours.",
+      },
+    },
+    chat: {
+      faq: {
+        question1: "What is the Chat template?",
+        answer1:
+          "A minimal, ChatGPT-style scaffold for your own agent: durable threads, auth, actions, live sync, a standard sidebar — and a clean path to add screens or plug in your backend.",
+        question2: "How is this different from ChatGPT?",
+        answer2:
+          "ChatGPT is OpenAI's app around OpenAI's models. This is yours: your agent backend, your data, your screens — a starting point you extend, not a product you rent.",
+        question3: "Is it production-ready?",
+        answer3:
+          "It's a scaffold, deliberately minimal — the honest starting point for a chat app, not a finished one. If you want finished, start from one of the other apps.",
+      },
     },
     analytics: {
+      faq: {
+        question1: "Can I ask my analytics questions in plain English?",
+        answer1:
+          "Yes. Ask the question; the agent writes the SQL, runs it against BigQuery, and builds the chart. Queries keep history, row counts, and shareable URLs.",
+        question2: "How is Analytics different from Amplitude or Mixpanel?",
+        answer2:
+          "They meter you per seat and per event, and their UI is theirs. Analytics is free and open source, and the agent extends the app itself — new charts, new connectors, on request.",
+        question3: "What data sources can I connect?",
+        answer3:
+          "Ten-plus built-in connectors: HubSpot, Stripe, GitHub, Jira, Sentry, Slack, Gong, Notion, Google Cloud, and more. If yours is missing, the agent can build the connector.",
+        question4: "Do I need to know SQL?",
+        answer4:
+          "No — plain English is the interface. But the SQL explorer is right there when you want it: direct BigQuery access, full query history.",
+        question5: "Is Analytics free?",
+        answer5:
+          "Yes — free and open source, with no per-event billing. Your data stays in your own warehouse.",
+      },
       s001: "Analytics app screenshot",
       s002: "Data connectors",
       s003: "Chart types",
@@ -622,6 +675,19 @@ const enUS = {
       s064: "View all apps",
     },
     calendar: {
+      faq: {
+        question1: "Can AI schedule my meetings?",
+        answer1:
+          "Yes. Tell the agent to find a slot, create an event, check availability, or reschedule — it works inside your real calendar and respects existing events.",
+        question2: "Does Calendar do booking links like Calendly?",
+        answer2:
+          "Yes — customizable booking pages with per-type availability, visitor info capture, confirmations, and custom domains.",
+        question3: "Does it sync with Google Calendar?",
+        answer3:
+          "Yes — OAuth sync with multi-account support and automatic token refresh. Create, update, and delete events on Google directly.",
+        question4: "Is Calendar free?",
+        answer4: "Yes. Free and open source — including the booking pages.",
+      },
       s001: "Calendar app screenshot",
       s002: "Calendar views",
       s003: "Agent actions",
@@ -761,6 +827,23 @@ const enUS = {
       },
     },
     content: {
+      faq: {
+        question1: "Can an AI agent edit my docs without an export or API?",
+        answer1:
+          "Yes. Content works on local Markdown/MDX files — the same ones in your repo. Your agent already has them on disk: no API, no sync, no export step.",
+        question2: "How is Content different from Notion or Obsidian?",
+        answer2:
+          "Notion keeps your docs in its database, behind its API. Content is local files like Obsidian — plus a rich editor on top and an agent that drafts, rewrites, and publishes in your voice.",
+        question3: "Can the AI write in my style?",
+        answer3:
+          "Yes. The agent learns your voice, style guide, and tone, so drafts sound like you — and rewrite, expand, summarize, or change-tone works on any selection.",
+        question4: "Can I publish to my CMS?",
+        answer4:
+          "Yes — connect any headless CMS via scripts. WordPress, Contentful, and Builder are supported, Notion syncs two-way, and the agent runs publishing scripts autonomously.",
+        question5: "Is Content free?",
+        answer5:
+          "Yes. Free and open source — and since your docs are plain local files, there's nothing to export if you ever leave.",
+      },
       s001: "Content app screenshot",
       s002: "All Apps",
       s003: "Open-Source Notion/Obsidian",
@@ -825,6 +908,23 @@ const enUS = {
       s062: "View all apps",
     },
     design: {
+      faq: {
+        question1: "Can AI generate a design that's real code, not a mockup?",
+        answer1:
+          "Yes. Design outputs complete, self-contained HTML with Tailwind styling and Alpine interactions. The prototype is the implementation — there's nothing to hand off and rebuild.",
+        question2: "How is Design different from Figma?",
+        answer2:
+          "Figma is built for design teams working at the pixel level, and its output is a picture someone re-implements. Design starts from a prompt and ends in working HTML/CSS/JS you can ship or iterate on.",
+        question3: "Can it follow my design system?",
+        answer3:
+          'Yes. Save reusable design-system preferences, then adjust common variables visually while the agent handles structural and copy changes — "warmer palette," "bolder headline," done.',
+        question4: "What do I get when I export?",
+        answer4:
+          "The real thing: complete HTML/CSS/JS as a file, a ZIP, or a PDF. Self-contained, no proprietary format, yours to ship anywhere.",
+        question5: "Is Design free?",
+        answer5:
+          "Yes — free and open source, next to design tools charging per seat monthly or metering you by credits.",
+      },
       s001: "Design app screenshot",
       s002: "Describe",
       s003: "Generate",
@@ -887,6 +987,27 @@ const enUS = {
       s060: "View all apps",
     },
     dispatch: {
+      faq: {
+        question1:
+          "How do I run several AI agents without babysitting each one?",
+        answer1:
+          "Dispatch is the home base: message it from Slack or Telegram and it routes work to your other agents — Mail, Slides, Design — over A2A, with approvals and schedules in one place.",
+        question2: "Can I talk to my agent from Slack?",
+        answer2:
+          "Yes — bidirectional messaging with thread context and inline approvals, in Slack or Telegram. The agent's results come back to the same conversation.",
+        question3: "Can the agent work on a schedule?",
+        answer3:
+          "Yes — cron-based jobs: daily standups, weekly digests, hourly checks. Results are delivered to your messenger, not a dashboard you have to remember to open.",
+        question4: "Does it remember previous conversations?",
+        answer4:
+          "Yes — learnings are auto-captured from every conversation and scoped per user, per organization, or global. Memory is inspectable and editable, not a black box.",
+        question5: "What if I don't want it acting alone?",
+        answer5:
+          "Approval workflows are built in: sensitive actions — send an email, post an update, run an automation — wait for a one-tap approval in Slack. You configure which actions need sign-off.",
+        question6: "Is Dispatch free?",
+        answer6:
+          "Yes. Free and open source, next to per-seat agent platforms charging monthly.",
+      },
       s001: "Dispatch app screenshot",
       s002: "+ Telegram",
       s003: "Inter-agent",
@@ -943,6 +1064,23 @@ const enUS = {
       s054: "View all apps",
     },
     forms: {
+      faq: {
+        question1: "Can AI build a form for me?",
+        answer1:
+          'Yes. Describe it and a full form appears; refine conversationally — "add a required experience-level dropdown" — or drag fields around in the visual editor with live preview and undo.',
+        question2: "What happens when someone submits?",
+        answer2:
+          "It lands in your own SQL database and routes — structured — to Slack, Discord, Google Sheets, or a webhook the moment it arrives. Submissions land where your agent can act, not in an export nobody opens.",
+        question3: "How is Forms different from Typeform?",
+        answer3:
+          "Typeform polishes the filling-out experience. Forms is about what happens after: responses in your own database, routed to your tools, no per-response pricing — and the form itself iterates by prompt.",
+        question4: "Is Forms free? Are there response limits?",
+        answer4:
+          "Free, open source, and there's no per-response fee or cap. The data is in your database; your database is the limit.",
+        question5: "Can I put a form on my own site?",
+        answer5:
+          "Yes — embed on any website or host on a custom domain. Every form also gets its own SEO-friendly public URL.",
+      },
       s001: "Forms app screenshot",
       s002: "Describe",
       s003: "Generate",
@@ -1004,6 +1142,22 @@ const enUS = {
       s059: "View all apps",
     },
     mail: {
+      faq: {
+        question1: "Can AI triage my inbox?",
+        answer1:
+          "Yes. The agent reads your inbox, surfaces priorities, labels and sorts, drafts replies, sets auto-archive rules, and summarizes unread mail with the action items pulled out.",
+        question2: "How is Mail different from Superhuman?",
+        answer2:
+          "The keyboard-first speed is the baseline — compose, archive, reply, all on bindings. The difference: an agent that actually works the inbox, no subscription, and code you own.",
+        question3: "Does Mail work with Gmail?",
+        answer3: "Yes — Gmail, with multi-account support.",
+        question4: "Is my email private?",
+        answer4:
+          "Mail is open source and runs locally — your mail stays on your infrastructure, and you can read every line of code that touches it.",
+        question5: "Is Mail free?",
+        answer5:
+          "Yes. Free and open source — no subscription, no vendor lock-in.",
+      },
       s001: "Mail app screenshot",
       s002: "Keyboard-first",
       s003: "Inbox triage",
@@ -1066,6 +1220,27 @@ const enUS = {
       s060: "Hosted demo note",
     },
     plan: {
+      faq: {
+        question1:
+          "Can I review an AI coding agent's plan before it writes code?",
+        answer1:
+          "Yes. Plans turns the agent's intent into wireframes, diagrams, and annotated code with a shareable URL. Your team comments, the agent revises, then it writes the code — review happens before the code exists, not after.",
+        question2: "Does Plans work with Claude Code, Codex, and Cursor?",
+        answer2:
+          "Yes — plus GitHub Copilot, OpenCode, and other coding agents. One command adds it as a skill: `npx @agent-native/core@latest skills add visual-plan`. There's no separate app to deploy.",
+        question3: "Can my whole team review the plan, not just me?",
+        answer3:
+          "Every plan gets a public URL with comments built in. Teammates review wireframes and annotated diffs async — no terminal required — and the agent reads the feedback and revises.",
+        question4: "How is this different from Claude Code's plan mode?",
+        answer4:
+          "Plan mode is text in your terminal, visible to one person, gone when you approve it. Plans are visual — wireframes, diagrams, annotated diffs — shareable, and persistent: agents create, read, and update them across the feature's whole lifecycle.",
+        question5: "Can I see plans next to my code?",
+        answer5:
+          "Yes. The VS Code extension opens plans in a side panel, and Agent Native Desktop mirrors hosted plans to local MDX files.",
+        question6: "Is Plans free?",
+        answer6:
+          "Yes. Free, open source, MIT licensed. Plans get hosted share links, and you can mirror everything to local files.",
+      },
       s001: "Plans app screenshot",
       s002: "Block types",
       s003: "Agent integrations",
@@ -1142,6 +1317,23 @@ const enUS = {
       s074: "N/A",
     },
     slides: {
+      faq: {
+        question1: "Can I make a presentation from Claude or ChatGPT?",
+        answer1:
+          "Yes. Ask Claude or ChatGPT for a deck and it lands in Slides — branded, editable, exportable — instead of you starting over in a deck website.",
+        question2: "Can I fix what the AI gets wrong?",
+        answer2:
+          "Three ways: by prompt, by hand (click any element, double-click any text), or in the code. You never face the regenerate-and-hope wall.",
+        question3: "How do decks stay on brand?",
+        answer3:
+          "Star a deck you're proud of. Every new deck inherits its layouts, headings, visual style, and brand tokens. One-shot generators make you a deck; this makes you a deck practice.",
+        question4: "How is Slides different from Gamma?",
+        answer4:
+          "Gamma one-shots a decent deck fast — then you're in its canvas, on its subscription, regenerating when it's 85% right. Slides is free, open source, inherits your brand, and lets you edit anything.",
+        question5: "Is Slides free?",
+        answer5:
+          "Yes. Free and open source — no subscription, no credit meter, no per-deck pricing.",
+      },
       s001: "Slides app screenshot",
       s002: "Prompt it.",
       s003: "Brand it.",

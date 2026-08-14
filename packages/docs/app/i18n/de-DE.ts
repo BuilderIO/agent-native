@@ -550,19 +550,29 @@ const deDE = {
   },
   templateLanding: {
     faq: {
-      eyebrow: "FAQs",
-      title: "Get answers to common questions",
-      question1: "Lorem ipsum dolor sit amet?",
-      answer1:
-        "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.",
-      question2: "Consectetur adipiscing elit?",
-      answer2:
-        "Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.",
-      question3: "Sed do eiusmod tempor incididunt?",
-      answer3:
-        "Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.",
+      eyebrow: "Häufige Fragen",
+      title: "Antworten auf häufige Fragen",
     },
     analytics: {
+      faq: {
+        question1:
+          "Kann ich meine Analytics-Fragen in einfacher Sprache stellen?",
+        answer1:
+          "Ja. Stellen Sie Ihre Frage; der Agent schreibt das SQL, führt es in BigQuery aus und erstellt das Diagramm. Abfragen behalten ihren Verlauf, die Zeilenanzahl und teilbare URLs.",
+        question2:
+          "Wie unterscheidet sich Analytics von Amplitude oder Mixpanel?",
+        answer2:
+          "Dort zahlen Sie pro Nutzer und Ereignis, und die Benutzeroberfläche gehört dem Anbieter. Analytics ist kostenlos und Open Source, und der Agent erweitert die App selbst — neue Diagramme und Konnektoren auf Anfrage.",
+        question3: "Welche Datenquellen kann ich verbinden?",
+        answer3:
+          "Mehr als zehn integrierte Konnektoren: HubSpot, Stripe, GitHub, Jira, Sentry, Slack, Gong, Notion, Google Cloud und weitere. Wenn Ihre Quelle fehlt, kann der Agent den Konnektor erstellen.",
+        question4: "Muss ich SQL beherrschen?",
+        answer4:
+          "Nein — einfache Sprache ist die Benutzeroberfläche. Der SQL-Explorer ist aber direkt verfügbar, wenn Sie ihn brauchen: direkter BigQuery-Zugriff und ein vollständiger Abfrageverlauf.",
+        question5: "Ist Analytics kostenlos?",
+        answer5:
+          "Ja — kostenlos und Open Source, ohne Abrechnung pro Ereignis. Ihre Daten bleiben in Ihrem eigenen Data Warehouse.",
+      },
       s001: "Screenshot der Vorlage Analytics",
       s002: "Datenanschlüsse",
       s003: "Diagrammtypen",
@@ -629,6 +639,20 @@ const deDE = {
       s064: "Alle Vorlagen anzeigen",
     },
     calendar: {
+      faq: {
+        question1: "Kann KI meine Meetings planen?",
+        answer1:
+          "Ja. Bitten Sie den Agenten, einen Termin zu finden, ein Event zu erstellen, die Verfügbarkeit zu prüfen oder umzuplanen — er arbeitet in Ihrem echten Kalender und berücksichtigt bestehende Events.",
+        question2: "Bietet Calendar Buchungslinks wie Calendly?",
+        answer2:
+          "Ja — anpassbare Buchungsseiten mit Verfügbarkeit pro Buchungstyp, Erfassung von Besucherinformationen, Bestätigungen und eigenen Domains.",
+        question3: "Wird mit Google Calendar synchronisiert?",
+        answer3:
+          "Ja — OAuth-Synchronisierung mit Unterstützung für mehrere Konten und automatischer Token-Aktualisierung. Erstellen, aktualisieren und löschen Sie Events direkt in Google.",
+        question4: "Ist Calendar kostenlos?",
+        answer4:
+          "Ja. Kostenlos und Open Source — einschließlich der Buchungsseiten.",
+      },
       s001: "Screenshot der Vorlage Calendar",
       s002: "Calendar Aufrufe",
       s003: "Agentenaktionen",
@@ -687,6 +711,51 @@ const deDE = {
       s056: "Alle Vorlagen anzeigen",
       s057: "Hinweis zur gehosteten Demo",
       s058: "Zwei-Wege-Synchronisierung",
+    },
+    brain: {
+      faq: {
+        question1: "Kann KI sich merken, was mein Team weiß?",
+        answer1:
+          "Genau das ist Brain: ein gemeinsames Gedächtnis aus freigegebenen Slack-, Clips-, Granola-, GitHub- und Transkriptquellen. Fragen Sie im Unternehmenschat; die Antworten enthalten Quellenangaben.",
+        question2: "Wie unterscheidet sich Brain von einem Wiki?",
+        answer2:
+          "Ein Wiki wartet darauf, dass jemand es schreibt, und veraltet dann. Brain erfasst Wissen dort, wo die Arbeit bereits stattfindet, prüft über Reviews, was aufgenommen wird, und belegt Antworten mit Quellen.",
+        question3: "Wie kann ich den Aussagen vertrauen?",
+        answer3:
+          "Auf zwei Arten: Review-Gates bestimmen, was ins Gedächtnis gelangt, und jede Antwort nennt ihre Quelle — aus „Das steht im Wiki“ wird „dieser Slack-Thread, diese Aufzeichnung, dieser Commit“.",
+        question4: "Teilen meine anderen Apps dieses Gedächtnis?",
+        answer4:
+          "Genau darum geht es — Brain ist die Gedächtnisebene, mit der sich andere Agent-Native-Apps verbinden, sodass der gesamte Stack weiß, was eine App lernt.",
+      },
+    },
+    assets: {
+      faq: {
+        question1: "Kann KI markenkonforme Bilder erzeugen?",
+        answer1:
+          "Ja — die Generierung stützt sich auf Ihre hochgeladenen Markenbibliotheken und Referenzen, nicht auf den Geschmack eines generischen Modells. Markenkonforme Bilder und Videos entstehen nach Regeln, die der Agent tatsächlich gelesen hat.",
+        question2: "Wie unterscheidet sich Assets von einem DAM?",
+        answer2:
+          "Ein DAM speichert freigegebene Dateien, damit Menschen sie suchen können. Assets tut das ebenfalls und macht die Marke maschinenlesbar — so erzeugen und wählen Agents standardmäßig markenkonforme Medien aus.",
+        question3: "Können meine anderen Apps Assets verwenden?",
+        answer3:
+          "Ja — jede Agent-Native-App kann Assets über A2A aufrufen oder als Auswahl einbetten, sodass Apps wie Slides und Design dieselbe freigegebene Bibliothek nutzen.",
+        question4: "Ist Assets kostenlos?",
+        answer4:
+          "Ja — kostenlos und Open Source. `npx @agent-native/core@latest create my-assets-app --template assets` und die App gehört Ihnen.",
+      },
+    },
+    chat: {
+      faq: {
+        question1: "Was ist das Chat-Template?",
+        answer1:
+          "Ein minimales Template im ChatGPT-Stil für Ihren eigenen Agenten: dauerhafte Threads, Auth, Actions, Live-Sync, eine Standard-Seitenleiste — und ein klarer Weg, Screens hinzuzufügen oder Ihr Backend anzubinden.",
+        question2: "Wie unterscheidet sich das von ChatGPT?",
+        answer2:
+          "ChatGPT ist die App von OpenAI rund um die Modelle von OpenAI. Diese App gehört Ihnen: Ihr Agent-Backend, Ihre Daten, Ihre Screens — ein Ausgangspunkt, den Sie erweitern, kein Produkt, das Sie mieten.",
+        question3: "Ist das produktionsreif?",
+        answer3:
+          "Es ist bewusst ein minimales Template — der ehrliche Ausgangspunkt für eine Chat-App, keine fertige App. Wenn Sie etwas Fertiges möchten, beginnen Sie mit einer der anderen Apps.",
+      },
     },
     clips: {
       s001: "Screenshot der Vorlage Clips",
@@ -768,6 +837,24 @@ const deDE = {
       },
     },
     content: {
+      faq: {
+        question1:
+          "Kann ein KI-Agent meine Dokumente ohne Export oder API bearbeiten?",
+        answer1:
+          "Ja. Content arbeitet mit lokalen Markdown-/MDX-Dateien — denselben Dateien wie in Ihrem Repository. Ihr Agent hat sie bereits auf der Festplatte: keine API, keine Synchronisierung und kein Exportschritt.",
+        question2: "Wie unterscheidet sich Content von Notion oder Obsidian?",
+        answer2:
+          "Notion speichert Ihre Dokumente in seiner Datenbank hinter seiner API. Content nutzt lokale Dateien wie Obsidian — ergänzt um einen Rich-Text-Editor und einen Agenten, der in Ihrem Stil entwirft, umschreibt und veröffentlicht.",
+        question3: "Kann die KI in meinem Stil schreiben?",
+        answer3:
+          "Ja. Der Agent lernt Ihre Stimme, Ihren Styleguide und Ihren Ton, damit Entwürfe nach Ihnen klingen — und jede Auswahl lässt sich umschreiben, erweitern, zusammenfassen oder im Ton verändern.",
+        question4: "Kann ich in meinem CMS veröffentlichen?",
+        answer4:
+          "Ja — verbinden Sie jedes Headless-CMS über Skripte. WordPress, Contentful und Builder werden unterstützt, Notion synchronisiert in beide Richtungen, und der Agent führt Veröffentlichungsskripte selbstständig aus.",
+        question5: "Ist Content kostenlos?",
+        answer5:
+          "Ja. Kostenlos und Open Source — und weil Ihre Dokumente einfache lokale Dateien sind, müssen Sie nichts exportieren, falls Sie Content jemals verlassen.",
+      },
       s001: "Screenshot der Vorlage Content",
       s002: "Alle Vorlagen",
       s003: "Open-Source-Obsidian für MDX",
@@ -832,6 +919,24 @@ const deDE = {
       s062: "Alle Vorlagen anzeigen",
     },
     design: {
+      faq: {
+        question1:
+          "Kann KI ein Design erzeugen, das echter Code und kein Mock-up ist?",
+        answer1:
+          "Ja. Design gibt vollständiges, eigenständiges HTML mit Tailwind-Styling und Alpine-Interaktionen aus. Der Prototyp ist die Implementierung — es muss nichts übergeben und neu gebaut werden.",
+        question2: "Wie unterscheidet sich Design von Figma?",
+        answer2:
+          "Figma ist für Designteams gedacht, die auf Pixelebene arbeiten, und das Ergebnis ist ein Bild, das jemand neu implementiert. Design beginnt mit einem Prompt und endet mit funktionierendem HTML/CSS/JS, das Sie veröffentlichen oder weiterentwickeln können.",
+        question3: "Kann Design meinem Designsystem folgen?",
+        answer3:
+          "Ja. Speichern Sie wiederverwendbare Designsystem-Einstellungen und passen Sie dann gängige Variablen visuell an, während der Agent Struktur- und Textänderungen übernimmt — „wärmere Farbpalette“, „kräftigere Überschrift“, erledigt.",
+        question4: "Was erhalte ich beim Export?",
+        answer4:
+          "Das echte Ergebnis: vollständiges HTML/CSS/JS als Datei, ZIP oder PDF. Eigenständig, ohne proprietäres Format und bereit, von Ihnen überall veröffentlicht zu werden.",
+        question5: "Ist Design kostenlos?",
+        answer5:
+          "Ja — kostenlos und Open Source, im Gegensatz zu Design-Tools, die monatlich pro Nutzer abrechnen oder die Nutzung über Credits messen.",
+      },
       s001: "Screenshot der Vorlage Design",
       s002: "Beschreiben",
       s003: "Generieren",
@@ -894,6 +999,27 @@ const deDE = {
       s060: "Alle Vorlagen anzeigen",
     },
     dispatch: {
+      faq: {
+        question1:
+          "Wie betreibe ich mehrere KI-Agents, ohne jeden einzeln beaufsichtigen zu müssen?",
+        answer1:
+          "Dispatch ist die Zentrale: Schreiben Sie aus Slack oder Telegram, und Dispatch leitet die Arbeit über A2A an Ihre anderen Agents weiter — Mail, Slides, Design — mit Freigaben und Zeitplänen an einem Ort.",
+        question2: "Kann ich aus Slack mit meinem Agenten sprechen?",
+        answer2:
+          "Ja — bidirektionales Messaging mit Thread-Kontext und Inline-Freigaben in Slack oder Telegram. Die Ergebnisse des Agenten kommen in dieselbe Unterhaltung zurück.",
+        question3: "Kann der Agent nach einem Zeitplan arbeiten?",
+        answer3:
+          "Ja — Cron-basierte Jobs: tägliche Stand-ups, wöchentliche Zusammenfassungen und stündliche Prüfungen. Die Ergebnisse werden an Ihren Messenger gesendet, nicht an ein Dashboard, an dessen Öffnen Sie denken müssen.",
+        question4: "Erinnert sich Dispatch an frühere Unterhaltungen?",
+        answer4:
+          "Ja — Erkenntnisse werden aus jeder Unterhaltung automatisch erfasst und pro Benutzer, pro Organisation oder global begrenzt. Das Gedächtnis ist einsehbar und bearbeitbar, keine Blackbox.",
+        question5: "Was ist, wenn der Agent nicht selbstständig handeln soll?",
+        answer5:
+          "Freigabe-Workflows sind integriert: Sensible Aktionen — eine E-Mail senden, ein Update veröffentlichen, eine Automatisierung ausführen — warten in Slack auf eine Freigabe mit einem Tippen. Sie legen fest, welche Aktionen eine Zustimmung benötigen.",
+        question6: "Ist Dispatch kostenlos?",
+        answer6:
+          "Ja. Kostenlos und Open Source, im Gegensatz zu Agent-Plattformen, die monatlich pro Nutzer abrechnen.",
+      },
       s001: "Screenshot der Vorlage Dispatch",
       s002: "+ Telegram dabei",
       s003: "Inter-Agent",
@@ -950,6 +1076,24 @@ const deDE = {
       s054: "Alle Vorlagen anzeigen",
     },
     forms: {
+      faq: {
+        question1: "Kann KI ein Formular für mich erstellen?",
+        answer1:
+          "Ja. Beschreiben Sie es, und ein vollständiges Formular erscheint. Verfeinern Sie es im Dialog — „ein Pflicht-Drop-down für die Erfahrungsstufe hinzufügen“ — oder verschieben Sie Felder im visuellen Editor mit Live-Vorschau und Rückgängig-Funktion.",
+        question2: "Was passiert, wenn jemand ein Formular absendet?",
+        answer2:
+          "Die Übermittlung landet in Ihrer eigenen SQL-Datenbank und wird sofort strukturiert an Slack, Discord, Google Sheets oder einen Webhook weitergeleitet. Übermittlungen landen dort, wo Ihr Agent handeln kann, nicht in einem Export, den niemand öffnet.",
+        question3: "Wie unterscheidet sich Forms von Typeform?",
+        answer3:
+          "Typeform optimiert das Ausfüllen. Bei Forms geht es darum, was danach passiert: Antworten in Ihrer eigenen Datenbank, Weiterleitung an Ihre Tools, keine Preise pro Antwort — und das Formular selbst lässt sich per Prompt weiterentwickeln.",
+        question4: "Ist Forms kostenlos? Gibt es Antwortlimits?",
+        answer4:
+          "Forms ist kostenlos und Open Source; es gibt weder Gebühren noch Obergrenzen pro Antwort. Die Daten liegen in Ihrer Datenbank; deren Kapazität ist die Grenze.",
+        question5:
+          "Kann ich ein Formular auf meiner eigenen Website einbinden?",
+        answer5:
+          "Ja — betten Sie es in jede Website ein oder hosten Sie es auf einer eigenen Domain. Jedes Formular erhält außerdem eine eigene SEO-freundliche öffentliche URL.",
+      },
       s001: "Screenshot der Vorlage Forms",
       s002: "Beschreiben",
       s003: "Generieren",
@@ -1011,6 +1155,22 @@ const deDE = {
       s059: "Alle Vorlagen anzeigen",
     },
     mail: {
+      faq: {
+        question1: "Kann KI meinen Posteingang sortieren?",
+        answer1:
+          "Ja. Der Agent liest Ihren Posteingang, hebt Prioritäten hervor, kennzeichnet und sortiert Nachrichten, entwirft Antworten, legt Regeln für die automatische Archivierung fest und fasst ungelesene E-Mails mit herausgearbeiteten Aktionspunkten zusammen.",
+        question2: "Wie unterscheidet sich Mail von Superhuman?",
+        answer2:
+          "Die tastaturorientierte Geschwindigkeit ist die Grundlage — verfassen, archivieren und antworten, alles per Tastenkürzel. Der Unterschied: ein Agent, der den Posteingang tatsächlich bearbeitet, kein Abonnement und Code, der Ihnen gehört.",
+        question3: "Funktioniert Mail mit Gmail?",
+        answer3: "Ja — mit Gmail und Unterstützung für mehrere Konten.",
+        question4: "Sind meine E-Mails privat?",
+        answer4:
+          "Mail ist Open Source und läuft lokal — Ihre E-Mails bleiben in Ihrer Infrastruktur, und Sie können jede Codezeile lesen, die darauf zugreift.",
+        question5: "Ist Mail kostenlos?",
+        answer5:
+          "Ja. Kostenlos und Open Source — kein Abonnement und keine Anbieterbindung.",
+      },
       s001: "Screenshot der Vorlage Mail",
       s002: "Zuerst die Tastatur",
       s003: "Posteingangs-Sortierung",
@@ -1073,6 +1233,27 @@ const deDE = {
       s060: "Hinweis zur gehosteten Demo",
     },
     plan: {
+      faq: {
+        question1:
+          "Kann ich den Plan eines KI-Coding-Agents prüfen, bevor er Code schreibt?",
+        answer1:
+          "Ja. Plans verwandelt die Absicht des Agenten in Wireframes, Diagramme und annotierten Code mit einer teilbaren URL. Ihr Team kommentiert, der Agent überarbeitet und schreibt dann den Code — die Prüfung findet statt, bevor der Code existiert, nicht danach.",
+        question2: "Funktioniert Plans mit Claude Code, Codex und Cursor?",
+        answer2:
+          "Ja — zusätzlich mit GitHub Copilot, OpenCode und anderen Coding-Agents. Ein Befehl fügt Plans als Skill hinzu: `npx @agent-native/core@latest skills add visual-plan`. Es gibt keine separate App, die bereitgestellt werden muss.",
+        question3: "Kann mein gesamtes Team den Plan prüfen, nicht nur ich?",
+        answer3:
+          "Jeder Plan erhält eine öffentliche URL mit integrierten Kommentaren. Teammitglieder prüfen Wireframes und annotierte Diffs asynchron — ohne Terminal —, und der Agent liest das Feedback und überarbeitet den Plan.",
+        question4: "Wie unterscheidet sich das vom Planmodus von Claude Code?",
+        answer4:
+          "Der Planmodus ist Text in Ihrem Terminal, für eine Person sichtbar und nach der Freigabe verschwunden. Plans sind visuell — Wireframes, Diagramme, annotierte Diffs —, teilbar und dauerhaft: Agents erstellen, lesen und aktualisieren sie über den gesamten Lebenszyklus eines Features.",
+        question5: "Kann ich Pläne neben meinem Code sehen?",
+        answer5:
+          "Ja. Die VS Code-Erweiterung öffnet Pläne in einem Seitenbereich, und Agent Native Desktop spiegelt gehostete Pläne in lokale MDX-Dateien.",
+        question6: "Ist Plans kostenlos?",
+        answer6:
+          "Ja. Kostenlos, Open Source und MIT-lizenziert. Plans bietet gehostete Freigabelinks, und Sie können alles in lokale Dateien spiegeln.",
+      },
       s001: "Screenshot der Planvorlage",
       s002: "Blocktypen",
       s003: "Agentenintegrationen",
@@ -1149,6 +1330,24 @@ const deDE = {
       s074: "N/V",
     },
     slides: {
+      faq: {
+        question1:
+          "Kann ich eine Präsentation aus Claude oder ChatGPT erstellen?",
+        answer1:
+          "Ja. Bitten Sie Claude oder ChatGPT um ein Deck, und es landet in Slides — markenkonform, bearbeitbar und exportierbar —, statt dass Sie auf einer Präsentationswebsite von vorn beginnen.",
+        question2: "Kann ich korrigieren, was die KI falsch macht?",
+        answer2:
+          "Auf drei Arten: per Prompt, von Hand — klicken Sie auf jedes Element und doppelklicken Sie auf jeden Text — oder direkt im Code. Sie stehen nie vor der Hürde, neu zu generieren und auf das Beste zu hoffen.",
+        question3: "Wie bleiben Decks markenkonform?",
+        answer3:
+          "Markieren Sie ein Deck, auf das Sie stolz sind, als Favoriten. Jedes neue Deck übernimmt dessen Layouts, Überschriften, visuellen Stil und Marken-Tokens. One-Shot-Generatoren erstellen ein einzelnes Deck; hier entsteht ein wiederholbarer Prozess für Ihre Decks.",
+        question4: "Wie unterscheidet sich Slides von Gamma?",
+        answer4:
+          "Gamma erstellt schnell ein ordentliches Deck in einem Durchgang — danach arbeiten Sie in dessen Canvas, zahlen das Abonnement und generieren neu, wenn es nur zu 85 % stimmt. Slides ist kostenlos, Open Source, übernimmt Ihre Marke und lässt Sie alles bearbeiten.",
+        question5: "Ist Slides kostenlos?",
+        answer5:
+          "Ja. Kostenlos und Open Source — kein Abonnement, kein Credit-Zähler und keine Preise pro Deck.",
+      },
       s001: "Screenshot der Vorlage Slides",
       s002: "Beschreiben",
       s003: "Generieren",

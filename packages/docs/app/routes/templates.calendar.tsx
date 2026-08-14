@@ -132,23 +132,18 @@ export default function CalendarTemplate() {
       body: t("templateLanding.calendar.s019"),
     },
   ];
-  const faqItems = [
-    {
-      id: "calendar-question-1",
-      question: t("templateLanding.faq.question1"),
-      answer: <p className="m-0">{t("templateLanding.faq.answer1")}</p>,
-    },
-    {
-      id: "calendar-question-2",
-      question: t("templateLanding.faq.question2"),
-      answer: <p className="m-0">{t("templateLanding.faq.answer2")}</p>,
-    },
-    {
-      id: "calendar-question-3",
-      question: t("templateLanding.faq.question3"),
-      answer: <p className="m-0">{t("templateLanding.faq.answer3")}</p>,
-    },
-  ];
+  const faqItems = Array.from({ length: 4 }, (_, index) => {
+    const itemNumber = index + 1;
+    return {
+      id: `calendar-question-${itemNumber}`,
+      question: t(`templateLanding.calendar.faq.question${itemNumber}`),
+      answer: (
+        <p className="m-0">
+          {t(`templateLanding.calendar.faq.answer${itemNumber}`)}
+        </p>
+      ),
+    };
+  });
 
   return (
     <TemplateLandingShell>

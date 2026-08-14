@@ -29,6 +29,12 @@ import {
 import enUS from "../i18n/en-US";
 import { withDefaultSocialImage, withTemplateSocialImage } from "../seo";
 
+const genericFaqCounts: Partial<Record<Template["slug"], number>> = {
+  assets: 4,
+  brain: 4,
+  chat: 3,
+};
+
 function findTemplate(slug: string | undefined) {
   return templates.find((t) => t.slug === slug);
 }
@@ -172,23 +178,19 @@ export default function GenericTemplatePage() {
   const sourceSlug = template.slug;
   const replaces = t(`templates.${template.slug}.replaces`);
   const description = t(`templates.${template.slug}.description`);
-  const faqItems = [
-    {
-      id: `${template.slug}-question-1`,
-      question: t("templateLanding.faq.question1"),
-      answer: <p className="m-0">{t("templateLanding.faq.answer1")}</p>,
-    },
-    {
-      id: `${template.slug}-question-2`,
-      question: t("templateLanding.faq.question2"),
-      answer: <p className="m-0">{t("templateLanding.faq.answer2")}</p>,
-    },
-    {
-      id: `${template.slug}-question-3`,
-      question: t("templateLanding.faq.question3"),
-      answer: <p className="m-0">{t("templateLanding.faq.answer3")}</p>,
-    },
-  ];
+  const faqCount = genericFaqCounts[template.slug];
+  const faqItems = Array.from({ length: faqCount ?? 0 }, (_, index) => {
+    const itemNumber = index + 1;
+    return {
+      id: `${template.slug}-question-${itemNumber}`,
+      question: t(`templateLanding.${template.slug}.faq.question${itemNumber}`),
+      answer: (
+        <p className="m-0">
+          {t(`templateLanding.${template.slug}.faq.answer${itemNumber}`)}
+        </p>
+      ),
+    };
+  });
 
   return (
     <TemplateLandingShell>
@@ -265,18 +267,22 @@ export default function GenericTemplatePage() {
         }
       />
 
-      <SectionDivider showOnSmallScreens={false} />
+      {faqItems.length > 0 ? (
+        <>
+          <SectionDivider showOnSmallScreens={false} />
 
-      <TemplateLandingFaq
-        idPrefix={`${template.slug}-faq`}
-        eyebrow={
-          <span style={{ color: template.color }}>
-            {t("templateLanding.faq.eyebrow")}
-          </span>
-        }
-        title={t("templateLanding.faq.title")}
-        items={faqItems}
-      />
+          <TemplateLandingFaq
+            idPrefix={`${template.slug}-faq`}
+            eyebrow={
+              <span style={{ color: template.color }}>
+                {t("templateLanding.faq.eyebrow")}
+              </span>
+            }
+            title={t("templateLanding.faq.title")}
+            items={faqItems}
+          />
+        </>
+      ) : null}
     </TemplateLandingShell>
   );
 }

@@ -141,23 +141,18 @@ export default function FormsTemplate() {
       body: t("templateLanding.forms.s023"),
     },
   ];
-  const faqItems = [
-    {
-      id: "forms-question-1",
-      question: t("templateLanding.faq.question1"),
-      answer: <p className="m-0">{t("templateLanding.faq.answer1")}</p>,
-    },
-    {
-      id: "forms-question-2",
-      question: t("templateLanding.faq.question2"),
-      answer: <p className="m-0">{t("templateLanding.faq.answer2")}</p>,
-    },
-    {
-      id: "forms-question-3",
-      question: t("templateLanding.faq.question3"),
-      answer: <p className="m-0">{t("templateLanding.faq.answer3")}</p>,
-    },
-  ];
+  const faqItems = Array.from({ length: 5 }, (_, index) => {
+    const itemNumber = index + 1;
+    return {
+      id: `forms-question-${itemNumber}`,
+      question: t(`templateLanding.forms.faq.question${itemNumber}`),
+      answer: (
+        <p className="m-0">
+          {t(`templateLanding.forms.faq.answer${itemNumber}`)}
+        </p>
+      ),
+    };
+  });
 
   return (
     <TemplateLandingShell>

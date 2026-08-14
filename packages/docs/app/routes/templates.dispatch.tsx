@@ -132,23 +132,18 @@ export default function DispatchTemplate() {
       body: t("templateLanding.dispatch.s017"),
     },
   ];
-  const faqItems = [
-    {
-      id: "dispatch-question-1",
-      question: t("templateLanding.faq.question1"),
-      answer: <p className="m-0">{t("templateLanding.faq.answer1")}</p>,
-    },
-    {
-      id: "dispatch-question-2",
-      question: t("templateLanding.faq.question2"),
-      answer: <p className="m-0">{t("templateLanding.faq.answer2")}</p>,
-    },
-    {
-      id: "dispatch-question-3",
-      question: t("templateLanding.faq.question3"),
-      answer: <p className="m-0">{t("templateLanding.faq.answer3")}</p>,
-    },
-  ];
+  const faqItems = Array.from({ length: 6 }, (_, index) => {
+    const itemNumber = index + 1;
+    return {
+      id: `dispatch-question-${itemNumber}`,
+      question: t(`templateLanding.dispatch.faq.question${itemNumber}`),
+      answer: (
+        <p className="m-0">
+          {t(`templateLanding.dispatch.faq.answer${itemNumber}`)}
+        </p>
+      ),
+    };
+  });
 
   return (
     <TemplateLandingShell>

@@ -543,19 +543,27 @@ const hiIN = {
   },
   templateLanding: {
     faq: {
-      eyebrow: "FAQs",
-      title: "Get answers to common questions",
-      question1: "Lorem ipsum dolor sit amet?",
-      answer1:
-        "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.",
-      question2: "Consectetur adipiscing elit?",
-      answer2:
-        "Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.",
-      question3: "Sed do eiusmod tempor incididunt?",
-      answer3:
-        "Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.",
+      eyebrow: "अक्सर पूछे जाने वाले प्रश्न",
+      title: "सामान्य प्रश्नों के उत्तर पाएँ",
     },
     analytics: {
+      faq: {
+        question1: "क्या मैं analytics से जुड़े सवाल सामान्य भाषा में पूछ सकता हूँ?",
+        answer1:
+          "हाँ। सवाल पूछें; agent SQL लिखता है, उसे BigQuery पर चलाता है और chart बनाता है। Queries का history, row count और shareable URLs सुरक्षित रहते हैं।",
+        question2: "Analytics, Amplitude या Mixpanel से कैसे अलग है?",
+        answer2:
+          "वे हर user और event के हिसाब से शुल्क लेते हैं, और उनकी UI उन्हीं की रहती है। Analytics मुफ़्त और open source है, और अनुरोध करने पर agent app को खुद नए charts और connectors से आगे बढ़ाता है।",
+        question3: "मैं कौन-से data sources connect कर सकता हूँ?",
+        answer3:
+          "दस से अधिक built-in connectors: HubSpot, Stripe, GitHub, Jira, Sentry, Slack, Gong, Notion, Google Cloud और अन्य। अगर आपका source उपलब्ध नहीं है, तो agent उसका connector बना सकता है।",
+        question4: "क्या मुझे SQL आना ज़रूरी है?",
+        answer4:
+          "नहीं — सामान्य भाषा ही interface है। लेकिन जरूरत पड़ने पर SQL explorer भी वहीं मिलता है: BigQuery तक सीधी पहुँच और queries का पूरा history।",
+        question5: "क्या Analytics मुफ़्त है?",
+        answer5:
+          "हाँ — मुफ़्त और open source, बिना प्रति-event billing के। आपका data आपके अपने data warehouse में रहता है।",
+      },
       s001: "Analytics टेम्पलेट स्क्रीनशॉट",
       s002: "डेटा कनेक्टर्स",
       s003: "चार्ट प्रकार",
@@ -622,6 +630,19 @@ const hiIN = {
       s064: "सभी टेम्पलेट देखें",
     },
     calendar: {
+      faq: {
+        question1: "क्या AI मेरी meetings schedule कर सकता है?",
+        answer1:
+          "हाँ। Agent से कोई खाली समय खोजने, event बनाने, उपलब्धता जाँचने या meeting का समय बदलने को कहें — वह आपके असली calendar में काम करता है और मौजूदा events का ध्यान रखता है।",
+        question2: "क्या Calendar, Calendly जैसे booking links देता है?",
+        answer2:
+          "हाँ — हर booking type के लिए अलग उपलब्धता, visitor की जानकारी लेने, confirmations और custom domains वाली अनुकूलन योग्य booking pages।",
+        question3: "क्या यह Google Calendar के साथ sync होता है?",
+        answer3:
+          "हाँ — कई accounts के support और automatic token refresh के साथ OAuth sync। Google पर सीधे events बनाएँ, update करें और delete करें।",
+        question4: "क्या Calendar मुफ़्त है?",
+        answer4: "हाँ। यह booking pages सहित मुफ़्त और open source है।",
+      },
       s001: "Calendar टेम्पलेट स्क्रीनशॉट",
       s002: "Calendar दृश्य",
       s003: "एजेंट की हरकतें",
@@ -680,6 +701,51 @@ const hiIN = {
       s056: "सभी टेम्पलेट देखें",
       s057: "होस्ट किए गए डेमो की जानकारी",
       s058: "दो-तरफ़ा सिंक",
+    },
+    brain: {
+      faq: {
+        question1: "क्या AI याद रख सकता है कि मेरी team क्या जानती है?",
+        answer1:
+          "यही Brain का काम है: approved Slack, Clips, Granola, GitHub और transcript sources से बनी shared memory। Company chat में पूछें; जवाब citations के साथ मिलते हैं।",
+        question2: "Brain किसी wiki से कैसे अलग है?",
+        answer2:
+          "Wiki किसी के लिखने का इंतज़ार करती है और फिर पुरानी पड़ जाती है। Brain वहीं से जानकारी लेता है जहाँ काम पहले से हो रहा है, reviews के जरिए तय करता है कि memory में क्या जाए और जवाब देते समय sources का उल्लेख करता है।",
+        question3: "मैं इसके जवाबों पर भरोसा कैसे करूँ?",
+        answer3:
+          "दो तरीकों से: review gates नियंत्रित करते हैं कि memory में क्या जाए, और हर जवाब बताता है कि वह कहाँ से आया — इसलिए “wiki में ऐसा लिखा है” बदलकर “यह Slack thread, यह recording, यह commit” हो जाता है।",
+        question4: "क्या मेरी दूसरी apps भी इस memory को साझा करती हैं?",
+        answer4:
+          "यही इसका उद्देश्य है — Brain वह memory layer है जिससे अन्य Agent-Native apps connect होती हैं, ताकि एक app जो सीखे उसे पूरी stack जान सके।",
+      },
+    },
+    assets: {
+      faq: {
+        question1: "क्या AI मेरे brand के अनुरूप images बना सकता है?",
+        answer1:
+          "हाँ — generation आपके upload किए गए brand libraries और references पर आधारित होती है, किसी सामान्य model की पसंद पर नहीं। Agent ने जो नियम सच में पढ़े हैं, उन्हीं से brand के अनुरूप images और videos बनते हैं।",
+        question2: "Assets किसी DAM से कैसे अलग है?",
+        answer2:
+          "DAM approved files को store करता है ताकि लोग उन्हें खोज सकें। Assets यह भी करता है और brand को machine-readable बनाता है — इसलिए agents default रूप से brand के अनुरूप media बनाते और चुनते हैं।",
+        question3: "क्या मेरी दूसरी apps इसे इस्तेमाल कर सकती हैं?",
+        answer3:
+          "हाँ — कोई भी Agent-Native app A2A के जरिए Assets को invoke कर सकती है या उसे picker की तरह embed कर सकती है, ताकि Slides और Design जैसी apps एक ही approved library का उपयोग करें।",
+        question4: "क्या Assets मुफ़्त है?",
+        answer4:
+          "हाँ — मुफ़्त और open source। `npx @agent-native/core@latest create my-assets-app --template assets` चलाएँ और app आपकी है।",
+      },
+    },
+    chat: {
+      faq: {
+        question1: "Chat template क्या है?",
+        answer1:
+          "आपके अपने agent के लिए एक छोटा ChatGPT-जैसा scaffold: durable threads, auth, actions, live sync, standard sidebar — और screens जोड़ने या अपना backend connect करने का साफ़ रास्ता।",
+        question2: "यह ChatGPT से कैसे अलग है?",
+        answer2:
+          "ChatGPT, OpenAI के models के लिए OpenAI की app है। यह आपकी है: आपका agent backend, आपका data और आपकी screens — ऐसा शुरुआती आधार जिसे आप आगे बढ़ाते हैं, कोई किराए का product नहीं।",
+        question3: "क्या यह production के लिए तैयार है?",
+        answer3:
+          "यह जानबूझकर छोटा रखा गया scaffold है — chat app के लिए ईमानदार शुरुआती आधार, कोई पूरी तरह तैयार app नहीं। अगर आपको तैयार app चाहिए, तो दूसरी apps में से किसी एक से शुरू करें।",
+      },
     },
     clips: {
       s001: "Clips टेम्पलेट स्क्रीनशॉट",
@@ -761,6 +827,23 @@ const hiIN = {
       },
     },
     content: {
+      faq: {
+        question1: "क्या AI agent बिना export या API के मेरे docs edit कर सकता है?",
+        answer1:
+          "हाँ। Content स्थानीय Markdown/MDX files पर काम करता है — वही files जो आपके repo में हैं। आपके agent के पास वे पहले से disk पर हैं: किसी API, sync या export step की जरूरत नहीं।",
+        question2: "Content, Notion या Obsidian से कैसे अलग है?",
+        answer2:
+          "Notion आपके docs को अपने database में, अपनी API के पीछे रखता है। Content, Obsidian की तरह स्थानीय files इस्तेमाल करता है — साथ में rich editor और ऐसा agent भी देता है जो आपकी शैली में draft, rewrite और publish करता है।",
+        question3: "क्या AI मेरी शैली में लिख सकता है?",
+        answer3:
+          "हाँ। Agent आपकी आवाज़, style guide और tone सीखता है, इसलिए drafts आपके जैसे लगते हैं — और किसी भी selection को rewrite, expand, summarize या उसका tone बदल सकता है।",
+        question4: "क्या मैं अपने CMS पर publish कर सकता हूँ?",
+        answer4:
+          "हाँ — scripts के जरिए किसी भी headless CMS को connect करें। WordPress, Contentful और Builder supported हैं, Notion दोनों दिशाओं में sync होता है, और agent publishing scripts को अपने-आप चलाता है।",
+        question5: "क्या Content मुफ़्त है?",
+        answer5:
+          "हाँ। मुफ़्त और open source — और आपके docs साधारण स्थानीय files हैं, इसलिए कभी Content छोड़ने पर export करने के लिए कुछ नहीं होगा।",
+      },
       s001: "Content टेम्पलेट स्क्रीनशॉट",
       s002: "सभी टेम्पलेट",
       s003: "MDX के लिए ओपन-सोर्स Obsidian",
@@ -825,6 +908,23 @@ const hiIN = {
       s062: "सभी टेम्पलेट देखें",
     },
     design: {
+      faq: {
+        question1: "क्या AI ऐसा design बना सकता है जो mockup नहीं, असली code हो?",
+        answer1:
+          "हाँ। Design, Tailwind styling और Alpine interactions के साथ पूरा, self-contained HTML देता है। Prototype ही implementation है — handoff करके दोबारा बनाने के लिए कुछ नहीं।",
+        question2: "Design, Figma से कैसे अलग है?",
+        answer2:
+          "Figma pixel level पर काम करने वाली design teams के लिए बना है, और उसका output एक तस्वीर होता है जिसे कोई फिर से implement करता है। Design prompt से शुरू होकर काम करने वाले HTML/CSS/JS पर खत्म होता है, जिसे आप ship या आगे iterate कर सकते हैं।",
+        question3: "क्या यह मेरे design system का पालन कर सकता है?",
+        answer3:
+          "हाँ। दोबारा इस्तेमाल होने वाली design-system preferences save करें, फिर सामान्य variables को visually adjust करें जबकि agent structure और copy के बदलाव संभाले — “थोड़ा गर्म palette”, “ज़्यादा bold headline”, और काम पूरा।",
+        question4: "Export करने पर मुझे क्या मिलता है?",
+        answer4:
+          "असल परिणाम: file, ZIP या PDF के रूप में पूरा HTML/CSS/JS। Self-contained, बिना किसी proprietary format के और कहीं भी ship करने के लिए आपका।",
+        question5: "क्या Design मुफ़्त है?",
+        answer5:
+          "हाँ — मुफ़्त और open source, जबकि अन्य design tools हर user के लिए मासिक शुल्क लेते हैं या credits से उपयोग मापते हैं।",
+      },
       s001: "Design टेम्पलेट स्क्रीनशॉट",
       s002: "वर्णन करें",
       s003: "उत्पन्न करें",
@@ -887,6 +987,26 @@ const hiIN = {
       s060: "सभी टेम्पलेट देखें",
     },
     dispatch: {
+      faq: {
+        question1: "हर AI agent पर नज़र रखे बिना मैं कई agents कैसे चला सकता हूँ?",
+        answer1:
+          "Dispatch आपका home base है: Slack या Telegram से उसे message करें और वह A2A के जरिए काम को आपके दूसरे agents — Mail, Slides, Design — तक भेजता है, साथ ही approvals और schedules एक जगह रखता है।",
+        question2: "क्या मैं Slack से अपने agent से बात कर सकता हूँ?",
+        answer2:
+          "हाँ — Slack या Telegram में thread context और inline approvals के साथ दो-तरफ़ा messaging। Agent के परिणाम उसी conversation में वापस आते हैं।",
+        question3: "क्या agent schedule के अनुसार काम कर सकता है?",
+        answer3:
+          "हाँ — cron-based jobs: रोज़ाना stand-ups, साप्ताहिक summaries और हर घंटे checks। परिणाम आपके messenger में पहुँचते हैं, ऐसे dashboard में नहीं जिसे खोलना आपको याद रखना पड़े।",
+        question4: "क्या यह पिछली conversations याद रखता है?",
+        answer4:
+          "हाँ — हर conversation से सीख अपने-आप capture होती है और उसका scope हर user, हर organization या global रखा जा सकता है। Memory को देखा और edit किया जा सकता है; यह black box नहीं है।",
+        question5: "अगर मैं नहीं चाहता कि यह अकेले कार्रवाई करे तो क्या होगा?",
+        answer5:
+          "Approval workflows built in हैं: संवेदनशील actions — email भेजना, update post करना, automation चलाना — Slack में एक-tap approval का इंतज़ार करती हैं। किन actions के लिए sign-off चाहिए, यह आप तय करते हैं।",
+        question6: "क्या Dispatch मुफ़्त है?",
+        answer6:
+          "हाँ। मुफ़्त और open source, जबकि हर user के लिए मासिक शुल्क लेने वाले agent platforms इसके विकल्प हैं।",
+      },
       s001: "Dispatch टेम्पलेट स्क्रीनशॉट",
       s002: "+ Telegram support",
       s003: "अंतर-एजेंट",
@@ -943,6 +1063,23 @@ const hiIN = {
       s054: "सभी टेम्पलेट देखें",
     },
     forms: {
+      faq: {
+        question1: "क्या AI मेरे लिए form बना सकता है?",
+        answer1:
+          "हाँ। उसका वर्णन करें और पूरा form बन जाएगा। फिर बातचीत में उसे बेहतर करें — “अनुभव के स्तर का required dropdown जोड़ें” — या live preview और undo के साथ visual editor में fields को खींचकर व्यवस्थित करें।",
+        question2: "कोई form submit करता है तो क्या होता है?",
+        answer2:
+          "Submission आपके अपने SQL database में जाती है और आते ही structured रूप में Slack, Discord, Google Sheets या webhook तक भेज दी जाती है। Submissions वहाँ पहुँचती हैं जहाँ आपका agent कार्रवाई कर सके, ऐसे export में नहीं जिसे कोई खोलता नहीं।",
+        question3: "Forms, Typeform से कैसे अलग है?",
+        answer3:
+          "Typeform form भरने के अनुभव को बेहतर बनाता है। Forms उसके बाद होने वाले काम पर केंद्रित है: responses आपके अपने database में, आपके tools तक routed, बिना प्रति-response कीमत के — और form खुद prompt से आगे बढ़ता है।",
+        question4: "क्या Forms मुफ़्त है? क्या responses की कोई सीमा है?",
+        answer4:
+          "यह मुफ़्त और open source है, और हर response पर न कोई शुल्क है, न कोई सीमा। Data आपके database में है; सीमा आपके database की क्षमता है।",
+        question5: "क्या मैं form को अपनी website पर लगा सकता हूँ?",
+        answer5:
+          "हाँ — किसी भी website पर embed करें या custom domain पर host करें। हर form को अपनी SEO-friendly public URL भी मिलती है।",
+      },
       s001: "Forms टेम्पलेट स्क्रीनशॉट",
       s002: "वर्णन करें",
       s003: "उत्पन्न करें",
@@ -1004,6 +1141,22 @@ const hiIN = {
       s059: "सभी टेम्पलेट देखें",
     },
     mail: {
+      faq: {
+        question1: "क्या AI मेरे inbox को व्यवस्थित कर सकता है?",
+        answer1:
+          "हाँ। Agent आपका inbox पढ़ता है, प्राथमिक messages सामने लाता है, labels लगाकर sort करता है, replies draft करता है, auto-archive rules सेट करता है और unread mail का सार action items के साथ देता है।",
+        question2: "Mail, Superhuman से कैसे अलग है?",
+        answer2:
+          "Keyboard-first गति इसका आधार है — compose, archive और reply, सब shortcuts से। अंतर यह है कि agent सच में inbox का काम करता है, कोई subscription नहीं है और code आपका है।",
+        question3: "क्या Mail, Gmail के साथ काम करता है?",
+        answer3: "हाँ — Gmail और कई accounts के support के साथ।",
+        question4: "क्या मेरा email निजी रहता है?",
+        answer4:
+          "Mail open source है और स्थानीय रूप से चलता है — आपका mail आपकी infrastructure पर रहता है, और उसे छूने वाली code की हर line आप पढ़ सकते हैं।",
+        question5: "क्या Mail मुफ़्त है?",
+        answer5:
+          "हाँ। मुफ़्त और open source — कोई subscription या vendor lock-in नहीं।",
+      },
       s001: "Mail टेम्पलेट स्क्रीनशॉट",
       s002: "कीबोर्ड-प्रथम",
       s003: "इनबॉक्स ट्राइएज",
@@ -1066,6 +1219,27 @@ const hiIN = {
       s060: "होस्ट किए गए डेमो की जानकारी",
     },
     plan: {
+      faq: {
+        question1:
+          "क्या मैं AI coding agent के code लिखने से पहले उसके plan की समीक्षा कर सकता हूँ?",
+        answer1:
+          "हाँ। Plans agent के intent को wireframes, diagrams और annotated code में बदलता है और shareable URL देता है। आपकी team comments करती है, agent plan संशोधित करता है और फिर code लिखता है — समीक्षा code बनने से पहले होती है, बाद में नहीं।",
+        question2: "क्या Plans, Claude Code, Codex और Cursor के साथ काम करता है?",
+        answer2:
+          "हाँ — साथ ही GitHub Copilot, OpenCode और अन्य coding agents के साथ भी। एक command इसे skill के रूप में जोड़ती है: `npx @agent-native/core@latest skills add visual-plan`। Deploy करने के लिए कोई अलग app नहीं है।",
+        question3: "क्या केवल मैं नहीं, मेरी पूरी team plan की समीक्षा कर सकती है?",
+        answer3:
+          "हर plan को built-in comments वाली public URL मिलती है। Team के सदस्य wireframes और annotated diffs की async समीक्षा करते हैं — terminal की जरूरत नहीं — और agent feedback पढ़कर plan संशोधित करता है।",
+        question4: "यह Claude Code के plan mode से कैसे अलग है?",
+        answer4:
+          "Plan mode आपके terminal में text होता है, एक व्यक्ति को दिखता है और approve करते ही गायब हो जाता है। Plans visual हैं — wireframes, diagrams और annotated diffs — साथ ही shareable और persistent भी: agents feature के पूरे lifecycle में इन्हें बनाते, पढ़ते और update करते हैं।",
+        question5: "क्या मैं plans को अपने code के साथ देख सकता हूँ?",
+        answer5:
+          "हाँ। VS Code extension plans को side panel में खोलता है, और Agent Native Desktop hosted plans को स्थानीय MDX files में mirror करता है।",
+        question6: "क्या Plans मुफ़्त है?",
+        answer6:
+          "हाँ। मुफ़्त, open source और MIT licensed। Plans में hosted share links मिलते हैं, और आप सब कुछ स्थानीय files में mirror कर सकते हैं।",
+      },
       s001: "योजना टेम्पलेट स्क्रीनशॉट",
       s002: "ब्लॉक प्रकार",
       s003: "एजेंट एकीकरण",
@@ -1142,6 +1316,23 @@ const hiIN = {
       s074: "लागू नहीं",
     },
     slides: {
+      faq: {
+        question1: "क्या मैं Claude या ChatGPT से presentation बना सकता हूँ?",
+        answer1:
+          "हाँ। Claude या ChatGPT से deck बनाने को कहें और वह Slides में आ जाएगा — आपके brand के अनुरूप, editable और exportable — ताकि आपको किसी deck website पर फिर से शुरुआत न करनी पड़े।",
+        question2: "AI की गलतियों को मैं कैसे ठीक कर सकता हूँ?",
+        answer2:
+          "तीन तरीकों से: prompt के जरिए, हाथ से — किसी element पर click करें और किसी text पर double-click करें — या code में। आपको कभी दोबारा generate करके अच्छे परिणाम की उम्मीद में अटकना नहीं पड़ता।",
+        question3: "Decks brand के अनुरूप कैसे बने रहते हैं?",
+        answer3:
+          "जिस deck पर आपको गर्व हो उसे favorite बनाएँ। हर नया deck उसके layouts, headings, visual style और brand tokens अपनाता है। One-shot generators आपको एक deck देते हैं; यह आपके लिए decks बनाने की दोहराई जा सकने वाली प्रक्रिया बनाता है।",
+        question4: "Slides, Gamma से कैसे अलग है?",
+        answer4:
+          "Gamma एक बार में जल्दी ठीक-ठाक deck बना देता है — फिर आप उसके canvas और subscription में रहते हैं और 85% सही परिणाम पर दोबारा generate करते हैं। Slides मुफ़्त और open source है, आपका brand अपनाता है और आपको हर चीज़ edit करने देता है।",
+        question5: "क्या Slides मुफ़्त है?",
+        answer5:
+          "हाँ। मुफ़्त और open source — कोई subscription, credit meter या हर deck के लिए अलग कीमत नहीं।",
+      },
       s001: "Slides टेम्पलेट स्क्रीनशॉट",
       s002: "वर्णन करें",
       s003: "उत्पन्न करें",
