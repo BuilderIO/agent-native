@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.157.5
+
+### Patch Changes
+
+- 19581b5: Publish the Actions docs section (Overview, Defining Actions, Access & Authorization, Run Context, Other Surfaces, Advanced & Legacy) in place of the old monolithic actions page, and translate it into all ten supported locales.
+
 ## 0.157.4
 
 ### Patch Changes
