@@ -132,6 +132,8 @@ export interface RequestRunContext {
   toolResults?: Array<{ name: string; content: string; isError: boolean }>;
   /** Per-run fingerprints for large extension bodies already sent to the LLM. */
   extensionContentReads?: Record<string, string>;
+  /** Per-run keys for extension excerpt reads already sent to the LLM. */
+  extensionExcerptReads?: Record<string, true>;
   /** Per-run fingerprints for repeated tool-search calls already sent to the LLM. */
   toolSearchReads?: Record<
     string,
