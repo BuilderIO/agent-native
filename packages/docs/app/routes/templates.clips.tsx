@@ -615,14 +615,11 @@ export default function ClipsTemplate() {
         className="scroll-mt-24 border-t border-[#1a1a1a] pb-16"
       >
         <div className="border-x border-[#1a1a1a] px-6 pb-10 pt-16 sm:px-8 sm:pb-14 sm:pt-24 lg:pb-20 lg:pt-32">
-          <p className="m-0 mb-2 font-mono text-sm font-semibold uppercase tracking-[0.28px] text-[#01c8f1]">
-            Plans
-          </p>
           <h2 className="m-0 text-[1.75rem] font-medium leading-[1.05] tracking-[-0.56px] text-[#faf9f5] sm:text-4xl lg:text-[2.875rem] lg:tracking-[-0.92px]">
             {t("templateLanding.clips.s032")}
           </h2>
         </div>
-        <div className="overflow-x-auto rounded-xl border border-[var(--docs-border)]">
+        <div className="overflow-x-auto border border-[var(--docs-border)]">
           <table className="comparison-table min-w-[42rem] w-full text-sm">
             <thead>
               <tr className="border border-[#1a1a1a] bg-[#0f0f0f]">
@@ -653,31 +650,46 @@ export default function ClipsTemplate() {
                 </th>
               </tr>
             </thead>
-            <tbody className="text-[var(--fg-secondary)]">
-              {COMPARISON_ROWS.map((row) => (
-                <tr
-                  key={row.feature}
-                  className="border-b border-[var(--docs-border)] align-top"
-                >
-                  <td className="px-5 py-4 font-medium text-[var(--fg)]">
-                    {row.feature}
-                  </td>
-                  <td className="whitespace-pre-line px-5 py-4 text-[var(--fg)]">
-                    {row.clips}
-                  </td>
-                  <td className="px-5 py-4">{row.loom}</td>
-                  <td className="px-5 py-4">{row.alternatives}</td>
-                </tr>
-              ))}
+            <tbody>
+              {COMPARISON_ROWS.map((row) => {
+                const [clipsFirstLine, ...clipsRestLines] =
+                  row.clips.split("\n");
+
+                return (
+                  <tr key={row.feature}>
+                    <td className="min-h-14 border border-[#1a1a1a] px-5 py-3 text-[15px] font-medium leading-[1.4] text-[#e0e0d7] sm:px-8">
+                      {row.feature}
+                    </td>
+                    <td className="min-h-14 border border-[#1a1a1a] px-5 py-3 text-center text-[15px] leading-[1.4] sm:px-8">
+                      <span className="text-[#faf9f5]">{clipsFirstLine}</span>
+                      {clipsRestLines.map((line) => (
+                        <span key={line} className="block text-[#9a9997]">
+                          {line}
+                        </span>
+                      ))}
+                    </td>
+                    <td className="min-h-14 border border-[#1a1a1a] px-5 py-3 text-center text-[15px] leading-[1.4] text-[#9a9997] sm:px-8">
+                      {row.loom}
+                    </td>
+                    <td className="min-h-14 border border-[#1a1a1a] px-5 py-3 text-center text-[15px] leading-[1.4] text-[#9a9997] sm:px-8">
+                      {row.alternatives}
+                    </td>
+                  </tr>
+                );
+              })}
               <tr>
-                <td className="px-5 py-4 font-medium text-[var(--fg)]">
+                <td className="min-h-14 border border-[#1a1a1a] px-5 py-3 text-[15px] font-medium leading-[1.4] text-[#e0e0d7] sm:px-8">
                   {t("templateLanding.clips.s053")}
                 </td>
-                <td className="px-5 py-4 text-[var(--fg)]">
+                <td className="min-h-14 border border-[#1a1a1a] px-5 py-3 text-center text-[15px] leading-[1.4] text-[#faf9f5] sm:px-8">
                   {t("templateLanding.clips.s058")}
                 </td>
-                <td className="px-5 py-4">{t("templateLanding.clips.s054")}</td>
-                <td className="px-5 py-4">{t("templateLanding.clips.s055")}</td>
+                <td className="min-h-14 border border-[#1a1a1a] px-5 py-3 text-center text-[15px] leading-[1.4] text-[#9a9997] sm:px-8">
+                  {t("templateLanding.clips.s054")}
+                </td>
+                <td className="min-h-14 border border-[#1a1a1a] px-5 py-3 text-center text-[15px] leading-[1.4] text-[#9a9997] sm:px-8">
+                  {t("templateLanding.clips.s055")}
+                </td>
               </tr>
             </tbody>
           </table>
