@@ -20,7 +20,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { Slide } from "@/context/DeckContext";
+import { useDecks, type Slide } from "@/context/DeckContext";
 import {
   useDeckVersion,
   useDeckVersions,
@@ -82,6 +82,7 @@ export default function HistoryPanel({
   const versionsQuery = useDeckVersions(open ? deckId : null);
   const versionQuery = useDeckVersion(open ? deckId : null, selectedVersionId);
   const restoreVersion = useRestoreDeckVersion();
+  const { refreshOpenDeck } = useDecks();
 
   const versions = versionsQuery.data?.versions ?? [];
   const selectedVersion = versionQuery.data;
@@ -107,6 +108,7 @@ export default function HistoryPanel({
         deckId,
         versionId: selectedVersionId,
       });
+      await refreshOpenDeck(deckId, { clearPendingWrites: true });
       toast.success(t("history.versionRestored"), {
         description: t("history.versionRestoredDescription"),
       });

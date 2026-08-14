@@ -4,7 +4,8 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { IconChevronDown, IconLink, IconMail } from "@tabler/icons-react";
+import { ShareAgentsSection } from "@agent-native/toolkit/sharing";
+import { IconLink, IconMail } from "@tabler/icons-react";
 import {
   useCallback,
   useEffect,
@@ -27,11 +28,6 @@ import {
   type Visibility,
 } from "@/components/sharing/share-ui";
 import { Button } from "@/components/ui/button";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
 import {
   Popover,
   PopoverContent,
@@ -220,6 +216,7 @@ function LinkTab({
     sharesQuery.isLoading ||
     !sharesLoaded ||
     (!isPublic && (createAgentLink.isPending || !agentLink));
+  const visibleAgentLink = isPublic ? shareUrl : agentLink;
 
   useEffect(() => {
     setIncludeTranscript(shareTranscript);
@@ -301,66 +298,44 @@ function LinkTab({
         />
       ) : null}
 
-      {!isPublic ? (
-        <Collapsible
-          open={agentDetailsOpen}
-          onOpenChange={setAgentDetailsOpen}
-          className="overflow-hidden rounded-md border border-border"
-        >
-          <CollapsibleTrigger asChild>
-            <button
-              type="button"
-              className="flex min-h-10 w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm font-medium transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
-            >
-              <span className="flex min-w-0 items-center gap-2 truncate">
-                <IconLink
-                  aria-hidden="true"
-                  className="size-3.5 shrink-0 text-muted-foreground"
-                  strokeWidth={1.8}
-                />
-                {t("shareDialog.shareWithAgents")}
-              </span>
-              <IconChevronDown
-                aria-hidden="true"
-                className={`size-4 shrink-0 text-muted-foreground transition-transform ${agentDetailsOpen ? "rotate-180" : ""}`}
-              />
-            </button>
-          </CollapsibleTrigger>
-          <CollapsibleContent className="clips-collapsible-content border-t border-border px-3 py-3">
-            <div className="space-y-2">
-              <CopyField
-                label={t("shareDialog.shareWithAgents")}
-                value={agentLink}
-                disabled={agentShareDisabled}
-              />
-              {sharesLoaded ? (
-                <>
+      <ShareAgentsSection
+        label={t("shareDialog.shareWithAgents")}
+        open={agentDetailsOpen}
+        onOpenChange={setAgentDetailsOpen}
+        contentClassName="clips-collapsible-content"
+      >
+        <div className="space-y-2">
+          <CopyField
+            label={t("shareDialog.shareWithAgents")}
+            value={visibleAgentLink}
+            disabled={agentShareDisabled}
+          />
+          {sharesLoaded ? (
+            <>
+              <p className="text-xs text-muted-foreground">
+                {t("shareMeeting.agentLinkDescription")}
+              </p>
+              {agentLinkError ? (
+                <div className="flex items-center justify-between gap-2 rounded-md border border-border bg-muted/30 px-3 py-2">
                   <p className="text-xs text-muted-foreground">
-                    {t("shareMeeting.agentLinkDescription")}
+                    {t("shareDialog.agentLinkUnavailable")}
                   </p>
-                  {agentLinkError ? (
-                    <div className="flex items-center justify-between gap-2 rounded-md border border-border bg-muted/30 px-3 py-2">
-                      <p className="text-xs text-muted-foreground">
-                        {t("shareDialog.agentLinkUnavailable")}
-                      </p>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="h-7"
-                        onClick={() => void loadAgentLink()}
-                        disabled={createAgentLink.isPending}
-                      >
-                        {t("shareDialog.retryAgentLink")}
-                      </Button>
-                    </div>
-                  ) : null}
-                </>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7"
+                    onClick={() => void loadAgentLink()}
+                    disabled={createAgentLink.isPending}
+                  >
+                    {t("shareDialog.retryAgentLink")}
+                  </Button>
+                </div>
               ) : null}
-            </div>
-          </CollapsibleContent>
-        </Collapsible>
-      ) : null}
+            </>
+          ) : null}
+        </div>
+      </ShareAgentsSection>
     </div>
   );
 }

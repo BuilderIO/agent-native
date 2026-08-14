@@ -10,6 +10,7 @@ import { parseCustomAgentProfile } from "@agent-native/core/resources/metadata";
 import {
   IconAdjustmentsHorizontal,
   IconChevronDown,
+  IconDotsVertical,
   IconEdit,
   IconFileImport,
   IconFolder,
@@ -19,7 +20,6 @@ import {
   IconPlus,
   IconTrash,
   IconUpload,
-  IconUser,
 } from "@tabler/icons-react";
 import {
   useEffect,
@@ -36,6 +36,7 @@ import {
   slugifyAgentName,
 } from "../lib/simple-agent-profile.js";
 import { ActionQueryError } from "./action-query-error";
+import { AppIcon } from "./app-icon";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -63,6 +64,13 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "./ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "./ui/dropdown-menu";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import {
@@ -101,6 +109,25 @@ interface AgentPackFileInput {
   content: string;
 }
 
+const AGENT_ICON_KEYS = [
+  "brain",
+  "users",
+  "filetext",
+  "chartbar",
+  "route",
+  "listcheck",
+  "code",
+  "messagecircle",
+] as const;
+
+function agentIconKey(resource: Pick<WorkspaceAgentResource, "id" | "name">) {
+  let hash = 0;
+  for (const character of `${resource.id}:${resource.name}`) {
+    hash = (hash * 31 + character.charCodeAt(0)) | 0;
+  }
+  return AGENT_ICON_KEYS[Math.abs(hash) % AGENT_ICON_KEYS.length];
+}
+
 export function isPendingWorkspaceResourceApproval(result: unknown) {
   if (!result || typeof result !== "object") return false;
   const mutation = result as { status?: unknown; changeType?: unknown };
@@ -133,6 +160,8 @@ interface AgentEditorProps {
   resource?: WorkspaceAgentResource;
   trigger?: ReactNode;
   onSaved?: () => void;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
 function profileFields(resource?: WorkspaceAgentResource) {
@@ -158,9 +187,17 @@ function profileFields(resource?: WorkspaceAgentResource) {
   };
 }
 
-function AgentEditorDialog({ resource, trigger, onSaved }: AgentEditorProps) {
+function AgentEditorDialog({
+  resource,
+  trigger,
+  onSaved,
+  open: controlledOpen,
+  onOpenChange: controlledOnOpenChange,
+}: AgentEditorProps) {
   const isEditing = Boolean(resource);
-  const [open, setOpen] = useState(false);
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
+  const open = controlledOpen ?? uncontrolledOpen;
+  const setOpen = controlledOnOpenChange ?? setUncontrolledOpen;
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [instructions, setInstructions] = useState("");
@@ -231,14 +268,16 @@ function AgentEditorDialog({ resource, trigger, onSaved }: AgentEditorProps) {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        {trigger || (
-          <Button>
+      {trigger ? (
+        <DialogTrigger asChild>{trigger}</DialogTrigger>
+      ) : controlledOpen === undefined ? (
+        <DialogTrigger asChild>
+          <Button size="sm">
             <IconPlus size={16} />
             Create agent
           </Button>
-        )}
-      </DialogTrigger>
+        </DialogTrigger>
+      ) : null}
       <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>
@@ -355,12 +394,18 @@ function AgentPackDialog({
   resource,
   onChanged,
   trigger,
+  open: controlledOpen,
+  onOpenChange: controlledOnOpenChange,
 }: {
   resource: WorkspaceAgentResource;
   onChanged?: () => void;
   trigger?: ReactNode;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
+  const open = controlledOpen ?? uncontrolledOpen;
+  const setOpen = controlledOnOpenChange ?? setUncontrolledOpen;
   const [selectedId, setSelectedId] = useState(resource.id);
   const [content, setContent] = useState(resource.content);
   const [addOpen, setAddOpen] = useState(false);
@@ -460,14 +505,16 @@ function AgentPackDialog({
         if (!nextOpen) setAddOpen(false);
       }}
     >
-      <DialogTrigger asChild>
-        {trigger || (
+      {trigger ? (
+        <DialogTrigger asChild>{trigger}</DialogTrigger>
+      ) : controlledOpen === undefined ? (
+        <DialogTrigger asChild>
           <Button variant="ghost" size="sm">
             <IconFolder size={15} />
             Pack
           </Button>
-        )}
-      </DialogTrigger>
+        </DialogTrigger>
+      ) : null}
       <DialogContent className="max-w-4xl">
         <DialogHeader>
           <DialogTitle>Agent pack</DialogTitle>
@@ -753,7 +800,7 @@ function ImportAgentDialog({ onImported }: { onImported?: () => void }) {
       }}
     >
       <DialogTrigger asChild>
-        <Button variant="outline">
+        <Button variant="outline" size="sm">
           <IconFileImport size={16} />
           Import or connect
         </Button>
@@ -957,10 +1004,17 @@ function ImportAgentDialog({ onImported }: { onImported?: () => void }) {
 function DeleteAgentButton({
   resource,
   onDeleted,
+  open: controlledOpen,
+  onOpenChange: controlledOnOpenChange,
 }: {
   resource: WorkspaceAgentResource;
   onDeleted?: () => void;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
+  const open = controlledOpen ?? uncontrolledOpen;
+  const setOpen = controlledOnOpenChange ?? setUncontrolledOpen;
   const remove = useActionMutation("delete-workspace-resource", {
     onSuccess: () => {
       toast.success("Agent removed");
@@ -970,16 +1024,7 @@ function DeleteAgentButton({
   });
 
   return (
-    <AlertDialog>
-      <AlertDialogTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label={`Remove ${resource.name}`}
-        >
-          <IconTrash size={16} />
-        </Button>
-      </AlertDialogTrigger>
+    <AlertDialog open={open} onOpenChange={setOpen}>
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>Remove {resource.name}?</AlertDialogTitle>
@@ -1011,6 +1056,9 @@ function AgentRow({
   onSaved?: () => void;
 }) {
   const navigate = useNavigate();
+  const [packOpen, setPackOpen] = useState(false);
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const packQuery = useActionQuery<AgentPackResponse>(
     "list-agent-pack",
     { agentId: resource.id },
@@ -1072,10 +1120,13 @@ function AgentRow({
   }
 
   return (
-    <div className="flex items-start gap-3 rounded-xl border bg-card px-4 py-3">
-      <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-        <IconUser size={18} />
-      </div>
+    <div className="flex min-w-0 items-start gap-3 rounded-2xl border bg-card px-4 py-4">
+      <AppIcon
+        id={resource.id}
+        name={resource.name}
+        icon={agentIconKey(resource)}
+        size="sm"
+      />
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-sm font-medium text-foreground">
@@ -1090,11 +1141,8 @@ function AgentRow({
             {resource.description}
           </div>
         ) : null}
-        <div className="mt-1 font-mono text-[11px] text-muted-foreground/70">
-          {resource.path}
-        </div>
       </div>
-      <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
+      <div className="flex shrink-0 items-center gap-1">
         <Button
           variant="outline"
           size="sm"
@@ -1104,43 +1152,63 @@ function AgentRow({
           <IconMessageCircle size={15} />
           Chat
         </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => void buildApp()}
-          disabled={promote.isPending}
-          aria-label={`Build an app for ${resource.name}`}
-        >
-          <IconLayoutGrid size={15} />
-          {promote.isPending ? "Starting..." : "Build app"}
-        </Button>
-        <AgentPackDialog
-          resource={resource}
-          onChanged={onSaved}
-          trigger={
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
             <Button
               variant="ghost"
               size="icon"
-              aria-label={`Manage files for ${resource.name}`}
+              aria-label={`More actions for ${resource.name}`}
+              title="More actions"
             >
-              <IconFolder size={16} />
+              <IconDotsVertical size={16} />
             </Button>
-          }
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-48">
+            <DropdownMenuItem
+              onSelect={() => {
+                void buildApp();
+              }}
+              disabled={promote.isPending}
+            >
+              <IconLayoutGrid className="me-2 size-4" />
+              {promote.isPending ? "Starting..." : "Build app"}
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => setPackOpen(true)}>
+              <IconFolder className="me-2 size-4" />
+              Manage files
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => setEditorOpen(true)}>
+              <IconEdit className="me-2 size-4" />
+              Edit
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              className="text-destructive focus:text-destructive"
+              onSelect={() => setDeleteOpen(true)}
+            >
+              <IconTrash className="me-2 size-4" />
+              Remove
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <AgentPackDialog
+          resource={resource}
+          onChanged={onSaved}
+          open={packOpen}
+          onOpenChange={setPackOpen}
         />
         <AgentEditorDialog
           resource={resource}
           onSaved={onSaved}
-          trigger={
-            <Button
-              variant="ghost"
-              size="icon"
-              aria-label={`Edit ${resource.name}`}
-            >
-              <IconEdit size={16} />
-            </Button>
-          }
+          open={editorOpen}
+          onOpenChange={setEditorOpen}
         />
-        <DeleteAgentButton resource={resource} onDeleted={onDeleted} />
+        <DeleteAgentButton
+          resource={resource}
+          onDeleted={onDeleted}
+          open={deleteOpen}
+          onOpenChange={setDeleteOpen}
+        />
       </div>
     </div>
   );
@@ -1160,7 +1228,11 @@ interface AgentAppCreationResult {
   url?: string;
 }
 
-export function SimpleAgentsPanel() {
+export function SimpleAgentsPanel({
+  title,
+}: {
+  title?: ReactNode;
+} = {}) {
   const query = useActionQuery<WorkspaceAgentResource[]>(
     "list-workspace-resources",
     { kind: "agent" },
@@ -1178,21 +1250,32 @@ export function SimpleAgentsPanel() {
 
   return (
     <section className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center justify-end gap-2">
-        <ImportAgentDialog onImported={() => void query.refetch()} />
-        <AgentEditorDialog onSaved={() => void query.refetch()} />
-      </div>
+      {title || agents.length > 0 ? (
+        <div
+          className={`flex flex-wrap items-center gap-3 ${title ? "justify-between" : "justify-end"}`}
+        >
+          {title ? (
+            <h2 className="text-base font-medium text-foreground">{title}</h2>
+          ) : null}
+          {agents.length > 0 ? (
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <ImportAgentDialog onImported={() => void query.refetch()} />
+              <AgentEditorDialog onSaved={() => void query.refetch()} />
+            </div>
+          ) : null}
+        </div>
+      ) : null}
       {query.isLoading && agents.length === 0 ? (
-        <div className="flex flex-col gap-3">
+        <div className="grid gap-3 md:grid-cols-2">
           {[0, 1, 2].map((item) => (
-            <div key={item} className="rounded-xl border bg-card px-4 py-3">
+            <div key={item} className="rounded-2xl border bg-card px-4 py-4">
               <Skeleton className="h-4 w-1/3" />
               <Skeleton className="mt-2 h-3 w-2/3" />
             </div>
           ))}
         </div>
       ) : agents.length > 0 ? (
-        <div className="flex flex-col gap-2">
+        <div className="grid gap-3 md:grid-cols-2">
           {agents.map((agent) => (
             <AgentRow
               key={agent.id}
@@ -1203,7 +1286,7 @@ export function SimpleAgentsPanel() {
           ))}
         </div>
       ) : (
-        <div className="rounded-xl border border-dashed px-6 py-14 text-center">
+        <div className="rounded-2xl border border-dashed bg-card px-4 py-12 text-center">
           <div className="text-sm font-medium text-foreground">
             No agents yet
           </div>
@@ -1211,7 +1294,7 @@ export function SimpleAgentsPanel() {
             <AgentEditorDialog
               onSaved={() => void query.refetch()}
               trigger={
-                <Button>
+                <Button size="sm">
                   <IconPlus size={16} />
                   Create an agent
                 </Button>

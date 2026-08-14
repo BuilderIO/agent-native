@@ -128,7 +128,7 @@ describe("first-party BigQuery backend", () => {
         "builder-3b0a2.analytics.first_party_analytics_events_raw",
         { now: () => "2026-08-08T00:00:00.000Z" },
       ),
-    ).resolves.toMatchObject({ copied: 0, complete: true });
+    ).resolves.toMatchObject({ nextCursor: null, copied: 0, complete: true });
 
     expect(execute).toHaveBeenCalledTimes(2);
     const [orgQuery] = execute.mock.calls[0] ?? [];

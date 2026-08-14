@@ -293,6 +293,8 @@ describe("buildPublicAgentContext", () => {
       transcript: null,
       agentSegments: [],
       chapters: [{ startMs: 1000, title: "Chapter" }],
+      comments: [],
+      reactions: [],
       ctas: [],
     });
 
@@ -328,6 +330,8 @@ describe("buildPublicAgentContext", () => {
       transcript: null,
       agentSegments: [],
       chapters: [{ startMs: 1000, title: "Chapter" }],
+      comments: [],
+      reactions: [],
       ctas: [],
     });
 
@@ -359,6 +363,8 @@ describe("buildPublicAgentContext", () => {
       } as any,
       agentSegments: [],
       chapters: [],
+      comments: [],
+      reactions: [],
       ctas: [],
     });
 
@@ -389,6 +395,8 @@ describe("buildPublicAgentContext", () => {
       transcript: null,
       agentSegments: [],
       chapters: [],
+      comments: [],
+      reactions: [],
       ctas: [],
     });
 
@@ -427,6 +435,8 @@ describe("buildPublicAgentContext", () => {
       } as any,
       agentSegments: [],
       chapters: [],
+      comments: [],
+      reactions: [],
       ctas: [],
     });
 
@@ -461,6 +471,8 @@ describe("buildPublicAgentContext", () => {
       transcript: null,
       agentSegments: [],
       chapters: [],
+      comments: [],
+      reactions: [],
       ctas: [],
       browserDiagnostics: {
         pageUrl: "https://clips.example.com/record",

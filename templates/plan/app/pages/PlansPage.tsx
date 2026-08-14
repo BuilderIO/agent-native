@@ -33,6 +33,7 @@ import {
   useSetPageTitle,
 } from "@agent-native/toolkit/app-shell";
 import { type RichMarkdownCollabUser } from "@agent-native/toolkit/editor";
+import { ShareTrigger } from "@agent-native/toolkit/sharing";
 import {
   SOURCE_AUTHOR_COMMENT_MENTION_EMAIL,
   extractCommentMentions,
@@ -99,7 +100,6 @@ import {
   IconMessageCircle,
   IconMoon,
   IconPlus,
-  IconShare3,
   IconLink,
   IconWorld,
   IconSun,
@@ -6258,8 +6258,7 @@ function PlanShareControl({
         }}
         accessNote={buildShareAccessNote(t, noun)}
         visibilityCopy={buildShareVisibilityCopy(t, noun)}
-        trigger="icon"
-        triggerClassName="pointer-events-auto size-8"
+        triggerClassName="pointer-events-auto h-8 px-2"
         onOpenChange={onOpenChange}
       />
     );
@@ -6275,22 +6274,13 @@ function PlanShareControl({
         if (!open) setAuthPrompt(null);
       }}
     >
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <PopoverTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="pointer-events-auto size-8"
-              aria-label={t("plansPage.share.shareAria", { noun })}
-            >
-              <IconShare3 className="size-4" />
-            </Button>
-          </PopoverTrigger>
-        </TooltipTrigger>
-        <TooltipContent>{t("plansPage.share.share", { noun })}</TooltipContent>
-      </Tooltip>
+      <PopoverTrigger asChild>
+        <ShareTrigger
+          label={t("plansPage.share.share", { noun })}
+          aria-label={t("plansPage.share.shareAria", { noun })}
+          className="pointer-events-auto"
+        />
+      </PopoverTrigger>
       <PopoverContent
         align="end"
         sideOffset={6}

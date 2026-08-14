@@ -5770,10 +5770,17 @@ const AssistantChatInner = forwardRef<
                                         value={wasRecentlyStoppedRun}
                                       >
                                         <ThreadPrimitive.Messages
-                                          // assistant-ui indexes message parts through tap resources.
-                                          // Keep this key tied to that shape so clear/add transitions remount stale
-                                          // lookups without remounting on every streamed text update.
-                                          key={messageListResetKey}
+                                          // Deliberately NOT keyed on part structure. Doing that
+                                          // remounted the whole transcript every time a tool call
+                                          // started or a placeholder id was rewritten — a flash and a
+                                          // lost scroll position in the middle of an answer. The
+                                          // error boundary above is the mechanism for assistant-ui's
+                                          // stale tap-resource errors: it catches them, clears, and
+                                          // retries, and its retry signature includes the reset key so
+                                          // a genuinely new structure always gets a fresh budget.
+                                          // `assistant-ui-part-churn.spec.tsx` drives append, mutate,
+                                          // rename and splice through both the import and streaming
+                                          // paths and records that no such error occurs.
                                           components={{
                                             UserMessage:
                                               AssistantChatUserMessageItem,

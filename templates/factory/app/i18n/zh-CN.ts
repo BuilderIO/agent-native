@@ -37,6 +37,7 @@ const messages = {
     unpinChat: "取消置顶聊天",
   },
   navigation: {
+    agents: "代理",
     chat: "聊天",
     collapseSidebar: "收起侧边栏",
     database: "数据库",
@@ -48,7 +49,7 @@ const messages = {
     openNavigation: "打开导航",
     settings: "设置",
     team: "团队",
-    triage: "Factory",
+    triage: "工厂",
   },
   triage: {
     title: "Factory",
@@ -154,6 +155,7 @@ const messages = {
     agentsTab: "代理",
     agenticAppsTitle: "代理应用",
     agenticAppsEmpty: "此工作区还没有代理应用。",
+    createApp: "创建应用",
     editAppDetails: "编辑应用详情",
     editAppDetailsDescription: "更新此工作区应用的共享显示名称和描述。",
     appName: "名称",

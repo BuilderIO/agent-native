@@ -210,12 +210,20 @@ export function LocalCodebasePicker() {
     await clearLocalCodebaseSelection();
     setActive(null);
     setSummary(null);
-    setSyncState({ kind: "idle" });
+    setSyncState({ kind: "syncing" });
+    toast(t("raw.localCodebase.codebaseUnlinked"));
     await syncAppState(null);
     if (previous) {
-      await cleanupLocalResources(previous);
+      void cleanupLocalResources(previous)
+        .catch(() => {
+          // The unlink is already complete from the user's point of view.
+        })
+        .finally(() => {
+          setSyncState({ kind: "idle" });
+        });
+      return;
     }
-    toast(t("raw.localCodebase.codebaseUnlinked"));
+    setSyncState({ kind: "idle" });
   }, [active, cleanupLocalResources, syncAppState]);
 
   const resync = useCallback(async () => {
@@ -336,6 +344,20 @@ export function LocalCodebasePicker() {
               </TooltipContent>
             </Tooltip>
           </>
+        )}
+
+        {syncState.kind === "syncing" && (
+          <span
+            className={cn(
+              "inline-flex min-h-8 max-w-[280px] items-center gap-1.5 truncate text-xs",
+              statusClasses(syncState.kind),
+            )}
+          >
+            <IconRefresh className="size-3.5 shrink-0 animate-spin" />
+            <span className="truncate">
+              {t("raw.localCodebase.clearCodebase")}
+            </span>
+          </span>
         )}
 
         {syncState.kind === "error" && (

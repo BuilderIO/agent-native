@@ -9,10 +9,6 @@ import {
   type AudioInputFallback,
 } from "@shared/media-device-selection";
 import {
-  createMicAudioCleanup,
-  type MicAudioCleanupHandle,
-} from "@shared/mic-audio-cleanup";
-import {
   SCREEN_CAPTURE_FRAME_RATE,
   screenCaptureDisplayOptions,
   screenCaptureVideoConstraints,
@@ -509,7 +505,6 @@ export class RecorderEngine {
   private cameraComposite: CameraCompositeHandle | null = null;
   private audioMixCtx: AudioContext | null = null;
   private audioMixSources: MediaStreamAudioSourceNode[] = [];
-  private micAudioCleanup: MicAudioCleanupHandle[] = [];
   private recorder: MediaRecorder | null = null;
   private mimeType: string = "video/webm";
 
@@ -1360,7 +1355,6 @@ export class RecorderEngine {
     // Full stream teardown happens in the finally block below.
     this.cameraLive = false;
     this.audioMixSources = [];
-    this.stopMicAudioCleanup();
     this.audioMixCtx?.close().catch(() => {});
     this.audioMixCtx = null;
     for (const s of [this.cameraStream, this.rawCameraStream, this.micStream]) {
@@ -1828,24 +1822,13 @@ export class RecorderEngine {
     this.audioMixSources = [];
     const dest = ctx.createMediaStreamDestination();
     for (const input of audioInputs) {
-      let track = input.track;
-      if (input.isMicrophone) {
-        const cleanup = createMicAudioCleanup(new MediaStream([track]), {
-          audioContext: ctx,
-        });
-        this.micAudioCleanup.push(cleanup);
-        track = cleanup.stream.getAudioTracks()[0] ?? track;
-      }
-      const source = ctx.createMediaStreamSource(new MediaStream([track]));
+      const source = ctx.createMediaStreamSource(
+        new MediaStream([input.track]),
+      );
       source.connect(dest);
       this.audioMixSources.push(source);
     }
     return dest.stream.getAudioTracks()[0];
-  }
-
-  private stopMicAudioCleanup(): void {
-    for (const cleanup of this.micAudioCleanup) cleanup.stop();
-    this.micAudioCleanup = [];
   }
 
   private buildCombinedStream(): MediaStream {
@@ -2382,7 +2365,6 @@ export class RecorderEngine {
     // aren't mistaken for a disconnect.
     this.cameraLive = false;
     this.audioMixSources = [];
-    this.stopMicAudioCleanup();
     this.audioMixCtx?.close().catch(() => {});
     this.audioMixCtx = null;
     this.cameraComposite?.cleanup();

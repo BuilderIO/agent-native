@@ -437,7 +437,7 @@ describe("ShareButton", () => {
     expect(copy.textContent).toBe("Copied");
   });
 
-  it("can render an icon-only trigger", async () => {
+  it("standardizes legacy icon triggers as text-only", async () => {
     await act(async () => {
       root.render(
         <QueryClientProvider client={queryClient}>
@@ -451,12 +451,13 @@ describe("ShareButton", () => {
       );
     });
 
-    const trigger = container.querySelector(
-      'button[aria-label="Share (Private)"]',
-    ) as HTMLButtonElement | null;
+    const trigger = container.querySelector('button[aria-label="Share"]') as
+      | HTMLButtonElement
+      | null;
 
     expect(trigger).toBeTruthy();
-    expect(trigger?.textContent).not.toContain("Share");
+    expect(trigger?.textContent).toBe("Share");
+    expect(trigger?.querySelector("svg")).toBeFalsy();
   });
 
   it("renders the label trigger as text only regardless of visibility", async () => {
@@ -490,7 +491,7 @@ describe("ShareButton", () => {
     expect(trigger?.querySelector(".animate-pulse")).toBeFalsy();
   });
 
-  it("renders the icon-only trigger without a loading placeholder", async () => {
+  it("keeps the standardized trigger usable while sharing data loads", async () => {
     sharesData.current = undefined as any;
 
     await act(async () => {
@@ -510,7 +511,8 @@ describe("ShareButton", () => {
       'button[aria-label="Share"]',
     ) as HTMLButtonElement | null;
 
-    expect(trigger?.querySelector("svg")).toBeTruthy();
+    expect(trigger?.textContent).toBe("Share");
+    expect(trigger?.querySelector("svg")).toBeFalsy();
     expect(trigger?.querySelector(".animate-pulse")).toBeFalsy();
   });
 

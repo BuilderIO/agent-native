@@ -1198,6 +1198,103 @@ describe("DeckContext deck creation persistence", () => {
     );
   });
 
+  it("drops stale pending writes when restoring an open deck so later deletes stay granular", async () => {
+    window.history.pushState({}, "", "/deck/shared-deck");
+    const original: Deck = {
+      id: "shared-deck",
+      title: "Shared Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<h1>One</h1>",
+          notes: "",
+          layout: "title",
+        },
+        {
+          id: "slide-2",
+          content: "<h1>Two</h1>",
+          notes: "",
+          layout: "content",
+        },
+      ],
+    };
+    const { fetchMock, setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck(original);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+    await waitFor(() =>
+      expect(result.current.getDeck("shared-deck")?.slides).toHaveLength(2),
+    );
+
+    vi.useFakeTimers();
+    act(() => {
+      result.current.setDeckSlides("shared-deck", [
+        {
+          ...original.slides[0]!,
+          content: "<h1>Edited one</h1>",
+        },
+        original.slides[1]!,
+      ]);
+    });
+    expect(hasUncommittedDeckChanges("shared-deck", new Set())).toBe(true);
+
+    setAccessibleDeck(original);
+    await act(async () => {
+      await result.current.refreshOpenDeck("shared-deck", {
+        clearPendingWrites: true,
+      });
+    });
+    expect(hasUncommittedDeckChanges("shared-deck", new Set())).toBe(false);
+    expect(result.current.getDeck("shared-deck")?.slides[0]?.content).toBe(
+      "<h1>One</h1>",
+    );
+
+    const slideId = result.current.getDeck("shared-deck")!.slides[0]!.id;
+    let duplicateId = "";
+    act(() => {
+      duplicateId = result.current.duplicateSlide("shared-deck", slideId)!;
+      result.current.deleteSlide("shared-deck", duplicateId);
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+
+    const saveCall = fetchMock.mock.calls.find(([url, init]) => {
+      return (
+        String(url).includes("/_agent-native/actions/save-deck") &&
+        init?.method === "PUT" &&
+        actionCallBody(init).deckId === "shared-deck"
+      );
+    });
+    expect(saveCall).toBeUndefined();
+
+    const patchCall = fetchMock.mock.calls.find(([url, init]) => {
+      return (
+        String(url).includes("/_agent-native/actions/patch-deck") &&
+        actionCallBody(init).deckId === "shared-deck"
+      );
+    });
+    expect(patchCall).toBeTruthy();
+    expect(actionCallBody(patchCall?.[1])).toMatchObject({
+      deckId: "shared-deck",
+      operations: expect.arrayContaining([
+        expect.objectContaining({
+          op: "delete-slide",
+          slideId: duplicateId,
+        }),
+      ]),
+    });
+
+    vi.useRealTimers();
+  });
+
   it("reconciles remote slide content when the timestamp and slide count are unchanged", async () => {
     window.history.pushState({}, "", "/deck/same-timestamp-deck");
     const initial: Deck = {

@@ -217,7 +217,10 @@ interface DeckContextType {
   ) => void;
   reloadDecks: () => Promise<void>;
   reloadDecksWithStatus: () => Promise<DeckReloadStatus>;
-  refreshOpenDeck: (deckId: string) => Promise<Deck | null>;
+  refreshOpenDeck: (
+    deckId: string,
+    options?: { clearPendingWrites?: boolean },
+  ) => Promise<Deck | null>;
   getDeck: (id: string) => Deck | undefined;
   addSlide: (
     deckId: string,
@@ -1320,7 +1323,15 @@ export function DeckProvider({ children }: { children: ReactNode }) {
    * this, chat-driven edits land in the editor with Undo disabled.
    */
   const applyRemoteDeckUpdate = useCallback(
-    (updated: Deck, label = "Agent edit") => {
+    (
+      updated: Deck,
+      label = "Agent edit",
+      options?: { clearPendingWrites?: boolean },
+    ) => {
+      if (options?.clearPendingWrites) {
+        discardPendingDeckOps(updated.id);
+        dirtyDeckIdsRef.current.delete(updated.id);
+      }
       const before = decksRef.current.find((d) => d.id === updated.id);
       if (
         before &&
@@ -1413,7 +1424,10 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   //   - Dirty deck / unsaved local create → additive merge only: surface
   //     agent-added slides without ever overwriting or dropping local slides.
   const refetchOpenDeckIfChanged = useCallback(
-    async (currentOpenId: string): Promise<Deck | null> => {
+    async (
+      currentOpenId: string,
+      options?: { clearPendingWrites?: boolean },
+    ): Promise<Deck | null> => {
       const requestId =
         (openDeckRequestIdByDeckRef.current.get(currentOpenId) ?? 0) + 1;
       openDeckRequestIdByDeckRef.current.set(currentOpenId, requestId);
@@ -1425,6 +1439,13 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       // still-pending create — nothing authoritative to reconcile.
       if (!serverDeck) return null;
       const clientDeck = decksRef.current.find((d) => d.id === currentOpenId);
+      if (options?.clearPendingWrites) {
+        lastExternalUpdateRef.current = Date.now();
+        applyRemoteDeckUpdate(serverDeck, "Deck restored", {
+          clearPendingWrites: true,
+        });
+        return serverDeck;
+      }
 
       const hasLocalEdits =
         pendingCreateIdsRef.current.has(currentOpenId) ||

@@ -720,9 +720,26 @@ export function SmoothMarkdownText({
   const visibleText = useSmoothStreamingText(text, shouldAnimate, resetKey);
   const ReactMarkdown = markdownModule?.default;
   const gfm = remarkGfmFn;
+  // Split whether or not the turn is still streaming. Rendering the finished
+  // message as one whole-document ReactMarkdown instead swapped the element
+  // tree the instant `streaming` went false, so React unmounted every block and
+  // rebuilt it: code blocks re-highlighted, heights collapsed for a frame, and
+  // the scroll jumped — the "flash at the end" report. The split is faithful to
+  // a whole-document parse (see markdown-block-split.ts), so one tree serves
+  // both phases and nothing is rebuilt when streaming stops.
   const markdownBlocks = useMemo(
-    () => (streaming ? splitMarkdownBlocks(visibleText) : null),
-    [streaming, visibleText],
+    () => splitMarkdownBlocks(visibleText),
+    [visibleText],
+  );
+  // The tail renders through the same component as completed blocks, so when it
+  // is promoted to a completed block React matches the same type at the same
+  // key and keeps its DOM instead of remounting that paragraph.
+  const renderedBlocks = useMemo(
+    () =>
+      markdownBlocks.tail
+        ? [...markdownBlocks.completedBlocks, markdownBlocks.tail]
+        : markdownBlocks.completedBlocks,
+    [markdownBlocks],
   );
 
   useEffect(() => {
@@ -737,30 +754,9 @@ export function SmoothMarkdownText({
       data-streaming={streaming ? "true" : undefined}
     >
       {mdReady && ReactMarkdown && gfm ? (
-        markdownBlocks ? (
-          <>
-            {markdownBlocks.completedBlocks.map((blockText, index) => (
-              <MemoizedMarkdownBlock key={index} blockText={blockText} />
-            ))}
-            {markdownBlocks.tail ? (
-              <ReactMarkdown
-                remarkPlugins={[gfm]}
-                components={markdownComponents}
-                urlTransform={markdownUrlTransform}
-              >
-                {wrapLegacyChartShorthandLines(markdownBlocks.tail)}
-              </ReactMarkdown>
-            ) : null}
-          </>
-        ) : (
-          <ReactMarkdown
-            remarkPlugins={[gfm]}
-            components={markdownComponents}
-            urlTransform={markdownUrlTransform}
-          >
-            {wrapLegacyChartShorthandLines(visibleText)}
-          </ReactMarkdown>
-        )
+        renderedBlocks.map((blockText, index) => (
+          <MemoizedMarkdownBlock key={index} blockText={blockText} />
+        ))
       ) : (
         <span style={{ whiteSpace: "pre-wrap" }}>{visibleText}</span>
       )}

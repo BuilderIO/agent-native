@@ -8,6 +8,7 @@ import {
 import { useSession, getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { buildSignInReturnHref } from "@agent-native/core/client/ui";
+import { ShareTrigger } from "@agent-native/toolkit/sharing";
 import { docsUrl } from "@agent-native/core/shared";
 import {
   IconAlertTriangle,
@@ -17,7 +18,6 @@ import {
   IconDots,
   IconExternalLink,
   IconLogin2,
-  IconShare3,
 } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
 import { eq } from "drizzle-orm";
@@ -1007,12 +1007,10 @@ export default function ShareRoute() {
                 isLoomRecording={isLoomEmbedBacked}
                 hasPassword={Boolean(recording.hasPassword)}
               >
-                <Button size="sm" className="shrink-0 gap-1.5">
-                  {recording.visibility !== "public" ? (
-                    <IconShare3 className="h-4 w-4" />
-                  ) : null}
-                  {t("sharePage.share")}
-                </Button>
+                <ShareTrigger
+                  label={t("sharePage.share")}
+                  className="shrink-0"
+                />
               </ShareRecordingPopover>
             ) : null}
           </div>

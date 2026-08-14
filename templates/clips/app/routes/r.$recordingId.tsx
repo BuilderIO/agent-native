@@ -12,6 +12,7 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { buildSignInReturnHref } from "@agent-native/core/client/ui";
+import { ShareTrigger } from "@agent-native/toolkit/sharing";
 import {
   isHumanReadableDocumentTitle,
   normalizeDocumentTitle,
@@ -33,7 +34,6 @@ import {
 } from "@shared/share-attribution";
 import type { WorkflowKind } from "@shared/workflow";
 import {
-  IconShare3,
   IconArrowLeft,
   IconChevronDown,
   IconCalendar,
@@ -989,12 +989,10 @@ export default function RecordingPage() {
               initialRole={role}
               hasPassword={Boolean(recording.hasPassword)}
             >
-              <Button className="shrink-0 gap-1.5" size="sm">
-                {recording.visibility !== "public" ? (
-                  <IconShare3 className="h-4 w-4" />
-                ) : null}
-                {t("recordingPage.share")}
-              </Button>
+              <ShareTrigger
+                label={t("recordingPage.share")}
+                className="shrink-0"
+              />
             </ShareRecordingPopover>
           </header>
 
@@ -1556,15 +1554,10 @@ export default function RecordingPage() {
               isLoomRecording={isLoomEmbedBacked}
               hasPassword={Boolean(recording.hasPassword)}
             >
-              <Button
-                className="shrink-0 gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90"
-                size="sm"
-              >
-                {recording.visibility !== "public" ? (
-                  <IconShare3 className="h-4 w-4" />
-                ) : null}
-                {t("recordingPage.share")}
-              </Button>
+              <ShareTrigger
+                label={t("recordingPage.share")}
+                className="shrink-0"
+              />
             </ShareRecordingPopover>
           ) : null}
 

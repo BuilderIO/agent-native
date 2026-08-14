@@ -12,6 +12,21 @@
  *    it re-renders as the fence grows.
  *  - Joining completedBlocks with "\n\n" + tail re-produces the original text
  *    (modulo collapsed blank-line sequences, which don't affect rendered output).
+ *
+ * FIDELITY IS THE CONTRACT, not an optimization detail. Rendering the blocks
+ * separately must produce what rendering the whole document produces, because
+ * the same split drives both the streaming render and the final one. When the
+ * split was allowed to diverge, two things broke at once: the streamed text was
+ * visibly WRONG (a blank-line-separated list rendered as several one-item
+ * lists, a link whose reference definition landed in a later block rendered as
+ * literal `[text]`), and the end of the stream had to swap to a whole-document
+ * render to fix it — which rebuilt the message's entire DOM and produced the
+ * flash and scroll jump users reported. Two constructs reach across a blank
+ * line, so neither may be split:
+ *  - lists, which continue across blank lines (and become "loose")
+ *  - link-reference and footnote definitions, which resolve document-wide
+ * `markdown-block-split.spec.ts` asserts this parity construct by construct.
+ * Do not add a split rule without adding its parity case.
  */
 export interface MarkdownBlockSplit {
   /** Fully-terminated top-level blocks. Each element is the raw markdown for
@@ -22,6 +37,26 @@ export interface MarkdownBlockSplit {
    *  list, etc.). Empty string when the text ends cleanly on a blank line. */
   tail: string;
 }
+
+/** A bullet or ordered list marker, at any indent depth. */
+const LIST_MARKER = /^\s*(?:[-*+]|\d{1,9}[.)])\s/;
+
+/** An indented continuation line — a paragraph or nested block inside a list item. */
+const CONTINUATION_INDENT = /^\s{2,}\S/;
+
+/**
+ * A link-reference or footnote definition (`[id]: url`, `[^1]: note`). These
+ * resolve across the whole document, so any block boundary can orphan a
+ * reference from its definition and render it as literal text.
+ */
+const REFERENCE_DEFINITION = /^ {0,3}\[[^\]]+\]:\s*\S/;
+
+/**
+ * An indented (4-space or tab) code block line. Like a list, an indented code
+ * block continues across blank lines, so splitting on one turns a single code
+ * block into several.
+ */
+const INDENTED_CODE = /^(?: {4}|\t)/;
 
 /**
  * Split `text` into completed top-level markdown blocks and a trailing
@@ -42,6 +77,18 @@ export function splitMarkdownBlocks(text: string): MarkdownBlockSplit {
   let fenceMarker = ""; // the opening marker: ``` or ~~~
   let currentBlockLines: string[] = [];
   let pendingBlanks = 0; // blank lines accumulated between blocks
+  // Whether the block being accumulated started as a list. A list swallows
+  // blank lines and keeps going, so its boundary is not decidable until a
+  // non-list, non-indented line arrives.
+  let currentBlockIsList = false;
+  // Same for an indented code block, which also swallows blank lines.
+  let currentBlockIsIndentedCode = false;
+  // Reference definitions are detected during the scan, NOT with a regex over
+  // the raw text: `[key: string]: string` inside a ```ts fence looks exactly
+  // like `[id]: url`, and this product emits TypeScript constantly. Testing the
+  // raw text disabled splitting for those whole messages, so every commit
+  // re-parsed the entire document — O(n²) rendering, which is its own jank.
+  let sawReferenceDefinition = false;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -60,6 +107,7 @@ export function splitMarkdownBlocks(text: string): MarkdownBlockSplit {
           currentBlockLines = [];
         }
         pendingBlanks = 0;
+        if (currentBlockLines.length === 0) currentBlockIsList = false;
         currentBlockLines.push(line);
         continue;
       }
@@ -72,13 +120,35 @@ export function splitMarkdownBlocks(text: string): MarkdownBlockSplit {
 
       // Non-blank, non-fence line outside a fence
       if (pendingBlanks > 0 && currentBlockLines.length > 0) {
-        // We have a completed block followed by blank lines
-        completedBlocks.push(currentBlockLines.join("\n"));
-        currentBlockLines = [];
+        // A list continues across blank lines: a following list marker is the
+        // next item, and an indented line is a continuation paragraph inside
+        // the current item. Splitting either one produces several separate
+        // lists instead of one, and drops continuation text out of its item.
+        const continuesList =
+          currentBlockIsList &&
+          (LIST_MARKER.test(line) || CONTINUATION_INDENT.test(line));
+        const continuesIndentedCode =
+          currentBlockIsIndentedCode && INDENTED_CODE.test(line);
+        if (continuesList || continuesIndentedCode) {
+          // Keep the blank lines: they are what makes the list "loose", which
+          // changes how it renders.
+          for (let blank = 0; blank < pendingBlanks; blank++) {
+            currentBlockLines.push("");
+          }
+        } else {
+          completedBlocks.push(currentBlockLines.join("\n"));
+          currentBlockLines = [];
+        }
         pendingBlanks = 0;
       } else {
         pendingBlanks = 0;
       }
+      if (currentBlockLines.length === 0) {
+        currentBlockIsIndentedCode = INDENTED_CODE.test(line);
+        currentBlockIsList =
+          !currentBlockIsIndentedCode && LIST_MARKER.test(line);
+      }
+      if (REFERENCE_DEFINITION.test(line)) sawReferenceDefinition = true;
       currentBlockLines.push(line);
     } else {
       // Inside a fence: look for the closing marker
@@ -102,8 +172,22 @@ export function splitMarkdownBlocks(text: string): MarkdownBlockSplit {
 
   // If we ended outside a fence with trailing blank lines, the last content
   // block is complete — flush it and return an empty tail.
+  // A definition makes every boundary unsafe: the reference may sit in any
+  // other block, and splitting orphans it into literal `[text]`.
+  if (sawReferenceDefinition) {
+    return { completedBlocks: [], tail: text };
+  }
+
   let tail: string;
-  if (!inFence && pendingBlanks > 0 && currentBlockLines.length > 0) {
+  if (
+    !inFence &&
+    !currentBlockIsList &&
+    !currentBlockIsIndentedCode &&
+    pendingBlanks > 0 &&
+    currentBlockLines.length > 0
+  ) {
+    // A trailing blank line does not end a list — the next streamed chunk may
+    // add another item. Leave it in the tail so it stays one list.
     completedBlocks.push(currentBlockLines.join("\n"));
     tail = "";
   } else {

@@ -41,6 +41,28 @@ export type PublicAgentTranscript =
 export type PublicAgentBugReport =
   | typeof schema.recordingBugReports._.inferSelect
   | null;
+export type PublicAgentComment = {
+  id: string;
+  recordingId: string;
+  threadId: string;
+  parentId: string | null;
+  authorEmail: string;
+  authorName: string | null;
+  content: string;
+  videoTimestampMs: number;
+  emojiReactionsJson: string;
+  resolved: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+export type PublicAgentReaction = {
+  id: string;
+  emoji: string;
+  videoTimestampMs: number;
+  viewerEmail: string | null;
+  viewerName: string | null;
+  createdAt: string;
+};
 
 export interface PublicAgentAccess {
   recording: PublicAgentRecording;
@@ -525,6 +547,8 @@ export function buildPublicAgentContext({
   transcript,
   agentSegments,
   chapters,
+  comments,
+  reactions,
   ctas,
   browserDiagnostics,
   bugReport,
@@ -534,6 +558,8 @@ export function buildPublicAgentContext({
   transcript: PublicAgentTranscript;
   agentSegments: ReturnType<typeof toAgentTranscriptSegments>;
   chapters: ReturnType<typeof parseAgentChapters>;
+  comments: PublicAgentComment[];
+  reactions: PublicAgentReaction[];
   ctas: Awaited<ReturnType<typeof loadAgentCtas>>;
   browserDiagnostics?: BrowserDiagnosticsData | null;
   bugReport?: PublicAgentBugReport;
@@ -639,6 +665,28 @@ export function buildPublicAgentContext({
       segments: agentSegments,
       segmentCount: agentSegments.length,
     },
+    comments: comments.map((comment) => ({
+      id: comment.id,
+      recordingId: comment.recordingId,
+      threadId: comment.threadId,
+      parentId: comment.parentId,
+      authorEmail: comment.authorEmail,
+      authorName: comment.authorName,
+      content: comment.content,
+      videoTimestampMs: comment.videoTimestampMs,
+      emojiReactionsJson: comment.emojiReactionsJson,
+      resolved: comment.resolved,
+      createdAt: comment.createdAt,
+      updatedAt: comment.updatedAt,
+    })),
+    reactions: reactions.map((reaction) => ({
+      id: reaction.id,
+      emoji: reaction.emoji,
+      videoTimestampMs: reaction.videoTimestampMs,
+      viewerEmail: reaction.viewerEmail,
+      viewerName: reaction.viewerName,
+      createdAt: reaction.createdAt,
+    })),
     chapters,
     recommendedFrames: suggestedFrames,
     bugReport: compactBugReport(bugReport ?? null),

@@ -265,7 +265,18 @@ export async function getFirstPartyAnalyticsBigQueryBackfillJob(
 async function getNextFirstPartyAnalyticsBigQueryBackfillJob(
   db: Executor,
   now: string,
+  scope?: FirstPartyAnalyticsScope,
 ): Promise<BigQueryBackfillJob | null> {
+  const scopeClauses: string[] = [];
+  const args: unknown[] = [now, now];
+  if (scope?.orgId) {
+    scopeClauses.push("AND org_id = ?");
+    args.push(scope.orgId);
+  }
+  if (scope?.userEmail) {
+    scopeClauses.push("AND owner_email = ?");
+    args.push(scope.userEmail);
+  }
   const result = await db.execute({
     sql: `SELECT id, org_id, owner_email, table_ref, batch_size,
                  backfill_cursor, status, copied_count, lease_token,
@@ -278,9 +289,10 @@ async function getNextFirstPartyAnalyticsBigQueryBackfillJob(
                OR (status = 'running' AND lease_expires_at IS NOT NULL
                    AND lease_expires_at <= ?)
              )
+             ${scopeClauses.join("\n             ")}
            ORDER BY updated_at ASC
            LIMIT 1`,
-    args: [now, now],
+    args,
     timeoutMs: 3_000,
     maxAttempts: 1,
   });
@@ -820,8 +832,8 @@ async function pressureSnapshot(
       sql: `SELECT
               COUNT(*) AS total_sessions,
               SUM(CASE WHEN state = 'active' THEN 1 ELSE 0 END) AS active_sessions,
-              SUM(CASE WHEN wait_event_type IS NOT NULL THEN 1 ELSE 0 END) AS waiting_sessions,
-              SUM(CASE WHEN wait_event_type = 'Lock' THEN 1 ELSE 0 END) AS lock_waiters
+              SUM(CASE WHEN state = 'active' AND wait_event_type IS NOT NULL THEN 1 ELSE 0 END) AS waiting_sessions,
+              SUM(CASE WHEN state = 'active' AND wait_event_type = 'Lock' THEN 1 ELSE 0 END) AS lock_waiters
             FROM pg_stat_activity
            WHERE pid <> pg_backend_pid()`,
       timeoutMs: 2_000,
@@ -870,7 +882,9 @@ async function recordPressurePause(
   });
 }
 
-export async function runFirstPartyAnalyticsBigQueryBackfillOnce(): Promise<BigQueryBackfillSweepResult> {
+export async function runFirstPartyAnalyticsBigQueryBackfillOnce(
+  scope?: FirstPartyAnalyticsScope,
+): Promise<BigQueryBackfillSweepResult> {
   if (process.env.ANALYTICS_BIGQUERY_BACKFILL_JOBS?.trim() === "0") {
     return { status: "disabled", batches: 0, copied: 0, remaining: 0 };
   }
@@ -879,6 +893,7 @@ export async function runFirstPartyAnalyticsBigQueryBackfillOnce(): Promise<BigQ
   const coordinator = await getNextFirstPartyAnalyticsBigQueryBackfillJob(
     db,
     new Date().toISOString(),
+    scope,
   );
   if (!coordinator) {
     return { status: "idle", batches: 0, copied: 0, remaining: 0 };

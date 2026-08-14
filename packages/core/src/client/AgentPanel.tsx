@@ -1377,8 +1377,7 @@ function AgentPanelInner({
                 allowedRoles={["viewer", "editor", "admin"]}
                 resourceTitle={activeTab.label || "Chat"}
                 shareUrl={getChatThreadShareUrl(activeTab.id)}
-                trigger="icon"
-                triggerClassName="h-7 w-7"
+                triggerClassName="h-7 px-2"
                 defaultOpen={onCollapse && shareFromMenuOpen}
                 onOpenChange={onCollapse ? setShareFromMenuOpen : undefined}
               />
@@ -1753,8 +1752,7 @@ function AgentPanelInner({
                   allowedRoles={["viewer", "editor", "admin"]}
                   resourceTitle={activeTab.label || "Chat"}
                   shareUrl={getChatThreadShareUrl(activeTab.id)}
-                  trigger="icon"
-                  triggerClassName="h-8 w-8 border border-border bg-background/95 shadow-sm backdrop-blur hover:bg-accent"
+                  triggerClassName="h-8 px-2 border border-border bg-background/95 shadow-sm backdrop-blur hover:bg-accent"
                 />
               ) : null}
               <button
