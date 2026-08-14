@@ -7,8 +7,19 @@ interface UploadResponse {
   statusMessage?: unknown;
 }
 
-function isImageFile(file: File): boolean {
-  return file.type.startsWith("image/");
+function normalizeImageFile(file: File): File | null {
+  const mimeType = file.type.split(";")[0]?.trim().toLowerCase() ?? "";
+  if (mimeType.startsWith("image/")) return file;
+  if (
+    /\.svg$/i.test(file.name) &&
+    (mimeType === "" || mimeType === "application/octet-stream")
+  ) {
+    return new File([file], file.name, {
+      type: "image/svg+xml",
+      lastModified: file.lastModified,
+    });
+  }
+  return null;
 }
 
 function isVideoFile(file: File): boolean {
@@ -22,9 +33,6 @@ function isAudioFile(file: File): boolean {
 type MediaUploadKind = "image" | "video" | "audio";
 
 const IMAGE_LOAD_TIMEOUT_MS = 15_000;
-
-// Chromium's macOS picker does not consistently include SVG in `image/*`.
-export const IMAGE_FILE_ACCEPT = "image/*,.svg";
 
 export class ImageRenderError extends Error {
   constructor() {
@@ -141,7 +149,10 @@ export function getImageFiles(
   files: FileList | File[] | null | undefined,
 ): File[] {
   if (!files) return [];
-  return Array.from(files).filter(isImageFile);
+  return Array.from(files).flatMap((file) => {
+    const normalized = normalizeImageFile(file);
+    return normalized ? [normalized] : [];
+  });
 }
 
 export function getVideoFiles(
@@ -217,7 +228,7 @@ async function uploadMediaFile(
 ): Promise<string> {
   const isValidFile =
     kind === "image"
-      ? isImageFile(file)
+      ? normalizeImageFile(file) !== null
       : kind === "video"
         ? isVideoFile(file)
         : isAudioFile(file);
@@ -263,7 +274,9 @@ async function uploadMediaFile(
 }
 
 export async function uploadImageFile(file: File): Promise<string> {
-  return uploadMediaFile(file, "image");
+  const normalized = normalizeImageFile(file);
+  if (!normalized) throw new Error("Only image files can be uploaded.");
+  return uploadMediaFile(normalized, "image");
 }
 
 export async function uploadVideoFile(file: File): Promise<string> {

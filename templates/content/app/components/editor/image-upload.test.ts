@@ -3,7 +3,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
-  IMAGE_FILE_ACCEPT,
   createImagePickerId,
   createMediaUploadId,
   getAudioFiles,
@@ -13,10 +12,6 @@ import {
   uploadImageFile,
   uploadVideoFile,
 } from "./image-upload";
-
-it("explicitly allows SVG files in native image pickers", () => {
-  expect(IMAGE_FILE_ACCEPT).toContain(".svg");
-});
 
 describe("image uploads", () => {
   afterEach(() => {
@@ -58,6 +53,39 @@ describe("image uploads", () => {
     expect(uploadedFile.name).toBe("diagram.png");
     expect(uploadedFile.type).toBe("image/png");
   });
+
+  it.each(["", "application/octet-stream"])(
+    "normalizes an SVG with browser MIME %j before upload",
+    async (type) => {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 201,
+        json: async () => ({ url: "https://cdn.example.com/diagram.svg" }),
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      const file = new File(["<svg></svg>"], "diagram-two-way-context.SVG", {
+        type,
+        lastModified: 123,
+      });
+
+      expect(getImageFiles([file])).toEqual([
+        expect.objectContaining({
+          name: "diagram-two-way-context.SVG",
+          type: "image/svg+xml",
+          lastModified: 123,
+        }),
+      ]);
+      await expect(uploadImageFile(file)).resolves.toBe(
+        "https://cdn.example.com/diagram.svg",
+      );
+
+      const body = fetchMock.mock.calls[0]?.[1]?.body as FormData;
+      const uploadedFile = body.get("file") as File;
+      expect(uploadedFile.name).toBe("diagram-two-way-context.SVG");
+      expect(uploadedFile.type).toBe("image/svg+xml");
+      expect(uploadedFile.lastModified).toBe(123);
+    },
+  );
 
   it("points users to Builder.io when file storage is not configured", async () => {
     vi.stubGlobal(
