@@ -323,10 +323,10 @@ export default function ClipsTemplate() {
         </div>
       </section>
 
+      <SectionDivider borderColorClassName="border-[#1a1a1a]" />
+
       {/* Core capabilities */}
       <section className="border-t border-[#1a1a1a] bg-[#0a0a0a]">
-        <SectionDivider borderColorClassName="border-[#1a1a1a]" />
-
         <div className="flex flex-col border-y border-[#1a1a1a] lg:flex-row lg:items-stretch">
           <div className="flex shrink-0 flex-col justify-center gap-6 border-b border-[#1a1a1a] bg-[#0a0a0a] px-6 py-10 sm:px-10 lg:w-[416px] lg:border-b-0 lg:border-e lg:ps-8 lg:pe-16 lg:py-0">
             <h2 className="text-[1.75rem] font-medium leading-[1.15] tracking-[-0.56px] text-white">
