@@ -147,7 +147,7 @@ interaction contract:
 
 - `> ` creates an expanded Toggle whose summary placeholder is `Toggle`;
 - a structurally empty expanded Toggle shows `Empty toggle. Click or drop blocks
-  inside.` without storing a paragraph;
+inside.` without storing a paragraph;
 - clicking that empty-body affordance materializes and focuses a real empty
   paragraph inside the Toggle;
 - the disclosure caret is muted only while the Toggle has zero child blocks; it
@@ -332,21 +332,21 @@ Required assertions:
    paragraphs, order, expansion state, and bodies match the last visible editor
    state.
 8. The interaction emits no `TextSelection endpoint not pointing into a node
-   with inline content` warning, unhandled rejection, transaction loop, render
+with inline content` warning, unhandled rejection, transaction loop, render
    loop, or repeated persistence request.
 9. Unrelated slash commands, pointer activation, collapse/expand/delete, and
    empty-summary Backspace retain their current behaviors.
 10. Focused automated tests cover Toggle creation, structural-empty state,
-   context-sensitive Enter, Shift-Tab outdent, focus handoff where testable,
-   serialization, and reload persistence; the
-   relevant existing Content editor tests and changed-file checks pass.
+    context-sensitive Enter, Shift-Tab outdent, focus handoff where testable,
+    serialization, and reload persistence; the
+    relevant existing Content editor tests and changed-file checks pass.
 11. A current real-interface run against the exact review artifact exercises
-   the full numbered interaction matrix above, save, and reload on the declared
-   disposable page. Independent evidence is preferred when an independently
-   acquirable browser is available, but same-context evidence is allowed and
-   its custody must be stated plainly.
+    the full numbered interaction matrix above, save, and reload on the declared
+    disposable page. Independent evidence is preferred when an independently
+    acquirable browser is available, but same-context evidence is allowed and
+    its custody must be stated plainly.
 12. The Work handoff continues to report the original freeze as unreproduced and
-   makes no causal claim about the reporter Clip.
+    makes no causal claim about the reporter Clip.
 
 Acceptance policy:
 
@@ -686,6 +686,34 @@ status: active
 - This evidence does not reproduce or explain the original freeze, does not use
   production data, and does not merge the separate two-tab synchronization or
   read-only loading-state defects into this repair.
+
+## 2026-08-14 Land repair evidence
+
+- The accepted browser run exposed a `TextSelection endpoint not pointing into
+a node with inline content (notionToggle)` warning while hydrating the exact
+  disposable Toggle page. Land stopped rather than treating the earlier green
+  interaction evidence as sufficient.
+- The warning originated in y-prosemirror's initial whole-document render: it
+  recreated the placeholder paragraph selection at the same absolute position
+  after replacement, which can be inside a zero-child Toggle. The shared
+  collaboration extension now lets ProseMirror map the existing selection
+  through that one initial replacement and restores upstream behavior
+  immediately afterward.
+- A regression mounts and remounts the same collaborative Y.Doc beginning with
+  a zero-child Toggle, asserts that the summary hydrates, and rejects the exact
+  invalid-TextSelection warning. The focused editor file passes 62 of 62 tests;
+  a fresh browser load of the exact disposable page emitted no matching warning.
+- The same independent reviewer performed the one bounded follow-up allowed
+  after a finding changes the artifact and reported no material finding or Land
+  blocker. The residual risk is that the focused regression does not separately
+  assert a later remote cursor update, while the immediate `finally` restoration
+  of upstream behavior makes a later-selection change unlikely.
+- Toolkit tests passed 764 of 764, Toolkit and Content typechecks passed, the
+  full formatter check passed, all 51 guards passed, and `git diff --check` was
+  clean. Port 4179 was stopped and the disposable database directory was moved
+  from `/tmp` back to Trash, then verified absent from `/tmp`.
+- This initial-selection repair does not change the accepted Toggle gestures or
+  broaden the claim about the original freeze, which remains unreproduced.
 
 ## Natural next stage
 
