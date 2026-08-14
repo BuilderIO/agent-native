@@ -17,4 +17,15 @@ describe("AppLayout inbox rail count", () => {
       'const inboxSidebarUnreadCount =\n    labelThreadCounts.unread["__inboxTotal"]',
     );
   });
+
+  it("collapses the native rail while the per-app chat is open", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain(
+      'import { usePerAppChatOpen } from "@agent-native/core/client/hooks";',
+    );
+    expect(source).toContain(
+      "(sidebarPinned ? sidebarCollapsed : perAppChatOpen)",
+    );
+  });
 });

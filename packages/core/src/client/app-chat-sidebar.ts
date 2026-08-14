@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react";
 
 /** Custom event used by top-level hosts such as Electron webviews. */
-export const APP_CHAT_SIDEBAR_STATE_EVENT =
-  "agent-native:per-app-chat-state";
+export const APP_CHAT_SIDEBAR_STATE_EVENT = "agent-native:per-app-chat-state";
 /** postMessage sent from a per-app chat host to its embedded app. */
 export const APP_CHAT_SIDEBAR_STATE_MESSAGE = "agentNative.perAppChatState";
 /** Request sent by an iframe that mounted after the host announced its state. */
@@ -13,9 +12,10 @@ export interface AppChatSidebarState {
   open: boolean;
 }
 
-export function buildAppChatSidebarStateMessage(
-  open: boolean,
-): { type: typeof APP_CHAT_SIDEBAR_STATE_MESSAGE; data: AppChatSidebarState } {
+export function buildAppChatSidebarStateMessage(open: boolean): {
+  type: typeof APP_CHAT_SIDEBAR_STATE_MESSAGE;
+  data: AppChatSidebarState;
+} {
   return {
     type: APP_CHAT_SIDEBAR_STATE_MESSAGE,
     data: { open },

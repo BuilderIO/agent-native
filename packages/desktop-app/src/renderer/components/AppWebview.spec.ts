@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { buildGuestThemeScript } from "../lib/theme.js";
 import {
   APP_WEBVIEW_PREFERENCES,
+  buildGuestAppChatSidebarStateScript,
   resolveAppWebviewPartition,
   resolveAppWebviewAuthState,
   resolveAppWebviewUrl,
@@ -109,6 +110,26 @@ describe("AppWebview runtime preferences", () => {
   it("keeps guest pages eligible for Chromium background throttling", () => {
     expect(APP_WEBVIEW_PREFERENCES).toContain("backgroundThrottling=true");
     expect(APP_WEBVIEW_PREFERENCES).not.toContain("backgroundThrottling=false");
+  });
+});
+
+describe("AppWebview per-app chat state propagation", () => {
+  it("dispatches the host chat state inside the guest document", () => {
+    let open: unknown;
+    const handleState = (event: Event) => {
+      open = (event as CustomEvent<{ open?: unknown }>).detail?.open;
+    };
+    window.addEventListener("agent-native:per-app-chat-state", handleState);
+
+    try {
+      new Function(buildGuestAppChatSidebarStateScript(true))();
+      expect(open).toBe(true);
+    } finally {
+      window.removeEventListener(
+        "agent-native:per-app-chat-state",
+        handleState,
+      );
+    }
   });
 });
 

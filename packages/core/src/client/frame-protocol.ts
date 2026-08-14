@@ -110,7 +110,7 @@ export type AppToFrameMessage =
   | SetEnvVarsMessage
   | DevModeChangeMessage
   | ToggleSidebarMessage
-  | PerAppChatSidebarStateMessage
+  | PerAppChatSidebarStateRequestMessage
   | EnterStyleEditingMessage
   | EnterTextEditingMessage
   | ExitSelectionModeMessage
@@ -183,7 +183,7 @@ export type FrameToAppMessage =
   | FrameOriginMessage
   | ChatRunningMessage
   | UserInfoMessage
-  | PerAppChatSidebarStateRequestMessage
+  | PerAppChatSidebarStateMessage
   | CodeCompleteMessage
   | SidebarModeMessage
   | PresentationModeMessage

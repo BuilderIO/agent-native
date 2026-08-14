@@ -94,16 +94,16 @@ import {
 } from "./agent-sidebar-state.js";
 import { trackEvent } from "./analytics.js";
 import { agentNativePath, appPath, isWorkspaceAppPath } from "./api-path.js";
-import { readClientAppState } from "./application-state.js";
-import { assistantUiRecoverableRenderErrorKind } from "./assistant-ui-recovery.js";
-import type { AssistantChatProps } from "./AssistantChat.js";
-import { shouldParentFrameOwnAgentPanel } from "./builder-frame.js";
 import {
   APP_CHAT_SIDEBAR_STATE_EVENT,
   APP_CHAT_SIDEBAR_STATE_REQUEST_MESSAGE,
   buildAppChatSidebarStateMessage,
   isPerAppChatStorageKey,
 } from "./app-chat-sidebar.js";
+import { readClientAppState } from "./application-state.js";
+import { assistantUiRecoverableRenderErrorKind } from "./assistant-ui-recovery.js";
+import type { AssistantChatProps } from "./AssistantChat.js";
+import { shouldParentFrameOwnAgentPanel } from "./builder-frame.js";
 import {
   AGENT_CHAT_VIEW_TRANSITION_CLASS,
   getAgentChatViewTransitionStyle,
@@ -3291,8 +3291,8 @@ export function AgentSidebar({
     const frameOwned = frameCodeMode && shouldParentFrameOwnAgentPanel();
     if (frameOwned && !hasFrameSidebarState) return;
 
-    const openState = !presentationMode &&
-      (frameOwned ? frameSidebarOpen : open);
+    const openState =
+      !presentationMode && (frameOwned ? frameSidebarOpen : open);
     const message = buildAppChatSidebarStateMessage(openState);
 
     window.dispatchEvent(
