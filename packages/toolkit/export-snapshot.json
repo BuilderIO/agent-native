@@ -16,10 +16,7 @@
       "dist/design-tweaks/index.d.ts",
       "dist/design-tweaks/index.js"
     ],
-    "./data-grid": [
-      "dist/data-grid/index.d.ts",
-      "dist/data-grid/index.js"
-    ],
+    "./data-grid": ["dist/data-grid/index.d.ts", "dist/data-grid/index.js"],
     "./data-grid/*": ["dist/data-grid/*.d.ts", "dist/data-grid/*.js"],
     "./editor": ["dist/editor/index.d.ts", "dist/editor/index.js"],
     "./editor.css": ["dist/editor.css"],

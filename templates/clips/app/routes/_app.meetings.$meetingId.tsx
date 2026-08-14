@@ -702,9 +702,7 @@ export default function MeetingDetailRoute() {
               {t("meetingDetail.generatingNotesInline")}
             </span>
           ) : null}
-          <ShareMeetingPopover
-            meetingId={meeting.id}
-          >
+          <ShareMeetingPopover meetingId={meeting.id}>
             <ShareTrigger
               label={t("meetingDetail.share")}
               className="shrink-0"

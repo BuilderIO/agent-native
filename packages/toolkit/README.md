@@ -126,7 +126,9 @@ mechanics.
   rows={rows}
   columns={columns}
   getRowId={(row) => row.id}
-  onCellCommit={({ row, column, value }) => updateCell(row.id, column.id, value)}
+  onCellCommit={({ row, column, value }) =>
+    updateCell(row.id, column.id, value)
+  }
 />
 ```
 

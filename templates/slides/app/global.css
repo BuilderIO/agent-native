@@ -475,7 +475,10 @@ button[title="Open agent sidebar"] {
 .fmd-slide.fmd-slide--statement h1,
 .fmd-slide.fmd-slide--statement h2 {
   color: var(--ds-text, #ffffff);
-  font-family: var(--ds-heading-font, var(--ds-body-font, "Poppins", sans-serif));
+  font-family: var(
+    --ds-heading-font,
+    var(--ds-body-font, "Poppins", sans-serif)
+  );
   font-weight: 700;
   letter-spacing: -0.03em;
 }

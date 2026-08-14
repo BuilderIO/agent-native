@@ -84,5 +84,4 @@ describe("update-meeting", () => {
       "admin",
     );
   });
-
 });
