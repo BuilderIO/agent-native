@@ -998,12 +998,25 @@ function limitPriorMessagesForRequest<
     const message = recent[i];
     if (message.role !== "user" && message.role !== "assistant") continue;
     const role = message.role as "user" | "assistant";
-    const cost = estimateHistoryMessageCost(message);
-    // Skip, never `break`: one expensive recent turn must not evict every
-    // cheaper older message behind it.
-    if (kept.length > 0 && spent[role] + cost > budget[role]) continue;
-    kept.push(message);
-    spent[role] += cost;
+    const keepIfAffordable = (candidate: T): boolean => {
+      const cost = estimateHistoryMessageCost(candidate);
+      // Skip, never `break`: one expensive recent turn must not evict every
+      // cheaper older message behind it.
+      if (kept.length > 0 && spent[role] + cost > budget[role]) return false;
+      kept.push(candidate);
+      spent[role] += cost;
+      return true;
+    };
+    if (keepIfAffordable(message)) continue;
+    // Tool results are ~97% of a tool-heavy turn and can always be re-read; the
+    // conclusions the turn wrote cannot. Falling back to the prose keeps the
+    // agent's own prior findings for ~3% of the cost, so it stops re-deriving
+    // the same answer once its results age out.
+    const textOnly = message.content.filter((part) => part.type === "text");
+    if (!textOnly.length || textOnly.length === message.content.length) {
+      continue;
+    }
+    keepIfAffordable({ ...message, content: textOnly });
   }
 
   kept.reverse();

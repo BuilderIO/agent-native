@@ -2213,6 +2213,52 @@ describe("createAgentChatAdapter", () => {
     expect(historyText).toContain("third ask");
   });
 
+  it("keeps an over-budget turn's conclusions after dropping its tool results", async () => {
+    // A tool-heavy turn's results are ~97% of its cost; the prose it wrote is
+    // the other 3% and is the part that cannot be re-read. Dropping the whole
+    // message evicted both, so the agent re-derived the same finding each turn.
+    const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-history-findings",
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          { role: "user", content: [{ type: "text", text: "why is it empty" }] },
+          {
+            role: "assistant",
+            content: [
+              ...Array.from({ length: 8 }, (_, i) => ({
+                type: "tool-call",
+                toolCallId: `call-${i}`,
+                toolName: "read-source",
+                args: { query: "x".repeat(7_000) },
+                result: "y".repeat(11_000),
+              })),
+              { type: "text", text: "the rate filter excludes zero-rate rows" },
+            ],
+          },
+          { role: "user", content: [{ type: "text", text: "so change it" }] },
+          {
+            role: "assistant",
+            content: [{ type: "text", text: "confirming the filter" }],
+          },
+          { role: "user", content: [{ type: "text", text: "now fix it" }] },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    const body = fetchSpy.mock.calls[0][1].body as string;
+    expect(body).toContain("why is it empty");
+    expect(body).toContain("the rate filter excludes zero-rate rows");
+    expect(body).not.toContain("y".repeat(11_000));
+  });
+
   it("prices object tool results by what the request actually carries", async () => {
     // Action results are objects, not strings. `String(result)` prices every
     // one of them at 15 chars ("[object Object]"), so a turn of large object
