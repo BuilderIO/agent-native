@@ -238,14 +238,14 @@ export default function ClipsTemplate() {
           <div />
         </div>
 
-        <div className="flex flex-col border-y border-[#1a1a1a] lg:flex-row lg:items-stretch">
-          <div className="flex items-center border-b border-[#1a1a1a] px-6 py-8 sm:px-10 lg:w-[416px] lg:shrink-0 lg:border-b-0 lg:border-e lg:py-0 lg:ps-8 lg:pe-16">
+        <div className="flex flex-col border-y border-[#1a1a1a] lg:flex-row lg:items-stretch lg:border-x">
+          <div className="flex items-center border-b border-[#1a1a1a] px-6 py-8 sm:px-10 lg:w-[416px] lg:shrink-0 lg:border-b-0 lg:border-e lg:py-8 lg:ps-8 lg:pe-16">
             <h2 className="max-w-[320px] font-sans text-2xl font-medium leading-[1.3] tracking-[-0.24px] text-[#faf9f5]">
               Try pasting this into Claude, ChatGPT, or Cursor:
             </h2>
           </div>
 
-          <div className="flex flex-1 items-center gap-6 px-6 py-8 sm:px-10 lg:py-8">
+          <div className="flex flex-1 items-center gap-6 px-6 py-8 sm:px-10 lg:px-8 lg:py-8">
             <p className="min-w-0 flex-1 font-mono text-[15px] leading-6 text-[#9a9997] sm:text-lg">
               <span>Watch </span>
               <span className="text-white">{CLIPS_PROMPT_URL}.</span>
