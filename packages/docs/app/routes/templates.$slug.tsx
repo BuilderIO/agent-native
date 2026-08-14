@@ -191,7 +191,7 @@ export default function GenericTemplatePage() {
 
       <SectionDivider showOnSmallScreens={false} />
 
-      {template.slug !== "assets" ? (
+      {!["assets", "chat"].includes(template.slug) ? (
         <TemplateFinalCta
           title={t("templateDetail.allTemplates")}
           actions={
