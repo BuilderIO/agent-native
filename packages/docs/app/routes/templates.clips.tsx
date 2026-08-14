@@ -129,7 +129,7 @@ const ClipPreviewSlider = forwardRef<ClipPreviewSliderHandle>(
                 decoding="async"
                 className="aspect-video w-full border-b border-[#1a1a1a] object-cover object-bottom"
               />
-              <div className="flex flex-1 flex-col gap-2 p-6">
+              <div className="flex w-full flex-1 flex-col gap-2">
                 <h3 className="m-0 max-w-[328px] text-[1.4375rem] font-medium leading-[1.15] tracking-[-0.46px] text-[#faf9f5]">
                   {clip.title}
                 </h3>
