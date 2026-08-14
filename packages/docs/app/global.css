@@ -1406,7 +1406,7 @@ html.dark .shiki span {
 
 .feature-card {
   border: 1px solid var(--docs-border);
-  border-radius: 12px;
+  border-radius: 6px;
   padding: 24px;
   transition:
     border-color 200ms ease,
