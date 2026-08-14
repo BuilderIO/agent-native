@@ -292,9 +292,9 @@ export default function ClipsTemplate() {
       </section>
 
       {/* By the numbers */}
-      <section className="border-t border-[var(--docs-border)] pb-16">
+      <section className="border-t border-[var(--docs-border)]">
         <SectionDivider />
-        <div className="grid overflow-hidden rounded-xl border border-[var(--docs-border)] sm:grid-cols-3">
+        <div className="grid overflow-hidden border border-[var(--docs-border)] sm:grid-cols-3">
           {[
             { title: "Record", caption: "Share your screen" },
             {
