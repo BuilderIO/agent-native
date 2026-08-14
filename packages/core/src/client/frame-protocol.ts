@@ -60,6 +60,17 @@ export interface ToggleSidebarMessage {
   data?: { open?: boolean };
 }
 
+/** The host chat rail asks the embedded app to compact its own navigation. */
+export interface PerAppChatSidebarStateMessage {
+  type: "agentNative.perAppChatState";
+  data: { open: boolean };
+}
+
+/** The embedded app asks a host for the current per-app chat state on mount. */
+export interface PerAppChatSidebarStateRequestMessage {
+  type: "agentNative.perAppChatStateRequest";
+}
+
 export interface EnterStyleEditingMessage {
   type: "agentNative.enterStyleEditing";
   data: { selector: string };
@@ -99,6 +110,7 @@ export type AppToFrameMessage =
   | SetEnvVarsMessage
   | DevModeChangeMessage
   | ToggleSidebarMessage
+  | PerAppChatSidebarStateMessage
   | EnterStyleEditingMessage
   | EnterTextEditingMessage
   | ExitSelectionModeMessage
@@ -171,6 +183,7 @@ export type FrameToAppMessage =
   | FrameOriginMessage
   | ChatRunningMessage
   | UserInfoMessage
+  | PerAppChatSidebarStateRequestMessage
   | CodeCompleteMessage
   | SidebarModeMessage
   | PresentationModeMessage

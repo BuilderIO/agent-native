@@ -206,6 +206,31 @@ describe("desktop updates", () => {
     expect(updaterState.quitAndInstall).toHaveBeenCalledWith(false, true);
   });
 
+  it("keeps a downloaded update retryable after an asynchronous install error", async () => {
+    registerUpdatesIpc({
+      refreshApplicationMenu: vi.fn(),
+      focusMainWindow: vi.fn(),
+    });
+    updaterState.handlers.get("update-downloaded")?.({
+      version: "1.1.0",
+    });
+
+    const installHandler = electronState.ipcMain.handlers.get(
+      IPC.UPDATE_INSTALL,
+    );
+    await installHandler?.();
+    expect(updaterState.quitAndInstall).toHaveBeenCalledTimes(1);
+
+    updaterState.handlers.get("error")?.(new Error("installer failed"));
+
+    expect(getCurrentUpdateStatus()).toEqual({
+      state: "downloaded",
+      version: "1.1.0",
+    });
+    await installHandler?.();
+    expect(updaterState.quitAndInstall).toHaveBeenCalledTimes(2);
+  });
+
   it("keeps development updates explicitly unsupported", async () => {
     vi.stubGlobal("__AGENT_NATIVE_DESKTOP_BUILD_CHANNEL__", "dev");
     vi.resetModules();
