@@ -227,7 +227,7 @@ export default function ClipsTemplate() {
       {/* Try with AI */}
       <section
         id="try-with-ai"
-        className="scroll-mt-24 border-t border-[#1a1a1a] bg-[#0a0a0a]"
+        className="scroll-mt-24 border-t border-[#1a1a1a]"
       >
         <div
           aria-hidden="true"
