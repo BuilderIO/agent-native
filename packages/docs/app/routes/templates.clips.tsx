@@ -101,7 +101,7 @@ const ClipPreviewSlider = forwardRef<ClipPreviewSliderHandle>(
     useImperativeHandle(ref, () => ({ scroll }), []);
 
     return (
-      <div className="mx-auto max-w-5xl text-left">
+      <div className="w-full text-left">
         <div
           ref={sliderRef}
           className="flex snap-x snap-mandatory overflow-x-auto border border-[#1a1a1a] bg-[#0a0a0a] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
@@ -750,7 +750,7 @@ export default function ClipsTemplate() {
           </div>
         </div>
 
-        <div className="border-x border-[#1a1a1a] px-6 pb-16 sm:px-8">
+        <div className="border-x border-[#1a1a1a] pb-16">
           <ClipPreviewSlider ref={sliderHandleRef} />
         </div>
 
