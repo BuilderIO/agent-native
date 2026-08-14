@@ -6,7 +6,6 @@ import { Link } from "react-router";
 import { BuilderWaitlistContent } from "./BuilderWaitlistPopover";
 import { sitePathForLocale } from "./docs-locale";
 import { applyFirstTouchAttributionToLink } from "./marketing-attribution";
-import { TemplateDocsLink } from "./template-docs";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 
 export { trackEvent };
@@ -245,6 +244,7 @@ function TemplateLaunchButton({ template }: { template: Template }) {
     "menu" | "editOnline" | "runLocally"
   >("menu");
   const t = useT();
+  const { locale } = useLocale();
   const hasDemoUrl = "demoUrl" in template && template.demoUrl;
 
   function handleCustomizeOpenChange(open: boolean) {
@@ -277,13 +277,19 @@ function TemplateLaunchButton({ template }: { template: Template }) {
 
   return (
     <div className="mt-auto flex flex-col gap-2 pt-3">
-      <TemplateDocsLink
-        template={template}
-        location="card"
+      <Link
+        data-an-prefetch="viewport"
+        to={sitePathForLocale(`/apps/${template.slug}`, locale)}
         className="primary-button w-full"
+        onClick={() =>
+          trackEvent("click template", {
+            template: template.slug,
+            location: "card",
+          })
+        }
       >
         Learn more
-      </TemplateDocsLink>
+      </Link>
       <div className="flex gap-2">
         {hasDemoUrl ? (
           <a
