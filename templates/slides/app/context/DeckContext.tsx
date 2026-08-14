@@ -534,13 +534,14 @@ function drainPendingDeckOps(deckId: string): Promise<void> {
  * follow-up drain chained by immediateFlushRequests for ops queued while a
  * save was already running, and any requeued retry after a failed attempt.
  * Used when a caller must not proceed (e.g. firing an agent request against
- * a slide) until an "immediate" persistence op has actually reached the
- * server. Throws if the save ultimately fails after retries exhaust, since
- * `drainPendingDeckOps` swallows save errors internally to drive its own
- * retry loop and its promise always resolves regardless of outcome.
+ * a slide or restoring a saved version) until every write issued before that
+ * boundary has reached the server. Throws if the save ultimately fails after
+ * retries exhaust, since `drainPendingDeckOps` swallows save errors internally
+ * to drive its own retry loop and its promise always resolves regardless of
+ * outcome.
  */
 async function flushDeckSave(deckId: string): Promise<void> {
-  for (let i = 0; i < 40; i++) {
+  while (true) {
     const active = inFlightSaveChains.get(deckId);
     if (active) {
       await active;

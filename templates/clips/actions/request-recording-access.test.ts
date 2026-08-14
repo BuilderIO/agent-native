@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   renderEmail: vi.fn(() => ({ html: "<p>request</p>", text: "request" })),
   emailStrong: vi.fn((value: string) => value),
   getAppProductionUrl: vi.fn(() => "https://clips.example.com"),
+  verifyScopedAgentAccessToken: vi.fn(),
   withConfiguredAppBasePath: vi.fn((value: string) => value),
 }));
 
@@ -32,6 +33,8 @@ vi.mock("@agent-native/core/server", () => ({
   isEmailConfigured: (...args: unknown[]) => mocks.isEmailConfigured(...args),
   renderEmail: (...args: unknown[]) => mocks.renderEmail(...args),
   sendEmail: (...args: unknown[]) => mocks.sendEmail(...args),
+  verifyScopedAgentAccessToken: (...args: unknown[]) =>
+    mocks.verifyScopedAgentAccessToken(...args),
   withConfiguredAppBasePath: (...args: unknown[]) =>
     mocks.withConfiguredAppBasePath(...args),
 }));
@@ -90,7 +93,11 @@ function createDb(recordingRows: unknown[], requestRows: unknown[] = []) {
         from: vi.fn(() => builder),
         where: vi.fn(() => builder),
         orderBy: vi.fn(() => builder),
-        limit: vi.fn(async () => rows),
+        limit: vi.fn(async (count?: number) =>
+          typeof count === "number" ? rows.slice(0, count) : rows,
+        ),
+        then: (resolve: (value: unknown[]) => unknown) =>
+          Promise.resolve(rows).then(resolve),
       };
       return builder;
     }),
@@ -119,6 +126,7 @@ describe("request-recording-access", () => {
     mocks.isEmailConfigured.mockResolvedValue(true);
     mocks.notify.mockResolvedValue(undefined);
     mocks.sendEmail.mockResolvedValue(undefined);
+    mocks.verifyScopedAgentAccessToken.mockReturnValue({ ok: true });
     mocks.nanoid.mockReturnValue("event-1");
   });
 
@@ -131,12 +139,59 @@ describe("request-recording-access", () => {
     expect(mocks.getDb).not.toHaveBeenCalled();
   });
 
-  it("records, stores an inbox notification, and emails the owner", async () => {
+  it("hides an inaccessible private recording without a request capability", async () => {
     const db = createDb([privateRecording()]);
     mocks.getDb.mockReturnValue(db);
 
     await expect(
       (requestRecordingAccess as any).run({ recordingId: "rec-1" }),
+    ).rejects.toMatchObject({
+      statusCode: 404,
+      message: "Recording rec-1 not found",
+    });
+
+    expect(db.select).not.toHaveBeenCalled();
+    expect(mocks.verifyScopedAgentAccessToken).not.toHaveBeenCalled();
+    expect(mocks.notify).not.toHaveBeenCalled();
+    expect(mocks.sendEmail).not.toHaveBeenCalled();
+  });
+
+  it("hides an inaccessible private recording with an invalid request capability", async () => {
+    const db = createDb([privateRecording()]);
+    mocks.getDb.mockReturnValue(db);
+    mocks.verifyScopedAgentAccessToken.mockReturnValue({ ok: false });
+
+    await expect(
+      (requestRecordingAccess as any).run({
+        recordingId: "rec-1",
+        accessRequestToken: "invalid-token",
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 404,
+      message: "Recording rec-1 not found",
+    });
+
+    expect(db.select).not.toHaveBeenCalled();
+    expect(mocks.verifyScopedAgentAccessToken).toHaveBeenCalledWith(
+      "invalid-token",
+      {
+        resourceKind: "clips-access-request",
+        resourceId: "rec-1",
+      },
+    );
+    expect(mocks.notify).not.toHaveBeenCalled();
+    expect(mocks.sendEmail).not.toHaveBeenCalled();
+  });
+
+  it("records, stores an inbox notification, and emails the owner", async () => {
+    const db = createDb([privateRecording()]);
+    mocks.getDb.mockReturnValue(db);
+
+    await expect(
+      (requestRecordingAccess as any).run({
+        recordingId: "rec-1",
+        accessRequestToken: "request-token",
+      }),
     ).resolves.toMatchObject({
       ok: true,
       alreadyHasAccess: false,
@@ -165,6 +220,13 @@ describe("request-recording-access", () => {
         templateId: "clips.access-request",
       }),
     );
+    expect(mocks.verifyScopedAgentAccessToken).toHaveBeenCalledWith(
+      "request-token",
+      {
+        resourceKind: "clips-access-request",
+        resourceId: "rec-1",
+      },
+    );
   });
 
   it("does not send duplicate requests from the same viewer", async () => {
@@ -175,13 +237,45 @@ describe("request-recording-access", () => {
     mocks.getDb.mockReturnValue(db);
 
     await expect(
-      (requestRecordingAccess as any).run({ recordingId: "rec-1" }),
+      (requestRecordingAccess as any).run({
+        recordingId: "rec-1",
+        accessRequestToken: "request-token",
+      }),
     ).resolves.toMatchObject({
       ok: true,
       alreadyHasAccess: false,
       alreadyRequested: true,
       notifiedOwner: false,
     });
+    expect(db.insert).not.toHaveBeenCalled();
+    expect(mocks.notify).not.toHaveBeenCalled();
+    expect(mocks.sendEmail).not.toHaveBeenCalled();
+  });
+
+  it("deduplicates a viewer whose request is older than the newest 100 events", async () => {
+    const requestRows = [
+      ...Array.from({ length: 100 }, (_, index) => ({
+        payload: JSON.stringify({
+          requesterEmail: `viewer-${index}@example.com`,
+        }),
+      })),
+      { payload: JSON.stringify({ requesterEmail: "VIEWER@example.com" }) },
+    ];
+    const db = createDb([privateRecording()], requestRows);
+    mocks.getDb.mockReturnValue(db);
+
+    await expect(
+      (requestRecordingAccess as any).run({
+        recordingId: "rec-1",
+        accessRequestToken: "request-token",
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      alreadyHasAccess: false,
+      alreadyRequested: true,
+      notifiedOwner: false,
+    });
+
     expect(db.insert).not.toHaveBeenCalled();
     expect(mocks.notify).not.toHaveBeenCalled();
     expect(mocks.sendEmail).not.toHaveBeenCalled();

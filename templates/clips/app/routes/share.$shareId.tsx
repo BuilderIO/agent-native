@@ -93,6 +93,10 @@ import {
   isLoomRecordingSource,
 } from "../../shared/loom";
 import {
+  CLIPS_ACCESS_REQUEST_TOKEN_PREFIX,
+  CLIPS_ACCESS_REQUEST_TOKEN_TTL_SECONDS,
+} from "../../shared/recording-link";
+import {
   buildSignupAttributionQuery,
   readShareAttribution,
 } from "../../shared/share-attribution";
@@ -122,6 +126,7 @@ type SharePageLoaderData = {
   origin: string | null;
   shareUrl: string | null;
   accessDeniedStatus?: 401 | 403;
+  accessRequestToken?: string;
 };
 
 const CLIPS_AGENT_ACCESS_TTL_SECONDS = 2 * 60 * 60;
@@ -236,7 +241,16 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
     const access = userEmail ? await resolveAccess("recording", id) : null;
     if (!access) {
       const status = userEmail ? 403 : 401;
-      return privateShareLoaderData(emptyLoaderData(url, status), status);
+      const deniedData = emptyLoaderData(url, status);
+      if (userEmail) {
+        deniedData.accessRequestToken = signScopedAgentAccessToken({
+          resourceKind: CLIPS_ACCESS_REQUEST_TOKEN_PREFIX,
+          resourceId: id,
+          viewerEmail: userEmail,
+          ttlSeconds: CLIPS_ACCESS_REQUEST_TOKEN_TTL_SECONDS,
+        });
+      }
+      return privateShareLoaderData(deniedData, status);
     }
   }
 
@@ -439,7 +453,7 @@ export default function ShareRoute() {
       notifiedOwner: boolean;
       ok: true;
     },
-    { recordingId: string }
+    { accessRequestToken?: string; recordingId: string }
   >("request-recording-access");
   const [signInIntent, setSignInIntent] = useState<"comment" | "react" | null>(
     null,
@@ -809,7 +823,10 @@ export default function ShareRoute() {
                 onClick={() => {
                   if (!shareId || requestSent) return;
                   requestAccess.mutate(
-                    { recordingId: shareId },
+                    {
+                      accessRequestToken: loaderData.accessRequestToken,
+                      recordingId: shareId,
+                    },
                     {
                       onSuccess: () => {
                         setAccessRequestSent(true);

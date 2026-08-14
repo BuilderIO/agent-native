@@ -12,6 +12,10 @@
  */
 import { withShareAttribution } from "./share-attribution";
 
+/** Short-lived capability used by a signed-in private share viewer to request access. */
+export const CLIPS_ACCESS_REQUEST_TOKEN_PREFIX = "clips-access-request";
+export const CLIPS_ACCESS_REQUEST_TOKEN_TTL_SECONDS = 10 * 60;
+
 /** Public share path for a recording, relative to the app base path. */
 export function recordingSharePath(recordingId: string): string {
   return `/share/${encodeURIComponent(recordingId)}`;

@@ -6,6 +6,7 @@ import {
   isEmailConfigured,
   renderEmail,
   sendEmail,
+  verifyScopedAgentAccessToken,
   withConfiguredAppBasePath,
 } from "@agent-native/core/server";
 import {
@@ -14,12 +15,15 @@ import {
   getRequestUserName,
 } from "@agent-native/core/server/request-context";
 import { resolveAccess } from "@agent-native/core/sharing";
-import { and, desc, eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { nanoid, normalizeOwnerEmail } from "../server/lib/recordings.js";
-import { recordingSharePath } from "../shared/recording-link.js";
+import {
+  CLIPS_ACCESS_REQUEST_TOKEN_PREFIX,
+  recordingSharePath,
+} from "../shared/recording-link.js";
 
 export const CLIPS_ACCESS_REQUEST_EMAIL_ID = "clips.access-request";
 
@@ -101,15 +105,52 @@ export default defineAction({
       .string()
       .min(1)
       .describe("Recording ID to request access to."),
+    accessRequestToken: z
+      .string()
+      .trim()
+      .min(1)
+      .optional()
+      .describe("Short-lived capability from the private share page."),
   }),
   agentTool: false,
-  run: async ({ recordingId }) => {
+  run: async ({ recordingId, accessRequestToken }) => {
     const requesterEmail = getRequestUserEmail();
     if (!requesterEmail) {
       throw httpError("Sign in to request access to this clip.", 401);
     }
 
     const normalizedRequesterEmail = normalizeOwnerEmail(requesterEmail);
+    const access = await resolveAccess("recording", recordingId, {
+      userEmail: normalizedRequesterEmail,
+      orgId: getRequestOrgId() ?? undefined,
+    });
+
+    if (access) {
+      const recording = access.resource as {
+        trashedAt?: string | null;
+      };
+      if (recording.trashedAt) {
+        throw httpError(`Recording ${recordingId} not found`, 404);
+      }
+      return {
+        ok: true as const,
+        alreadyHasAccess: true,
+        alreadyRequested: false,
+        notifiedOwner: false,
+        message: "You already have access to this clip.",
+      };
+    }
+
+    if (
+      !accessRequestToken ||
+      !verifyScopedAgentAccessToken(accessRequestToken, {
+        resourceKind: CLIPS_ACCESS_REQUEST_TOKEN_PREFIX,
+        resourceId: recordingId,
+      }).ok
+    ) {
+      throw httpError(`Recording ${recordingId} not found`, 404);
+    }
+
     const db = getDb();
     const [recording] = await db
       .select({
@@ -123,22 +164,12 @@ export default defineAction({
       .where(eq(schema.recordings.id, recordingId))
       .limit(1);
 
-    if (!recording || recording.trashedAt) {
+    if (
+      !recording ||
+      recording.trashedAt ||
+      recording.visibility === "public"
+    ) {
       throw httpError(`Recording ${recordingId} not found`, 404);
-    }
-
-    const access = await resolveAccess("recording", recordingId, {
-      userEmail: normalizedRequesterEmail,
-      orgId: getRequestOrgId() ?? undefined,
-    });
-    if (access || recording.visibility === "public") {
-      return {
-        ok: true as const,
-        alreadyHasAccess: true,
-        alreadyRequested: false,
-        notifiedOwner: false,
-        message: "You already have access to this clip.",
-      };
     }
 
     const previousRequests = await db
@@ -149,9 +180,7 @@ export default defineAction({
           eq(schema.recordingEvents.recordingId, recordingId),
           eq(schema.recordingEvents.kind, "access-request"),
         ),
-      )
-      .orderBy(desc(schema.recordingEvents.createdAt))
-      .limit(100);
+      );
     const alreadyRequested = previousRequests.some((event) => {
       try {
         const payload = JSON.parse(event.payload) as {

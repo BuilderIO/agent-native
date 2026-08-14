@@ -102,8 +102,8 @@ describe("desktop passive-access regressions", () => {
     expect(runDetail).not.toContain("code-agents-session-details");
     expect(runDetail).not.toContain("TokenUsageMeter");
     expect(runDetail).not.toContain("Open Task workspace");
-    expect(agent).toContain('code-agents-rail-label">Chats');
-    expect(agent).not.toContain('code-agents-rail-label">Tasks');
+    expect(agent).toContain("<ChatFirstChatHistory");
+    expect(agent).toContain("chatFirstNavigation?.onOpenChats");
   });
 
   it("retries a missing-provider chat after Builder connects", () => {
@@ -111,7 +111,7 @@ describe("desktop passive-access regressions", () => {
     const connectFlow = between(
       agent,
       "const connectBuilderProvider = useCallback(async () =>",
-      "useEffect(() => {\n    if (!isActive || !host.getRemoteConnectorStatus)",
+      "  const connectLocalRuntime = useCallback(",
     );
 
     expect(connectFlow).toContain('modelSelection.model === "auto"');

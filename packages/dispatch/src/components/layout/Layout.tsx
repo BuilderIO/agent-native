@@ -1942,12 +1942,19 @@ export function Layout({
   }, [isWorkspaceAppRoute, localPathname]);
 
   useEffect(() => {
-    if (!workspaceAppRouteActive) return;
+    if (!workspaceAppRouteActive && !chatFirstAppTakesMain) return;
 
     const handleWorkspaceAppMessage = (event: MessageEvent) => {
       if (event.data?.type !== "agentNative.toggleSidebar") return;
-      const frame = document.querySelector(
-        "[data-dispatch-workspace-app-frame]",
+      const frame = [
+        ...document.querySelectorAll<HTMLIFrameElement>(
+          "[data-dispatch-workspace-app-frame]",
+        ),
+      ].find(
+        (candidate) =>
+          candidate
+            .closest("[data-chat-first-surface-content]")
+            ?.getAttribute("aria-hidden") !== "true",
       );
       if (!(frame instanceof HTMLIFrameElement)) return;
       if (event.source !== frame.contentWindow) return;
@@ -1965,7 +1972,7 @@ export function Layout({
     window.addEventListener("message", handleWorkspaceAppMessage);
     return () =>
       window.removeEventListener("message", handleWorkspaceAppMessage);
-  }, [workspaceAppRouteActive]);
+  }, [chatFirstAppTakesMain, workspaceAppRouteActive]);
 
   useEffect(() => {
     if (typeof window === "undefined" || isWorkspaceAppHostRoute) return;
@@ -2103,6 +2110,7 @@ export function Layout({
               url: registration.url,
             }}
             embedPath={embedPath}
+            chatSidebar
             copy={chatFirstCopy}
           />
         );

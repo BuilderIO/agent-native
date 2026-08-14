@@ -1,8 +1,10 @@
-import { AgentSidebar } from "@agent-native/core/client/agent-chat";
+import {
+  AgentChatMemoryRouter as MemoryRouter,
+  AgentSidebar,
+} from "@agent-native/core/client/agent-chat";
 import { createAgentNativeQueryClient } from "@agent-native/core/client/hooks";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { useEffect, useState, type ReactNode } from "react";
-import { MemoryRouter } from "react-router";
 
 import {
   installDesktopChatFetchRelay,

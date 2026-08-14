@@ -77,6 +77,7 @@ function wrapper({ children }: { children: ReactNode }) {
 function setupFetch(options?: {
   hangPut?: boolean;
   deferredPut?: boolean;
+  deferredPatch?: boolean;
   failDeckList?: boolean;
   deleteDeckNotFound?: boolean;
   patchFailures?: { deckId: string; count: number };
@@ -85,9 +86,11 @@ function setupFetch(options?: {
   let resolveDeferredPut: (() => void) | null = null;
   let rejectDeferredPut: ((error: unknown) => void) | null = null;
   let firstPutSignal: AbortSignal | undefined;
+  let resolveDeferredPatch: (() => void) | null = null;
+  let firstPatchSignal: AbortSignal | undefined;
   let accessibleDeck: Deck | null = null;
   const patchAttempts = new Map<string, number>();
-  let putAttempts = 0;
+  const putAttempts = new Map<string, number>();
   const fetchMock = vi.fn((url: string | URL | Request, init?: RequestInit) => {
     const href =
       typeof url === "string"
@@ -101,8 +104,14 @@ function setupFetch(options?: {
     // is exactly what `callAction`'s timeout does. This lets a test prove the
     // timeout drains `inFlightSaves` instead of wedging it.
     if (href.includes("/_agent-native/actions/save-deck")) {
-      putAttempts += 1;
-      if (options?.deferredPut && putAttempts === 1) {
+      const deckId = String(actionCallBody(init).deckId ?? "");
+      const attempts = (putAttempts.get(deckId) ?? 0) + 1;
+      putAttempts.set(deckId, attempts);
+      if (
+        options?.deferredPut &&
+        accessibleDeck?.id === deckId &&
+        attempts === 1
+      ) {
         firstPutSignal = init?.signal ?? undefined;
         return new Promise<Response>((resolve, reject) => {
           resolveDeferredPut = () =>
@@ -112,7 +121,7 @@ function setupFetch(options?: {
           rejectDeferredPut = reject;
         });
       }
-      if (options?.hangPut && putAttempts === 1) {
+      if (options?.hangPut && accessibleDeck?.id === deckId && attempts === 1) {
         return new Promise<Response>((_resolve, reject) => {
           const signal = init?.signal;
           if (signal) {
@@ -176,6 +185,19 @@ function setupFetch(options?: {
       const attempts = (patchAttempts.get(deckId) ?? 0) + 1;
       patchAttempts.set(deckId, attempts);
       if (
+        options?.deferredPatch &&
+        accessibleDeck?.id === deckId &&
+        attempts === 1
+      ) {
+        firstPatchSignal = init?.signal ?? undefined;
+        return new Promise<Response>((resolve) => {
+          resolveDeferredPatch = () =>
+            resolve(
+              new Response(JSON.stringify({ ok: true }), { status: 200 }),
+            );
+        });
+      }
+      if (
         deckId === options?.patchFailures?.deckId &&
         attempts <= options.patchFailures.count
       ) {
@@ -197,6 +219,8 @@ function setupFetch(options?: {
     rejectDeferredPut: (error: unknown = new Error("late save failure")) =>
       rejectDeferredPut?.(error),
     getFirstPutSignal: () => firstPutSignal,
+    resolveDeferredPatch: () => resolveDeferredPatch?.(),
+    getFirstPatchSignal: () => firstPatchSignal,
     setAccessibleDeck: (deck: Deck) => {
       accessibleDeck = deck;
     },
@@ -1313,6 +1337,93 @@ describe("DeckContext deck creation persistence", () => {
     vi.useRealTimers();
   });
 
+  it("waits for an in-flight granular save before restoring an authoritative version", async () => {
+    window.history.pushState({}, "", "/deck/restore-patch-race-deck");
+    const initial: Deck = {
+      id: "restore-patch-race-deck",
+      title: "Restore Patch Race Deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "<h1>Before</h1>",
+          notes: "",
+          layout: "title",
+        },
+      ],
+    };
+    const restored: Deck = {
+      ...initial,
+      updatedAt: "2026-05-12T00:01:00.000Z",
+      slides: [
+        {
+          ...initial.slides[0]!,
+          content: "<h1>Restored version</h1>",
+        },
+      ],
+    };
+    const { setAccessibleDeck, resolveDeferredPatch, getFirstPatchSignal } =
+      setupFetch({ deferredPatch: true });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+    await waitFor(() =>
+      expect(result.current.getDeck(initial.id)?.slides[0]?.content).toBe(
+        "<h1>Before</h1>",
+      ),
+    );
+
+    vi.useFakeTimers();
+    act(() => {
+      result.current.updateSlide(
+        initial.id,
+        "slide-1",
+        { content: "<h1>Stale local edit</h1>" },
+        { persistence: "immediate" },
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(getFirstPatchSignal()).toBeDefined();
+
+    let barrierSettled = false;
+    const restoreBarrier = result.current.flushDeckSave(initial.id).then(() => {
+      barrierSettled = true;
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(barrierSettled).toBe(false);
+
+    // History waits for this barrier before issuing restore-deck-version. The
+    // server snapshot is changed only after the stale request has settled.
+    resolveDeferredPatch();
+    await act(async () => {
+      await restoreBarrier;
+    });
+    expect(barrierSettled).toBe(true);
+    expect(getFirstPatchSignal()?.aborted).toBe(false);
+
+    setAccessibleDeck(restored);
+    await act(async () => {
+      await result.current.refreshOpenDeck(initial.id, {
+        clearPendingWrites: true,
+      });
+    });
+    expect(result.current.getDeck(initial.id)?.slides[0]?.content).toBe(
+      "<h1>Restored version</h1>",
+    );
+
+    vi.useRealTimers();
+  });
+
   it("aborts and ignores an in-flight save when restoring an authoritative version", async () => {
     window.history.pushState({}, "", "/deck/restore-race-deck");
     const initial: Deck = {
@@ -1389,8 +1500,10 @@ describe("DeckContext deck creation persistence", () => {
       rejectDeferredPut();
       await vi.advanceTimersByTimeAsync(1_000);
     });
-    const saveCalls = fetchMock.mock.calls.filter(([url]) =>
-      String(url).includes("/_agent-native/actions/save-deck"),
+    const saveCalls = fetchMock.mock.calls.filter(
+      ([url, init]) =>
+        String(url).includes("/_agent-native/actions/save-deck") &&
+        actionCallBody(init).deckId === initial.id,
     );
     expect(saveCalls).toHaveLength(1);
     expect(hasUncommittedDeckChanges(initial.id, new Set())).toBe(false);

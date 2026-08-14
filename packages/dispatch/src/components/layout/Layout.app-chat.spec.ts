@@ -14,6 +14,7 @@ describe("Dispatch workspace app chat rail", () => {
       "storageKey={`dispatch-app-chat:${workspaceAppId}`}",
     );
     expect(source).toContain("data-dispatch-workspace-app-frame");
+    expect(source).toContain("chatSidebar");
     expect(source).toContain(
       'window.dispatchEvent(new Event("agent-panel:toggle"))',
     );
