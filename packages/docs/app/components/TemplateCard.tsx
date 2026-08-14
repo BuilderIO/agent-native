@@ -277,45 +277,35 @@ function TemplateLaunchButton({ template }: { template: Template }) {
 
   return (
     <div className="mt-auto flex flex-col gap-2 pt-3">
-      {hasDemoUrl && (
-        <a
-          href={template.demoUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          onClick={(event) => {
-            applyFirstTouchAttributionToLink(event.currentTarget);
-            trackEvent("click try demo", {
-              template: template.slug,
-              location: "card",
-            });
-          }}
-          className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-black px-4 py-2 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
-        >
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-            <polyline points="15 3 21 3 21 9" />
-            <line x1="10" y1="14" x2="21" y2="3" />
-          </svg>
-          {t("common.tryIt")}
-        </a>
-      )}
+      <TemplateDocsLink
+        template={template}
+        location="card"
+        className="primary-button w-full"
+      >
+        Learn more
+      </TemplateDocsLink>
       <div className="flex gap-2">
+        {hasDemoUrl ? (
+          <a
+            href={`${template.demoUrl}/_agent-native/sign-in`}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(event) => {
+              applyFirstTouchAttributionToLink(event.currentTarget);
+              trackEvent("click sign in", {
+                template: template.slug,
+                location: "card",
+              });
+            }}
+            className="secondary-button flex-1"
+          >
+            {t("common.signIn")}
+          </a>
+        ) : null}
         <Popover open={showCustomize} onOpenChange={handleCustomizeOpenChange}>
           <PopoverTrigger asChild>
-            <button
-              type="button"
-              className="inline-flex flex-1 items-center justify-center rounded-lg border border-[var(--docs-border)] px-4 py-2 text-sm font-medium text-[var(--fg)] transition hover:border-[var(--fg-secondary)]"
-            >
-              {t("common.customizeIt")}
+            <button type="button" className="secondary-button flex-1">
+              Customize it
             </button>
           </PopoverTrigger>
           <PopoverContent
@@ -359,11 +349,6 @@ function TemplateLaunchButton({ template }: { template: Template }) {
             )}
           </PopoverContent>
         </Popover>
-        <TemplateDocsLink
-          template={template}
-          location="card"
-          className="inline-flex flex-1 items-center justify-center rounded-lg border border-[var(--docs-border)] px-4 py-2 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
-        />
       </div>
     </div>
   );
