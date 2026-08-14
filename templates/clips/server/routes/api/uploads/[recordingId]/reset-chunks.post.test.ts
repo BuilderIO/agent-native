@@ -2,7 +2,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockWriteAppState = vi.hoisted(() => vi.fn());
 const mockReadAppState = vi.hoisted(() => vi.fn());
+const mockDeleteAppState = vi.hoisted(() => vi.fn());
 const mockCompareAndSetAppState = vi.hoisted(() => vi.fn());
+const mockPendingCleanup = vi.hoisted(() => ({
+  current: null as Record<string, unknown> | null,
+}));
 const mockDeleteRecordingChunks = vi.hoisted(() => vi.fn());
 const mockGetActiveFileUploadProviderForRequest = vi.hoisted(() => vi.fn());
 const mockGetRouterParam = vi.hoisted(() => vi.fn());
@@ -54,6 +58,7 @@ const mockDb = vi.hoisted(() => ({
 vi.mock("@agent-native/core/application-state", () => ({
   compareAndSetAppState: (...args: unknown[]) =>
     mockCompareAndSetAppState(...args),
+  deleteAppState: (...args: unknown[]) => mockDeleteAppState(...args),
   readAppState: (...args: unknown[]) => mockReadAppState(...args),
   writeAppState: (...args: unknown[]) => mockWriteAppState(...args),
 }));
@@ -156,10 +161,27 @@ describe("/api/uploads/:recordingId/reset-chunks route", () => {
     mockDeleteResumableSession.mockResolvedValue(undefined);
     mockGetResumableSession.mockResolvedValue(null);
     mockSetResumableSession.mockResolvedValue(undefined);
-    mockWriteAppState.mockResolvedValue(undefined);
-    mockReadAppState.mockResolvedValue({
-      recordingId: "rec-1",
-      status: "uploading",
+    mockPendingCleanup.current = null;
+    mockReadAppState.mockImplementation(async (key: string) =>
+      key === "recording-resumable-cleanup-rec-1"
+        ? mockPendingCleanup.current
+        : {
+            recordingId: "rec-1",
+            status: "uploading",
+          },
+    );
+    mockWriteAppState.mockImplementation(
+      async (key: string, value: Record<string, unknown>) => {
+        if (key === "recording-resumable-cleanup-rec-1") {
+          mockPendingCleanup.current = value;
+        }
+      },
+    );
+    mockDeleteAppState.mockImplementation(async (key: string) => {
+      if (key === "recording-resumable-cleanup-rec-1") {
+        mockPendingCleanup.current = null;
+      }
+      return true;
     });
     mockCompareAndSetAppState.mockResolvedValue(true);
     mockRenewUploadLease.mockResolvedValue({ held: true });
@@ -276,6 +298,52 @@ describe("/api/uploads/:recordingId/reset-chunks route", () => {
       meta: { objectKey: "clips/rec-1.webm" },
     });
     expect(mockDeleteResumableSession).toHaveBeenCalledWith(
+      "rec-1",
+      "generation-old",
+    );
+  });
+
+  it("retains a cleanup claim when provider abort fails so a retry can finish it", async () => {
+    mockExistingRecording.current.uploadGenerationId = "generation-old";
+    mockReadBody.mockResolvedValue({
+      uploadGenerationId: "generation-old",
+      useGenerationFence: true,
+    });
+    mockGetResumableSession.mockResolvedValue({
+      providerId: "test-provider",
+      sessionId: "old-session",
+      meta: { objectKey: "clips/rec-1.webm" },
+      bytesUploaded: 12,
+    });
+    mockAbortSession
+      .mockRejectedValueOnce(new Error("provider cleanup failed"))
+      .mockResolvedValue(true);
+
+    await expect(handler({} as any)).resolves.toEqual({
+      error:
+        "The previous recording upload could not be cleaned up. Retry the upload restart.",
+    });
+    expect(mockPendingCleanup.current).toEqual(
+      expect.objectContaining({
+        recordingId: "rec-1",
+        generationId: "generation-old",
+      }),
+    );
+    expect(mockDeleteAppState).not.toHaveBeenCalled();
+
+    mockExistingRecording.current.uploadGenerationId = "generation-new";
+    mockReadBody.mockResolvedValue({
+      uploadGenerationId: "generation-new",
+      useGenerationFence: true,
+    });
+    await expect(handler({} as any)).resolves.toEqual(
+      expect.objectContaining({ ok: true }),
+    );
+    expect(mockAbortSession).toHaveBeenCalledTimes(2);
+    expect(mockDeleteAppState).toHaveBeenCalledWith(
+      "recording-resumable-cleanup-rec-1",
+    );
+    expect(mockDeleteResumableSession).toHaveBeenLastCalledWith(
       "rec-1",
       "generation-old",
     );

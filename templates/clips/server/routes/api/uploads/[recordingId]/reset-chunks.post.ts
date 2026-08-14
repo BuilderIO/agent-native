@@ -28,6 +28,7 @@ import { randomUUID } from "node:crypto";
 
 import {
   compareAndSetAppState,
+  deleteAppState,
   readAppState,
   writeAppState,
 } from "@agent-native/core/application-state";
@@ -57,6 +58,7 @@ import {
   deleteResumableSession,
   getResumableSession,
   setResumableSession,
+  type StoredResumableSession,
 } from "../../../../lib/resumable-session.js";
 import { abortResumableUploadSession } from "../../../../lib/resumable-upload-cleanup.js";
 import { shouldEnableStreamingUpload } from "../../../../lib/streaming-upload-mode.js";
@@ -72,6 +74,53 @@ interface CompressionMeta {
   ratio?: number;
   elapsedMs?: number;
   outputMimeType?: string;
+}
+
+interface PendingResumableCleanup {
+  generationId: string | null;
+  session: StoredResumableSession;
+}
+
+function parsePendingResumableCleanup(
+  raw: Record<string, unknown> | null,
+  recordingId: string,
+): PendingResumableCleanup | null {
+  if (!raw) return null;
+  const session = raw.session;
+  const generationId = raw.generationId;
+  if (
+    raw.recordingId !== recordingId ||
+    !session ||
+    typeof session !== "object" ||
+    Array.isArray(session) ||
+    !(generationId === null || typeof generationId === "string")
+  ) {
+    throw new Error(
+      `Invalid resumable cleanup state for recording ${recordingId}`,
+    );
+  }
+
+  const candidate = session as Record<string, unknown>;
+  if (
+    typeof candidate.providerId !== "string" ||
+    typeof candidate.sessionId !== "string" ||
+    !candidate.meta ||
+    typeof candidate.meta !== "object" ||
+    Array.isArray(candidate.meta) ||
+    typeof candidate.bytesUploaded !== "number" ||
+    !Number.isFinite(candidate.bytesUploaded) ||
+    (candidate.lastCommittedIndex !== undefined &&
+      typeof candidate.lastCommittedIndex !== "number")
+  ) {
+    throw new Error(
+      `Invalid resumable session in cleanup state for recording ${recordingId}`,
+    );
+  }
+
+  return {
+    generationId,
+    session: candidate as unknown as StoredResumableSession,
+  };
 }
 
 function normalizeVideoMimeType(value: unknown): string | null {
@@ -219,10 +268,26 @@ export default defineEventHandler(async (event: H3Event) => {
     const nextGenerationId = useGenerationFence ? randomUUID() : null;
     const uploadStateKey = `recording-upload-${recordingId}`;
     const uploadStateSnapshot = await readAppState(uploadStateKey);
-    const discardedResumableSession = await getResumableSession(
+    const cleanupStateKey = `recording-resumable-cleanup-${recordingId}`;
+    const pendingCleanup = parsePendingResumableCleanup(
+      await readAppState(cleanupStateKey),
       recordingId,
-      existingGenerationId,
     );
+    const discardedGenerationId = pendingCleanup
+      ? pendingCleanup.generationId
+      : existingGenerationId;
+    const discardedResumableSession =
+      pendingCleanup?.session ??
+      (await getResumableSession(recordingId, existingGenerationId));
+    if (discardedResumableSession) {
+      // Persist the old handle before changing the generation. If provider
+      // cleanup fails after the fence, the next retry can still find it.
+      await writeAppState(cleanupStateKey, {
+        recordingId,
+        generationId: discardedGenerationId,
+        session: discardedResumableSession,
+      });
+    }
     const reset = await db
       .update(schema.recordings)
       .set({
@@ -269,15 +334,16 @@ export default defineEventHandler(async (event: H3Event) => {
             "The previous recording upload could not be cleaned up. Retry the upload restart.",
         };
       }
+      await deleteAppState(cleanupStateKey);
     }
     const cleared = await deleteRecordingChunks(
       ownerEmail,
       recordingId,
-      existingGenerationId,
+      discardedGenerationId,
     );
     // Clear any stale resumable session so a buffered retry does not
     // accidentally route through handleResumableChunk with stale offsets.
-    await deleteResumableSession(recordingId, existingGenerationId).catch(
+    await deleteResumableSession(recordingId, discardedGenerationId).catch(
       () => {},
     );
 

@@ -46,6 +46,10 @@ let updateCheckInFlight: Promise<unknown> | null = null;
 let lastUpdateCheckStartedAt = 0;
 let notifiedUpdateVersion: string | null = null;
 let updateInstallInFlight = false;
+let installingUpdateForRetry: Extract<
+  UpdateStatus,
+  { state: "downloaded" }
+> | null = null;
 let pendingDownloadedUpdate: Extract<
   UpdateStatus,
   { state: "downloaded" }
@@ -86,6 +90,9 @@ export async function installDownloadedUpdate(): Promise<void> {
   ) {
     return;
   }
+  installingUpdateForRetry =
+    pendingDownloadedUpdate ||
+    (currentUpdateStatus.state === "downloaded" ? currentUpdateStatus : null);
   updateInstallInFlight = true;
   try {
     // Native helpers can outlive the Electron window. Close them before
@@ -96,6 +103,17 @@ export async function installDownloadedUpdate(): Promise<void> {
     autoUpdater.quitAndInstall(false, true);
   } catch (err) {
     updateInstallInFlight = false;
+    const retryUpdate = installingUpdateForRetry;
+    installingUpdateForRetry = null;
+    if (retryUpdate) {
+      pendingDownloadedUpdate = retryUpdate;
+      console.warn(
+        "[updates] update installation failed; keeping the downloaded update ready for retry:",
+        err,
+      );
+      broadcastUpdateStatus(retryUpdate);
+      return;
+    }
     broadcastUpdateStatus({
       state: "error",
       message: err instanceof Error ? err.message : String(err),
@@ -293,6 +311,20 @@ export function registerUpdatesIpc(ipcDeps: UpdatesIpcDeps): void {
     });
 
     autoUpdater.on("error", (err) => {
+      const retryUpdate = updateInstallInFlight
+        ? installingUpdateForRetry
+        : null;
+      updateInstallInFlight = false;
+      installingUpdateForRetry = null;
+      if (retryUpdate) {
+        pendingDownloadedUpdate = retryUpdate;
+        console.warn(
+          "[updates] update installation failed; keeping the downloaded update ready for retry:",
+          err,
+        );
+        broadcastUpdateStatus(retryUpdate);
+        return;
+      }
       pendingDownloadedUpdate = null;
       broadcastUpdateStatus({
         state: "error",
