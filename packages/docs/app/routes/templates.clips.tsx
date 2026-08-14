@@ -212,7 +212,7 @@ export default function ClipsTemplate() {
             </div>
           </div>
 
-          <div className="relative bg-[var(--bg)]">
+          <div className="relative bg-[var(--bg)] p-3 sm:p-4 lg:p-5">
             <img
               src={template.screenshot}
               alt={t("templateLanding.clips.s001")}
