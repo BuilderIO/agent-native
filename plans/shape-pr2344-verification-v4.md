@@ -366,6 +366,7 @@ Next: publish the review PR without merging
 ## Work evidence — ledger r2
 
 - Repository lane: `/Users/alicemoore/.codex/worktrees/builder-phantom-review-v4/agent-native`, branch `codex/builder-phantom-review-v4`, refreshed Work-start base `8c9218612d7c837acf22f14eb5ffb1b4d3e3ef9d`.
+- Later base drift: `origin/main` advanced to `429ae6c416d99ffa0c1c012cf9bfa5f806647843` through #2866 and the version-packages follow-up. The drift overlaps acceptance-relevant Content files because #2866 contains the carried v3 repair, but `git merge-tree --write-tree HEAD origin/main` completed without conflicts (`4d9c3332e07e10faad8760639fcb398001f58dcc`); no rebase or branch movement was performed.
 - Implementation: `7e3880b7ea645da0f822b9bc2a9e12d326285bc6`, carrying the two exact v3 semantic repair commits as `86cbf7dad` and `d4af2996f`.
 - Attach click: `2026-08-14T18:25:29.970Z`. The preinstalled page observer first saw 100 useful preview rows at `1058.8ms`; the typed acknowledgement completed the fetched-row badge and `100 of 584` pagination at `6070.6ms`. The settings sheet was absent throughout the observer samples and the server recorded the attachment action at `5413ms`.
 - Direct hydration: source `e5659a5c-fb40-4e9a-8c08-c667aff2b8d4` began from the acknowledgement path; the server recorded the hydration action at `8852ms`. Terminal state was `578 hydrated + 6 unavailable + 0 pending + 0 hydrating + 0 error = 584`, inside 60 seconds of Attach.
