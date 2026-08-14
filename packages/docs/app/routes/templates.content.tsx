@@ -1,14 +1,11 @@
 import { useLocale, useT } from "@agent-native/core/client/i18n";
 import {
   IconCheck,
-  IconCopy,
   IconExternalLink,
   IconMessage,
   IconPencil,
-  IconTerminal2,
   IconUpload,
 } from "@tabler/icons-react";
-import { useState } from "react";
 import { Link } from "react-router";
 
 import { sitePathForLocale } from "../components/docs-locale";
@@ -27,7 +24,7 @@ import {
   TemplateStatOrStepsGrid,
   TemplateStatOrStepsGridItem,
 } from "../components/template-landing";
-import { templates, trackEvent } from "../components/TemplateCard";
+import { templates } from "../components/TemplateCard";
 import { withTemplateSocialImage } from "../seo";
 
 export const meta = () =>
@@ -60,58 +57,6 @@ export const meta = () =>
   );
 
 const template = templates.find((t) => t.slug === "content")!;
-
-function CliCopy() {
-  const [copied, setCopied] = useState(false);
-  const t = useT();
-
-  function handleCopy() {
-    navigator.clipboard.writeText(template.cliCommand);
-    setCopied(true);
-    trackEvent("copy cli command", {
-      template: template.slug,
-      location: "landing_page",
-    });
-    setTimeout(() => setCopied(false), 2000);
-  }
-
-  return (
-    <button
-      type="button"
-      onClick={handleCopy}
-      data-template-cli-copy
-      className="group flex w-full min-w-0 max-w-full items-center gap-3 rounded-md border border-[var(--code-border)] bg-[var(--code-bg)] px-4 py-3 font-mono text-sm transition-[border-color] hover:border-[var(--fg-secondary)] sm:w-auto sm:max-w-[min(100%,36rem)] sm:px-5"
-    >
-      <IconTerminal2
-        aria-hidden="true"
-        size={16}
-        className="shrink-0 text-[var(--fg-secondary)]"
-      />
-      <span
-        data-template-cli-copy-text
-        className="min-w-0 truncate text-[var(--fg)]"
-      >
-        {template.cliCommand}
-      </span>
-      {copied ? (
-        <IconCheck
-          aria-hidden="true"
-          size={16}
-          className="ms-auto shrink-0 text-[var(--fg-secondary)]"
-        />
-      ) : (
-        <IconCopy
-          aria-hidden="true"
-          size={16}
-          className="ms-auto shrink-0 text-[var(--fg-secondary)]"
-        />
-      )}
-      <span className="sr-only">
-        {copied ? t("common.copied") : t("common.copyCommand")}
-      </span>
-    </button>
-  );
-}
 
 export default function ContentTemplate() {
   const t = useT();
@@ -211,9 +156,6 @@ export default function ContentTemplate() {
               location="landing_page"
               className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md border border-[var(--docs-border)] px-5 py-3 text-sm font-medium text-[var(--fg)] no-underline transition-[border-color] hover:border-[var(--fg-secondary)] hover:no-underline"
             />
-          </div>
-          <div className="col-span-full min-w-0 lg:basis-full">
-            <CliCopy />
           </div>
         </div>
       </TemplateActivationFrame>

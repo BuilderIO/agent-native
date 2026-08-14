@@ -2,12 +2,8 @@ import { useLocale, useT } from "@agent-native/core/client/i18n";
 import {
   IconArrowLeft,
   IconBrandGithub,
-  IconCheck,
-  IconCopy,
   IconExternalLink,
-  IconTerminal2,
 } from "@tabler/icons-react";
-import { useState } from "react";
 import { Link, useParams, type LoaderFunctionArgs } from "react-router";
 
 import { sitePathForLocale } from "../components/docs-locale";
@@ -21,11 +17,7 @@ import {
   TemplateLandingFaq,
   TemplateLandingShell,
 } from "../components/template-landing";
-import {
-  templates,
-  trackEvent,
-  type Template,
-} from "../components/TemplateCard";
+import { templates, type Template } from "../components/TemplateCard";
 import enUS from "../i18n/en-US";
 import { withDefaultSocialImage, withTemplateSocialImage } from "../seo";
 
@@ -92,58 +84,6 @@ function TemplateFallbackArt({ template }: { template: Template }) {
         {template.name}
       </span>
     </div>
-  );
-}
-
-function CliCopy({ template }: { template: Template }) {
-  const [copied, setCopied] = useState(false);
-  const t = useT();
-
-  function handleCopy() {
-    navigator.clipboard.writeText(template.cliCommand);
-    setCopied(true);
-    trackEvent("copy cli command", {
-      template: template.slug,
-      location: "generic_template_page",
-    });
-    setTimeout(() => setCopied(false), 2000);
-  }
-
-  return (
-    <button
-      type="button"
-      onClick={handleCopy}
-      data-template-cli-copy
-      className="group flex w-full min-w-0 max-w-full items-center gap-3 rounded-md border border-[var(--code-border)] bg-[var(--code-bg)] px-4 py-3 font-mono text-sm transition-[border-color] hover:border-[var(--fg-secondary)] sm:w-auto sm:max-w-[min(100%,36rem)] sm:px-5"
-    >
-      <IconTerminal2
-        aria-hidden="true"
-        size={16}
-        className="shrink-0 text-[var(--fg-secondary)]"
-      />
-      <span
-        data-template-cli-copy-text
-        className="min-w-0 truncate text-[var(--fg)]"
-      >
-        {template.cliCommand}
-      </span>
-      {copied ? (
-        <IconCheck
-          aria-hidden="true"
-          size={16}
-          className="ms-auto shrink-0 text-[var(--fg-secondary)]"
-        />
-      ) : (
-        <IconCopy
-          aria-hidden="true"
-          size={16}
-          className="ms-auto shrink-0 text-[var(--fg-secondary)]"
-        />
-      )}
-      <span className="sr-only">
-        {copied ? t("common.copied") : t("common.copyCommand")}
-      </span>
-    </button>
   );
 }
 
@@ -248,7 +188,6 @@ export default function GenericTemplatePage() {
               <IconBrandGithub aria-hidden="true" size={16} />
             </a>
           </div>
-          <CliCopy template={template} />
         </div>
       </TemplateActivationFrame>
 

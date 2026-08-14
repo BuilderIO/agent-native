@@ -4,11 +4,9 @@ import {
   IconBrandSlack,
   IconCheck,
   IconClock,
-  IconCopy,
   IconHierarchy,
   IconShieldCheck,
 } from "@tabler/icons-react";
-import { useState } from "react";
 import { Link } from "react-router";
 
 import { sitePathForLocale } from "../components/docs-locale";
@@ -27,7 +25,7 @@ import {
   TemplateStatOrStepsGrid,
   TemplateStatOrStepsGridItem,
 } from "../components/template-landing";
-import { templates, trackEvent } from "../components/TemplateCard";
+import { templates } from "../components/TemplateCard";
 import { withTemplateSocialImage } from "../seo";
 
 export const meta = () =>
@@ -62,44 +60,6 @@ export const meta = () =>
   );
 
 const template = templates.find((t) => t.slug === "dispatch")!;
-
-function CliCopy() {
-  const [copied, setCopied] = useState(false);
-
-  function handleCopy() {
-    navigator.clipboard.writeText(template.cliCommand);
-    setCopied(true);
-    trackEvent("copy cli command", {
-      template: template.slug,
-      location: "landing_page",
-    });
-    setTimeout(() => setCopied(false), 2000);
-  }
-
-  return (
-    <button
-      type="button"
-      onClick={handleCopy}
-      data-template-cli-copy
-      className="group flex min-h-11 w-full min-w-0 items-center gap-3 rounded-md border border-[var(--code-border)] bg-[var(--code-bg)] px-4 py-3 font-mono text-sm transition-colors hover:border-[var(--fg-secondary)] sm:max-w-[36rem] sm:px-5"
-    >
-      <span className="shrink-0 text-[var(--fg-secondary)]">$</span>
-      <span
-        data-template-cli-copy-text
-        className="min-w-0 truncate text-[var(--fg)]"
-      >
-        {template.cliCommand}
-      </span>
-      <span className="ms-auto inline-flex size-5 shrink-0 items-center justify-center text-[var(--fg-secondary)]">
-        {copied ? (
-          <IconCheck aria-hidden="true" className="size-4" stroke={2} />
-        ) : (
-          <IconCopy aria-hidden="true" className="size-4" stroke={2} />
-        )}
-      </span>
-    </button>
-  );
-}
 
 const activationLinkClassName =
   "inline-flex min-h-11 items-center justify-center gap-2 rounded-md border border-[var(--docs-border)] px-5 py-3 text-sm font-medium text-[var(--fg)] no-underline transition-colors hover:border-[var(--fg-secondary)] hover:no-underline";
@@ -202,9 +162,6 @@ export default function DispatchTemplate() {
             location="landing_page"
             className={activationLinkClassName}
           />
-          <div className="col-span-full min-w-0 lg:basis-full">
-            <CliCopy />
-          </div>
         </div>
       </TemplateActivationFrame>
 
