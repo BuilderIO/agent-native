@@ -97,9 +97,16 @@ function parseRelayPath(pathname: string, secret: string): RelayPath | null {
   return { appId, targetPath };
 }
 
-function resolveTargetUrl(baseUrl: string, targetPath: string): URL | null {
+export function resolveTargetUrl(
+  baseUrl: string,
+  targetPath: string,
+): URL | null {
   try {
     const target = new URL(targetPath, "http://desktop-chat.invalid");
+    // Check the normalized URL, not the raw path. Otherwise
+    // /_agent-native/../ can pass the prefix check before escaping the
+    // relay's route boundary.
+    if (!target.pathname.startsWith(RELAY_ALLOWED_PREFIX)) return null;
     const base = new URL(baseUrl);
     const basePath = base.pathname.replace(/\/+$/, "");
     base.pathname = `${basePath}${target.pathname}` || "/";

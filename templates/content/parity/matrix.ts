@@ -275,6 +275,7 @@ export const parityMatrix: ParityRow[] = [
       "create-content-database",
       "create-inline-content-database",
       "delete-content-database",
+      "describe-content-database",
       "get-content-database",
       "list-content-databases",
       "list-trashed-content-databases",
@@ -285,7 +286,12 @@ export const parityMatrix: ParityRow[] = [
     spinePriority: "P0",
     testCoverage: "covered",
     followUpPR: null,
-    coverageRefs: ["actions/content-database-lifecycle.db.test.ts"],
+    coverageRefs: [
+      "actions/content-database-lifecycle.db.test.ts",
+      "actions/list-content-databases.db.test.ts",
+      "server/plugins/agent-chat.spec.ts",
+      "../../packages/core/src/server/agent-chat/content-a2a-capabilities.spec.ts",
+    ],
     evalScenarioIds: ["database-source-scope"],
   },
   {
