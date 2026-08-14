@@ -344,7 +344,7 @@ describe("extensions/actions", () => {
     expect(compact.extension.contentOmitted).toMatchObject({
       reason: "large-content-requires-targeted-read",
       contentLength: content.length,
-      inlineContentLimit: 200_000,
+      inlineContentLimit: 60_000,
     });
 
     const targeted = (await actions["get-extension"].run({

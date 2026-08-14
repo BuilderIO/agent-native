@@ -68,11 +68,7 @@ import {
 // the surrounding metadata and indentation while still bounding tool context.
 const GET_EXTENSION_MAX_RESULT_CHARS = 500_000;
 const GET_EXTENSION_HISTORY_MAX_RESULT_CHARS = 2_000_000;
-// Excerpt reads are only cheaper than one whole read while the body stays well
-// above this. A 254,647-char extension read through excerpts cost 761,371 chars
-// over 110 calls to cover 45% of the file; one whole read is 254,647 chars and
-// covers all of it. 200,000 chars is ~50K tokens — a quarter of the window.
-const LARGE_EXTENSION_INLINE_CONTENT_MAX_CHARS = 200_000;
+const LARGE_EXTENSION_INLINE_CONTENT_MAX_CHARS = 60_000;
 const EXTENSION_CONTENT_MATCH_LIMIT = 8;
 const DEFAULT_EXTENSION_CONTENT_CONTEXT_CHARS = 1_500;
 const MAX_EXTENSION_CONTENT_CONTEXT_CHARS = 4_000;

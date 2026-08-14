@@ -1011,7 +1011,10 @@ function limitPriorMessagesForRequest<
   }
 
   kept.reverse();
-  while (kept.length > 0 && kept[0].role !== "user") {
+  // Stop before emptying: this rule exists to start history on a user turn for
+  // providers that require it, not to license sending no history at all. It was
+  // the last step that turned an over-budget turn into a blank conversation.
+  while (kept.length > 1 && kept[0].role !== "user") {
     kept.shift();
   }
   return kept;

@@ -858,11 +858,6 @@ export function createAgentChatPlugin(
       const refreshScreenTool = createRefreshScreenEntry();
       const frameworkContextTool = createFrameworkContextEntry();
       const leanPrompt = options?.leanPrompt === true;
-      if (leanPrompt && !options?.systemPrompt) {
-        console.warn(
-          `[agent-chat] ${options?.appId ?? "app"}: leanPrompt is set without a systemPrompt, so the template supplies no behavioral guidance. Falling back to the compact framework prompt — add a systemPrompt or drop leanPrompt.`,
-        );
-      }
       const lazyContext = options?.lazyContext !== false && !leanPrompt;
       const skipFilesContext =
         leanPrompt || (options?.skipFilesContext ?? lazyContext);
@@ -2374,14 +2369,8 @@ export function createAgentChatPlugin(
             getRequestRunContext()?.allowedActionNames,
           )) + resolveRequestActionsPrompt("tool");
 
-      // `leanPrompt` means "the template's own prompt is enough". A template
-      // that sets it without supplying one gets no behavioral guidance at all,
-      // which is indistinguishable from an app that needs none — hosted
-      // Analytics ran that way and was never told that editing an extension is
-      // an `update-extension` call, so it re-explained the fix instead.
       const resolveRequestLeanPrompt = (): string =>
-        (options?.systemPrompt ?? PROD_FRAMEWORK_PROMPT_COMPACT) +
-        resolveRequestLeanActionsPrompt();
+        (options?.systemPrompt ?? "") + resolveRequestLeanActionsPrompt();
 
       const resolveRequestDevPrompt = (): string => {
         if (devNative) return resolveRequestBasePrompt();
