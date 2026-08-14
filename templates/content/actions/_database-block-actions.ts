@@ -88,7 +88,7 @@ const mutationEnvelopeSchema = z.object({
   idempotencyKey: z.string().min(1).max(200),
 });
 
-export const mutateDatabaseBlockSchema = z.discriminatedUnion("operation", [
+const mutateDatabaseBlockOperationSchema = z.discriminatedUnion("operation", [
   mutationEnvelopeSchema.extend({
     operation: z.literal("insert"),
     block: blockValueSchema,
@@ -116,8 +116,31 @@ export const mutateDatabaseBlockSchema = z.discriminatedUnion("operation", [
   }),
 ]);
 
+type MutationInput = z.infer<typeof mutateDatabaseBlockOperationSchema>;
+
+// Agent tool registration requires a top-level object schema. Keep the
+// discriminated union as the exact validator for operation-specific fields.
+export const mutateDatabaseBlockSchema = z
+  .object({
+    ...mutationEnvelopeSchema.shape,
+    operation: z.enum(["insert", "update", "upsert", "delete", "reorder"]),
+    blockId: z.string().min(1).optional(),
+    block: blockValueSchema.optional(),
+    position: placementSchema.optional(),
+  })
+  .superRefine((value, context) => {
+    const parsed = mutateDatabaseBlockOperationSchema.safeParse(value);
+    if (parsed.success) return;
+    for (const issue of parsed.error.issues) {
+      context.addIssue({
+        code: "custom",
+        path: issue.path,
+        message: issue.message,
+      });
+    }
+  }) as z.ZodType<MutationInput>;
+
 type BlockTarget = z.infer<typeof databaseBlockTargetSchema>;
-type MutationInput = z.infer<typeof mutateDatabaseBlockSchema>;
 
 interface LoadedField {
   context: MutationContext;

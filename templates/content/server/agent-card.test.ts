@@ -2,7 +2,10 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { generateAgentCard } from "@agent-native/core/a2a";
-import { loadActionsFromStaticRegistry } from "@agent-native/core/server";
+import {
+  actionsToEngineTools,
+  loadActionsFromStaticRegistry,
+} from "@agent-native/core/server";
 import { generateActionRegistryForProject } from "@agent-native/core/vite";
 import { describe, expect, it } from "vitest";
 
@@ -39,6 +42,9 @@ describe("content agent card", () => {
           .href + `?cacheBust=${Date.now()}`;
       const { default: modules } = await import(registryUrl);
       const actions = loadActionsFromStaticRegistry(modules);
+      const engineToolNames = actionsToEngineTools(actions).map(
+        (tool) => tool.name,
+      );
       const card = generateAgentCard(
         {
           name: "Content",
@@ -57,6 +63,12 @@ describe("content agent card", () => {
       expect(card.description).toBe("Agent-native content agent");
       expect(card.skills.map((skill) => skill.id)).toEqual(
         expect.arrayContaining(REQUIRED_CONTENT_ACTIONS),
+      );
+      expect(engineToolNames).toEqual(
+        expect.arrayContaining([
+          "list-content-database-blocks",
+          "mutate-content-database-block",
+        ]),
       );
     },
     ACTION_REGISTRY_TEST_TIMEOUT_MS,
