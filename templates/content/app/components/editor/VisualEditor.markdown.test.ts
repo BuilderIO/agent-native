@@ -1666,7 +1666,7 @@ describe("VisualEditor markdown round-tripping", () => {
     }
   });
 
-  it("uses the editable empty paragraph as the toggle body placeholder", () => {
+  it("reserves the empty-toggle placeholder for zero-child toggles", () => {
     const editor = new Editor({
       extensions: createVisualEditorExtensions(),
       content: {
@@ -1697,7 +1697,7 @@ describe("VisualEditor markdown round-tripping", () => {
             "[data-notion-toggle-content] p, .notion-toggle__content p",
           )
           ?.getAttribute("data-placeholder"),
-      ).toBe("Empty toggle. Click or drop blocks inside.");
+      ).toBeNull();
     } finally {
       editor.destroy();
     }
