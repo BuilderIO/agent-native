@@ -1423,10 +1423,9 @@ function ModelSelector({
     Boolean(onConnectProvider || providerConnectStatusEnabled);
   const showAddKeysAction = hasUnconfiguredVisibleModels;
   const showProviderActions = showBuilderAction || showAddKeysAction;
-  const onlyConnectPathAvailable = shouldShowOnlyConnectPath(
-    showBuilderAction,
-    providerGroups,
-  ) && modelProviderGroups.length === 0;
+  const onlyConnectPathAvailable =
+    shouldShowOnlyConnectPath(showBuilderAction, providerGroups) &&
+    modelProviderGroups.length === 0;
   const openLlmSettings = useCallback(() => {
     try {
       window.location.hash = "llm";
