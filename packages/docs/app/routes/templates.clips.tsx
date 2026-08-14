@@ -451,119 +451,131 @@ export default function ClipsTemplate() {
       <SectionDivider borderColorClassName="border-[#1a1a1a]" />
 
       {/* Library + Search split */}
-      <section className="border-t border-[var(--docs-border)] py-16">
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="rounded-xl border border-[var(--docs-border)] p-6">
-            <h3 className="mb-2 text-base font-semibold">
+      <section className="border border-[#1a1a1a]">
+        <div className="grid lg:grid-cols-2">
+          <div className="flex flex-col border-b border-[#1a1a1a] lg:border-b-0 lg:border-e">
+            <h3 className="m-0 px-6 pt-10 text-[1.75rem] font-medium leading-[1.15] tracking-[-0.56px] text-[#faf9f5] sm:px-8 lg:px-10 lg:pt-16">
               {t("templateLanding.clips.s016")}
             </h3>
-            <p className="mb-4 text-sm text-[var(--fg-secondary)]">
+            <p className="m-0 px-6 pb-6 pt-6 text-lg font-medium leading-[1.15] tracking-[-0.36px] text-[#9a9997] sm:px-8 lg:px-10 lg:pb-10">
               {t("templateLanding.clips.s017")}
             </p>
-            <ul className="m-0 list-none space-y-2 p-0 text-sm text-[var(--fg-secondary)]">
-              <li className="flex items-start gap-2">
+            <ul className="m-0 list-none px-6 py-8 text-lg leading-[1.3] text-[#e0e0d7] sm:px-8 lg:px-10">
+              <li className="flex items-center gap-4 py-3">
                 <svg
-                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
+                  className="shrink-0"
+                  width="20"
+                  height="20"
+                  viewBox="0 0 20 20"
                   fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
+                  xmlns="http://www.w3.org/2000/svg"
                 >
-                  <polyline points="20 6 9 17 4 12" />
+                  <path
+                    d="M16.6665 5L7.50072 14.166L3.33447 9.99964"
+                    stroke="#01C8F1"
+                    strokeWidth="2.85714"
+                    strokeLinecap="round"
+                  />
                 </svg>
                 {t("templateLanding.clips.s018")}
               </li>
-              <li className="flex items-start gap-2">
+              <li className="flex items-center gap-4 py-3">
                 <svg
-                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
+                  className="shrink-0"
+                  width="20"
+                  height="20"
+                  viewBox="0 0 20 20"
                   fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
+                  xmlns="http://www.w3.org/2000/svg"
                 >
-                  <polyline points="20 6 9 17 4 12" />
+                  <path
+                    d="M16.6665 5L7.50072 14.166L3.33447 9.99964"
+                    stroke="#01C8F1"
+                    strokeWidth="2.85714"
+                    strokeLinecap="round"
+                  />
                 </svg>
                 {t("templateLanding.clips.s019")}
               </li>
-              <li className="flex items-start gap-2">
+              <li className="flex items-center gap-4 py-3">
                 <svg
-                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
+                  className="shrink-0"
+                  width="20"
+                  height="20"
+                  viewBox="0 0 20 20"
                   fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
+                  xmlns="http://www.w3.org/2000/svg"
                 >
-                  <polyline points="20 6 9 17 4 12" />
+                  <path
+                    d="M16.6665 5L7.50072 14.166L3.33447 9.99964"
+                    stroke="#01C8F1"
+                    strokeWidth="2.85714"
+                    strokeLinecap="round"
+                  />
                 </svg>
                 {t("templateLanding.clips.s020")}
               </li>
             </ul>
           </div>
-          <div className="rounded-xl border border-[var(--docs-border)] p-6">
-            <h3 className="mb-2 text-base font-semibold">
+          <div className="flex flex-col bg-[#0f0f0f]">
+            <h3 className="m-0 px-6 pt-10 text-[1.75rem] font-medium leading-[1.15] tracking-[-0.56px] text-[#faf9f5] sm:px-8 lg:px-10 lg:pt-16">
               {t("templateLanding.clips.s021")}
             </h3>
-            <p className="mb-4 text-sm text-[var(--fg-secondary)]">
+            <p className="m-0 px-6 pb-6 pt-6 text-lg font-medium leading-[1.15] tracking-[-0.36px] text-[#9a9997] sm:px-8 lg:px-10 lg:pb-10">
               {t("templateLanding.clips.s022")}
             </p>
-            <ul className="m-0 list-none space-y-2 p-0 text-sm text-[var(--fg-secondary)]">
-              <li className="flex items-start gap-2">
+            <ul className="m-0 list-none px-6 py-8 text-lg leading-[1.3] text-[#e0e0d7] sm:px-8 lg:px-10">
+              <li className="flex items-center gap-4 py-3">
                 <svg
-                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
+                  className="shrink-0"
+                  width="20"
+                  height="20"
+                  viewBox="0 0 20 20"
                   fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
+                  xmlns="http://www.w3.org/2000/svg"
                 >
-                  <polyline points="20 6 9 17 4 12" />
+                  <path
+                    d="M16.6665 5L7.50072 14.166L3.33447 9.99964"
+                    stroke="#01C8F1"
+                    strokeWidth="2.85714"
+                    strokeLinecap="round"
+                  />
                 </svg>
                 {t("templateLanding.clips.s023")}
               </li>
-              <li className="flex items-start gap-2">
+              <li className="flex items-center gap-4 py-3">
                 <svg
-                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
+                  className="shrink-0"
+                  width="20"
+                  height="20"
+                  viewBox="0 0 20 20"
                   fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
+                  xmlns="http://www.w3.org/2000/svg"
                 >
-                  <polyline points="20 6 9 17 4 12" />
+                  <path
+                    d="M16.6665 5L7.50072 14.166L3.33447 9.99964"
+                    stroke="#01C8F1"
+                    strokeWidth="2.85714"
+                    strokeLinecap="round"
+                  />
                 </svg>
                 {t("templateLanding.clips.s024")}
               </li>
-              <li className="flex items-start gap-2">
+              <li className="flex items-center gap-4 py-3">
                 <svg
-                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
+                  className="shrink-0"
+                  width="20"
+                  height="20"
+                  viewBox="0 0 20 20"
                   fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
+                  xmlns="http://www.w3.org/2000/svg"
                 >
-                  <polyline points="20 6 9 17 4 12" />
+                  <path
+                    d="M16.6665 5L7.50072 14.166L3.33447 9.99964"
+                    stroke="#01C8F1"
+                    strokeWidth="2.85714"
+                    strokeLinecap="round"
+                  />
                 </svg>
                 {t("templateLanding.clips.s025")}
               </li>
@@ -571,6 +583,8 @@ export default function ClipsTemplate() {
           </div>
         </div>
       </section>
+
+      <SectionDivider borderColorClassName="border-[#1a1a1a]" />
 
       {/* Agent actions */}
       <section className="border-t border-[var(--docs-border)] py-16">
