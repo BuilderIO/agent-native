@@ -2554,11 +2554,7 @@ export default function CodeAgentsApp({
                                   : handleSlashCommand
                               }
                               onSubmit={createRunFromPrompt}
-                              onConnectProvider={
-                                activeNewSessionExtension
-                                  ? undefined
-                                  : connectBuilderProvider
-                              }
+                              onConnectProvider={connectBuilderProvider}
                               onConnectLocalRuntime={
                                 !activeNewSessionExtension && host.openTerminal
                                   ? connectLocalRuntime
