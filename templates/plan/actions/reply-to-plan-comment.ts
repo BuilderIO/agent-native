@@ -44,7 +44,9 @@ export default defineAction({
     body: z
       .string()
       .min(1)
-      .describe("Reply message text with optional inline Markdown; no headings"),
+      .describe(
+        "Reply message text with optional inline Markdown; no headings",
+      ),
     resolutionTarget: planCommentResolutionTargetSchema
       .optional()
       .describe(

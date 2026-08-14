@@ -3,6 +3,7 @@ import {
   defaultChatFirstCopy,
   type ChatFirstCopy,
 } from "@agent-native/core/client/chat-first";
+import { useFeatureFlag } from "@agent-native/core/client/feature-flags";
 import {
   useActionMutation,
   useActionQuery,
@@ -20,6 +21,7 @@ import {
   workspaceAppHref,
   type WorkspaceAppSummary,
 } from "../lib/workspace-apps";
+import { DISPATCH_WORKSPACE_SSO_FLAG } from "../shared/feature-flags";
 import { ActionQueryError } from "./action-query-error";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
@@ -66,10 +68,17 @@ export function WorkspaceAppFrame({
   const [embedError, setEmbedError] = useState<Error | null>(null);
   const [embedAttempt, setEmbedAttempt] = useState(0);
   const embedFrameRef = useRef<HTMLIFrameElement>(null);
+  const workspaceSsoEnabled = useFeatureFlag(DISPATCH_WORKSPACE_SSO_FLAG.key);
   const createEmbedSession = useActionMutation<
     EmbedSessionResult,
     EmbedSessionInput
   >("create_embed_session", {
+    skipActionQueryInvalidation: true,
+  });
+  const createWorkspaceSsoEmbedSession = useActionMutation<
+    EmbedSessionResult,
+    EmbedSessionInput
+  >("create-workspace-app-embed-session", {
     skipActionQueryInvalidation: true,
   });
   const appHref = workspaceAppHref({
@@ -95,7 +104,10 @@ export function WorkspaceAppFrame({
     let cancelled = false;
     setEmbedUrl(null);
     setEmbedError(null);
-    void createEmbedSession
+    const createSession = workspaceSsoEnabled
+      ? createWorkspaceSsoEmbedSession
+      : createEmbedSession;
+    void createSession
       .mutateAsync(embedInput)
       .then((result) => {
         if (!cancelled) setEmbedUrl(result.startUrl);
@@ -120,9 +132,11 @@ export function WorkspaceAppFrame({
     app.path,
     app.url,
     createEmbedSession.mutateAsync,
+    createWorkspaceSsoEmbedSession.mutateAsync,
     embedInput,
     embedPath,
     embedAttempt,
+    workspaceSsoEnabled,
   ]);
 
   useEffect(() => {

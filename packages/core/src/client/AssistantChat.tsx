@@ -2671,7 +2671,6 @@ const AssistantChatInner = forwardRef<
   const [reconnectFrozen, setReconnectFrozen] = useState(false);
   // Adapter took over while reconnect still had visible tool cards — keep the
   // overlay until the adapter message catches up so we don't flash an empty gap.
-  const [adapterHandoffPending, setAdapterHandoffPending] = useState(false);
   const reconnectRunIdRef = useRef<string | null>(null);
   const reconnectTurnIdRef = useRef<string | null>(null);
   const reconnectTailOnlyRef = useRef(false);
@@ -2694,7 +2693,6 @@ const AssistantChatInner = forwardRef<
     setIsReconnecting(false);
     setReconnectFrozen(false);
     setReconnectContent([]);
-    setAdapterHandoffPending(false);
     setPendingReconnectRecovery(null);
     resetRunningActivity();
   }, [resetRunningActivity]);
@@ -2786,11 +2784,10 @@ const AssistantChatInner = forwardRef<
   });
   const reconnectActivityContent = useMemo(
     () =>
-      isReconnecting || reconnectFrozen || adapterHandoffPending
+      isReconnecting || reconnectFrozen
         ? reconnectActivityFallbackContent(runningActivityTool)
         : [],
     [
-      adapterHandoffPending,
       isReconnecting,
       reconnectFrozen,
       runningActivityTool,
@@ -3192,7 +3189,6 @@ const AssistantChatInner = forwardRef<
       });
       setIsReconnecting(true);
       setReconnectFrozen(false);
-      setAdapterHandoffPending(false);
       setReconnectContent([]);
       window.dispatchEvent(
         new CustomEvent("agentNative.chatRunning", {
@@ -4443,11 +4439,14 @@ const AssistantChatInner = forwardRef<
     prevIsRuntimeRunningRef.current = isRuntimeRunning;
     if (isRuntimeRunning && !wasRunning) {
       // SINGLE-READER OWNERSHIP: the adapter runtime just took over (a new run
-      // started or an adopted run resumed). Abort the reconnect reader, but keep
-      // its visible content until the adapter message has tool/text parts so the
-      // UI does not flash an empty gap between readers.
+      // started or an adopted run resumed), so it is now the only owner of this
+      // turn's rendering. The overlay used to be kept alive here for up to
+      // 2500ms so the UI would not flash a gap — but that deliberately put two
+      // independent folds of the same run on screen at once, and the only thing
+      // hiding the second was content-similarity guessing that fails whenever
+      // the two readers disagree (id-less activity cards, a turn split across
+      // several assistant messages). One owner, one surface: drop the overlay.
       if (reconnectRunIdRef.current !== null) {
-        const keepOverlay = reconnectContent.length > 0;
         reconnectRunIdRef.current = null;
         reconnectAbortRef.current?.abort();
         reconnectAbortRef.current = null;
@@ -4455,55 +4454,17 @@ const AssistantChatInner = forwardRef<
         setReconnectFrozen(false);
         reconnectCanMaterializeRef.current = false;
         reconnectTailOnlyRef.current = false;
-        if (keepOverlay) {
-          setAdapterHandoffPending(true);
-        } else {
-          setReconnectContent([]);
-          setAdapterHandoffPending(false);
-        }
+        setReconnectContent([]);
       } else if (reconnectFrozen) {
         setReconnectFrozen(false);
         setReconnectContent([]);
-        setAdapterHandoffPending(false);
         reconnectCanMaterializeRef.current = false;
       }
       if (forceStopped) {
         setForceStopped(false);
       }
     }
-  }, [
-    isRuntimeRunning,
-    reconnectFrozen,
-    forceStopped,
-    reconnectContent.length,
-  ]);
-
-  // Release the deferred reconnect overlay once thread messages have caught
-  // up enough that dedupe would hide the overlay, or after a short timeout so
-  // a stuck handoff cannot leave duplicate tool cards forever.
-  useEffect(() => {
-    if (!adapterHandoffPending) return;
-    if (!isRuntimeRunning) {
-      setReconnectContent([]);
-      setAdapterHandoffPending(false);
-      return;
-    }
-    const stillNeeded =
-      dedupeReconnectContentAgainstMessages(reconnectContent, messages, {
-        suppressToolRepeats: true,
-        trimTailTextOverlap: true,
-      }).length > 0;
-    if (!stillNeeded) {
-      setReconnectContent([]);
-      setAdapterHandoffPending(false);
-      return;
-    }
-    const timer = window.setTimeout(() => {
-      setReconnectContent([]);
-      setAdapterHandoffPending(false);
-    }, 2500);
-    return () => window.clearTimeout(timer);
-  }, [adapterHandoffPending, isRuntimeRunning, messages, reconnectContent]);
+  }, [isRuntimeRunning, reconnectFrozen, forceStopped]);
 
   // Same transition guard for isReconnecting: only clear forceStopped on
   // the false→true edge (a new reconnect starting on page load).
@@ -4521,7 +4482,6 @@ const AssistantChatInner = forwardRef<
     if (!reconnectCanMaterializeRef.current) {
       setReconnectFrozen(false);
       setReconnectContent([]);
-      setAdapterHandoffPending(false);
       return;
     }
     try {
@@ -4571,7 +4531,6 @@ const AssistantChatInner = forwardRef<
       threadRuntime.import(ensureMessageMetadata(repo));
       setReconnectFrozen(false);
       setReconnectContent([]);
-      setAdapterHandoffPending(false);
       reconnectCanMaterializeRef.current = false;
       reconnectTurnIdRef.current = null;
     } catch (err) {
@@ -4711,7 +4670,6 @@ const AssistantChatInner = forwardRef<
         reconnectAbortRef.current = null;
         reconnectRunIdRef.current = null;
         setIsReconnecting(false);
-        setAdapterHandoffPending(false);
         const shouldFreezeReconnectContent =
           !reconnectTailOnlyRef.current &&
           reconnectCanMaterializeRef.current &&
@@ -5240,12 +5198,21 @@ const AssistantChatInner = forwardRef<
       // an ahead-of-the-thread reconnect copy visible creates the familiar
       // two-card stack while the adapter catches up, so prefer one row and
       // let the live message advance in place.
-      suppressToolRepeats:
-        adapterHandoffPending || isReconnecting || reconnectFrozen,
-      trimTailTextOverlap:
-        adapterHandoffPending || reconnectTailOnlyRef.current,
+      suppressToolRepeats: isReconnecting || reconnectFrozen,
+      trimTailTextOverlap: reconnectTailOnlyRef.current,
     },
   );
+  // The reconnect overlay is a SECOND fold of the same run, rendered as a
+  // sibling of the message list. It may only appear while no adapter runtime
+  // owns the turn. Deriving it from `isRuntimeRunning` at render time — rather
+  // than relying on an effect to clear the overlay's own flags afterwards —
+  // is what makes two streaming copies structurally impossible instead of
+  // merely unlikely; the effect below runs a frame too late to prevent it.
+  const showReconnectOverlay = shouldShowReconnectOverlay({
+    isRuntimeRunning,
+    isReconnecting,
+    reconnectFrozen,
+  });
   const latestMessage = messages[messages.length - 1];
   const reconnectStatusContent =
     visibleReconnectContent.length > 0
@@ -5847,9 +5814,7 @@ const AssistantChatInner = forwardRef<
                                         />
                                       </MessageScrollerItem>
                                     )}
-                                    {(isReconnecting ||
-                                      reconnectFrozen ||
-                                      adapterHandoffPending) &&
+                                    {showReconnectOverlay &&
                                       visibleReconnectContent.length > 0 && (
                                         <MessageScrollerItem>
                                           <ReconnectStreamMessage
@@ -5860,9 +5825,7 @@ const AssistantChatInner = forwardRef<
                                           />
                                         </MessageScrollerItem>
                                       )}
-                                    {(isReconnecting ||
-                                      reconnectFrozen ||
-                                      adapterHandoffPending) &&
+                                    {showReconnectOverlay &&
                                       visibleReconnectContent.length === 0 &&
                                       reconnectContent.length === 0 &&
                                       reconnectActivityContent.length > 0 && (

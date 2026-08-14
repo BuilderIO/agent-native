@@ -73,6 +73,20 @@ describe("availability schedule editing", () => {
     ]);
   });
 
+  it("merges touching windows before slot generation", () => {
+    expect(
+      normalizeAvailabilitySlots([
+        { start: "13:00", end: "16:00" },
+        { start: "16:00", end: "18:00" },
+        { start: "18:00", end: "19:00" },
+        { start: "20:00", end: "23:00" },
+      ]),
+    ).toEqual([
+      { start: "13:00", end: "19:00" },
+      { start: "20:00", end: "23:00" },
+    ]);
+  });
+
   it("keeps legacy one-digit hour strings when normalizing", () => {
     expect(
       normalizeAvailabilitySlots([

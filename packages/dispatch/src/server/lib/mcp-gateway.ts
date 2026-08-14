@@ -19,6 +19,11 @@ import {
 } from "@agent-native/core/server/agent-discovery";
 
 import {
+  CANONICAL_WORKSPACE_SSO_APP_ORIGINS,
+  DISPATCH_WORKSPACE_SSO_FLAG,
+  parseWorkspaceSsoAppRegistrations,
+} from "../../shared/workspace-sso.js";
+import {
   listWorkspaceApps,
   type WorkspaceAppSummary,
 } from "./app-creation-store.js";
@@ -27,11 +32,6 @@ import {
   isAppAllowedByMcpAccess,
   type DispatchMcpAppAccessSettings,
 } from "./mcp-access-store.js";
-import {
-  CANONICAL_WORKSPACE_SSO_APP_ORIGINS,
-  DISPATCH_WORKSPACE_SSO_FLAG,
-  parseWorkspaceSsoAppRegistrations,
-} from "../../shared/workspace-sso.js";
 
 const DISPATCH_APP_ID = "dispatch";
 const DISPATCH_NAME = "Dispatch";
@@ -640,9 +640,7 @@ function sameWorkspaceApp(
   mounted: WorkspaceAppSummary,
 ): boolean {
   if (candidate.id !== mounted.id || !mounted.url) return false;
-  return (
-    candidate.url.replace(/\/+$/, "") === mounted.url.replace(/\/+$/, "")
-  );
+  return candidate.url.replace(/\/+$/, "") === mounted.url.replace(/\/+$/, "");
 }
 
 async function isEligibleWorkspaceSsoApp(
@@ -675,7 +673,13 @@ async function listWorkspaceSsoApps(): Promise<DispatchMcpAccessibleApp[]> {
   ]);
   const candidates = agents
     .filter((agent) => normalizeAppId(agent.id) !== DISPATCH_APP_ID)
-    .map((agent) => ({ ...toAccessibleApp(agent, { mode: "all-apps" }), granted: true }));
+    .map((agent) => ({
+      ...toAccessibleApp(agent, {
+        mode: "all-apps",
+        selectedAppIds: [],
+      }),
+      granted: true,
+    }));
   const eligible = [] as DispatchMcpAccessibleApp[];
   for (const candidate of candidates) {
     if (await isEligibleWorkspaceSsoApp(candidate, mountedApps)) {
@@ -985,15 +989,18 @@ async function callTargetCreateEmbedSession(input: {
   }
 }
 
-async function resolveEmbedTarget(input: {
-  app?: string;
-  url?: string;
-  path?: string;
-}, options: {
-  resolveApp: (app: string) => Promise<DispatchMcpAccessibleApp>;
-  listApps: () => Promise<DispatchMcpAccessibleApp[]>;
-  urlError: string;
-}): Promise<{ app: DispatchMcpAccessibleApp; path: string; url: string }> {
+async function resolveEmbedTarget(
+  input: {
+    app?: string;
+    url?: string;
+    path?: string;
+  },
+  options: {
+    resolveApp: (app: string) => Promise<DispatchMcpAccessibleApp>;
+    listApps: () => Promise<DispatchMcpAccessibleApp[]>;
+    urlError: string;
+  },
+): Promise<{ app: DispatchMcpAccessibleApp; path: string; url: string }> {
   const explicitApp = input.app?.trim()
     ? await options.resolveApp(input.app)
     : null;

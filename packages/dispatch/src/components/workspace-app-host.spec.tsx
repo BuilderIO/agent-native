@@ -32,6 +32,10 @@ vi.mock("@agent-native/core/client/chat-first", () => ({
   defaultChatFirstCopy: (key: string) => key,
 }));
 
+vi.mock("@agent-native/core/client/feature-flags", () => ({
+  useFeatureFlag: () => false,
+}));
+
 vi.mock("@agent-native/core/client/hooks", () => ({
   useActionMutation: () => ({ mutateAsync: clientState.mutateAsync }),
   useActionQuery: () => ({

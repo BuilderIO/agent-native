@@ -1,9 +1,9 @@
+import type { ReactNode } from "react";
 import ReactMarkdown, {
   defaultUrlTransform,
   type Components,
 } from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { ReactNode } from "react";
 
 import { cn } from "../utils.js";
 
@@ -53,12 +53,9 @@ export function InlineMarkdown({
   protectedSpans = [],
   renderProtectedSpan,
 }: InlineMarkdownProps) {
-  const protectedSpanByHref = new Map(
+  const protectedSpanByHref = new Map<string, InlineMarkdownProtectedSpan>(
     protectedSpans
-      .map((span, index) => [
-        `${PROTECTED_SPAN_PREFIX}${index}`,
-        span,
-      ] as const)
+      .map((span, index) => [`${PROTECTED_SPAN_PREFIX}${index}`, span] as const)
       .filter(([, span]) => span.source.length > 0),
   );
   const renderedContent = protectInlineMarkdownSpans(content, protectedSpans);
@@ -69,10 +66,7 @@ export function InlineMarkdown({
         return renderProtectedSpan ? (
           renderProtectedSpan(protectedSpan, children)
         ) : (
-          <span
-            className={protectedSpan.className}
-            title={protectedSpan.title}
-          >
+          <span className={protectedSpan.className} title={protectedSpan.title}>
             {children}
           </span>
         );
@@ -129,8 +123,7 @@ export function InlineMarkdown({
   );
 }
 
-const PROTECTED_SPAN_PREFIX =
-  "https://inline-markdown-protected.invalid/span/";
+const PROTECTED_SPAN_PREFIX = "https://inline-markdown-protected.invalid/span/";
 
 function protectInlineMarkdownSpans(
   content: string,
@@ -142,9 +135,11 @@ function protectInlineMarkdownSpans(
     .sort((a, b) => b.span.source.length - a.span.source.length)
     .reduce(
       (markdown, { span, index }) =>
-        markdown.split(span.source).join(
-          `[${escapeProtectedSpanLabel(span.label)}](${PROTECTED_SPAN_PREFIX}${index})`,
-        ),
+        markdown
+          .split(span.source)
+          .join(
+            `[${escapeProtectedSpanLabel(span.label)}](${PROTECTED_SPAN_PREFIX}${index})`,
+          ),
       content,
     );
 }

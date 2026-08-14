@@ -1,4 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { InlineMarkdown } from "@agent-native/core/client/markdown";
 import {
   IconX,
   IconCheck,
@@ -25,7 +26,6 @@ import {
   type CommentThread,
   type SlideComment,
 } from "@/hooks/use-slide-comments";
-import { InlineMarkdown } from "@agent-native/core/client/markdown";
 
 interface SlideCommentsPanelProps {
   deckId: string | null;

@@ -26,8 +26,6 @@ import {
 } from "@agent-native/dispatch/shared/workspace-sso";
 
 const CONTROL_CHARS = /[\u0000-\u001f\u007f]/;
-const APP_ID = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
-const CLIENT_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const STATE_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const CODE = /^[A-Za-z0-9_-]{43}$/;
 const CODE_CHALLENGE = /^[A-Za-z0-9_-]{43}$/;
@@ -94,10 +92,6 @@ function canonicalRegistrations(): IdentitySsoAppRegistration[] {
       callbackPath: IDENTITY_SSO_CALLBACK_PATH,
     }),
   );
-}
-
-function exactOrigin(raw: unknown): string | null {
-  return exactWorkspaceSsoOrigin(raw);
 }
 
 function parseCustomRegistrations(

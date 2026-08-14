@@ -101,6 +101,34 @@ interface AgentPackFileInput {
   content: string;
 }
 
+export function isPendingWorkspaceResourceApproval(result: unknown) {
+  if (!result || typeof result !== "object") return false;
+  const mutation = result as { status?: unknown; changeType?: unknown };
+  return (
+    mutation.status === "pending" &&
+    typeof mutation.changeType === "string" &&
+    mutation.changeType.startsWith("workspace-resource.")
+  );
+}
+
+export function handleAgentPackMutationSuccess(
+  result: unknown,
+  options: {
+    appliedMessage: string;
+    approvalMessage: string;
+    onApplied: () => void;
+    notify?: (message: string) => void;
+  },
+) {
+  const notify = options.notify || ((message) => toast.success(message));
+  if (isPendingWorkspaceResourceApproval(result)) {
+    notify(options.approvalMessage);
+    return;
+  }
+  notify(options.appliedMessage);
+  options.onApplied();
+}
+
 interface AgentEditorProps {
   resource?: WorkspaceAgentResource;
   trigger?: ReactNode;
@@ -345,21 +373,31 @@ function AgentPackDialog({
     { enabled: open },
   );
   const update = useActionMutation("update-workspace-resource", {
-    onSuccess: () => {
-      toast.success("Pack file updated");
-      void query.refetch();
-      onChanged?.();
+    onSuccess: (result) => {
+      handleAgentPackMutationSuccess(result, {
+        appliedMessage: "Pack file updated",
+        approvalMessage: "Pack file update queued for approval",
+        onApplied: () => {
+          void query.refetch();
+          onChanged?.();
+        },
+      });
     },
     onError: (error) => toast.error(error.message),
   });
   const create = useActionMutation("create-workspace-resource", {
-    onSuccess: () => {
-      toast.success("Pack file added");
-      setAddOpen(false);
-      setNewPath("");
-      setNewContent("");
-      void query.refetch();
-      onChanged?.();
+    onSuccess: (result) => {
+      handleAgentPackMutationSuccess(result, {
+        appliedMessage: "Pack file added",
+        approvalMessage: "Pack file addition queued for approval",
+        onApplied: () => {
+          setAddOpen(false);
+          setNewPath("");
+          setNewContent("");
+          void query.refetch();
+          onChanged?.();
+        },
+      });
     },
     onError: (error) => toast.error(error.message),
   });

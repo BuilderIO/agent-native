@@ -9,7 +9,7 @@ function timeToMinutes(value: string): number | null {
   return hours * 60 + minutes;
 }
 
-/** Returns the saved windows in chronological order with overlaps merged. */
+/** Returns the saved windows in chronological order with adjacent overlaps merged. */
 export function normalizeAvailabilitySlots(slots: TimeSlot[]): TimeSlot[] {
   const valid = slots
     .map((slot) => ({
@@ -30,7 +30,7 @@ export function normalizeAvailabilitySlots(slots: TimeSlot[]): TimeSlot[] {
   }> = [];
   for (const entry of valid) {
     const previous = normalized.at(-1);
-    if (previous && entry.start < previous.end) {
+    if (previous && entry.start <= previous.end) {
       const mergedEnd = Math.max(previous.end, entry.end);
       previous.slot = {
         ...previous.slot,

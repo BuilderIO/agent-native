@@ -2345,7 +2345,9 @@ describe("waitForThreadRunToClear", () => {
     expect(renderSource).toContain("visibleReconnectContent.length > 0");
     expect(renderSource).toContain("visibleReconnectContent.length === 0");
     expect(renderSource).toContain("reconnectContent.length === 0");
-    expect(renderSource).toContain("adapterHandoffPending");
+    // The overlay is a second fold of the run; it may only render while no
+    // adapter runtime owns the turn. See the showReconnectOverlay tests below.
+    expect(renderSource).toContain("showReconnectOverlay");
     expect(renderSource.replace(/\s+/g, "")).toContain(
       "allowActivitySpinner={!reconnectFrozen}",
     );
