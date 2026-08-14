@@ -12,7 +12,12 @@ const clientState = vi.hoisted(() => {
     startUrl: "about:blank",
   }));
   const actionNames: string[] = [];
-  return { actionNames, legacyMutateAsync, workspaceSsoMutateAsync };
+  return {
+    actionNames,
+    legacyMutateAsync,
+    workspaceSsoEnabled: false,
+    workspaceSsoMutateAsync,
+  };
 });
 
 vi.mock("@agent-native/core/client/chat-first", () => ({
@@ -37,7 +42,7 @@ vi.mock("@agent-native/core/client/chat-first", () => ({
 }));
 
 vi.mock("@agent-native/core/client/feature-flags", () => ({
-  useFeatureFlag: () => false,
+  useFeatureFlag: () => clientState.workspaceSsoEnabled,
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
@@ -85,7 +90,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 
-import { WorkspaceAppKeepAlive } from "./workspace-app-host";
+import { WorkspaceAppFrame, WorkspaceAppKeepAlive } from "./workspace-app-host";
 
 describe("WorkspaceAppKeepAlive", () => {
   let container: HTMLDivElement;
@@ -99,6 +104,7 @@ describe("WorkspaceAppKeepAlive", () => {
     clientState.actionNames.length = 0;
     clientState.legacyMutateAsync.mockClear();
     clientState.workspaceSsoMutateAsync.mockClear();
+    clientState.workspaceSsoEnabled = false;
   });
 
   afterEach(() => {
@@ -136,6 +142,25 @@ describe("WorkspaceAppKeepAlive", () => {
     expect(calendarEntry?.classList.contains("hidden")).toBe(false);
     expect(calendarEntry?.querySelector("iframe")).not.toBeNull();
     expect(container.querySelectorAll("iframe")).toHaveLength(2);
+  });
+
+  it("uses the app-scoped workspace session action when the rollout is enabled", async () => {
+    clientState.workspaceSsoEnabled = true;
+
+    await act(async () => {
+      root.render(
+        <WorkspaceAppFrame app={{ id: "mail", name: "Mail", path: "/mail" }} />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(clientState.workspaceSsoMutateAsync).toHaveBeenCalledWith({
+      app: "mail",
+      path: "/mail",
+      chrome: "minimal",
+    });
+    expect(clientState.legacyMutateAsync).not.toHaveBeenCalled();
   });
 
   it("evicts the oldest inactive app after reaching the keep-alive limit", async () => {

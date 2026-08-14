@@ -58,6 +58,7 @@ export function exactWorkspaceSsoOrigin(raw: unknown): string | null {
     }
     return url.origin;
   } catch {
+    // coercion-ok: malformed registry origins are rejected as absent.
     return null;
   }
 }
@@ -75,6 +76,7 @@ export function parseWorkspaceSsoAppRegistrations(
   try {
     value = JSON.parse(raw);
   } catch {
+    // coercion-ok: malformed custom registry data must fail closed.
     return [];
   }
   if (!Array.isArray(value)) return [];

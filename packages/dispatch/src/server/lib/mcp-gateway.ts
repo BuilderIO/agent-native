@@ -462,6 +462,8 @@ function isLoopbackOrigin(origin: string): boolean {
     const hostname = new URL(origin).hostname;
     return ["localhost", "127.0.0.1", "::1"].includes(hostname);
   } catch {
+    // coercion-ok: only a previously validated app origin reaches this helper;
+    // malformed values are ineligible for the loopback development exception.
     return false;
   }
 }
