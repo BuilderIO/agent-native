@@ -100,7 +100,7 @@
 :root[data-theme="dark"] {
   --fg: #ededed;
   --fg-secondary: #a0a0a0;
-  --bg: #000;
+  --bg: #0a0a0a;
   --bg-secondary: #0a0a0a;
   --docs-border: #1f1f1f;
   --docs-accent: #52a8ff;
@@ -121,7 +121,7 @@
   :root:not([data-theme="light"]) {
     --fg: #ededed;
     --fg-secondary: #a0a0a0;
-    --bg: #000;
+    --bg: #0a0a0a;
     --bg-secondary: #0a0a0a;
     --docs-border: #1f1f1f;
     --docs-accent: #52a8ff;
