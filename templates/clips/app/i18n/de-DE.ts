@@ -1037,12 +1037,18 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     actionItems: "Aufgaben",
     sharedContent: "Geteilte Inhalte",
     summaryIncluded: "Zusammenfassung, Kernpunkte und Aufgaben",
+    includeTranscript: "Vollständiges Transkript einschließen",
+    includeTranscriptDescription:
+      "Alle Personen mit Zugriff auf dieses Meeting können das vollständige Transkript lesen.",
+    transcriptUnavailable: "Das Transkript ist noch nicht verfügbar.",
     agentLinkDescription:
       "Über diesen temporären Link können Agenten diese Meeting-Notizen lesen, ohne sie öffentlich zu machen. Er läuft nach zwei Stunden ab.",
     transcript: "Transkript",
     copyTranscript: "Transkript kopieren",
     transcriptCopied: "Transkript kopiert",
     copyTranscriptFailed: "Transkript konnte nicht kopiert werden",
+    updateTranscriptSharingFailed:
+      "Die Transkriptfreigabe konnte nicht aktualisiert werden",
   },
   deleteRecordingMenu: {
     movedToTrash: "Clip in den Papierkorb verschoben",

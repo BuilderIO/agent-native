@@ -1000,12 +1000,17 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     actionItems: "Action items",
     sharedContent: "Shared content",
     summaryIncluded: "Summary, key points, and action items",
+    includeTranscript: "Include full transcript",
+    includeTranscriptDescription:
+      "Anyone with access to this meeting can read the complete transcript.",
+    transcriptUnavailable: "The transcript isn't ready yet.",
     agentLinkDescription:
       "This temporary link lets agents read these meeting notes without making them public. It expires after two hours.",
     transcript: "Transcript",
     copyTranscript: "Copy transcript",
     transcriptCopied: "Transcript copied",
     copyTranscriptFailed: "Couldn't copy the transcript",
+    updateTranscriptSharingFailed: "Couldn't update transcript sharing",
   },
   deleteRecordingMenu: {
     movedToTrash: "Clip moved to trash",

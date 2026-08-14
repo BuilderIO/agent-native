@@ -994,12 +994,17 @@ Clips में उपयोगकर्ताओं को दिखने व�
     actionItems: "कार्य आइटम",
     sharedContent: "साझा की गई सामग्री",
     summaryIncluded: "सारांश, मुख्य बिंदु और कार्य आइटम",
+    includeTranscript: "पूरी ट्रांसक्रिप्ट शामिल करें",
+    includeTranscriptDescription:
+      "इस मीटिंग का एक्सेस रखने वाला कोई भी व्यक्ति पूरी ट्रांसक्रिप्ट पढ़ सकता है।",
+    transcriptUnavailable: "ट्रांसक्रिप्ट अभी तैयार नहीं है।",
     agentLinkDescription:
       "यह अस्थायी लिंक एजेंट को इन मीटिंग नोट्स को सार्वजनिक किए बिना पढ़ने देता है। यह दो घंटे बाद समाप्त हो जाता है।",
     transcript: "ट्रांसक्रिप्ट",
     copyTranscript: "ट्रांसक्रिप्ट कॉपी करें",
     transcriptCopied: "ट्रांसक्रिप्ट कॉपी हो गई",
     copyTranscriptFailed: "ट्रांसक्रिप्ट कॉपी नहीं हो सकी",
+    updateTranscriptSharingFailed: "ट्रांसक्रिप्ट शेयरिंग अपडेट नहीं हो सकी",
   },
   deleteRecordingMenu: {
     movedToTrash: "क्लिप ट्रैश में ले जाया गया",

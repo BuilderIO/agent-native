@@ -1013,12 +1013,17 @@ const messages = {
     actionItems: "عناصر العمل",
     sharedContent: "المحتوى المشترك",
     summaryIncluded: "الملخص والنقاط الرئيسية وعناصر العمل",
+    includeTranscript: "تضمين النص الكامل",
+    includeTranscriptDescription:
+      "يمكن لأي شخص لديه حق الوصول إلى هذا الاجتماع قراءة النص الكامل.",
+    transcriptUnavailable: "النص ليس جاهزًا بعد.",
     agentLinkDescription:
       "يتيح هذا الرابط المؤقت للوكلاء قراءة ملاحظات الاجتماع هذه من دون جعلها عامة. تنتهي صلاحيته بعد ساعتين.",
     transcript: "النص",
     copyTranscript: "نسخ النص",
     transcriptCopied: "تم نسخ النص",
     copyTranscriptFailed: "تعذر نسخ النص",
+    updateTranscriptSharingFailed: "تعذر تحديث مشاركة النص",
   },
   deleteRecordingMenu: {
     movedToTrash: "تم نقل المقطع إلى المهملات",

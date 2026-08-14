@@ -1016,12 +1016,17 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     actionItems: "アクション項目",
     sharedContent: "共有コンテンツ",
     summaryIncluded: "要約、重要ポイント、アクション項目",
+    includeTranscript: "完全な文字起こしを含める",
+    includeTranscriptDescription:
+      "この会議にアクセスできるすべてのユーザーが、文字起こし全文を閲覧できます。",
+    transcriptUnavailable: "文字起こしはまだ準備できていません。",
     agentLinkDescription:
       "この一時リンクを使うと、会議メモを公開せずにエージェントが読めます。2時間後に期限切れになります。",
     transcript: "文字起こし",
     copyTranscript: "文字起こしをコピー",
     transcriptCopied: "文字起こしをコピーしました",
     copyTranscriptFailed: "文字起こしをコピーできませんでした",
+    updateTranscriptSharingFailed: "文字起こしの共有を更新できませんでした",
   },
   deleteRecordingMenu: {
     movedToTrash: "クリップをゴミ箱に移動しました",

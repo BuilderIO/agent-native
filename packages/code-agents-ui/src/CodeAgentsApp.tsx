@@ -3081,10 +3081,9 @@ function CodeAgentComposer({
 }) {
   const normalizedModel = normalizeModelSelection(modelSelection, modelOptions);
   const availableModels = groupCodeAgentModelOptions(modelOptions);
-  const availableAgents =
-    showModelSelector && onConnectLocalRuntime
-      ? getCodeAgentPickerOptions(modelOptions)
-      : undefined;
+  const availableAgents = showModelSelector
+    ? getCodeAgentPickerOptions(modelOptions)
+    : undefined;
   const selectedAgent = getCodeAgentIdForEngine(normalizedModel.engine);
   const handleAgentChange = useCallback(
     (agent: string) => {
@@ -4491,9 +4490,7 @@ function TranscriptPanel({
     normalizedModel.effort ?? "high",
   );
   const availableModels = groupCodeAgentModelOptions(modelOptions);
-  const availableAgents = onConnectLocalRuntime
-    ? getCodeAgentPickerOptions(modelOptions)
-    : undefined;
+  const availableAgents = getCodeAgentPickerOptions(modelOptions);
   const selectedAgent = getCodeAgentIdForEngine(selectedEngine);
   const handleAgentChange = useCallback(
     (agent: string) => {

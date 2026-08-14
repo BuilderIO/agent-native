@@ -1024,12 +1024,18 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     actionItems: "Itens de ação",
     sharedContent: "Conteúdo compartilhado",
     summaryIncluded: "Resumo, pontos principais e itens de ação",
+    includeTranscript: "Incluir transcrição completa",
+    includeTranscriptDescription:
+      "Qualquer pessoa com acesso a esta reunião pode ler a transcrição completa.",
+    transcriptUnavailable: "A transcrição ainda não está pronta.",
     agentLinkDescription:
       "Este link temporário permite que os agentes leiam estas notas da reunião sem torná-las públicas. Ele expira após duas horas.",
     transcript: "Transcrição",
     copyTranscript: "Copiar transcrição",
     transcriptCopied: "Transcrição copiada",
     copyTranscriptFailed: "Não foi possível copiar a transcrição",
+    updateTranscriptSharingFailed:
+      "Não foi possível atualizar o compartilhamento da transcrição",
   },
   deleteRecordingMenu: {
     movedToTrash: "Clipe movido para a lixeira",
