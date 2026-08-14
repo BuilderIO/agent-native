@@ -114,7 +114,10 @@ import {
   useUpdateBookingLink,
   OPTIMISTIC_PREFIX,
 } from "@/hooks/use-booking-links";
-import { useAvailableSlots } from "@/hooks/use-bookings";
+import {
+  useAvailableSlots,
+  type BookingAvailabilityPreview,
+} from "@/hooks/use-bookings";
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
 import { useSettings } from "@/hooks/use-settings";
 import { useZoomStatus, useConnectZoom } from "@/hooks/use-zoom-auth";
@@ -828,6 +831,14 @@ export default function BookingLinksPage({
     !!selectedLink &&
     savedDraftSignature !== null &&
     draftSignature !== savedDraftSignature;
+  const availabilityPreview =
+    selectedLink && !selectedLink.id.startsWith(OPTIMISTIC_PREFIX)
+      ? ({
+          slug: slugify(draft.slug),
+          durations: draft.durations,
+          hosts: draft.hosts,
+        } satisfies BookingAvailabilityPreview)
+      : undefined;
 
   function handleCreate() {
     setCreateDialogOpen(true);

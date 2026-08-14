@@ -306,7 +306,7 @@ function LinkTab({
       >
         <div className="space-y-2">
           <CopyField
-            label={t("shareDialog.shareWithAgents")}
+            label={t("shareDialog.shareLink")}
             value={visibleAgentLink}
             disabled={agentShareDisabled}
           />

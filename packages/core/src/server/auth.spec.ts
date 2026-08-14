@@ -215,6 +215,38 @@ describe("server/auth", () => {
       expect(reportRequest.body.newUserCallbackURL).toBe(
         "https://clips.agent-native.com/_agent-native/auth/magic-link/new-user?return=%2Flibrary%3Ferror%3DINVALID_TOKEN",
       );
+
+      const legacyEvent = createMockEvent({
+        path: "/_agent-native/auth/magic-link",
+        query: {
+          token: "mail-token",
+          callbackURL: "/library",
+          newUserCallbackURL: "/new-user",
+          errorCallbackURL: "/error",
+          ignored: "drop-me",
+        },
+      });
+      const legacyResponse = await handler(legacyEvent);
+      expect(legacyResponse).toBeInstanceOf(Response);
+      expect(legacyResponse.status).toBe(302);
+      const verificationUrl = new URL(legacyResponse.headers.get("Location")!);
+      expect(verificationUrl.pathname).toBe(
+        "/_agent-native/auth/ba/magic-link/verify",
+      );
+      expect(Object.fromEntries(verificationUrl.searchParams)).toEqual({
+        token: "mail-token",
+        callbackURL: "/library",
+        newUserCallbackURL: "/new-user",
+        errorCallbackURL: "/error",
+      });
+
+      const missingTokenEvent = createMockEvent({
+        path: "/_agent-native/auth/magic-link",
+      });
+      await expect(handler(missingTokenEvent)).resolves.toEqual({
+        error: "Method not allowed",
+      });
+      expect(missingTokenEvent.res.status).toBe(405);
     });
 
     it("carries signup attribution into the delayed verification request", async () => {
