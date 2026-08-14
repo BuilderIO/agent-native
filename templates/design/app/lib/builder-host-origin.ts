@@ -43,14 +43,16 @@ function scopeFromToken(): string | null {
 
 let cachedKey: string | null = null;
 let isHost = false;
-let serverConfirmedHost = false;
+let serverConfirmedKey: string | null = null;
 
 /**
  * Set from the loaded design's own linkage, which is server data and does not
- * depend on the token still being in the URL.
+ * depend on the token still being in the URL. Recorded against the design it
+ * confirmed: an SPA navigation to another design must not inherit it.
  */
 export function markBuilderHostEmbed(value: boolean): void {
-  if (value) serverConfirmedHost = true;
+  if (!value || typeof window === "undefined") return;
+  serverConfirmedKey = storageKey(window);
 }
 
 /**
@@ -61,9 +63,9 @@ export function markBuilderHostEmbed(value: boolean): void {
  * re-verifies every request, so this picks chrome, never access.
  */
 export function isBuilderHostEmbed(): boolean {
-  if (serverConfirmedHost) return true;
   if (typeof window === "undefined") return false;
   const key = storageKey(window);
+  if (serverConfirmedKey === key) return true;
   if (cachedKey === key) return isHost;
   cachedKey = key;
 
@@ -71,10 +73,8 @@ export function isBuilderHostEmbed(): boolean {
     isHost = true;
     try {
       window.sessionStorage?.setItem(key, "1");
-    } catch {
-      // Sandboxed hosts refuse session storage; the module value still covers
-      // the single-page boot path.
-    }
+      // coercion-ok: sandboxed hosts refuse session storage.
+    } catch {}
     return true;
   }
 
@@ -89,6 +89,6 @@ export function isBuilderHostEmbed(): boolean {
 export function _resetBuilderHostEmbedForTests(): void {
   cachedKey = null;
   isHost = false;
-  serverConfirmedHost = false;
+  serverConfirmedKey = null;
   verifiedBuilderHostOrigin = null;
 }

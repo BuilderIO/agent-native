@@ -8053,6 +8053,7 @@ const designModeFeatureOverrides = {
       },
     },
     multiScreenCanvas: {
+      preparingLiveEditor: "正在準備即時編輯器…",
       addBreakpointToAllScreens:
         "為所有畫面新增 {{label}} 中斷點（{{width}}px）",
       duplicate: "複製",
@@ -8225,6 +8226,7 @@ const designModeFeatureOverrides = {
       },
     },
     multiScreenCanvas: {
+      preparingLiveEditor: "正在准备实时编辑器…",
       addBreakpointToAllScreens: "为所有画面添加 {{label}} 断点（{{width}}px）",
       duplicate: "复制",
       fork: "分支",
@@ -8397,6 +8399,7 @@ const designModeFeatureOverrides = {
       },
     },
     multiScreenCanvas: {
+      preparingLiveEditor: "Preparando el editor en vivo…",
       addBreakpointToAllScreens:
         "Añadir punto de ruptura {{label}} ({{width}}px) a todas las pantallas",
       duplicate: "Duplicar",
@@ -8591,6 +8594,7 @@ const designModeFeatureOverrides = {
       },
     },
     multiScreenCanvas: {
+      preparingLiveEditor: "Préparation de l'éditeur en direct…",
       addBreakpointToAllScreens:
         "Ajouter le point de rupture {{label}} ({{width}}px) à tous les écrans",
       duplicate: "Dupliquer",
@@ -8782,6 +8786,7 @@ const designModeFeatureOverrides = {
       },
     },
     multiScreenCanvas: {
+      preparingLiveEditor: "Live-Editor wird vorbereitet…",
       addBreakpointToAllScreens:
         "{{label}}-Breakpoint ({{width}}px) zu allen Screens hinzufügen",
       duplicate: "Duplizieren",
@@ -8978,6 +8983,7 @@ const designModeFeatureOverrides = {
       },
     },
     multiScreenCanvas: {
+      preparingLiveEditor: "ライブエディターを準備しています…",
       addBreakpointToAllScreens:
         "すべての画面に {{label}} ブレークポイント（{{width}}px）を追加",
       duplicate: "複製",
@@ -9169,6 +9175,7 @@ const designModeFeatureOverrides = {
       },
     },
     multiScreenCanvas: {
+      preparingLiveEditor: "실시간 편집기를 준비하는 중…",
       addBreakpointToAllScreens:
         "모든 화면에 {{label}} 중단점({{width}}px) 추가",
       duplicate: "복제",
@@ -9357,6 +9364,7 @@ const designModeFeatureOverrides = {
       },
     },
     multiScreenCanvas: {
+      preparingLiveEditor: "Preparando o editor ao vivo…",
       addBreakpointToAllScreens:
         "Adicionar ponto de quebra {{label}} ({{width}}px) a todas as telas",
       duplicate: "Duplicar",
@@ -9545,6 +9553,7 @@ const designModeFeatureOverrides = {
       },
     },
     multiScreenCanvas: {
+      preparingLiveEditor: "लाइव एडिटर तैयार किया जा रहा है…",
       addBreakpointToAllScreens:
         "सभी स्क्रीन में {{label}} ब्रेकपॉइंट ({{width}}px) जोड़ें",
       duplicate: "डुप्लिकेट",
@@ -9733,6 +9742,7 @@ const designModeFeatureOverrides = {
       },
     },
     multiScreenCanvas: {
+      preparingLiveEditor: "جارٍ تحضير المحرر المباشر…",
       addBreakpointToAllScreens:
         "إضافة نقطة توقف {{label}} ({{width}}px) إلى جميع الشاشات",
       duplicate: "تكرار",

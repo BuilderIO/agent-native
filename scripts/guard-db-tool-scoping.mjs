@@ -104,6 +104,8 @@ const INTENTIONAL_RAW_DB_DENYLIST = {
   "plan:plan_guest_mints": "internal guest abuse-mitigation counters",
   "plan:plan_reports": "moderation reports scoped through plans/action",
   "plan:plan_sections": "child rows scoped through plans",
+  "design:builder_connect_consumed_tokens":
+    "single-use connect-token ledger, keyed by jti with no owner",
   "design:design_files": "child rows scoped through designs",
   "design:design_template_files": "child rows scoped through design templates",
   "design:design_versions": "version rows scoped through designs",
