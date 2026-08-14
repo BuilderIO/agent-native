@@ -17,7 +17,7 @@ type TemplateComparisonTableProps = {
   caption: string;
   className?: string;
   columns: readonly TemplateComparisonColumn[];
-  featureHeader?: ReactNode;
+  featureHeader: ReactNode;
   rows: readonly TemplateComparisonRow[];
 };
 
@@ -25,7 +25,7 @@ export function TemplateComparisonTable({
   caption,
   className = "",
   columns,
-  featureHeader = "Feature",
+  featureHeader,
   rows,
 }: TemplateComparisonTableProps) {
   return (

@@ -420,6 +420,7 @@ export default function AnalyticsTemplate() {
         </div>
         <TemplateComparisonTable
           caption={t("templateLanding.analytics.s039")}
+          featureHeader={t("templateLanding.analytics.s039")}
           columns={[
             { id: "product-analytics", header: "Amplitude / Mixpanel" },
             { id: "chat-csv", header: "ChatGPT + CSV" },

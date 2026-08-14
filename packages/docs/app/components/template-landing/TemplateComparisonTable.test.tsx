@@ -12,6 +12,7 @@ describe("TemplateComparisonTable", () => {
     render(
       <TemplateComparisonTable
         caption="Product comparison"
+        featureHeader="Comparison criteria"
         columns={[
           { id: "ours", header: "Our product", emphasized: true },
           { id: "theirs", header: "Alternative" },
@@ -28,6 +29,9 @@ describe("TemplateComparisonTable", () => {
 
     const caption = screen.getByText("Product comparison");
     const table = caption.closest("table");
+    const featureHeader = screen.getByRole("columnheader", {
+      name: "Comparison criteria",
+    });
     const productHeader = screen.getByRole("columnheader", {
       name: "Our product",
     });
@@ -37,6 +41,7 @@ describe("TemplateComparisonTable", () => {
 
     expect(caption.tagName).toBe("CAPTION");
     expect(table?.parentElement?.className).toContain("overflow-x-auto");
+    expect(featureHeader.getAttribute("scope")).toBe("col");
     expect(productHeader.getAttribute("scope")).toBe("col");
     expect(productHeader.getAttribute("data-emphasized")).toBe("true");
     expect(rowHeader.getAttribute("scope")).toBe("row");

@@ -455,6 +455,7 @@ export default function PlanTemplate() {
         </div>
         <TemplateComparisonTable
           caption={t("templateLanding.plan.s039")}
+          featureHeader={t("templateLanding.plan.s039")}
           columns={[
             {
               id: "markdown",

@@ -420,6 +420,7 @@ export default function MailTemplate() {
         </div>
         <TemplateComparisonTable
           caption={t("templateLanding.mail.s035")}
+          featureHeader={t("templateLanding.mail.s035")}
           columns={[
             { id: "gmail", header: "Gmail" },
             { id: "superhuman", header: "Superhuman" },

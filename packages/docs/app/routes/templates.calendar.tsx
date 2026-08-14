@@ -402,6 +402,7 @@ export default function CalendarTemplate() {
         </div>
         <TemplateComparisonTable
           caption={t("templateLanding.calendar.s034")}
+          featureHeader={t("templateLanding.calendar.s034")}
           columns={[
             { id: "google", header: "Google Calendar" },
             { id: "calendly", header: "Calendly" },

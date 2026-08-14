@@ -118,8 +118,9 @@ const ClipPreviewSlider = forwardRef<ClipPreviewSliderHandle>(
     function scroll(direction: -1 | 1) {
       const slider = sliderRef.current;
       if (!slider) return;
+      const isRtl = getComputedStyle(slider).direction === "rtl";
       slider.scrollBy({
-        left: direction * slider.clientWidth * 0.8,
+        left: direction * slider.clientWidth * 0.8 * (isRtl ? -1 : 1),
         behavior: "smooth",
       });
     }
@@ -127,7 +128,7 @@ const ClipPreviewSlider = forwardRef<ClipPreviewSliderHandle>(
     useImperativeHandle(ref, () => ({ scroll }), []);
 
     return (
-      <div className="w-full text-left">
+      <div className="w-full text-start">
         <div
           ref={sliderRef}
           className="flex snap-x snap-mandatory overflow-x-auto border border-[#1a1a1a] bg-[#0a0a0a] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
@@ -139,7 +140,7 @@ const ClipPreviewSlider = forwardRef<ClipPreviewSliderHandle>(
               target="_blank"
               rel="noopener noreferrer"
               className={`group flex basis-[82%] shrink-0 snap-start flex-col bg-[#0a0a0a] text-[var(--fg)] no-underline transition hover:no-underline sm:basis-[46%] lg:basis-[33.3333%] ${
-                index > 0 ? "border-l border-[#1a1a1a]" : ""
+                index > 0 ? "border-s border-[#1a1a1a]" : ""
               }`}
               onClick={() =>
                 trackEvent("view clip preview", {
@@ -625,6 +626,7 @@ export default function ClipsTemplate() {
         </div>
         <TemplateComparisonTable
           caption={t("templateLanding.clips.s032")}
+          featureHeader={t("templateLanding.clips.s032")}
           columns={[
             {
               id: "clips",

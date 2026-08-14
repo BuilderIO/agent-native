@@ -391,6 +391,7 @@ export default function DispatchTemplate() {
         </div>
         <TemplateComparisonTable
           caption={t("templateLanding.dispatch.s034")}
+          featureHeader={t("templateLanding.dispatch.s034")}
           columns={[
             { id: "slack-bots", header: "Slack Bots" },
             {
