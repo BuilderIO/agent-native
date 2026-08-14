@@ -1,6 +1,5 @@
-import { agentNativePath } from "@agent-native/core/client/api-path";
 import { useLocale, useT } from "@agent-native/core/client/i18n";
-import { useState, type FormEvent, type ReactNode } from "react";
+import { type ReactNode } from "react";
 import { Link } from "react-router";
 
 import { sitePathForLocale } from "../components/docs-locale";
@@ -71,80 +70,6 @@ function Section({
     >
       {children}
     </section>
-  );
-}
-
-function UpdatesForm() {
-  const [email, setEmail] = useState("");
-  const [status, setStatus] = useState<
-    "idle" | "submitting" | "joined" | "error"
-  >("idle");
-
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setStatus("submitting");
-    try {
-      const response = await fetch(
-        agentNativePath("/_agent-native/builder/branch-waitlist"),
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            email: email.trim(),
-            pageUrl: window.location.href,
-            source: "pricing_page",
-            useCase: "agent_native_project_updates",
-          }),
-        },
-      );
-      if (!response.ok) throw new Error("Subscription failed");
-      setStatus("joined");
-    } catch {
-      setStatus("error");
-    }
-  }
-
-  if (status === "joined") {
-    return (
-      <p role="status" className="m-0 text-sm font-medium text-[var(--fg)]">
-        You're on the list. We'll keep it useful.
-      </p>
-    );
-  }
-
-  return (
-    <form onSubmit={handleSubmit} className="w-full max-w-xl">
-      <div className="flex flex-col gap-3 sm:flex-row">
-        <label className="sr-only" htmlFor="pricing-updates-email">
-          Work email
-        </label>
-        <input
-          id="pricing-updates-email"
-          type="email"
-          required
-          autoComplete="email"
-          value={email}
-          onChange={(event) => setEmail(event.target.value)}
-          placeholder="you@company.com"
-          className="min-w-0 flex-1 rounded-xl border border-[var(--docs-border)] bg-[var(--bg)] px-4 py-3 text-base text-[var(--fg)] outline-none transition placeholder:text-[var(--fg-secondary)] focus:border-[var(--fg-secondary)]"
-        />
-        <button
-          type="submit"
-          disabled={status === "submitting"}
-          className="primary-button justify-center disabled:cursor-wait disabled:opacity-60"
-        >
-          {status === "submitting" ? "Signing up…" : "Get project updates"}
-        </button>
-      </div>
-      {status === "error" ? (
-        <p
-          role="status"
-          className="mt-3 mb-0 text-sm text-[var(--fg-secondary)]"
-        >
-          We couldn't sign you up just now. Please try again.
-        </p>
-      ) : null}
-    </form>
   );
 }
 
@@ -232,38 +157,6 @@ export default function PricingPage() {
         </div>
       </Section>
 
-      <Section id="builder-backend">
-        <div className="mb-5 inline-flex rounded-full border border-[var(--docs-border)] bg-[var(--bg-secondary)] px-3 py-1 text-xs font-medium uppercase tracking-[0.14em] text-[var(--fg-secondary)]">
-          Optional
-        </div>
-        <h2 className="mb-5 text-3xl font-bold tracking-tight sm:text-5xl">
-          Builder.io Back-end
-        </h2>
-        <p className="mb-10 max-w-3xl text-xl leading-8 text-[var(--fg-secondary)] sm:text-2xl">
-          You can run all of this yourself. Here's when you'd like the Easy
-          button.
-        </p>
-        <div className="max-w-4xl space-y-6 text-base leading-8 text-[var(--fg-secondary)] sm:text-lg">
-          <p>
-            Self-hosting means you own the Postgres, the object storage, the CDN
-            bill, the auth flow, the backups, and the 2am page when the disk
-            fills up. Some teams want that. Some teams have a product to ship.
-          </p>
-          <p>
-            Builder's managed backend is the quicker, easier option to just
-            <em> use </em>these apps, rather than build your own:
-          </p>
-          <div className="rounded-2xl border border-dashed border-[var(--docs-border)] bg-[var(--bg-secondary)] px-6 py-12 text-center font-mono text-sm text-[var(--fg-secondary)]">
-            Pricing table placeholder
-          </div>
-          <p>
-            Nothing you build gets locked in. The storage and data adapters are
-            interfaces — swap ours out for yours and the app keeps running. If
-            we ever stop being the best option, leave. We'd rather you could.
-          </p>
-        </div>
-      </Section>
-
       <Section id="faq">
         <h2 className="mb-10 text-3xl font-bold tracking-tight sm:text-5xl">
           FAQ
@@ -302,7 +195,7 @@ export default function PricingPage() {
         <p className="mx-auto mb-8 max-w-xl text-lg leading-relaxed text-[var(--fg-secondary)]">
           {t("home.hero.body")}
         </p>
-        <div className="mb-16 flex flex-wrap items-center justify-center gap-4">
+        <div className="flex flex-wrap items-center justify-center gap-4">
           <Link to={localizedPath("/apps")} className="primary-button">
             {t("home.hero.primaryCta")} <span aria-hidden>→</span>
           </Link>
@@ -312,20 +205,6 @@ export default function PricingPage() {
           >
             {t("home.hero.secondaryCta")}
           </Link>
-        </div>
-
-        <div className="mx-auto flex max-w-3xl flex-col items-center rounded-2xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] px-6 py-8 sm:px-10 sm:py-10">
-          <p className="mb-2 font-mono text-xs uppercase tracking-[0.14em] text-[var(--fg-secondary)]">
-            Project updates
-          </p>
-          <h3 className="mb-3 text-2xl font-bold tracking-tight">
-            One changelog for every Agent-Native product.
-          </h3>
-          <p className="mt-0 mb-6 max-w-xl text-base leading-7 text-[var(--fg-secondary)]">
-            New templates, framework releases, backend updates, and the useful
-            details behind them. One occasional email.
-          </p>
-          <UpdatesForm />
         </div>
       </Section>
     </main>
