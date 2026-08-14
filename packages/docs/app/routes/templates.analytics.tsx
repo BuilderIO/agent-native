@@ -474,8 +474,6 @@ export default function AnalyticsTemplate() {
         </p>
       </TemplateFinalCta>
 
-      <SectionDivider showOnSmallScreens={false} />
-
       <TemplateLandingFaq
         idPrefix="analytics-faq"
         eyebrow={

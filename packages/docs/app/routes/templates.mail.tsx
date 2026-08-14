@@ -463,8 +463,6 @@ export default function MailTemplate() {
         </p>
       </TemplateFinalCta>
 
-      <SectionDivider showOnSmallScreens={false} />
-
       <TemplateLandingFaq
         idPrefix="mail-faq"
         eyebrow={

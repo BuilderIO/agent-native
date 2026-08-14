@@ -447,8 +447,6 @@ export default function CalendarTemplate() {
         </p>
       </TemplateFinalCta>
 
-      <SectionDivider showOnSmallScreens={false} />
-
       <TemplateLandingFaq
         idPrefix="calendar-faq"
         eyebrow={

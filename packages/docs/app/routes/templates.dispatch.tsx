@@ -439,8 +439,6 @@ export default function DispatchTemplate() {
         </p>
       </TemplateFinalCta>
 
-      <SectionDivider showOnSmallScreens={false} />
-
       <TemplateLandingFaq
         idPrefix="dispatch-faq"
         eyebrow={

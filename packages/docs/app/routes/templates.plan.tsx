@@ -515,8 +515,6 @@ export default function PlanTemplate() {
         </p>
       </TemplateFinalCta>
 
-      <SectionDivider showOnSmallScreens={false} />
-
       <TemplateLandingFaq
         idPrefix="plan-faq"
         eyebrow={

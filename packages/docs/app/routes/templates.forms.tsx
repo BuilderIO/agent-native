@@ -377,8 +377,6 @@ export default function FormsTemplate() {
         </p>
       </TemplateFinalCta>
 
-      <SectionDivider showOnSmallScreens={false} />
-
       <TemplateLandingFaq
         idPrefix="forms-faq"
         eyebrow={

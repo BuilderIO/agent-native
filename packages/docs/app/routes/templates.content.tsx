@@ -397,8 +397,6 @@ export default function ContentTemplate() {
         </p>
       </TemplateFinalCta>
 
-      <SectionDivider showOnSmallScreens={false} />
-
       <TemplateLandingFaq
         idPrefix="content-faq"
         eyebrow={

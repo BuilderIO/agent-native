@@ -375,8 +375,6 @@ export default function DesignTemplate() {
         </p>
       </TemplateFinalCta>
 
-      <SectionDivider showOnSmallScreens={false} />
-
       <TemplateLandingFaq
         idPrefix="design-faq"
         eyebrow={

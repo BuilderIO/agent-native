@@ -206,8 +206,6 @@ export default function GenericTemplatePage() {
 
       {faqItems.length > 0 ? (
         <>
-          <SectionDivider showOnSmallScreens={false} />
-
           <TemplateLandingFaq
             idPrefix={`${template.slug}-faq`}
             eyebrow={
