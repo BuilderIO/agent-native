@@ -60,12 +60,6 @@ import {
   updateActiveRunSeq,
 } from "./active-run-state.js";
 import {
-  claimRunStream,
-  createRunStreamToken,
-  ownsRunStream,
-  releaseRunStream,
-} from "./run-stream-ownership.js";
-import {
   activeRunLooksAlive,
   createAgentChatAdapter,
   hasInFlightToolCall,
@@ -201,6 +195,12 @@ import {
   type McpConnectionResumeRequest,
 } from "./resources/mcp-connection-resume.js";
 import { McpConnectionSuggestion } from "./resources/McpConnectionSuggestion.js";
+import {
+  claimRunStream,
+  createRunStreamToken,
+  ownsRunStream,
+  releaseRunStream,
+} from "./run-stream-ownership.js";
 import {
   AgentAutoContinueSignal,
   type ContentPart,
@@ -2812,11 +2812,7 @@ const AssistantChatInner = forwardRef<
       isReconnecting || reconnectFrozen
         ? reconnectActivityFallbackContent(runningActivityTool)
         : [],
-    [
-      isReconnecting,
-      reconnectFrozen,
-      runningActivityTool,
-    ],
+    [isReconnecting, reconnectFrozen, runningActivityTool],
   );
   const lastBroadcastRunningRef = useRef(isRunning);
   const tiptapRef = useRef<TiptapComposerHandle>(null);

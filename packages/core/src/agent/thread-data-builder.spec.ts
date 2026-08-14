@@ -89,9 +89,15 @@ describe("buildAssistantMessage", () => {
   it("keeps two cards when one id is reused across different tools", () => {
     const events: RunEvent[] = [
       { seq: 0, event: { type: "tool_start", id: "dup", tool: "query" } },
-      { seq: 1, event: { type: "tool_done", id: "dup", tool: "query", result: "1" } },
+      {
+        seq: 1,
+        event: { type: "tool_done", id: "dup", tool: "query", result: "1" },
+      },
       { seq: 2, event: { type: "tool_start", id: "dup", tool: "write" } },
-      { seq: 3, event: { type: "tool_done", id: "dup", tool: "write", result: "ok" } },
+      {
+        seq: 3,
+        event: { type: "tool_done", id: "dup", tool: "write", result: "ok" },
+      },
     ];
 
     const message = buildAssistantMessage(events, "run-id-reuse");
