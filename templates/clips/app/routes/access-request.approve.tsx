@@ -10,6 +10,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import enMessages from "@/i18n/en-US";
 
+import {
+  recordingAccessApprovalContinuationPath,
+  recordingAccessApprovalSessionKey,
+} from "../../shared/recording-link";
+
 interface ApprovalResult {
   ok: true;
   alreadyAllowed: boolean;
@@ -35,16 +40,57 @@ export default function ApproveRecordingAccessRequestRoute() {
   const [searchParams] = useSearchParams();
   const { session, isLoading: sessionLoading } = useSession();
   const recordingId = searchParams.get("recordingId") ?? "";
-  const approvalToken = searchParams.get("token") ?? "";
+  const approvalTokenFromUrl = searchParams.get("token") ?? "";
+  const approvalTokenStorageKey =
+    recordingAccessApprovalSessionKey(recordingId);
+  const [approvalToken, setApprovalToken] = useState(() => {
+    if (approvalTokenFromUrl) return approvalTokenFromUrl;
+    if (typeof window === "undefined" || !recordingId) return "";
+    try {
+      return sessionStorage.getItem(approvalTokenStorageKey) ?? "";
+    } catch {
+      // coercion-ok: unavailable tab storage is an absent continuation.
+      return "";
+    }
+  });
   const [state, setState] = useState<ApprovalState>({ kind: "loading" });
 
+  useEffect(() => {
+    if (!recordingId) {
+      setApprovalToken("");
+      return;
+    }
+    if (!approvalTokenFromUrl) {
+      try {
+        setApprovalToken(sessionStorage.getItem(approvalTokenStorageKey) ?? "");
+      } catch {
+        setApprovalToken("");
+      }
+      return;
+    }
+    try {
+      sessionStorage.setItem(approvalTokenStorageKey, approvalTokenFromUrl);
+    } catch {
+      // coercion-ok: never fall back to putting the bearer token in the URL.
+      // Session storage may be unavailable in hardened browser contexts.
+    }
+    setApprovalToken(approvalTokenFromUrl);
+
+    // The email link must contain the capability, but it should not remain in
+    // the address bar or be copied into the sign-in continuation URL.
+    const params = new URLSearchParams(window.location.search);
+    params.delete("token");
+    const nextSearch = params.toString();
+    window.history.replaceState(
+      window.history.state,
+      "",
+      `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ""}${window.location.hash}`,
+    );
+  }, [approvalTokenFromUrl, approvalTokenStorageKey, recordingId]);
+
   const signInReturnTo = useMemo(() => {
-    const params = new URLSearchParams({
-      recordingId,
-      token: approvalToken,
-    });
-    return `/access-request/approve?${params.toString()}`;
-  }, [approvalToken, recordingId]);
+    return recordingAccessApprovalContinuationPath(recordingId);
+  }, [recordingId]);
 
   useEffect(() => {
     if (sessionLoading) return;
@@ -72,6 +118,12 @@ export default function ApproveRecordingAccessRequestRoute() {
       approvalToken,
     })
       .then((result) => {
+        try {
+          sessionStorage.removeItem(approvalTokenStorageKey);
+        } catch {
+          // coercion-ok: cleanup failure cannot authorize or expose the token.
+          // Session storage may be unavailable in hardened browser contexts.
+        }
         if (!cancelled) setState({ kind: "success", result });
       })
       .catch((error: unknown) => {
@@ -88,7 +140,14 @@ export default function ApproveRecordingAccessRequestRoute() {
     return () => {
       cancelled = true;
     };
-  }, [approvalToken, recordingId, session?.email, sessionLoading, t]);
+  }, [
+    approvalToken,
+    approvalTokenStorageKey,
+    recordingId,
+    session?.email,
+    sessionLoading,
+    t,
+  ]);
 
   const signInHref = buildSignInReturnHref({ returnTo: signInReturnTo });
 
@@ -124,7 +183,23 @@ export default function ApproveRecordingAccessRequestRoute() {
                 {t("sharePage.accessApprovalSignInMessage")}
               </p>
               <Button asChild>
-                <a href={signInHref}>{t("sharePage.accessApprovalSignIn")}</a>
+                <a
+                  href={signInHref}
+                  onClick={() => {
+                    if (!approvalToken) return;
+                    try {
+                      sessionStorage.setItem(
+                        approvalTokenStorageKey,
+                        approvalToken,
+                      );
+                    } catch {
+                      // coercion-ok: never fall back to putting the bearer token in the URL.
+                      // Session storage may be unavailable in hardened browser contexts.
+                    }
+                  }}
+                >
+                  {t("sharePage.accessApprovalSignIn")}
+                </a>
               </Button>
             </div>
           ) : state.kind === "error" ? (

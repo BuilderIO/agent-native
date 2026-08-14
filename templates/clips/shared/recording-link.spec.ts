@@ -8,7 +8,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildRecordingShareUrl,
+  recordingAccessApprovalContinuationPath,
   recordingAccessApprovalPath,
+  recordingAccessApprovalSessionKey,
   recordingSharePath,
 } from "./recording-link";
 
@@ -35,6 +37,24 @@ describe("recordingAccessApprovalPath", () => {
     expect(url.pathname).toBe("/access-request/approve");
     expect(url.searchParams.get("recordingId")).toBe("rec 1");
     expect(url.searchParams.get("token")).toBe("signed.token");
+  });
+});
+
+describe("recordingAccessApprovalContinuationPath", () => {
+  it("does not carry the approval capability through sign-in", () => {
+    const url = new URL(
+      `https://clips.example.com${recordingAccessApprovalContinuationPath("rec 1")}`,
+    );
+
+    expect(url.pathname).toBe("/access-request/approve");
+    expect(url.searchParams.get("recordingId")).toBe("rec 1");
+    expect(url.searchParams.has("token")).toBe(false);
+  });
+
+  it("uses a tab-scoped storage key per recording", () => {
+    expect(recordingAccessApprovalSessionKey("rec 1")).toBe(
+      "clips-access-approval-token:rec%201",
+    );
   });
 });
 
