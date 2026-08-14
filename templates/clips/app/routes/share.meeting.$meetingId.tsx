@@ -45,6 +45,11 @@ import {
 import { getDb, schema } from "../../server/db";
 import { CLIPS_MEETING_AGENT_RESOURCE_KIND } from "../../shared/meeting-agent-access";
 import { privateShareLoaderData } from "../../shared/share-loader-response";
+import {
+  normalizeTranscriptSegments,
+  parseTranscriptSegments,
+} from "../../shared/transcript-segments";
+import { resolveTranscriptPresentation } from "../../shared/transcript-status";
 
 type LoaderData = { meeting: PublicMeeting | null };
 
@@ -85,6 +90,7 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
       actualEnd: schema.meetings.actualEnd,
       transcriptStatus: schema.meetings.transcriptStatus,
       recordingId: schema.meetings.recordingId,
+      shareTranscript: schema.meetings.shareTranscript,
       visibility: schema.meetings.visibility,
     })
     .from(schema.meetings)
@@ -123,7 +129,7 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
       })
       .from(schema.meetingActionItems)
       .where(eq(schema.meetingActionItems.meetingId, meetingId)),
-    meeting.recordingId
+    meeting.shareTranscript && meeting.recordingId
       ? getDb()
           .select({
             status: schema.recordingTranscripts.status,

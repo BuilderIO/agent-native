@@ -140,7 +140,10 @@ describe("/api/public-meeting route", () => {
   });
 
   it("uses a valid meeting-scoped agent token without requiring a browser session", async () => {
-    const meeting = makeMeeting({ visibility: "private" });
+    const meeting = makeMeeting({
+      visibility: "private",
+      shareTranscript: true,
+    });
     const db = createDbWithSelectResults([[meeting], [], []]);
     mockGetQuery.mockReturnValue({
       id: "meeting-1",
@@ -187,6 +190,10 @@ describe("/api/public-meeting route", () => {
   });
 
   it("returns a null transcript when no transcript row exists", async () => {
+    mockResolveAccess.mockResolvedValue({
+      role: "viewer",
+      resource: makeMeeting({ shareTranscript: true }),
+    });
     const db = createDbWithSelectResults([
       [{ email: "guest@example.com", name: "Guest", isOrganizer: false }],
       [
@@ -231,10 +238,10 @@ describe("/api/public-meeting route", () => {
     );
   });
 
-  it("includes a normalized transcript even when shareTranscript is false", async () => {
+  it("includes a normalized transcript when shareTranscript is enabled", async () => {
     mockResolveAccess.mockResolvedValue({
       role: "viewer",
-      resource: makeMeeting({ shareTranscript: false }),
+      resource: makeMeeting({ shareTranscript: true }),
     });
     const db = createDbWithSelectResults([
       [],
@@ -279,6 +286,24 @@ describe("/api/public-meeting route", () => {
       },
     });
     expect(db.select).toHaveBeenCalledTimes(3);
+  });
+
+  it("omits the transcript when shareTranscript is disabled", async () => {
+    mockResolveAccess.mockResolvedValue({
+      role: "viewer",
+      resource: makeMeeting({ shareTranscript: false }),
+    });
+    const db = createDbWithSelectResults([[], []]);
+    mockGetDb.mockReturnValue(db);
+
+    const result = await handler({} as any);
+
+    expect(result).toMatchObject({ meeting: { id: "meeting-1" } });
+    expect(result).toHaveProperty("meeting");
+    expect(
+      (result as { meeting: Record<string, unknown> }).meeting,
+    ).not.toHaveProperty("transcript");
+    expect(db.select).toHaveBeenCalledTimes(2);
   });
 
   it("passes the signed-in viewer context to meeting access resolution", async () => {

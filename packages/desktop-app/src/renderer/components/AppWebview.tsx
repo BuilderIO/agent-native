@@ -325,12 +325,17 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     const syncGuestAppChatSidebar = useCallback(() => {
       const wv = webviewRef.current;
       if (!wv || app.placeholder) return;
-      void wv
-        .executeJavaScript(
-          buildGuestAppChatSidebarStateScript(perAppChatOpenRef.current),
-          false,
-        )
-        .catch(() => {});
+      try {
+        void wv
+          .executeJavaScript(
+            buildGuestAppChatSidebarStateScript(perAppChatOpenRef.current),
+            false,
+          )
+          .catch(() => {});
+        // coercion-ok: Guest chrome sync is best-effort until Chromium attaches the webview.
+      } catch {
+        // The imperatively-created webview can exist before Chromium attaches it.
+      }
     }, [app.placeholder]);
 
     useEffect(() => {
