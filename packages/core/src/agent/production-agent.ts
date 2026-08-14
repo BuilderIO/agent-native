@@ -43,6 +43,7 @@ import {
 } from "../server/credential-provider.js";
 import { readBody } from "../server/h3-helpers.js";
 import {
+  assertRequestActionSurfaceIsolation,
   getRequestRunContext,
   ensureRequestRunContext,
   getRequestContext,
@@ -8115,6 +8116,9 @@ export function resolveAgentRequestReasoningEffort({
 export function createProductionAgentHandler(
   options: ProductionAgentOptions,
 ): H3EventHandler {
+  if (options.resolveActionSurface) {
+    assertRequestActionSurfaceIsolation();
+  }
   // Undefined = let each engine pick its own defaultModel at request time.
   const configuredModel = options.model;
 

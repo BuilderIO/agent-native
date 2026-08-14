@@ -231,14 +231,18 @@ export interface RequestContext {
 const GLOBAL_KEY = "__agentNativeRequestContextAls" as const;
 const OBSERVERS_KEY = "__agentNativeRequestContextObservers" as const;
 const BOUNDARY_KEY = "__agentNativeRequestBoundaryInstalled" as const;
+const CONTINUATION_LOCAL_KEY =
+  "__agentNativeRequestContextContinuationLocal" as const;
 type RequestContextObserver = (ctx: RequestContext) => void;
 type GlobalWithRequestContext = typeof globalThis & {
   [GLOBAL_KEY]?: AsyncLocalStorageLike<RequestContext>;
   [OBSERVERS_KEY]?: RequestContextObserver[];
   [BOUNDARY_KEY]?: boolean;
+  [CONTINUATION_LOCAL_KEY]?: boolean;
 };
 const globalRef = globalThis as GlobalWithRequestContext;
 if (!globalRef[GLOBAL_KEY]) {
+  globalRef[CONTINUATION_LOCAL_KEY] = Boolean(AsyncLocalStorageCtor);
   globalRef[GLOBAL_KEY] = AsyncLocalStorageCtor
     ? new AsyncLocalStorageCtor<RequestContext>()
     : new StackAsyncLocalStorage<RequestContext>();
@@ -248,6 +252,18 @@ if (!globalRef[OBSERVERS_KEY]) {
 }
 const als = globalRef[GLOBAL_KEY]!;
 const observers = globalRef[OBSERVERS_KEY]!;
+
+/**
+ * Authorization state must never use the shared-stack compatibility fallback:
+ * overlapping async requests are only isolated by native AsyncLocalStorage.
+ */
+export function assertRequestActionSurfaceIsolation(): void {
+  if (globalRef[CONTINUATION_LOCAL_KEY] === true) return;
+  throw new Error(
+    "Request-scoped action surfaces require continuation-local request context storage; " +
+      "this runtime only provides the non-isolated fallback.",
+  );
+}
 
 /**
  * Register a callback fired every time `runWithRequestContext` enters a new
@@ -281,6 +297,9 @@ export function runWithRequestContext<T>(
   ctx: RequestContext,
   fn: () => T | Promise<T>,
 ): T | Promise<T> {
+  if (ctx.run?.allowedActionNames !== undefined) {
+    assertRequestActionSurfaceIsolation();
+  }
   return als.run(ctx, () => {
     if (observers.length > 0) {
       for (const obs of observers) {
