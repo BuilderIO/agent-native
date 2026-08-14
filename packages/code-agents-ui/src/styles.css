@@ -1470,22 +1470,20 @@
     sans-serif;
   font-size: 13px;
   line-height: 1.35;
+  --agent-shadow: 0 0% 0%;
+  --agent-shadow-o: 0.14;
   box-shadow:
-    0 18px 44px rgba(0, 0, 0, 0.16),
+    0 10px 30px hsl(var(--agent-shadow) / var(--agent-shadow-o)),
     inset 0 1px 0 hsl(var(--foreground) / 0.04);
 }
 
 .dark [data-agent-native-composer-popover="true"] {
-  box-shadow:
-    0 18px 44px rgba(0, 0, 0, 0.42),
-    inset 0 1px 0 hsl(var(--foreground) / 0.04);
+  --agent-shadow-o: 0.26;
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not(.light) [data-agent-native-composer-popover="true"] {
-    box-shadow:
-      0 18px 44px rgba(0, 0, 0, 0.42),
-      inset 0 1px 0 hsl(var(--foreground) / 0.04);
+    --agent-shadow-o: 0.26;
   }
 }
 
