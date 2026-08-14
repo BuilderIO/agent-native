@@ -44,11 +44,11 @@ import {
   getCurrentOwnerEmail,
   ownerEmailMatches,
 } from "../server/lib/recordings.js";
-import { abortResumableUploadSession } from "../server/lib/resumable-upload-cleanup.js";
 import {
   deleteResumableSession,
   getResumableSession,
 } from "../server/lib/resumable-session.js";
+import { abortResumableUploadSession } from "../server/lib/resumable-upload-cleanup.js";
 import { resolveResumableUploadProvider } from "../server/lib/resumable-upload-provider.js";
 import { fetchS3ObjectByUrl } from "../server/lib/s3-upload-provider.js";
 import {
@@ -1188,7 +1188,9 @@ export default defineAction({
           resumableSession.providerId,
         );
         if (!uploadProvider?.resumable) {
-          throw new Error("Upload completion failed: No resumable upload provider configured");
+          throw new Error(
+            "Upload completion failed: No resumable upload provider configured",
+          );
         }
         if (resumableSession.bytesUploaded <= 0) {
           const cleaned = await abortResumableUploadSession(resumableSession, {
@@ -1203,7 +1205,9 @@ export default defineAction({
               ),
             );
           }
-          throw new Error("Upload completion failed: Recording upload contained no video bytes");
+          throw new Error(
+            "Upload completion failed: Recording upload contained no video bytes",
+          );
         }
 
         let videoUrl: string;

@@ -15,8 +15,8 @@ import { getDbExec, isPostgres } from "@agent-native/core/db";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
-import { abortResumableUploadSession } from "./resumable-upload-cleanup.js";
 import type { StoredResumableSession } from "./resumable-session.js";
+import { abortResumableUploadSession } from "./resumable-upload-cleanup.js";
 
 /**
  * ponytail: one horizon for both in-progress statuses. A paused recorder emits
@@ -163,7 +163,9 @@ function resumableSessionKey(
     : `resumable-session-${recordingId}`;
 }
 
-function parseStoredResumableSession(value: unknown): StoredResumableSession | null {
+function parseStoredResumableSession(
+  value: unknown,
+): StoredResumableSession | null {
   let parsed: unknown = value;
   if (typeof parsed === "string") {
     try {
@@ -279,9 +281,8 @@ export async function reapExpiredUploads(
     failed = terminated.size;
 
     for (const id of terminated) {
-      const generationId = expired.find(
-        (row) => row.id === id,
-      )?.uploadGenerationId;
+      const generationId =
+        expired.find((row) => row.id === id)?.uploadGenerationId ?? null;
       const sessionKey = resumableSessionKey(id, generationId);
       const sessionState = await readResumableSessionState(
         exec,

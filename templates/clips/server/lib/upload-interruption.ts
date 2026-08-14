@@ -15,7 +15,8 @@ export function isRetryableUploadInterruption(
 ): boolean {
   return (
     failureReason === RETRYABLE_UPLOAD_INTERRUPTION_REASON ||
-    failureReason?.startsWith(`${RETRYABLE_UPLOAD_INTERRUPTION_REASON} Last error:`) ===
-      true
+    failureReason?.startsWith(
+      `${RETRYABLE_UPLOAD_INTERRUPTION_REASON} Last error:`,
+    ) === true
   );
 }
