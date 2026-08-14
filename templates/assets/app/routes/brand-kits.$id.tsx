@@ -4533,7 +4533,9 @@ function LiveCandidatesActions({
   const hasFailed = failedCount > 0;
   const isClearing = dismissSlots.isPending || deleteAssets.isPending;
   const actionLabel =
-    pending === "failed" ? t("library.dismissFailed") : t("library.clearAll");
+    pending === "failed"
+      ? t("library.dismissFailed")
+      : t("library.clearAllWithCount", { count: totalCount });
   const busyLabel =
     pending === "failed" ? t("library.dismissing") : t("library.clearing");
 
@@ -4645,26 +4647,28 @@ function LiveCandidatesActions({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          <DropdownMenuItem
-            disabled={!hasFailed || isClearing}
-            onSelect={(event) => {
-              event.preventDefault();
-              setPending("failed");
-            }}
-          >
-            <IconTrash className="mr-2 h-4 w-4 shrink-0" />
-            {t("library.dismissFailedWithCount", { count: failedCount })}
-          </DropdownMenuItem>
+          {hasFailed ? (
+            <DropdownMenuItem
+              disabled={isClearing}
+              onSelect={(event) => {
+                event.preventDefault();
+                setPending("failed");
+              }}
+            >
+              <IconTrash className="mr-2 h-4 w-4 shrink-0" />
+              {t("library.dismissFailedWithCount", { count: failedCount })}
+            </DropdownMenuItem>
+          ) : null}
           <DropdownMenuItem
             className="text-destructive focus:bg-destructive/10 focus:text-destructive"
-            disabled={isClearing}
+            disabled={isClearing || totalCount === 0}
             onSelect={(event) => {
               event.preventDefault();
               setPending("all");
             }}
           >
             <IconTrash className="mr-2 h-4 w-4 shrink-0" />
-            {t("library.clearAll")}
+            {t("library.clearAllWithCount", { count: totalCount })}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
