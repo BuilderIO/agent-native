@@ -33,6 +33,44 @@ import {
 
 export const CLIPS_ACCESS_REQUEST_EMAIL_ID = "clips.access-request";
 
+const ANONYMOUS_ACCESS_REQUEST_WINDOW_MS = 10 * 60 * 1000;
+const ANONYMOUS_ACCESS_REQUEST_MAX = 5;
+const ANONYMOUS_ACCESS_REQUEST_MAX_BUCKETS = 5000;
+const anonymousAccessRequestBuckets = new Map<
+  string,
+  { count: number; resetAt: number }
+>();
+
+export function __resetAnonymousAccessRequestRateLimitForTests(): void {
+  anonymousAccessRequestBuckets.clear();
+}
+
+function allowAnonymousAccessRequest(recordingId: string): boolean {
+  const now = Date.now();
+  for (const [key, bucket] of anonymousAccessRequestBuckets) {
+    if (bucket.resetAt <= now) anonymousAccessRequestBuckets.delete(key);
+  }
+
+  let bucket = anonymousAccessRequestBuckets.get(recordingId);
+  if (!bucket) {
+    if (
+      anonymousAccessRequestBuckets.size >= ANONYMOUS_ACCESS_REQUEST_MAX_BUCKETS
+    ) {
+      const oldestKey = anonymousAccessRequestBuckets.keys().next().value;
+      if (oldestKey) anonymousAccessRequestBuckets.delete(oldestKey);
+    }
+    bucket = {
+      count: 0,
+      resetAt: now + ANONYMOUS_ACCESS_REQUEST_WINDOW_MS,
+    };
+    anonymousAccessRequestBuckets.set(recordingId, bucket);
+  }
+
+  if (bucket.count >= ANONYMOUS_ACCESS_REQUEST_MAX) return false;
+  bucket.count += 1;
+  return true;
+}
+
 function accessRequestEventId(
   recordingId: string,
   requesterEmail: string,
@@ -274,6 +312,13 @@ export default defineAction({
         notifiedOwner: false,
         message: "Your access request is already with the clip owner.",
       };
+    }
+
+    if (!sessionEmail && !allowAnonymousAccessRequest(recordingId)) {
+      throw httpError(
+        "Too many anonymous access requests for this clip. Try again later.",
+        429,
+      );
     }
 
     const requesterName =

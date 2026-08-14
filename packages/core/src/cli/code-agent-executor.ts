@@ -949,6 +949,9 @@ async function executeOpenCodeCliRun(options: {
   const variant = normalizeOpenCodeVariant(options.reasoningEffort);
   const cwd = options.run.cwd || process.cwd();
   const args = ["run", "--format", "default", "--dir", cwd];
+  if (options.permissionMode === "read-only") {
+    args.push("--agent", "plan");
+  }
   if (model) args.push("--model", model);
   if (variant) args.push("--variant", variant);
   args.push(buildLocalCliPrompt(options.run, options.prompt));

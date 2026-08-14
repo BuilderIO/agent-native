@@ -83,6 +83,7 @@ vi.mock("../server/lib/recordings.js", () => ({
 }));
 
 import requestRecordingAccess, {
+  __resetAnonymousAccessRequestRateLimitForTests,
   renderRecordingAccessRequestEmail,
 } from "./request-recording-access.js";
 
@@ -140,6 +141,7 @@ describe("request-recording-access", () => {
     mocks.notify.mockResolvedValue(undefined);
     mocks.sendEmail.mockResolvedValue(undefined);
     mocks.verifyScopedAgentAccessToken.mockReturnValue({ ok: true });
+    __resetAnonymousAccessRequestRateLimitForTests();
   });
 
   it("requires a requester identity", async () => {
@@ -294,6 +296,38 @@ describe("request-recording-access", () => {
         replyTo: "guest@example.com",
       }),
     );
+  });
+
+  it("throttles anonymous requests per recording", async () => {
+    mocks.getRequestUserEmail.mockReturnValue(null);
+    mocks.getRequestOrgId.mockReturnValue(null);
+    mocks.getDb.mockImplementation(() => createDb([privateRecording()]));
+
+    for (let index = 0; index < 5; index += 1) {
+      await expect(
+        (requestRecordingAccess as any).run({
+          recordingId: "rec-1",
+          accessRequestToken: "request-token",
+          requesterEmail: `guest-${index}@example.com`,
+        }),
+      ).resolves.toMatchObject({
+        ok: true,
+        alreadyRequested: false,
+      });
+    }
+
+    await expect(
+      (requestRecordingAccess as any).run({
+        recordingId: "rec-1",
+        accessRequestToken: "request-token",
+        requesterEmail: "guest-5@example.com",
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 429,
+      message:
+        "Too many anonymous access requests for this clip. Try again later.",
+    });
+    expect(mocks.sendEmail).toHaveBeenCalledTimes(5);
   });
 
   it("does not send duplicate requests from the same viewer", async () => {

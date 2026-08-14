@@ -315,6 +315,53 @@ describe("executeCodeAgentRun", () => {
     );
   });
 
+  it("maps read-only OpenCode runs to the built-in Plan agent", async () => {
+    const root = useTempCodeAgentsHome();
+    for (const key of providerEnvKeys) delete process.env[key];
+    process.env.AGENT_ENGINE = "opencode-cli";
+    const binDir = path.join(root, "bin");
+    const argsPath = path.join(root, "opencode-args.json");
+    fs.mkdirSync(binDir, { recursive: true });
+    const opencodeBin = path.join(binDir, "opencode");
+    fs.writeFileSync(
+      opencodeBin,
+      [
+        "#!/usr/bin/env node",
+        "const fs = require('fs');",
+        "const args = process.argv.slice(2);",
+        `fs.writeFileSync(${JSON.stringify(argsPath)}, JSON.stringify(args));`,
+        "process.stdout.write('OpenCode streamed output');",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+    process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ""}`;
+    const output = createStringOutput();
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Inspect with OpenCode",
+      status: "queued",
+      cwd: process.cwd(),
+      permissionMode: "read-only",
+      metadata: {},
+    });
+
+    await executeCodeAgentRun({
+      runId: run.id,
+      prompt: "inspect the repository",
+      stdout: output.stream,
+    });
+
+    expect(getCodeAgentRunRecord(run.id)).toMatchObject({
+      status: "completed",
+      phase: "complete",
+      metadata: { engine: "opencode-cli" },
+    });
+    expect(output.read()).toContain("OpenCode streamed output");
+    const args = JSON.parse(fs.readFileSync(argsPath, "utf8")) as string[];
+    expect(args).toEqual(expect.arrayContaining(["--agent", "plan"]));
+    expect(args[args.indexOf("--agent") + 1]).toBe("plan");
+  });
+
   it("routes AGENT_ENGINE=codex-cli to the Codex CLI runner without engine metadata", async () => {
     const root = useTempCodeAgentsHome();
     for (const key of providerEnvKeys) delete process.env[key];
