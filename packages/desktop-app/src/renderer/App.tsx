@@ -1247,7 +1247,6 @@ export default function App() {
           )}
           {!isCodeAgentsActive && activeApp ? (
             <DesktopAppChatShell
-              key={activeApp.id}
               appId={activeApp.id}
               appName={activeApp.name}
               authState={appAuthStates[activeApp.id] ?? "unknown"}
