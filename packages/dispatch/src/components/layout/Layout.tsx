@@ -569,6 +569,7 @@ function DispatchChatsSection({
   prelude,
   chatFirstMode = false,
   chatFirstEmbedded = false,
+  collapsed = false,
   chatFirstNavigation,
 }: {
   onNavigate?: () => void;
@@ -576,6 +577,7 @@ function DispatchChatsSection({
   prelude?: ReactNode;
   chatFirstMode?: boolean;
   chatFirstEmbedded?: boolean;
+  collapsed?: boolean;
   chatFirstNavigation?: {
     activeTab?: ChatFirstPrimaryTab;
     onNewChat?: () => void;
@@ -722,6 +724,8 @@ function DispatchChatsSection({
     if (threadId) openThread(threadId, { isNew: true });
   }
 
+  const collapsedChatFirst = collapsed && chatFirstMode;
+
   return (
     <div
       className={cn(
@@ -730,7 +734,7 @@ function DispatchChatsSection({
       )}
     >
       {showNewChat && chatFirstNavigation ? (
-        <nav className="space-y-0.5 px-2 py-2">
+        <nav className={cn("space-y-0.5 py-2", collapsed ? "px-1.5" : "px-2")}>
           <ChatFirstPrimaryNavigation
             copy={chatFirstCopy}
             onNewChat={() => {
@@ -741,11 +745,12 @@ function DispatchChatsSection({
             onOpenScheduled={chatFirstNavigation.onOpenScheduled}
             onSearch={openCommandMenu}
             activeTab={chatFirstNavigation.activeTab}
+            collapsed={collapsed}
           />
         </nav>
       ) : null}
       {prelude}
-      {!chatFirstMode ? (
+      {!collapsedChatFirst && !chatFirstMode ? (
         <div className="flex justify-end px-2 pt-0.5">
           <Tooltip>
             <TooltipTrigger asChild>
@@ -784,7 +789,8 @@ function DispatchChatsSection({
           </Tooltip>
         </div>
       ) : null}
-      {!chatFirstMode &&
+      {!collapsedChatFirst &&
+        !chatFirstMode &&
         chatsLoading &&
         visibleThreads.length === 0 &&
         Array.from({ length: 3 }).map((_, index) => (
@@ -796,7 +802,9 @@ function DispatchChatsSection({
             <Skeleton className="h-3 w-3/4 rounded" />
           </div>
         ))}
-      {chatFirstMode && (chatsLoading || visibleThreads.length > 0) ? (
+      {!collapsedChatFirst &&
+      chatFirstMode &&
+      (chatsLoading || visibleThreads.length > 0) ? (
         <ChatFirstChatHistory
           items={chatItems}
           activeId={displayedActiveThreadId}
@@ -870,7 +878,7 @@ function DispatchChatsSection({
           )}
           className="min-w-0 px-2"
         />
-      ) : (
+      ) : !collapsedChatFirst ? (
         <ChatHistoryRail
           items={chatItems}
           activeId={displayedActiveThreadId}
@@ -938,7 +946,7 @@ function DispatchChatsSection({
           )}
           className="min-w-0 px-2"
         />
-      )}
+      ) : null}
     </div>
   );
 }
@@ -1273,29 +1281,26 @@ export function NavContent({
 
       {chatFirstMode ? (
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-          {!collapsed ? (
-            <DispatchChatsSection
-              onNavigate={onNavigate}
-              showNewChat
-              chatFirstMode
-              chatFirstEmbedded={chatFirstEmbedded}
-              chatFirstNavigation={{
-                activeTab: chatFirstActivePrimaryTab,
-                onNewChat: onChatFirstNewChat,
-                onOpenIntegrations: () => {
-                  navigate(dispatchNavLinkTarget("/admin/integrations"));
-                  onNavigate?.();
-                },
-                onOpenScheduled: () => {
-                  navigate(dispatchNavLinkTarget("/admin/automations"));
-                  onNavigate?.();
-                },
-              }}
-              prelude={chatFirstAppsRail}
-            />
-          ) : (
-            chatFirstAppsRail
-          )}
+          <DispatchChatsSection
+            onNavigate={onNavigate}
+            showNewChat
+            chatFirstMode
+            chatFirstEmbedded={chatFirstEmbedded}
+            collapsed={collapsed}
+            chatFirstNavigation={{
+              activeTab: chatFirstActivePrimaryTab,
+              onNewChat: onChatFirstNewChat,
+              onOpenIntegrations: () => {
+                navigate(dispatchNavLinkTarget("/admin/integrations"));
+                onNavigate?.();
+              },
+              onOpenScheduled: () => {
+                navigate(dispatchNavLinkTarget("/admin/automations"));
+                onNavigate?.();
+              },
+            }}
+            prelude={chatFirstAppsRail}
+          />
         </div>
       ) : null}
       <div
@@ -2374,7 +2379,7 @@ export function Layout({
   const content = isChatRoute ? (
     <div
       className={cn(
-        "agent-layout-main-surface flex min-w-0 flex-1 overflow-hidden",
+        "agent-layout-main-surface flex h-full min-w-0 flex-1 overflow-hidden",
         chatFirstMode && "dispatch-chat-first-surface",
       )}
     >

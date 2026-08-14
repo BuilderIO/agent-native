@@ -230,6 +230,23 @@
   container: agent-native-main / inline-size;
 }
 
+/* Dispatch and Electron own the chat drawer when an app is embedded. Keep
+   the standard app's navigation beside its content, on the opposite edge.
+   Custom shells opt out with data-agent-native-shell-variant="custom". */
+@media (min-width: 768px) {
+  .agent-layout-shell:not([data-agent-native-shell-variant="custom"]):has(
+      > .agent-sidebar-shell[data-agent-native-hosted-chat="true"]
+    )
+    > .agent-layout-left-drawer,
+  .agent-sidebar-shell[data-agent-native-hosted-chat="true"]
+    .agent-layout-shell:not([data-agent-native-shell-variant="custom"])
+    > .agent-layout-left-drawer {
+    order: 2;
+    border-inline-end: 0 !important;
+    border-inline-start: 1px solid hsl(var(--sidebar-border)) !important;
+  }
+}
+
 @media (min-width: 768px) {
   .agent-layout-shell
     :where(.agent-layout-main-surface, .agent-sidebar-main-surface)

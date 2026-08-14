@@ -350,7 +350,7 @@ const CODE_AGENT_PROVIDER_SETTING_KEYS: CodeAgentProviderCredentialKey[] = [
   "BUILDER_PUBLIC_KEY",
 ];
 const CODEX_CLI_ENGINE_NAME = "codex-cli";
-const CODEX_CLI_DEFAULT_MODEL = "codex-cli";
+const CODEX_CLI_DEFAULT_MODEL = "gpt-5.6-luna";
 const CLAUDE_CLI_ENGINE_NAME = "claude-cli";
 const PI_CLI_ENGINE_NAME = "pi-cli";
 const OPENCODE_CLI_ENGINE_NAME = "opencode-cli";
@@ -1272,6 +1272,7 @@ function createWindow(): BrowserWindow {
       webSecurity: true,
       additionalArguments: [
         `--an-webview-preload=${path.join(__dirname, "../preload/webview.js")}`,
+        `--an-webview-chat-preload=${path.join(__dirname, "../preload/webview-chat.js")}`,
       ],
     },
   });
@@ -8120,17 +8121,29 @@ function getCodeAgentModelList(): CodeAgentModelListResult {
       });
     }
     if (codex.available) {
-      models.push({
-        engine: CODEX_CLI_ENGINE_NAME,
-        engineLabel: "OpenAI",
-        model: codex.model || CODEX_CLI_DEFAULT_MODEL,
-        label: codex.model || "Codex",
-        description: "Run locally through your signed-in ChatGPT subscription.",
-        configured: codex.authenticated,
-        ...(codex.authenticated
-          ? { statusLabel: "ChatGPT subscription", isSubscription: true }
-          : {}),
-      });
+      const codexModels = Array.from(
+        new Set([
+          ...(codex.model && codex.model !== CODEX_CLI_ENGINE_NAME
+            ? [codex.model]
+            : []),
+          ...AI_SDK_MODEL_CONFIG.openai.supportedModels,
+          CODEX_CLI_DEFAULT_MODEL,
+        ]),
+      );
+      for (const model of codexModels) {
+        models.push({
+          engine: CODEX_CLI_ENGINE_NAME,
+          engineLabel: "OpenAI",
+          model,
+          label: model,
+          description:
+            "Run locally through your signed-in ChatGPT subscription.",
+          configured: codex.authenticated,
+          ...(codex.authenticated
+            ? { statusLabel: "ChatGPT subscription", isSubscription: true }
+            : {}),
+        });
+      }
     }
     if (claude.available) {
       models.push({

@@ -1,5 +1,11 @@
 import { IconPlus, IconHistory, IconX } from "@tabler/icons-react";
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, {
+  useState,
+  useRef,
+  useEffect,
+  useLayoutEffect,
+  useCallback,
+} from "react";
 
 import { DEFAULT_MODEL } from "../agent/default-model.js";
 import {
@@ -71,6 +77,9 @@ import {
 } from "./use-chat-threads.js";
 import { usePollLoop } from "./use-poll-loop.js";
 import { cn } from "./utils.js";
+
+const useBrowserLayoutEffect =
+  typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 interface ModelSelection {
   model: string;
@@ -1273,7 +1282,7 @@ export function MultiTabAssistantChat({
 
   const openTabsKeyRef = useRef(OPEN_TABS_KEY);
 
-  useEffect(() => {
+  useBrowserLayoutEffect(() => {
     const nextScope = scope;
     if (!nextScope) return;
     const type = formatScopeType(nextScope.type);
@@ -1287,7 +1296,7 @@ export function MultiTabAssistantChat({
       (item) => item.key === key,
     );
     let ownsContextItem = false;
-    if (!existing || existing.context.startsWith(marker)) {
+    if (!existing || existing.context.startsWith("Resource context:")) {
       setAgentChatContextItem({
         key,
         title,

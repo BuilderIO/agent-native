@@ -94,6 +94,10 @@ const WEBVIEW_PRELOAD_PATH =
   process.argv
     .find((arg) => arg.startsWith("--an-webview-preload="))
     ?.slice("--an-webview-preload=".length) ?? "";
+const WEBVIEW_CHAT_PRELOAD_PATH =
+  process.argv
+    .find((arg) => arg.startsWith("--an-webview-chat-preload="))
+    ?.slice("--an-webview-chat-preload=".length) ?? "";
 
 type CodeAgentTranscriptSubscriptionBatch = CodeAgentTranscriptResult & {
   subscriptionId?: string;
@@ -112,6 +116,8 @@ const electronAPI = {
 
   /** Dedicated preload for hosted app webviews. Exposes only app-safe bridges. */
   webviewPreloadPath: WEBVIEW_PRELOAD_PATH,
+  /** Chat-only preload for every hosted app webview. */
+  webviewChatPreloadPath: WEBVIEW_CHAT_PRELOAD_PATH,
 
   /** Window chrome controls */
   windowControls: {

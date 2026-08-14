@@ -292,6 +292,7 @@ describe("NewWorkspaceAppFlow", () => {
       submit: true,
       type: "code",
       newTab: true,
+      reuseEmptyTab: true,
     });
     expect(payload.message).toContain(
       "Requested Dispatch vault key grants for this app: OPENAI_API_KEY",

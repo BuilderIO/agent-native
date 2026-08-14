@@ -246,7 +246,17 @@ export const ChatFirstAppsRail = memo(function ChatFirstAppsRail({
       .map((id) => appsById.get(id))
       .filter((app): app is ChatFirstAppItem => Boolean(app));
   }, [apps, layout]);
-  const visibleApps = showAllApps ? orderedApps : orderedApps.slice(0, 5);
+  const visibleApps = useMemo(() => {
+    if (showAllApps) return orderedApps;
+
+    const defaultApps = orderedApps.slice(0, 5);
+    if (!activeAppId || defaultApps.some((app) => app.id === activeAppId)) {
+      return defaultApps;
+    }
+
+    const activeApp = orderedApps.find((app) => app.id === activeAppId);
+    return activeApp ? [...defaultApps, activeApp] : defaultApps;
+  }, [activeAppId, orderedApps, showAllApps]);
   const hasMoreApps = orderedApps.length > visibleApps.length;
   const createTrigger =
     createAppTrigger ??

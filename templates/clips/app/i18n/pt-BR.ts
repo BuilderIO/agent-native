@@ -1598,6 +1598,7 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     transcriptPending: "Transcript pending",
     notesPending: "Notes pending",
     pastRecordings: "Past recordings",
+    loadOlder: "Carregar mais antigos",
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings.",
     connectGoogleCalendar: "Connect Google Calendar",

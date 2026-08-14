@@ -1601,6 +1601,7 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     transcriptPending: "Transcript pending (ローカライズ済み)",
     notesPending: "Notes pending (ローカライズ済み)",
     pastRecordings: "Past recordings (ローカライズ済み)",
+    loadOlder: "古いものを読み込む",
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (ローカライズ済み)",
     connectGoogleCalendar: "Connect Google Calendar (ローカライズ済み)",

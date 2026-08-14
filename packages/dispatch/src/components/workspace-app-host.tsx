@@ -23,6 +23,7 @@ import { Link } from "react-router";
 
 import { isEmbedSessionExpiredMessage } from "../lib/embed-session-recovery";
 import {
+  mergeChatFirstWorkspaceApps,
   workspaceAppDirectHref,
   workspaceAppEmbedTarget,
   workspaceAppHref,
@@ -43,6 +44,16 @@ interface EmbedSessionInput {
   path?: string;
   url?: string;
   chrome: "minimal";
+}
+
+interface GrantedWorkspaceAppSummary {
+  id: string;
+  name: string;
+  url?: string | null;
+}
+
+interface GrantedWorkspaceAppsResult {
+  apps: GrantedWorkspaceAppSummary[];
 }
 
 type WorkspaceAppTheme = "light" | "dark";
@@ -326,23 +337,58 @@ export function WorkspaceAppFrame({
 
 export function WorkspaceAppHost({ appId }: { appId?: string }) {
   const t = useT();
-  const appsQuery = useActionQuery("list-workspace-apps", {
-    includeAgentCards: false,
-  });
-  const { data: apps = [], isLoading } = appsQuery;
+  const workspaceAppsQuery = useActionQuery<WorkspaceAppSummary[]>(
+    "list-workspace-apps",
+    { includeAgentCards: false },
+  );
+  const grantedAppsQuery = useActionQuery<GrantedWorkspaceAppsResult>(
+    "list_apps",
+    {},
+  );
+  const apps = useMemo(() => {
+    const merged = new Map<string, WorkspaceAppSummary>();
+
+    for (const app of mergeChatFirstWorkspaceApps(workspaceAppsQuery.data)) {
+      merged.set(app.id.trim().toLowerCase(), app);
+    }
+    for (const app of grantedAppsQuery.data?.apps ?? []) {
+      const id = app.id.trim();
+      if (!id || merged.has(id.toLowerCase())) continue;
+      merged.set(id.toLowerCase(), {
+        id,
+        name: app.name.trim() || id,
+        path: "",
+        url: app.url?.trim() || null,
+        status: "ready",
+      });
+    }
+
+    return [...merged.values()];
+  }, [grantedAppsQuery.data?.apps, workspaceAppsQuery.data]);
   const app = useMemo(
     () =>
-      (apps as WorkspaceAppSummary[]).find((item) => item.id === appId) ?? null,
+      apps.find(
+        (item) => item.id.trim().toLowerCase() === appId?.trim().toLowerCase(),
+      ) ?? null,
     [appId, apps],
   );
+  const isLoading = workspaceAppsQuery.isLoading || grantedAppsQuery.isLoading;
+  const queryError = workspaceAppsQuery.isError
+    ? workspaceAppsQuery.error
+    : grantedAppsQuery.isError
+      ? grantedAppsQuery.error
+      : null;
 
-  if (appsQuery.isError) {
+  if (queryError && !app) {
     return (
       <div className="flex h-full min-h-0 items-center justify-center p-6">
         <div className="w-full max-w-2xl">
           <ActionQueryError
-            error={appsQuery.error}
-            onRetry={() => void appsQuery.refetch()}
+            error={queryError}
+            onRetry={() => {
+              void workspaceAppsQuery.refetch();
+              void grantedAppsQuery.refetch();
+            }}
           />
         </div>
       </div>

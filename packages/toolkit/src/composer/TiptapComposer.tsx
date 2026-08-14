@@ -14,6 +14,7 @@ import {
   IconKey,
   IconPencil,
   IconPlugConnected,
+  IconHelpCircle,
 } from "@tabler/icons-react";
 import Placeholder from "@tiptap/extension-placeholder";
 import type { EditorView } from "@tiptap/pm/view";
@@ -28,7 +29,12 @@ import React, {
   useMemo,
 } from "react";
 
-import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover.js";
+import {
+  Popover,
+  PopoverAnchor,
+  PopoverContent,
+  PopoverTrigger,
+} from "../ui/popover.js";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip.js";
 import { ComposerPlusMenu } from "./ComposerPlusMenu.js";
 import { getComposerDraftKey } from "./draft-key.js";
@@ -937,7 +943,7 @@ function ModeSelector({
             </p>
           </div>
           {mode === "build" && (
-            <IconCheck className="h-3.5 w-3.5 shrink-0 text-blue-500" />
+            <IconCheck className="size-4 shrink-0 text-blue-500" />
           )}
         </button>
         <button
@@ -969,7 +975,7 @@ function ModeSelector({
             </p>
           </div>
           {mode === "plan" && !planModeDisabled && (
-            <IconCheck className="h-3.5 w-3.5 shrink-0 text-blue-500" />
+            <IconCheck className="size-4 shrink-0 text-blue-500" />
           )}
         </button>
       </PopoverContent>
@@ -980,11 +986,49 @@ function ModeSelector({
 const FRIENDLY_MODEL_NAMES: Record<string, string> = {
   auto: "Default model",
   "codex-cli": "Codex",
+  "claude-cli": "Claude Code",
+  "pi-cli": "Pi",
+  "opencode-cli": "OpenCode",
   "claude-fable-5": "Fable 5",
   "kimi-k2-5": "Kimi K2.5",
   "deepseek-v3-1": "DeepSeek v3.1",
   "z-ai/glm-5.2": "GLM 5.2",
 };
+
+const LOCAL_RUNTIME_ENGINES = new Set([
+  "codex-cli",
+  "claude-cli",
+  "pi-cli",
+  "opencode-cli",
+]);
+
+function isOpenAiModelId(model: string): boolean {
+  const normalizedModel = model.toLowerCase();
+  return (
+    normalizedModel.startsWith("gpt-") ||
+    normalizedModel.startsWith("openai/gpt-")
+  );
+}
+
+export function isOpenAiModelProviderGroup(group: {
+  engine: string;
+  label: string;
+  models: string[];
+}): boolean {
+  const engine = group.engine.toLowerCase();
+  const label = group.label.toLowerCase();
+  if (engine === "codex-cli") {
+    return group.models.some(isOpenAiModelId);
+  }
+  return (
+    engine.includes("openai") ||
+    label.includes("openai") ||
+    group.models.some(isOpenAiModelId)
+  );
+}
+
+const HARNESS_AGENTS_DOCS_URL =
+  "https://www.agent-native.com/docs/harness-agents";
 
 export const MODEL_SELECTOR_POPOVER_STYLE = {
   fontSize: 13,
@@ -1201,17 +1245,7 @@ function ModelCostTier({ model }: { model: string }) {
       : tier === 2
         ? t("agentChat.composer.costMedium", { defaultValue: "Medium cost" })
         : t("agentChat.composer.costHigher", { defaultValue: "Higher cost" });
-  return (
-    <>
-      <span
-        aria-hidden="true"
-        className="shrink-0 text-[11px] tabular-nums text-muted-foreground/60"
-      >
-        {"$".repeat(tier)}
-      </span>
-      <span className="sr-only">{costLabel}</span>
-    </>
-  );
+  return <span className="sr-only">{costLabel}</span>;
 }
 
 /**
@@ -1296,6 +1330,34 @@ function ModelSelector({
         .filter((group) => group.models.length > 0),
     [engines],
   );
+  const isCodexAgent =
+    selectedAgent === "codex" || selectedAgent === "codex-cli";
+  const modelProviderGroups = useMemo(() => {
+    return providerGroups.flatMap((group) => {
+      if (group.engine === "codex-cli") {
+        return isCodexAgent && isOpenAiModelProviderGroup(group) ? [group] : [];
+      }
+      if (LOCAL_RUNTIME_ENGINES.has(group.engine)) return [];
+      if (!isCodexAgent) return [group];
+      if (!isOpenAiModelProviderGroup(group)) return [];
+
+      const isExplicitOpenAiProvider =
+        group.engine.toLowerCase().includes("openai") ||
+        group.label.toLowerCase().includes("openai");
+      const models = isExplicitOpenAiProvider
+        ? group.models
+        : group.models.filter(isOpenAiModelId);
+      return models.length > 0 ? [{ ...group, models }] : [];
+    });
+  }, [isCodexAgent, providerGroups]);
+  const primaryProviderGroups = useMemo(
+    () => modelProviderGroups.filter((group) => group.configured),
+    [modelProviderGroups],
+  );
+  const optionalProviderGroups = useMemo(
+    () => modelProviderGroups.filter((group) => !group.configured),
+    [modelProviderGroups],
+  );
   const effortOptions =
     reasoning?.getOptionsForModel?.(model) ??
     getComposerReasoningEffortOptions(model);
@@ -1315,53 +1377,20 @@ function ModelSelector({
     (agent) => agent.id === (selectedAgent ?? "default"),
   );
   const selectedAgentLabel = selectedAgentOption?.label ?? "Default";
+  const selectedModelLabel = friendlyModelName(model, t).replace(/^GPT-/, "");
 
-  // Collapse non-selected families by default. The family containing the
-  // currently-selected model stays expanded so the user sees their pick at
-  // a glance; clicking another family's header expands it inline.
-  const selectedGroupKey = useMemo(() => {
-    const found = providerGroups.find((g) => g.models.includes(model));
-    return found ? `${found.engine}:${found.label}` : null;
-  }, [model, providerGroups]);
+  const [detailSection, setDetailSection] = useState<
+    "agent" | "model" | "effort" | null
+  >(null);
+  const resolvedSection = detailSection ?? "model";
 
-  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
-    () => new Set(selectedGroupKey ? [selectedGroupKey] : []),
-  );
-
-  // Reset expansion when the popover re-opens so the picker always lands
-  // on the "selected family expanded, others collapsed" view.
+  const [moreProvidersExpanded, setMoreProvidersExpanded] = useState(false);
   useEffect(() => {
-    if (open) {
-      setExpandedGroups(new Set(selectedGroupKey ? [selectedGroupKey] : []));
-    }
-  }, [open, selectedGroupKey]);
-
-  const toggleGroup = useCallback((key: string) => {
-    setExpandedGroups((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  }, []);
-
-  // The effort list is collapsed by default — it's a secondary
-  // control most users don't touch, so it stays tucked behind a header that
-  // reveals the current effort at a glance. Reset to collapsed on each open.
-  const [effortExpanded, setEffortExpanded] = useState(false);
-  useEffect(() => {
-    if (open) setEffortExpanded(false);
+    if (open) setMoreProvidersExpanded(false);
   }, [open]);
-
-  // The optional image-model section follows the same collapsed-by-default
-  // pattern; the current selection shows next to the header.
-  const [imageExpanded, setImageExpanded] = useState(false);
-  useEffect(() => {
-    if (open) setImageExpanded(false);
-  }, [open]);
-  const imageModelLabel =
-    imageModel?.options.find((option) => option.value === imageModel.value)
-      ?.label ?? imageModel?.value;
+  const visibleProviderGroups = moreProvidersExpanded
+    ? modelProviderGroups
+    : primaryProviderGroups;
   const showModelListSkeleton = shouldShowModelSelectorSkeleton(
     modelListLoading,
     engines.length,
@@ -1407,7 +1436,13 @@ function ModelSelector({
   );
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover
+      open={open}
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen);
+        if (nextOpen) setDetailSection(null);
+      }}
+    >
       <PopoverTrigger asChild>
         <button
           type="button"
@@ -1416,8 +1451,8 @@ function ModelSelector({
             defaultValue: "Model",
           })}: ${friendlyModelName(model, t)}${
             effortOptions.length > 0
-              ? `. ${t("agentChat.composer.reasoning", {
-                  defaultValue: "Reasoning",
+              ? `. ${t("agentChat.composer.effort", {
+                  defaultValue: "Effort",
                 })}: ${effortLabel(selectedEffort)}`
               : ""
           }${
@@ -1446,357 +1481,485 @@ function ModelSelector({
         sideOffset={6}
         collisionPadding={8}
         data-agent-native-composer-popover="true"
-        className="z-[260] box-border w-72 overflow-y-auto rounded-lg border-border p-0 py-1 shadow-lg"
+        className="z-[260] box-border w-64 overflow-visible rounded-lg border-border p-1 shadow-lg"
         style={MODEL_SELECTOR_POPOVER_STYLE}
       >
-        {agents && agents.length > 0 && (
-          <>
-            <div className="px-3 pb-1 pt-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-              Agents
-            </div>
-            {agents.map((agent) => {
-              const isSelected = agent.id === (selectedAgent ?? "default");
-              const isConfigured = agent.configured !== false;
-              const canConnect =
-                !isConfigured && Boolean(onConnectLocalRuntime);
-              const statusLabel =
-                agent.statusLabel ??
-                (!isConfigured ? "Unavailable" : undefined);
-              return (
-                <div
-                  key={agent.id}
-                  className="flex items-center hover:bg-accent/30"
+        <Popover open={detailSection !== null} onOpenChange={() => undefined}>
+          <PopoverAnchor asChild>
+            <div
+              className="flex flex-col"
+              role="tablist"
+              aria-label="Picker sections"
+            >
+              {agents && agents.length > 0 && (
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={resolvedSection === "agent"}
+                  onMouseEnter={() => setDetailSection("agent")}
+                  className={`flex w-full min-w-0 items-center gap-1 rounded-md px-2 py-2 text-start transition-colors ${
+                    resolvedSection === "agent"
+                      ? "bg-accent text-foreground"
+                      : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                  }`}
                 >
-                  <button
-                    type="button"
-                    disabled={!isConfigured || !onAgentChange}
-                    aria-current={isSelected ? "true" : undefined}
-                    onClick={() => {
-                      if (!isConfigured) return;
-                      onAgentChange?.(agent.id);
-                      setOpen(false);
-                    }}
-                    className={`flex min-w-0 flex-1 items-center gap-3 px-3 py-1.5 text-start ${
-                      isConfigured
-                        ? "hover:bg-accent/50"
-                        : "cursor-default opacity-50"
-                    }`}
-                  >
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[13px] text-foreground">
-                        {agent.label}
-                      </span>
-                      {agent.description && (
-                        <span className="block truncate text-[11px] text-muted-foreground">
-                          {agent.description}
-                        </span>
-                      )}
+                  <span className="flex min-w-0 items-center">
+                    <span className="shrink-0 text-[12px] font-medium">
+                      Agent
                     </span>
-                    {isSelected && isConfigured && (
-                      <IconCheck className="h-3.5 w-3.5 shrink-0 text-primary" />
-                    )}
-                  </button>
-                  {!isConfigured && statusLabel && (
-                    <button
-                      type="button"
-                      disabled={!canConnect}
-                      className="ms-auto max-w-[6rem] shrink-0 truncate px-3 py-1.5 text-end text-[10px] text-muted-foreground/70 hover:text-foreground disabled:cursor-default"
-                      onClick={() => {
-                        if (canConnect) connectLocalRuntime(agent.id);
-                      }}
-                    >
-                      {statusLabel}
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-            <div className="my-1 border-t border-border" />
-          </>
-        )}
-        {showBuilderCta && (
-          <>
-            <button
-              type="button"
-              onClick={() => {
-                if (onConnectProvider) {
-                  onConnectProvider();
-                } else {
-                  builderFlow.start();
-                }
-              }}
-              disabled={!onConnectProvider && builderFlow.connecting}
-              className="flex w-full items-start gap-2 px-3 py-2 text-start hover:bg-accent/50 disabled:opacity-60"
-            >
-              <IconPlugConnected className="h-4 w-4 shrink-0 mt-0.5 text-blue-500" />
-              <span className="flex-1 min-w-0">
-                <span className="block text-[12px] font-medium text-foreground">
-                  {!onConnectProvider && builderFlow.connecting
-                    ? t("agentPanel.connectingBuilder", {
-                        defaultValue: "Connecting Builder.io…",
-                      })
-                    : t("agentPanel.connectBuilderIo", {
-                        defaultValue: "Connect Builder.io",
-                      })}
-                </span>
-                <span className="block text-[11px] text-muted-foreground">
-                  {t("agentPanel.builderModelCredits", {
-                    defaultValue: "Free credits for Claude, OpenAI & Gemini",
-                  })}
-                </span>
-              </span>
-            </button>
-            {!onConnectProvider && builderFlow.error && (
-              <p
-                role="alert"
-                className="px-3 pb-2 ps-9 text-[11px] text-destructive"
-              >
-                {builderFlow.error}
-              </p>
-            )}
-            <button
-              type="button"
-              onClick={openLlmSettings}
-              className="flex w-full items-start gap-2 px-3 py-2 text-start hover:bg-accent/50"
-            >
-              <IconKey className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-              <span className="min-w-0 flex-1">
-                <span className="block text-[12px] font-medium text-foreground">
-                  {t("agentPanel.addOwnKeys", {
-                    defaultValue: "Add your own keys",
-                  })}
-                </span>
-                <span className="block text-[11px] text-muted-foreground">
-                  {t("agentPanel.configureProviderKeys", {
-                    defaultValue: "Choose a cloud, gateway, or local provider",
-                  })}
-                </span>
-              </span>
-            </button>
-            {!onlyConnectPathAvailable && (
-              <div className="my-1 border-t border-border" />
-            )}
-          </>
-        )}
-        {imageModel && imageModel.options.length > 0 && (
-          <>
-            <div className="flex items-center hover:bg-accent/30">
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span
+                          role="img"
+                          aria-label="Learn about harness agents"
+                          onClick={(event) => event.stopPropagation()}
+                          className="ms-1.5 flex size-3.5 shrink-0 items-center justify-center rounded text-muted-foreground/60 hover:text-foreground"
+                        >
+                          <IconHelpCircle
+                            aria-hidden="true"
+                            className="h-2.5 w-2.5"
+                            strokeWidth={1.8}
+                          />
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent side="right" className="max-w-xs">
+                        <span className="block">
+                          Harnesses run their own coding loop and local tools.
+                        </span>
+                        <a
+                          href={HARNESS_AGENTS_DOCS_URL}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="mt-1 block underline underline-offset-2 hover:no-underline"
+                        >
+                          Learn more about harness agents
+                        </a>
+                      </TooltipContent>
+                    </Tooltip>
+                  </span>
+                  <span className="ms-auto min-w-0 max-w-[6rem] truncate text-end text-[11px] text-muted-foreground/80">
+                    {selectedAgentLabel}
+                  </span>
+                  <IconChevronRight className="h-3 w-3 shrink-0 opacity-60 rtl:-scale-x-100" />
+                </button>
+              )}
               <button
                 type="button"
-                aria-expanded={imageExpanded}
-                onClick={() => setImageExpanded((prev) => !prev)}
-                className="flex flex-1 min-w-0 items-center gap-1.5 px-2 py-1.5 cursor-pointer text-start"
+                role="tab"
+                aria-selected={resolvedSection === "model"}
+                onMouseEnter={() => setDetailSection("model")}
+                className={`flex w-full min-w-0 items-center gap-1 rounded-md px-2 py-2 text-start transition-colors ${
+                  resolvedSection === "model"
+                    ? "bg-accent text-foreground"
+                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                }`}
               >
-                {imageExpanded ? (
-                  <IconChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
-                ) : (
-                  <IconChevronRight className="h-3 w-3 shrink-0 text-muted-foreground rtl:-scale-x-100" />
-                )}
-                <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide shrink-0">
-                  {imageModel.label ??
-                    t("agentChat.composer.imageModel", {
-                      defaultValue: "Image model",
-                    })}
+                <span className="shrink-0 text-[12px] font-medium">Model</span>
+                <span className="ms-auto min-w-0 max-w-[6rem] truncate text-end text-[11px] text-muted-foreground/80">
+                  {selectedModelLabel}
                 </span>
-                {!imageExpanded && imageModelLabel && (
-                  <span className="text-[11px] text-muted-foreground/80 truncate">
-                    {imageModelLabel}
-                  </span>
-                )}
+                <IconChevronRight className="h-3 w-3 shrink-0 opacity-60 rtl:-scale-x-100" />
               </button>
-            </div>
-            {imageExpanded &&
-              imageModel.options.map((option) => (
+              {effortOptions.length > 0 && (
                 <button
-                  key={option.value}
                   type="button"
-                  onClick={() => {
-                    imageModel.onChange(option.value);
-                    setImageExpanded(false);
-                  }}
-                  className="flex w-full items-center gap-3 ps-7 pe-3 py-1.5 text-start hover:bg-accent/50"
+                  role="tab"
+                  aria-selected={resolvedSection === "effort"}
+                  onMouseEnter={() => setDetailSection("effort")}
+                  className={`flex w-full min-w-0 items-center gap-1 rounded-md px-2 py-2 text-start transition-colors ${
+                    resolvedSection === "effort"
+                      ? "bg-accent text-foreground"
+                      : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                  }`}
                 >
-                  <span className="flex-1 min-w-0 text-[13px] text-foreground truncate">
-                    {option.label}
+                  <span className="shrink-0 text-[12px] font-medium">
+                    {t("agentChat.composer.effort", {
+                      defaultValue: "Effort",
+                    })}
                   </span>
-                  {option.value === imageModel.value && (
-                    <IconCheck className="h-3.5 w-3.5 shrink-0 text-blue-500" />
-                  )}
+                  <span className="ms-auto min-w-0 max-w-[6rem] truncate text-end text-[11px] text-muted-foreground/80">
+                    {effortLabel(selectedEffort)}
+                  </span>
+                  <IconChevronRight className="h-3 w-3 shrink-0 opacity-60 rtl:-scale-x-100" />
                 </button>
-              ))}
-            <div className="my-1 border-t border-border" />
-          </>
-        )}
-        {showModelListSkeleton && <ModelSelectorSkeleton />}
-        {autoModelGroup && !onlyConnectPathAvailable && (
-          <button
-            type="button"
-            onClick={() => {
-              onChange("auto", autoModelGroup.engine);
-              setOpen(false);
-            }}
-            className="flex w-full items-center gap-3 px-3 py-1.5 text-start hover:bg-accent/50"
+              )}
+            </div>
+          </PopoverAnchor>
+          <PopoverContent
+            side="right"
+            align="start"
+            sideOffset={4}
+            alignOffset={-8}
+            collisionPadding={8}
+            className="z-[320] box-border w-64 max-h-[min(500px,var(--radix-popover-content-available-height,500px))] overflow-y-auto rounded-lg border-border p-1 shadow-lg"
+            style={MODEL_SELECTOR_POPOVER_STYLE}
           >
-            <span className="flex-1 min-w-0 text-[13px] text-foreground truncate">
-              {t("agentChat.composer.auto", { defaultValue: "Auto" })}
-            </span>
-            {model === "auto" && (
-              <IconCheck className="h-3.5 w-3.5 shrink-0 text-blue-500" />
-            )}
-          </button>
-        )}
-        {autoModelGroup &&
-          providerGroups.length > 0 &&
-          !onlyConnectPathAvailable && (
-            <div className="my-1 border-t border-border" />
-          )}
-        {!onlyConnectPathAvailable &&
-          providerGroups.map((group) => {
-            const models = latestModelsOnly(group.models);
-            const groupKey = `${group.engine}:${group.label}`;
-            const isExpanded = expandedGroups.has(groupKey);
-            const ChevronIcon = isExpanded ? IconChevronDown : IconChevronRight;
-            const isLocalRuntime =
-              group.engine === "codex-cli" || group.engine === "claude-cli";
-            const canConnectLocalRuntime =
-              isLocalRuntime && Boolean(onConnectLocalRuntime);
-            const statusLabel =
-              group.statusLabel ??
-              (!group.configured
-                ? canConnectLocalRuntime
-                  ? t("agentChat.auth.logIn", { defaultValue: "Sign in" })
-                  : t("agentChat.composer.needsApiKey", {
-                      defaultValue: "needs API key",
-                    })
-                : undefined);
-            return (
-              <div key={groupKey}>
-                <div className="flex items-center hover:bg-accent/30">
-                  <button
-                    type="button"
-                    aria-expanded={isExpanded}
-                    onClick={() => toggleGroup(groupKey)}
-                    className="flex flex-1 min-w-0 items-center gap-1.5 px-2 py-1.5 cursor-pointer text-start"
-                  >
-                    <ChevronIcon className="h-3 w-3 shrink-0 text-muted-foreground rtl:-scale-x-100" />
-                    <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide shrink-0">
-                      {group.label}
-                    </span>
-                    {!isExpanded && groupKey === selectedGroupKey && (
-                      <span className="text-[11px] text-muted-foreground/80 truncate">
-                        {friendlyModelName(model, t)}
-                      </span>
-                    )}
-                  </button>
-                  {!group.configured && statusLabel && (
-                    <button
-                      type="button"
-                      className="ms-auto max-w-[9rem] shrink-0 text-end text-[10px] text-muted-foreground/60 hover:text-foreground cursor-pointer pe-3 py-1.5"
-                      onClick={() =>
-                        canConnectLocalRuntime
-                          ? connectLocalRuntime(group.engine)
-                          : openLlmSettings()
-                      }
-                    >
-                      {statusLabel}
-                    </button>
-                  )}
-                  {group.configured && statusLabel && (
-                    <span className="ms-auto max-w-[9rem] shrink-0 pe-3 text-end text-[10px] text-muted-foreground/70">
-                      {statusLabel}
-                    </span>
-                  )}
+            <div
+              className="min-h-0 min-w-0"
+              role="tabpanel"
+              aria-label={resolvedSection}
+            >
+              {resolvedSection === "agent" && agents && (
+                <div className="flex flex-col">
+                  {agents.map((agent) => {
+                    const isSelected =
+                      agent.id === (selectedAgent ?? "default");
+                    const isConfigured = agent.configured !== false;
+                    const canConnect =
+                      !isConfigured && Boolean(onConnectLocalRuntime);
+                    const statusLabel =
+                      agent.statusLabel ??
+                      (!isConfigured ? "Unavailable" : undefined);
+                    return (
+                      <div
+                        key={agent.id}
+                        className="group flex items-center rounded-md hover:bg-accent/30"
+                      >
+                        <button
+                          type="button"
+                          disabled={!isConfigured || !onAgentChange}
+                          aria-current={isSelected ? "true" : undefined}
+                          onClick={() => {
+                            if (!isConfigured) return;
+                            onAgentChange?.(agent.id);
+                            setOpen(false);
+                          }}
+                          className={`flex min-w-0 flex-1 items-center gap-0.5 px-2 py-2 text-start ${
+                            isConfigured
+                              ? "hover:bg-accent/50"
+                              : "cursor-default opacity-50"
+                          }`}
+                        >
+                          <span className="min-w-0 truncate text-[12px] text-foreground">
+                            {agent.label}
+                          </span>
+                          {agent.description && (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span
+                                  role="img"
+                                  aria-label={`${agent.label} details`}
+                                  onClick={(event) => event.stopPropagation()}
+                                  className="flex size-3.5 shrink-0 items-center justify-center rounded text-muted-foreground/60 hover:text-foreground"
+                                >
+                                  <IconHelpCircle
+                                    aria-hidden="true"
+                                    className="h-2.5 w-2.5"
+                                    strokeWidth={1.8}
+                                  />
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent side="left" className="max-w-xs">
+                                {agent.description}
+                              </TooltipContent>
+                            </Tooltip>
+                          )}
+                          <span className="min-w-0 flex-1" aria-hidden="true" />
+                          {isSelected && isConfigured && (
+                            <IconCheck className="size-4 shrink-0 text-primary" />
+                          )}
+                        </button>
+                        {!isConfigured && statusLabel && (
+                          <button
+                            type="button"
+                            disabled={!canConnect}
+                            className="ms-auto max-w-[6rem] shrink-0 truncate px-2 py-2 text-end text-[10px] text-muted-foreground/70 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 hover:text-foreground focus-visible:opacity-100 disabled:cursor-default"
+                            onClick={() => {
+                              if (canConnect) connectLocalRuntime(agent.id);
+                            }}
+                          >
+                            {statusLabel}
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
-                {isExpanded &&
-                  models.map((m) => (
+              )}
+              {resolvedSection === "model" && (
+                <>
+                  {showBuilderCta && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (onConnectProvider) {
+                            onConnectProvider();
+                          } else {
+                            builderFlow.start();
+                          }
+                        }}
+                        disabled={!onConnectProvider && builderFlow.connecting}
+                        className="flex w-full items-start gap-2 rounded-md px-2 py-2 text-start hover:bg-accent/50 disabled:opacity-60"
+                      >
+                        <IconPlugConnected className="mt-0.5 h-4 w-4 shrink-0 text-blue-500" />
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-[12px] font-medium text-foreground">
+                            {!onConnectProvider && builderFlow.connecting
+                              ? t("agentPanel.connectingBuilder", {
+                                  defaultValue: "Connecting Builder.io…",
+                                })
+                              : t("agentPanel.connectBuilderIo", {
+                                  defaultValue: "Connect Builder.io",
+                                })}
+                          </span>
+                          <span className="block text-[11px] text-muted-foreground">
+                            {t("agentPanel.builderModelCredits", {
+                              defaultValue:
+                                "Free credits for Claude, OpenAI & Gemini",
+                            })}
+                          </span>
+                        </span>
+                      </button>
+                      {!onConnectProvider && builderFlow.error && (
+                        <p
+                          role="alert"
+                          className="px-2 pb-2 ps-8 text-[11px] text-destructive"
+                        >
+                          {builderFlow.error}
+                        </p>
+                      )}
+                      <button
+                        type="button"
+                        onClick={openLlmSettings}
+                        className="flex w-full items-start gap-2 rounded-md px-2 py-2 text-start hover:bg-accent/50"
+                      >
+                        <IconKey className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-[12px] font-medium text-foreground">
+                            {t("agentPanel.addOwnKeys", {
+                              defaultValue: "Add your own keys",
+                            })}
+                          </span>
+                          <span className="block text-[11px] text-muted-foreground">
+                            {t("agentPanel.configureProviderKeys", {
+                              defaultValue:
+                                "Choose a cloud, gateway, or local provider",
+                            })}
+                          </span>
+                        </span>
+                      </button>
+                    </>
+                  )}
+                  {imageModel && imageModel.options.length > 0 && (
+                    <div className="mt-2 pt-1">
+                      <div className="px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                        {imageModel.label ??
+                          t("agentChat.composer.imageModel", {
+                            defaultValue: "Image model",
+                          })}
+                      </div>
+                      {imageModel.options.map((option) => (
+                        <button
+                          key={option.value}
+                          type="button"
+                          onClick={() => {
+                            imageModel.onChange(option.value);
+                            setOpen(false);
+                          }}
+                          className="flex w-full items-center gap-3 rounded-md px-2 py-2 text-start hover:bg-accent/50"
+                        >
+                          <span className="min-w-0 flex-1 truncate text-[12px] text-foreground">
+                            {option.label}
+                          </span>
+                          {option.value === imageModel.value && (
+                            <IconCheck className="size-4 shrink-0 text-primary" />
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {showModelListSkeleton && <ModelSelectorSkeleton />}
+                  {isCodexAgent &&
+                    !showModelListSkeleton &&
+                    !onlyConnectPathAvailable &&
+                    modelProviderGroups.length === 0 && (
+                      <button
+                        type="button"
+                        onClick={openLlmSettings}
+                        className="flex w-full items-center rounded-md px-2 py-2 text-start hover:bg-accent/50"
+                      >
+                        <span className="min-w-0 flex-1 truncate text-[12px] text-muted-foreground">
+                          No OpenAI models configured
+                        </span>
+                        <span className="shrink-0 text-[11px] text-muted-foreground/70">
+                          Configure
+                        </span>
+                      </button>
+                    )}
+                  {autoModelGroup && !onlyConnectPathAvailable && (
                     <button
-                      key={m}
                       type="button"
                       onClick={() => {
-                        if (!group.configured) {
-                          if (canConnectLocalRuntime) {
-                            connectLocalRuntime(group.engine);
-                          } else {
-                            openLlmSettings();
-                          }
-                          return;
-                        }
-                        onChange(m, group.engine);
-                        const nextOptions =
-                          getReasoningEffortOptionsForModel(m);
-                        if (
-                          nextOptions.length > 0 &&
-                          !nextOptions.includes(selectedEffort)
-                        ) {
-                          onEffortChange?.(defaultEffort);
-                        }
+                        onChange("auto", autoModelGroup.engine);
                         setOpen(false);
                       }}
-                      className={`flex w-full items-center gap-3 ps-7 pe-3 py-1.5 text-start ${
-                        group.configured
-                          ? "hover:bg-accent/50"
-                          : "opacity-40 cursor-default"
-                      }`}
+                      className="mt-1 flex w-full items-center gap-3 rounded-md px-2 py-1.5 text-start hover:bg-accent/50"
                     >
-                      <span className="flex-1 min-w-0 text-[13px] text-foreground truncate">
-                        {friendlyModelName(m, t)}
+                      <span className="min-w-0 flex-1 truncate text-[13px] text-foreground">
+                        {t("agentChat.composer.auto", { defaultValue: "Auto" })}
                       </span>
-                      <ModelCostTier model={m} />
-                      {m === model && group.configured && (
-                        <IconCheck className="h-3.5 w-3.5 shrink-0 text-blue-500" />
+                      {model === "auto" && (
+                        <IconCheck className="size-4 shrink-0 text-primary" />
+                      )}
+                    </button>
+                  )}
+                  {!onlyConnectPathAvailable &&
+                    visibleProviderGroups.map((group, groupIndex) => {
+                      const models = latestModelsOnly(group.models);
+                      const showProviderLabels =
+                        visibleProviderGroups.length > 1;
+                      const isLocalRuntime =
+                        group.engine === "codex-cli" ||
+                        group.engine === "claude-cli";
+                      const canConnectLocalRuntime =
+                        isLocalRuntime && Boolean(onConnectLocalRuntime);
+                      const statusLabel =
+                        group.statusLabel ??
+                        (!group.configured
+                          ? canConnectLocalRuntime
+                            ? t("agentChat.auth.logIn", {
+                                defaultValue: "Sign in",
+                              })
+                            : t("agentChat.composer.needsApiKey", {
+                                defaultValue: "needs API key",
+                              })
+                          : undefined);
+                      return (
+                        <div
+                          key={`${group.engine}:${group.label}`}
+                          className={
+                            showProviderLabels && groupIndex > 0
+                              ? "mt-2 pt-1"
+                              : ""
+                          }
+                        >
+                          {showProviderLabels && (
+                            <div className="group flex items-center px-2 py-1">
+                              <span className="shrink-0 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                                {group.label}
+                              </span>
+                              {!group.configured && statusLabel && (
+                                <button
+                                  type="button"
+                                  aria-label={statusLabel}
+                                  className="ms-auto max-w-[9rem] shrink-0 cursor-pointer truncate px-0 py-1 text-end text-[10px] text-muted-foreground/60 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 hover:text-foreground focus-visible:opacity-100"
+                                  onClick={() =>
+                                    canConnectLocalRuntime
+                                      ? connectLocalRuntime(group.engine)
+                                      : openLlmSettings()
+                                  }
+                                >
+                                  {statusLabel}
+                                </button>
+                              )}
+                              {group.configured && statusLabel && (
+                                <span className="ms-auto max-w-[9rem] shrink-0 truncate py-1 text-end text-[10px] text-muted-foreground/70 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                                  {statusLabel}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                          {models.map((m) => (
+                            <button
+                              key={m}
+                              type="button"
+                              onClick={() => {
+                                if (!group.configured) {
+                                  if (canConnectLocalRuntime) {
+                                    connectLocalRuntime(group.engine);
+                                  } else {
+                                    openLlmSettings();
+                                  }
+                                  return;
+                                }
+                                onChange(m, group.engine);
+                                const nextOptions =
+                                  getReasoningEffortOptionsForModel(m);
+                                if (
+                                  nextOptions.length > 0 &&
+                                  !nextOptions.includes(selectedEffort)
+                                ) {
+                                  onEffortChange?.(defaultEffort);
+                                }
+                                setOpen(false);
+                              }}
+                              className={`group flex w-full items-center gap-3 rounded-md px-2 py-2 text-start ${
+                                group.configured
+                                  ? "hover:bg-accent/50"
+                                  : "cursor-default opacity-40"
+                              }`}
+                            >
+                              <span className="min-w-0 flex-1 truncate text-[12px] text-foreground">
+                                {friendlyModelName(m, t)}
+                              </span>
+                              <ModelCostTier model={m} />
+                              {!showProviderLabels && statusLabel && (
+                                <span className="hidden max-w-[9rem] shrink-0 truncate text-[10px] text-muted-foreground/70 group-hover:inline">
+                                  {statusLabel}
+                                </span>
+                              )}
+                              {m === model && group.configured && (
+                                <IconCheck className="size-4 shrink-0 text-primary" />
+                              )}
+                            </button>
+                          ))}
+                        </div>
+                      );
+                    })}
+                  {!onlyConnectPathAvailable &&
+                    optionalProviderGroups.length > 0 && (
+                      <button
+                        type="button"
+                        aria-expanded={moreProvidersExpanded}
+                        onClick={() =>
+                          setMoreProvidersExpanded((prev) => !prev)
+                        }
+                        className="mt-2 flex w-full items-center gap-1 rounded-md px-2 pt-2 text-start text-[11px] font-medium uppercase tracking-wide text-muted-foreground hover:text-foreground"
+                      >
+                        {moreProvidersExpanded ? (
+                          <IconChevronDown className="h-3 w-3 shrink-0" />
+                        ) : (
+                          <IconChevronRight className="h-3 w-3 shrink-0 rtl:-scale-x-100" />
+                        )}
+                        <span>
+                          {t(
+                            moreProvidersExpanded
+                              ? "agentChat.composer.fewerProviders"
+                              : "agentChat.composer.moreProviders",
+                            {
+                              defaultValue: moreProvidersExpanded
+                                ? "Fewer providers"
+                                : "More providers",
+                            },
+                          )}
+                        </span>
+                      </button>
+                    )}
+                </>
+              )}
+              {resolvedSection === "effort" && effortOptions.length > 0 && (
+                <div className="flex flex-col">
+                  {effortOptions.map((option) => (
+                    <button
+                      key={option}
+                      type="button"
+                      onClick={() => onEffortChange?.(option)}
+                      className="flex w-full items-center gap-3 rounded-md px-2 py-2 text-start hover:bg-accent/50"
+                    >
+                      <span className="min-w-0 flex-1 truncate text-[12px] text-foreground">
+                        {effortLabel(option)}
+                      </span>
+                      {option === selectedEffort && (
+                        <IconCheck className="size-4 shrink-0 text-primary" />
                       )}
                     </button>
                   ))}
-              </div>
-            );
-          })}
-        {!showModelListSkeleton &&
-          !onlyConnectPathAvailable &&
-          effortOptions.length > 0 && (
-            <>
-              <div className="my-1 border-t border-border" />
-              <div className="flex items-center hover:bg-accent/30">
-                <button
-                  type="button"
-                  aria-expanded={effortExpanded}
-                  onClick={() => setEffortExpanded((prev) => !prev)}
-                  className="flex flex-1 min-w-0 items-center gap-1.5 px-2 py-1.5 cursor-pointer text-start"
-                >
-                  {effortExpanded ? (
-                    <IconChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
-                  ) : (
-                    <IconChevronRight className="h-3 w-3 shrink-0 text-muted-foreground rtl:-scale-x-100" />
-                  )}
-                  <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide shrink-0">
-                    {t("agentChat.composer.reasoning", {
-                      defaultValue: "Reasoning",
-                    })}
-                  </span>
-                  {!effortExpanded && (
-                    <span className="text-[11px] text-muted-foreground/80 truncate">
-                      {effortLabel(selectedEffort)}
-                    </span>
-                  )}
-                </button>
-              </div>
-              {effortExpanded &&
-                effortOptions.map((option) => (
-                  <button
-                    key={option}
-                    type="button"
-                    onClick={() => onEffortChange?.(option)}
-                    className="flex w-full items-center gap-3 ps-7 pe-3 py-1.5 text-start hover:bg-accent/50"
-                  >
-                    <span className="flex-1 min-w-0 text-[13px] text-foreground truncate">
-                      {effortLabel(option)}
-                    </span>
-                    {option === selectedEffort && (
-                      <IconCheck className="h-3.5 w-3.5 shrink-0 text-blue-500" />
-                    )}
-                  </button>
-                ))}
-            </>
-          )}
+                </div>
+              )}
+            </div>
+          </PopoverContent>
+        </Popover>
       </PopoverContent>
     </Popover>
   );

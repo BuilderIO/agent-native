@@ -672,6 +672,7 @@ interface ElectronAPI {
     enabled: boolean;
   };
   webviewPreloadPath: string;
+  webviewChatPreloadPath: string;
 
   windowControls: {
     minimize(): void;
