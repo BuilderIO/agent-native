@@ -311,8 +311,7 @@ export function buildStatusEventFields(args: {
   }
 
   const type = args.workingLocationType ?? "customLocation";
-  const label =
-    args.workingLocationLabel || args.location || args.title || "Working";
+  const label = args.workingLocationLabel || args.location || args.title || "";
   return {
     eventType: args.eventType,
     transparency: "transparent" as const,
@@ -321,8 +320,8 @@ export function buildStatusEventFields(args: {
       type === "homeOffice"
         ? { type, homeOffice: {} }
         : type === "officeLocation"
-          ? { type, officeLocation: { label } }
-          : { type, customLocation: { label } },
+          ? { type, officeLocation: label ? { label } : {} }
+          : { type, customLocation: { label: label || "Working" } },
   };
 }
 
@@ -359,6 +358,16 @@ function normalizedIso(value: string, label: "start" | "end"): string {
   return date.toISOString();
 }
 
+function normalizeWorkingLocationAllDayDate(value: string): string {
+  const date = allDayDatePart(value);
+  if (!isValidDateOnly(date)) {
+    throw new Error(
+      "All-day working location events require valid YYYY-MM-DD dates.",
+    );
+  }
+  return date;
+}
+
 export function normalizeCreateEventInput(args: {
   title?: string;
   eventType?: "default" | "outOfOffice" | "focusTime" | "workingLocation";
@@ -376,7 +385,27 @@ export function normalizeCreateEventInput(args: {
   const title =
     args.title?.trim() ||
     (args.eventType === "outOfOffice" ? "Out of office" : "");
-  if (!title) throw new Error("Event title is required.");
+  if (!title && args.eventType !== "workingLocation") {
+    throw new Error("Event title is required.");
+  }
+
+  if (args.eventType === "workingLocation" && args.allDay === true) {
+    const start = normalizeWorkingLocationAllDayDate(args.start);
+    const end = normalizeWorkingLocationAllDayDate(args.end);
+    if (end <= start) {
+      throw new Error(
+        "All-day working location end date must be after its start date.",
+      );
+    }
+    return {
+      title,
+      start,
+      end,
+      startTimeZone: undefined,
+      endTimeZone: undefined,
+      allDay: true,
+    };
+  }
 
   if (args.eventType === "outOfOffice" && args.fullDay === true) {
     const timezone = requireIanaTimezone(
@@ -435,15 +464,21 @@ export function normalizeCreateEventInput(args: {
 }
 
 function allDayDatePart(value: string): string {
-  const dateOnlyPattern = /^\d{4}-\d{2}-\d{2}$/;
-  if (dateOnlyPattern.test(value)) return value;
+  if (DATE_ONLY_PATTERN.test(value)) {
+    if (isValidDateOnly(value)) return value;
+    throw new Error("All-day status events must use valid YYYY-MM-DD dates.");
+  }
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
     throw new Error(
       "All-day status events must use valid date or datetime start and end values.",
     );
   }
-  return date.toISOString().slice(0, 10);
+  const datePart = date.toISOString().slice(0, 10);
+  if (!isValidDateOnly(datePart)) {
+    throw new Error("All-day status events must use valid YYYY-MM-DD dates.");
+  }
+  return datePart;
 }
 
 function allDaySpanDays(start: string, end: string): number {
@@ -477,8 +512,10 @@ export function validateStatusEventTiming(args: {
 
   if (args.eventType === "workingLocation" && args.allDay === true) {
     const days = allDaySpanDays(args.start, args.end);
-    if (days !== 1) {
-      throw new Error("All-day working location events must be a single day.");
+    if (days < 1) {
+      throw new Error(
+        "All-day working location end date must be after its start date.",
+      );
     }
   }
 }

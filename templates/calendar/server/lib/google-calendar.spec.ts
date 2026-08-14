@@ -858,15 +858,15 @@ describe("calendar event creation", () => {
     );
   });
 
-  it("lets Google derive the summary for working-location events", async () => {
+  it("lets Google derive the summary for titleless multi-day working locations", async () => {
     await createEvent(
       {
         id: "",
-        title: "Neighborhood cafe",
+        title: "",
         description: "",
         location: "",
         start: "2026-07-08",
-        end: "2026-07-09",
+        end: "2026-07-11",
         allDay: true,
         source: "google",
         accountEmail: "steve@example.com",
@@ -893,7 +893,7 @@ describe("calendar event creation", () => {
       "primary",
       expect.objectContaining({
         start: { date: "2026-07-08" },
-        end: { date: "2026-07-09" },
+        end: { date: "2026-07-11" },
         workingLocationProperties: {
           type: "customLocation",
           customLocation: { label: "Neighborhood cafe" },
@@ -905,6 +905,56 @@ describe("calendar event creation", () => {
     expect(body).not.toHaveProperty("summary");
     expect(body).not.toHaveProperty("description");
     expect(body).not.toHaveProperty("location");
+  });
+
+  it("sends a Home/Office summary for timed working locations so they are not Untitled", async () => {
+    await createEvent(
+      {
+        id: "",
+        title: "",
+        description: "",
+        location: "",
+        start: "2026-08-14T16:00:00.000Z",
+        end: "2026-08-15T00:00:00.000Z",
+        startTimeZone: "America/Los_Angeles",
+        endTimeZone: "America/Los_Angeles",
+        allDay: false,
+        source: "google",
+        accountEmail: "steve@example.com",
+        transparency: "transparent",
+        visibility: "public",
+        eventType: "workingLocation",
+        workingLocationProperties: {
+          type: "officeLocation",
+          officeLocation: {},
+        },
+        createdAt: "2026-08-14T00:00:00.000Z",
+        updatedAt: "2026-08-14T00:00:00.000Z",
+      },
+      {
+        account: {
+          ownerEmail: "steve@example.com",
+          accountEmail: "steve@example.com",
+        },
+      },
+    );
+
+    expect(calendarInsertEventMock).toHaveBeenCalledWith(
+      "access-token",
+      "primary",
+      expect.objectContaining({
+        summary: "Office",
+        start: {
+          dateTime: "2026-08-14T16:00:00.000Z",
+          timeZone: "America/Los_Angeles",
+        },
+        workingLocationProperties: {
+          type: "officeLocation",
+          officeLocation: {},
+        },
+      }),
+      undefined,
+    );
   });
 
   it("serializes full-day OOO semantics as timed Google event bounds", async () => {

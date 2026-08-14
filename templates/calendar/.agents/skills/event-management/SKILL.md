@@ -91,7 +91,8 @@ pnpm action create-event \
 ```
 
 Required for ordinary events: `--title`, `--start`, `--end` (ISO datetime
-format). Out-of-office events default the title to `Out of office` when it is
+format). Out-of-office events default the title to `Out of office`, and
+working-location events use Google's generated display title when `--title` is
 omitted.
 Optional: `--description`, `--location`, `--attendees`, `--addGoogleMeet`, `--addZoom`, `--sendUpdates`, `--accountEmail`.
 
@@ -156,9 +157,17 @@ pnpm action create-event \
 
 Working-location events sync from Google with `workingLocationProperties` and
 render as native working locations in the UI instead of generic all-day events.
-They are transparent/non-blocking for availability. Google allows timed working
-locations or single-day all-day working locations; multi-day all-day ranges must
-be represented as separate daily working-location events.
+They are transparent/non-blocking for availability. All-day working locations
+use an exclusive `--end` date and can span multiple days; timed working
+locations use ISO datetime start and end values.
+
+Creating from a calendar day uses the selected Home, Office, or Other type —
+do not leave the draft as Home and create that instead. Office does not need a
+custom building name; Other does. If that day already has a working location
+on the same account, update that day's occurrence (`scope: "single"`) instead
+of creating a second event. Timed (not all-day) working locations need a
+summary of Home, Office, or the custom label; all-day ones omit it so Google
+can derive the title.
 
 `--fullDay true` is semantic only for out-of-office creation. It does not send
 Google an all-day `date` event, which Google rejects for this event type.
