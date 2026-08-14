@@ -977,6 +977,7 @@ export function App() {
   );
   const localRecordingMode: LocalRecordingMode =
     featureConfig?.localRecordingMode ?? "off";
+  const voiceCleanupEnabled = featureConfig?.voiceCleanupEnabled !== false;
 
   const [pendingUploads, setPendingUploads] = useState<PendingDesktopUpload[]>(
     [],
@@ -3160,6 +3161,7 @@ export function App() {
         cameraOn,
         micOn,
         systemAudioOn,
+        voiceCleanupEnabled,
         localRecordingMode,
         preAcquiredCameraStream,
         preAcquiredDisplayStream: options?.resumeCapture?.displayStream ?? null,
@@ -5391,6 +5393,7 @@ function Setup({
   const featureConfig = useFeatureConfig();
   const updateStatus = useUpdateStatus();
   const voiceEnabled = featureConfig?.voiceEnabled !== false;
+  const voiceCleanupEnabled = featureConfig?.voiceCleanupEnabled !== false;
   const meetingsEnabled = featureConfig?.meetingsEnabled !== false;
   const launchAtLoginEnabled = featureConfig?.launchAtLoginEnabled !== false;
   const autoHidePopoverEnabled = featureConfig?.autoHidePopoverEnabled === true;
@@ -5535,6 +5538,15 @@ function Setup({
     if (!featureConfig) return;
     invoke("set_feature_config", {
       config: { ...featureConfig, voiceEnabled: enabled },
+    }).catch((err) =>
+      console.error("[settings] set_feature_config failed", err),
+    );
+  }
+
+  function setVoiceCleanupEnabled(enabled: boolean) {
+    if (!featureConfig) return;
+    invoke("set_feature_config", {
+      config: { ...featureConfig, voiceCleanupEnabled: enabled },
     }).catch((err) =>
       console.error("[settings] set_feature_config failed", err),
     );
@@ -7258,6 +7270,18 @@ function Setup({
           title="Capture"
           description="Choose how recordings are saved and how the tray opens them."
         >
+          <DesktopSettingsRow
+            label="Voice cleanup"
+            description="Reduce steady background noise in microphone recordings."
+            control={
+              <Switch
+                on={voiceCleanupEnabled}
+                onChange={setVoiceCleanupEnabled}
+                disabled={captureControlsLocked}
+                label="Use voice cleanup"
+              />
+            }
+          />
           <DesktopSettingsRow
             label="Rewind"
             description={rewindStatusPresentation.title}

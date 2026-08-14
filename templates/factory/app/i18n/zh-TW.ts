@@ -37,6 +37,7 @@ const messages = {
     unpinChat: "取消置頂聊天",
   },
   navigation: {
+    agents: "代理",
     chat: "聊天",
     collapseSidebar: "收起側邊欄",
     database: "資料庫",
@@ -48,7 +49,7 @@ const messages = {
     openNavigation: "開啟導覽",
     settings: "設定",
     team: "團隊",
-    triage: "Factory",
+    triage: "工廠",
   },
   triage: {
     title: "Factory",
@@ -154,6 +155,7 @@ const messages = {
     agentsTab: "代理",
     agenticAppsTitle: "代理應用程式",
     agenticAppsEmpty: "此工作區尚無代理應用程式。",
+    createApp: "建立應用程式",
     editAppDetails: "編輯應用程式詳細資料",
     editAppDetailsDescription: "更新此工作區應用程式的共用顯示名稱與描述。",
     appName: "名稱",

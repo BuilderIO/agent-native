@@ -39,6 +39,7 @@ const messages = {
     unpinChat: "चैट अनपिन करें",
   },
   navigation: {
+    agents: "एजेंट",
     chat: "चैट",
     collapseSidebar: "साइडबार संक्षिप्त करें",
     database: "डेटाबेस",
@@ -50,7 +51,7 @@ const messages = {
     openNavigation: "नेविगेशन खोलें",
     settings: "सेटिंग्स",
     team: "टीम",
-    triage: "Factory",
+    triage: "फ़ैक्टरी",
   },
   triage: {
     title: "Factory",
@@ -159,6 +160,7 @@ const messages = {
     agentsTab: "एजेंट",
     agenticAppsTitle: "एजेंटिक ऐप्स",
     agenticAppsEmpty: "इस वर्कस्पेस में अभी कोई एजेंटिक ऐप नहीं है।",
+    createApp: "ऐप बनाएं",
     editAppDetails: "ऐप विवरण संपादित करें",
     editAppDetailsDescription: "इस वर्कस्पेस ऐप का साझा नाम और विवरण अपडेट करें।",
     appName: "नाम",

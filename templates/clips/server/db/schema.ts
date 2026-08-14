@@ -725,6 +725,7 @@ export const recordingEvents = table("recording_events", {
       "resume",
       "cta-click",
       "reaction",
+      "access-request",
     ],
   }).notNull(),
   // Video-time position (for progress/seek/pause/resume/reaction/cta-click).

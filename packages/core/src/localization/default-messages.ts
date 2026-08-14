@@ -55,6 +55,7 @@ const messages = {
     profileUploading: "Uploading...",
     profileChangePhoto: "Change photo",
     profileNameLabel: "Name",
+    profileNameEdit: "Edit name",
     profileNamePlaceholder: "Your name",
     profileNameDescription:
       "This name is used when referring to you across Agent-Native apps.",

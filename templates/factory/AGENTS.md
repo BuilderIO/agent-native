@@ -35,7 +35,8 @@ decisions, feedback, agent runs, and provider audit records.
 
 ## Application state
 
-- `navigation.view`: `factory` when the workspace is open.
+- `navigation.view`: `factory` for the Factory workspace or `agents` for the
+  shared Agents sidebar surface.
 - `navigation.factoryId`: selected Factory id when present.
 - `navigation.factoryTab`: `map` | `inbox` | `rules` | `automations` | `agents` | `audit` | `settings`.
 - `navigation.factoryAuditRunId`: selected automation run in the audit view when present.
@@ -43,6 +44,9 @@ decisions, feedback, agent runs, and provider audit records.
 - A selected graph node or edge is part of `navigation` context. Read
   `view-screen` before answering why a route exists or changing the selected
   Factory.
+- The `/agents` surface shows mounted agentic apps and reusable agent packs from
+  the same Dispatch SQL/action registry. Use `view-screen` there before
+  answering questions about the visible agent inventory.
 
 ## Action contract
 

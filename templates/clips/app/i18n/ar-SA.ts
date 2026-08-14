@@ -255,6 +255,15 @@ const messages = {
     linkExpired: "انتهت صلاحية الرابط",
     linkExpiredMessage:
       "قام المنشئ بتعيين انتهاء الصلاحية على رابط المشاركة هذا.",
+    privateClip: "مقطع خاص",
+    privateClipMessage: "هذا المقطع خاص. اطلب الوصول وسيتم إخطار المالك.",
+    privateClipSignedOutMessage:
+      "هذا المقطع خاص. سجّل الدخول لطلب الوصول من المالك.",
+    requestAccess: "طلب الوصول",
+    requestingAccess: "جارٍ طلب الوصول...",
+    accessRequested: "تم طلب الوصول",
+    accessRequestSent: "تم إخطار مالك المقطع.",
+    accessRequestFailed: "تعذّر طلب الوصول. حاول مرة أخرى.",
     clipUnavailable: "المقطع غير متاح",
     clipUnavailableMessage:
       "هذا التسجيل ليس عامًا، أو أن الرابط غير صالح. إذا كان هذا هو المقطع الخاص بك، فقم بتسجيل الدخول للتحقق من الوصول.",

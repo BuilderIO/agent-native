@@ -13,6 +13,10 @@ import { defineTransactionalEmail } from "@agent-native/core/email-catalog";
 
 import { renderClipsInviteEmail } from "../../actions/invite-member.js";
 import {
+  CLIPS_ACCESS_REQUEST_EMAIL_ID,
+  renderRecordingAccessRequestEmail,
+} from "../../actions/request-recording-access.js";
+import {
   CLIPS_ACTIVITY_COMMENT_EMAIL_ID,
   CLIPS_ACTIVITY_REACTION_EMAIL_ID,
   CLIPS_FIRST_AGENT_VIEW_EMAIL_ID,
@@ -52,6 +56,25 @@ let registered = false;
 export function registerClipsEmails(): void {
   if (registered) return;
   registered = true;
+
+  defineTransactionalEmail({
+    id: CLIPS_ACCESS_REQUEST_EMAIL_ID,
+    name: "Clip access request",
+    trigger:
+      "A signed-in viewer requests access to a private Clip from its public share page. One request is recorded per viewer and Clip.",
+    recipientLabel: "Clip owner",
+    recipient:
+      "The owner of the private Clip. The in-app notification is stored even when email delivery is unavailable.",
+    senderLabel: "Agent-Native Clips",
+    sender: CLIPS_SENDER,
+    preview: () =>
+      renderRecordingAccessRequestEmail({
+        requesterName: "Sam Rivera",
+        requesterEmail: "sam.rivera@example.com",
+        recordingTitle: SAMPLE_TITLE,
+        url: "https://example.com/share/rec_sample",
+      }),
+  });
 
   defineTransactionalEmail({
     id: CLIPS_FIRST_VIEW_EMAIL_ID,

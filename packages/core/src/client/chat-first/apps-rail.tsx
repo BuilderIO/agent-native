@@ -315,7 +315,6 @@ export const ChatFirstAppsRail = memo(function ChatFirstAppsRail({
         className="flex flex-col items-center gap-1 px-1.5 pt-2"
         aria-label={copy("workspaceApps")}
       >
-        {createTrigger}
         {loading && apps.length === 0
           ? [0, 1, 2].map((index) => (
               <Skeleton key={index} className="size-9 rounded-md" />

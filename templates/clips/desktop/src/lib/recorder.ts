@@ -55,10 +55,6 @@ import {
   waitForAcceptedRecordingAfterFinalizeError,
   waitForReadyRecordingAfterFinalizeError,
 } from "../../../shared/finalize-recovery";
-import {
-  createMicAudioCleanup,
-  type MicAudioCleanupHandle,
-} from "../../../shared/mic-audio-cleanup";
 import type { LocalRecordingMode } from "../shared/config";
 import { createAudioCue, type AudioCue } from "./audio-cue";
 import { createCameraCompositeStream } from "./camera-composite";
@@ -239,6 +235,8 @@ export interface StartParams {
   cameraOn: boolean;
   /** Record + transcribe system/desktop audio. Default true. */
   systemAudioOn?: boolean;
+  /** Apply the browser/native voice cleanup path to microphone audio. */
+  voiceCleanupEnabled?: boolean;
   /** Cancels or bounds the pre-record capture setup. */
   signal?: AbortSignal;
   localRecordingMode?: LocalRecordingMode;
@@ -548,9 +546,9 @@ interface RecordingAudio {
 }
 
 /**
- * Build the audio track(s) for the recording. Microphone tracks pass through
- * the cleanup graph whether or not system/display audio is also present, then
- * both sources are mixed into one track when needed.
+ * Build the audio track(s) for the recording. Browser capture requests its
+ * built-in voice processing; this graph only combines raw source tracks when
+ * MediaRecorder needs one mixed track.
  */
 function buildRecordingAudio(
   micTracks: MediaStreamTrack[],
@@ -571,22 +569,13 @@ function buildRecordingAudio(
   }
   const ctx: AudioContext = new AudioCtx();
   const destination = ctx.createMediaStreamDestination();
-  const micCleanup: MicAudioCleanupHandle[] = [];
-  const cleanedMicTracks = micTracks.map((track) => {
-    const cleanup = createMicAudioCleanup(new MediaStream([track]), {
-      audioContext: ctx,
-    });
-    micCleanup.push(cleanup);
-    return cleanup.stream.getAudioTracks()[0] ?? track;
-  });
-  for (const tracks of [cleanedMicTracks, systemTracks]) {
+  for (const tracks of [micTracks, systemTracks]) {
     if (!tracks.length) continue;
     ctx.createMediaStreamSource(new MediaStream(tracks)).connect(destination);
   }
   return {
     tracks: destination.stream.getAudioTracks(),
     cleanup() {
-      for (const cleanup of micCleanup) cleanup.stop();
       ctx.close().catch(() => {});
     },
   };
@@ -4307,7 +4296,11 @@ async function startRecordingInner(
   const audioStreamPromise: Promise<MediaStream> | null = resumedAudioStream
     ? Promise.resolve(resumedAudioStream)
     : wantsAudio
-      ? getAudioStreamWithFallback(params.micId, params.micLabel)
+      ? getAudioStreamWithFallback(
+          params.micId,
+          params.micLabel,
+          params.voiceCleanupEnabled,
+        )
       : null;
 
   // getDisplayMedia can remain pending in a long-lived WebKit tray webview.

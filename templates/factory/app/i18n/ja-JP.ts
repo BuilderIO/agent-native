@@ -40,6 +40,7 @@ const messages = {
     unpinChat: "チャットのピン留めを解除",
   },
   navigation: {
+    agents: "エージェント",
     chat: "チャット",
     collapseSidebar: "サイドバーを折りたたむ",
     database: "データベース",
@@ -51,7 +52,7 @@ const messages = {
     openNavigation: "ナビゲーションを開く",
     settings: "設定",
     team: "チーム",
-    triage: "Factory",
+    triage: "ファクトリー",
   },
   triage: {
     title: "Factory",
@@ -165,6 +166,7 @@ const messages = {
     agenticAppsTitle: "エージェントアプリ",
     agenticAppsEmpty:
       "このワークスペースにはまだエージェントアプリがありません。",
+    createApp: "アプリを作成",
     editAppDetails: "アプリの詳細を編集",
     editAppDetailsDescription:
       "このワークスペースアプリの共有表示名と説明を更新します。",

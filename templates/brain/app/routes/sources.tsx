@@ -1875,8 +1875,7 @@ function SourceListItem({
             resourceId={source.id}
             allowedRoles={["viewer", "editor", "admin"]}
             resourceTitle={sourceName(source)}
-            trigger="icon"
-            triggerClassName="size-8"
+            triggerClassName="h-8 px-2"
           />
 
           <DropdownMenu>

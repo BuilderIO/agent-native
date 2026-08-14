@@ -41,6 +41,7 @@ const messages = {
     unpinChat: "채팅 고정 해제",
   },
   navigation: {
+    agents: "에이전트",
     chat: "채팅",
     collapseSidebar: "사이드바 접기",
     database: "데이터베이스",
@@ -52,7 +53,7 @@ const messages = {
     openNavigation: "탐색 열기",
     settings: "설정",
     team: "팀",
-    triage: "Factory",
+    triage: "팩토리",
   },
   triage: {
     title: "Factory",
@@ -163,6 +164,7 @@ const messages = {
     agentsTab: "에이전트",
     agenticAppsTitle: "에이전트 앱",
     agenticAppsEmpty: "이 워크스페이스에는 아직 에이전트 앱이 없습니다.",
+    createApp: "앱 만들기",
     editAppDetails: "앱 세부정보 편집",
     editAppDetailsDescription:
       "이 워크스페이스 앱의 공유 표시 이름과 설명을 업데이트합니다.",

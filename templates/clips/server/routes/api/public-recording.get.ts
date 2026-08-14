@@ -263,6 +263,7 @@ export default defineEventHandler(async (event) => {
     !viewerIsOrgMember &&
     !tokenAllowsAgentAccess
   ) {
+    setResponseHeader(event, "Cache-Control", "private, max-age=0, no-store");
     setResponseStatus(event, 404);
     return { error: "Not found" };
   }

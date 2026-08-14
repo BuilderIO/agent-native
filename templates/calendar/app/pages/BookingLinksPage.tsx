@@ -46,6 +46,7 @@ import {
   addMonths,
   subMonths,
   format,
+  parseISO,
   startOfDay,
   getDay,
 } from "date-fns";
@@ -113,6 +114,10 @@ import {
   useUpdateBookingLink,
   OPTIMISTIC_PREFIX,
 } from "@/hooks/use-booking-links";
+import {
+  useAvailableSlots,
+  type BookingAvailabilityPreview,
+} from "@/hooks/use-bookings";
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
 import { useSettings } from "@/hooks/use-settings";
 import { useZoomStatus, useConnectZoom } from "@/hooks/use-zoom-auth";
@@ -826,6 +831,14 @@ export default function BookingLinksPage({
     !!selectedLink &&
     savedDraftSignature !== null &&
     draftSignature !== savedDraftSignature;
+  const availabilityPreview =
+    selectedLink && !selectedLink.id.startsWith(OPTIMISTIC_PREFIX)
+      ? ({
+          slug: slugify(draft.slug),
+          durations: draft.durations,
+          hosts: draft.hosts,
+        } satisfies BookingAvailabilityPreview)
+      : undefined;
 
   function handleCreate() {
     setCreateDialogOpen(true);
@@ -1535,6 +1548,13 @@ export default function BookingLinksPage({
                   customFields={draft.customFields}
                   isActive={draft.isActive}
                   availability={availability ?? undefined}
+                  bookingSourceSlug={
+                    selectedLink.id?.startsWith(OPTIMISTIC_PREFIX) ||
+                    !availabilityPreview
+                      ? undefined
+                      : selectedLink.slug
+                  }
+                  availabilityPreview={availabilityPreview}
                   bookingUrl={previewUrl}
                   onCopy={() => void copyPreviewUrl(draft.slug)}
                   openHref={bookingPreviewPath(draft.slug)}
@@ -2022,6 +2042,8 @@ function BookingPreview({
   customFields = [],
   isActive,
   availability,
+  bookingSourceSlug,
+  availabilityPreview,
   bookingUrl,
   onCopy,
   openHref,
@@ -2034,6 +2056,8 @@ function BookingPreview({
   customFields?: CustomField[];
   isActive: boolean;
   availability?: AvailabilityConfig;
+  bookingSourceSlug?: string;
+  availabilityPreview?: BookingAvailabilityPreview;
   bookingUrl?: string;
   onCopy?: () => void;
   openHref?: string;
@@ -2061,6 +2085,24 @@ function BookingPreview({
     notes: "",
     fieldResponses: {},
   });
+
+  const liveAvailabilityDate =
+    bookingSourceSlug && selectedDate ? format(selectedDate, "yyyy-MM-dd") : "";
+  const liveAvailabilityDuration =
+    selectedDuration !== null && durations.includes(selectedDuration)
+      ? selectedDuration
+      : primaryDuration;
+  const {
+    data: liveSlots = [],
+    isLoading: liveSlotsLoading,
+    isError: liveSlotsError,
+  } = useAvailableSlots(
+    liveAvailabilityDate,
+    liveAvailabilityDuration,
+    bookingSourceSlug,
+    availabilityPreview,
+  );
+  const hasLiveAvailability = Boolean(bookingSourceSlug && selectedDate);
 
   // Reset selections when durations change
   useEffect(() => {
@@ -2092,6 +2134,9 @@ function BookingPreview({
 
   // Generate realistic time slots based on availability
   const timeSlots = useMemo(() => {
+    if (hasLiveAvailability) {
+      return liveSlots.map((slot) => format(parseISO(slot.start), "h:mm a"));
+    }
     if (!selectedDate || !availability) {
       return ["9:00 AM", "9:30 AM", "10:00 AM", "10:30 AM", "11:00 AM"];
     }
@@ -2122,7 +2167,14 @@ function BookingPreview({
       }
     }
     return slots;
-  }, [selectedDate, selectedDuration, primaryDuration, availability]);
+  }, [
+    selectedDate,
+    selectedDuration,
+    primaryDuration,
+    availability,
+    hasLiveAvailability,
+    liveSlots,
+  ]);
 
   // Determine which step to show
   const [forcedStep, setForcedStep] = useState<BookingPreviewStep | null>(null);
@@ -2458,7 +2510,17 @@ function BookingPreview({
                 {t("bookingLinks.availableTimes")}
               </p>
             )}
-            {timeSlots.length > 0 ? (
+            {liveSlotsLoading ? (
+              <div className="grid grid-cols-3 gap-1.5">
+                {Array.from({ length: 6 }).map((_, index) => (
+                  <Skeleton key={index} className="h-8 rounded-md" />
+                ))}
+              </div>
+            ) : liveSlotsError ? (
+              <p className="rounded-md border border-destructive/30 bg-destructive/[0.06] px-2.5 py-2 text-center text-xs text-destructive">
+                {t("bookingLinks.availabilityUnavailable")}
+              </p>
+            ) : timeSlots.length > 0 ? (
               <div className="grid grid-cols-3 gap-1.5">
                 {timeSlots.map((slot) => (
                   <button

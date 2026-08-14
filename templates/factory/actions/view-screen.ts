@@ -82,6 +82,21 @@ export default defineAction({
       }
     }
 
+    if (
+      navigation &&
+      typeof navigation === "object" &&
+      "view" in navigation &&
+      navigation.view === "agents"
+    ) {
+      const [apps, agents] = await Promise.all([
+        runDispatchAction("list-workspace-apps", {
+          includeAgentCards: false,
+        }),
+        runDispatchAction("list-workspace-resources", { kind: "agent" }),
+      ]);
+      screen.agents = { apps, agents };
+    }
+
     if (Object.keys(screen).length === 0) {
       return "No application state found. Is the app running?";
     }
