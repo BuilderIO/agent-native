@@ -1741,22 +1741,50 @@ html.dark .shiki span {
   }
 }
 
-/* Primary button — high contrast, flips with theme */
-.primary-button {
+.primary-button,
+.secondary-button {
   display: inline-flex;
+  min-height: 40px;
   align-items: center;
-  gap: 8px;
-  border-radius: 12px;
-  padding: 12px 24px;
+  justify-content: center;
+  border-radius: 6px;
+  padding: 0 20px;
+  font-family: var(--font-mono);
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: 0.28px;
   text-decoration: none;
-  background-color: var(--fg);
-  color: var(--bg);
+  text-transform: uppercase;
+  transition:
+    background-color 150ms,
+    border-color 150ms,
+    color 150ms;
+}
+
+.primary-button {
+  flex-shrink: 0;
+  gap: 8px;
+  border: 1px solid #00dff6;
+  background-color: #01c8f1;
+  color: #0a0a0a;
 }
 
 .primary-button:hover {
-  opacity: 0.85;
+  background-color: #3ad4f4;
+  text-decoration: none;
+}
+
+.secondary-button {
+  border: 1px solid #5e5e5e;
+  background-color: #0a0a0a;
+  color: #faf9f5;
+}
+
+.secondary-button:hover {
+  border-color: var(--fg-secondary);
+  color: white;
+  text-decoration: none;
 }
 
 /* Mobile docs nav dropdown */

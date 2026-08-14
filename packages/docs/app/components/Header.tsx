@@ -17,11 +17,9 @@ import {
 const DOCS_FEEDBACK_URL =
   "https://forms.agent-native.com/f/agent-native-feedback/_16ewV";
 
-const feedbackTriggerClassName =
-  "inline-flex h-10 items-center justify-center rounded-md border border-[#5e5e5e] bg-[#0a0a0a] px-5 font-mono text-[14px] font-semibold uppercase leading-[1.2] tracking-[0.28px] text-[#faf9f5] transition hover:border-[var(--fg-secondary)] hover:text-white";
+const feedbackTriggerClassName = "secondary-button";
 
-const TRY_NOW_CLASSNAME =
-  "inline-flex h-10 shrink-0 items-center justify-center rounded-md border border-[#00dff6] bg-[#01c8f1] px-5 font-mono text-[14px] font-semibold uppercase leading-[1.2] tracking-[0.28px] text-[#0a0a0a] no-underline transition hover:bg-[#3ad4f4] hover:no-underline";
+const TRY_NOW_CLASSNAME = "primary-button";
 
 function HamburgerIcon() {
   return (

@@ -149,8 +149,8 @@ export default function PricingPage() {
               3. There's an easy button that costs money.
             </h3>
             <p className="m-0">
-              There are &quot;all in one&quot; back-ends that cover agent tokens,
-              storage, databases, deploys, and auth seamlessly within
+              There are &quot;all in one&quot; back-ends that cover agent
+              tokens, storage, databases, deploys, and auth seamlessly within
               Agent-Native. You can simply turn on{" "}
               <a
                 href="https://www.builder.io/m/pricing"
@@ -160,7 +160,8 @@ export default function PricingPage() {
               >
                 Builder.io
               </a>{" "}
-              or configure another all-in-one provider within your app settings after logging in.
+              or configure another all-in-one provider within your app settings
+              after logging in.
             </p>
           </div>
         </div>
@@ -208,10 +209,7 @@ export default function PricingPage() {
           <Link to={localizedPath("/apps")} className="primary-button">
             {t("home.hero.primaryCta")} <span aria-hidden>→</span>
           </Link>
-          <Link
-            to={localizedPath("/docs")}
-            className="inline-flex items-center gap-2 rounded-xl border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)]"
-          >
+          <Link to={localizedPath("/docs")} className="secondary-button">
             {t("home.hero.secondaryCta")}
           </Link>
         </div>
