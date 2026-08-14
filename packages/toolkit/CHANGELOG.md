@@ -1,5 +1,16 @@
 # @agent-native/toolkit
 
+## 0.16.0
+
+### Minor Changes
+
+- 9e21e1b: Add a Core-free data grid kit with keyboard navigation, selection, resizing, typed editor slots, and app-owned persistence callbacks.
+
+### Patch Changes
+
+- 9e21e1b: Align chat history rail overflow actions with trailing timestamps.
+- 9e21e1b: Standardize share triggers, compact copy rows, and agent-sharing sections across framework surfaces.
+
 ## 0.15.1
 
 ### Patch Changes
