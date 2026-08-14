@@ -288,8 +288,9 @@ export default defineEventHandler(async (event: H3Event) => {
     );
     const pendingCleanup =
       parsedCleanup &&
-      (parsedCleanup.ownerGenerationId === null ||
-        parsedCleanup.ownerGenerationId === existingGenerationId)
+      (parsedCleanup.ownerGenerationId === null
+        ? !useGenerationFence
+        : parsedCleanup.ownerGenerationId === existingGenerationId)
         ? parsedCleanup
         : null;
     const discardedGenerationId = pendingCleanup
