@@ -12,6 +12,7 @@ import {
 import { IconChevronDown } from "@tabler/icons-react";
 import * as React from "react";
 
+import { useT } from "../../i18n.js";
 import { cn } from "../../utils.js";
 
 type MessageScrollerProviderProps = React.ComponentProps<
@@ -49,8 +50,10 @@ function MessageScroller({ className, ...props }: MessageScrollerRootProps) {
 function MessageScrollerViewport({
   className,
   children,
+  "aria-label": ariaLabel,
   ...props
 }: MessageScrollerViewportProps) {
+  const t = useT();
   const { start: hasContentAbove } = useMessageScrollerScrollable();
 
   return (
@@ -63,6 +66,10 @@ function MessageScrollerViewport({
         hasContentAbove && "message-scroller-viewport--top-fade",
         className,
       )}
+      aria-label={
+        ariaLabel ??
+        t("agentChat.message.messages", { defaultValue: "Messages" })
+      }
       {...props}
     >
       {children}
@@ -94,6 +101,7 @@ function MessageScrollerButton({
   render,
   ...props
 }: MessageScrollerButtonProps) {
+  const t = useT();
   return (
     <ShadcnMessageScroller.Button
       render={
@@ -108,7 +116,7 @@ function MessageScrollerButton({
                 className,
                 buttonProps.className as string | undefined,
               )}
-              aria-label="Scroll to bottom"
+              aria-label={t("agentChat.composer.scrollToBottom")}
             >
               {children ?? (
                 <IconChevronDown className="h-3.5 w-3.5 text-muted-foreground" />

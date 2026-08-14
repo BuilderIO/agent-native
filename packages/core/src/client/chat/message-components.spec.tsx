@@ -4,6 +4,7 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { AgentNativeI18nProvider } from "../i18n.js";
 import {
   assistantMessageHasCompletedCustomUi,
   assistantMessageHasActiveTool,
@@ -27,6 +28,7 @@ import {
   ThinkingIndicator,
   userMessageTextBeforeAssistant,
   isHiddenUserMessage,
+  SelectionAttachedPill,
   assistantMessageRunId,
   assistantMessageTurnId,
   assistantMessageWasUserStopped,
@@ -82,6 +84,63 @@ describe("assistant request ID resolution", () => {
       }),
     ).toBe(true);
     expect(assistantMessageWasUserStopped({})).toBe(false);
+  });
+});
+
+describe("SelectionAttachedPill", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: true, status: 204 })),
+    );
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    vi.unstubAllGlobals();
+  });
+
+  it("formats the selected character count with the active app locale", async () => {
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          catalog={{
+            sourceLocale: "de-DE",
+            messages: {
+              agentChat: {
+                selection: {
+                  attached: "{{formattedCount}} Zeichen der Auswahl angehängt",
+                },
+              },
+            },
+          }}
+          initialLocale="de-DE"
+          initialPreference="de-DE"
+          persistPreference={false}
+        >
+          <SelectionAttachedPill />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("agent-panel:selection-attached", {
+          detail: { length: 1234 },
+        }),
+      );
+    });
+
+    expect(container.textContent).toContain(
+      "1.234 Zeichen der Auswahl angehängt",
+    );
   });
 });
 
@@ -141,13 +200,31 @@ describe("ChatImageAttachmentPreview", () => {
     vi.unstubAllGlobals();
   });
 
-  it("opens the full-size image in a lightbox and closes it", () => {
-    act(() => {
-      root.render(<ChatImageAttachmentPreview src={src} alt="Screenshot" />);
+  it("opens the full-size image with localized controls and closes it", async () => {
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          persistPreference={false}
+          catalog={{
+            sourceLocale: "en-US",
+            messages: {
+              agentChat: {
+                composer: {
+                  previewAttachment: "Open {{name}}",
+                  closePreview: "Custom close",
+                },
+              },
+            },
+          }}
+        >
+          <ChatImageAttachmentPreview src={src} alt="Screenshot" />
+        </AgentNativeI18nProvider>,
+      );
+      await Promise.resolve();
     });
 
     const thumbnail = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Preview Screenshot"]',
+      'button[aria-label="Open Screenshot"]',
     );
     expect(thumbnail).toBeTruthy();
     expect(document.body.querySelector('[role="dialog"]')).toBeNull();
@@ -164,14 +241,12 @@ describe("ChatImageAttachmentPreview", () => {
       ),
     ).toBe(true);
     expect(
-      dialog?.querySelector('button[aria-label="Close image preview"]'),
+      dialog?.querySelector('button[aria-label="Custom close"]'),
     ).toBeTruthy();
 
     act(() => {
       dialog
-        ?.querySelector<HTMLButtonElement>(
-          'button[aria-label="Close image preview"]',
-        )
+        ?.querySelector<HTMLButtonElement>('button[aria-label="Custom close"]')
         ?.click();
     });
 
@@ -830,6 +905,42 @@ describe("InlineRunErrorNotice", () => {
 
     expect(container.querySelector("button")?.textContent).toBe(
       "The agent hit an error",
+    );
+  });
+
+  it("formats the inline error duration with the selected locale", async () => {
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          catalog={{
+            sourceLocale: "en-US",
+            messages: {
+              agentChat: {
+                duration: {
+                  minuteShort: "min",
+                  secondShort: "sec",
+                },
+              },
+            },
+          }}
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <InlineRunErrorNotice
+            info={{
+              message: "Provider timed out.",
+              errorCode: "connection_error",
+              recoverable: true,
+            }}
+            durationMs={125_000}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    expect(container.querySelector("button")?.textContent).toBe(
+      "The agent stopped before finishing after 2min 5sec",
     );
   });
 });

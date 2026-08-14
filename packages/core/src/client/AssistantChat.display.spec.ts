@@ -42,6 +42,7 @@ import {
   resolveAssistantChatRunningState,
   resolveAssistantChatRunningStatusLabel,
   resolveAssistantChatComposerPlaceholder,
+  shouldShowAssistantChatModelSelector,
   resolveAssistantChatSubmitIntent,
   settleInterruptedAssistantToolCallsInRepo,
   shouldAcceptRunError,
@@ -50,6 +51,22 @@ import {
   useAutoResumeStatus,
   waitForThreadRunToClear,
 } from "./AssistantChat.js";
+
+describe("shouldShowAssistantChatModelSelector", () => {
+  it("keeps the framework selector by default and lets hosts replace only its visual control", () => {
+    expect(shouldShowAssistantChatModelSelector(undefined)).toBe(true);
+    expect(shouldShowAssistantChatModelSelector(true)).toBe(true);
+    expect(shouldShowAssistantChatModelSelector(false)).toBe(false);
+
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    expect(source).toContain("showModelSelector?: boolean");
+    expect(source).toContain(
+      "shouldShowAssistantChatModelSelector(\n                                          showModelSelector,",
+    );
+  });
+});
 
 describe("assistantUiMessageListStructureKey", () => {
   it("ignores text changes within existing message resources", () => {
@@ -1354,6 +1371,10 @@ describe("missing agent engine setup", () => {
       "src/client/chat/message-components.tsx",
       { encoding: "utf8" },
     );
+    const messageScroller = readFileSync(
+      "src/client/components/ui/message-scroller.tsx",
+      { encoding: "utf8" },
+    );
 
     expect(source).toContain("hasComposerAccessoryAboveStack");
     expect(source).toContain("data-agent-composer-adjacent-ui");
@@ -1361,6 +1382,7 @@ describe("missing agent engine setup", () => {
     expect(source).toContain(
       "if (!hideUserMessage) resumeFollowingRef.current()",
     );
+    expect(messageScroller).toContain('"agentChat.composer.scrollToBottom"');
     expect(source).toContain("<MessageScrollerButton />");
     expect(source).toMatch(/<MessageScrollerProvider[\s\S]*?\bautoScroll\b/);
     expect(source).not.toContain("autoScroll={false}");
@@ -1378,7 +1400,7 @@ describe("missing agent engine setup", () => {
     );
     expect(source).toContain("<BuilderSetupCard");
     expect(source).toContain("showInlineMissingKeySetup");
-    expect(source).toContain("Connect AI above to start chatting...");
+    expect(source).toContain('"agentChat.setup.connectPlaceholder"');
     expect(source).toContain('className="agent-composer-missing-key-trigger"');
     expect(source).toContain('className="agent-composer-missing-key-cta"');
     expect(source).toContain("<BuilderSetupContent");
@@ -1752,6 +1774,28 @@ describe("resolveAssistantChatRunningStatusLabel", () => {
     ).toBe("Preparing generate-design action");
   });
 
+  it("localizes Core-owned activity labels while preserving the tool name", () => {
+    expect(
+      resolveAssistantChatRunningStatusLabel({
+        runningActivityLabel: "Preparing generate-design...",
+        isAutoResuming: false,
+        isReconnecting: false,
+        hasReconnectContent: false,
+        labels: {
+          thinking: "Denkt nach",
+          resuming: "Wird fortgesetzt",
+          stillWorking: "Arbeitet weiter",
+          working: "Arbeitet",
+          contactingModel: "Modell wird kontaktiert",
+          starting: (activity) => `${activity} wird gestartet...`,
+          preparing: (activity) => `${activity} wird vorbereitet...`,
+          writing: (activity) => `${activity} wird geschrieben...`,
+          stillGenerating: (activity) => `${activity} wird weiterhin generiert`,
+        },
+      }),
+    ).toBe("generate-design wird vorbereitet...");
+  });
+
   it("shows replayed recovery as still working instead of reconnecting", () => {
     expect(
       resolveAssistantChatRunningStatusLabel({
@@ -1759,8 +1803,13 @@ describe("resolveAssistantChatRunningStatusLabel", () => {
         isAutoResuming: false,
         isReconnecting: true,
         hasReconnectContent: true,
+        labels: {
+          thinking: "Denkt nach",
+          resuming: "Wird fortgesetzt",
+          stillWorking: "Arbeitet weiter",
+        },
       }),
-    ).toBe("Still working");
+    ).toBe("Arbeitet weiter");
   });
 
   it("keeps bare reconnect recovery as thinking", () => {
@@ -1770,8 +1819,13 @@ describe("resolveAssistantChatRunningStatusLabel", () => {
         isAutoResuming: false,
         isReconnecting: true,
         hasReconnectContent: false,
+        labels: {
+          thinking: "Denkt nach",
+          resuming: "Wird fortgesetzt",
+          stillWorking: "Arbeitet weiter",
+        },
       }),
-    ).toBe("Thinking");
+    ).toBe("Denkt nach");
   });
 });
 
