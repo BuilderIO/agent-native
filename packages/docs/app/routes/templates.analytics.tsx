@@ -1,6 +1,5 @@
 import { useLocale, useT } from "@agent-native/core/client/i18n";
 import {
-  IconArrowUpRight,
   IconChartBar,
   IconCheck,
   IconCode,
@@ -28,7 +27,7 @@ import {
   TemplateStatOrStepsGrid,
   TemplateStatOrStepsGridItem,
 } from "../components/template-landing";
-import { templates } from "../components/TemplateCard";
+import { templates, trackEvent } from "../components/TemplateCard";
 import { withTemplateSocialImage } from "../seo";
 
 export const meta = () =>
@@ -171,7 +170,7 @@ export default function AnalyticsTemplate() {
           </h2>
         }
       >
-        <div className="grid w-full min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 lg:flex lg:flex-wrap lg:items-center">
+        <div className="flex w-full min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-center sm:gap-[120px]">
           <a
             href="https://analytics.agent-native.com"
             target="_blank"
@@ -186,11 +185,6 @@ export default function AnalyticsTemplate() {
             }}
           >
             {t("templateLanding.analytics.s009")}
-            <IconArrowUpRight
-              aria-hidden="true"
-              className="size-4"
-              stroke={2}
-            />
           </a>
           <TemplateDocsLink
             template={template}

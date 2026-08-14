@@ -1,9 +1,5 @@
 import { useLocale, useT } from "@agent-native/core/client/i18n";
-import {
-  IconArrowLeft,
-  IconBrandGithub,
-  IconExternalLink,
-} from "@tabler/icons-react";
+import { IconArrowLeft, IconBrandGithub } from "@tabler/icons-react";
 import { Link, useParams, type LoaderFunctionArgs } from "react-router";
 
 import { sitePathForLocale } from "../components/docs-locale";
@@ -154,7 +150,7 @@ export default function GenericTemplatePage() {
         }
       >
         <div className="flex w-full min-w-0 flex-col gap-4">
-          <div className="template-detail-actions flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+          <div className="template-detail-actions flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-center sm:gap-[120px]">
             {hasDemoUrl ? (
               <a
                 href={template.demoUrl}
@@ -170,7 +166,6 @@ export default function GenericTemplatePage() {
                 }}
               >
                 {t("common.tryIt")}
-                <IconExternalLink aria-hidden="true" size={16} />
               </a>
             ) : null}
             <a

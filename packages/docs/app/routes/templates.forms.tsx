@@ -1,5 +1,5 @@
 import { useLocale, useT } from "@agent-native/core/client/i18n";
-import { IconCheck, IconExternalLink } from "@tabler/icons-react";
+import { IconCheck } from "@tabler/icons-react";
 import { Link } from "react-router";
 
 import { sitePathForLocale } from "../components/docs-locale";
@@ -18,7 +18,7 @@ import {
   TemplateStatOrStepsGrid,
   TemplateStatOrStepsGridItem,
 } from "../components/template-landing";
-import { templates } from "../components/TemplateCard";
+import { templates, trackEvent } from "../components/TemplateCard";
 import { withTemplateSocialImage } from "../seo";
 
 export const meta = () =>
@@ -125,7 +125,7 @@ export default function FormsTemplate() {
           </h2>
         }
       >
-        <div className="grid w-full min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 lg:flex lg:flex-wrap lg:items-center">
+        <div className="flex w-full min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-center sm:gap-[120px]">
           <div className="template-detail-actions contents">
             <a
               href="https://forms.agent-native.com"
@@ -141,7 +141,6 @@ export default function FormsTemplate() {
               }}
             >
               {t("templateLanding.forms.s008")}
-              <IconExternalLink aria-hidden="true" size={16} />
             </a>
             <TemplateDocsLink
               template={template}

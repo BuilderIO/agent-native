@@ -1,7 +1,6 @@
 import { useLocale, useT } from "@agent-native/core/client/i18n";
 import {
   IconCheck,
-  IconExternalLink,
   IconMessage,
   IconPencil,
   IconUpload,
@@ -24,7 +23,7 @@ import {
   TemplateStatOrStepsGrid,
   TemplateStatOrStepsGridItem,
 } from "../components/template-landing";
-import { templates } from "../components/TemplateCard";
+import { templates, trackEvent } from "../components/TemplateCard";
 import { withTemplateSocialImage } from "../seo";
 
 export const meta = () =>
@@ -133,7 +132,7 @@ export default function ContentTemplate() {
           </h2>
         }
       >
-        <div className="grid w-full min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 lg:flex lg:flex-wrap lg:items-center">
+        <div className="flex w-full min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-center sm:gap-[120px]">
           <div className="template-detail-actions contents">
             <a
               href="https://content.agent-native.com"
@@ -149,7 +148,6 @@ export default function ContentTemplate() {
               }}
             >
               {t("templateLanding.content.s005")}
-              <IconExternalLink aria-hidden="true" size={16} />
             </a>
             <TemplateDocsLink
               template={template}
