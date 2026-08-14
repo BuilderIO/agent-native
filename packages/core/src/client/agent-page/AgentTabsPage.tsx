@@ -27,6 +27,7 @@ import {
   type ReactNode,
 } from "react";
 
+import { docsUrl } from "../../shared/docs-url.js";
 import {
   MCP_CONNECT_GUIDES,
   MCP_CONNECT_MCP_URL_TEMPLATE,
@@ -143,14 +144,15 @@ function EmptySlot({ label }: { label: string }) {
 }
 
 export const AGENT_RESOURCE_DOCS_HREF: Record<ResourceView, string> = {
-  files: "https://agent-native.com/docs/agent-resources#resources-tab",
-  instructions: "https://agent-native.com/docs/agent-resources#agents-md",
-  agents: "https://agent-native.com/docs/agent-resources#custom-agents",
-  memory: "https://agent-native.com/docs/agent-resources#memory",
-  skills: "https://agent-native.com/docs/skills-guide",
-  learnings: "https://agent-native.com/docs/agent-resources#memory",
-  "remote-agents":
-    "https://agent-native.com/docs/agent-resources#remote-vs-custom-agents",
+  files: docsUrl("agent-resources", { hash: "resources-tab" }),
+  instructions: docsUrl("agent-resources", { hash: "agents-md" }),
+  agents: docsUrl("agent-resources", { hash: "custom-agents" }),
+  memory: docsUrl("agent-resources", { hash: "memory" }),
+  skills: docsUrl("skills-guide"),
+  learnings: docsUrl("agent-resources", { hash: "memory" }),
+  "remote-agents": docsUrl("agent-resources", {
+    hash: "remote-vs-custom-agents",
+  }),
 };
 
 const RESOURCE_TAB_COPY: Record<
@@ -466,8 +468,8 @@ interface AccessUrls {
 }
 
 export const AGENT_ACCESS_DOCS_HREF = {
-  mcp: "https://agent-native.com/docs/mcp-protocol",
-  a2a: "https://agent-native.com/docs/a2a-protocol",
+  mcp: docsUrl("mcp-protocol"),
+  a2a: docsUrl("a2a-protocol"),
 } as const;
 
 interface CopyFieldProps {

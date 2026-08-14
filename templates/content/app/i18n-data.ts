@@ -2915,7 +2915,7 @@ const editorSlashMessages = {
   equationPreview: "Preview",
   equationPreviewEmpty: "Your equation will appear here.",
   equationSubmitHint:
-    "Preview updates as you type. Press Cmd/Ctrl+Enter to insert.",
+    "Preview updates as you type. Press Cmd/Ctrl Enter to insert.",
   quote: "Quote",
   quoteDescription: "Block quote",
   table: "Table",
@@ -3119,6 +3119,8 @@ const enUS = {
     searchLanguages: "Search languages...",
     noBlocksFields: "No Blocks fields. Add one from the property menu.",
     noDocumentSelected: "No document selected",
+    blocksFieldRevisionConflict:
+      "This Blocks field changed elsewhere. Your edit wasn't saved; the latest version is now shown.",
     couldNotReadLocalSourceFile: "Could not read local source file",
     couldNotSaveLocalFile: "Could not save local file",
     collabConnectingReadOnly:
@@ -5619,6 +5621,8 @@ const databaseExactEnglishMessagesByLocale = {
 const editorMessagesByLocale = {
   "zh-CN": {
     noDocumentSelected: "未选择文档",
+    blocksFieldRevisionConflict:
+      "此 Blocks 字段已在其他位置更改。你的编辑未保存；现已显示最新版本。",
     collabConnectingReadOnly: "正在连接实时编辑器。显示只读快照。",
     liveDocumentSaveBeforeSyncFailed: "实时文档无法在同步前保存。",
     builderBodySyncing: "内容仍在从 Builder 同步",
@@ -5966,6 +5970,8 @@ const editorMessagesByLocale = {
   },
   "es-ES": {
     noDocumentSelected: "Ningún documento seleccionado",
+    blocksFieldRevisionConflict:
+      "Este campo de bloques cambió en otro lugar. Tu edición no se guardó; ahora se muestra la versión más reciente.",
     collabConnectingReadOnly:
       "Conectando el editor en vivo. Mostrando una instantánea de solo lectura.",
     liveDocumentSaveBeforeSyncFailed:
@@ -6326,6 +6332,8 @@ const editorMessagesByLocale = {
   },
   "fr-FR": {
     noDocumentSelected: "Aucun document sélectionné",
+    blocksFieldRevisionConflict:
+      "Ce champ de blocs a été modifié ailleurs. Votre modification n’a pas été enregistrée ; la dernière version est maintenant affichée.",
     collabConnectingReadOnly:
       "Connexion de l'éditeur en direct. Affichage d'un instantané en lecture seule.",
     liveDocumentSaveBeforeSyncFailed:
@@ -6691,6 +6699,8 @@ const editorMessagesByLocale = {
   },
   "de-DE": {
     noDocumentSelected: "Kein Dokument ausgewählt",
+    blocksFieldRevisionConflict:
+      "Dieses Blocks-Feld wurde an anderer Stelle geändert. Deine Bearbeitung wurde nicht gespeichert; jetzt wird die neueste Version angezeigt.",
     collabConnectingReadOnly:
       "Live-Editor wird verbunden. Schreibgeschützte Momentaufnahme wird angezeigt.",
     liveDocumentSaveBeforeSyncFailed:
@@ -7059,6 +7069,8 @@ const editorMessagesByLocale = {
   },
   "ja-JP": {
     noDocumentSelected: "ドキュメントが選択されていません",
+    blocksFieldRevisionConflict:
+      "このブロックフィールドは別の場所で変更されました。編集内容は保存されず、最新バージョンが表示されています。",
     collabConnectingReadOnly:
       "ライブエディターに接続中。読み取り専用のスナップショットを表示しています。",
     liveDocumentSaveBeforeSyncFailed:
@@ -7416,6 +7428,8 @@ const editorMessagesByLocale = {
   },
   "ko-KR": {
     noDocumentSelected: "선택한 문서가 없습니다.",
+    blocksFieldRevisionConflict:
+      "이 블록 필드가 다른 곳에서 변경되었습니다. 편집 내용은 저장되지 않았으며 최신 버전이 표시됩니다.",
     collabConnectingReadOnly:
       "라이브 편집기에 연결하는 중입니다. 읽기 전용 스냅샷을 표시합니다.",
     liveDocumentSaveBeforeSyncFailed:
@@ -7772,6 +7786,8 @@ const editorMessagesByLocale = {
   },
   "pt-BR": {
     noDocumentSelected: "Nenhum documento selecionado",
+    blocksFieldRevisionConflict:
+      "Este campo de blocos foi alterado em outro lugar. Sua edição não foi salva; a versão mais recente agora está sendo exibida.",
     collabConnectingReadOnly:
       "Conectando o editor ao vivo. Exibindo um instantâneo somente leitura.",
     liveDocumentSaveBeforeSyncFailed:
@@ -8134,6 +8150,8 @@ const editorMessagesByLocale = {
   },
   "hi-IN": {
     noDocumentSelected: "कोई दस्तावेज़ चयनित नहीं",
+    blocksFieldRevisionConflict:
+      "यह ब्लॉक फ़ील्ड कहीं और बदल गया है। आपका संपादन सहेजा नहीं गया; अब नवीनतम संस्करण दिखाया जा रहा है।",
     collabConnectingReadOnly:
       "लाइव संपादक कनेक्ट हो रहा है। केवल-पठन स्नैपशॉट दिखाया जा रहा है।",
     liveDocumentSaveBeforeSyncFailed:
@@ -8486,6 +8504,8 @@ const editorMessagesByLocale = {
   },
   "ar-SA": {
     noDocumentSelected: "لم يتم تحديد أي مستند",
+    blocksFieldRevisionConflict:
+      "تم تغيير حقل الكتل هذا في مكان آخر. لم يتم حفظ تعديلك؛ ويظهر الآن أحدث إصدار.",
     collabConnectingReadOnly:
       "جارٍ الاتصال بالمحرر المباشر. يتم عرض لقطة للقراءة فقط.",
     liveDocumentSaveBeforeSyncFailed: "تعذّر حفظ المستند المباشر قبل المزامنة.",
@@ -11195,7 +11215,7 @@ const contentExactEnglishTranslations = {
         equationPlaceholder: String.raw`输入 LaTeX，例如 \frac{a}{b}`,
         equationPreview: "预览",
         equationPreviewEmpty: "公式将在此处显示。",
-        equationSubmitHint: "输入时会实时更新预览。按 Cmd/Ctrl+Enter 插入。",
+        equationSubmitHint: "输入时会实时更新预览。按 Cmd/Ctrl Enter 插入。",
       },
       toolbar: {
         info: "信息",
@@ -11242,7 +11262,7 @@ const contentExactEnglishTranslations = {
         equationPreview: "Vista previa",
         equationPreviewEmpty: "Tu ecuación aparecerá aquí.",
         equationSubmitHint:
-          "La vista previa se actualiza mientras escribes. Pulsa Cmd/Ctrl+Enter para insertar.",
+          "La vista previa se actualiza mientras escribes. Pulsa Cmd/Ctrl Enter para insertar.",
       },
       toolbar: {
         info: "Información",
@@ -11291,7 +11311,7 @@ const contentExactEnglishTranslations = {
         equationPreview: "Aperçu",
         equationPreviewEmpty: "Votre équation apparaîtra ici.",
         equationSubmitHint:
-          "L’aperçu se met à jour pendant la saisie. Appuyez sur Cmd/Ctrl+Entrée pour insérer.",
+          "L’aperçu se met à jour pendant la saisie. Appuyez sur Cmd/Ctrl Entrée pour insérer.",
       },
       toolbar: {
         info: "Informations",
@@ -11341,7 +11361,7 @@ const contentExactEnglishTranslations = {
         equationPreview: "Vorschau",
         equationPreviewEmpty: "Ihre Gleichung wird hier angezeigt.",
         equationSubmitHint:
-          "Die Vorschau wird während der Eingabe aktualisiert. Mit Cmd/Ctrl+Enter einfügen.",
+          "Die Vorschau wird während der Eingabe aktualisiert. Mit Cmd/Ctrl Enter einfügen.",
       },
       toolbar: {
         info: "Informationen",
@@ -11390,7 +11410,7 @@ const contentExactEnglishTranslations = {
         equationPreview: "プレビュー",
         equationPreviewEmpty: "ここに数式が表示されます。",
         equationSubmitHint:
-          "入力中にプレビューが更新されます。Cmd/Ctrl+Enter で挿入します。",
+          "入力中にプレビューが更新されます。Cmd/Ctrl Enter で挿入します。",
       },
       toolbar: {
         info: "情報",
@@ -11438,7 +11458,7 @@ const contentExactEnglishTranslations = {
         equationPreview: "미리보기",
         equationPreviewEmpty: "여기에 수식이 표시됩니다.",
         equationSubmitHint:
-          "입력하는 동안 미리보기가 업데이트됩니다. Cmd/Ctrl+Enter로 삽입하세요.",
+          "입력하는 동안 미리보기가 업데이트됩니다. Cmd/Ctrl Enter로 삽입하세요.",
       },
       toolbar: {
         info: "정보",
@@ -11487,7 +11507,7 @@ const contentExactEnglishTranslations = {
         equationPreview: "Prévia",
         equationPreviewEmpty: "Sua equação aparecerá aqui.",
         equationSubmitHint:
-          "A prévia é atualizada enquanto você digita. Pressione Cmd/Ctrl+Enter para inserir.",
+          "A prévia é atualizada enquanto você digita. Pressione Cmd/Ctrl Enter para inserir.",
       },
       toolbar: {
         info: "Informações",
@@ -11535,7 +11555,7 @@ const contentExactEnglishTranslations = {
         equationPreview: "पूर्वावलोकन",
         equationPreviewEmpty: "आपका समीकरण यहाँ दिखाई देगा।",
         equationSubmitHint:
-          "लिखते समय पूर्वावलोकन अपडेट होता है। सम्मिलित करने के लिए Cmd/Ctrl+Enter दबाएँ।",
+          "लिखते समय पूर्वावलोकन अपडेट होता है। सम्मिलित करने के लिए Cmd/Ctrl Enter दबाएँ।",
       },
       toolbar: {
         info: "जानकारी",
@@ -11581,7 +11601,7 @@ const contentExactEnglishTranslations = {
         equationPreview: "معاينة",
         equationPreviewEmpty: "ستظهر معادلتك هنا.",
         equationSubmitHint:
-          "تتحدث المعاينة أثناء الكتابة. اضغط Cmd/Ctrl+Enter للإدراج.",
+          "تتحدث المعاينة أثناء الكتابة. اضغط Cmd/Ctrl Enter للإدراج.",
       },
       toolbar: {
         info: "معلومات",

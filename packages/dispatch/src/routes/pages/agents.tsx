@@ -5,6 +5,7 @@ import {
 import { useT } from "@agent-native/core/client/i18n";
 import { IconCheck, IconCopy, IconPlugConnected } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
+import { useLocation } from "react-router";
 import { toast } from "sonner";
 
 import { ActionQueryError } from "../../components/action-query-error";
@@ -13,6 +14,7 @@ import {
   type ConnectedAgent,
 } from "../../components/agents-panel";
 import { DispatchShell } from "../../components/dispatch-shell";
+import { SimpleAgentsPanel } from "../../components/simple-agents-panel";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Skeleton } from "../../components/ui/skeleton";
@@ -203,7 +205,7 @@ function DispatchMcpAccessPanel() {
   );
 }
 
-export default function AgentsRoute() {
+function ConnectedAgentsRoute() {
   const t = useT();
   const agentsQuery = useActionQuery("list-connected-agents", {});
 
@@ -228,4 +230,22 @@ export default function AgentsRoute() {
       </div>
     </DispatchShell>
   );
+}
+
+export default function AgentsRoute() {
+  const t = useT();
+  const location = useLocation();
+
+  if (!location.pathname.startsWith("/admin/agents")) {
+    return (
+      <DispatchShell
+        title={t("dispatch.nav.agents")}
+        description={t("dispatch.pages.simpleAgentsDescription")}
+      >
+        <SimpleAgentsPanel />
+      </DispatchShell>
+    );
+  }
+
+  return <ConnectedAgentsRoute />;
 }

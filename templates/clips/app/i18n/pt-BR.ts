@@ -662,13 +662,13 @@ const messages = {
     collapse: "Recolher",
     changelogMarkdown: `# Registro de alterações
 
-Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Você pode abrir a qualquer momento pelo menu de comandos (Cmd+K -> "Novidades") ou pelas Configurações.
+Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Você pode abrir a qualquer momento pelo menu de comandos (Cmd K -> "Novidades") ou pelas Configurações.
 
 ## 2026-06-23
 
 ### Adicionado
 
-- Agora você pode ver as novidades diretamente dentro do Clips. O registro de alterações fica no menu de comandos (Cmd+K) e nas Configurações.`,
+- Agora você pode ver as novidades diretamente dentro do Clips. O registro de alterações fica no menu de comandos (Cmd K) e nas Configurações.`,
     playback: "Reprodução",
     defaultPlaybackSpeed: "Velocidade padrão de reprodução",
     playbackDescription:
@@ -993,6 +993,8 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     includeTranscriptDescription:
       "Qualquer pessoa com acesso a esta reunião pode ler a transcrição completa.",
     transcriptUnavailable: "A transcrição ainda não está pronta.",
+    agentLinkDescription:
+      "Este link temporário permite que os agentes leiam estas notas da reunião sem torná-las públicas. Ele expira após duas horas.",
     transcript: "Transcrição",
     copyTranscript: "Copiar transcrição",
     transcriptCopied: "Transcrição copiada",
@@ -1219,7 +1221,7 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     seekTo: "Seek to {{time}}",
   },
   editorToolbar: {
-    undoTooltip: "Undo (Cmd/Ctrl+Z)",
+    undoTooltip: "Undo (Cmd/Ctrl Z)",
     playPauseTooltip: "Play / Pause (Space)",
     sourceDuration: "({{duration}} src)",
     previewSpeed: "Preview speed",
@@ -1572,6 +1574,16 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     calendarConnected: "Calendar connected",
     calendarDisconnected: "Calendar disconnected",
     calendarSettings: "Calendar settings",
+    calendarAccountsButton: "Calendários",
+    connectedAccounts: "Contas conectadas",
+    calendarConnectedLabel: "Conectado",
+    calendarNeedsReconnectLabel: "Precisa ser reconectado",
+    calendarDisconnectedLabel: "Desconectado",
+    calendarStatusUnavailable: "Status indisponível",
+    reconnectCalendar: "Reconectar calendário",
+    addAnotherCalendarAccount: "Adicionar outra conta",
+    connectCalendar: "Conectar calendário",
+    disconnectCalendarAccount: "Desconectar uma conta",
     connectCalendarReminder: "Connect Google Calendar for meeting reminders.",
     disconnectGoogleCalendarTitle: "Disconnect Google Calendar?",
     title: "Meetings",

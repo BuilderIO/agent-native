@@ -26,6 +26,9 @@ export {
 } from "./agent/index.js";
 export {
   defineAction,
+  ActionContractError,
+  isActionContractError,
+  type ActionContractErrorOptions,
   AgentActionStopError,
   isAgentActionStopError,
   type ActionDefinition,
@@ -155,6 +158,7 @@ export {
   evaluateFeatureFlag,
   getFeatureFlagDefinition,
   getFeatureFlagRules,
+  hasActiveFeatureFlagRollout,
   isFeatureFlagEnabled,
   listFeatureFlags,
   registerFeatureFlags,

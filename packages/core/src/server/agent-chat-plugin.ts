@@ -181,6 +181,7 @@ import {
 import { normalizeDatabaseToolsMode } from "../scripts/db/tool-mode.js";
 import type { ResolvedKeyReference } from "../secrets/substitution.js";
 import { getSetting, putSetting } from "../settings/store.js";
+import { docsUrl } from "../shared/docs-url.js";
 import {
   handleSharedThreadRequest,
   type SharedThreadRouteDependencies,
@@ -368,6 +369,25 @@ export { loadResourcesForPrompt };
 export { _agentChatPromptSectionsForTests };
 export { buildPublicAgentA2ASkills };
 export { assembleA2AFinalResponse };
+export function buildLeanSystemPrompt(input: {
+  basePrompt: string;
+  resources: string;
+  additionalFramework?: string;
+  cacheSplit?: string;
+  extra?: string;
+  modelOverlay?: string;
+  runtimeContext?: string;
+}): string {
+  return (
+    input.basePrompt +
+    (input.additionalFramework ?? "") +
+    (input.cacheSplit ?? "") +
+    input.resources +
+    (input.extra ?? "") +
+    (input.modelOverlay ?? "") +
+    (input.runtimeContext ?? "")
+  );
+}
 export type { AgentChatPluginOptions };
 export { runA2AAgentLoop };
 export { runMCPAgentLoop };
@@ -3455,6 +3475,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               codeEditingSurfaceRestriction,
               prodCodeExecPromptNote,
             );
+            const resources = await loadResourcesForPrompt(
+              owner,
+              true,
+              options?.appId,
+              undefined,
+              { disabledFrameworkGroups },
+            );
             await emitContextXraySystemSections(event, {
               frameworkPrompt: requestLeanPrompt.slice(
                 0,
@@ -3465,17 +3492,21 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               ),
               actionsPrompt: requestLeanActionsPrompt,
               additionalFramework: leanRunPolicyPrompt,
+              resources,
               extra,
               modelOverlay,
               runtimeContext,
             });
             return setSystemPromptOnContext(
-              requestLeanPrompt +
-                leanRunPolicyPrompt +
-                SYSTEM_PROMPT_CACHE_SPLIT +
-                extra +
-                modelOverlay +
+              buildLeanSystemPrompt({
+                basePrompt: requestLeanPrompt,
+                additionalFramework: leanRunPolicyPrompt,
+                cacheSplit: SYSTEM_PROMPT_CACHE_SPLIT,
+                resources,
+                extra,
+                modelOverlay,
                 runtimeContext,
+              }),
             );
           }
           const resources = await loadResourcesForPrompt(
@@ -3752,6 +3783,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             // cached prompt prefix as possible. See the prod handler above
             // for the same pattern.
             if (leanPrompt) {
+              const resources = await loadResourcesForPrompt(
+                owner,
+                true,
+                options?.appId,
+                undefined,
+                { disabledFrameworkGroups },
+              );
               await emitContextXraySystemSections(event, {
                 frameworkPrompt: requestLeanPrompt.slice(
                   0,
@@ -3761,12 +3799,19 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   ),
                 ),
                 actionsPrompt: requestLeanActionsPrompt,
+                resources,
                 extra,
                 modelOverlay,
                 runtimeContext,
               });
               return setSystemPromptOnContext(
-                requestLeanPrompt + extra + modelOverlay + runtimeContext,
+                buildLeanSystemPrompt({
+                  basePrompt: requestLeanPrompt,
+                  resources,
+                  extra,
+                  modelOverlay,
+                  runtimeContext,
+                }),
               );
             }
             const resources = await loadResourcesForPrompt(
@@ -4590,8 +4635,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           } = { skills };
 
           if (skills.length === 0) {
-            result.hint =
-              "No skills found. Add skill files under skills/ in Resources. Learn more: https://agent-native.com/docs/resources#skills";
+            result.hint = `No skills found. Add skill files under skills/ in Resources. Learn more: ${docsUrl("agent-resources", { hash: "skills" })}`;
           }
 
           return result;

@@ -327,6 +327,8 @@ const enUS = {
     },
     pages: {
       adminDescription: "Workspace controls and operations",
+      simpleAgentsDescription:
+        "Create reusable agents in minutes, or import a setup you already made in Claude or another agent tool.",
       adminNavigation: "Admin navigation",
       adminWelcome: "Workspace control plane",
       adminChooseArea:
@@ -1209,6 +1211,8 @@ export const messagesByLocale = {
         pages: {
           ...chatFirstPageTranslations["zh-CN"],
           adminDescription: "工作区控制与运营",
+          simpleAgentsDescription:
+            "几分钟内创建可复用的代理，或导入你已在 Claude 或其他代理工具中创建的设置。",
           adminNavigation: "管理导航",
           adminWelcome: "工作区控制中心",
           adminChooseArea: "在一个地方管理应用、连接、自动化和运营工具。",
@@ -1623,6 +1627,8 @@ export const messagesByLocale = {
         pages: {
           ...chatFirstPageTranslations["es-ES"],
           adminDescription: "Controles y operaciones del espacio de trabajo",
+          simpleAgentsDescription:
+            "Crea agentes reutilizables en minutos o importa una configuración que ya hayas creado en Claude u otra herramienta de agentes.",
           adminNavigation: "Navegación de administración",
           adminWelcome: "Panel de control del espacio de trabajo",
           adminChooseArea:
@@ -2048,6 +2054,8 @@ export const messagesByLocale = {
         pages: {
           ...chatFirstPageTranslations["fr-FR"],
           adminDescription: "Contrôles et opérations de l’espace de travail",
+          simpleAgentsDescription:
+            "Créez des agents réutilisables en quelques minutes ou importez une configuration déjà créée dans Claude ou un autre outil d’agents.",
           adminNavigation: "Navigation d’administration",
           adminWelcome: "Centre de contrôle de l’espace de travail",
           adminChooseArea:
@@ -2463,6 +2471,8 @@ export const messagesByLocale = {
         pages: {
           ...chatFirstPageTranslations["de-DE"],
           adminDescription: "Arbeitsbereichssteuerung und -betrieb",
+          simpleAgentsDescription:
+            "Erstelle in wenigen Minuten wiederverwendbare Agents oder importiere eine Konfiguration, die du bereits in Claude oder einem anderen Agent-Tool erstellt hast.",
           adminNavigation: "Administrationsnavigation",
           adminWelcome: "Arbeitsbereichsleitstelle",
           adminChooseArea:
@@ -2873,6 +2883,8 @@ export const messagesByLocale = {
         pages: {
           ...chatFirstPageTranslations["ja-JP"],
           adminDescription: "ワークスペースの管理と運用",
+          simpleAgentsDescription:
+            "数分で再利用可能なエージェントを作成するか、Claude などのエージェントツールで作成済みの設定をインポートします。",
           adminNavigation: "管理ナビゲーション",
           adminWelcome: "ワークスペースのコントロールプレーン",
           adminChooseArea:
@@ -3277,6 +3289,8 @@ export const messagesByLocale = {
         pages: {
           ...chatFirstPageTranslations["ko-KR"],
           adminDescription: "워크스페이스 제어 및 운영",
+          simpleAgentsDescription:
+            "몇 분 만에 재사용 가능한 에이전트를 만들거나 Claude 또는 다른 에이전트 도구에서 만든 설정을 가져오세요.",
           adminNavigation: "관리 탐색",
           adminWelcome: "워크스페이스 제어 센터",
           adminChooseArea:
@@ -3691,6 +3705,8 @@ export const messagesByLocale = {
         pages: {
           ...chatFirstPageTranslations["pt-BR"],
           adminDescription: "Controles e operações do espaço de trabalho",
+          simpleAgentsDescription:
+            "Crie agentes reutilizáveis em minutos ou importe uma configuração que você já criou no Claude ou em outra ferramenta de agentes.",
           adminNavigation: "Navegação de administração",
           adminWelcome: "Central de controle do espaço de trabalho",
           adminChooseArea:
@@ -4096,6 +4112,8 @@ export const messagesByLocale = {
         pages: {
           ...chatFirstPageTranslations["hi-IN"],
           adminDescription: "वर्कस्पेस नियंत्रण और संचालन",
+          simpleAgentsDescription:
+            "कुछ ही मिनटों में दोबारा इस्तेमाल किए जा सकने वाले एजेंट बनाएं, या Claude या किसी अन्य एजेंट टूल में पहले से बनाई गई सेटअप इंपोर्ट करें।",
           adminNavigation: "व्यवस्थापक नेविगेशन",
           adminWelcome: "वर्कस्पेस नियंत्रण केंद्र",
           adminChooseArea:
@@ -4529,6 +4547,8 @@ export const messagesByLocale = {
         pages: {
           ...chatFirstPageTranslations["ar-SA"],
           adminDescription: "عناصر التحكم في مساحة العمل وعملياتها",
+          simpleAgentsDescription:
+            "أنشئ وكلاء قابلين لإعادة الاستخدام خلال دقائق، أو استورد إعدادًا أنشأته بالفعل في Claude أو أداة وكلاء أخرى.",
           adminNavigation: "تنقل الإدارة",
           adminWelcome: "مركز التحكم في مساحة العمل",
           adminChooseArea:

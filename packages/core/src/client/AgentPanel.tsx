@@ -266,6 +266,15 @@ export function deferAgentPanelOverlayOpen(
   }
 }
 
+export function consumeAgentPanelOverlayFocusRestore(
+  pendingOverlayRef: { current: boolean },
+  event: { preventDefault: () => void },
+): void {
+  if (!pendingOverlayRef.current) return;
+  pendingOverlayRef.current = false;
+  event.preventDefault();
+}
+
 interface AvailableCli {
   command: string;
   label: string;
@@ -1254,6 +1263,11 @@ function AgentPanelInner({
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [shareFromMenuOpen, setShareFromMenuOpen] = useState(false);
+  const preventHeaderMenuFocusRestoreRef = useRef(false);
+  const closeHeaderMenuForOverlay = useCallback(() => {
+    preventHeaderMenuFocusRestoreRef.current = true;
+    setHeaderMenuOpen(false);
+  }, []);
 
   const getChatThreadShareUrl = useCallback(
     (threadId: string) => {
@@ -1424,7 +1438,19 @@ function AgentPanelInner({
               <IconDotsVertical size={14} />
             </button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" sideOffset={6} className="w-48">
+          <DropdownMenuContent
+            align="end"
+            sideOffset={6}
+            className="w-48"
+            onCloseAutoFocus={(event) => {
+              // A sibling overlay owns focus next; restoring it to the menu
+              // trigger would dismiss that overlay as an outside interaction.
+              consumeAgentPanelOverlayFocusRestore(
+                preventHeaderMenuFocusRestoreRef,
+                event,
+              );
+            }}
+          >
             {onCollapse && (
               <>
                 <DropdownMenuItem onSelect={onCollapse}>
@@ -1493,7 +1519,7 @@ function AgentPanelInner({
                       onSelect={(event) =>
                         deferAgentPanelOverlayOpen(
                           event,
-                          () => setHeaderMenuOpen(false),
+                          closeHeaderMenuForOverlay,
                           () => setShareFromMenuOpen(true),
                         )
                       }
@@ -1510,7 +1536,7 @@ function AgentPanelInner({
                 onSelect={(event) =>
                   deferAgentPanelOverlayOpen(
                     event,
-                    () => setHeaderMenuOpen(false),
+                    closeHeaderMenuForOverlay,
                     toggleHistory,
                   )
                 }
@@ -1569,7 +1595,7 @@ function AgentPanelInner({
                 onSelect={(event) =>
                   deferAgentPanelOverlayOpen(
                     event,
-                    () => setHeaderMenuOpen(false),
+                    closeHeaderMenuForOverlay,
                     () => setFeedbackOpen(true),
                   )
                 }
@@ -1658,6 +1684,7 @@ function AgentPanelInner({
       allowSettingsMode,
       availableClis,
       canUseCodeTools,
+      closeHeaderMenuForOverlay,
       closeAllCliTabs,
       closeAllTabsHint,
       closeCliTab,

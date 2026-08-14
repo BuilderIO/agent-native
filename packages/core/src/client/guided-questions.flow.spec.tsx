@@ -547,4 +547,51 @@ describe("useGuidedQuestionFlow scoped reads", () => {
       }),
     );
   });
+
+  it("forwards the payload's submitContext to the continuation turn", async () => {
+    // The answer opens a fresh turn that inherits nothing from the turn that
+    // posed the card, so context the follow-up work needs (a linked design
+    // system, the original brief) has to travel on the payload itself.
+    vi.stubGlobal(
+      "fetch",
+      appStateFetchMock(
+        new Map([
+          [
+            "guided-questions",
+            JSON.stringify({
+              submitMessage: "Use this design direction.",
+              skipMessage: "Show another set.",
+              submitContext:
+                'Linked to design system "ds_flo". Call `get-design-system` before expanding.',
+              questions: [
+                {
+                  id: "variant",
+                  type: "text-options",
+                  question: "Which screen should I keep?",
+                  options: [{ label: "Command Deck", value: "keep-a" }],
+                },
+              ],
+            }),
+          ],
+        ]),
+      ),
+    );
+
+    const result = await renderFlow({
+      stateKey: "guided-questions",
+      queryKey: ["guided-questions"],
+      refetchInterval: false,
+    });
+
+    await act(async () => {
+      result.current().handleSubmit({ variant: "keep-a" });
+      await Promise.resolve();
+    });
+
+    expect(sendToAgentChatMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context: expect.stringContaining("ds_flo"),
+      }),
+    );
+  });
 });

@@ -647,13 +647,13 @@ const messages = {
     collapse: "Collapse",
     changelogMarkdown: `# Changelog
 
-All notable user-facing changes to Clips are documented here. Open it any time from the command menu (Cmd+K -> "What's new") or from Settings.
+All notable user-facing changes to Clips are documented here. Open it any time from the command menu (Cmd K -> "What's new") or from Settings.
 
 ## 2026-06-23
 
 ### Added
 
-- See what's new right inside Clips. A changelog now lives in the command menu (Cmd+K) and in Settings.`,
+- See what's new right inside Clips. A changelog now lives in the command menu (Cmd K) and in Settings.`,
     playback: "Playback",
     defaultPlaybackSpeed: "Default playback speed",
     playbackDescription: "Applied automatically when you open a recording.",
@@ -969,6 +969,8 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     includeTranscriptDescription:
       "Anyone with access to this meeting can read the complete transcript.",
     transcriptUnavailable: "The transcript isn't ready yet.",
+    agentLinkDescription:
+      "This temporary link lets agents read these meeting notes without making them public. It expires after two hours.",
     transcript: "Transcript",
     copyTranscript: "Copy transcript",
     transcriptCopied: "Transcript copied",
@@ -1193,7 +1195,7 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     seekTo: "Seek to {{time}}",
   },
   editorToolbar: {
-    undoTooltip: "Undo (Cmd/Ctrl+Z)",
+    undoTooltip: "Undo (Cmd/Ctrl Z)",
     playPauseTooltip: "Play / Pause (Space)",
     sourceDuration: "({{duration}} src)",
     previewSpeed: "Preview speed",
@@ -1545,6 +1547,16 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     calendarConnected: "Calendar connected",
     calendarDisconnected: "Calendar disconnected",
     calendarSettings: "Calendar settings",
+    calendarAccountsButton: "Calendars",
+    connectedAccounts: "Connected accounts",
+    calendarConnectedLabel: "Connected",
+    calendarNeedsReconnectLabel: "Needs reconnect",
+    calendarDisconnectedLabel: "Disconnected",
+    calendarStatusUnavailable: "Status unavailable",
+    reconnectCalendar: "Reconnect calendar",
+    addAnotherCalendarAccount: "Add another account",
+    connectCalendar: "Connect calendar",
+    disconnectCalendarAccount: "Disconnect an account",
     connectCalendarReminder: "Connect Google Calendar for meeting reminders.",
     disconnectGoogleCalendarTitle: "Disconnect Google Calendar?",
     title: "Meetings",

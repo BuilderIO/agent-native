@@ -16,10 +16,17 @@ import { getDb, schema } from "../server/db/index.js";
 import { sameOwnerEmail } from "../server/lib/recordings.js";
 
 export default defineAction({
-  description: "Update a comment's text. Only the comment author can edit it.",
+  description:
+    "Update a comment's text. Inline Markdown is supported without headings. Only the comment author can edit it.",
   schema: z.object({
     id: z.string().describe("Comment ID"),
-    content: z.string().trim().min(1).describe("Updated comment text"),
+    content: z
+      .string()
+      .trim()
+      .min(1)
+      .describe(
+        "Updated comment text; inline Markdown is supported, without headings",
+      ),
   }),
   run: async (args) => {
     const userEmail = getRequestUserEmail();

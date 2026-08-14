@@ -52,6 +52,15 @@ describe("workspace-files tool", () => {
     mockAppendWorkspaceFile.mockResolvedValue(metadata);
   });
 
+  it("keeps its staged-analysis guidance framework-neutral", () => {
+    const description = String(
+      createWorkspaceFilesTool()["workspace-files"]?.tool.description,
+    );
+
+    expect(description).toContain("staged-analysis workflow");
+    expect(description).not.toMatch(/fusion/i);
+  });
+
   it.each(["write", "append"] as const)(
     "returns download metadata after %s",
     async (action) => {

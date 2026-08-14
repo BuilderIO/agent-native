@@ -1399,7 +1399,7 @@ export async function spawnTask(opts: SpawnTaskOptions): Promise<AgentTask> {
     orgId = getRequestOrgId() ?? null;
   } else {
     try {
-      orgId = (await resolveOrgIdForEmail(opts.ownerEmail)) ?? null;
+      orgId = await resolveOrgIdForEmail(opts.ownerEmail);
     } catch {
       orgId = null;
     }

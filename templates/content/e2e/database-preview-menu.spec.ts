@@ -61,14 +61,28 @@ async function createDatabaseFixture(page: Page) {
     "create-content-database returns database.documentId",
   ).toBeTruthy();
 
-  const row = await runAction(page, "add-database-item", {
-    databaseId,
-    title: "",
+  const discovered = await readAction(page, "get-content-database", {
+    databaseId: databaseId as string,
   });
-  const rowDocumentId = row.createdDocumentId as string | undefined;
+  const contract = discovered.mutationContract as
+    | {
+        target: Record<string, unknown>;
+        schemaRevision: string;
+      }
+    | undefined;
+  expect(
+    contract,
+    "get-content-database returns mutationContract",
+  ).toBeTruthy();
+  const row = await runAction(page, "add-database-item", {
+    target: contract!.target,
+    expectedSchemaRevision: contract!.schemaRevision,
+    idempotencyKey: `preview-menu-${Date.now()}`,
+  });
+  const rowDocumentId = row.receipt?.row?.documentId as string | undefined;
   expect(
     rowDocumentId,
-    "add-database-item returns createdDocumentId",
+    "add-database-item returns receipt.row.documentId",
   ).toBeTruthy();
   await runAction(page, "update-document", {
     id: rowDocumentId,

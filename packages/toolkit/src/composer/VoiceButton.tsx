@@ -147,7 +147,7 @@ export function VoiceButton({ voice, isMac, disabled }: VoiceButtonProps) {
     ? "Stop recording"
     : transcribing
       ? "Transcribing…"
-      : `Dictate (${isMac ? "⌘⇧M" : "Ctrl+Shift+M"})`;
+      : `Dictate (${isMac ? "Cmd Shift M" : "Ctrl Shift M"})`;
 
   const onClick = () => {
     if (recording) stop();

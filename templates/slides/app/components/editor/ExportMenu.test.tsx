@@ -34,8 +34,8 @@ vi.mock("@agent-native/core/client/i18n", () => ({
     (
       ({
         "editorExport.connectGoogle": "Connect Google",
-        "editorExport.openInGoogleSlides": "Open in Google Slides",
-        "editorExport.googleSlidesCreated": "Opened in Google Slides",
+        "editorExport.openInGoogleSlides": "Export to Google Slides",
+        "editorExport.googleSlidesCreated": "Exported to Google Slides",
         "editorExport.googleSlidesCreatedHint":
           "A copy of this deck was created in your Google Drive.",
         "editorExport.downloadHtml": "Download as HTML",
@@ -89,6 +89,11 @@ function renderMenu(overrides: Partial<Parameters<typeof ExportMenu>[0]> = {}) {
   );
 }
 
+function openExportMenu() {
+  const trigger = screen.getByRole("button", { name: /export/i });
+  fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   globalThis.fetch = vi.fn(async () => new Response()) as typeof fetch;
@@ -119,8 +124,7 @@ describe("<ExportMenu>", () => {
     const onExportPptx = vi.fn().mockResolvedValue(undefined);
     renderMenu({ onExportPptx });
 
-    const trigger = screen.getByRole("button", { name: /export/i });
-    fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+    openExportMenu();
     fireEvent.click(await screen.findByText("Export as PPTX"));
 
     await waitFor(() => expect(onExportPptx).toHaveBeenCalledTimes(1));
@@ -146,12 +150,15 @@ describe("<ExportMenu>", () => {
     );
 
     expect(screen.queryByRole("button", { name: /^export$/i })).toBeNull();
+    const exportTrigger = screen.getByRole("menuitem", { name: "Export" });
+    fireEvent.focus(exportTrigger);
+    fireEvent.keyDown(exportTrigger, { key: "ArrowRight" });
     fireEvent.click(screen.getByText("Export as PPTX"));
 
     await waitFor(() => expect(onExportPptx).toHaveBeenCalledTimes(1));
   });
 
-  it("opens the converted deck in Google Slides", async () => {
+  it("exports the converted deck to Google Slides", async () => {
     const openedTab = { location: { href: "" }, close: vi.fn() };
     vi.mocked(window.open).mockReturnValue(openedTab as unknown as Window);
     const onExportGoogleSlides = vi.fn().mockResolvedValue({
@@ -159,23 +166,22 @@ describe("<ExportMenu>", () => {
     });
     renderMenu({ onExportGoogleSlides });
 
-    const trigger = screen.getByRole("button", { name: /export/i });
-    fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
-    fireEvent.click(await screen.findByText("Open in Google Slides"));
+    openExportMenu();
+    fireEvent.click(await screen.findByText("Export to Google Slides"));
 
     await waitFor(() => expect(onExportGoogleSlides).toHaveBeenCalledTimes(1));
     expect(openedTab.location.href).toBe(
       "https://docs.google.com/presentation/d/new-deck/edit",
     );
     expect(toastSuccessMock).toHaveBeenCalledWith(
-      "Opened in Google Slides",
+      "Exported to Google Slides",
       expect.objectContaining({
         description: "A copy of this deck was created in your Google Drive.",
       }),
     );
   });
 
-  it("opens the Google OAuth flow from the export menu", async () => {
+  it("asks for Google OAuth when export needs a connection", async () => {
     const openedTab = { location: { href: "" }, close: vi.fn() };
     vi.mocked(window.open).mockReturnValue(openedTab as unknown as Window);
     vi.mocked(fetch).mockResolvedValue(
@@ -186,17 +192,19 @@ describe("<ExportMenu>", () => {
         { headers: { "Content-Type": "application/json" } },
       ),
     );
-    renderMenu();
+    renderMenu({
+      onExportGoogleSlides: vi.fn().mockResolvedValue({
+        url: null,
+        requiresConnection: true,
+        reason: "No connected Google account.",
+      }),
+    });
 
-    const trigger = screen.getByRole("button", { name: /export/i });
-    fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
-    fireEvent.click(await screen.findByText("Connect Google"));
+    openExportMenu();
+    expect(screen.queryByText("Connect Google")).toBeNull();
+    fireEvent.click(await screen.findByText("Export to Google Slides"));
 
-    expect(window.open).toHaveBeenCalledWith(
-      "",
-      "google-docs-oauth",
-      "popup,width=520,height=720",
-    );
+    expect(window.open).toHaveBeenCalledWith("", "_blank");
     await waitFor(() =>
       expect(fetch).toHaveBeenCalledWith(
         expect.stringContaining(
@@ -211,11 +219,16 @@ describe("<ExportMenu>", () => {
   });
 
   it("does not navigate the editor when the OAuth popup is blocked", async () => {
-    renderMenu();
+    renderMenu({
+      onExportGoogleSlides: vi.fn().mockResolvedValue({
+        url: null,
+        requiresConnection: true,
+        reason: "No connected Google account.",
+      }),
+    });
 
-    const trigger = screen.getByRole("button", { name: /export/i });
-    fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
-    fireEvent.click(await screen.findByText("Connect Google"));
+    openExportMenu();
+    fireEvent.click(await screen.findByText("Export to Google Slides"));
 
     await waitFor(() =>
       expect(toastErrorMock).toHaveBeenCalledWith(
@@ -239,9 +252,8 @@ describe("<ExportMenu>", () => {
       }),
     });
 
-    const trigger = screen.getByRole("button", { name: /export/i });
-    fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
-    fireEvent.click(await screen.findByText("Open in Google Slides"));
+    openExportMenu();
+    fireEvent.click(await screen.findByText("Export to Google Slides"));
 
     await waitFor(() =>
       expect(openedTab.location.href).toBe(
@@ -268,9 +280,8 @@ describe("<ExportMenu>", () => {
         .fn()
         .mockRejectedValue(new Error("Could not render")),
     });
-    const trigger = screen.getByRole("button", { name: /export/i });
-    fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
-    fireEvent.click(await screen.findByText("Open in Google Slides"));
+    openExportMenu();
+    fireEvent.click(await screen.findByText("Export to Google Slides"));
 
     await waitFor(() => {
       expect(toastErrorMock).toHaveBeenCalledWith(
@@ -301,8 +312,7 @@ describe("<ExportMenu>", () => {
     }) as typeof fetch;
 
     renderMenu();
-    const trigger = screen.getByRole("button", { name: /export/i });
-    fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+    openExportMenu();
     fireEvent.click(await screen.findByText("Download as HTML"));
 
     await waitFor(() => {

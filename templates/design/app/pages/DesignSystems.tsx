@@ -109,6 +109,8 @@ interface DesignSystemData {
   logos?: Array<{ url?: string; name?: string; variant?: string }>;
   defaults?: Record<string, unknown>;
   notes?: unknown;
+  /** The source system's own named vocabulary; absent on kits predating it. */
+  tokens?: unknown;
 }
 
 export default function DesignSystems() {
@@ -1105,10 +1107,22 @@ function getDetailTokens(
   const borders = data?.borders ?? {};
   const defaults = data?.defaults ?? {};
   const logos = data?.logos ?? [];
+  const namedTokenCount = Array.isArray(data?.tokens) ? data.tokens.length : 0;
   return [
     ...objectPreviewItems(t("designSystems.tokenPreview.spacing"), spacing),
     ...objectPreviewItems(t("designSystems.tokenPreview.borders"), borders),
     ...objectPreviewItems(t("designSystems.tokenPreview.defaults"), defaults),
+    // The seven color roles are a summary of an import, not its extent. Without
+    // this the panel renders a 200-token system identically to a 7-token one,
+    // which reads as "it only captured a few colors".
+    namedTokenCount > 0
+      ? {
+          label: t("designSystems.tokenPreview.namedTokens"),
+          value: t("designSystems.tokenPreview.savedCount", {
+            count: namedTokenCount,
+          }),
+        }
+      : null,
     logos.length > 0
       ? {
           label: t("designSystems.tokenPreview.logos"),
