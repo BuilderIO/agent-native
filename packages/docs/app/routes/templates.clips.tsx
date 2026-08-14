@@ -587,112 +587,24 @@ export default function ClipsTemplate() {
       <SectionDivider borderColorClassName="border-[#1a1a1a]" />
 
       {/* Agent actions */}
-      <section className="border-t border-[var(--docs-border)] py-16">
-        <div className="grid gap-8 lg:grid-cols-2 lg:items-center">
-          <div>
-            <h2 className="mb-3 text-2xl font-bold tracking-tight">
+      <section className="border-t border-[#1a1a1a]">
+        <div className="flex flex-col lg:flex-row lg:items-stretch">
+          <div className="flex flex-col justify-center gap-4 border-b border-[#1a1a1a] px-6 py-10 sm:px-10 lg:w-1/3 lg:shrink-0 lg:border-b-0 lg:border-e lg:py-16 lg:ps-8 lg:pe-16">
+            <h2 className="m-0 text-[1.75rem] font-medium leading-[1.15] tracking-[-0.56px] text-[#faf9f5]">
               {t("templateLanding.clips.s026")}
             </h2>
-            <p className="mb-6 text-base text-[var(--fg-secondary)]">
+            <p className="m-0 text-lg leading-[1.3] text-[#9a9997]">
               {t("templateLanding.clips.s027")}
             </p>
-            <ul className="m-0 list-none space-y-3 p-0 text-sm text-[var(--fg-secondary)]">
-              <li className="flex items-start gap-2">
-                <svg
-                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-                {t("templateLanding.clips.s028")}
-              </li>
-              <li className="flex items-start gap-2">
-                <svg
-                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-                {t("templateLanding.clips.s029")}
-              </li>
-              <li className="flex items-start gap-2">
-                <svg
-                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-                {t("templateLanding.clips.s030")}
-              </li>
-              <li className="flex items-start gap-2">
-                <svg
-                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-                {t("templateLanding.clips.s031")}
-              </li>
-            </ul>
           </div>
-          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-6">
-            <div className="space-y-3 font-mono text-sm">
-              <div className="text-[var(--fg-secondary)]">
-                {"// Available agent actions"}
-              </div>
-              <div>
-                <span className="text-[var(--docs-accent)]">$</span>{" "}
-                <span className="text-[var(--fg)]">
-                  pnpm action transcribe --clip latest
-                </span>
-              </div>
-              <div>
-                <span className="text-[var(--docs-accent)]">$</span>{" "}
-                <span className="text-[var(--fg)]">
-                  pnpm action finalize-meeting --id today-standup
-                </span>
-              </div>
-              <div>
-                <span className="text-[var(--docs-accent)]">$</span>{" "}
-                <span className="text-[var(--fg)]">
-                  pnpm action list-dictations --since 7d
-                </span>
-              </div>
-              <div>
-                <span className="text-[var(--docs-accent)]">$</span>{" "}
-                <span className="text-[var(--fg)]">
-                  pnpm action search --query "pricing"
-                </span>
-              </div>
-            </div>
+          <div className="flex items-center justify-center px-6 py-10 sm:px-10 lg:w-2/3 lg:py-16">
+            <img
+              src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F82f67949705e405898c665ecf4a2d8d4?format=webp&width=800&height=1200"
+              alt={t("templateLanding.clips.s026")}
+              loading="lazy"
+              decoding="async"
+              className="h-auto w-full max-w-[560px]"
+            />
           </div>
         </div>
       </section>
