@@ -246,7 +246,7 @@ export default function ClipsTemplate() {
 
         <div className="flex flex-col border-y border-[#1a1a1a] lg:flex-row lg:items-stretch lg:border-x">
           <div className="flex items-center border-b border-[#1a1a1a] px-6 py-8 sm:px-10 lg:w-1/3 lg:shrink-0 lg:border-b-0 lg:border-e lg:py-8 lg:ps-8 lg:pe-16">
-            <h2 className="max-w-[320px] font-poppins text-2xl font-medium leading-[1.3] tracking-[-0.24px] !text-white">
+            <h2 className="max-w-[320px] font-poppins text-2xl font-medium leading-[1.3] tracking-[-0.24px] text-[var(--fg)]">
               Try pasting this into Claude, ChatGPT, or Cursor:
             </h2>
           </div>
@@ -448,7 +448,7 @@ export default function ClipsTemplate() {
                   {card.icon}
                 </div>
                 <div className="flex flex-col gap-2">
-                  <h3 className="m-0 text-lg font-medium leading-[1.15] tracking-[-0.36px] !text-white">
+                  <h3 className="m-0 text-lg font-medium leading-[1.15] tracking-[-0.36px] text-[var(--fg)]">
                     {card.title}
                   </h3>
                   <p className="m-0 text-lg leading-[1.3] text-[#9a9997]">
@@ -467,7 +467,7 @@ export default function ClipsTemplate() {
       <section className="border border-[#1a1a1a]">
         <div className="grid lg:grid-cols-2">
           <div className="flex flex-col border-b border-[#1a1a1a] lg:border-b-0 lg:border-e">
-            <h3 className="m-0 px-6 pt-10 text-[1.75rem] font-medium leading-[1.15] tracking-[-0.56px] !text-white sm:px-8 lg:px-10 lg:pt-16">
+            <h3 className="m-0 px-6 pt-10 text-[1.75rem] font-medium leading-[1.15] tracking-[-0.56px] text-[var(--fg)] sm:px-8 lg:px-10 lg:pt-16">
               {t("templateLanding.clips.s016")}
             </h3>
             <p className="m-0 px-6 pb-6 pt-6 text-lg font-medium leading-[1.15] tracking-[-0.36px] text-[#9a9997] sm:px-8 lg:px-10 lg:pb-10">
@@ -603,7 +603,7 @@ export default function ClipsTemplate() {
       <section className="border-t border-[#1a1a1a]">
         <div className="flex flex-col lg:flex-row lg:items-stretch">
           <div className="flex flex-col justify-center gap-4 border-b border-[#1a1a1a] px-6 py-10 sm:px-10 lg:w-1/3 lg:shrink-0 lg:border-b-0 lg:border-e lg:py-16 lg:ps-8 lg:pe-16">
-            <h2 className="m-0 text-[1.75rem] font-medium leading-[1.15] tracking-[-0.56px] !text-white">
+            <h2 className="m-0 text-[1.75rem] font-medium leading-[1.15] tracking-[-0.56px] text-[var(--fg)]">
               {t("templateLanding.clips.s026")}
             </h2>
             <p className="m-0 text-lg leading-[1.3] text-[#9a9997]">
@@ -628,7 +628,7 @@ export default function ClipsTemplate() {
         className="scroll-mt-24 border-t border-[#1a1a1a]"
       >
         <div className="border-x border-[#1a1a1a] px-6 pb-10 pt-16 sm:px-8 sm:pb-14 sm:pt-24 lg:pb-20 lg:pt-32">
-          <h2 className="m-0 text-[1.75rem] font-medium leading-[1.05] tracking-[-0.56px] !text-white sm:text-4xl lg:text-[2.875rem] lg:tracking-[-0.92px]">
+          <h2 className="m-0 text-[1.75rem] font-medium leading-[1.05] tracking-[-0.56px] text-[var(--fg)] sm:text-4xl lg:text-[2.875rem] lg:tracking-[-0.92px]">
             {t("templateLanding.clips.s032")}
           </h2>
         </div>
@@ -715,7 +715,7 @@ export default function ClipsTemplate() {
             <p className="m-0 mb-2 font-mono text-sm font-semibold uppercase tracking-[0.28px] text-[#01c8f1]">
               Learn more
             </p>
-            <h2 className="m-0 text-[1.75rem] font-medium leading-[1.05] tracking-[-0.56px] !text-white sm:text-4xl lg:text-[2.875rem] lg:tracking-[-0.92px]">
+            <h2 className="m-0 text-[1.75rem] font-medium leading-[1.05] tracking-[-0.56px] text-[var(--fg)] sm:text-4xl lg:text-[2.875rem] lg:tracking-[-0.92px]">
               {t("templateLanding.clips.s059")}
             </h2>
           </div>
