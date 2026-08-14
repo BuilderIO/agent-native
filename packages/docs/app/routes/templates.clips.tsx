@@ -178,7 +178,7 @@ export default function ClipsTemplate() {
     <main className="template-detail-page mx-auto w-full max-w-[1200px] overflow-x-clip px-4 sm:px-6">
       {/* Hero */}
       <section className="py-12 sm:py-16 lg:py-20">
-        <div className="relative overflow-hidden border border-[var(--docs-border)]">
+        <div className="relative overflow-hidden">
           <div
             aria-hidden="true"
             className="pointer-events-none absolute inset-0 hidden lg:grid lg:grid-cols-3"
@@ -212,7 +212,7 @@ export default function ClipsTemplate() {
             </div>
           </div>
 
-          <div className="relative border-t border-[var(--docs-border)]">
+          <div className="relative">
             <img
               src={template.screenshot}
               alt={t("templateLanding.clips.s001")}
@@ -248,9 +248,7 @@ export default function ClipsTemplate() {
           <div className="flex flex-1 items-center gap-6 px-6 py-8 sm:px-10 lg:py-8">
             <p className="min-w-0 flex-1 font-mono text-[15px] leading-6 text-[#9a9997] sm:text-lg">
               <span>Watch </span>
-              <span className="text-white">
-                {CLIPS_PROMPT_URL}.
-              </span>
+              <span className="text-white">{CLIPS_PROMPT_URL}.</span>
               <span> {CLIPS_PROMPT_INSTRUCTION}</span>
             </p>
 
