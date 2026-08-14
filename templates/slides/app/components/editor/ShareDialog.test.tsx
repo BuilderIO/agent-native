@@ -16,6 +16,8 @@ describe("<ShareDialog>", () => {
     expect(source).toContain("ShareCopyRow");
     expect(source).toContain("writeClipboardText");
     expect(source).toContain("CloudUpgrade");
+    expect(source).toContain("fetch(`${appBasePath()}/api/share`");
+    expect(source).toContain("/share/${shareToken}");
     expect(source).not.toContain("Popover");
     expect(source).not.toContain("IconExternalLink");
     expect(source).not.toContain("IconCopy");

@@ -32,14 +32,19 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { Switch } from "@/components/ui/switch";
 
 export interface ShareMeetingPopoverProps {
   meetingId: string;
+  shareTranscript: boolean;
+  transcriptReady: boolean;
   children: ReactNode;
 }
 
 export function ShareMeetingPopover({
   meetingId,
+  shareTranscript,
+  transcriptReady,
   children,
 }: ShareMeetingPopoverProps) {
   return (
@@ -49,13 +54,25 @@ export function ShareMeetingPopover({
         align="end"
         className="max-h-[calc(100vh-1rem)] w-[440px] max-w-[calc(100vw-1rem)] overflow-y-auto border-border p-0"
       >
-        <ShareMeetingContent meetingId={meetingId} />
+        <ShareMeetingContent
+          meetingId={meetingId}
+          shareTranscript={shareTranscript}
+          transcriptReady={transcriptReady}
+        />
       </PopoverContent>
     </Popover>
   );
 }
 
-function ShareMeetingContent({ meetingId }: { meetingId: string }) {
+function ShareMeetingContent({
+  meetingId,
+  shareTranscript,
+  transcriptReady,
+}: {
+  meetingId: string;
+  shareTranscript: boolean;
+  transcriptReady: boolean;
+}) {
   const t = useT();
   const shareUrl = useMemo(
     () => `${window.location.origin}${appPath(`/share/meeting/${meetingId}`)}`,
@@ -77,6 +94,8 @@ function ShareMeetingContent({ meetingId }: { meetingId: string }) {
         shareUrl={shareUrl}
         sharesQuery={sharesQuery}
         canManage={canManage}
+        shareTranscript={shareTranscript}
+        transcriptReady={transcriptReady}
       />
     </div>
   );
@@ -87,13 +106,22 @@ function LinkTab({
   shareUrl,
   sharesQuery,
   canManage,
+  shareTranscript,
+  transcriptReady,
 }: {
   meetingId: string;
   shareUrl: string;
   sharesQuery: SharesQuery;
   canManage: boolean;
+  shareTranscript: boolean;
+  transcriptReady: boolean;
 }) {
   const t = useT();
+  const updateMeeting = useActionMutation<
+    unknown,
+    { id: string; shareTranscript: boolean }
+  >("update-meeting");
+  const [includeTranscript, setIncludeTranscript] = useState(shareTranscript);
   const { setResourceVisibility, isPending } = useResourceVisibilityMutation(
     "meeting",
     meetingId,
@@ -155,6 +183,28 @@ function LinkTab({
     (!isPublic && (createAgentLink.isPending || !agentLink));
   const visibleAgentLink = isPublic ? shareUrl : agentLink;
 
+  useEffect(() => {
+    setIncludeTranscript(shareTranscript);
+  }, [shareTranscript]);
+
+  const handleTranscriptSharingChange = (next: boolean) => {
+    const previous = includeTranscript;
+    setIncludeTranscript(next);
+    updateMeeting.mutate(
+      { id: meetingId, shareTranscript: next },
+      {
+        onError: (error: unknown) => {
+          setIncludeTranscript(previous);
+          toast.error(
+            error instanceof Error
+              ? error.message
+              : t("shareMeeting.updateTranscriptSharingFailed"),
+          );
+        },
+      },
+    );
+  };
+
   return (
     <div className="space-y-3">
       <CopyField
@@ -174,6 +224,33 @@ function LinkTab({
         onChange={(next) => setResourceVisibility(next)}
         showDescription={false}
       />
+
+      <div className="flex items-center justify-between gap-4 rounded-md border border-border px-3 py-2.5">
+        <div className="min-w-0">
+          <label
+            htmlFor={`meeting-share-transcript-${meetingId}`}
+            className="text-sm font-medium"
+          >
+            {t("shareMeeting.includeTranscript")}
+          </label>
+          <p
+            id={`meeting-share-transcript-description-${meetingId}`}
+            className="sr-only"
+          >
+            {transcriptReady
+              ? t("shareMeeting.includeTranscriptDescription")
+              : t("shareMeeting.transcriptUnavailable")}
+          </p>
+        </div>
+        <Switch
+          id={`meeting-share-transcript-${meetingId}`}
+          checked={includeTranscript}
+          onCheckedChange={handleTranscriptSharingChange}
+          disabled={!canManage || !transcriptReady || updateMeeting.isPending}
+          aria-describedby={`meeting-share-transcript-description-${meetingId}`}
+          className="shrink-0"
+        />
+      </div>
 
       <SharePeopleTab
         resourceType="meeting"

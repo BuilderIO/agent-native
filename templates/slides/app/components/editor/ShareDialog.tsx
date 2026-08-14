@@ -1,4 +1,4 @@
-import { appPath } from "@agent-native/core/client/api-path";
+import { appBasePath, appPath } from "@agent-native/core/client/api-path";
 import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import { useT } from "@agent-native/core/client/i18n";
 import { ShareDialog as CoreShareDialog } from "@agent-native/core/client/sharing";
@@ -6,11 +6,13 @@ import { ShareCopyRow } from "@agent-native/toolkit/sharing";
 import {
   cloneElement,
   isValidElement,
+  useCallback,
   useState,
   type MouseEvent,
   type ReactElement,
   type ReactNode,
 } from "react";
+import { toast } from "sonner";
 
 import { CloudUpgrade } from "@/components/CloudUpgrade";
 import type { Deck } from "@/context/DeckContext";
@@ -42,11 +44,68 @@ export default function ShareDialog({ deck, children }: ShareDialogProps) {
   const t = useT();
   const { isLocal } = useDbStatus();
   const [open, setOpen] = useState(false);
+  const [shareLink, setShareLink] = useState<{
+    deckId: string;
+    token: string;
+  } | null>(null);
+  const [creatingLink, setCreatingLink] = useState(false);
 
   const shareUrls = getShareUrls(deck.id);
   const shareLinkOrder = getDeckShareLinkOrder(deck.visibility);
-  const primaryShareLink = shareUrls[shareLinkOrder.primary];
+  const shareToken =
+    shareLink?.deckId === deck.id ? shareLink.token : undefined;
+  const primaryShareLink = shareToken
+    ? `${typeof window === "undefined" ? "" : window.location.origin}${appPath(`/share/${shareToken}`)}`
+    : undefined;
   const secondaryShareLink = shareUrls[shareLinkOrder.secondary];
+
+  const openShareDialog = useCallback(async () => {
+    if (isLocal) {
+      setOpen(true);
+      return;
+    }
+    if (shareToken) {
+      setOpen(true);
+      return;
+    }
+    if (creatingLink) return;
+
+    setCreatingLink(true);
+    try {
+      const response = await fetch(`${appBasePath()}/api/share`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deck }),
+      });
+      let payload: { error?: unknown; shareToken?: unknown };
+      try {
+        payload = (await response.json()) as {
+          error?: unknown;
+          shareToken?: unknown;
+        };
+      } catch {
+        throw new Error(t("share.createFailed"));
+      }
+      if (!response.ok) {
+        throw new Error(
+          typeof payload.error === "string"
+            ? payload.error
+            : t("share.createFailed"),
+        );
+      }
+      if (typeof payload.shareToken !== "string" || !payload.shareToken) {
+        throw new Error(t("share.createFailed"));
+      }
+      setShareLink({ deckId: deck.id, token: payload.shareToken });
+      setOpen(true);
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : t("share.createFailed"),
+      );
+    } finally {
+      setCreatingLink(false);
+    }
+  }, [creatingLink, deck, isLocal, shareToken, t]);
 
   const trigger = isValidElement(children)
     ? (() => {
@@ -56,7 +115,7 @@ export default function ShareDialog({ deck, children }: ShareDialogProps) {
         return cloneElement(triggerElement, {
           onClick: (event) => {
             triggerElement.props.onClick?.(event);
-            setOpen(true);
+            if (!event.defaultPrevented) void openShareDialog();
           },
         });
       })()

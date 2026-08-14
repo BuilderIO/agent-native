@@ -471,6 +471,45 @@ const DEFAULT_CODE_AGENT_MODEL_OPTIONS: CodeAgentModelOption[] = [
   },
 ];
 
+const CODE_AGENT_LOCAL_ENGINES = new Set([
+  "codex-cli",
+  "claude-cli",
+  "pi-cli",
+  "opencode-cli",
+]);
+
+const CODE_AGENT_RUNTIME_OPTIONS = [
+  {
+    id: "default",
+    label: "Default",
+    description: "Agent Native hosted chat",
+  },
+  {
+    id: "codex",
+    label: "Codex",
+    description: "Run locally with Codex CLI",
+    engine: "codex-cli",
+  },
+  {
+    id: "claude-code",
+    label: "Claude Code",
+    description: "Run locally with Claude Code",
+    engine: "claude-cli",
+  },
+  {
+    id: "pi",
+    label: "Pi",
+    description: "Run locally with Pi",
+    engine: "pi-cli",
+  },
+  {
+    id: "opencode",
+    label: "OpenCode",
+    description: "Run locally with OpenCode",
+    engine: "opencode-cli",
+  },
+] as const;
+
 const CODE_AGENT_MODEL_SELECTION_KEY = "agent-native-code:model-selection";
 const CODE_AGENT_UNREAD_RUN_IDS_KEY = "agent-native-code:unread-run-ids";
 const CODE_AGENT_PINNED_AT_METADATA_KEY = "pinnedAt";
@@ -1183,13 +1222,27 @@ export default function CodeAgentsApp({
 
   const connectLocalRuntime = useCallback(
     async (engine: string) => {
+      const runtimeEngine = getCodeAgentEngine(engine) ?? engine;
       const openLogin =
-        engine === "claude-cli"
+        runtimeEngine === "claude-cli"
           ? host.openClaudeLogin
-          : engine === "codex-cli"
+          : runtimeEngine === "codex-cli"
             ? host.openCodexLogin
             : undefined;
       if (!openLogin) {
+        if (host.openTerminal) {
+          const result = await host.openTerminal();
+          toast(
+            result.ok ? "Terminal opened" : "Terminal did not open",
+            result.ok
+              ? {
+                  description:
+                    "Install the selected local runtime, then refresh the picker.",
+                }
+              : { description: result.error },
+          );
+          return;
+        }
         toast("Local sign-in is only available in Agent Native Desktop", {
           description: "Open Settings to manage hosted providers instead.",
         });
@@ -1200,7 +1253,7 @@ export default function CodeAgentsApp({
         const result = await openLogin();
         if (!result.ok) {
           toast(
-            `${engine === "claude-cli" ? "Claude" : "Codex"} sign-in was not opened`,
+            `${runtimeEngine === "claude-cli" ? "Claude" : "Codex"} sign-in was not opened`,
             {
               description: result.error,
             },
@@ -1208,9 +1261,9 @@ export default function CodeAgentsApp({
           return;
         }
         toast(
-          `${engine === "claude-cli" ? "Claude" : "Codex"} sign-in opened`,
+          `${runtimeEngine === "claude-cli" ? "Claude" : "Codex"} sign-in opened`,
           {
-            description: `Finish the ${engine === "claude-cli" ? "Claude" : "ChatGPT"} sign-in in Terminal. The runtime picker will refresh when it is ready.`,
+            description: `Finish the ${runtimeEngine === "claude-cli" ? "Claude" : "ChatGPT"} sign-in in Terminal. The runtime picker will refresh when it is ready.`,
             duration: 4800,
           },
         );
@@ -1230,11 +1283,11 @@ export default function CodeAgentsApp({
             if (
               modelResult.models.some(
                 (option) =>
-                  option.engine === engine && option.configured === true,
+                  option.engine === runtimeEngine && option.configured === true,
               )
             ) {
               toast(
-                `${engine === "claude-cli" ? "Claude" : "ChatGPT"} connected`,
+                `${runtimeEngine === "claude-cli" ? "Claude" : "ChatGPT"} connected`,
                 {
                   description: "This computer is ready for local Agent tasks.",
                 },
@@ -1248,7 +1301,7 @@ export default function CodeAgentsApp({
         void refresh();
       } catch (err) {
         toast(
-          `${engine === "claude-cli" ? "Claude" : "Codex"} sign-in was not opened`,
+          `${runtimeEngine === "claude-cli" ? "Claude" : "Codex"} sign-in was not opened`,
           {
             description: err instanceof Error ? err.message : String(err),
           },
@@ -1302,7 +1355,6 @@ export default function CodeAgentsApp({
   const localRuntimeEngine = modelOptions.find(
     (option) => option.engine === "codex-cli" || option.engine === "claude-cli",
   )?.engine;
-  const localRuntimeAvailable = Boolean(localRuntimeEngine);
   const normalizedSearchQuery = searchQuery.trim();
   const searchResults = useMemo(
     () =>
@@ -2438,7 +2490,7 @@ export default function CodeAgentsApp({
                             onOpenSettings={onOpenSettings}
                             onConnectProvider={connectBuilderProvider}
                             onConnectLocalRuntime={
-                              !chatFirstMode && localRuntimeAvailable
+                              host.openTerminal
                                 ? connectLocalRuntime
                                 : undefined
                             }
@@ -2455,7 +2507,7 @@ export default function CodeAgentsApp({
                                   onConnectBuilder={connectBuilderProvider}
                                   onOpenSettings={onOpenSettings}
                                   onConnectLocalRuntime={
-                                    !chatFirstMode && localRuntimeAvailable
+                                    host.openTerminal
                                       ? () =>
                                           void connectLocalRuntime(
                                             localRuntimeEngine ?? "codex-cli",
@@ -2508,9 +2560,7 @@ export default function CodeAgentsApp({
                                   : connectBuilderProvider
                               }
                               onConnectLocalRuntime={
-                                !chatFirstMode &&
-                                !activeNewSessionExtension &&
-                                localRuntimeAvailable
+                                !activeNewSessionExtension && host.openTerminal
                                   ? connectLocalRuntime
                                   : undefined
                               }
@@ -3031,6 +3081,19 @@ function CodeAgentComposer({
 }) {
   const normalizedModel = normalizeModelSelection(modelSelection, modelOptions);
   const availableModels = groupCodeAgentModelOptions(modelOptions);
+  const availableAgents =
+    showModelSelector && onConnectLocalRuntime
+      ? getCodeAgentPickerOptions(modelOptions)
+      : undefined;
+  const selectedAgent = getCodeAgentIdForEngine(normalizedModel.engine);
+  const handleAgentChange = useCallback(
+    (agent: string) => {
+      onModelSelectionChange(
+        getCodeAgentSelection(agent, normalizedModel, modelOptions),
+      );
+    },
+    [modelOptions, normalizedModel, onModelSelectionChange],
+  );
 
   const readPromptFiles = useCallback(
     async (files: PromptComposerFile[]) =>
@@ -3084,6 +3147,8 @@ function CodeAgentComposer({
       showModelSelector={showModelSelector}
       showAutoModelOption={false}
       availableModels={showModelSelector ? availableModels : undefined}
+      availableAgents={availableAgents}
+      selectedAgent={showModelSelector ? selectedAgent : undefined}
       selectedModel={
         showModelSelector
           ? (normalizedModel.model ?? DEFAULT_CODE_AGENT_MODEL_OPTIONS[0].model)
@@ -3103,6 +3168,7 @@ function CodeAgentComposer({
           effort: normalizedModel.effort,
         })
       }
+      onAgentChange={showModelSelector ? handleAgentChange : undefined}
       onEffortChange={(effort) =>
         onModelSelectionChange({ ...normalizedModel, effort })
       }
@@ -3313,6 +3379,55 @@ export function groupCodeAgentModelOptions(models: CodeAgentModelOption[]) {
     groups.set(key, group);
   }
   return [...groups.values()];
+}
+
+function getCodeAgentPickerOptions(models: CodeAgentModelOption[]) {
+  return CODE_AGENT_RUNTIME_OPTIONS.map((agent) => {
+    if (agent.id === "default") {
+      return { ...agent, configured: true };
+    }
+
+    const model = models.find((option) => option.engine === agent.engine);
+    return {
+      ...agent,
+      configured: model !== undefined && model.configured !== false,
+      statusLabel: model?.statusLabel ?? (model ? "Sign in" : "Not installed"),
+    };
+  });
+}
+
+function getCodeAgentIdForEngine(engine: string | undefined): string {
+  return (
+    CODE_AGENT_RUNTIME_OPTIONS.find(
+      (agent) => getCodeAgentEngine(agent.id) === engine,
+    )?.id ?? "default"
+  );
+}
+
+function getCodeAgentEngine(agentId: string): string | undefined {
+  const agent = CODE_AGENT_RUNTIME_OPTIONS.find(
+    (option) => option.id === agentId,
+  );
+  return agent && "engine" in agent ? agent.engine : undefined;
+}
+
+function getCodeAgentSelection(
+  agentId: string,
+  current: CodeAgentModelSelection,
+  models: CodeAgentModelOption[],
+): CodeAgentModelSelection {
+  const engine = getCodeAgentEngine(agentId);
+  const option = models.find((model) =>
+    engine
+      ? model.engine === engine
+      : !CODE_AGENT_LOCAL_ENGINES.has(model.engine),
+  );
+  if (!option || option.configured === false) return current;
+  return {
+    engine: option.engine,
+    model: option.model,
+    effort: current.effort,
+  };
 }
 
 function normalizeReasoningEffort(value: unknown): CodeAgentReasoningEffort {
@@ -4376,6 +4491,18 @@ function TranscriptPanel({
     normalizedModel.effort ?? "high",
   );
   const availableModels = groupCodeAgentModelOptions(modelOptions);
+  const availableAgents = onConnectLocalRuntime
+    ? getCodeAgentPickerOptions(modelOptions)
+    : undefined;
+  const selectedAgent = getCodeAgentIdForEngine(selectedEngine);
+  const handleAgentChange = useCallback(
+    (agent: string) => {
+      onModelSelectionChange(
+        getCodeAgentSelection(agent, normalizedModel, modelOptions),
+      );
+    },
+    [modelOptions, normalizedModel, onModelSelectionChange],
+  );
   const eventsRef = useRef(events);
   eventsRef.current = events;
   const hideCredentialMessagesRef = useRef(hideCredentialMessages);
@@ -4471,6 +4598,8 @@ function TranscriptPanel({
               : undefined
           }
           availableModels={availableModels}
+          availableAgents={availableAgents}
+          selectedAgent={selectedAgent}
           selectedModel={selectedModel}
           selectedEngine={selectedEngine}
           selectedEffort={selectedEffort}
@@ -4481,6 +4610,7 @@ function TranscriptPanel({
               effort: selectedEffort,
             })
           }
+          onAgentChange={handleAgentChange}
           onEffortChange={(effort) =>
             onModelSelectionChange({ ...normalizedModel, effort })
           }
