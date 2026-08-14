@@ -42,6 +42,14 @@ export type DesktopLocalAgentId = Exclude<
   "default"
 >;
 
+export type DesktopLocalAgentPermissionMode =
+  | "read-only"
+  | "ask-before-edit"
+  | "auto-edit"
+  | "full-auto";
+
+export const DEFAULT_DESKTOP_LOCAL_AGENT_PERMISSION_MODE = "read-only" as const;
+
 export const DESKTOP_LOCAL_AGENT_ENGINE_BY_ID: Record<
   DesktopLocalAgentId,
   string
@@ -120,8 +128,8 @@ interface SessionState {
 }
 
 function makeId(prefix: string): string {
-  const randomUUID = globalThis.crypto?.randomUUID;
-  return `${prefix}-${randomUUID ? randomUUID() : Math.random().toString(36).slice(2)}`;
+  const randomUUID = globalThis.crypto?.randomUUID?.();
+  return `${prefix}-${randomUUID ?? Math.random().toString(36).slice(2)}`;
 }
 
 function isTerminalStatus(
@@ -276,10 +284,22 @@ function localRuntimeUnavailable(message: string): never {
   throw new Error(message);
 }
 
+function isDesktopLocalAgentPermissionMode(
+  value: unknown,
+): value is DesktopLocalAgentPermissionMode {
+  return (
+    value === "read-only" ||
+    value === "ask-before-edit" ||
+    value === "auto-edit" ||
+    value === "full-auto"
+  );
+}
+
 function createSessionView(
   state: SessionState,
   runtime: AgentChatRuntime,
   onDispose: () => void,
+  defaultPermissionMode: DesktopLocalAgentPermissionMode,
 ): AgentChatRuntimeSession {
   const cancelActiveTurn = async (
     reason = "cancelled",
@@ -341,6 +361,11 @@ function createSessionView(
         );
       }
     } else {
+      const permissionMode = isDesktopLocalAgentPermissionMode(
+        input.metadata?.permissionMode,
+      )
+        ? input.metadata.permissionMode
+        : defaultPermissionMode;
       const created = await window.electronAPI.codeAgents.createRun({
         prompt,
         engine:
@@ -349,7 +374,7 @@ function createSessionView(
           ],
         model: input.model,
         effort: input.reasoningEffort,
-        permissionMode: "full-auto",
+        permissionMode,
         metadata: {
           source: "desktop-chat",
           runtimeId: runtime.id,
@@ -429,6 +454,7 @@ function createSessionView(
 
 export function createDesktopLocalAgentRuntime(
   agentId: DesktopLocalAgentId,
+  permissionMode: DesktopLocalAgentPermissionMode = DEFAULT_DESKTOP_LOCAL_AGENT_PERMISSION_MODE,
 ): AgentChatRuntime {
   const runtimeId = `desktop-local-${agentId}`;
   const sessions = new Map<string, SessionState>();
@@ -455,9 +481,14 @@ export function createDesktopLocalAgentRuntime(
         knownEventIds: new Set<string>(),
       };
       sessions.set(id, state);
-      return createSessionView(state, runtime, () => {
-        if (sessions.get(id) === state) sessions.delete(id);
-      });
+      return createSessionView(
+        state,
+        runtime,
+        () => {
+          if (sessions.get(id) === state) sessions.delete(id);
+        },
+        permissionMode,
+      );
     },
   };
   return runtime;

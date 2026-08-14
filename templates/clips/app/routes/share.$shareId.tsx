@@ -99,6 +99,7 @@ import {
   CLIPS_ACCESS_REQUEST_TOKEN_TTL_SECONDS,
 } from "../../shared/recording-link";
 import {
+  buildShareContinuationQuery,
   buildSignupAttributionQuery,
   readShareAttribution,
 } from "../../shared/share-attribution";
@@ -491,8 +492,9 @@ export default function ShareRoute() {
   const shareReturnTo = useMemo(() => {
     const path = `/share/${encodeURIComponent(recordingId)}`;
     if (typeof window === "undefined") return path;
-    return `${path}${window.location.search}`;
-  }, [recordingId]);
+    const query = buildShareContinuationQuery(attribution);
+    return query ? `${path}?${query}` : path;
+  }, [attribution, recordingId]);
   const signInHref = buildSignInReturnHref({ returnTo: shareReturnTo });
 
   const submitAccessRequest = useCallback(
