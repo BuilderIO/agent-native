@@ -92,7 +92,7 @@ The one architectural difference from a typical frontend: this layer has no back
 
 ## Where the Client Fits {#role}
 
-Browser requests, the agent loop, and external API clients all resolve to the same actions and the same SQL database — there is no separate "app backend" this layer talks to that the agent can't also reach. Building a feature here means building a UI on top of an operation the agent already has, or defining a new action and getting a UI for it at the same time. See [Actions](/docs/actions) for the operation side of that contract.
+Browser requests, the agent loop, and external API clients all resolve to the same actions and the same SQL database — there is no separate "app backend" this layer talks to that the agent can't also reach. Building a feature here means building a UI on top of an operation the agent already has, or defining a new action and getting a UI for it at the same time. See [Actions](/docs/actions-overview) for the operation side of that contract.
 
 This page covers the directories you build in and the pieces of the browser runtime nothing else documents (`root.tsx`, `public/`). The React hooks that connect your components to actions and to the agent live on their own focused pages:
 
@@ -201,6 +201,6 @@ import { cn } from "@agent-native/toolkit/utils";
 - [**Sync Internals**](/docs/client-sync-internals) — `useChangeVersion` for syncing a raw `useQuery`
 - [**Entry Points**](/docs/client-entry-points) — SSR bootstrap customization
 - [**Routing**](/docs/client-routing) — file-based pages, dynamic params, and navigation
-- [**Actions**](/docs/actions) — the `defineAction` surface behind every data hook
+- [**Actions**](/docs/actions-overview) — the `defineAction` surface behind every data hook
 - [**Custom Design Systems**](/docs/custom-design-system) — swapping in your own component library via `app/design-system.ts`
 - [**Authentication**](/docs/authentication) — the session checks `AppProviders` runs on private paths

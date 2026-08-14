@@ -5,7 +5,7 @@ description: "Die Nitro-Serverschicht in einer agentennativen App: wofür sie da
 
 # Server
 
-Das Verzeichnis `server/` ist die Infrastrukturschicht einer agentennativen App. Es übernimmt Startaufgaben, Authentifizierung und die HTTP-Oberflächen, die Actions nicht abdecken. Das meiste Produktverhalten gehört in [Actions](/docs/actions). Der Server macht diese Actions verfügbar.
+Das Verzeichnis `server/` ist die Infrastrukturschicht einer agentennativen App. Es übernimmt Startaufgaben, Authentifizierung und die HTTP-Oberflächen, die Actions nicht abdecken. Das meiste Produktverhalten gehört in [Actions](/docs/actions-overview). Der Server macht diese Actions verfügbar.
 
 <Diagram id="doc-block-server-overview-1" title="Wie Anfragen durch den Server fließen" summary="Aufrufer erreichen den Nitro-Server, der die meisten Anfragen über Actions abwickelt. Middleware und Routen decken die Fälle ab, die Actions nicht können. Beide Pfade können die Datenbank abfragen.">
 
@@ -221,11 +221,11 @@ Die Agent-Native-Architektur ist anders. Wann immer Sie an ein neues Feature fü
 - MCP- und A2A-aufrufbaren Tools.
 - CLI-Befehlen für die Entwicklung.
 
-Verwenden Sie benutzerdefinierte `/api/*`-Routen nur, wenn Sie ein routenförmiges Protokoll oder binäres/streamendes Verhalten benötigen. Weitere Details finden Sie unter [Actions](/docs/actions).
+Verwenden Sie benutzerdefinierte `/api/*`-Routen nur, wenn Sie ein routenförmiges Protokoll oder binäres/streamendes Verhalten benötigen. Weitere Details finden Sie unter [Actions](/docs/actions-overview).
 
 ## Was kommt als nächstes? {#whats-next}
 
-- [**Actions**](/docs/actions): die Standard-Operationsoberfläche. Greifen Sie nur dann zu einer benutzerdefinierten Route, wenn sie nicht passt.
+- [**Actions**](/docs/actions-overview): die Standard-Operationsoberfläche. Greifen Sie nur dann zu einer benutzerdefinierten Route, wenn sie nicht passt.
 - [**Datenbank**](/docs/server-database): das `getDb()`/Schema-Muster, das sowohl benutzerdefinierte Routen als auch Actions importieren
 - [**Middleware**](/docs/server-middleware): Auth-Guards und das Verzeichnis `server/middleware/`
 - [**Plugins**](/docs/server-plugins): Startup-Plugins für Migrationen, Auth und den Agenten
