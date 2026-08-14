@@ -448,6 +448,8 @@ export default function ClipsTemplate() {
         </div>
       </section>
 
+      <SectionDivider borderColorClassName="border-[#1a1a1a]" />
+
       {/* Library + Search split */}
       <section className="border-t border-[var(--docs-border)] py-16">
         <div className="grid gap-4 sm:grid-cols-2">
