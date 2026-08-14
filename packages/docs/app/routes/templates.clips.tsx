@@ -206,7 +206,7 @@ export default function ClipsTemplate() {
             </h1>
 
             <div className="lg:col-start-3 lg:row-start-2 lg:self-center lg:ps-8">
-              <p className="max-w-[300px] text-sm leading-relaxed text-[var(--fg-secondary)]">
+              <p className="max-w-[300px] font-sans text-[15px] font-normal leading-[1.4] text-[var(--fg-secondary)]">
                 {t("templateLanding.clips.s008")}
               </p>
             </div>
