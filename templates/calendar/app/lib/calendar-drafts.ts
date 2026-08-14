@@ -2,6 +2,26 @@ import type { CalendarEventDraft } from "@shared/api";
 
 import { addCalendarDays, dateToCalendarDateKey } from "./calendar-timezone";
 
+export function resolveDraftWorkingLocation(
+  draft: Pick<
+    CalendarEventDraft,
+    "workingLocationType" | "workingLocationLabel" | "location"
+  >,
+): {
+  workingLocationType: "homeOffice" | "officeLocation" | "customLocation";
+  workingLocationLabel: string;
+} {
+  return {
+    workingLocationType: draft.workingLocationType ?? "homeOffice",
+    // Drafts initialize `location` to "", so `??` would drop the Other name.
+    workingLocationLabel: (
+      draft.workingLocationLabel ||
+      draft.location ||
+      ""
+    ).trim(),
+  };
+}
+
 export function buildWorkingLocationDraft({
   id,
   date,

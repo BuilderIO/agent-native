@@ -197,6 +197,23 @@ describe("buildStatusEventFields", () => {
       },
     });
   });
+
+  it("creates Other working-location fields from workingLocationLabel", () => {
+    expect(
+      buildStatusEventFields({
+        eventType: "workingLocation",
+        workingLocationType: "customLocation",
+        workingLocationLabel: "Church",
+        location: "",
+        title: "",
+      }),
+    ).toMatchObject({
+      workingLocationProperties: {
+        type: "customLocation",
+        customLocation: { label: "Church" },
+      },
+    });
+  });
 });
 
 describe("normalizeCreateEventInput", () => {

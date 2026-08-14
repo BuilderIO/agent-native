@@ -163,7 +163,9 @@ locations use ISO datetime start and end values.
 
 Creating from a calendar day uses the selected Home, Office, or Other type —
 do not leave the draft as Home and create that instead. Office does not need a
-custom building name; Other does. If that day already has a working location
+custom building name; Other does. The Other name is `workingLocationLabel`
+(drafts keep `location` empty), so create must send that label — not an empty
+`location`. If that day already has a working location
 on the same account, update that day's occurrence (`scope: "single"`) instead
 of creating a second event. Timed (not all-day) working locations need a
 summary of Home, Office, or the custom label; all-day ones omit it so Google

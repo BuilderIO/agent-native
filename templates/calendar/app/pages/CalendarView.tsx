@@ -81,7 +81,10 @@ import { useOverlayPeople } from "@/hooks/use-overlay-people";
 import { useSettings, useUpdateSettings } from "@/hooks/use-settings";
 import { setUndoAction, runUndo } from "@/hooks/use-undo";
 import { useViewPreferences } from "@/hooks/use-view-preferences";
-import { buildWorkingLocationDraft } from "@/lib/calendar-drafts";
+import {
+  buildWorkingLocationDraft,
+  resolveDraftWorkingLocation,
+} from "@/lib/calendar-drafts";
 import {
   addCalendarDays,
   dateKeyToDate,
@@ -256,7 +259,8 @@ function draftToCalendarEvent(
       /^\d{4}-\d{2}-\d{2}$/.test(draft.start) &&
       /^\d{4}-\d{2}-\d{2}$/.test(draft.end),
     );
-  const workingLocationType = draft.workingLocationType ?? "homeOffice";
+  const { workingLocationType, workingLocationLabel } =
+    resolveDraftWorkingLocation(draft);
   return {
     id: calendarDraftEventId(draft.id),
     title:
@@ -272,7 +276,7 @@ function draftToCalendarEvent(
     end: dateOnlyAllDay ? draft.end! : end.toISOString(),
     startTimeZone: draft.startTimeZone,
     endTimeZone: draft.endTimeZone ?? draft.startTimeZone,
-    location: draft.location ?? draft.workingLocationLabel ?? "",
+    location: draft.location || workingLocationLabel,
     allDay,
     source: "local",
     accountEmail: draft.accountEmail,
@@ -287,7 +291,7 @@ function draftToCalendarEvent(
             { workingLocationProperties: undefined },
             {
               type: workingLocationType,
-              label: draft.workingLocationLabel ?? draft.location ?? "",
+              label: workingLocationLabel,
             },
           )
         : undefined,
@@ -809,7 +813,12 @@ export default function CalendarView() {
         return;
       }
 
-      const location = draft.location ?? draft.workingLocationLabel ?? "";
+      const { workingLocationType, workingLocationLabel } =
+        resolveDraftWorkingLocation(draft);
+      const location =
+        eventType === "workingLocation"
+          ? workingLocationLabel
+          : (draft.location ?? "");
       const timezone = resolveEventTimezone(
         draft.startTimeZone ?? draft.endTimeZone ?? displayTimezone,
       );
@@ -827,18 +836,8 @@ export default function CalendarView() {
           ? {}
           : {
               eventType,
-              workingLocationType:
-                draft.workingLocationType ??
-                (eventType === "workingLocation"
-                  ? "homeOffice"
-                  : "customLocation"),
-              workingLocationLabel:
-                (draft.workingLocationType ??
-                  (eventType === "workingLocation"
-                    ? "homeOffice"
-                    : "customLocation")) === "customLocation"
-                  ? location
-                  : draft.workingLocationLabel,
+              workingLocationType,
+              workingLocationLabel,
               autoDeclineMode:
                 eventType === "outOfOffice"
                   ? draft.outOfOfficeProperties?.autoDeclineMode

@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { buildWorkingLocationDraft } from "./calendar-drafts";
+import {
+  buildWorkingLocationDraft,
+  resolveDraftWorkingLocation,
+} from "./calendar-drafts";
 import { dateKeyToDate } from "./calendar-timezone";
 
 describe("working location drafts", () => {
@@ -33,6 +36,32 @@ describe("working location drafts", () => {
       start: "2026-08-31",
       end: "2026-09-01",
       allDay: true,
+    });
+  });
+
+  it("keeps an Other name when location is the empty draft default", () => {
+    expect(
+      resolveDraftWorkingLocation({
+        workingLocationType: "customLocation",
+        workingLocationLabel: "Church",
+        location: "",
+      }),
+    ).toEqual({
+      workingLocationType: "customLocation",
+      workingLocationLabel: "Church",
+    });
+  });
+
+  it("falls back to location when the Other name was stored there", () => {
+    expect(
+      resolveDraftWorkingLocation({
+        workingLocationType: "customLocation",
+        workingLocationLabel: "",
+        location: "Library",
+      }),
+    ).toEqual({
+      workingLocationType: "customLocation",
+      workingLocationLabel: "Library",
     });
   });
 });
