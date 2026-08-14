@@ -3,6 +3,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  IMAGE_FILE_ACCEPT,
   createImagePickerId,
   createMediaUploadId,
   getAudioFiles,
@@ -12,6 +13,10 @@ import {
   uploadImageFile,
   uploadVideoFile,
 } from "./image-upload";
+
+it("explicitly allows SVG files in native image pickers", () => {
+  expect(IMAGE_FILE_ACCEPT).toContain(".svg");
+});
 
 describe("image uploads", () => {
   afterEach(() => {

@@ -99,6 +99,7 @@ import {
   createMediaUploadId,
   ImageRenderError,
   imageUploadErrorMessage,
+  IMAGE_FILE_ACCEPT,
   uploadAudioFile,
   uploadImageFile,
   waitForRenderedImage,
@@ -2795,7 +2796,7 @@ export function VisualEditor({
       <input
         ref={imageFileInputRef}
         type="file"
-        accept="image/*"
+        accept={IMAGE_FILE_ACCEPT}
         className="hidden"
         tabIndex={-1}
         aria-hidden="true"

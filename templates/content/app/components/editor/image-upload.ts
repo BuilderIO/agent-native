@@ -23,6 +23,9 @@ type MediaUploadKind = "image" | "video" | "audio";
 
 const IMAGE_LOAD_TIMEOUT_MS = 15_000;
 
+// Chromium's macOS picker does not consistently include SVG in `image/*`.
+export const IMAGE_FILE_ACCEPT = "image/*,.svg";
+
 export class ImageRenderError extends Error {
   constructor() {
     super("Image could not be loaded.");
