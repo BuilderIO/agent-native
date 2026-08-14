@@ -29,6 +29,17 @@ export class BlocksFieldRevisionConflictError extends Error {
   }
 }
 
+export class BlocksFieldIdCollisionError extends Error {
+  readonly blockId: string;
+  readonly statusCode = 409;
+
+  constructor(blockId: string) {
+    super(`Block ID is already owned by another Blocks field: ${blockId}`);
+    this.name = "BlocksFieldIdCollisionError";
+    this.blockId = blockId;
+  }
+}
+
 function nanoid(size = 12): string {
   const chars =
     "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
@@ -266,6 +277,7 @@ export async function persistBlocksFieldIdentity(args: {
   markdown: string;
   expectedRevision?: number;
   preferredIdsByPath?: Readonly<Record<string, string>>;
+  rejectCrossFieldIdRemapping?: boolean;
   now: string;
 }): Promise<StoredBlocksFieldIdentity> {
   const fieldId = blocksFieldId(args.documentId, args.propertyId);
@@ -327,6 +339,9 @@ export async function persistBlocksFieldIdentity(args: {
     const reserved = new Set(next.blocks.map((block) => block.id));
     for (const existing of existingOwners) {
       if (existing.fieldId === fieldId) continue;
+      if (args.rejectCrossFieldIdRemapping) {
+        throw new BlocksFieldIdCollisionError(existing.id);
+      }
       let replacement = `block_${nanoid(16)}`;
       while (reserved.has(replacement)) replacement = `block_${nanoid(16)}`;
       reserved.add(replacement);

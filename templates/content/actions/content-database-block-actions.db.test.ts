@@ -31,6 +31,7 @@ let setProperty: typeof import("./set-document-property.js").default;
 let listBlocks: typeof import("./list-content-database-blocks.js").default;
 let mutateBlock: typeof import("./mutate-content-database-block.js").default;
 let compareAndSwapAdditionalBlocksField: typeof import("./_database-block-actions.js").compareAndSwapAdditionalBlocksField;
+let persistBlocksFieldIdentity: typeof import("./_blocks-field-identity.js").persistBlocksFieldIdentity;
 
 const asOwner = <T>(run: () => Promise<T>) =>
   runWithRequestContext({ userEmail: OWNER }, run);
@@ -59,6 +60,8 @@ beforeAll(async () => {
   compareAndSwapAdditionalBlocksField = (
     await import("./_database-block-actions.js")
   ).compareAndSwapAdditionalBlocksField;
+  persistBlocksFieldIdentity = (await import("./_blocks-field-identity.js"))
+    .persistBlocksFieldIdentity;
   if (TEST_DATABASE_URL.startsWith("postgres")) {
     await runFrameworkReleaseMigrations(undefined);
   }
@@ -132,6 +135,33 @@ function envelope(
 }
 
 describe("exact Content database block actions", () => {
+  it("rejects cross-field remapping of an action-preferred block ID", async () => {
+    const target = await fixture("Target");
+    const owner = await fixture("Owner");
+    const requestedId = owner.listed.blocks[0]!.id;
+
+    await expect(
+      persistBlocksFieldIdentity({
+        db: getDb(),
+        ownerEmail: OWNER,
+        documentId: target.target.rowDocumentId,
+        propertyId: target.target.propertyId,
+        previousMarkdown: "Target",
+        markdown: "Target\nInserted",
+        expectedRevision: target.listed.fieldRevision,
+        preferredIdsByPath: {
+          "0": target.listed.blocks[0]!.id,
+          "1": requestedId,
+        },
+        rejectCrossFieldIdRemapping: true,
+        now: new Date().toISOString(),
+      }),
+    ).rejects.toMatchObject({
+      name: "BlocksFieldIdCollisionError",
+      blockId: requestedId,
+    });
+  });
+
   it("lists revision-pinned pages and performs every supported operation with verified retry receipts", async () => {
     const state = await fixture();
     const [alpha, beta, gamma] = state.listed.blocks;

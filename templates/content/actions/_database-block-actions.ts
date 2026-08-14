@@ -29,6 +29,7 @@ import {
   type DocumentPropertyType,
 } from "../shared/properties.js";
 import {
+  BlocksFieldIdCollisionError,
   persistBlocksFieldIdentity,
   readBlocksFieldIdentity,
 } from "./_blocks-field-identity.js";
@@ -159,6 +160,17 @@ function contractError(
   statusCode = 409,
 ): never {
   throw new ActionContractError(message, { errorCode, details, statusCode });
+}
+
+function isUniqueConstraintError(error: unknown): boolean {
+  const candidate = error as { code?: unknown; message?: unknown };
+  const code = String(candidate?.code ?? "");
+  const message = String(candidate?.message ?? "");
+  return (
+    code === "23505" ||
+    code.includes("SQLITE_CONSTRAINT") ||
+    /unique constraint|primary key constraint|duplicate key/i.test(message)
+  );
 }
 
 function databaseTarget(target: BlockTarget): DatabaseMutationTarget {
@@ -744,23 +756,55 @@ export async function mutateDatabaseBlock(
         let postIdentity = loaded.identity;
         if (changed.changed) {
           await writeMarkdown(tx, loaded, input.target, changed.markdown, now);
-          await persistBlocksFieldIdentity({
-            db: tx,
-            ownerEmail: loaded.ownerEmail,
-            documentId: input.target.rowDocumentId,
-            propertyId: input.target.propertyId,
-            previousMarkdown: loaded.markdown,
-            markdown: changed.markdown,
-            expectedRevision: input.expectedFieldRevision,
-            preferredIdsByPath: changed.preferredIdsByPath,
-            now,
-          });
+          try {
+            await persistBlocksFieldIdentity({
+              db: tx,
+              ownerEmail: loaded.ownerEmail,
+              documentId: input.target.rowDocumentId,
+              propertyId: input.target.propertyId,
+              previousMarkdown: loaded.markdown,
+              markdown: changed.markdown,
+              expectedRevision: input.expectedFieldRevision,
+              preferredIdsByPath: changed.preferredIdsByPath,
+              rejectCrossFieldIdRemapping: true,
+              now,
+            });
+          } catch (error) {
+            if (
+              error instanceof BlocksFieldIdCollisionError ||
+              (resolved.insertedBlockId && isUniqueConstraintError(error))
+            ) {
+              contractError(
+                "BLOCK_ID_ALREADY_USED",
+                "The requested block ID has already been used.",
+                {
+                  blockId:
+                    error instanceof BlocksFieldIdCollisionError
+                      ? error.blockId
+                      : resolved.insertedBlockId,
+                },
+              );
+            }
+            throw error;
+          }
           postIdentity = await readBlocksFieldIdentity({
             db: tx,
             documentId: input.target.rowDocumentId,
             propertyId: input.target.propertyId,
             markdown: changed.markdown,
           });
+          if (
+            resolved.insertedBlockId &&
+            !postIdentity.blocks.some(
+              (block) => block.id === resolved.insertedBlockId,
+            )
+          ) {
+            contractError(
+              "BLOCK_ID_ALREADY_USED",
+              "The requested block ID has already been used.",
+              { blockId: resolved.insertedBlockId },
+            );
+          }
           await touchContentDatabase(tx, input.target.databaseId, now);
         }
         const postRow = await rowSnapshot(
