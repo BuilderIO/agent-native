@@ -191,24 +191,21 @@ export default defineAction({
       }
     }
 
-    // Keep a meeting-specific snapshot of the owner identity. This gives
-    // transcript rendering a stable display name even if the auth profile
-    // changes later, while preserving calendar-provided attendee names.
+    // Backfill a missing display name onto the owner's own attendee row —
+    // but only when they're already a genuine calendar attendee. Inserting
+    // a synthetic row for a non-attendee owner would put their email in
+    // meeting_participants indistinguishably from a real attendee, and that
+    // table is what the public share payload returns; a meeting made public
+    // later would leak an email the owner never actually disclosed. When the
+    // owner isn't an attendee, speaker resolution already has a safe
+    // fallback (the generic "Me" label) — no snapshot needed for that case.
     const ownerName = getRequestUserName()?.trim() || undefined;
     const ownerParticipant = participantsToInsert.find(
       (participant) =>
         participant.email.trim().toLowerCase() === ownerEmail.toLowerCase(),
     );
-    if (ownerParticipant) {
-      if (!ownerParticipant.name?.trim() && ownerName) {
-        ownerParticipant.name = ownerName;
-      }
-    } else {
-      participantsToInsert.unshift({
-        email: ownerEmail,
-        name: ownerName,
-        isOrganizer: source !== "calendar",
-      });
+    if (ownerParticipant && !ownerParticipant.name?.trim() && ownerName) {
+      ownerParticipant.name = ownerName;
     }
 
     const visibility =
