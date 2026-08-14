@@ -29,7 +29,7 @@ import {
 } from "../builder-frame.js";
 import { BuilderSetupCard, BuilderSetupContent } from "../chat/run-recovery.js";
 import { isTrustedFrameMessage } from "../frame.js";
-import { useT } from "../i18n.js";
+import { useFormatters, useT } from "../i18n.js";
 import { useOrg } from "../org/hooks.js";
 import { isMcpIntegrationCatalogAvailable } from "../resources/mcp-integration-catalog.js";
 import { McpIntegrationDialog } from "../resources/McpIntegrationDialog.js";
@@ -111,9 +111,10 @@ export function CoreComposerRuntimeProvider({
   children: ReactNode;
 }) {
   const translate = useT();
+  const { formatNumber } = useFormatters();
   const adapters = useMemo(
-    () => ({ ...coreComposerAdapters, translate }),
-    [translate],
+    () => ({ ...coreComposerAdapters, formatNumber, translate }),
+    [formatNumber, translate],
   );
   return (
     <ComposerRuntimeAdaptersProvider adapters={adapters}>

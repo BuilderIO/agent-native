@@ -508,11 +508,16 @@ const messages = {
     generatingSlide: "正在生成幻灯片",
     uploadFailed: "上传失败",
     uploadAttachedFileFailed: "无法上传附加文件。",
+    newSlideSaveFailed:
+      "새 슬라이드를 저장하지 못했습니다. 다시 시도해 주세요.",
     addSlides: "添加幻灯片",
     addEmptySlide: "添加空白幻灯片",
     noAi: "无 AI",
     duplicateCurrentSlide: "复制当前幻灯片",
     promptPlaceholder: "描述你想要的幻灯片...",
+    newSlide: "새 슬라이드",
+    closeAddSlides: "닫기",
+    describeThisSlide: "이 슬라이드를 설명하세요",
   },
   presentation: {
     loadFailed: "이 프레젠테이션을 불러오지 못했습니다.",

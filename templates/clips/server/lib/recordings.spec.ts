@@ -226,4 +226,19 @@ describe("getDefaultRecordingVisibility", () => {
     );
     expect(mocks.getDb).not.toHaveBeenCalled();
   });
+
+  it("accepts the authenticated action owner when request context is empty", async () => {
+    mocks.getRequestUserEmail.mockReturnValue(null);
+    mocks.getUserSetting.mockResolvedValue({
+      defaultRecordingVisibility: "private",
+    });
+
+    await expect(
+      getDefaultRecordingVisibility("org-1", "Owner@Example.test"),
+    ).resolves.toBe("private");
+    expect(mocks.getUserSetting).toHaveBeenCalledWith(
+      "owner@example.test",
+      "clips-user-prefs",
+    );
+  });
 });

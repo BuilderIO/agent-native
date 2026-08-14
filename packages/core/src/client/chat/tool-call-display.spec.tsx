@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
+import { AgentNativeI18nProvider } from "../i18n.js";
 import type { ContentPart } from "../sse-event-processor.js";
 import {
   ApprovalContext,
@@ -752,6 +753,45 @@ describe("ToolCallDisplay native renderers", () => {
       container.querySelector('[data-testid="agent-call-progress"]'),
     ).toBeNull();
     expect(container.textContent).toContain("Thinking");
+  });
+
+  it("localizes delegated-agent labels and elapsed durations", async () => {
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          catalog={{
+            sourceLocale: "en-US",
+            messages: {
+              agentChat: {
+                tool: {
+                  askingAgent: "Localized asking {{agent}}",
+                  elapsed: "Localized elapsed {{duration}}",
+                },
+              },
+            },
+          }}
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <ToolCallDisplay
+            toolName="agent:Analytics"
+            args={{}}
+            isRunning={true}
+            structuredMeta={{
+              agentProgress: {
+                state: "working",
+                elapsedSeconds: 30,
+                detail: "Querying the warehouse",
+              },
+            }}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    expect(container.textContent).toContain("Localized asking Analytics");
+    expect(container.textContent).toContain("Localized elapsed 30s");
   });
 
   it("renders a reconnected raw call-agent result through the scroll-free agent cell", () => {
@@ -1564,6 +1604,13 @@ describe("formatWorkedDuration", () => {
     expect(formatWorkedDuration(125_000)).toBe("2m 5s");
     expect(formatWorkedDuration(3_600_000)).toBe("1h");
     expect(formatWorkedDuration(3_900_000)).toBe("1h 5m");
+    expect(
+      formatWorkedDuration(125_000, {
+        locale: "de-DE",
+        minute: " Min.",
+        second: " Sek.",
+      }),
+    ).toBe("2 Min. 5 Sek.");
   });
 });
 

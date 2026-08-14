@@ -18,6 +18,11 @@ export const BUILDER_SPACE_SETTINGS_URL =
 // error message. The chat renderer intercepts this href and renders a button
 // that dispatches the `agent-native:new-chat` CustomEvent instead of navigating.
 export const NEW_CHAT_ACTION_HREF = "agent-native:new-chat";
+const OPEN_BUILDER_SPACE_SETTINGS_LABEL = "Open Builder space settings";
+const START_NEW_CHAT_LABEL = "Start new chat";
+const UPGRADE_AT_BUILDER_LABEL = "Upgrade at builder.io";
+const BUILDER_AUTHENTICATION_ERROR =
+  "Builder rejected the connected credentials. Reconnect Builder.io (free tier available) in Settings, then retry.";
 
 function isSafeUpgradeUrl(url: string): boolean {
   try {
@@ -39,26 +44,123 @@ export function formatChatErrorText(
     errorCode === "gateway_not_enabled" ||
     /space has not enabled the LLM gateway/i.test(normalized.message)
   ) {
-    return `Error: ${normalized.message}\n\n[Open Builder space settings](${BUILDER_SPACE_SETTINGS_URL})`;
+    return `Error: ${normalized.message}\n\n[${OPEN_BUILDER_SPACE_SETTINGS_LABEL}](${BUILDER_SPACE_SETTINGS_URL})`;
   }
   if (errorCode === "builder_gateway_error") {
-    return `Error: ${normalized.message}\n\n[Start new chat](${NEW_CHAT_ACTION_HREF})`;
+    return `Error: ${normalized.message}\n\n[${START_NEW_CHAT_LABEL}](${NEW_CHAT_ACTION_HREF})`;
   }
   if (
     errorCode === "context_length_exceeded" ||
     errorCode === "input_too_long"
   ) {
-    return `Error: ${normalized.message}\n\n[Start new chat](${NEW_CHAT_ACTION_HREF})`;
+    return `Error: ${normalized.message}\n\n[${START_NEW_CHAT_LABEL}](${NEW_CHAT_ACTION_HREF})`;
   }
   if (!upgradeUrl || !isSafeUpgradeUrl(upgradeUrl)) {
     return `Error: ${normalized.message}`;
   }
-  return `Error: ${normalized.message}\n\n[Upgrade at builder.io](${upgradeUrl})`;
+  return `Error: ${normalized.message}\n\n[${UPGRADE_AT_BUILDER_LABEL}](${upgradeUrl})`;
 }
 
 export interface NormalizedChatError {
   message: string;
   details?: string;
+}
+
+type ErrorTranslate = (
+  key: string,
+  options?: Record<string, unknown>,
+) => string;
+
+const KNOWN_CHAT_ERROR_KEYS = new Map<string, string>([
+  [
+    "No LLM provider is connected. Open this app's Manage agent > LLM, then connect Builder.io or add a provider key.",
+    "agentChat.errorMessages.noProviderConnected",
+  ],
+  [
+    "The provider behind this model rejected the request. Pick a different model, then retry.",
+    "agentChat.errorMessages.builderModelUnauthorized",
+  ],
+  [
+    BUILDER_AUTHENTICATION_ERROR,
+    "agentChat.errorMessages.builderAuthentication",
+  ],
+  [
+    "This model can't use tools with the current settings. Switch models in Settings, then retry.",
+    "agentChat.errorMessages.providerConfiguration",
+  ],
+  [
+    "The model provider is rate-limiting this chat right now. Wait a moment, then retry.",
+    "agentChat.errorMessages.providerRateLimit",
+  ],
+  [
+    "The model provider rejected the saved API key. Update the key in Settings → Integrations → API keys, then retry.",
+    "agentChat.errorMessages.providerAuthentication",
+  ],
+  [
+    "The model provider could not be reached. Check your connection and retry.",
+    "agentChat.errorMessages.providerNetwork",
+  ],
+  [
+    "The agent connection was interrupted. Check your connection and retry.",
+    "agentChat.errorMessages.agentConnection",
+  ],
+  [
+    "The model gateway returned no error details and the chat couldn't recover. Wait a moment and retry, or start a new chat if it keeps happening.",
+    "agentChat.errorMessages.gatewayNoDetails",
+  ],
+  [
+    "The agent connection timed out before it could finish. You can continue from the partial work or retry.",
+    "agentChat.errorMessages.inactivityTimeout",
+  ],
+  [
+    "A tool schema was invalid, so the model rejected the request before it started. The invalid tool can be skipped and the request retried.",
+    "agentChat.errorMessages.invalidToolSchema",
+  ],
+  [
+    "The provider returned an HTML error page.",
+    "agentChat.errorMessages.providerHtml",
+  ],
+]);
+
+const KNOWN_CHAT_ERROR_ACTION_KEYS = new Map<string, string>([
+  [
+    "Open Builder space settings",
+    "agentChat.errorMessages.openBuilderSpaceSettings",
+  ],
+  ["Start new chat", "agentChat.errorMessages.startNewChat"],
+  ["Upgrade at builder.io", "agentChat.errorMessages.upgradeAtBuilder"],
+]);
+
+/** Localize only Core's own normalized error copy; preserve provider details. */
+export function localizeKnownChatErrorText(
+  text: string,
+  t: ErrorTranslate,
+): string {
+  const newlineIndex = text.indexOf("\n");
+  const firstLine = newlineIndex >= 0 ? text.slice(0, newlineIndex) : text;
+  const suffix = newlineIndex >= 0 ? text.slice(newlineIndex) : "";
+  const hasPrefix = firstLine.startsWith("Error: ");
+  const message = hasPrefix ? firstLine.slice("Error: ".length) : firstLine;
+  const key = KNOWN_CHAT_ERROR_KEYS.get(message);
+  let localizedFirstLine = firstLine;
+  if (key) {
+    const translated = t(key, { defaultValue: message });
+    localizedFirstLine = hasPrefix
+      ? t("agentChat.errorMessages.errorPrefix", {
+          defaultValue: "Error: {{message}}",
+          message: translated,
+        })
+      : translated;
+  }
+  const localizedSuffix = suffix.replace(
+    /\[([^\]]+)]\(([^)]+)\)/g,
+    (link, label: string, href: string) => {
+      const actionKey = KNOWN_CHAT_ERROR_ACTION_KEYS.get(label);
+      if (!actionKey) return link;
+      return `[${t(actionKey, { defaultValue: label })}](${href})`;
+    },
+  );
+  return `${localizedFirstLine}${localizedSuffix}`;
 }
 
 function normalizeErrorCode(errorCode?: string): string {
@@ -175,8 +277,7 @@ export function normalizeChatError(
 
   if (code === "builder_auth_error") {
     return {
-      message:
-        "Builder rejected the connected credentials. Reconnect Builder.io (free tier available) in Settings, then retry.",
+      message: BUILDER_AUTHENTICATION_ERROR,
       details: text,
     };
   }

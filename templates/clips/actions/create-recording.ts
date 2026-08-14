@@ -39,7 +39,7 @@ export default defineAction({
   description:
     "Create a new recording row in 'uploading' status and return its id plus the chunk upload URL template. The frontend POSTs chunks to /api/uploads/:id/chunk?index=N&total=T&isFinal=0|1, then finalizes on the last chunk. Recorders can pass app/window title context for an immediate fallback title.",
   schema: createRecordingSchema,
-  run: async (args) => {
+  run: async (args, actionContext) => {
     const db = getDb();
     const ownerEmail = getCurrentOwnerEmail();
     const id = args.id || nanoid();
@@ -53,7 +53,10 @@ export default defineAction({
       args.organizationId,
     );
     const defaultVisibility =
-      await getDefaultRecordingVisibility(organizationId);
+      await getDefaultRecordingVisibility(
+        organizationId,
+        actionContext?.userEmail ?? ownerEmail,
+      );
 
     const spaceIds = (args.spaceIds ?? []).filter(
       (value, index, arr) => value && arr.indexOf(value) === index,

@@ -332,6 +332,13 @@ export function AccountSettingsForm({
     setIsEditingName(true);
   };
 
+  const handleProfileCancel = () => {
+    updateProfile.reset();
+    nameEditedRef.current = false;
+    setName(savedName);
+    setIsEditingName(false);
+  };
+
   const canSaveName =
     !!email &&
     !updateProfile.isPending &&
@@ -422,6 +429,9 @@ export function AccountSettingsForm({
                 autoFocus
                 aria-label={t("settings.profileNameLabel")}
                 className="min-w-0 flex-1"
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") handleProfileCancel();
+                }}
               />
               <ActionButton
                 type="button"
