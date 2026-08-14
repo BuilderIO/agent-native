@@ -447,7 +447,7 @@ describe("useChatThreads", () => {
     expect(hook!.isNewThread("thread-1")).toBe(false);
   });
 
-  it("reclassifies a saved missing thread as a new empty tab after the thread list loads", async () => {
+  it("replaces a saved missing thread with a fresh optimistic tab after the thread list loads", async () => {
     window.localStorage.setItem(
       "agent-chat-active-thread:forms",
       "empty-sidebar-tab",
@@ -495,10 +495,11 @@ describe("useChatThreads", () => {
       await Promise.resolve();
     });
 
-    expect(hook!.activeThreadId).toBe("empty-sidebar-tab");
-    expect(hook!.isNewThread("empty-sidebar-tab")).toBe(true);
+    expect(hook!.activeThreadId).toBe("forked-thread");
+    expect(hook!.isNewThread("forked-thread")).toBe(true);
+    expect(hook!.isNewThread("empty-sidebar-tab")).toBe(false);
     expect(hook!.threads.map((thread) => thread.id)).toEqual([
-      "empty-sidebar-tab",
+      "forked-thread",
       "real-thread",
     ]);
   });

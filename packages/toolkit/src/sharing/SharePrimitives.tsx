@@ -10,19 +10,18 @@ import {
 } from "../ui/collapsible.js";
 import { cn } from "../utils.js";
 
-export interface ShareTriggerProps
-  extends Pick<
-    ActionButtonProps,
-    | "aria-label"
-    | "className"
-    | "disabled"
-    | "emphasis"
-    | "intent"
-    | "onPress"
-    | "pending"
-    | "size"
-    | "title"
-  > {
+export interface ShareTriggerProps extends Pick<
+  ActionButtonProps,
+  | "aria-label"
+  | "className"
+  | "disabled"
+  | "emphasis"
+  | "intent"
+  | "onPress"
+  | "pending"
+  | "size"
+  | "title"
+> {
   label?: ReactNode;
 }
 
@@ -142,7 +141,10 @@ export function ShareAgentsSection({
     <Collapsible
       open={isOpen}
       onOpenChange={handleOpenChange}
-      className={cn("overflow-hidden rounded-md border border-border", className)}
+      className={cn(
+        "overflow-hidden rounded-md border border-border",
+        className,
+      )}
     >
       <CollapsibleTrigger asChild>
         <ActionButton

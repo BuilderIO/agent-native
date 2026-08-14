@@ -111,6 +111,27 @@ describe("booking availability", () => {
     ]);
   });
 
+  it("omits slots that overlap existing calendar conflicts", () => {
+    const slots = generateAvailableSlotsForDate({
+      date: "2026-07-20",
+      duration: 30,
+      config: availabilityConfig(),
+      conflictItems: [
+        {
+          start: "2026-07-20T16:30:00.000Z",
+          end: "2026-07-20T17:30:00.000Z",
+        },
+      ],
+    });
+
+    expect(slots.map((slot) => slot.start)).toEqual([
+      "2026-07-20T16:00:00.000Z",
+      "2026-07-20T17:30:00.000Z",
+      "2026-07-20T18:00:00.000Z",
+      "2026-07-20T18:30:00.000Z",
+    ]);
+  });
+
   it("offers slots from each disjoint availability window", () => {
     const config = availabilityConfig();
     config.weeklySchedule.monday.slots = [

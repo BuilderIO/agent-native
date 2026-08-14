@@ -21,6 +21,10 @@ in scope. Keep the code change and the external reply equally evidence-based.
 - Read `address-feedback`, `concurrent-agents`, and `verifying-changes` first.
 - Read the linked Slack parent and every reply. If a message points to a Clips
   link, transcript, video, screenshot, file, or newer follow-up, inspect it too.
+- If the report includes a run ID, use that ID first to inspect the persisted
+  run, events, tool cards, and linked app state. Do not ask for the prompt or
+  last tool card until the run ID and available observability paths have been
+  exhausted; do not ask for evidence already present in Slack or the app.
 - Search recent Slack history, local Git history, and merged PRs for repeat
   reports and existing fixes before editing.
 - Re-read dirty files before changing them. Preserve the shared checkout and
@@ -39,11 +43,17 @@ in scope. Keep the code change and the external reply equally evidence-based.
 4. Verify each fix with the smallest relevant test, typecheck, action read-back,
    or browser path. Keep source-tested, built, installed, deployed, and live
    observations separate.
-5. Before posting, prepare one short status for every in-scope thread:
+5. Before posting, prepare one short status for every in-scope feedback item
+   or thread that was addressed - not only the newest report:
    - **Fixed** - what changed and what verification proves it.
    - **Not fixed** - the exact blocker, missing reproduction, or owner boundary.
    - **Clarification needed** - one concrete question that unblocks the next
-     investigation.
+     investigation, only when the available run, app, Slack, and linked-file
+     evidence is insufficient.
+   Keep the posted reply shorter than the investigation: say only whether it
+   was fixed, what remains open, when it should be live, and any truly required
+   clarification. Omit implementation details unless they are needed to make
+   the status understandable.
 6. When the user explicitly asks to reply, post directly in each requested
    thread with `slack_send_message` and `thread_ts`. Do not silently turn an
    authorized write into a draft. Re-read each thread afterward to confirm the
@@ -76,8 +86,9 @@ this should be live after the final ship later today.
 ```
 
 Omit `fixed`, `still open`, or the release sentence when it is not true. For a
-thread with only an unclear runtime report, ask for the prompt, exact step, or
-fresh link needed to reproduce it instead of promising a code fix.
+thread with only an unclear runtime report, inspect its run ID and linked app
+evidence first; ask for a prompt or exact step only when those sources cannot
+adequately identify the failure.
 
 ## Release follow-up
 

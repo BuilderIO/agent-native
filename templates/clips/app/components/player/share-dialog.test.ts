@@ -25,9 +25,7 @@ describe("recording share popover", () => {
     expect(shareDialogSource).toContain(
       'label={t("shareDialog.shareWithAgents")}',
     );
-    expect(shareDialogSource).toContain("{!isPublic ? (");
-    expect(shareDialogSource).toContain("if (!isPublic)");
-    expect(shareDialogSource).toContain("<Collapsible");
+    expect(shareDialogSource).not.toContain("<Collapsible");
     expect(shareDialogSource).toContain("agentDetailsOpen");
   });
 
@@ -52,7 +50,8 @@ describe("recording share popover", () => {
     const shareUiSource = readSource("../sharing/share-ui.tsx");
 
     expect(shareUiSource).toContain('t("shareUi.copy")');
-    expect(shareUiSource).toContain("IconLink");
+    expect(shareUiSource).toContain("<ShareCopyRow");
+    expect(shareUiSource).not.toContain("IconLink");
     expect(shareUiSource).toContain('t("recordRoute.linkCopied")');
     expect(shareUiSource).toContain("description?: string");
     expect(shareUiSource).not.toContain("readOnly\n          value={value}");

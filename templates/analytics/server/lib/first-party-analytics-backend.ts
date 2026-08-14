@@ -913,7 +913,8 @@ function addPartitionPrunedEventDeduplication(
     }
     result +=
       sql.slice(cursor, predicateEnd) +
-      " QUALIFY ROW_NUMBER() OVER (PARTITION BY id ORDER BY received_at DESC) = 1";
+      " QUALIFY ROW_NUMBER() OVER (PARTITION BY id ORDER BY received_at DESC) = 1" +
+      (predicateEnd < sql.length ? " " : "");
     cursor = predicateEnd;
   }
   return result;

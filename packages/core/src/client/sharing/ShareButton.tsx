@@ -1095,8 +1095,7 @@ function CopyLinkField({
     <ShareCopyRow
       value={value}
       label={
-        label ??
-        t("agentChat.share.shareLink", { defaultValue: "Share link" })
+        label ?? t("agentChat.share.shareLink", { defaultValue: "Share link" })
       }
       description={description}
       copyLabel={t("agentChat.share.copy", { defaultValue: "Copy" })}

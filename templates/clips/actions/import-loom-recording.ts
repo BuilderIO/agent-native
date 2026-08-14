@@ -214,11 +214,10 @@ export default defineAction({
     const { organizationId } = await requireOrganizationAccess(
       existingRecording?.organizationId ?? args.organizationId,
     );
-    const defaultVisibility =
-      await getDefaultRecordingVisibility(
-        organizationId,
-        actionContext?.userEmail ?? ownerEmail,
-      );
+    const defaultVisibility = await getDefaultRecordingVisibility(
+      organizationId,
+      actionContext?.userEmail ?? ownerEmail,
+    );
 
     const now = new Date().toISOString();
     const id = existingRecording?.id ?? nanoid();

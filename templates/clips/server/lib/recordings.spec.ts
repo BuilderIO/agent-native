@@ -220,6 +220,7 @@ describe("getDefaultRecordingVisibility", () => {
     mocks.getUserSetting.mockResolvedValue({
       defaultRecordingVisibility: "public",
     });
+    mocks.getDb.mockClear();
 
     await expect(getDefaultRecordingVisibility("org-1")).resolves.toBe(
       "public",

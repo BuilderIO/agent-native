@@ -12,11 +12,11 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { buildSignInReturnHref } from "@agent-native/core/client/ui";
-import { ShareTrigger } from "@agent-native/toolkit/sharing";
 import {
   isHumanReadableDocumentTitle,
   normalizeDocumentTitle,
 } from "@agent-native/core/shared";
+import { ShareTrigger } from "@agent-native/toolkit/sharing";
 import {
   BUILDER_CREDITS_UPGRADE_URL,
   type BuilderCreditsStatus,

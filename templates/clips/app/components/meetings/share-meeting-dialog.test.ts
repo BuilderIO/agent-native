@@ -28,6 +28,9 @@ describe("meeting share popover", () => {
     expect(source).toContain('t("shareDialog.shareWithAgents")');
     expect(source).toContain('t("shareMeeting.agentLinkDescription")');
     expect(source).toContain('t("shareDialog.retryAgentLink")');
-    expect(source).toContain("!isPublic ? (");
+    expect(source).toContain(
+      "const visibleAgentLink = isPublic ? shareUrl : agentLink;",
+    );
+    expect(source).not.toContain("!isPublic ? (");
   });
 });

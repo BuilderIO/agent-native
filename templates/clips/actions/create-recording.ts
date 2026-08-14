@@ -52,11 +52,10 @@ export default defineAction({
     const { organizationId } = await requireOrganizationAccess(
       args.organizationId,
     );
-    const defaultVisibility =
-      await getDefaultRecordingVisibility(
-        organizationId,
-        actionContext?.userEmail ?? ownerEmail,
-      );
+    const defaultVisibility = await getDefaultRecordingVisibility(
+      organizationId,
+      actionContext?.userEmail ?? ownerEmail,
+    );
 
     const spaceIds = (args.spaceIds ?? []).filter(
       (value, index, arr) => value && arr.indexOf(value) === index,

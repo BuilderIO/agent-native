@@ -134,11 +134,10 @@ export default defineAction({
       assertNativeRecordingMedia(source);
     }
     const organizationId = ordered[0].organizationId;
-    const defaultVisibility =
-      await getDefaultRecordingVisibility(
-        organizationId,
-        actionContext?.userEmail ?? ownerEmail,
-      );
+    const defaultVisibility = await getDefaultRecordingVisibility(
+      organizationId,
+      actionContext?.userEmail ?? ownerEmail,
+    );
 
     const totalDuration =
       args.durationMs ??

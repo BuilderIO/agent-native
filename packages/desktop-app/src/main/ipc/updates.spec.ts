@@ -197,14 +197,14 @@ describe("desktop updates", () => {
 
     expect(updates.getCurrentUpdateStatus()).toEqual({
       state: "unsupported",
-      reason: "Auto-update is disabled in development",
+      reason: "Auto-update is unavailable for local development builds",
     });
     expect(updaterState.setFeedURL).not.toHaveBeenCalled();
     expect(updaterState.checkForUpdates).not.toHaveBeenCalled();
 
     await expect(updates.checkForAppUpdates()).resolves.toEqual({
       state: "unsupported",
-      reason: "Auto-update is disabled in development",
+      reason: "Auto-update is unavailable for local development builds",
     });
     expect(updaterState.setFeedURL).not.toHaveBeenCalled();
     expect(updaterState.checkForUpdates).not.toHaveBeenCalled();

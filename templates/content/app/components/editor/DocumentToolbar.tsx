@@ -4,9 +4,9 @@ import { type CollabUser } from "@agent-native/core/client/collab";
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { ShareButton } from "@agent-native/core/client/sharing";
-import { ShareTrigger } from "@agent-native/toolkit/sharing";
 import { CreativeContextShareTab } from "@agent-native/creative-context/client";
 import { PresenceBar } from "@agent-native/toolkit/collab-ui";
+import { ShareTrigger } from "@agent-native/toolkit/sharing";
 import type { DocumentSourceInfo } from "@shared/api";
 import {
   IconArrowBarDown,

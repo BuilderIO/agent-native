@@ -9629,16 +9629,9 @@ app.on("web-contents-created", (_event, contents) => {
 function buildUpdateMenuItem(): Electron.MenuItemConstructorOptions {
   const currentUpdateStatus = getCurrentUpdateStatus();
 
-  if (IS_DEV) {
-    return {
-      label: "Check for Updates...",
-      enabled: false,
-    };
-  }
-
   if (currentUpdateStatus.state === "unsupported") {
     return {
-      label: "Check for Updates...",
+      label: currentUpdateStatus.reason,
       enabled: false,
     };
   }

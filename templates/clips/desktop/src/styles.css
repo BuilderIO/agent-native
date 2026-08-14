@@ -6074,10 +6074,10 @@ body[data-clips-route="recording-pill"] #root {
   /* No fill, and the stroke is painted OUTWARD with an outset box-shadow so it
      lands just outside the captured rect — never inside the recorded video. */
   box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.96),
-    0 0 0 3px rgba(220, 38, 38, 0.98),
-    0 0 0 6px rgba(17, 24, 39, 0.78),
-    0 0 30px 8px rgba(220, 38, 38, 0.28);
+    0 0 0 1px rgba(255, 255, 255, 0.96) /* guard:allow-raw-color — recording frame uses fixed capture-safe contrast. */,
+    0 0 0 3px rgba(220, 38, 38, 0.98) /* guard:allow-raw-color — recording frame uses fixed capture-safe contrast. */,
+    0 0 0 6px rgba(17, 24, 39, 0.78) /* guard:allow-raw-color — recording frame uses fixed capture-safe contrast. */,
+    0 0 30px 8px rgba(220, 38, 38, 0.28) /* guard:allow-raw-color — recording frame uses fixed capture-safe contrast. */;
   animation: region-record-border-pulse 1.8s ease-in-out infinite;
 }
 
@@ -6087,17 +6087,17 @@ body[data-clips-route="recording-pill"] #root {
   0%,
   100% {
     box-shadow:
-      0 0 0 1px rgba(255, 255, 255, 0.98),
-      0 0 0 3px rgba(220, 38, 38, 1),
-      0 0 0 6px rgba(17, 24, 39, 0.76),
-      0 0 24px 7px rgba(220, 38, 38, 0.22);
+      0 0 0 1px rgba(255, 255, 255, 0.98) /* guard:allow-raw-color — recording frame uses fixed capture-safe contrast. */,
+      0 0 0 3px rgba(220, 38, 38, 1) /* guard:allow-raw-color — recording frame uses fixed capture-safe contrast. */,
+      0 0 0 6px rgba(17, 24, 39, 0.76) /* guard:allow-raw-color — recording frame uses fixed capture-safe contrast. */,
+      0 0 24px 7px rgba(220, 38, 38, 0.22) /* guard:allow-raw-color — recording frame uses fixed capture-safe contrast. */;
   }
   50% {
     box-shadow:
-      0 0 0 1px rgba(255, 255, 255, 1),
-      0 0 0 3px rgba(220, 38, 38, 1),
-      0 0 0 6px rgba(17, 24, 39, 0.88),
-      0 0 34px 10px rgba(220, 38, 38, 0.36);
+      0 0 0 1px rgba(255, 255, 255, 1) /* guard:allow-raw-color — recording frame uses fixed capture-safe contrast. */,
+      0 0 0 3px rgba(220, 38, 38, 1) /* guard:allow-raw-color — recording frame uses fixed capture-safe contrast. */,
+      0 0 0 6px rgba(17, 24, 39, 0.88) /* guard:allow-raw-color — recording frame uses fixed capture-safe contrast. */,
+      0 0 34px 10px rgba(220, 38, 38, 0.36) /* guard:allow-raw-color — recording frame uses fixed capture-safe contrast. */;
   }
 }
 

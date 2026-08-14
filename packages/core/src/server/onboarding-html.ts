@@ -148,8 +148,6 @@ const EN_AUTH_COPY = {
   localDevSigningIn: "Signing in locally…",
   localDevFailed: "Local development sign-in is unavailable.",
   localDevFullOptions: "Show full sign in options",
-  runLocally: "Run Locally",
-  runLocallySentence: "Run locally",
   openSource: "100% free and open source",
   useOwnGoogleClient: "Use your own Google OAuth client:",
   copyCommand: "Copy command",
@@ -264,8 +262,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevSigningIn: "正在本地登录…",
     localDevFailed: "本地开发登录不可用。",
     localDevFullOptions: "显示完整登录选项",
-    runLocally: "本地运行",
-    runLocallySentence: "本地运行",
     openSource: "100% 免费且开源",
     useOwnGoogleClient: "使用你自己的 Google OAuth 客户端：",
     copyCommand: "复制命令",
@@ -368,8 +364,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevSigningIn: "正在本機登入…",
     localDevFailed: "本機開發登入無法使用。",
     localDevFullOptions: "顯示完整登入選項",
-    runLocally: "在本機執行",
-    runLocallySentence: "在本機執行",
     openSource: "100% 免費且開源",
     useOwnGoogleClient: "使用你自己的 Google OAuth 用戶端：",
     copyCommand: "複製指令",
@@ -476,8 +470,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevFailed:
       "El inicio de sesión de desarrollo local no está disponible.",
     localDevFullOptions: "Mostrar todas las opciones de inicio de sesión",
-    runLocally: "Ejecutar localmente",
-    runLocallySentence: "Ejecutar localmente",
     openSource: "100% gratis y de código abierto",
     useOwnGoogleClient: "Usa tu propio cliente de Google OAuth:",
     copyCommand: "Copiar comando",
@@ -590,8 +582,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevSigningIn: "Connexion locale…",
     localDevFailed: "La connexion de développement local est indisponible.",
     localDevFullOptions: "Afficher toutes les options de connexion",
-    runLocally: "Exécuter localement",
-    runLocallySentence: "Exécuter localement",
     openSource: "100 % gratuit et open source",
     useOwnGoogleClient: "Utilisez votre propre client Google OAuth :",
     copyCommand: "Copier la commande",
@@ -705,8 +695,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevSigningIn: "Lokale Anmeldung…",
     localDevFailed: "Die lokale Entwicklungsanmeldung ist nicht verfügbar.",
     localDevFullOptions: "Alle Anmeldeoptionen anzeigen",
-    runLocally: "Lokal ausführen",
-    runLocallySentence: "Lokal ausführen",
     openSource: "100 % kostenlos und Open Source",
     useOwnGoogleClient: "Eigenen Google-OAuth-Client verwenden:",
     copyCommand: "Befehl kopieren",
@@ -818,8 +806,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevSigningIn: "ローカルでサインイン中…",
     localDevFailed: "ローカル開発のサインインは利用できません。",
     localDevFullOptions: "完全なサインイン オプションを表示",
-    runLocally: "ローカルで実行",
-    runLocallySentence: "ローカルで実行",
     openSource: "100% 無料でオープンソース",
     useOwnGoogleClient: "自分の Google OAuth クライアントを使用:",
     copyCommand: "コマンドをコピー",
@@ -931,8 +917,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevSigningIn: "로컬로 로그인하는 중…",
     localDevFailed: "로컬 개발 로그인을 사용할 수 없습니다.",
     localDevFullOptions: "전체 로그인 옵션 보기",
-    runLocally: "로컬에서 실행",
-    runLocallySentence: "로컬에서 실행",
     openSource: "100% 무료 오픈 소스",
     useOwnGoogleClient: "내 Google OAuth 클라이언트 사용:",
     copyCommand: "명령 복사",
@@ -1041,8 +1025,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevSigningIn: "Entrando localmente…",
     localDevFailed: "O login de desenvolvimento local não está disponível.",
     localDevFullOptions: "Mostrar todas as opções de login",
-    runLocally: "Executar localmente",
-    runLocallySentence: "Executar localmente",
     openSource: "100% grátis e open source",
     useOwnGoogleClient: "Use seu próprio cliente Google OAuth:",
     copyCommand: "Copiar comando",
@@ -1152,8 +1134,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevSigningIn: "स्थानीय रूप से साइन इन हो रहा है…",
     localDevFailed: "स्थानीय विकास साइन-इन उपलब्ध नहीं है।",
     localDevFullOptions: "साइन-इन के सभी विकल्प दिखाएं",
-    runLocally: "लोकल चलाएं",
-    runLocallySentence: "लोकल चलाएं",
     openSource: "100% मुफ्त और open source",
     useOwnGoogleClient: "अपना Google OAuth client उपयोग करें:",
     copyCommand: "कमांड कॉपी करें",
@@ -1260,8 +1240,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevSigningIn: "جارٍ تسجيل الدخول محليًا…",
     localDevFailed: "تسجيل دخول التطوير المحلي غير متاح.",
     localDevFullOptions: "عرض خيارات تسجيل الدخول الكاملة",
-    runLocally: "تشغيل محليًا",
-    runLocallySentence: "تشغيل محليًا",
     openSource: "مجاني ومفتوح المصدر 100%",
     useOwnGoogleClient: "استخدم عميل Google OAuth الخاص بك:",
     copyCommand: "نسخ الأمر",
@@ -1491,6 +1469,7 @@ export interface OnboardingHtmlOptions {
     tagline: string;
     description?: string;
     features?: string[];
+    /** @deprecated Local execution is no longer offered from auth pages. */
     runLocalCommand?: string;
   };
   /**
@@ -1553,7 +1532,6 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
           features: marketing.features,
         }
       : undefined;
-  const runLocalCommand = marketing?.runLocalCommand?.trim();
   const signupLocalModeNote =
     isAgentNativeHostedHost(opts.requestHost) &&
     marketing?.signupLocalModeNote?.command.trim()

@@ -88,6 +88,25 @@ describe("first-party BigQuery backend", () => {
     expect(sql).toContain("'2026-08-05'");
   });
 
+  it("keeps union branches separated after source deduplication", () => {
+    const sql = renderFirstPartyAnalyticsBigQuerySql(
+      "SELECT * FROM analytics_events WHERE event_name = 'signup' UNION ALL SELECT * FROM analytics_events WHERE event_name = 'login'",
+      [],
+      {
+        projectId: "builder-3b0a2",
+        datasetId: "analytics",
+        tableId: "first_party_analytics_events_raw",
+        fullyQualified:
+          "builder-3b0a2.analytics.first_party_analytics_events_raw",
+      },
+    );
+
+    expect(sql).toContain(
+      "QUALIFY ROW_NUMBER() OVER (PARTITION BY id ORDER BY received_at DESC) = 1 UNION ALL",
+    );
+    expect(sql).not.toContain("= 1UNION ALL");
+  });
+
   it("translates the PostgreSQL date expressions used by dashboard SQL", () => {
     const sql = renderFirstPartyAnalyticsBigQuerySql(
       "SELECT to_char(CURRENT_DATE - INTERVAL '30 days', 'YYYY-MM-DD') AS start_date FROM analytics_events",
