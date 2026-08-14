@@ -168,6 +168,24 @@ describe("first-party BigQuery backend", () => {
     expect(scopedDate).not.toContain("cohort_date >= FORMAT_DATE");
   });
 
+  it("removes redundant COALESCE arguments from dashboard SQL", () => {
+    const table = {
+      projectId: "builder-3b0a2",
+      datasetId: "analytics",
+      tableId: "first_party_analytics_events_raw",
+      fullyQualified:
+        "builder-3b0a2.analytics.first_party_analytics_events_raw",
+    };
+    const rendered = renderFirstPartyAnalyticsBigQuerySql(
+      "SELECT COALESCE(template, template, app) AS value FROM analytics_events",
+      [],
+      table,
+    );
+
+    expect(rendered).toContain("COALESCE(template, app)");
+    expect(rendered).not.toContain("COALESCE(template, template, app)");
+  });
+
   it("uses the Builder production project and isolated raw table by default", async () => {
     await expect(getFirstPartyAnalyticsTable()).resolves.toEqual({
       projectId: "builder-3b0a2",

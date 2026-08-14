@@ -820,6 +820,17 @@ function translatePostgresJsonOperators(sql: string): string {
 
 function translateFirstPartyAnalyticsBigQuerySql(sql: string): string {
   let translated = translatePostgresJsonOperators(sql);
+  translated = rewriteSqlFunctionCalls(translated, "coalesce", (args) => {
+    const uniqueArgs: string[] = [];
+    const seen = new Set<string>();
+    for (const arg of args) {
+      const normalized = arg.trim();
+      if (seen.has(normalized)) continue;
+      seen.add(normalized);
+      uniqueArgs.push(arg);
+    }
+    return `COALESCE(${uniqueArgs.join(", ")})`;
+  });
   translated = translated.replace(
     /\bINTERVAL\s*'(\d+)\s+(day|days|week|weeks|month|months)'/gi,
     (_match, amount: string, unit: string) =>
