@@ -1,11 +1,22 @@
 /**
  * <AgendaCard /> — the Meetings tab's rolling agenda.
  *
- * One bordered card of list rows, not a grid of tiles — see
+ * Independent per-meeting cards, not a grid of tiles — see
  * `desktop/design-refs/granola-ux.md` §2. It is a Zoom-style rolling window
  * rather than a strict future list: `view=agenda` reaches 24h back, so the
  * calls you already had today stay on your day, with a "now" marker between
  * what has happened and what has not. Anything older falls out to the Past tab.
+ *
+ * Each meeting renders as its own bordered Card rather than a shared row
+ * inside one frame — per @shawnmcclelland's review, the "now" marker only
+ * reads cleanly as a divider when it sits between two independent elements;
+ * inside a single shared card (our first pass) it visually collided with the
+ * day-number column. That independence is also why the marker is confined to
+ * a single day (see `nowMarkerIndex`): between the last meeting of a mostly-
+ * finished day and the first of tomorrow is a day boundary, not a "now" — the
+ * day header already marks that transition, so a second marker there just
+ * reads as one more ambiguous boundary line (the "limbo" feel Shawn called
+ * out from Zoom's own equivalent).
  *
  * Recording is a desktop gesture, so a row never offers a web "record" button
  * that cannot work; the imminent row offers Join and Open notes instead.
@@ -16,10 +27,12 @@ import { Fragment } from "react";
 import { NavLink } from "react-router";
 
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
 import { AttendeeStack, type AttendeeStackParticipant } from "./attendee-stack";
+import { groupByCalendarDay } from "./day-grouped-card";
+import { DayHeader, formatDayLabel } from "./day-header";
 
 export interface AgendaMeeting {
   id: string;
@@ -93,46 +106,6 @@ export function relativeStartLabel(
   return { text: t("meetingCard.inHours", { count: hrs }), soon: false };
 }
 
-interface DayParts {
-  dayNumber: string;
-  month: string;
-  weekday: string;
-}
-
-function dayParts(iso: string): DayParts {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) {
-    return { dayNumber: "", month: "", weekday: "" };
-  }
-  return {
-    dayNumber: d.toLocaleDateString([], { day: "numeric" }),
-    month: d.toLocaleDateString([], { month: "long" }),
-    weekday: d.toLocaleDateString([], { weekday: "short" }),
-  };
-}
-
-function groupByCalendarDay(
-  meetings: AgendaMeeting[],
-): Array<[string, AgendaMeeting[]]> {
-  const groups = new Map<string, AgendaMeeting[]>();
-  for (const m of meetings) {
-    const d = new Date(m.scheduledStart);
-    const key = Number.isNaN(d.getTime())
-      ? m.scheduledStart
-      : `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-    const list = groups.get(key) ?? [];
-    list.push(m);
-    groups.set(key, list);
-  }
-  for (const list of groups.values()) {
-    list.sort(
-      (a, b) =>
-        Date.parse(a.scheduledStart) - Date.parse(b.scheduledStart) || 0,
-    );
-  }
-  return Array.from(groups.entries());
-}
-
 function AgendaRow({ meeting }: { meeting: AgendaMeeting }) {
   const t = useT();
   const isLive = !!(meeting.actualStart && !meeting.actualEnd);
@@ -149,7 +122,7 @@ function AgendaRow({ meeting }: { meeting: AgendaMeeting }) {
     // Wraps rather than compressing: at ~375px the title, avatars and both
     // buttons cannot share a line, and a nowrap row silently slides the
     // buttons on top of the title instead of pushing them down.
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+    <Card className="flex flex-wrap items-center gap-x-3 gap-y-2 p-3">
       <div className="flex min-w-0 flex-1 basis-48 items-center gap-3">
         <span
           aria-hidden
@@ -219,7 +192,7 @@ function AgendaRow({ meeting }: { meeting: AgendaMeeting }) {
           </div>
         ) : null}
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -227,7 +200,7 @@ function AgendaRow({ meeting }: { meeting: AgendaMeeting }) {
 function NowMarker() {
   const t = useT();
   return (
-    <div className="flex items-center gap-2" aria-hidden>
+    <div className="my-1 flex items-center gap-2" aria-hidden>
       <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
       <span className="text-[10px] font-medium uppercase tracking-[0.08em] text-primary">
         {t("meetingsRoute.now", { defaultValue: "Now" })}
@@ -239,60 +212,56 @@ function NowMarker() {
 
 export function AgendaCard({ meetings }: { meetings: AgendaMeeting[] }) {
   if (meetings.length === 0) return null;
-  const days = groupByCalendarDay(meetings);
-  // The marker index is computed over the flat, already-sorted list, then
-  // matched back per day — a day group cannot know how many meetings preceded
-  // it, and the marker belongs between two rows, not at a day boundary.
+  const days = groupByCalendarDay(
+    meetings,
+    (m) => m.scheduledStart,
+    (a, b) => Date.parse(a.scheduledStart) - Date.parse(b.scheduledStart) || 0,
+  );
+  // The marker is computed over the flat, already-sorted list, then matched
+  // back per day below — a day group cannot know how many meetings preceded
+  // it on its own.
   const markerIndex = nowMarkerIndex(meetings, Date.now());
-  let flatIndex = 0;
 
+  let flatIndex = 0;
   return (
-    <Card>
-      <CardContent className="divide-y divide-border p-0">
-        {days.map(([key, items]) => {
-          const { dayNumber, month, weekday } = dayParts(
-            items[0]!.scheduledStart,
-          );
-          const dayStartIndex = flatIndex;
-          flatIndex += items.length;
-          return (
-            <div key={key} className="flex gap-4 px-4 py-3">
-              <div className="w-14 shrink-0">
-                <div className="text-xl font-semibold leading-none tabular-nums text-foreground">
-                  {dayNumber}
-                </div>
-                <div className="mt-1 text-[11px] leading-tight text-muted-foreground">
-                  {month}
-                </div>
-                <div className="text-[11px] leading-tight text-muted-foreground">
-                  {weekday}
-                </div>
-              </div>
-              <div className="min-w-0 flex-1 space-y-2.5">
-                {items.map((m, i) => (
-                  <Fragment key={m.id}>
-                    {dayStartIndex + i === markerIndex ? <NowMarker /> : null}
-                    <AgendaRow meeting={m} />
-                  </Fragment>
-                ))}
-              </div>
-            </div>
-          );
-        })}
-      </CardContent>
-    </Card>
+    <div className="space-y-6">
+      {days.map(([key, items]) => {
+        const dayStartIndex = flatIndex;
+        flatIndex += items.length;
+        // Restrict the marker to strictly within this day's own rows. At
+        // `dayStartIndex` exactly, the marker would fall right where the day
+        // header already sits — a day boundary, not a live current-time mark —
+        // so it renders as a second, redundant, ambiguous divider. See the
+        // module doc.
+        // Boolean expression, not a visible string.
+        const withinThisDay =
+          markerIndex > dayStartIndex && markerIndex < flatIndex; // i18n-ignore
+        const dayMarkerIndex = withinThisDay ? markerIndex : -1;
+        return (
+          <div key={key} className="space-y-2">
+            <DayHeader label={formatDayLabel(items[0]!.scheduledStart)} />
+            {items.map((m, i) => (
+              <Fragment key={m.id}>
+                {dayStartIndex + i === dayMarkerIndex ? <NowMarker /> : null}
+                <AgendaRow meeting={m} />
+              </Fragment>
+            ))}
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
 export function AgendaCardSkeleton() {
   return (
-    <div className="rounded-xl border border-border bg-background">
+    <div className="space-y-2">
+      <div className="h-3 w-16 animate-pulse rounded bg-muted/70" />
       {Array.from({ length: 2 }).map((_, i) => (
-        <div key={i} className="flex gap-4 border-b border-border px-4 py-3">
-          <div className="w-14 shrink-0 space-y-1.5">
-            <div className="h-5 w-7 animate-pulse rounded bg-muted" />
-            <div className="h-2.5 w-10 animate-pulse rounded bg-muted/70" />
-          </div>
+        <div
+          key={i}
+          className="flex items-center gap-3 rounded-lg border border-border bg-card p-3"
+        >
           <div className="min-w-0 flex-1 space-y-2">
             <div className="h-4 w-2/5 animate-pulse rounded bg-muted" />
             <div className="h-3 w-24 animate-pulse rounded bg-muted/70" />

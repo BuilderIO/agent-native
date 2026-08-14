@@ -26,7 +26,10 @@ import {
   AgendaCardSkeleton,
 } from "@/components/meetings/agenda-card";
 import type { AttendeeStackParticipant } from "@/components/meetings/attendee-stack";
-import { DayHeader, formatDayLabel } from "@/components/meetings/day-header";
+import {
+  DayGroupedCard,
+  groupByCalendarDay,
+} from "@/components/meetings/day-grouped-card";
 import {
   MeetingHistoryRow,
   MeetingHistoryRowSkeleton,
@@ -200,31 +203,22 @@ function calendarAccountLabel(account: CalendarAccount): string {
   );
 }
 
+function historyIso(m: Meeting): string {
+  return m.actualStart ?? m.scheduledStart;
+}
+
 function historyTimestampMs(m: Meeting): number {
-  const ms = Date.parse(m.actualStart ?? m.scheduledStart);
+  const ms = Date.parse(historyIso(m));
   return Number.isNaN(ms) ? 0 : ms;
 }
 
-// Groups by the same key (`actualStart ?? scheduledStart`) used to order the
-// day headers, then re-sorts each group by that key explicitly rather than
-// trusting incoming order: the array can arrive sorted by a different field
-// (list-meetings' merge path sorts by `scheduledStart ?? createdAt`, and
+// Per @shawnmcclelland's review on #2887: Past now shares the same
+// day-column card shell as Agenda instead of a bare DayHeader label over a
+// flat row list, so the two tabs read as one surface. The explicit sort
+// comparator matters here too — the array can arrive sorted by a different
+// field (list-meetings' merge path sorts by `scheduledStart ?? createdAt`,
 // search-meetings doesn't guarantee this key either), so a meeting that
 // started later than scheduled could otherwise land out of order within its day.
-function groupByDay(meetings: Meeting[]): Array<[string, Meeting[]]> {
-  const groups = new Map<string, Meeting[]>();
-  for (const m of meetings) {
-    const key = formatDayLabel(m.actualStart ?? m.scheduledStart);
-    const arr = groups.get(key) ?? [];
-    arr.push(m);
-    groups.set(key, arr);
-  }
-  for (const arr of groups.values()) {
-    arr.sort((a, b) => historyTimestampMs(b) - historyTimestampMs(a));
-  }
-  return Array.from(groups.entries());
-}
-
 function MeetingHistoryList({
   meetings,
   snippets,
@@ -233,21 +227,19 @@ function MeetingHistoryList({
   snippets?: Map<string, string | null | undefined>;
 }) {
   if (meetings.length === 0) return null;
+  const days = groupByCalendarDay(
+    meetings,
+    historyIso,
+    (a, b) => historyTimestampMs(b) - historyTimestampMs(a),
+  );
   return (
-    <div className="space-y-5">
-      {groupByDay(meetings).map(([day, items]) => (
-        <div key={day} className="space-y-0.5">
-          <DayHeader label={day} />
-          {items.map((m) => (
-            <MeetingHistoryRow
-              key={m.id}
-              meeting={m}
-              snippet={snippets?.get(m.id)}
-            />
-          ))}
-        </div>
-      ))}
-    </div>
+    <DayGroupedCard
+      groups={days}
+      getIso={historyIso}
+      renderRow={(m) => (
+        <MeetingHistoryRow meeting={m} snippet={snippets?.get(m.id)} />
+      )}
+    />
   );
 }
 
