@@ -138,6 +138,15 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
     }
   } catch {}
 
+  // The owner's email is only safe to disclose here when it's already public
+  // via the attendee list — an unauthenticated viewer must never learn an
+  // account email that isn't otherwise visible on this page.
+  const ownerEmailIsPublic = participants.some(
+    (participant) =>
+      participant.email.trim().toLowerCase() ===
+      meeting.ownerEmail?.trim().toLowerCase(),
+  );
+
   return shareMeetingLoaderData(
     {
       meeting: {
@@ -148,7 +157,7 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
         bullets,
         participants,
         actionItems,
-        ownerEmail: meeting.ownerEmail,
+        ownerEmail: ownerEmailIsPublic ? meeting.ownerEmail : null,
         actualStart: meeting.actualStart,
         actualEnd: meeting.actualEnd,
         transcriptStatus: meeting.transcriptStatus,

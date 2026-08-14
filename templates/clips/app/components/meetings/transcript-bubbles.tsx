@@ -93,9 +93,14 @@ function resolveParticipantForSpeaker(
   participants: AttendeeStackParticipant[],
   ownerEmail?: string | null,
 ): AttendeeStackParticipant | undefined {
-  const ownerParticipant =
-    (ownerEmail && findParticipant(ownerEmail, participants)) ||
-    participants.find((participant) => participant.isOrganizer);
+  // When an explicit owner email is given, trust it exclusively — falling
+  // through to isOrganizer here would attribute mic segments to whichever
+  // participant organized the calendar event, which is frequently a
+  // different person than whoever actually recorded. Only guess via
+  // isOrganizer when no owner identity was supplied at all.
+  const ownerParticipant = ownerEmail
+    ? findParticipant(ownerEmail, participants)
+    : participants.find((participant) => participant.isOrganizer);
 
   if (source === "mic") return ownerParticipant;
   if (!ownerParticipant) return undefined;
@@ -349,29 +354,6 @@ export function TranscriptBubbles({
     };
   }, []);
 
-  if (segments.length === 0) {
-    if (isLive) {
-      return (
-        <div className="flex flex-col items-center justify-center h-full text-center text-sm text-muted-foreground gap-2">
-          <span className="relative flex h-2 w-2">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-60" />
-            <span className="relative inline-flex h-2 w-2 rounded-full bg-red-500" />
-          </span>
-          {t("transcriptBubbles.listening")}
-        </div>
-      );
-    }
-    return (
-      <div className="flex flex-col items-center justify-center h-full text-center text-sm text-muted-foreground gap-2 px-6">
-        <IconNotes className="h-6 w-6 text-muted-foreground/50" />
-        <span>{t("transcriptBubbles.noTranscript")}</span>
-        <span className="text-xs">
-          {t("transcriptBubbles.liveTranscriptDescription")}
-        </span>
-      </div>
-    );
-  }
-
   const activeMatchIndex = matchIndexes.length
     ? matchIndexes[matchCursor % matchIndexes.length]
     : null;
@@ -492,88 +474,111 @@ export function TranscriptBubbles({
           </Button>
         </div>
       )}
-      <div ref={containerRef} className="flex-1 overflow-y-auto p-4">
-        <div className="mx-auto max-w-3xl space-y-4">
-          {groups.map((group, gi) => {
-            return (
-              <section
-                key={`${group.speaker.key}:${gi}`}
-                className="space-y-0.5"
-              >
-                <div className="flex h-6 items-center gap-2">
-                  <Avatar
-                    className={cn("size-6 shrink-0", group.speaker.accentClass)}
-                  >
-                    <AvatarFallback
+      {segments.length === 0 ? (
+        isLive ? (
+          <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center text-sm text-muted-foreground">
+            <span className="relative flex h-2 w-2">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-destructive opacity-60" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-destructive" />
+            </span>
+            {t("transcriptBubbles.listening")}
+          </div>
+        ) : (
+          <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center text-sm text-muted-foreground">
+            <IconNotes className="h-6 w-6 text-muted-foreground/50" />
+            <span>{t("transcriptBubbles.noTranscript")}</span>
+            <span className="text-xs">
+              {t("transcriptBubbles.liveTranscriptDescription")}
+            </span>
+          </div>
+        )
+      ) : (
+        <div ref={containerRef} className="flex-1 overflow-y-auto p-4">
+          <div className="mx-auto max-w-3xl space-y-4">
+            {groups.map((group, gi) => {
+              return (
+                <section
+                  key={`${group.speaker.key}:${gi}`}
+                  className="space-y-0.5"
+                >
+                  <div className="flex h-6 items-center gap-2">
+                    <Avatar
                       className={cn(
-                        "text-[9px] font-semibold",
+                        "size-6 shrink-0",
                         group.speaker.accentClass,
                       )}
                     >
-                      {attendeeInitials(group.speaker.initialsSource)}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="flex min-h-6 items-center">
-                    <span
-                      className={cn(
-                        "text-xs font-semibold leading-6",
-                        group.speaker.isOwner
-                          ? "text-primary"
-                          : "text-foreground",
-                      )}
-                    >
-                      {group.speaker.label ||
-                        (group.speaker.isOwner
-                          ? t("transcriptBubbles.me")
-                          : t("transcriptBubbles.them"))}
-                    </span>
-                  </div>
-                </div>
-                <div className="space-y-1">
-                  {group.segments.map(({ seg, index }) => {
-                    return (
-                      <TranscriptSegmentRow
-                        key={index}
-                        startMs={seg.startMs}
-                        highlighted={index === highlightedIndex}
-                        tabIndex={index === keyboardSegmentIndex ? 0 : -1}
-                        onKeyDown={(event) =>
-                          handleSegmentKeyDown(event, index)
-                        }
-                        segmentRef={(el) => {
-                          segmentRefs.current[index] = el;
-                        }}
-                        className="hover:bg-accent/30"
+                      <AvatarFallback
+                        className={cn(
+                          "text-[9px] font-semibold",
+                          group.speaker.accentClass,
+                        )}
                       >
-                        {normalizedQuery
-                          ? highlightRuns(seg.text, normalizedQuery).map(
-                              (run, ri) =>
-                                run.match ? (
-                                  <mark
-                                    key={ri}
-                                    className={cn(
-                                      "rounded-sm bg-yellow-400/70 text-foreground",
-                                      index === activeMatchIndex &&
-                                        "bg-yellow-400 ring-1 ring-yellow-600",
-                                    )}
-                                  >
-                                    {run.text}
-                                  </mark>
-                                ) : (
-                                  <span key={ri}>{run.text}</span>
-                                ),
-                            )
-                          : seg.text}
-                      </TranscriptSegmentRow>
-                    );
-                  })}
-                </div>
-              </section>
-            );
-          })}
-          <div ref={liveEndRef} />
+                        {attendeeInitials(group.speaker.initialsSource)}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="flex min-h-6 items-center">
+                      <span
+                        className={cn(
+                          "text-xs font-semibold leading-6",
+                          group.speaker.isOwner
+                            ? "text-primary"
+                            : "text-foreground",
+                        )}
+                      >
+                        {group.speaker.label ||
+                          (group.speaker.isOwner
+                            ? t("transcriptBubbles.me")
+                            : t("transcriptBubbles.them"))}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    {group.segments.map(({ seg, index }) => {
+                      return (
+                        <TranscriptSegmentRow
+                          key={index}
+                          startMs={seg.startMs}
+                          highlighted={index === highlightedIndex}
+                          tabIndex={index === keyboardSegmentIndex ? 0 : -1}
+                          onKeyDown={(event) =>
+                            handleSegmentKeyDown(event, index)
+                          }
+                          segmentRef={(el) => {
+                            segmentRefs.current[index] = el;
+                          }}
+                          className="hover:bg-accent/30"
+                        >
+                          {normalizedQuery
+                            ? highlightRuns(seg.text, normalizedQuery).map(
+                                (run, ri) =>
+                                  run.match ? (
+                                    <mark
+                                      key={ri}
+                                      className={cn(
+                                        "rounded-sm bg-yellow-400/70 text-foreground",
+                                        index === activeMatchIndex &&
+                                          "bg-yellow-400 ring-1 ring-yellow-600",
+                                      )}
+                                    >
+                                      {run.text}
+                                    </mark>
+                                  ) : (
+                                    <span key={ri}>{run.text}</span>
+                                  ),
+                              )
+                            : seg.text}
+                        </TranscriptSegmentRow>
+                      );
+                    })}
+                  </div>
+                </section>
+              );
+            })}
+            <div ref={liveEndRef} />
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
