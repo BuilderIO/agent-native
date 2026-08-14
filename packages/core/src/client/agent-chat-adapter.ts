@@ -141,11 +141,10 @@ const MAX_HISTORY_ATTACHMENT_CHARS = 60_000;
 const MAX_OUTBOUND_ATTACHMENT_CHARS = 200_000;
 const MAX_HISTORY_MESSAGES = 24;
 const MAX_HISTORY_TOTAL_CHARS = 64_000;
-// What the user asked for cannot be re-derived; what a tool returned can always
-// be re-read. Pricing both against one budget let a single read-heavy assistant
-// turn evict the entire instruction record, so the model re-derived the same
-// answer and re-asked the same question every turn.
-const MAX_HISTORY_USER_CHARS = 16_000;
+// Budget for everything actually said in the thread — every user ask and every
+// assistant conclusion. Separate from MAX_HISTORY_TOTAL_CHARS, which bounds the
+// tool args/results those turns produced. See limitPriorMessagesForRequest.
+const MAX_HISTORY_WORD_CHARS = 32_000;
 const MAX_HISTORY_MESSAGE_CHARS = 12_000;
 const MAX_HISTORY_TOOL_ARGS_CHARS = 8_000;
 const MAX_HISTORY_TOOL_RESULT_CHARS = 12_000;
@@ -988,35 +987,27 @@ function limitPriorMessagesForRequest<
 >(messages: readonly T[]): T[] {
   const recent = messages.slice(-MAX_HISTORY_MESSAGES);
   const kept: T[] = [];
-  const spent = { user: 0, assistant: 0 };
-  const budget = {
-    user: MAX_HISTORY_USER_CHARS,
-    assistant: MAX_HISTORY_TOTAL_CHARS,
-  };
+  let words = 0;
+  let payload = 0;
 
   for (let i = recent.length - 1; i >= 0; i--) {
     const message = recent[i];
     if (message.role !== "user" && message.role !== "assistant") continue;
-    const role = message.role as "user" | "assistant";
-    const keepIfAffordable = (candidate: T): boolean => {
-      const cost = estimateHistoryMessageCost(candidate);
-      // Skip, never `break`: one expensive recent turn must not evict every
-      // cheaper older message behind it.
-      if (kept.length > 0 && spent[role] + cost > budget[role]) return false;
-      kept.push(candidate);
-      spent[role] += cost;
-      return true;
-    };
-    if (keepIfAffordable(message)) continue;
-    // Tool results are ~97% of a tool-heavy turn and can always be re-read; the
-    // conclusions the turn wrote cannot. Falling back to the prose keeps the
-    // agent's own prior findings for ~3% of the cost, so it stops re-deriving
-    // the same answer once its results age out.
-    const textOnly = message.content.filter((part) => part.type === "text");
-    if (!textOnly.length || textOnly.length === message.content.length) {
-      continue;
-    }
-    keepIfAffordable({ ...message, content: textOnly });
+    // What was said is cheap and cannot be re-derived; what a tool returned is
+    // ~97% of a tool-heavy turn and can always be re-read. Pricing both against
+    // one budget let a single read-heavy turn evict the whole conversation, so
+    // the agent re-derived the same answer and re-asked the same question.
+    const wordCost = messageTextForHistory(message).length;
+    if (kept.length > 0 && words + wordCost > MAX_HISTORY_WORD_CHARS) continue;
+    const payloadCost = estimateHistoryMessageCost(message) - wordCost;
+    const affordsPayload = payload + payloadCost <= MAX_HISTORY_TOTAL_CHARS;
+    const content = affordsPayload
+      ? message.content
+      : message.content.filter((part) => part.type === "text");
+    if (!content.length) continue;
+    kept.push(affordsPayload ? message : { ...message, content });
+    words += wordCost;
+    if (affordsPayload) payload += payloadCost;
   }
 
   kept.reverse();
