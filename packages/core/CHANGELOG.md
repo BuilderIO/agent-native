@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.157.6
+
+### Patch Changes
+
+- c6988f8: Allow the Clips ffmpeg runtime in Netlify function size checks while preserving frame extraction and video seekability.
+
 ## 0.157.5
 
 ### Patch Changes
