@@ -1,5 +1,20 @@
 # @agent-native/dispatch
 
+## 0.27.0
+
+### Minor Changes
+
+- 9e21e1b: Reuse Dispatch app cards and the shared 2-column library treatment for Factory agent and app surfaces.
+
+### Patch Changes
+
+- 9e21e1b: Refresh workspace app lists after starting a Builder app creation.
+- 9e21e1b: Keep embedded workspace apps synchronized with their parent light or dark theme.
+- Updated dependencies [9e21e1b]
+- Updated dependencies [9e21e1b]
+- Updated dependencies [9e21e1b]
+  - @agent-native/toolkit@0.16.0
+
 ## 0.26.0
 
 ### Minor Changes
