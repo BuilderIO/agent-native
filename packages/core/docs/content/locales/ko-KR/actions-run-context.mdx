@@ -47,13 +47,15 @@ export default defineAction({
       name: "ctx",
       type: "ActionRunContext",
       optional: true,
-      description: "해석된 요청 신원과 이 action을 호출한 표면입니다. undefined에도 안전합니다: 1개 인자짜리 `run(args)` 핸들러도 여전히 유효합니다.",
+      description:
+        "해석된 요청 신원과 이 action을 호출한 표면입니다. undefined에도 안전합니다: 1개 인자짜리 `run(args)` 핸들러도 여전히 유효합니다.",
       fields: [
         {
           name: "userEmail",
           type: "string",
           optional: true,
-          description: "해석된 요청 사용자입니다. **개발용 신원으로 기본값이 채워지는 일은 절대 없습니다**: 요청에 인증된 사용자가 없으면 `undefined`입니다. 필요하다면 여러분만의 폴백을 적용하세요.",
+          description:
+            "해석된 요청 사용자입니다. **개발용 신원으로 기본값이 채워지는 일은 절대 없습니다**: 요청에 인증된 사용자가 없으면 `undefined`입니다. 필요하다면 여러분만의 폴백을 적용하세요.",
         },
         {
           name: "orgId",
@@ -63,67 +65,78 @@ export default defineAction({
         {
           name: "caller",
           type: "ActionCaller",
-          description: "action이 어떻게 호출되었는지입니다. 아래 [caller 유니언](#caller)을 참고하세요.",
+          description:
+            "action이 어떻게 호출되었는지입니다. 아래 [caller 유니언](#caller)을 참고하세요.",
         },
         {
           name: "send",
           type: "(event) => void",
           optional: true,
-          description: "클라이언트로 SSE 이벤트를 내보냅니다. 에이전트 도구 루프 안(`caller: \"tool\"`)에서만 존재하며, 그 외에는 `undefined`입니다.",
+          description:
+            '클라이언트로 SSE 이벤트를 내보냅니다. 에이전트 도구 루프 안(`caller: "tool"`)에서만 존재하며, 그 외에는 `undefined`입니다.',
         },
         {
           name: "attachments",
           type: "AgentChatAttachment[]",
           optional: true,
-          description: "현재 에이전트 턴과 함께 제출된 파일, 이미지, 붙여넣은 텍스트 블록입니다. `caller: \"tool\"`일 때만 채워지며, 다른 모든 표면에서는 `undefined`입니다.",
+          description:
+            '현재 에이전트 턴과 함께 제출된 파일, 이미지, 붙여넣은 텍스트 블록입니다. `caller: "tool"`일 때만 채워지며, 다른 모든 표면에서는 `undefined`입니다.',
         },
         {
           name: "signal",
           type: "AbortSignal",
           optional: true,
-          description: "실행이 소프트 타임아웃되거나, 취소되거나, 서버가 종료될 때 중단됩니다. `caller: \"tool\"`일 때만 채워집니다. 오래 걸리는 action은 도구별 60초 하드 타임아웃을 기다리는 대신 이를 감시해 조기에 취소할 수 있습니다.",
+          description:
+            '실행이 소프트 타임아웃되거나, 취소되거나, 서버가 종료될 때 중단됩니다. `caller: "tool"`일 때만 채워집니다. 오래 걸리는 action은 도구별 60초 하드 타임아웃을 기다리는 대신 이를 감시해 조기에 취소할 수 있습니다.',
         },
         {
           name: "actionName",
           type: "string",
           optional: true,
-          description: "호출되는 action의 레지스트리 키입니다(예: `delete-recording`). 각 디스패치 지점에서 설정되어, 감사 로그 같은 여러 표면을 아우르는 관심사가 이 호출의 주체를 알 수 있게 합니다. 디스패처를 우회하는 직접적인 프로그래밍 방식 `run()` 호출에서는 `undefined`입니다.",
+          description:
+            "호출되는 action의 레지스트리 키입니다(예: `delete-recording`). 각 디스패치 지점에서 설정되어, 감사 로그 같은 여러 표면을 아우르는 관심사가 이 호출의 주체를 알 수 있게 합니다. 디스패처를 우회하는 직접적인 프로그래밍 방식 `run()` 호출에서는 `undefined`입니다.",
         },
         {
           name: "threadId",
           type: "string",
           optional: true,
-          description: "이 호출을 촉발한 에이전트 대화 스레드입니다. `caller: \"tool\"`일 때만 채워지며, 덕분에 감사 로그가 변경 사항을 정확한 에이전트 실행으로 연결할 수 있습니다.",
+          description:
+            '이 호출을 촉발한 에이전트 대화 스레드입니다. `caller: "tool"`일 때만 채워지며, 덕분에 감사 로그가 변경 사항을 정확한 에이전트 실행으로 연결할 수 있습니다.',
         },
         {
           name: "runId",
           type: "string",
           optional: true,
-          description: "이 호출을 촉발한 에이전트 실행 시도입니다. `caller: \"tool\"`일 때만 채워집니다.",
+          description:
+            '이 호출을 촉발한 에이전트 실행 시도입니다. `caller: "tool"`일 때만 채워집니다.',
         },
         {
           name: "turnId",
           type: "string",
           optional: true,
-          description: "이 호출을 촉발한 실행 내의 구체적인 턴입니다. `caller: \"tool\"`일 때만 채워집니다.",
+          description:
+            '이 호출을 촉발한 실행 내의 구체적인 턴입니다. `caller: "tool"`일 때만 채워집니다.',
         },
         {
           name: "automation",
           type: "ActionAutomationContext",
           optional: true,
-          description: "`caller: \"automation\"`일 때만 존재합니다. 이 호출을 디스패치한 이벤트 트리거 자동화의 `triggerId`, `triggerName`, 그리고 선택적 `policyId`를 담습니다.",
+          description:
+            '`caller: "automation"`일 때만 존재합니다. 이 호출을 디스패치한 이벤트 트리거 자동화의 `triggerId`, `triggerName`, 그리고 선택적 `policyId`를 담습니다.',
         },
         {
           name: "networkProtocol",
           type: '"a2a" | "mcp" | "provider-api"',
           optional: true,
-          description: "이 요청이 어떤 위임 호출 프로토콜을 통해 도착했는지입니다. 해당하는 직접 디스패치 경로에서만 설정됩니다.",
+          description:
+            "이 요청이 어떤 위임 호출 프로토콜을 통해 도착했는지입니다. 해당하는 직접 디스패치 경로에서만 설정됩니다.",
         },
         {
           name: "networkId",
           type: "string",
           optional: true,
-          description: "그 위임 호출에 대한 상관관계 id입니다. 예를 들어 A2A 위임 JWT의 id입니다.",
+          description:
+            "그 위임 호출에 대한 상관관계 id입니다. 예를 들어 A2A 위임 JWT의 id입니다.",
         },
         {
           name: "networkPeer",
@@ -136,7 +149,8 @@ export default defineAction({
   ]}
   returns={{
     type: "Promise<TReturn> | TReturn",
-    description: "action의 결과이며, `outputSchema`가 설정되어 있다면 그에 대해 검증됩니다.",
+    description:
+      "action의 결과이며, `outputSchema`가 설정되어 있다면 그에 대해 검증됩니다.",
   }}
 />
 
@@ -146,15 +160,15 @@ export default defineAction({
 
 `caller`는 `"tool" | "http" | "frontend" | "cli" | "mcp" | "a2a" | "automation"` 유니언입니다.
 
-| `caller`       | 설정되는 경우                                                                                                                                                    |
-| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `"tool"`       | 앱 내 에이전트 루프, 서브 에이전트나 에이전트 팀, 또는 자연어 크로스앱 A2A 위임입니다. 이들은 모두 같은 에이전트 루프로 동작하므로 도구 호출이 `"tool"`이 됩니다.     |
-| `"frontend"`   | `useActionMutation()`, `useActionQuery()`, `callAction()`을 통한 브라우저 호출입니다(`X-Agent-Native-Frontend: 1` 헤더로 표시됨).                                    |
-| `"http"`       | 프런트엔드 마커 없이 `/_agent-native/actions/<name>`으로 보낸 순수한 프로그래밍 방식 `POST` 또는 `GET`입니다.                                                        |
-| `"cli"`        | `pnpm action <name>` (CLI 러너)입니다.                                                                                                                              |
-| `"mcp"`        | MCP `tools/call` 엔드포인트를 통한 외부 에이전트 호출입니다.                                                                                                        |
+| `caller`       | 설정되는 경우                                                                                                                                                                    |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `"tool"`       | 앱 내 에이전트 루프, 서브 에이전트나 에이전트 팀, 또는 자연어 크로스앱 A2A 위임입니다. 이들은 모두 같은 에이전트 루프로 동작하므로 도구 호출이 `"tool"`이 됩니다.                |
+| `"frontend"`   | `useActionMutation()`, `useActionQuery()`, `callAction()`을 통한 브라우저 호출입니다(`X-Agent-Native-Frontend: 1` 헤더로 표시됨).                                                |
+| `"http"`       | 프런트엔드 마커 없이 `/_agent-native/actions/<name>`으로 보낸 순수한 프로그래밍 방식 `POST` 또는 `GET`입니다.                                                                    |
+| `"cli"`        | `pnpm action <name>` (CLI 러너)입니다.                                                                                                                                           |
+| `"mcp"`        | MCP `tools/call` 엔드포인트를 통한 외부 에이전트 호출입니다.                                                                                                                     |
 | `"a2a"`        | 서명된 A2A 위임 토큰을 담아 `/_agent-native/actions/<name>`으로 보내는 직접 HTTP 호출입니다. 이는 명시적으로 노출된 크로스앱 디스패치로, 위의 자연어 `"tool"` 경로와는 다릅니다. |
-| `"automation"` | 저장된 워크스페이스 트리거에서 디스패치된 이벤트 트리거 자동화입니다. `ctx.automation`이 트리거 계보를 담습니다. [자동화](/docs/automations)를 참고하세요.              |
+| `"automation"` | 저장된 워크스페이스 트리거에서 디스패치된 이벤트 트리거 자동화입니다. `ctx.automation`이 트리거 계보를 담습니다. [자동화](/docs/automations)를 참고하세요.                       |
 
 ## 다음 단계
 

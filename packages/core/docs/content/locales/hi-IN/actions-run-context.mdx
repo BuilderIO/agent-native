@@ -47,83 +47,97 @@ export default defineAction({
       name: "ctx",
       type: "ActionRunContext",
       optional: true,
-      description: "resolved request पहचान और action को invoke करने वाली सतह। Undefined-safe: एक 1-argument `run(args)` handler अभी भी मान्य है।",
+      description:
+        "resolved request पहचान और action को invoke करने वाली सतह। Undefined-safe: एक 1-argument `run(args)` handler अभी भी मान्य है।",
       fields: [
         {
           name: "userEmail",
           type: "string",
           optional: true,
-          description: "Resolved request user। **कभी किसी dev पहचान पर डिफ़ॉल्ट नहीं होता**: जब request में कोई authenticated user नहीं है तो `undefined`। यदि आपको ज़रूरत हो तो अपना fallback लागू करें।",
+          description:
+            "Resolved request user। **कभी किसी dev पहचान पर डिफ़ॉल्ट नहीं होता**: जब request में कोई authenticated user नहीं है तो `undefined`। यदि आपको ज़रूरत हो तो अपना fallback लागू करें।",
         },
         {
           name: "orgId",
           type: "string | null",
-          description: "Resolved org id, या `null` जब request में कोई org नहीं है।",
+          description:
+            "Resolved org id, या `null` जब request में कोई org नहीं है।",
         },
         {
           name: "caller",
           type: "ActionCaller",
-          description: "action कैसे invoke किया गया था। नीचे [caller union](#caller) देखें।",
+          description:
+            "action कैसे invoke किया गया था। नीचे [caller union](#caller) देखें।",
         },
         {
           name: "send",
           type: "(event) => void",
           optional: true,
-          description: "क्लाइंट को एक SSE इवेंट emit करता है। केवल एजेंट टूल लूप के अंदर मौजूद (`caller: \"tool\"`)। बाकी जगह `undefined`।",
+          description:
+            'क्लाइंट को एक SSE इवेंट emit करता है। केवल एजेंट टूल लूप के अंदर मौजूद (`caller: "tool"`)। बाकी जगह `undefined`।',
         },
         {
           name: "attachments",
           type: "AgentChatAttachment[]",
           optional: true,
-          description: "वर्तमान एजेंट turn के साथ सबमिट की गई फ़ाइलें, इमेजेज़, और पेस्ट किए गए text blocks। केवल तब भरा जाता है जब `caller: \"tool\"`। बाकी सभी सतहों पर `undefined`।",
+          description:
+            'वर्तमान एजेंट turn के साथ सबमिट की गई फ़ाइलें, इमेजेज़, और पेस्ट किए गए text blocks। केवल तब भरा जाता है जब `caller: "tool"`। बाकी सभी सतहों पर `undefined`।',
         },
         {
           name: "signal",
           type: "AbortSignal",
           optional: true,
-          description: "जब run soft-timed-out हो, cancel हो, या सर्वर shut down हो जाए तो abort होता है। केवल तब भरा जाता है जब `caller: \"tool\"`। Long-running actions प्रति-टूल 60s hard timeout का इंतज़ार करने के बजाय जल्दी cancel करने के लिए इसे observe कर सकते हैं।",
+          description:
+            'जब run soft-timed-out हो, cancel हो, या सर्वर shut down हो जाए तो abort होता है। केवल तब भरा जाता है जब `caller: "tool"`। Long-running actions प्रति-टूल 60s hard timeout का इंतज़ार करने के बजाय जल्दी cancel करने के लिए इसे observe कर सकते हैं।',
         },
         {
           name: "actionName",
           type: "string",
           optional: true,
-          description: "कॉल किए जा रहे action की registry key (जैसे `delete-recording`), हर dispatch साइट पर सेट की जाती है ताकि audit log जैसे cross-cutting concerns कॉल को attribute कर सकें। dispatcher को bypass करने वाले direct प्रोग्रामेटिक `run()` कॉल के लिए `undefined`।",
+          description:
+            "कॉल किए जा रहे action की registry key (जैसे `delete-recording`), हर dispatch साइट पर सेट की जाती है ताकि audit log जैसे cross-cutting concerns कॉल को attribute कर सकें। dispatcher को bypass करने वाले direct प्रोग्रामेटिक `run()` कॉल के लिए `undefined`।",
         },
         {
           name: "threadId",
           type: "string",
           optional: true,
-          description: "वह एजेंट बातचीत thread जिसने इस कॉल को ट्रिगर किया। केवल तब भरा जाता है जब `caller: \"tool\"`, ताकि audit log किसी mutation को सटीक एजेंट run से वापस लिंक कर सके।",
+          description:
+            'वह एजेंट बातचीत thread जिसने इस कॉल को ट्रिगर किया। केवल तब भरा जाता है जब `caller: "tool"`, ताकि audit log किसी mutation को सटीक एजेंट run से वापस लिंक कर सके।',
         },
         {
           name: "runId",
           type: "string",
           optional: true,
-          description: "वह एजेंट run attempt जिसने इस कॉल को ट्रिगर किया। केवल तब भरा जाता है जब `caller: \"tool\"`।",
+          description:
+            'वह एजेंट run attempt जिसने इस कॉल को ट्रिगर किया। केवल तब भरा जाता है जब `caller: "tool"`।',
         },
         {
           name: "turnId",
           type: "string",
           optional: true,
-          description: "उस run के भीतर विशिष्ट turn जिसने इस कॉल को ट्रिगर किया। केवल तब भरा जाता है जब `caller: \"tool\"`।",
+          description:
+            'उस run के भीतर विशिष्ट turn जिसने इस कॉल को ट्रिगर किया। केवल तब भरा जाता है जब `caller: "tool"`।',
         },
         {
           name: "automation",
           type: "ActionAutomationContext",
           optional: true,
-          description: "केवल तब मौजूद जब `caller: \"automation\"`। उस event-triggered automation के लिए `triggerId`, `triggerName`, और एक वैकल्पिक `policyId` carry करता है जिसने इस कॉल को dispatch किया।",
+          description:
+            'केवल तब मौजूद जब `caller: "automation"`। उस event-triggered automation के लिए `triggerId`, `triggerName`, और एक वैकल्पिक `policyId` carry करता है जिसने इस कॉल को dispatch किया।',
         },
         {
           name: "networkProtocol",
           type: '"a2a" | "mcp" | "provider-api"',
           optional: true,
-          description: "यह request किस delegated-call प्रोटोकॉल पर आया। केवल उन direct-dispatch पथों के लिए सेट होता है।",
+          description:
+            "यह request किस delegated-call प्रोटोकॉल पर आया। केवल उन direct-dispatch पथों के लिए सेट होता है।",
         },
         {
           name: "networkId",
           type: "string",
           optional: true,
-          description: "उस delegated कॉल के लिए एक correlation id, जैसे A2A delegation JWT id।",
+          description:
+            "उस delegated कॉल के लिए एक correlation id, जैसे A2A delegation JWT id।",
         },
         {
           name: "networkPeer",
@@ -136,7 +150,8 @@ export default defineAction({
   ]}
   returns={{
     type: "Promise<TReturn> | TReturn",
-    description: "action का result, अगर कोई `outputSchema` सेट है तो उसके विरुद्ध वैलिडेटेड।",
+    description:
+      "action का result, अगर कोई `outputSchema` सेट है तो उसके विरुद्ध वैलिडेटेड।",
   }}
 />
 
@@ -146,15 +161,15 @@ export default defineAction({
 
 `caller` union है `"tool" | "http" | "frontend" | "cli" | "mcp" | "a2a" | "automation"`:
 
-| `caller`       | कब सेट होता है…                                                                                                                                                     |
-| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `"tool"`       | in-app एजेंट लूप, कोई sub-agent या agent team, या natural-language cross-app A2A delegation, जो उसी एजेंट लूप को चलाता है, इसलिए इसके tool calls `"tool"` होते हैं।    |
-| `"frontend"`   | `useActionMutation()`, `useActionQuery()`, या `callAction()` के माध्यम से एक ब्राउज़र कॉल (`X-Agent-Native-Frontend: 1` header के साथ टैग किया गया)।                 |
-| `"http"`       | फ्रंटएंड मार्कर के बिना `/_agent-native/actions/<name>` पर एक साधारण प्रोग्रामेटिक `POST` या `GET`।                                                                    |
-| `"cli"`        | `pnpm action <name>` (CLI runner)।                                                                                                                                     |
-| `"mcp"`        | MCP `tools/call` endpoint पर एक बाहरी एजेंट।                                                                                                                           |
+| `caller`       | कब सेट होता है…                                                                                                                                                                                         |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `"tool"`       | in-app एजेंट लूप, कोई sub-agent या agent team, या natural-language cross-app A2A delegation, जो उसी एजेंट लूप को चलाता है, इसलिए इसके tool calls `"tool"` होते हैं।                                     |
+| `"frontend"`   | `useActionMutation()`, `useActionQuery()`, या `callAction()` के माध्यम से एक ब्राउज़र कॉल (`X-Agent-Native-Frontend: 1` header के साथ टैग किया गया)।                                                    |
+| `"http"`       | फ्रंटएंड मार्कर के बिना `/_agent-native/actions/<name>` पर एक साधारण प्रोग्रामेटिक `POST` या `GET`।                                                                                                     |
+| `"cli"`        | `pnpm action <name>` (CLI runner)।                                                                                                                                                                      |
+| `"mcp"`        | MCP `tools/call` endpoint पर एक बाहरी एजेंट।                                                                                                                                                            |
 | `"a2a"`        | एक signed A2A delegation token carry करने वाला `/_agent-native/actions/<name>` पर सीधा HTTP कॉल। यह एक स्पष्ट रूप से एक्सपोज़्ड, cross-app dispatch है, ऊपर दिए गए natural-language `"tool"` पथ से अलग। |
-| `"automation"` | किसी stored workspace trigger से dispatch किया गया event-triggered automation। `ctx.automation` trigger lineage carry करता है। [Automations](/docs/automations) देखें।  |
+| `"automation"` | किसी stored workspace trigger से dispatch किया गया event-triggered automation। `ctx.automation` trigger lineage carry करता है। [Automations](/docs/automations) देखें।                                  |
 
 ## आगे क्या
 

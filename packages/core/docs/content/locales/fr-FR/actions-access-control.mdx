@@ -11,13 +11,13 @@ Cinq paramètres décident qui peut appeler une action : l’agent, le frontend,
 
 Les cinq flags valent par défaut la valeur permissive, donc vous n’en définissez un que lorsque vous devez restreindre une surface spécifique. Le tableau ci-dessous est un résumé rapide. Les sections qui suivent ajoutent le détail dont chaque flag a besoin.
 
-| Flag            | Défaut             | Valeur restrictive → qui peut encore appeler                                    | Usage typique                                                                                    |
-| --------------- | ------------------ | --------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| `agentTool`     | `true`              | `false` → UI, HTTP, et CLI seulement (masqué au modèle, à MCP, et à A2A)          | Actions réservées à l’UI ou programmatiques qui ne doivent pas prendre de place dans les outils      |
-| `toolCallable`  | `true`              | `false` → tout **sauf** le pont iframe des extensions en bac à sable (403)        | Changements sensibles de compte ou d’organisation (suppression de compte, changement d’adhésion)     |
-| `publicAgent`   | désactivé (privé)   | `{ expose: true }` → ajoute l’action aux surfaces **publiques** MCP/A2A/OpenAPI    | Outils de lecture ou d’ingestion sûrs qui n’exigent pas d’authentification                            |
-| `needsApproval` | `false`             | `true` → l’agent **se met en pause**, et un humain doit approuver l’appel précis   | Effets secondaires conséquents (envoyer un email, débiter une carte, supprimer)                       |
-| `authorize`     | aucun               | une fonction de garde → seuls les appelants qu’elle accepte, sur **chaque** surface | Opérations restreintes à un rôle (RBAC par application, opérations réservées aux admins)              |
+| Flag            | Défaut            | Valeur restrictive → qui peut encore appeler                                        | Usage typique                                                                                    |
+| --------------- | ----------------- | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `agentTool`     | `true`            | `false` → UI, HTTP, et CLI seulement (masqué au modèle, à MCP, et à A2A)            | Actions réservées à l’UI ou programmatiques qui ne doivent pas prendre de place dans les outils  |
+| `toolCallable`  | `true`            | `false` → tout **sauf** le pont iframe des extensions en bac à sable (403)          | Changements sensibles de compte ou d’organisation (suppression de compte, changement d’adhésion) |
+| `publicAgent`   | désactivé (privé) | `{ expose: true }` → ajoute l’action aux surfaces **publiques** MCP/A2A/OpenAPI     | Outils de lecture ou d’ingestion sûrs qui n’exigent pas d’authentification                       |
+| `needsApproval` | `false`           | `true` → l’agent **se met en pause**, et un humain doit approuver l’appel précis    | Effets secondaires conséquents (envoyer un email, débiter une carte, supprimer)                  |
+| `authorize`     | aucun             | une fonction de garde → seuls les appelants qu’elle accepte, sur **chaque** surface | Opérations restreintes à un rôle (RBAC par application, opérations réservées aux admins)         |
 
 Ces flags sont indépendants, donc en définir un ne change pas les autres. `agentTool` contrôle ce que le modèle voit, voir [Masquer au modèle](#agent-tool) ci-dessous. `toolCallable` ne contrôle que l’iframe d’extension, voir [Bloquer les iframes d’extension](#tool-callable) ci-dessous. `publicAgent` ajoute une surface publique optionnelle, et une route web publique n’implique jamais une exposition d’outil publique, voir [Exposer aux agents publics](#public-agent) ci-dessous. `needsApproval` restreint l’exécution après que l’appel a déjà été fait, voir [Exiger une approbation humaine](#needs-approval) ci-dessous. `authorize` décide si cet appelant peut exécuter l’action, tout court, sur chaque chemin de dispatch, avant que `run()` ne soit entré, voir [Restreindre les appelants par rôle](#authorize) ci-dessous.
 
@@ -183,11 +183,11 @@ Une action de création n’appelle ni l’une ni l’autre de ces aides. Elle a
 
 Les trois mécanismes ne sont pas interchangeables :
 
-| Mécanisme                          | Question à laquelle il répond                                      | S’applique à                                   |
-| ------------------------------------| -----------------------------------------------------------------  | ----------------------------------------------- |
-| `authorize`                         | Cet appelant peut-il effectuer l’opération, tout court ?             | Les six sites de dispatch                        |
-| `needsApproval`                     | Un humain doit-il approuver cet appel précis et permis ?             | La boucle de l’agent seulement                   |
-| `accessFilter()`/`assertAccess()`   | Quelles lignes cet appelant permis peut-il voir ou écrire ?           | À l’intérieur de `run()`, par requête ou ligne  |
+| Mécanisme                         | Question à laquelle il répond                               | S’applique à                                   |
+| --------------------------------- | ----------------------------------------------------------- | ---------------------------------------------- |
+| `authorize`                       | Cet appelant peut-il effectuer l’opération, tout court ?    | Les six sites de dispatch                      |
+| `needsApproval`                   | Un humain doit-il approuver cet appel précis et permis ?    | La boucle de l’agent seulement                 |
+| `accessFilter()`/`assertAccess()` | Quelles lignes cet appelant permis peut-il voir ou écrire ? | À l’intérieur de `run()`, par requête ou ligne |
 
 Une action d’écriture restreinte a typiquement besoin à la fois de `authorize` et de `assertAccess()`. Le premier écarte les non-coachs de l’opération. Le second écarte un coach du plan d’une autre organisation. `needsApproval` est un axe séparé. Il ne restreint jamais qui peut appeler, seulement si l’agent peut continuer sans surveillance.
 

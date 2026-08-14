@@ -47,83 +47,97 @@ export default defineAction({
       name: "ctx",
       type: "ActionRunContext",
       optional: true,
-      description: "解決済みのリクエスト ID と、アクションを呼び出したサーフェス。undefined でも安全: 引数1つの `run(args)` ハンドラーも引き続き有効です。",
+      description:
+        "解決済みのリクエスト ID と、アクションを呼び出したサーフェス。undefined でも安全: 引数1つの `run(args)` ハンドラーも引き続き有効です。",
       fields: [
         {
           name: "userEmail",
           type: "string",
           optional: true,
-          description: "解決済みのリクエスト ユーザー。**開発用の ID にデフォルトされることは決してありません**: リクエストに認証済みユーザーがない場合は `undefined` になります。必要であれば独自のフォールバックを用意してください。",
+          description:
+            "解決済みのリクエスト ユーザー。**開発用の ID にデフォルトされることは決してありません**: リクエストに認証済みユーザーがない場合は `undefined` になります。必要であれば独自のフォールバックを用意してください。",
         },
         {
           name: "orgId",
           type: "string | null",
-          description: "解決済みの組織 ID。リクエストに組織がない場合は `null` になります。",
+          description:
+            "解決済みの組織 ID。リクエストに組織がない場合は `null` になります。",
         },
         {
           name: "caller",
           type: "ActionCaller",
-          description: "アクションがどのように呼び出されたか。下記の[callerのユニオン型](#caller)を参照してください。",
+          description:
+            "アクションがどのように呼び出されたか。下記の[callerのユニオン型](#caller)を参照してください。",
         },
         {
           name: "send",
           type: "(event) => void",
           optional: true,
-          description: "クライアントに SSE イベントを送出します。エージェント ツール ループの内部 (`caller: \"tool\"`) でのみ存在します。それ以外では `undefined` です。",
+          description:
+            'クライアントに SSE イベントを送出します。エージェント ツール ループの内部 (`caller: "tool"`) でのみ存在します。それ以外では `undefined` です。',
         },
         {
           name: "attachments",
           type: "AgentChatAttachment[]",
           optional: true,
-          description: "現在のエージェント ターンとともに送信された、ファイル、画像、貼り付けられたテキスト ブロック。`caller: \"tool\"` のときにのみ設定されます。他のすべてのサーフェスでは `undefined` です。",
+          description:
+            '現在のエージェント ターンとともに送信された、ファイル、画像、貼り付けられたテキスト ブロック。`caller: "tool"` のときにのみ設定されます。他のすべてのサーフェスでは `undefined` です。',
         },
         {
           name: "signal",
           type: "AbortSignal",
           optional: true,
-          description: "run がソフト タイムアウトした場合、キャンセルされた場合、またはサーバーがシャットダウンした場合に abort します。`caller: \"tool\"` のときにのみ設定されます。長時間実行されるアクションは、ツールごとの 60 秒のハード タイムアウトを待つのではなく、これを監視して早期にキャンセルできます。",
+          description:
+            'run がソフト タイムアウトした場合、キャンセルされた場合、またはサーバーがシャットダウンした場合に abort します。`caller: "tool"` のときにのみ設定されます。長時間実行されるアクションは、ツールごとの 60 秒のハード タイムアウトを待つのではなく、これを監視して早期にキャンセルできます。',
         },
         {
           name: "actionName",
           type: "string",
           optional: true,
-          description: "呼び出されているアクションのレジストリ キー (例: `delete-recording`)。各ディスパッチ サイトで設定され、監査ログのような横断的関心事がその呼び出しを帰属できるようにします。ディスパッチャーを経由しない、直接的なプログラム的 `run()` 呼び出しでは `undefined` です。",
+          description:
+            "呼び出されているアクションのレジストリ キー (例: `delete-recording`)。各ディスパッチ サイトで設定され、監査ログのような横断的関心事がその呼び出しを帰属できるようにします。ディスパッチャーを経由しない、直接的なプログラム的 `run()` 呼び出しでは `undefined` です。",
         },
         {
           name: "threadId",
           type: "string",
           optional: true,
-          description: "この呼び出しをトリガーしたエージェントの会話スレッド。`caller: \"tool\"` のときにのみ設定され、監査ログが変更を正確なエージェント実行にリンクし直せるようにします。",
+          description:
+            'この呼び出しをトリガーしたエージェントの会話スレッド。`caller: "tool"` のときにのみ設定され、監査ログが変更を正確なエージェント実行にリンクし直せるようにします。',
         },
         {
           name: "runId",
           type: "string",
           optional: true,
-          description: "この呼び出しをトリガーしたエージェントの実行試行。`caller: \"tool\"` のときにのみ設定されます。",
+          description:
+            'この呼び出しをトリガーしたエージェントの実行試行。`caller: "tool"` のときにのみ設定されます。',
         },
         {
           name: "turnId",
           type: "string",
           optional: true,
-          description: "その実行の中で、この呼び出しをトリガーした特定のターン。`caller: \"tool\"` のときにのみ設定されます。",
+          description:
+            'その実行の中で、この呼び出しをトリガーした特定のターン。`caller: "tool"` のときにのみ設定されます。',
         },
         {
           name: "automation",
           type: "ActionAutomationContext",
           optional: true,
-          description: "`caller: \"automation\"` のときにのみ存在します。この呼び出しをディスパッチしたイベント トリガー型の自動化について、`triggerId`、`triggerName`、任意の `policyId` を保持します。",
+          description:
+            '`caller: "automation"` のときにのみ存在します。この呼び出しをディスパッチしたイベント トリガー型の自動化について、`triggerId`、`triggerName`、任意の `policyId` を保持します。',
         },
         {
           name: "networkProtocol",
           type: '"a2a" | "mcp" | "provider-api"',
           optional: true,
-          description: "このリクエストがどの委任呼び出しプロトコル経由で届いたか。それらの直接ディスパッチ経路でのみ設定されます。",
+          description:
+            "このリクエストがどの委任呼び出しプロトコル経由で届いたか。それらの直接ディスパッチ経路でのみ設定されます。",
         },
         {
           name: "networkId",
           type: "string",
           optional: true,
-          description: "その委任呼び出しの相関 ID。たとえば A2A 委任 JWT の ID です。",
+          description:
+            "その委任呼び出しの相関 ID。たとえば A2A 委任 JWT の ID です。",
         },
         {
           name: "networkPeer",
@@ -136,7 +150,8 @@ export default defineAction({
   ]}
   returns={{
     type: "Promise<TReturn> | TReturn",
-    description: "アクションの結果。`outputSchema` が設定されていれば、それに対して検証されます。",
+    description:
+      "アクションの結果。`outputSchema` が設定されていれば、それに対して検証されます。",
   }}
 />
 
@@ -146,15 +161,15 @@ export default defineAction({
 
 `caller` は、`"tool" | "http" | "frontend" | "cli" | "mcp" | "a2a" | "automation"` のユニオン型です。
 
-| `caller`       | 設定される条件                                                                                                                                                     |
-| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `"tool"`       | アプリ内エージェント ループ、サブエージェントやエージェント チーム、または同じエージェント ループを駆動する自然言語のクロスアプリ A2A 委任。そのため、そのツール呼び出しは `"tool"` になります。 |
-| `"frontend"`   | `useActionMutation()`、`useActionQuery()`、`callAction()` を介したブラウザからの呼び出し (`X-Agent-Native-Frontend: 1` ヘッダーでタグ付けされます)。                |
-| `"http"`       | フロントエンド マーカーのない、`/_agent-native/actions/<name>` への素のプログラム的な `POST` または `GET`。                                                        |
-| `"cli"`        | `pnpm action <name>` (CLI ランナー)。                                                                                                                             |
-| `"mcp"`        | MCP の `tools/call` エンドポイント経由の外部エージェント。                                                                                                          |
+| `caller`       | 設定される条件                                                                                                                                                                                                |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `"tool"`       | アプリ内エージェント ループ、サブエージェントやエージェント チーム、または同じエージェント ループを駆動する自然言語のクロスアプリ A2A 委任。そのため、そのツール呼び出しは `"tool"` になります。              |
+| `"frontend"`   | `useActionMutation()`、`useActionQuery()`、`callAction()` を介したブラウザからの呼び出し (`X-Agent-Native-Frontend: 1` ヘッダーでタグ付けされます)。                                                          |
+| `"http"`       | フロントエンド マーカーのない、`/_agent-native/actions/<name>` への素のプログラム的な `POST` または `GET`。                                                                                                   |
+| `"cli"`        | `pnpm action <name>` (CLI ランナー)。                                                                                                                                                                         |
+| `"mcp"`        | MCP の `tools/call` エンドポイント経由の外部エージェント。                                                                                                                                                    |
 | `"a2a"`        | 署名された A2A 委任トークンを伴う、`/_agent-native/actions/<name>` への直接の HTTP 呼び出し。これは明示的に公開された、クロスアプリのディスパッチであり、上記の自然言語による `"tool"` 経路とは区別されます。 |
-| `"automation"` | 保存されたワークスペース トリガーからディスパッチされる、イベント トリガー型の自動化。`ctx.automation` がトリガーの系譜を保持します。[自動化](/docs/automations) を参照してください。 |
+| `"automation"` | 保存されたワークスペース トリガーからディスパッチされる、イベント トリガー型の自動化。`ctx.automation` がトリガーの系譜を保持します。[自動化](/docs/automations) を参照してください。                         |
 
 ## 次は何ですか
 

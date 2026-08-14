@@ -43,24 +43,118 @@ description: "defineAction() 的结构:schema、run,以及 HTTP 配置,还有如
     {
       name: "config",
       type: "DefineActionConfig<TSchema, TReturn, TOutputSchema>",
-      description: "下面的一切都是一个配置对象。只有 description、schema 和 run 是必需的。",
+      description:
+        "下面的一切都是一个配置对象。只有 description、schema 和 run 是必需的。",
       fields: [
-        { name: "description", type: "string", description: "代理用来判断何时调用这个 action 的依据。" },
-        { name: "schema", type: "StandardSchemaV1", description: "校验每个界面上的输入。参见下方的 Schema 选项。" },
-        { name: "run", type: "(args, ctx?) => Promise<TReturn> | TReturn", description: "每个界面调用的唯一实现。ctx 参数见运行上下文。" },
-        { name: "http", type: "ActionHttpConfig | false", optional: true, description: "覆盖挂载的方法/路径,或彻底禁用 HTTP 端点。参见下方的 HTTP 配置。" },
-        { name: "readOnly", type: "boolean", optional: true, default: "false", description: "当 http.method 为 GET 时自动为 true。跳过 UI 的轮询刷新和写入审计。不是访问控制。" },
-        { name: "outputSchema", type: "StandardSchemaV1", optional: true, description: "校验 run() 的返回值。参见下方的校验返回值。" },
-        { name: "outputErrorStrategy", type: '"warn" | "strict" | "fallback"', optional: true, default: '"warn"', description: "输出不匹配时会发生什么。" },
-        { name: "outputFallback", type: "TReturn", optional: true, description: '当 outputErrorStrategy 为 "fallback" 时,用它代替无效结果返回。' },
-        { name: "parallelSafe", type: "boolean", optional: true, description: "允许一个变更类 action 与同一轮次的其他工具调用并发运行。" },
-        { name: "agentTool", type: "boolean", optional: true, default: "true", description: "设为 false 可以从每一个代理工具列表中隐藏。参见访问与授权。" },
-        { name: "toolCallable", type: "boolean", optional: true, default: "true", description: "设为 false 可以阻止沙盒化的扩展 iframe 桥接调用。参见访问与授权。" },
-        { name: "publicAgent", type: "PublicAgentActionConfig", optional: true, description: "{ expose: true } 会把该 action 加入公共 MCP/A2A/OpenAPI 界面。参见访问与授权。" },
-        { name: "needsApproval", type: "boolean | ((args, ctx?) => boolean | Promise<boolean>)", optional: true, default: "false", description: "在 run() 之前暂停代理循环以等待人工批准。参见人在环批准。" },
-        { name: "authorize", type: "ActionAuthorize<TInput>", optional: true, description: "决定这个调用者是否可以运行该 action 的守卫函数。参见访问与授权。" },
-        { name: "audit", type: "ActionAuditConfig", optional: true, description: "调整每个变更类 action 已经自动获得的审计捕获行为。参见审核日志。" },
-        { name: "chatUI", type: "ActionChatUIConfig", optional: true, description: "为该 action 的结果声明一个原生聊天 UI 渲染器。参见其他界面。" },
+        {
+          name: "description",
+          type: "string",
+          description: "代理用来判断何时调用这个 action 的依据。",
+        },
+        {
+          name: "schema",
+          type: "StandardSchemaV1",
+          description: "校验每个界面上的输入。参见下方的 Schema 选项。",
+        },
+        {
+          name: "run",
+          type: "(args, ctx?) => Promise<TReturn> | TReturn",
+          description: "每个界面调用的唯一实现。ctx 参数见运行上下文。",
+        },
+        {
+          name: "http",
+          type: "ActionHttpConfig | false",
+          optional: true,
+          description:
+            "覆盖挂载的方法/路径,或彻底禁用 HTTP 端点。参见下方的 HTTP 配置。",
+        },
+        {
+          name: "readOnly",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description:
+            "当 http.method 为 GET 时自动为 true。跳过 UI 的轮询刷新和写入审计。不是访问控制。",
+        },
+        {
+          name: "outputSchema",
+          type: "StandardSchemaV1",
+          optional: true,
+          description: "校验 run() 的返回值。参见下方的校验返回值。",
+        },
+        {
+          name: "outputErrorStrategy",
+          type: '"warn" | "strict" | "fallback"',
+          optional: true,
+          default: '"warn"',
+          description: "输出不匹配时会发生什么。",
+        },
+        {
+          name: "outputFallback",
+          type: "TReturn",
+          optional: true,
+          description:
+            '当 outputErrorStrategy 为 "fallback" 时,用它代替无效结果返回。',
+        },
+        {
+          name: "parallelSafe",
+          type: "boolean",
+          optional: true,
+          description:
+            "允许一个变更类 action 与同一轮次的其他工具调用并发运行。",
+        },
+        {
+          name: "agentTool",
+          type: "boolean",
+          optional: true,
+          default: "true",
+          description:
+            "设为 false 可以从每一个代理工具列表中隐藏。参见访问与授权。",
+        },
+        {
+          name: "toolCallable",
+          type: "boolean",
+          optional: true,
+          default: "true",
+          description:
+            "设为 false 可以阻止沙盒化的扩展 iframe 桥接调用。参见访问与授权。",
+        },
+        {
+          name: "publicAgent",
+          type: "PublicAgentActionConfig",
+          optional: true,
+          description:
+            "{ expose: true } 会把该 action 加入公共 MCP/A2A/OpenAPI 界面。参见访问与授权。",
+        },
+        {
+          name: "needsApproval",
+          type: "boolean | ((args, ctx?) => boolean | Promise<boolean>)",
+          optional: true,
+          default: "false",
+          description:
+            "在 run() 之前暂停代理循环以等待人工批准。参见人在环批准。",
+        },
+        {
+          name: "authorize",
+          type: "ActionAuthorize<TInput>",
+          optional: true,
+          description:
+            "决定这个调用者是否可以运行该 action 的守卫函数。参见访问与授权。",
+        },
+        {
+          name: "audit",
+          type: "ActionAuditConfig",
+          optional: true,
+          description:
+            "调整每个变更类 action 已经自动获得的审计捕获行为。参见审核日志。",
+        },
+        {
+          name: "chatUI",
+          type: "ActionChatUIConfig",
+          optional: true,
+          description:
+            "为该 action 的结果声明一个原生聊天 UI 渲染器。参见其他界面。",
+        },
       ],
     },
   ]}
@@ -82,7 +176,7 @@ description: "defineAction() 的结构:schema、run,以及 HTTP 配置,还有如
 
 ## 校验返回值 {#output-schema}
 
-`schema` 校验的是_输入_。要同时校验一个 action **返回**的内容,传入一个 `outputSchema`(任何兼容 Standard Schema 的 schema:Zod、Valibot、ArkType,与 `schema` 相同的接口)。框架会在 `run()` 之前校验输入,并在 `run()` 解析完成之后校验结果。
+`schema` 校验的是*输入*。要同时校验一个 action **返回**的内容,传入一个 `outputSchema`(任何兼容 Standard Schema 的 schema:Zod、Valibot、ArkType,与 `schema` 相同的接口)。框架会在 `run()` 之前校验输入,并在 `run()` 解析完成之后校验结果。
 
 ```ts
 export default defineAction({
@@ -101,11 +195,11 @@ export default defineAction({
 
 `outputErrorStrategy` 控制不匹配时会发生什么:
 
-| 策略         | 不匹配时的行为                                                                                       |
-| ------------ | ---------------------------------------------------------------------------------------------------- |
-| `"warn"`     | **默认值。**用 `console.warn` 记录问题,并原样返回**原始**结果。不会中断运行。                          |
-| `"strict"`   | 抛出一个明确的错误,让 action 中的 bug 容易被发现。                                                     |
-| `"fallback"` | 返回提供的 `outputFallback` 值,代替无效的结果。                                                        |
+| 策略         | 不匹配时的行为                                                                |
+| ------------ | ----------------------------------------------------------------------------- |
+| `"warn"`     | **默认值。**用 `console.warn` 记录问题,并原样返回**原始**结果。不会中断运行。 |
+| `"strict"`   | 抛出一个明确的错误,让 action 中的 bug 容易被发现。                            |
+| `"fallback"` | 返回提供的 `outputFallback` 值,代替无效的结果。                               |
 
 当 `run()` 成功时,框架会返回校验后的值,所以 `outputSchema` 上的任何默认值或类型转换都会生效,和输入的处理方式一样。如果你没有传入 `outputSchema`,返回值不会有任何变化。
 

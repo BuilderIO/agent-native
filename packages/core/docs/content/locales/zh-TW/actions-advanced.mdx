@@ -87,14 +87,14 @@ export function CreateFusionAppButton() {
 
 `set-feature-flag` 是操作人員實際變更旗標開啟對象的方式：
 
-| 操作 | 作用 | 範例引數 |
-| --- | --- | --- |
-| `enable-for-current-user` | 只為您自己的帳號開啟此旗標。 | `{ key: "full-app-building", operation: "enable-for-current-user" }` |
-| `off` | 為所有人關閉此旗標，並重設所有規則。 | `{ key: "full-app-building", operation: "off" }` |
-| `replace-rules`，模式 `"on"` | 為所有人開啟此旗標。 | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "on" } }` |
-| `replace-rules`，模式 `"rules"` 搭配 `emails` | 為特定的帳號清單開啟它。 | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", emails: ["a@example.com"] } }` |
-| `replace-rules`，模式 `"rules"` 搭配 `orgIds` | 為特定的組織開啟它。 | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", orgIds: ["org_123"] } }` |
-| `replace-rules`，模式 `"rules"` 搭配 `percentage` | 以百分比推出的方式開啟它。 | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", percentage: 10 } }` |
+| 操作                                              | 作用                                 | 範例引數                                                                                                        |
+| ------------------------------------------------- | ------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| `enable-for-current-user`                         | 只為您自己的帳號開啟此旗標。         | `{ key: "full-app-building", operation: "enable-for-current-user" }`                                            |
+| `off`                                             | 為所有人關閉此旗標，並重設所有規則。 | `{ key: "full-app-building", operation: "off" }`                                                                |
+| `replace-rules`，模式 `"on"`                      | 為所有人開啟此旗標。                 | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "on" } }`                               |
+| `replace-rules`，模式 `"rules"` 搭配 `emails`     | 為特定的帳號清單開啟它。             | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", emails: ["a@example.com"] } }` |
+| `replace-rules`，模式 `"rules"` 搭配 `orgIds`     | 為特定的組織開啟它。                 | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", orgIds: ["org_123"] } }`       |
+| `replace-rules`，模式 `"rules"` 搭配 `percentage` | 以百分比推出的方式開啟它。           | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", percentage: 10 } }`            |
 
 Fleet 操作人員 UI 是透過範圍嚴格限定的 A2A 委派來呼叫這些相同的 action，而不是共用登入，且 Analytics 是它們唯一的操作人員 UI。應用程式不應該自行建置旗標設定面板，旗標的寫入也絕不應該透過通用的設定端點或原始 SQL 進行。
 
@@ -135,13 +135,13 @@ const args = parseArgs(["--name", "Steve", "--verbose", "--count=3"]);
 
 這些是撰寫腳本用的小型輔助函式，來自與上方 `parseArgs()` 相同的 `@agent-native/core` 匯入。它們並非專屬於舊版 CLI 風格的 action 樣式。可以在任何一次性開發腳本中使用它們：載入環境變數、驗證路徑引數，或以明確的錯誤中止執行。
 
-| 函式                    | 回傳值                    | 說明                                                                                                                    |
-| ----------------------- | ------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
-| `loadEnv(path?)`        | `void`                   | 從專案根目錄或自訂路徑載入 `.env`（與 `.env.local`）。在企業工作區中會回退使用工作區根目錄的 `.env`。                    |
-| `camelCaseArgs(args)`   | `Record<string, string>` | 將 kebab-case 鍵值轉換成 camelCase。                                                                                      |
-| `isValidPath(p)`        | `boolean`                | 驗證一個相對路徑（不可有路徑穿越、不可為絕對路徑）。                                                                      |
-| `isValidProjectPath(p)` | `boolean`                | 驗證一個專案 slug（例如 `my-project` 或 `group/my-project`）。                                                            |
-| `ensureDir(dir)`        | `void`                   | `mkdir -p` 輔助函式。                                                                                                     |
+| 函式                    | 回傳值                   | 說明                                                                                                                       |
+| ----------------------- | ------------------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| `loadEnv(path?)`        | `void`                   | 從專案根目錄或自訂路徑載入 `.env`（與 `.env.local`）。在企業工作區中會回退使用工作區根目錄的 `.env`。                      |
+| `camelCaseArgs(args)`   | `Record<string, string>` | 將 kebab-case 鍵值轉換成 camelCase。                                                                                       |
+| `isValidPath(p)`        | `boolean`                | 驗證一個相對路徑（不可有路徑穿越、不可為絕對路徑）。                                                                       |
+| `isValidProjectPath(p)` | `boolean`                | 驗證一個專案 slug（例如 `my-project` 或 `group/my-project`）。                                                             |
+| `ensureDir(dir)`        | `void`                   | `mkdir -p` 輔助函式。                                                                                                      |
 | `fail(message)`         | `never`                  | 拋出一個錯誤以中止腳本。CLI 執行器會攔截它並以代碼 1 結束。伺服器內的呼叫者（代理工具、A2A）則會改為收到一個工具呼叫錯誤。 |
 
 ## 下一步是什麼

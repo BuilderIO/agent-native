@@ -11,13 +11,13 @@ Cinco opciones deciden quién puede llamar a una acción: el agente, el frontend
 
 Las cinco opciones tienen por defecto el valor más permisivo, así que solo configuras una cuando necesitas restringir una superficie específica. La tabla de abajo es un resumen rápido. Las secciones posteriores añaden el detalle concreto que necesita cada opción.
 
-| Opción          | Predeterminado | Valor restrictivo → quién puede seguir llamando                                | Uso típico                                                              |
-| --------------- | -------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| `agentTool`     | `true`         | `false` → solo UI, HTTP y CLI (oculta para el modelo, MCP y A2A)                 | Acciones solo de UI o programáticas que no deberían ocupar una plaza de herramienta |
-| `toolCallable`  | `true`         | `false` → todo **excepto** el puente del iframe aislado de extensiones (403)     | Cambios sensibles de cuenta u organización (eliminar cuenta, cambiar membresía) |
-| `publicAgent`   | desactivado (privado) | `{ expose: true }` → añade la acción a las superficies **públicas** de MCP/A2A/OpenAPI | Herramientas seguras de lectura o ingesta que no requieren autenticación |
-| `needsApproval` | `false`        | `true` → el agente **se pausa**, y un humano debe aprobar la llamada específica  | Efectos secundarios de consecuencia (enviar un correo, cobrar una tarjeta, eliminar) |
-| `authorize`     | ninguno        | una función de guarda → solo los invocadores que acepta, en **todas** las superficies | Operaciones restringidas a un rol (RBAC por app, operaciones solo para administradores) |
+| Opción          | Predeterminado        | Valor restrictivo → quién puede seguir llamando                                        | Uso típico                                                                              |
+| --------------- | --------------------- | -------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `agentTool`     | `true`                | `false` → solo UI, HTTP y CLI (oculta para el modelo, MCP y A2A)                       | Acciones solo de UI o programáticas que no deberían ocupar una plaza de herramienta     |
+| `toolCallable`  | `true`                | `false` → todo **excepto** el puente del iframe aislado de extensiones (403)           | Cambios sensibles de cuenta u organización (eliminar cuenta, cambiar membresía)         |
+| `publicAgent`   | desactivado (privado) | `{ expose: true }` → añade la acción a las superficies **públicas** de MCP/A2A/OpenAPI | Herramientas seguras de lectura o ingesta que no requieren autenticación                |
+| `needsApproval` | `false`               | `true` → el agente **se pausa**, y un humano debe aprobar la llamada específica        | Efectos secundarios de consecuencia (enviar un correo, cobrar una tarjeta, eliminar)    |
+| `authorize`     | ninguno               | una función de guarda → solo los invocadores que acepta, en **todas** las superficies  | Operaciones restringidas a un rol (RBAC por app, operaciones solo para administradores) |
 
 Estas opciones son independientes, así que configurar una no cambia las demás. `agentTool` controla qué ve el modelo, consulta [Ocultar del modelo](#agent-tool) más abajo. `toolCallable` controla solo el iframe de extensiones, consulta [Bloquear iframes de extensión](#tool-callable) más abajo. `publicAgent` añade una superficie pública opcional, y una ruta web pública nunca implica exposición pública de la herramienta, consulta [Exponer a agentes públicos](#public-agent) más abajo. `needsApproval` controla la ejecución después de que la llamada ya se ha hecho, consulta [Requerir aprobación humana](#needs-approval) más abajo. `authorize` decide si este invocador puede ejecutar la acción, en cada ruta de despacho, antes de entrar en `run()`, consulta [Restringir invocadores por rol](#authorize) más abajo.
 
@@ -183,11 +183,11 @@ Una acción de creación no llama a ninguno de los dos ayudantes. Solo necesita 
 
 Los tres mecanismos no son intercambiables:
 
-| Mecanismo                        | Pregunta que responde                                      | Se aplica a                        |
-| ---------------------------------| ------------------------------------------------------------| -------------------------------- |
-| `authorize`                      | ¿Puede este invocador realizar la operación?                | Los seis puntos de despacho       |
-| `needsApproval`                  | ¿Debe un humano aprobar esta llamada permitida en concreto? | Solo el bucle del agente          |
-| `accessFilter()`/`assertAccess()`| ¿Qué filas puede ver o escribir este invocador ya permitido? | Dentro de `run()`, por consulta o por fila |
+| Mecanismo                         | Pregunta que responde                                        | Se aplica a                                |
+| --------------------------------- | ------------------------------------------------------------ | ------------------------------------------ |
+| `authorize`                       | ¿Puede este invocador realizar la operación?                 | Los seis puntos de despacho                |
+| `needsApproval`                   | ¿Debe un humano aprobar esta llamada permitida en concreto?  | Solo el bucle del agente                   |
+| `accessFilter()`/`assertAccess()` | ¿Qué filas puede ver o escribir este invocador ya permitido? | Dentro de `run()`, por consulta o por fila |
 
 Una acción de escritura restringida normalmente necesita tanto `authorize` como `assertAccess()`. La primera mantiene fuera de la operación a quien no sea coach. La segunda mantiene a un coach fuera del plan de otra organización. `needsApproval` es un eje aparte. Nunca restringe quién puede llamar, solo si el agente puede proceder sin supervisión.
 

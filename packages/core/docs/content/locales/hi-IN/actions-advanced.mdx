@@ -87,14 +87,14 @@ export function CreateFusionAppButton() {
 
 `set-feature-flag` वह तरीका है जिससे कोई operator वास्तव में बदलता है कि flag किसके लिए चालू है:
 
-| Operation | यह क्या करता है | उदाहरण args |
-| --- | --- | --- |
-| `enable-for-current-user` | flag को केवल आपके अपने account के लिए चालू करता है। | `{ key: "full-app-building", operation: "enable-for-current-user" }` |
-| `off` | सभी के लिए flag को बंद करता है, किसी भी rules को reset करते हुए। | `{ key: "full-app-building", operation: "off" }` |
-| `replace-rules`, mode `"on"` | सभी के लिए flag को चालू करता है। | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "on" } }` |
-| `replace-rules`, mode `"rules"` with `emails` | इसे accounts की एक विशिष्ट सूची के लिए चालू करता है। | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", emails: ["a@example.com"] } }` |
-| `replace-rules`, mode `"rules"` with `orgIds` | इसे विशिष्ट organizations के लिए चालू करता है। | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", orgIds: ["org_123"] } }` |
-| `replace-rules`, mode `"rules"` with `percentage` | इसे एक percentage rollout के लिए चालू करता है। | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", percentage: 10 } }` |
+| Operation                                         | यह क्या करता है                                                  | उदाहरण args                                                                                                     |
+| ------------------------------------------------- | ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `enable-for-current-user`                         | flag को केवल आपके अपने account के लिए चालू करता है।              | `{ key: "full-app-building", operation: "enable-for-current-user" }`                                            |
+| `off`                                             | सभी के लिए flag को बंद करता है, किसी भी rules को reset करते हुए। | `{ key: "full-app-building", operation: "off" }`                                                                |
+| `replace-rules`, mode `"on"`                      | सभी के लिए flag को चालू करता है।                                 | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "on" } }`                               |
+| `replace-rules`, mode `"rules"` with `emails`     | इसे accounts की एक विशिष्ट सूची के लिए चालू करता है।             | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", emails: ["a@example.com"] } }` |
+| `replace-rules`, mode `"rules"` with `orgIds`     | इसे विशिष्ट organizations के लिए चालू करता है।                   | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", orgIds: ["org_123"] } }`       |
+| `replace-rules`, mode `"rules"` with `percentage` | इसे एक percentage rollout के लिए चालू करता है।                   | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", percentage: 10 } }`            |
 
 Fleet operator UIs साझा login के बजाय संकीर्ण रूप से scoped A2A delegation के माध्यम से इन्हीं actions को कॉल करते हैं, और Analytics इनके लिए एकमात्र operator UI है। Apps को अपना खुद का flag settings panel नहीं बनाना चाहिए, और flag writes को कभी generic settings endpoints या raw SQL के माध्यम से रूट नहीं करना चाहिए।
 
@@ -135,13 +135,13 @@ const args = parseArgs(["--name", "Steve", "--verbose", "--count=3"]);
 
 ये स्क्रिप्ट लिखने के लिए छोटे हेल्पर हैं, उसी `@agent-native/core` इम्पोर्ट से जिससे ऊपर वाला `parseArgs()` आता है। ये विशेष रूप से legacy CLI-style action स्टाइल से जुड़े नहीं हैं। इन्हें किसी भी one-off dev script में इस्तेमाल करें: environment variables लोड करना, कोई path argument वैलिडेट करना, या किसी स्पष्ट error के साथ abort करना।
 
-| फ़ंक्शन                | लौटाता है                | विवरण                                                                                                                  |
-| ----------------------- | ------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
-| `loadEnv(path?)`        | `void`                   | प्रोजेक्ट root या किसी कस्टम path से `.env` (और `.env.local`) लोड करता है। एक enterprise workspace में workspace root के `.env` पर fallback होता है। |
-| `camelCaseArgs(args)`   | `Record<string, string>` | kebab-case keys को camelCase में बदलता है।                                                                              |
-| `isValidPath(p)`        | `boolean`                | एक relative path को वैलिडेट करता है (कोई traversal नहीं, कोई absolute नहीं)।                                            |
-| `isValidProjectPath(p)` | `boolean`                | एक project slug को वैलिडेट करता है (जैसे `my-project` या `group/my-project`)।                                          |
-| `ensureDir(dir)`        | `void`                   | `mkdir -p` हेल्पर।                                                                                                      |
+| फ़ंक्शन                 | लौटाता है                | विवरण                                                                                                                                                                                                             |
+| ----------------------- | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `loadEnv(path?)`        | `void`                   | प्रोजेक्ट root या किसी कस्टम path से `.env` (और `.env.local`) लोड करता है। एक enterprise workspace में workspace root के `.env` पर fallback होता है।                                                              |
+| `camelCaseArgs(args)`   | `Record<string, string>` | kebab-case keys को camelCase में बदलता है।                                                                                                                                                                        |
+| `isValidPath(p)`        | `boolean`                | एक relative path को वैलिडेट करता है (कोई traversal नहीं, कोई absolute नहीं)।                                                                                                                                      |
+| `isValidProjectPath(p)` | `boolean`                | एक project slug को वैलिडेट करता है (जैसे `my-project` या `group/my-project`)।                                                                                                                                     |
+| `ensureDir(dir)`        | `void`                   | `mkdir -p` हेल्पर।                                                                                                                                                                                                |
 | `fail(message)`         | `never`                  | किसी स्क्रिप्ट को abort करने के लिए एक error throw करता है। CLI runner इसे पकड़ता है और कोड 1 के साथ exit करता है। In-server कॉलर्स (एजेंट टूल, A2A) को इसके बजाय यह एक tool-call error के रूप में वापस मिलता है। |
 
 ## आगे क्या

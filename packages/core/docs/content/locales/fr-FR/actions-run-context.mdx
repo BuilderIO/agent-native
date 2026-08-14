@@ -47,83 +47,97 @@ La plupart des actions ne lisent que `ctx?.userEmail` et `ctx?.orgId`, le [déco
       name: "ctx",
       type: "ActionRunContext",
       optional: true,
-      description: "L’identité résolue de la requête et la surface qui a invoqué l’action. Sûr avec undefined : un gestionnaire `run(args)` à un seul argument reste valide.",
+      description:
+        "L’identité résolue de la requête et la surface qui a invoqué l’action. Sûr avec undefined : un gestionnaire `run(args)` à un seul argument reste valide.",
       fields: [
         {
           name: "userEmail",
           type: "string",
           optional: true,
-          description: "Utilisateur résolu de la requête. **Jamais remplacé par défaut par une identité de développement** : `undefined` quand la requête n’a pas d’utilisateur authentifié. Appliquez votre propre repli si vous en avez besoin d’un.",
+          description:
+            "Utilisateur résolu de la requête. **Jamais remplacé par défaut par une identité de développement** : `undefined` quand la requête n’a pas d’utilisateur authentifié. Appliquez votre propre repli si vous en avez besoin d’un.",
         },
         {
           name: "orgId",
           type: "string | null",
-          description: "Identifiant d’organisation résolu, ou `null` quand la requête n’a pas d’organisation.",
+          description:
+            "Identifiant d’organisation résolu, ou `null` quand la requête n’a pas d’organisation.",
         },
         {
           name: "caller",
           type: "ActionCaller",
-          description: "Comment l’action a été invoquée. Voir [l’union des appelants](#caller) ci-dessous.",
+          description:
+            "Comment l’action a été invoquée. Voir [l’union des appelants](#caller) ci-dessous.",
         },
         {
           name: "send",
           type: "(event) => void",
           optional: true,
-          description: "Émet un événement SSE vers le client. Présent uniquement à l’intérieur de la boucle d’outil de l’agent (`caller: \"tool\"`). `undefined` ailleurs.",
+          description:
+            'Émet un événement SSE vers le client. Présent uniquement à l’intérieur de la boucle d’outil de l’agent (`caller: "tool"`). `undefined` ailleurs.',
         },
         {
           name: "attachments",
           type: "AgentChatAttachment[]",
           optional: true,
-          description: "Fichiers, images, et blocs de texte collés soumis avec le tour d’agent actuel. Peuplé uniquement quand `caller: \"tool\"`. `undefined` sur toutes les autres surfaces.",
+          description:
+            'Fichiers, images, et blocs de texte collés soumis avec le tour d’agent actuel. Peuplé uniquement quand `caller: "tool"`. `undefined` sur toutes les autres surfaces.',
         },
         {
           name: "signal",
           type: "AbortSignal",
           optional: true,
-          description: "S’active quand l’exécution est interrompue en douceur par délai, annulée, ou que le serveur s’arrête. Peuplé uniquement quand `caller: \"tool\"`. Les actions longues peuvent l’observer pour s’annuler tôt plutôt que d’attendre le délai d’expiration strict de 60 s par outil.",
+          description:
+            'S’active quand l’exécution est interrompue en douceur par délai, annulée, ou que le serveur s’arrête. Peuplé uniquement quand `caller: "tool"`. Les actions longues peuvent l’observer pour s’annuler tôt plutôt que d’attendre le délai d’expiration strict de 60 s par outil.',
         },
         {
           name: "actionName",
           type: "string",
           optional: true,
-          description: "La clé de registre de l’action appelée (par ex. `delete-recording`), définie à chaque site de dispatch afin que des préoccupations transverses comme le journal d’audit puissent attribuer l’appel. `undefined` pour les appels `run()` programmatiques directs qui contournent le dispatcher.",
+          description:
+            "La clé de registre de l’action appelée (par ex. `delete-recording`), définie à chaque site de dispatch afin que des préoccupations transverses comme le journal d’audit puissent attribuer l’appel. `undefined` pour les appels `run()` programmatiques directs qui contournent le dispatcher.",
         },
         {
           name: "threadId",
           type: "string",
           optional: true,
-          description: "Le fil de conversation de l’agent qui a déclenché cet appel. Peuplé uniquement quand `caller: \"tool\"`, afin que le journal d’audit puisse relier une mutation à l’exécution d’agent exacte.",
+          description:
+            'Le fil de conversation de l’agent qui a déclenché cet appel. Peuplé uniquement quand `caller: "tool"`, afin que le journal d’audit puisse relier une mutation à l’exécution d’agent exacte.',
         },
         {
           name: "runId",
           type: "string",
           optional: true,
-          description: "La tentative d’exécution de l’agent qui a déclenché cet appel. Peuplé uniquement quand `caller: \"tool\"`.",
+          description:
+            'La tentative d’exécution de l’agent qui a déclenché cet appel. Peuplé uniquement quand `caller: "tool"`.',
         },
         {
           name: "turnId",
           type: "string",
           optional: true,
-          description: "Le tour précis, à l’intérieur de cette exécution, qui a déclenché cet appel. Peuplé uniquement quand `caller: \"tool\"`.",
+          description:
+            'Le tour précis, à l’intérieur de cette exécution, qui a déclenché cet appel. Peuplé uniquement quand `caller: "tool"`.',
         },
         {
           name: "automation",
           type: "ActionAutomationContext",
           optional: true,
-          description: "Présent uniquement quand `caller: \"automation\"`. Porte `triggerId`, `triggerName`, et un `policyId` optionnel pour l’automatisation déclenchée par événement qui a dispatché cet appel.",
+          description:
+            'Présent uniquement quand `caller: "automation"`. Porte `triggerId`, `triggerName`, et un `policyId` optionnel pour l’automatisation déclenchée par événement qui a dispatché cet appel.',
         },
         {
           name: "networkProtocol",
           type: '"a2a" | "mcp" | "provider-api"',
           optional: true,
-          description: "Quel protocole d’appel délégué cette requête a emprunté. Défini uniquement pour ces chemins de dispatch direct.",
+          description:
+            "Quel protocole d’appel délégué cette requête a emprunté. Défini uniquement pour ces chemins de dispatch direct.",
         },
         {
           name: "networkId",
           type: "string",
           optional: true,
-          description: "Un identifiant de corrélation pour cet appel délégué, par ex. l’id du JWT de délégation A2A.",
+          description:
+            "Un identifiant de corrélation pour cet appel délégué, par ex. l’id du JWT de délégation A2A.",
         },
         {
           name: "networkPeer",
@@ -136,7 +150,8 @@ La plupart des actions ne lisent que `ctx?.userEmail` et `ctx?.orgId`, le [déco
   ]}
   returns={{
     type: "Promise<TReturn> | TReturn",
-    description: "Le résultat de l’action, validé contre `outputSchema` si un est défini.",
+    description:
+      "Le résultat de l’action, validé contre `outputSchema` si un est défini.",
   }}
 />
 
@@ -146,15 +161,15 @@ La plupart des actions ne lisent que `ctx?.userEmail` et `ctx?.orgId`, le [déco
 
 `caller` est l’union `"tool" | "http" | "frontend" | "cli" | "mcp" | "a2a" | "automation"` :
 
-| `caller`       | Défini quand…                                                                                                                                                        |
-| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `"tool"`       | La boucle d’agent intégrée à l’application, un sous-agent ou une équipe d’agents, ou la délégation A2A inter-applications en langage naturel, qui pilote la même boucle d’agent, donc ses appels d’outil sont `"tool"`. |
-| `"frontend"`   | Un appel navigateur via `useActionMutation()`, `useActionQuery()`, ou `callAction()` (marqué avec l’en-tête `X-Agent-Native-Frontend: 1`).                            |
-| `"http"`       | Un `POST` ou `GET` programmatique brut vers `/_agent-native/actions/<name>` sans le marqueur frontend.                                                                |
-| `"cli"`        | `pnpm action <name>` (l’exécuteur CLI).                                                                                                                               |
-| `"mcp"`        | Un agent externe via le point de terminaison MCP `tools/call`.                                                                                                        |
+| `caller`       | Défini quand…                                                                                                                                                                                                            |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `"tool"`       | La boucle d’agent intégrée à l’application, un sous-agent ou une équipe d’agents, ou la délégation A2A inter-applications en langage naturel, qui pilote la même boucle d’agent, donc ses appels d’outil sont `"tool"`.  |
+| `"frontend"`   | Un appel navigateur via `useActionMutation()`, `useActionQuery()`, ou `callAction()` (marqué avec l’en-tête `X-Agent-Native-Frontend: 1`).                                                                               |
+| `"http"`       | Un `POST` ou `GET` programmatique brut vers `/_agent-native/actions/<name>` sans le marqueur frontend.                                                                                                                   |
+| `"cli"`        | `pnpm action <name>` (l’exécuteur CLI).                                                                                                                                                                                  |
+| `"mcp"`        | Un agent externe via le point de terminaison MCP `tools/call`.                                                                                                                                                           |
 | `"a2a"`        | Un appel HTTP direct vers `/_agent-native/actions/<name>` portant un jeton de délégation A2A signé. C’est un dispatch inter-applications explicitement exposé, distinct du chemin `"tool"` en langage naturel ci-dessus. |
-| `"automation"` | Une automatisation déclenchée par événement, dispatchée depuis un déclencheur d’espace de travail stocké. `ctx.automation` porte la lignée du déclencheur. Voir [Automatisations](/docs/automations). |
+| `"automation"` | Une automatisation déclenchée par événement, dispatchée depuis un déclencheur d’espace de travail stocké. `ctx.automation` porte la lignée du déclencheur. Voir [Automatisations](/docs/automations).                    |
 
 ## Quelle est la prochaine étape
 

@@ -43,30 +43,130 @@ O framework descobre automaticamente cada arquivo em `actions/` e o monta na ini
     {
       name: "config",
       type: "DefineActionConfig<TSchema, TReturn, TOutputSchema>",
-      description: "Tudo abaixo é um único objeto de config. Apenas description, schema e run são obrigatórios.",
+      description:
+        "Tudo abaixo é um único objeto de config. Apenas description, schema e run são obrigatórios.",
       fields: [
-        { name: "description", type: "string", description: "O que o agente lê para decidir quando chamar esta action." },
-        { name: "schema", type: "StandardSchemaV1", description: "Valida a entrada em toda superfície. Veja Opções de schema abaixo." },
-        { name: "run", type: "(args, ctx?) => Promise<TReturn> | TReturn", description: "A única implementação que toda superfície chama. Veja Contexto de Execução para o argumento ctx." },
-        { name: "http", type: "ActionHttpConfig | false", optional: true, description: "Sobrescreve o método/path montado, ou desativa completamente o endpoint HTTP. Veja Configuração de HTTP abaixo." },
-        { name: "readOnly", type: "boolean", optional: true, default: "false", description: "Automaticamente true quando http.method é GET. Pula a atualização por polling da UI e a auditoria de escrita. Não é controle de acesso." },
-        { name: "outputSchema", type: "StandardSchemaV1", optional: true, description: "Valida o que run() retorna. Veja Validando o valor de retorno abaixo." },
-        { name: "outputErrorStrategy", type: '"warn" | "strict" | "fallback"', optional: true, default: '"warn"', description: "O que acontece quando há uma incompatibilidade na saída." },
-        { name: "outputFallback", type: "TReturn", optional: true, description: 'Retornado no lugar de um resultado inválido quando outputErrorStrategy é "fallback".' },
-        { name: "parallelSafe", type: "boolean", optional: true, description: "Permite que uma action de mutação rode simultaneamente com outras chamadas de ferramenta no mesmo turno." },
-        { name: "agentTool", type: "boolean", optional: true, default: "true", description: "Defina como false para ocultar de toda lista de ferramentas do agente. Veja Acesso e Autorização." },
-        { name: "toolCallable", type: "boolean", optional: true, default: "true", description: "Defina como false para bloquear a ponte de iframe de extensão em sandbox. Veja Acesso e Autorização." },
-        { name: "publicAgent", type: "PublicAgentActionConfig", optional: true, description: "{ expose: true } adiciona a action às superfícies públicas de MCP/A2A/OpenAPI. Veja Acesso e Autorização." },
-        { name: "needsApproval", type: "boolean | ((args, ctx?) => boolean | Promise<boolean>)", optional: true, default: "false", description: "Pausa o loop do agente para aprovação humana antes de run(). Veja Human-in-the-Loop Approvals." },
-        { name: "authorize", type: "ActionAuthorize<TInput>", optional: true, description: "Função guarda que decide se este chamador pode executar a action. Veja Acesso e Autorização." },
-        { name: "audit", type: "ActionAuditConfig", optional: true, description: "Ajusta a captura automática de auditoria que toda action de mutação já recebe. Veja Audit Log." },
-        { name: "chatUI", type: "ActionChatUIConfig", optional: true, description: "Declara um renderizador de chat UI nativo para o resultado da action. Veja Outras Superfícies." },
+        {
+          name: "description",
+          type: "string",
+          description:
+            "O que o agente lê para decidir quando chamar esta action.",
+        },
+        {
+          name: "schema",
+          type: "StandardSchemaV1",
+          description:
+            "Valida a entrada em toda superfície. Veja Opções de schema abaixo.",
+        },
+        {
+          name: "run",
+          type: "(args, ctx?) => Promise<TReturn> | TReturn",
+          description:
+            "A única implementação que toda superfície chama. Veja Contexto de Execução para o argumento ctx.",
+        },
+        {
+          name: "http",
+          type: "ActionHttpConfig | false",
+          optional: true,
+          description:
+            "Sobrescreve o método/path montado, ou desativa completamente o endpoint HTTP. Veja Configuração de HTTP abaixo.",
+        },
+        {
+          name: "readOnly",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description:
+            "Automaticamente true quando http.method é GET. Pula a atualização por polling da UI e a auditoria de escrita. Não é controle de acesso.",
+        },
+        {
+          name: "outputSchema",
+          type: "StandardSchemaV1",
+          optional: true,
+          description:
+            "Valida o que run() retorna. Veja Validando o valor de retorno abaixo.",
+        },
+        {
+          name: "outputErrorStrategy",
+          type: '"warn" | "strict" | "fallback"',
+          optional: true,
+          default: '"warn"',
+          description:
+            "O que acontece quando há uma incompatibilidade na saída.",
+        },
+        {
+          name: "outputFallback",
+          type: "TReturn",
+          optional: true,
+          description:
+            'Retornado no lugar de um resultado inválido quando outputErrorStrategy é "fallback".',
+        },
+        {
+          name: "parallelSafe",
+          type: "boolean",
+          optional: true,
+          description:
+            "Permite que uma action de mutação rode simultaneamente com outras chamadas de ferramenta no mesmo turno.",
+        },
+        {
+          name: "agentTool",
+          type: "boolean",
+          optional: true,
+          default: "true",
+          description:
+            "Defina como false para ocultar de toda lista de ferramentas do agente. Veja Acesso e Autorização.",
+        },
+        {
+          name: "toolCallable",
+          type: "boolean",
+          optional: true,
+          default: "true",
+          description:
+            "Defina como false para bloquear a ponte de iframe de extensão em sandbox. Veja Acesso e Autorização.",
+        },
+        {
+          name: "publicAgent",
+          type: "PublicAgentActionConfig",
+          optional: true,
+          description:
+            "{ expose: true } adiciona a action às superfícies públicas de MCP/A2A/OpenAPI. Veja Acesso e Autorização.",
+        },
+        {
+          name: "needsApproval",
+          type: "boolean | ((args, ctx?) => boolean | Promise<boolean>)",
+          optional: true,
+          default: "false",
+          description:
+            "Pausa o loop do agente para aprovação humana antes de run(). Veja Human-in-the-Loop Approvals.",
+        },
+        {
+          name: "authorize",
+          type: "ActionAuthorize<TInput>",
+          optional: true,
+          description:
+            "Função guarda que decide se este chamador pode executar a action. Veja Acesso e Autorização.",
+        },
+        {
+          name: "audit",
+          type: "ActionAuditConfig",
+          optional: true,
+          description:
+            "Ajusta a captura automática de auditoria que toda action de mutação já recebe. Veja Audit Log.",
+        },
+        {
+          name: "chatUI",
+          type: "ActionChatUIConfig",
+          optional: true,
+          description:
+            "Declara um renderizador de chat UI nativo para o resultado da action. Veja Outras Superfícies.",
+        },
       ],
     },
   ]}
   returns={{
     type: "ActionDefinition<TInput, TReturn>",
-    description: "A definição tipada da action. Exporte-a como o export padrão do arquivo.",
+    description:
+      "A definição tipada da action. Exporte-a como o export padrão do arquivo.",
   }}
 />
 
@@ -101,11 +201,11 @@ export default defineAction({
 
 `outputErrorStrategy` controla o que acontece em uma incompatibilidade:
 
-| Estratégia   | Comportamento na incompatibilidade                                                                     |
-| ------------ | ---------------------------------------------------------------------------------------------------- |
+| Estratégia   | Comportamento na incompatibilidade                                                                                       |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------ |
 | `"warn"`     | **Padrão.** Executa `console.warn` com os problemas e retorna o resultado **original** sem alterações. Não é disruptivo. |
-| `"strict"`   | Lança um erro claro, para que um bug na action seja fácil de perceber.                                |
-| `"fallback"` | Retorna o valor `outputFallback` fornecido no lugar do resultado inválido.                             |
+| `"strict"`   | Lança um erro claro, para que um bug na action seja fácil de perceber.                                                   |
+| `"fallback"` | Retorna o valor `outputFallback` fornecido no lugar do resultado inválido.                                               |
 
 Quando `run()` tem sucesso, o framework retorna o valor validado, então quaisquer defaults ou coerções em `outputSchema` entram em vigor, da mesma forma que acontece para a entrada. Quando você não passa um `outputSchema`, o valor de retorno permanece inalterado.
 

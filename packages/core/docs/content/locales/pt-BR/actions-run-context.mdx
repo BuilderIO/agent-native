@@ -47,96 +47,112 @@ A maioria das actions só lê `ctx?.userEmail` e `ctx?.orgId`, o [escopo de cont
       name: "ctx",
       type: "ActionRunContext",
       optional: true,
-      description: "A identidade resolvida da requisição e a superfície que invocou a action. Undefined-safe: um handler `run(args)` de 1 argumento continua válido.",
+      description:
+        "A identidade resolvida da requisição e a superfície que invocou a action. Undefined-safe: um handler `run(args)` de 1 argumento continua válido.",
       fields: [
         {
           name: "userEmail",
           type: "string",
           optional: true,
-          description: "Usuário resolvido da requisição. **Nunca tem como default uma identidade de dev**: `undefined` quando a requisição não tem um usuário autenticado. Aplique seu próprio fallback se precisar de um.",
+          description:
+            "Usuário resolvido da requisição. **Nunca tem como default uma identidade de dev**: `undefined` quando a requisição não tem um usuário autenticado. Aplique seu próprio fallback se precisar de um.",
         },
         {
           name: "orgId",
           type: "string | null",
-          description: "Id da org resolvido, ou `null` quando a requisição não tem org.",
+          description:
+            "Id da org resolvido, ou `null` quando a requisição não tem org.",
         },
         {
           name: "caller",
           type: "ActionCaller",
-          description: "Como a action foi invocada. Veja [a union de caller](#caller) abaixo.",
+          description:
+            "Como a action foi invocada. Veja [a union de caller](#caller) abaixo.",
         },
         {
           name: "send",
           type: "(event) => void",
           optional: true,
-          description: "Emite um evento SSE para o cliente. Só está presente dentro do loop de ferramenta do agente (`caller: \"tool\"`). `undefined` nas demais superfícies.",
+          description:
+            'Emite um evento SSE para o cliente. Só está presente dentro do loop de ferramenta do agente (`caller: "tool"`). `undefined` nas demais superfícies.',
         },
         {
           name: "attachments",
           type: "AgentChatAttachment[]",
           optional: true,
-          description: "Arquivos, imagens e blocos de texto colado enviados com o turno atual do agente. Preenchido apenas quando `caller: \"tool\"`. `undefined` em todas as outras superfícies.",
+          description:
+            'Arquivos, imagens e blocos de texto colado enviados com o turno atual do agente. Preenchido apenas quando `caller: "tool"`. `undefined` em todas as outras superfícies.',
         },
         {
           name: "signal",
           type: "AbortSignal",
           optional: true,
-          description: "Aborta quando a execução sofre soft-timeout, é cancelada, ou o servidor é desligado. Preenchido apenas quando `caller: \"tool\"`. Actions de longa duração podem observá-lo para cancelar antecipadamente em vez de esperar o hard timeout de 60s por ferramenta.",
+          description:
+            'Aborta quando a execução sofre soft-timeout, é cancelada, ou o servidor é desligado. Preenchido apenas quando `caller: "tool"`. Actions de longa duração podem observá-lo para cancelar antecipadamente em vez de esperar o hard timeout de 60s por ferramenta.',
         },
         {
           name: "actionName",
           type: "string",
           optional: true,
-          description: "A chave de registro da action sendo chamada (ex.: `delete-recording`), definida em cada ponto de despacho para que preocupações transversais como o log de auditoria possam atribuir a chamada. `undefined` para chamadas `run()` programáticas diretas que ignoram o dispatcher.",
+          description:
+            "A chave de registro da action sendo chamada (ex.: `delete-recording`), definida em cada ponto de despacho para que preocupações transversais como o log de auditoria possam atribuir a chamada. `undefined` para chamadas `run()` programáticas diretas que ignoram o dispatcher.",
         },
         {
           name: "threadId",
           type: "string",
           optional: true,
-          description: "A thread de conversa do agente que disparou esta chamada. Preenchido apenas quando `caller: \"tool\"`, para que o log de auditoria possa ligar uma mutação de volta à execução exata do agente.",
+          description:
+            'A thread de conversa do agente que disparou esta chamada. Preenchido apenas quando `caller: "tool"`, para que o log de auditoria possa ligar uma mutação de volta à execução exata do agente.',
         },
         {
           name: "runId",
           type: "string",
           optional: true,
-          description: "A tentativa de execução do agente que disparou esta chamada. Preenchido apenas quando `caller: \"tool\"`.",
+          description:
+            'A tentativa de execução do agente que disparou esta chamada. Preenchido apenas quando `caller: "tool"`.',
         },
         {
           name: "turnId",
           type: "string",
           optional: true,
-          description: "O turno específico dentro daquela execução que disparou esta chamada. Preenchido apenas quando `caller: \"tool\"`.",
+          description:
+            'O turno específico dentro daquela execução que disparou esta chamada. Preenchido apenas quando `caller: "tool"`.',
         },
         {
           name: "automation",
           type: "ActionAutomationContext",
           optional: true,
-          description: "Presente apenas quando `caller: \"automation\"`. Carrega `triggerId`, `triggerName`, e um `policyId` opcional para a automação disparada por evento que despachou esta chamada.",
+          description:
+            'Presente apenas quando `caller: "automation"`. Carrega `triggerId`, `triggerName`, e um `policyId` opcional para a automação disparada por evento que despachou esta chamada.',
         },
         {
           name: "networkProtocol",
           type: '"a2a" | "mcp" | "provider-api"',
           optional: true,
-          description: "Por qual protocolo de chamada delegada esta requisição chegou. Definido apenas para esses caminhos de despacho direto.",
+          description:
+            "Por qual protocolo de chamada delegada esta requisição chegou. Definido apenas para esses caminhos de despacho direto.",
         },
         {
           name: "networkId",
           type: "string",
           optional: true,
-          description: "Um id de correlação para aquela chamada delegada, ex.: o id do JWT de delegação A2A.",
+          description:
+            "Um id de correlação para aquela chamada delegada, ex.: o id do JWT de delegação A2A.",
         },
         {
           name: "networkPeer",
           type: "string",
           optional: true,
-          description: "A identidade do peer chamador para aquela chamada delegada.",
+          description:
+            "A identidade do peer chamador para aquela chamada delegada.",
         },
       ],
     },
   ]}
   returns={{
     type: "Promise<TReturn> | TReturn",
-    description: "O resultado da action, validado contra `outputSchema` se um estiver definido.",
+    description:
+      "O resultado da action, validado contra `outputSchema` se um estiver definido.",
   }}
 />
 
@@ -146,15 +162,15 @@ A maioria das actions só lê `ctx?.userEmail` e `ctx?.orgId`, o [escopo de cont
 
 `caller` é a union `"tool" | "http" | "frontend" | "cli" | "mcp" | "a2a" | "automation"`:
 
-| `caller`       | Definido quando…                                                                                                                                                    |
-| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `"tool"`       | O loop do agente dentro do app, um subagente ou agent team, ou a delegação A2A entre apps em linguagem natural, que conduz o mesmo loop do agente, então suas chamadas de ferramenta são `"tool"`. |
-| `"frontend"`   | Uma chamada do navegador via `useActionMutation()`, `useActionQuery()`, ou `callAction()` (marcada com o header `X-Agent-Native-Frontend: 1`).                        |
-| `"http"`       | Um `POST` ou `GET` programático simples para `/_agent-native/actions/<name>` sem o marcador de frontend.                                                              |
-| `"cli"`        | `pnpm action <name>` (o executor da CLI).                                                                                                                             |
-| `"mcp"`        | Um agente externo através do endpoint `tools/call` do MCP.                                                                                                            |
+| `caller`       | Definido quando…                                                                                                                                                                                                           |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `"tool"`       | O loop do agente dentro do app, um subagente ou agent team, ou a delegação A2A entre apps em linguagem natural, que conduz o mesmo loop do agente, então suas chamadas de ferramenta são `"tool"`.                         |
+| `"frontend"`   | Uma chamada do navegador via `useActionMutation()`, `useActionQuery()`, ou `callAction()` (marcada com o header `X-Agent-Native-Frontend: 1`).                                                                             |
+| `"http"`       | Um `POST` ou `GET` programático simples para `/_agent-native/actions/<name>` sem o marcador de frontend.                                                                                                                   |
+| `"cli"`        | `pnpm action <name>` (o executor da CLI).                                                                                                                                                                                  |
+| `"mcp"`        | Um agente externo através do endpoint `tools/call` do MCP.                                                                                                                                                                 |
 | `"a2a"`        | Uma chamada HTTP direta para `/_agent-native/actions/<name>` carregando um token de delegação A2A assinado. Este é um despacho entre apps explicitamente exposto, distinto do caminho `"tool"` em linguagem natural acima. |
-| `"automation"` | Uma automação disparada por evento, despachada a partir de um trigger armazenado no workspace. `ctx.automation` carrega a linhagem do trigger. Veja [Automations](/docs/automations). |
+| `"automation"` | Uma automação disparada por evento, despachada a partir de um trigger armazenado no workspace. `ctx.automation` carrega a linhagem do trigger. Veja [Automations](/docs/automations).                                      |
 
 ## O que vem a seguir
 

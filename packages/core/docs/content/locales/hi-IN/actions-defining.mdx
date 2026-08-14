@@ -43,30 +43,129 @@ description: "defineAction() की संरचना: schema, run, और HTTP
     {
       name: "config",
       type: "DefineActionConfig<TSchema, TReturn, TOutputSchema>",
-      description: "नीचे दिया गया सब कुछ एक config ऑब्जेक्ट है। केवल description, schema, और run आवश्यक हैं।",
+      description:
+        "नीचे दिया गया सब कुछ एक config ऑब्जेक्ट है। केवल description, schema, और run आवश्यक हैं।",
       fields: [
-        { name: "description", type: "string", description: "एजेंट यह तय करने के लिए क्या पढ़ता है कि इस action को कब कॉल करना है।" },
-        { name: "schema", type: "StandardSchemaV1", description: "हर सतह पर इनपुट को वैलिडेट करता है। नीचे Schema विकल्प देखें।" },
-        { name: "run", type: "(args, ctx?) => Promise<TReturn> | TReturn", description: "एकमात्र इम्प्लीमेंटेशन जिसे हर सतह कॉल करती है। `ctx` आर्ग्युमेंट के लिए Run Context देखें।" },
-        { name: "http", type: "ActionHttpConfig | false", optional: true, description: "माउंट किए गए method/path को ओवरराइड करता है, या HTTP endpoint को पूरी तरह डिसेबल करता है। नीचे HTTP कॉन्फ़िग देखें।" },
-        { name: "readOnly", type: "boolean", optional: true, default: "false", description: "जब http.method GET होता है तो अपने आप true हो जाता है। UI poll-refresh और write-auditing को छोड़ देता है। यह access control नहीं है।" },
-        { name: "outputSchema", type: "StandardSchemaV1", optional: true, description: "run() जो लौटाता है उसे वैलिडेट करता है। नीचे Return वैल्यू को वैलिडेट करना देखें।" },
-        { name: "outputErrorStrategy", type: '"warn" | "strict" | "fallback"', optional: true, default: '"warn"', description: "आउटपुट मिसमैच होने पर क्या होता है।" },
-        { name: "outputFallback", type: "TReturn", optional: true, description: 'जब outputErrorStrategy "fallback" हो तो अमान्य result की जगह लौटाया जाता है।' },
-        { name: "parallelSafe", type: "boolean", optional: true, description: "किसी mutating action को उसी टर्न के अन्य tool calls के साथ समवर्ती रूप से चलने देता है।" },
-        { name: "agentTool", type: "boolean", optional: true, default: "true", description: "हर एजेंट टूल लिस्ट से छिपाने के लिए false सेट करें। Access & Authorization देखें।" },
-        { name: "toolCallable", type: "boolean", optional: true, default: "true", description: "sandboxed extension iframe ब्रिज को ब्लॉक करने के लिए false सेट करें। Access & Authorization देखें।" },
-        { name: "publicAgent", type: "PublicAgentActionConfig", optional: true, description: "{ expose: true } action को public MCP/A2A/OpenAPI सतहों में जोड़ता है। Access & Authorization देखें।" },
-        { name: "needsApproval", type: "boolean | ((args, ctx?) => boolean | Promise<boolean>)", optional: true, default: "false", description: "run() से पहले मानव अनुमोदन के लिए एजेंट लूप को रोक देता है। Human-in-the-Loop Approvals देखें।" },
-        { name: "authorize", type: "ActionAuthorize<TInput>", optional: true, description: "यह तय करने वाला गार्ड फ़ंक्शन कि क्या यह कॉलर बिल्कुल भी action चला सकता है। Access & Authorization देखें।" },
-        { name: "audit", type: "ActionAuditConfig", optional: true, description: "हर mutating action को पहले से मिलने वाले automatic audit capture को ट्यून करता है। Audit Log देखें।" },
-        { name: "chatUI", type: "ActionChatUIConfig", optional: true, description: "action के result के लिए एक नेटिव चैट UI renderer घोषित करता है। Other Surfaces देखें।" },
+        {
+          name: "description",
+          type: "string",
+          description:
+            "एजेंट यह तय करने के लिए क्या पढ़ता है कि इस action को कब कॉल करना है।",
+        },
+        {
+          name: "schema",
+          type: "StandardSchemaV1",
+          description:
+            "हर सतह पर इनपुट को वैलिडेट करता है। नीचे Schema विकल्प देखें।",
+        },
+        {
+          name: "run",
+          type: "(args, ctx?) => Promise<TReturn> | TReturn",
+          description:
+            "एकमात्र इम्प्लीमेंटेशन जिसे हर सतह कॉल करती है। `ctx` आर्ग्युमेंट के लिए Run Context देखें।",
+        },
+        {
+          name: "http",
+          type: "ActionHttpConfig | false",
+          optional: true,
+          description:
+            "माउंट किए गए method/path को ओवरराइड करता है, या HTTP endpoint को पूरी तरह डिसेबल करता है। नीचे HTTP कॉन्फ़िग देखें।",
+        },
+        {
+          name: "readOnly",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description:
+            "जब http.method GET होता है तो अपने आप true हो जाता है। UI poll-refresh और write-auditing को छोड़ देता है। यह access control नहीं है।",
+        },
+        {
+          name: "outputSchema",
+          type: "StandardSchemaV1",
+          optional: true,
+          description:
+            "run() जो लौटाता है उसे वैलिडेट करता है। नीचे Return वैल्यू को वैलिडेट करना देखें।",
+        },
+        {
+          name: "outputErrorStrategy",
+          type: '"warn" | "strict" | "fallback"',
+          optional: true,
+          default: '"warn"',
+          description: "आउटपुट मिसमैच होने पर क्या होता है।",
+        },
+        {
+          name: "outputFallback",
+          type: "TReturn",
+          optional: true,
+          description:
+            'जब outputErrorStrategy "fallback" हो तो अमान्य result की जगह लौटाया जाता है।',
+        },
+        {
+          name: "parallelSafe",
+          type: "boolean",
+          optional: true,
+          description:
+            "किसी mutating action को उसी टर्न के अन्य tool calls के साथ समवर्ती रूप से चलने देता है।",
+        },
+        {
+          name: "agentTool",
+          type: "boolean",
+          optional: true,
+          default: "true",
+          description:
+            "हर एजेंट टूल लिस्ट से छिपाने के लिए false सेट करें। Access & Authorization देखें।",
+        },
+        {
+          name: "toolCallable",
+          type: "boolean",
+          optional: true,
+          default: "true",
+          description:
+            "sandboxed extension iframe ब्रिज को ब्लॉक करने के लिए false सेट करें। Access & Authorization देखें।",
+        },
+        {
+          name: "publicAgent",
+          type: "PublicAgentActionConfig",
+          optional: true,
+          description:
+            "{ expose: true } action को public MCP/A2A/OpenAPI सतहों में जोड़ता है। Access & Authorization देखें।",
+        },
+        {
+          name: "needsApproval",
+          type: "boolean | ((args, ctx?) => boolean | Promise<boolean>)",
+          optional: true,
+          default: "false",
+          description:
+            "run() से पहले मानव अनुमोदन के लिए एजेंट लूप को रोक देता है। Human-in-the-Loop Approvals देखें।",
+        },
+        {
+          name: "authorize",
+          type: "ActionAuthorize<TInput>",
+          optional: true,
+          description:
+            "यह तय करने वाला गार्ड फ़ंक्शन कि क्या यह कॉलर बिल्कुल भी action चला सकता है। Access & Authorization देखें।",
+        },
+        {
+          name: "audit",
+          type: "ActionAuditConfig",
+          optional: true,
+          description:
+            "हर mutating action को पहले से मिलने वाले automatic audit capture को ट्यून करता है। Audit Log देखें।",
+        },
+        {
+          name: "chatUI",
+          type: "ActionChatUIConfig",
+          optional: true,
+          description:
+            "action के result के लिए एक नेटिव चैट UI renderer घोषित करता है। Other Surfaces देखें।",
+        },
       ],
     },
   ]}
   returns={{
     type: "ActionDefinition<TInput, TReturn>",
-    description: "टाइप्ड action परिभाषा। इसे फ़ाइल के डिफ़ॉल्ट एक्सपोर्ट के रूप में एक्सपोर्ट करें।",
+    description:
+      "टाइप्ड action परिभाषा। इसे फ़ाइल के डिफ़ॉल्ट एक्सपोर्ट के रूप में एक्सपोर्ट करें।",
   }}
 />
 
@@ -101,11 +200,11 @@ export default defineAction({
 
 `outputErrorStrategy` यह नियंत्रित करता है कि मिसमैच पर क्या होता है:
 
-| रणनीति       | मिसमैच पर व्यवहार                                                                                     |
-| ------------ | ---------------------------------------------------------------------------------------------------- |
+| रणनीति       | मिसमैच पर व्यवहार                                                                                              |
+| ------------ | -------------------------------------------------------------------------------------------------------------- |
 | `"warn"`     | **डिफ़ॉल्ट।** समस्याओं को `console.warn` करता है और **original** result को अपरिवर्तित लौटाता है। Non-breaking। |
-| `"strict"`   | एक स्पष्ट error throw करता है, ताकि action में किसी बग को नोटिस करना आसान हो।                          |
-| `"fallback"` | अमान्य result की जगह दिया गया `outputFallback` वैल्यू लौटाता है।                                       |
+| `"strict"`   | एक स्पष्ट error throw करता है, ताकि action में किसी बग को नोटिस करना आसान हो।                                  |
+| `"fallback"` | अमान्य result की जगह दिया गया `outputFallback` वैल्यू लौटाता है।                                               |
 
 जब `run()` सफल होता है, फ्रेमवर्क वैलिडेटेड वैल्यू लौटाता है, इसलिए `outputSchema` पर कोई भी defaults या coercions उसी तरह लागू होते हैं जैसे वे input के लिए होते हैं। जब आप कोई `outputSchema` पास नहीं करते, तो return वैल्यू अपरिवर्तित रहता है।
 

@@ -11,13 +11,13 @@ Cinco configurações decidem quem pode chamar uma action: o agente, o frontend,
 
 As cinco flags têm como padrão o valor permissivo, então você só define uma quando precisa restringir uma superfície específica. A tabela abaixo é um resumo rápido. As seções depois dela acrescentam o único detalhe que cada flag precisa.
 
-| Flag            | Padrão        | Valor restritivo → quem ainda pode chamar                                     | Uso típico                                                              |
-| --------------- | ------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------ |
-| `agentTool`     | `true`        | `false` → apenas UI, HTTP e CLI (oculta do modelo, MCP e A2A)                   | Actions apenas de UI ou programáticas que não devem ocupar um slot de ferramenta |
-| `toolCallable`  | `true`        | `false` → tudo **exceto** a ponte de iframe de extensão em sandbox (403)        | Mudanças sensíveis de conta ou org (excluir conta, mudar associação)     |
-| `publicAgent`   | desligado (privado) | `{ expose: true }` → adiciona a action às superfícies **públicas** de MCP/A2A/OpenAPI | Ferramentas seguras de leitura ou ingestão que não exigem autenticação |
-| `needsApproval` | `false`       | `true` → o agente **pausa**, e um humano precisa aprovar a chamada específica  | Efeitos colaterais consequenciais (enviar e-mail, cobrar um cartão, excluir) |
-| `authorize`     | nenhum        | uma função guarda → apenas os chamadores que ela aceita, em **toda** superfície | Operações restritas a uma função (RBAC por app, operações só para admin) |
+| Flag            | Padrão              | Valor restritivo → quem ainda pode chamar                                             | Uso típico                                                                       |
+| --------------- | ------------------- | ------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `agentTool`     | `true`              | `false` → apenas UI, HTTP e CLI (oculta do modelo, MCP e A2A)                         | Actions apenas de UI ou programáticas que não devem ocupar um slot de ferramenta |
+| `toolCallable`  | `true`              | `false` → tudo **exceto** a ponte de iframe de extensão em sandbox (403)              | Mudanças sensíveis de conta ou org (excluir conta, mudar associação)             |
+| `publicAgent`   | desligado (privado) | `{ expose: true }` → adiciona a action às superfícies **públicas** de MCP/A2A/OpenAPI | Ferramentas seguras de leitura ou ingestão que não exigem autenticação           |
+| `needsApproval` | `false`             | `true` → o agente **pausa**, e um humano precisa aprovar a chamada específica         | Efeitos colaterais consequenciais (enviar e-mail, cobrar um cartão, excluir)     |
+| `authorize`     | nenhum              | uma função guarda → apenas os chamadores que ela aceita, em **toda** superfície       | Operações restritas a uma função (RBAC por app, operações só para admin)         |
 
 Essas flags são independentes, então definir uma não muda as outras. `agentTool` controla o que o modelo vê, veja [Ocultar do modelo](#agent-tool) abaixo. `toolCallable` controla apenas o iframe de extensão, veja [Bloquear iframes de extensão](#tool-callable) abaixo. `publicAgent` adiciona uma superfície pública opt-in, e uma rota web pública nunca implica exposição pública de ferramenta, veja [Expor a agentes públicos](#public-agent) abaixo. `needsApproval` restringe a execução depois que a chamada já foi feita, veja [Exigir aprovação humana](#needs-approval) abaixo. `authorize` decide se este chamador pode executar a action, em todo caminho de despacho, antes de `run()` ser executado, veja [Restringir chamadores por função](#authorize) abaixo.
 
@@ -183,11 +183,11 @@ Uma action de create não chama nenhum dos dois helpers. Ela só precisa carimba
 
 Os três mecanismos não são intercambiáveis:
 
-| Mecanismo                       | Pergunta que responde                                    | Se aplica a                       |
-| ---------------------------------| ---------------------------------------------------------| -------------------------------- |
-| `authorize`                      | Este chamador pode executar a operação?                    | Todos os seis pontos de despacho  |
-| `needsApproval`                  | Um humano deve aprovar esta chamada permitida específica?  | Apenas o loop do agente            |
-| `accessFilter()`/`assertAccess()`| Quais linhas este chamador permitido pode ver ou escrever? | Dentro de `run()`, por consulta ou linha |
+| Mecanismo                         | Pergunta que responde                                      | Se aplica a                              |
+| --------------------------------- | ---------------------------------------------------------- | ---------------------------------------- |
+| `authorize`                       | Este chamador pode executar a operação?                    | Todos os seis pontos de despacho         |
+| `needsApproval`                   | Um humano deve aprovar esta chamada permitida específica?  | Apenas o loop do agente                  |
+| `accessFilter()`/`assertAccess()` | Quais linhas este chamador permitido pode ver ou escrever? | Dentro de `run()`, por consulta ou linha |
 
 Uma action de escrita restrita tipicamente precisa tanto de `authorize` quanto de `assertAccess()`. O primeiro mantém não-coaches fora da operação. O segundo mantém um coach fora do plano de outra org. `needsApproval` é um eixo separado. Ele nunca restringe quem pode chamar, apenas se o agente pode prosseguir sem supervisão.
 

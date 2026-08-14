@@ -87,14 +87,14 @@ Once a flag is declared and registered, turning it on for real accounts goes thr
 
 `set-feature-flag` is how an operator actually changes who the flag is on for:
 
-| Operation | What it does | Example args |
-| --- | --- | --- |
-| `enable-for-current-user` | Turns the flag on for your own account only. | `{ key: "full-app-building", operation: "enable-for-current-user" }` |
-| `off` | Turns the flag off for everyone, resetting any rules. | `{ key: "full-app-building", operation: "off" }` |
-| `replace-rules`, mode `"on"` | Turns the flag on for everyone. | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "on" } }` |
-| `replace-rules`, mode `"rules"` with `emails` | Turns it on for a specific list of accounts. | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", emails: ["a@example.com"] } }` |
-| `replace-rules`, mode `"rules"` with `orgIds` | Turns it on for specific organizations. | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", orgIds: ["org_123"] } }` |
-| `replace-rules`, mode `"rules"` with `percentage` | Turns it on for a percentage rollout. | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", percentage: 10 } }` |
+| Operation                                         | What it does                                          | Example args                                                                                                    |
+| ------------------------------------------------- | ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `enable-for-current-user`                         | Turns the flag on for your own account only.          | `{ key: "full-app-building", operation: "enable-for-current-user" }`                                            |
+| `off`                                             | Turns the flag off for everyone, resetting any rules. | `{ key: "full-app-building", operation: "off" }`                                                                |
+| `replace-rules`, mode `"on"`                      | Turns the flag on for everyone.                       | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "on" } }`                               |
+| `replace-rules`, mode `"rules"` with `emails`     | Turns it on for a specific list of accounts.          | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", emails: ["a@example.com"] } }` |
+| `replace-rules`, mode `"rules"` with `orgIds`     | Turns it on for specific organizations.               | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", orgIds: ["org_123"] } }`       |
+| `replace-rules`, mode `"rules"` with `percentage` | Turns it on for a percentage rollout.                 | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", percentage: 10 } }`            |
 
 Fleet operator UIs call these same actions through narrowly scoped A2A delegation instead of a shared login, and Analytics is the sole operator UI for them. Apps should not build their own flag settings panel, and flag writes should never route through generic settings endpoints or raw SQL.
 
@@ -135,13 +135,13 @@ const args = parseArgs(["--name", "Steve", "--verbose", "--count=3"]);
 
 These are small helpers for writing scripts, from the same `@agent-native/core` import `parseArgs()` above comes from. They aren't tied to the legacy CLI-style action style specifically. Reach for them in any one-off dev script: loading environment variables, validating a path argument, or aborting with a clear error.
 
-| Function                | Returns                  | Description                                                                                                          |
-| ----------------------- | ------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
-| `loadEnv(path?)`        | `void`                   | Load `.env` (and `.env.local`) from the project root or a custom path. Falls back to the workspace root's `.env` in an enterprise workspace. |
-| `camelCaseArgs(args)`   | `Record<string, string>` | Convert kebab-case keys to camelCase.                                                                                  |
-| `isValidPath(p)`        | `boolean`                | Validate a relative path (no traversal, no absolute).                                                                 |
-| `isValidProjectPath(p)` | `boolean`                | Validate a project slug (e.g. `my-project` or `group/my-project`).                                                    |
-| `ensureDir(dir)`        | `void`                   | `mkdir -p` helper.                                                                                                     |
+| Function                | Returns                  | Description                                                                                                                                                       |
+| ----------------------- | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `loadEnv(path?)`        | `void`                   | Load `.env` (and `.env.local`) from the project root or a custom path. Falls back to the workspace root's `.env` in an enterprise workspace.                      |
+| `camelCaseArgs(args)`   | `Record<string, string>` | Convert kebab-case keys to camelCase.                                                                                                                             |
+| `isValidPath(p)`        | `boolean`                | Validate a relative path (no traversal, no absolute).                                                                                                             |
+| `isValidProjectPath(p)` | `boolean`                | Validate a project slug (e.g. `my-project` or `group/my-project`).                                                                                                |
+| `ensureDir(dir)`        | `void`                   | `mkdir -p` helper.                                                                                                                                                |
 | `fail(message)`         | `never`                  | Throw an error to abort a script. The CLI runner catches it and exits with code 1. In-server callers (agent tools, A2A) get it back as a tool-call error instead. |
 
 ## What's next

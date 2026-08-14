@@ -47,83 +47,97 @@ Most actions only ever read `ctx?.userEmail` and `ctx?.orgId`, the [access-contr
       name: "ctx",
       type: "ActionRunContext",
       optional: true,
-      description: "The resolved request identity and the surface that invoked the action. Undefined-safe: a 1-argument `run(args)` handler is still valid.",
+      description:
+        "The resolved request identity and the surface that invoked the action. Undefined-safe: a 1-argument `run(args)` handler is still valid.",
       fields: [
         {
           name: "userEmail",
           type: "string",
           optional: true,
-          description: "Resolved request user. **Never defaulted to a dev identity**: `undefined` when the request has no authenticated user. Apply your own fallback if you need one.",
+          description:
+            "Resolved request user. **Never defaulted to a dev identity**: `undefined` when the request has no authenticated user. Apply your own fallback if you need one.",
         },
         {
           name: "orgId",
           type: "string | null",
-          description: "Resolved org id, or `null` when the request has no org.",
+          description:
+            "Resolved org id, or `null` when the request has no org.",
         },
         {
           name: "caller",
           type: "ActionCaller",
-          description: "How the action was invoked. See [the caller union](#caller) below.",
+          description:
+            "How the action was invoked. See [the caller union](#caller) below.",
         },
         {
           name: "send",
           type: "(event) => void",
           optional: true,
-          description: "Emits an SSE event to the client. Only present inside the agent tool loop (`caller: \"tool\"`). `undefined` elsewhere.",
+          description:
+            'Emits an SSE event to the client. Only present inside the agent tool loop (`caller: "tool"`). `undefined` elsewhere.',
         },
         {
           name: "attachments",
           type: "AgentChatAttachment[]",
           optional: true,
-          description: "Files, images, and pasted text blocks submitted with the current agent turn. Populated only when `caller: \"tool\"`. `undefined` on all other surfaces.",
+          description:
+            'Files, images, and pasted text blocks submitted with the current agent turn. Populated only when `caller: "tool"`. `undefined` on all other surfaces.',
         },
         {
           name: "signal",
           type: "AbortSignal",
           optional: true,
-          description: "Aborts when the run is soft-timed-out, cancelled, or the server shuts down. Populated only when `caller: \"tool\"`. Long-running actions can observe it to cancel early instead of waiting for the per-tool 60s hard timeout.",
+          description:
+            'Aborts when the run is soft-timed-out, cancelled, or the server shuts down. Populated only when `caller: "tool"`. Long-running actions can observe it to cancel early instead of waiting for the per-tool 60s hard timeout.',
         },
         {
           name: "actionName",
           type: "string",
           optional: true,
-          description: "The registry key of the action being called (e.g. `delete-recording`), set at each dispatch site so cross-cutting concerns like the audit log can attribute the call. `undefined` for direct programmatic `run()` calls that bypass the dispatcher.",
+          description:
+            "The registry key of the action being called (e.g. `delete-recording`), set at each dispatch site so cross-cutting concerns like the audit log can attribute the call. `undefined` for direct programmatic `run()` calls that bypass the dispatcher.",
         },
         {
           name: "threadId",
           type: "string",
           optional: true,
-          description: "The agent conversation thread that triggered this call. Populated only when `caller: \"tool\"`, so the audit log can link a mutation back to the exact agent run.",
+          description:
+            'The agent conversation thread that triggered this call. Populated only when `caller: "tool"`, so the audit log can link a mutation back to the exact agent run.',
         },
         {
           name: "runId",
           type: "string",
           optional: true,
-          description: "The agent run attempt that triggered this call. Populated only when `caller: \"tool\"`.",
+          description:
+            'The agent run attempt that triggered this call. Populated only when `caller: "tool"`.',
         },
         {
           name: "turnId",
           type: "string",
           optional: true,
-          description: "The specific turn within that run that triggered this call. Populated only when `caller: \"tool\"`.",
+          description:
+            'The specific turn within that run that triggered this call. Populated only when `caller: "tool"`.',
         },
         {
           name: "automation",
           type: "ActionAutomationContext",
           optional: true,
-          description: "Present only when `caller: \"automation\"`. Carries `triggerId`, `triggerName`, and an optional `policyId` for the event-triggered automation that dispatched this call.",
+          description:
+            'Present only when `caller: "automation"`. Carries `triggerId`, `triggerName`, and an optional `policyId` for the event-triggered automation that dispatched this call.',
         },
         {
           name: "networkProtocol",
           type: '"a2a" | "mcp" | "provider-api"',
           optional: true,
-          description: "Which delegated-call protocol this request arrived over. Set only for those direct-dispatch paths.",
+          description:
+            "Which delegated-call protocol this request arrived over. Set only for those direct-dispatch paths.",
         },
         {
           name: "networkId",
           type: "string",
           optional: true,
-          description: "A correlation id for that delegated call, e.g. the A2A delegation JWT id.",
+          description:
+            "A correlation id for that delegated call, e.g. the A2A delegation JWT id.",
         },
         {
           name: "networkPeer",
@@ -136,7 +150,8 @@ Most actions only ever read `ctx?.userEmail` and `ctx?.orgId`, the [access-contr
   ]}
   returns={{
     type: "Promise<TReturn> | TReturn",
-    description: "The action's result, validated against `outputSchema` if one is set.",
+    description:
+      "The action's result, validated against `outputSchema` if one is set.",
   }}
 />
 
@@ -146,15 +161,15 @@ Most actions only ever read `ctx?.userEmail` and `ctx?.orgId`, the [access-contr
 
 `caller` is the union `"tool" | "http" | "frontend" | "cli" | "mcp" | "a2a" | "automation"`:
 
-| `caller`       | Set when…                                                                                                                                                          |
-| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `"tool"`       | The in-app agent loop, a sub-agent or agent team, or natural-language cross-app A2A delegation, which drives the same agent loop, so its tool calls are `"tool"`.     |
-| `"frontend"`   | A browser call via `useActionMutation()`, `useActionQuery()`, or `callAction()` (tagged with the `X-Agent-Native-Frontend: 1` header).                               |
-| `"http"`       | A bare programmatic `POST` or `GET` to `/_agent-native/actions/<name>` without the frontend marker.                                                                   |
-| `"cli"`        | `pnpm action <name>` (the CLI runner).                                                                                                                                |
-| `"mcp"`        | An external agent over the MCP `tools/call` endpoint.                                                                                                                 |
+| `caller`       | Set when…                                                                                                                                                                                                |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `"tool"`       | The in-app agent loop, a sub-agent or agent team, or natural-language cross-app A2A delegation, which drives the same agent loop, so its tool calls are `"tool"`.                                        |
+| `"frontend"`   | A browser call via `useActionMutation()`, `useActionQuery()`, or `callAction()` (tagged with the `X-Agent-Native-Frontend: 1` header).                                                                   |
+| `"http"`       | A bare programmatic `POST` or `GET` to `/_agent-native/actions/<name>` without the frontend marker.                                                                                                      |
+| `"cli"`        | `pnpm action <name>` (the CLI runner).                                                                                                                                                                   |
+| `"mcp"`        | An external agent over the MCP `tools/call` endpoint.                                                                                                                                                    |
 | `"a2a"`        | A direct HTTP call to `/_agent-native/actions/<name>` carrying a signed A2A delegation token. This is an explicitly exposed, cross-app dispatch, distinct from the natural-language `"tool"` path above. |
-| `"automation"` | An event-triggered automation dispatched from a stored workspace trigger. `ctx.automation` carries the trigger lineage. See [Automations](/docs/automations).        |
+| `"automation"` | An event-triggered automation dispatched from a stored workspace trigger. `ctx.automation` carries the trigger lineage. See [Automations](/docs/automations).                                            |
 
 ## What's next
 

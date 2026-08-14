@@ -87,14 +87,14 @@ Une fois qu’un flag est déclaré et enregistré, l’activer réellement pour
 
 `set-feature-flag` est la façon dont un opérateur change réellement pour qui le flag est activé :
 
-| Opération | Ce qu’elle fait | Exemple d’arguments |
-| --- | --- | --- |
-| `enable-for-current-user` | Active le flag pour votre propre compte seulement. | `{ key: "full-app-building", operation: "enable-for-current-user" }` |
-| `off` | Désactive le flag pour tout le monde, en réinitialisant toutes les règles. | `{ key: "full-app-building", operation: "off" }` |
-| `replace-rules`, mode `"on"` | Active le flag pour tout le monde. | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "on" } }` |
-| `replace-rules`, mode `"rules"` avec `emails` | L’active pour une liste précise de comptes. | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", emails: ["a@example.com"] } }` |
-| `replace-rules`, mode `"rules"` avec `orgIds` | L’active pour des organisations précises. | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", orgIds: ["org_123"] } }` |
-| `replace-rules`, mode `"rules"` avec `percentage` | L’active pour un déploiement en pourcentage. | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", percentage: 10 } }` |
+| Opération                                         | Ce qu’elle fait                                                            | Exemple d’arguments                                                                                             |
+| ------------------------------------------------- | -------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `enable-for-current-user`                         | Active le flag pour votre propre compte seulement.                         | `{ key: "full-app-building", operation: "enable-for-current-user" }`                                            |
+| `off`                                             | Désactive le flag pour tout le monde, en réinitialisant toutes les règles. | `{ key: "full-app-building", operation: "off" }`                                                                |
+| `replace-rules`, mode `"on"`                      | Active le flag pour tout le monde.                                         | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "on" } }`                               |
+| `replace-rules`, mode `"rules"` avec `emails`     | L’active pour une liste précise de comptes.                                | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", emails: ["a@example.com"] } }` |
+| `replace-rules`, mode `"rules"` avec `orgIds`     | L’active pour des organisations précises.                                  | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", orgIds: ["org_123"] } }`       |
+| `replace-rules`, mode `"rules"` avec `percentage` | L’active pour un déploiement en pourcentage.                               | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", percentage: 10 } }`            |
 
 Les UI d’opérateur de flotte appellent ces mêmes actions via une délégation A2A étroitement restreinte au lieu d’une connexion partagée, et Analytics est la seule UI d’opérateur pour elles. Les applications ne doivent pas construire leur propre panneau de paramètres de flags, et les écritures de flags ne doivent jamais passer par des points de terminaison de paramètres génériques ou du SQL brut.
 
@@ -135,13 +135,13 @@ const args = parseArgs(["--name", "Steve", "--verbose", "--count=3"]);
 
 Ce sont de petites aides pour écrire des scripts, venant du même import `@agent-native/core` d’où vient `parseArgs()` ci-dessus. Elles ne sont pas liées spécifiquement au style d’action historique de la CLI. Utilisez-les dans tout script de développement ponctuel : charger des variables d’environnement, valider un argument de chemin, ou abandonner avec une erreur claire.
 
-| Fonction                | Renvoie                  | Description                                                                                                          |
-| ----------------------- | ------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
-| `loadEnv(path?)`        | `void`                   | Charge `.env` (et `.env.local`) depuis la racine du projet ou un chemin personnalisé. Se rabat sur le `.env` de la racine de l’espace de travail dans un espace de travail d’entreprise. |
-| `camelCaseArgs(args)`   | `Record<string, string>` | Convertit les clés en kebab-case vers camelCase.                                                                       |
-| `isValidPath(p)`        | `boolean`                | Valide un chemin relatif (pas de traversée, pas d’absolu).                                                             |
-| `isValidProjectPath(p)` | `boolean`                | Valide un slug de projet (par ex. `my-project` ou `group/my-project`).                                                 |
-| `ensureDir(dir)`        | `void`                   | Aide `mkdir -p`.                                                                                                        |
+| Fonction                | Renvoie                  | Description                                                                                                                                                                                                    |
+| ----------------------- | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `loadEnv(path?)`        | `void`                   | Charge `.env` (et `.env.local`) depuis la racine du projet ou un chemin personnalisé. Se rabat sur le `.env` de la racine de l’espace de travail dans un espace de travail d’entreprise.                       |
+| `camelCaseArgs(args)`   | `Record<string, string>` | Convertit les clés en kebab-case vers camelCase.                                                                                                                                                               |
+| `isValidPath(p)`        | `boolean`                | Valide un chemin relatif (pas de traversée, pas d’absolu).                                                                                                                                                     |
+| `isValidProjectPath(p)` | `boolean`                | Valide un slug de projet (par ex. `my-project` ou `group/my-project`).                                                                                                                                         |
+| `ensureDir(dir)`        | `void`                   | Aide `mkdir -p`.                                                                                                                                                                                               |
 | `fail(message)`         | `never`                  | Lève une erreur pour abandonner un script. L’exécuteur CLI l’intercepte et sort avec le code 1. Les appelants internes au serveur (outils d’agent, A2A) la récupèrent plutôt comme une erreur d’appel d’outil. |
 
 ## Quelle est la prochaine étape

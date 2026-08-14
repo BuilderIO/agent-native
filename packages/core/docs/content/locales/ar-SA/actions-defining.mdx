@@ -43,24 +43,121 @@ description: "تشريح defineAction(): المخطط، وrun، وإعداد HTT
     {
       name: "config",
       type: "DefineActionConfig<TSchema, TReturn, TOutputSchema>",
-      description: "كل ما يلي هو كائن تكوين واحد. description وschema وrun فقط مطلوبة.",
+      description:
+        "كل ما يلي هو كائن تكوين واحد. description وschema وrun فقط مطلوبة.",
       fields: [
-        { name: "description", type: "string", description: "ما يقرأه الوكيل ليقرر متى يستدعي هذا الـ action." },
-        { name: "schema", type: "StandardSchemaV1", description: "يتحقق من صحة المدخلات على كل سطح. راجع خيارات المخطط أدناه." },
-        { name: "run", type: "(args, ctx?) => Promise<TReturn> | TReturn", description: "التطبيق الوحيد الذي يستدعيه كل سطح. راجع سياق التشغيل لمعرفة وسيطة ctx." },
-        { name: "http", type: "ActionHttpConfig | false", optional: true, description: "يتجاوز طريقة/مسار التركيب، أو يعطّل نقطة نهاية HTTP بالكامل. راجع إعداد HTTP أدناه." },
-        { name: "readOnly", type: "boolean", optional: true, default: "false", description: "يصبح صحيحًا تلقائيًا عندما تكون http.method هي GET. يتخطى إعادة تحديث الاستقصاء الخاصة بواجهة المستخدم وتدقيق الكتابة. ليس تحكمًا في الوصول." },
-        { name: "outputSchema", type: "StandardSchemaV1", optional: true, description: "يتحقق من صحة ما تُرجعه run(). راجع التحقق من صحة القيمة المرجعة أدناه." },
-        { name: "outputErrorStrategy", type: '"warn" | "strict" | "fallback"', optional: true, default: '"warn"', description: "ما الذي يحدث عند عدم تطابق الإخراج." },
-        { name: "outputFallback", type: "TReturn", optional: true, description: 'تُرجَع بدلاً من نتيجة غير صالحة عندما تكون outputErrorStrategy هي "fallback".' },
-        { name: "parallelSafe", type: "boolean", optional: true, description: "يسمح لـ action يغيّر البيانات بالعمل بالتزامن مع استدعاءات أدوات أخرى في الدور نفسه." },
-        { name: "agentTool", type: "boolean", optional: true, default: "true", description: "اضبطه على false لإخفائه عن كل قائمة أدوات الوكيل. راجع الوصول والتخويل." },
-        { name: "toolCallable", type: "boolean", optional: true, default: "true", description: "اضبطه على false لحظر جسر iframe المعزول الخاص بالامتداد. راجع الوصول والتخويل." },
-        { name: "publicAgent", type: "PublicAgentActionConfig", optional: true, description: "{ expose: true } يضيف الـ action إلى أسطح MCP/A2A/OpenAPI العامة. راجع الوصول والتخويل." },
-        { name: "needsApproval", type: "boolean | ((args, ctx?) => boolean | Promise<boolean>)", optional: true, default: "false", description: "يوقف حلقة الوكيل مؤقتًا لانتظار موافقة الإنسان قبل run(). راجع موافقات الإنسان في الحلقة." },
-        { name: "authorize", type: "ActionAuthorize<TInput>", optional: true, description: "دالة حارسة تقرر ما إذا كان يجوز لهذا المستدعي تشغيل الـ action أصلًا. راجع الوصول والتخويل." },
-        { name: "audit", type: "ActionAuditConfig", optional: true, description: "يضبط التقاط التدقيق التلقائي الذي يحصل عليه بالفعل كل action يغيّر البيانات. راجع سجل التدقيق." },
-        { name: "chatUI", type: "ActionChatUIConfig", optional: true, description: "يعلن عن عارض واجهة محادثة أصلية لنتيجة الـ action. راجع أسطح أخرى." },
+        {
+          name: "description",
+          type: "string",
+          description: "ما يقرأه الوكيل ليقرر متى يستدعي هذا الـ action.",
+        },
+        {
+          name: "schema",
+          type: "StandardSchemaV1",
+          description:
+            "يتحقق من صحة المدخلات على كل سطح. راجع خيارات المخطط أدناه.",
+        },
+        {
+          name: "run",
+          type: "(args, ctx?) => Promise<TReturn> | TReturn",
+          description:
+            "التطبيق الوحيد الذي يستدعيه كل سطح. راجع سياق التشغيل لمعرفة وسيطة ctx.",
+        },
+        {
+          name: "http",
+          type: "ActionHttpConfig | false",
+          optional: true,
+          description:
+            "يتجاوز طريقة/مسار التركيب، أو يعطّل نقطة نهاية HTTP بالكامل. راجع إعداد HTTP أدناه.",
+        },
+        {
+          name: "readOnly",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description:
+            "يصبح صحيحًا تلقائيًا عندما تكون http.method هي GET. يتخطى إعادة تحديث الاستقصاء الخاصة بواجهة المستخدم وتدقيق الكتابة. ليس تحكمًا في الوصول.",
+        },
+        {
+          name: "outputSchema",
+          type: "StandardSchemaV1",
+          optional: true,
+          description:
+            "يتحقق من صحة ما تُرجعه run(). راجع التحقق من صحة القيمة المرجعة أدناه.",
+        },
+        {
+          name: "outputErrorStrategy",
+          type: '"warn" | "strict" | "fallback"',
+          optional: true,
+          default: '"warn"',
+          description: "ما الذي يحدث عند عدم تطابق الإخراج.",
+        },
+        {
+          name: "outputFallback",
+          type: "TReturn",
+          optional: true,
+          description:
+            'تُرجَع بدلاً من نتيجة غير صالحة عندما تكون outputErrorStrategy هي "fallback".',
+        },
+        {
+          name: "parallelSafe",
+          type: "boolean",
+          optional: true,
+          description:
+            "يسمح لـ action يغيّر البيانات بالعمل بالتزامن مع استدعاءات أدوات أخرى في الدور نفسه.",
+        },
+        {
+          name: "agentTool",
+          type: "boolean",
+          optional: true,
+          default: "true",
+          description:
+            "اضبطه على false لإخفائه عن كل قائمة أدوات الوكيل. راجع الوصول والتخويل.",
+        },
+        {
+          name: "toolCallable",
+          type: "boolean",
+          optional: true,
+          default: "true",
+          description:
+            "اضبطه على false لحظر جسر iframe المعزول الخاص بالامتداد. راجع الوصول والتخويل.",
+        },
+        {
+          name: "publicAgent",
+          type: "PublicAgentActionConfig",
+          optional: true,
+          description:
+            "{ expose: true } يضيف الـ action إلى أسطح MCP/A2A/OpenAPI العامة. راجع الوصول والتخويل.",
+        },
+        {
+          name: "needsApproval",
+          type: "boolean | ((args, ctx?) => boolean | Promise<boolean>)",
+          optional: true,
+          default: "false",
+          description:
+            "يوقف حلقة الوكيل مؤقتًا لانتظار موافقة الإنسان قبل run(). راجع موافقات الإنسان في الحلقة.",
+        },
+        {
+          name: "authorize",
+          type: "ActionAuthorize<TInput>",
+          optional: true,
+          description:
+            "دالة حارسة تقرر ما إذا كان يجوز لهذا المستدعي تشغيل الـ action أصلًا. راجع الوصول والتخويل.",
+        },
+        {
+          name: "audit",
+          type: "ActionAuditConfig",
+          optional: true,
+          description:
+            "يضبط التقاط التدقيق التلقائي الذي يحصل عليه بالفعل كل action يغيّر البيانات. راجع سجل التدقيق.",
+        },
+        {
+          name: "chatUI",
+          type: "ActionChatUIConfig",
+          optional: true,
+          description:
+            "يعلن عن عارض واجهة محادثة أصلية لنتيجة الـ action. راجع أسطح أخرى.",
+        },
       ],
     },
   ]}
@@ -101,11 +198,11 @@ export default defineAction({
 
 `outputErrorStrategy` controls what happens on a mismatch:
 
-| الاستراتيجية | السلوك عند عدم التطابق                                                                     |
-| ------------ | ---------------------------------------------------------------------------------------------------- |
-| `"warn"`     | **الافتراضي.** ينفّذ `console.warn` للمشكلات ويُرجع النتيجة **الأصلية** دون تغيير. غير معطِّل.   |
-| `"strict"`   | يطرح خطأ واضحًا، بحيث يسهل ملاحظة أي خلل في الـ action.                                       |
-| `"fallback"` | يُرجع قيمة `outputFallback` المقدَّمة بدلاً من النتيجة غير الصالحة.                           |
+| الاستراتيجية | السلوك عند عدم التطابق                                                                         |
+| ------------ | ---------------------------------------------------------------------------------------------- |
+| `"warn"`     | **الافتراضي.** ينفّذ `console.warn` للمشكلات ويُرجع النتيجة **الأصلية** دون تغيير. غير معطِّل. |
+| `"strict"`   | يطرح خطأ واضحًا، بحيث يسهل ملاحظة أي خلل في الـ action.                                        |
+| `"fallback"` | يُرجع قيمة `outputFallback` المقدَّمة بدلاً من النتيجة غير الصالحة.                            |
 
 عندما تنجح `run()`، يُرجع إطار العمل القيمة التي تم التحقق من صحتها، بحيث تسري أي قيم افتراضية أو تحويلات على `outputSchema`، بالطريقة نفسها التي تسري بها على المدخل. عندما لا تمرّر `outputSchema`، تبقى القيمة المرجعة دون تغيير.
 

@@ -11,13 +11,13 @@ Five settings decide who can call an action: the agent, the frontend, an extensi
 
 All five flags default to the permissive value, so you only set one when you need to tighten a specific surface. The table below is a quick summary. The sections after it add the one detail each flag needs.
 
-| Flag            | Default       | Restrictive value → who can still call                                       | Typical use                                                          |
-| --------------- | ------------- | ------------------------------------------------------------------------------ | ----------------------------------------------------------------------- |
-| `agentTool`     | `true`        | `false` → UI, HTTP, and CLI only (hidden from the model, MCP, and A2A)          | UI-only or programmatic actions that shouldn't take up a tool slot      |
-| `toolCallable`  | `true`        | `false` → everything **except** the sandboxed extension iframe bridge (403)    | Sensitive account or org changes (delete account, change membership)    |
-| `publicAgent`   | off (private) | `{ expose: true }` → adds the action to **public** MCP/A2A/OpenAPI surfaces    | Safe read or ingest tools that don't require authentication             |
-| `needsApproval` | `false`       | `true` → the agent **pauses**, and a human must approve the specific call      | Consequential side effects (send email, charge a card, delete)          |
-| `authorize`     | none          | a guard function → only callers it accepts, on **every** surface              | Operations restricted to a role (per-app RBAC, admin-only ops)          |
+| Flag            | Default       | Restrictive value → who can still call                                      | Typical use                                                          |
+| --------------- | ------------- | --------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| `agentTool`     | `true`        | `false` → UI, HTTP, and CLI only (hidden from the model, MCP, and A2A)      | UI-only or programmatic actions that shouldn't take up a tool slot   |
+| `toolCallable`  | `true`        | `false` → everything **except** the sandboxed extension iframe bridge (403) | Sensitive account or org changes (delete account, change membership) |
+| `publicAgent`   | off (private) | `{ expose: true }` → adds the action to **public** MCP/A2A/OpenAPI surfaces | Safe read or ingest tools that don't require authentication          |
+| `needsApproval` | `false`       | `true` → the agent **pauses**, and a human must approve the specific call   | Consequential side effects (send email, charge a card, delete)       |
+| `authorize`     | none          | a guard function → only callers it accepts, on **every** surface            | Operations restricted to a role (per-app RBAC, admin-only ops)       |
 
 These flags are independent, so setting one doesn't change the others. `agentTool` controls what the model sees, see [Hide from the model](#agent-tool) below. `toolCallable` controls only the extension iframe, see [Block extension iframes](#tool-callable) below. `publicAgent` adds an opt-in public surface, and a public web route never implies public tool exposure, see [Expose to public agents](#public-agent) below. `needsApproval` gates execution after the call is already made, see [Require human approval](#needs-approval) below. `authorize` decides whether this caller may run the action at all, on every dispatch path, before `run()` is entered, see [Restrict callers by role](#authorize) below.
 
@@ -183,11 +183,11 @@ A create action calls neither helper. It only needs to stamp `ownerEmail` (and `
 
 The three mechanisms are not interchangeable:
 
-| Mechanism                       | Question it answers                                    | Applies to                       |
-| ---------------------------------| ---------------------------------------------------------| -------------------------------- |
-| `authorize`                      | May this caller perform the operation at all?              | All six dispatch sites            |
-| `needsApproval`                  | Should a human approve this specific permitted call?       | The agent loop only                |
-| `accessFilter()`/`assertAccess()`| Which rows may this permitted caller see or write?          | Inside `run()`, per query or row   |
+| Mechanism                         | Question it answers                                  | Applies to                       |
+| --------------------------------- | ---------------------------------------------------- | -------------------------------- |
+| `authorize`                       | May this caller perform the operation at all?        | All six dispatch sites           |
+| `needsApproval`                   | Should a human approve this specific permitted call? | The agent loop only              |
+| `accessFilter()`/`assertAccess()` | Which rows may this permitted caller see or write?   | Inside `run()`, per query or row |
 
 A restricted write action typically needs both `authorize` and `assertAccess()`. The first keeps non-coaches out of the operation. The second keeps a coach out of another org's plan. `needsApproval` is a separate axis. It never restricts who may call, only whether the agent may proceed unattended.
 

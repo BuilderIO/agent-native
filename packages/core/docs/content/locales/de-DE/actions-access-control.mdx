@@ -11,13 +11,13 @@ Fünf Einstellungen entscheiden, wer eine Action aufrufen darf: der Agent, das F
 
 Alle fünf Flags sind standardmäßig auf den freizügigsten Wert gesetzt, sodass Sie nur eines setzen, wenn Sie eine bestimmte Oberfläche einschränken müssen. Die Tabelle unten ist eine kurze Zusammenfassung. Die Abschnitte danach fügen das eine Detail hinzu, das jedes Flag braucht.
 
-| Flag            | Standard      | Restriktiver Wert → wer noch aufrufen kann                                    | Typische Verwendung                                                   |
-| --------------- | ------------- | ------------------------------------------------------------------------------ | ----------------------------------------------------------------------- |
-| `agentTool`     | `true`        | `false` → nur UI, HTTP und CLI (vor dem Modell, MCP und A2A verborgen)          | Reine UI- oder programmatische Actions, die keinen Tool-Platz belegen sollen |
-| `toolCallable`  | `true`        | `false` → alles **außer** der sandboxed Extension-Iframe-Bridge (403)          | Sensible Konto- oder Org-Änderungen (Konto löschen, Mitgliedschaft ändern) |
-| `publicAgent`   | aus (privat)  | `{ expose: true }` → fügt die Action zu **öffentlichen** MCP-/A2A-/OpenAPI-Oberflächen hinzu | Sichere Lese- oder Ingest-Tools, die keine Authentifizierung erfordern |
-| `needsApproval` | `false`       | `true` → der Agent **pausiert**, und ein Mensch muss den konkreten Aufruf genehmigen | Folgenreiche Nebenwirkungen (E-Mail senden, Karte belasten, löschen) |
-| `authorize`     | keine         | eine Guard-Funktion → nur Aufrufer, die sie akzeptiert, auf **jeder** Oberfläche | Auf eine Rolle beschränkte Operationen (App-eigenes RBAC, Admin-only-Vorgänge) |
+| Flag            | Standard     | Restriktiver Wert → wer noch aufrufen kann                                                   | Typische Verwendung                                                            |
+| --------------- | ------------ | -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `agentTool`     | `true`       | `false` → nur UI, HTTP und CLI (vor dem Modell, MCP und A2A verborgen)                       | Reine UI- oder programmatische Actions, die keinen Tool-Platz belegen sollen   |
+| `toolCallable`  | `true`       | `false` → alles **außer** der sandboxed Extension-Iframe-Bridge (403)                        | Sensible Konto- oder Org-Änderungen (Konto löschen, Mitgliedschaft ändern)     |
+| `publicAgent`   | aus (privat) | `{ expose: true }` → fügt die Action zu **öffentlichen** MCP-/A2A-/OpenAPI-Oberflächen hinzu | Sichere Lese- oder Ingest-Tools, die keine Authentifizierung erfordern         |
+| `needsApproval` | `false`      | `true` → der Agent **pausiert**, und ein Mensch muss den konkreten Aufruf genehmigen         | Folgenreiche Nebenwirkungen (E-Mail senden, Karte belasten, löschen)           |
+| `authorize`     | keine        | eine Guard-Funktion → nur Aufrufer, die sie akzeptiert, auf **jeder** Oberfläche             | Auf eine Rolle beschränkte Operationen (App-eigenes RBAC, Admin-only-Vorgänge) |
 
 Diese Flags sind unabhängig voneinander, sodass das Setzen eines Flags die anderen nicht ändert. `agentTool` steuert, was das Modell sieht, siehe [Vor dem Modell verbergen](#agent-tool) unten. `toolCallable` steuert nur das Extension-Iframe, siehe [Extension-Iframes blockieren](#tool-callable) unten. `publicAgent` fügt eine Opt-in-öffentliche Oberfläche hinzu, und eine öffentliche Web-Route impliziert nie eine öffentliche Tool-Exposition, siehe [Für öffentliche Agenten freigeben](#public-agent) unten. `needsApproval` steuert die Ausführung, nachdem der Aufruf bereits erfolgt ist, siehe [Menschliche Genehmigung erfordern](#needs-approval) unten. `authorize` entscheidet, ob dieser Aufrufer die Action überhaupt ausführen darf, auf jedem Dispatch-Pfad, bevor `run()` betreten wird, siehe [Aufrufer nach Rolle einschränken](#authorize) unten.
 
@@ -183,11 +183,11 @@ Eine Create-Action ruft keinen der beiden Helfer auf. Sie muss beim Einfügen de
 
 Die drei Mechanismen sind nicht austauschbar:
 
-| Mechanismus                        | Frage, die er beantwortet                                    | Gilt für                          |
-| ----------------------------------- | -------------------------------------------------------------- | ---------------------------------- |
-| `authorize`                         | Darf dieser Aufrufer die Operation überhaupt ausführen?         | Alle sechs Dispatch-Stellen        |
-| `needsApproval`                     | Soll ein Mensch diesen konkreten erlaubten Aufruf genehmigen?   | Nur die Agentenschleife            |
-| `accessFilter()`/`assertAccess()`   | Welche Zeilen darf dieser erlaubte Aufrufer sehen oder schreiben? | Innerhalb von `run()`, pro Abfrage oder Zeile |
+| Mechanismus                       | Frage, die er beantwortet                                         | Gilt für                                      |
+| --------------------------------- | ----------------------------------------------------------------- | --------------------------------------------- |
+| `authorize`                       | Darf dieser Aufrufer die Operation überhaupt ausführen?           | Alle sechs Dispatch-Stellen                   |
+| `needsApproval`                   | Soll ein Mensch diesen konkreten erlaubten Aufruf genehmigen?     | Nur die Agentenschleife                       |
+| `accessFilter()`/`assertAccess()` | Welche Zeilen darf dieser erlaubte Aufrufer sehen oder schreiben? | Innerhalb von `run()`, pro Abfrage oder Zeile |
 
 Eine eingeschränkte Write-Action braucht typischerweise sowohl `authorize` als auch `assertAccess()`. Das eine hält Nicht-Coaches aus der Operation heraus. Das andere hält einen Coach aus dem Plan einer anderen Org heraus. `needsApproval` ist eine separate Achse. Es schränkt nie ein, wer aufrufen darf, sondern nur, ob der Agent unbeaufsichtigt fortfahren darf.
 

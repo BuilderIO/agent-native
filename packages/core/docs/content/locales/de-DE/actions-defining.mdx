@@ -43,30 +43,129 @@ Das Framework entdeckt jede Datei in `actions/` automatisch und bindet sie beim 
     {
       name: "config",
       type: "DefineActionConfig<TSchema, TReturn, TOutputSchema>",
-      description: "Alles unten ist ein einziges Config-Objekt. Nur description, schema und run sind erforderlich.",
+      description:
+        "Alles unten ist ein einziges Config-Objekt. Nur description, schema und run sind erforderlich.",
       fields: [
-        { name: "description", type: "string", description: "Was der Agent liest, um zu entscheiden, wann diese Action aufgerufen wird." },
-        { name: "schema", type: "StandardSchemaV1", description: "Validiert die Eingabe auf jeder Oberfläche. Siehe Schema-Optionen unten." },
-        { name: "run", type: "(args, ctx?) => Promise<TReturn> | TReturn", description: "Die einzige Implementierung, die jede Oberfläche aufruft. Siehe Ausführungskontext für das ctx-Argument." },
-        { name: "http", type: "ActionHttpConfig | false", optional: true, description: "Überschreibt die eingebundene Methode/den Pfad oder deaktiviert den HTTP-Endpunkt vollständig. Siehe HTTP-Konfiguration unten." },
-        { name: "readOnly", type: "boolean", optional: true, default: "false", description: "Automatisch true, wenn http.method GET ist. Überspringt die UI-Poll-Aktualisierung und das Write-Auditing. Keine Zugriffskontrolle." },
-        { name: "outputSchema", type: "StandardSchemaV1", optional: true, description: "Validiert, was run() zurückgibt. Siehe Rückgabewert validieren unten." },
-        { name: "outputErrorStrategy", type: '"warn" | "strict" | "fallback"', optional: true, default: '"warn"', description: "Was bei einer Abweichung der Ausgabe passiert." },
-        { name: "outputFallback", type: "TReturn", optional: true, description: 'Wird anstelle eines ungültigen Ergebnisses zurückgegeben, wenn outputErrorStrategy "fallback" ist.' },
-        { name: "parallelSafe", type: "boolean", optional: true, description: "Erlaubt einer mutierenden Action, gleichzeitig mit anderen Tool-Aufrufen derselben Runde zu laufen." },
-        { name: "agentTool", type: "boolean", optional: true, default: "true", description: "Auf false setzen, um sie aus jeder Agent-Tool-Liste auszublenden. Siehe Zugriff & Autorisierung." },
-        { name: "toolCallable", type: "boolean", optional: true, default: "true", description: "Auf false setzen, um die sandboxed Extension-Iframe-Bridge zu blockieren. Siehe Zugriff & Autorisierung." },
-        { name: "publicAgent", type: "PublicAgentActionConfig", optional: true, description: "{ expose: true } fügt die Action zu öffentlichen MCP-/A2A-/OpenAPI-Oberflächen hinzu. Siehe Zugriff & Autorisierung." },
-        { name: "needsApproval", type: "boolean | ((args, ctx?) => boolean | Promise<boolean>)", optional: true, default: "false", description: "Pausiert die Agentenschleife für eine menschliche Genehmigung vor run(). Siehe Human-in-the-Loop-Genehmigungen." },
-        { name: "authorize", type: "ActionAuthorize<TInput>", optional: true, description: "Guard-Funktion, die entscheidet, ob dieser Anrufer die Action überhaupt ausführen darf. Siehe Zugriff & Autorisierung." },
-        { name: "audit", type: "ActionAuditConfig", optional: true, description: "Feinabstimmung der automatischen Audit-Erfassung, die jede mutierende Action bereits erhält. Siehe Audit-Protokoll." },
-        { name: "chatUI", type: "ActionChatUIConfig", optional: true, description: "Deklariert einen nativen Chat-UI-Renderer für das Ergebnis der Action. Siehe Weitere Oberflächen." },
+        {
+          name: "description",
+          type: "string",
+          description:
+            "Was der Agent liest, um zu entscheiden, wann diese Action aufgerufen wird.",
+        },
+        {
+          name: "schema",
+          type: "StandardSchemaV1",
+          description:
+            "Validiert die Eingabe auf jeder Oberfläche. Siehe Schema-Optionen unten.",
+        },
+        {
+          name: "run",
+          type: "(args, ctx?) => Promise<TReturn> | TReturn",
+          description:
+            "Die einzige Implementierung, die jede Oberfläche aufruft. Siehe Ausführungskontext für das ctx-Argument.",
+        },
+        {
+          name: "http",
+          type: "ActionHttpConfig | false",
+          optional: true,
+          description:
+            "Überschreibt die eingebundene Methode/den Pfad oder deaktiviert den HTTP-Endpunkt vollständig. Siehe HTTP-Konfiguration unten.",
+        },
+        {
+          name: "readOnly",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description:
+            "Automatisch true, wenn http.method GET ist. Überspringt die UI-Poll-Aktualisierung und das Write-Auditing. Keine Zugriffskontrolle.",
+        },
+        {
+          name: "outputSchema",
+          type: "StandardSchemaV1",
+          optional: true,
+          description:
+            "Validiert, was run() zurückgibt. Siehe Rückgabewert validieren unten.",
+        },
+        {
+          name: "outputErrorStrategy",
+          type: '"warn" | "strict" | "fallback"',
+          optional: true,
+          default: '"warn"',
+          description: "Was bei einer Abweichung der Ausgabe passiert.",
+        },
+        {
+          name: "outputFallback",
+          type: "TReturn",
+          optional: true,
+          description:
+            'Wird anstelle eines ungültigen Ergebnisses zurückgegeben, wenn outputErrorStrategy "fallback" ist.',
+        },
+        {
+          name: "parallelSafe",
+          type: "boolean",
+          optional: true,
+          description:
+            "Erlaubt einer mutierenden Action, gleichzeitig mit anderen Tool-Aufrufen derselben Runde zu laufen.",
+        },
+        {
+          name: "agentTool",
+          type: "boolean",
+          optional: true,
+          default: "true",
+          description:
+            "Auf false setzen, um sie aus jeder Agent-Tool-Liste auszublenden. Siehe Zugriff & Autorisierung.",
+        },
+        {
+          name: "toolCallable",
+          type: "boolean",
+          optional: true,
+          default: "true",
+          description:
+            "Auf false setzen, um die sandboxed Extension-Iframe-Bridge zu blockieren. Siehe Zugriff & Autorisierung.",
+        },
+        {
+          name: "publicAgent",
+          type: "PublicAgentActionConfig",
+          optional: true,
+          description:
+            "{ expose: true } fügt die Action zu öffentlichen MCP-/A2A-/OpenAPI-Oberflächen hinzu. Siehe Zugriff & Autorisierung.",
+        },
+        {
+          name: "needsApproval",
+          type: "boolean | ((args, ctx?) => boolean | Promise<boolean>)",
+          optional: true,
+          default: "false",
+          description:
+            "Pausiert die Agentenschleife für eine menschliche Genehmigung vor run(). Siehe Human-in-the-Loop-Genehmigungen.",
+        },
+        {
+          name: "authorize",
+          type: "ActionAuthorize<TInput>",
+          optional: true,
+          description:
+            "Guard-Funktion, die entscheidet, ob dieser Anrufer die Action überhaupt ausführen darf. Siehe Zugriff & Autorisierung.",
+        },
+        {
+          name: "audit",
+          type: "ActionAuditConfig",
+          optional: true,
+          description:
+            "Feinabstimmung der automatischen Audit-Erfassung, die jede mutierende Action bereits erhält. Siehe Audit-Protokoll.",
+        },
+        {
+          name: "chatUI",
+          type: "ActionChatUIConfig",
+          optional: true,
+          description:
+            "Deklariert einen nativen Chat-UI-Renderer für das Ergebnis der Action. Siehe Weitere Oberflächen.",
+        },
       ],
     },
   ]}
   returns={{
     type: "ActionDefinition<TInput, TReturn>",
-    description: "Die typisierte Action-Definition. Exportieren Sie sie als Default-Export der Datei.",
+    description:
+      "Die typisierte Action-Definition. Exportieren Sie sie als Default-Export der Datei.",
   }}
 />
 
@@ -101,11 +200,11 @@ export default defineAction({
 
 `outputErrorStrategy` steuert, was bei einer Abweichung passiert:
 
-| Strategie    | Verhalten bei Abweichung                                                                              |
-| ------------ | ------------------------------------------------------------------------------------------------------ |
+| Strategie    | Verhalten bei Abweichung                                                                                                       |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------ |
 | `"warn"`     | **Standard.** `console.warn` gibt die Probleme aus und gibt das **ursprüngliche** Ergebnis unverändert zurück. Nicht breaking. |
-| `"strict"`   | Wirft einen klaren Fehler, sodass ein Bug in der Action leicht auffällt.                                |
-| `"fallback"` | Gibt den bereitgestellten `outputFallback`-Wert anstelle des ungültigen Ergebnisses zurück.              |
+| `"strict"`   | Wirft einen klaren Fehler, sodass ein Bug in der Action leicht auffällt.                                                       |
+| `"fallback"` | Gibt den bereitgestellten `outputFallback`-Wert anstelle des ungültigen Ergebnisses zurück.                                    |
 
 Wenn `run()` erfolgreich ist, gibt das Framework den validierten Wert zurück, sodass alle Defaults oder Coercions auf `outputSchema` greifen, genau wie bei der Eingabe. Wenn Sie kein `outputSchema` übergeben, bleibt der Rückgabewert unverändert.
 

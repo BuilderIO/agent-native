@@ -43,30 +43,129 @@ description: "defineAction()의 구조: schema, run, HTTP 설정, 그리고 acti
     {
       name: "config",
       type: "DefineActionConfig<TSchema, TReturn, TOutputSchema>",
-      description: "아래 항목 전체가 하나의 설정 객체입니다. 필수인 것은 description, schema, run뿐입니다.",
+      description:
+        "아래 항목 전체가 하나의 설정 객체입니다. 필수인 것은 description, schema, run뿐입니다.",
       fields: [
-        { name: "description", type: "string", description: "에이전트가 이 action을 언제 호출할지 판단하기 위해 읽는 내용입니다." },
-        { name: "schema", type: "StandardSchemaV1", description: "모든 표면에서 입력을 검증합니다. 아래 Schema 옵션 참고." },
-        { name: "run", type: "(args, ctx?) => Promise<TReturn> | TReturn", description: "모든 표면이 호출하는 단일 구현입니다. ctx 인자에 대해서는 실행 컨텍스트를 참고하세요." },
-        { name: "http", type: "ActionHttpConfig | false", optional: true, description: "마운트된 메서드/경로를 재정의하거나 HTTP 엔드포인트 자체를 비활성화합니다. 아래 HTTP 설정 참고." },
-        { name: "readOnly", type: "boolean", optional: true, default: "false", description: "http.method가 GET이면 자동으로 true가 됩니다. UI 폴링 새로 고침과 쓰기 감사를 건너뜁니다. 액세스 제어가 아닙니다." },
-        { name: "outputSchema", type: "StandardSchemaV1", optional: true, description: "run()이 반환하는 값을 검증합니다. 아래 반환값 검증하기 참고." },
-        { name: "outputErrorStrategy", type: '"warn" | "strict" | "fallback"', optional: true, default: '"warn"', description: "출력이 일치하지 않을 때 벌어지는 일입니다." },
-        { name: "outputFallback", type: "TReturn", optional: true, description: 'outputErrorStrategy가 "fallback"일 때 유효하지 않은 결과 대신 반환되는 값입니다.' },
-        { name: "parallelSafe", type: "boolean", optional: true, description: "변경(mutating) action이 같은 턴의 다른 도구 호출과 동시에 실행되도록 허용합니다." },
-        { name: "agentTool", type: "boolean", optional: true, default: "true", description: "모든 에이전트 도구 목록에서 숨기려면 false로 설정하세요. 액세스 및 권한 부여를 참고하세요." },
-        { name: "toolCallable", type: "boolean", optional: true, default: "true", description: "샌드박스된 확장 iframe 브리지를 차단하려면 false로 설정하세요. 액세스 및 권한 부여를 참고하세요." },
-        { name: "publicAgent", type: "PublicAgentActionConfig", optional: true, description: "{ expose: true }는 이 action을 공개 MCP/A2A/OpenAPI 표면에 추가합니다. 액세스 및 권한 부여를 참고하세요." },
-        { name: "needsApproval", type: "boolean | ((args, ctx?) => boolean | Promise<boolean>)", optional: true, default: "false", description: "run() 전에 사람의 승인을 받도록 에이전트 루프를 일시 정지합니다. Human-in-the-Loop 승인을 참고하세요." },
-        { name: "authorize", type: "ActionAuthorize<TInput>", optional: true, description: "이 호출자가 애초에 이 action을 실행할 수 있는지 판단하는 가드 함수입니다. 액세스 및 권한 부여를 참고하세요." },
-        { name: "audit", type: "ActionAuditConfig", optional: true, description: "모든 변경 action이 이미 자동으로 받는 감사 캡처를 세부 조정합니다. 감사 로그를 참고하세요." },
-        { name: "chatUI", type: "ActionChatUIConfig", optional: true, description: "action 결과에 대한 네이티브 채팅 UI 렌더러를 선언합니다. 다른 표면들을 참고하세요." },
+        {
+          name: "description",
+          type: "string",
+          description:
+            "에이전트가 이 action을 언제 호출할지 판단하기 위해 읽는 내용입니다.",
+        },
+        {
+          name: "schema",
+          type: "StandardSchemaV1",
+          description:
+            "모든 표면에서 입력을 검증합니다. 아래 Schema 옵션 참고.",
+        },
+        {
+          name: "run",
+          type: "(args, ctx?) => Promise<TReturn> | TReturn",
+          description:
+            "모든 표면이 호출하는 단일 구현입니다. ctx 인자에 대해서는 실행 컨텍스트를 참고하세요.",
+        },
+        {
+          name: "http",
+          type: "ActionHttpConfig | false",
+          optional: true,
+          description:
+            "마운트된 메서드/경로를 재정의하거나 HTTP 엔드포인트 자체를 비활성화합니다. 아래 HTTP 설정 참고.",
+        },
+        {
+          name: "readOnly",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description:
+            "http.method가 GET이면 자동으로 true가 됩니다. UI 폴링 새로 고침과 쓰기 감사를 건너뜁니다. 액세스 제어가 아닙니다.",
+        },
+        {
+          name: "outputSchema",
+          type: "StandardSchemaV1",
+          optional: true,
+          description:
+            "run()이 반환하는 값을 검증합니다. 아래 반환값 검증하기 참고.",
+        },
+        {
+          name: "outputErrorStrategy",
+          type: '"warn" | "strict" | "fallback"',
+          optional: true,
+          default: '"warn"',
+          description: "출력이 일치하지 않을 때 벌어지는 일입니다.",
+        },
+        {
+          name: "outputFallback",
+          type: "TReturn",
+          optional: true,
+          description:
+            'outputErrorStrategy가 "fallback"일 때 유효하지 않은 결과 대신 반환되는 값입니다.',
+        },
+        {
+          name: "parallelSafe",
+          type: "boolean",
+          optional: true,
+          description:
+            "변경(mutating) action이 같은 턴의 다른 도구 호출과 동시에 실행되도록 허용합니다.",
+        },
+        {
+          name: "agentTool",
+          type: "boolean",
+          optional: true,
+          default: "true",
+          description:
+            "모든 에이전트 도구 목록에서 숨기려면 false로 설정하세요. 액세스 및 권한 부여를 참고하세요.",
+        },
+        {
+          name: "toolCallable",
+          type: "boolean",
+          optional: true,
+          default: "true",
+          description:
+            "샌드박스된 확장 iframe 브리지를 차단하려면 false로 설정하세요. 액세스 및 권한 부여를 참고하세요.",
+        },
+        {
+          name: "publicAgent",
+          type: "PublicAgentActionConfig",
+          optional: true,
+          description:
+            "{ expose: true }는 이 action을 공개 MCP/A2A/OpenAPI 표면에 추가합니다. 액세스 및 권한 부여를 참고하세요.",
+        },
+        {
+          name: "needsApproval",
+          type: "boolean | ((args, ctx?) => boolean | Promise<boolean>)",
+          optional: true,
+          default: "false",
+          description:
+            "run() 전에 사람의 승인을 받도록 에이전트 루프를 일시 정지합니다. Human-in-the-Loop 승인을 참고하세요.",
+        },
+        {
+          name: "authorize",
+          type: "ActionAuthorize<TInput>",
+          optional: true,
+          description:
+            "이 호출자가 애초에 이 action을 실행할 수 있는지 판단하는 가드 함수입니다. 액세스 및 권한 부여를 참고하세요.",
+        },
+        {
+          name: "audit",
+          type: "ActionAuditConfig",
+          optional: true,
+          description:
+            "모든 변경 action이 이미 자동으로 받는 감사 캡처를 세부 조정합니다. 감사 로그를 참고하세요.",
+        },
+        {
+          name: "chatUI",
+          type: "ActionChatUIConfig",
+          optional: true,
+          description:
+            "action 결과에 대한 네이티브 채팅 UI 렌더러를 선언합니다. 다른 표면들을 참고하세요.",
+        },
       ],
     },
   ]}
   returns={{
     type: "ActionDefinition<TInput, TReturn>",
-    description: "타입이 지정된 action 정의입니다. 파일의 기본 내보내기로 export하세요.",
+    description:
+      "타입이 지정된 action 정의입니다. 파일의 기본 내보내기로 export하세요.",
   }}
 />
 
@@ -101,11 +200,11 @@ export default defineAction({
 
 `outputErrorStrategy`는 불일치가 발생했을 때의 동작을 제어합니다.
 
-| 전략         | 불일치 시 동작                                                                                     |
-| ------------ | ---------------------------------------------------------------------------------------------------- |
+| 전략         | 불일치 시 동작                                                                                             |
+| ------------ | ---------------------------------------------------------------------------------------------------------- |
 | `"warn"`     | **기본값.** 문제를 `console.warn`으로 남기고 **원본** 결과를 그대로 반환합니다. 기존 동작을 깨지 않습니다. |
-| `"strict"`   | 명확한 오류를 던져, action의 버그를 쉽게 알아챌 수 있게 합니다.                                       |
-| `"fallback"` | 유효하지 않은 결과 대신 제공된 `outputFallback` 값을 반환합니다.                                       |
+| `"strict"`   | 명확한 오류를 던져, action의 버그를 쉽게 알아챌 수 있게 합니다.                                            |
+| `"fallback"` | 유효하지 않은 결과 대신 제공된 `outputFallback` 값을 반환합니다.                                           |
 
 `run()`이 성공하면 프레임워크는 검증된 값을 반환하므로, `outputSchema`의 기본값이나 형 변환이 입력값과 마찬가지로 적용됩니다. `outputSchema`를 전달하지 않으면 반환값은 그대로 유지됩니다.
 

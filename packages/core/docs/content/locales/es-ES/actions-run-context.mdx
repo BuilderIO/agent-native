@@ -47,96 +47,112 @@ La mayoría de las acciones solo llegan a leer `ctx?.userEmail` y `ctx?.orgId`, 
       name: "ctx",
       type: "ActionRunContext",
       optional: true,
-      description: "La identidad resuelta de la petición y la superficie que invocó la acción. Segura ante undefined: un manejador `run(args)` de un solo argumento sigue siendo válido.",
+      description:
+        "La identidad resuelta de la petición y la superficie que invocó la acción. Segura ante undefined: un manejador `run(args)` de un solo argumento sigue siendo válido.",
       fields: [
         {
           name: "userEmail",
           type: "string",
           optional: true,
-          description: "Usuario resuelto de la petición. **Nunca tiene un valor por defecto de identidad de desarrollo**: es `undefined` cuando la petición no tiene un usuario autenticado. Aplica tu propio valor de respaldo si necesitas uno.",
+          description:
+            "Usuario resuelto de la petición. **Nunca tiene un valor por defecto de identidad de desarrollo**: es `undefined` cuando la petición no tiene un usuario autenticado. Aplica tu propio valor de respaldo si necesitas uno.",
         },
         {
           name: "orgId",
           type: "string | null",
-          description: "Id de organización resuelto, o `null` cuando la petición no tiene organización.",
+          description:
+            "Id de organización resuelto, o `null` cuando la petición no tiene organización.",
         },
         {
           name: "caller",
           type: "ActionCaller",
-          description: "Cómo se invocó la acción. Consulta [la unión caller](#caller) más abajo.",
+          description:
+            "Cómo se invocó la acción. Consulta [la unión caller](#caller) más abajo.",
         },
         {
           name: "send",
           type: "(event) => void",
           optional: true,
-          description: "Emite un evento SSE al cliente. Solo está presente dentro del bucle de herramientas del agente (`caller: \"tool\"`). `undefined` en el resto de casos.",
+          description:
+            'Emite un evento SSE al cliente. Solo está presente dentro del bucle de herramientas del agente (`caller: "tool"`). `undefined` en el resto de casos.',
         },
         {
           name: "attachments",
           type: "AgentChatAttachment[]",
           optional: true,
-          description: "Archivos, imágenes y bloques de texto pegado enviados con el turno actual del agente. Solo se rellena cuando `caller: \"tool\"`. `undefined` en todas las demás superficies.",
+          description:
+            'Archivos, imágenes y bloques de texto pegado enviados con el turno actual del agente. Solo se rellena cuando `caller: "tool"`. `undefined` en todas las demás superficies.',
         },
         {
           name: "signal",
           type: "AbortSignal",
           optional: true,
-          description: "Se aborta cuando la ejecución agota el tiempo de espera suave, se cancela, o el servidor se apaga. Solo se rellena cuando `caller: \"tool\"`. Las acciones de larga duración pueden observarla para cancelarse antes en lugar de esperar el timeout estricto de 60s por herramienta.",
+          description:
+            'Se aborta cuando la ejecución agota el tiempo de espera suave, se cancela, o el servidor se apaga. Solo se rellena cuando `caller: "tool"`. Las acciones de larga duración pueden observarla para cancelarse antes en lugar de esperar el timeout estricto de 60s por herramienta.',
         },
         {
           name: "actionName",
           type: "string",
           optional: true,
-          description: "La clave de registro de la acción que se está llamando (p. ej. `delete-recording`), establecida en cada punto de despacho para que preocupaciones transversales como el registro de auditoría puedan atribuir la llamada. `undefined` para llamadas `run()` programáticas directas que evitan el despachador.",
+          description:
+            "La clave de registro de la acción que se está llamando (p. ej. `delete-recording`), establecida en cada punto de despacho para que preocupaciones transversales como el registro de auditoría puedan atribuir la llamada. `undefined` para llamadas `run()` programáticas directas que evitan el despachador.",
         },
         {
           name: "threadId",
           type: "string",
           optional: true,
-          description: "El hilo de conversación del agente que disparó esta llamada. Solo se rellena cuando `caller: \"tool\"`, para que el registro de auditoría pueda vincular una mutación con la ejecución exacta del agente.",
+          description:
+            'El hilo de conversación del agente que disparó esta llamada. Solo se rellena cuando `caller: "tool"`, para que el registro de auditoría pueda vincular una mutación con la ejecución exacta del agente.',
         },
         {
           name: "runId",
           type: "string",
           optional: true,
-          description: "El intento de ejecución del agente que disparó esta llamada. Solo se rellena cuando `caller: \"tool\"`.",
+          description:
+            'El intento de ejecución del agente que disparó esta llamada. Solo se rellena cuando `caller: "tool"`.',
         },
         {
           name: "turnId",
           type: "string",
           optional: true,
-          description: "El turno específico dentro de esa ejecución que disparó esta llamada. Solo se rellena cuando `caller: \"tool\"`.",
+          description:
+            'El turno específico dentro de esa ejecución que disparó esta llamada. Solo se rellena cuando `caller: "tool"`.',
         },
         {
           name: "automation",
           type: "ActionAutomationContext",
           optional: true,
-          description: "Presente solo cuando `caller: \"automation\"`. Lleva `triggerId`, `triggerName` y un `policyId` opcional para la automatización activada por evento que despachó esta llamada.",
+          description:
+            'Presente solo cuando `caller: "automation"`. Lleva `triggerId`, `triggerName` y un `policyId` opcional para la automatización activada por evento que despachó esta llamada.',
         },
         {
           name: "networkProtocol",
           type: '"a2a" | "mcp" | "provider-api"',
           optional: true,
-          description: "Por qué protocolo de llamada delegada llegó esta petición. Solo se establece para esas rutas de despacho directo.",
+          description:
+            "Por qué protocolo de llamada delegada llegó esta petición. Solo se establece para esas rutas de despacho directo.",
         },
         {
           name: "networkId",
           type: "string",
           optional: true,
-          description: "Un id de correlación para esa llamada delegada, p. ej. el id del JWT de delegación de A2A.",
+          description:
+            "Un id de correlación para esa llamada delegada, p. ej. el id del JWT de delegación de A2A.",
         },
         {
           name: "networkPeer",
           type: "string",
           optional: true,
-          description: "La identidad del par que llama en esa llamada delegada.",
+          description:
+            "La identidad del par que llama en esa llamada delegada.",
         },
       ],
     },
   ]}
   returns={{
     type: "Promise<TReturn> | TReturn",
-    description: "El resultado de la acción, validado contra `outputSchema` si se ha configurado uno.",
+    description:
+      "El resultado de la acción, validado contra `outputSchema` si se ha configurado uno.",
   }}
 />
 
@@ -146,15 +162,15 @@ La mayoría de las acciones solo llegan a leer `ctx?.userEmail` y `ctx?.orgId`, 
 
 `caller` es la unión `"tool" | "http" | "frontend" | "cli" | "mcp" | "a2a" | "automation"`:
 
-| `caller`       | Se establece cuando…                                                                                                                                                     |
-| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `"tool"`       | El bucle del agente dentro de la app, un subagente o equipo de agentes, o una delegación A2A entre apps en lenguaje natural, que impulsa el mismo bucle del agente, así que sus llamadas a herramientas son `"tool"`. |
-| `"frontend"`   | Una llamada desde el navegador mediante `useActionMutation()`, `useActionQuery()` o `callAction()` (etiquetada con la cabecera `X-Agent-Native-Frontend: 1`).             |
-| `"http"`       | Un `POST` o `GET` programático simple a `/_agent-native/actions/<name>` sin la marca de frontend.                                                                        |
-| `"cli"`        | `pnpm action <name>` (el ejecutor de la CLI).                                                                                                                             |
-| `"mcp"`        | Un agente externo a través del endpoint `tools/call` de MCP.                                                                                                             |
+| `caller`       | Se establece cuando…                                                                                                                                                                                                    |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `"tool"`       | El bucle del agente dentro de la app, un subagente o equipo de agentes, o una delegación A2A entre apps en lenguaje natural, que impulsa el mismo bucle del agente, así que sus llamadas a herramientas son `"tool"`.   |
+| `"frontend"`   | Una llamada desde el navegador mediante `useActionMutation()`, `useActionQuery()` o `callAction()` (etiquetada con la cabecera `X-Agent-Native-Frontend: 1`).                                                           |
+| `"http"`       | Un `POST` o `GET` programático simple a `/_agent-native/actions/<name>` sin la marca de frontend.                                                                                                                       |
+| `"cli"`        | `pnpm action <name>` (el ejecutor de la CLI).                                                                                                                                                                           |
+| `"mcp"`        | Un agente externo a través del endpoint `tools/call` de MCP.                                                                                                                                                            |
 | `"a2a"`        | Una llamada HTTP directa a `/_agent-native/actions/<name>` que lleva un token de delegación A2A firmado. Es un despacho entre apps expuesto explícitamente, distinto de la ruta `"tool"` en lenguaje natural de arriba. |
-| `"automation"` | Una automatización activada por evento, despachada desde un disparador de workspace almacenado. `ctx.automation` lleva la procedencia del disparador. Consulta [Automatizaciones](/docs/automations). |
+| `"automation"` | Una automatización activada por evento, despachada desde un disparador de workspace almacenado. `ctx.automation` lleva la procedencia del disparador. Consulta [Automatizaciones](/docs/automations).                   |
 
 ## ¿Qué sigue?
 

@@ -43,30 +43,129 @@ Le framework découvre automatiquement chaque fichier de `actions/` et le monte 
     {
       name: "config",
       type: "DefineActionConfig<TSchema, TReturn, TOutputSchema>",
-      description: "Tout ce qui suit tient dans un seul objet de configuration. Seuls description, schema, et run sont requis.",
+      description:
+        "Tout ce qui suit tient dans un seul objet de configuration. Seuls description, schema, et run sont requis.",
       fields: [
-        { name: "description", type: "string", description: "Ce que l’agent lit pour décider quand appeler cette action." },
-        { name: "schema", type: "StandardSchemaV1", description: "Valide l’entrée sur chaque surface. Voir les options de schéma ci-dessous." },
-        { name: "run", type: "(args, ctx?) => Promise<TReturn> | TReturn", description: "L’unique implémentation appelée par chaque surface. Voir Contexte d’exécution pour l’argument ctx." },
-        { name: "http", type: "ActionHttpConfig | false", optional: true, description: "Remplace la méthode/le chemin monté, ou désactive entièrement le point de terminaison HTTP. Voir la configuration HTTP ci-dessous." },
-        { name: "readOnly", type: "boolean", optional: true, default: "false", description: "Automatiquement true quand http.method vaut GET. Désactive le rafraîchissement par interrogation de l’UI et l’audit des écritures. Ce n’est pas un contrôle d’accès." },
-        { name: "outputSchema", type: "StandardSchemaV1", optional: true, description: "Valide ce que run() renvoie. Voir Valider la valeur de retour ci-dessous." },
-        { name: "outputErrorStrategy", type: '"warn" | "strict" | "fallback"', optional: true, default: '"warn"', description: "Ce qui se passe en cas de décalage de sortie." },
-        { name: "outputFallback", type: "TReturn", optional: true, description: "Renvoyé à la place d’un résultat invalide quand outputErrorStrategy vaut « fallback »." },
-        { name: "parallelSafe", type: "boolean", optional: true, description: "Autorise une action de mutation à s’exécuter en même temps que d’autres appels d’outil du même tour." },
-        { name: "agentTool", type: "boolean", optional: true, default: "true", description: "Passez à false pour la masquer de toute liste d’outils de l’agent. Voir Accès et autorisation." },
-        { name: "toolCallable", type: "boolean", optional: true, default: "true", description: "Passez à false pour bloquer le pont iframe des extensions en bac à sable. Voir Accès et autorisation." },
-        { name: "publicAgent", type: "PublicAgentActionConfig", optional: true, description: "{ expose: true } ajoute l’action aux surfaces publiques MCP/A2A/OpenAPI. Voir Accès et autorisation." },
-        { name: "needsApproval", type: "boolean | ((args, ctx?) => boolean | Promise<boolean>)", optional: true, default: "false", description: "Met la boucle de l’agent en pause en attendant une approbation humaine avant run(). Voir Approbations humaines dans la boucle." },
-        { name: "authorize", type: "ActionAuthorize<TInput>", optional: true, description: "Fonction de garde décidant si cet appelant peut exécuter l’action, tout court. Voir Accès et autorisation." },
-        { name: "audit", type: "ActionAuditConfig", optional: true, description: "Ajuste la capture d’audit automatique dont bénéficie déjà chaque action de mutation. Voir Journal d’audit." },
-        { name: "chatUI", type: "ActionChatUIConfig", optional: true, description: "Déclare un renderer de chat natif pour le résultat de l’action. Voir Autres surfaces." },
+        {
+          name: "description",
+          type: "string",
+          description:
+            "Ce que l’agent lit pour décider quand appeler cette action.",
+        },
+        {
+          name: "schema",
+          type: "StandardSchemaV1",
+          description:
+            "Valide l’entrée sur chaque surface. Voir les options de schéma ci-dessous.",
+        },
+        {
+          name: "run",
+          type: "(args, ctx?) => Promise<TReturn> | TReturn",
+          description:
+            "L’unique implémentation appelée par chaque surface. Voir Contexte d’exécution pour l’argument ctx.",
+        },
+        {
+          name: "http",
+          type: "ActionHttpConfig | false",
+          optional: true,
+          description:
+            "Remplace la méthode/le chemin monté, ou désactive entièrement le point de terminaison HTTP. Voir la configuration HTTP ci-dessous.",
+        },
+        {
+          name: "readOnly",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description:
+            "Automatiquement true quand http.method vaut GET. Désactive le rafraîchissement par interrogation de l’UI et l’audit des écritures. Ce n’est pas un contrôle d’accès.",
+        },
+        {
+          name: "outputSchema",
+          type: "StandardSchemaV1",
+          optional: true,
+          description:
+            "Valide ce que run() renvoie. Voir Valider la valeur de retour ci-dessous.",
+        },
+        {
+          name: "outputErrorStrategy",
+          type: '"warn" | "strict" | "fallback"',
+          optional: true,
+          default: '"warn"',
+          description: "Ce qui se passe en cas de décalage de sortie.",
+        },
+        {
+          name: "outputFallback",
+          type: "TReturn",
+          optional: true,
+          description:
+            "Renvoyé à la place d’un résultat invalide quand outputErrorStrategy vaut « fallback ».",
+        },
+        {
+          name: "parallelSafe",
+          type: "boolean",
+          optional: true,
+          description:
+            "Autorise une action de mutation à s’exécuter en même temps que d’autres appels d’outil du même tour.",
+        },
+        {
+          name: "agentTool",
+          type: "boolean",
+          optional: true,
+          default: "true",
+          description:
+            "Passez à false pour la masquer de toute liste d’outils de l’agent. Voir Accès et autorisation.",
+        },
+        {
+          name: "toolCallable",
+          type: "boolean",
+          optional: true,
+          default: "true",
+          description:
+            "Passez à false pour bloquer le pont iframe des extensions en bac à sable. Voir Accès et autorisation.",
+        },
+        {
+          name: "publicAgent",
+          type: "PublicAgentActionConfig",
+          optional: true,
+          description:
+            "{ expose: true } ajoute l’action aux surfaces publiques MCP/A2A/OpenAPI. Voir Accès et autorisation.",
+        },
+        {
+          name: "needsApproval",
+          type: "boolean | ((args, ctx?) => boolean | Promise<boolean>)",
+          optional: true,
+          default: "false",
+          description:
+            "Met la boucle de l’agent en pause en attendant une approbation humaine avant run(). Voir Approbations humaines dans la boucle.",
+        },
+        {
+          name: "authorize",
+          type: "ActionAuthorize<TInput>",
+          optional: true,
+          description:
+            "Fonction de garde décidant si cet appelant peut exécuter l’action, tout court. Voir Accès et autorisation.",
+        },
+        {
+          name: "audit",
+          type: "ActionAuditConfig",
+          optional: true,
+          description:
+            "Ajuste la capture d’audit automatique dont bénéficie déjà chaque action de mutation. Voir Journal d’audit.",
+        },
+        {
+          name: "chatUI",
+          type: "ActionChatUIConfig",
+          optional: true,
+          description:
+            "Déclare un renderer de chat natif pour le résultat de l’action. Voir Autres surfaces.",
+        },
       ],
     },
   ]}
   returns={{
     type: "ActionDefinition<TInput, TReturn>",
-    description: "La définition d’action typée. Exportez-la comme export par défaut du fichier.",
+    description:
+      "La définition d’action typée. Exportez-la comme export par défaut du fichier.",
   }}
 />
 
@@ -101,10 +200,10 @@ export default defineAction({
 
 `outputErrorStrategy` contrôle ce qui se passe en cas de décalage :
 
-| Stratégie    | Comportement en cas de décalage                                                                       |
-| ------------ | ---------------------------------------------------------------------------------------------------- |
+| Stratégie    | Comportement en cas de décalage                                                                         |
+| ------------ | ------------------------------------------------------------------------------------------------------- |
 | `"warn"`     | **Par défaut.** `console.warn` les problèmes et renvoie le résultat **original** inchangé. Non cassant. |
-| `"strict"`   | Lève une erreur claire, pour qu’un bug dans l’action soit facile à remarquer.                          |
+| `"strict"`   | Lève une erreur claire, pour qu’un bug dans l’action soit facile à remarquer.                           |
 | `"fallback"` | Renvoie la valeur `outputFallback` fournie à la place du résultat invalide.                             |
 
 Quand `run()` réussit, le framework renvoie la valeur validée, de sorte que les valeurs par défaut ou les coercions de `outputSchema` s’appliquent, de la même manière que pour l’entrée. Quand vous ne passez pas de `outputSchema`, la valeur de retour reste inchangée.

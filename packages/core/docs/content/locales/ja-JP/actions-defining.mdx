@@ -43,30 +43,129 @@ description: "defineAction() の構造 (スキーマ、run、HTTP 設定) と、
     {
       name: "config",
       type: "DefineActionConfig<TSchema, TReturn, TOutputSchema>",
-      description: "以下はすべて1つの config オブジェクトです。必須なのは description、schema、run のみです。",
+      description:
+        "以下はすべて1つの config オブジェクトです。必須なのは description、schema、run のみです。",
       fields: [
-        { name: "description", type: "string", description: "エージェントが、このアクションをいつ呼び出すかを判断するために読む内容。" },
-        { name: "schema", type: "StandardSchemaV1", description: "すべてのサーフェスで入力を検証します。下記の「スキーマ オプション」を参照してください。" },
-        { name: "run", type: "(args, ctx?) => Promise<TReturn> | TReturn", description: "すべてのサーフェスが呼び出す唯一の実装。`ctx` 引数については「実行コンテキスト」を参照してください。" },
-        { name: "http", type: "ActionHttpConfig | false", optional: true, description: "マウントされるメソッド/パスを上書きするか、HTTP エンドポイントを完全に無効化します。下記の「HTTP 設定」を参照してください。" },
-        { name: "readOnly", type: "boolean", optional: true, default: "false", description: "`http.method` が GET のとき自動的に true になります。UI のポーリング再フェッチと書き込み監査をスキップします。アクセス制御ではありません。" },
-        { name: "outputSchema", type: "StandardSchemaV1", optional: true, description: "`run()` の戻り値を検証します。下記の「戻り値を検証する」を参照してください。" },
-        { name: "outputErrorStrategy", type: '"warn" | "strict" | "fallback"', optional: true, default: '"warn"', description: "出力が一致しなかった場合の挙動。" },
-        { name: "outputFallback", type: "TReturn", optional: true, description: '`outputErrorStrategy` が "fallback" のとき、無効な結果の代わりに返されます。' },
-        { name: "parallelSafe", type: "boolean", optional: true, description: "変更を伴うアクションを、同じターン内の他のツール呼び出しと同時に実行できるようにします。" },
-        { name: "agentTool", type: "boolean", optional: true, default: "true", description: "`false` に設定すると、すべてのエージェント ツール一覧から非表示になります。「アクセスと認可」を参照してください。" },
-        { name: "toolCallable", type: "boolean", optional: true, default: "true", description: "`false` に設定すると、サンドボックス化された拡張機能の iframe ブリッジからの呼び出しをブロックします。「アクセスと認可」を参照してください。" },
-        { name: "publicAgent", type: "PublicAgentActionConfig", optional: true, description: "`{ expose: true }` を指定すると、このアクションを公開 MCP/A2A/OpenAPI サーフェスに追加します。「アクセスと認可」を参照してください。" },
-        { name: "needsApproval", type: "boolean | ((args, ctx?) => boolean | Promise<boolean>)", optional: true, default: "false", description: "`run()` の前にエージェント ループを一時停止し、人間の承認を待ちます。「人間参加型の承認」を参照してください。" },
-        { name: "authorize", type: "ActionAuthorize<TInput>", optional: true, description: "この呼び出し元がそもそもこのアクションを実行してよいかどうかを判定するガード関数。「アクセスと認可」を参照してください。" },
-        { name: "audit", type: "ActionAuditConfig", optional: true, description: "変更を伴うすべてのアクションが既に受け取っている自動監査キャプチャを調整します。「監査ログ」を参照してください。" },
-        { name: "chatUI", type: "ActionChatUIConfig", optional: true, description: "アクションの結果に対するネイティブ チャット UI のレンダラーを宣言します。「その他のサーフェス」を参照してください。" },
+        {
+          name: "description",
+          type: "string",
+          description:
+            "エージェントが、このアクションをいつ呼び出すかを判断するために読む内容。",
+        },
+        {
+          name: "schema",
+          type: "StandardSchemaV1",
+          description:
+            "すべてのサーフェスで入力を検証します。下記の「スキーマ オプション」を参照してください。",
+        },
+        {
+          name: "run",
+          type: "(args, ctx?) => Promise<TReturn> | TReturn",
+          description:
+            "すべてのサーフェスが呼び出す唯一の実装。`ctx` 引数については「実行コンテキスト」を参照してください。",
+        },
+        {
+          name: "http",
+          type: "ActionHttpConfig | false",
+          optional: true,
+          description:
+            "マウントされるメソッド/パスを上書きするか、HTTP エンドポイントを完全に無効化します。下記の「HTTP 設定」を参照してください。",
+        },
+        {
+          name: "readOnly",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description:
+            "`http.method` が GET のとき自動的に true になります。UI のポーリング再フェッチと書き込み監査をスキップします。アクセス制御ではありません。",
+        },
+        {
+          name: "outputSchema",
+          type: "StandardSchemaV1",
+          optional: true,
+          description:
+            "`run()` の戻り値を検証します。下記の「戻り値を検証する」を参照してください。",
+        },
+        {
+          name: "outputErrorStrategy",
+          type: '"warn" | "strict" | "fallback"',
+          optional: true,
+          default: '"warn"',
+          description: "出力が一致しなかった場合の挙動。",
+        },
+        {
+          name: "outputFallback",
+          type: "TReturn",
+          optional: true,
+          description:
+            '`outputErrorStrategy` が "fallback" のとき、無効な結果の代わりに返されます。',
+        },
+        {
+          name: "parallelSafe",
+          type: "boolean",
+          optional: true,
+          description:
+            "変更を伴うアクションを、同じターン内の他のツール呼び出しと同時に実行できるようにします。",
+        },
+        {
+          name: "agentTool",
+          type: "boolean",
+          optional: true,
+          default: "true",
+          description:
+            "`false` に設定すると、すべてのエージェント ツール一覧から非表示になります。「アクセスと認可」を参照してください。",
+        },
+        {
+          name: "toolCallable",
+          type: "boolean",
+          optional: true,
+          default: "true",
+          description:
+            "`false` に設定すると、サンドボックス化された拡張機能の iframe ブリッジからの呼び出しをブロックします。「アクセスと認可」を参照してください。",
+        },
+        {
+          name: "publicAgent",
+          type: "PublicAgentActionConfig",
+          optional: true,
+          description:
+            "`{ expose: true }` を指定すると、このアクションを公開 MCP/A2A/OpenAPI サーフェスに追加します。「アクセスと認可」を参照してください。",
+        },
+        {
+          name: "needsApproval",
+          type: "boolean | ((args, ctx?) => boolean | Promise<boolean>)",
+          optional: true,
+          default: "false",
+          description:
+            "`run()` の前にエージェント ループを一時停止し、人間の承認を待ちます。「人間参加型の承認」を参照してください。",
+        },
+        {
+          name: "authorize",
+          type: "ActionAuthorize<TInput>",
+          optional: true,
+          description:
+            "この呼び出し元がそもそもこのアクションを実行してよいかどうかを判定するガード関数。「アクセスと認可」を参照してください。",
+        },
+        {
+          name: "audit",
+          type: "ActionAuditConfig",
+          optional: true,
+          description:
+            "変更を伴うすべてのアクションが既に受け取っている自動監査キャプチャを調整します。「監査ログ」を参照してください。",
+        },
+        {
+          name: "chatUI",
+          type: "ActionChatUIConfig",
+          optional: true,
+          description:
+            "アクションの結果に対するネイティブ チャット UI のレンダラーを宣言します。「その他のサーフェス」を参照してください。",
+        },
       ],
     },
   ]}
   returns={{
     type: "ActionDefinition<TInput, TReturn>",
-    description: "型付きのアクション定義。ファイルのデフォルト エクスポートとしてエクスポートしてください。",
+    description:
+      "型付きのアクション定義。ファイルのデフォルト エクスポートとしてエクスポートしてください。",
   }}
 />
 
@@ -101,11 +200,11 @@ export default defineAction({
 
 `outputErrorStrategy` は、不一致が起きたときの挙動を制御します。
 
-| 戦略         | 不一致時の挙動                                                                                       |
-| ------------ | ---------------------------------------------------------------------------------------------------- |
-| `"warn"`     | **デフォルト。** 問題点を `console.warn` に出力し、**元の**結果をそのまま返します。破壊的変更なし。   |
-| `"strict"`   | 明確なエラーをスローするため、アクションのバグに気づきやすくなります。                                |
-| `"fallback"` | 無効な結果の代わりに、指定された `outputFallback` の値を返します。                                    |
+| 戦略         | 不一致時の挙動                                                                                      |
+| ------------ | --------------------------------------------------------------------------------------------------- |
+| `"warn"`     | **デフォルト。** 問題点を `console.warn` に出力し、**元の**結果をそのまま返します。破壊的変更なし。 |
+| `"strict"`   | 明確なエラーをスローするため、アクションのバグに気づきやすくなります。                              |
+| `"fallback"` | 無効な結果の代わりに、指定された `outputFallback` の値を返します。                                  |
 
 `run()` が成功すると、フレームワークは検証済みの値を返すため、`outputSchema` に設定されたデフォルト値や型変換が、入力の場合と同じように反映されます。`outputSchema` を渡さない場合、戻り値は変更されません。
 

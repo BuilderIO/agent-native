@@ -87,14 +87,14 @@ export function CreateFusionAppButton() {
 
 `set-feature-flag` は、オペレーターが実際に、誰に対してフラグをオンにするかを変更する方法です。
 
-| 操作                                                    | 内容                                             | 引数の例                                                                                                       |
-| ------------------------------------------------------- | ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------- |
-| `enable-for-current-user`                                | 自分自身のアカウントに対してのみフラグをオンにします。 | `{ key: "full-app-building", operation: "enable-for-current-user" }`                                             |
-| `off`                                                    | 全員に対してフラグをオフにし、ルールをすべてリセットします。 | `{ key: "full-app-building", operation: "off" }`                                                                 |
-| `replace-rules`、モード `"on"`                           | 全員に対してフラグをオンにします。                | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "on" } }`                                |
-| `replace-rules`、モード `"rules"` と `emails`             | 特定のアカウント一覧に対してオンにします。        | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", emails: ["a@example.com"] } }`  |
-| `replace-rules`、モード `"rules"` と `orgIds`             | 特定の組織に対してオンにします。                  | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", orgIds: ["org_123"] } }`        |
-| `replace-rules`、モード `"rules"` と `percentage`         | パーセンテージによる段階的展開でオンにします。    | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", percentage: 10 } }`             |
+| 操作                                              | 内容                                                         | 引数の例                                                                                                        |
+| ------------------------------------------------- | ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| `enable-for-current-user`                         | 自分自身のアカウントに対してのみフラグをオンにします。       | `{ key: "full-app-building", operation: "enable-for-current-user" }`                                            |
+| `off`                                             | 全員に対してフラグをオフにし、ルールをすべてリセットします。 | `{ key: "full-app-building", operation: "off" }`                                                                |
+| `replace-rules`、モード `"on"`                    | 全員に対してフラグをオンにします。                           | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "on" } }`                               |
+| `replace-rules`、モード `"rules"` と `emails`     | 特定のアカウント一覧に対してオンにします。                   | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", emails: ["a@example.com"] } }` |
+| `replace-rules`、モード `"rules"` と `orgIds`     | 特定の組織に対してオンにします。                             | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", orgIds: ["org_123"] } }`       |
+| `replace-rules`、モード `"rules"` と `percentage` | パーセンテージによる段階的展開でオンにします。               | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", percentage: 10 } }`            |
 
 フリート オペレーター UI は、共有ログインの代わりに、狭くスコープされた A2A 委任を通じて、これらと同じアクションを呼び出します。Analytics が、それらの唯一のオペレーター UI です。アプリは独自のフラグ設定パネルを構築すべきではなく、フラグの書き込みは、汎用の設定エンドポイントや生の SQL を経由すべきではありません。
 
@@ -135,13 +135,13 @@ const args = parseArgs(["--name", "Steve", "--verbose", "--count=3"]);
 
 これらは、上記の `parseArgs()` と同じ `@agent-native/core` からインポートする、スクリプト作成向けの小さなヘルパーです。レガシーな CLI スタイルのアクションに特別に結びついているわけではありません。環境変数の読み込み、パス引数の検証、明確なエラーでの中断など、あらゆる単発の開発スクリプトで活用してください。
 
-| 関数                    | 戻り値                   | 説明                                                                                                                     |
-| ----------------------- | ------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
-| `loadEnv(path?)`        | `void`                   | プロジェクト ルートまたはカスタム パスから `.env` (と `.env.local`) を読み込みます。エンタープライズ ワークスペースでは、ワークスペース ルートの `.env` にフォールバックします。 |
-| `camelCaseArgs(args)`   | `Record<string, string>` | ケバブケースのキーをキャメルケースに変換します。                                                                          |
-| `isValidPath(p)`        | `boolean`                | 相対パスを検証します (トラバーサルなし、絶対パスなし)。                                                                   |
-| `isValidProjectPath(p)` | `boolean`                | プロジェクトのスラッグを検証します (例: `my-project` や `group/my-project`)。                                            |
-| `ensureDir(dir)`        | `void`                   | `mkdir -p` のヘルパーです。                                                                                               |
+| 関数                    | 戻り値                   | 説明                                                                                                                                                                                                      |
+| ----------------------- | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `loadEnv(path?)`        | `void`                   | プロジェクト ルートまたはカスタム パスから `.env` (と `.env.local`) を読み込みます。エンタープライズ ワークスペースでは、ワークスペース ルートの `.env` にフォールバックします。                          |
+| `camelCaseArgs(args)`   | `Record<string, string>` | ケバブケースのキーをキャメルケースに変換します。                                                                                                                                                          |
+| `isValidPath(p)`        | `boolean`                | 相対パスを検証します (トラバーサルなし、絶対パスなし)。                                                                                                                                                   |
+| `isValidProjectPath(p)` | `boolean`                | プロジェクトのスラッグを検証します (例: `my-project` や `group/my-project`)。                                                                                                                             |
+| `ensureDir(dir)`        | `void`                   | `mkdir -p` のヘルパーです。                                                                                                                                                                               |
 | `fail(message)`         | `never`                  | エラーをスローしてスクリプトを中断します。CLI ランナーはこれを捕捉し、終了コード 1 で終了します。サーバー内の呼び出し元 (エージェント ツール、A2A) には、代わりにツール呼び出しのエラーとして返されます。 |
 
 ## 次は何ですか

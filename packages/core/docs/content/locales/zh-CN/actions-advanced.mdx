@@ -87,14 +87,14 @@ export function CreateFusionAppButton() {
 
 `set-feature-flag` 就是操作员真正用来改变这个 flag 对谁生效的方式:
 
-| 操作 | 它做什么 | 参数示例 |
-| --- | --- | --- |
-| `enable-for-current-user` | 只为你自己的账户打开这个 flag。 | `{ key: "full-app-building", operation: "enable-for-current-user" }` |
-| `off` | 为所有人关闭这个 flag,重置所有规则。 | `{ key: "full-app-building", operation: "off" }` |
-| `replace-rules`,模式 `"on"` | 为所有人打开这个 flag。 | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "on" } }` |
-| `replace-rules`,模式 `"rules"` 加 `emails` | 为一份具体的账户列表打开它。 | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", emails: ["a@example.com"] } }` |
-| `replace-rules`,模式 `"rules"` 加 `orgIds` | 为特定的组织打开它。 | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", orgIds: ["org_123"] } }` |
-| `replace-rules`,模式 `"rules"` 加 `percentage` | 按百分比放量打开它。 | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", percentage: 10 } }` |
+| 操作                                           | 它做什么                             | 参数示例                                                                                                        |
+| ---------------------------------------------- | ------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| `enable-for-current-user`                      | 只为你自己的账户打开这个 flag。      | `{ key: "full-app-building", operation: "enable-for-current-user" }`                                            |
+| `off`                                          | 为所有人关闭这个 flag,重置所有规则。 | `{ key: "full-app-building", operation: "off" }`                                                                |
+| `replace-rules`,模式 `"on"`                    | 为所有人打开这个 flag。              | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "on" } }`                               |
+| `replace-rules`,模式 `"rules"` 加 `emails`     | 为一份具体的账户列表打开它。         | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", emails: ["a@example.com"] } }` |
+| `replace-rules`,模式 `"rules"` 加 `orgIds`     | 为特定的组织打开它。                 | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", orgIds: ["org_123"] } }`       |
+| `replace-rules`,模式 `"rules"` 加 `percentage` | 按百分比放量打开它。                 | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", percentage: 10 } }`            |
 
 Fleet 操作员 UI 是通过范围受限的 A2A 委托来调用这些同样的 action,而不是共享登录,Analytics 是它们唯一的操作员 UI。应用不应该自己搭建 flag 设置面板,flag 的写入也永远不应该经过通用的设置端点或原始 SQL。
 
@@ -135,14 +135,14 @@ const args = parseArgs(["--name", "Steve", "--verbose", "--count=3"]);
 
 这些是编写脚本用的小型辅助函数,来自和上面 `parseArgs()` 相同的 `@agent-native/core` 导入。它们并不专门绑定于旧版 CLI 风格 action。在任何一次性开发脚本中都可以用到它们:加载环境变量、校验一个路径参数,或者用一个明确的错误信息中止执行。
 
-| 函数                    | 返回值                    | 说明                                                                                                          |
-| ----------------------- | ------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `loadEnv(path?)`        | `void`                    | 从项目根目录或自定义路径加载 `.env`(和 `.env.local`)。在企业工作区中会回退到工作区根目录的 `.env`。 |
-| `camelCaseArgs(args)`   | `Record<string, string>` | 把 kebab-case 键名转换为 camelCase。                                                                             |
-| `isValidPath(p)`        | `boolean`                 | 校验一个相对路径(不允许目录穿越,不允许绝对路径)。                                                              |
-| `isValidProjectPath(p)` | `boolean`                 | 校验一个项目 slug(例如 `my-project` 或 `group/my-project`)。                                                    |
-| `ensureDir(dir)`        | `void`                    | `mkdir -p` 辅助函数。                                                                                            |
-| `fail(message)`         | `never`                   | 抛出一个错误来中止一个脚本。CLI 运行器会捕获它并以退出码 1 结束。服务端内部的调用者(代理工具、A2A)会把它当作一次工具调用错误收到。 |
+| 函数                    | 返回值                   | 说明                                                                                                                               |
+| ----------------------- | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `loadEnv(path?)`        | `void`                   | 从项目根目录或自定义路径加载 `.env`(和 `.env.local`)。在企业工作区中会回退到工作区根目录的 `.env`。                                |
+| `camelCaseArgs(args)`   | `Record<string, string>` | 把 kebab-case 键名转换为 camelCase。                                                                                               |
+| `isValidPath(p)`        | `boolean`                | 校验一个相对路径(不允许目录穿越,不允许绝对路径)。                                                                                  |
+| `isValidProjectPath(p)` | `boolean`                | 校验一个项目 slug(例如 `my-project` 或 `group/my-project`)。                                                                       |
+| `ensureDir(dir)`        | `void`                   | `mkdir -p` 辅助函数。                                                                                                              |
+| `fail(message)`         | `never`                  | 抛出一个错误来中止一个脚本。CLI 运行器会捕获它并以退出码 1 结束。服务端内部的调用者(代理工具、A2A)会把它当作一次工具调用错误收到。 |
 
 ## 下一步
 

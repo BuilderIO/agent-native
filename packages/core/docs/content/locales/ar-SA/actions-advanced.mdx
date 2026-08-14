@@ -87,14 +87,14 @@ export function CreateFusionAppButton() {
 
 `set-feature-flag` هو كيف يغيّر المشغِّل فعليًا من الذي يكون العلم مفعَّلًا له:
 
-| العملية | ما تفعله | أمثلة على الوسائط |
-| --- | --- | --- |
-| `enable-for-current-user` | يفعّل العلم لحسابك الخاص فقط. | `{ key: "full-app-building", operation: "enable-for-current-user" }` |
-| `off` | يعطّل العلم للجميع، ويعيد ضبط أي قواعد. | `{ key: "full-app-building", operation: "off" }` |
-| `replace-rules`، الوضع `"on"` | يفعّل العلم للجميع. | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "on" } }` |
-| `replace-rules`، الوضع `"rules"` مع `emails` | يفعّله لقائمة محددة من الحسابات. | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", emails: ["a@example.com"] } }` |
-| `replace-rules`، الوضع `"rules"` مع `orgIds` | يفعّله لمؤسسات محددة. | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", orgIds: ["org_123"] } }` |
-| `replace-rules`، الوضع `"rules"` مع `percentage` | يفعّله لطرح تدريجي بنسبة مئوية. | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", percentage: 10 } }` |
+| العملية                                          | ما تفعله                                | أمثلة على الوسائط                                                                                               |
+| ------------------------------------------------ | --------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `enable-for-current-user`                        | يفعّل العلم لحسابك الخاص فقط.           | `{ key: "full-app-building", operation: "enable-for-current-user" }`                                            |
+| `off`                                            | يعطّل العلم للجميع، ويعيد ضبط أي قواعد. | `{ key: "full-app-building", operation: "off" }`                                                                |
+| `replace-rules`، الوضع `"on"`                    | يفعّل العلم للجميع.                     | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "on" } }`                               |
+| `replace-rules`، الوضع `"rules"` مع `emails`     | يفعّله لقائمة محددة من الحسابات.        | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", emails: ["a@example.com"] } }` |
+| `replace-rules`، الوضع `"rules"` مع `orgIds`     | يفعّله لمؤسسات محددة.                   | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", orgIds: ["org_123"] } }`       |
+| `replace-rules`، الوضع `"rules"` مع `percentage` | يفعّله لطرح تدريجي بنسبة مئوية.         | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", percentage: 10 } }`            |
 
 تستدعي واجهات مستخدم مشغِّلي الأسطول (fleet) هذه actions نفسها عبر تفويض A2A ضيق النطاق بدلاً من تسجيل دخول مشترك، وAnalytics هي واجهة المستخدم الوحيدة للمشغِّل الخاصة بها. لا ينبغي للتطبيقات بناء لوحة إعدادات أعلام خاصة بها، ولا ينبغي أبدًا أن تمر كتابات الأعلام عبر نقاط نهاية إعدادات عامة أو SQL خام.
 
@@ -135,13 +135,13 @@ const args = parseArgs(["--name", "Steve", "--verbose", "--count=3"]);
 
 هذه مساعدات صغيرة لكتابة النصوص البرمجية، من الاستيراد نفسه `@agent-native/core` الذي يأتي منه `parseArgs()` أعلاه. وهي ليست مرتبطة بأسلوب action القديم الخاص بـ CLI تحديدًا. الجأ إليها في أي نص برمجي تطويري لمرة واحدة: تحميل متغيرات البيئة، أو التحقق من صحة وسيطة مسار، أو الإجهاض بخطأ واضح.
 
-| الدالة                | تُرجع                  | الوصف                                                                                                                          |
-| ----------------------- | ------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
-| `loadEnv(path?)`        | `void`                   | يحمّل `.env` (و`.env.local`) من جذر المشروع أو مسار مخصص. يرجع إلى `.env` الخاص بجذر مساحة العمل في مساحة عمل مؤسسية. |
-| `camelCaseArgs(args)`   | `Record<string, string>` | يحوّل مفاتيح kebab-case إلى camelCase.                                                                                  |
-| `isValidPath(p)`        | `boolean`                | يتحقق من صحة مسار نسبي (بلا اجتياز، بلا مسار مطلق).                                                                 |
-| `isValidProjectPath(p)` | `boolean`                | يتحقق من صحة معرّف مشروع مختصر (slug) (مثل `my-project` أو `group/my-project`).                                    |
-| `ensureDir(dir)`        | `void`                   | مساعد `mkdir -p`.                                                                                                     |
+| الدالة                  | تُرجع                    | الوصف                                                                                                                                           |
+| ----------------------- | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `loadEnv(path?)`        | `void`                   | يحمّل `.env` (و`.env.local`) من جذر المشروع أو مسار مخصص. يرجع إلى `.env` الخاص بجذر مساحة العمل في مساحة عمل مؤسسية.                           |
+| `camelCaseArgs(args)`   | `Record<string, string>` | يحوّل مفاتيح kebab-case إلى camelCase.                                                                                                          |
+| `isValidPath(p)`        | `boolean`                | يتحقق من صحة مسار نسبي (بلا اجتياز، بلا مسار مطلق).                                                                                             |
+| `isValidProjectPath(p)` | `boolean`                | يتحقق من صحة معرّف مشروع مختصر (slug) (مثل `my-project` أو `group/my-project`).                                                                 |
+| `ensureDir(dir)`        | `void`                   | مساعد `mkdir -p`.                                                                                                                               |
 | `fail(message)`         | `never`                  | يطرح خطأً لإجهاض نص برمجي. يلتقطه مُشغِّل CLI ويخرج برمز 1. يحصل عليه المستدعون داخل الخادم (أدوات الوكيل، A2A) كخطأ استدعاء أداة بدلاً من ذلك. |
 
 ## ما هي الخطوة التالية

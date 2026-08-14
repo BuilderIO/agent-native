@@ -47,96 +47,112 @@ Die meisten Actions lesen nur `ctx?.userEmail` und `ctx?.orgId`, das [Zugriffsko
       name: "ctx",
       type: "ActionRunContext",
       optional: true,
-      description: "Die aufgelöste Anfrageidentität und die Oberfläche, die die Action aufgerufen hat. Undefined-sicher: ein 1-Argument-Handler `run(args)` bleibt weiterhin gültig.",
+      description:
+        "Die aufgelöste Anfrageidentität und die Oberfläche, die die Action aufgerufen hat. Undefined-sicher: ein 1-Argument-Handler `run(args)` bleibt weiterhin gültig.",
       fields: [
         {
           name: "userEmail",
           type: "string",
           optional: true,
-          description: "Aufgelöster Anfragebenutzer. **Nie standardmäßig auf eine Dev-Identität gesetzt**: `undefined`, wenn die Anfrage keinen authentifizierten Benutzer hat. Wenden Sie einen eigenen Fallback an, falls Sie einen brauchen.",
+          description:
+            "Aufgelöster Anfragebenutzer. **Nie standardmäßig auf eine Dev-Identität gesetzt**: `undefined`, wenn die Anfrage keinen authentifizierten Benutzer hat. Wenden Sie einen eigenen Fallback an, falls Sie einen brauchen.",
         },
         {
           name: "orgId",
           type: "string | null",
-          description: "Aufgelöste Org-ID, oder `null`, wenn die Anfrage keine Org hat.",
+          description:
+            "Aufgelöste Org-ID, oder `null`, wenn die Anfrage keine Org hat.",
         },
         {
           name: "caller",
           type: "ActionCaller",
-          description: "Wie die Action aufgerufen wurde. Siehe [die Aufrufer-Union](#caller) unten.",
+          description:
+            "Wie die Action aufgerufen wurde. Siehe [die Aufrufer-Union](#caller) unten.",
         },
         {
           name: "send",
           type: "(event) => void",
           optional: true,
-          description: "Sendet ein SSE-Ereignis an den Client. Nur innerhalb der Agent-Tool-Schleife vorhanden (`caller: \"tool\"`). Anderswo `undefined`.",
+          description:
+            'Sendet ein SSE-Ereignis an den Client. Nur innerhalb der Agent-Tool-Schleife vorhanden (`caller: "tool"`). Anderswo `undefined`.',
         },
         {
           name: "attachments",
           type: "AgentChatAttachment[]",
           optional: true,
-          description: "Dateien, Bilder und eingefügte Textblöcke, die mit der aktuellen Agent-Runde übermittelt wurden. Nur befüllt bei `caller: \"tool\"`. `undefined` auf allen anderen Oberflächen.",
+          description:
+            'Dateien, Bilder und eingefügte Textblöcke, die mit der aktuellen Agent-Runde übermittelt wurden. Nur befüllt bei `caller: "tool"`. `undefined` auf allen anderen Oberflächen.',
         },
         {
           name: "signal",
           type: "AbortSignal",
           optional: true,
-          description: "Bricht ab, wenn der Lauf per Soft-Timeout beendet, abgebrochen wird oder der Server herunterfährt. Nur befüllt bei `caller: \"tool\"`. Langlaufende Actions können es beobachten, um frühzeitig abzubrechen, statt auf das harte 60s-Timeout pro Tool zu warten.",
+          description:
+            'Bricht ab, wenn der Lauf per Soft-Timeout beendet, abgebrochen wird oder der Server herunterfährt. Nur befüllt bei `caller: "tool"`. Langlaufende Actions können es beobachten, um frühzeitig abzubrechen, statt auf das harte 60s-Timeout pro Tool zu warten.',
         },
         {
           name: "actionName",
           type: "string",
           optional: true,
-          description: "Der Registry-Schlüssel der aufgerufenen Action (z. B. `delete-recording`), gesetzt an jeder Dispatch-Stelle, sodass Querschnittsbelange wie das Audit-Protokoll den Aufruf zuordnen können. `undefined` bei direkten programmatischen `run()`-Aufrufen, die den Dispatcher umgehen.",
+          description:
+            "Der Registry-Schlüssel der aufgerufenen Action (z. B. `delete-recording`), gesetzt an jeder Dispatch-Stelle, sodass Querschnittsbelange wie das Audit-Protokoll den Aufruf zuordnen können. `undefined` bei direkten programmatischen `run()`-Aufrufen, die den Dispatcher umgehen.",
         },
         {
           name: "threadId",
           type: "string",
           optional: true,
-          description: "Der Agent-Konversations-Thread, der diesen Aufruf ausgelöst hat. Nur befüllt bei `caller: \"tool\"`, sodass das Audit-Protokoll eine Mutation auf den genauen Agent-Lauf zurückführen kann.",
+          description:
+            'Der Agent-Konversations-Thread, der diesen Aufruf ausgelöst hat. Nur befüllt bei `caller: "tool"`, sodass das Audit-Protokoll eine Mutation auf den genauen Agent-Lauf zurückführen kann.',
         },
         {
           name: "runId",
           type: "string",
           optional: true,
-          description: "Der Agent-Laufversuch, der diesen Aufruf ausgelöst hat. Nur befüllt bei `caller: \"tool\"`.",
+          description:
+            'Der Agent-Laufversuch, der diesen Aufruf ausgelöst hat. Nur befüllt bei `caller: "tool"`.',
         },
         {
           name: "turnId",
           type: "string",
           optional: true,
-          description: "Die konkrete Runde innerhalb dieses Laufs, die diesen Aufruf ausgelöst hat. Nur befüllt bei `caller: \"tool\"`.",
+          description:
+            'Die konkrete Runde innerhalb dieses Laufs, die diesen Aufruf ausgelöst hat. Nur befüllt bei `caller: "tool"`.',
         },
         {
           name: "automation",
           type: "ActionAutomationContext",
           optional: true,
-          description: "Nur vorhanden bei `caller: \"automation\"`. Trägt `triggerId`, `triggerName` und eine optionale `policyId` für die ereignisausgelöste Automatisierung, die diesen Aufruf ausgelöst hat.",
+          description:
+            'Nur vorhanden bei `caller: "automation"`. Trägt `triggerId`, `triggerName` und eine optionale `policyId` für die ereignisausgelöste Automatisierung, die diesen Aufruf ausgelöst hat.',
         },
         {
           name: "networkProtocol",
           type: '"a2a" | "mcp" | "provider-api"',
           optional: true,
-          description: "Über welches delegierte Aufrufprotokoll diese Anfrage eingetroffen ist. Nur für diese direkten Dispatch-Pfade gesetzt.",
+          description:
+            "Über welches delegierte Aufrufprotokoll diese Anfrage eingetroffen ist. Nur für diese direkten Dispatch-Pfade gesetzt.",
         },
         {
           name: "networkId",
           type: "string",
           optional: true,
-          description: "Eine Korrelations-ID für diesen delegierten Aufruf, z. B. die A2A-Delegations-JWT-ID.",
+          description:
+            "Eine Korrelations-ID für diesen delegierten Aufruf, z. B. die A2A-Delegations-JWT-ID.",
         },
         {
           name: "networkPeer",
           type: "string",
           optional: true,
-          description: "Die Identität des aufrufenden Peers für diesen delegierten Aufruf.",
+          description:
+            "Die Identität des aufrufenden Peers für diesen delegierten Aufruf.",
         },
       ],
     },
   ]}
   returns={{
     type: "Promise<TReturn> | TReturn",
-    description: "Das Ergebnis der Action, validiert gegen `outputSchema`, falls eines gesetzt ist.",
+    description:
+      "Das Ergebnis der Action, validiert gegen `outputSchema`, falls eines gesetzt ist.",
   }}
 />
 
@@ -146,15 +162,15 @@ Die meisten Actions lesen nur `ctx?.userEmail` und `ctx?.orgId`, das [Zugriffsko
 
 `caller` ist die Union `"tool" | "http" | "frontend" | "cli" | "mcp" | "a2a" | "automation"`:
 
-| `caller`       | Gesetzt, wenn…                                                                                                                                                          |
-| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `"tool"`       | Die In-App-Agentenschleife, ein Sub-Agent oder ein Agent-Team, oder die A2A-Delegation über natürliche Sprache app-übergreifend, die dieselbe Agentenschleife antreibt, sodass ihre Tool-Aufrufe `"tool"` sind. |
-| `"frontend"`   | Ein Browser-Aufruf über `useActionMutation()`, `useActionQuery()` oder `callAction()` (markiert mit dem Header `X-Agent-Native-Frontend: 1`).                          |
-| `"http"`       | Ein reiner programmatischer `POST` oder `GET` an `/_agent-native/actions/<name>` ohne die Frontend-Markierung.                                                          |
-| `"cli"`        | `pnpm action <name>` (der CLI-Runner).                                                                                                                                  |
-| `"mcp"`        | Ein externer Agent über den MCP-Endpunkt `tools/call`.                                                                                                                  |
+| `caller`       | Gesetzt, wenn…                                                                                                                                                                                                                |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `"tool"`       | Die In-App-Agentenschleife, ein Sub-Agent oder ein Agent-Team, oder die A2A-Delegation über natürliche Sprache app-übergreifend, die dieselbe Agentenschleife antreibt, sodass ihre Tool-Aufrufe `"tool"` sind.               |
+| `"frontend"`   | Ein Browser-Aufruf über `useActionMutation()`, `useActionQuery()` oder `callAction()` (markiert mit dem Header `X-Agent-Native-Frontend: 1`).                                                                                 |
+| `"http"`       | Ein reiner programmatischer `POST` oder `GET` an `/_agent-native/actions/<name>` ohne die Frontend-Markierung.                                                                                                                |
+| `"cli"`        | `pnpm action <name>` (der CLI-Runner).                                                                                                                                                                                        |
+| `"mcp"`        | Ein externer Agent über den MCP-Endpunkt `tools/call`.                                                                                                                                                                        |
 | `"a2a"`        | Ein direkter HTTP-Aufruf an `/_agent-native/actions/<name>` mit einem signierten A2A-Delegationstoken. Dies ist ein explizit exponierter, app-übergreifender Dispatch, getrennt vom natürlichsprachlichen `"tool"`-Pfad oben. |
-| `"automation"` | Eine ereignisausgelöste Automatisierung, ausgelöst von einem gespeicherten Workspace-Trigger. `ctx.automation` trägt die Trigger-Abstammung. Siehe [Automatisierungen](/docs/automations). |
+| `"automation"` | Eine ereignisausgelöste Automatisierung, ausgelöst von einem gespeicherten Workspace-Trigger. `ctx.automation` trägt die Trigger-Abstammung. Siehe [Automatisierungen](/docs/automations).                                    |
 
 ## Was kommt als nächstes?
 

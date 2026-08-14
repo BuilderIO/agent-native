@@ -114,14 +114,14 @@ export function CreateFusionAppButton() {
 
 `set-feature-flag`는 운영자가 실제로 플래그를 켤 대상을 바꾸는 방법입니다.
 
-| 작업 | 하는 일 | 예시 인자 |
-| --- | --- | --- |
-| `enable-for-current-user` | 자기 자신의 계정에 대해서만 플래그를 켭니다. | `{ key: "full-app-building", operation: "enable-for-current-user" }` |
-| `off` | 모두에 대해 플래그를 끄고, 모든 규칙을 초기화합니다. | `{ key: "full-app-building", operation: "off" }` |
-| `replace-rules`, 모드 `"on"` | 모두에 대해 플래그를 켭니다. | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "on" } }` |
-| `replace-rules`, 모드 `"rules"`와 `emails` | 특정 계정 목록에 대해 켭니다. | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", emails: ["a@example.com"] } }` |
-| `replace-rules`, 모드 `"rules"`와 `orgIds` | 특정 조직들에 대해 켭니다. | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", orgIds: ["org_123"] } }` |
-| `replace-rules`, 모드 `"rules"`와 `percentage` | 퍼센트 단위 롤아웃으로 켭니다. | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", percentage: 10 } }` |
+| 작업                                           | 하는 일                                              | 예시 인자                                                                                                       |
+| ---------------------------------------------- | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `enable-for-current-user`                      | 자기 자신의 계정에 대해서만 플래그를 켭니다.         | `{ key: "full-app-building", operation: "enable-for-current-user" }`                                            |
+| `off`                                          | 모두에 대해 플래그를 끄고, 모든 규칙을 초기화합니다. | `{ key: "full-app-building", operation: "off" }`                                                                |
+| `replace-rules`, 모드 `"on"`                   | 모두에 대해 플래그를 켭니다.                         | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "on" } }`                               |
+| `replace-rules`, 모드 `"rules"`와 `emails`     | 특정 계정 목록에 대해 켭니다.                        | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", emails: ["a@example.com"] } }` |
+| `replace-rules`, 모드 `"rules"`와 `orgIds`     | 특정 조직들에 대해 켭니다.                           | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", orgIds: ["org_123"] } }`       |
+| `replace-rules`, 모드 `"rules"`와 `percentage` | 퍼센트 단위 롤아웃으로 켭니다.                       | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", percentage: 10 } }`            |
 
 플릿 운영자 UI는 공유 로그인 대신 좁게 범위가 지정된 A2A 위임을 통해
 이 동일한 action들을 호출하며, Analytics가 이들을 위한 유일한 운영자
@@ -176,13 +176,13 @@ const args = parseArgs(["--name", "Steve", "--verbose", "--count=3"]);
 방식에 특별히 묶여 있지는 않습니다. 환경 변수 로딩, 경로 인자 검증,
 명확한 오류로 중단하기처럼, 어떤 일회성 개발 스크립트에서든 사용하세요.
 
-| 함수                    | 반환값                    | 설명                                                                                                          |
-| ----------------------- | ------------------------ | ----------------------------------------------------------------------------------------------------------------- |
-| `loadEnv(path?)`        | `void`                   | 프로젝트 루트나 커스텀 경로에서 `.env`(및 `.env.local`)를 로드합니다. 엔터프라이즈 워크스페이스에서는 워크스페이스 루트의 `.env`로 폴백합니다. |
-| `camelCaseArgs(args)`   | `Record<string, string>` | kebab-case 키를 camelCase로 변환합니다.                                                                            |
-| `isValidPath(p)`        | `boolean`                | 상대 경로를 검증합니다(트래버설 없음, 절대 경로 없음).                                                             |
-| `isValidProjectPath(p)` | `boolean`                | 프로젝트 슬러그를 검증합니다(예: `my-project` 또는 `group/my-project`).                                            |
-| `ensureDir(dir)`        | `void`                   | `mkdir -p` 도우미입니다.                                                                                           |
+| 함수                    | 반환값                   | 설명                                                                                                                                                                     |
+| ----------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `loadEnv(path?)`        | `void`                   | 프로젝트 루트나 커스텀 경로에서 `.env`(및 `.env.local`)를 로드합니다. 엔터프라이즈 워크스페이스에서는 워크스페이스 루트의 `.env`로 폴백합니다.                           |
+| `camelCaseArgs(args)`   | `Record<string, string>` | kebab-case 키를 camelCase로 변환합니다.                                                                                                                                  |
+| `isValidPath(p)`        | `boolean`                | 상대 경로를 검증합니다(트래버설 없음, 절대 경로 없음).                                                                                                                   |
+| `isValidProjectPath(p)` | `boolean`                | 프로젝트 슬러그를 검증합니다(예: `my-project` 또는 `group/my-project`).                                                                                                  |
+| `ensureDir(dir)`        | `void`                   | `mkdir -p` 도우미입니다.                                                                                                                                                 |
 | `fail(message)`         | `never`                  | 스크립트를 중단시키기 위해 오류를 던집니다. CLI 러너는 이를 잡아 종료 코드 1로 끝냅니다. 서버 내부 호출자(에이전트 도구, A2A)는 대신 이를 도구 호출 오류로 돌려받습니다. |
 
 ## 다음 단계

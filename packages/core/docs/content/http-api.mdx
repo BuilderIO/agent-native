@@ -14,7 +14,7 @@ search: "HTTP API bearer token service token connect CLI curl action endpoint se
 | Let an AI host discover and call every action        | [MCP Server](/docs/mcp-protocol)         |
 | Connect Claude, ChatGPT, Codex, Cursor to your app   | [External Agents](/docs/external-agents) |
 | Have another agent-native app delegate work to yours | [A2A Protocol](/docs/a2a-protocol)       |
-| Define the operation in the first place              | [Actions](/docs/actions-overview)                 |
+| Define the operation in the first place              | [Actions](/docs/actions-overview)        |
 
 Every `defineAction` in `actions/` is already an HTTP endpoint. The frontend calls it through `useActionQuery` / `useActionMutation` with a session cookie, but the same route accepts an `Authorization: Bearer` token, so anything that can make an HTTPS request can call it. There is no separate "public API" to build and no REST wrapper to maintain — the action you wrote for the agent and the UI is the API.
 

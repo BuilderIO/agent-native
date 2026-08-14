@@ -1529,7 +1529,7 @@ const hiIN = {
     actionsOverview: "अवलोकन",
     actionsDefining: "Actions परिभाषित करना",
     actionsAccessControl: "Access और Authorization",
-    actionsRunContext: "Run Context",
+    actionsRunContext: "रन कॉन्टेक्स्ट",
     actionsOtherSurfaces: "अन्य सतहें",
     actionsAdvanced: "उन्नत और Legacy",
     humanApproval: "मानवीय अनुमोदन",

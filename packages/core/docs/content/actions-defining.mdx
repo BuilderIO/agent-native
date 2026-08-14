@@ -43,30 +43,129 @@ The framework auto-discovers every file in `actions/` and mounts it on startup. 
     {
       name: "config",
       type: "DefineActionConfig<TSchema, TReturn, TOutputSchema>",
-      description: "Everything below is one config object. Only description, schema, and run are required.",
+      description:
+        "Everything below is one config object. Only description, schema, and run are required.",
       fields: [
-        { name: "description", type: "string", description: "What the agent reads to decide when to call this action." },
-        { name: "schema", type: "StandardSchemaV1", description: "Validates input on every surface. See Schema options below." },
-        { name: "run", type: "(args, ctx?) => Promise<TReturn> | TReturn", description: "The single implementation every surface calls. See Run Context for the ctx argument." },
-        { name: "http", type: "ActionHttpConfig | false", optional: true, description: "Overrides the mounted method/path, or disables the HTTP endpoint entirely. See HTTP config below." },
-        { name: "readOnly", type: "boolean", optional: true, default: "false", description: "Auto-true when http.method is GET. Skips the UI poll-refresh and write-auditing. Not access control." },
-        { name: "outputSchema", type: "StandardSchemaV1", optional: true, description: "Validates what run() returns. See Validating the return value below." },
-        { name: "outputErrorStrategy", type: '"warn" | "strict" | "fallback"', optional: true, default: '"warn"', description: "What happens on an output mismatch." },
-        { name: "outputFallback", type: "TReturn", optional: true, description: 'Returned in place of an invalid result when outputErrorStrategy is "fallback".' },
-        { name: "parallelSafe", type: "boolean", optional: true, description: "Allows a mutating action to run concurrently with other same-turn tool calls." },
-        { name: "agentTool", type: "boolean", optional: true, default: "true", description: "Set false to hide from every agent tool list. See Access & Authorization." },
-        { name: "toolCallable", type: "boolean", optional: true, default: "true", description: "Set false to block the sandboxed extension iframe bridge. See Access & Authorization." },
-        { name: "publicAgent", type: "PublicAgentActionConfig", optional: true, description: "{ expose: true } adds the action to public MCP/A2A/OpenAPI surfaces. See Access & Authorization." },
-        { name: "needsApproval", type: "boolean | ((args, ctx?) => boolean | Promise<boolean>)", optional: true, default: "false", description: "Pauses the agent loop for human approval before run(). See Human-in-the-Loop Approvals." },
-        { name: "authorize", type: "ActionAuthorize<TInput>", optional: true, description: "Guard function deciding whether this caller may run the action at all. See Access & Authorization." },
-        { name: "audit", type: "ActionAuditConfig", optional: true, description: "Tunes the automatic audit capture every mutating action already gets. See Audit Log." },
-        { name: "chatUI", type: "ActionChatUIConfig", optional: true, description: "Declares a native chat UI renderer for the action's result. See Other Surfaces." },
+        {
+          name: "description",
+          type: "string",
+          description:
+            "What the agent reads to decide when to call this action.",
+        },
+        {
+          name: "schema",
+          type: "StandardSchemaV1",
+          description:
+            "Validates input on every surface. See Schema options below.",
+        },
+        {
+          name: "run",
+          type: "(args, ctx?) => Promise<TReturn> | TReturn",
+          description:
+            "The single implementation every surface calls. See Run Context for the ctx argument.",
+        },
+        {
+          name: "http",
+          type: "ActionHttpConfig | false",
+          optional: true,
+          description:
+            "Overrides the mounted method/path, or disables the HTTP endpoint entirely. See HTTP config below.",
+        },
+        {
+          name: "readOnly",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description:
+            "Auto-true when http.method is GET. Skips the UI poll-refresh and write-auditing. Not access control.",
+        },
+        {
+          name: "outputSchema",
+          type: "StandardSchemaV1",
+          optional: true,
+          description:
+            "Validates what run() returns. See Validating the return value below.",
+        },
+        {
+          name: "outputErrorStrategy",
+          type: '"warn" | "strict" | "fallback"',
+          optional: true,
+          default: '"warn"',
+          description: "What happens on an output mismatch.",
+        },
+        {
+          name: "outputFallback",
+          type: "TReturn",
+          optional: true,
+          description:
+            'Returned in place of an invalid result when outputErrorStrategy is "fallback".',
+        },
+        {
+          name: "parallelSafe",
+          type: "boolean",
+          optional: true,
+          description:
+            "Allows a mutating action to run concurrently with other same-turn tool calls.",
+        },
+        {
+          name: "agentTool",
+          type: "boolean",
+          optional: true,
+          default: "true",
+          description:
+            "Set false to hide from every agent tool list. See Access & Authorization.",
+        },
+        {
+          name: "toolCallable",
+          type: "boolean",
+          optional: true,
+          default: "true",
+          description:
+            "Set false to block the sandboxed extension iframe bridge. See Access & Authorization.",
+        },
+        {
+          name: "publicAgent",
+          type: "PublicAgentActionConfig",
+          optional: true,
+          description:
+            "{ expose: true } adds the action to public MCP/A2A/OpenAPI surfaces. See Access & Authorization.",
+        },
+        {
+          name: "needsApproval",
+          type: "boolean | ((args, ctx?) => boolean | Promise<boolean>)",
+          optional: true,
+          default: "false",
+          description:
+            "Pauses the agent loop for human approval before run(). See Human-in-the-Loop Approvals.",
+        },
+        {
+          name: "authorize",
+          type: "ActionAuthorize<TInput>",
+          optional: true,
+          description:
+            "Guard function deciding whether this caller may run the action at all. See Access & Authorization.",
+        },
+        {
+          name: "audit",
+          type: "ActionAuditConfig",
+          optional: true,
+          description:
+            "Tunes the automatic audit capture every mutating action already gets. See Audit Log.",
+        },
+        {
+          name: "chatUI",
+          type: "ActionChatUIConfig",
+          optional: true,
+          description:
+            "Declares a native chat UI renderer for the action's result. See Other Surfaces.",
+        },
       ],
     },
   ]}
   returns={{
     type: "ActionDefinition<TInput, TReturn>",
-    description: "The typed action definition. Export it as the file's default export.",
+    description:
+      "The typed action definition. Export it as the file's default export.",
   }}
 />
 
@@ -102,10 +201,10 @@ export default defineAction({
 `outputErrorStrategy` controls what happens on a mismatch:
 
 | Strategy     | Behavior on mismatch                                                                               |
-| ------------ | ---------------------------------------------------------------------------------------------------- |
-| `"warn"`     | **Default.** `console.warn` the issues and return the **original** result unchanged. Non-breaking.   |
-| `"strict"`   | Throw a clear error, so a bug in the action is easy to notice.                                       |
-| `"fallback"` | Return the provided `outputFallback` value in place of the invalid result.                           |
+| ------------ | -------------------------------------------------------------------------------------------------- |
+| `"warn"`     | **Default.** `console.warn` the issues and return the **original** result unchanged. Non-breaking. |
+| `"strict"`   | Throw a clear error, so a bug in the action is easy to notice.                                     |
+| `"fallback"` | Return the provided `outputFallback` value in place of the invalid result.                         |
 
 When `run()` succeeds, the framework returns the validated value, so any defaults or coercions on `outputSchema` take effect, the same way they do for input. When you don't pass an `outputSchema`, the return value is unchanged.
 
