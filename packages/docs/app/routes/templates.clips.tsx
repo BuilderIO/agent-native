@@ -603,7 +603,7 @@ export default function ClipsTemplate() {
       {/* Comparison table */}
       <section
         id="comparison"
-        className="scroll-mt-24 border-t border-[#1a1a1a] pb-16"
+        className="scroll-mt-24 border-t border-[#1a1a1a]"
       >
         <div className="border-x border-[#1a1a1a] px-6 pb-10 pt-16 sm:px-8 sm:pb-14 sm:pt-24 lg:pb-20 lg:pt-32">
           <h2 className="m-0 text-[1.75rem] font-medium leading-[1.05] tracking-[-0.56px] text-[#faf9f5] sm:text-4xl lg:text-[2.875rem] lg:tracking-[-0.92px]">
