@@ -14,13 +14,6 @@ const FREE_ITEMS = [
   "Fork it, modify it, ship it, charge money for what you build. Really!",
 ];
 
-const COMPARISON_ROWS = [
-  ["Agent tokens (your key)", "~$TK/mo", "~$TK/mo"],
-  ["Storage — 200 recordings", "$TK object storage", "TK"],
-  ["Compute / hosting", "$TK VPS", "included"],
-  ["Monthly total", "$TK", "$TK"],
-];
-
 const FAQS: Array<{ question: string; answer: ReactNode }> = [
   {
     question: "What's the catch?",
@@ -159,12 +152,6 @@ export default function PricingPage() {
   const { locale } = useLocale();
   const t = useT();
   const localizedPath = (path: string) => sitePathForLocale(path, locale);
-  const [users, setUsers] = useState("10");
-  const userCount = Number.parseInt(users, 10) || 0;
-
-  const setSteppedUsers = (change: number) => {
-    setUsers(String(Math.max(1, userCount + change)));
-  };
 
   return (
     <main className="mx-auto w-full max-w-[1120px] overflow-x-clip px-6">
@@ -274,78 +261,6 @@ export default function PricingPage() {
             interfaces — swap ours out for yours and the app keeps running. If
             we ever stop being the best option, leave. We'd rather you could.
           </p>
-        </div>
-      </Section>
-
-      <Section id="comparison">
-        <h2 className="mb-5 text-3xl font-bold tracking-tight sm:text-5xl">
-          Self-hosting vs Builder.io
-        </h2>
-        <div className="mb-10 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <label
-            htmlFor="pricing-users"
-            className="font-medium text-[var(--fg)]"
-          >
-            Number of users
-          </label>
-          <div className="flex w-fit items-stretch overflow-hidden rounded-xl border border-[var(--docs-border)] bg-[var(--bg)]">
-            <button
-              type="button"
-              aria-label="Decrease number of users"
-              onClick={() => setSteppedUsers(-1)}
-              className="w-11 text-xl text-[var(--fg-secondary)] transition hover:bg-[var(--bg-secondary)] hover:text-[var(--fg)]"
-            >
-              −
-            </button>
-            <input
-              id="pricing-users"
-              type="number"
-              min="1"
-              inputMode="numeric"
-              value={users}
-              onChange={(event) => setUsers(event.target.value)}
-              onBlur={() => setUsers(String(Math.max(1, userCount)))}
-              className="w-20 border-x border-y-0 border-[var(--docs-border)] bg-transparent px-2 text-center font-mono text-base text-[var(--fg)] outline-none"
-            />
-            <button
-              type="button"
-              aria-label="Increase number of users"
-              onClick={() => setSteppedUsers(1)}
-              className="w-11 text-xl text-[var(--fg-secondary)] transition hover:bg-[var(--bg-secondary)] hover:text-[var(--fg)]"
-            >
-              +
-            </button>
-          </div>
-        </div>
-        <div className="overflow-x-auto rounded-2xl border border-[var(--docs-border)]">
-          <table className="w-full min-w-[680px] border-collapse text-left">
-            <thead className="bg-[var(--bg-secondary)] text-sm text-[var(--fg-secondary)]">
-              <tr>
-                <th className="px-5 py-4 font-medium">Line item</th>
-                <th className="px-5 py-4 font-medium">Self-hosted</th>
-                <th className="px-5 py-4 font-medium">On Builder</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[var(--docs-border)] text-base text-[var(--fg)]">
-              <tr>
-                <td className="px-5 py-4">Agent-Native license</td>
-                <td className="px-5 py-4 font-mono">$0</td>
-                <td className="px-5 py-4 font-mono">$0</td>
-              </tr>
-              <tr>
-                <td className="px-5 py-4">Seats ({userCount || 0} people)</td>
-                <td className="px-5 py-4 font-mono">$0</td>
-                <td className="px-5 py-4 font-mono">TK</td>
-              </tr>
-              {COMPARISON_ROWS.map(([label, selfHosted, builder]) => (
-                <tr key={label}>
-                  <td className="px-5 py-4">{label}</td>
-                  <td className="px-5 py-4 font-mono">{selfHosted}</td>
-                  <td className="px-5 py-4 font-mono">{builder}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
         </div>
       </Section>
 
