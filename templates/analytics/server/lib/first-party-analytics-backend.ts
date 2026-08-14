@@ -913,7 +913,8 @@ function addPartitionPrunedEventDeduplication(
     }
     result +=
       sql.slice(cursor, predicateEnd) +
-      " QUALIFY ROW_NUMBER() OVER (PARTITION BY id ORDER BY received_at DESC) = 1";
+      " QUALIFY ROW_NUMBER() OVER (PARTITION BY id ORDER BY received_at DESC) = 1" +
+      (predicateEnd < sql.length ? " " : "");
     cursor = predicateEnd;
   }
   return result;
@@ -1405,7 +1406,11 @@ export async function backfillFirstPartyAnalyticsBatch(
   const selectedRows = rows.slice(0, boundedLimit);
   if (!selectedRows.length) {
     return {
-      nextCursor: serializeBackfillCursor(parsedCursor),
+      // An empty shard has no tuple cursor. Returning the sentinel empty
+      // cursor makes the shard worker reject an otherwise successful drain.
+      nextCursor: parsedCursor.receivedAt
+        ? serializeBackfillCursor(parsedCursor)
+        : null,
       copied: 0,
       complete: true,
     };

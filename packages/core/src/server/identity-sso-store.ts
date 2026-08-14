@@ -11,8 +11,9 @@
  *     server-to-server assertions, including identity SSO and privileged A2A
  *     mutations.
  *
- * Uses the same portable raw-SQL pattern as the other framework stores. DDL is
- * additive and lazy, and PostgreSQL creation goes through the DDL guard.
+ * Uses the same portable raw-SQL pattern as the other framework stores. Local
+ * development may initialize these tables lazily; production release
+ * migrations own their creation before serverless requests are served.
  */
 
 import { randomBytes } from "node:crypto";
@@ -22,6 +23,7 @@ import {
   intType,
   isConnectionError,
   isPostgres,
+  isProductionServerlessFunctionRuntime,
 } from "../db/client.js";
 import { ensureTableExists } from "../db/ddl-guard.js";
 
@@ -187,6 +189,9 @@ function buildIdentitySsoJtiCreateSql(): string {
 }
 
 async function ensureTable(): Promise<void> {
+  // Release migrations own schema in production serverless functions. A
+  // request must not turn a missing migration into request-time DDL.
+  if (isProductionServerlessFunctionRuntime()) return;
   if (!_initPromise) {
     _initPromise = (async () => {
       const flowStateSql = buildIdentitySsoFlowStateCreateSql();

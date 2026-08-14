@@ -214,12 +214,30 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     expect(shellCss).toContain('@import "@agent-native/toolkit/styles.css";');
   });
 
-  it("keeps the chat-first composer narrower than its apps grid", () => {
+  it("keeps the chat-first chat column aligned and narrower than its apps grid", () => {
     const shellCss = readFileSync("src/renderer/shell.css", "utf8");
 
-    expect(shellCss).toContain("width: min(100%, 750px) !important;");
+    expect(shellCss).toContain(
+      "width: min(100%, var(--code-agents-chat-max)) !important;",
+    );
+    expect(shellCss).toMatch(
+      /\.desktop-chat-first-hub \.code-agents-start \.code-agents-provider-gate\s*\{[\s\S]*?align-self: center;[\s\S]*?width: min\(100%, var\(--code-agents-chat-max\)\);[\s\S]*?max-width: var\(--code-agents-chat-max\);/,
+    );
     expect(shellCss).toMatch(
       /\.desktop-apps-grid\s*\{[\s\S]*?max-width: 1000px;/,
+    );
+  });
+
+  it("keeps all visible chat-first app surfaces mounted in the main view", () => {
+    const hubSource = readFileSync(
+      "src/renderer/components/CodeAgentsHub.tsx",
+      "utf8",
+    );
+
+    expect(hubSource).toContain("<ChatFirstSurfaceContent");
+    expect(hubSource).toContain("tabs={visibleChatFirstSurfaceTabs}");
+    expect(hubSource).toContain(
+      "activeTabId={visibleActiveChatFirstSurfaceTabId}",
     );
   });
 
@@ -306,6 +324,9 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     expect(hubSource).toContain("Search apps");
     expect(hubSource).toContain("desktop-apps-grid__search");
     expect(hubSource).toContain("desktop-app-card__body");
+    expect(hubSource).toContain(
+      "data-app-id={app.id}\n                  onClick={() => onOpenApp(app)}",
+    );
     expect(hubSource).toContain("AppOpenActions");
     expect(hubSource).toContain("desktop-app-card__actions");
     expect(hubSource).toContain("Open in browser");
@@ -316,6 +337,23 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     expect(hubSource).not.toContain("desktop-apps-grid__summary");
     expect(hubSource).toContain("layout={chatFirstAppLayout}");
     expect(hubSource).toContain("onTogglePinned={toggleChatFirstAppPinned}");
+  });
+
+  it("keeps normal app opens embedded and makes browser opening explicit", () => {
+    const hubSource = readFileSync(
+      "src/renderer/components/CodeAgentsHub.tsx",
+      "utf8",
+    );
+
+    expect(hubSource).toContain(
+      "(app: ChatFirstAppItem) => openChatFirstApp(app.id)",
+    );
+    expect(hubSource).toContain("(app: AppConfig) => openChatFirstApp(app.id)");
+    expect(hubSource).toContain("<AppWebview");
+    expect(hubSource).toContain("onOpenInBrowser={openChatFirstAppInBrowser}");
+    expect(hubSource).toContain(
+      "void window.electronAPI.shell.openExternal(url)",
+    );
   });
 
   it("keeps full-page settings on the shared query and theme contracts", () => {

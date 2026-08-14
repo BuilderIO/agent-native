@@ -15,6 +15,7 @@ const mockMakeSeekable = vi.hoisted(() => vi.fn());
 const mockNormalizeTimelineToMp4 = vi.hoisted(() => vi.fn());
 const mockQueueCompression = vi.hoisted(() => vi.fn());
 const mockDeleteRecordingMediaObjects = vi.hoisted(() => vi.fn());
+const mockClearSeekableRepairPending = vi.hoisted(() => vi.fn());
 const mockReturning = vi.hoisted(() => vi.fn());
 const mockUpdateWhere = vi.hoisted(() =>
   vi.fn(() => ({ returning: mockReturning })),
@@ -81,6 +82,11 @@ vi.mock("../../server/lib/recordings.js", () => ({
   }),
 }));
 
+vi.mock("../../server/lib/seekable-media-state.js", () => ({
+  clearSeekableRepairPending: (...args: unknown[]) =>
+    mockClearSeekableRepairPending(...args),
+}));
+
 vi.mock("../../server/lib/video-remux.js", () => ({
   makeSeekable: (...args: unknown[]) => mockMakeSeekable(...args),
   normalizeTimelineToMp4: (...args: unknown[]) =>
@@ -109,6 +115,7 @@ describe("ensureRecordingSeekable timeline normalization", () => {
     );
     mockReadAppState.mockResolvedValue(null);
     mockWriteAppState.mockResolvedValue(undefined);
+    mockClearSeekableRepairPending.mockResolvedValue(undefined);
     mockMakeSeekable.mockResolvedValue({
       bytes: new Uint8Array([1, 2, 3]),
       changed: false,
@@ -187,6 +194,7 @@ describe("ensureRecordingSeekable timeline normalization", () => {
       changed: true,
       videoUrl: "https://cdn.example.com/repaired.mp4",
     });
+    expect(mockClearSeekableRepairPending).toHaveBeenCalledWith(recording.id);
   });
 
   it("leaves the original untouched when normalization cannot verify output", async () => {
@@ -224,6 +232,7 @@ describe("ensureRecordingSeekable timeline normalization", () => {
     });
 
     expect(mockDb.update).not.toHaveBeenCalled();
+    expect(mockClearSeekableRepairPending).not.toHaveBeenCalled();
     expect(result).toEqual({
       recordingId: recording.id,
       status: "skipped-upload-failed",

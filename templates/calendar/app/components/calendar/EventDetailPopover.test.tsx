@@ -110,9 +110,13 @@ vi.mock("@/components/ui/popover", () => ({
     </div>
   ),
   PopoverTrigger: ({ children }: { children?: ReactNode }) => <>{children}</>,
-  PopoverContent: ({ children }: { children?: ReactNode }) => (
-    <div>{children}</div>
-  ),
+  PopoverContent: ({
+    children,
+    className,
+  }: {
+    children?: ReactNode;
+    className?: string;
+  }) => <div className={className}>{children}</div>,
 }));
 
 vi.mock("@/components/ui/select", () => ({
@@ -257,6 +261,26 @@ describe("EventDetailPopover characterization", () => {
     expect(titleInput!.value).toBe("");
   });
 
+  it("bounds the detail panel to the available viewport space", () => {
+    act(() => {
+      root.render(
+        <EventDetailPopover
+          event={baseEvent()}
+          defaultOpen
+          onDelete={() => undefined}
+        >
+          <button type="button">Open</button>
+        </EventDetailPopover>,
+      );
+    });
+
+    const content = document.querySelector<HTMLElement>(
+      'div[class*="radix-popover-content-available-height"]',
+    );
+    expect(content).toBeTruthy();
+    expect(content?.className).toContain("w-[min(420px,calc(100vw-2rem))]");
+  });
+
   it("keeps the fallback label out of the input when renaming an unnamed event", () => {
     act(() => {
       root.render(
@@ -385,7 +409,7 @@ describe("EventDetailPopover characterization", () => {
     expect(titleInput!.value).toBe("Out of office");
   });
 
-  it("does not show the event timezone as a standalone row", () => {
+  it("does not show the full event timezone label on the default detail surface", () => {
     const event = baseEvent({ startTimeZone: "America/Halifax" });
 
     act(() => {
@@ -400,9 +424,9 @@ describe("EventDetailPopover characterization", () => {
       );
     });
 
-    expect(
-      findByExactText("span", "Halifax (America/Halifax)"),
-    ).toBeUndefined();
+    expect(document.body.textContent).not.toContain(
+      "Halifax (America/Halifax)",
+    );
   });
 
   it("notifies parents when the visible popover opens and closes", () => {

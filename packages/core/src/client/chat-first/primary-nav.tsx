@@ -17,6 +17,7 @@ export function ChatFirstPrimaryNavigation({
   onOpenScheduled,
   onSearch,
   activeTab,
+  collapsed = false,
   stickyNewChat = false,
   copy = defaultChatFirstCopy,
 }: {
@@ -25,6 +26,7 @@ export function ChatFirstPrimaryNavigation({
   onOpenScheduled: () => void;
   onSearch?: () => void;
   activeTab?: ChatFirstPrimaryTab;
+  collapsed?: boolean;
   stickyNewChat?: boolean;
   copy?: ChatFirstCopy;
 }) {
@@ -45,6 +47,8 @@ export function ChatFirstPrimaryNavigation({
       type="button"
       role="tab"
       aria-selected={activeTab === tab}
+      aria-label={tab === "new-chat" ? copy("newChat") : undefined}
+      title={tab === "new-chat" && collapsed ? copy("newChat") : undefined}
       className={[tabClassName(tab), className].filter(Boolean).join(" ")}
       onClick={onSelect}
     >
@@ -57,7 +61,9 @@ export function ChatFirstPrimaryNavigation({
         "new-chat",
         <>
           <IconPlus size={15} className="shrink-0" aria-hidden="true" />
-          <span>{copy("newChat")}</span>
+          <span className={collapsed ? "sr-only" : undefined}>
+            {copy("newChat")}
+          </span>
         </>,
         onNewChat,
         "code-agents-primary-new-chat",

@@ -4,6 +4,7 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { AgentNativeI18nProvider } from "../i18n.js";
 import { ShareButton } from "./ShareButton.js";
 
 const shareMutate = vi.hoisted(() => vi.fn());
@@ -437,7 +438,7 @@ describe("ShareButton", () => {
     expect(copy.textContent).toBe("Copied");
   });
 
-  it("can render an icon-only trigger", async () => {
+  it("standardizes legacy icon triggers as text-only", async () => {
     await act(async () => {
       root.render(
         <QueryClientProvider client={queryClient}>
@@ -452,11 +453,12 @@ describe("ShareButton", () => {
     });
 
     const trigger = container.querySelector(
-      'button[aria-label="Share (Private)"]',
+      'button[aria-label="Share"]',
     ) as HTMLButtonElement | null;
 
     expect(trigger).toBeTruthy();
-    expect(trigger?.textContent).not.toContain("Share");
+    expect(trigger?.textContent).toBe("Share");
+    expect(trigger?.querySelector("svg")).toBeFalsy();
   });
 
   it("renders the label trigger as text only regardless of visibility", async () => {
@@ -490,7 +492,7 @@ describe("ShareButton", () => {
     expect(trigger?.querySelector(".animate-pulse")).toBeFalsy();
   });
 
-  it("renders the icon-only trigger without a loading placeholder", async () => {
+  it("keeps the standardized trigger usable while sharing data loads", async () => {
     sharesData.current = undefined as any;
 
     await act(async () => {
@@ -510,7 +512,8 @@ describe("ShareButton", () => {
       'button[aria-label="Share"]',
     ) as HTMLButtonElement | null;
 
-    expect(trigger?.querySelector("svg")).toBeTruthy();
+    expect(trigger?.textContent).toBe("Share");
+    expect(trigger?.querySelector("svg")).toBeFalsy();
     expect(trigger?.querySelector(".animate-pulse")).toBeFalsy();
   });
 
@@ -939,5 +942,37 @@ describe("ShareButton", () => {
 
     expect(String(fetchMock.mock.calls[1]?.[0])).toContain("offset=25");
     expect(container.textContent).toContain("second@builder.io");
+  });
+
+  // Keep the non-source-locale provider test last: react-i18next's global
+  // fallback instance otherwise leaks the selected language into tests that
+  // intentionally exercise providerless compatibility.
+  it("localizes the standardized text trigger", async () => {
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="de-DE"
+          initialPreference="de-DE"
+          persistPreference={false}
+        >
+          <QueryClientProvider client={queryClient}>
+            <ShareButton
+              resourceType="plan"
+              resourceId="plan-1"
+              trigger="icon"
+            />
+          </QueryClientProvider>
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    await vi.waitFor(() => {
+      const trigger = container.querySelector(
+        'button[aria-label="Teilen"]',
+      ) as HTMLButtonElement | null;
+      expect(trigger, container.innerHTML).not.toBeNull();
+      expect(trigger?.textContent).toBe("Teilen");
+      expect(trigger?.querySelector("svg")).toBeFalsy();
+    });
   });
 });

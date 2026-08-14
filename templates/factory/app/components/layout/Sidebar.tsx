@@ -17,6 +17,7 @@ import {
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
   IconGitPullRequest,
+  IconHierarchy2,
   IconMessageCircle,
   IconSearch,
   IconSettings,
@@ -45,6 +46,12 @@ const navItems = [
     labelKey: "navigation.triage",
     href: "/factory",
     view: "factory",
+  },
+  {
+    icon: IconHierarchy2,
+    labelKey: "navigation.agents",
+    href: "/agents",
+    view: "agents",
   },
 ];
 

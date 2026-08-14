@@ -5,6 +5,7 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { ShareTrigger } from "@agent-native/toolkit/sharing";
 import {
   IconArrowLeft,
   IconCheck,
@@ -18,7 +19,6 @@ import {
   IconNotes,
   IconPlayerStop,
   IconRefresh,
-  IconShare3,
   IconTrash,
   IconUsers,
 } from "@tabler/icons-react";
@@ -712,10 +712,10 @@ export default function MeetingDetailRoute() {
                 Boolean(data?.transcript?.fullText?.trim()))
             }
           >
-            <Button size="sm" className="shrink-0 gap-1.5">
-              <IconShare3 className="h-4 w-4" />
-              {t("meetingDetail.share")}
-            </Button>
+            <ShareTrigger
+              label={t("meetingDetail.share")}
+              className="shrink-0"
+            />
           </ShareMeetingPopover>
           {canEdit && (
             <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>

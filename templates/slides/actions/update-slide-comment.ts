@@ -8,7 +8,7 @@ import { getDb, schema } from "../server/db/index.js";
 
 export default defineAction({
   description:
-    "Update a slide comment. Resolving or reopening a comment applies to the full thread.",
+    "Update a slide comment. Comment text supports inline Markdown without headings. Resolving or reopening a comment applies to the full thread.",
   schema: z.object({
     id: z.string().describe("Comment ID"),
     deckId: z.string().optional().describe("Deck ID"),

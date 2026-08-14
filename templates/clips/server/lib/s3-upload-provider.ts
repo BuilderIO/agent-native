@@ -784,13 +784,40 @@ export const s3FileUploadProvider: FileUploadProvider = {
           )
           .join("") +
         "</CompleteMultipartUpload>";
-      const res = await signedS3Request(cfg, meta.objectKey, {
-        method: "POST",
-        query: { uploadId: session.sessionId },
-        body: new TextEncoder().encode(manifest),
-        contentType: "application/xml",
-        timeoutMs: S3_PUT_TIMEOUT_MS,
-      });
+      let res: Response;
+      try {
+        res = await signedS3Request(cfg, meta.objectKey, {
+          method: "POST",
+          query: { uploadId: session.sessionId },
+          body: new TextEncoder().encode(manifest),
+          contentType: "application/xml",
+          timeoutMs: S3_PUT_TIMEOUT_MS,
+        });
+      } catch (error) {
+        // R2 can finish the object while the HTTP response is lost. Reconcile
+        // that ambiguous case before the caller aborts the provider session.
+        try {
+          if (await verifyCompletedMultipartObject(cfg, meta)) {
+            await deleteObject(cfg, meta.stagingKey).catch((cleanupError) => {
+              console.warn(
+                "[s3-upload] failed to delete multipart staging object:",
+                cleanupError instanceof Error
+                  ? cleanupError.message
+                  : String(cleanupError),
+              );
+            });
+            return publicObjectUrl(cfg, meta.objectKey);
+          }
+        } catch (verificationError) {
+          console.warn(
+            "[s3-upload] completion reconciliation failed:",
+            verificationError,
+          );
+        }
+        throw new Error(
+          `S3 CompleteMultipartUpload failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
       const body = await res.text().catch(() => "");
       if (!res.ok || /<Error(?:\s|>)/.test(body)) {
         // CompleteMultipartUpload is not idempotent at the S3 API level. If

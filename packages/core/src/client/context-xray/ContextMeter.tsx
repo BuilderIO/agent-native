@@ -9,6 +9,7 @@ import {
   manifestConversationTokens,
   manifestSystemTokens,
 } from "../../shared/context-xray.js";
+import { useT } from "../i18n.js";
 import { useActionMutation, useActionQuery } from "../use-action.js";
 import { resolveContextWindow } from "./format.js";
 
@@ -27,6 +28,7 @@ export function ContextMeter({
   manifest?: ContextManifest | null;
   enabled?: boolean;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [optimistic, setOptimistic] = useState<
     Map<string, ContextSegmentStatus>
@@ -99,12 +101,15 @@ export function ContextMeter({
       contextWindow={resolveContextWindow(manifest.model)}
       open={open}
       onOpenChange={setOpen}
+      translate={t}
     >
       {open ? (
         <Suspense
           fallback={
             <div className="flex h-52 items-center justify-center text-xs text-muted-foreground">
-              Loading context view…
+              {t("agentChat.contextXray.loading", {
+                defaultValue: "Loading context view…",
+              })}
             </div>
           }
         >

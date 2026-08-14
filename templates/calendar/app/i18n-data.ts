@@ -265,6 +265,9 @@ const enUS = {
     defaultDurationLabel: "Default event duration (minutes)",
     defaultDurationHelp:
       "Default length for new calendar events and booking slots. Booking links can override this per link.",
+    weekStartLabel: "Week starts on",
+    weekStartSunday: "Sunday - Saturday",
+    weekStartMonday: "Monday - Sunday",
   },
   eventDialog: {
     eventUpdated: "Event updated",
@@ -4303,6 +4306,9 @@ const translatedCalendarExtras = {
       defaultDurationLabel: "默认事件时长（分钟）",
       defaultDurationHelp:
         "新日历事件和预约时段的默认长度。预约链接可按链接覆盖此设置。",
+      weekStartLabel: "每周从哪天开始",
+      weekStartSunday: "周日 - 周六",
+      weekStartMonday: "周一 - 周日",
     },
     eventDialog: {
       eventUpdated: "事件已更新",
@@ -4372,6 +4378,9 @@ const translatedCalendarExtras = {
       defaultDurationLabel: "Duración predeterminada del evento (minutos)",
       defaultDurationHelp:
         "Duración predeterminada para eventos nuevos y franjas de reserva. Cada enlace de reserva puede anularla.",
+      weekStartLabel: "La semana empieza el",
+      weekStartSunday: "Domingo - sábado",
+      weekStartMonday: "Lunes - domingo",
     },
     eventDialog: {
       eventUpdated: "Evento actualizado",
@@ -4442,6 +4451,9 @@ const translatedCalendarExtras = {
       defaultDurationLabel: "Durée d'événement par défaut (minutes)",
       defaultDurationHelp:
         "Durée par défaut des nouveaux événements et créneaux de réservation. Chaque lien de réservation peut la remplacer.",
+      weekStartLabel: "La semaine commence le",
+      weekStartSunday: "Dimanche - samedi",
+      weekStartMonday: "Lundi - dimanche",
     },
     eventDialog: {
       eventUpdated: "Événement mis à jour",
@@ -4512,6 +4524,9 @@ const translatedCalendarExtras = {
       defaultDurationLabel: "Standarddauer für Ereignisse (Minuten)",
       defaultDurationHelp:
         "Standardlänge für neue Kalenderereignisse und Buchungsslots. Buchungslinks können sie pro Link überschreiben.",
+      weekStartLabel: "Wochenbeginn",
+      weekStartSunday: "Sonntag - Samstag",
+      weekStartMonday: "Montag - Sonntag",
     },
     eventDialog: {
       eventUpdated: "Ereignis aktualisiert",
@@ -4581,6 +4596,9 @@ const translatedCalendarExtras = {
       defaultDurationLabel: "デフォルトのイベント時間（分）",
       defaultDurationHelp:
         "新しいカレンダーイベントと予約枠のデフォルト時間です。予約リンクごとに上書きできます。",
+      weekStartLabel: "週の開始日",
+      weekStartSunday: "日曜日 - 土曜日",
+      weekStartMonday: "月曜日 - 日曜日",
     },
     eventDialog: {
       eventUpdated: "イベントを更新しました",
@@ -4647,6 +4665,9 @@ const translatedCalendarExtras = {
       defaultDurationLabel: "기본 이벤트 시간(분)",
       defaultDurationHelp:
         "새 캘린더 이벤트와 예약 슬롯의 기본 길이입니다. 예약 링크별로 재정의할 수 있습니다.",
+      weekStartLabel: "주 시작일",
+      weekStartSunday: "일요일 - 토요일",
+      weekStartMonday: "월요일 - 일요일",
     },
     eventDialog: {
       eventUpdated: "이벤트가 업데이트되었습니다",
@@ -4716,6 +4737,9 @@ const translatedCalendarExtras = {
       defaultDurationLabel: "Duração padrão do evento (minutos)",
       defaultDurationHelp:
         "Duração padrão para novos eventos e horários de agendamento. Links de agendamento podem substituir isso por link.",
+      weekStartLabel: "A semana começa no",
+      weekStartSunday: "Domingo - sábado",
+      weekStartMonday: "Segunda-feira - domingo",
     },
     eventDialog: {
       eventUpdated: "Evento atualizado",
@@ -4784,6 +4808,9 @@ const translatedCalendarExtras = {
       defaultDurationLabel: "डिफ़ॉल्ट इवेंट अवधि (मिनट)",
       defaultDurationHelp:
         "नए कैलेंडर इवेंट और बुकिंग स्लॉट की डिफ़ॉल्ट लंबाई। बुकिंग लिंक इसे प्रति लिंक बदल सकते हैं।",
+      weekStartLabel: "सप्ताह की शुरुआत",
+      weekStartSunday: "रविवार - शनिवार",
+      weekStartMonday: "सोमवार - रविवार",
     },
     eventDialog: {
       eventUpdated: "इवेंट अपडेट हो गया",
@@ -4851,6 +4878,9 @@ const translatedCalendarExtras = {
       defaultDurationLabel: "مدة الحدث الافتراضية (بالدقائق)",
       defaultDurationHelp:
         "المدة الافتراضية لأحداث التقويم الجديدة وفتحات الحجز. يمكن لروابط الحجز تجاوزها لكل رابط.",
+      weekStartLabel: "يبدأ الأسبوع يوم",
+      weekStartSunday: "الأحد - السبت",
+      weekStartMonday: "الاثنين - الأحد",
     },
     eventDialog: {
       eventUpdated: "تم تحديث الحدث",

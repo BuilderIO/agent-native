@@ -58,6 +58,10 @@ import {
   WIREFRAME_REFERENCE_MD,
 } from "./skills-content/index.js";
 import { createCliTelemetry, type CliTelemetry } from "./telemetry.js";
+import {
+  linkDefaultWorkspaceSkills,
+  removeCopiedFrameworkSkills,
+} from "./workspacify.js";
 
 export {
   CANVAS_REFERENCE_MD,
@@ -2067,6 +2071,21 @@ function repairScaffoldAgentLinks(states: ScaffoldGuidanceState[]): void {
           if (!entry.isDirectory()) continue;
           const appDir = path.join(appsDir, entry.name);
           if (fs.existsSync(path.join(appDir, "package.json"))) {
+            const preserved = new Set([
+              ...removeCopiedFrameworkSkills(appDir, {
+                workspaceRoot: state.workspaceRoot,
+              }),
+              ...linkDefaultWorkspaceSkills(appDir, state.workspaceRoot),
+            ]);
+            if (preserved.size > 0) {
+              console.warn(
+                `[skills] Preserved app-local framework-named skills in ${appDir}: ${[
+                  ...preserved,
+                ].join(
+                  ", ",
+                )}. Migrate them explicitly before inheriting workspace copies.`,
+              );
+            }
             setupAgentSymlinks(appDir);
             refreshCopiedClaudeSkills(appDir);
           }
@@ -4132,8 +4151,13 @@ function runSkillsStatusOrUpdate(
   const scaffoldChanged = update
     ? updateScaffoldGuidanceStates(scaffoldBefore, parsed.dryRun)
     : [];
-  if (update && !parsed.dryRun && scaffoldChanged.length > 0) {
-    repairScaffoldAgentLinks(scaffoldChanged);
+  if (update && !parsed.dryRun) {
+    const workspaceStates = scaffoldBefore.filter(
+      (state) => state.workspaceRoot && state.sharedPackageDir,
+    );
+    if (scaffoldChanged.length > 0 || workspaceStates.length > 0) {
+      repairScaffoldAgentLinks([...scaffoldChanged, ...workspaceStates]);
+    }
   }
   const skillAfter =
     update && !parsed.dryRun

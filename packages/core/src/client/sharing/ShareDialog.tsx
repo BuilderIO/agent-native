@@ -6,8 +6,8 @@ import {
   Picker,
   Status,
   TextArea,
-  TextField,
 } from "@agent-native/toolkit/design-system";
+import { ShareCopyRow } from "@agent-native/toolkit/sharing";
 import {
   Collapsible,
   CollapsibleContent,
@@ -221,11 +221,13 @@ function LinkTab({
   const Icon = VIS_ICONS[controller.visibility.value];
   return (
     <div className="space-y-3">
-      <CopyField
-        field="share-link"
+      <ShareCopyRow
         label={controller.labels.shareLink}
         value={controller.shareUrl!}
-        controller={controller}
+        copyLabel={controller.labels.copy}
+        copiedLabel="Copied"
+        onCopy={(value) => controller.copy("share-link", value)}
+        className="mb-4"
       />
       <div>
         <div className="mb-2 text-xs font-medium text-muted-foreground">
@@ -462,11 +464,12 @@ function DefaultEmbedBody({
 }) {
   return (
     <div className="space-y-3">
-      <CopyField
-        field="embed-url"
+      <ShareCopyRow
         label={controller.labels.embedUrl}
         value={controller.embedUrl!}
-        controller={controller}
+        copyLabel={controller.labels.copy}
+        copiedLabel="Copied"
+        onCopy={(value) => controller.copy("embed-url", value)}
       />
       <CopyField
         field="embed-code"
@@ -507,15 +510,7 @@ function CopyField({
             aria-label={label}
             className="flex-1 h-20 text-xs font-mono"
           />
-        ) : (
-          <TextField
-            readOnly
-            value={value}
-            onChange={() => undefined}
-            aria-label={label}
-            className="flex-1 min-w-0 text-xs font-mono"
-          />
-        )}
+        ) : null}
         <IconButton
           emphasis="outline"
           size="compact"

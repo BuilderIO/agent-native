@@ -6,6 +6,7 @@ import approveVaultRequest from "./approve-vault-request.js";
 import archiveWorkspaceApp from "./archive-workspace-app.js";
 import askApp from "./ask_app.js";
 import askAppStatus from "./ask_app_status.js";
+import connectExternalAgent from "./connect-external-agent.js";
 import createBrowserChatSession from "./create-browser-chat-session.js";
 import createDreamReport from "./create-dream-report.js";
 import createLinkToken from "./create-link-token.js";
@@ -15,6 +16,7 @@ import createVaultSecret from "./create-vault-secret.js";
 import createWorkspaceResourceGrant from "./create-workspace-resource-grant.js";
 import createWorkspaceResource from "./create-workspace-resource.js";
 import createEmbedSession from "./create_embed_session.js";
+import createWorkspaceAppEmbedSession from "./create_workspace_app_embed_session.js";
 import deleteDestination from "./delete-destination.js";
 import deleteStagedDataset from "./delete-staged-dataset.js";
 import deleteVaultSecret from "./delete-vault-secret.js";
@@ -31,6 +33,9 @@ import getWorkspaceInfo from "./get-workspace-info.js";
 import getWorkspaceResourceEffectiveContext from "./get-workspace-resource-effective-context.js";
 import grantVaultSecretsToApp from "./grant-vault-secrets-to-app.js";
 import grantWorkspaceResourcesToApp from "./grant-workspace-resources-to-app.js";
+import importAgentPack from "./import-agent-pack.js";
+import importAgent from "./import-agent.js";
+import listAgentPack from "./list-agent-pack.js";
 import listAgentRunFailures from "./list-agent-run-failures.js";
 import listAgentThreadSources from "./list-agent-thread-sources.js";
 import listAvailableWorkspaceTemplates from "./list-available-workspace-templates.js";
@@ -107,6 +112,7 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "archive-workspace-app": archiveWorkspaceApp,
   ask_app: askApp,
   ask_app_status: askAppStatus,
+  "connect-external-agent": connectExternalAgent,
   "create-link-token": createLinkToken,
   "create-pylon-ticket": createPylonTicket,
   "create-vault-grant": createVaultGrant,
@@ -116,6 +122,7 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "create-dream-report": createDreamReport,
   "create-browser-chat-session": createBrowserChatSession,
   create_embed_session: createEmbedSession,
+  "create-workspace-app-embed-session": createWorkspaceAppEmbedSession,
   "delete-staged-dataset": deleteStagedDataset,
   "delete-destination": deleteDestination,
   "delete-vault-secret": deleteVaultSecret,
@@ -160,6 +167,9 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "list-workspace-resource-grants": listWorkspaceResourceGrants,
   "list-workspace-resources-for-app": listWorkspaceResourcesForApp,
   "list-workspace-resources": listWorkspaceResources,
+  "import-agent": importAgent,
+  "import-agent-pack": importAgentPack,
+  "list-agent-pack": listAgentPack,
   navigate: navigate,
   open_app: openApp,
   "apply-dream-proposal": applyDreamProposal,

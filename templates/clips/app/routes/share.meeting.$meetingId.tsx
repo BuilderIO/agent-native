@@ -2,7 +2,10 @@ import { appPath } from "@agent-native/core/client/api-path";
 import { useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { PoweredByBadge } from "@agent-native/core/client/ui";
-import { normalizeDocumentTitle } from "@agent-native/core/shared";
+import {
+  AGENT_ACCESS_PARAM,
+  normalizeDocumentTitle,
+} from "@agent-native/core/shared";
 import {
   IconCalendar,
   IconCheck,
@@ -16,8 +19,12 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { and, eq, isNull } from "drizzle-orm";
 import { useEffect, useRef, useState } from "react";
-import type { LoaderFunctionArgs, MetaFunction } from "react-router";
-import { useLoaderData, useParams } from "react-router";
+import type {
+  HeadersArgs,
+  LoaderFunctionArgs,
+  MetaFunction,
+} from "react-router";
+import { useLoaderData, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
 import {
@@ -36,14 +43,36 @@ import {
 } from "@/lib/public-meeting";
 
 import { getDb, schema } from "../../server/db";
+import { CLIPS_MEETING_AGENT_RESOURCE_KIND } from "../../shared/meeting-agent-access";
+import { privateShareLoaderData } from "../../shared/share-loader-response";
 
 type LoaderData = { meeting: PublicMeeting | null };
 
-export async function loader({
-  params,
-}: LoaderFunctionArgs): Promise<LoaderData> {
+function shareMeetingLoaderData(
+  payload: LoaderData,
+  privateAgentAccess = false,
+) {
+  return privateAgentAccess ? privateShareLoaderData(payload) : payload;
+}
+
+export function headers({ loaderHeaders }: HeadersArgs) {
+  return loaderHeaders;
+}
+
+export async function loader({ params, url }: LoaderFunctionArgs) {
   const meetingId = params.meetingId;
   if (!meetingId) return { meeting: null };
+
+  const { verifyScopedAgentAccessToken } =
+    await import("@agent-native/core/server");
+  const agentAccessToken = url.searchParams.get(AGENT_ACCESS_PARAM) ?? "";
+  const hasAgentAccessToken = Boolean(agentAccessToken);
+  const tokenGrantsAgentAccess = agentAccessToken
+    ? verifyScopedAgentAccessToken(agentAccessToken, {
+        resourceKind: CLIPS_MEETING_AGENT_RESOURCE_KIND,
+        resourceId: meetingId,
+      }).ok
+    : false;
 
   const [meeting] = await getDb()
     .select({
@@ -60,14 +89,21 @@ export async function loader({
     })
     .from(schema.meetings)
     .where(
-      and(
-        eq(schema.meetings.id, meetingId),
-        eq(schema.meetings.visibility, "public"),
-        isNull(schema.meetings.trashedAt),
-      ),
+      tokenGrantsAgentAccess
+        ? and(
+            eq(schema.meetings.id, meetingId),
+            isNull(schema.meetings.trashedAt),
+          )
+        : and(
+            eq(schema.meetings.id, meetingId),
+            eq(schema.meetings.visibility, "public"),
+            isNull(schema.meetings.trashedAt),
+          ),
     )
     .limit(1);
-  if (!meeting) return { meeting: null };
+  if (!meeting) {
+    return shareMeetingLoaderData({ meeting: null }, hasAgentAccessToken);
+  }
 
   const [participants, actionItems] = await Promise.all([
     getDb()
@@ -102,21 +138,24 @@ export async function loader({
     }
   } catch {}
 
-  return {
-    meeting: {
-      id: meeting.id,
-      title: meeting.title,
-      scheduledStart: meeting.scheduledStart,
-      summaryMd: meeting.summaryMd,
-      bullets,
-      participants,
-      actionItems,
-      ownerEmail: meeting.ownerEmail,
-      actualStart: meeting.actualStart,
-      actualEnd: meeting.actualEnd,
-      transcriptStatus: meeting.transcriptStatus,
+  return shareMeetingLoaderData(
+    {
+      meeting: {
+        id: meeting.id,
+        title: meeting.title,
+        scheduledStart: meeting.scheduledStart,
+        summaryMd: meeting.summaryMd,
+        bullets,
+        participants,
+        actionItems,
+        ownerEmail: meeting.ownerEmail,
+        actualStart: meeting.actualStart,
+        actualEnd: meeting.actualEnd,
+        transcriptStatus: meeting.transcriptStatus,
+      },
     },
-  };
+    hasAgentAccessToken,
+  );
 }
 
 export const meta: MetaFunction<typeof loader> = ({ loaderData }) => {
@@ -199,7 +238,9 @@ export default function ShareMeetingRoute() {
   const t = useT();
   const loaderData = useLoaderData<LoaderData>();
   const { meetingId } = useParams<{ meetingId: string }>();
+  const [searchParams] = useSearchParams();
   const { session, isLoading: sessionLoading } = useSession();
+  const agentAccessToken = searchParams.get(AGENT_ACCESS_PARAM) ?? "";
   const pollingStartedAtRef = useRef<number | null>(null);
   const [transcriptCopied, setTranscriptCopied] = useState(false);
   const initialMeetingResult: PublicMeetingResult | undefined =
@@ -217,8 +258,13 @@ export default function ShareMeetingRoute() {
       meetingId,
       session?.email ?? null,
       session?.orgId ?? null,
+      agentAccessToken,
     ],
-    queryFn: ({ signal }) => fetchPublicMeeting(meetingId ?? "", { signal }),
+    queryFn: ({ signal }) =>
+      fetchPublicMeeting(meetingId ?? "", {
+        signal,
+        agentAccessToken,
+      }),
     enabled: !!meetingId && !sessionLoading,
     initialData: initialMeetingResult,
     refetchInterval: (query) => {

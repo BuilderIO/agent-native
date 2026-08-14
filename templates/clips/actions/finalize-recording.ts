@@ -48,8 +48,13 @@ import {
   deleteResumableSession,
   getResumableSession,
 } from "../server/lib/resumable-session.js";
+import { abortResumableUploadSession } from "../server/lib/resumable-upload-cleanup.js";
 import { resolveResumableUploadProvider } from "../server/lib/resumable-upload-provider.js";
 import { fetchS3ObjectByUrl } from "../server/lib/s3-upload-provider.js";
+import {
+  clearSeekableRepairPending,
+  markSeekableRepairPending,
+} from "../server/lib/seekable-media-state.js";
 import { isStreamingUploadDisabled } from "../server/lib/streaming-upload-mode.js";
 import {
   probeHasAudioStream,
@@ -59,7 +64,10 @@ import {
   requiresConfiguredVideoStorage,
   STORAGE_SETUP_REQUIRED_REASON,
 } from "../server/lib/video-storage.js";
-import { markRecordingSeekable } from "./lib/ensure-seekable-video.js";
+import {
+  isRemoteProviderUrl,
+  markRecordingSeekable,
+} from "./lib/ensure-seekable-video.js";
 
 // Recordings up to this size get their seekable rewrite applied inline during
 // finalize (we already hold the assembled bytes). Larger recordings are handed
@@ -398,6 +406,7 @@ async function persistPendingMediaVerification(params: {
       videoUrl: media.videoUrl,
       videoFormat: media.videoFormat,
       videoSizeBytes: media.videoSizeBytes,
+      mediaUpdatedAt: now,
       durationMs: media.finalDurationMs,
       width: media.finalWidth,
       height: media.finalHeight,
@@ -576,6 +585,7 @@ async function markRecordingReady(params: {
       videoUrl,
       videoFormat,
       videoSizeBytes,
+      mediaUpdatedAt: now,
       durationMs: finalDurationMs,
       width: finalWidth,
       height: finalHeight,
@@ -667,6 +677,12 @@ async function markRecordingReady(params: {
   if (seekableApplied) {
     // Uploaded bytes are already start-playable and seekable — remember it so
     // later reprocess sweeps skip this clip.
+    await clearSeekableRepairPending(id).catch((err) => {
+      console.warn("[finalize] failed to clear seekable repair marker", {
+        id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
     await markRecordingSeekable(id, videoUrl).catch((err) => {
       console.warn("[finalize] failed to write seekable marker", {
         id,
@@ -679,6 +695,17 @@ async function markRecordingReady(params: {
     // without a Cues index buffers on load and re-buffers on every seek. A
     // fresh self-dispatched request owns the repair so serverless runtimes do
     // not freeze it when this finalize request returns.
+    if (isRemoteProviderUrl(videoUrl)) {
+      await markSeekableRepairPending({
+        recordingId: id,
+        videoUrl,
+      }).catch((err) => {
+        console.warn("[finalize] failed to mark seekable repair pending", {
+          id,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+    }
     await dispatchPostFinalizeJob({
       recordingId: id,
       kind: "seekable",
@@ -1157,17 +1184,35 @@ export default defineAction({
               ),
             );
         }
-        try {
-          const uploadProvider = await resolveResumableUploadProvider(
-            resumableSession.providerId,
+        const uploadProvider = await resolveResumableUploadProvider(
+          resumableSession.providerId,
+        );
+        if (!uploadProvider?.resumable) {
+          throw new Error(
+            "Upload completion failed: No resumable upload provider configured",
           );
-          if (!uploadProvider?.resumable) {
-            throw new Error("No resumable upload provider configured");
+        }
+        if (resumableSession.bytesUploaded <= 0) {
+          const cleaned = await abortResumableUploadSession(resumableSession, {
+            provider: uploadProvider,
+            label: `finalize-${id}`,
+          });
+          if (cleaned) {
+            await deleteResumableSession(id, generationId).catch((deleteErr) =>
+              console.warn(
+                "[finalize] failed to retire empty resumable session:",
+                deleteErr,
+              ),
+            );
           }
-          if (resumableSession.bytesUploaded <= 0) {
-            throw new Error("Recording upload contained no video bytes");
-          }
-          const videoUrl = await uploadProvider.resumable.completeSession(
+          throw new Error(
+            "Upload completion failed: Recording upload contained no video bytes",
+          );
+        }
+
+        let videoUrl: string;
+        try {
+          videoUrl = await uploadProvider.resumable.completeSession(
             {
               sessionId: resumableSession.sessionId,
               meta: resumableSession.meta,
@@ -1177,74 +1222,87 @@ export default defineAction({
               : "",
             { stableUrl: true, recordAsset: false },
           );
-          debugLog("[finalize] resumable upload completed", { id, videoUrl });
-          let servedBytes: number | null;
-          try {
-            servedBytes = await verifyServedMediaUrl(id, videoUrl, true);
-          } catch (err) {
-            const failureReason =
-              err instanceof Error ? err.message : String(err);
-            const pending = await leaveRecordingProcessingForMediaVerification({
-              id,
-              ownerEmail,
-              failureReason,
-              media: {
-                videoUrl,
-                videoSizeBytes: resumableSession.bytesUploaded,
-                sourceSizeBytes: resumableSession.bytesUploaded,
-                videoFormat,
-                finalDurationMs,
-                finalWidth,
-                finalHeight,
-                finalHasAudio,
-                finalHasCamera,
-                seekableApplied: false,
-                mimeType,
-                providerId: resumableSession.providerId,
-                locallyTranscoded: args.locallyTranscoded === true,
-              },
-            });
+        } catch (err) {
+          const cleaned = await abortResumableUploadSession(resumableSession, {
+            provider: uploadProvider,
+            label: `finalize-${id}`,
+          });
+          if (cleaned) {
             await deleteResumableSession(id, generationId).catch((deleteErr) =>
               console.warn(
-                "[finalize] failed to retire pending resumable session:",
+                "[finalize] failed to retire aborted resumable session:",
                 deleteErr,
               ),
             );
-            return pending;
           }
-          const result = await markRecordingReady({
-            ...readyParams,
-            videoUrl,
-            videoSizeBytes: servedBytes ?? resumableSession.bytesUploaded,
-            sourceSizeBytes: resumableSession.bytesUploaded,
-            // Streaming path forwards raw MediaRecorder bytes straight to the
-            // provider — no faststart/Cues rewrite happened. Repair in the
-            // background.
-            seekableApplied: false,
-          });
-          if (result.status === "ready" && result.transitionedToReady) {
-            queueBackgroundBuilderCompression({
-              recordingId: id,
-              ownerEmail,
-              videoUrl,
-              mimeType,
-              providerId: resumableSession.providerId,
-              sourceSizeBytes: resumableSession.bytesUploaded,
-              locallyTranscoded: args.locallyTranscoded === true,
-            });
-          }
-          // Delete only after durable state is written — so a retry before
-          // this point can still find the session and re-enter this path.
-          deleteResumableSession(id, generationId).catch((err) =>
-            console.warn("[finalize] failed to delete resumable session:", err),
-          );
-          return result;
-        } catch (err) {
           console.error("[finalize] resumable complete failed:", err);
           throw new Error(
             `Upload completion failed: ${err instanceof Error ? err.message : String(err)}`,
           );
         }
+
+        debugLog("[finalize] resumable upload completed", { id, videoUrl });
+        let servedBytes: number | null;
+        try {
+          servedBytes = await verifyServedMediaUrl(id, videoUrl, true);
+        } catch (err) {
+          const failureReason =
+            err instanceof Error ? err.message : String(err);
+          const pending = await leaveRecordingProcessingForMediaVerification({
+            id,
+            ownerEmail,
+            failureReason,
+            media: {
+              videoUrl,
+              videoSizeBytes: resumableSession.bytesUploaded,
+              sourceSizeBytes: resumableSession.bytesUploaded,
+              videoFormat,
+              finalDurationMs,
+              finalWidth,
+              finalHeight,
+              finalHasAudio,
+              finalHasCamera,
+              seekableApplied: false,
+              mimeType,
+              providerId: resumableSession.providerId,
+              locallyTranscoded: args.locallyTranscoded === true,
+            },
+          });
+          await deleteResumableSession(id, generationId).catch((deleteErr) =>
+            console.warn(
+              "[finalize] failed to retire pending resumable session:",
+              deleteErr,
+            ),
+          );
+          return pending;
+        }
+        const result = await markRecordingReady({
+          ...readyParams,
+          videoUrl,
+          videoSizeBytes: servedBytes ?? resumableSession.bytesUploaded,
+          sourceSizeBytes: resumableSession.bytesUploaded,
+          // Streaming path forwards raw MediaRecorder bytes straight to the
+          // provider — no faststart/Cues rewrite happened. Repair in the
+          // background.
+          seekableApplied: false,
+        });
+        if (result.status === "ready" && result.transitionedToReady) {
+          queueBackgroundBuilderCompression({
+            recordingId: id,
+            ownerEmail,
+            videoUrl,
+            mimeType,
+            providerId: resumableSession.providerId,
+            sourceSizeBytes: resumableSession.bytesUploaded,
+            locallyTranscoded: args.locallyTranscoded === true,
+          });
+        }
+        // Delete only after durable state is written — so a retry before
+        // this point can still find the session and re-enter this path.
+        deleteResumableSession(id, generationId).catch((err) =>
+          console.warn("[finalize] failed to delete resumable session:", err),
+        );
+        return result;
       }
 
       // Buffered path — assemble chunks from application_state, then upload.
@@ -1283,6 +1341,7 @@ export default defineAction({
         .set({
           status: "processing",
           uploadProgress: 100,
+          mediaUpdatedAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         })
         .where(eq(schema.recordings.id, id));
@@ -1303,6 +1362,7 @@ export default defineAction({
           .set({
             status: "failed",
             failureReason,
+            mediaUpdatedAt: now,
             updatedAt: now,
           })
           .where(eq(schema.recordings.id, id));
@@ -1623,6 +1683,7 @@ export default defineAction({
               hasAudio: finalHasAudio,
               hasCamera: finalHasCamera,
               uploadProgress: 0,
+              mediaUpdatedAt: now,
               updatedAt: now,
             })
             .where(eq(schema.recordings.id, id));
@@ -1657,6 +1718,7 @@ export default defineAction({
             hasAudio: finalHasAudio,
             hasCamera: finalHasCamera,
             uploadProgress: 100,
+            mediaUpdatedAt: now,
             updatedAt: now,
           })
           .where(eq(schema.recordings.id, id));

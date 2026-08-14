@@ -41,6 +41,7 @@ const messages = {
     unpinChat: "Désépingler le chat",
   },
   navigation: {
+    agents: "Agents",
     chat: "Chat",
     collapseSidebar: "Réduire la barre latérale",
     database: "Base de données",
@@ -52,7 +53,7 @@ const messages = {
     openNavigation: "Ouvrir la navigation",
     settings: "Paramètres",
     team: "Équipe",
-    triage: "Factory",
+    triage: "Factories",
   },
   triage: {
     title: "Factory",
@@ -170,6 +171,21 @@ const messages = {
     metricRuns: "Exécutions",
     rulesTab: "Règles",
     automationsTab: "Automatisations",
+    agentsTab: "Agents",
+    agenticAppsTitle: "Applications agentiques",
+    agenticAppsEmpty:
+      "Aucune application agentique dans cet espace de travail.",
+    createApp: "Créer une application",
+    editAppDetails: "Modifier les détails de l’application",
+    editAppDetailsDescription:
+      "Mettre à jour le nom affiché et la description partagée.",
+    appName: "Nom",
+    appDescription: "Description",
+    openApp: "Ouvrir l’application",
+    saveChanges: "Enregistrer les modifications",
+    appDetailsUpdated: "Détails de l’application mis à jour",
+    savingChanges: "Enregistrement...",
+    agentsTitle: "Agents",
     auditTab: "Audit",
     auditTitle: "Audit des exécutions",
     auditDescription:
@@ -281,6 +297,16 @@ const messages = {
     stepName: "Nom de l’étape",
     stepDescription: "Que se passe-t-il ici",
     agentOwner: "Agent ou responsable",
+    noTarget: "Aucune cible liée",
+    customTarget: "Cible personnalisée",
+    reusableAgents: "Agents réutilisables",
+    agenticApps: "Applications agentiques",
+    agentTargetHint:
+      "Cette étape de la Factory utilise l’agent réutilisable sélectionné.",
+    appTargetHint:
+      "Cette étape de la Factory délègue à l’application agentique sélectionnée.",
+    customTargetHint:
+      "Liez un agent ou une application partagée lorsque l’étape est prête.",
     optional: "Facultatif",
     connectStep: "Connecter cette étape",
     connectDescription:

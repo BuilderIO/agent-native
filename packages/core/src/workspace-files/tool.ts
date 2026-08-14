@@ -48,7 +48,7 @@ export function createWorkspaceFilesTool(): Record<string, ActionEntry> {
           "Use scratch/... for temporary intermediate results; scratch files are hidden from the Resources view by default and expire. Use durable folder names for files the user explicitly wants to keep/manage.",
           "Use this to stage large intermediate results (fetched pages, per-item analysis memos, API payloads) so they don't consume context window, then read them back selectively for synthesis.",
           "",
-          "Typical fusion-style workflow:",
+          "Typical staged-analysis workflow:",
           "  1. Fan out: for each item, fetch data and `write` a per-item memo file.",
           "  2. Synthesize: `list` files, then `read` each memo (with offset/maxChars to page large ones).",
           "  3. Optionally `grep` across all memos to find patterns.",

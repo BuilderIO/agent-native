@@ -1,5 +1,45 @@
 # @agent-native/dispatch
 
+## 0.26.0
+
+### Minor Changes
+
+- 73c4a97: Reuse Dispatch app cards and the shared 2-column library treatment for Factory agent and app surfaces.
+
+### Patch Changes
+
+- 73c4a97: Refresh workspace app lists after starting a Builder app creation.
+- Updated dependencies [73c4a97]
+- Updated dependencies [73c4a97]
+  - @agent-native/toolkit@0.15.1
+
+## 0.25.1
+
+### Patch Changes
+
+- Updated dependencies [f07ec04]
+  - @agent-native/toolkit@0.15.0
+
+## 0.25.0
+
+### Minor Changes
+
+- 89f194f: Add a default-off Dispatch workspace sign-in rollout for iframe app panes. The
+  flagged path mints short-lived, app-scoped embed sessions for exact first-party
+  origins, explicitly registered custom workspace apps, and same-origin mounted
+  workspace apps without changing the existing MCP access policy.
+- 89f194f: Add folder-backed agent packs with safe Claude/Cowork-style import, agent-owned
+  references and skills, and a shared Factory Agents surface for managing simple
+  agents alongside mounted agentic apps.
+- 89f194f: Add a simple Agents workspace for creating reusable profiles, importing Claude-style or generic agent definitions, and connecting existing HTTP/A2A agents.
+
+### Patch Changes
+
+- 89f194f: Keep visited workspace app frames mounted while switching apps so returning restores live state instantly.
+- 89f194f: Provision cross-app SSO state and authorization-code tables during release migrations so production serverless requests never perform schema DDL.
+- Updated dependencies [89f194f]
+  - @agent-native/toolkit@0.14.3
+
 ## 0.24.6
 
 ### Patch Changes

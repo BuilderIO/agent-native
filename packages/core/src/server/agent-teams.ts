@@ -26,7 +26,9 @@ import type {
 } from "../agent/production-agent.js";
 import {
   actionsToEngineTools,
+  filterActionsByAllowedNames,
   filterInitialEngineTools,
+  readPersistedAllowedActionNames,
   resolveAgentRequestReasoningEffort,
 } from "../agent/production-agent.js";
 import {
@@ -93,7 +95,10 @@ import {
   type AgentTeamRunPayload,
 } from "./agent-teams-run-queue.js";
 import {
+  getRequestOrgId,
+  getRequestRunContext,
   getRequestUserEmail,
+  hasRequestContext,
   runWithRequestContext,
 } from "./request-context.js";
 import { fireInternalDispatch } from "./self-dispatch.js";
@@ -1390,11 +1395,15 @@ export async function spawnTask(opts: SpawnTaskOptions): Promise<AgentTask> {
   // (integrations/webhook-handler.ts). Execution happens in `processAgentTeamRun`,
   // invoked by the `/_agent-native/agent-teams/_process-run` route mounted
   // inside the agent-chat plugin (where the action/prompt/engine closures live).
-  let orgId: string | null = null;
-  try {
-    orgId = (await resolveOrgIdForEmail(opts.ownerEmail)) ?? null;
-  } catch {
-    orgId = null;
+  let orgId: string | null;
+  if (hasRequestContext()) {
+    orgId = getRequestOrgId() ?? null;
+  } else {
+    try {
+      orgId = await resolveOrgIdForEmail(opts.ownerEmail);
+    } catch {
+      orgId = null;
+    }
   }
 
   const payload: AgentTeamRunPayload = {
@@ -1404,6 +1413,9 @@ export async function spawnTask(opts: SpawnTaskOptions): Promise<AgentTask> {
     ...(opts.parentThreadId ? { parentThreadId: opts.parentThreadId } : {}),
     ...(opts.parentRunId ? { parentRunId: opts.parentRunId } : {}),
     ...(opts.name ? { name: opts.name } : {}),
+    ...(getRequestRunContext()?.allowedActionNames !== undefined
+      ? { allowedActionNames: Object.keys(opts.actions) }
+      : {}),
     // Stable across continuation chunks so the durable assistant message folds.
     turnId: runId,
   };
@@ -1672,11 +1684,25 @@ export async function processAgentTeamRun(
 ): Promise<{ ok: boolean; skipped?: string }> {
   const claimed = await claimAgentTeamRun(opts.taskId);
   if (!claimed) return { ok: true, skipped: "already-claimed-or-missing" };
+  const persistedAllowedActionNames = readPersistedAllowedActionNames(
+    claimed.payload,
+  );
+  const payload =
+    persistedAllowedActionNames === undefined
+      ? claimed.payload
+      : {
+          ...claimed.payload,
+          allowedActionNames: persistedAllowedActionNames,
+        };
 
   return await runWithRequestContext(
     {
       userEmail: claimed.ownerEmail ?? undefined,
       orgId: claimed.orgId ?? undefined,
+      run:
+        persistedAllowedActionNames === undefined
+          ? undefined
+          : { allowedActionNames: persistedAllowedActionNames },
     },
     async () => {
       const task = await loadTask(opts.taskId);
@@ -1692,7 +1718,6 @@ export async function processAgentTeamRun(
         return { ok: true, skipped: "task-terminal" };
       }
 
-      const payload = claimed.payload;
       const ownerEmail = claimed.ownerEmail ?? getRequestUserEmail() ?? "";
       const orgId = claimed.orgId;
       const turnId = payload.turnId || taskRunId(opts.taskId);
@@ -1700,6 +1725,15 @@ export async function processAgentTeamRun(
       let config: AgentTeamRunConfig;
       try {
         config = await opts.resolveConfig({ payload, ownerEmail, orgId });
+        if (persistedAllowedActionNames !== undefined) {
+          config = {
+            ...config,
+            actions: filterActionsByAllowedNames(
+              config.actions,
+              persistedAllowedActionNames,
+            ),
+          };
+        }
       } catch (err) {
         const message =
           err instanceof Error
@@ -1845,7 +1879,14 @@ export async function processAgentTeamRun(
               }
             };
             await runWithRequestContext(
-              { userEmail: ownerEmail || undefined, orgId: orgId ?? undefined },
+              {
+                userEmail: ownerEmail || undefined,
+                orgId: orgId ?? undefined,
+                run:
+                  persistedAllowedActionNames === undefined
+                    ? undefined
+                    : { allowedActionNames: persistedAllowedActionNames },
+              },
               // Record THIS sub-agent's own delegation depth as the ambient
               // depth for the duration of its agent loop. If a tool call from
               // within the loop reaches `spawnTask` (even with the team tool not

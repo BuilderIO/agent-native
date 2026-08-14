@@ -9,7 +9,14 @@ describe("resolveDesktopUpdateSupport", () => {
   it("disables updates in development", () => {
     expect(resolveDesktopUpdateSupport(false, "0.1.150")).toEqual({
       supported: false,
-      reason: "Auto-update is disabled in development",
+      reason: "Auto-update is unavailable for local development builds",
+    });
+  });
+
+  it("disables updates for non-release packaged builds", () => {
+    expect(resolveDesktopUpdateSupport(true, "0.1.150", "dev")).toEqual({
+      supported: false,
+      reason: "Auto-update is unavailable for local development builds",
     });
   });
 
