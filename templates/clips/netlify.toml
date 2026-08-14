@@ -13,12 +13,9 @@ AUTO_CREATE_DEFAULT_ORG = "1"
 # Emit the shared 15-minute Netlify background function used by agent chat and
 # Clips post-recording transcription/seekability workers.
 AGENT_CHAT_DURABLE_BACKGROUND = "true"
-# Netlify Functions run on linux/x64 (AWS Lambda). This tells the deploy build
-# to bundle the matching ffmpeg-static binary into the server bundle so the
-# server-side audio-only transcription fallback (analyzeAudioSignal / audio
-# extraction) can spawn ffmpeg. Without it ffmpeg-static is skipped at build
-# time and request-transcript fails at runtime with FFMPEG_UNAVAILABLE.
-AGENT_NATIVE_SERVERLESS_FFMPEG_ARCH = "x64"
+# Do not bundle ffmpeg-static here: its 76 MB binary puts both shared server
+# functions over the framework's 120 MB per-function budget. Clips falls back
+# to the original media when no runtime FFMPEG_PATH or system ffmpeg exists.
 
 # A2A delegation calls run a full agent loop (LLM + tool calls + DB queries).
 # The framework does not impose a default agent-run timeout; if a template sets
