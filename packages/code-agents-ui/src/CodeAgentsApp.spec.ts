@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   findRunsThatBecameUnread,
+  getCodeAgentSelection,
   groupCodeAgentModelOptions,
   normalizeModelSelection,
   resolveNewSessionExtensionComposerState,
@@ -168,6 +169,49 @@ describe("code-agent model selection", () => {
         isSubscription: true,
       },
     ]);
+  });
+
+  it("lets Default enter the hosted model list before a provider is configured", () => {
+    const hostedModels: CodeAgentModelOption[] = [
+      {
+        engine: "anthropic",
+        engineLabel: "Anthropic",
+        model: "claude-sonnet-5",
+        label: "Claude Sonnet 5",
+        configured: false,
+      },
+      {
+        engine: "builder",
+        engineLabel: "Builder.io",
+        model: "claude-sonnet-5",
+        label: "Claude Sonnet 5",
+        configured: true,
+      },
+    ];
+
+    expect(
+      getCodeAgentSelection(
+        "default",
+        { engine: "codex-cli", model: "gpt-5.6-luna", effort: "high" },
+        hostedModels,
+      ),
+    ).toEqual({
+      engine: "builder",
+      model: "claude-sonnet-5",
+      effort: "high",
+    });
+
+    expect(
+      getCodeAgentSelection(
+        "default",
+        { engine: "codex-cli", model: "gpt-5.6-luna", effort: "high" },
+        hostedModels.slice(0, 1),
+      ),
+    ).toEqual({
+      engine: "anthropic",
+      model: "claude-sonnet-5",
+      effort: "high",
+    });
   });
 });
 

@@ -3410,18 +3410,20 @@ function getCodeAgentEngine(agentId: string): string | undefined {
   return agent && "engine" in agent ? agent.engine : undefined;
 }
 
-function getCodeAgentSelection(
+export function getCodeAgentSelection(
   agentId: string,
   current: CodeAgentModelSelection,
   models: CodeAgentModelOption[],
 ): CodeAgentModelSelection {
   const engine = getCodeAgentEngine(agentId);
-  const option = models.find((model) =>
+  const candidates = models.filter((model) =>
     engine
       ? model.engine === engine
       : !CODE_AGENT_LOCAL_ENGINES.has(model.engine),
   );
-  if (!option || option.configured === false) return current;
+  const option =
+    candidates.find((model) => model.configured !== false) ?? candidates[0];
+  if (!option) return current;
   return {
     engine: option.engine,
     model: option.model,
