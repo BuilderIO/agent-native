@@ -88,6 +88,7 @@ function makeMeeting(overrides: Record<string, unknown> = {}) {
     transcriptStatus: "ready",
     summaryMd: "The team agreed on the launch plan.",
     bulletsJson: JSON.stringify([{ text: "Ship on Tuesday" }]),
+    ownerEmail: "owner@example.com",
     recordingId: "recording-1",
     shareTranscript: false,
     trashedAt: null,
@@ -161,6 +162,7 @@ describe("/api/public-meeting route", () => {
             completedAt: null,
           },
         ],
+        ownerEmail: "owner@example.com",
       },
       viewer: null,
     });

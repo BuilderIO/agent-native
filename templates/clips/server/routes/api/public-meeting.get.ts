@@ -127,6 +127,7 @@ export default defineEventHandler(async (event) => {
         bullets: parseBullets(meeting.bulletsJson),
         participants,
         actionItems,
+        ownerEmail: meeting.ownerEmail,
         ...(meeting.shareTranscript
           ? {
               transcript: transcript

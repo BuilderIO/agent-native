@@ -34,6 +34,10 @@ export interface PublicMeeting {
   bullets: PublicMeetingBullet[];
   participants: PublicMeetingParticipant[];
   actionItems: PublicMeetingActionItem[];
+  /** Recording owner's email — resolves "mic" segments to the actual
+   * recorder for calendar meetings where they aren't the event organizer.
+   * Already no more exposed than the per-participant emails on this page. */
+  ownerEmail: string | null;
   actualStart: string | null;
   actualEnd: string | null;
   transcriptStatus: string | null;

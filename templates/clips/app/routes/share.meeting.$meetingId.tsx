@@ -52,6 +52,7 @@ export async function loader({
       scheduledStart: schema.meetings.scheduledStart,
       summaryMd: schema.meetings.summaryMd,
       bulletsJson: schema.meetings.bulletsJson,
+      ownerEmail: schema.meetings.ownerEmail,
       actualStart: schema.meetings.actualStart,
       actualEnd: schema.meetings.actualEnd,
       transcriptStatus: schema.meetings.transcriptStatus,
@@ -110,6 +111,7 @@ export async function loader({
       bullets,
       participants,
       actionItems,
+      ownerEmail: meeting.ownerEmail,
       actualStart: meeting.actualStart,
       actualEnd: meeting.actualEnd,
       transcriptStatus: meeting.transcriptStatus,
@@ -438,6 +440,7 @@ export default function ShareMeetingRoute() {
                   segments={transcript.segments}
                   isLive={false}
                   participants={attendees}
+                  ownerEmail={meeting.ownerEmail}
                 />
               </div>
             ) : transcript.fullText ? (
