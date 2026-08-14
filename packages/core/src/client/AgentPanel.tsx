@@ -99,6 +99,12 @@ import { assistantUiRecoverableRenderErrorKind } from "./assistant-ui-recovery.j
 import type { AssistantChatProps } from "./AssistantChat.js";
 import { shouldParentFrameOwnAgentPanel } from "./builder-frame.js";
 import {
+  APP_CHAT_SIDEBAR_STATE_EVENT,
+  APP_CHAT_SIDEBAR_STATE_REQUEST_MESSAGE,
+  buildAppChatSidebarStateMessage,
+  isPerAppChatStorageKey,
+} from "./app-chat-sidebar.js";
+import {
   AGENT_CHAT_VIEW_TRANSITION_CLASS,
   getAgentChatViewTransitionStyle,
   startAgentChatViewTransition,
@@ -131,6 +137,13 @@ const AgentTerminal = lazy(() =>
 const AGENT_PANEL_PREPARE_EVENT = "agent-panel:prepare";
 const AGENT_PANEL_SET_MODE_EVENT = "agent-panel:set-mode";
 const AGENT_PANEL_OPEN_SETTINGS_EVENT = "agent-panel:open-settings";
+
+function postPerAppChatSidebarStateToEmbeddedFrames(open: boolean): void {
+  const message = buildAppChatSidebarStateMessage(open);
+  for (const frame of document.querySelectorAll("iframe")) {
+    frame.contentWindow?.postMessage(message, "*");
+  }
+}
 
 function settingsRouteHashForSection(section?: string | null): string {
   const normalized = section?.replace(/^#/, "").toLowerCase() ?? "";
@@ -3123,6 +3136,7 @@ export function AgentSidebar({
   suppressFirstRunOnboarding = false,
 }: AgentSidebarProps) {
   const sidebarOpenStorageKey = openStorageKey ?? storageKey;
+  const isPerAppChatSidebar = isPerAppChatStorageKey(sidebarOpenStorageKey);
   const onboardingPreviewMode = useOnboardingPreviewMode();
   const firstRunOnboardingGateOwnsSurface =
     useFirstRunOnboardingGateOwnsSurface();
@@ -3269,6 +3283,43 @@ export function AgentSidebar({
     open,
     presentationMode,
     hasFrameSidebarState,
+  ]);
+
+  useEffect(() => {
+    if (!isPerAppChatSidebar) return;
+
+    const frameOwned = frameCodeMode && shouldParentFrameOwnAgentPanel();
+    if (frameOwned && !hasFrameSidebarState) return;
+
+    const openState = !presentationMode &&
+      (frameOwned ? frameSidebarOpen : open);
+    const message = buildAppChatSidebarStateMessage(openState);
+
+    window.dispatchEvent(
+      new CustomEvent(APP_CHAT_SIDEBAR_STATE_EVENT, {
+        detail: message.data,
+      }),
+    );
+    postPerAppChatSidebarStateToEmbeddedFrames(openState);
+
+    const handleStateRequest = (event: MessageEvent) => {
+      if (event.data?.type !== APP_CHAT_SIDEBAR_STATE_REQUEST_MESSAGE) return;
+      const frame = Array.from(document.querySelectorAll("iframe")).find(
+        (candidate) => candidate.contentWindow === event.source,
+      );
+      if (!frame) return;
+      frame.contentWindow?.postMessage(message, event.origin || "*");
+    };
+
+    window.addEventListener("message", handleStateRequest);
+    return () => window.removeEventListener("message", handleStateRequest);
+  }, [
+    frameCodeMode,
+    frameSidebarOpen,
+    hasFrameSidebarState,
+    isPerAppChatSidebar,
+    open,
+    presentationMode,
   ]);
 
   useEffect(() => {
@@ -3734,6 +3785,9 @@ export function AgentSidebar({
         data-agent-sidebar-layout={panelLayout}
         data-agent-sidebar-position={position}
         data-agent-sidebar-state={panelOpen ? "open" : "closed"}
+        data-agent-sidebar-per-app-chat={
+          isPerAppChatSidebar ? "true" : undefined
+        }
         data-agent-sidebar-resizing={isResizing ? "true" : undefined}
         data-agent-sidebar-chat-handoff={
           chatViewTransitionHandoff ? "true" : undefined
