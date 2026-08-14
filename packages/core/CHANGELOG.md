@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.157.0
+
+### Minor Changes
+
+- afe636c: Add request-scoped action allowlists for interactive agent chat.
+
 ## 0.156.0
 
 ### Minor Changes
