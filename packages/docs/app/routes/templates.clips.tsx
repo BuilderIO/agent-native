@@ -177,7 +177,7 @@ export default function ClipsTemplate() {
   return (
     <main className="template-detail-page mx-auto w-full max-w-[1200px] overflow-x-clip px-4 sm:px-6">
       {/* Hero */}
-      <section className="pb-12 pt-3 sm:pb-16 sm:pt-4 lg:pb-20 lg:pt-5">
+      <section className="pt-3 sm:pt-4 lg:pt-5">
         <div className="relative overflow-hidden border-x border-[var(--docs-border)]">
           <div
             aria-hidden="true"
