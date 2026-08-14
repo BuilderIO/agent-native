@@ -30,6 +30,13 @@ export class ImageRenderError extends Error {
   }
 }
 
+export class ImagePersistenceError extends Error {
+  constructor() {
+    super("Image could not be saved.");
+    this.name = "ImagePersistenceError";
+  }
+}
+
 export function waitForRenderedImage(
   findImage: () => HTMLImageElement | null,
 ): Promise<void> {
@@ -87,18 +94,21 @@ export async function completeImageFileUpload({
   stageAttributes,
   waitForRender,
   commitAttributes,
+  persistCommittedImage,
   upload = uploadImageFile,
 }: {
   file: File;
   stageAttributes: (src: string) => void;
   waitForRender: () => Promise<void>;
   commitAttributes: (src: string) => void;
+  persistCommittedImage: () => boolean | Promise<boolean>;
   upload?: (file: File) => Promise<string>;
 }): Promise<string> {
   const src = await upload(file);
   stageAttributes(src);
   await waitForRender();
   commitAttributes(src);
+  if (!(await persistCommittedImage())) throw new ImagePersistenceError();
   return src;
 }
 

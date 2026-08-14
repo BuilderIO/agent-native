@@ -28,6 +28,10 @@ describe("image node-view upload completion", () => {
     const commitAttributes = vi.fn(() => {
       events.push("committed");
     });
+    const persistCommittedImage = vi.fn(async () => {
+      events.push("persisted");
+      return true;
+    });
 
     await expect(
       completeImageFileUpload({
@@ -36,10 +40,17 @@ describe("image node-view upload completion", () => {
         stageAttributes,
         waitForRender,
         commitAttributes,
+        persistCommittedImage,
       }),
     ).resolves.toBe("https://cdn.example.com/diagram.png");
 
-    expect(events).toEqual(["uploaded", "staged", "loaded", "committed"]);
+    expect(events).toEqual([
+      "uploaded",
+      "staged",
+      "loaded",
+      "committed",
+      "persisted",
+    ]);
     expect(stageAttributes).toHaveBeenCalledWith(
       "https://cdn.example.com/diagram.png",
     );
@@ -51,6 +62,7 @@ describe("image node-view upload completion", () => {
   it("does not complete when the committed image node cannot render", async () => {
     const stageAttributes = vi.fn();
     const commitAttributes = vi.fn();
+    const persistCommittedImage = vi.fn();
 
     await expect(
       completeImageFileUpload({
@@ -61,11 +73,30 @@ describe("image node-view upload completion", () => {
           throw new ImageRenderError();
         },
         commitAttributes,
+        persistCommittedImage,
       }),
     ).rejects.toThrow("Image could not be loaded.");
 
     expect(stageAttributes).toHaveBeenCalledOnce();
     expect(commitAttributes).not.toHaveBeenCalled();
+    expect(persistCommittedImage).not.toHaveBeenCalled();
+  });
+
+  it("does not complete when the rendered image cannot be persisted", async () => {
+    const commitAttributes = vi.fn();
+
+    await expect(
+      completeImageFileUpload({
+        file,
+        upload: async () => "https://cdn.example.com/diagram.svg",
+        stageAttributes: vi.fn(),
+        waitForRender: async () => {},
+        commitAttributes,
+        persistCommittedImage: async () => false,
+      }),
+    ).rejects.toThrow("Image could not be saved.");
+
+    expect(commitAttributes).toHaveBeenCalledOnce();
   });
 
   it("waits for the image element committed into the editor", async () => {

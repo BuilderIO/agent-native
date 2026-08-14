@@ -2379,9 +2379,9 @@ export function VisualEditor({
       if (!ensurePendingImageUpload(editor.view, request, uploadId)) return;
 
       const toastId = toast.loading(t("editor.media.uploadingImage"));
+      let staged = false;
+      let committed = false;
       try {
-        let staged = false;
-        let committed = false;
         await completeImageFileUpload({
           file,
           stageAttributes: (src) => {
@@ -2406,6 +2406,13 @@ export function VisualEditor({
               { src, uploadId: null },
             );
           },
+          persistCommittedImage: async () => {
+            if (!committed || editor.isDestroyed) return false;
+            return await persistEditorContent(editor, {
+              immediate: true,
+              userInitiated: true,
+            });
+          },
         });
         if (!committed) throw new Error(t("empty.genericError"));
         toast.success(t("editor.media.imageAdded"), { id: toastId });
@@ -2414,7 +2421,9 @@ export function VisualEditor({
           toast.dismiss(toastId);
           return;
         }
-        restorePendingImagePicker(editor.view, request, uploadId);
+        if (!committed) {
+          restorePendingImagePicker(editor.view, request, uploadId);
+        }
         toast.error(
           error instanceof ImageRenderError
             ? t("editor.media.imageBroken")
