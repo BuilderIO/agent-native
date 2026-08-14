@@ -147,6 +147,17 @@ function assertCompatibleParent(
     (ref) => ref.path === parentPath,
   )?.node;
   const parentKind = parent?.type;
+  const generalContainerKinds = new Set([
+    "blockquote",
+    "listItem",
+    "taskItem",
+    "notionToggle",
+    "notionCallout",
+    "notionColumn",
+    "notionSyncedBlock",
+    "tableHeader",
+    "tableCell",
+  ]);
   const valid =
     parentKind === undefined
       ? ![
@@ -167,7 +178,8 @@ function assertCompatibleParent(
               ? kind === "tableRow"
               : parentKind === "tableRow"
                 ? kind === "tableHeader" || kind === "tableCell"
-                : ![
+                : generalContainerKinds.has(parentKind) &&
+                  ![
                     "listItem",
                     "taskItem",
                     "notionColumn",

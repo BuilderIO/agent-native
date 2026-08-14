@@ -1,6 +1,6 @@
 import { ActionContractError } from "@agent-native/core";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -30,6 +30,7 @@ import {
 } from "../shared/properties.js";
 import {
   BlocksFieldIdCollisionError,
+  lockPrimaryBlocksFields,
   persistBlocksFieldIdentity,
   readBlocksFieldIdentity,
 } from "./_blocks-field-identity.js";
@@ -692,6 +693,30 @@ export async function mutateDatabaseBlock(
           tx,
         );
         if (lockedReplay) return lockedReplay;
+        const primaryBlocksFields = await lockPrimaryBlocksFields(
+          tx,
+          input.target.rowDocumentId,
+        );
+        const [lockedDocument] = await tx
+          .update(schema.documents)
+          .set({ updatedAt: sql`${schema.documents.updatedAt}` })
+          .where(
+            and(
+              eq(schema.documents.id, input.target.rowDocumentId),
+              isNull(schema.documents.trashedAt),
+            ),
+          )
+          .returning({ id: schema.documents.id });
+        if (!lockedDocument) {
+          contractError(
+            "ROW_NOT_FOUND",
+            "The exact database row was not found.",
+            {
+              documentId: input.target.rowDocumentId,
+            },
+            404,
+          );
+        }
         const loaded = await loadField({
           target: input.target,
           role: "editor",
@@ -757,18 +782,43 @@ export async function mutateDatabaseBlock(
         if (changed.changed) {
           await writeMarkdown(tx, loaded, input.target, changed.markdown, now);
           try {
-            await persistBlocksFieldIdentity({
-              db: tx,
-              ownerEmail: loaded.ownerEmail,
-              documentId: input.target.rowDocumentId,
-              propertyId: input.target.propertyId,
-              previousMarkdown: loaded.markdown,
-              markdown: changed.markdown,
-              expectedRevision: input.expectedFieldRevision,
-              preferredIdsByPath: changed.preferredIdsByPath,
-              rejectCrossFieldIdRemapping: true,
-              now,
-            });
+            const fieldsToPersist =
+              loaded.storageTarget === "document_body"
+                ? primaryBlocksFields
+                : [
+                    {
+                      propertyId: input.target.propertyId,
+                      ownerEmail: loaded.ownerEmail,
+                    },
+                  ];
+            if (
+              !fieldsToPersist.some(
+                (field) => field.propertyId === input.target.propertyId,
+              )
+            ) {
+              throw new Error(
+                "Primary Blocks membership changed before the operation completed.",
+              );
+            }
+            for (const field of fieldsToPersist) {
+              const isTarget = field.propertyId === input.target.propertyId;
+              await persistBlocksFieldIdentity({
+                db: tx,
+                ownerEmail: field.ownerEmail,
+                documentId: input.target.rowDocumentId,
+                propertyId: field.propertyId,
+                previousMarkdown: loaded.markdown,
+                markdown: changed.markdown,
+                ...(isTarget
+                  ? {
+                      expectedRevision: input.expectedFieldRevision,
+                      preferredIdsByPath: changed.preferredIdsByPath,
+                      rejectCrossFieldIdRemapping: true,
+                    }
+                  : {}),
+                now,
+              });
+            }
           } catch (error) {
             if (
               error instanceof BlocksFieldIdCollisionError ||
@@ -903,7 +953,5 @@ export async function mutateDatabaseBlock(
       });
     },
   );
-  return result.receipt.idempotency.result === "replayed"
-    ? result
-    : verifyResult(result);
+  return verifyResult(result);
 }

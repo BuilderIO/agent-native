@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { writeAppState } from "@agent-native/core/application-state";
 import { buildDeepLink } from "@agent-native/core/server";
 
 import type { ContentDatabaseBlockMutationResult } from "../shared/database-block-actions.js";
@@ -26,7 +27,11 @@ export default defineAction({
         : "Mutated Content database block";
     },
   },
-  run: mutateDatabaseBlock,
+  run: async (args) => {
+    const result = await mutateDatabaseBlock(args);
+    await writeAppState("refresh-signal", { ts: Date.now() });
+    return result;
+  },
   link: ({ result }) => {
     const documentId = (result as ContentDatabaseBlockMutationResult | null)
       ?.receipt.target.rowDocumentId;

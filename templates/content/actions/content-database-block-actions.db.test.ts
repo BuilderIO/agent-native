@@ -343,9 +343,85 @@ describe("exact Content database block actions", () => {
       ),
     ).rejects.toMatchObject({ errorCode: "BLOCK_ID_TOMBSTONED" });
 
-    const lateReplay = await asOwner(() => mutateBlock.run(insertInput));
-    expect(lateReplay.receipt.receiptId).toBe(inserted.receipt.receiptId);
-    expect(lateReplay.receipt.idempotency.result).toBe("replayed");
+    await expect(
+      asOwner(() => mutateBlock.run(insertInput)),
+    ).rejects.toMatchObject({ errorCode: "IDEMPOTENCY_REPLAY_DRIFT" });
+  });
+
+  it("keeps every primary Blocks identity current when one page belongs to multiple databases", async () => {
+    const first = await fixture("Alpha\nBeta");
+    const secondCreated = await asOwner(() =>
+      createDatabase.run({ title: "Second primary identity" }),
+    );
+    const secondDatabaseId = secondCreated.database.id;
+    const secondRead = await asOwner(() =>
+      getDatabase.run({ databaseId: secondDatabaseId }),
+    );
+    if (!("database" in secondRead) || !secondRead.mutationContract) {
+      throw new Error("Second fixture database has no mutation contract.");
+    }
+    const secondPrimary = secondRead.mutationContract.properties.find(
+      (property) => property.type === "blocks",
+    );
+    if (!secondPrimary)
+      throw new Error("Second fixture has no Blocks property.");
+    const now = new Date().toISOString();
+    const secondItemId = `shared-item-${Date.now()}`;
+    await getDb().insert(schema.contentDatabaseItems).values({
+      id: secondItemId,
+      ownerEmail: OWNER,
+      orgId: secondRead.database.orgId,
+      databaseId: secondDatabaseId,
+      documentId: first.target.rowDocumentId,
+      position: 0,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const secondTarget = {
+      ...secondRead.mutationContract.target,
+      itemId: secondItemId,
+      rowDocumentId: first.target.rowDocumentId,
+      propertyId: secondPrimary.id,
+    };
+    await asOwner(() =>
+      setProperty.run({
+        databaseId: secondDatabaseId,
+        documentId: first.target.rowDocumentId,
+        propertyId: secondPrimary.id,
+        value: "Alpha\nBeta",
+        expectedBlocksFieldRevision: 0,
+      }),
+    );
+    const firstBefore = await asOwner(() =>
+      listBlocks.run({ target: first.target, limit: 100 }),
+    );
+    const secondBefore = await asOwner(() =>
+      listBlocks.run({ target: secondTarget, limit: 100 }),
+    );
+
+    await asOwner(() =>
+      mutateBlock.run({
+        target: first.target,
+        expectedSchemaRevision: firstBefore.schemaRevision,
+        expectedRowRevision: firstBefore.rowRevision,
+        expectedFieldRevision: firstBefore.fieldRevision,
+        idempotencyKey: "multi-primary-update",
+        operation: "update",
+        blockId: firstBefore.blocks[0]!.id,
+        block: { kind: "paragraph", nfm: "Alpha updated" },
+      }),
+    );
+
+    const secondAfter = await asOwner(() =>
+      listBlocks.run({ target: secondTarget, limit: 100 }),
+    );
+    expect(secondAfter.identityStatus).toBe("materialized");
+    expect(secondAfter.fieldRevision).toBe(secondBefore.fieldRevision + 1);
+    expect(secondAfter.blocks.map((block) => block.value.nfm)).toEqual([
+      "Alpha updated",
+      "Beta",
+    ]);
+    expect(secondAfter.order).toEqual(secondBefore.order);
   });
 
   it("rejects stale row, field, schema, target, access, and unsupported operations without clobbering", async () => {
@@ -369,6 +445,25 @@ describe("exact Content database block actions", () => {
     );
     expect(unchanged.order).toEqual(before);
     expect(unchanged.fieldRevision).toBe(state.listed.fieldRevision);
+
+    const sibling = state.listed.blocks.find(
+      (block) => block.kind === "paragraph",
+    )!;
+    await expect(
+      asOwner(() =>
+        mutateBlock.run({
+          ...envelope(state, "leaf-parent"),
+          operation: "insert",
+          block: { kind: "paragraph", nfm: "Nested" },
+          position: { placement: "end", parentBlockId: sibling.id },
+        }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "INVALID_BLOCK_VALUE" });
+    const afterLeafRejection = await asOwner(() =>
+      listBlocks.run({ target: state.target, limit: 100 }),
+    );
+    expect(afterLeafRejection.order).toEqual(before);
+    expect(afterLeafRejection.fieldRevision).toBe(state.listed.fieldRevision);
 
     await expect(
       asOwner(() =>
@@ -522,6 +617,45 @@ describe("exact Content database block actions", () => {
       .where(eq(schema.documents.id, state.target.rowDocumentId));
     expect(stored?.content).toBe("Editor won\nSibling");
   });
+
+  it.skipIf(!TEST_DATABASE_URL.startsWith("postgres"))(
+    "serializes a direct title edit before validating the expected row revision",
+    async () => {
+      const state = await fixture("Before\nSibling");
+      let mutation!: Promise<unknown>;
+      await getDb().transaction(async (tx: any) => {
+        await tx
+          .update(schema.documents)
+          .set({ title: "UI title won", updatedAt: new Date().toISOString() })
+          .where(eq(schema.documents.id, state.target.rowDocumentId));
+        mutation = asOwner(() =>
+          mutateBlock.run({
+            ...envelope(state, "title-race"),
+            operation: "update",
+            blockId: state.listed.blocks[0]!.id,
+            block: { kind: "paragraph", nfm: "Agent write" },
+          }),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      });
+
+      await expect(mutation).rejects.toMatchObject({
+        errorCode: "ROW_REVISION_CONFLICT",
+      });
+      const after = await asOwner(() =>
+        listBlocks.run({ target: state.target, limit: 100 }),
+      );
+      expect(after.blocks.map((block) => block.value.nfm)).toEqual([
+        "Before",
+        "Sibling",
+      ]);
+      const [document] = await getDb()
+        .select({ title: schema.documents.title })
+        .from(schema.documents)
+        .where(eq(schema.documents.id, state.target.rowDocumentId));
+      expect(document?.title).toBe("UI title won");
+    },
+  );
 
   it("rejects stale existing and absent additional-field writes without clobbering", async () => {
     const state = await fixture("Primary stays");

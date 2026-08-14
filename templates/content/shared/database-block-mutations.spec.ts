@@ -192,6 +192,72 @@ describe("individual Blocks-field document mutations", () => {
     expect(changed.deletedCandidateIds).toEqual([callout.id, child.id]);
   });
 
+  it("preserves an unchanged descendant ID when updating its container", () => {
+    const markdown = "<callout>\n\tChild\n</callout>\nSibling";
+    const stored = persisted(markdown);
+    const before = exposeBlocksFieldIdentity(stored, markdown);
+    const callout = before.blocks.find(
+      (block) => block.kind === "notionCallout",
+    )!;
+    const child = before.blocks.find((block) => block.parentId === callout.id)!;
+    const changed = mutateBlocksFieldDocument({
+      markdown,
+      identity: before,
+      mutation: {
+        operation: "update",
+        blockId: callout.id,
+        block: {
+          kind: "notionCallout",
+          nfm: '<callout color="blue">\n\tChild\n</callout>',
+        },
+      },
+    });
+    const next = reconcileBlocksFieldIdentity({
+      documentId: "document-1",
+      propertyId: "property-1",
+      previous: stored,
+      markdown: changed.markdown,
+      preferredIdsByPath: changed.preferredIdsByPath,
+      createId: () => "unexpected",
+    });
+    expect(next.blocks.find((block) => block.markdown === "Child")?.id).toBe(
+      child.id,
+    );
+  });
+
+  it("rejects leaf blocks as insertion parents before serialization", () => {
+    const leafKinds = [
+      ["paragraph", "Paragraph"],
+      ["heading", "# Heading"],
+      ["horizontalRule", "---"],
+      ["codeBlock", "```\ncode\n```"],
+      ["image", "![image](https://example.com/image.png)"],
+      ["video", '<video src="https://example.com/video.mp4">Clip</video>'],
+      ["audio", '<audio src="https://example.com/audio.mp3">Clip</audio>'],
+      ["notionBlockAtom", '<page url="https://example.com">Page</page>'],
+      ["registryBlock", '<Endpoint id="endpoint-1" />'],
+      ["contentReference", '<ContentReference sourcePath="source.mdx" />'],
+      ["localMdxComponent", '<ProjectCard title="Example" />'],
+    ] as const;
+
+    for (const [kind, markdown] of leafKinds) {
+      const before = identity(markdown);
+      const parent = before.blocks.find((block) => block.kind === kind)!;
+      expect(() =>
+        mutateBlocksFieldDocument({
+          markdown,
+          identity: before,
+          mutation: {
+            operation: "insert",
+            block: { kind: "paragraph", nfm: "Nested" },
+            position: { placement: "end", parentBlockId: parent.id },
+          },
+          insertedBlockId: `nested-${kind}`,
+        }),
+      ).toThrow(`not valid inside ${kind}`);
+    }
+  });
+
   it("keeps every deleted subtree ID tombstoned after an identical fresh insert", () => {
     const insertedMarkdown = "<callout>\n\tChild\n</callout>";
     const markdown = `${insertedMarkdown}\nSibling`;
