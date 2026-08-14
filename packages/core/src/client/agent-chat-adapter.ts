@@ -141,6 +141,11 @@ const MAX_HISTORY_ATTACHMENT_CHARS = 60_000;
 const MAX_OUTBOUND_ATTACHMENT_CHARS = 200_000;
 const MAX_HISTORY_MESSAGES = 24;
 const MAX_HISTORY_TOTAL_CHARS = 64_000;
+// What the user asked for cannot be re-derived; what a tool returned can always
+// be re-read. Pricing both against one budget let a single read-heavy assistant
+// turn evict the entire instruction record, so the model re-derived the same
+// answer and re-asked the same question every turn.
+const MAX_HISTORY_USER_CHARS = 16_000;
 const MAX_HISTORY_MESSAGE_CHARS = 12_000;
 const MAX_HISTORY_TOOL_ARGS_CHARS = 8_000;
 const MAX_HISTORY_TOOL_RESULT_CHARS = 12_000;
@@ -983,17 +988,22 @@ function limitPriorMessagesForRequest<
 >(messages: readonly T[]): T[] {
   const recent = messages.slice(-MAX_HISTORY_MESSAGES);
   const kept: T[] = [];
-  let totalChars = 0;
+  const spent = { user: 0, assistant: 0 };
+  const budget = {
+    user: MAX_HISTORY_USER_CHARS,
+    assistant: MAX_HISTORY_TOTAL_CHARS,
+  };
 
   for (let i = recent.length - 1; i >= 0; i--) {
     const message = recent[i];
     if (message.role !== "user" && message.role !== "assistant") continue;
+    const role = message.role as "user" | "assistant";
     const cost = estimateHistoryMessageCost(message);
-    if (kept.length > 0 && totalChars + cost > MAX_HISTORY_TOTAL_CHARS) {
-      break;
-    }
+    // Skip, never `break`: one expensive recent turn must not evict every
+    // cheaper older message behind it.
+    if (kept.length > 0 && spent[role] + cost > budget[role]) continue;
     kept.push(message);
-    totalChars += cost;
+    spent[role] += cost;
   }
 
   kept.reverse();

@@ -14,6 +14,7 @@ function getComposerDraftStorage(): Storage | null {
   try {
     return window.localStorage;
   } catch {
+    // coercion-ok: browser storage may be unavailable; treat it as absent.
     return null;
   }
 }
@@ -28,6 +29,7 @@ export function readAssistantChatComposerDraft(
     const draft = storage.getItem(key);
     return draft && draft.trim().length > 0 ? draft : null;
   } catch {
+    // coercion-ok: browser storage may be unavailable; treat it as absent.
     return null;
   }
 }
@@ -46,6 +48,7 @@ export function writeAssistantChatComposerDraft(
       storage.removeItem(key);
     }
   } catch {
+    // coercion-ok: browser storage may be unavailable; keep the live editor authoritative.
     // The live editor remains the source of truth when browser storage is unavailable.
   }
 }
@@ -57,6 +60,7 @@ export function clearAssistantChatComposerDraft(scope?: string | null): void {
   try {
     storage.removeItem(key);
   } catch {
+    // coercion-ok: browser storage may be unavailable; keep the live editor authoritative.
     // The live editor remains the source of truth when browser storage is unavailable.
   }
 }
