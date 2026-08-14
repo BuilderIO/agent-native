@@ -760,14 +760,14 @@ export default function ClipsTemplate() {
                 location: "landing_page_cta",
               });
             }}
-            className="inline-flex h-10 items-center justify-center rounded-md border border-[#00dff6] bg-[#01c8f1] px-5 font-mono text-[14px] font-semibold uppercase leading-[1.2] tracking-[0.28px] text-[#0a0a0a] no-underline transition hover:no-underline"
+            className="primary-button"
           >
             Try Clips Now
           </a>
           <TemplateDocsLink
             template={template}
             location="landing_page_cta"
-            className="inline-flex h-10 items-center justify-center gap-1 rounded-md border border-[#5e5e5e] bg-[#0a0a0a] px-5 font-mono text-[14px] font-semibold uppercase leading-[1.2] tracking-[0.28px] text-[#faf9f5] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
+            className="secondary-button gap-1"
           >
             {t("templateLanding.clips.s061")}
             <svg

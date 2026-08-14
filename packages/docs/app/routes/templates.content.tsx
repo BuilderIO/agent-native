@@ -138,7 +138,7 @@ export default function ContentTemplate() {
               href="https://content.agent-native.com"
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md bg-[var(--fg)] px-5 py-3 text-sm font-medium text-[var(--bg)] no-underline transition-[opacity] hover:opacity-90 hover:no-underline"
+              className="primary-button"
               onClick={(event) => {
                 applyFirstTouchAttributionToLink(event.currentTarget);
                 trackEvent("try live demo", {
@@ -152,7 +152,7 @@ export default function ContentTemplate() {
             <TemplateDocsLink
               template={template}
               location="landing_page"
-              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md border border-[var(--docs-border)] px-5 py-3 text-sm font-medium text-[var(--fg)] no-underline transition-[border-color] hover:border-[var(--fg-secondary)] hover:no-underline"
+              className="secondary-button"
             />
           </div>
         </div>
@@ -378,14 +378,14 @@ export default function ContentTemplate() {
               href={`${template.demoUrl}/_agent-native/sign-in`}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex min-h-11 items-center justify-center rounded-md bg-[var(--fg)] px-5 py-3 text-sm font-medium text-[var(--bg)] no-underline transition-[opacity] hover:opacity-90 hover:no-underline"
+              className="primary-button"
             >
               {t("common.signIn")}
             </a>
             <Link
               data-an-prefetch="viewport"
               to={sitePathForLocale("/apps", locale)}
-              className="inline-flex min-h-11 items-center justify-center rounded-md border border-[var(--docs-border)] px-5 py-3 text-sm font-medium text-[var(--fg)] no-underline transition-[border-color] hover:border-[var(--fg-secondary)] hover:no-underline"
+              className="secondary-button"
             >
               View more apps
             </Link>

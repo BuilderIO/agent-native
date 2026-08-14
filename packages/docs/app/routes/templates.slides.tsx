@@ -365,21 +365,21 @@ export default function SlidesTemplate() {
               href="https://slides.agent-native.com/_agent-native/sign-in"
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex min-h-11 items-center justify-center rounded-md bg-[var(--fg)] px-5 text-sm font-semibold text-[var(--bg)] no-underline transition-opacity hover:opacity-85 hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--docs-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg)]"
+              className="primary-button focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--docs-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg)]"
             >
               {t("templateLanding.slides.signIn")}
             </a>
             <TemplateDocsLink
               template={template}
               location="landing_page_cta"
-              className="inline-flex min-h-11 items-center justify-center rounded-md border border-[var(--docs-border)] px-5 text-sm font-semibold text-[var(--fg)] no-underline transition-colors hover:border-[var(--fg-secondary)] hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--docs-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg)]"
+              className="secondary-button focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--docs-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg)]"
             >
               {t("templateLanding.slides.s057")}
             </TemplateDocsLink>
             <Link
               data-an-prefetch="viewport"
               to={sitePathForLocale("/apps", locale)}
-              className="inline-flex min-h-11 items-center justify-center rounded-md border border-[var(--docs-border)] px-5 text-sm font-semibold text-[var(--fg)] no-underline transition-colors hover:border-[var(--fg-secondary)] hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--docs-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg)]"
+              className="secondary-button focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--docs-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg)]"
             >
               {t("templateLanding.slides.s058")}
             </Link>

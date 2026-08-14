@@ -60,11 +60,9 @@ export const meta = () =>
 
 const template = templates.find((t) => t.slug === "mail")!;
 
-const activationLinkClassName =
-  "inline-flex min-h-11 items-center justify-center gap-2 rounded-md border border-[var(--docs-border)] px-5 py-3 text-sm font-medium text-[var(--fg)] no-underline transition-colors hover:border-[var(--fg-secondary)] hover:no-underline";
+const activationLinkClassName = "secondary-button";
 
-const primaryLinkClassName =
-  "inline-flex min-h-11 items-center justify-center gap-2 rounded-md bg-[var(--fg)] px-5 py-3 text-sm font-medium text-[var(--bg)] no-underline transition-opacity hover:opacity-90 hover:no-underline";
+const primaryLinkClassName = "primary-button";
 
 export default function MailTemplate() {
   const t = useT();
