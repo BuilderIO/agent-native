@@ -530,11 +530,16 @@ const messages = {
     generatingSlide: "Generando diapositiva",
     uploadFailed: "Error al subir",
     uploadAttachedFileFailed: "No se pudo subir el archivo adjunto.",
+    newSlideSaveFailed:
+      "Impossible d'enregistrer la nouvelle diapositive. Veuillez réessayer.",
     addSlides: "Añadir diapositivas",
     addEmptySlide: "Añadir diapositiva vacía",
     noAi: "sin AI",
     duplicateCurrentSlide: "Duplicar diapositiva actual",
     promptPlaceholder: "Describe las diapositivas que quieres...",
+    newSlide: "Nouvelle diapositive",
+    closeAddSlides: "Fermer",
+    describeThisSlide: "Décrivez cette diapositive",
   },
   presentation: {
     loadFailed: "Impossible de charger cette présentation.",
