@@ -640,24 +640,7 @@ export default function ClipsTemplate() {
               id: "clips",
               className: "w-[30%]",
               emphasized: true,
-              header: (
-                <span className="inline-flex items-center gap-2">
-                  <img
-                    src="/agent-native-icon-dark.svg"
-                    alt=""
-                    aria-hidden="true"
-                    className="size-5"
-                    loading="lazy"
-                    decoding="async"
-                  />
-                  <span className="font-semibold uppercase tracking-tight">
-                    Agent-Native{" "}
-                    <span style={{ color: template.color }}>
-                      {template.name}
-                    </span>
-                  </span>
-                </span>
-              ),
+              agentNative: { color: template.color, name: template.name },
             },
             { id: "loom", className: "w-[20%]", header: "Loom" },
             {

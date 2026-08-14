@@ -373,11 +373,7 @@ export default function AnalyticsTemplate() {
             {
               id: "agent-native",
               emphasized: true,
-              header: (
-                <span style={{ color: template.color }}>
-                  Agent-Native Analytics
-                </span>
-              ),
+              agentNative: { color: template.color, name: template.name },
             },
           ]}
           rows={[

@@ -1,9 +1,13 @@
 import type { ReactNode } from "react";
 
 export type TemplateComparisonColumn = {
+  agentNative?: {
+    color: string;
+    name: string;
+  };
   className?: string;
   emphasized?: boolean;
-  header: ReactNode;
+  header?: ReactNode;
   id: string;
 };
 
@@ -53,7 +57,26 @@ export function TemplateComparisonTable({
                     : "text-[var(--fg-secondary)]"
                 } ${column.className ?? ""}`}
               >
-                {column.header}
+                {column.agentNative ? (
+                  <span className="inline-flex items-center gap-2">
+                    <img
+                      src="/agent-native-icon-dark.svg"
+                      alt=""
+                      aria-hidden="true"
+                      className="size-5"
+                      loading="lazy"
+                      decoding="async"
+                    />
+                    <span className="font-semibold uppercase tracking-tight">
+                      Agent-Native{" "}
+                      <span style={{ color: column.agentNative.color }}>
+                        {column.agentNative.name}
+                      </span>
+                    </span>
+                  </span>
+                ) : (
+                  column.header
+                )}
               </th>
             ))}
           </tr>

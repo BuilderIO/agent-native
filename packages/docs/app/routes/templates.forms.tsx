@@ -294,7 +294,7 @@ export default function FormsTemplate() {
             },
             {
               id: "forms",
-              header: "Agent-Native Forms",
+              agentNative: { color: template.color, name: template.name },
               emphasized: true,
             },
           ]}

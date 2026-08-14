@@ -292,7 +292,7 @@ export default function DesignTemplate() {
             },
             {
               id: "design",
-              header: "Agent-Native Design",
+              agentNative: { color: template.color, name: template.name },
               emphasized: true,
             },
           ]}

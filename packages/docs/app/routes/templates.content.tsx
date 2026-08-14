@@ -305,7 +305,7 @@ export default function ContentTemplate() {
             },
             {
               id: "content",
-              header: "Agent-Native Content",
+              agentNative: { color: template.color, name: template.name },
               emphasized: true,
             },
           ]}

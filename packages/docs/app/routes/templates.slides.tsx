@@ -327,12 +327,7 @@ export default function SlidesTemplate() {
               id: "slides",
               className: "w-[30%]",
               emphasized: true,
-              header: (
-                <span className="font-semibold">
-                  Agent-Native{" "}
-                  <span style={{ color: template.color }}>{template.name}</span>
-                </span>
-              ),
+              agentNative: { color: template.color, name: template.name },
             },
           ]}
           rows={[

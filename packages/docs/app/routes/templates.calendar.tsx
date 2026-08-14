@@ -355,11 +355,7 @@ export default function CalendarTemplate() {
             {
               id: "agent-native",
               emphasized: true,
-              header: (
-                <span style={{ color: template.color }}>
-                  Agent-Native Calendar
-                </span>
-              ),
+              agentNative: { color: template.color, name: template.name },
             },
           ]}
           rows={[
