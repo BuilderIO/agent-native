@@ -29,7 +29,7 @@ export function normalizeAvailabilitySlots(slots: TimeSlot[]): TimeSlot[] {
     end: number;
   }> = [];
   for (const entry of valid) {
-    const previous = normalized.at(-1);
+    const previous = normalized[normalized.length - 1];
     if (previous && entry.start <= previous.end) {
       const mergedEnd = Math.max(previous.end, entry.end);
       previous.slot = {

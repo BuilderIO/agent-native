@@ -182,8 +182,16 @@ describe("durable BigQuery backfill worker", () => {
   });
 
   it("does not pause on active sessions when there are no waiters", async () => {
-    const db = { execute: vi.fn() };
     const tx = { execute: vi.fn().mockResolvedValue({ rows: [] }) };
+    const db: {
+      execute: ReturnType<typeof vi.fn>;
+      transaction: ReturnType<typeof vi.fn>;
+    } = {
+      execute: vi.fn(),
+      transaction: vi.fn(async (fn: (transaction: typeof tx) => unknown) =>
+        fn(tx),
+      ),
+    };
     db.execute
       .mockResolvedValueOnce({ rows: [job] })
       .mockResolvedValueOnce({
@@ -208,9 +216,6 @@ describe("durable BigQuery backfill worker", () => {
         ],
       })
       .mockResolvedValueOnce({ rows: [{ remaining: "1" }] });
-    db.transaction = vi.fn(async (fn: (transaction: typeof tx) => unknown) =>
-      fn(tx),
-    );
     mocks.getDbExec.mockReturnValue(db);
 
     await expect(runFirstPartyAnalyticsBigQueryBackfillOnce()).resolves.toEqual(
