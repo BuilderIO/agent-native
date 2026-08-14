@@ -97,6 +97,14 @@ describe("list-content-databases", () => {
             description: "",
           },
         ],
+        pagination: {
+          offset: 0,
+          limit: 6,
+          totalItems: 1,
+          returnedItems: 1,
+          hasMore: false,
+          nextOffset: null,
+        },
       });
     });
   });
@@ -127,6 +135,14 @@ describe("list-content-databases", () => {
             description: "Collects requests for editorial design review",
           },
         ],
+        pagination: {
+          offset: 0,
+          limit: 50,
+          totalItems: 1,
+          returnedItems: 1,
+          hasMore: false,
+          nextOffset: null,
+        },
       });
     });
   });
@@ -157,6 +173,14 @@ describe("list-content-databases", () => {
             description: "Captures product feedback",
           },
         ],
+        pagination: {
+          offset: 0,
+          limit: 50,
+          totalItems: 1,
+          returnedItems: 1,
+          hasMore: false,
+          nextOffset: null,
+        },
       };
       await expect(
         listContentDatabasesAction.run({ databaseId: "db-exact" }),
@@ -205,7 +229,9 @@ describe("list-content-databases", () => {
       ).rejects.toThrow(/No accessible Content database matched/);
       await expect(
         listContentDatabasesAction.run({ title: "Shared Intake", limit: 1 }),
-      ).rejects.toThrow(/ambiguous across 2 accessible Content databases/);
+      ).rejects.toThrow(
+        /ambiguous across multiple accessible Content databases/,
+      );
       await expect(
         listContentDatabasesAction.run({ title: "   " }),
       ).rejects.toThrow();
@@ -241,8 +267,76 @@ describe("list-content-databases", () => {
     }
 
     await runWithRequestContext({ userEmail: OWNER }, async () => {
-      const result = await listContentDatabasesAction.run({});
+      const result = await listContentDatabasesAction.run({
+        query: "Default Bound",
+      });
       expect(result.databases).toHaveLength(50);
+      expect(result.pagination).toMatchObject({
+        offset: 0,
+        limit: 50,
+        returnedItems: 50,
+        hasMore: true,
+        nextOffset: 50,
+      });
+
+      const continuation = await listContentDatabasesAction.run({
+        query: "Default Bound",
+        offset: 50,
+      });
+      expect(continuation.databases).toHaveLength(1);
+      expect(continuation.pagination).toMatchObject({
+        offset: 50,
+        limit: 50,
+        returnedItems: 1,
+        hasMore: false,
+        nextOffset: null,
+      });
+    });
+  });
+
+  it("fills a bounded page after applying source-chain exclusions", async () => {
+    await createDatabaseDocument({
+      documentId: "db-doc-fill-root",
+      databaseId: "db-fill-root",
+      title: "Fill Page Root",
+    });
+    await createDatabaseDocument({
+      documentId: "db-doc-fill-a-child",
+      databaseId: "db-fill-a-child",
+      title: "Fill Page Child",
+    });
+    await createDatabaseDocument({
+      documentId: "db-doc-fill-b-other",
+      databaseId: "db-fill-b-other",
+      title: "Fill Page Other",
+    });
+    const now = new Date().toISOString();
+    await getDb().insert(schema.contentDatabaseSources).values({
+      id: "src-fill-child-root",
+      ownerEmail: OWNER,
+      databaseId: "db-fill-a-child",
+      sourceType: "local-table",
+      sourceName: "Root",
+      sourceTable: "db-fill-root",
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await runWithRequestContext({ userEmail: OWNER }, async () => {
+      const result = await listContentDatabasesAction.run({
+        excludeDatabaseIds: ["db-fill-root"],
+        query: "Fill Page",
+        limit: 1,
+      });
+
+      expect(result).toMatchObject({
+        databases: [{ databaseId: "db-fill-b-other" }],
+        pagination: {
+          totalItems: 1,
+          returnedItems: 1,
+          hasMore: false,
+        },
+      });
     });
   });
 

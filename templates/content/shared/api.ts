@@ -1090,6 +1090,7 @@ export interface ContentDatabaseDescriptionResponse {
 
 export interface ListContentDatabasesResponse {
   databases: ContentDatabaseSummary[];
+  pagination: DocumentDiscoveryPagination;
 }
 
 export interface TrashedContentDatabaseSummary {
