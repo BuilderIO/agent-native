@@ -29,6 +29,7 @@ export interface ShareButtonSharesResponse {
   orgId: string | null;
   visibility: ShareButtonVisibility | null;
   role?: "owner" | ShareButtonRole;
+  agentReadable?: boolean;
   shares: ShareButtonShare[];
   policy?: {
     allowPublic: boolean;

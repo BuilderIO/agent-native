@@ -652,6 +652,19 @@ function ComposerModeChip({
 
 type ExecMode = "build" | "plan";
 
+export interface ComposerAgentOption {
+  /** Stable host-defined identifier for the agent runtime. */
+  id: string;
+  /** Human-readable runtime name shown in the picker. */
+  label: string;
+  /** Optional short detail shown below the runtime name. */
+  description?: string;
+  /** Whether this runtime can be selected right now. */
+  configured?: boolean;
+  /** Optional status text such as "Installed" or "Sign in". */
+  statusLabel?: string;
+}
+
 export interface TiptapComposerProps {
   placeholder?: string;
   disabled?: boolean;
@@ -744,6 +757,12 @@ export interface TiptapComposerProps {
   onModelChange?: (model: string, engine: string) => void;
   /** Callback when user picks an effort */
   onEffortChange?: (effort: ReasoningEffort) => void;
+  /** Local or hosted agent runtimes shown above the model list. */
+  availableAgents?: ComposerAgentOption[];
+  /** Selected agent runtime identifier. Defaults to the built-in agent. */
+  selectedAgent?: string;
+  /** Callback when the user picks an agent runtime. */
+  onAgentChange?: (agent: string) => void;
   /**
    * Disable Builder/provider status polling for hosts that supply provider
    * state through another channel, such as Electron IPC.
@@ -1225,10 +1244,13 @@ function ModelSelector({
   model,
   effort,
   engines,
+  agents,
+  selectedAgent,
   showAutoModelOption = true,
   modelListLoading = false,
   onChange,
   onEffortChange,
+  onAgentChange,
   providerConnectStatusEnabled = true,
   onConnectProvider,
   onConnectLocalRuntime,
@@ -1236,6 +1258,8 @@ function ModelSelector({
 }: {
   model: string;
   effort?: ReasoningEffort;
+  agents?: ComposerAgentOption[];
+  selectedAgent?: string;
   engines: Array<{
     engine: string;
     label: string;
@@ -1248,6 +1272,7 @@ function ModelSelector({
   modelListLoading?: boolean;
   onChange: (model: string, engine: string) => void;
   onEffortChange?: (effort: ReasoningEffort) => void;
+  onAgentChange?: (agent: string) => void;
   providerConnectStatusEnabled?: boolean;
   onConnectProvider?: () => void;
   onConnectLocalRuntime?: (engine: string) => void;
@@ -1286,6 +1311,10 @@ function ModelSelector({
       ),
     [reasoning?.label, t],
   );
+  const selectedAgentOption = agents?.find(
+    (agent) => agent.id === (selectedAgent ?? "default"),
+  );
+  const selectedAgentLabel = selectedAgentOption?.label ?? "Default";
 
   // Collapse non-selected families by default. The family containing the
   // currently-selected model stays expanded so the user sees their pick at
@@ -1391,11 +1420,17 @@ function ModelSelector({
                   defaultValue: "Reasoning",
                 })}: ${effortLabel(selectedEffort)}`
               : ""
+          }${
+            selectedAgentOption && selectedAgentOption.id !== "default"
+              ? `. Agent: ${selectedAgentLabel}`
+              : ""
           }`}
           className="agent-composer-model-button flex min-w-0 max-w-[10.5rem] shrink items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground"
         >
           <span className="min-w-0 truncate">
-            {compactComposerModelName(model, t)}
+            {selectedAgentOption && selectedAgentOption.id !== "default"
+              ? selectedAgentLabel
+              : compactComposerModelName(model, t)}
           </span>
           {effortOptions.length > 0 && (
             <span className="agent-composer-model-effort min-w-0 shrink truncate text-muted-foreground/70">
@@ -1414,6 +1449,71 @@ function ModelSelector({
         className="z-[260] box-border w-72 overflow-y-auto rounded-lg border-border p-0 py-1 shadow-lg"
         style={MODEL_SELECTOR_POPOVER_STYLE}
       >
+        {agents && agents.length > 0 && (
+          <>
+            <div className="px-3 pb-1 pt-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              Agents
+            </div>
+            {agents.map((agent) => {
+              const isSelected = agent.id === (selectedAgent ?? "default");
+              const isConfigured = agent.configured !== false;
+              const canConnect =
+                !isConfigured && Boolean(onConnectLocalRuntime);
+              const statusLabel =
+                agent.statusLabel ??
+                (!isConfigured ? "Unavailable" : undefined);
+              return (
+                <div
+                  key={agent.id}
+                  className="flex items-center hover:bg-accent/30"
+                >
+                  <button
+                    type="button"
+                    disabled={!isConfigured || !onAgentChange}
+                    aria-current={isSelected ? "true" : undefined}
+                    onClick={() => {
+                      if (!isConfigured) return;
+                      onAgentChange?.(agent.id);
+                      setOpen(false);
+                    }}
+                    className={`flex min-w-0 flex-1 items-center gap-3 px-3 py-1.5 text-start ${
+                      isConfigured
+                        ? "hover:bg-accent/50"
+                        : "cursor-default opacity-50"
+                    }`}
+                  >
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[13px] text-foreground">
+                        {agent.label}
+                      </span>
+                      {agent.description && (
+                        <span className="block truncate text-[11px] text-muted-foreground">
+                          {agent.description}
+                        </span>
+                      )}
+                    </span>
+                    {isSelected && isConfigured && (
+                      <IconCheck className="h-3.5 w-3.5 shrink-0 text-primary" />
+                    )}
+                  </button>
+                  {!isConfigured && statusLabel && (
+                    <button
+                      type="button"
+                      disabled={!canConnect}
+                      className="ms-auto max-w-[6rem] shrink-0 truncate px-3 py-1.5 text-end text-[10px] text-muted-foreground/70 hover:text-foreground disabled:cursor-default"
+                      onClick={() => {
+                        if (canConnect) connectLocalRuntime(agent.id);
+                      }}
+                    >
+                      {statusLabel}
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+            <div className="my-1 border-t border-border" />
+          </>
+        )}
         {showBuilderCta && (
           <>
             <button
@@ -1771,6 +1871,9 @@ export function TiptapComposer({
   modelListLoading,
   onModelChange,
   onEffortChange,
+  availableAgents,
+  selectedAgent,
+  onAgentChange,
   providerConnectStatusEnabled,
   onConnectProvider,
   onConnectLocalRuntime,
@@ -3276,10 +3379,13 @@ export function TiptapComposer({
             model={selectedModel}
             effort={selectedEffort}
             engines={availableModels}
+            agents={availableAgents}
+            selectedAgent={selectedAgent}
             showAutoModelOption={showAutoModelOption}
             modelListLoading={modelListLoading}
             onChange={onModelChange}
             onEffortChange={onEffortChange}
+            onAgentChange={onAgentChange}
             providerConnectStatusEnabled={providerConnectStatusEnabled}
             onConnectProvider={onConnectProvider}
             onConnectLocalRuntime={onConnectLocalRuntime}

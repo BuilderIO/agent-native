@@ -222,6 +222,7 @@ vi.mock("./AssistantChat.js", async () => {
         selectedEngine?: string;
         selectedEffort?: string;
         availableModels?: Array<{ engine: string; configured: boolean }>;
+        contextNamespace?: string;
       };
       React.useImperativeHandle(ref, () => ({
         sendMessage: chatHandleMocks.sendMessage,
@@ -244,6 +245,7 @@ vi.mock("./AssistantChat.js", async () => {
           data-model-catalog={props.availableModels
             ?.map((group) => `${group.engine}:${group.configured}`)
             .join(",")}
+          data-context-namespace={props.contextNamespace}
         >
           {props.emptyStateAddon}
           {props.composerSlot}
@@ -950,6 +952,36 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       }),
     ]);
     expect(composerChildren).toEqual([hostSlot]);
+  });
+
+  it("passes an app context namespace to the active composer", async () => {
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          scope={{
+            type: "desktop-app",
+            id: "calendar",
+            label: "Calendar",
+            contextKey: "desktop-app:calendar",
+          }}
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      container
+        .querySelector("[data-testid='assistant-chat']")
+        ?.getAttribute("data-context-namespace"),
+    ).toBe("desktop-app:calendar");
+    expect(listAgentChatContext()).toEqual([
+      expect.objectContaining({
+        key: "desktop-app:calendar",
+        contextNamespace: "desktop-app:calendar",
+      }),
+    ]);
   });
 
   it("keeps resource context in the composer when the legacy badge flag is false", async () => {

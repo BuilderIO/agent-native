@@ -543,17 +543,20 @@ h4 {
    Usage in MDX: <Cards> ### [Title](/link)\n\nDescription </Cards> */
 .docs-cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  grid-template-columns: repeat(var(--cards-cols, 3), 1fr);
   gap: 12px;
   list-style: none;
   margin: 24px 0;
   padding: 0;
 }
 
+@media (max-width: 640px) {
+  .docs-cards {
+    grid-template-columns: 1fr;
+  }
+}
+
 .docs-card {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
   padding: 16px;
   border: 1px solid var(--docs-border);
   border-radius: 8px;
@@ -569,6 +572,43 @@ h4 {
   border-color: var(--docs-accent);
 }
 
+/* Two-row grid so an icon centers on the title row specifically, not on the
+   title+body block as a whole — a flex row with align-items:center would
+   instead center the icon against the full (often multi-line) body height. */
+.docs-card-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  row-gap: 6px;
+}
+
+.docs-card-grid--icon {
+  grid-template-columns: auto 1fr;
+  column-gap: 12px;
+}
+
+.docs-card-grid--icon .docs-card-icon {
+  grid-column: 1;
+  grid-row: 1;
+  align-self: center;
+}
+
+.docs-card-grid--icon .docs-card-title {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.docs-card-grid--icon .docs-card-body {
+  grid-column: 2;
+  grid-row: 2;
+}
+
+.docs-card-icon {
+  width: 22px;
+  height: 22px;
+  color: var(--docs-accent);
+  flex-shrink: 0;
+}
+
 .docs-card-title {
   font-size: 14px;
   font-weight: 600;
@@ -578,11 +618,6 @@ h4 {
 }
 
 .docs-card-link {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 6px;
   padding: 16px;
   color: var(--fg);
   text-decoration: none;

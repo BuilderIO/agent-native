@@ -29,6 +29,16 @@ describe("recording share popover", () => {
     expect(shareDialogSource).toContain("agentDetailsOpen");
   });
 
+  it("keeps individual access in the primary share surface", () => {
+    const shareDialogSource = readSource("./share-dialog.tsx");
+
+    expect(shareDialogSource).toContain("<SharePeopleTab");
+    expect(shareDialogSource).toContain(
+      "const tabCount = 1 + (canEmbed ? 1 : 0);",
+    );
+    expect(shareDialogSource).not.toContain('value="invite"');
+  });
+
   it("uses the public JSON context URL for public agent sharing", () => {
     const shareDialogSource = readSource("./share-dialog.tsx");
 

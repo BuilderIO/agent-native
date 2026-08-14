@@ -1,0 +1,152 @@
+---
+title: "高级与旧版"
+description: "针对仍在逐步放量的 action 的 feature flag 门控,以及保留给一次性开发脚本使用的旧版纯 CLI action 风格(export default async function(args) 加上 parseArgs)。"
+---
+
+# 高级与旧版
+
+## 为分阶段放量的功能加门 {#feature-flags}
+
+Feature flag 只针对一种特定情形:一个 action 已经可以安全部署,但你想先为少数几个账户打开它。要做到这一点需要三个必需步骤,再加上一个面向 UI 的可选步骤。
+
+<Steps>
+
+### 声明这个 flag
+
+在服务端和客户端都能导入的一个模块里声明这个 flag,因为同一个 flag 键值需要同时到达两端:
+
+```ts
+// shared/feature-flags.ts
+import { defineFeatureFlag } from "@agent-native/core/feature-flags";
+
+export const FULL_APP_BUILDING = defineFeatureFlag({
+  key: "full-app-building",
+  displayName: "Full app building",
+  description: "Create and edit Fusion-backed applications.",
+});
+```
+
+`key` 是其他所有代码都会引用的唯一字段,所以它需要保持稳定。`displayName` 和 `description` 只会在之后,在操作员真正打开这个 flag 的运维界面中出现。在这里声明这个 flag,并不会启用任何东西,每个 flag 一开始对每个账户都是关闭的。
+
+### 在启动时注册它
+
+用一个 Nitro 插件注册这个 flag,好让正在运行的服务器知道它的存在:
+
+```ts
+// server/plugins/feature-flags.ts
+import { createFeatureFlagsPlugin } from "@agent-native/core/server";
+
+import { FULL_APP_BUILDING } from "../../shared/feature-flags.js";
+
+export default createFeatureFlagsPlugin({ flags: [FULL_APP_BUILDING] });
+```
+
+一个未注册的 flag 永远会被求值为 `false`,无论操作员之后设置了什么。这一步才是让这个 flag 对服务器来说真正存在的关键,但它依然不会为任何人打开这个 flag。那要通过本节末尾描述的运维 action 来完成。
+
+### 给这个 action 加上守卫
+
+这才是真正起作用的检查,因为每一个调用者,无论是代理、前端还是脚本,都必须经过它:
+
+```ts
+// actions/create-fusion-app.ts
+import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
+
+run: async (args, ctx) => {
+  if (!(await isFeatureFlagEnabled(FULL_APP_BUILDING, ctx))) {
+    throw new Error("Full app building is not enabled for this account.");
+  }
+  // Perform the guarded operation.
+};
+```
+
+`isFeatureFlagEnabled()` 从 `ctx` 中读取调用者的身份(见 [ctx 参数](/docs/actions-run-context#ctx)),并针对那个具体的用户和组织求值这个 flag。如果这个 flag 对他们没有打开,该 action 会在做任何其他事情之前抛出异常。这个检查必须放在 `run()` 内部,因为 `run()` 是唯一能保证每条调用路径都会经过的地方。
+
+### 在 UI 中隐藏它(可选)
+
+在客户端上使用同一个 flag,把这个功能对那些反正也调用不了它的人隐藏起来:
+
+```tsx
+// app/routes/fusion.tsx
+import { Button } from "@/components/ui/button";
+import { useFeatureFlag } from "@agent-native/core/client";
+
+import { FULL_APP_BUILDING } from "../../shared/feature-flags.js";
+
+export function CreateFusionAppButton() {
+  const enabled = useFeatureFlag(FULL_APP_BUILDING.key);
+  if (!enabled) return null;
+  return <Button onClick={createFusionApp}>Create Fusion app</Button>;
+}
+```
+
+`useFeatureFlag()` 返回一个普通的布尔值,针对已登录用户求值的方式,和服务端检查完全一样。当它是 `false` 时隐藏这个按钮,可以防止有人点进一个他们还不能使用的功能,但这只是表现层面的处理。它不会阻止对该 action 的直接调用,这正是为什么上一步 `run()` 中的检查依然必须存在,无论 UI 显示了什么。
+
+</Steps>
+
+一旦一个 flag 被声明并注册,真正为实际账户打开它,要经过三个已挂载的 action。`get-feature-flags` 是 `useFeatureFlag()` 自己会调用的那一个:它对任何已登录的调用者开放,因为每个用户都需要检查自己的 flag。`list-feature-flags` 和 `set-feature-flag` 是两个管理类 action,两者都只限组织的所有者和管理员(或无组织时的管理员)使用,并且都会被审计。
+
+`set-feature-flag` 就是操作员真正用来改变这个 flag 对谁生效的方式:
+
+| 操作                                           | 它做什么                             | 参数示例                                                                                                        |
+| ---------------------------------------------- | ------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| `enable-for-current-user`                      | 只为你自己的账户打开这个 flag。      | `{ key: "full-app-building", operation: "enable-for-current-user" }`                                            |
+| `off`                                          | 为所有人关闭这个 flag,重置所有规则。 | `{ key: "full-app-building", operation: "off" }`                                                                |
+| `replace-rules`,模式 `"on"`                    | 为所有人打开这个 flag。              | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "on" } }`                               |
+| `replace-rules`,模式 `"rules"` 加 `emails`     | 为一份具体的账户列表打开它。         | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", emails: ["a@example.com"] } }` |
+| `replace-rules`,模式 `"rules"` 加 `orgIds`     | 为特定的组织打开它。                 | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", orgIds: ["org_123"] } }`       |
+| `replace-rules`,模式 `"rules"` 加 `percentage` | 按百分比放量打开它。                 | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", percentage: 10 } }`            |
+
+Fleet 操作员 UI 是通过范围受限的 A2A 委托来调用这些同样的 action,而不是共享登录,Analytics 是它们唯一的操作员 UI。应用不应该自己搭建 flag 设置面板,flag 的写入也永远不应该经过通用的设置端点或原始 SQL。
+
+<Callout id="doc-block-actions-advanced-1" tone="warning">
+
+永远不要把身份验证、授权、审计、密钥或 SSR 缓存行为放在一个运行时 flag 之后。这些东西需要无条件地保持正确,而不是可以被开关切换的。
+
+</Callout>
+
+## 旧版 CLI 风格的 actions {#legacy-cli-actions}
+
+框架仍然支持没有包在 `defineAction()` 里的、更老的 `export default async function(args)` 风格 action。这对那些不需要代理或 HTTP 暴露的一次性开发脚本很有用。它们只支持 CLI:不会作为代理工具出现,不会挂载 HTTP 端点,也不会拿到有类型的前端钩子。
+
+```ts
+// actions/debug-dump.ts (CLI-only)
+import { parseArgs } from "@agent-native/core";
+
+export default async function main(args: string[]) {
+  const { table } = parseArgs(args);
+  // one-off script you wouldn't want the agent to call
+}
+```
+
+新代码应该优先选用 `defineAction()`。只有在你确实不想让这个 action 暴露给代理或 UI 时,才使用这种风格。
+
+### `parseArgs(args)` {#parseargs}
+
+用于旧版风格 action 的辅助函数。以 `--key value` 或 `--key=value` 的格式解析 CLI 参数:
+
+```ts
+import { parseArgs } from "@agent-native/core";
+
+const args = parseArgs(["--name", "Steve", "--verbose", "--count=3"]);
+// { name: "Steve", verbose: "true", count: "3" }
+```
+
+## 工具函数 {#utility-functions}
+
+这些是编写脚本用的小型辅助函数,来自和上面 `parseArgs()` 相同的 `@agent-native/core` 导入。它们并不专门绑定于旧版 CLI 风格 action。在任何一次性开发脚本中都可以用到它们:加载环境变量、校验一个路径参数,或者用一个明确的错误信息中止执行。
+
+| 函数                    | 返回值                   | 说明                                                                                                                               |
+| ----------------------- | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `loadEnv(path?)`        | `void`                   | 从项目根目录或自定义路径加载 `.env`(和 `.env.local`)。在企业工作区中会回退到工作区根目录的 `.env`。                                |
+| `camelCaseArgs(args)`   | `Record<string, string>` | 把 kebab-case 键名转换为 camelCase。                                                                                               |
+| `isValidPath(p)`        | `boolean`                | 校验一个相对路径(不允许目录穿越,不允许绝对路径)。                                                                                  |
+| `isValidProjectPath(p)` | `boolean`                | 校验一个项目 slug(例如 `my-project` 或 `group/my-project`)。                                                                       |
+| `ensureDir(dir)`        | `void`                   | `mkdir -p` 辅助函数。                                                                                                              |
+| `fail(message)`         | `never`                  | 抛出一个错误来中止一个脚本。CLI 运行器会捕获它并以退出码 1 结束。服务端内部的调用者(代理工具、A2A)会把它当作一次工具调用错误收到。 |
+
+## 下一步
+
+- [**定义 Actions**](/docs/actions-defining) — 这种旧版风格所预示的更早期的 `defineAction()` 模式
+- [**概览**](/docs/actions-overview) — action 是什么,以及 hello-world 演练
+- [**其他界面**](/docs/actions-other-surfaces) — 这些工具函数和旧版 action 所支持的 CLI 运行器
+- [**Feature Flags**](/docs/feature-flags) — 超越单个 action 门控的完整 flag 生命周期

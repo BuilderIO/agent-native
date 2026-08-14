@@ -258,12 +258,37 @@ const messages = {
     privateClip: "مقطع خاص",
     privateClipMessage: "هذا المقطع خاص. اطلب الوصول وسيتم إخطار المالك.",
     privateClipSignedOutMessage:
-      "هذا المقطع خاص. سجّل الدخول لطلب الوصول من المالك.",
+      "هذا المقطع خاص. سجّل الدخول أو أدخل بريدك الإلكتروني لطلب الوصول.",
     requestAccess: "طلب الوصول",
+    requestAccessDialogTitle: "طلب الوصول",
+    requestAccessDialogDescription:
+      "اختر الطريقة التي سيتعرّف بها المالك عليك عند مشاركة هذا المقطع.",
+    requestAccessSignIn: "تسجيل الدخول أو إنشاء حساب",
+    requestAccessOr: "أو",
+    requestAccessEmailLabel: "عنوان البريد الإلكتروني",
+    requestAccessEmailPlaceholder: "you@example.com",
+    requestAccessEmailHint:
+      "بعد منح الوصول، سجّل الدخول بهذا البريد الإلكتروني لمشاهدة المقطع.",
+    requestAccessWithEmail: "طلب الوصول بالبريد الإلكتروني",
+    requestAccessEmailRequired: "أدخل عنوان بريد إلكتروني صالحًا.",
     requestingAccess: "جارٍ طلب الوصول...",
     accessRequested: "تم طلب الوصول",
     accessRequestSent: "تم إخطار مالك المقطع.",
+    accessRequestSentWithEmail: "طُلب من مالك المقطع مشاركته مع {{email}}.",
     accessRequestFailed: "تعذّر طلب الوصول. حاول مرة أخرى.",
+    accessApprovalTitle: "تم منح الوصول",
+    accessApprovalAlreadyTitle: "تم منح الوصول بالفعل",
+    accessApprovalMessage: "يمكن لـ {{email}} مشاهدة هذا المقطع الآن.",
+    accessApprovalAlreadyMessage:
+      "لدى {{email}} صلاحية الوصول إلى هذا المقطع بالفعل.",
+    accessApprovalErrorTitle: "تعذّر منح الوصول",
+    accessApprovalInvalid: "طلب الوصول هذا غير صالح أو منتهي الصلاحية.",
+    accessApprovalSignInTitle: "سجّل الدخول للسماح بالوصول",
+    accessApprovalSignInMessage:
+      "سجّل الدخول بصفتك مالك المقطع أو مسؤولاً للموافقة على هذا الطلب.",
+    accessApprovalOpenClip: "فتح المقطع",
+    accessApprovalSignIn: "تسجيل الدخول",
+    accessApprovalLoading: "جارٍ منح الوصول...",
     clipUnavailable: "المقطع غير متاح",
     clipUnavailableMessage:
       "هذا التسجيل ليس عامًا، أو أن الرابط غير صالح. إذا كان هذا هو المقطع الخاص بك، فقم بتسجيل الدخول للتحقق من الوصول.",

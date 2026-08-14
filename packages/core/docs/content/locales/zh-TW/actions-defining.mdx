@@ -1,0 +1,270 @@
+---
+title: "定義 Actions"
+description: "defineAction() 的結構：架構、run，以及 HTTP 設定，還有如何讓 action 介面保持精簡。"
+---
+
+# 定義 Actions
+
+每個 action 都從呼叫 `defineAction()` 開始。它把給代理看的描述、驗證輸入的架構，以及執行實際工作的 `run` 函式綁在一起，因此 UI 和代理呼叫的是完全相同的程式碼。
+
+<AnnotatedCode
+  id="doc-block-actions-defining-1"
+  title="Action 的結構"
+  filename="actions/reply-to-email.ts"
+  language="ts"
+  code={
+    'import { defineAction } from "@agent-native/core/action";\nimport { z } from "zod";\n\nimport { getDb, schema } from "../server/db/index.js";\n\nexport default defineAction({\n  description: "Reply to an email thread in the user\'s voice.",\n  schema: z.object({\n    emailId: z.string().describe("The id of the email to reply to."),\n    body: z.string().describe("The reply body, in markdown."),\n  }),\n  run: async ({ emailId, body }) => {\n    const db = getDb();\n    await db.insert(schema.replies).values({ emailId, body });\n    return { ok: true, emailId };\n  },\n});'
+  }
+  annotations={[
+    {
+      lines: "7",
+      label: "工具介面",
+      note: "`description` 是代理用來判斷何時呼叫它的依據。每個欄位的 `.describe()` 呼叫也會納入 JSON Schema 中。",
+    },
+    {
+      lines: "8-11",
+      label: "具型別的契約",
+      note: "一個架構會驗證**每一種**介面傳入的輸入，並轉換成給模型使用的 JSON Schema。無效的輸入永遠不會傳到 `run`。",
+    },
+    {
+      lines: "12-16",
+      label: "單一實作",
+      note: "`run` 主體是唯一的真實來源。UI 按鈕和代理工具執行的都完全是這段程式碼。`getDb()` 和 `schema` 來自您應用程式的 `server/db/index.ts`。請參閱 [資料庫](/docs/database)。",
+    },
+  ]}
+/>
+
+框架會自動探索 `actions/` 中的每個檔案，並在啟動時掛載它們。不需要再手動註冊任何東西。
+
+<Signature
+  id="doc-block-actions-defining-2"
+  name="defineAction"
+  params={[
+    {
+      name: "config",
+      type: "DefineActionConfig<TSchema, TReturn, TOutputSchema>",
+      description:
+        "以下所有內容都是一個設定物件。只有 description、schema 和 run 是必要的。",
+      fields: [
+        {
+          name: "description",
+          type: "string",
+          description: "代理用來判斷何時呼叫此 action 的依據。",
+        },
+        {
+          name: "schema",
+          type: "StandardSchemaV1",
+          description: "驗證每一種介面的輸入。請參閱下方的架構選項。",
+        },
+        {
+          name: "run",
+          type: "(args, ctx?) => Promise<TReturn> | TReturn",
+          description: "每一種介面都會呼叫的單一實作。ctx 引數請參閱執行情境。",
+        },
+        {
+          name: "http",
+          type: "ActionHttpConfig | false",
+          optional: true,
+          description:
+            "覆蓋掛載的方法／路徑，或完全停用 HTTP 端點。請參閱下方的 HTTP 設定。",
+        },
+        {
+          name: "readOnly",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description:
+            "當 http.method 為 GET 時會自動為 true。會跳過 UI 輪詢重新整理與寫入稽核。這不是存取控制。",
+        },
+        {
+          name: "outputSchema",
+          type: "StandardSchemaV1",
+          optional: true,
+          description: "驗證 run() 的回傳值。請參閱下方的驗證回傳值。",
+        },
+        {
+          name: "outputErrorStrategy",
+          type: '"warn" | "strict" | "fallback"',
+          optional: true,
+          default: '"warn"',
+          description: "當輸出不符時該怎麼處理。",
+        },
+        {
+          name: "outputFallback",
+          type: "TReturn",
+          optional: true,
+          description:
+            '當 outputErrorStrategy 為 "fallback" 時，用來取代無效結果回傳的值。',
+        },
+        {
+          name: "parallelSafe",
+          type: "boolean",
+          optional: true,
+          description:
+            "允許一個變更資料的 action 與同一回合中的其他工具呼叫同時執行。",
+        },
+        {
+          name: "agentTool",
+          type: "boolean",
+          optional: true,
+          default: "true",
+          description:
+            "設為 false 可從所有代理工具清單中隱藏。請參閱存取與授權。",
+        },
+        {
+          name: "toolCallable",
+          type: "boolean",
+          optional: true,
+          default: "true",
+          description:
+            "設為 false 可封鎖沙盒化擴充功能 iframe 橋接。請參閱存取與授權。",
+        },
+        {
+          name: "publicAgent",
+          type: "PublicAgentActionConfig",
+          optional: true,
+          description:
+            "{ expose: true } 會將此 action 加入公開的 MCP/A2A/OpenAPI 介面。請參閱存取與授權。",
+        },
+        {
+          name: "needsApproval",
+          type: "boolean | ((args, ctx?) => boolean | Promise<boolean>)",
+          optional: true,
+          default: "false",
+          description:
+            "在 run() 執行前暫停代理迴圈，等待人工核准。請參閱人工核准。",
+        },
+        {
+          name: "authorize",
+          type: "ActionAuthorize<TInput>",
+          optional: true,
+          description:
+            "決定此呼叫者是否可以執行此 action 的守衛函式。請參閱存取與授權。",
+        },
+        {
+          name: "audit",
+          type: "ActionAuditConfig",
+          optional: true,
+          description:
+            "調整每個變更資料的 action 已經自動取得的稽核擷取。請參閱稽核記錄。",
+        },
+        {
+          name: "chatUI",
+          type: "ActionChatUIConfig",
+          optional: true,
+          description:
+            "為此 action 的結果宣告一個原生聊天 UI 渲染器。請參閱其他介面。",
+        },
+      ],
+    },
+  ]}
+  returns={{
+    type: "ActionDefinition<TInput, TReturn>",
+    description: "具型別的 action 定義。將它作為檔案的預設匯出。",
+  }}
+/>
+
+## 架構選項 {#schemas}
+
+`schema` 接受任何相容於 [Standard Schema](https://standardschema.dev) 的函式庫：
+
+- **Zod**（v4）：最常見的選擇，具有最佳的型別推斷，並能自動轉換成 JSON Schema。
+- **Valibot**：當套件大小很重要時的好選擇。
+- **ArkType**：如果您偏好它的語法，這是個好選擇。
+
+架構做兩件事：它會轉換成 JSON Schema 供 Claude API 的工具定義使用，也會在 `run()` 觸發前於執行期驗證輸入。無效的輸入永遠不會傳到您的處理常式。
+
+## 驗證回傳值 {#output-schema}
+
+`schema` 驗證的是*輸入*。若也想驗證一個 action **回傳**的內容，可以傳入 `outputSchema`（任何相容於 Standard Schema 的架構：Zod、Valibot、ArkType，與 `schema` 使用相同的介面）。框架會在 `run()` 執行前驗證輸入，並在 `run()` 完成後驗證結果。
+
+```ts
+export default defineAction({
+  description: "Summarize a thread.",
+  schema: z.object({ threadId: z.string() }),
+  outputSchema: z.object({
+    summary: z.string(),
+    messageCount: z.number(),
+  }),
+  outputErrorStrategy: "warn", // default
+  run: async ({ threadId }) => {
+    /* ...returns { summary, messageCount } ... */
+  },
+});
+```
+
+`outputErrorStrategy` 控制不符時該怎麼處理：
+
+| 策略         | 不符時的行為                                                                        |
+| ------------ | ----------------------------------------------------------------------------------- |
+| `"warn"`     | **預設值。** 用 `console.warn` 記錄問題，並原封不動回傳**原始**結果。不會造成中斷。 |
+| `"strict"`   | 拋出明確的錯誤，讓 action 中的錯誤容易被發現。                                      |
+| `"fallback"` | 回傳提供的 `outputFallback` 值，取代無效的結果。                                    |
+
+當 `run()` 成功時，框架會回傳經過驗證的值，因此 `outputSchema` 上的任何預設值或強制轉換都會生效，就像對輸入所做的一樣。若您沒有傳入 `outputSchema`，回傳值則維持不變。
+
+## HTTP 設定 {#http}
+
+預設情況下，每個 action 都會以 `POST /_agent-native/actions/<name>` 的形式曝露。可以用 `http` 選項覆蓋：
+
+```ts
+export default defineAction({
+  description: "Get details for a lead.",
+  schema: z.object({ leadId: z.string() }),
+  http: { method: "GET" },
+  run: async ({ leadId }) => {
+    return await db.select().from(leads).where(eq(leads.id, leadId));
+  },
+});
+```
+
+對於 `GET` action，`leadId` 會以查詢參數的形式傳入：`/_agent-native/actions/get-lead?leadId=abc`。
+
+<Endpoint id="doc-block-actions-defining-3" title="自動掛載的 action 端點" method="GET" path="/_agent-native/actions/get-lead" summary={"每個 action 都會自動掛載於此。檔案名稱就是 action 名稱。"} auth={"工作階段 cookie（前端呼叫會帶有 `X-Agent-Native-Frontend: 1`），或供外部呼叫者使用的 `Authorization: Bearer <token>`"} params={[
+  {
+    "name": "leadId",
+    "in": "query",
+    "type": "string",
+    "required": true,
+    "description": "GET 的參數會以查詢參數的形式傳入。POST 的參數則會出現在 JSON 主體中。"
+  }
+]} responses={[
+  {
+    "status": "200",
+    "description": "此 action 的回傳值，以 JSON 形式呈現。"
+  },
+  {
+    "status": "400",
+    "description": "輸入在 run() 觸發前未通過架構驗證。"
+  }
+]}>
+
+POST 是預設值，`http: { method: "GET" }` 會將它變成 GET。React 掛鉤和 `callAction()` 一律會依名稱呼叫這個路徑，無論是否有任何 `http.path` 的覆蓋設定。外部系統可以用長效的 bearer token 呼叫同一個路由。請參閱 [HTTP API](/docs/http-api)。
+
+</Endpoint>
+
+- **`http: { method: "GET" | "POST" | "PUT" | "DELETE" }`**：預設為 `POST`。`GET` action 會自動標記為 `readOnly`，因此成功呼叫不會觸發 UI 輪詢重新整理。
+- **`http: { path: "..." }`**：覆蓋掛載於 `/_agent-native/actions/` 下的 URL，預設為檔案名稱。此覆蓋只會改變直接 HTTP 呼叫者所使用的 URL。`useActionQuery()`、`useActionMutation()` 和 `callAction()` 一律會呼叫 `/_agent-native/actions/<name>`，不受此覆蓋影響，因此覆蓋路徑會讓這些掛鉤發生 404。只有在給外部 HTTP 呼叫者使用時才覆蓋路徑。另請注意，覆蓋路徑中的 `:param` 路由片段不會被解析成 `run()` 的參數，只有查詢字串參數和 JSON 主體欄位才會。
+- **`http: false`**：完全停用 HTTP 端點。只有代理和 CLI 能呼叫此 action。
+- **`readOnly: true`**：明確跳過輪詢重新整理，即使是不會變更任何資料的 POST action 也一樣。這不是存取控制，它不會限制誰可以呼叫此 action，也不會影響 `useActionQuery()`、`useActionMutation()` 或任何用戶端掛鉤。它唯一的作用是抑制呼叫後的重新整理事件，並讓此 action 退出寫入稽核。若要對模型隱藏一個 action，請使用 `agentTool: false`。若要限制誰可以呼叫它，請使用[存取與授權](/docs/actions-access-control)中的驗證與存取選項。
+- **`parallelSafe: true`**：允許一個變更資料的 action 與同一回合中的其他工具呼叫同時執行。只有在此 action 可以安全地並行執行、且不依賴順序時才設定此項。變更資料的 action 預設會依序執行。
+
+## 讓 action 介面保持精簡 {#small-surface}
+
+代理能看到的每個 action 都會佔用模型工具清單中的一個位置，而冗長、重疊的清單會讓模型更難挑選正確的工具。請把 action 介面設計成一套您自己維護的 API，而不是 UI 中每個按鈕都對應一個 action：
+
+- 優先使用**一個 CRUD 風格的 `update` action**，接受一組可選欄位的修補內容，而不是像 `update-name`、`update-order`、`update-color` 這樣許多按欄位分開的 action。呼叫者只需要傳送有變更的欄位。
+- 在為每個查詢或篩選條件新增一個讀取 action 之前，請先考慮更通用的選項：供應商資料可用[供應商 API 三件組](/docs/template-dispatch-vault-integrations#provider-api)（`provider-api-catalog`、`provider-api-docs` 與 `provider-api-request`），應用程式資料則可用開發用的 `db-query` 工具。
+- 將僅供 UI 使用或程式化用途的 action 標記為 [`agentTool: false`](/docs/actions-access-control#agent-tool)。它們仍可從前端或透過 HTTP 呼叫，但不會佔用模型工具清單中的位置。
+- 刪除或隱藏 UI 已不再使用的 action，而不是繼續讓它們曝露給模型。
+
+此儲存庫包含一個建議性的輔助工具 `node scripts/audit-template-actions.mjs [template ...]`（別名 `pnpm actions:audit`）。它會掃描一個範本的 `actions/` 資料夾，標出 UI 可能已不再使用的 action，以及可以合併成一個的按欄位分開的 action 群組。它一律以代碼 0 結束，永遠不會讓 CI 失敗，而且其判斷方式偏保守，因此請把它的輸出當作建議，而非錯誤。
+
+## 下一步是什麼
+
+- [**總覽**](/docs/actions-overview) — action 是什麼，以及 hello-world 示範
+- [**存取與授權**](/docs/actions-access-control) — `agentTool`、`toolCallable`、`authorize`，以及 `ctx` 範圍限定
+- [**執行情境**](/docs/actions-run-context) — 完整的 `ctx` 欄位表
+- [**其他介面**](/docs/actions-other-surfaces) — 原生聊天 UI、CLI、A2A、MCP，以及標準 actions
+- [**資料庫**](/docs/database) — `run()` 內使用的 `getDb()`/`schema`
+- [**資料與同步**](/docs/client-data) — 從 UI 呼叫此 action

@@ -270,13 +270,40 @@ const messages = {
     privateClipMessage:
       "Dieser Clip ist privat. Fordern Sie Zugriff an, und der Eigentümer wird benachrichtigt.",
     privateClipSignedOutMessage:
-      "Dieser Clip ist privat. Melden Sie sich an, um beim Eigentümer Zugriff anzufordern.",
+      "Dieser Clip ist privat. Melden Sie sich an oder geben Sie Ihre E-Mail-Adresse ein, um Zugriff anzufordern.",
     requestAccess: "Zugriff anfordern",
+    requestAccessDialogTitle: "Zugriff anfordern",
+    requestAccessDialogDescription:
+      "Wählen Sie, woran der Eigentümer Sie beim Teilen dieses Clips erkennen soll.",
+    requestAccessSignIn: "Anmelden oder registrieren",
+    requestAccessOr: "oder",
+    requestAccessEmailLabel: "E-Mail-Adresse",
+    requestAccessEmailPlaceholder: "you@example.com",
+    requestAccessEmailHint:
+      "Melden Sie sich nach der Freigabe mit dieser E-Mail-Adresse an, um den Clip anzusehen.",
+    requestAccessWithEmail: "Per E-Mail Zugriff anfordern",
+    requestAccessEmailRequired: "Geben Sie eine gültige E-Mail-Adresse ein.",
     requestingAccess: "Zugriff wird angefordert...",
     accessRequested: "Zugriff angefordert",
     accessRequestSent: "Der Eigentümer des Clips wurde benachrichtigt.",
+    accessRequestSentWithEmail:
+      "Der Eigentümer wurde gebeten, diesen Clip mit {{email}} zu teilen.",
     accessRequestFailed:
       "Zugriff konnte nicht angefordert werden. Versuchen Sie es erneut.",
+    accessApprovalTitle: "Zugriff gewährt",
+    accessApprovalAlreadyTitle: "Zugriff bereits gewährt",
+    accessApprovalMessage: "{{email}} kann diesen Clip jetzt ansehen.",
+    accessApprovalAlreadyMessage:
+      "{{email}} hat bereits Zugriff auf diesen Clip.",
+    accessApprovalErrorTitle: "Zugriff konnte nicht gewährt werden",
+    accessApprovalInvalid:
+      "Diese Zugriffsanfrage ist ungültig oder abgelaufen.",
+    accessApprovalSignInTitle: "Anmelden, um Zugriff zu gewähren",
+    accessApprovalSignInMessage:
+      "Melden Sie sich als Clip-Eigentümer oder Admin an, um diese Anfrage zu genehmigen.",
+    accessApprovalOpenClip: "Clip öffnen",
+    accessApprovalSignIn: "Anmelden",
+    accessApprovalLoading: "Zugriff wird gewährt...",
     clipUnavailable: "Clip nicht verfügbar",
     clipUnavailableMessage:
       "Diese Aufzeichnung ist nicht öffentlich oder der Link ist ungültig. Wenn es sich um Ihren Clip handelt, melden Sie sich an, um den Zugriff zu überprüfen.",

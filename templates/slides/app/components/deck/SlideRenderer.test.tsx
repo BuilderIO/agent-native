@@ -263,6 +263,50 @@ describe("SlideInner autofit", () => {
     });
   });
 
+  it("keeps design-system tokens on raw semantic slides", () => {
+    const slide: Slide = {
+      id: "semantic-raw",
+      layout: "blank",
+      notes: "",
+      content:
+        '<div class="fmd-slide fmd-slide--title"><h1>Styled title</h1></div>',
+    };
+
+    render(
+      <SlideInner
+        slide={slide}
+        designSystem={{
+          colors: {
+            primary: "#111111",
+            secondary: "#222222",
+            accent: "#ff00aa",
+            background: "#030303",
+            surface: "#121212",
+            text: "#f5f5f5",
+            textMuted: "#aaaaaa",
+          },
+          typography: {
+            headingFont: "Inter",
+            bodyFont: "Inter",
+            headingWeight: "700",
+            bodyWeight: "400",
+            headingSizes: { h1: "46px", h2: "30px", h3: "24px" },
+          },
+          spacing: { slidePadding: "80px", elementGap: "24px" },
+          borders: { radius: "12px", accentWidth: "1px" },
+          slideDefaults: { background: "#030303", labelStyle: "uppercase" },
+          logos: [],
+        }}
+      />,
+    );
+
+    const canvas = document.querySelector<HTMLElement>(
+      '[data-slide-canvas="semantic-raw"]',
+    );
+    expect(canvas?.style.getPropertyValue("--ds-text")).toBe("#f5f5f5");
+    expect(canvas?.querySelector(".fmd-slide--title")).toBeTruthy();
+  });
+
   it("reports vertical overflow for markdown slides too", async () => {
     const slide: Slide = {
       id: "markdown",

@@ -406,7 +406,7 @@ cache-control: public, max-age=600, stale-while-revalidate=604800, stale-if-erro
 
 - **캐싱을 끈다고 해서 SSR이 개인화되는 것은 아닙니다.** 쿠키는 여전히 렌더링 전에 제거되며 SSR 로더는 여전히 익명 분기를 봅니다. 사용자별 데이터는 여전히 클라이언트 측에서 해결해야 합니다. 이 변수는 캐시 *기간*만 제어합니다.
 - **이는 설계상 라우트별이 아니라 배포 전체 설정입니다.** 라우트별 또는 요청별 캐시 재정의는 한 방문자의 페이로드가 다른 방문자의 공유 CDN 항목에 섞여 들어가는 원인이 되므로, 프레임워크는 이를 제공하지 않습니다 — `guard:ssr-cache-shell`이 이를 강제합니다.
-- **뮤테이션 직후의 최신 데이터가 필요하면 캐시를 비활성화하는 대신 Actions를 사용하세요.** 앱 데이터는 [Actions](/docs/actions)에 속하며, 클라이언트에서는 `useActionQuery` / `useActionMutation`으로 읽고 `useDbSync()` 폴링으로 최신 상태를 유지합니다. 이 중 어느 것도 SSR 셸 캐시를 거치지 않습니다. SSR 로더는 계속 공개 셸을 렌더링하게 두고, 이 변수는 정말로 로더 데이터를 더 신선하게 만들고 싶을 때만 사용하세요.
+- **뮤테이션 직후의 최신 데이터가 필요하면 캐시를 비활성화하는 대신 Actions를 사용하세요.** 앱 데이터는 [Actions](/docs/actions-overview)에 속하며, 클라이언트에서는 `useActionQuery` / `useActionMutation`으로 읽고 `useDbSync()` 폴링으로 최신 상태를 유지합니다. 이 중 어느 것도 SSR 셸 캐시를 거치지 않습니다. SSR 로더는 계속 공개 셸을 렌더링하게 두고, 이 변수는 정말로 로더 데이터를 더 신선하게 만들고 싶을 때만 사용하세요.
 
 ## 환경변수 {#environment-variables}
 

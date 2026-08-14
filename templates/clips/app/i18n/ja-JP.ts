@@ -266,13 +266,40 @@ const messages = {
     privateClipMessage:
       "このクリップは非公開です。アクセスをリクエストすると、所有者に通知されます。",
     privateClipSignedOutMessage:
-      "このクリップは非公開です。所有者にアクセスをリクエストするにはサインインしてください。",
+      "このクリップは非公開です。サインインするか、メールアドレスを入力してアクセスをリクエストしてください。",
     requestAccess: "アクセスをリクエスト",
+    requestAccessDialogTitle: "アクセスをリクエスト",
+    requestAccessDialogDescription:
+      "このクリップを共有するときに、所有者があなたを確認する方法を選択してください。",
+    requestAccessSignIn: "サインインまたは登録",
+    requestAccessOr: "または",
+    requestAccessEmailLabel: "メールアドレス",
+    requestAccessEmailPlaceholder: "you@example.com",
+    requestAccessEmailHint:
+      "アクセスが許可されたら、このメールアドレスでサインインしてクリップを表示します。",
+    requestAccessWithEmail: "メールでリクエスト",
+    requestAccessEmailRequired: "有効なメールアドレスを入力してください。",
     requestingAccess: "アクセスをリクエスト中...",
     accessRequested: "アクセスをリクエストしました",
     accessRequestSent: "クリップの所有者に通知しました。",
+    accessRequestSentWithEmail:
+      "所有者に、このクリップを {{email}} と共有するよう依頼しました。",
     accessRequestFailed:
       "アクセスをリクエストできませんでした。もう一度お試しください。",
+    accessApprovalTitle: "アクセスを許可しました",
+    accessApprovalAlreadyTitle: "アクセスはすでに許可されています",
+    accessApprovalMessage:
+      "{{email}} はこのクリップを閲覧できるようになりました。",
+    accessApprovalAlreadyMessage:
+      "{{email}} はすでにこのクリップにアクセスできます。",
+    accessApprovalErrorTitle: "アクセスを許可できませんでした",
+    accessApprovalInvalid: "このアクセスリクエストは無効か、期限切れです。",
+    accessApprovalSignInTitle: "アクセスを許可するにはサインインしてください",
+    accessApprovalSignInMessage:
+      "このリクエストを承認するには、クリップの所有者または管理者としてサインインしてください。",
+    accessApprovalOpenClip: "クリップを開く",
+    accessApprovalSignIn: "サインイン",
+    accessApprovalLoading: "アクセスを許可しています...",
     clipUnavailable: "クリップが使用できません",
     clipUnavailableMessage:
       "この録音は公開されていないか、リンクが無効です。自分のクリップの場合は、サインインしてアクセスを確認してください。",

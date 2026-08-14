@@ -1077,11 +1077,20 @@ export interface ChangeContentDatabaseSourceRoleRequest {
 export interface ContentDatabaseSummary {
   databaseId: string;
   documentId: string;
+  spaceId: string | null;
   title: string;
+  description: string;
+}
+
+export interface ContentDatabaseDescriptionResponse {
+  database: ContentDatabase;
+  contextPath: ContentContextPathEntry[];
+  properties: DocumentProperty[];
 }
 
 export interface ListContentDatabasesResponse {
   databases: ContentDatabaseSummary[];
+  pagination: DocumentDiscoveryPagination;
 }
 
 export interface TrashedContentDatabaseSummary {

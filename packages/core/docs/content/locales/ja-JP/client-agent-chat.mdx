@@ -37,7 +37,7 @@ Agent-Native が提供するクライアント ヘルパー メソッドを使�
 
 1. ユーザーが **Offer a refund** を選ぶと、`sendDraftRequest()` がプロンプトとチケットのコンテキストをエージェントに送信します。
 
-1. エージェントが `draft-ticket-reply` [アクション](/docs/actions) を呼び出し、作成された返信が返信コンポーザーに表示されます。
+1. エージェントが `draft-ticket-reply` [アクション](/docs/actions-overview) を呼び出し、作成された返信が返信コンポーザーに表示されます。
 
 ## askUserQuestion(opts) {#ask-user-question}
 
@@ -309,4 +309,3 @@ function SelectedTicketContextButton({ ticket }: { ticket: { id: string } }) {
 - [**Drop-in Agent**](/docs/drop-in-agent) — これらのヘルパーがレンダリングされる場所を用意する `<AgentSidebar>`/`<AgentPanel>` のマウント
 - [**高度**](/docs/client-advanced) — バックグラウンド送信、カスタム提案チップ、MCP アプリ ホスト ブリッジ
 - [**Generative UI**](/docs/generative-ui) — `askUserQuestion` を超えたインライン チャット コントロールの構築
-  </content>

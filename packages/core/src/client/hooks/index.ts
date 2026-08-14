@@ -44,6 +44,16 @@ export {
 } from "../use-action.js";
 export { createAgentNativeQueryClient } from "../create-query-client.js";
 export { AppProviders, type AppProvidersProps } from "../app-providers.js";
+export {
+  APP_CHAT_SIDEBAR_STATE_EVENT,
+  APP_CHAT_SIDEBAR_STATE_MESSAGE,
+  APP_CHAT_SIDEBAR_STATE_REQUEST_MESSAGE,
+  buildAppChatSidebarStateMessage,
+  buildAppChatSidebarStateRequest,
+  isPerAppChatStorageKey,
+  usePerAppChatOpen,
+  type AppChatSidebarState,
+} from "../app-chat-sidebar.js";
 export { usePinchZoom, type UsePinchZoomOptions } from "../use-pinch-zoom.js";
 export {
   useAvatarUrl,

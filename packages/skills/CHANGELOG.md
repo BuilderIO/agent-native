@@ -1,5 +1,36 @@
 # @agent-native/skills
 
+## 0.2.555
+
+### Patch Changes
+
+- Updated dependencies [19581b5]
+  - @agent-native/core@0.157.5
+
+## 0.2.554
+
+### Patch Changes
+
+- Updated dependencies [9e21e1b]
+- Updated dependencies [9e21e1b]
+- Updated dependencies [9e21e1b]
+- Updated dependencies [9e21e1b]
+- Updated dependencies [9e21e1b]
+- Updated dependencies [9e21e1b]
+- Updated dependencies [9e21e1b]
+- Updated dependencies [9e21e1b]
+- Updated dependencies [9e21e1b]
+- Updated dependencies [9e21e1b]
+- Updated dependencies [9e21e1b]
+  - @agent-native/core@0.157.4
+
+## 0.2.553
+
+### Patch Changes
+
+- Updated dependencies [3bcc0bd]
+  - @agent-native/core@0.157.3
+
 ## 0.2.552
 
 ### Patch Changes

@@ -1,6 +1,6 @@
 ---
 title: "Cross-App SSO"
-description: "Sign in once across every hosted agent-native app via identity federation with Dispatch as the identity authority — opt-in per app, reversible with a single env var."
+description: "Sign in once across every hosted agent-native app via identity federation with Dispatch as the identity authority. Canonical hosted clients are enabled by exact origin; self-hosted apps opt in with one env var."
 ---
 
 # Cross-App SSO
@@ -233,16 +233,20 @@ trust boundary.
 
 5. **App mints a normal local session.** From here on the user has an ordinary local session in that app's own store — every existing access check, org scoping, and action guard works exactly as before. The federation only happened at the front door.
 
-### Opting in {#opt-in}
+### Hosted and self-hosted behavior {#opt-in}
 
-An app's ordinary web sign-in participates **only** when this environment variable is set on its deployment:
+Canonical hosted client apps use Dispatch automatically when their deployment has
+one of the exact registered `*.agent-native.com` origins. Dispatch is the
+identity authority, not a client, so it never federates to itself. Self-hosted
+apps remain opt-in and must set this environment variable on their deployment:
 
 ```bash
 AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.agent-native.com
 ```
 
-- **Set** → the app shows a **"Sign in with Agent-Native"** option that runs the flow above. Direct local login (email/password, Google) still works alongside it.
-- **Unset (default)** → **zero behavior change.** The app authenticates exactly as it did before; the federation code path is dormant. There is no schema change and nothing to migrate, so flipping the variable on or off is fully reversible at any time.
+- **Canonical hosted client** → the app shows a **"Sign in with Agent-Native"** option that runs the flow above. Direct local login (email/password, Google) still works alongside it.
+- **Self-hosted with the variable set** → the app shows the same option, using the configured Dispatch instance.
+- **Self-hosted with the variable unset** → **zero behavior change.** The app authenticates exactly as it did before; the federation code path is dormant. There is no schema change and nothing to migrate.
 
 ## Security {#security}
 
@@ -262,7 +266,7 @@ The whole model rests on a few deliberately small guarantees:
   accept a user id, role, org membership, or any privileged state from the
   wire — it derives everything locally from the matched account.
 - **Additive-only identity writes.** Linking either reuses an existing same-email account untouched or inserts a new one. No update, rename, repoint, or delete of identity rows ever happens on this path.
-- **Off by default.** With `AGENT_NATIVE_IDENTITY_HUB_URL` unset, ordinary browser federation is inert. The separately gated packaged Desktop path is described below.
+- **Exact-origin trust.** Only the registered canonical hosted client origins get the implicit hosted default. Self-hosted and custom origins remain opt-in through `AGENT_NATIVE_IDENTITY_HUB_URL`; the separately gated packaged Desktop path is described below.
 
 <Callout id="doc-block-18qhl3m" tone="success">
 
@@ -345,8 +349,8 @@ flag controls whether Desktop may begin the ceremony; it does not authorize a
 user or weaken nonce, signature, origin, callback, app-binding, cookie,
 revocation, or credential-custody checks. With the flag Off or unavailable,
 Desktop leaves ordinary per-app sign-in, sign-out, and Settings unchanged.
-Canonical hosted apps recognize the packaged Desktop request without requiring
-`AGENT_NATIVE_IDENTITY_HUB_URL` on every deployment; ordinary web browsers and
+Canonical hosted apps recognize the packaged Desktop request and ordinary web
+browsers without requiring `AGENT_NATIVE_IDENTITY_HUB_URL` on every deployment;
 self-hosted apps still require that explicit configuration.
 Stable Desktop builds do not initialize the broker until a later release is
 separately approved.
@@ -379,19 +383,22 @@ Without an exact custom registry entry, a self-hosted Dispatch can only issue co
 
 ## Canary rollout runbook {#canary-rollout}
 
-Cutover and rollback are **a single environment variable per app deployment**. Roll out one app at a time, verify, then expand. Do not set the variable on every app at once.
+Canonical hosted clients take the default after the release ships. Self-hosted
+and custom deployments still use **a single environment variable per app**.
+Roll out one deployment at a time, verify, then expand.
 
-**1. Deploy the code — no behavior change.**
-Ship the release to every app with `AGENT_NATIVE_IDENTITY_HUB_URL` **unset everywhere**. Confirm normal logins still work on a couple of apps.
+**1. Deploy the code and verify a canonical hosted client.**
+Ship the release to the canonical apps. Confirm normal logins still work on a
+couple of apps and that the new sign-in option appears on a client app.
 
-**2. Enable the canary on ONE app at a time.**
+**2. Enable self-hosted/custom apps one at a time.**
 Set, on one deployment only:
 
 ```bash
 AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.agent-native.com
 ```
 
-Leave every other app's environment unset. Redeploy/restart so it picks up the variable.
+Leave every other self-hosted app's environment unset. Redeploy/restart so it picks up the variable.
 
 **3. Verify the canary (checklist).**
 
@@ -402,13 +409,13 @@ Leave every other app's environment unset. Redeploy/restart so it picks up the v
 - **App data is intact** — your existing records, settings, and org scoping are exactly as they were.
 - **Existing direct logins still work** — email/password and Google sign-in continue to function alongside SSO.
 
-If any check fails, go straight to step 4 (rollback) — it is instant and data-safe.
+If any check fails, go straight to step 5 (rollback) — it is instant and data-safe.
 
 **4. Expand app-by-app.**
-Once one app is verified, repeat steps 2–3 for the next app — setting `AGENT_NATIVE_IDENTITY_HUB_URL` on one deployment at a time. Never batch-enable.
+Once one deployment is verified, repeat steps 2–3 for the next one. Never batch-enable custom origins.
 
-**5. Rollback = unset the env var on that app's deploy.**
-To revert any app, **remove `AGENT_NATIVE_IDENTITY_HUB_URL` from that app's environment and redeploy/restart it.** The app immediately returns to its prior auth behavior. There is **no data change to undo** — identity rows were only ever added, and unsetting the variable simply makes the federation path dormant again. Each app's cutover and rollback are independent and reversible.
+**5. Rollback.**
+For a self-hosted app, **remove `AGENT_NATIVE_IDENTITY_HUB_URL` from its environment and redeploy/restart it.** A canonical hosted client can be rolled back by reverting the release or disabling the hosted client path. There is **no data change to undo** — identity rows were only ever added. Each deployment's cutover and rollback are independent and reversible.
 
 <Callout tone="info">
 

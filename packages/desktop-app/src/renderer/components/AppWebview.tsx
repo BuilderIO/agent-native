@@ -1,3 +1,7 @@
+import {
+  APP_CHAT_SIDEBAR_STATE_EVENT,
+  APP_CHAT_SIDEBAR_STATE_MESSAGE,
+} from "@agent-native/core/client/hooks";
 import type { AppDefinition, AppConfig } from "@shared/app-registry";
 import { getTemplate } from "@shared/app-registry";
 import {
@@ -13,6 +17,7 @@ import {
 } from "@tabler/icons-react";
 import {
   forwardRef,
+  useCallback,
   useRef,
   useEffect,
   useState,
@@ -20,6 +25,7 @@ import {
 } from "react";
 
 import { buildContentDirectoryPickerBridgeScript } from "../lib/content-directory-picker-bridge.js";
+import { buildGuestThemeScript, type RendererTheme } from "../lib/theme.js";
 
 const IS_DEV = window.location.protocol !== "file:";
 export const APP_WEBVIEW_PREFERENCES =
@@ -33,11 +39,47 @@ type WebviewLoadFailedEvent = Event & {
 };
 type WebviewConsoleMessageEvent = Event & { message?: string };
 
+export type AppWebviewAuthState =
+  | "unknown"
+  | "authenticated"
+  | "unauthenticated";
+
+export function resolveAppWebviewAuthState(
+  rawUrl: string | undefined,
+): AppWebviewAuthState {
+  if (!rawUrl) return "unknown";
+  try {
+    const parsed = new URL(rawUrl);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return "unknown";
+    }
+    const lastSegment = parsed.pathname
+      .split("/")
+      .filter(Boolean)
+      .at(-1)
+      ?.toLowerCase();
+    if (
+      lastSegment === "sign-in" ||
+      lastSegment === "login" ||
+      lastSegment === "signup"
+    ) {
+      return "unauthenticated";
+    }
+    return "authenticated";
+  } catch {
+    return "unknown";
+  }
+}
+
 interface AppWebviewProps {
   app: AppDefinition;
   /** Full app config with URL overrides (optional for backward compat) */
   appConfig?: AppConfig;
   isActive: boolean;
+  /** Resolved shell theme to apply inside the guest document. */
+  theme: RendererTheme;
+  /** Only same-origin app surfaces should inherit the shell theme. */
+  syncTheme?: boolean;
   /** Explicit browser target for the chat-first with-chrome surface. */
   sourceUrl?: string;
   /** Changes when the same URL should be opened again. */
@@ -54,6 +96,8 @@ interface AppWebviewProps {
   refreshKey?: number;
   /** Emits the guest page's document title so the shell tab can stay current. */
   onTitleChange?: (title: string) => void;
+  /** Emits the guest page's coarse session state for host-owned UI. */
+  onAuthStateChange?: (state: AppWebviewAuthState) => void;
   onAppsChanged?: (apps: AppConfig[]) => void;
 }
 
@@ -65,6 +109,7 @@ export interface AppWebviewHandle {
   stopFindInPage(
     action?: "clearSelection" | "keepSelection" | "activateSelection",
   ): void;
+  focus(): void;
   getUrl(): string | undefined;
   goBack(): void;
   goForward(): void;
@@ -202,12 +247,29 @@ function buildGuestLifecycleScript(
   })()`;
 }
 
+export function buildGuestAppChatSidebarStateScript(open: boolean): string {
+  const encodedEventName = JSON.stringify(APP_CHAT_SIDEBAR_STATE_EVENT);
+  const encodedMessage = JSON.stringify({
+    type: APP_CHAT_SIDEBAR_STATE_MESSAGE,
+    data: { open },
+  });
+  return `(() => {
+    const message = ${encodedMessage};
+    window.dispatchEvent(new CustomEvent(${encodedEventName}, { detail: message.data }));
+    for (const iframe of document.querySelectorAll("iframe")) {
+      iframe.contentWindow?.postMessage(message, "*");
+    }
+  })()`;
+}
+
 const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
   (
     {
       app,
       appConfig,
       isActive,
+      theme,
+      syncTheme = true,
       sourceUrl,
       urlOpenNonce,
       urlPath,
@@ -216,6 +278,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       partitionKey,
       refreshKey = 0,
       onTitleChange,
+      onAuthStateChange,
       onAppsChanged,
     }: AppWebviewProps,
     ref,
@@ -243,10 +306,45 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     const prevUrlOpenNonceRef = useRef(urlOpenNonce);
     const prevIsActiveRef = useRef(isActive);
     const onTitleChangeRef = useRef(onTitleChange);
+    const onAuthStateChangeRef = useRef(onAuthStateChange);
+    const perAppChatOpenRef = useRef(false);
+
+    const applyGuestTheme = useCallback(() => {
+      const wv = webviewRef.current;
+      if (!syncTheme || !wv || app.placeholder) return;
+      try {
+        void wv
+          .executeJavaScript(buildGuestThemeScript(theme), false)
+          .catch(() => {});
+        // coercion-ok: Theme sync is best-effort until the imperatively-created webview is attached.
+      } catch {
+        // The imperatively-created webview can exist before Chromium attaches it.
+      }
+    }, [app.placeholder, syncTheme, theme]);
+
+    const syncGuestAppChatSidebar = useCallback(() => {
+      const wv = webviewRef.current;
+      if (!wv || app.placeholder) return;
+      try {
+        void wv
+          .executeJavaScript(
+            buildGuestAppChatSidebarStateScript(perAppChatOpenRef.current),
+            false,
+          )
+          .catch(() => {});
+        // coercion-ok: Guest chrome sync is best-effort until Chromium attaches the webview.
+      } catch {
+        // The imperatively-created webview can exist before Chromium attaches it.
+      }
+    }, [app.placeholder]);
 
     useEffect(() => {
       onTitleChangeRef.current = onTitleChange;
     }, [onTitleChange]);
+
+    useEffect(() => {
+      onAuthStateChangeRef.current = onAuthStateChange;
+    }, [onAuthStateChange]);
 
     useImperativeHandle(
       ref,
@@ -258,6 +356,9 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         },
         stopFindInPage(action = "clearSelection") {
           webviewRef.current?.stopFindInPage(action);
+        },
+        focus() {
+          webviewRef.current?.focus();
         },
         getUrl() {
           const wv = webviewRef.current;
@@ -383,11 +484,27 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         }, 200);
         titleTimers.add(timer);
       };
+      const emitAuthState = () => {
+        if (disposed) return;
+        let currentUrl: string | undefined;
+        try {
+          currentUrl = wv.getURL() || wv.src;
+        } catch {
+          currentUrl = wv.src;
+        }
+        onAuthStateChangeRef.current?.(
+          resolveAppWebviewAuthState(currentUrl || undefined),
+        );
+      };
+
+      onAuthStateChangeRef.current?.("unknown");
 
       const onReady = () => {
         // Chromium can emit dom-ready for its internal error document after
         // did-fail-load. That event is not a successful app load.
         if (loadFailureRef.current) return;
+        applyGuestTheme();
+        syncGuestAppChatSidebar();
         if (app.id === "content") {
           void wv
             .executeJavaScript(buildContentDirectoryPickerBridgeScript(), false)
@@ -399,6 +516,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         optimizeDepRecoveryRef.current = false;
         reportActiveWebview();
         emitCurrentTitleSoon();
+        emitAuthState();
       };
       const onTitleUpdated = (e: Event) => {
         const title = String(
@@ -406,7 +524,12 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         ).trim();
         emitCurrentTitle(title);
       };
-      const onNavigation = () => emitCurrentTitleSoon();
+      const onNavigation = () => {
+        applyGuestTheme();
+        syncGuestAppChatSidebar();
+        emitCurrentTitleSoon();
+        emitAuthState();
+      };
       const onFailed = (e: Event) => {
         const details = e as WebviewLoadFailedEvent;
         const errorCode = details.errorCode;
@@ -459,7 +582,58 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         wv.removeEventListener("enter-html-full-screen", onEnterFullscreen);
         wv.removeEventListener("leave-html-full-screen", onLeaveFullscreen);
       };
-    }, [app.placeholder, isActive, app.id]);
+    }, [
+      app.id,
+      app.placeholder,
+      isActive,
+      applyGuestTheme,
+      syncGuestAppChatSidebar,
+    ]);
+
+    useEffect(() => {
+      applyGuestTheme();
+    }, [applyGuestTheme]);
+
+    useEffect(() => {
+      const handleChatState = (event: Event) => {
+        const open = (event as CustomEvent<{ open?: unknown }>).detail?.open;
+        if (typeof open !== "boolean") return;
+        perAppChatOpenRef.current = open;
+        syncGuestAppChatSidebar();
+      };
+
+      window.addEventListener(APP_CHAT_SIDEBAR_STATE_EVENT, handleChatState);
+      perAppChatOpenRef.current =
+        document.querySelector(
+          '[data-agent-sidebar-per-app-chat="true"][data-agent-sidebar-state="open"]',
+        ) !== null;
+      syncGuestAppChatSidebar();
+
+      return () =>
+        window.removeEventListener(
+          APP_CHAT_SIDEBAR_STATE_EVENT,
+          handleChatState,
+        );
+    }, [syncGuestAppChatSidebar]);
+
+    useEffect(() => {
+      syncGuestAppChatSidebar();
+    }, [isActive, syncGuestAppChatSidebar, url]);
+
+    useEffect(() => {
+      if (!isActive || app.placeholder) return;
+      const wv = webviewRef.current;
+      if (!wv) return;
+      let currentUrl: string | undefined;
+      try {
+        currentUrl = wv.getURL() || wv.src;
+      } catch {
+        currentUrl = wv.src;
+      }
+      onAuthStateChangeRef.current?.(
+        resolveAppWebviewAuthState(currentUrl || undefined),
+      );
+    }, [app.placeholder, isActive, url]);
 
     // Cmd+R — reload the active webview when refreshKey increments
     const prevRefreshKey = useRef(refreshKey);
