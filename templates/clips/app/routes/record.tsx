@@ -956,6 +956,10 @@ export default function RecordRoute() {
   } | null>(null);
   const previewVideoRef = useRef<HTMLVideoElement>(null);
   const fileUploadAbortRef = useRef<AbortController | null>(null);
+  // Set to the recording row created by uploadFile() for the duration of
+  // that upload, so doCancel() can trash it directly — createdId otherwise
+  // only lives in uploadFile's own closure and never reaches pendingRef.
+  const fileUploadRecordingIdRef = useRef<string | null>(null);
   const browserDiagnosticsRef = useRef<BrowserDiagnosticsCapture | null>(null);
   // Bumped by doCancel() to invalidate any in-flight startFlow().
   const startSessionRef = useRef(0);
@@ -1574,6 +1578,7 @@ export default function RecordRoute() {
           throw new Error("create-recording did not return an id");
         }
         createdId = info.id;
+        fileUploadRecordingIdRef.current = createdId;
         await saveBugReportContextRef.current(info.id);
         if (isStale()) throw makeAbortError("Upload cancelled");
         const uploadBase = `${appBasePath()}${info.uploadChunkUrl}`;
@@ -1832,6 +1837,9 @@ export default function RecordRoute() {
       } finally {
         if (fileUploadAbortRef.current === abort) {
           fileUploadAbortRef.current = null;
+        }
+        if (fileUploadRecordingIdRef.current === createdId) {
+          fileUploadRecordingIdRef.current = null;
         }
         setCompressionProgress(null);
         setUploadProgress(null);
@@ -2179,10 +2187,12 @@ export default function RecordRoute() {
     startSessionRef.current += 1;
     countdownAudioCueRef.current?.cleanup();
     countdownAudioCueRef.current = null;
+    const uploadRecordingId = fileUploadRecordingIdRef.current;
     if (fileUploadAbortRef.current) {
       fileUploadAbortRef.current.abort(makeAbortError("Upload cancelled"));
       fileUploadAbortRef.current = null;
     }
+    fileUploadRecordingIdRef.current = null;
     const engine = engineRef.current;
     const pendingId = pendingRef.current?.id;
     liveTranscription.stop();
@@ -2212,6 +2222,18 @@ export default function RecordRoute() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: pendingId, skipIfReady: true }),
+      }).catch(() => {});
+    }
+    if (uploadRecordingId) {
+      // A local file import (as opposed to a live recording) never
+      // populates pendingRef — its row id only exists in uploadFile's own
+      // closure. Without this, discarding mid-upload aborts the transfer
+      // but leaves the row merely marked "failed" instead of trashed, which
+      // contradicts the confirmation dialog's "permanently deleted" copy.
+      fetch(agentNativePath("/_agent-native/actions/trash-recording"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: uploadRecordingId, skipIfReady: true }),
       }).catch(() => {});
     }
     setCameraStream(null);
