@@ -154,7 +154,7 @@ describe("CreateAppFlow", () => {
 
   async function renderAndSubmit(
     prompt: string,
-    props: { onClose?: () => void } = {},
+    props: { onClose?: () => void; onCreated?: () => void } = {},
   ) {
     await act(async () => {
       root.render(React.createElement(CreateAppFlow, props));
@@ -197,7 +197,7 @@ describe("CreateAppFlow", () => {
     );
     expect(localLink?.textContent).toContain("Create locally");
     expect(localLink?.href).toBe(
-      "https://agent-native.com/docs/multi-app-workspace#adding-a-new-app",
+      "https://www.agent-native.com/docs/multi-app-workspace#adding-a-new-app",
     );
   });
 
@@ -235,6 +235,14 @@ describe("CreateAppFlow", () => {
       reuseEmptyTab: true,
     });
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("notifies the parent after Builder accepts app creation", async () => {
+    const onCreated = vi.fn();
+
+    await renderAndSubmit("Build a quality dashboard", { onCreated });
+
+    expect(onCreated).toHaveBeenCalledTimes(1);
   });
 
   it("renders the error affordance and a Try again control for builder-error, without a Connect Builder control", async () => {
@@ -339,7 +347,7 @@ describe("CreateAppFlow", () => {
       });
     });
     const branchLink = Array.from(container.querySelectorAll("a")).find(
-      (candidate) => candidate.textContent?.includes("Open Builder branch"),
+      (candidate) => candidate.textContent?.includes("Open in Builder"),
     );
     expect(branchLink?.getAttribute("href")).toBe(
       "https://branch.example.test",

@@ -1,5 +1,8 @@
-import type { ActionEntry } from "../../agent/production-agent.js";
-import type { AgentLoopFinalResponseGuard } from "../../agent/production-agent.js";
+import type {
+  ActionEntry,
+  AgentLoopFinalResponseGuard,
+  ProductionAgentOptions,
+} from "../../agent/production-agent.js";
 import type {
   AgentChatAttachment,
   AgentChatReference,
@@ -70,6 +73,13 @@ export interface AgentChatPluginOptions {
         | Promise<Record<string, MentionProvider>>);
   /** App ID used to exclude self from agent discovery (e.g., "mail", "calendar") */
   appId?: string;
+  /**
+   * Controls connected MCP tools available to unattended recurring and trigger
+   * runs. "requested" only loads tools named by a job; "all" loads every
+   * tool visible to this app's current workspace context and still enforces
+   * the per-request scope gate when a tool is called.
+   */
+  backgroundMcpTools?: "requested" | "all";
   /**
    * Everything about this app's MCP mount — whether it is mounted, which tools
    * external callers see, and the branding sent during the `initialize`
@@ -182,6 +192,12 @@ export interface AgentChatPluginOptions {
         displayMessage?: string;
         attachments?: AgentChatAttachment[];
       }>;
+  /**
+   * Resolve the exact native action surface for each interactive chat request.
+   * Omitted names are not sent to the model and are not discoverable through
+   * tool-search. When configured, every allowed action is loaded directly.
+   */
+  resolveActionSurface?: ProductionAgentOptions["resolveActionSurface"];
   /**
    * Use ONLY the template's `systemPrompt` and the actions list — skip the
    * framework prompt wrapper, resource loading (AGENTS.md/LEARNINGS.md/

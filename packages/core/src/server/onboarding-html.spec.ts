@@ -236,6 +236,27 @@ describe("getOnboardingHtml", () => {
     expect(() => new Function(resetScript!)).not.toThrow();
   });
 
+  it("does not render a run-local CTA in the auth marketing panel", () => {
+    const html = getOnboardingHtml({
+      googleOnly: true,
+      marketing: {
+        appName: "Calendar",
+        tagline: "Your AI agent manages your calendar.",
+        runLocalCommand:
+          "npx @agent-native/core@latest create my-calendar-app --template calendar",
+      },
+    });
+
+    const onboardingScript = html.match(/<script>([\s\S]*)<\/script>/)?.[1];
+    expect(onboardingScript).toBeTruthy();
+    expect(html).not.toContain('id="run-local-button"');
+    expect(html).not.toContain('id="run-local-panel"');
+    expect(html).not.toContain("Run Locally");
+    expect(html).not.toContain("function __anCopyRunLocalCommand()");
+    expect(html).toContain('onclick="signInWithGoogle()"');
+    expect(() => new Function(onboardingScript!)).not.toThrow();
+  });
+
   it("renders the policy password minimum in signup and reset forms", () => {
     const html = getOnboardingHtml();
     const resetHtml = getResetPasswordHtml();
@@ -607,6 +628,19 @@ return { rememberPendingSignupEmail, readRememberedPendingSignupEmail };`,
 
       expect(html).toContain('class="marketing-panel"');
       expect(html).toContain(BUILT_IN_AUTH_MARKETING[slug]!.appName);
+    }
+  });
+
+  it("omits the run-local CTA from Mail and Calendar auth pages", () => {
+    for (const slug of ["mail", "calendar"]) {
+      const html = getOnboardingHtml({
+        requestHost: `${slug}.agent-native.com`,
+        googleOnly: true,
+      });
+
+      expect(html).not.toContain('id="run-local-button"');
+      expect(html).not.toContain('id="run-local-panel"');
+      expect(html).not.toContain("Run Locally");
     }
   });
 

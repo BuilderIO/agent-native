@@ -11,7 +11,9 @@ interface GoogleSlidesExportSlide {
 export type GoogleSlidesExportResult =
   | { url: string }
   /** Drive was unavailable, so the PPTX was downloaded for a manual import. */
-  | { url: null; downloaded: true; reason: string };
+  | { url: null; downloaded: true; reason: string }
+  /** The export action should send the user through Google OAuth first. */
+  | { url: null; requiresConnection: true; reason: string };
 
 function triggerBlobDownload(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
@@ -27,9 +29,9 @@ function triggerBlobDownload(blob: Blob, filename: string) {
 
 /**
  * Creates a native Google Slides deck in the user's Drive when their Google
- * account is connected. Without a connection — or if Drive rejects the upload —
- * the PPTX is downloaded instead so the user can import it by hand, and the
- * reason is reported rather than swallowed.
+ * account is connected. A missing connection is returned to the caller so the
+ * export action can launch OAuth; other Drive failures still fall back to a
+ * manual PPTX import with the reason reported rather than swallowed.
  */
 export async function exportDeckToGoogleSlides(
   deckTitle: string,
@@ -54,9 +56,18 @@ export async function exportDeckToGoogleSlides(
   const payload = (await res.json().catch(() => null)) as {
     url?: string;
     error?: string;
+    code?: string;
   } | null;
 
   if (res.ok && payload?.url) return { url: payload.url };
+
+  if (payload?.code === "google-not-connected") {
+    return {
+      url: null,
+      requiresConnection: true,
+      reason: payload.error ?? "No connected Google account.",
+    };
+  }
 
   triggerBlobDownload(blob, filename);
   return {

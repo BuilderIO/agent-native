@@ -105,11 +105,15 @@ beforeEach(() => {
 });
 
 describe("delete-slide-comment", () => {
-  it("lets the author delete their own comment with only viewer access", async () => {
+  it("lets the author delete their own comment with commenter access", async () => {
     const result = await run({ id: "c-1" });
 
     expect(result).toEqual({ ok: true });
-    expect(mockAssertAccess).toHaveBeenCalledWith("deck", "deck-1", "viewer");
+    expect(mockAssertAccess).toHaveBeenCalledWith(
+      "deck",
+      "deck-1",
+      "commenter",
+    );
     expect(state.rows.map((r) => r.id)).toEqual(["c-2"]);
   });
 

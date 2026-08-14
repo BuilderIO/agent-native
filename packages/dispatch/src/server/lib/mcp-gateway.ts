@@ -1,4 +1,5 @@
 import { A2AClient, signA2AToken, type Task } from "@agent-native/core/a2a";
+import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import {
   buildMcpToolName,
   McpClientManager,
@@ -17,6 +18,15 @@ import {
   type DiscoveredAgent,
 } from "@agent-native/core/server/agent-discovery";
 
+import {
+  CANONICAL_WORKSPACE_SSO_APP_ORIGINS,
+  DISPATCH_WORKSPACE_SSO_FLAG,
+  parseWorkspaceSsoAppRegistrations,
+} from "../../shared/workspace-sso.js";
+import {
+  listWorkspaceApps,
+  type WorkspaceAppSummary,
+} from "./app-creation-store.js";
 import {
   getDispatchMcpAppAccessSettings,
   isAppAllowedByMcpAccess,
@@ -447,6 +457,17 @@ function safeAppOrigin(app: DispatchMcpAccessibleApp): string | null {
   }
 }
 
+function isLoopbackOrigin(origin: string): boolean {
+  try {
+    const hostname = new URL(origin).hostname;
+    return ["localhost", "127.0.0.1", "::1"].includes(hostname);
+  } catch {
+    // coercion-ok: only a previously validated app origin reaches this helper;
+    // malformed values are ineligible for the loopback development exception.
+    return false;
+  }
+}
+
 function appBaseUrl(app: DispatchMcpAccessibleApp): string {
   return app.url.replace(/\/+$/, "");
 }
@@ -583,6 +604,116 @@ export async function resolveGrantedDispatchMcpApp(
   if (!safeAppOrigin(match)) {
     throw new Error(
       `Dispatch MCP app "${match.id}" has an invalid URL and cannot be opened through MCP.`,
+    );
+  }
+  return match;
+}
+
+function workspaceSsoOriginForApp(appId: string): string | null {
+  const canonical =
+    CANONICAL_WORKSPACE_SSO_APP_ORIGINS[
+      appId as keyof typeof CANONICAL_WORKSPACE_SSO_APP_ORIGINS
+    ];
+  if (canonical) return canonical;
+  const custom = parseWorkspaceSsoAppRegistrations(
+    process.env.IDENTITY_SSO_APP_REGISTRY_JSON,
+  ).find((registration) => registration.appId === appId);
+  return custom?.origin ?? null;
+}
+
+function isWorkspaceSsoCanonicalApp(app: DispatchMcpAccessibleApp): boolean {
+  const origin = safeAppOrigin(app);
+  if (!origin) return false;
+  const registeredOrigin = workspaceSsoOriginForApp(app.id);
+  if (origin === registeredOrigin) return true;
+  // The built-in discovery table intentionally points at local dev ports when
+  // running outside production. Keep local development usable without ever
+  // weakening the production exact-origin check.
+  return process.env.NODE_ENV !== "production" && isLoopbackOrigin(origin)
+    ? Object.prototype.hasOwnProperty.call(
+        CANONICAL_WORKSPACE_SSO_APP_ORIGINS,
+        app.id,
+      )
+    : false;
+}
+
+function sameWorkspaceApp(
+  candidate: DispatchMcpAccessibleApp,
+  mounted: WorkspaceAppSummary,
+): boolean {
+  if (candidate.id !== mounted.id || !mounted.url) return false;
+  return candidate.url.replace(/\/+$/, "") === mounted.url.replace(/\/+$/, "");
+}
+
+async function isEligibleWorkspaceSsoApp(
+  candidate: DispatchMcpAccessibleApp,
+  mountedApps: WorkspaceAppSummary[],
+): Promise<boolean> {
+  const origin = safeAppOrigin(candidate);
+  if (!origin) return false;
+  if (isWorkspaceSsoCanonicalApp(candidate)) return true;
+
+  const customOrigin = workspaceSsoOriginForApp(candidate.id);
+  if (customOrigin === origin) return true;
+
+  const dispatchOrigin = safeAppOrigin({
+    id: DISPATCH_APP_ID,
+    name: DISPATCH_NAME,
+    description: DISPATCH_DESCRIPTION,
+    url: dispatchSelfBaseUrl(),
+    color: DISPATCH_COLOR,
+    granted: true,
+  });
+  if (origin !== dispatchOrigin) return false;
+  return mountedApps.some((mounted) => sameWorkspaceApp(candidate, mounted));
+}
+
+async function listWorkspaceSsoApps(): Promise<DispatchMcpAccessibleApp[]> {
+  const [agents, mountedApps] = await Promise.all([
+    discoverAgents("dispatch"),
+    listWorkspaceApps({ includeAgentCards: false }),
+  ]);
+  const candidates = agents
+    .filter((agent) => normalizeAppId(agent.id) !== DISPATCH_APP_ID)
+    .map((agent) => ({
+      ...toAccessibleApp(agent, {
+        mode: "all-apps",
+        selectedAppIds: [],
+      }),
+      granted: true,
+    }));
+  const eligible = [] as DispatchMcpAccessibleApp[];
+  for (const candidate of candidates) {
+    if (await isEligibleWorkspaceSsoApp(candidate, mountedApps)) {
+      eligible.push(candidate);
+    }
+  }
+  return [
+    {
+      id: DISPATCH_APP_ID,
+      name: DISPATCH_NAME,
+      description: DISPATCH_DESCRIPTION,
+      url: dispatchSelfBaseUrl(),
+      color: DISPATCH_COLOR,
+      granted: true,
+    },
+    ...eligible,
+  ];
+}
+
+async function resolveWorkspaceSsoApp(
+  app: string,
+): Promise<DispatchMcpAccessibleApp> {
+  const target = normalizeAppId(app);
+  if (!target) throw new Error("app is required");
+  const apps = await listWorkspaceSsoApps();
+  const match = apps.find(
+    (candidate) =>
+      candidate.id === target || candidate.name.toLowerCase() === target,
+  );
+  if (!match) {
+    throw new Error(
+      `Workspace app "${app}" is not registered for workspace sign-in.`,
     );
   }
   return match;
@@ -860,13 +991,20 @@ async function callTargetCreateEmbedSession(input: {
   }
 }
 
-async function resolveDispatchEmbedTarget(input: {
-  app?: string;
-  url?: string;
-  path?: string;
-}): Promise<{ app: DispatchMcpAccessibleApp; path: string; url: string }> {
+async function resolveEmbedTarget(
+  input: {
+    app?: string;
+    url?: string;
+    path?: string;
+  },
+  options: {
+    resolveApp: (app: string) => Promise<DispatchMcpAccessibleApp>;
+    listApps: () => Promise<DispatchMcpAccessibleApp[]>;
+    urlError: string;
+  },
+): Promise<{ app: DispatchMcpAccessibleApp; path: string; url: string }> {
   const explicitApp = input.app?.trim()
-    ? await resolveGrantedDispatchMcpApp(input.app)
+    ? await options.resolveApp(input.app)
     : null;
   if (explicitApp && input.path) {
     const path = safeAppPath(input.path);
@@ -899,19 +1037,42 @@ async function resolveDispatchEmbedTarget(input: {
     };
   }
 
-  const apps = explicitApp ? [explicitApp] : await listGrantedDispatchMcpApps();
+  const apps = explicitApp ? [explicitApp] : await options.listApps();
   const target = apps
     .filter((app) => appMatchesUrlPath(app, parsed))
     .sort((a, b) => appPathSpecificity(b) - appPathSpecificity(a))[0];
   if (!target) {
-    throw new Error(
-      "Embed URL must belong to an app granted through Dispatch.",
-    );
+    throw new Error(options.urlError);
   }
   const path = safeAppPath(appRelativePath(target, parsed));
   if (!path) throw new Error("Embed URL path is not safe.");
   assertAppCanOpenPath(target, path);
   return { app: target, path, url: `${appBaseUrl(target)}${path}` };
+}
+
+async function resolveDispatchEmbedTarget(input: {
+  app?: string;
+  url?: string;
+  path?: string;
+}): Promise<{ app: DispatchMcpAccessibleApp; path: string; url: string }> {
+  return resolveEmbedTarget(input, {
+    resolveApp: resolveGrantedDispatchMcpApp,
+    listApps: listGrantedDispatchMcpApps,
+    urlError: "Embed URL must belong to an app granted through Dispatch.",
+  });
+}
+
+async function resolveWorkspaceSsoEmbedTarget(input: {
+  app?: string;
+  url?: string;
+  path?: string;
+}): Promise<{ app: DispatchMcpAccessibleApp; path: string; url: string }> {
+  return resolveEmbedTarget(input, {
+    resolveApp: resolveWorkspaceSsoApp,
+    listApps: listWorkspaceSsoApps,
+    urlError:
+      "Embed URL must belong to an app registered for Dispatch workspace sign-in.",
+  });
 }
 
 async function createDispatchSelfEmbedSession(input: {
@@ -956,14 +1117,34 @@ export async function createGrantedDispatchMcpEmbedSession(input: {
   if (!userEmail) throw new Error("no authenticated user");
   const target = await resolveDispatchEmbedTarget(input);
 
-  const orgId = getRequestOrgId();
+  return createEmbedSessionForResolvedApp({
+    ownerEmail: userEmail,
+    orgId: getRequestOrgId(),
+    target,
+    chrome: input.chrome,
+  });
+}
+
+async function createEmbedSessionForResolvedApp(input: {
+  ownerEmail: string;
+  orgId?: string;
+  target: { app: DispatchMcpAccessibleApp; path: string; url: string };
+  chrome?: "full" | "minimal";
+}): Promise<{
+  startUrl: string;
+  targetPath?: string;
+  expiresAt?: number;
+  app: string;
+}> {
+  const { ownerEmail, orgId, target, chrome } = input;
+
   if (target.app.id === DISPATCH_APP_ID) {
     return createDispatchSelfEmbedSession({
-      ownerEmail: userEmail,
+      ownerEmail,
       orgId,
       path: target.path,
       baseUrl: appBaseUrl(target.app),
-      chrome: input.chrome,
+      chrome,
     });
   }
 
@@ -980,7 +1161,7 @@ export async function createGrantedDispatchMcpEmbedSession(input: {
   const useOrgSigning = usableOrgDomain && usableOrgSecret;
   const signedOrgDomain = usableOrgDomain ? orgDomain.trim() : undefined;
   const token = await signA2AToken(
-    userEmail,
+    ownerEmail,
     signedOrgDomain,
     useOrgSigning ? orgSecret.trim() : undefined,
     {
@@ -996,7 +1177,7 @@ export async function createGrantedDispatchMcpEmbedSession(input: {
     app: target.app,
     token,
     url: target.url,
-    chrome: input.chrome,
+    chrome,
   });
   const parsed = parseMcpToolTextResult(result) as {
     startUrl?: string;
@@ -1018,4 +1199,35 @@ export async function createGrantedDispatchMcpEmbedSession(input: {
   if (parsed.targetPath) output.targetPath = parsed.targetPath;
   if (typeof parsed.expiresAt === "number") output.expiresAt = parsed.expiresAt;
   return output;
+}
+
+export async function createWorkspaceSsoEmbedSession(input: {
+  app?: string;
+  url?: string;
+  path?: string;
+  chrome?: "full" | "minimal";
+}): Promise<{
+  startUrl: string;
+  targetPath?: string;
+  expiresAt?: number;
+  app: string;
+}> {
+  const ownerEmail = getRequestUserEmail();
+  if (!ownerEmail) throw new Error("no authenticated user");
+  const enabled = await isFeatureFlagEnabled(DISPATCH_WORKSPACE_SSO_FLAG, {
+    userEmail: ownerEmail,
+    userKey: ownerEmail,
+    orgId: getRequestOrgId(),
+  });
+  if (!enabled) {
+    throw new Error("Dispatch workspace sign-in is not enabled.");
+  }
+
+  const target = await resolveWorkspaceSsoEmbedTarget(input);
+  return createEmbedSessionForResolvedApp({
+    ownerEmail,
+    orgId: getRequestOrgId(),
+    target,
+    chrome: input.chrome,
+  });
 }

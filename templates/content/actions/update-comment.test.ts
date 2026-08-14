@@ -181,14 +181,14 @@ describe("update-comment (action) — reopen permission", () => {
     expect(state.rows[1].resolved).toBe(1); // whole thread resolved
   });
 
-  it("allows the author to edit their own comment content with only viewer access", async () => {
+  it("allows the author to edit their own comment content with commenter access", async () => {
     const result = await run({ id: "c-1", content: "Updated" });
 
     expect(result).toEqual({ ok: true });
     expect(mockAssertAccess).toHaveBeenCalledWith(
       "document",
       "doc-1",
-      "viewer",
+      "commenter",
     );
   });
 });

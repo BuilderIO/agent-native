@@ -2962,7 +2962,7 @@ async function runServe(args: Record<string, string | boolean>): Promise<void> {
         bridgeUrl: bridge.result.bridgeUrl,
       }),
       "Keep this bridge command running while the Plan page is open; stopping it makes this URL unreachable.",
-      "Press Ctrl+C to stop.",
+      "Press Ctrl C to stop.",
     ]
       .filter(Boolean)
       .join("\n") + "\n",

@@ -262,6 +262,17 @@ const messages = {
     passwordProtected: "このクリップはパスワードで保護されています",
     linkExpired: "リンクの有効期限が切れました",
     linkExpiredMessage: "作成者はこの共有リンクに有効期限を設定しました。",
+    privateClip: "非公開クリップ",
+    privateClipMessage:
+      "このクリップは非公開です。アクセスをリクエストすると、所有者に通知されます。",
+    privateClipSignedOutMessage:
+      "このクリップは非公開です。所有者にアクセスをリクエストするにはサインインしてください。",
+    requestAccess: "アクセスをリクエスト",
+    requestingAccess: "アクセスをリクエスト中...",
+    accessRequested: "アクセスをリクエストしました",
+    accessRequestSent: "クリップの所有者に通知しました。",
+    accessRequestFailed:
+      "アクセスをリクエストできませんでした。もう一度お試しください。",
     clipUnavailable: "クリップが使用できません",
     clipUnavailableMessage:
       "この録音は公開されていないか、リンクが無効です。自分のクリップの場合は、サインインしてアクセスを確認してください。",
@@ -515,10 +526,11 @@ const messages = {
     },
     roles: {
       viewer: "ビューア",
+      commenter: "コメント投稿者",
       editor: "エディタ",
       admin: "管理者",
     },
-    recordingViewer: {
+    recordingCommenter: {
       label: "コメント投稿者",
       description: "視聴、コメント、リアクションができます",
     },
@@ -658,13 +670,13 @@ const messages = {
     collapse: "折りたたむ",
     changelogMarkdown: `# 変更履歴
 
-Clips のユーザー向けの主な変更はここに記録されます。コマンドメニュー（Cmd+K -> "最新情報"）または設定からいつでも開けます。
+Clips のユーザー向けの主な変更はここに記録されます。コマンドメニュー（Cmd K -> "最新情報"）または設定からいつでも開けます。
 
 ## 2026-06-23
 
 ### 追加
 
-- Clips 内で最新情報を直接確認できるようになりました。変更履歴はコマンドメニュー（Cmd+K）と設定にあります。`,
+- Clips 内で最新情報を直接確認できるようになりました。変更履歴はコマンドメニュー（Cmd K）と設定にあります。`,
     playback: "再生",
     defaultPlaybackSpeed: "デフォルト再生速度",
     playbackDescription: "録画を開いたときに自動的に適用されます。",
@@ -981,6 +993,8 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     includeTranscriptDescription:
       "この会議にアクセスできるすべてのユーザーが、文字起こし全文を閲覧できます。",
     transcriptUnavailable: "文字起こしはまだ準備できていません。",
+    agentLinkDescription:
+      "この一時リンクを使うと、会議メモを公開せずにエージェントが読めます。2時間後に期限切れになります。",
     transcript: "文字起こし",
     copyTranscript: "文字起こしをコピー",
     transcriptCopied: "文字起こしをコピーしました",
@@ -1207,7 +1221,7 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     seekTo: "Seek to {{time}} (ローカライズ済み)",
   },
   editorToolbar: {
-    undoTooltip: "Undo (Cmd/Ctrl+Z) (ローカライズ済み)",
+    undoTooltip: "Undo (Cmd/Ctrl Z) (ローカライズ済み)",
     playPauseTooltip: "Play / Pause (Space) (ローカライズ済み)",
     sourceDuration: "({{duration}} src) (ローカライズ済み)",
     previewSpeed: "Preview speed (ローカライズ済み)",
@@ -1571,6 +1585,16 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     calendarConnected: "Calendar connected (ローカライズ済み)",
     calendarDisconnected: "Calendar disconnected (ローカライズ済み)",
     calendarSettings: "Calendar settings (ローカライズ済み)",
+    calendarAccountsButton: "カレンダー",
+    connectedAccounts: "接続済みアカウント",
+    calendarConnectedLabel: "接続済み",
+    calendarNeedsReconnectLabel: "再接続が必要",
+    calendarDisconnectedLabel: "切断済み",
+    calendarStatusUnavailable: "ステータスを取得できません",
+    reconnectCalendar: "カレンダーを再接続",
+    addAnotherCalendarAccount: "別のアカウントを追加",
+    connectCalendar: "カレンダーを接続",
+    disconnectCalendarAccount: "アカウントを切断",
     connectCalendarReminder:
       "Connect Google Calendar for meeting reminders. (ローカライズ済み)",
     disconnectGoogleCalendarTitle:

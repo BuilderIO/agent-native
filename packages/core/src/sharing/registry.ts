@@ -157,6 +157,7 @@ export interface ShareableResourceRegistration {
    */
   publicAccessRole?:
     | "viewer"
+    | "commenter"
     | "editor"
     | "admin"
     | ((
@@ -168,9 +169,10 @@ export interface ShareableResourceRegistration {
         },
       ) =>
         | "viewer"
+        | "commenter"
         | "editor"
         | "admin"
-        | Promise<"viewer" | "editor" | "admin">);
+        | Promise<"viewer" | "commenter" | "editor" | "admin">);
   /**
    * When `true`, individual user shares (`principalType: "user"`) must target
    * an email that is already a member of the same org as the resource, OR has

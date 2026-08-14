@@ -13,19 +13,19 @@ const workspaceSchema = z.enum(["primary", "secondary"]);
 
 export default defineAction({
   description:
-    "Save Factory source settings. This controls Slack, GitHub, and Sentry polling; organization automations decide when governed provider work may start.",
+    "Save Factory automation alert settings. Provider credentials live in shared workspace integrations; legacy source routing metadata is preserved for the default observer adapters.",
   schema: z.object({
-    slackWorkspace: workspaceSchema.default("primary"),
+    slackWorkspace: workspaceSchema.optional(),
     slackChannelId: z.string().trim().min(1).max(128).optional(),
     slackChannelName: z.string().trim().max(200).optional(),
-    pollingEnabled: z.boolean().default(false),
-    githubPollingEnabled: z.boolean().default(false),
-    sentryPollingEnabled: z.boolean().default(false),
+    pollingEnabled: z.boolean().optional(),
+    githubPollingEnabled: z.boolean().optional(),
+    sentryPollingEnabled: z.boolean().optional(),
     sentryOrgSlug: z.string().trim().max(200).optional(),
     sentryProjectSlug: z.string().trim().max(200).optional(),
     sentryEnvironment: z.string().trim().max(200).optional(),
     repository: z.string().trim().max(256).optional(),
-    automationFailureAlertsEnabled: z.boolean().default(true),
+    automationFailureAlertsEnabled: z.boolean().optional(),
     automationFailureAlertEmail: z.string().trim().email().optional(),
   }),
   http: { method: "POST" },
@@ -53,13 +53,62 @@ export default defineAction({
     const db = getDb();
     const existing = (
       await db
-        .select({
-          automationFailureAlertEmail: triageConfig.automationFailureAlertEmail,
-        })
+        .select()
         .from(triageConfig)
         .where(and(eq(triageConfig.id, orgId), eq(triageConfig.orgId, orgId)))
         .limit(1)
     )[0];
+    const persistText = (
+      next: string | undefined,
+      previous: string | null | undefined,
+    ) => (next === undefined ? (previous ?? null) : next || null);
+    const persistedSlackWorkspace =
+      slackWorkspace ?? existing?.slackWorkspace ?? "primary";
+    const persistedSlackChannelId = persistText(
+      slackChannelId,
+      existing?.slackChannelId,
+    );
+    const persistedSlackChannelName = persistText(
+      slackChannelName,
+      existing?.slackChannelName,
+    );
+    const persistedRepository = persistText(repository, existing?.repository);
+    const persistedSentryOrgSlug = persistText(
+      sentryOrgSlug,
+      existing?.sentryOrgSlug,
+    );
+    const persistedSentryProjectSlug = persistText(
+      sentryProjectSlug,
+      existing?.sentryProjectSlug,
+    );
+    const persistedSentryEnvironment = persistText(
+      sentryEnvironment,
+      existing?.sentryEnvironment,
+    );
+    const persistedPollingEnabled =
+      pollingEnabled === undefined
+        ? (existing?.pollingEnabled ?? 0)
+        : pollingEnabled
+          ? 1
+          : 0;
+    const persistedGithubPollingEnabled =
+      githubPollingEnabled === undefined
+        ? (existing?.githubPollingEnabled ?? 0)
+        : githubPollingEnabled
+          ? 1
+          : 0;
+    const persistedSentryPollingEnabled =
+      sentryPollingEnabled === undefined
+        ? (existing?.sentryPollingEnabled ?? 0)
+        : sentryPollingEnabled
+          ? 1
+          : 0;
+    const persistedAutomationFailureAlertsEnabled =
+      automationFailureAlertsEnabled === undefined
+        ? (existing?.automationFailureAlertsEnabled ?? 1)
+        : automationFailureAlertsEnabled
+          ? 1
+          : 0;
     const persistedAutomationFailureAlertEmail =
       automationFailureAlertEmail ??
       existing?.automationFailureAlertEmail ??
@@ -68,17 +117,17 @@ export default defineAction({
       .insert(triageConfig)
       .values({
         id: orgId,
-        slackWorkspace,
-        slackChannelId: slackChannelId ?? null,
-        slackChannelName: slackChannelName ?? null,
-        pollingEnabled: pollingEnabled ? 1 : 0,
-        githubPollingEnabled: githubPollingEnabled ? 1 : 0,
-        sentryPollingEnabled: sentryPollingEnabled ? 1 : 0,
-        sentryOrgSlug: sentryOrgSlug ?? null,
-        sentryProjectSlug: sentryProjectSlug ?? null,
-        sentryEnvironment: sentryEnvironment ?? null,
-        repository: repository ?? null,
-        automationFailureAlertsEnabled: automationFailureAlertsEnabled ? 1 : 0,
+        slackWorkspace: persistedSlackWorkspace,
+        slackChannelId: persistedSlackChannelId,
+        slackChannelName: persistedSlackChannelName,
+        pollingEnabled: persistedPollingEnabled,
+        githubPollingEnabled: persistedGithubPollingEnabled,
+        sentryPollingEnabled: persistedSentryPollingEnabled,
+        sentryOrgSlug: persistedSentryOrgSlug,
+        sentryProjectSlug: persistedSentryProjectSlug,
+        sentryEnvironment: persistedSentryEnvironment,
+        repository: persistedRepository,
+        automationFailureAlertsEnabled: persistedAutomationFailureAlertsEnabled,
         automationFailureAlertEmail: persistedAutomationFailureAlertEmail,
         createdAt: now,
         updatedAt: now,
@@ -88,19 +137,18 @@ export default defineAction({
       .onConflictDoUpdate({
         target: triageConfig.id,
         set: {
-          slackWorkspace,
-          slackChannelId: slackChannelId ?? null,
-          slackChannelName: slackChannelName ?? null,
-          pollingEnabled: pollingEnabled ? 1 : 0,
-          githubPollingEnabled: githubPollingEnabled ? 1 : 0,
-          sentryPollingEnabled: sentryPollingEnabled ? 1 : 0,
-          sentryOrgSlug: sentryOrgSlug ?? null,
-          sentryProjectSlug: sentryProjectSlug ?? null,
-          sentryEnvironment: sentryEnvironment ?? null,
-          repository: repository ?? null,
-          automationFailureAlertsEnabled: automationFailureAlertsEnabled
-            ? 1
-            : 0,
+          slackWorkspace: persistedSlackWorkspace,
+          slackChannelId: persistedSlackChannelId,
+          slackChannelName: persistedSlackChannelName,
+          pollingEnabled: persistedPollingEnabled,
+          githubPollingEnabled: persistedGithubPollingEnabled,
+          sentryPollingEnabled: persistedSentryPollingEnabled,
+          sentryOrgSlug: persistedSentryOrgSlug,
+          sentryProjectSlug: persistedSentryProjectSlug,
+          sentryEnvironment: persistedSentryEnvironment,
+          repository: persistedRepository,
+          automationFailureAlertsEnabled:
+            persistedAutomationFailureAlertsEnabled,
           automationFailureAlertEmail: persistedAutomationFailureAlertEmail,
           updatedAt: now,
           ownerEmail: userEmail,
@@ -108,11 +156,12 @@ export default defineAction({
       });
     return {
       ok: true,
-      pollingEnabled,
-      githubPollingEnabled,
-      sentryPollingEnabled,
-      slackChannelId: slackChannelId ?? null,
-      automationFailureAlertsEnabled,
+      pollingEnabled: persistedPollingEnabled === 1,
+      githubPollingEnabled: persistedGithubPollingEnabled === 1,
+      sentryPollingEnabled: persistedSentryPollingEnabled === 1,
+      slackChannelId: persistedSlackChannelId,
+      automationFailureAlertsEnabled:
+        persistedAutomationFailureAlertsEnabled === 1,
       automationFailureAlertEmail: persistedAutomationFailureAlertEmail,
     };
   },

@@ -432,6 +432,25 @@ const messages = {
     nextSync: "下次同步 {{date}}",
     waitingForFirstSync: "等待首次同步",
     manualSync: "手動同步",
+    manualImportTitle: "將 Markdown 匯入 {{source}}",
+    manualImportDescription:
+      "選取資料夾或一批 Markdown 檔案。每個檔案都會成為可搜尋的文件，並遵循此來源的存取設定。",
+    chooseMarkdownFolder: "選取 Markdown 資料夾",
+    importMarkdownFiles: "匯入 Markdown 檔案",
+    manualImportNoFiles: "未選取 Markdown 檔案",
+    manualImportFilesSelected: "已選取 {{count}} 個 Markdown 檔案",
+    manualImportFileLimit:
+      "只會匯入 .md 和 .markdown 檔案。資料夾匯入上限為 100 個檔案和 400 萬個字元。",
+    manualImportSkippedFiles: "將略過 {{count}} 個非 Markdown 檔案。",
+    manualImportMoreFiles: "+{{count}} 個其他檔案",
+    manualImportResult:
+      "{{imported}} 個已匯入、{{queued}} 個已排入蒸餾佇列、{{failed}} 個失敗、{{blocked}} 個遭封鎖",
+    manualImportBlocked: "已由 Brain 隱私權政策封鎖。",
+    manualImportMoreIssues: "+{{count}} 個其他檔案需要注意",
+    archiveSource: "封存來源",
+    archiveSourceTitle: "要封存此來源嗎？",
+    archiveSourceDescription:
+      "{{source}} 將離開使用中的來源清單。其捕獲與知識仍可供稽核，不會被硬刪除。",
     queueDistill: "加入提煉佇列",
     retryDistill: "重試提煉",
     captureStatus: {

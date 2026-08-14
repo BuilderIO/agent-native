@@ -235,7 +235,7 @@ export type CanvasEscapeResult<TObjectId = string> =
       selectedObjectIds: readonly TObjectId[];
     };
 
-export interface CanvasResizeInput {
+export interface CanvasResizeInput extends CanvasModifiers {
   handle: CanvasResizeHandle;
   delta: CanvasPoint;
   preserveAspectRatio?: boolean;
@@ -537,8 +537,8 @@ export function constrainCanvasDragDelta(
 }
 
 /**
- * Resizes against the opposite edge. Shift preserves aspect ratio on corners;
- * midpoint handles stay single-axis so their fixed edge remains predictable.
+ * Resizes against the opposite edge, or from the center with Alt. Shift
+ * preserves aspect ratio on every handle; derived dimensions are centered.
  */
 export function resizeCanvasRect(
   start: CanvasRect,
@@ -554,37 +554,68 @@ export function resizeCanvasRect(
     input.handle === "sw" || input.handle === "s" || input.handle === "se";
   const resizesHorizontally = fromWest || fromEast;
   const resizesVertically = fromNorth || fromSouth;
+  const resizeFromCenter = Boolean(input.altKey);
   let width =
-    start.width + (fromWest ? -input.delta.x : fromEast ? input.delta.x : 0);
+    start.width +
+    (fromWest ? -input.delta.x : fromEast ? input.delta.x : 0) *
+      (resizeFromCenter ? 2 : 1);
   let height =
-    start.height + (fromNorth ? -input.delta.y : fromSouth ? input.delta.y : 0);
+    start.height +
+    (fromNorth ? -input.delta.y : fromSouth ? input.delta.y : 0) *
+      (resizeFromCenter ? 2 : 1);
 
   const minWidth = input.minWidth ?? DEFAULT_CANVAS_MIN_SIZE;
   const minHeight = input.minHeight ?? DEFAULT_CANVAS_MIN_SIZE;
+  const preserveAspectRatio =
+    Boolean(input.preserveAspectRatio) && start.width > 0 && start.height > 0;
+  const widthChange = Math.abs(width - start.width);
+  const heightChange = Math.abs(height - start.height);
+  const derivesHeight =
+    preserveAspectRatio && resizesHorizontally && !resizesVertically;
+  const derivesWidth =
+    preserveAspectRatio && resizesVertically && !resizesHorizontally;
 
-  if (
-    input.preserveAspectRatio &&
-    resizesHorizontally &&
-    resizesVertically &&
-    start.width > 0 &&
-    start.height > 0
-  ) {
-    const horizontalScale = width / start.width;
-    const verticalScale = height / start.height;
-    const scale =
-      Math.abs(horizontalScale - 1) >= Math.abs(verticalScale - 1)
-        ? horizontalScale
-        : verticalScale;
-    const minScale = Math.max(minWidth / start.width, minHeight / start.height);
-    width = start.width * Math.max(minScale, scale);
-    height = start.height * Math.max(minScale, scale);
+  if (derivesHeight) {
+    height = width / (start.width / start.height);
+  } else if (derivesWidth) {
+    width = height * (start.width / start.height);
+  } else if (preserveAspectRatio && resizesHorizontally && resizesVertically) {
+    if (widthChange >= heightChange) {
+      height = width / (start.width / start.height);
+    } else {
+      width = height * (start.width / start.height);
+    }
   }
 
+  const widthBelowMinimum = width < minWidth;
+  const heightBelowMinimum = height < minHeight;
   width = Math.max(minWidth, width);
   height = Math.max(minHeight, height);
+  if (preserveAspectRatio) {
+    if (widthBelowMinimum && !heightBelowMinimum) {
+      height = Math.max(minHeight, width / (start.width / start.height));
+    } else if (heightBelowMinimum && !widthBelowMinimum) {
+      width = Math.max(minWidth, height * (start.width / start.height));
+    } else if (widthBelowMinimum && heightBelowMinimum) {
+      width = Math.max(minWidth, minHeight * (start.width / start.height));
+      height = width / (start.width / start.height);
+    }
+  }
+  const centerDerivedHeight = derivesHeight && !resizeFromCenter;
+  const centerDerivedWidth = derivesWidth && !resizeFromCenter;
   return {
-    x: fromWest ? start.x + start.width - width : start.x,
-    y: fromNorth ? start.y + start.height - height : start.y,
+    x:
+      resizeFromCenter || centerDerivedWidth
+        ? start.x + (start.width - width) / 2
+        : fromWest
+          ? start.x + start.width - width
+          : start.x,
+    y:
+      resizeFromCenter || centerDerivedHeight
+        ? start.y + (start.height - height) / 2
+        : fromNorth
+          ? start.y + start.height - height
+          : start.y,
     width,
     height,
   };
@@ -827,6 +858,7 @@ export function createCanvasGestureController<TObjectId = string>(
       rect: core.resize(gestureStart.rect, {
         handle: gestureStart.handle,
         delta: convertedDelta,
+        altKey: pointer.altKey,
         preserveAspectRatio: Boolean(pointer.shiftKey),
       }),
     };

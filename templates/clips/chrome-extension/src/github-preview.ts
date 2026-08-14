@@ -1,6 +1,6 @@
 import { captureExtensionError, initExtensionSentry } from "./sentry";
 
-initExtensionSentry("github-preview");
+initExtensionSentry("link-preview");
 
 const DEFAULT_HOST = "clips.agent-native.com";
 const CLIPS_HOSTS = new Set(["clips.agent-native.com"]);
@@ -80,7 +80,7 @@ function postHeight(frameId: string): void {
   const height = document.documentElement.scrollHeight;
   window.parent.postMessage(
     {
-      source: "clips-github-preview",
+      source: "clips-link-preview",
       frameId,
       height,
     },
@@ -415,7 +415,7 @@ async function main(): Promise<void> {
     renderPreview(root, preview, await checkPublicPlayable(preview));
   } catch (error) {
     captureExtensionError(error, {
-      tags: { surface: "github-preview" },
+      tags: { surface: "link-preview" },
       extra: { pageUrl: location.href },
     });
   }

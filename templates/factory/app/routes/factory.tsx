@@ -1,11 +1,17 @@
-import { useChatModels } from "@agent-native/core/client/agent-chat";
+import {
+  AgentToggleButton,
+  useChatModels,
+} from "@agent-native/core/client/agent-chat";
 import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { buildSettingsRoute } from "@agent-native/core/client/navigation";
+import { SettingsGroup, SettingsRow } from "@agent-native/core/client/settings";
 import {
   IconAlertCircle,
+  IconArrowLeft,
   IconExternalLink,
   IconLoader2,
   IconPlayerPlay,
@@ -13,8 +19,9 @@ import {
   IconRefresh,
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router";
+import { Link, useSearchParams } from "react-router";
 
+import { FactoryAgentsView } from "@/components/factory/FactoryAgentsView";
 import { FactoryAuditView } from "@/components/factory/FactoryAuditView";
 import {
   FactoryCanvas,
@@ -22,16 +29,14 @@ import {
   type FactoryCanvasGraph,
   type FactoryCanvasNode,
 } from "@/components/factory/FactoryCanvas";
-import {
-  FactoryInspector,
-  type FactoryComment,
-} from "@/components/factory/FactoryInspector";
+import { FactoryInspector } from "@/components/factory/FactoryInspector";
 import { TriageStatusPill } from "@/components/triage/triage-status-pill";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 
 type FactoryGraphResponse = {
@@ -114,10 +119,12 @@ type TriageConfig = {
 
 type Verdict = "correct" | "incorrect" | "uncertain";
 type WorkspaceTab =
+  | "overview"
   | "map"
   | "inbox"
   | "rules"
   | "automations"
+  | "agents"
   | "audit"
   | "settings";
 
@@ -166,7 +173,8 @@ export default function FactoryRoute() {
   const t = useT();
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = parseWorkspaceTab(searchParams.get("tab"));
-  const factoryId = searchParams.get("factoryId") || DEFAULT_FACTORY_ID;
+  const selectedFactoryId = searchParams.get("factoryId");
+  const factoryId = selectedFactoryId ?? DEFAULT_FACTORY_ID;
   const [creating, setCreating] = useState(false);
   const [draftGraph, setDraftGraph] = useState<FactoryCanvasGraph | null>(null);
   const [dirty, setDirty] = useState(false);
@@ -178,7 +186,7 @@ export default function FactoryRoute() {
     setSearchParams(
       (current) => {
         const next = new URLSearchParams(current);
-        if (tab === "map") next.delete("tab");
+        if (tab === "overview") next.delete("tab");
         else next.set("tab", tab);
         return next;
       },
@@ -186,12 +194,45 @@ export default function FactoryRoute() {
     );
   }
 
-  function setFactoryId(nextFactoryId: string) {
+  function openFactory(
+    nextFactoryId: string,
+    options?: { tab?: WorkspaceTab; replace?: boolean },
+  ) {
+    setCreating(false);
+    setDraftGraph(null);
+    setDirty(false);
+    setSelectedNodeId(null);
+    setSelectedEdgeId(null);
     setSearchParams(
       (current) => {
         const next = new URLSearchParams(current);
-        if (nextFactoryId === DEFAULT_FACTORY_ID) next.delete("factoryId");
-        else next.set("factoryId", nextFactoryId);
+        next.set("factoryId", nextFactoryId);
+        next.delete("node");
+        next.delete("edge");
+        next.delete("itemId");
+        next.delete("automationId");
+        next.delete("auditRunId");
+        if (options?.tab) {
+          if (options.tab === "overview") next.delete("tab");
+          else next.set("tab", options.tab);
+        }
+        return next;
+      },
+      { replace: options?.replace ?? true },
+    );
+  }
+
+  function goToFactoryList() {
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        next.delete("factoryId");
+        next.delete("tab");
+        next.delete("node");
+        next.delete("edge");
+        next.delete("itemId");
+        next.delete("automationId");
+        next.delete("auditRunId");
         return next;
       },
       { replace: true },
@@ -199,19 +240,18 @@ export default function FactoryRoute() {
   }
 
   const factoryListQuery = useActionQuery("list-factories", {});
-  const graphQuery = useActionQuery("get-factory-graph", { factoryId });
-  const graphData = graphQuery.data as FactoryGraphResponse | undefined;
+  const graphQuery = useActionQuery(
+    "get-factory-graph",
+    selectedFactoryId ? { factoryId: selectedFactoryId } : undefined,
+    { enabled: Boolean(selectedFactoryId) },
+  );
+  const rawGraphData = graphQuery.data as FactoryGraphResponse | undefined;
+  const graphData =
+    rawGraphData?.factory.id === factoryId ? rawGraphData : undefined;
   const graph = draftGraph ?? graphData?.graph ?? null;
   const graphVersion = graphData?.factory.graphVersion ?? graph?.version ?? 1;
-  const commentsQuery = useActionQuery(
-    "list-factory-comments",
-    { factoryId, graphVersion },
-    { enabled: Boolean(graph) },
-  );
   const saveGraphMutation = useActionMutation("save-factory-graph");
-  const addCommentMutation = useActionMutation("add-factory-comment");
   const factoryList = (factoryListQuery.data ?? []) as FactorySummary[];
-  const comments = (commentsQuery.data ?? []) as FactoryComment[];
 
   useEffect(() => {
     if (!graphData || creating) return;
@@ -226,16 +266,17 @@ export default function FactoryRoute() {
     setSelectedEdgeId(searchParams.get("edge"));
   }, [searchParams]);
 
+  useEffect(() => {
+    if (selectedFactoryId) return;
+    setCreating(false);
+    setDraftGraph(null);
+    setDirty(false);
+    setSelectedNodeId(null);
+    setSelectedEdgeId(null);
+  }, [selectedFactoryId]);
+
   const selectedNode = graph?.nodes.find((node) => node.id === selectedNodeId);
   const selectedEdge = graph?.edges.find((edge) => edge.id === selectedEdgeId);
-  const commentCounts = useMemo(() => {
-    const counts: Record<string, number> = {};
-    for (const comment of comments) {
-      if (comment.targetId)
-        counts[comment.targetId] = (counts[comment.targetId] ?? 0) + 1;
-    }
-    return counts;
-  }, [comments]);
 
   function selectNode(nodeId: string) {
     setSelectedNodeId(nodeId);
@@ -322,30 +363,38 @@ export default function FactoryRoute() {
   }
 
   function startNewFactory() {
-    const base = graph ?? graphData?.graph;
-    if (!base) return;
     const id = `factory-${Date.now().toString(36)}`;
-    setFactoryId(id);
+    openFactory(id, { tab: "overview" });
     setCreating(true);
     setDraftGraph({
-      ...structuredClone(base),
       version: 1,
       name: t("factoryRoute.newFactory"),
       description: t("factoryRoute.newFactoryDescription"),
+      executionMode: "blueprint",
+      nodes: [
+        {
+          id: "start",
+          label: t("factoryRoute.newStep"),
+          description: t("factoryRoute.newStepDescription"),
+          kind: "decision",
+          provider: "factory",
+          position: { x: 240, y: 220 },
+        },
+      ],
+      edges: [],
     });
     setDirty(true);
     setSelectedNodeId(null);
     setSelectedEdgeId(null);
-    setActiveTab("map");
   }
 
   async function saveGraph() {
-    if (!graph) return;
+    if (!graph || !selectedFactoryId) return;
     await saveGraphMutation.mutateAsync({
-      factoryId,
+      factoryId: selectedFactoryId,
       name: graph.name,
       description: graph.description,
-      prompt: graphData?.factory.prompt ?? "",
+      prompt: creating ? "" : (graphData?.factory.prompt ?? ""),
       source: "manual",
       changeSummary: creating
         ? "Created from the Factory visual editor."
@@ -357,65 +406,194 @@ export default function FactoryRoute() {
     await Promise.all([graphQuery.refetch(), factoryListQuery.refetch()]);
   }
 
-  async function addComment(
-    targetType: "canvas" | "node" | "edge",
-    targetId?: string,
-    body?: string,
-  ) {
-    if (!body || !graph) return;
-    await addCommentMutation.mutateAsync({
-      factoryId,
-      graphVersion,
-      targetType,
-      ...(targetId ? { targetId } : {}),
-      body,
-    });
-    await commentsQuery.refetch();
+  if (!selectedFactoryId && activeTab === "agents") {
+    return (
+      <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-background">
+        <div className="flex items-center gap-3 px-4 py-4 lg:px-6">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            aria-label={t("factoryRoute.backToFactories")}
+            onClick={() => setActiveTab("overview")}
+          >
+            <IconArrowLeft className="size-4" />
+          </Button>
+          <h1 className="text-sm font-medium sm:text-base">
+            {t("factoryRoute.agentsTitle")}
+          </h1>
+        </div>
+        <FactoryAgentsView />
+      </div>
+    );
+  }
+
+  if (!selectedFactoryId) {
+    return (
+      <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-background">
+        <section className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-6 p-4 lg:p-6">
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <h1 className="text-2xl font-semibold tracking-tight">Factories</h1>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setActiveTab("agents")}
+              >
+                {t("factoryRoute.agentsTab")}
+              </Button>
+              <Button type="button" size="sm" onClick={startNewFactory}>
+                <IconPlus className="size-4" />
+                {t("factoryRoute.newFactory")}
+              </Button>
+              <AgentToggleButton />
+            </div>
+          </div>
+
+          {factoryListQuery.isError ? (
+            <Card>
+              <CardContent className="p-0">
+                <ErrorState
+                  message="Could not load factories."
+                  onRetry={() => void factoryListQuery.refetch()}
+                />
+              </CardContent>
+            </Card>
+          ) : factoryListQuery.isLoading ? (
+            <div className="grid gap-2">
+              {Array.from({ length: 4 }).map((_, index) => (
+                <div
+                  key={`factory-skeleton-${index}`}
+                  className="grid gap-3 rounded-xl bg-card px-3 py-3 shadow-sm md:grid-cols-[minmax(0,2fr)_minmax(120px,0.8fr)_minmax(70px,auto)_auto] md:items-center"
+                >
+                  <div className="min-w-0 space-y-2">
+                    <div className="h-4 w-2/3 animate-pulse rounded bg-muted" />
+                  </div>
+                  <div className="h-4 w-24 animate-pulse rounded bg-muted" />
+                  <div className="h-4 w-12 animate-pulse rounded bg-muted" />
+                  <div className="h-9 w-20 animate-pulse rounded bg-muted md:ms-auto" />
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="grid gap-2">
+              {factoryList.map((factory) => (
+                <div
+                  key={factory.id}
+                  className="group grid cursor-pointer gap-3 rounded-xl bg-card px-3 py-3 shadow-sm transition-colors hover:bg-accent/25 md:grid-cols-[minmax(0,2fr)_minmax(120px,0.8fr)_minmax(70px,auto)_auto] md:items-center"
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => openFactory(factory.id, { tab: "overview" })}
+                  onKeyDown={(event) => {
+                    if (event.key !== "Enter" && event.key !== " ") return;
+                    event.preventDefault();
+                    openFactory(factory.id, { tab: "overview" });
+                  }}
+                >
+                  <div className="min-w-0">
+                    <h2 className="truncate text-sm font-medium">
+                      {factory.name}
+                    </h2>
+                  </div>
+                  <div className="flex min-w-0 items-center text-xs text-muted-foreground">
+                    {factory.virtual
+                      ? t("factoryRoute.defaultFactoryLabel")
+                      : t("factoryRoute.savedFactoryLabel")}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    v{factory.graphVersion}
+                  </div>
+                  <div className="flex justify-end">
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="md:opacity-0 md:transition-opacity md:group-hover:opacity-100"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        openFactory(factory.id, { tab: "overview" });
+                      }}
+                    >
+                      Open
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      </div>
+    );
   }
 
   if (!graph) {
     return (
-      <div className="flex h-full items-center justify-center p-8 text-sm text-muted-foreground">
-        {graphQuery.isError
-          ? "Could not load this Factory."
-          : "Loading Factory..."}
+      <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
+        <header className="shrink-0 bg-background px-2 sm:px-4 lg:px-6">
+          <div className="flex h-14 items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-1 sm:gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="size-10 shrink-0"
+                onClick={goToFactoryList}
+                aria-label={t("factoryRoute.backToFactories")}
+              >
+                <IconArrowLeft className="size-4" />
+              </Button>
+              <div className="h-5 w-48 animate-pulse rounded bg-muted" />
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="h-9 w-28 animate-pulse rounded bg-muted" />
+              <AgentToggleButton />
+            </div>
+          </div>
+        </header>
+        <main className="flex flex-1 items-center justify-center p-6">
+          {graphQuery.isError ? (
+            <Card className="w-full max-w-lg">
+              <CardContent className="p-0">
+                <ErrorState
+                  message="Could not load this factory."
+                  onRetry={() => void graphQuery.refetch()}
+                />
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="grid w-full max-w-5xl gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+              <div className="h-[420px] animate-pulse rounded-xl bg-card shadow-sm" />
+              <div className="h-[420px] animate-pulse rounded-xl bg-card shadow-sm" />
+            </div>
+          )}
+        </main>
       </div>
     );
   }
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
-      <header className="shrink-0 border-b bg-background px-4 py-2.5 lg:px-6">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <h1 className="truncate text-base font-semibold">{graph.name}</h1>
-              <span className="shrink-0 text-xs text-muted-foreground">
-                v{graphVersion}
-              </span>
-            </div>
-            <p className="hidden truncate text-xs text-muted-foreground md:block">
-              {graph.description}
-            </p>
+      <header className="shrink-0 bg-background">
+        <div className="flex h-14 items-center justify-between gap-3 px-2 sm:px-4 lg:px-6">
+          <div className="flex min-w-0 items-center gap-1 sm:gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-10 shrink-0"
+              onClick={goToFactoryList}
+              aria-label={t("factoryRoute.backToFactories")}
+            >
+              <IconArrowLeft className="size-4" />
+            </Button>
+            <h1 className="truncate text-sm font-medium sm:text-base">
+              {graph.name}
+            </h1>
+            <span className="shrink-0 text-xs text-muted-foreground">
+              v{graphVersion}
+            </span>
           </div>
           <div className="flex items-center gap-2">
-            <select
-              aria-label={t("factoryRoute.selectFactory")}
-              value={factoryId}
-              onChange={(event) => {
-                setFactoryId(event.target.value);
-                setCreating(false);
-                setDraftGraph(null);
-                setDirty(false);
-              }}
-              className="h-9 max-w-[220px] rounded-md border bg-background px-3 text-sm"
-            >
-              {factoryList.map((factory) => (
-                <option key={factory.id} value={factory.id}>
-                  {factory.name}
-                </option>
-              ))}
-            </select>
             <Button
               type="button"
               variant="outline"
@@ -423,26 +601,33 @@ export default function FactoryRoute() {
               onClick={startNewFactory}
             >
               <IconPlus className="size-4" />
-              New
+              {t("factoryRoute.newFactory")}
             </Button>
+            <AgentToggleButton />
           </div>
         </div>
-        <div className="mt-4 flex items-center gap-2">
+        <div className="flex items-center gap-2 overflow-x-auto px-2 py-2 sm:px-4 lg:px-6">
           <nav
-            className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto"
+            className="flex min-w-0 flex-1 items-center gap-1"
             aria-label={t("factoryRoute.factoryViews")}
           >
+            <TabButton
+              active={activeTab === "overview"}
+              onClick={() => setActiveTab("overview")}
+            >
+              Overview
+            </TabButton>
             <TabButton
               active={activeTab === "map"}
               onClick={() => setActiveTab("map")}
             >
-              Map
+              Flow
             </TabButton>
             <TabButton
               active={activeTab === "inbox"}
               onClick={() => setActiveTab("inbox")}
             >
-              Inbox
+              Review
             </TabButton>
             <TabButton
               active={activeTab === "rules"}
@@ -457,10 +642,16 @@ export default function FactoryRoute() {
               {t("factoryRoute.automationsTab")}
             </TabButton>
             <TabButton
+              active={activeTab === "agents"}
+              onClick={() => setActiveTab("agents")}
+            >
+              {t("factoryRoute.agentsTab")}
+            </TabButton>
+            <TabButton
               active={activeTab === "audit"}
               onClick={() => setActiveTab("audit")}
             >
-              {t("factoryRoute.auditTab")}
+              Activity
             </TabButton>
             <TabButton
               active={activeTab === "settings"}
@@ -486,32 +677,24 @@ export default function FactoryRoute() {
       </header>
 
       <main className="min-h-0 flex-1 overflow-y-auto">
-        {activeTab === "map" ? (
-          <div className="grid min-h-full gap-0 xl:grid-cols-[minmax(0,1fr)_360px]">
-            <section className="min-w-0 p-4 lg:p-6">
-              <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-                <span className="text-xs font-medium text-muted-foreground">
-                  {t("factoryRoute.mapEyebrow")}
-                </span>
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <Metric
-                    label={t("factoryRoute.metricSignals")}
-                    value={graphData?.metrics.totalItems ?? 0}
-                  />
-                  <Metric
-                    label={t("factoryRoute.metricDecisions")}
-                    value={graphData?.metrics.decisions ?? 0}
-                  />
-                  <Metric
-                    label={t("factoryRoute.metricRuns")}
-                    value={graphData?.metrics.runs ?? 0}
-                  />
-                </div>
-              </div>
+        {activeTab === "overview" ? (
+          <OverviewView
+            graph={graph}
+            t={t}
+            metrics={graphData?.metrics}
+            nodeMetrics={graphData?.nodeMetrics}
+            onOpenReview={() => setActiveTab("inbox")}
+            onOpenAutomations={() => setActiveTab("automations")}
+            onOpenActivity={() => setActiveTab("audit")}
+            onOpenSettings={() => setActiveTab("settings")}
+            onOpenFlow={() => setActiveTab("map")}
+          />
+        ) : activeTab === "map" ? (
+          <div className="grid min-h-full gap-4 p-4 lg:p-6 xl:grid-cols-[minmax(0,1fr)_360px]">
+            <section className="min-w-0 rounded-xl bg-card p-4 shadow-sm lg:p-6">
               <FactoryCanvas
                 graph={graph}
                 nodeMetrics={graphData?.nodeMetrics}
-                commentCounts={commentCounts}
                 selectedNodeId={selectedNodeId}
                 selectedEdgeId={selectedEdgeId}
                 onSelectNode={selectNode}
@@ -524,27 +707,22 @@ export default function FactoryRoute() {
                     ),
                   });
                 }}
-                onComment={addComment}
               />
-              <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
-                <span>{t("factoryRoute.mapHint")}</span>
-                {dirty && (
-                  <span className="text-amber-700 dark:text-amber-300">
-                    {t("factoryRoute.unsavedChanges")}
-                  </span>
-                )}
-              </div>
+              {dirty && (
+                <p className="mt-3 text-xs text-amber-700 dark:text-amber-300">
+                  {t("factoryRoute.unsavedChanges")}
+                </p>
+              )}
             </section>
             <FactoryInspector
               graph={graph}
               selectedNode={selectedNode}
               selectedEdge={selectedEdge}
-              comments={comments}
+              factoryId={factoryId}
               dirty={dirty}
               saving={saveGraphMutation.isPending}
               onGraphChange={updateGraph}
               onSave={() => void saveGraph()}
-              onAddComment={addComment}
               onAddNode={addNode}
               onDeleteNode={deleteNode}
               onConnect={connectNodes}
@@ -556,6 +734,8 @@ export default function FactoryRoute() {
           <RulesView t={t} />
         ) : activeTab === "automations" ? (
           <AutomationsView factoryId={factoryId} t={t} />
+        ) : activeTab === "agents" ? (
+          <FactoryAgentsView />
         ) : activeTab === "audit" ? (
           <FactoryAuditView
             factoryId={factoryId}
@@ -591,23 +771,123 @@ function TabButton({
 }
 
 function parseWorkspaceTab(value: string | null): WorkspaceTab {
-  return value === "inbox" ||
+  return value === "map" ||
+    value === "inbox" ||
     value === "rules" ||
     value === "automations" ||
+    value === "agents" ||
     value === "audit" ||
     value === "settings"
     ? value
-    : "map";
+    : "overview";
 }
 
-function Metric({ label, value }: { label: string; value: number }) {
+function OverviewView({
+  graph,
+  t,
+  metrics,
+  nodeMetrics,
+  onOpenReview,
+  onOpenAutomations,
+  onOpenActivity,
+  onOpenSettings,
+  onOpenFlow,
+}: {
+  graph: FactoryCanvasGraph;
+  t: ReturnType<typeof useT>;
+  metrics?: FactoryGraphResponse["metrics"];
+  nodeMetrics?: Record<string, number>;
+  onOpenReview: () => void;
+  onOpenAutomations: () => void;
+  onOpenActivity: () => void;
+  onOpenSettings: () => void;
+  onOpenFlow: () => void;
+}) {
   return (
-    <span className="rounded-md border bg-card px-2.5 py-1.5">
-      <span className="font-medium text-foreground">
-        {value.toLocaleString()}
-      </span>{" "}
-      {label}
-    </span>
+    <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 p-4 lg:p-6">
+      <div className="grid gap-3 md:grid-cols-3">
+        <Card>
+          <CardContent className="space-y-1 p-4">
+            <p className="text-sm text-muted-foreground">Signals</p>
+            <p className="text-2xl font-semibold tracking-tight">
+              {(metrics?.totalItems ?? 0).toLocaleString()}
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="space-y-1 p-4">
+            <p className="text-sm text-muted-foreground">Decisions</p>
+            <p className="text-2xl font-semibold tracking-tight">
+              {(metrics?.decisions ?? 0).toLocaleString()}
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="space-y-1 p-4">
+            <p className="text-sm text-muted-foreground">Runs</p>
+            <p className="text-2xl font-semibold tracking-tight">
+              {(metrics?.runs ?? 0).toLocaleString()}
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card className="border-0 bg-muted/20 shadow-none">
+        <CardHeader className="flex-row items-center justify-between gap-3 px-4 pb-0 pt-4">
+          <CardTitle className="text-base">Flow</CardTitle>
+          <Button type="button" variant="ghost" size="sm" onClick={onOpenFlow}>
+            {t("factoryRoute.editFlow")}
+          </Button>
+        </CardHeader>
+        <CardContent className="p-3">
+          <FactoryCanvas graph={graph} nodeMetrics={nodeMetrics} preview />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="flex flex-col gap-4 p-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
+            <span>
+              <span className="text-muted-foreground">Nodes </span>
+              <span className="font-medium">
+                {graph.nodes.length.toLocaleString()}
+              </span>
+            </span>
+            <span>
+              <span className="text-muted-foreground">Connections </span>
+              <span className="font-medium">
+                {graph.edges.length.toLocaleString()}
+              </span>
+            </span>
+            <span>
+              <span className="text-muted-foreground">
+                {t("factoryRoute.auditRuns")}{" "}
+              </span>
+              <span className="font-medium">
+                {(metrics?.completedRuns ?? 0).toLocaleString()}
+              </span>
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="outline" onClick={onOpenReview}>
+              Review
+            </Button>
+            <Button type="button" variant="outline" onClick={onOpenAutomations}>
+              Automations
+            </Button>
+            <Button type="button" variant="outline" onClick={onOpenActivity}>
+              Activity
+            </Button>
+            <Button type="button" variant="outline" onClick={onOpenSettings}>
+              Settings
+            </Button>
+            <Button type="button" onClick={onOpenFlow}>
+              {t("factoryRoute.editFlow")}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
   );
 }
 
@@ -747,7 +1027,7 @@ function AutomationsView({
               </p>
             ) : (
               <div
-                className="divide-y"
+                className="grid gap-1.5 p-2"
                 role="tablist"
                 aria-label={t("factoryRoute.automationsTitle")}
               >
@@ -759,7 +1039,7 @@ function AutomationsView({
                     role="tab"
                     aria-selected={activeAutomationId === automation.id}
                     aria-controls="factory-automation-panel"
-                    className={`w-full cursor-pointer p-4 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${activeAutomationId === automation.id ? "bg-muted/60" : ""}`}
+                    className={`w-full cursor-pointer rounded-lg bg-muted/20 p-4 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${activeAutomationId === automation.id ? "bg-muted/60" : ""}`}
                     onClick={() => selectAutomation(automation.id)}
                   >
                     <span className="block truncate text-sm font-medium">
@@ -786,7 +1066,7 @@ function AutomationsView({
               : undefined
           }
         >
-          <CardHeader className="border-b sm:flex-row sm:items-center sm:justify-between">
+          <CardHeader className="sm:flex-row sm:items-center sm:justify-between">
             <div>
               <CardTitle className="text-base">
                 {t("factoryRoute.automationEditorTitle")}
@@ -843,7 +1123,7 @@ function AutomationsView({
                         setDraft({ ...draft, model: event.target.value })
                       }
                       disabled={modelsLoading && modelOptions.length === 0}
-                      className="h-9 rounded-md border bg-background px-3 text-sm"
+                      className="h-9 rounded-md border bg-card px-3 text-sm"
                     >
                       <option value="auto">{autoModelLabel}</option>
                       {draft.model &&
@@ -922,7 +1202,7 @@ function AutomationsView({
                     {t("factoryRoute.promptEditorHint")}
                   </p>
                 </div>
-                <div className="border-t pt-5">
+                <div className="rounded-lg bg-muted/20 p-3 shadow-sm">
                   <h3 className="text-sm font-medium">
                     {t("factoryRoute.pastRuns")}
                   </h3>
@@ -931,12 +1211,12 @@ function AutomationsView({
                       {t("factoryRoute.pastRunsEmpty")}
                     </p>
                   ) : (
-                    <div className="mt-3 divide-y rounded-md border">
+                    <div className="mt-3 grid gap-2">
                       {(draft.runs ?? draft.pastRuns ?? []).map(
                         (run, index) => (
                           <div
                             key={run.id ?? `${draft.id}-run-${index}`}
-                            className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm"
+                            className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-card px-3 py-2 text-sm shadow-sm"
                           >
                             <span className="font-medium">
                               {run.status ?? "-"}
@@ -1049,14 +1329,9 @@ function InboxView({ t }: { t: ReturnType<typeof useT> }) {
   return (
     <div className="grid gap-4 p-4 lg:grid-cols-[minmax(0,1.3fr)_minmax(320px,.7fr)] lg:p-6">
       <Card>
-        <CardHeader className="gap-3 border-b sm:flex-row sm:items-end sm:justify-between">
+        <CardHeader className="gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <CardTitle className="text-base">
-              {t("factoryRoute.inboxTitle")}
-            </CardTitle>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {t("factoryRoute.inboxDescription")}
-            </p>
+            <CardTitle className="text-base">Review</CardTitle>
           </div>
           <div className="flex items-end gap-2">
             <div className="grid gap-1.5">
@@ -1095,14 +1370,14 @@ function InboxView({ t }: { t: ReturnType<typeof useT> }) {
               {t("triage.empty")}
             </p>
           ) : (
-            <div className="divide-y">
+            <div className="grid gap-1.5 p-2">
               {normalizedItems.map((item) => {
                 const id = item.itemId ?? item.id ?? "";
                 return (
                   <button
                     key={id}
                     type="button"
-                    className={`grid w-full gap-3 p-4 text-left transition-colors hover:bg-muted/50 sm:grid-cols-[1.1fr_.7fr_.9fr_1.6fr] ${selectedId === id ? "bg-muted/60" : ""}`}
+                    className={`grid w-full gap-3 rounded-lg bg-muted/20 p-4 text-left transition-colors hover:bg-muted/50 sm:grid-cols-[1.1fr_.7fr_.9fr_1.6fr] ${selectedId === id ? "bg-muted/60" : ""}`}
                     onClick={() => selectItem(id)}
                   >
                     <span className="min-w-0">
@@ -1199,13 +1474,13 @@ function InboxView({ t }: { t: ReturnType<typeof useT> }) {
                   {selectedItem.decisionSummary}
                 </p>
               )}
-              <div className="border-t pt-4">
+              <div className="rounded-lg bg-muted/20 p-3 shadow-sm">
                 <p className="text-sm font-medium">{t("triage.decisions")}</p>
                 {selectedItem.decisions?.length ? (
                   selectedItem.decisions.map((decision) => (
                     <div
                       key={decision.decisionId}
-                      className="mt-3 space-y-3 rounded-md border p-3"
+                      className="mt-3 space-y-3 rounded-lg bg-card p-3 shadow-sm"
                     >
                       <p className="text-sm">
                         {decision.summary ?? decision.reason}
@@ -1279,10 +1554,9 @@ function RulesView({ t }: { t: ReturnType<typeof useT> }) {
     <div className="grid gap-4 p-4 lg:grid-cols-[280px_minmax(0,1fr)] lg:p-6">
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Rules</CardTitle>
-          <p className="text-sm text-muted-foreground">
-            {t("factoryRoute.rulesDescription")}
-          </p>
+          <CardTitle className="text-base">
+            {t("factoryRoute.rulesTitle")}
+          </CardTitle>
         </CardHeader>
         <CardContent className="space-y-2">
           <Button
@@ -1305,7 +1579,9 @@ function RulesView({ t }: { t: ReturnType<typeof useT> }) {
               onClick={() => selectRule(rule)}
             >
               <span className="min-w-0 truncate">{rule.name}</span>
-              <span className="text-xs text-muted-foreground">Shadow</span>
+              <span className="text-xs text-muted-foreground">
+                {t("factoryRoute.shadowLabel")}
+              </span>
             </Button>
           ))}
         </CardContent>
@@ -1317,13 +1593,15 @@ function RulesView({ t }: { t: ReturnType<typeof useT> }) {
               {t("factoryRoute.editRule")}
             </CardTitle>
             <p className="mt-1 text-sm text-muted-foreground">
-              Use prompts for classification; keep safety in structured guards.
+              {t("factoryRoute.rulesGuidance")}
             </p>
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-1.5">
-            <Label htmlFor="factory-rule-name">Name</Label>
+            <Label htmlFor="factory-rule-name">
+              {t("factoryRoute.ruleNameLabel")}
+            </Label>
             <Input
               id="factory-rule-name"
               value={name}
@@ -1361,7 +1639,7 @@ function RulesView({ t }: { t: ReturnType<typeof useT> }) {
             disabled={!name.trim() || !prompt.trim() || saveMutation.isPending}
           >
             {saveMutation.isPending && <IconLoader2 className="animate-spin" />}
-            Save rule
+            {t("factoryRoute.saveRule")}
           </Button>
         </CardContent>
       </Card>
@@ -1370,18 +1648,6 @@ function RulesView({ t }: { t: ReturnType<typeof useT> }) {
 }
 
 function SettingsView({ t }: { t: ReturnType<typeof useT> }) {
-  const [workspace, setWorkspace] = useState<"primary" | "secondary">(
-    "primary",
-  );
-  const [channelId, setChannelId] = useState("");
-  const [channelName, setChannelName] = useState("");
-  const [repository, setRepository] = useState("");
-  const [polling, setPolling] = useState(false);
-  const [githubPolling, setGithubPolling] = useState(false);
-  const [sentryPolling, setSentryPolling] = useState(false);
-  const [sentryOrgSlug, setSentryOrgSlug] = useState("");
-  const [sentryProjectSlug, setSentryProjectSlug] = useState("");
-  const [sentryEnvironment, setSentryEnvironment] = useState("");
   const [automationFailureAlertsEnabled, setAutomationFailureAlertsEnabled] =
     useState(true);
   const [automationFailureAlertEmail, setAutomationFailureAlertEmail] =
@@ -1393,219 +1659,125 @@ function SettingsView({ t }: { t: ReturnType<typeof useT> }) {
     { refetchInterval: 60_000 },
   );
   const mutation = useActionMutation("save-triage-config");
+
   useEffect(() => {
     const data = query.data as TriageConfig | undefined;
     if (!data) return;
-    setWorkspace(data.slackWorkspace ?? "primary");
-    setChannelId(data.slackChannelId ?? "");
-    setChannelName(data.slackChannelName ?? "");
-    setRepository(data.repository ?? "");
-    setPolling(data.pollingEnabled ?? false);
-    setGithubPolling(data.githubPollingEnabled ?? false);
-    setSentryPolling(data.sentryPollingEnabled ?? false);
-    setSentryOrgSlug(data.sentryOrgSlug ?? "");
-    setSentryProjectSlug(data.sentryProjectSlug ?? "");
-    setSentryEnvironment(data.sentryEnvironment ?? "");
     setAutomationFailureAlertsEnabled(
       data.automationFailureAlertsEnabled ?? true,
     );
     setAutomationFailureAlertEmail(data.automationFailureAlertEmail ?? "");
   }, [query.data]);
+
+  const saveSettings = () => {
+    mutation.mutate({
+      automationFailureAlertsEnabled,
+      ...(automationFailureAlertEmail.trim()
+        ? { automationFailureAlertEmail: automationFailureAlertEmail.trim() }
+        : {}),
+    });
+  };
+
+  if (query.isLoading) {
+    return (
+      <div className="mx-auto w-full max-w-3xl space-y-6 p-4 lg:p-6">
+        <FactorySettingsSkeleton t={t} />
+      </div>
+    );
+  }
+
   return (
-    <div className="max-w-4xl space-y-4 p-4 lg:p-6">
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">
-            {t("triage.settingsTitle")}
-          </CardTitle>
-          <p className="text-sm text-muted-foreground">
-            {t("factoryRoute.settingsDescription")}
-          </p>
-        </CardHeader>
-        <CardContent className="grid gap-4 sm:grid-cols-2">
-          <div className="grid gap-1.5">
-            <Label htmlFor="factory-slack-workspace">
-              {t("triage.slackWorkspace")}
-            </Label>
-            <select
-              id="factory-slack-workspace"
-              value={workspace}
-              onChange={(event) =>
-                setWorkspace(event.target.value as "primary" | "secondary")
+    <div className="mx-auto w-full max-w-3xl space-y-6 p-4 lg:p-6">
+      <SettingsGroup variant="soft">
+        <SettingsRow
+          label={t("factoryRoute.workspaceIntegrations")}
+          description={t("settings.workspaceDescription")}
+          control={
+            <Button asChild type="button" variant="outline">
+              <Link to={buildSettingsRoute("integrations")}>Manage</Link>
+            </Button>
+          }
+        />
+        <SettingsRow
+          label={t("factoryRoute.agentAccess")}
+          description={t("settings.agentDescription")}
+          control={
+            <Button asChild type="button" variant="outline">
+              <Link to={buildSettingsRoute("agent")}>Manage</Link>
+            </Button>
+          }
+        />
+      </SettingsGroup>
+
+      <SettingsGroup variant="soft">
+        <SettingsRow
+          label={t("factoryRoute.automationFailureAlertsTitle")}
+          description={t("factoryRoute.automationFailureAlertsDescription")}
+          control={
+            <Switch
+              aria-label={t("factoryRoute.automationFailureAlertsEnabled")}
+              checked={automationFailureAlertsEnabled}
+              onCheckedChange={(checked) =>
+                setAutomationFailureAlertsEnabled(checked === true)
               }
-              className="h-9 rounded-md border bg-background px-3 text-sm"
-            >
-              <option value="primary">primary</option>
-              <option value="secondary">secondary</option>
-            </select>
-          </div>
-          <div className="grid gap-1.5">
-            <Label htmlFor="factory-slack-channel-id">
-              {t("triage.slackChannelId")}
-            </Label>
+            />
+          }
+        />
+        <SettingsRow
+          label={t("factoryRoute.automationFailureAlertEmail")}
+          description={t("factoryRoute.automationFailureAlertEmailPlaceholder")}
+          control={
             <Input
-              id="factory-slack-channel-id"
-              value={channelId}
-              onChange={(event) => setChannelId(event.target.value)}
-              placeholder="C0123456789"
+              aria-label={t("factoryRoute.automationFailureAlertEmail")}
+              type="email"
+              value={automationFailureAlertEmail}
+              onChange={(event) =>
+                setAutomationFailureAlertEmail(event.target.value)
+              }
+              placeholder={t(
+                "factoryRoute.automationFailureAlertEmailPlaceholder",
+              )}
+              className="h-9 w-full sm:w-64"
             />
-          </div>
-          <div className="grid gap-1.5">
-            <Label htmlFor="factory-slack-channel-name">
-              {t("triage.slackChannelName")}
-            </Label>
-            <Input
-              id="factory-slack-channel-name"
-              value={channelName}
-              onChange={(event) => setChannelName(event.target.value)}
-              placeholder="product-agent-native-feedback"
-            />
-          </div>
-          <div className="grid gap-1.5">
-            <Label htmlFor="factory-repository">{t("triage.repository")}</Label>
-            <Input
-              id="factory-repository"
-              value={repository}
-              onChange={(event) => setRepository(event.target.value)}
-              placeholder={t("triage.repositoryPlaceholder")}
-            />
-          </div>
-          <label className="flex items-center gap-2 text-sm sm:col-span-2">
-            <Checkbox
-              checked={polling}
-              onCheckedChange={(checked) => setPolling(checked === true)}
-            />
-            {t("triage.enablePolling")}
-          </label>
-          <label className="flex items-center gap-2 text-sm sm:col-span-2">
-            <Checkbox
-              checked={githubPolling}
-              onCheckedChange={(checked) => setGithubPolling(checked === true)}
-            />
-            {t("triage.enableGithubPolling")}
-          </label>
-          <div className="grid gap-1.5">
-            <Label htmlFor="factory-sentry-org">
-              {t("triage.sentryOrgSlug")}
-            </Label>
-            <Input
-              id="factory-sentry-org"
-              value={sentryOrgSlug}
-              onChange={(event) => setSentryOrgSlug(event.target.value)}
-              placeholder={t("triage.sentryOrgPlaceholder")}
-            />
-          </div>
-          <div className="grid gap-1.5">
-            <Label htmlFor="factory-sentry-project">
-              {t("triage.sentryProjectSlug")}
-            </Label>
-            <Input
-              id="factory-sentry-project"
-              value={sentryProjectSlug}
-              onChange={(event) => setSentryProjectSlug(event.target.value)}
-              placeholder={t("triage.sentryProjectPlaceholder")}
-            />
-          </div>
-          <div className="grid gap-1.5">
-            <Label htmlFor="factory-sentry-environment">
-              {t("triage.sentryEnvironment")}
-            </Label>
-            <Input
-              id="factory-sentry-environment"
-              value={sentryEnvironment}
-              onChange={(event) => setSentryEnvironment(event.target.value)}
-              placeholder={t("triage.sentryEnvironmentPlaceholder")}
-            />
-          </div>
-          <label className="flex items-center gap-2 text-sm sm:col-span-2">
-            <Checkbox
-              checked={sentryPolling}
-              onCheckedChange={(checked) => setSentryPolling(checked === true)}
-            />
-            {t("triage.enableSentryPolling")}
-          </label>
-          <div className="space-y-3 border-t pt-4 sm:col-span-2">
-            <div>
-              <h3 className="text-sm font-medium">
-                {t("factoryRoute.automationFailureAlertsTitle")}
-              </h3>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {t("factoryRoute.automationFailureAlertsDescription")}
-              </p>
-            </div>
-            <label className="flex items-center gap-2 text-sm">
-              <Checkbox
-                checked={automationFailureAlertsEnabled}
-                onCheckedChange={(checked) =>
-                  setAutomationFailureAlertsEnabled(checked === true)
-                }
-              />
-              {t("factoryRoute.automationFailureAlertsEnabled")}
-            </label>
-            <div className="grid gap-1.5 sm:max-w-md">
-              <Label htmlFor="factory-automation-failure-email">
-                {t("factoryRoute.automationFailureAlertEmail")}
-              </Label>
-              <Input
-                id="factory-automation-failure-email"
-                type="email"
-                value={automationFailureAlertEmail}
-                onChange={(event) =>
-                  setAutomationFailureAlertEmail(event.target.value)
-                }
-                placeholder={t(
-                  "factoryRoute.automationFailureAlertEmailPlaceholder",
-                )}
-              />
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {t("factoryRoute.automationFailureEmailReadiness")}:{" "}
+          }
+        />
+        <SettingsRow
+          label={t("factoryRoute.automationFailureEmailReadiness")}
+          description={t("factoryRoute.automationEmailReadinessHint")}
+          control={
+            <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
               {(query.data as TriageConfig | undefined)?.emailReadiness
                 ?.status ?? "unknown"}
-            </p>
-            <p className="text-xs text-muted-foreground">
-              {t("factoryRoute.automationEmailReadinessHint")}
-            </p>
-            {query.isError && (
-              <p className="text-xs text-destructive">
-                {t("factoryRoute.automationDiagnosticsLoadError")}{" "}
-                {query.error instanceof Error
-                  ? query.error.message
-                  : String(query.error)}
-              </p>
-            )}
+            </span>
+          }
+        />
+        {query.isError && (
+          <div className="px-5 py-3 text-xs text-destructive sm:px-6">
+            {t("factoryRoute.automationDiagnosticsLoadError")}{" "}
+            {query.error instanceof Error
+              ? query.error.message
+              : String(query.error)}
           </div>
-          <div className="sm:col-span-2">
-            <Button
-              onClick={() =>
-                mutation.mutate({
-                  slackWorkspace: workspace,
-                  slackChannelId: channelId,
-                  slackChannelName: channelName,
-                  repository,
-                  pollingEnabled: polling,
-                  githubPollingEnabled: githubPolling,
-                  sentryPollingEnabled: sentryPolling,
-                  sentryOrgSlug,
-                  sentryProjectSlug,
-                  sentryEnvironment,
-                  automationFailureAlertsEnabled,
-                  ...(automationFailureAlertEmail.trim()
-                    ? {
-                        automationFailureAlertEmail:
-                          automationFailureAlertEmail.trim(),
-                      }
-                    : {}),
-                })
-              }
-              disabled={mutation.isPending}
-            >
-              {mutation.isPending && <IconLoader2 className="animate-spin" />}
-              {t("triage.saveSettings")}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+        )}
+      </SettingsGroup>
+
+      <div className="flex flex-wrap items-center justify-end gap-3">
+        {mutation.isError && (
+          <p className="text-sm text-destructive" role="alert">
+            {t("triage.settingsError")}
+          </p>
+        )}
+        {mutation.isSuccess && (
+          <p className="text-sm text-muted-foreground" role="status">
+            {t("triage.settingsSaved")}
+          </p>
+        )}
+        <Button onClick={saveSettings} disabled={mutation.isPending}>
+          {mutation.isPending && <IconLoader2 className="animate-spin" />}
+          {t("triage.saveSettings")}
+        </Button>
+      </div>
+
       <SchedulerHealthStatus
         health={schedulerHealthQuery.data}
         isError={schedulerHealthQuery.isError}
@@ -1616,6 +1788,27 @@ function SettingsView({ t }: { t: ReturnType<typeof useT> }) {
   );
 }
 
+function FactorySettingsSkeleton({ t }: { t: ReturnType<typeof useT> }) {
+  return (
+    <div className="space-y-6" aria-label={t("triage.loading")}>
+      {Array.from({ length: 2 }).map((_, index) => (
+        <div key={index} className="grid gap-2">
+          <div className="grid gap-2">
+            {Array.from({ length: index === 0 ? 5 : 3 }).map((_, rowIndex) => (
+              <div
+                key={rowIndex}
+                className="flex min-h-20 items-center justify-between gap-4 rounded-xl bg-card px-5 py-4 shadow-sm sm:px-6"
+              >
+                <div className="h-3.5 w-36 animate-pulse rounded bg-muted" />
+                <div className="h-9 w-24 animate-pulse rounded bg-muted" />
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
 function SchedulerHealthStatus({
   health,
   isError,
@@ -1641,72 +1834,44 @@ function SchedulerHealthStatus({
     !isError &&
     (!health || health.status === "no-data") &&
     !health?.lastCheckedAt;
-  const hasDiagnostics =
-    isError ||
-    hasNoHeartbeat ||
-    health?.status === "stale" ||
-    health?.status === "error" ||
-    Boolean(health?.lastError);
+  const healthDescription = isError
+    ? `${t("factoryRoute.automationDiagnosticsLoadError")} ${error instanceof Error ? error.message : String(error)}`
+    : health?.lastError
+      ? `${t("factoryRoute.automationHealthErrorDetail")}: ${health.lastError}`
+      : health?.status === "stale"
+        ? t("factoryRoute.automationHealthStaleHint")
+        : hasNoHeartbeat
+          ? t("factoryRoute.automationHealthNoDataHint")
+          : undefined;
 
   return (
-    <section
-      aria-labelledby="factory-scheduler-health"
-      className="border-t px-1 pt-4"
-    >
-      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <h2
-            id="factory-scheduler-health"
-            className="text-sm font-medium text-muted-foreground"
-          >
-            {t("factoryRoute.automationHealthTitle")}
-          </h2>
-          <span className="rounded-full border px-2 py-0.5 text-xs font-medium">
-            {healthLabel}
-          </span>
-        </div>
-        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-          {health?.lastCheckedAt && (
-            <span>
-              {t("factoryRoute.automationLastCheck")}:{" "}
-              {formatAutomationDate(health.lastCheckedAt)}
+    <SettingsGroup variant="soft">
+      <SettingsRow
+        label={t("factoryRoute.automationHealthTitle")}
+        description={
+          healthDescription ?? t("factoryRoute.automationHealthDescription")
+        }
+        control={
+          <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-1">
+            <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium">
+              {healthLabel}
             </span>
-          )}
-          {health?.lastDispatchedAt && (
-            <span>
-              {t("factoryRoute.automationLastDispatch")}:{" "}
-              {formatAutomationDate(health.lastDispatchedAt)}
-            </span>
-          )}
-        </div>
-      </div>
-      {hasDiagnostics && (
-        <div className="mt-2 grid gap-1 text-xs">
-          {hasNoHeartbeat && (
-            <p className="text-muted-foreground">
-              {t("factoryRoute.automationHealthNoDataHint")}
-            </p>
-          )}
-          {health?.status === "stale" && (
-            <p className="text-destructive">
-              {t("factoryRoute.automationHealthStaleHint")}
-            </p>
-          )}
-          {health?.lastError && (
-            <p className="text-destructive">
-              {t("factoryRoute.automationHealthErrorDetail")}:{" "}
-              {health.lastError}
-            </p>
-          )}
-          {isError && (
-            <p className="text-destructive">
-              {t("factoryRoute.automationDiagnosticsLoadError")}{" "}
-              {error instanceof Error ? error.message : String(error)}
-            </p>
-          )}
-        </div>
-      )}
-    </section>
+            {health?.lastCheckedAt && (
+              <span className="text-xs text-muted-foreground">
+                {t("factoryRoute.automationLastCheck")}:{" "}
+                {formatAutomationDate(health.lastCheckedAt)}
+              </span>
+            )}
+            {health?.lastDispatchedAt && (
+              <span className="text-xs text-muted-foreground">
+                {t("factoryRoute.automationLastDispatch")}:{" "}
+                {formatAutomationDate(health.lastDispatchedAt)}
+              </span>
+            )}
+          </div>
+        }
+      />
+    </SettingsGroup>
   );
 }
 

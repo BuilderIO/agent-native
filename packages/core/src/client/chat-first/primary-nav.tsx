@@ -17,6 +17,8 @@ export function ChatFirstPrimaryNavigation({
   onOpenScheduled,
   onSearch,
   activeTab,
+  collapsed = false,
+  stickyNewChat = false,
   copy = defaultChatFirstCopy,
 }: {
   onNewChat?: () => void;
@@ -24,6 +26,8 @@ export function ChatFirstPrimaryNavigation({
   onOpenScheduled: () => void;
   onSearch?: () => void;
   activeTab?: ChatFirstPrimaryTab;
+  collapsed?: boolean;
+  stickyNewChat?: boolean;
   copy?: ChatFirstCopy;
 }) {
   const tabClassName = (tab: ChatFirstPrimaryTab) =>
@@ -37,17 +41,81 @@ export function ChatFirstPrimaryNavigation({
     tab: ChatFirstPrimaryTab,
     content: ReactNode,
     onSelect: () => void,
+    className?: string,
   ) => (
     <button
       type="button"
       role="tab"
       aria-selected={activeTab === tab}
-      className={tabClassName(tab)}
+      aria-label={tab === "new-chat" ? copy("newChat") : undefined}
+      title={tab === "new-chat" && collapsed ? copy("newChat") : undefined}
+      className={[tabClassName(tab), className].filter(Boolean).join(" ")}
       onClick={onSelect}
     >
       {content}
     </button>
   );
+
+  const newChatTab = onNewChat
+    ? renderTab(
+        "new-chat",
+        <>
+          <IconPlus size={15} className="shrink-0" aria-hidden="true" />
+          <span className={collapsed ? "sr-only" : undefined}>
+            {copy("newChat")}
+          </span>
+        </>,
+        onNewChat,
+        "code-agents-primary-new-chat",
+      )
+    : null;
+  const integrationsTab = renderTab(
+    "integrations",
+    <>
+      <IconPlugConnected size={15} className="shrink-0" aria-hidden="true" />
+      <span>{copy("integrations")}</span>
+    </>,
+    onOpenIntegrations,
+  );
+  const scheduledTab = renderTab(
+    "scheduled",
+    <>
+      <IconClock size={15} className="shrink-0" aria-hidden="true" />
+      <span>{copy("scheduled")}</span>
+    </>,
+    onOpenScheduled,
+  );
+  const searchAction = onSearch ? (
+    <button
+      type="button"
+      className="mt-px flex h-8 w-full items-center gap-2 rounded-md px-2 text-[13px] font-medium text-sidebar-foreground/80 transition-[background-color,color] hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      onClick={onSearch}
+    >
+      <IconSearch size={15} className="shrink-0" aria-hidden="true" />
+      <span>{copy("search")}</span>
+    </button>
+  ) : null;
+
+  if (stickyNewChat) {
+    return (
+      <>
+        {newChatTab ? (
+          <div className="code-agents-primary-new-chat-shell">{newChatTab}</div>
+        ) : null}
+        <div className="code-agents-nav-list" aria-label="Agent navigation">
+          <div
+            role="tablist"
+            aria-label="Primary navigation"
+            className="grid gap-px"
+          >
+            {integrationsTab}
+            {scheduledTab}
+          </div>
+          {searchAction}
+        </div>
+      </>
+    );
+  }
 
   return (
     <div>
@@ -56,47 +124,11 @@ export function ChatFirstPrimaryNavigation({
         aria-label="Primary navigation"
         className="grid gap-px"
       >
-        {onNewChat
-          ? renderTab(
-              "new-chat",
-              <>
-                <IconPlus size={15} className="shrink-0" aria-hidden="true" />
-                <span>{copy("newChat")}</span>
-              </>,
-              onNewChat,
-            )
-          : null}
-        {renderTab(
-          "integrations",
-          <>
-            <IconPlugConnected
-              size={15}
-              className="shrink-0"
-              aria-hidden="true"
-            />
-            <span>{copy("integrations")}</span>
-          </>,
-          onOpenIntegrations,
-        )}
-        {renderTab(
-          "scheduled",
-          <>
-            <IconClock size={15} className="shrink-0" aria-hidden="true" />
-            <span>{copy("scheduled")}</span>
-          </>,
-          onOpenScheduled,
-        )}
+        {newChatTab}
+        {integrationsTab}
+        {scheduledTab}
       </div>
-      {onSearch ? (
-        <button
-          type="button"
-          className="mt-px flex h-8 w-full items-center gap-2 rounded-md px-2 text-[13px] font-medium text-sidebar-foreground/80 transition-[background-color,color] hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          onClick={onSearch}
-        >
-          <IconSearch size={15} className="shrink-0" aria-hidden="true" />
-          <span>{copy("search")}</span>
-        </button>
-      ) : null}
+      {searchAction}
     </div>
   );
 }

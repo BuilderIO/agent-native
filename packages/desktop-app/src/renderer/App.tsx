@@ -21,6 +21,7 @@ import AppSettings, {
 } from "./components/AppSettings.js";
 import AppWebview, { type AppWebviewHandle } from "./components/AppWebview.js";
 import CodeAgentsHub from "./components/CodeAgentsHub.js";
+import DesktopAppChatShell from "./components/DesktopAppChatShell.js";
 import Sidebar, { WindowControls } from "./components/Sidebar.js";
 import TabBar from "./components/TabBar.js";
 import UpdatePrompt from "./components/UpdatePrompt.js";
@@ -806,7 +807,7 @@ export default function App() {
       }
 
       if (k === "\\") {
-        webviewRefs.current.get(activeTabIdRef.current)?.toggleAgentSidebar();
+        window.dispatchEvent(new Event("agent-panel:toggle"));
         return;
       }
 
@@ -867,6 +868,11 @@ export default function App() {
       const isSidebarToggle = isAgentSidebarToggleShortcut(e);
       if (!isSidebarToggle && isEditableTarget(e.target)) return;
       e.preventDefault();
+      // AgentSidebar owns the document-level shell shortcut. The App listener
+      // only needs to handle the same key when Electron forwards a guest
+      // webview keydown through the main process; letting both paths dispatch
+      // would toggle the rail twice for shell-originated keydowns.
+      if (isSidebarToggle) return;
       handleShortcut(
         e.code === "Backslash" ? "\\" : e.key,
         e.shiftKey,
@@ -1043,6 +1049,28 @@ export default function App() {
     }
   }
 
+  const activeApp = visibleEnabledApps.find(
+    (app) => app.id === activeSidebarAppId,
+  );
+  const webviewContent = allWebviews.map(({ tab, app, appDef, isActive }) => (
+    <AppWebview
+      key={tab.id}
+      ref={(instance) => {
+        if (instance) webviewRefs.current.set(tab.id, instance);
+        else webviewRefs.current.delete(tab.id);
+      }}
+      app={appDef}
+      appConfig={app}
+      isActive={isActive}
+      urlOpenNonce={tab.urlOpenNonce}
+      urlPath={tab.urlPath}
+      urlOpenSoft={tab.urlOpenSoft}
+      refreshKey={isActive ? refreshKey : 0}
+      onTitleChange={(title) => handleTabTitleChange(tab.id, title)}
+      onAppsChanged={handleAppsChanged}
+    />
+  ));
+
   return (
     <div className="shell">
       {isChatFirstActive ? (
@@ -1191,25 +1219,13 @@ export default function App() {
               />
             </div>
           )}
-          {!isCodeAgentsActive &&
-            allWebviews.map(({ tab, app, appDef, isActive }) => (
-              <AppWebview
-                key={tab.id}
-                ref={(instance) => {
-                  if (instance) webviewRefs.current.set(tab.id, instance);
-                  else webviewRefs.current.delete(tab.id);
-                }}
-                app={appDef}
-                appConfig={app}
-                isActive={isActive}
-                urlOpenNonce={tab.urlOpenNonce}
-                urlPath={tab.urlPath}
-                urlOpenSoft={tab.urlOpenSoft}
-                refreshKey={isActive ? refreshKey : 0}
-                onTitleChange={(title) => handleTabTitleChange(tab.id, title)}
-                onAppsChanged={handleAppsChanged}
-              />
-            ))}
+          {!isCodeAgentsActive && activeApp ? (
+            <DesktopAppChatShell appId={activeApp.id} appName={activeApp.name}>
+              {webviewContent}
+            </DesktopAppChatShell>
+          ) : (
+            !isCodeAgentsActive && webviewContent
+          )}
         </div>
       </div>
 

@@ -17,7 +17,7 @@ description: "多用户协作编辑，其中 AI 代理是一流的同行：CRDT 
 与代理一起编辑感觉就像在协作编辑器中工作
 一位既快速又不知疲倦的同事：
 
-如果您只需要在代理或其他用户写入 SQL 时刷新 UI，则不需要任何这些 — 使用 [`useDbSync`](/docs/client)。此页面用于对单个富文本文档进行字符级共同编辑（共享光标、无冲突合并）。两者都使用相同的 `/_agent-native/poll` 通道。
+如果您只需要在代理或其他用户写入 SQL 时刷新 UI，则不需要任何这些 — 使用 [`useDbSync`](/docs/client-data#usedbsync)。此页面用于对单个富文本文档进行字符级共同编辑（共享光标、无冲突合并）。两者都使用相同的 `/_agent-native/poll` 通道。
 
 它建立在三项经过实战检验的技术之上：**Yjs**（CRDT，用于无冲突合并）、**TipTap**（富文本编辑器）和**基于轮询的同步**（适用于所有部署环境，包括无服务器和边缘）。
 
@@ -764,7 +764,7 @@ Use `emailToColor(email)` and `emailToName(email)` from
 
 ## 相关文档 {#related}
 
-- [Real-Time Sync](/docs/client#usedbsync) — `useDbSync` + `useChangeVersion`
+- [同步内部机制](/docs/client-sync-internals) — `useDbSync` + `useChangeVersion`
   提供 `updatedAt` 碰撞驱动编辑器协调的系统。
 - [Security](/docs/security) — `registerShareableResource`, `resolveAccess`,
   和 `assertAccess`，用于资源范围内的协作。

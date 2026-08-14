@@ -20,7 +20,12 @@ import {
 } from "./actions/share-resource.js";
 import unshareResource from "./actions/unshare-resource.js";
 import { registerShareableResource } from "./registry.js";
-import { createSharesTable, type ShareRole } from "./schema.js";
+import {
+  createSharesTable,
+  ROLE_RANK,
+  roleSatisfies,
+  type ShareRole,
+} from "./schema.js";
 
 const resourceType = "qa-doc";
 const ownerEmail = "owner+qa@example.com";
@@ -130,6 +135,13 @@ afterEach(() => {
 });
 
 describe("shareable resource access helpers", () => {
+  it("keeps viewer read-only while granting commenter comment capability", () => {
+    expect(ROLE_RANK.commenter).toBeGreaterThan(ROLE_RANK.viewer);
+    expect(roleSatisfies("viewer", "commenter")).toBe(false);
+    expect(roleSatisfies("commenter", "commenter")).toBe(true);
+    expect(roleSatisfies("commenter", "editor")).toBe(false);
+  });
+
   it("recognizes reserved synthetic QA emails so share notifications can be suppressed", () => {
     expect(isSyntheticQaEmail("steve+qa-tools-123@example.test")).toBe(true);
     expect(isSyntheticQaEmail("codex+qa-lane@example.invalid")).toBe(true);

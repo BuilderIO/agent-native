@@ -124,9 +124,12 @@ export type DesignBottomToolbarMode = "editor" | "commenter" | "hidden";
 export function getDesignBottomToolbarMode(args: {
   isSignedIn: boolean;
   canEditDesign: boolean;
+  canCommentDesign: boolean;
   hasActiveFile: boolean;
 }): DesignBottomToolbarMode {
-  if (!args.isSignedIn || !args.hasActiveFile) return "hidden";
+  if (!args.isSignedIn || !args.hasActiveFile || !args.canCommentDesign) {
+    return "hidden";
+  }
   return args.canEditDesign ? "editor" : "commenter";
 }
 

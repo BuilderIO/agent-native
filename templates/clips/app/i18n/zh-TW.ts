@@ -248,6 +248,15 @@ const messages = {
     passwordProtected: "該剪輯受密碼保護",
     linkExpired: "連結已過期",
     linkExpiredMessage: "建立者為此共用連結設定了過期時間。",
+    privateClip: "私人剪輯",
+    privateClipMessage: "此剪輯為私人內容。請求存取權限後，擁有者會收到通知。",
+    privateClipSignedOutMessage:
+      "此剪輯為私人內容。登入後即可向擁有者請求存取權限。",
+    requestAccess: "請求存取權限",
+    requestingAccess: "正在請求存取權限...",
+    accessRequested: "已請求存取權限",
+    accessRequestSent: "剪輯擁有者已收到通知。",
+    accessRequestFailed: "無法請求存取權限。請再試一次。",
     clipUnavailable: "剪輯不可用",
     clipUnavailableMessage:
       "該錄音不公開，或者連結無效。如果這是您的剪輯，請登入以檢查存取權限。",
@@ -489,10 +498,11 @@ const messages = {
     },
     roles: {
       viewer: "觀眾",
+      commenter: "留言者",
       editor: "編輯",
       admin: "管理員",
     },
-    recordingViewer: {
+    recordingCommenter: {
       label: "留言者",
       description: "可以檢視、留言和回應",
     },
@@ -622,7 +632,7 @@ const messages = {
     expand: "展開",
     collapse: "收起",
     changelogMarkdown:
-      "# 更新記錄\n\nClips 中所有面向使用者的重要更改都會紀錄在這裡。你可以隨時從指令選單（Cmd+K -> “最新變化”）或設定中開啟。\n\n## 2026-06-23\n\n### 新增\n\n- 現在可以直接在 Clips 中檢視最新變化。更新記錄已加入指令選單（Cmd+K）和設定。",
+      "# 更新記錄\n\nClips 中所有面向使用者的重要更改都會紀錄在這裡。你可以隨時從指令選單（Cmd K -> “最新變化”）或設定中開啟。\n\n## 2026-06-23\n\n### 新增\n\n- 現在可以直接在 Clips 中檢視最新變化。更新記錄已加入指令選單（Cmd K）和設定。",
     playback: "播放",
     defaultPlaybackSpeed: "預設播放速度",
     playbackDescription: "開啟錄製時會自動應用。",
@@ -926,6 +936,8 @@ const messages = {
     includeTranscriptDescription:
       "任何有權存取此會議的人都可以閱讀完整逐字稿。",
     transcriptUnavailable: "逐字稿尚未準備好。",
+    agentLinkDescription:
+      "此臨時連結可讓 Agent 閱讀這些會議筆記，而不必公開內容。兩小時後過期。",
     transcript: "逐字稿",
     copyTranscript: "複製逐字稿",
     transcriptCopied: "已複製逐字稿",
@@ -1143,7 +1155,7 @@ const messages = {
     seekTo: "跳到 {{time}}",
   },
   editorToolbar: {
-    undoTooltip: "復原 (Cmd/Ctrl+Z)",
+    undoTooltip: "復原 (Cmd/Ctrl Z)",
     playPauseTooltip: "播放 / 暫停 (Space)",
     sourceDuration: "（來源 {{duration}}）",
     previewSpeed: "預覽速度",
@@ -1482,6 +1494,16 @@ const messages = {
     calendarConnected: "日曆已連線",
     calendarDisconnected: "日曆已中斷連線",
     calendarSettings: "日曆設定",
+    calendarAccountsButton: "日曆",
+    connectedAccounts: "已連線帳戶",
+    calendarConnectedLabel: "已連線",
+    calendarNeedsReconnectLabel: "需要重新連線",
+    calendarDisconnectedLabel: "已中斷連線",
+    calendarStatusUnavailable: "狀態無法使用",
+    reconnectCalendar: "重新連線日曆",
+    addAnotherCalendarAccount: "新增其他帳戶",
+    connectCalendar: "連線日曆",
+    disconnectCalendarAccount: "中斷一個帳戶的連線",
     connectCalendarReminder: "連線 Google Calendar 以取得會議提醒。",
     disconnectGoogleCalendarTitle: "要中斷連線 Google Calendar 嗎？",
     title: "會議",

@@ -209,6 +209,15 @@ export interface AgentChatRequest {
     payloadRef?: boolean;
   };
   /**
+   * Server-resolved action authorization carried across authenticated durable
+   * background dispatches. Normal client requests must not trust this field;
+   * the foreground handler deletes and replaces it before persistence.
+   */
+  __resolvedActionSurface?: {
+    orgId: string | null;
+    allowedActionNames: string[];
+  };
+  /**
    * Stable identity for the logical assistant turn this request belongs to.
    * The client sends the SAME turnId for the initial POST and every
    * auto-continuation re-POST of one turn, so the server can fold each

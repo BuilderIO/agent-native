@@ -11,7 +11,8 @@ import { createRef, type AnchorHTMLAttributes } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@agent-native/core/client/i18n", () => ({
-  useT: () => (key: string) => key,
+  useT: () => (key: string) =>
+    key === "editorToolbar.savedVersions" ? "History" : key,
 }));
 
 vi.mock("@agent-native/core/client/progress", () => ({
@@ -100,7 +101,6 @@ describe("<EditorToolbar>", () => {
           deckId="deck-1"
           deckTitle="Test deck"
           onTitleChange={vi.fn()}
-          slideCount={0}
           currentSlideIndex={0}
           sidebarOpen={true}
           onToggleSidebar={vi.fn()}
@@ -118,7 +118,7 @@ describe("<EditorToolbar>", () => {
     );
 
     const historyItem = await screen.findByRole("menuitem", {
-      name: "editorToolbar.savedVersions",
+      name: "History",
     });
     fireEvent.click(historyItem);
 

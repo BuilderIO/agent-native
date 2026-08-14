@@ -5,7 +5,7 @@
  */
 const FENCE_PATTERN = /^\s*(`{3,}|~{3,})/;
 const VISUAL_FENCE_PATTERN = /^\s*`{3,}\s*(?:an-[\w-]+|mermaid)\b/;
-const MDX_COMPONENT_PATTERN = /^\s*<[A-Z][A-Za-z0-9-]*(?:\s|\/?>)/;
+const MDX_COMPONENT_PATTERN = /^\s*<[A-Z][A-Za-z0-9-]*(?:\s|\/?>|$)/;
 
 export function hasDocBlockSyntax(markdown: string): boolean {
   let fenceCharacter: "`" | "~" | null = null;

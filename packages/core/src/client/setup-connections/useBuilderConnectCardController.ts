@@ -4,7 +4,7 @@ import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
 
 const DEFAULT_TITLE = "Builder connect";
 const DEFAULT_DESCRIPTION =
-  "Connect Builder for managed model access, browser automation, and workspace identity. Free tier available.";
+  "Connect Builder.io for managed model access, browser automation, and workspace identity. Free tier available.";
 const DEFAULT_TRACKING_SOURCE = "setup_connections_page";
 
 export interface BuilderConnectCardControllerOptions {
@@ -20,7 +20,7 @@ export type BuilderConnectCardStatus =
   | { kind: "connected"; label: string };
 
 export interface BuilderConnectCardAction {
-  label: "Connect Builder";
+  label: "Connect Builder.io";
   pending: boolean;
   disabled: boolean;
   onPress: () => void;
@@ -73,7 +73,7 @@ export function useBuilderConnectCardController({
     action: flow.configured
       ? null
       : {
-          label: "Connect Builder",
+          label: "Connect Builder.io",
           pending: flow.connecting,
           disabled: flow.connecting,
           onPress: handlePress,

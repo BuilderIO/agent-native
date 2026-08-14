@@ -420,7 +420,7 @@ fn install_call_ended_watcher(app: &AppHandle, threshold_ms: u64) {
                     generation = Some(active_generation);
                 }
                 let call_app_bundle_ids = if configured_bundle_ids.is_empty() {
-                    default_call_app_bundle_ids()
+                    crate::call_activity::default_call_app_bundle_ids()
                 } else {
                     configured_bundle_ids
                 };
@@ -459,7 +459,7 @@ fn install_call_ended_watcher(app: &AppHandle, threshold_ms: u64) {
                 // transition that stays stable for 30 seconds; this tolerates
                 // a device handoff while avoiding a stop before the call has
                 // actually acquired its microphone.
-                match call_app_uses_microphone(&call_app_bundle_ids) {
+                match crate::call_activity::call_app_uses_microphone(&call_app_bundle_ids) {
                     Some(true) => {
                         call_app_used_microphone = true;
                         microphone_released_at = None;
@@ -503,19 +503,6 @@ fn install_call_ended_watcher(app: &AppHandle, threshold_ms: u64) {
 #[cfg(not(target_os = "macos"))]
 fn install_call_ended_watcher(_app: &AppHandle, _threshold_ms: u64) {}
 
-#[cfg(target_os = "macos")]
-fn default_call_app_bundle_ids() -> Vec<String> {
-    [
-        "us.zoom.xos",
-        "us.zoom.ZoomClips",
-        "com.microsoft.teams2",
-        "com.microsoft.teams",
-    ]
-    .into_iter()
-    .map(|bundle_id| bundle_id.to_lowercase())
-    .collect()
-}
-
 fn microphone_release_stop_ready(
     app_used_microphone: bool,
     released_for: Option<Duration>,
@@ -524,113 +511,6 @@ fn microphone_release_stop_ready(
         && released_for
             .map(|elapsed| elapsed >= Duration::from_secs(30))
             .unwrap_or(false)
-}
-
-/// Returns whether one of the target conferencing apps currently has a live
-/// CoreAudio input stream. `None` means the OS could not provide a reliable
-/// answer, so callers must keep the existing conservative fallbacks.
-#[cfg(target_os = "macos")]
-fn call_app_uses_microphone(bundle_ids: &[String]) -> Option<bool> {
-    use core_foundation::base::TCFType;
-    use core_foundation::string::CFString;
-    use objc2_core_audio::{
-        kAudioHardwareNoError, kAudioHardwarePropertyProcessObjectList,
-        kAudioObjectPropertyElementMain, kAudioObjectPropertyScopeGlobal, kAudioObjectSystemObject,
-        kAudioProcessPropertyBundleID, kAudioProcessPropertyIsRunningInput,
-        AudioObjectGetPropertyData, AudioObjectGetPropertyDataSize, AudioObjectID,
-        AudioObjectPropertyAddress,
-    };
-    use std::ffi::c_void;
-    use std::mem::size_of;
-    use std::ptr::NonNull;
-
-    let mut list_address = AudioObjectPropertyAddress {
-        mSelector: kAudioHardwarePropertyProcessObjectList,
-        mScope: kAudioObjectPropertyScopeGlobal,
-        mElement: kAudioObjectPropertyElementMain,
-    };
-    let mut data_size = 0;
-    let list_status = unsafe {
-        AudioObjectGetPropertyDataSize(
-            kAudioObjectSystemObject as AudioObjectID,
-            NonNull::from(&mut list_address),
-            0,
-            std::ptr::null(),
-            NonNull::from(&mut data_size),
-        )
-    };
-    if list_status != kAudioHardwareNoError || data_size == 0 {
-        return None;
-    }
-
-    let mut processes = vec![0 as AudioObjectID; data_size as usize / size_of::<AudioObjectID>()];
-    let list_status = unsafe {
-        AudioObjectGetPropertyData(
-            kAudioObjectSystemObject as AudioObjectID,
-            NonNull::from(&mut list_address),
-            0,
-            std::ptr::null(),
-            NonNull::from(&mut data_size),
-            NonNull::new(processes.as_mut_ptr().cast::<c_void>())?,
-        )
-    };
-    if list_status != kAudioHardwareNoError {
-        return None;
-    }
-
-    for process in processes {
-        let mut bundle_address = AudioObjectPropertyAddress {
-            mSelector: kAudioProcessPropertyBundleID,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain,
-        };
-        let mut bundle_ref: *const c_void = std::ptr::null();
-        let mut bundle_size = size_of::<*const c_void>() as u32;
-        let bundle_status = unsafe {
-            AudioObjectGetPropertyData(
-                process,
-                NonNull::from(&mut bundle_address),
-                0,
-                std::ptr::null(),
-                NonNull::from(&mut bundle_size),
-                NonNull::new((&mut bundle_ref as *mut *const c_void).cast::<c_void>())?,
-            )
-        };
-        if bundle_status != kAudioHardwareNoError || bundle_ref.is_null() {
-            continue;
-        }
-        let bundle_id = unsafe {
-            CFString::wrap_under_get_rule(bundle_ref as core_foundation::string::CFStringRef)
-        }
-        .to_string()
-        .to_lowercase();
-        if !bundle_ids.iter().any(|candidate| candidate == &bundle_id) {
-            continue;
-        }
-
-        let mut input_address = AudioObjectPropertyAddress {
-            mSelector: kAudioProcessPropertyIsRunningInput,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain,
-        };
-        let mut input_running: u32 = 0;
-        let mut input_size = size_of::<u32>() as u32;
-        let input_status = unsafe {
-            AudioObjectGetPropertyData(
-                process,
-                NonNull::from(&mut input_address),
-                0,
-                std::ptr::null(),
-                NonNull::from(&mut input_size),
-                NonNull::new((&mut input_running as *mut u32).cast::<c_void>())?,
-            )
-        };
-        if input_status == kAudioHardwareNoError && input_running != 0 {
-            return Some(true);
-        }
-    }
-
-    Some(false)
 }
 
 fn scheduled_end_reached(scheduled_end_ms: Option<u64>, now_ms: u64) -> bool {

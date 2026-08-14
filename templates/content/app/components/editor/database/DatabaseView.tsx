@@ -113,6 +113,7 @@ import {
 import { Link, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
+import { QueryErrorState } from "@/components/QueryErrorState";
 import {
   contentSpaceForCatalogItem,
   createContentSpaceSelectionQueue,
@@ -888,6 +889,9 @@ function DatabaseTable({
   >(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const sourceHandoffActiveRef = useRef(false);
+  const addPropertyOpenRequestSequenceRef = useRef(0);
+  const [addPropertyOpenRequestId, setAddPropertyOpenRequestId] = useState(0);
   const [inlineFilterControlsOpen, setInlineFilterControlsOpen] =
     useState(false);
   const [inlineAddFilterOpen, setInlineAddFilterOpen] = useState(false);
@@ -921,6 +925,41 @@ function DatabaseTable({
     useState<Record<string, string> | null>(null);
   const [settingsPanel, setSettingsPanel] =
     useState<DatabaseSettingsPanel>("main");
+  const openSourcesFromAddProperty = () => {
+    sourceHandoffActiveRef.current = true;
+    setSettingsPanel("source");
+    setSettingsOpen(true);
+  };
+  const completeSourceHandoff = () => {
+    if (!sourceHandoffActiveRef.current) return;
+    sourceHandoffActiveRef.current = false;
+    setSettingsOpen(false);
+    addPropertyOpenRequestSequenceRef.current += 1;
+    setAddPropertyOpenRequestId(addPropertyOpenRequestSequenceRef.current);
+  };
+  async function runSourceHandoffMutation<T>(
+    mutation: () => Promise<T>,
+  ): Promise<T | null> {
+    try {
+      const result = await mutation();
+      completeSourceHandoff();
+      return result;
+    } catch (error) {
+      toast.error(dbText("failedToAttachSource"), {
+        description:
+          error instanceof Error ? error.message : dbText("somethingWentWrong"),
+      });
+      return null;
+    }
+  }
+  const closeDatabaseSettings = () => {
+    sourceHandoffActiveRef.current = false;
+    setSettingsOpen(false);
+  };
+  const changeDatabaseSettingsPanel = (panel: DatabaseSettingsPanel) => {
+    if (panel !== "source") sourceHandoffActiveRef.current = false;
+    setSettingsPanel(panel);
+  };
   const [savedViewConfig, setSavedViewConfig] =
     useState<ContentDatabaseViewConfig>(defaultDatabaseViewConfig());
   const [personalQueryDirty, setPersonalQueryDirty] = useState(false);
@@ -1593,6 +1632,11 @@ function DatabaseTable({
   ) {
     if (!databaseId) return null;
     if (isWorkspaceCatalog) return null;
+    const mutationContract = data?.mutationContract;
+    if (!mutationContract) {
+      toast.error(dbText("failedToCreateRow"));
+      return null;
+    }
     const propertyValues = {
       ...databasePropertyValuesForNewItem(filters, properties, filterMode),
       ...propertyValueOverrides,
@@ -1600,8 +1644,10 @@ function DatabaseTable({
     let response;
     try {
       response = await addItem.mutateAsync({
-        databaseId,
-        title,
+        target: mutationContract.target,
+        expectedSchemaRevision: mutationContract.schemaRevision,
+        idempotencyKey: crypto.randomUUID(),
+        ...(title.trim() ? { title } : {}),
         propertyValues:
           Object.keys(propertyValues).length > 0 ? propertyValues : undefined,
       });
@@ -1612,12 +1658,7 @@ function DatabaseTable({
       });
       return null;
     }
-    const createdItem = databaseCreatedItemForImmediatePreview(response, {
-      databaseId,
-      parentDocument: document,
-      title,
-      propertyValues,
-    });
+    const createdItem = response.createdItem ?? null;
     const needsPreview =
       !!createdItem &&
       databaseCreatedItemNeedsPreview(items, createdItem, options);
@@ -2559,6 +2600,7 @@ function DatabaseTable({
               "relative",
             )}
             onClick={() => {
+              sourceHandoffActiveRef.current = false;
               setSettingsPanel("main");
               setSettingsOpen((open) => !open);
             }}
@@ -2729,6 +2771,15 @@ function DatabaseTable({
           isCreating={isCreatingDatabaseItem || setProperty.isPending}
           hasActiveConstraints={!!searchQuery || activeFilters.length > 0}
           isMoving={setProperty.isPending}
+          source={source}
+          sources={sources}
+          addPropertyOpenRequestId={addPropertyOpenRequestId}
+          onAddPropertyOpenRequestHandled={(requestId) =>
+            setAddPropertyOpenRequestId((current) =>
+              current === requestId ? 0 : current,
+            )
+          }
+          onConnectSource={openSourcesFromAddProperty}
           collapsedGroupIds={activeView.collapsedGroupIds ?? []}
           hideEmptyGroups={activeView.hideEmptyGroups === true}
           onClearResultConstraints={clearSearchAndFilters}
@@ -2809,6 +2860,15 @@ function DatabaseTable({
           hasSearch={!!searchQuery}
           dateProperty={dateViewProperty}
           month={dateViewMonth}
+          source={source}
+          sources={sources}
+          addPropertyOpenRequestId={addPropertyOpenRequestId}
+          onAddPropertyOpenRequestHandled={(requestId) =>
+            setAddPropertyOpenRequestId((current) =>
+              current === requestId ? 0 : current,
+            )
+          }
+          onConnectSource={openSourcesFromAddProperty}
           onClearResultConstraints={clearSearchAndFilters}
           onMonthChange={setDateViewMonth}
           onDatePropertyChange={(propertyId) =>
@@ -2837,6 +2897,15 @@ function DatabaseTable({
           hasSearch={!!searchQuery}
           dateProperty={dateViewProperty}
           month={dateViewMonth}
+          source={source}
+          sources={sources}
+          addPropertyOpenRequestId={addPropertyOpenRequestId}
+          onAddPropertyOpenRequestHandled={(requestId) =>
+            setAddPropertyOpenRequestId((current) =>
+              current === requestId ? 0 : current,
+            )
+          }
+          onConnectSource={openSourcesFromAddProperty}
           onClearResultConstraints={clearSearchAndFilters}
           onMonthChange={setDateViewMonth}
           onDatePropertyChange={(propertyId) =>
@@ -2887,6 +2956,13 @@ function DatabaseTable({
           collapsedGroupIds={activeView.collapsedGroupIds ?? []}
           hideEmptyGroups={activeView.hideEmptyGroups === true}
           focusedTitleDocumentId={inlineTitleFocusDocumentId}
+          addPropertyOpenRequestId={addPropertyOpenRequestId}
+          onAddPropertyOpenRequestHandled={(requestId) =>
+            setAddPropertyOpenRequestId((current) =>
+              current === requestId ? 0 : current,
+            )
+          }
+          onConnectSource={openSourcesFromAddProperty}
           onClearResultConstraints={clearSearchAndFilters}
           onSortsChange={setActiveSorts}
           onFiltersChange={setActiveFilters}
@@ -2987,41 +3063,47 @@ function DatabaseTable({
         sources={sources}
         hiddenCount={hiddenProperties.length}
         groupIds={toolbarGroups.map((group) => group.id)}
-        onClose={() => setSettingsOpen(false)}
-        onPanelChange={setSettingsPanel}
+        onClose={closeDatabaseSettings}
+        onPanelChange={changeDatabaseSettingsPanel}
         onAttachBuilderSource={(model, relationshipMode) =>
-          attachSource.mutateAsync({
-            documentId: document.id,
-            sourceType: "builder-cms",
-            sourceName: model.displayName,
-            sourceTable: model.name,
-            builderFieldPaths: model.fields.map((field) => field.name),
-            relationshipMode,
-            mode:
-              relationshipMode === "items"
-                ? "add"
-                : sources.length > 0 || source
-                  ? undefined
-                  : "replace",
-          })
+          runSourceHandoffMutation(() =>
+            attachSource.mutateAsync({
+              documentId: document.id,
+              sourceType: "builder-cms",
+              sourceName: model.displayName,
+              sourceTable: model.name,
+              builderFieldPaths: model.fields.map((field) => field.name),
+              relationshipMode,
+              mode:
+                relationshipMode === "items"
+                  ? "add"
+                  : sources.length > 0 || source
+                    ? undefined
+                    : "replace",
+            }),
+          )
         }
         onFederateSource={(candidate, join) =>
-          attachSource.mutateAsync({
-            documentId: document.id,
-            sourceType: candidate.sourceType,
-            sourceName: candidate.sourceName,
-            sourceTable: candidate.sourceTable,
-            relationshipMode: "details",
-            join,
-          })
+          runSourceHandoffMutation(() =>
+            attachSource.mutateAsync({
+              documentId: document.id,
+              sourceType: candidate.sourceType,
+              sourceName: candidate.sourceName,
+              sourceTable: candidate.sourceTable,
+              relationshipMode: "details",
+              join,
+            }),
+          )
         }
         onChangeSourceRole={(sourceId, relationshipMode, join) =>
-          changeSourceRole.mutateAsync({
-            documentId: document.id,
-            sourceId,
-            relationshipMode,
-            join,
-          })
+          runSourceHandoffMutation(() =>
+            changeSourceRole.mutateAsync({
+              documentId: document.id,
+              sourceId,
+              relationshipMode,
+              join,
+            }),
+          )
         }
         onDisconnectSecondary={(sourceId) =>
           disconnectSource.mutate({ documentId: document.id, sourceId })
@@ -5297,6 +5379,9 @@ function DatabaseTableView({
   collapsedGroupIds,
   hideEmptyGroups,
   focusedTitleDocumentId,
+  addPropertyOpenRequestId,
+  onAddPropertyOpenRequestHandled,
+  onConnectSource,
   onSortsChange,
   onFiltersChange,
   onResizeColumn,
@@ -5347,6 +5432,9 @@ function DatabaseTableView({
   collapsedGroupIds: string[];
   hideEmptyGroups: boolean;
   focusedTitleDocumentId: string | null;
+  addPropertyOpenRequestId: number;
+  onAddPropertyOpenRequestHandled: (requestId: number) => void;
+  onConnectSource: () => void;
   onSortsChange: (sorts: DatabaseSort[]) => void;
   onFiltersChange: (filters: DatabaseFilter[]) => void;
   onResizeColumn: (
@@ -5887,6 +5975,9 @@ function DatabaseTableView({
                   label={dbText("addProperty")}
                   source={source}
                   sources={sources}
+                  onConnectSource={onConnectSource}
+                  openRequestId={addPropertyOpenRequestId}
+                  onOpenRequestHandled={onAddPropertyOpenRequestHandled}
                 />
               </div>
             ) : null}
@@ -7532,16 +7623,16 @@ function DatabaseSettingsPanelSheet({
   onAttachBuilderSource: (
     model: BuilderCmsModelSummary,
     relationshipMode?: "items" | "details",
-  ) => Promise<ContentDatabaseSourceAttachmentResult>;
+  ) => Promise<ContentDatabaseSourceAttachmentResult | null>;
   onFederateSource: (
     candidate: PendingSourceCandidate,
     join: ContentDatabaseSourceJoinRequest,
-  ) => Promise<ContentDatabaseSourceAttachmentResult>;
+  ) => Promise<ContentDatabaseSourceAttachmentResult | null>;
   onChangeSourceRole: (
     sourceId: string,
     relationshipMode: "items" | "details",
     join?: ContentDatabaseSourceJoinRequest,
-  ) => Promise<ContentDatabaseResponse>;
+  ) => Promise<ContentDatabaseResponse | null>;
   onDisconnectSecondary: (sourceId: string) => void;
   onRefreshSource: (sourceId?: string) => void;
   onHydrateBuilderBodies: (sourceId: string) => void;
@@ -8105,16 +8196,16 @@ function DatabaseSettingsSourcePanel({
   onAttachBuilderSource: (
     model: BuilderCmsModelSummary,
     relationshipMode?: "items" | "details",
-  ) => Promise<ContentDatabaseSourceAttachmentResult>;
+  ) => Promise<ContentDatabaseSourceAttachmentResult | null>;
   onFederateSource: (
     candidate: PendingSourceCandidate,
     join: ContentDatabaseSourceJoinRequest,
-  ) => Promise<ContentDatabaseSourceAttachmentResult>;
+  ) => Promise<ContentDatabaseSourceAttachmentResult | null>;
   onChangeSourceRole: (
     sourceId: string,
     relationshipMode: "items" | "details",
     join?: ContentDatabaseSourceJoinRequest,
-  ) => Promise<ContentDatabaseResponse>;
+  ) => Promise<ContentDatabaseResponse | null>;
   onDisconnectSecondary: (sourceId: string) => void;
   onRefreshSource: (sourceId?: string) => void;
   onHydrateBuilderBodies: (sourceId: string) => void;
@@ -8260,8 +8351,8 @@ function DatabaseSettingsSourcePanel({
         }}
         onAddItems={async () => {
           if (!secondary) return;
-          await onChangeSourceRole(secondary.id, "items");
-          onNavReplace([]);
+          const result = await onChangeSourceRole(secondary.id, "items");
+          if (result) onNavReplace([]);
         }}
         onChooseFields={() =>
           secondary
@@ -8293,6 +8384,7 @@ function DatabaseSettingsSourcePanel({
                 join,
               )
             : await onFederateSource(top.candidate, join);
+          if (!result) return;
           if ("responseProjection" in result) {
             throw new Error(
               "Detail-source attachment returned an item-source acknowledgement.",
@@ -8453,8 +8545,8 @@ function DatabaseSettingsSourcePanel({
               })
             }
             onAddItems={async () => {
-              await onAttachBuilderSource(model, "items");
-              onNavReplace([]);
+              const result = await onAttachBuilderSource(model, "items");
+              if (result) onNavReplace([]);
             }}
           />
         ) : (
@@ -8464,17 +8556,8 @@ function DatabaseSettingsSourcePanel({
               size="sm"
               disabled={!canEdit || builderAttachPending}
               onClick={async () => {
-                try {
-                  await onAttachBuilderSource(model);
-                  onNavReplace([]);
-                } catch (err) {
-                  toast.error(dbText("failedToAttachSource"), {
-                    description:
-                      err instanceof Error
-                        ? err.message
-                        : dbText("somethingWentWrong"),
-                  });
-                }
+                const result = await onAttachBuilderSource(model);
+                if (result) onNavReplace([]);
               }}
             >
               {builderAttachPending ? (
@@ -8803,8 +8886,8 @@ function DatabaseSettingsSourcePanel({
             });
           }}
           onAddItems={async () => {
-            await onChangeSourceRole(selectedSource.id, "items");
-            onNavReplace([]);
+            const result = await onChangeSourceRole(selectedSource.id, "items");
+            if (result) onNavReplace([]);
           }}
           onChooseFields={() =>
             onNavPush({
@@ -9194,6 +9277,12 @@ function AddSourceView({
             <Spinner className="size-3.5" />
             {dbText("loadingTables")}
           </div>
+        ) : query.isError ? (
+          <QueryErrorState
+            compact
+            onRetry={() => void query.refetch()}
+            retrying={query.isFetching}
+          />
         ) : tables.length === 0 ? (
           <div className="min-w-0 break-words px-2 text-xs text-muted-foreground">
             {dbText("noOtherDatabasesAvailableToAdd")}
@@ -12025,6 +12114,11 @@ function DatabaseCalendarView({
   hasSearch,
   dateProperty,
   month,
+  source,
+  sources,
+  addPropertyOpenRequestId,
+  onAddPropertyOpenRequestHandled,
+  onConnectSource,
   onClearResultConstraints,
   onMonthChange,
   onDatePropertyChange,
@@ -12046,6 +12140,11 @@ function DatabaseCalendarView({
   hasSearch: boolean;
   dateProperty: DocumentProperty | null;
   month: Date;
+  source: ContentDatabaseSource | null;
+  sources: ContentDatabaseSource[];
+  addPropertyOpenRequestId: number;
+  onAddPropertyOpenRequestHandled: (requestId: number) => void;
+  onConnectSource: () => void;
   onClearResultConstraints: () => void;
   onMonthChange: (month: Date) => void;
   onDatePropertyChange: (propertyId: string | null) => void;
@@ -12189,6 +12288,11 @@ function DatabaseCalendarView({
             <AddProperty
               documentId={databaseDocumentId}
               databaseId={databaseId}
+              source={source}
+              sources={sources}
+              onConnectSource={onConnectSource}
+              openRequestId={addPropertyOpenRequestId}
+              onOpenRequestHandled={onAddPropertyOpenRequestHandled}
             />
           ) : null}
         </div>
@@ -12481,6 +12585,11 @@ function DatabaseBoardView({
   isLoading,
   isCreating,
   isMoving,
+  source,
+  sources,
+  addPropertyOpenRequestId,
+  onAddPropertyOpenRequestHandled,
+  onConnectSource,
   hasActiveConstraints,
   collapsedGroupIds,
   hideEmptyGroups,
@@ -12506,6 +12615,11 @@ function DatabaseBoardView({
   isLoading: boolean;
   isCreating: boolean;
   isMoving: boolean;
+  source: ContentDatabaseSource | null;
+  sources: ContentDatabaseSource[];
+  addPropertyOpenRequestId: number;
+  onAddPropertyOpenRequestHandled: (requestId: number) => void;
+  onConnectSource: () => void;
   hasActiveConstraints: boolean;
   collapsedGroupIds: string[];
   hideEmptyGroups: boolean;
@@ -12733,6 +12847,11 @@ function DatabaseBoardView({
             <AddProperty
               documentId={databaseDocumentId}
               databaseId={databaseId}
+              source={source}
+              sources={sources}
+              onConnectSource={onConnectSource}
+              openRequestId={addPropertyOpenRequestId}
+              onOpenRequestHandled={onAddPropertyOpenRequestHandled}
             />
           ) : null}
         </div>

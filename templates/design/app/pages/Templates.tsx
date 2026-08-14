@@ -524,6 +524,7 @@ function TemplateCard({
                   <ShareButton
                     resourceType="design-template"
                     resourceId={template.id}
+                    allowedRoles={["viewer", "editor", "admin"]}
                     resourceTitle={template.title}
                     trigger="label"
                     triggerClassName="w-full justify-start"

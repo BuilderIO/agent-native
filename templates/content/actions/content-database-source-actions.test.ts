@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { ContentDatabaseSource } from "../shared/api";
 import type { BuilderCmsReadResult } from "./_builder-cms-read-client";
@@ -9,12 +9,15 @@ import addSourceFieldProperty, {
   sourceFieldPropertyValuesFromRows,
 } from "./add-content-database-source-field-property";
 import attachSource, {
+  assertDetailsSourceJoin,
   builderAttachDurableItemCount,
   builderCmsAttachReadMetadata,
   initialBuilderAttachmentSetupOptions,
+  readBeforeLocalDetailsBootstrap,
   readCompleteBuilderCmsAttachSource,
   readInitialBuilderCmsAttachEntries,
   readInitialBuilderCmsAttachSource,
+  shouldBootstrapLocalDetailsSource,
 } from "./attach-content-database-source";
 import changeSourceRole, {
   readBuilderCmsEntriesForRoleChange,
@@ -198,6 +201,71 @@ describe("content database source actions", () => {
       limit: 50,
       offset: 25,
     });
+  });
+
+  it("keeps an ordinary local database primary when adding detail sources", () => {
+    expect(
+      shouldBootstrapLocalDetailsSource({
+        relationshipMode: "details",
+        hasExistingSource: false,
+      }),
+    ).toBe(true);
+    expect(
+      shouldBootstrapLocalDetailsSource({
+        relationshipMode: "details",
+        hasExistingSource: true,
+      }),
+    ).toBe(false);
+    expect(
+      shouldBootstrapLocalDetailsSource({
+        relationshipMode: "items",
+        hasExistingSource: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("rejects a details source without a match key before bootstrap", () => {
+    expect(() =>
+      assertDetailsSourceJoin({
+        relationshipMode: "details",
+        hasJoin: false,
+      }),
+    ).toThrow("Choose a match key before adding source details.");
+    expect(() =>
+      assertDetailsSourceJoin({
+        relationshipMode: "details",
+        hasJoin: true,
+      }),
+    ).not.toThrow();
+  });
+
+  it("does not bootstrap a local primary when the details source read fails", async () => {
+    const bootstrapLocalSource = vi.fn();
+
+    await expect(
+      readBeforeLocalDetailsBootstrap({
+        readCandidate: async () => {
+          throw new Error("source read failed");
+        },
+        bootstrapLocalSource,
+      }),
+    ).rejects.toThrow("source read failed");
+    expect(bootstrapLocalSource).not.toHaveBeenCalled();
+  });
+
+  it("does not bootstrap a local primary when the details source read is not live", async () => {
+    const bootstrapLocalSource = vi.fn();
+
+    await expect(
+      readBeforeLocalDetailsBootstrap({
+        readCandidate: async () => ({
+          readState: "error" as const,
+          readMessage: "source read failed",
+        }),
+        bootstrapLocalSource,
+      }),
+    ).rejects.toThrow("source read failed");
+    expect(bootstrapLocalSource).not.toHaveBeenCalled();
   });
 
   it("accepts a bounded read-only Notion database details source", () => {

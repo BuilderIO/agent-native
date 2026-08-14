@@ -323,6 +323,7 @@ export default defineAction({
       hideFromSearch: parseDocumentHideFromSearch(doc.hideFromSearch),
       visibility: doc.visibility,
       accessRole: inheritedRole,
+      canComment: true,
       canEdit: true,
       canManage: inheritedRole === "owner" || inheritedRole === "admin",
       createdAt: doc.createdAt,

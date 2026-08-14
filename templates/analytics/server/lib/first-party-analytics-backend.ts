@@ -24,7 +24,7 @@ export interface FirstPartyAnalyticsBackendConfig {
   backfillCompleted?: boolean;
 }
 
-interface FirstPartyAnalyticsBackfillCursor {
+export interface FirstPartyAnalyticsBackfillCursor {
   receivedAt: string;
   id: string;
 }
@@ -90,6 +90,9 @@ export interface FirstPartyAnalyticsBackfillOptions {
   lookbackDays?: number;
   skipEventNames?: string[];
   now?: () => string;
+  rangeStart?: FirstPartyAnalyticsBackfillCursor | null;
+  rangeEnd?: FirstPartyAnalyticsBackfillCursor | null;
+  rangeEndInclusive?: boolean;
 }
 
 export interface FirstPartyAnalyticsInsertOptions {
@@ -910,7 +913,8 @@ function addPartitionPrunedEventDeduplication(
     }
     result +=
       sql.slice(cursor, predicateEnd) +
-      " QUALIFY ROW_NUMBER() OVER (PARTITION BY id ORDER BY received_at DESC) = 1";
+      " QUALIFY ROW_NUMBER() OVER (PARTITION BY id ORDER BY received_at DESC) = 1" +
+      (predicateEnd < sql.length ? " " : "");
     cursor = predicateEnd;
   }
   return result;
@@ -1204,12 +1208,23 @@ function backfillBranchSql(
   cursor: FirstPartyAnalyticsBackfillCursor,
   lookbackStart: string,
   skipEventNames: string[],
+  rangeStart: FirstPartyAnalyticsBackfillCursor | null,
+  rangeEnd: FirstPartyAnalyticsBackfillCursor | null,
+  rangeEndInclusive: boolean,
+  order: "ASC" | "DESC" = "ASC",
 ): {
   sql: string;
   args: unknown[];
 } {
-  const cursorSql = cursor.receivedAt ? "(received_at, id) > (?, ?)" : "";
-  const cursorArgs = cursor.receivedAt ? [cursor.receivedAt, cursor.id] : [];
+  const lowerCursor = cursor.receivedAt ? cursor : rangeStart;
+  const cursorSql = lowerCursor ? "(received_at, id) > (?, ?)" : "";
+  const cursorArgs = lowerCursor
+    ? [lowerCursor.receivedAt, lowerCursor.id]
+    : [];
+  const rangeEndSql = rangeEnd
+    ? `(received_at, id) ${rangeEndInclusive ? "<=" : "<"} (?, ?)`
+    : "";
+  const rangeEndArgs = rangeEnd ? [rangeEnd.receivedAt, rangeEnd.id] : [];
   const skipSql =
     skipEventNames.length === DEFAULT_BACKFILL_SKIP_EVENTS.length &&
     skipEventNames[0] === DEFAULT_BACKFILL_SKIP_EVENTS[0]
@@ -1217,22 +1232,76 @@ function backfillBranchSql(
       : skipEventNames.length
         ? `(event_name IS NULL OR event_name NOT IN (${skipEventNames.map(() => "?").join(", ")}))`
         : "";
-  const filters = ["received_at >= ?", skipSql].filter(Boolean);
+  const filters = ["received_at >= ?", skipSql, rangeEndSql].filter(Boolean);
   return {
     sql: `SELECT id, received_at
       FROM analytics_events
       WHERE ${predicate}
         AND ${filters.join("\n        AND ")}${cursorSql ? `\n        AND ${cursorSql}` : ""}
-      ORDER BY received_at ASC, id ASC LIMIT ?`,
+      ORDER BY received_at ${order}, id ${order} LIMIT ?`,
     args: [
       ...predicateArgs,
       lookbackStart,
       ...(skipSql === "event_name IS DISTINCT FROM 'http.response'"
         ? []
         : skipEventNames),
+      ...rangeEndArgs,
       ...cursorArgs,
     ],
   };
+}
+
+export async function getFirstPartyAnalyticsBackfillHighWaterMark(
+  scope: FirstPartyAnalyticsScope,
+  options?: Pick<
+    FirstPartyAnalyticsBackfillOptions,
+    "lookbackDays" | "skipEventNames" | "now"
+  >,
+): Promise<FirstPartyAnalyticsBackfillCursor | null> {
+  const db = getDbExec();
+  const lookbackDays = configuredLookbackDays(options?.lookbackDays);
+  const lookbackStart = backfillLookbackStart(
+    options?.now?.() ?? new Date().toISOString(),
+    lookbackDays,
+  );
+  const skipEventNames = configuredSkipEventNames(options?.skipEventNames);
+  const branches = scope.orgId
+    ? [
+        { predicate: "org_id = ?", args: [scope.orgId] },
+        {
+          predicate: "org_id IS NULL AND owner_email = ?",
+          args: [scope.userEmail],
+        },
+      ]
+    : [
+        {
+          predicate: "org_id IS NULL AND owner_email = ?",
+          args: [scope.userEmail],
+        },
+      ];
+  const rows: Record<string, unknown>[] = [];
+  for (const branch of branches) {
+    const scoped = backfillBranchSql(
+      branch.predicate,
+      branch.args,
+      { receivedAt: "", id: "" },
+      lookbackStart,
+      skipEventNames,
+      null,
+      null,
+      false,
+      "DESC",
+    );
+    const result = await db.execute({
+      sql: scoped.sql,
+      args: [...scoped.args, 1],
+      timeoutMs: 20_000,
+      maxAttempts: 1,
+    });
+    rows.push(...(result.rows as Record<string, unknown>[]));
+  }
+  rows.sort((left, right) => compareBackfillRows(right, left));
+  return rows.length ? backfillRowCursor(rows[0]!) : null;
 }
 
 function backfillRowsByIdsSql(ids: string[]): {
@@ -1296,6 +1365,9 @@ export async function backfillFirstPartyAnalyticsBatch(
     lookbackDays,
   );
   const skipEventNames = configuredSkipEventNames(options?.skipEventNames);
+  const rangeStart = options?.rangeStart ?? null;
+  const rangeEnd = options?.rangeEnd ?? null;
+  const rangeEndInclusive = options?.rangeEndInclusive === true;
   const branches = scope.orgId
     ? [
         { predicate: "org_id = ?", args: [scope.orgId] },
@@ -1318,6 +1390,9 @@ export async function backfillFirstPartyAnalyticsBatch(
       parsedCursor,
       lookbackStart,
       skipEventNames,
+      rangeStart,
+      rangeEnd,
+      rangeEndInclusive,
     );
     const result = await db.execute({
       sql: scoped.sql,
@@ -1331,7 +1406,11 @@ export async function backfillFirstPartyAnalyticsBatch(
   const selectedRows = rows.slice(0, boundedLimit);
   if (!selectedRows.length) {
     return {
-      nextCursor: serializeBackfillCursor(parsedCursor),
+      // An empty shard has no tuple cursor. Returning the sentinel empty
+      // cursor makes the shard worker reject an otherwise successful drain.
+      nextCursor: parsedCursor.receivedAt
+        ? serializeBackfillCursor(parsedCursor)
+        : null,
       copied: 0,
       complete: true,
     };

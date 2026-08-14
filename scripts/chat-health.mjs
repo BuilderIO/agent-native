@@ -66,6 +66,18 @@ const postgres = loadPostgres();
 const BAD_TURN_BUDGET = 0.1;
 /** Share of received A2A tasks that may fail or hang before --strict fails. */
 const A2A_FAIL_BUDGET = 0.1;
+// A turn that made the user wait this long and then ended with no answer is
+// the "it worked for 20 minutes on this thing" complaint, measured. Outcome
+// rate alone cannot see it: a stall and an instant failure are both one bad
+// turn, so the metric that was supposed to catch this scored them the same.
+//
+// 10 minutes because it is already past every per-run ceiling the runtime
+// documents — a turn there is not slow, it is chaining. Measured over 21 days
+// across 13 production apps: 164 turns crossed it and 131 of those ended with
+// nothing to show, so this is a live number, not a guess.
+const STALL_TURN_S = 600;
+/** Share of scored turns that may stall before --strict fails. */
+const STALL_BUDGET = 0.02;
 const CONNECT_TIMEOUT_S = 20;
 // Thresholds set from a real outage, not intuition. Healthy analytics right now
 // reads 0 / 128ms / 1; at the point it went down it read 20 / 6000ms / 56.
@@ -134,8 +146,22 @@ function discoverApps() {
 // Scores the LAST run of every interactive turn in the window. `job-%` ids are
 // scheduled automations, which fail in completely different ways and would
 // swamp the number people actually experience.
+//
+// `turn_span` measures the whole turn, not the final run: a turn spans every
+// run it chained through, and the wait the user actually sat through is from
+// the FIRST run's start to the LAST one's end. Scoring the final run alone —
+// which is right for the outcome — reports a 30-minute turn that chained five
+// times as however long its last 40-second chunk took.
 const TURN_OUTCOME_SQL = `
-WITH final_run AS (
+WITH turn_span AS (
+  SELECT turn_id,
+    (max(coalesce(completed_at, heartbeat_at, started_at)) - min(started_at)) / 1000.0 AS span_s
+  FROM agent_runs
+  WHERE id NOT LIKE 'job-%'
+    AND turn_id IS NOT NULL
+    AND started_at > $1
+  GROUP BY turn_id
+), final_run AS (
   SELECT DISTINCT ON (turn_id)
     turn_id, status, error_code, terminal_reason
   FROM agent_runs
@@ -146,13 +172,21 @@ WITH final_run AS (
 )
 SELECT
   count(*)::int AS turns,
-  count(*) FILTER (WHERE status = 'completed')::int AS ok,
-  count(*) FILTER (WHERE terminal_reason LIKE 'aborted:user%')::int AS user_stopped,
+  count(*) FILTER (WHERE f.status = 'completed')::int AS ok,
+  count(*) FILTER (WHERE f.terminal_reason LIKE 'aborted:user%')::int AS user_stopped,
   count(*) FILTER (
-    WHERE status <> 'completed'
-      AND coalesce(terminal_reason, '') NOT LIKE 'aborted:user%'
-  )::int AS bad
-FROM final_run`;
+    WHERE f.status <> 'completed'
+      AND coalesce(f.terminal_reason, '') NOT LIKE 'aborted:user%'
+  )::int AS bad,
+  coalesce(round(percentile_cont(0.5) WITHIN GROUP (ORDER BY s.span_s))::int, 0) AS p50_wait_s,
+  coalesce(round(percentile_cont(0.9) WITHIN GROUP (ORDER BY s.span_s))::int, 0) AS p90_wait_s,
+  coalesce(round(max(s.span_s))::int, 0) AS max_wait_s,
+  count(*) FILTER (
+    WHERE s.span_s > ${STALL_TURN_S}
+      AND f.status <> 'completed'
+      AND coalesce(f.terminal_reason, '') NOT LIKE 'aborted:user%'
+  )::int AS stalled
+FROM final_run f JOIN turn_span s USING (turn_id)`;
 
 const TURN_REASONS_SQL = `
 WITH final_run AS (
@@ -310,7 +344,12 @@ settled.forEach((outcome, i) => {
 const scored = results
   .map((r) => {
     const scored = r.turns - r.user_stopped;
-    return { ...r, badRate: scored > 0 ? r.bad / scored : 0, scored };
+    return {
+      ...r,
+      badRate: scored > 0 ? r.bad / scored : 0,
+      stallRate: scored > 0 ? r.stalled / scored : 0,
+      scored,
+    };
   })
   .sort((a, b) => b.badRate - a.badRate);
 
@@ -318,9 +357,10 @@ const fleet = scored.reduce(
   (acc, r) => ({
     turns: acc.turns + r.turns,
     bad: acc.bad + r.bad,
+    stalled: acc.stalled + r.stalled,
     scored: acc.scored + r.scored,
   }),
-  { turns: 0, bad: 0, scored: 0 },
+  { turns: 0, bad: 0, stalled: 0, scored: 0 },
 );
 const fleetRate = fleet.scored > 0 ? fleet.bad / fleet.scored : 0;
 
@@ -343,7 +383,7 @@ if (asJson) {
     `Agent chat turns, last ${hours}h (excludes user-stopped turns)\n`,
   );
   console.log(
-    `  ${"app".padEnd(11)}${"turns".padStart(6)}${"ok".padStart(6)}${"bad".padStart(6)}${"bad%".padStart(7)}  top reasons`,
+    `  ${"app".padEnd(11)}${"turns".padStart(6)}${"ok".padStart(6)}${"bad".padStart(6)}${"bad%".padStart(7)}${"p50s".padStart(6)}${"p90s".padStart(6)}${"maxs".padStart(6)}${"stall".padStart(6)}  top reasons`,
   );
   for (const r of scored) {
     const pct = `${(r.badRate * 100).toFixed(0)}%`;
@@ -351,13 +391,20 @@ if (asJson) {
       .slice(0, 3)
       .map((x) => `${x.reason}(${x.turns})`)
       .join(" ");
-    const mark = r.badRate > BAD_TURN_BUDGET ? "!" : " ";
+    const mark =
+      r.badRate > BAD_TURN_BUDGET || r.stallRate > STALL_BUDGET ? "!" : " ";
     console.log(
-      `${mark} ${r.name.padEnd(11)}${String(r.turns).padStart(6)}${String(r.ok).padStart(6)}${String(r.bad).padStart(6)}${pct.padStart(7)}  ${top}`,
+      `${mark} ${r.name.padEnd(11)}${String(r.turns).padStart(6)}${String(r.ok).padStart(6)}${String(r.bad).padStart(6)}${pct.padStart(7)}${String(r.p50_wait_s).padStart(6)}${String(r.p90_wait_s).padStart(6)}${String(r.max_wait_s).padStart(6)}${String(r.stalled).padStart(6)}  ${top}`,
     );
   }
   console.log(
     `\n  fleet: ${fleet.bad}/${fleet.scored} turns ended without an answer (${(fleetRate * 100).toFixed(1)}%)`,
+  );
+  console.log(
+    `  fleet: ${fleet.stalled}/${fleet.scored} turns ran over ${STALL_TURN_S / 60}m and still ended without one`,
+  );
+  console.log(
+    "  p50s/p90s/maxs are seconds the user waited for one message, first run start to last run end.",
   );
 
   const withA2a = scored.filter((r) => r.a2a && r.a2a.tasks > 0);
@@ -419,6 +466,7 @@ if (strict && scored.some((r) => dbPressureWarnings(r.dbPressure).length > 0)) {
 }
 if (unreachable.length > 0 && strict) process.exit(1);
 if (strict && scored.some((r) => r.badRate > BAD_TURN_BUDGET)) process.exit(1);
+if (strict && scored.some((r) => r.stallRate > STALL_BUDGET)) process.exit(1);
 if (
   strict &&
   scored.some(

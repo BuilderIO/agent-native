@@ -76,8 +76,8 @@ import {
   createReminderDraft,
   dateTimeInTimezoneToIso,
   getEventEndValidationMessage,
-  getLocalTimezone,
   remindersToDraftState,
+  resolveEventTimezone,
   type AttachmentDraft,
   type ReminderDraft,
   type ReminderMode,
@@ -236,7 +236,7 @@ export function CreateEventPopover({
   const defaultDurationMinutes = Number.isFinite(rawDefaultDuration)
     ? Math.max(5, rawDefaultDuration)
     : 30;
-  const defaultTimezone = settings?.timezone || getLocalTimezone();
+  const defaultTimezone = settings?.timezone || resolveEventTimezone();
   const fallbackStart = "09:00";
   const fallbackEnd = addMinutesToTimeString(
     fallbackStart,
@@ -279,6 +279,7 @@ export function CreateEventPopover({
   const [findTimeOpen, setFindTimeOpen] = useState(false);
   const isOutOfOffice = eventType === "outOfOffice";
   const timedOnlyStatus = eventType === "focusTime";
+  const eventTimezone = resolveEventTimezone(timezone);
 
   const createEvent = useCreateEvent();
   const delEvent = useDeleteEvent();
@@ -308,8 +309,9 @@ export function CreateEventPopover({
     }
 
     const nextDate = format(defaultDate || new Date(), "yyyy-MM-dd");
-    const draftTimezone =
-      draft?.startTimeZone || draft?.endTimeZone || defaultTimezone;
+    const draftTimezone = resolveEventTimezone(
+      draft?.startTimeZone || draft?.endTimeZone || defaultTimezone,
+    );
     const initKey = buildEventFormInitializationKey({
       draftId: draft?.id,
       date: nextDate,
@@ -455,12 +457,12 @@ export function CreateEventPopover({
       ? date
       : effectiveAllDay
         ? new Date(`${date}T00:00:00`).toISOString()
-        : dateTimeInTimezoneToIso(date, startTime, timezone);
+        : dateTimeInTimezoneToIso(date, startTime, eventTimezone);
     const endValue = fullDayOutOfOffice
       ? endDate
       : effectiveAllDay
         ? allDayEnd.toISOString()
-        : dateTimeInTimezoneToIso(endDate, endTime, timezone);
+        : dateTimeInTimezoneToIso(endDate, endTime, eventTimezone);
     const attachmentResult = validateAttachmentDrafts(attachments);
     const reminderPatch = buildReminderPayload(reminderMode, reminders);
     const nextDraft: CalendarEventDraft = {
@@ -470,8 +472,8 @@ export function CreateEventPopover({
       description: isOutOfOffice ? "" : description,
       start: startValue,
       end: endValue,
-      startTimeZone: effectiveAllDay ? undefined : timezone,
-      endTimeZone: effectiveAllDay ? undefined : timezone,
+      startTimeZone: effectiveAllDay ? undefined : eventTimezone,
+      endTimeZone: effectiveAllDay ? undefined : eventTimezone,
       location: isOutOfOffice ? "" : location,
       allDay: effectiveAllDay,
       fullDay: fullDayOutOfOffice,
@@ -547,7 +549,7 @@ export function CreateEventPopover({
     declineMessage,
     availability,
     visibility,
-    timezone,
+    eventTimezone,
     colorId,
     reminderMode,
     reminders,
@@ -578,7 +580,7 @@ export function CreateEventPopover({
         time: allDay
           ? t("eventForm.allDay")
           : t("eventForm.ai.timeRange", { startTime, endTime }),
-        timezone,
+        timezone: eventTimezone,
         location: location || t("eventForm.ai.none"),
         attendees:
           attendees.map((attendee) => attendee.email).join(", ") ||
@@ -636,11 +638,11 @@ export function CreateEventPopover({
   const effectiveAllDay = allDay && !isOutOfOffice && !timedOnlyStatus;
   const currentStartISO =
     !effectiveAllDay && date && startTime
-      ? dateTimeInTimezoneToIso(date, startTime, timezone)
+      ? dateTimeInTimezoneToIso(date, startTime, eventTimezone)
       : undefined;
   const currentEndISO =
     !effectiveAllDay && endDate && endTime
-      ? dateTimeInTimezoneToIso(endDate, endTime, timezone)
+      ? dateTimeInTimezoneToIso(endDate, endTime, eventTimezone)
       : undefined;
   const findTimeDurationMinutes =
     currentStartISO && currentEndISO
@@ -654,8 +656,8 @@ export function CreateEventPopover({
       : defaultDurationMinutes;
 
   function handleSelectFindTimeSlot(slot: { start: string; end: string }) {
-    const startParts = dateTimePartsInTimezone(slot.start, timezone);
-    const endParts = dateTimePartsInTimezone(slot.end, timezone);
+    const startParts = dateTimePartsInTimezone(slot.start, eventTimezone);
+    const endParts = dateTimePartsInTimezone(slot.end, eventTimezone);
     if (!startParts || !endParts) return;
     setAllDay(false);
     setDate(startParts.date);
@@ -708,12 +710,12 @@ export function CreateEventPopover({
       ? date
       : effectiveAllDay
         ? new Date(`${date}T00:00:00`).toISOString()
-        : dateTimeInTimezoneToIso(date, startTime, timezone);
+        : dateTimeInTimezoneToIso(date, startTime, eventTimezone);
     const endValue = fullDayOutOfOffice
       ? endDate
       : effectiveAllDay
         ? allDayEnd.toISOString()
-        : dateTimeInTimezoneToIso(endDate, endTime, timezone);
+        : dateTimeInTimezoneToIso(endDate, endTime, eventTimezone);
 
     if (
       fullDayOutOfOffice
@@ -761,8 +763,8 @@ export function CreateEventPopover({
       description: isOutOfOffice ? "" : description,
       start: startValue,
       end: endValue,
-      startTimeZone: effectiveAllDay ? undefined : timezone,
-      endTimeZone: effectiveAllDay ? undefined : timezone,
+      startTimeZone: effectiveAllDay ? undefined : eventTimezone,
+      endTimeZone: effectiveAllDay ? undefined : eventTimezone,
       location: isOutOfOffice ? "" : location,
       accountEmail,
       allDay: effectiveAllDay,
@@ -1459,7 +1461,7 @@ export function CreateEventPopover({
               (draft ? t("eventForm.invite") : t("eventForm.newEventLower"))
             }
             date={date}
-            timezone={timezone}
+            timezone={eventTimezone}
             durationMinutes={findTimeDurationMinutes}
             attendees={attendees}
             accountEmail={accountEmail}

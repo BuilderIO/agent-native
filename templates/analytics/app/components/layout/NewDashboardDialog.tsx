@@ -45,7 +45,13 @@ export function NewDashboardDialog({
   function handleSubmit(text: string) {
     const trimmed = text.trim();
     if (!trimmed || isGenerating) return;
-    send({ message: trimmed, context: DASHBOARD_CONTEXT, submit: true });
+    send({
+      message: trimmed,
+      context: DASHBOARD_CONTEXT,
+      submit: true,
+      newTab: true,
+      reuseEmptyTab: true,
+    });
     setOpen(false);
   }
 
@@ -73,6 +79,7 @@ export function NewDashboardDialog({
         <PromptComposer
           autoFocus
           disabled={isGenerating}
+          layoutVariant="compact"
           placeholder={t("dialogs.newDashboardPlaceholder")}
           draftScope="analytics:new-dashboard"
           onSubmit={handleSubmit}

@@ -193,10 +193,12 @@ export function TimezonePickerPopover({
   value,
   onChange,
   label,
+  compact = false,
 }: {
   value: string;
   onChange: (value: string) => void;
   label: string;
+  compact?: boolean;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -208,11 +210,16 @@ export function TimezonePickerPopover({
           type="button"
           variant="ghost"
           size="sm"
-          className="h-auto justify-start rounded px-1.5 py-0.5 text-sm font-normal text-muted-foreground hover:bg-muted hover:text-foreground"
+          className={cn(
+            compact
+              ? "size-7 rounded-full p-0 text-muted-foreground hover:bg-muted hover:text-foreground"
+              : "h-auto justify-start rounded px-1.5 py-0.5 text-sm font-normal text-muted-foreground hover:bg-muted hover:text-foreground",
+          )}
           aria-label={label}
+          title={compact ? label : undefined}
         >
-          <IconWorld className="mr-2 size-4 shrink-0" />
-          {formatTimezoneLabel(value)}
+          <IconWorld className={cn("size-4 shrink-0", !compact && "mr-2")} />
+          {!compact && formatTimezoneLabel(value)}
         </Button>
       </PopoverTrigger>
       <PopoverContent

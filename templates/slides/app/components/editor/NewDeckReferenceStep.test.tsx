@@ -191,6 +191,42 @@ describe("<NewDeckReferenceStep>", () => {
     expect(screen.getByLabelText("Slides - Imported")).toBeTruthy();
   });
 
+  it("drops the imported reference deck when Slides is deselected", async () => {
+    const imported: ImportedReference = {
+      id: "deck-google",
+      title: "Quarterly plan",
+      source: "google-slides",
+    };
+    const { onSelect, onImportSource } = renderStep();
+    onImportSource.mockResolvedValue(imported);
+
+    fireEvent.click(screen.getByRole("button", { name: "Slides" }));
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "Google Slides link" }),
+      {
+        target: {
+          value: "https://docs.google.com/presentation/d/deck-google/edit",
+        },
+      },
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Slides - Imported" }));
+    expect(screen.queryByRole("status")).toBeNull();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    });
+
+    expect(onSelect).toHaveBeenCalledWith({
+      designSystemId: null,
+      referenceDeckId: null,
+      referenceSource: null,
+    });
+  });
+
   it("only shows Google connection recovery after choosing Slides", () => {
     renderStep();
 

@@ -618,17 +618,11 @@ export function useChatThreads(
   // - savedId in newlyCreatedRef (we just created it this session) → keep
   //   it; the server hasn't seen it yet because there's no POST anymore,
   //   the row gets written when the user sends a message.
-  // - savedId is set but neither on the server nor newly created here →
-  //   it's an empty tab the user left open. A never-messaged tab is never
-  //   POSTed (that was the 127-ghost-threads problem), and the only record
-  //   that it's a deliberately-open tab — newlyCreatedRef — is wiped by the
-  //   reload. So on refresh we can't tell it apart from a stale ghost.
-  //   Keep it exactly as the user left it: re-register it as an optimistic
-  //   empty tab rather than resurrecting an unrelated old conversation. The
-  //   composer is fully functional with this id (the server writes the row
-  //   on first message, same as any new tab), so there's no 404 to avoid.
-  //   This is what makes "the state you left is the state you see on
-  //   refresh" hold — stale (>12h) tabs are still cleared downstream.
+  // - savedId is set but not on the current page → look it up directly. A
+  //   found thread stays active. An auto-creating surface replaces a confirmed
+  //   404 with a fresh local tab rather than reusing an inaccessible server id.
+  //   A list-only surface keeps the saved id as an optimistic empty tab so a
+  //   never-posted tab remains selectable after reload.
   // - No savedId → synthesize a fresh local id (no POST; server creates the
   //   row on first message). The server may contain chats from another
   //   branch, preview, or project that shares the same user/database, so
@@ -659,7 +653,7 @@ export function useChatThreads(
         ? loadedThreads.find((t) => t.id === restoredId)
         : undefined;
       // One page, so absence from it is not absence from the server — this is what
-      // separates an older real thread from the ghost tab reclassified below.
+      // separates an older real thread from an unavailable saved id below.
       const restoredThread =
         lookupRestored && !restoredOnPage
           ? await fetchThreadById(apiUrl, restoredId!)
@@ -670,6 +664,8 @@ export function useChatThreads(
         setIsLoading(false);
         return;
       }
+      const restoredIsUnavailable =
+        restoredThread === null && lookupRestored && !restoredOnPage;
       const restoredBelongsElsewhere = Boolean(
         restoredThread &&
         !threadCanStayVisibleInScope(
@@ -677,8 +673,10 @@ export function useChatThreads(
           scopeRef.current,
         ),
       );
-      if (restoredBelongsElsewhere) setActiveThreadId(null);
-      const savedId = restoredBelongsElsewhere ? null : restoredId;
+      const restoredNeedsReplacement =
+        restoredBelongsElsewhere || (restoredIsUnavailable && autoCreate);
+      if (restoredNeedsReplacement) setActiveThreadId(null);
+      const savedId = restoredNeedsReplacement ? null : restoredId;
       const loadedHasSavedId = Boolean(
         savedId &&
         (restoredThread || loadedThreads.some((t) => t.id === savedId)),

@@ -78,6 +78,7 @@ import {
 } from "./email-templates.js";
 import { getEmailReadiness, sendEmail } from "./email.js";
 import { resolveGoogleSignInCredentials } from "./google-oauth-credentials.js";
+import { readMagicLinkSignupAttribution } from "./magic-link-attribution.js";
 
 export {
   getAuthLoginMode,
@@ -1349,7 +1350,7 @@ async function createBetterAuthInstance(
             // browser's `an_ft` first-touch cookie rides in.
             context?: {
               headers?: Headers | null;
-              request?: { headers?: Headers | null } | null;
+              request?: { headers?: Headers | null; url?: string } | null;
             } | null,
           ) => {
             // When a newly-created user's email has pending org invitations
@@ -1368,8 +1369,19 @@ async function createBetterAuthInstance(
                 context?.headers?.get("cookie") ??
                 context?.request?.headers?.get("cookie") ??
                 null;
+              const magicLinkAttribution = context?.request?.url?.includes(
+                "newUserCallbackURL",
+              )
+                ? readMagicLinkSignupAttribution(
+                    context.request.url,
+                    getAuthSecret(),
+                  )
+                : undefined;
               attribution = signupAttributionFromCookieHeader(cookieHeader);
-              anonymousId = readAnalyticsAnonymousId(cookieHeader);
+              attribution = magicLinkAttribution?.attribution ?? attribution;
+              anonymousId =
+                magicLinkAttribution?.anonymousId ??
+                readAnalyticsAnonymousId(cookieHeader);
             } catch (err) {
               console.error("[auth] failed to derive signup attribution", err);
               attribution = undefined;

@@ -266,6 +266,17 @@ const messages = {
     linkExpired: "Link abgelaufen",
     linkExpiredMessage:
       "Der Ersteller hat für diesen Freigabelink ein Ablaufdatum festgelegt.",
+    privateClip: "Privater Clip",
+    privateClipMessage:
+      "Dieser Clip ist privat. Fordern Sie Zugriff an, und der Eigentümer wird benachrichtigt.",
+    privateClipSignedOutMessage:
+      "Dieser Clip ist privat. Melden Sie sich an, um beim Eigentümer Zugriff anzufordern.",
+    requestAccess: "Zugriff anfordern",
+    requestingAccess: "Zugriff wird angefordert...",
+    accessRequested: "Zugriff angefordert",
+    accessRequestSent: "Der Eigentümer des Clips wurde benachrichtigt.",
+    accessRequestFailed:
+      "Zugriff konnte nicht angefordert werden. Versuchen Sie es erneut.",
     clipUnavailable: "Clip nicht verfügbar",
     clipUnavailableMessage:
       "Diese Aufzeichnung ist nicht öffentlich oder der Link ist ungültig. Wenn es sich um Ihren Clip handelt, melden Sie sich an, um den Zugriff zu überprüfen.",
@@ -523,10 +534,11 @@ const messages = {
     },
     roles: {
       viewer: "Zuschauer",
+      commenter: "Kommentator",
       editor: "Editor",
       admin: "Admin",
     },
-    recordingViewer: {
+    recordingCommenter: {
       label: "Kommentator",
       description: "Kann ansehen, kommentieren und reagieren",
     },
@@ -670,13 +682,13 @@ const messages = {
     collapse: "Einklappen",
     changelogMarkdown: `# Änderungsprotokoll
 
-Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kannst es jederzeit über das Befehlsmenü (Cmd+K -> "Neuigkeiten") oder über die Einstellungen öffnen.
+Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kannst es jederzeit über das Befehlsmenü (Cmd K -> "Neuigkeiten") oder über die Einstellungen öffnen.
 
 ## 2026-06-23
 
 ### Hinzugefügt
 
-- Du kannst Neuigkeiten jetzt direkt in Clips ansehen. Das Änderungsprotokoll ist im Befehlsmenü (Cmd+K) und in den Einstellungen verfügbar.`,
+- Du kannst Neuigkeiten jetzt direkt in Clips ansehen. Das Änderungsprotokoll ist im Befehlsmenü (Cmd K) und in den Einstellungen verfügbar.`,
     playback: "Wiedergabe",
     defaultPlaybackSpeed: "Standard-Wiedergabegeschwindigkeit",
     playbackDescription:
@@ -1002,6 +1014,8 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     includeTranscriptDescription:
       "Alle Personen mit Zugriff auf dieses Meeting können das vollständige Transkript lesen.",
     transcriptUnavailable: "Das Transkript ist noch nicht verfügbar.",
+    agentLinkDescription:
+      "Über diesen temporären Link können Agenten diese Meeting-Notizen lesen, ohne sie öffentlich zu machen. Er läuft nach zwei Stunden ab.",
     transcript: "Transkript",
     copyTranscript: "Transkript kopieren",
     transcriptCopied: "Transkript kopiert",
@@ -1228,7 +1242,7 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     seekTo: "Seek to {{time}} (Lokalisiert)",
   },
   editorToolbar: {
-    undoTooltip: "Undo (Cmd/Ctrl+Z) (Lokalisiert)",
+    undoTooltip: "Undo (Cmd/Ctrl Z) (Lokalisiert)",
     playPauseTooltip: "Play / Pause (Space) (Lokalisiert)",
     sourceDuration: "({{duration}} src) (Lokalisiert)",
     previewSpeed: "Preview speed (Lokalisiert)",
@@ -1589,6 +1603,16 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     calendarConnected: "Calendar connected (Lokalisiert)",
     calendarDisconnected: "Calendar disconnected (Lokalisiert)",
     calendarSettings: "Calendar settings (Lokalisiert)",
+    calendarAccountsButton: "Kalender",
+    connectedAccounts: "Verbundene Konten",
+    calendarConnectedLabel: "Verbunden",
+    calendarNeedsReconnectLabel: "Erneute Verbindung erforderlich",
+    calendarDisconnectedLabel: "Getrennt",
+    calendarStatusUnavailable: "Status nicht verfügbar",
+    reconnectCalendar: "Kalender erneut verbinden",
+    addAnotherCalendarAccount: "Weiteres Konto hinzufügen",
+    connectCalendar: "Kalender verbinden",
+    disconnectCalendarAccount: "Konto trennen",
     connectCalendarReminder:
       "Connect Google Calendar for meeting reminders. (Lokalisiert)",
     disconnectGoogleCalendarTitle: "Disconnect Google Calendar? (Lokalisiert)",
