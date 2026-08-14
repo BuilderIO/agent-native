@@ -1113,6 +1113,10 @@ Clips में उपयोगकर्ताओं को दिखने व�
     searchNextMatch: "अगला मिलान",
     searchClose: "खोज बंद करें",
   },
+  bulletLink: {
+    jumpToTranscript: "प्रतिलेख में {{time}} पर जाएं",
+    noMatchingMoment: "कोई मेल खाता क्षण नहीं मिला",
+  },
   editorLayout: {
     trimmed: "ट्रिम किया गया",
     trimFailed: "ट्रिम विफल",
