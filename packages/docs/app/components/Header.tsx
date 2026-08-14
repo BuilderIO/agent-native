@@ -77,8 +77,8 @@ export default function Header() {
       if (!response.ok) return;
       const svg = await response.text();
       await navigator.clipboard.writeText(svg);
-    } catch {
-      // Ignore clipboard failures
+    } catch (error) {
+      console.error("Failed to copy SVG to clipboard", error);
     }
   };
 
@@ -219,9 +219,7 @@ export default function Header() {
             >
               {t("header.copyWordmark")}
             </ContextMenuItem>
-            <ContextMenuItem
-              onSelect={() => navigate(localizedPath("/brand"))}
-            >
+            <ContextMenuItem onSelect={() => navigate(localizedPath("/brand"))}>
               {t("header.brandAssets")}
             </ContextMenuItem>
           </ContextMenuContent>
