@@ -1,5 +1,5 @@
 import { useLocale, useT } from "@agent-native/core/client/i18n";
-import { useRef, useState } from "react";
+import { forwardRef, useImperativeHandle, useRef, useState } from "react";
 import { Link } from "react-router";
 
 import { sitePathForLocale } from "../components/docs-locale";
@@ -82,88 +82,79 @@ const COMPARISON_ROWS = [
   },
 ];
 
-function ClipPreviewSlider() {
-  const sliderRef = useRef<HTMLDivElement>(null);
+type ClipPreviewSliderHandle = {
+  scroll: (direction: -1 | 1) => void;
+};
 
-  function scroll(direction: -1 | 1) {
-    const slider = sliderRef.current;
-    if (!slider) return;
-    slider.scrollBy({
-      left: direction * slider.clientWidth * 0.8,
-      behavior: "smooth",
-    });
-  }
+const ClipPreviewSlider = forwardRef<ClipPreviewSliderHandle>(
+  function ClipPreviewSlider(_props, ref) {
+    const sliderRef = useRef<HTMLDivElement>(null);
 
-  return (
-    <div className="mx-auto max-w-5xl text-left">
-      <div className="mb-4 flex justify-end gap-2">
-        <button
-          type="button"
-          aria-label="Previous clip"
-          onClick={() => scroll(-1)}
-          className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-[var(--docs-border)] text-[var(--fg)] transition hover:border-[var(--fg-secondary)]"
+    function scroll(direction: -1 | 1) {
+      const slider = sliderRef.current;
+      if (!slider) return;
+      slider.scrollBy({
+        left: direction * slider.clientWidth * 0.8,
+        behavior: "smooth",
+      });
+    }
+
+    useImperativeHandle(ref, () => ({ scroll }), []);
+
+    return (
+      <div className="mx-auto max-w-5xl text-left">
+        <div
+          ref={sliderRef}
+          className="flex snap-x snap-mandatory gap-4 overflow-x-auto pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         >
-          <span aria-hidden>←</span>
-        </button>
-        <button
-          type="button"
-          aria-label="Next clip"
-          onClick={() => scroll(1)}
-          className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-[var(--docs-border)] text-[var(--fg)] transition hover:border-[var(--fg-secondary)]"
-        >
-          <span aria-hidden>→</span>
-        </button>
-      </div>
-      <div
-        ref={sliderRef}
-        className="flex snap-x snap-mandatory gap-4 overflow-x-auto pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-      >
-        {CLIP_PREVIEWS.map((clip) => (
-          <a
-            key={clip.href}
-            href={clip.href}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="group min-w-[82%] snap-start overflow-hidden rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline sm:min-w-[46%] lg:min-w-[31%]"
-            onClick={() =>
-              trackEvent("view clip preview", {
-                clip: clip.href,
-                location: "landing_page_cta",
-              })
-            }
-          >
-            <div className="relative aspect-[4/3] overflow-hidden border-b border-[var(--docs-border)] bg-black">
-              <img
-                src={clip.thumbnail}
-                alt=""
-                loading="lazy"
-                decoding="async"
-                className="h-full w-full object-cover object-bottom transition duration-300 group-hover:scale-[1.02]"
-              />
-              <span className="absolute inset-0 flex items-center justify-center">
-                <span className="flex h-12 w-12 items-center justify-center rounded-full bg-black/75 text-xl text-white shadow-lg transition group-hover:scale-105">
-                  <span className="ml-0.5" aria-hidden>
-                    ▶
+          {CLIP_PREVIEWS.map((clip) => (
+            <a
+              key={clip.href}
+              href={clip.href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="group min-w-[82%] snap-start overflow-hidden rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline sm:min-w-[46%] lg:min-w-[31%]"
+              onClick={() =>
+                trackEvent("view clip preview", {
+                  clip: clip.href,
+                  location: "landing_page_cta",
+                })
+              }
+            >
+              <div className="relative aspect-[4/3] overflow-hidden border-b border-[var(--docs-border)] bg-black">
+                <img
+                  src={clip.thumbnail}
+                  alt=""
+                  loading="lazy"
+                  decoding="async"
+                  className="h-full w-full object-cover object-bottom transition duration-300 group-hover:scale-[1.02]"
+                />
+                <span className="absolute inset-0 flex items-center justify-center">
+                  <span className="flex h-12 w-12 items-center justify-center rounded-full bg-black/75 text-xl text-white shadow-lg transition group-hover:scale-105">
+                    <span className="ml-0.5" aria-hidden>
+                      ▶
+                    </span>
                   </span>
                 </span>
-              </span>
-            </div>
-            <div className="p-4">
-              <h3 className="m-0 text-base font-semibold leading-snug">
-                {clip.title}
-              </h3>
-            </div>
-          </a>
-        ))}
+              </div>
+              <div className="p-4">
+                <h3 className="m-0 text-base font-semibold leading-snug">
+                  {clip.title}
+                </h3>
+              </div>
+            </a>
+          ))}
+        </div>
       </div>
-    </div>
-  );
-}
+    );
+  },
+);
 
 export default function ClipsTemplate() {
   const t = useT();
   const { locale } = useLocale();
   const [aiPromptCopied, setAiPromptCopied] = useState(false);
+  const sliderHandleRef = useRef<ClipPreviewSliderHandle>(null);
 
   function handleCopyAiPrompt() {
     navigator.clipboard.writeText(AI_PROMPT);
@@ -699,13 +690,64 @@ export default function ClipsTemplate() {
       {/* CTA */}
       <section
         id="start-now"
-        className="border-t border-[var(--docs-border)] py-16 text-center"
+        className="scroll-mt-24 border-t border-[#1a1a1a]"
       >
-        <h2 className="mb-3 text-2xl font-bold tracking-tight">
-          {t("templateLanding.clips.s059")}
-        </h2>
-        <ClipPreviewSlider />
-        <div className="template-detail-cta-actions mt-8 flex flex-col items-stretch justify-center gap-3 sm:flex-row sm:items-center sm:gap-4">
+        <div className="flex flex-col gap-6 border-x border-[#1a1a1a] px-6 pb-10 pt-16 sm:flex-row sm:items-end sm:justify-between sm:px-8 sm:pb-14 sm:pt-24 lg:pb-20 lg:pt-32">
+          <div>
+            <p className="m-0 mb-2 font-mono text-sm font-semibold uppercase tracking-[0.28px] text-[#01c8f1]">
+              Learn more
+            </p>
+            <h2 className="m-0 text-[1.75rem] font-medium leading-[1.05] tracking-[-0.56px] text-[#faf9f5] sm:text-4xl lg:text-[2.875rem] lg:tracking-[-0.92px]">
+              {t("templateLanding.clips.s059")}
+            </h2>
+          </div>
+          <div className="flex gap-3">
+            <button
+              type="button"
+              aria-label="Previous clip"
+              onClick={() => sliderHandleRef.current?.scroll(-1)}
+              className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-[#5e5e5e] bg-[#0a0a0a] transition hover:border-[var(--fg-secondary)]"
+            >
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 18 18"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M10.8523 4.10225C11.0719 3.88258 11.428 3.88258 11.6477 4.10225C11.8673 4.32192 11.8673 4.67799 11.6477 4.89766L7.54537 8.99996L11.6477 13.1023C11.8673 13.3219 11.8673 13.678 11.6477 13.8977C11.428 14.1173 11.0719 14.1173 10.8523 13.8977L6.35225 9.39766C6.13258 9.17799 6.13258 8.82192 6.35225 8.60225L10.8523 4.10225Z"
+                  fill="#FAF9F5"
+                />
+              </svg>
+            </button>
+            <button
+              type="button"
+              aria-label="Next clip"
+              onClick={() => sliderHandleRef.current?.scroll(1)}
+              className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-[#5e5e5e] bg-[#0a0a0a] transition hover:border-[var(--fg-secondary)]"
+            >
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 18 18"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M6.35225 4.10225C6.57192 3.88258 6.92799 3.88258 7.14766 4.10225L11.6477 8.60225C11.8673 8.82192 11.8673 9.17799 11.6477 9.39766L7.14766 13.8977C6.92799 14.1173 6.57192 14.1173 6.35225 13.8977C6.13258 13.678 6.13258 13.3219 6.35225 13.1023L10.4545 8.99996L6.35225 4.89766C6.13258 4.67799 6.13258 4.32192 6.35225 4.10225Z"
+                  fill="#FAF9F5"
+                />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <div className="border-x border-[#1a1a1a] px-6 pb-16 sm:px-8">
+          <ClipPreviewSlider ref={sliderHandleRef} />
+        </div>
+
+        <div className="template-detail-cta-actions flex flex-col items-stretch justify-center gap-3 border-x border-t border-[#1a1a1a] px-6 py-10 sm:flex-row sm:items-center sm:gap-4 sm:px-8">
           <TemplateDocsLink
             template={template}
             location="landing_page_cta"
