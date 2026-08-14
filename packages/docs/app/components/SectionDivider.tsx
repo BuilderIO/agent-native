@@ -5,7 +5,7 @@ type SectionDividerProps = {
 
 export function SectionDivider({
   className = "",
-  showOnSmallScreens = true,
+  showOnSmallScreens = false,
 }: SectionDividerProps) {
   const responsiveSizeClassName = showOnSmallScreens
     ? "grid h-12 sm:h-20 lg:h-[120px]"
