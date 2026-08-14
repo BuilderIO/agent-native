@@ -1,3 +1,7 @@
+import {
+  APP_CHAT_SIDEBAR_STATE_EVENT,
+  APP_CHAT_SIDEBAR_STATE_MESSAGE,
+} from "@agent-native/core/client/hooks";
 import type { AppDefinition, AppConfig } from "@shared/app-registry";
 import { getTemplate } from "@shared/app-registry";
 import {
@@ -243,6 +247,21 @@ function buildGuestLifecycleScript(
   })()`;
 }
 
+export function buildGuestAppChatSidebarStateScript(open: boolean): string {
+  const encodedEventName = JSON.stringify(APP_CHAT_SIDEBAR_STATE_EVENT);
+  const encodedMessage = JSON.stringify({
+    type: APP_CHAT_SIDEBAR_STATE_MESSAGE,
+    data: { open },
+  });
+  return `(() => {
+    const message = ${encodedMessage};
+    window.dispatchEvent(new CustomEvent(${encodedEventName}, { detail: message.data }));
+    for (const iframe of document.querySelectorAll("iframe")) {
+      iframe.contentWindow?.postMessage(message, "*");
+    }
+  })()`;
+}
+
 const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
   (
     {
@@ -288,6 +307,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     const prevIsActiveRef = useRef(isActive);
     const onTitleChangeRef = useRef(onTitleChange);
     const onAuthStateChangeRef = useRef(onAuthStateChange);
+    const perAppChatOpenRef = useRef(false);
 
     const applyGuestTheme = useCallback(() => {
       const wv = webviewRef.current;
@@ -301,6 +321,17 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         // The imperatively-created webview can exist before Chromium attaches it.
       }
     }, [app.placeholder, syncTheme, theme]);
+
+    const syncGuestAppChatSidebar = useCallback(() => {
+      const wv = webviewRef.current;
+      if (!wv || app.placeholder) return;
+      void wv
+        .executeJavaScript(
+          buildGuestAppChatSidebarStateScript(perAppChatOpenRef.current),
+          false,
+        )
+        .catch(() => {});
+    }, [app.placeholder]);
 
     useEffect(() => {
       onTitleChangeRef.current = onTitleChange;
@@ -468,6 +499,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         // did-fail-load. That event is not a successful app load.
         if (loadFailureRef.current) return;
         applyGuestTheme();
+        syncGuestAppChatSidebar();
         if (app.id === "content") {
           void wv
             .executeJavaScript(buildContentDirectoryPickerBridgeScript(), false)
@@ -489,6 +521,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       };
       const onNavigation = () => {
         applyGuestTheme();
+        syncGuestAppChatSidebar();
         emitCurrentTitleSoon();
         emitAuthState();
       };
@@ -544,11 +577,43 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         wv.removeEventListener("enter-html-full-screen", onEnterFullscreen);
         wv.removeEventListener("leave-html-full-screen", onLeaveFullscreen);
       };
-    }, [app.id, app.placeholder, isActive, applyGuestTheme]);
+    }, [
+      app.id,
+      app.placeholder,
+      isActive,
+      applyGuestTheme,
+      syncGuestAppChatSidebar,
+    ]);
 
     useEffect(() => {
       applyGuestTheme();
     }, [applyGuestTheme]);
+
+    useEffect(() => {
+      const handleChatState = (event: Event) => {
+        const open = (event as CustomEvent<{ open?: unknown }>).detail?.open;
+        if (typeof open !== "boolean") return;
+        perAppChatOpenRef.current = open;
+        syncGuestAppChatSidebar();
+      };
+
+      window.addEventListener(APP_CHAT_SIDEBAR_STATE_EVENT, handleChatState);
+      perAppChatOpenRef.current =
+        document.querySelector(
+          '[data-agent-sidebar-per-app-chat="true"][data-agent-sidebar-state="open"]',
+        ) !== null;
+      syncGuestAppChatSidebar();
+
+      return () =>
+        window.removeEventListener(
+          APP_CHAT_SIDEBAR_STATE_EVENT,
+          handleChatState,
+        );
+    }, [syncGuestAppChatSidebar]);
+
+    useEffect(() => {
+      syncGuestAppChatSidebar();
+    }, [isActive, syncGuestAppChatSidebar, url]);
 
     useEffect(() => {
       if (!isActive || app.placeholder) return;
