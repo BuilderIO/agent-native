@@ -95,7 +95,8 @@ architecture-grounding:
   legacy-contracts:
     - hydration and Load More are outbound no-ops
     - publication and provider writes remain separate guarded actions
-  shared-vocabulary: [Review Diff, body change, current excerpt, proposed excerpt]
+  shared-vocabulary:
+    [Review Diff, body change, current excerpt, proposed excerpt]
   smallest-compatible-delta: Render existing body excerpts and test their accessible presence.
   deferred-capabilities:
     - generic rich-text inline diffing

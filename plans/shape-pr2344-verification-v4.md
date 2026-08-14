@@ -17,7 +17,8 @@ authorized-scope:
     attaching state from the durable attachment acknowledgement, and begin the
     existing hydration pump without waiting for a source-query round trip,
     while preserving zero phantom changes and the semantic Review Diff repair.
-allowed-mutations: [artifact-write, ephemeral-test-resource, branch, commit, push, pull-request]
+allowed-mutations:
+  [artifact-write, ephemeral-test-resource, branch, commit, push, pull-request]
 write-targets:
   artifacts:
     - plans/shape-pr2344-verification-v4.md
@@ -71,7 +72,8 @@ test-resources:
     production-data: false
     customer-data: false
     cost: none
-    boundary-evidence: [task-created SQLite file, unique marker, safe Builder test model]
+    boundary-evidence:
+      [task-created SQLite file, unique marker, safe Builder test model]
     max-lifetime-minutes: 120
     declared-at: 2026-08-14T17:57:27Z
     expires-at: 2026-08-14T19:57:27Z
@@ -174,7 +176,8 @@ architecture-grounding:
     - attach failure rolls back optimistic data and presents a recoverable error
     - Review Diff remains selection-independent and body-semantic
     - provider publication and writes remain separate guarded actions
-  shared-vocabulary: [attach preview, attachment acknowledgement, hydration pump, Review Diff]
+  shared-vocabulary:
+    [attach preview, attachment acknowledgement, hydration pump, Review Diff]
   smallest-compatible-delta: >-
     Close the source sheet once a ready preview is installed, recover the sheet
     and cache on attach failure, retain acknowledgement completion until the
