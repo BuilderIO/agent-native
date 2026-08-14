@@ -2762,7 +2762,7 @@ export default function RecordRoute() {
             onClick={requestDiscard}
             className="mt-1 text-xs text-white/50 underline-offset-2 hover:text-white/80 hover:underline"
           >
-            Cancel
+            {t("recordingToolbar.cancel")}
           </button>
         </div>
       )}
