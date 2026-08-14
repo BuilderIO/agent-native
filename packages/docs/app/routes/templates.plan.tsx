@@ -498,19 +498,20 @@ export default function PlanTemplate() {
         title={t("templateLanding.plan.s057")}
         actions={
           <>
-            <TemplateDocsLink
-              template={template}
-              location="landing_page_cta"
+            <a
+              href={`${template.demoUrl}/_agent-native/sign-in`}
+              target="_blank"
+              rel="noopener noreferrer"
               className={primaryLinkClassName}
             >
-              {t("templateLanding.plan.s059")}
-            </TemplateDocsLink>
+              {t("common.signIn")}
+            </a>
             <Link
               data-an-prefetch="viewport"
               to={sitePathForLocale("/apps", locale)}
               className={activationLinkClassName}
             >
-              {t("templateLanding.plan.s060")}
+              View more apps
             </Link>
           </>
         }

@@ -457,19 +457,20 @@ export default function AnalyticsTemplate() {
         title={t("templateLanding.analytics.s061")}
         actions={
           <>
-            <TemplateDocsLink
-              template={template}
-              location="landing_page_cta"
+            <a
+              href={`${template.demoUrl}/_agent-native/sign-in`}
+              target="_blank"
+              rel="noopener noreferrer"
               className={primaryLinkClassName}
             >
-              {t("templateLanding.analytics.s063")}
-            </TemplateDocsLink>
+              {t("common.signIn")}
+            </a>
             <Link
               data-an-prefetch="viewport"
               to={sitePathForLocale("/apps", locale)}
               className={activationLinkClassName}
             >
-              {t("templateLanding.analytics.s064")}
+              View more apps
             </Link>
           </>
         }

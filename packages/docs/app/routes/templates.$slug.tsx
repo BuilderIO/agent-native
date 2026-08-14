@@ -173,11 +173,14 @@ export default function GenericTemplatePage() {
                 <IconExternalLink aria-hidden="true" size={16} />
               </a>
             ) : null}
-            <TemplateDocsLink
-              template={template}
-              location="generic_template_page"
+            <a
+              href={`${template.demoUrl}/_agent-native/sign-in`}
+              target="_blank"
+              rel="noopener noreferrer"
               className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md border border-[var(--docs-border)] px-5 py-3 text-sm font-medium text-[var(--fg)] no-underline transition-[border-color] hover:border-[var(--fg-secondary)] hover:no-underline"
-            />
+            >
+              {t("common.signIn")}
+            </a>
             <a
               href={`https://github.com/BuilderIO/agent-native/tree/main/templates/${sourceSlug}`}
               target="_blank"

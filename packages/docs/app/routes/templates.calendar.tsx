@@ -430,19 +430,20 @@ export default function CalendarTemplate() {
         title={t("templateLanding.calendar.s053")}
         actions={
           <>
-            <TemplateDocsLink
-              template={template}
-              location="landing_page_cta"
+            <a
+              href={`${template.demoUrl}/_agent-native/sign-in`}
+              target="_blank"
+              rel="noopener noreferrer"
               className={primaryLinkClassName}
             >
-              {t("templateLanding.calendar.s055")}
-            </TemplateDocsLink>
+              {t("common.signIn")}
+            </a>
             <Link
               data-an-prefetch="viewport"
               to={sitePathForLocale("/apps", locale)}
               className={activationLinkClassName}
             >
-              {t("templateLanding.calendar.s056")}
+              View more apps
             </Link>
           </>
         }

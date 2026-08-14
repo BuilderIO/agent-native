@@ -355,19 +355,20 @@ export default function FormsTemplate() {
         title={t("templateLanding.forms.s056")}
         actions={
           <>
-            <TemplateDocsLink
-              template={template}
-              location="landing_page_cta"
+            <a
+              href={`${template.demoUrl}/_agent-native/sign-in`}
+              target="_blank"
+              rel="noopener noreferrer"
               className="inline-flex min-h-11 items-center justify-center rounded-md bg-[var(--fg)] px-5 py-3 text-sm font-medium text-[var(--bg)] no-underline transition-[opacity] hover:opacity-90 hover:no-underline"
             >
-              {t("templateLanding.forms.s058")}
-            </TemplateDocsLink>
+              {t("common.signIn")}
+            </a>
             <Link
               data-an-prefetch="viewport"
               to={sitePathForLocale("/apps", locale)}
               className="inline-flex min-h-11 items-center justify-center rounded-md border border-[var(--docs-border)] px-5 py-3 text-sm font-medium text-[var(--fg)] no-underline transition-[border-color] hover:border-[var(--fg-secondary)] hover:no-underline"
             >
-              {t("templateLanding.forms.s059")}
+              View more apps
             </Link>
           </>
         }

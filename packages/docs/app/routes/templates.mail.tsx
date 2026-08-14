@@ -446,19 +446,20 @@ export default function MailTemplate() {
         title={t("templateLanding.mail.s056")}
         actions={
           <>
-            <TemplateDocsLink
-              template={template}
-              location="landing_page_cta"
+            <a
+              href={`${template.demoUrl}/_agent-native/sign-in`}
+              target="_blank"
+              rel="noopener noreferrer"
               className={primaryLinkClassName}
             >
-              {t("templateLanding.mail.s058")}
-            </TemplateDocsLink>
+              {t("common.signIn")}
+            </a>
             <Link
               data-an-prefetch="viewport"
               to={sitePathForLocale("/apps", locale)}
               className={activationLinkClassName}
             >
-              {t("templateLanding.mail.s059")}
+              View more apps
             </Link>
           </>
         }

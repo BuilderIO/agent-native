@@ -422,19 +422,20 @@ export default function DispatchTemplate() {
         title={t("templateLanding.dispatch.s051")}
         actions={
           <>
-            <TemplateDocsLink
-              template={template}
-              location="landing_page_cta"
+            <a
+              href={`${template.demoUrl}/_agent-native/sign-in`}
+              target="_blank"
+              rel="noopener noreferrer"
               className={primaryLinkClassName}
             >
-              {t("templateLanding.dispatch.s053")}
-            </TemplateDocsLink>
+              {t("common.signIn")}
+            </a>
             <Link
               data-an-prefetch="viewport"
               to={sitePathForLocale("/apps", locale)}
               className={activationLinkClassName}
             >
-              {t("templateLanding.dispatch.s054")}
+              View more apps
             </Link>
           </>
         }
