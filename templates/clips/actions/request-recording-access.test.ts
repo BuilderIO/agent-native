@@ -7,7 +7,6 @@ const mocks = vi.hoisted(() => ({
   getRequestUserName: vi.fn(),
   resolveAccess: vi.fn(),
   getDb: vi.fn(),
-  nanoid: vi.fn(() => "event-1"),
   notify: vi.fn(),
   isEmailConfigured: vi.fn(),
   sendEmail: vi.fn(),
@@ -67,6 +66,7 @@ vi.mock("../server/db/index.js", () => ({
       trashedAt: "recordings.trashedAt",
     },
     recordingEvents: {
+      id: "recording_events.id",
       recordingId: "recording_events.recording_id",
       kind: "recording_events.kind",
       createdAt: "recording_events.created_at",
@@ -76,7 +76,6 @@ vi.mock("../server/db/index.js", () => ({
 }));
 
 vi.mock("../server/lib/recordings.js", () => ({
-  nanoid: (...args: unknown[]) => mocks.nanoid(...args),
   normalizeOwnerEmail: (value: string) => value.trim().toLowerCase(),
 }));
 
@@ -84,7 +83,11 @@ import requestRecordingAccess, {
   renderRecordingAccessRequestEmail,
 } from "./request-recording-access.js";
 
-function createDb(recordingRows: unknown[], requestRows: unknown[] = []) {
+function createDb(
+  recordingRows: unknown[],
+  requestRows: unknown[] = [],
+  insertedRows: unknown[] = [{ id: "event-1" }],
+) {
   let selectIndex = 0;
   const db = {
     select: vi.fn(() => {
@@ -101,7 +104,13 @@ function createDb(recordingRows: unknown[], requestRows: unknown[] = []) {
       };
       return builder;
     }),
-    insert: vi.fn(() => ({ values: vi.fn().mockResolvedValue(undefined) })),
+    insert: vi.fn(() => ({
+      values: vi.fn(() => ({
+        onConflictDoNothing: vi.fn(() => ({
+          returning: vi.fn(async () => insertedRows),
+        })),
+      })),
+    })),
   };
   return db;
 }
@@ -127,7 +136,6 @@ describe("request-recording-access", () => {
     mocks.notify.mockResolvedValue(undefined);
     mocks.sendEmail.mockResolvedValue(undefined);
     mocks.verifyScopedAgentAccessToken.mockReturnValue({ ok: true });
-    mocks.nanoid.mockReturnValue("event-1");
   });
 
   it("requires a signed-in requester", async () => {
@@ -227,6 +235,26 @@ describe("request-recording-access", () => {
         resourceId: "rec-1",
       },
     );
+  });
+
+  it("does not notify when the database claim is won by another request", async () => {
+    const db = createDb([privateRecording()], [], []);
+    mocks.getDb.mockReturnValue(db);
+
+    await expect(
+      (requestRecordingAccess as any).run({
+        recordingId: "rec-1",
+        accessRequestToken: "request-token",
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      alreadyHasAccess: false,
+      alreadyRequested: true,
+      notifiedOwner: false,
+    });
+
+    expect(mocks.notify).not.toHaveBeenCalled();
+    expect(mocks.sendEmail).not.toHaveBeenCalled();
   });
 
   it("does not send duplicate requests from the same viewer", async () => {
