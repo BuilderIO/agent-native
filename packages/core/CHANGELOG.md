@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.157.3
+
+### Patch Changes
+
+- 3bcc0bd: Publish delegated Content database intake capabilities through A2A discovery.
+
 ## 0.157.2
 
 ### Patch Changes
