@@ -81,6 +81,7 @@ describe("desktop updates", () => {
     updaterState.handlers.clear();
     updaterState.checkForUpdates.mockReset();
     updaterState.downloadUpdate.mockReset();
+    updaterState.quitAndInstall.mockReset();
     electronState.notification.isSupported.mockReturnValue(false);
     vi.resetModules();
     ({ checkForAppUpdates, getCurrentUpdateStatus, registerUpdatesIpc } =
@@ -183,6 +184,26 @@ describe("desktop updates", () => {
 
     expect(updaterState.checkForUpdates).not.toHaveBeenCalled();
     expect(refreshApplicationMenu).not.toHaveBeenCalled();
+  });
+
+  it("closes native helpers before handing an update to Squirrel", async () => {
+    const prepareForUpdate = vi.fn(async () => undefined);
+    registerUpdatesIpc({
+      refreshApplicationMenu: vi.fn(),
+      focusMainWindow: vi.fn(),
+      prepareForUpdate,
+    });
+    updaterState.handlers.get("update-downloaded")?.({
+      version: "1.1.0",
+    });
+
+    const installHandler = electronState.ipcMain.handlers.get(
+      IPC.UPDATE_INSTALL,
+    );
+    await installHandler?.();
+
+    expect(prepareForUpdate).toHaveBeenCalledOnce();
+    expect(updaterState.quitAndInstall).toHaveBeenCalledWith(false, true);
   });
 
   it("keeps development updates explicitly unsupported", async () => {

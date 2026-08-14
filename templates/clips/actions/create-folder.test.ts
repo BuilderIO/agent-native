@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockWriteAppState = vi.fn();
 const mockGetCurrentOwnerEmail = vi.fn();
+const mockOwnerEmailMatches = vi.fn();
 const mockRequireOrganizationAccess = vi.fn();
 const mockNanoid = vi.fn();
 const mockDb = {
@@ -20,6 +21,7 @@ vi.mock("@agent-native/core/application-state", () => ({
 vi.mock("../server/lib/recordings.js", () => ({
   getCurrentOwnerEmail: () => mockGetCurrentOwnerEmail(),
   nanoid: () => mockNanoid(),
+  ownerEmailMatches: (...args: unknown[]) => mockOwnerEmailMatches(...args),
   requireOrganizationAccess: (...args: unknown[]) =>
     mockRequireOrganizationAccess(...args),
 }));
@@ -65,6 +67,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockDb.select.mockReset();
   mockDb.insert.mockReset();
+  mockOwnerEmailMatches.mockReset();
   mockWriteAppState.mockResolvedValue(undefined);
   mockGetCurrentOwnerEmail.mockReturnValue("owner@example.com");
   mockRequireOrganizationAccess.mockResolvedValue({ organizationId: "org_1" });
@@ -72,6 +75,39 @@ beforeEach(() => {
 });
 
 describe("create-folder action", () => {
+  it("does not create a child under another user's personal parent", async () => {
+    const insertBuilder = setupInsert();
+    const ownerPredicate = { kind: "owner-email-match" };
+    mockOwnerEmailMatches.mockReturnValue(ownerPredicate);
+    const parentSelect = {
+      from: vi.fn().mockReturnThis(),
+      where: vi.fn().mockImplementation((condition) => {
+        expect(condition).toMatchObject({
+          op: "and",
+          args: expect.arrayContaining([ownerPredicate]),
+        });
+        return parentSelect;
+      }),
+      limit: vi.fn().mockResolvedValue([]),
+    };
+    mockDb.select.mockReturnValueOnce(parentSelect);
+
+    await expect(
+      action.run({
+        name: "Nested folder",
+        parentId: "another-users-parent",
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 404,
+    });
+
+    expect(mockOwnerEmailMatches).toHaveBeenCalledWith(
+      "folders.ownerEmail",
+      "owner@example.com",
+    );
+    expect(insertBuilder.values).not.toHaveBeenCalled();
+  });
+
   it("creates a nested folder under a space parent owned by another user", async () => {
     const insertBuilder = setupInsert();
     const parentSelect = {

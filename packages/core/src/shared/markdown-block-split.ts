@@ -23,7 +23,8 @@
  * render to fix it — which rebuilt the message's entire DOM and produced the
  * flash and scroll jump users reported. Two constructs reach across a blank
  * line, so neither may be split:
- *  - lists, which continue across blank lines (and become "loose")
+ *  - lists, which continue across blank lines (and become "loose"), including
+ *    indented fenced code blocks nested inside a list item
  *  - link-reference and footnote definitions, which resolve document-wide
  * `markdown-block-split.spec.ts` asserts this parity construct by construct.
  * Do not add a split rule without adding its parity case.
@@ -98,13 +99,29 @@ export function splitMarkdownBlocks(text: string): MarkdownBlockSplit {
       // Detect a fence opening: line starts with ``` or ~~~ (3+ chars)
       const fenceMatch = /^(`{3,}|~{3,})/.exec(trimmed);
       if (fenceMatch) {
+        // An indented fence after a blank line is still a child of the active
+        // list item. Flushing here would render it as a top-level fence.
+        const continuesListWithIndentedFence =
+          pendingBlanks > 0 &&
+          currentBlockLines.length > 0 &&
+          currentBlockIsList &&
+          CONTINUATION_INDENT.test(line);
         inFence = true;
         fenceMarker = fenceMatch[1].charAt(0).repeat(fenceMatch[1].length);
         // If there are pending blanks and existing content, flush the current
         // block before starting the fence block.
-        if (pendingBlanks > 0 && currentBlockLines.length > 0) {
+        if (
+          pendingBlanks > 0 &&
+          currentBlockLines.length > 0 &&
+          !continuesListWithIndentedFence
+        ) {
           completedBlocks.push(currentBlockLines.join("\n"));
           currentBlockLines = [];
+        }
+        if (continuesListWithIndentedFence) {
+          for (let blank = 0; blank < pendingBlanks; blank++) {
+            currentBlockLines.push("");
+          }
         }
         pendingBlanks = 0;
         if (currentBlockLines.length === 0) currentBlockIsList = false;

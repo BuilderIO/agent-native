@@ -314,6 +314,7 @@ export interface AuthOptions {
     tagline: string;
     description?: string;
     features?: string[];
+    /** @deprecated Local execution is no longer offered from auth pages. */
     runLocalCommand?: string;
   };
   /**

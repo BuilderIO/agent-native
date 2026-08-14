@@ -453,6 +453,77 @@ describe("buildPublicAgentContext", () => {
     );
   });
 
+  it("omits commenter and reaction email fields from the public payload", () => {
+    const context = buildPublicAgentContext({
+      event: {
+        url: new URL(
+          "https://clips.example.com/api/agent-context.json?id=rec-1",
+        ),
+        req: {
+          headers: new Headers(),
+        },
+      } as any,
+      access: {
+        recording: makeRecording() as any,
+        viewerIsOwner: false,
+        apiToken: null,
+      },
+      transcript: null,
+      agentSegments: [],
+      chapters: [],
+      comments: [
+        {
+          id: "comment-1",
+          recordingId: "rec-1",
+          threadId: "thread-1",
+          parentId: null,
+          authorEmail: "commenter@example.com",
+          authorName: "Commenter",
+          content: "Looks good",
+          videoTimestampMs: 1000,
+          emojiReactionsJson: '{"👍":["reactor@example.com"]}',
+          resolved: false,
+          createdAt: "2026-08-14T00:00:00.000Z",
+          updatedAt: "2026-08-14T00:00:00.000Z",
+        } as any,
+      ],
+      reactions: [
+        {
+          id: "reaction-1",
+          emoji: "👍",
+          videoTimestampMs: 1000,
+          viewerEmail: "reactor@example.com",
+          viewerName: "Reactor",
+          createdAt: "2026-08-14T00:00:00.000Z",
+        } as any,
+      ],
+      ctas: [],
+    });
+
+    expect(context.comments[0]).toEqual({
+      id: "comment-1",
+      recordingId: "rec-1",
+      threadId: "thread-1",
+      parentId: null,
+      authorName: "Commenter",
+      content: "Looks good",
+      videoTimestampMs: 1000,
+      resolved: false,
+      createdAt: "2026-08-14T00:00:00.000Z",
+      updatedAt: "2026-08-14T00:00:00.000Z",
+    });
+    expect(context.comments[0]).not.toHaveProperty("authorEmail");
+    expect(context.comments[0]).not.toHaveProperty("emojiReactionsJson");
+    expect(context.reactions[0]).toEqual({
+      id: "reaction-1",
+      emoji: "👍",
+      videoTimestampMs: 1000,
+      viewerName: "Reactor",
+      createdAt: "2026-08-14T00:00:00.000Z",
+    });
+    expect(context.reactions[0]).not.toHaveProperty("viewerEmail");
+  });
+
   it("exposes compact redacted browser diagnostics in public agent context", () => {
     const context = buildPublicAgentContext({
       event: {

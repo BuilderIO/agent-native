@@ -130,7 +130,6 @@ import {
   type IpcMainInvokeEvent,
   type WebContents,
 } from "electron";
-import { autoUpdater } from "electron-updater";
 
 import {
   AI_SDK_MODEL_CONFIG,
@@ -216,6 +215,7 @@ import { isDesktopSsoCanaryVersion } from "./ipc/update-policy.js";
 import {
   checkForAppUpdates,
   getCurrentUpdateStatus,
+  installDownloadedUpdate,
   registerUpdatesIpc,
 } from "./ipc/updates";
 import { registerWindowIpc } from "./ipc/window";
@@ -1179,7 +1179,23 @@ app.on("browser-window-focus", () => {
 // See main/ipc/updates.ts for the autoUpdater wiring, status broadcast, and
 // update-ready notification. `checkForAppUpdates`/`getCurrentUpdateStatus`
 // (imported above) are also used by the application menu below.
-registerUpdatesIpc({ refreshApplicationMenu, focusMainWindow });
+async function closeDesktopComputerMcpBridge(): Promise<void> {
+  const computerBridge = desktopComputerMcpBridge;
+  const browserBridge = desktopBrowserControlBridge;
+  desktopComputerMcpBridge = null;
+  desktopBrowserControlBridge = null;
+  if (computerBridge) {
+    await computerBridge.close();
+  } else {
+    await browserBridge?.close();
+  }
+}
+
+registerUpdatesIpc({
+  refreshApplicationMenu,
+  focusMainWindow,
+  prepareForUpdate: closeDesktopComputerMcpBridge,
+});
 
 function isShellIdentityIpc(event: IpcMainInvokeEvent): boolean {
   return Boolean(
@@ -9641,7 +9657,7 @@ function buildUpdateMenuItem(): Electron.MenuItemConstructorOptions {
       label: currentUpdateStatus.version
         ? `Relaunch to Install Update ${currentUpdateStatus.version}`
         : "Relaunch to Install Update",
-      click: () => autoUpdater.quitAndInstall(false, true),
+      click: () => void installDownloadedUpdate(),
     };
   }
 
@@ -10311,9 +10327,7 @@ app.on("before-quit", (event) => {
     }
     remoteConnectorProcess?.kill("SIGTERM");
     remoteConnectorProcess = null;
-    void desktopComputerMcpBridge?.close();
-    desktopComputerMcpBridge = null;
-    desktopBrowserControlBridge = null;
+    void closeDesktopComputerMcpBridge();
   }
   if (multiFrontierAppIntegration) multiFrontierQuitGuard(event);
 });

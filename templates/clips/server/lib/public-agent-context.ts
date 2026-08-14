@@ -46,11 +46,9 @@ export type PublicAgentComment = {
   recordingId: string;
   threadId: string;
   parentId: string | null;
-  authorEmail: string;
   authorName: string | null;
   content: string;
   videoTimestampMs: number;
-  emojiReactionsJson: string;
   resolved: boolean;
   createdAt: string;
   updatedAt: string;
@@ -59,7 +57,6 @@ export type PublicAgentReaction = {
   id: string;
   emoji: string;
   videoTimestampMs: number;
-  viewerEmail: string | null;
   viewerName: string | null;
   createdAt: string;
 };
@@ -80,6 +77,7 @@ export type PublicAgentAccessResult =
   | { ok: false; failure: PublicAgentFailure };
 
 const DEFAULT_MAX_AGENT_FRAME_MEDIA_BYTES = 200 * 1024 * 1024;
+export const MAX_PUBLIC_AGENT_HISTORY_ITEMS = 100;
 export const CLIPS_AGENT_ACCESS_TTL_SECONDS = 2 * 60 * 60;
 export { CLIPS_AGENT_ACCESS_PARAM };
 
@@ -549,6 +547,10 @@ export function buildPublicAgentContext({
   chapters,
   comments,
   reactions,
+  commentCount = comments.length,
+  commentsTruncated = false,
+  reactionCount = reactions.length,
+  reactionsTruncated = false,
   ctas,
   browserDiagnostics,
   bugReport,
@@ -560,6 +562,10 @@ export function buildPublicAgentContext({
   chapters: ReturnType<typeof parseAgentChapters>;
   comments: PublicAgentComment[];
   reactions: PublicAgentReaction[];
+  commentCount?: number;
+  commentsTruncated?: boolean;
+  reactionCount?: number;
+  reactionsTruncated?: boolean;
   ctas: Awaited<ReturnType<typeof loadAgentCtas>>;
   browserDiagnostics?: BrowserDiagnosticsData | null;
   bugReport?: PublicAgentBugReport;
@@ -670,23 +676,24 @@ export function buildPublicAgentContext({
       recordingId: comment.recordingId,
       threadId: comment.threadId,
       parentId: comment.parentId,
-      authorEmail: comment.authorEmail,
       authorName: comment.authorName,
       content: comment.content,
       videoTimestampMs: comment.videoTimestampMs,
-      emojiReactionsJson: comment.emojiReactionsJson,
       resolved: comment.resolved,
       createdAt: comment.createdAt,
       updatedAt: comment.updatedAt,
     })),
+    commentCount,
+    commentsTruncated,
     reactions: reactions.map((reaction) => ({
       id: reaction.id,
       emoji: reaction.emoji,
       videoTimestampMs: reaction.videoTimestampMs,
-      viewerEmail: reaction.viewerEmail,
       viewerName: reaction.viewerName,
       createdAt: reaction.createdAt,
     })),
+    reactionCount,
+    reactionsTruncated,
     chapters,
     recommendedFrames: suggestedFrames,
     bugReport: compactBugReport(bugReport ?? null),

@@ -4532,7 +4532,7 @@ describe("server/auth", () => {
       expect(html).not.toContain('src="/agent-native-icon-dark.svg"');
     });
 
-    it("renders an optional run-local command in the marketing panel", async () => {
+    it("does not render a run-local command in the marketing panel", async () => {
       const { getOnboardingHtml } = await import("./onboarding-html.js");
       const html = getOnboardingHtml({
         marketing: {
@@ -4543,12 +4543,10 @@ describe("server/auth", () => {
         },
       });
 
-      expect(html).toContain('id="run-local-button"');
-      expect(html).toContain("Run Locally");
-      expect(html).toContain(
-        "npx @agent-native/core@latest create my-mail-app --template mail",
-      );
-      expect(html).toContain("function __anCopyRunLocalCommand()");
+      expect(html).not.toContain('id="run-local-button"');
+      expect(html).not.toContain('id="run-local-panel"');
+      expect(html).not.toContain("Run Locally");
+      expect(html).not.toContain("function __anCopyRunLocalCommand()");
     });
 
     it("defaults the active tab from the login or signup path", async () => {

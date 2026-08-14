@@ -1,5 +1,5 @@
 import { IconChevronDown } from "@tabler/icons-react";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { forwardRef, useEffect, useRef, useState, type ReactNode } from "react";
 
 import { ActionButton } from "../design-system/components.js";
 import type { ActionButtonProps } from "../design-system/types.js";
@@ -13,10 +13,13 @@ import { cn } from "../utils.js";
 export interface ShareTriggerProps extends Pick<
   ActionButtonProps,
   | "aria-label"
+  | "aria-expanded"
+  | "aria-controls"
   | "className"
   | "disabled"
   | "emphasis"
   | "intent"
+  | "onClick"
   | "onPress"
   | "pending"
   | "size"
@@ -26,25 +29,27 @@ export interface ShareTriggerProps extends Pick<
 }
 
 /** The shared text-only trigger for resource sharing surfaces. */
-export function ShareTrigger({
-  label = "Share",
-  "aria-label": ariaLabel,
-  title,
-  ...props
-}: ShareTriggerProps) {
-  return (
-    <ActionButton
-      type="button"
-      emphasis="outline"
-      size="compact"
-      aria-label={ariaLabel ?? (typeof label === "string" ? label : "Share")}
-      title={title ?? (typeof label === "string" ? label : undefined)}
-      {...props}
-    >
-      {label}
-    </ActionButton>
-  );
-}
+export const ShareTrigger = forwardRef<HTMLButtonElement, ShareTriggerProps>(
+  function ShareTrigger(
+    { label = "Share", "aria-label": ariaLabel, title, ...props },
+    ref,
+  ) {
+    return (
+      <ActionButton
+        type="button"
+        emphasis="outline"
+        size="compact"
+        elementRef={ref}
+        aria-label={ariaLabel ?? (typeof label === "string" ? label : "Share")}
+        title={title ?? (typeof label === "string" ? label : undefined)}
+        {...props}
+      >
+        {label}
+      </ActionButton>
+    );
+  },
+);
+ShareTrigger.displayName = "ShareTrigger";
 
 export interface ShareCopyRowProps {
   value: string;
@@ -147,21 +152,24 @@ export function ShareAgentsSection({
       )}
     >
       <CollapsibleTrigger asChild>
-        <ActionButton
-          type="button"
+        <ShareTrigger
+          label={
+            <>
+              <span className="min-w-0 truncate">{label}</span>
+              <IconChevronDown
+                aria-hidden="true"
+                className={cn(
+                  "size-4 shrink-0 text-muted-foreground transition-transform",
+                  isOpen && "rotate-180",
+                )}
+              />
+            </>
+          }
           emphasis="ghost"
+          size="default"
           aria-expanded={isOpen}
           className="flex min-h-10 w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm font-medium hover:bg-muted/50 focus-visible:ring-inset"
-        >
-          <span className="min-w-0 truncate">{label}</span>
-          <IconChevronDown
-            aria-hidden="true"
-            className={cn(
-              "size-4 shrink-0 text-muted-foreground transition-transform",
-              isOpen && "rotate-180",
-            )}
-          />
-        </ActionButton>
+        />
       </CollapsibleTrigger>
       <CollapsibleContent
         className={cn("border-t border-border px-3 py-3", contentClassName)}

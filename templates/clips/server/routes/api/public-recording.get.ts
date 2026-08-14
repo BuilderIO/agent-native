@@ -263,8 +263,17 @@ export default defineEventHandler(async (event) => {
     !viewerIsOrgMember &&
     !tokenAllowsAgentAccess
   ) {
-    setResponseStatus(event, 404);
-    return { error: "Not found" };
+    const status = session?.email ? 403 : 401;
+    setResponseStatus(event, status);
+    return {
+      error:
+        status === 401
+          ? "Sign in to view this private clip"
+          : "You do not have access to this private clip",
+      accessDenied: true,
+      requiresSignIn: status === 401,
+      canRequestAccess: status === 403,
+    };
   }
 
   // Expiry check

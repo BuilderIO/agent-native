@@ -265,6 +265,16 @@ const messages = {
     linkExpired: "Enlace caducado",
     linkExpiredMessage:
       "El creador estableció una caducidad para este enlace para compartir.",
+    privateClip: "Clip privado",
+    privateClipMessage:
+      "Este clip es privado. Solicita acceso y se notificará al propietario.",
+    privateClipSignedOutMessage:
+      "Este clip es privado. Inicia sesión para solicitar acceso al propietario.",
+    requestAccess: "Solicitar acceso",
+    requestingAccess: "Solicitando acceso...",
+    accessRequested: "Acceso solicitado",
+    accessRequestSent: "Se notificó al propietario del clip.",
+    accessRequestFailed: "No se pudo solicitar el acceso. Inténtalo de nuevo.",
     clipUnavailable: "Clip no disponible",
     clipUnavailableMessage:
       "Esta grabación no es pública o el enlace no es válido. Si es tu clip, inicia sesión para verificar el acceso.",

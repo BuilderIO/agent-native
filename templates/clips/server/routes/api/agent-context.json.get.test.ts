@@ -28,6 +28,7 @@ vi.mock("../../lib/public-agent-context.js", () => ({
   loadAgentTranscript: (...args: unknown[]) => mockLoadAgentTranscript(...args),
   loadPublicAgentAccess: (...args: unknown[]) =>
     mockLoadPublicAgentAccess(...args),
+  MAX_PUBLIC_AGENT_HISTORY_ITEMS: 100,
   parseAgentChapters: (...args: unknown[]) => mockParseAgentChapters(...args),
   queryString: (value: unknown) => (typeof value === "string" ? value : ""),
   CLIPS_AGENT_ACCESS_PARAM: "agent_access",
@@ -37,12 +38,22 @@ vi.mock("../../db/index.js", () => ({
   getDb: (...args: unknown[]) => mockGetDb(...args),
   schema: {
     recordingComments: {
+      id: "comments.id",
       recordingId: "comments.recordingId",
+      threadId: "comments.threadId",
+      parentId: "comments.parentId",
+      authorName: "comments.authorName",
+      content: "comments.content",
       videoTimestampMs: "comments.videoTimestampMs",
+      resolved: "comments.resolved",
       createdAt: "comments.createdAt",
+      updatedAt: "comments.updatedAt",
     },
     recordingReactions: {
+      id: "reactions.id",
       recordingId: "reactions.recordingId",
+      emoji: "reactions.emoji",
+      viewerName: "reactions.viewerName",
       createdAt: "reactions.createdAt",
     },
   },
@@ -50,6 +61,7 @@ vi.mock("../../db/index.js", () => ({
 
 vi.mock("drizzle-orm", () => ({
   asc: vi.fn((value) => value),
+  count: vi.fn(() => "count"),
   eq: vi.fn((left, right) => ({ left, right })),
 }));
 
@@ -84,10 +96,13 @@ describe("/api/agent-context route", () => {
     mockBuildPublicAgentContext.mockReturnValue({ ok: true });
     mockGetDb.mockReturnValue({
       select: vi.fn(() => {
-        const builder = {
+        const builder: any = {
           from: vi.fn(() => builder),
           where: vi.fn(() => builder),
-          orderBy: vi.fn(async () => []),
+          orderBy: vi.fn(() => builder),
+          limit: vi.fn(async () => []),
+          then: (resolve: (value: unknown[]) => unknown) =>
+            Promise.resolve([]).then(resolve),
         };
         return builder;
       }),
@@ -95,25 +110,34 @@ describe("/api/agent-context route", () => {
   });
 
   it("passes comments and reactions into the shared agent payload", async () => {
-    const comments = [{ id: "c1" }];
-    const reactions = [{ id: "r1" }];
+    const comments = Array.from({ length: 101 }, (_, index) => ({
+      id: `c${index}`,
+    }));
+    const reactions = Array.from({ length: 101 }, (_, index) => ({
+      id: `r${index}`,
+    }));
+    const limitValues: number[] = [];
+    const makeBuilder = (rows: unknown[]) => {
+      const builder: any = {
+        from: vi.fn(() => builder),
+        where: vi.fn(() => builder),
+        orderBy: vi.fn(() => builder),
+        limit: vi.fn(async (limit: number) => {
+          limitValues.push(limit);
+          return rows;
+        }),
+        then: (resolve: (value: unknown[]) => unknown) =>
+          Promise.resolve(rows).then(resolve),
+      };
+      return builder;
+    };
     const db = {
       select: vi
         .fn()
-        .mockReturnValueOnce({
-          from: vi.fn(() => ({
-            where: vi.fn(() => ({
-              orderBy: vi.fn(async () => comments),
-            })),
-          })),
-        })
-        .mockReturnValueOnce({
-          from: vi.fn(() => ({
-            where: vi.fn(() => ({
-              orderBy: vi.fn(async () => reactions),
-            })),
-          })),
-        }),
+        .mockReturnValueOnce(makeBuilder(comments))
+        .mockReturnValueOnce(makeBuilder(reactions))
+        .mockReturnValueOnce(makeBuilder([{ count: 250 }]))
+        .mockReturnValueOnce(makeBuilder([{ count: 120 }])),
     };
     mockGetDb.mockReturnValue(db as any);
 
@@ -121,9 +145,16 @@ describe("/api/agent-context route", () => {
 
     expect(mockBuildPublicAgentContext).toHaveBeenCalledWith(
       expect.objectContaining({
-        comments,
-        reactions,
+        comments: comments.slice(0, 100),
+        reactions: reactions.slice(0, 100),
+        commentCount: 250,
+        commentsTruncated: true,
+        reactionCount: 120,
+        reactionsTruncated: true,
       }),
     );
+    expect(limitValues).toEqual([101, 101]);
+    expect(db.select.mock.calls[0][0]).not.toHaveProperty("authorEmail");
+    expect(db.select.mock.calls[1][0]).not.toHaveProperty("viewerEmail");
   });
 });

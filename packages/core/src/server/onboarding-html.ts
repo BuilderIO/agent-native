@@ -1773,44 +1773,6 @@ ${localeMenuItemsHtml}
     gap: 0.75rem;
     margin-top: 2rem;
   }
-  .run-local-button {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-height: 2.25rem;
-    padding: 0.5rem 0.875rem;
-    background: rgba(255,255,255,0.08);
-    color: #fff;
-    border: 1px solid rgba(255,255,255,0.14);
-    border-radius: 8px;
-    font-size: 0.8125rem;
-    font-weight: 500;
-    cursor: pointer;
-  }
-  .run-local-button:hover {
-    background: rgba(255,255,255,0.12);
-    border-color: rgba(255,255,255,0.24);
-  }
-  .run-local-panel {
-    max-width: 480px;
-    margin-top: 0.75rem;
-    padding: 0.75rem;
-    background: rgba(20,20,20,0.86);
-    border: 1px solid rgba(255,255,255,0.1);
-    border-radius: 10px;
-    box-shadow: 0 14px 36px rgba(0,0,0,0.28);
-  }
-  .run-local-panel[hidden] { display: none; }
-  .run-local-panel code {
-    display: block;
-    overflow-x: auto;
-    padding-bottom: 0.125rem;
-    color: #e5e5e5;
-    font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
-    font-size: 0.75rem;
-    line-height: 1.5;
-    white-space: nowrap;
-  }
   .copy-run-local {
     margin-top: 0.625rem;
     padding: 0.375rem 0.625rem;
@@ -1860,19 +1822,11 @@ ${marketing!.description ? `      <p class="app-desc" data-marketing-field="desc
           ? `      <ul class="feature-list">\n${marketing!.features.map((f, index) => `        <li data-marketing-feature-index="${index}">${esc(f)}</li>`).join("\n")}\n      </ul>\n`
           : ""
       }      <div class="marketing-actions">
-${runLocalCommand ? `        <button type="button" class="run-local-button" id="run-local-button" aria-expanded="false" aria-controls="run-local-panel" onclick="__anToggleRunLocalCommand()"${i18nAttr("runLocally")}>${esc(t("runLocally"))}</button>\n` : ""}        <a class="oss-link" href="https://github.com/BuilderIO/agent-native" target="_blank" rel="noreferrer">
+        <a class="oss-link" href="https://github.com/BuilderIO/agent-native" target="_blank" rel="noreferrer">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 19c-4.3 1.4-4.3-2.5-6-3m12 5v-3.5c0-1 .1-1.4-.5-2 2.8-.3 5.5-1.4 5.5-6a4.6 4.6 0 00-1.3-3.2 4.2 4.2 0 00-.1-3.2s-1.1-.3-3.5 1.3a12.3 12.3 0 00-6.2 0C6.5 2.8 5.4 3.1 5.4 3.1a4.2 4.2 0 00-.1 3.2A4.6 4.6 0 004 9.5c0 4.6 2.7 5.7 5.5 6-.6.6-.6 1.2-.5 2V21"/></svg>
         <span${i18nAttr("openSource")}>${esc(t("openSource"))}</span>
       </a>
       </div>
-${
-  runLocalCommand
-    ? `      <div class="run-local-panel" id="run-local-panel" hidden data-command="${esc(runLocalCommand)}">
-        <code>${esc(runLocalCommand)}</code>
-        <button type="button" class="copy-run-local" id="copy-run-local" onclick="__anCopyRunLocalCommand()"${i18nAttr("copyCommand")}>${esc(t("copyCommand"))}</button>
-      </div>\n`
-    : ""
-}
     </div>
   </div>
   <div class="form-panel">`
@@ -4258,24 +4212,8 @@ ${
 }
 ${starfieldScript}
 ${
-  runLocalCommand || signupLocalModeNote
+  signupLocalModeNote
     ? `
-  function __anSetRunLocalCommandOpen(open) {
-    var panel = document.getElementById('run-local-panel');
-    var button = document.getElementById('run-local-button');
-    if (!panel || !button) return;
-    if (open) {
-      panel.removeAttribute('hidden');
-    } else {
-      panel.setAttribute('hidden', '');
-    }
-    button.setAttribute('aria-expanded', String(open));
-  }
-  function __anToggleRunLocalCommand() {
-    var panel = document.getElementById('run-local-panel');
-    if (!panel) return;
-    __anSetRunLocalCommandOpen(panel.hasAttribute('hidden'));
-  }
   function __anCopyCommandFromPanel(panelId, buttonId) {
     var panel = document.getElementById(panelId);
     var button = document.getElementById(buttonId);
@@ -4289,9 +4227,6 @@ ${
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(command).then(markCopied).catch(function() {});
     }
-  }
-  function __anCopyRunLocalCommand() {
-    __anCopyCommandFromPanel('run-local-panel', 'copy-run-local');
   }
   function __anCopySignupLocalModeCommand() {
     __anCopyCommandFromPanel('signup-local-mode-note', 'copy-signup-local-mode');

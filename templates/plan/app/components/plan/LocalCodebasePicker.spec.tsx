@@ -15,6 +15,7 @@ const setClientAppStateMock = vi.hoisted(() => vi.fn());
 const syncLocalCodebaseSnapshotMock = vi.hoisted(() => vi.fn());
 const syncLocalControlResourcesMock = vi.hoisted(() => vi.fn());
 const toastMock = vi.hoisted(() => vi.fn());
+const toastErrorMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/client/hooks", () => ({
   setClientAppState: (...args: unknown[]) => setClientAppStateMock(...args),
@@ -33,7 +34,7 @@ vi.mock("@tabler/icons-react", () => ({
 }));
 
 vi.mock("sonner", () => ({
-  toast: (...args: unknown[]) => toastMock(...args),
+  toast: Object.assign(toastMock, { error: toastErrorMock }),
 }));
 
 vi.mock("@/lib/local-codebase-context", () => ({
@@ -98,6 +99,7 @@ describe("LocalCodebasePicker", () => {
     syncLocalCodebaseSnapshotMock.mockReset();
     syncLocalControlResourcesMock.mockReset();
     toastMock.mockReset();
+    toastErrorMock.mockReset();
     restoreLocalCodebaseSelectionMock.mockResolvedValue({
       id: "codebase-1",
       name: "Repo One",
@@ -132,8 +134,8 @@ describe("LocalCodebasePicker", () => {
     container.remove();
   });
 
-  it("shows immediate unlink feedback while cleanup finishes in the background", async () => {
-    const cleanup = deferred<void>();
+  it("reports unlink only after cleanup finishes", async () => {
+    const cleanup = deferred<{ count: number; paths: string[] }>();
     deleteLocalCodebaseResourcesMock.mockReturnValue(cleanup.promise);
     deleteLocalControlResourcesMock.mockReturnValue(cleanup.promise);
     clearLocalCodebaseSelectionMock.mockResolvedValue(undefined);
@@ -153,18 +155,87 @@ describe("LocalCodebasePicker", () => {
 
     await act(async () => {
       button?.click();
+      await Promise.resolve();
+    });
+
+    expect(toastMock).not.toHaveBeenCalledWith(
+      "raw.localCodebase.codebaseUnlinked",
+    );
+    expect(clearLocalCodebaseSelectionMock).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("raw.localCodebase.clearCodebase");
+    expect(deleteLocalCodebaseResourcesMock).toHaveBeenCalledTimes(1);
+    expect(deleteLocalControlResourcesMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      cleanup.resolve({ count: 1, paths: [] });
+      await cleanup.promise;
     });
 
     expect(toastMock).toHaveBeenCalledWith(
       "raw.localCodebase.codebaseUnlinked",
     );
-    expect(container.textContent).toContain("raw.localCodebase.clearCodebase");
-    expect(deleteLocalCodebaseResourcesMock).toHaveBeenCalledTimes(1);
-    expect(deleteLocalControlResourcesMock).toHaveBeenCalledTimes(1);
+    expect(clearLocalCodebaseSelectionMock).toHaveBeenCalledTimes(1);
+    expect(
+      container.querySelector(
+        'button[aria-label="raw.localCodebase.clearCodebase"]',
+      ),
+    ).toBeNull();
+  });
 
-    cleanup.resolve();
+  it("keeps the selection and exposes a retry when cleanup fails", async () => {
+    const cleanupError = new Error("snapshot cleanup failed");
+    deleteLocalCodebaseResourcesMock
+      .mockRejectedValueOnce(cleanupError)
+      .mockResolvedValue({ count: 1, paths: [] });
+    deleteLocalControlResourcesMock.mockResolvedValue({
+      count: 0,
+      paths: [],
+    });
+    clearLocalCodebaseSelectionMock.mockResolvedValue(undefined);
+
     await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <LocalCodebasePicker />
+        </QueryClientProvider>,
+      );
+    });
+
+    const button = container.querySelector(
+      'button[aria-label="raw.localCodebase.clearCodebase"]',
+    ) as HTMLButtonElement | null;
+    expect(button).not.toBeNull();
+
+    await act(async () => {
+      button?.click();
       await Promise.resolve();
     });
+
+    expect(clearLocalCodebaseSelectionMock).not.toHaveBeenCalled();
+    expect(toastMock).not.toHaveBeenCalledWith(
+      "raw.localCodebase.codebaseUnlinked",
+    );
+    expect(toastErrorMock).toHaveBeenCalledWith(
+      "raw.localCodebase.codebaseSyncFailed",
+      { description: cleanupError.message },
+    );
+    expect(container.textContent).toContain(cleanupError.message);
+    expect(
+      container.querySelector(
+        'button[aria-label="raw.localCodebase.clearCodebase"]',
+      ),
+    ).not.toBeNull();
+
+    await act(async () => {
+      button?.click();
+      await Promise.resolve();
+    });
+
+    expect(deleteLocalCodebaseResourcesMock).toHaveBeenCalledTimes(2);
+    expect(deleteLocalControlResourcesMock).toHaveBeenCalledTimes(2);
+    expect(clearLocalCodebaseSelectionMock).toHaveBeenCalledTimes(1);
+    expect(toastMock).toHaveBeenCalledWith(
+      "raw.localCodebase.codebaseUnlinked",
+    );
   });
 });

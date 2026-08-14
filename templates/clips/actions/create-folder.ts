@@ -65,6 +65,11 @@ export default defineAction({
           ? eq(schema.folders.spaceId, args.spaceId)
           : isNull(schema.folders.spaceId),
       ];
+      if (!args.spaceId) {
+        parentWhereClauses.push(
+          ownerEmailMatches(schema.folders.ownerEmail, ownerEmail),
+        );
+      }
       const [parent] = await db
         .select({ id: schema.folders.id, spaceId: schema.folders.spaceId })
         .from(schema.folders)

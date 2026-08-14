@@ -266,6 +266,17 @@ const messages = {
     linkExpired: "Link abgelaufen",
     linkExpiredMessage:
       "Der Ersteller hat für diesen Freigabelink ein Ablaufdatum festgelegt.",
+    privateClip: "Privater Clip",
+    privateClipMessage:
+      "Dieser Clip ist privat. Fordern Sie Zugriff an, und der Eigentümer wird benachrichtigt.",
+    privateClipSignedOutMessage:
+      "Dieser Clip ist privat. Melden Sie sich an, um beim Eigentümer Zugriff anzufordern.",
+    requestAccess: "Zugriff anfordern",
+    requestingAccess: "Zugriff wird angefordert...",
+    accessRequested: "Zugriff angefordert",
+    accessRequestSent: "Der Eigentümer des Clips wurde benachrichtigt.",
+    accessRequestFailed:
+      "Zugriff konnte nicht angefordert werden. Versuchen Sie es erneut.",
     clipUnavailable: "Clip nicht verfügbar",
     clipUnavailableMessage:
       "Diese Aufzeichnung ist nicht öffentlich oder der Link ist ungültig. Wenn es sich um Ihren Clip handelt, melden Sie sich an, um den Zugriff zu überprüfen.",

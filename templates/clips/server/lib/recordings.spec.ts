@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getDb: vi.fn(),
@@ -166,6 +166,10 @@ describe("countRecordingViews", () => {
 });
 
 describe("getDefaultRecordingVisibility", () => {
+  beforeEach(() => {
+    mocks.getDb.mockClear();
+  });
+
   it("prefers the personal default over the organization default", async () => {
     mocks.getRequestUserEmail.mockReturnValue("Owner@Example.test");
     mocks.getUserSetting.mockResolvedValue({
@@ -220,7 +224,6 @@ describe("getDefaultRecordingVisibility", () => {
     mocks.getUserSetting.mockResolvedValue({
       defaultRecordingVisibility: "public",
     });
-    mocks.getDb.mockClear();
 
     await expect(getDefaultRecordingVisibility("org-1")).resolves.toBe(
       "public",

@@ -108,8 +108,17 @@ export function LocalCodebasePicker() {
       if (removedCount > 0) {
         await queryClient.invalidateQueries({ queryKey: ["resources"] });
       }
+
+      const failedResult = results.find(
+        (result) => result.status === "rejected",
+      );
+      if (failedResult?.status === "rejected") {
+        throw failedResult.reason instanceof Error
+          ? failedResult.reason
+          : new Error(t("raw.localCodebase.codebaseSyncFailed"));
+      }
     },
-    [queryClient],
+    [queryClient, t],
   );
 
   useEffect(() => {
@@ -187,11 +196,12 @@ export function LocalCodebasePicker() {
       handle: chosen.handle,
       latest: null,
     };
-    if (active && active.id !== selection.id) {
-      await cleanupLocalResources(active);
-    }
-    setActive(selection);
+    setSyncState({ kind: "syncing" });
     try {
+      if (active && active.id !== selection.id) {
+        await cleanupLocalResources(active);
+      }
+      setActive(selection);
       await syncSelection(selection);
     } catch (err) {
       const message =
@@ -207,24 +217,28 @@ export function LocalCodebasePicker() {
 
   const clearSelection = useCallback(async () => {
     const previous = active;
-    await clearLocalCodebaseSelection();
-    setActive(null);
-    setSummary(null);
     setSyncState({ kind: "syncing" });
-    toast(t("raw.localCodebase.codebaseUnlinked"));
-    await syncAppState(null);
-    if (previous) {
-      void cleanupLocalResources(previous)
-        .catch(() => {
-          // The unlink is already complete from the user's point of view.
-        })
-        .finally(() => {
-          setSyncState({ kind: "idle" });
-        });
-      return;
+    try {
+      if (previous) {
+        await cleanupLocalResources(previous);
+      }
+      await clearLocalCodebaseSelection();
+      setActive(null);
+      setSummary(null);
+      await syncAppState(null);
+      setSyncState({ kind: "idle" });
+      toast(t("raw.localCodebase.codebaseUnlinked"));
+    } catch (err) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : t("raw.localCodebase.codebaseSyncFailed");
+      setSyncState({ kind: "error", message });
+      toast.error(t("raw.localCodebase.codebaseSyncFailed"), {
+        description: message,
+      });
     }
-    setSyncState({ kind: "idle" });
-  }, [active, cleanupLocalResources, syncAppState]);
+  }, [active, cleanupLocalResources, syncAppState, t]);
 
   const resync = useCallback(async () => {
     if (!active) return;

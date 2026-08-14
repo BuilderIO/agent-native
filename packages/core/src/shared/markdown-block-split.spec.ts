@@ -87,6 +87,14 @@ describe("splitMarkdownBlocks", () => {
     expect(result.tail).toBe("Final paragraph.");
   });
 
+  it("keeps an indented fenced child in an active list item", () => {
+    const text = "- item\n\n  ```ts\n  code\n  ```\n\nAfter.";
+    expect(splitMarkdownBlocks(text)).toEqual({
+      completedBlocks: ["- item\n\n  ```ts\n  code\n  ```"],
+      tail: "After.",
+    });
+  });
+
   it("handles a table block", () => {
     const text = "Intro.\n\n| A | B |\n|---|---|\n| 1 | 2 |\n\nConclusion.";
     const result = splitMarkdownBlocks(text);
@@ -199,6 +207,10 @@ describe("split/whole render parity", () => {
     ["list then para", "- a\n- b\n\nAfter the list."],
     ["nested list", "- a\n  - a1\n\n- b"],
     ["list with continuation para", "- a\n\n  continued para\n\n- b"],
+    [
+      "list with indented fenced code continuation",
+      "- item\n\n  ```ts\n  code\n  ```\n\nAfter.",
+    ],
     ["fenced code", "Intro\n\n```ts\nconst x = 1;\n```\n\nOutro"],
     ["fence with blank lines", "```ts\nconst a = 1;\n\nconst b = 2;\n```"],
     ["table", "| a | b |\n| - | - |\n| 1 | 2 |\n\nAfter."],

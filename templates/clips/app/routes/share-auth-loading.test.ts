@@ -21,6 +21,9 @@ describe("authenticated recording route loading", () => {
     const route = readRoute("share.$shareId.tsx");
     expect(route).toContain("enabled: !!shareId && !sessionLoading");
     expect(route).toContain("if (sessionLoading || dataQ.isLoading)");
+    expect(route).toContain("request-recording-access");
+    expect(route).toContain("dataQ.data?.status === 403");
+    expect(route).toContain('IconLock className="h-5 w-5"');
   });
 
   it("waits for the browser session before the meeting share payload request", () => {

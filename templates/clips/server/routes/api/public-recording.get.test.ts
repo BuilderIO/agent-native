@@ -376,6 +376,46 @@ describe("/api/public-recording route", () => {
     );
   });
 
+  it("returns 401 for an anonymous viewer of a private clip", async () => {
+    const event = { setCookies: [] as unknown[] };
+    mockGetQuery.mockReturnValue({ id: "rec-1" });
+    mockGetDb.mockReturnValue(
+      createDbWithSelectResults([
+        [makeRecording({ visibility: "private", password: null })],
+      ]),
+    );
+
+    await expect(handler(event as any)).resolves.toEqual({
+      error: "Sign in to view this private clip",
+      accessDenied: true,
+      requiresSignIn: true,
+      canRequestAccess: false,
+    });
+    expect(mockSetResponseStatus).toHaveBeenCalledWith(event, 401);
+  });
+
+  it("returns 403 with request-access capability for an authenticated outsider", async () => {
+    const event = { setCookies: [] as unknown[] };
+    mockGetQuery.mockReturnValue({ id: "rec-1" });
+    mockGetSession.mockResolvedValue({
+      email: "viewer@example.com",
+      orgId: "org-1",
+    });
+    mockGetDb.mockReturnValue(
+      createDbWithSelectResults([
+        [makeRecording({ visibility: "private", password: null })],
+      ]),
+    );
+
+    await expect(handler(event as any)).resolves.toEqual({
+      error: "You do not have access to this private clip",
+      accessDenied: true,
+      requiresSignIn: false,
+      canRequestAccess: true,
+    });
+    expect(mockSetResponseStatus).toHaveBeenCalledWith(event, 403);
+  });
+
   it("allows an authenticated viewer with an explicit user share", async () => {
     const event = { setCookies: [] as unknown[] };
     mockGetSession.mockResolvedValue({

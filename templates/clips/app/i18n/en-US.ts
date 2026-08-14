@@ -256,6 +256,16 @@ const messages = {
     passwordProtected: "This clip is password-protected",
     linkExpired: "Link expired",
     linkExpiredMessage: "The creator set an expiry on this share link.",
+    privateClip: "Private clip",
+    privateClipMessage:
+      "This clip is private. Request access and the owner will be notified.",
+    privateClipSignedOutMessage:
+      "This clip is private. Sign in to request access from the owner.",
+    requestAccess: "Request access",
+    requestingAccess: "Requesting access...",
+    accessRequested: "Access requested",
+    accessRequestSent: "The clip owner was notified.",
+    accessRequestFailed: "Couldn't request access. Try again.",
     clipUnavailable: "Clip unavailable",
     clipUnavailableMessage:
       "This recording isn't public, or the link is invalid. If it's your clip, sign in to check access.",

@@ -89,6 +89,39 @@ describe("ChatFirstAppsRail", () => {
     ).toBe("false");
   });
 
+  it("hides the create-app trigger when the rail is collapsed", () => {
+    act(() => {
+      root.render(
+        <ChatFirstAppsRail
+          apps={[{ id: "content", name: "Content" }]}
+          collapsed
+          onCreateApp={vi.fn()}
+          onOpenApp={vi.fn()}
+          renderIcon={(app) => <span>{app.name}</span>}
+        />,
+      );
+    });
+
+    expect(
+      container.querySelector('button[aria-label="Create app"]'),
+    ).toBeNull();
+
+    act(() => {
+      root.render(
+        <ChatFirstAppsRail
+          apps={[{ id: "content", name: "Content" }]}
+          onCreateApp={vi.fn()}
+          onOpenApp={vi.fn()}
+          renderIcon={(app) => <span>{app.name}</span>}
+        />,
+      );
+    });
+
+    expect(
+      container.querySelector('button[aria-label="Create app"]'),
+    ).not.toBeNull();
+  });
+
   it("does not add an outer selection background in the expanded rail", () => {
     act(() => {
       root.render(

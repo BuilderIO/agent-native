@@ -5,7 +5,11 @@ import {
   appBasePath,
   appPath,
 } from "@agent-native/core/client/api-path";
-import { useSession, getBrowserTabId } from "@agent-native/core/client/hooks";
+import {
+  useActionMutation,
+  useSession,
+  getBrowserTabId,
+} from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { buildSignInReturnHref } from "@agent-native/core/client/ui";
 import { docsUrl } from "@agent-native/core/shared";
@@ -17,6 +21,7 @@ import {
   IconDownload,
   IconDots,
   IconExternalLink,
+  IconLock,
   IconLogin2,
 } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
@@ -224,7 +229,12 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
   if (rec.visibility !== "public" && !tokenGrantsAgentAccess) {
     const userEmail = getRequestUserEmail();
     const access = userEmail ? await resolveAccess("recording", id) : null;
-    if (!access) return privateShareLoaderData(emptyLoaderData(url));
+    if (!access) {
+      return privateShareLoaderData(
+        emptyLoaderData(url),
+        userEmail ? 403 : 401,
+      );
+    }
   }
 
   const recording: SharePageMetaRecording = {
@@ -418,6 +428,16 @@ export default function ShareRoute() {
   const [pwError, setPwError] = useState<string | null>(null);
   const [currentMs, setCurrentMs] = useState(0);
   const { session, isLoading: sessionLoading } = useSession();
+  const requestAccess = useActionMutation<
+    {
+      alreadyHasAccess: boolean;
+      alreadyRequested?: boolean;
+      message: string;
+      notifiedOwner: boolean;
+      ok: true;
+    },
+    { recordingId: string }
+  >("request-recording-access");
   const [signInIntent, setSignInIntent] = useState<"comment" | "react" | null>(
     null,
   );
@@ -429,6 +449,7 @@ export default function ShareRoute() {
   );
   const [downloading, setDownloading] = useState(false);
   const [downloadMenuOpen, setDownloadMenuOpen] = useState(false);
+  const [accessRequestSent, setAccessRequestSent] = useState(false);
   const agentAccessToken = useMemo(() => {
     if (typeof window === "undefined") return "";
     return (
@@ -751,18 +772,55 @@ export default function ShareRoute() {
     );
   }
 
-  if (dataQ.data?.status === 401 || dataQ.data?.status === 404) {
+  if (dataQ.data?.status === 401 || dataQ.data?.status === 403) {
+    const canRequestAccess = dataQ.data.status === 403 && Boolean(session);
+    const requestSent =
+      accessRequestSent || Boolean(dataQ.data.data?.alreadyRequested);
+
     return (
       <>
         {agentDiscovery}
         <EndState
-          title={t("sharePage.clipUnavailable")}
-          message={t("sharePage.clipUnavailableMessage")}
+          icon={<IconLock className="h-5 w-5" aria-hidden="true" />}
+          title={t("sharePage.privateClip")}
+          message={t(
+            canRequestAccess
+              ? "sharePage.privateClipMessage"
+              : "sharePage.privateClipSignedOutMessage",
+          )}
           action={
-            shareId ? (
+            canRequestAccess ? (
+              <Button
+                size="sm"
+                disabled={requestAccess.isPending || requestSent}
+                onClick={() => {
+                  if (!shareId || requestSent) return;
+                  requestAccess.mutate(
+                    { recordingId: shareId },
+                    {
+                      onSuccess: () => {
+                        setAccessRequestSent(true);
+                        toast.success(t("sharePage.accessRequestSent"));
+                      },
+                      onError: () => {
+                        toast.error(t("sharePage.accessRequestFailed"));
+                      },
+                    },
+                  );
+                }}
+              >
+                {requestSent
+                  ? t("sharePage.accessRequested")
+                  : requestAccess.isPending
+                    ? t("sharePage.requestingAccess")
+                    : t("sharePage.requestAccess")}
+              </Button>
+            ) : shareId ? (
               <Button asChild size="sm">
                 <a
-                  href={buildSignInReturnHref({ returnTo: `/r/${shareId}` })}
+                  href={buildSignInReturnHref({
+                    returnTo: `/share/${shareId}`,
+                  })}
                   className="gap-1.5"
                 >
                   <IconLogin2 className="h-4 w-4 rtl:-scale-x-100" />
@@ -771,6 +829,18 @@ export default function ShareRoute() {
               </Button>
             ) : null
           }
+        />
+      </>
+    );
+  }
+
+  if (dataQ.data?.status === 404) {
+    return (
+      <>
+        {agentDiscovery}
+        <EndState
+          title={t("sharePage.clipUnavailable")}
+          message={t("sharePage.clipUnavailableMessage")}
         />
       </>
     );
@@ -930,14 +1000,26 @@ export default function ShareRoute() {
               </Link>
             </Button>
           ) : null}
-          <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            {recording.visibility === "private" ? (
+              <span
+                className="inline-flex shrink-0 text-muted-foreground"
+                role="img"
+                title={t("sharePage.privateClip")}
+              >
+                <IconLock className="h-3.5 w-3.5" aria-hidden="true" />
+                <span className="sr-only">{t("sharePage.privateClip")}</span>
+              </span>
+            ) : null}
             {showTitleSkeleton ? (
               <Skeleton
                 aria-label={t("sharePage.generatingTitle")}
-                className="h-4 w-56 max-w-full"
+                className="h-4 w-56 max-w-full flex-1"
               />
             ) : (
-              <h1 className="truncate text-sm font-medium">{visibleTitle}</h1>
+              <h1 className="min-w-0 flex-1 truncate text-sm font-medium">
+                {visibleTitle}
+              </h1>
             )}
           </div>
 
@@ -1349,10 +1431,12 @@ function PublicAgentEmptyState({
 }
 
 function EndState({
+  icon,
   title,
   message,
   action,
 }: {
+  icon?: ReactNode;
   title: string;
   message: string;
   action?: ReactNode;
@@ -1361,6 +1445,11 @@ function EndState({
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-background text-foreground px-6">
+      {icon ? (
+        <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-full border border-border bg-muted text-muted-foreground">
+          {icon}
+        </div>
+      ) : null}
       <h1 className="text-2xl font-semibold mb-2">{title}</h1>
       <p className="mb-6 max-w-md text-center text-sm text-muted-foreground">
         {message}
