@@ -28,6 +28,31 @@ import {
 } from "./TiptapComposer.js";
 
 describe("createTiptapComposerExtensions", () => {
+  it("refreshes the rendered placeholder after a locale change", () => {
+    let placeholder = "Ask the agent...";
+    const element = document.createElement("div");
+    const editor = new Editor({
+      element,
+      extensions: createTiptapComposerExtensions(() => placeholder),
+    });
+
+    expect(
+      element
+        .querySelector(".is-editor-empty")
+        ?.getAttribute("data-placeholder"),
+    ).toBe("Ask the agent...");
+
+    placeholder = "Frag den Agenten...";
+    editor.view.dispatch(editor.state.tr.setSelection(editor.state.selection));
+
+    expect(
+      element
+        .querySelector(".is-editor-empty")
+        ?.getAttribute("data-placeholder"),
+    ).toBe("Frag den Agenten...");
+    editor.destroy();
+  });
+
   it("rejects a truthy editor after BFCache/remount destruction", () => {
     const editor = new Editor({
       element: document.createElement("div"),
@@ -68,6 +93,17 @@ describe("createTiptapComposerExtensions", () => {
     expect(compactComposerReasoningEffortLabel("medium")).toBe("Med");
     expect(compactComposerReasoningEffortLabel("minimal")).toBe("Min");
     expect(compactComposerReasoningEffortLabel("xhigh")).toBe("XHigh");
+
+    const translate = (key: string, options?: Record<string, unknown>) =>
+      key === "agentChat.composer.defaultModel"
+        ? "Standardmodell"
+        : key === "agentChat.composer.reasoningMediumShort"
+          ? "Mittel"
+          : String(options?.defaultValue ?? key);
+    expect(compactComposerModelName("auto", translate)).toBe("Standardmodell");
+    expect(compactComposerReasoningEffortLabel("medium", translate)).toBe(
+      "Mittel",
+    );
   });
 
   it("keeps the prompt composer schema minimal and restores legacy draft HTML", () => {
@@ -202,6 +238,14 @@ describe("createTiptapComposerExtensions", () => {
         attachmentCount: 1,
       }),
     ).toBe("Create an extension: Use the attached context.");
+    expect(
+      displayableComposerModeMessage({
+        messagePrefix: "Erstelle eine Erweiterung: ",
+        trimmedText: "",
+        attachmentCount: 1,
+        attachedContextFallback: "Verwende den angehängten Kontext.",
+      }),
+    ).toBe("Erstelle eine Erweiterung: Verwende den angehängten Kontext.");
   });
 
   it("detects oversized PDF attachments before submit", () => {
@@ -254,6 +298,47 @@ describe("createTiptapComposerExtensions", () => {
         },
       ),
     ).toBeNull();
+  });
+
+  it("localizes a custom multipart document cap", () => {
+    const file = new File(
+      [new Uint8Array(4 * 1024 * 1024 + 1)],
+      "reference.pdf",
+      { type: "application/pdf" },
+    );
+    let translatedOptions: Record<string, unknown> | undefined;
+
+    const error = getOversizedDocumentAttachmentError(
+      [
+        {
+          type: "document",
+          name: "reference.pdf",
+          contentType: "application/pdf",
+          file,
+        },
+      ],
+      {
+        maxBytes: 4 * 1024 * 1024,
+        label: "Präsentationsdateien",
+        translate: (key, options) => {
+          expect(key).toBe("agentChat.composer.documentTooLarge");
+          translatedOptions = options;
+          return `„${String(options?.name)}“ ist ${String(options?.size)} MB groß. ${String(options?.label)} sind auf ${String(options?.maxSize)} MB begrenzt.`;
+        },
+      },
+    );
+
+    expect(error).toBe(
+      "„reference.pdf“ ist 4.0 MB groß. Präsentationsdateien sind auf 4 MB begrenzt.",
+    );
+    expect(translatedOptions).toEqual(
+      expect.objectContaining({
+        name: "reference.pdf",
+        size: "4.0",
+        label: "Präsentationsdateien",
+        maxSize: "4",
+      }),
+    );
   });
 
   it("maps Enter keybindings to immediate and queued submit intents", () => {

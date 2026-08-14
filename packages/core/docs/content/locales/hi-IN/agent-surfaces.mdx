@@ -156,6 +156,36 @@ export function ProjectChat({ threadId }: { threadId: string }) {
 
 Actions स्पष्ट native widget results वापस कर सकते हैं ताकि chat आउटपुट केवल टेक्स्ट न हो। Tables, charts, और typed product cards iframes के बिना chat में first-party React components के रूप में रेंडर होते हैं। [Native Chat UI](/docs/native-chat-ui) देखें। जब एजेंट को पूर्वनिर्धारित React widget के बजाय arbitrary generated controls की आवश्यकता हो, तो [Generative UI](/docs/generative-ui) का उपयोग करें: यह sandboxed Alpine/Tailwind UI इनलाइन रेंडर करता है, app state और slot context पढ़ सकता है, और चुने गए values को chat में वापस भेज सकता है।
 
+### अनुरोध-स्कोप वाली action surfaces
+
+जब चुने गए Agent या thread को केवल server द्वारा अधिकृत native actions का
+subset दिखाना हो, तब `resolveActionSurface` का उपयोग करें। callback हर
+interactive chat request पर `prepareRequest` के बाद चलता है। लौटाए गए नाम एक
+सख्त allowlist बनाते हैं: छोड़े गए actions provider schemas, execution
+registry, Plan mode preload और `tool-search` खोज में उपलब्ध नहीं होते।
+
+```ts
+createAgentChatPlugin({
+  actions,
+  nativeActionsInDev: true,
+  resolveActionSurface: async ({ threadId, availableActionNames }) => ({
+    allowedActionNames: await loadAllowedActions(
+      threadId,
+      availableActionNames,
+    ),
+  }),
+});
+```
+
+खाली सूची कोई native action उपलब्ध नहीं कराती। अज्ञात नाम access बढ़ाने के
+बजाय request को fail करते हैं। सभी अनुमत actions पहली model request पर सीधे
+लोड होते हैं; पहले से अधिकृत catalog में खोज चाहिए तभी `tool-search` को साफ़
+तौर पर शामिल करें। callback केवल interactive Agent chat को सीमित करता है,
+HTTP, MCP, A2A, jobs या triggers को नहीं। default framework guidance और शुरू
+किए गए sub-agents वही surface inherit करते हैं। trusted shell tools अपने-आप
+request-filtered sandbox तक सीमित हो जाते हैं, क्योंकि unrestricted shell
+सख्त action boundary लागू नहीं कर सकता।
+
 ## Native inline UI {#native-inline-ui}
 
 इसका उपयोग तब करें जब आपके actions structured data वापस करते हैं — records की एक list, एक chart dataset, एक status summary — जो plain text विवरण के बजाय chat thread के अंदर एक वास्तविक UI component के रूप में रेंडर होनी चाहिए। आप action पर एक `chatUI` renderer परिभाषित करते हैं, और Agent-Native इसे एक first-party React component के रूप में रेंडर करता है: कोई iframes नहीं, कोई अलग rendering path नहीं।

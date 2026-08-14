@@ -926,7 +926,7 @@ export function SlideContextToolbar({
       )}
       {zoomControls && (
         <>
-          <div className={TOOLBAR_DIVIDER} />
+          <div className={cn(TOOLBAR_DIVIDER, "ml-auto")} />
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
