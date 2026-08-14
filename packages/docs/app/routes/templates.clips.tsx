@@ -81,6 +81,23 @@ const COMPARISON_ROWS = [
   },
 ];
 
+const FAQ_ITEMS = [
+  {
+    question: "Is Clips free?",
+    answer: "Yes. Clips is free and open source.",
+  },
+  {
+    question: "Can AI read a screen recording?",
+    answer:
+      "Yes. Every clip ships with a transcript, summary, and timestamped frames an agent can read directly.",
+  },
+  {
+    question: "How is Clips different from Loom?",
+    answer:
+      "Clips is open source, you own the data, and every share link is readable by AI agents — not just people.",
+  },
+];
+
 type ClipPreviewSliderHandle = {
   scroll: (direction: -1 | 1) => void;
 };
@@ -161,6 +178,7 @@ const ClipPreviewSlider = forwardRef<ClipPreviewSliderHandle>(
 export default function ClipsTemplate() {
   const t = useT();
   const [aiPromptCopied, setAiPromptCopied] = useState(false);
+  const [openFaqIndex, setOpenFaqIndex] = useState(0);
   const sliderHandleRef = useRef<ClipPreviewSliderHandle>(null);
 
   function handleCopyAiPrompt() {
@@ -793,6 +811,66 @@ export default function ClipsTemplate() {
       </section>
 
       <SectionDivider borderColorClassName="border-[#1a1a1a]" />
+
+      {/* FAQs */}
+      <section className="border border-[#1a1a1a]">
+        <div className="flex flex-col lg:flex-row lg:items-stretch">
+          <div className="flex shrink-0 flex-col gap-3 border-b border-[#1a1a1a] px-6 py-8 sm:px-8 lg:w-1/3 lg:border-b-0 lg:border-e lg:py-8 lg:ps-8 lg:pe-16">
+            <p className="m-0 font-mono text-sm font-semibold uppercase tracking-[0.28px] text-[#01c8f1]">
+              FAQs
+            </p>
+            <h2 className="m-0 text-[1.75rem] font-medium leading-[1.15] tracking-[-0.56px] text-[#faf9f5]">
+              Get answers to common questions
+            </h2>
+          </div>
+
+          <div className="flex flex-1 flex-col border-t border-[#1a1a1a] lg:border-t-0">
+            {FAQ_ITEMS.map((item, index) => {
+              const isOpen = openFaqIndex === index;
+
+              return (
+                <div
+                  key={item.question}
+                  className={`border-t border-[#1a1a1a] first:border-t-0 ${isOpen ? "" : "bg-[#0f0f0f]"}`}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setOpenFaqIndex(isOpen ? -1 : index)}
+                    aria-expanded={isOpen}
+                    className="flex w-full items-center justify-between gap-4 px-6 py-4 text-left sm:px-8"
+                  >
+                    <span className="text-lg font-medium leading-[1.15] tracking-[-0.36px] text-[#faf9f5]">
+                      {item.question}
+                    </span>
+                    <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-[#5e5e5e] bg-[#0a0a0a] transition hover:border-[var(--fg-secondary)]">
+                      <svg
+                        width="18"
+                        height="18"
+                        viewBox="0 0 18 18"
+                        fill="none"
+                        xmlns="http://www.w3.org/2000/svg"
+                        className={`transition-transform ${isOpen ? "rotate-180" : ""}`}
+                      >
+                        <path
+                          d="M13.1023 6.35225C13.3219 6.13258 13.678 6.13258 13.8977 6.35225C14.1173 6.57192 14.1173 6.92799 13.8977 7.14766L9.39766 11.6477C9.17799 11.8673 8.82192 11.8673 8.60225 11.6477L4.10225 7.14766C3.88258 6.92799 3.88258 6.57192 4.10225 6.35225C4.32192 6.13258 4.67799 6.13258 4.89766 6.35225L8.99996 10.4545L13.1023 6.35225Z"
+                          fill="#FAF9F5"
+                        />
+                      </svg>
+                    </span>
+                  </button>
+                  {isOpen ? (
+                    <div className="px-6 pb-6 pe-16 sm:px-8 sm:pe-20">
+                      <p className="m-0 text-lg leading-[1.3] text-[#9a9997]">
+                        {item.answer}
+                      </p>
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </section>
     </main>
   );
 }
