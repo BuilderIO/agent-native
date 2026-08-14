@@ -306,9 +306,9 @@ export default function ClipsTemplate() {
           ].map((stat, index) => (
             <div
               key={stat.title}
-              className={`flex min-h-[220px] flex-col justify-center gap-3 border-[var(--docs-border)] bg-[#0a0a0a] p-8 sm:min-h-[260px] sm:p-10 ${
-                index > 0 ? "border-t sm:border-t-0 sm:border-s" : ""
-              }`}
+              className={`flex min-h-[220px] flex-col justify-center gap-3 border-[var(--docs-border)] p-8 sm:min-h-[260px] sm:p-10 ${
+                index === 1 ? "bg-[#0a0a0a]" : ""
+              } ${index > 0 ? "border-t sm:border-t-0 sm:border-s" : ""}`}
             >
               <div className="text-3xl font-medium tracking-tight text-[var(--fg)] sm:text-4xl">
                 {stat.title}
