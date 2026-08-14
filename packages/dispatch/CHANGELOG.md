@@ -1,5 +1,18 @@
 # @agent-native/dispatch
 
+## 0.26.0
+
+### Minor Changes
+
+- 73c4a97: Reuse Dispatch app cards and the shared 2-column library treatment for Factory agent and app surfaces.
+
+### Patch Changes
+
+- 73c4a97: Refresh workspace app lists after starting a Builder app creation.
+- Updated dependencies [73c4a97]
+- Updated dependencies [73c4a97]
+  - @agent-native/toolkit@0.15.1
+
 ## 0.25.1
 
 ### Patch Changes
