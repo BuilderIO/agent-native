@@ -14,6 +14,7 @@ export interface DocumentExportInput {
 }
 
 export interface BlocksFieldExport {
+  databaseId: string;
   propertyId: string;
   name: string;
   position: number;

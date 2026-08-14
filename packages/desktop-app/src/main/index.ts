@@ -1,5 +1,10 @@
 import fs from "fs";
-import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import {
+  execFile,
+  spawn,
+  spawnSync,
+  type ChildProcess,
+} from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
   createServer,
@@ -14,6 +19,7 @@ import { fileURLToPath } from "url";
 
 import { buildChatFirstAppCreationPrompt } from "@agent-native/core/shared";
 import {
+  DESKTOP_DEFAULT_APPS,
   FRAME_PORT,
   getDesktopTemplateGatewayAppUrl,
   getTemplate,
@@ -102,6 +108,7 @@ import {
   type DesktopPlanFilesResult,
   type DesktopPlanFilesWriteRequest,
   type DesktopPlanMdxFolder,
+  type DesktopIdentityStatus,
 } from "@shared/ipc-channels";
 import {
   app,
@@ -112,7 +119,9 @@ import {
   globalShortcut,
   ipcMain,
   Menu,
+  net,
   Notification,
+  screen,
   session,
   shell,
   systemPreferences,
@@ -121,7 +130,6 @@ import {
   type IpcMainInvokeEvent,
   type WebContents,
 } from "electron";
-import { autoUpdater } from "electron-updater";
 
 import {
   AI_SDK_MODEL_CONFIG,
@@ -153,6 +161,7 @@ import {
   parseAdditionalChromeExtensionIds,
 } from "./browser-control/native-host";
 import { isClaudeSubscriptionAuthMethod } from "./claude-subscription.js";
+import { cachedCliStatus, createCliStatusCache } from "./cli-status-cache.js";
 import { guardCodeAgentPersistence } from "./code-agent-persistence-guard.js";
 import { resolveCodeAgentRunnerInvocation } from "./code-agent-runner.js";
 import {
@@ -176,22 +185,38 @@ import {
 } from "./computer-control";
 import { DesktopDesignPreviewManager } from "./design-preview-manager";
 import {
+  DESKTOP_IDENTITY_PARTITION,
+  DesktopIdentityBroker,
+  desktopWorkspaceLogoutPath,
+  fetchDesktopIdentityAvailability,
+  isDesktopIdentityAppConfigEligible,
+  isDesktopIdentityOriginEligible,
+  type DesktopIdentityApp,
+} from "./desktop-identity";
+import {
   captureWebviewLogs,
   initializeDesktopLogger,
   revealLogFolder,
   getLogFilePath,
 } from "./desktop-logger";
+import {
+  initializeDesktopStartup,
+  resolveDesktopSsoBrokerStatePath,
+} from "./desktop-startup.js";
 import { registerAppsIpc } from "./ipc/apps";
 import { registerChatFirstMcpIpc } from "./ipc/chat-first-mcp.js";
 import { registerCodeAgentsIpc } from "./ipc/code-agents";
 import { registerContentFilesIpc } from "./ipc/content-files";
+import { registerDesktopChatIpc } from "./ipc/desktop-chat";
 import { registerFrameIpc } from "./ipc/frame";
 import { registerInterAppIpc } from "./ipc/inter-app";
 import { registerPlanFilesIpc } from "./ipc/plan-files";
 import { registerShortcutsIpc } from "./ipc/shortcuts";
+import { isDesktopSsoCanaryVersion } from "./ipc/update-policy.js";
 import {
   checkForAppUpdates,
   getCurrentUpdateStatus,
+  installDownloadedUpdate,
   registerUpdatesIpc,
 } from "./ipc/updates";
 import { registerWindowIpc } from "./ipc/window";
@@ -209,9 +234,24 @@ import {
   installSentryWebContentsInstrumentation,
   setSentryWebContentsMetadata,
 } from "./sentry";
+import { installWebviewNavigationListeners } from "./webview-navigation";
+import { installWindowDragController } from "./window-drag";
 
-initializeDesktopSentry();
-initializeDesktopLogger();
+initializeDesktopStartup({
+  isPackaged: app.isPackaged,
+  version: app.getVersion(),
+  appDataPath: app.getPath("appData"),
+  createDirectory: (directoryPath) =>
+    fs.mkdirSync(directoryPath, { recursive: true }),
+  setUserDataPath: (directoryPath) => app.setPath("userData", directoryPath),
+  initializeSentry: initializeDesktopSentry,
+  initializeLogger: initializeDesktopLogger,
+  logError: console.error,
+  logWarning: console.warn,
+});
+
+const IS_DESKTOP_SSO_CANARY =
+  app.isPackaged && isDesktopSsoCanaryVersion(app.getVersion());
 
 const DESKTOP_CODE_AGENT_PERSISTENCE_LOCK = {
   lockWaitMs: 50,
@@ -272,6 +312,9 @@ if (IS_DEV) {
 // stranding users in non-Agent-Native Electron contexts on a "Connected!
 // Open Agent Native" screen whose deep link can't fire.
 app.userAgentFallback = `${app.userAgentFallback} AgentNativeDesktop/${app.getVersion()}`;
+if (IS_DESKTOP_SSO_CANARY) {
+  app.userAgentFallback = `${app.userAgentFallback} AgentNativeDesktopSsoCanary/${app.getVersion()}`;
+}
 
 // ---------- Deep link protocol (agentnative://) ----------
 // Register before app is ready so macOS associates the scheme with this app.
@@ -290,6 +333,8 @@ let mainWindow: BrowserWindow | null = null;
 let desktopDesignPreviewManager: DesktopDesignPreviewManager | null = null;
 let desktopComputerMcpBridge: DesktopComputerMcpBridge | null = null;
 let desktopBrowserControlBridge: BrowserControlLoopbackBridge | null = null;
+let desktopIdentityBroker: DesktopIdentityBroker | null = null;
+const desktopWebviewAppIds = new WeakMap<Electron.WebContents, string>();
 let browserNativeHostManifestPath: string | null = null;
 const pendingOpenRequests: DesktopOpenRequest[] = [];
 const PENDING_OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
@@ -566,6 +611,151 @@ function getInjectionTargetForAppId(
     origin: getAppOrigin(appConfig),
     session: session.fromPartition(`persist:app-${appConfig.id}`),
   };
+}
+
+function resolveDesktopIdentityApp(
+  appId: string,
+  options?: { forCleanup?: boolean; appConfigs?: AppConfig[] },
+): DesktopIdentityApp | null {
+  if (!app.isPackaged) return null;
+
+  const appConfigs = options?.appConfigs ?? loadAppsForAuthContext();
+  const canonical = DESKTOP_DEFAULT_APPS.find(
+    (candidate) => candidate.id === appId,
+  );
+  const configured = appConfigs.find((candidate) => candidate.id === appId);
+  const canonicalOrigin = canonical
+    ? getAppOrigin({ ...canonical, mode: "prod" })
+    : null;
+  const configuredOrigin = configured ? getAppOrigin(configured) : null;
+  const isCanonical = Boolean(
+    canonical &&
+    configured?.isBuiltIn === true &&
+    canonicalOrigin &&
+    configuredOrigin === canonicalOrigin,
+  );
+
+  let origin: string | null = null;
+  if (options?.forCleanup) {
+    if (canonical) {
+      origin = canonicalOrigin;
+    } else if (
+      isDesktopIdentityAppConfigEligible(configured, { forCleanup: true })
+    ) {
+      origin = configuredOrigin;
+    }
+  } else {
+    // A known canonical id with a changed origin is never treated as a custom
+    // app. This prevents an edited first-party entry from inheriting trust.
+    if (canonical && !isCanonical) return null;
+    if (
+      !isDesktopIdentityAppConfigEligible(configured, {
+        canonical: isCanonical,
+      })
+    ) {
+      return null;
+    }
+    origin = isCanonical ? canonicalOrigin : configuredOrigin;
+  }
+  if (!isDesktopIdentityOriginEligible(origin)) return null;
+
+  const primaryCookieName = getCookieNameForApp(appId);
+  const appSlug = primaryCookieName.replace(/^an_session_/, "");
+  const betterAuthPrefix = appSlug ? `an_${appSlug}` : "an";
+  return {
+    id: appId,
+    origin,
+    session: session.fromPartition(`persist:app-${appId}`),
+    cookieNames:
+      primaryCookieName === "an_session"
+        ? [primaryCookieName]
+        : [primaryCookieName, "an_session"],
+    cookieNamesToClear: [
+      primaryCookieName,
+      "an_session",
+      `${betterAuthPrefix}.session_token`,
+      `__Secure-${betterAuthPrefix}.session_token`,
+      "an.session_token",
+      "__Secure-an.session_token",
+    ],
+    identityAuthority: appId === "dispatch",
+  };
+}
+
+function listDesktopIdentityApps(
+  options: { forCleanup?: boolean } = {},
+): DesktopIdentityApp[] {
+  const appConfigs = loadAppsForAuthContext();
+  const appIds = new Set(
+    options.forCleanup
+      ? [
+          ...DESKTOP_DEFAULT_APPS.map((candidate) => candidate.id),
+          ...appConfigs.map((candidate) => candidate.id),
+        ]
+      : appConfigs.map((candidate) => candidate.id),
+  );
+  return [...appIds]
+    .map((appId) =>
+      resolveDesktopIdentityApp(appId, {
+        ...options,
+        appConfigs,
+      }),
+    )
+    .filter((candidate): candidate is DesktopIdentityApp => candidate !== null);
+}
+
+function listDesktopIdentityCleanupApps(): DesktopIdentityApp[] {
+  return listDesktopIdentityApps({ forCleanup: true });
+}
+
+async function isDesktopIdentityAvailable(
+  authorityApp: DesktopIdentityApp,
+  identitySession: Electron.Session,
+): Promise<boolean> {
+  return fetchDesktopIdentityAvailability(authorityApp, identitySession);
+}
+
+function resolveDesktopIdentityLoginRedirect(
+  requestUrl: string,
+  identitySession: Electron.Session,
+): Promise<string | null> {
+  return new Promise((resolve, reject) => {
+    const request = net.request({
+      url: requestUrl,
+      session: identitySession,
+      redirect: "manual",
+    });
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const finish = (redirectUrl: string | null) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      resolve(redirectUrl);
+    };
+    const fail = (error: Error) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      reject(error);
+    };
+
+    request.on("redirect", (_statusCode, _method, redirectUrl) => {
+      finish(redirectUrl);
+      request.abort();
+    });
+    request.on("response", (response) => {
+      response.on("data", () => {});
+      response.on("end", () => finish(null));
+      response.on("error", fail);
+    });
+    request.on("error", fail);
+    timer = setTimeout(() => {
+      request.abort();
+      fail(new Error("Identity redirect preflight timed out"));
+    }, 15_000);
+    request.end();
+  });
 }
 
 function getOAuthInjectionTarget(
@@ -990,7 +1180,61 @@ app.on("browser-window-focus", () => {
 // See main/ipc/updates.ts for the autoUpdater wiring, status broadcast, and
 // update-ready notification. `checkForAppUpdates`/`getCurrentUpdateStatus`
 // (imported above) are also used by the application menu below.
-registerUpdatesIpc({ refreshApplicationMenu, focusMainWindow });
+async function closeDesktopComputerMcpBridge(): Promise<void> {
+  const computerBridge = desktopComputerMcpBridge;
+  const browserBridge = desktopBrowserControlBridge;
+  desktopComputerMcpBridge = null;
+  desktopBrowserControlBridge = null;
+
+  const closePromises: Promise<void>[] = [];
+  if (computerBridge) closePromises.push(computerBridge.close());
+  if (browserBridge) closePromises.push(browserBridge.close());
+  for (const result of await Promise.allSettled(closePromises)) {
+    if (result.status === "rejected") throw result.reason;
+  }
+}
+
+registerUpdatesIpc({
+  refreshApplicationMenu,
+  focusMainWindow,
+  prepareForUpdate: closeDesktopComputerMcpBridge,
+});
+
+function isShellIdentityIpc(event: IpcMainInvokeEvent): boolean {
+  return Boolean(
+    mainWindow &&
+    !mainWindow.isDestroyed() &&
+    event.sender.id === mainWindow.webContents.id,
+  );
+}
+
+ipcMain.handle(IPC.IDENTITY_STATUS_GET, async (event) => {
+  if (!isShellIdentityIpc(event)) {
+    return "idle" satisfies DesktopIdentityStatus;
+  }
+  await desktopIdentityBroker?.refreshStatus(
+    resolveDesktopIdentityApp("dispatch"),
+  );
+  return desktopIdentityBroker?.getStatus() ?? "idle";
+});
+
+ipcMain.handle(IPC.IDENTITY_SIGN_IN, async (event) => {
+  if (!isShellIdentityIpc(event) || !desktopIdentityBroker) return false;
+  const status = desktopIdentityBroker.getStatus();
+  if (status !== "sign-in-required" && status !== "failed") return false;
+  const identityApp =
+    resolveDesktopIdentityApp(activeAppId) ??
+    resolveDesktopIdentityApp("dispatch");
+  if (!identityApp) return false;
+  return desktopIdentityBroker.signIn(identityApp.id);
+});
+
+ipcMain.handle(IPC.IDENTITY_SIGN_OUT, async (event) => {
+  if (!isShellIdentityIpc(event) || !desktopIdentityBroker) return false;
+  if (desktopIdentityBroker.getStatus() === "idle") return false;
+  await desktopIdentityBroker.signOut(listDesktopIdentityCleanupApps());
+  return true;
+});
 
 function createWindow(): BrowserWindow {
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -1028,12 +1272,18 @@ function createWindow(): BrowserWindow {
   installSentryWebContentsInstrumentation(win.webContents, {
     role: "shell-renderer",
   });
+  const disposeWindowDragController = installWindowDragController(win, {
+    getCursorScreenPoint: () => screen.getCursorScreenPoint(),
+  });
   desktopDesignPreviewManager?.destroy();
   desktopDesignPreviewManager = new DesktopDesignPreviewManager(win);
 
   // Avoid white flash — show window once content is ready
   win.once("ready-to-show", () => win.show());
   win.webContents.on("did-finish-load", () => {
+    // A reloaded renderer has no status yet, so the dedup cache must not
+    // suppress the next send as an unchanged repeat.
+    lastDesktopAppRuntimeStatus.clear();
     flushPendingOpenRequests(win);
     flushPendingDesktopShortcutActivations(win);
   });
@@ -1048,6 +1298,7 @@ function createWindow(): BrowserWindow {
 
   mainWindow = win;
   win.on("closed", () => {
+    disposeWindowDragController();
     desktopDesignPreviewManager?.destroy();
     desktopDesignPreviewManager = null;
     if (mainWindow === win) mainWindow = null;
@@ -1435,6 +1686,20 @@ function registerDesktopShortcutBindings() {
       continue;
     }
 
+    // Stored settings can predate the reserved-key validation applied when a
+    // shortcut is created. Never let an old binding take over a native app
+    // command such as macOS's Command+H hide action.
+    const normalized = normalizeDesktopShortcutAccelerator(binding.accelerator);
+    if (!normalized.accelerator) {
+      registrations.set(binding.id, {
+        id: binding.id,
+        registered: false,
+        error: normalized.error ?? "Shortcut is invalid.",
+      });
+      continue;
+    }
+    const accelerator = normalized.accelerator;
+
     const targetApp = appsById.get(binding.app);
     if (!targetApp) {
       registrations.set(binding.id, {
@@ -1452,7 +1717,7 @@ function registerDesktopShortcutBindings() {
       });
       continue;
     }
-    if (claimedAccelerators.has(binding.accelerator)) {
+    if (claimedAccelerators.has(accelerator)) {
       registrations.set(binding.id, {
         id: binding.id,
         registered: false,
@@ -1462,16 +1727,16 @@ function registerDesktopShortcutBindings() {
     }
 
     try {
-      const registered = globalShortcut.register(binding.accelerator, () => {
+      const registered = globalShortcut.register(accelerator, () => {
         void handleDesktopShortcutBinding(binding);
       });
       if (registered) {
-        claimedAccelerators.add(binding.accelerator);
-        registeredDesktopShortcutAccelerators.add(binding.accelerator);
+        claimedAccelerators.add(accelerator);
+        registeredDesktopShortcutAccelerators.add(accelerator);
         registrations.set(binding.id, { id: binding.id, registered: true });
         debugDesktopShortcut("registered", {
           id: binding.id,
-          accelerator: binding.accelerator,
+          accelerator,
           app: binding.app,
         });
       } else {
@@ -1482,7 +1747,7 @@ function registerDesktopShortcutBindings() {
         });
         debugDesktopShortcut("registration rejected", {
           id: binding.id,
-          accelerator: binding.accelerator,
+          accelerator,
           app: binding.app,
         });
       }
@@ -1494,7 +1759,7 @@ function registerDesktopShortcutBindings() {
       });
       debugDesktopShortcut("registration failed", {
         id: binding.id,
-        accelerator: binding.accelerator,
+        accelerator,
         app: binding.app,
         error: err instanceof Error ? err.message : String(err),
       });
@@ -4226,14 +4491,20 @@ async function createCodeAgentRun(
       error: "Missing prompt.",
     };
   }
+  const userMetadata = isObject(payload.metadata) ? payload.metadata : {};
+  const isDesktopAppCreation = userMetadata.kind === "desktop-create-app";
   const provider = ensureCodeAgentLlmProvider();
-  if (!provider.ok) {
+  if (!provider.ok && !isDesktopAppCreation) {
     return {
       ok: false,
       message: "Connect a model provider before starting a coding chat.",
       error: provider.error,
     };
   }
+
+  // App creation must still produce a visible chat when setup is incomplete.
+  // The runner records the credential gap on this queued run, which lets the
+  // chat render the shared Builder/custom-key recovery actions and retry it.
 
   const goal =
     getCodeAgentGoal(firstStringValue(payload.goalId)) ?? CODE_AGENT_GOALS[0];
@@ -4249,7 +4520,6 @@ async function createCodeAgentRun(
   const model = firstStringValue(payload.model);
   const effort = firstStringValue(payload.effort);
   const attachments = normalizeCodeAgentPromptAttachments(payload.attachments);
-  const userMetadata = isObject(payload.metadata) ? payload.metadata : {};
   const retryOf = firstStringValue(userMetadata.retryOf, payload.retryOf);
   const rerunOf = firstStringValue(userMetadata.rerunOf, payload.rerunOf);
   const attempt = Number(userMetadata.attempt ?? payload.attempt);
@@ -4730,7 +5000,8 @@ function expandPathCandidate(value: string): string | null {
   if (trimmed.startsWith("file:")) {
     try {
       return fileURLToPath(trimmed);
-    } catch {
+    } catch (error) {
+      void error;
       return null;
     }
   }
@@ -5418,8 +5689,20 @@ async function createDesktopAppFromPrompt(
   };
 }
 
+const lastDesktopAppRuntimeStatus = new Map<string, string>();
+
+/**
+ * This is a state, not an event stream: a managed dev server emits a stdout
+ * chunk per HMR update and per transform, and each one re-sends the identical
+ * "running / Preview updated." status. Forwarding every one floods the renderer
+ * with IPC and re-renders for a status that has not changed. Send only on an
+ * actual transition.
+ */
 function emitDesktopAppRuntimeStatus(status: DesktopAppRuntimeStatus): void {
   if (!mainWindow || mainWindow.isDestroyed()) return;
+  const signature = `${status.state} ${status.message ?? ""}`;
+  if (lastDesktopAppRuntimeStatus.get(status.appId) === signature) return;
+  lastDesktopAppRuntimeStatus.set(status.appId, signature);
   mainWindow.webContents.send(IPC.APP_STATUS, status);
 }
 
@@ -5524,8 +5807,8 @@ async function ensureManagedDesktopAppRunning(appId: string): Promise<void> {
       console.log(`[desktop-app:${appId}] ${text}`);
       emitDesktopAppRuntimeStatus({
         appId,
-        state: "running",
-        message: "Preview updated.",
+        state: "starting",
+        message: "Building the local preview.",
       });
     });
     child.stderr?.on("data", (chunk) => {
@@ -7401,7 +7684,55 @@ function ensureCodeAgentLlmProvider(): {
   };
 }
 
-function getLocalCodexCliStatus(): {
+const CLI_PROBE_TIMEOUT_MS = 1500;
+
+interface CliRun {
+  status: number | null;
+  stdout: string;
+  stderr: string;
+  error?: NodeJS.ErrnoException;
+}
+
+function runCliSync(command: string, args: string[]): CliRun {
+  const result = spawnSync(command, args, {
+    encoding: "utf-8",
+    timeout: CLI_PROBE_TIMEOUT_MS,
+  });
+  return {
+    status: result.status,
+    stdout: result.stdout ?? "",
+    stderr: result.stderr ?? "",
+    error: (result.error as NodeJS.ErrnoException | undefined) ?? undefined,
+  };
+}
+
+function runCliAsync(command: string, args: string[]): Promise<CliRun> {
+  return new Promise((resolve) => {
+    execFile(
+      command,
+      args,
+      { encoding: "utf-8", timeout: CLI_PROBE_TIMEOUT_MS },
+      (error, stdout, stderr) => {
+        const errno = error as NodeJS.ErrnoException | null;
+        // A non-zero exit is an answer ("not logged in"), not a probe failure —
+        // only a failure to run the binary at all is reported as `error`.
+        const spawnFailed = Boolean(errno && typeof errno.code === "string");
+        resolve({
+          status: errno
+            ? typeof errno.code === "number"
+              ? errno.code
+              : null
+            : 0,
+          stdout: stdout ?? "",
+          stderr: stderr ?? "",
+          error: spawnFailed ? (errno ?? undefined) : undefined,
+        });
+      },
+    );
+  });
+}
+
+interface LocalCodexCliStatus {
   available: boolean;
   authenticated: boolean;
   label: string;
@@ -7409,26 +7740,47 @@ function getLocalCodexCliStatus(): {
   version?: string;
   model?: string;
   error?: string;
-} {
-  const versionResult = spawnSync("codex", ["--version"], {
-    encoding: "utf-8",
-    timeout: 1500,
-  });
-  if (versionResult.error) {
+}
+
+const localCodexCliStatusCache = createCliStatusCache<LocalCodexCliStatus>();
+
+function getLocalCodexCliStatus(): LocalCodexCliStatus {
+  return cachedCliStatus(
+    localCodexCliStatusCache,
+    () => {
+      const version = runCliSync("codex", ["--version"]);
+      if (version.error) return parseLocalCodexCliStatus(version, null);
+      return parseLocalCodexCliStatus(
+        version,
+        runCliSync("codex", ["login", "status"]),
+      );
+    },
+    async () => {
+      const version = await runCliAsync("codex", ["--version"]);
+      if (version.error) return parseLocalCodexCliStatus(version, null);
+      return parseLocalCodexCliStatus(
+        version,
+        await runCliAsync("codex", ["login", "status"]),
+      );
+    },
+  );
+}
+
+function parseLocalCodexCliStatus(
+  versionResult: CliRun,
+  statusResult: CliRun | null,
+): LocalCodexCliStatus {
+  if (versionResult.error || !statusResult) {
     return {
       available: false,
       authenticated: false,
       label: "Codex CLI",
       error:
-        (versionResult.error as NodeJS.ErrnoException).code === "ENOENT"
+        versionResult.error?.code === "ENOENT"
           ? "Codex CLI was not found."
-          : versionResult.error.message,
+          : versionResult.error?.message,
     };
   }
-  const statusResult = spawnSync("codex", ["login", "status"], {
-    encoding: "utf-8",
-    timeout: 1500,
-  });
   const statusText =
     `${statusResult.stdout ?? ""}\n${statusResult.stderr ?? ""}`.trim();
   const authMode = /using\s+(.+)$/i.exec(statusText)?.[1]?.trim();
@@ -7473,33 +7825,54 @@ function readConfiguredCodexModel(): string | undefined {
   return undefined;
 }
 
-function getLocalClaudeCliStatus(): {
+interface LocalClaudeCliStatus {
   available: boolean;
   authenticated: boolean;
   label: string;
   version?: string;
   error?: string;
-} {
-  const versionResult = spawnSync("claude", ["--version"], {
-    encoding: "utf-8",
-    timeout: 1500,
-  });
-  if (versionResult.error) {
+}
+
+const localClaudeCliStatusCache = createCliStatusCache<LocalClaudeCliStatus>();
+
+function getLocalClaudeCliStatus(): LocalClaudeCliStatus {
+  return cachedCliStatus(
+    localClaudeCliStatusCache,
+    () => {
+      const version = runCliSync("claude", ["--version"]);
+      if (version.error) return parseLocalClaudeCliStatus(version, null);
+      return parseLocalClaudeCliStatus(
+        version,
+        runCliSync("claude", ["auth", "status", "--json"]),
+      );
+    },
+    async () => {
+      const version = await runCliAsync("claude", ["--version"]);
+      if (version.error) return parseLocalClaudeCliStatus(version, null);
+      return parseLocalClaudeCliStatus(
+        version,
+        await runCliAsync("claude", ["auth", "status", "--json"]),
+      );
+    },
+  );
+}
+
+function parseLocalClaudeCliStatus(
+  versionResult: CliRun,
+  statusResult: CliRun | null,
+): LocalClaudeCliStatus {
+  if (versionResult.error || !statusResult) {
     return {
       available: false,
       authenticated: false,
       label: "Claude Code",
       error:
-        (versionResult.error as NodeJS.ErrnoException).code === "ENOENT"
+        versionResult.error?.code === "ENOENT"
           ? "Claude Code CLI was not found."
-          : versionResult.error.message,
+          : versionResult.error?.message,
     };
   }
 
-  const statusResult = spawnSync("claude", ["auth", "status", "--json"], {
-    encoding: "utf-8",
-    timeout: 1500,
-  });
   let status: Record<string, unknown> | null = null;
   try {
     const parsed = JSON.parse(statusResult.stdout ?? "") as unknown;
@@ -8140,6 +8513,11 @@ function openExternalUrl(url: string) {
   }
 }
 
+ipcMain.handle(IPC.SHELL_OPEN_EXTERNAL, (_event, url: unknown) => {
+  if (typeof url !== "string") return;
+  openExternalUrl(url);
+});
+
 function handleDesktopProtocolUrl(url: string): boolean {
   try {
     const parsed = new URL(url);
@@ -8323,6 +8701,8 @@ registerAppsIpc({
   createDesktopAppFromPrompt,
   showDesktopAppContextMenu,
 });
+
+registerDesktopChatIpc();
 
 registerChatFirstMcpIpc({
   resolveMcpHost: resolveDesktopMcpHost,
@@ -9137,17 +9517,7 @@ function installWebviewOAuthNavigationHandler(contents: Electron.WebContents) {
     }
   };
 
-  contents.on("will-frame-navigate", (event) => {
-    if (event.isMainFrame) return;
-    handleNavigation(event, event.url, { isMainFrame: false });
-  });
-
-  // Belt-and-suspenders for existing deployed app bundles that may still
-  // fall back to assigning window.location when Electron reports a manually
-  // handled popup as null. Keep Builder/Google OAuth out of the app webview.
-  contents.on("will-navigate", (event) => {
-    handleNavigation(event, event.url, { isMainFrame: true });
-  });
+  installWebviewNavigationListeners(contents, handleNavigation);
 }
 
 // ---------- Webview popup handling ----------
@@ -9280,16 +9650,9 @@ app.on("web-contents-created", (_event, contents) => {
 function buildUpdateMenuItem(): Electron.MenuItemConstructorOptions {
   const currentUpdateStatus = getCurrentUpdateStatus();
 
-  if (IS_DEV) {
-    return {
-      label: "Check for Updates...",
-      enabled: false,
-    };
-  }
-
   if (currentUpdateStatus.state === "unsupported") {
     return {
-      label: "Check for Updates...",
+      label: currentUpdateStatus.reason,
       enabled: false,
     };
   }
@@ -9299,7 +9662,7 @@ function buildUpdateMenuItem(): Electron.MenuItemConstructorOptions {
       label: currentUpdateStatus.version
         ? `Relaunch to Install Update ${currentUpdateStatus.version}`
         : "Relaunch to Install Update",
-      click: () => autoUpdater.quitAndInstall(false, true),
+      click: () => void installDownloadedUpdate(),
     };
   }
 
@@ -9359,9 +9722,23 @@ function installApplicationMenu() {
       buildUpdateMenuItem(),
       buildCurrentVersionMenuItem(),
       { type: "separator" as const },
+      ...(desktopIdentityBroker && desktopIdentityBroker.getStatus() !== "idle"
+        ? [
+            {
+              label: "Sign Out of Agent Native",
+              click: () =>
+                void desktopIdentityBroker?.signOut(
+                  listDesktopIdentityCleanupApps(),
+                ),
+            } satisfies Electron.MenuItemConstructorOptions,
+            { type: "separator" as const },
+          ]
+        : []),
       { role: "services" as const },
       { type: "separator" as const },
-      { role: "hide" as const },
+      // Keep Cmd+H explicit because the custom menu replaces Electron's
+      // default app menu, whose implicit hide accelerator is easy to lose.
+      { role: "hide" as const, accelerator: "Command+H" },
       { role: "hideOthers" as const },
       { role: "unhide" as const },
       { type: "separator" as const },
@@ -9539,6 +9916,44 @@ function configurePermissionHandlers(
 }
 
 app.whenReady().then(async () => {
+  if (IS_DESKTOP_SSO_CANARY) {
+    desktopIdentityBroker = new DesktopIdentityBroker({
+      identitySession: session.fromPartition(DESKTOP_IDENTITY_PARTITION),
+      isAvailable: isDesktopIdentityAvailable,
+      resolveLoginRedirect: resolveDesktopIdentityLoginRedirect,
+      resolveApp: resolveDesktopIdentityApp,
+      listApps: () => listDesktopIdentityApps(),
+      createWindow: (options) => new BrowserWindow(options),
+      parentWindow: () => mainWindow,
+      handleWindowOpen: (contents, url) =>
+        handleWindowOpenForContents(contents, url),
+      handleOAuthNavigation: (url, contents) =>
+        openOAuthFromWebviewNavigation(url, contents),
+      reloadApp: (identityApp) =>
+        reloadWebviewsForTarget({
+          appId: identityApp.id,
+          origin: identityApp.origin,
+          session: identityApp.session,
+        }),
+      clearLocalBroker: async () => {
+        await fs.promises
+          .rm(resolveDesktopSsoBrokerStatePath(app.getPath("userData")), {
+            force: true,
+          })
+          .catch(() => {});
+      },
+      onStatus: (status: DesktopIdentityStatus) => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send(IPC.IDENTITY_STATUS_CHANGED, status);
+        }
+        refreshApplicationMenu();
+      },
+    });
+    await desktopIdentityBroker.refreshStatus(
+      resolveDesktopIdentityApp("dispatch"),
+    );
+  }
+
   await initializeDesktopComputerMcpBridge();
   // Process any deep link that arrived before the app was ready
   if (pendingDeepLink) {
@@ -9577,8 +9992,51 @@ app.whenReady().then(async () => {
     // Each partition is bound to a specific app, so route to that app's port
     // rather than falling back to a hardcoded mail/calendar preference.
     sess.webRequest.onBeforeRequest(
-      { urls: [`http://localhost:${FRAME_PORT}/api/google/*`] },
+      {
+        urls: [
+          `http://localhost:${FRAME_PORT}/api/google/*`,
+          "*://*/_agent-native/auth/logout",
+          "*://*/_agent-native/auth/logout-all",
+        ],
+      },
       (details, callback) => {
+        const identityApp = targetAppId
+          ? resolveDesktopIdentityApp(targetAppId)
+          : null;
+        const logoutPath = identityApp
+          ? desktopWorkspaceLogoutPath(details.url, identityApp)
+          : null;
+        if (
+          identityApp &&
+          logoutPath &&
+          details.method === "POST" &&
+          desktopIdentityBroker &&
+          desktopIdentityBroker.getStatus() !== "idle" &&
+          !desktopIdentityBroker.isInternalRevocationRequest(details.url)
+        ) {
+          void desktopIdentityBroker
+            .prepareExternalSignOut(listDesktopIdentityCleanupApps(), {
+              logoutPath,
+              alreadyRevokedAppId: identityApp.id,
+            })
+            .then(
+              () => callback({}),
+              (error) => {
+                console.error(
+                  "[main] Failed to prepare Desktop workspace sign-out:",
+                  error,
+                );
+                callback({});
+              },
+            );
+          return;
+        }
+        if (
+          !details.url.startsWith(`http://localhost:${FRAME_PORT}/api/google/`)
+        ) {
+          callback({});
+          return;
+        }
         let apps: AppConfig[] = [];
         try {
           apps = AppStore.loadApps();
@@ -9601,6 +10059,70 @@ app.whenReady().then(async () => {
         } else {
           callback({});
         }
+      },
+    );
+
+    sess.webRequest.onCompleted(
+      {
+        urls: [
+          "*://*/_agent-native/auth/logout",
+          "*://*/_agent-native/auth/logout-all",
+        ],
+      },
+      (details) => {
+        const identityApp = targetAppId
+          ? resolveDesktopIdentityApp(targetAppId)
+          : null;
+        const logoutPath = identityApp
+          ? desktopWorkspaceLogoutPath(details.url, identityApp)
+          : null;
+        if (
+          !identityApp ||
+          !logoutPath ||
+          desktopIdentityBroker?.isInternalRevocationRequest(details.url) ||
+          details.method !== "POST" ||
+          !desktopIdentityBroker ||
+          desktopIdentityBroker.getStatus() === "idle"
+        ) {
+          return;
+        }
+        void desktopIdentityBroker.completeExternalSignOut(
+          listDesktopIdentityCleanupApps(),
+          { logoutPath, alreadyRevokedAppId: identityApp.id },
+          details.statusCode >= 200 && details.statusCode < 300,
+        );
+      },
+    );
+
+    sess.webRequest.onErrorOccurred(
+      {
+        urls: [
+          "*://*/_agent-native/auth/logout",
+          "*://*/_agent-native/auth/logout-all",
+        ],
+      },
+      (details) => {
+        const identityApp = targetAppId
+          ? resolveDesktopIdentityApp(targetAppId)
+          : null;
+        const logoutPath = identityApp
+          ? desktopWorkspaceLogoutPath(details.url, identityApp)
+          : null;
+        if (
+          !identityApp ||
+          !logoutPath ||
+          desktopIdentityBroker?.isInternalRevocationRequest(details.url) ||
+          details.method !== "POST" ||
+          !desktopIdentityBroker ||
+          desktopIdentityBroker.getStatus() === "idle"
+        ) {
+          return;
+        }
+        void desktopIdentityBroker.completeExternalSignOut(
+          listDesktopIdentityCleanupApps(),
+          { logoutPath, alreadyRevokedAppId: identityApp.id },
+          false,
+        );
       },
     );
   }
@@ -9627,16 +10149,55 @@ app.whenReady().then(async () => {
 
   // Catch any webview sessions we didn't pre-configure (e.g. custom apps
   // added at runtime) when their web contents are created. Derive the app
-  // id from the webview URL's ?app= param when possible.
+  // id from the webview URL's ?app= param or exact configured origin.
+  function resolveDesktopWebviewAppId(
+    contents: Electron.WebContents,
+  ): string | null {
+    const knownId =
+      sessionToAppId.get(contents.session) ??
+      desktopWebviewAppIds.get(contents);
+    if (knownId) return knownId;
+    try {
+      const sourceUrl = contents.getURL();
+      const parsed = new URL(sourceUrl);
+      const appId = parsed.searchParams.get("app");
+      const apps = loadAppsForAuthContext();
+      if (appId) {
+        const configured = apps.find((candidate) => candidate.id === appId);
+        if (configured && getAppOrigin(configured) === parsed.origin) {
+          return configured.id;
+        }
+        return null;
+      }
+      return (
+        apps.find((candidate) => getAppOrigin(candidate) === parsed.origin)
+          ?.id ?? null
+      );
+    } catch {
+      // coercion-ok: malformed webview URLs have no associated app identity.
+      return null;
+    }
+  }
+
   app.on("web-contents-created", (_event, wc) => {
     if (wc.getType() !== "webview") return;
-    let id = sessionToAppId.get(wc.session) ?? null;
-    if (!id) {
-      try {
-        id = new URL(wc.getURL()).searchParams.get("app");
-      } catch {}
-    }
+    let id = resolveDesktopWebviewAppId(wc);
     configureWebviewSession(wc.session, id);
+    if (id) desktopWebviewAppIds.set(wc, id);
+
+    const syncLoadedApp = () => {
+      id = resolveDesktopWebviewAppId(wc);
+      if (!id) return;
+      desktopWebviewAppIds.set(wc, id);
+      // This is deliberately gated inside the broker. A signed-out or
+      // unavailable broker never turns an ordinary app load into SSO.
+      const broker = desktopIdentityBroker;
+      if (broker) {
+        void broker.ensureAppSession(id).catch(() => undefined);
+      }
+    };
+    wc.on("did-finish-load", syncLoadedApp);
+
     // Capture renderer console messages to the log file so they survive
     // across sessions without DevTools needing to be open.
     captureWebviewLogs(wc, id ?? "webview");
@@ -9668,6 +10229,7 @@ app.whenReady().then(async () => {
   // Intercept keyboard shortcuts on the shell renderer
   win.webContents.on("before-input-event", (_event, input) => {
     if (!(input.meta || input.control) || input.type !== "keyDown") return;
+
     const key = input.key.toLowerCase();
 
     // Cmd+Option+I (and legacy Cmd+Shift+I) — open devtools for the active webview, not the shell
@@ -9770,9 +10332,12 @@ app.on("before-quit", (event) => {
     }
     remoteConnectorProcess?.kill("SIGTERM");
     remoteConnectorProcess = null;
-    void desktopComputerMcpBridge?.close();
-    desktopComputerMcpBridge = null;
-    desktopBrowserControlBridge = null;
+    void closeDesktopComputerMcpBridge().catch((error) => {
+      console.warn(
+        "[computer-control] failed to close desktop bridges during shutdown:",
+        error instanceof Error ? error.message : error,
+      );
+    });
   }
   if (multiFrontierAppIntegration) multiFrontierQuitGuard(event);
 });

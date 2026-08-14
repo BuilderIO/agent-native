@@ -16,6 +16,7 @@ import {
   type WorkspaceConnectionProvider,
 } from "../connections/catalog.js";
 import { saveOAuthTokens, setOAuthDisplayName } from "../oauth-tokens/store.js";
+import { getRegisteredAppRoles, resolveAppRole } from "../org/app-roles.js";
 import { getOrgContext } from "../org/context.js";
 import { decryptSecretValue, encryptSecretValue } from "../secrets/crypto.js";
 import {
@@ -59,6 +60,10 @@ const PROVIDER_REQUEST_TIMEOUT_MS = 10_000;
 const PROVIDER_RESPONSE_MAX_BYTES = 256 * 1024;
 const SALESFORCE_PRODUCTION_LOGIN_URL = "https://login.salesforce.com";
 const SALESFORCE_SANDBOX_LOGIN_URL = "https://test.salesforce.com";
+const WORKSPACE_OAUTH_ADMIN_ERROR =
+  "Only organization admins or the relevant app admin can connect shared OAuth accounts.";
+
+type WorkspaceProviderOAuthScope = "organization" | "app";
 
 export interface WorkspaceProviderOAuthFlow {
   provider: GenericWorkspaceOAuthProvider;
@@ -100,23 +105,23 @@ export async function handleWorkspaceProviderOAuthStart(
   if (getMethod(event) !== "GET") return methodNotAllowed(event);
   const session = await getSession(event).catch(() => null);
   if (!session?.email) return unauthorized(event);
-  const orgContext = await requireWorkspaceProviderOAuthAdmin(event);
+  const query = getQuery(event);
+  const appId = normalizeAppId(
+    text(query.appId) ??
+      process.env.AGENT_NATIVE_WORKSPACE_APP_ID ??
+      process.env.VITE_AGENT_NATIVE_WORKSPACE_APP_ID ??
+      "creative-context",
+  );
+  const orgContext = await requireWorkspaceProviderOAuthAdmin(event, appId);
   if (!orgContext) {
-    return {
-      error:
-        "Only organization owners and admins can connect shared OAuth accounts.",
-    };
+    return { error: WORKSPACE_OAUTH_ADMIN_ERROR };
   }
   const orgId = orgContext.orgId;
   if (!orgId) {
     setResponseStatus(event, 403);
-    return {
-      error:
-        "Only organization owners and admins can connect shared OAuth accounts.",
-    };
+    return { error: WORKSPACE_OAUTH_ADMIN_ERROR };
   }
   const provider = requiredProvider(providerId);
-  const query = getQuery(event);
   const salesforceLoginUrl =
     providerId === "salesforce"
       ? resolveSalesforceOAuthLoginUrl(text(query.environment))
@@ -125,12 +130,6 @@ export async function handleWorkspaceProviderOAuthStart(
     setResponseStatus(event, 400);
     return { error: "Salesforce environment must be production or sandbox." };
   }
-  const appId = normalizeAppId(
-    text(query.appId) ??
-      process.env.AGENT_NATIVE_WORKSPACE_APP_ID ??
-      process.env.VITE_AGENT_NATIVE_WORKSPACE_APP_ID ??
-      "creative-context",
-  );
   const redirectUri = resolveOAuthRedirectUri(
     event,
     workspaceProviderOAuthPath(providerId, "callback"),
@@ -218,20 +217,18 @@ export async function handleWorkspaceProviderOAuthCallback(
   if (getMethod(event) !== "GET") return methodNotAllowed(event);
   const session = await getSession(event).catch(() => null);
   if (!session?.email) return unauthorized(event);
-  const orgContext = await requireWorkspaceProviderOAuthAdmin(event);
+  const flow = readStoredFlow(event, providerId);
+  const orgContext = await requireWorkspaceProviderOAuthAdmin(
+    event,
+    flow?.appId,
+  );
   if (!orgContext) {
-    return {
-      error:
-        "Only organization owners and admins can connect shared OAuth accounts.",
-    };
+    return { error: WORKSPACE_OAUTH_ADMIN_ERROR };
   }
   const orgId = orgContext.orgId;
   if (!orgId) {
     setResponseStatus(event, 403);
-    return {
-      error:
-        "Only organization owners and admins can connect shared OAuth accounts.",
-    };
+    return { error: WORKSPACE_OAUTH_ADMIN_ERROR };
   }
   const query = getQuery(event);
   const code = text(query.code);
@@ -245,7 +242,6 @@ export async function handleWorkspaceProviderOAuthCallback(
     setResponseStatus(event, 400);
     return { error: "OAuth callback is missing code or state." };
   }
-  const flow = readStoredFlow(event, providerId);
   deleteCookie(event, flowCookieName(providerId), { path: "/" });
   const state = decodeOAuthState(stateParam, "");
   if (
@@ -321,7 +317,13 @@ export async function handleWorkspaceProviderOAuthCallback(
           identity.label,
         );
         const existing = existingConnections.find(
-          (connection) => connection.accountId === accountId,
+          (connection) =>
+            connection.accountId === accountId &&
+            (orgContext.oauthScope === "organization" ||
+              connection.allowedApps.some(
+                (allowedApp) =>
+                  allowedApp.toLowerCase() === flow.appId.toLowerCase(),
+              )),
         );
         const scopes = mergeWorkspaceOAuthValues(
           existing?.scopes ?? [],
@@ -350,7 +352,9 @@ export async function handleWorkspaceProviderOAuthCallback(
           accountLabel: identity.label,
           status: "connected",
           scopes,
-          allowedApps: existing?.allowedApps ?? [],
+          allowedApps:
+            existing?.allowedApps ??
+            (orgContext.oauthScope === "app" ? [flow.appId] : []),
           config: connectionConfig,
           lastCheckedAt: new Date(),
           lastError: null,
@@ -1134,14 +1138,35 @@ function unauthorized(event: H3Event) {
   return { error: "Authentication required" };
 }
 
-async function requireWorkspaceProviderOAuthAdmin(event: H3Event) {
+async function requireWorkspaceProviderOAuthAdmin(
+  event: H3Event,
+  appId?: string,
+): Promise<
+  | (Awaited<ReturnType<typeof getOrgContext>> & {
+      oauthScope: WorkspaceProviderOAuthScope;
+    })
+  | null
+> {
   const context = await getOrgContext(event).catch(() => null);
-  if (
-    !context ||
-    !canConnectWorkspaceProviderOAuth(context.orgId, context.role)
-  ) {
+  if (!context || !context.orgId) {
     setResponseStatus(event, 403);
     return null;
   }
-  return context;
+  if (canConnectWorkspaceProviderOAuth(context.orgId, context.role)) {
+    return { ...context, oauthScope: "organization" };
+  }
+  if (appId) {
+    const descriptor = getRegisteredAppRoles(appId);
+    if (descriptor?.roles.some((role) => role === "admin")) {
+      const role = await resolveAppRole(descriptor, {
+        userEmail: context.email,
+        orgId: context.orgId,
+      });
+      if (role.status === "assigned" && role.role === "admin") {
+        return { ...context, oauthScope: "app" };
+      }
+    }
+  }
+  setResponseStatus(event, 403);
+  return null;
 }

@@ -13,6 +13,10 @@ import { PromptComposer } from "@agent-native/core/client/composer";
 import { useActionQuery, useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  InlineMarkdown,
+  type InlineMarkdownProtectedSpan,
+} from "@agent-native/core/client/markdown";
+import {
   useAcceptInvitation,
   useJoinByDomain,
   useOrg,
@@ -23,11 +27,13 @@ import {
   ErrorReportActions,
   type ErrorReportDebugItem,
 } from "@agent-native/core/client/ui";
+import { docsUrl } from "@agent-native/core/shared";
 import {
   useSetHeaderActions,
   useSetPageTitle,
 } from "@agent-native/toolkit/app-shell";
 import { type RichMarkdownCollabUser } from "@agent-native/toolkit/editor";
+import { ShareTrigger } from "@agent-native/toolkit/sharing";
 import {
   SOURCE_AUTHOR_COMMENT_MENTION_EMAIL,
   extractCommentMentions,
@@ -94,7 +100,6 @@ import {
   IconMessageCircle,
   IconMoon,
   IconPlus,
-  IconShare3,
   IconLink,
   IconWorld,
   IconSun,
@@ -388,8 +393,10 @@ const ENABLE_PLAN_STATUS_FEATURE = false;
 const GITHUB_LIGHT_CANVAS_BACKGROUND = "#ffffff";
 const GITHUB_DARK_CANVAS_BACKGROUND = "#0d1117";
 const LOCAL_PLAN_OWNER_EMAIL = "local@agent-native.local";
-const PLAN_DOCS_URL = "https://www.agent-native.com/docs/template-plan";
-const LOCAL_FILES_DOCS_URL = `${PLAN_DOCS_URL}#local-files`;
+const PLAN_DOCS_URL = docsUrl("template-plan");
+const LOCAL_FILES_DOCS_URL = docsUrl("template-plan-local-and-desktop", {
+  hash: "local-files",
+});
 const AUTO_DEV_COMMENT_EMAILS = new Set(["dev@local.test", "dev@local"]);
 const CURRENT_USER_FALLBACK_NAME = "You";
 const CURRENT_USER_FALLBACK_INITIALS = "You";
@@ -973,30 +980,35 @@ function safeDecodeURIComponent(value: string): string {
 }
 
 function renderCommentMessage(message: string) {
-  const parts: ReactNode[] = [];
-  let lastIndex = 0;
+  const protectedSpans: InlineMarkdownProtectedSpan[] = [];
   const pattern = /@\[([^\]]+)\]\(mailto:([^)]+)\)/g;
   let match: RegExpExecArray | null;
   while ((match = pattern.exec(message)) !== null) {
-    if (match.index > lastIndex) {
-      parts.push(message.slice(lastIndex, match.index));
-    }
     const label = match[1] ?? "";
     const email = safeDecodeURIComponent(match[2] ?? "");
-    parts.push(
-      <span
-        key={`${email}-${match.index}`}
-        className="mx-0.5 inline-flex max-w-[14rem] translate-y-[2px] items-center gap-1 rounded-full border border-primary/20 bg-primary/10 px-1.5 py-0.5 text-xs font-medium text-primary"
-        title={email}
-      >
-        <IconAt className="size-3" />
-        <span className="truncate">{label || email}</span>
-      </span>,
-    );
-    lastIndex = pattern.lastIndex;
+    protectedSpans.push({
+      source: match[0],
+      label: label || email,
+      title: email,
+    });
   }
-  if (lastIndex < message.length) parts.push(message.slice(lastIndex));
-  return parts.length > 0 ? parts : message;
+  return (
+    <InlineMarkdown
+      content={message}
+      inline
+      protectedSpans={protectedSpans}
+      renderProtectedSpan={(span, children) => (
+        <span
+          key={span.source}
+          className="mx-0.5 inline-flex max-w-[14rem] translate-y-[2px] items-center gap-1 rounded-full border border-primary/20 bg-primary/10 px-1.5 py-0.5 text-xs font-medium text-primary"
+          title={span.title}
+        >
+          <IconAt className="size-3" />
+          <span className="truncate">{children}</span>
+        </span>
+      )}
+    />
+  );
 }
 
 function CommentAvatar({
@@ -1786,7 +1798,7 @@ function cropFeedbackScreenshot(input: {
   return output.toDataURL("image/png");
 }
 
-type PlanAccessRole = "owner" | "viewer" | "editor" | "admin";
+type PlanAccessRole = "owner" | "viewer" | "commenter" | "editor" | "admin";
 
 /**
  * Status options available in the reviewer approval workflow.
@@ -1963,6 +1975,15 @@ function LocalModeBadge() {
 
 export function canEditPlanContentRole(role?: PlanAccessRole | null) {
   return role === "owner" || role === "admin" || role === "editor";
+}
+
+export function canCommentPlanRole(role?: PlanAccessRole | null) {
+  return (
+    role === "owner" ||
+    role === "commenter" ||
+    role === "admin" ||
+    role === "editor"
+  );
 }
 
 export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
@@ -2403,6 +2424,8 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
       canEditPlanContentRole(effectivePlanAccessRole));
   const canManagePlan =
     !localPlanMode && canEditPlanContentRole(effectivePlanAccessRole);
+  const canCommentPlan =
+    localPlanMode || canCommentPlanRole(effectivePlanAccessRole);
   const canDeleteCurrentPlan =
     !localPlanMode && effectivePlanAccessRole === "owner";
   const currentPlanDeleteTarget = useMemo<DeletePlanTarget | null>(() => {
@@ -2428,9 +2451,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     Boolean(bundle) &&
     effectivePlanVisibility === "public" &&
     !canManagePlan;
-  const canResolveCommentThreads = Boolean(
-    bundle && (localPlanMode || session || canEditPlanContent),
-  );
+  const canResolveCommentThreads = Boolean(bundle && canCommentPlan);
   const defaultInlineCommentDraft = useMemo<CommentDraft>(() => {
     return defaultInlineCommentDraftForPlanContext({
       planKind: bundle?.plan.kind,
@@ -2534,6 +2555,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   );
   const canDeletePlanComment = useCallback(
     (comment: { authorEmail?: string | null }) => {
+      if (!canCommentPlan) return false;
       if (canManagePlan) return true;
       const currentEmail = normalizeCommentEmail(collabUser?.email);
       const authorEmail = normalizeCommentEmail(comment.authorEmail);
@@ -2544,7 +2566,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
         (!currentEmail || isLocalCurrentUserEmail(currentEmail))
       );
     },
-    [canManagePlan, collabUser?.email],
+    [canCommentPlan, canManagePlan, collabUser?.email],
   );
   const canDeleteCommentThread = useCallback(
     (thread: CommentThread) => canDeletePlanComment(thread.root),
@@ -3782,12 +3804,13 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   };
 
   const startCommenting = useCallback(() => {
+    if (!canCommentPlan) return;
     setCanvasMarkupMode("none");
     setActiveAnnotation(null);
     setAnnotationsOpen(false);
     setCommentVisibility("open");
     setAnnotateMode(true);
-  }, []);
+  }, [canCommentPlan]);
 
   const selectReviewMode = (mode: CanvasMarkupMode) => {
     preservePlanReaderScroll(() => {
@@ -3929,6 +3952,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
 
   const openNativeSelectionComment = useCallback(
     (selectionComment: NativeSelectionComment) => {
+      if (!canCommentPlan) return;
       documentStateRef.current = readNativeDocumentState();
       setCanvasMarkupMode("none");
       setActiveAnnotation(null);
@@ -3940,11 +3964,11 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
       setNativeSelectionComment(null);
       window.getSelection()?.removeAllRanges();
     },
-    [readNativeDocumentState],
+    [canCommentPlan, readNativeDocumentState],
   );
 
   const beginNativeSelectionComment = () => {
-    if (!nativeSelectionComment) return;
+    if (!canCommentPlan || !nativeSelectionComment) return;
     openNativeSelectionComment(nativeSelectionComment);
   };
 
@@ -3989,6 +4013,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   };
 
   const handleNativeReaderPointerUp = (event: PointerEvent<HTMLDivElement>) => {
+    if (!canCommentPlan) return;
     if (event.button !== 0) return;
     const target = event.target as HTMLElement;
     if (target.closest("[data-plan-interactive]")) return;
@@ -4509,6 +4534,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     localBridgeCommentPending;
 
   const submitInlineComment = async (draft: CommentDraft) => {
+    if (!canCommentPlan) return;
     if (!bundle || !pendingAnnotation || !selectedPlanQueryKey) return;
     // Capture the current position before clearing (used to restore on failure).
     const capturedPosition = inlineCommentPosition;
@@ -4606,6 +4632,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     annotation: RuntimeAnnotation,
     message: string,
   ) => {
+    if (!canCommentPlan) return;
     if (!bundle) return;
     const anchor: PlanAnnotationAnchor = {
       ...annotation.anchor,
@@ -4643,6 +4670,9 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     threadRootId: string,
     message: string,
   ) => {
+    if (!canCommentPlan) {
+      throw new Error("Commenter access is required to reply to a comment.");
+    }
     if (!bundle || !selectedPlanQueryKey) return;
     const thread = commentThreads.find((item) => item.id === threadRootId);
     if (!thread) {
@@ -5587,7 +5617,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                       }}
                     />
                   </div>
-                  {nativeSelectionComment && (
+                  {canCommentPlan && nativeSelectionComment && (
                     <div
                       className="absolute z-30"
                       style={{
@@ -5666,7 +5696,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                   )}
                 />
               )}
-              {pendingAnnotation && inlineCommentPosition && (
+              {canCommentPlan && pendingAnnotation && inlineCommentPosition && (
                 <>
                   {pendingMarkerPlacement?.clip ? (
                     <div
@@ -5711,6 +5741,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                   position={activeAnnotation.position}
                   isPending={commentWritePending}
                   pendingAuthor={pendingCommentAuthor}
+                  canComment={canCommentPlan}
                   canEditRootComment={canEditPlanContent}
                   onSave={(message) =>
                     updateAnnotationComment(
@@ -5753,6 +5784,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
                   currentUser={currentCommentAuthor}
                   pendingAuthor={pendingCommentAuthor}
                   isPending={commentWritePending}
+                  canComment={canCommentPlan}
                   onReply={replyToCommentThread}
                   canResolve={canResolveCommentThreads}
                   canDeleteThread={canDeleteCommentThread}
@@ -6218,10 +6250,15 @@ function PlanShareControl({
         shareUrlPlacement="top"
         peopleAccessLabel={t("plansPage.share.peopleAccess", { noun })}
         generalAccessLabel={t("plansPage.share.generalAccess", { noun })}
+        roleCopy={{
+          commenter: {
+            label: t("plansPage.share.commenterRoleLabel"),
+            description: t("plansPage.share.commenterRoleDescription"),
+          },
+        }}
         accessNote={buildShareAccessNote(t, noun)}
         visibilityCopy={buildShareVisibilityCopy(t, noun)}
-        trigger="icon"
-        triggerClassName="pointer-events-auto size-8"
+        triggerClassName="pointer-events-auto h-8 px-2"
         onOpenChange={onOpenChange}
       />
     );
@@ -6237,22 +6274,13 @@ function PlanShareControl({
         if (!open) setAuthPrompt(null);
       }}
     >
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <PopoverTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="pointer-events-auto size-8"
-              aria-label={t("plansPage.share.shareAria", { noun })}
-            >
-              <IconShare3 className="size-4" />
-            </Button>
-          </PopoverTrigger>
-        </TooltipTrigger>
-        <TooltipContent>{t("plansPage.share.share", { noun })}</TooltipContent>
-      </Tooltip>
+      <PopoverTrigger asChild>
+        <ShareTrigger
+          label={t("plansPage.share.share", { noun })}
+          aria-label={t("plansPage.share.shareAria", { noun })}
+          className="pointer-events-auto"
+        />
+      </PopoverTrigger>
       <PopoverContent
         align="end"
         sideOffset={6}
@@ -9037,9 +9065,9 @@ function CommentThreadMessage({
             </p>
           )}
         </div>
-        <p className="mt-1 whitespace-pre-wrap text-sm leading-6">
+        <div className="mt-1 text-sm leading-6">
           {renderCommentMessage(comment.message)}
-        </p>
+        </div>
       </div>
       {action}
     </div>
@@ -9158,6 +9186,7 @@ function AnnotationPopover({
   position,
   isPending,
   pendingAuthor,
+  canComment,
   canEditRootComment,
   onSave,
   onReply,
@@ -9173,6 +9202,7 @@ function AnnotationPopover({
   position: InlineCommentPosition;
   isPending: boolean;
   pendingAuthor: CommentAuthorPresentation;
+  canComment: boolean;
   canEditRootComment: boolean;
   onSave: (message: string) => void;
   onReply: (threadRootId: string, message: string) => Promise<void>;
@@ -9449,13 +9479,15 @@ function AnnotationPopover({
           })}
         </div>
       </div>
-      <div className="shrink-0 border-t border-border/70 p-3">
-        <ReplyComposer
-          author={pendingAuthor}
-          isPending={isPending}
-          onSubmit={(reply) => onReply(annotation.id, reply)}
-        />
-      </div>
+      {canComment && (
+        <div className="shrink-0 border-t border-border/70 p-3">
+          <ReplyComposer
+            author={pendingAuthor}
+            isPending={isPending}
+            onSubmit={(reply) => onReply(annotation.id, reply)}
+          />
+        </div>
+      )}
     </div>
   );
 }
@@ -9468,6 +9500,7 @@ function AnnotationsPanel({
   pendingAuthor,
   isPending,
   onReply,
+  canComment,
   canResolve,
   canDeleteThread,
   canDeleteComment,
@@ -9483,6 +9516,7 @@ function AnnotationsPanel({
   pendingAuthor: CommentAuthorPresentation;
   isPending: boolean;
   onReply: (threadRootId: string, message: string) => Promise<void>;
+  canComment: boolean;
   canResolve: boolean;
   canDeleteThread: (thread: CommentThread) => boolean;
   canDeleteComment: (comment: PlanCommentItem) => boolean;
@@ -9733,11 +9767,13 @@ function AnnotationsPanel({
                       />
                     );
                   })}
-                  <ReplyComposer
-                    author={pendingAuthor}
-                    isPending={isPending}
-                    onSubmit={(reply) => onReply(thread.id, reply)}
-                  />
+                  {canComment && (
+                    <ReplyComposer
+                      author={pendingAuthor}
+                      isPending={isPending}
+                      onSubmit={(reply) => onReply(thread.id, reply)}
+                    />
+                  )}
                 </article>
               );
             })

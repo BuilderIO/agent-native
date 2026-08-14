@@ -25,7 +25,10 @@ import type {
 } from "../../shared/context-xray.js";
 import { discoverAgents } from "../agent-discovery.js";
 import { getRequestOrgId } from "../request-context.js";
-import { parseSkillFrontmatter } from "./skill-frontmatter.js";
+import {
+  isRuntimeVisibleScope,
+  parseSkillFrontmatter,
+} from "./skill-frontmatter.js";
 
 // ---------------------------------------------------------------------------
 // System-prompt resource loading: AGENTS.md, instructions/*.md, skills
@@ -601,19 +604,23 @@ async function loadAgentsResourceForPrompt(
   scope: string,
   maxChars = SHARED_PROMPT_RESOURCE_MAX_CHARS,
 ): Promise<string | null> {
+  let agents: Awaited<ReturnType<typeof resourceGetByPath>>;
   try {
-    const agents = await resourceGetByPath(owner, "AGENTS.md");
-    if (!agents?.content?.trim()) return null;
-    return promptResourceBlock({
-      name: "AGENTS.md",
-      scope,
-      path: "AGENTS.md",
-      content: agents.content,
-      maxChars,
-    });
-  } catch {
-    return null;
+    agents = await resourceGetByPath(owner, "AGENTS.md");
+  } catch (error) {
+    throw new Error(
+      `Unable to read durable AGENTS.md instructions for ${scope} (${owner}). The run cannot safely continue without them.`,
+      { cause: error },
+    );
   }
+  if (!agents?.content?.trim()) return null;
+  return promptResourceBlock({
+    name: "AGENTS.md",
+    scope,
+    path: "AGENTS.md",
+    content: agents.content,
+    maxChars,
+  });
 }
 
 async function loadInstructionResourcesForPrompt(
@@ -722,7 +729,7 @@ async function loadResourceSkillsPromptBlock(
       if (!full?.content) continue;
       const meta = parseSkillFrontmatter(full.content);
       if (meta.userInvocable === false) continue;
-      if (meta.scope === "dev") continue;
+      if (!isRuntimeVisibleScope(meta.scope)) continue;
       const name = meta.name || getSkillNameFromPath(resource.path);
       if (!name || seen.has(name)) continue;
       seen.add(name);
@@ -921,7 +928,7 @@ export async function loadResourcesForPrompt(
     "workspace",
     promptResourceMaxChars,
   );
-  addSection(workspaceAgents);
+  addSection(workspaceAgents, "required");
   addSections(
     await loadInstructionResourcesForPrompt(
       WORKSPACE_OWNER,
@@ -941,7 +948,7 @@ export async function loadResourcesForPrompt(
     organizationOwner === SHARED_OWNER ? "shared" : "app-default",
     promptResourceMaxChars,
   );
-  addSection(appDefaultAgents);
+  addSection(appDefaultAgents, "required");
   addSections(
     await loadInstructionResourcesForPrompt(
       SHARED_OWNER,
@@ -961,7 +968,7 @@ export async function loadResourcesForPrompt(
       "organization",
       promptResourceMaxChars,
     );
-    addSection(organizationAgents);
+    addSection(organizationAgents, "required");
     addSections(
       await loadInstructionResourcesForPrompt(
         organizationOwner,
@@ -980,7 +987,7 @@ export async function loadResourcesForPrompt(
       "personal",
       promptResourceMaxChars,
     );
-    addSection(personalAgents, "user");
+    addSection(personalAgents, "required");
     addSections(
       await loadInstructionResourcesForPrompt(
         owner,

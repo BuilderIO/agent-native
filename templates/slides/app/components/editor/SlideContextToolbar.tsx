@@ -12,6 +12,8 @@ import {
   IconAlignLeft,
   IconAlignRight,
   IconAngle,
+  IconArrowsLeftRight,
+  IconArrowsUpDown,
   IconArrowAutofitHeight,
   IconArrowAutofitWidth,
   IconBorderRadius,
@@ -20,7 +22,12 @@ import {
   IconDots,
   IconGridDots,
   IconItalic,
+  IconLayoutAlignBottom,
+  IconLayoutAlignCenter,
   IconLayoutAlignLeft,
+  IconLayoutAlignMiddle,
+  IconLayoutAlignRight,
+  IconLayoutAlignTop,
   IconLetterCase,
   IconList,
   IconListNumbers,
@@ -29,6 +36,8 @@ import {
   IconStackBack,
   IconStackFront,
   IconUnderline,
+  IconZoomIn,
+  IconZoomOut,
 } from "@tabler/icons-react";
 import type { ReactNode } from "react";
 
@@ -52,6 +61,10 @@ import {
 import { cn, shortcutLabel } from "@/lib/utils";
 
 import type { SlideListKind } from "./list-editing";
+import type {
+  SlideObjectAlignment,
+  SlideObjectDistribution,
+} from "./slide-object-interactions";
 import {
   backgroundCssValue,
   formatValue,
@@ -136,6 +149,10 @@ export function SlideContextToolbar({
   onBackgroundChange,
   onArrange,
   onToggleList,
+  objectSelectionCount = 0,
+  onAlignObjects,
+  onDistributeObjects,
+  zoomControls,
 }: {
   snapshot: SlideStyleSnapshot | null;
   background: string | undefined;
@@ -147,6 +164,16 @@ export function SlideContextToolbar({
   onBackgroundChange: (background: string) => void;
   onArrange?: (target: "front" | "back") => void;
   onToggleList?: (kind: SlideListKind) => void;
+  objectSelectionCount?: number;
+  onAlignObjects?: (alignment: SlideObjectAlignment) => void;
+  onDistributeObjects?: (distribution: SlideObjectDistribution) => void;
+  zoomControls?: {
+    value: number;
+    onZoomOut: () => void;
+    onZoomIn: () => void;
+    canZoomOut: boolean;
+    canZoomIn: boolean;
+  };
 }) {
   const t = useT();
   const documentColors = tokenPalette(designSystem, t).map(
@@ -189,11 +216,13 @@ export function SlideContextToolbar({
   // Null means the slide uses a background this picker cannot represent (named
   // utility, gradient); surface that as Mixed rather than guessing a hex.
   const slideBackground = backgroundCssValue(background);
+  const hasMultiObjectSelection = objectSelectionCount >= 2;
+  const canDistributeObjects = objectSelectionCount >= 3;
 
   return (
     <div
       className={cn(
-        "slide-context-toolbar flex h-10 shrink-0 items-center gap-1 overflow-x-auto whitespace-nowrap border-b border-border/70 bg-muted/60 px-2 sm:px-3",
+        "slide-context-toolbar flex h-10 shrink-0 items-center gap-1 overflow-x-auto whitespace-nowrap bg-transparent px-2 sm:px-3",
         className,
       )}
       data-slide-context-toolbar="true"
@@ -206,17 +235,113 @@ export function SlideContextToolbar({
           <div className={TOOLBAR_DIVIDER} />
         </>
       )}
+      {hasMultiObjectSelection && (
+        <>
+          <DropdownMenu>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className={MENU_BUTTON_CLASS}
+                    aria-label={t("styleInspector.align")}
+                  >
+                    <IconLayoutAlignLeft className="size-3.5" />
+                  </Button>
+                </DropdownMenuTrigger>
+              </TooltipTrigger>
+              <TooltipContent>{t("styleInspector.align")}</TooltipContent>
+            </Tooltip>
+            <DropdownMenuContent
+              align="start"
+              className="w-44"
+              {...inlineEditSurfaceProps}
+            >
+              <DropdownMenuItem onSelect={() => onAlignObjects?.("left")}>
+                <IconLayoutAlignLeft className="size-4" />
+                {t("styleInspector.left")}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => onAlignObjects?.("center")}>
+                <IconLayoutAlignCenter className="size-4" />
+                {t("styleInspector.center")}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => onAlignObjects?.("right")}>
+                <IconLayoutAlignRight className="size-4" />
+                {t("styleInspector.right")}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => onAlignObjects?.("top")}>
+                <IconLayoutAlignTop className="size-4" />
+                {t("styleInspector.top")}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => onAlignObjects?.("middle")}>
+                <IconLayoutAlignMiddle className="size-4" />
+                {t("styleInspector.middle")}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => onAlignObjects?.("bottom")}>
+                <IconLayoutAlignBottom className="size-4" />
+                {t("styleInspector.bottom")}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          <DropdownMenu>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className={MENU_BUTTON_CLASS}
+                    aria-label={t("styleInspector.distribute")}
+                  >
+                    <IconArrowsLeftRight className="size-3.5" />
+                  </Button>
+                </DropdownMenuTrigger>
+              </TooltipTrigger>
+              <TooltipContent>
+                {`${t("styleInspector.distribute")} (${objectSelectionCount})`}
+              </TooltipContent>
+            </Tooltip>
+            <DropdownMenuContent
+              align="start"
+              className="w-52"
+              {...inlineEditSurfaceProps}
+            >
+              <DropdownMenuItem
+                disabled={!canDistributeObjects}
+                onSelect={() => onDistributeObjects?.("horizontal")}
+              >
+                <IconArrowsLeftRight className="size-4" />
+                {t("styleInspector.horizontal")}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={!canDistributeObjects}
+                onSelect={() => onDistributeObjects?.("vertical")}
+              >
+                <IconArrowsUpDown className="size-4" />
+                {t("styleInspector.vertical")}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <div className={TOOLBAR_DIVIDER} />
+        </>
+      )}
       {!snapshot ? (
-        <VisualColorPicker
-          label={t("styleInspector.slideBackground")}
-          value={slideBackground ?? ""}
-          mixed={slideBackground === null}
-          mixedLabel={t("styleInspector.mixed")}
-          documentColors={documentColors}
-          variant="swatch"
-          contentProps={inlineEditSurfaceProps}
-          onChange={onBackgroundChange}
-        />
+        hasMultiObjectSelection ? null : (
+          <VisualColorPicker
+            label={t("styleInspector.slideBackground")}
+            value={slideBackground ?? ""}
+            mixed={slideBackground === null}
+            mixedLabel={t("styleInspector.mixed")}
+            documentColors={documentColors}
+            variant="swatch"
+            contentProps={inlineEditSurfaceProps}
+            onChange={onBackgroundChange}
+          />
+        )
       ) : (
         <>
           {snapshot.isText ? (
@@ -797,6 +922,46 @@ export function SlideContextToolbar({
               )}
             </PopoverContent>
           </Popover>
+        </>
+      )}
+      {zoomControls && (
+        <>
+          <div className={cn(TOOLBAR_DIVIDER, "ml-auto")} />
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className={MENU_BUTTON_CLASS}
+                onClick={zoomControls.onZoomOut}
+                disabled={!zoomControls.canZoomOut}
+                aria-label={t("raw.zoomOut")}
+              >
+                <IconZoomOut className="size-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{t("raw.zoomOut")}</TooltipContent>
+          </Tooltip>
+          <span className="w-11 shrink-0 text-center text-xs tabular-nums text-muted-foreground">
+            {zoomControls.value}%
+          </span>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className={MENU_BUTTON_CLASS}
+                onClick={zoomControls.onZoomIn}
+                disabled={!zoomControls.canZoomIn}
+                aria-label={t("raw.zoomIn")}
+              >
+                <IconZoomIn className="size-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{t("raw.zoomIn")}</TooltipContent>
+          </Tooltip>
         </>
       )}
     </div>

@@ -521,6 +521,67 @@ export function removeSlideObjectAndLayoutSpacer(element: HTMLElement): void {
   element.remove();
 }
 
+/**
+ * Whether Delete may remove this selected element from the slide content.
+ *
+ * Selection is intentionally broader than freeform object manipulation: an
+ * AI-generated flow-layout div is still user content and must be removable.
+ * The renderer's structural shells and the hidden spacer used to preserve a
+ * moved object's original layout slot are not user content.
+ */
+export function isDeletableSlideElement(element: HTMLElement): boolean {
+  return (
+    !element.classList.contains("fmd-layout-spacer") &&
+    !element.classList.contains("fmd-slide") &&
+    !element.classList.contains("fmd-autofit-scale") &&
+    !element.hasAttribute("data-fmd-autofit-content") &&
+    !element.hasAttribute("data-slide-canvas")
+  );
+}
+
+/**
+ * Whether Delete should remove `element` even though it is not a freeform
+ * canvas object or generic flow element.
+ *
+ * Images are handled specially because they are leaves: an image nested in a
+ * card should be removed without swallowing the surrounding card. Generic
+ * flow elements are covered by `isDeletableSlideElement`.
+ */
+export function isDeletableFlowImage(element: HTMLElement): boolean {
+  return (
+    element.tagName === "IMG" ||
+    element.classList.contains("fmd-img-placeholder")
+  );
+}
+
+/**
+ * The persisted image object that owns `element`, if any.
+ *
+ * PPTX/PDF import wraps each picture in an absolutely positioned
+ * `.fmd-pptx-image` div carrying the durable `data-slide-object-id`, with the
+ * `<img>` (or an empty placeholder) inside it. Deleting the inner node alone
+ * leaves that wrapper behind as an invisible object that still occupies its
+ * slot and still round-trips through save. Matching on the image wrapper
+ * specifically — rather than any positioned ancestor — keeps this from
+ * swallowing a whole card or column that merely contains a picture.
+ */
+export function findPersistedImageObject(
+  element: HTMLElement,
+  root: HTMLElement,
+): HTMLElement | null {
+  let current: HTMLElement | null = element;
+  while (current && current !== root && root.contains(current)) {
+    const isImageWrapper =
+      current.classList.contains("fmd-pptx-image") ||
+      current.getAttribute("data-pptx-element-kind") === "image";
+    if (isImageWrapper && current.getAttribute("data-slide-object-id")) {
+      return current;
+    }
+    current = current.parentElement;
+  }
+  return null;
+}
+
 /** Convert a viewport click into the unscaled fmd-slide coordinate system. */
 export function clientPointToSlideCoordinates(
   clientX: number,
@@ -758,6 +819,224 @@ export function applySlideObjectMoveDelta(
       y: member.start.y + deltaY,
     });
   }
+}
+
+export type SlideAlignmentGuideOrientation = "vertical" | "horizontal";
+
+export interface SlideAlignmentGuide {
+  orientation: SlideAlignmentGuideOrientation;
+  /** Position in the shared slide coordinate space. */
+  position: number;
+  /** Visible span in the shared slide coordinate space. */
+  start: number;
+  end: number;
+}
+
+export interface SlideObjectSnapResult {
+  deltaX: number;
+  deltaY: number;
+  guides: SlideAlignmentGuide[];
+}
+
+export type SlideObjectAlignment =
+  | "left"
+  | "center"
+  | "right"
+  | "top"
+  | "middle"
+  | "bottom";
+
+export type SlideObjectDistribution = "horizontal" | "vertical";
+
+export const SLIDE_OBJECT_SNAP_TOLERANCE = 8;
+
+function nearestSnapAdjustment(
+  movingStart: number,
+  movingSize: number,
+  proposedDelta: number,
+  targetPositions: number[],
+  tolerance: number,
+): { delta: number; position: number } | null {
+  const anchors = [0, movingSize / 2, movingSize];
+  let closest: { distance: number; delta: number; position: number } | null =
+    null;
+
+  for (const anchor of anchors) {
+    const proposedPosition = movingStart + proposedDelta + anchor;
+    for (const position of targetPositions) {
+      const adjustment = position - proposedPosition;
+      const distance = Math.abs(adjustment);
+      if (distance > tolerance) continue;
+      if (!closest || distance < closest.distance) {
+        closest = { distance, delta: proposedDelta + adjustment, position };
+      }
+    }
+  }
+
+  return closest ? { delta: closest.delta, position: closest.position } : null;
+}
+
+function uniquePositions(positions: number[]): number[] {
+  return Array.from(new Set(positions));
+}
+
+function objectAnchorPositions(
+  objects: readonly SlideObjectGeometry[],
+  axis: "x" | "y",
+): number[] {
+  return objects.flatMap((object) => {
+    const start = axis === "x" ? object.x : object.y;
+    const size = axis === "x" ? object.width : object.height;
+    return [start, start + size / 2, start + size];
+  });
+}
+
+/**
+ * Snap a proposed object/group delta to nearby peer or canvas anchors. The
+ * moving geometry is the object itself for a single drag and the union bounds
+ * for a group drag. The caller can bypass this transient behavior with the
+ * platform modifier used by Figma (Cmd/Ctrl) without changing persisted data.
+ */
+export function snapSlideObjectMove({
+  moving,
+  deltaX,
+  deltaY,
+  peers,
+  canvas,
+  tolerance = SLIDE_OBJECT_SNAP_TOLERANCE,
+  bypass = false,
+}: {
+  moving: SlideObjectGeometry;
+  deltaX: number;
+  deltaY: number;
+  peers: readonly SlideObjectGeometry[];
+  canvas?: { width: number; height: number };
+  tolerance?: number;
+  bypass?: boolean;
+}): SlideObjectSnapResult {
+  if (bypass) return { deltaX, deltaY, guides: [] };
+
+  const xTargets = objectAnchorPositions(peers, "x");
+  const yTargets = objectAnchorPositions(peers, "y");
+  if (canvas) {
+    xTargets.push(0, canvas.width / 2, canvas.width);
+    yTargets.push(0, canvas.height / 2, canvas.height);
+  }
+
+  const xSnap = nearestSnapAdjustment(
+    moving.x,
+    moving.width,
+    deltaX,
+    uniquePositions(xTargets),
+    tolerance,
+  );
+  const ySnap = nearestSnapAdjustment(
+    moving.y,
+    moving.height,
+    deltaY,
+    uniquePositions(yTargets),
+    tolerance,
+  );
+  const guides: SlideAlignmentGuide[] = [];
+  if (xSnap) {
+    guides.push({
+      orientation: "vertical",
+      position: xSnap.position,
+      start: 0,
+      end: canvas?.height ?? moving.y + moving.height,
+    });
+  }
+  if (ySnap) {
+    guides.push({
+      orientation: "horizontal",
+      position: ySnap.position,
+      start: 0,
+      end: canvas?.width ?? moving.x + moving.width,
+    });
+  }
+
+  return {
+    deltaX: xSnap?.delta ?? deltaX,
+    deltaY: ySnap?.delta ?? deltaY,
+    guides,
+  };
+}
+
+export function unionSlideObjectGeometries(
+  geometries: readonly SlideObjectGeometry[],
+): SlideObjectGeometry | null {
+  if (geometries.length === 0) return null;
+  const left = Math.min(...geometries.map((geometry) => geometry.x));
+  const top = Math.min(...geometries.map((geometry) => geometry.y));
+  const right = Math.max(
+    ...geometries.map((geometry) => geometry.x + geometry.width),
+  );
+  const bottom = Math.max(
+    ...geometries.map((geometry) => geometry.y + geometry.height),
+  );
+  return { x: left, y: top, width: right - left, height: bottom - top };
+}
+
+export function alignSlideObjectMembers(
+  members: readonly SlideObjectMoveMember[],
+  alignment: SlideObjectAlignment,
+): Map<string, SlideObjectGeometry> {
+  const bounds = unionSlideObjectGeometries(
+    members.map((member) => member.start),
+  );
+  if (!bounds) return new Map();
+
+  const plan = new Map<string, SlideObjectGeometry>();
+  for (const member of members) {
+    const geometry = { ...member.start };
+    if (alignment === "left") geometry.x = bounds.x;
+    if (alignment === "center") {
+      geometry.x = bounds.x + (bounds.width - geometry.width) / 2;
+    }
+    if (alignment === "right") {
+      geometry.x = bounds.x + bounds.width - geometry.width;
+    }
+    if (alignment === "top") geometry.y = bounds.y;
+    if (alignment === "middle") {
+      geometry.y = bounds.y + (bounds.height - geometry.height) / 2;
+    }
+    if (alignment === "bottom") {
+      geometry.y = bounds.y + bounds.height - geometry.height;
+    }
+    plan.set(member.objectId, geometry);
+  }
+  return plan;
+}
+
+export function distributeSlideObjectMembers(
+  members: readonly SlideObjectMoveMember[],
+  distribution: SlideObjectDistribution,
+): Map<string, SlideObjectGeometry> {
+  if (members.length < 3) return new Map();
+
+  const axis = distribution === "horizontal" ? "x" : "y";
+  const size = distribution === "horizontal" ? "width" : "height";
+  const sorted = [...members].sort((left, right) => {
+    const positionDelta = left.start[axis] - right.start[axis];
+    return positionDelta || left.objectId.localeCompare(right.objectId);
+  });
+  const first = sorted[0].start[axis];
+  const lastEnd = Math.max(
+    ...sorted.map((member) => member.start[axis] + member.start[size]),
+  );
+  const occupied = sorted.reduce((sum, member) => sum + member.start[size], 0);
+  const gap = (lastEnd - first - occupied) / (sorted.length - 1);
+  const plan = new Map<string, SlideObjectGeometry>();
+  let cursor = first;
+
+  for (const member of sorted) {
+    const geometry = { ...member.start };
+    geometry[axis] = cursor;
+    plan.set(member.objectId, geometry);
+    cursor += member.start[size] + gap;
+  }
+
+  return plan;
 }
 
 export interface CopiedSlideObjects {

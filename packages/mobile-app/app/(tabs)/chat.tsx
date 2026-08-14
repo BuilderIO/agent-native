@@ -25,6 +25,7 @@ import AppWebView from "@/components/AppWebView";
 import { ChatFirstMobileRail } from "@/components/chat/ChatFirstMobileRail";
 import {
   ChatSettingsSheet,
+  DEFAULT_CHAT_SETTINGS,
   useChatSettings,
 } from "@/components/chat/ChatSettingsSheet";
 import { Composer } from "@/components/chat/Composer";
@@ -103,15 +104,15 @@ export default function ChatTab() {
   const chat = useAgentChat(settings);
 
   // A model/engine chosen for one app may not exist in another deployment.
-  // Reset the selection to Auto when the active thread's app changes so we
-  // never submit a model the origin can't run; effort/mode stay app-agnostic.
+  // Reset to the shared Luna/high default when the active thread's app changes
+  // so we never submit a model selected for a different origin.
   const prevBaseUrlRef = useRef(chat.baseUrl);
   useEffect(() => {
     // Guard makes re-runs on unrelated `settings` changes a no-op, so reading
     // `settings` here is current without resetting the user's fresh pick.
     if (prevBaseUrlRef.current === chat.baseUrl) return;
     prevBaseUrlRef.current = chat.baseUrl;
-    setSettings({ ...settings, model: undefined, engine: undefined });
+    setSettings({ ...DEFAULT_CHAT_SETTINGS, mode: settings.mode });
   }, [chat.baseUrl, settings, setSettings]);
 
   const refreshAuth = useCallback(async () => {

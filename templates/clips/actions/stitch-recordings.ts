@@ -84,7 +84,7 @@ export default defineAction({
     height: z.coerce.number().int().optional(),
     folderId: z.string().nullish(),
   }),
-  run: async (args) => {
+  run: async (args, actionContext) => {
     const db = getDb();
     const ownerEmail = getCurrentOwnerEmail();
     const videoUrl = args.videoUrl?.trim() || null;
@@ -134,8 +134,10 @@ export default defineAction({
       assertNativeRecordingMedia(source);
     }
     const organizationId = ordered[0].organizationId;
-    const defaultVisibility =
-      await getDefaultRecordingVisibility(organizationId);
+    const defaultVisibility = await getDefaultRecordingVisibility(
+      organizationId,
+      actionContext?.userEmail ?? ownerEmail,
+    );
 
     const totalDuration =
       args.durationMs ??

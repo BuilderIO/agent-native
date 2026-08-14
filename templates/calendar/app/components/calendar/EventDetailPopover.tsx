@@ -1441,7 +1441,7 @@ export function EventDetailPopover({
         side={isMobile ? "bottom" : "right"}
         sideOffset={isMobile ? 6 : 8}
         collisionPadding={12}
-        className="flex max-h-[90vh] w-[calc(100vw-2rem)] flex-col overflow-hidden p-0 sm:w-[420px]"
+        className="flex max-h-[var(--radix-popover-content-available-height)] w-[min(420px,calc(100vw-2rem))] flex-col overflow-hidden p-0"
         onClick={(e) => e.stopPropagation()}
         onOpenAutoFocus={(e) => {
           e.preventDefault();
@@ -1671,12 +1671,15 @@ export function EventDetailPopover({
                             />
                           </>
                         )}
+                        <span className="ml-auto">
+                          <TimezonePickerPopover
+                            compact
+                            value={editTimezone}
+                            label={t("eventForm.timezone")}
+                            onChange={handleInlineTimezoneChange}
+                          />
+                        </span>
                       </div>
-                      <TimezonePickerPopover
-                        value={editTimezone}
-                        label={t("eventForm.timezone")}
-                        onChange={handleInlineTimezoneChange}
-                      />
                     </>
                   )}
                 </div>

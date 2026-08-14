@@ -11,6 +11,12 @@ import {
 const DATA_DICTIONARY_KEY_PREFIX = "data-dict-";
 const MAX_QUERY_LENGTH = 12_000;
 const MAX_CATALOG_DASHBOARD_HYDRATION = 24;
+const RETIRED_CATALOG_STATES = new Set([
+  "deprecated",
+  "obsolete",
+  "removed",
+  "retired",
+]);
 const STOP_WORDS = new Set([
   "a",
   "all",
@@ -60,6 +66,15 @@ const STOP_WORDS = new Set([
 
 type DictionaryEntry = Record<string, unknown>;
 type DashboardPanel = Record<string, unknown>;
+
+function isRetiredCatalogReference(value: Record<string, unknown>): boolean {
+  if (value.deprecated === true) return true;
+  return [value.status, value.lifecycle, value.state].some(
+    (candidate) =>
+      typeof candidate === "string" &&
+      RETIRED_CATALOG_STATES.has(candidate.trim().toLowerCase()),
+  );
+}
 
 export type AnalyticsQueryCatalogCandidate =
   | {
@@ -296,6 +311,7 @@ function dashboardPanelCandidates(args: {
   const wantsDemo = /\bdemo\b|node exporter/i.test(args.search);
 
   return panels.flatMap((panel) => {
+    if (isRetiredCatalogReference(panel)) return [];
     // 38k of the ~39k indexed panels are clones of the demo Node Exporter dashboard.
     // They drown real saved work and are never the answer to a real data question.
     if (!wantsDemo && text(panel.source) === "demo") return [];
@@ -391,6 +407,7 @@ function dictionaryCandidates(
   search: string,
 ): AnalyticsQueryCatalogCandidate[] {
   return entries.flatMap((entry) => {
+    if (isRetiredCatalogReference(entry)) return [];
     const { score, matchedTerms } = matchScore(search, [
       { value: entry.metric, weight: 28 },
       { value: entry.commonQuestions, weight: 16 },

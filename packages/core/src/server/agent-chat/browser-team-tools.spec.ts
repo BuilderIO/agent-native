@@ -151,6 +151,53 @@ describe("createBuilderBrowserTool extension promotion", () => {
   });
 });
 
+describe("connect-builder source-change handoff", () => {
+  beforeEach(() => {
+    mocks.getBuilderCredentialAuthFailure.mockResolvedValue(null);
+    mocks.getBuilderBrowserConnectUrlForOwner.mockReturnValue(
+      "https://builder.example.test/connect",
+    );
+    mocks.resolveBuilderBranchProjectId.mockResolvedValue("project-1");
+    mocks.resolveBuilderCredentials.mockResolvedValue({
+      privateKey: "private-test-key",
+      publicKey: "public-test-key",
+      orgName: "Test org",
+    });
+  });
+
+  async function runConnectBuilder(prompt: string) {
+    const entry = createBuilderBrowserTool({
+      getOrigin: () => "https://app.example.test",
+      getOwner: () => "owner@example.test",
+    })["connect-builder"];
+    return JSON.parse(await entry.run({ prompt }));
+  }
+
+  it("renders a project-backed card with the user's source-change prompt", async () => {
+    const prompt = "Fix the app's broken handoff.";
+
+    await expect(runConnectBuilder(prompt)).resolves.toMatchObject({
+      kind: "connect-builder-card",
+      builderEnabled: true,
+      prompt,
+    });
+  });
+
+  it("keeps the card honest when the credential store reports a failure", async () => {
+    mocks.getBuilderCredentialAuthFailure.mockResolvedValue(
+      "credential-store-unavailable",
+    );
+
+    await expect(
+      runConnectBuilder("Fix the app's broken handoff."),
+    ).resolves.toMatchObject({
+      kind: "connect-builder-card",
+      configured: false,
+      builderEnabled: true,
+    });
+  });
+});
+
 describe("createTeamTools Plan-mode effects", () => {
   it("allows task observation but blocks delegation and messages", () => {
     const entry = createTeamTools({

@@ -1,6 +1,6 @@
 ---
 title: "फ़ाइल अपलोड"
-description: "फ़ाइल अपलोड स्टोरेज कॉन्फ़िगर करें - डेव, Builder.io या उत्पादन के लिए कस्टम प्रदाताओं के लिए SQL फ़ॉलबैक।"
+description: "फ़ाइल अपलोड के लिए स्थायी ऑब्जेक्ट स्टोरेज कॉन्फ़िगर करें - Builder.io या कस्टम S3-संगत प्रदाता।"
 ---
 
 # फ़ाइल अपलोड
@@ -15,9 +15,9 @@ description: "फ़ाइल अपलोड स्टोरेज कॉन्
 
 1. **उपयोगकर्ता-पंजीकृत प्रदाता** — `registerFileUploadProvider()` के माध्यम से पंजीकृत कस्टम प्रदाता
 2. **Builder.io प्रदाता** (free tier उपलब्ध) - अंतर्निहित, Builder.io कनेक्ट होने पर स्वचालित रूप से सक्रिय हो जाता है
-3. **SQL फ़ॉलबैक** — डेटाबेस में फ़ाइलों को बेस64 के रूप में संग्रहीत करता है (डेव के लिए ठीक है, उत्पादन के लिए नहीं)
+3. **स्टोरेज आवश्यक है** — प्रदाता न होने पर अपलोड सुरक्षित रूप से असफल होता है और सेटअप कार्ड दिखता है; बाइनरी डेटा SQL में सेव नहीं होता
 
-<Diagram id="doc-block-1j4i20h" title={"प्रदाता समाधान आदेश"} summary={"uploadFile() क्रम में पहले कॉन्फ़िगर किए गए प्रदाता को चुनता है। SQL फ़ॉलबैक हमेशा मौजूद रहता है इसलिए अपलोड शून्य सेटअप के साथ काम करते हैं।"}>
+<Diagram id="doc-block-1j4i20h" title={"प्रदाता समाधान आदेश"} summary={"uploadFile() क्रम में पहले कॉन्फ़िगर किए गए प्रदाता को चुनता है। प्रदाता न होने पर अपलोड सुरक्षित रूप से असफल होता है और सेटअप कार्ड दिखता है।"}>
 
 ```html
 <div class="diagram-upload">
@@ -47,8 +47,8 @@ description: "फ़ाइल अपलोड स्टोरेज कॉन्
     <div class="diagram-step">
       <span class="diagram-pill warn">3</span>
       <div class="diagram-node">
-        SQL वैकल्पिक fallback विकल्प<br /><small class="diagram-muted"
-          >DB में base64 — केवल dev</small
+        स्टोरेज आवश्यक<br /><small class="diagram-muted"
+          >Builder.io या S3-संगत स्टोरेज कॉन्फ़िगर करें</small
         >
       </div>
     </div>
@@ -94,11 +94,11 @@ Dispatches to the first configured provider in resolution order. Check the activ
 
 </Endpoint>
 
-## डिफ़ॉल्ट: SQL फ़ॉलबैक {#sql-fallback}
+## स्थायी अपलोड के लिए स्टोरेज आवश्यक है {#storage-required}
 
-जब कोई प्रदाता कॉन्फ़िगर नहीं किया जाता है, तो फ़ाइलें संसाधन प्रणाली के माध्यम से SQL डेटाबेस में बेस 64 डेटा के रूप में संग्रहीत की जाती हैं। यह स्थानीय विकास के लिए लीक से हटकर काम करता है लेकिन उत्पादन के लिए अनुशंसित नहीं है - बड़ी फ़ाइलें डेटाबेस को फुला देती हैं और कोई CDN नहीं होता है।
+जब कोई प्रदाता कॉन्फ़िगर नहीं किया जाता है, तो अपलोड सुरक्षित रूप से असफल होता है और Builder.io या S3-संगत प्रदाता सेटअप करने के लिए कार्ड दिखता है। बाइनरी डेटा base64 के रूप में SQL में सेव नहीं होता।
 
-फ़ॉलबैक का उपयोग करने पर एक बार की चेतावनी लॉग की जाती है।
+बाइट्स का उपयोग केवल मौजूदा अनुरोध के लिए किया जा सकता है और उन्हें चैट इतिहास में सेव नहीं किया जाता। स्टोरेज सेट करने के बाद अपलोड एक स्थायी सार्वजनिक URL लौटाते हैं जिसे बाद के संदेशों में फिर इस्तेमाल किया जा सकता है।
 
 ## Builder.io होस्टिंग {#builder-hosting}
 
@@ -142,7 +142,8 @@ export default defineNitroPlugin(() => {
 interface FileUploadProvider {
   id: string; // Unique id, e.g. "s3"
   name: string; // Human-readable name
-  isConfigured: () => boolean; // True when ready (env vars set, etc.)
+  isConfigured: () => boolean; // True when ready from sync runtime state
+  isConfiguredForRequest?: () => Promise<boolean>; // True from scoped DB secrets
   upload: (input: FileUploadInput) => Promise<FileUploadResult>;
 }
 
@@ -150,7 +151,7 @@ interface FileUploadInput {
   data: Uint8Array | Buffer; // File contents
   filename?: string; // Original filename
   mimeType?: string; // MIME type, e.g. "image/png"
-  ownerEmail?: string; // For per-user scoping in fallback
+  ownerEmail?: string; // For request-scoped provider credentials
 }
 
 interface FileUploadResult {
@@ -174,6 +175,6 @@ const result = await uploadFile({
 if (result) {
   // Provider handled it — result.url is the public URL
 } else {
-  // No provider configured — handle SQL वैकल्पिक fallback विकल्प yourself, or skip
+  // स्टोरेज कॉन्फ़िगर करें या अपलोड छोड़ें
 }
 ```

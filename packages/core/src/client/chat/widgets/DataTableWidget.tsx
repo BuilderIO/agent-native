@@ -4,22 +4,31 @@ import { requestAgentSidebarOpen } from "../../agent-sidebar-state.js";
 import { appPath } from "../../api-path.js";
 import { startAgentChatViewTransition } from "../../chat-view-transition.js";
 import { downloadFile, toCSVTable } from "../../db-admin/export-utils.js";
+import { DEFAULT_LOCALE, useOptionalLocale, useT } from "../../i18n.js";
 import { cn } from "../../utils.js";
 import type { DataTableWidget as DataTableWidgetData } from "./data-widget-types.js";
 
 const SAFE_ACTION_PROTOCOLS = new Set(["http:", "https:", "mailto:"]);
 
-function formatCell(value: unknown): string {
+function formatCell(
+  value: unknown,
+  locale?: string,
+  booleanLabels: { yes: string; no: string } = { yes: "Yes", no: "No" },
+): string {
   if (value === undefined || value === null || value === "") return "—";
-  if (typeof value === "boolean") return value ? "Yes" : "No";
-  if (typeof value === "number") return value.toLocaleString();
-  if (Array.isArray(value)) return value.map(formatCell).join(", ");
+  if (typeof value === "boolean")
+    return value ? booleanLabels.yes : booleanLabels.no;
+  if (typeof value === "number") return value.toLocaleString(locale);
+  if (Array.isArray(value))
+    return value
+      .map((item) => formatCell(item, locale, booleanLabels))
+      .join(", ");
   if (typeof value === "object") return JSON.stringify(value);
 
   const text = String(value);
   const timestamp = Date.parse(text);
   if (Number.isFinite(timestamp) && /^\d{4}-\d{2}-\d{2}T/.test(text)) {
-    return new Intl.DateTimeFormat(undefined, {
+    return new Intl.DateTimeFormat(locale, {
       month: "short",
       day: "numeric",
       hour: "numeric",
@@ -99,6 +108,8 @@ export function DataTableWidget({
   table: DataTableWidgetData;
   action?: { label: string; href: string };
 }) {
+  const t = useT();
+  const locale = useOptionalLocale()?.locale ?? DEFAULT_LOCALE;
   const rows = table.rows ?? [];
   const actionHref = action ? normalizeActionHref(action.href) : null;
   const canExportCsv = table.columns.length > 0;
@@ -121,13 +132,19 @@ export function DataTableWidget({
         <IconTable className="h-4 w-4 shrink-0 text-muted-foreground" />
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-medium">
-            {table.title ?? "Data table"}
+            {table.title ?? t("agentChat.widget.dataTable")}
           </div>
           <div className="text-[11px] text-muted-foreground">
             {typeof table.totalRows === "number"
-              ? `${table.totalRows.toLocaleString()} row${table.totalRows === 1 ? "" : "s"}`
-              : `${rows.length.toLocaleString()} row${rows.length === 1 ? "" : "s"}`}
-            {table.truncated ? " sampled" : ""}
+              ? t("agentChat.widget.rows", {
+                  count: table.totalRows,
+                  formattedCount: table.totalRows.toLocaleString(locale),
+                })
+              : t("agentChat.widget.rows", {
+                  count: rows.length,
+                  formattedCount: rows.length.toLocaleString(locale),
+                })}
+            {table.truncated ? ` ${t("agentChat.widget.sampled")}` : ""}
           </div>
         </div>
         {action && actionHref ? (
@@ -161,7 +178,7 @@ export function DataTableWidget({
           className="inline-flex shrink-0 items-center gap-1 rounded-md bg-primary px-2 py-1 text-[11px] font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50"
         >
           <IconDownload className="h-3 w-3" />
-          Download CSV
+          {t("agentChat.widget.downloadCsv")}
         </button>
       </div>
       <div className="max-h-[360px] overflow-auto">
@@ -188,7 +205,7 @@ export function DataTableWidget({
                   colSpan={Math.max(1, table.columns.length)}
                   className="px-3 py-8 text-center text-muted-foreground"
                 >
-                  No rows
+                  {t("agentChat.widget.noRows")}
                 </td>
               </tr>
             ) : (
@@ -206,7 +223,10 @@ export function DataTableWidget({
                       )}
                     >
                       <span className="line-clamp-3 break-words">
-                        {formatCell(row[column.key])}
+                        {formatCell(row[column.key], locale, {
+                          yes: t("agentChat.common.yes"),
+                          no: t("agentChat.common.no"),
+                        })}
                       </span>
                     </td>
                   ))}

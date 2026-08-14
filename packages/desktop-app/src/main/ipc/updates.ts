@@ -7,21 +7,24 @@
 // quitAndInstall from a sidebar pill / restart prompt. The app also
 // installs queued updates automatically on quit.
 //
-// In development and local packaged builds, autoUpdater is unsupported (there
-// is no release channel to update from), so we report an "unsupported" status
-// and skip all autoUpdater calls.
+// In development and local packaged builds, autoUpdater cannot install a
+// release, so update checks remain explicitly unsupported.
 
 import { IPC, type UpdateStatus } from "@shared/ipc-channels";
 import { app, BrowserWindow, ipcMain, Notification } from "electron";
 import { autoUpdater } from "electron-updater";
 
+import { resolveDesktopUpdateSupport } from "./update-policy.js";
+
 declare const __AGENT_NATIVE_DESKTOP_BUILD_CHANNEL__: string | undefined;
 
-const IS_DEV = !app.isPackaged;
-const IS_DEV_BUILD =
-  IS_DEV ||
-  (typeof __AGENT_NATIVE_DESKTOP_BUILD_CHANNEL__ === "string" &&
-    __AGENT_NATIVE_DESKTOP_BUILD_CHANNEL__ !== "release");
+const UPDATE_SUPPORT = resolveDesktopUpdateSupport(
+  app.isPackaged,
+  app.getVersion(),
+  typeof __AGENT_NATIVE_DESKTOP_BUILD_CHANNEL__ === "string"
+    ? __AGENT_NATIVE_DESKTOP_BUILD_CHANNEL__
+    : "release",
+);
 
 const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
 const UPDATE_FOCUS_CHECK_MIN_INTERVAL_MS = 15 * 60 * 1000;
@@ -36,12 +39,13 @@ const DESKTOP_UPDATE_FEED_URL = (
   DEFAULT_DESKTOP_UPDATE_FEED_URL
 ).replace(/\/+$/, "");
 
-let currentUpdateStatus: UpdateStatus = IS_DEV_BUILD
-  ? { state: "unsupported", reason: "Auto-update is disabled in development" }
+let currentUpdateStatus: UpdateStatus = !UPDATE_SUPPORT.supported
+  ? { state: "unsupported", reason: UPDATE_SUPPORT.reason }
   : { state: "idle" };
 let updateCheckInFlight: Promise<unknown> | null = null;
 let lastUpdateCheckStartedAt = 0;
 let notifiedUpdateVersion: string | null = null;
+let updateInstallInFlight = false;
 let pendingDownloadedUpdate: Extract<
   UpdateStatus,
   { state: "downloaded" }
@@ -50,6 +54,7 @@ let pendingDownloadedUpdate: Extract<
 export interface UpdatesIpcDeps {
   refreshApplicationMenu: () => void;
   focusMainWindow: () => void;
+  prepareForUpdate?: () => Promise<void>;
 }
 
 export interface UpdateCheckOptions {
@@ -71,6 +76,31 @@ function getDeps(): UpdatesIpcDeps {
 /** Current cached update status, for callers outside the IPC surface (e.g. the app menu). */
 export function getCurrentUpdateStatus(): UpdateStatus {
   return currentUpdateStatus;
+}
+
+export async function installDownloadedUpdate(): Promise<void> {
+  if (
+    !UPDATE_SUPPORT.supported ||
+    !hasUpdateReadyToInstall() ||
+    updateInstallInFlight
+  ) {
+    return;
+  }
+  updateInstallInFlight = true;
+  try {
+    // Native helpers can outlive the Electron window. Close them before
+    // Squirrel checks whether the old app is still running.
+    await getDeps().prepareForUpdate?.();
+    // isSilent=false so any installer UI shows; isForceRunAfter=true so the
+    // app relaunches after the update completes.
+    autoUpdater.quitAndInstall(false, true);
+  } catch (err) {
+    updateInstallInFlight = false;
+    broadcastUpdateStatus({
+      state: "error",
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
 }
 
 function broadcastUpdateStatus(status: UpdateStatus) {
@@ -125,7 +155,7 @@ function withUpdateCheckTimeout<T>(promise: Promise<T>): Promise<T> {
 export async function checkForAppUpdates(
   options: UpdateCheckOptions = {},
 ): Promise<UpdateStatus> {
-  if (IS_DEV_BUILD) return currentUpdateStatus;
+  if (!UPDATE_SUPPORT.supported) return currentUpdateStatus;
   if (hasUpdateReadyToInstall()) return currentUpdateStatus;
 
   if (!updateCheckInFlight) {
@@ -156,7 +186,7 @@ export async function checkForAppUpdates(
 }
 
 function maybeCheckForAppUpdates() {
-  if (IS_DEV_BUILD) return;
+  if (!UPDATE_SUPPORT.supported) return;
   if (hasUpdateReadyToInstall()) return;
   if (
     updateCheckInFlight ||
@@ -210,10 +240,9 @@ function showUpdateCheckResultNotification(status: UpdateStatus) {
 export function registerUpdatesIpc(ipcDeps: UpdatesIpcDeps): void {
   deps = ipcDeps;
 
-  if (!IS_DEV_BUILD) {
-    // The GitHub provider reads the repository-wide latest release feed, which
-    // also contains npm package releases and Clips desktop releases. Use the
-    // Agent Native feed that filters the shared repo down to desktop assets.
+  if (UPDATE_SUPPORT.supported) {
+    // The public feed filters the shared repository's releases down to desktop
+    // assets, so npm and Clips releases never enter this updater.
     autoUpdater.setFeedURL({
       provider: "generic",
       url: DESKTOP_UPDATE_FEED_URL,
@@ -270,22 +299,22 @@ export function registerUpdatesIpc(ipcDeps: UpdatesIpcDeps): void {
         message: err?.message ?? String(err),
       });
     });
-
-    app.whenReady().then(() => {
-      void checkForAppUpdates();
-      let checkRunning = false;
-      setInterval(() => {
-        if (checkRunning) return;
-        checkRunning = true;
-        void checkForAppUpdates().finally(() => {
-          checkRunning = false;
-        });
-      }, UPDATE_CHECK_INTERVAL_MS);
-    });
-
-    app.on("browser-window-focus", maybeCheckForAppUpdates);
-    app.on("activate", maybeCheckForAppUpdates);
   }
+
+  app.whenReady().then(() => {
+    void checkForAppUpdates();
+    let checkRunning = false;
+    setInterval(() => {
+      if (checkRunning) return;
+      checkRunning = true;
+      void checkForAppUpdates().finally(() => {
+        checkRunning = false;
+      });
+    }, UPDATE_CHECK_INTERVAL_MS);
+  });
+
+  app.on("browser-window-focus", maybeCheckForAppUpdates);
+  app.on("activate", maybeCheckForAppUpdates);
 
   ipcMain.handle(
     IPC.UPDATE_GET_STATUS,
@@ -297,7 +326,9 @@ export function registerUpdatesIpc(ipcDeps: UpdatesIpcDeps): void {
   });
 
   ipcMain.handle(IPC.UPDATE_DOWNLOAD, async (): Promise<UpdateStatus> => {
-    if (IS_DEV_BUILD || hasUpdateReadyToInstall()) return currentUpdateStatus;
+    if (!UPDATE_SUPPORT.supported || hasUpdateReadyToInstall()) {
+      return currentUpdateStatus;
+    }
     try {
       await waitForDownloadedUpdate(autoUpdater.downloadUpdate());
     } catch (err) {
@@ -310,10 +341,5 @@ export function registerUpdatesIpc(ipcDeps: UpdatesIpcDeps): void {
     return currentUpdateStatus;
   });
 
-  ipcMain.handle(IPC.UPDATE_INSTALL, () => {
-    if (IS_DEV_BUILD) return;
-    // isSilent=false so any installer UI shows; isForceRunAfter=true so the
-    // app relaunches after the update completes.
-    autoUpdater.quitAndInstall(false, true);
-  });
+  ipcMain.handle(IPC.UPDATE_INSTALL, () => installDownloadedUpdate());
 }

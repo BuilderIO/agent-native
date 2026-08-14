@@ -69,6 +69,7 @@ button[title="Open agent sidebar"] {
   --sidebar-ring: 0 0% 50%;
 
   --accent-cyan: 187 100% 50%;
+  --slides-thumbnail-shadow: 0 0% 0%;
 }
 
 .light {
@@ -115,6 +116,29 @@ button[title="Open agent sidebar"] {
   --accent-cyan: 193 82% 31%;
 }
 
+[data-slides-thumbnail-scroll]::before {
+  position: absolute;
+  z-index: 20;
+  inset: 0.5rem 0.5rem auto;
+  height: 1rem;
+  pointer-events: none;
+  content: "";
+  opacity: 0;
+  background: radial-gradient(
+    ellipse 82% 125% at 50% 0%,
+    hsl(var(--slides-thumbnail-shadow) / 0.18) 0%,
+    hsl(var(--slides-thumbnail-shadow) / 0.08) 48%,
+    transparent 100%
+  );
+  box-shadow: 0 0.2rem 0.45rem -0.25rem
+    hsl(var(--slides-thumbnail-shadow) / 0.64);
+  transition: opacity 150ms ease-out;
+}
+
+[data-slides-thumbnail-scroll="scrolled"]::before {
+  opacity: 1;
+}
+
 /* Slides keeps the shared visual inspector behavior, but the dock and context toolbar need the
    flatter, filled-control treatment used by the slide editor. */
 .slide-style-inspector,
@@ -143,7 +167,7 @@ button[title="Open agent sidebar"] {
 }
 
 .slide-style-inspector .slides-inspector-section {
-  border-bottom: 1px solid var(--slides-inspector-divider);
+  border-bottom: 0;
   border-radius: 0;
   padding: 0.625rem 0.75rem;
 }
@@ -238,6 +262,48 @@ button[title="Open agent sidebar"] {
 .deck-grid-container {
   container-type: inline-size;
 }
+
+.deck-editor-shell {
+  --slides-editor-surface: hsl(var(--background));
+  container-type: inline-size;
+  container-name: deck-editor;
+}
+
+@supports (background: color-mix(in srgb, white, black)) {
+  .deck-editor-shell {
+    --slides-editor-surface: color-mix(
+      in srgb,
+      hsl(var(--background)) 35%,
+      var(--agent-native-lower-surface, hsl(var(--background))) 65%
+    );
+  }
+}
+
+.deck-editor-context-toolbar-host {
+  min-width: 0;
+  overflow: auto;
+}
+
+.deck-editor-context-toolbar-host--wide {
+  display: none;
+}
+
+.deck-editor-context-toolbar-host--narrow {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.deck-editor-context-toolbar-host--narrow
+  > [data-slide-inline-edit-surface="true"] {
+  min-width: 0;
+  width: 100%;
+  flex: 1 1 auto;
+}
+
+/* The element-controls toolbar (New Slide, text/style controls, zoom)
+ * always renders as its own row below the title/Share/Present bar, at every
+ * viewport size — the "wide" host above stays permanently hidden by the
+ * base rule so the row never merges into the title bar on large screens. */
 
 @container (max-width: 36rem) {
   .deck-grid {

@@ -7,6 +7,7 @@ import {
   createSlidesCanvasInteractionCore,
   isWithinSlidesCanvasEdgeMoveBand,
   resolveSlidesCanvasDragTarget,
+  resolveSlidesCanvasNudge,
   resolveSlidesCanvasPointerIntent,
   SLIDES_CANVAS_EDGE_MOVE_BAND,
 } from "./slides-canvas-adapter";
@@ -33,12 +34,12 @@ describe("Slides canvas interaction adapter", () => {
     expect(SLIDES_CANVAS_EDGE_MOVE_BAND).toBe(8);
   });
 
-  it("keeps snapping and object alignment disabled until Slides implements them", () => {
+  it("advertises the supported snapping and multi-object layout capabilities", () => {
     const core = createSlidesCanvasInteractionCore();
 
-    expect(core.capabilities.snapping).toBe(false);
-    expect(core.capabilities.alignment).toBe(false);
-    expect(core.capabilities.distribution).toBe(false);
+    expect(core.capabilities.snapping).toBe(true);
+    expect(core.capabilities.alignment).toBe(true);
+    expect(core.capabilities.distribution).toBe(true);
     expect(core.capabilities.grouping).toBe(false);
     expect(core.capabilities.rotation).toBe(false);
   });
@@ -64,6 +65,71 @@ describe("Slides canvas interaction adapter", () => {
     ).toEqual({ x: 140, y: 50, width: 160, height: 100 });
   });
 
+  it("supports Alt center resizing with Shift aspect locking", () => {
+    const preview = vi.fn(() => ({ handled: true }) as const);
+    const controller = createSlidesCanvasGestureController({
+      preview,
+      commit: vi.fn(() => ({ handled: true }) as const),
+    });
+
+    controller.pointerDown({
+      kind: "resize",
+      objectIds: ["title"],
+      pointer: { x: 100, y: 100 },
+      viewport: { left: 0, top: 0, width: 500, height: 250 },
+      canvas: { width: 1000, height: 500 },
+      handle: "se",
+      rect: { x: 100, y: 100, width: 200, height: 100 },
+    });
+
+    expect(
+      controller.pointerMove({ x: 115, y: 105, altKey: true, shiftKey: true }),
+    ).toMatchObject({
+      phase: "active",
+      gesture: {
+        rect: { x: 70, y: 85, width: 260, height: 130 },
+      },
+    });
+
+    controller.pointerUp({ x: 115, y: 105, altKey: true, shiftKey: true });
+    controller.pointerDown({
+      kind: "resize",
+      objectIds: ["title"],
+      pointer: { x: 100, y: 100 },
+      viewport: { left: 0, top: 0, width: 500, height: 250 },
+      canvas: { width: 1000, height: 500 },
+      handle: "e",
+      rect: { x: 100, y: 100, width: 200, height: 100 },
+    });
+
+    expect(
+      controller.pointerMove({ x: 120, y: 100, altKey: true, shiftKey: true }),
+    ).toMatchObject({
+      phase: "active",
+      gesture: {
+        rect: { x: 60, y: 80, width: 280, height: 140 },
+      },
+    });
+  });
+
+  it("keeps modifier-arrow chords native while nudging plain arrows", () => {
+    expect(resolveSlidesCanvasNudge({ key: "ArrowRight" })).toMatchObject({
+      delta: { x: 1, y: 0 },
+    });
+    expect(
+      resolveSlidesCanvasNudge({ key: "ArrowRight", shiftKey: true }),
+    ).toMatchObject({ delta: { x: 10, y: 0 } });
+    expect(
+      resolveSlidesCanvasNudge({ key: "ArrowRight", metaKey: true }),
+    ).toBeNull();
+    expect(
+      resolveSlidesCanvasNudge({ key: "ArrowRight", ctrlKey: true }),
+    ).toBeNull();
+    expect(resolveSlidesCanvasNudge({ key: "ArrowRight", altKey: true })).toBe(
+      null,
+    );
+  });
+
   it("reserves only a selected object's edge band for movement", () => {
     expect(
       resolveSlidesCanvasPointerIntent({
@@ -82,7 +148,7 @@ describe("Slides canvas interaction adapter", () => {
         pointerWithinMoveBand: false,
         targetIsEditableText: true,
       }),
-    ).toBe("move-object-body");
+    ).toBe("edit-text");
     expect(
       resolveSlidesCanvasPointerIntent({
         hasSelectedObject: true,

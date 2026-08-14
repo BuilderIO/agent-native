@@ -696,6 +696,7 @@ async function deleteCollectedDocuments(
   });
 
   await deleteWhereIn(propertyDefinitionIds, async (propertyIdBatch) => {
+    await deleteBlocksFieldIdentity({ db, propertyIds: propertyIdBatch });
     await db
       .delete(schema.documentPropertyValues)
       .where(
@@ -731,9 +732,7 @@ async function deleteCollectedDocuments(
   });
 
   await deleteWhereIn(documentIds, async (documentIdBatch) => {
-    for (const documentId of documentIdBatch) {
-      await deleteBlocksFieldIdentity({ db, documentId });
-    }
+    await deleteBlocksFieldIdentity({ db, documentIds: documentIdBatch });
     await db
       .delete(schema.contentDatabaseBodyHydrationQueue)
       .where(

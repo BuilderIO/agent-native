@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  BLOCK_TOMBSTONE_REVISION_WINDOW,
+  MAX_BLOCK_TOMBSTONES_PER_FIELD,
   blocksFieldId,
   exposeBlocksFieldIdentity,
   legacyBlocksFieldIdentity,
@@ -38,6 +40,46 @@ describe("Blocks field identity", () => {
     );
     expect(first.revision).toBe(0);
     expect(first.identityStatus).toBe("legacy");
+  });
+
+  it("field-scopes identical preferred and generated IDs at first materialization", () => {
+    const markdown = '<registry-block blockId="shared-id" />';
+    const first = materializeLegacyBlocksFieldIdentity({
+      documentId: "doc-1",
+      propertyId: "content",
+      markdown,
+    });
+    const second = materializeLegacyBlocksFieldIdentity({
+      documentId: "doc-1",
+      propertyId: "notes",
+      markdown,
+    });
+
+    expect(first.blocks[0]?.id).not.toBe(second.blocks[0]?.id);
+
+    const firstInserted = reconcileBlocksFieldIdentity({
+      documentId: "doc-1",
+      propertyId: "content",
+      previous: materializeLegacyBlocksFieldIdentity({
+        documentId: "doc-1",
+        propertyId: "content",
+        markdown: "",
+      }),
+      markdown: "New block",
+      createId: () => "same-generated-id",
+    });
+    const secondInserted = reconcileBlocksFieldIdentity({
+      documentId: "doc-1",
+      propertyId: "notes",
+      previous: materializeLegacyBlocksFieldIdentity({
+        documentId: "doc-1",
+        propertyId: "notes",
+        markdown: "",
+      }),
+      markdown: "New block",
+      createId: () => "same-generated-id",
+    });
+    expect(firstInserted.blocks[0]?.id).not.toBe(secondInserted.blocks[0]?.id);
   });
 
   it("preserves IDs through edit, reorder, insertion, split, and merge rules", () => {
@@ -154,6 +196,85 @@ describe("Blocks field identity", () => {
     expect(
       exposeBlocksFieldIdentity(recovered, "Keep\nRecover me").tombstones,
     ).not.toContainEqual(expect.objectContaining({ id: recoverId }));
+  });
+
+  it("consumes a tombstone once when identical blocks are restored", () => {
+    const initial = materializeLegacyBlocksFieldIdentity({
+      documentId: "doc-1",
+      propertyId: "content",
+      markdown: "Keep\nRepeat",
+    });
+    const repeatId = initial.blocks[1]!.id;
+    const deleted = reconcileBlocksFieldIdentity({
+      documentId: "doc-1",
+      propertyId: "content",
+      previous: initial,
+      markdown: "Keep",
+      createId: idFactory(),
+    });
+    const restoredTwice = reconcileBlocksFieldIdentity({
+      documentId: "doc-1",
+      propertyId: "content",
+      previous: deleted,
+      markdown: "Keep\nRepeat\nRepeat",
+      createId: idFactory(),
+    });
+    const repeatIds = restoredTwice.blocks
+      .filter((block) => block.state === "live" && block.markdown === "Repeat")
+      .map((block) => block.id);
+
+    expect(repeatIds).toContain(repeatId);
+    expect(new Set(repeatIds).size).toBe(2);
+  });
+
+  it("bounds tombstone recovery by revision age and total count", () => {
+    let state = materializeLegacyBlocksFieldIdentity({
+      documentId: "doc-1",
+      propertyId: "content",
+      markdown: "Keep\nOld deletion",
+    });
+    state = reconcileBlocksFieldIdentity({
+      documentId: "doc-1",
+      propertyId: "content",
+      previous: state,
+      markdown: "Keep",
+      createId: idFactory(),
+    });
+    for (
+      let revision = 0;
+      revision < BLOCK_TOMBSTONE_REVISION_WINDOW;
+      revision++
+    ) {
+      state = reconcileBlocksFieldIdentity({
+        documentId: "doc-1",
+        propertyId: "content",
+        previous: state,
+        markdown: revision % 2 === 0 ? "Keep edited" : "Keep",
+        createId: idFactory(),
+      });
+    }
+    expect(
+      state.blocks.filter((block) => block.state === "deleted"),
+    ).toHaveLength(0);
+
+    const many = materializeLegacyBlocksFieldIdentity({
+      documentId: "doc-many",
+      propertyId: "content",
+      markdown: Array.from(
+        { length: MAX_BLOCK_TOMBSTONES_PER_FIELD + 1 },
+        (_, index) => `Block ${index}`,
+      ).join("\n"),
+    });
+    const allDeleted = reconcileBlocksFieldIdentity({
+      documentId: "doc-many",
+      propertyId: "content",
+      previous: many,
+      markdown: "",
+      createId: idFactory(),
+    });
+    expect(
+      allDeleted.blocks.filter((block) => block.state === "deleted"),
+    ).toHaveLength(MAX_BLOCK_TOMBSTONES_PER_FIELD);
   });
 
   it("preserves honest IDs when siblings are reordered and edited together", () => {

@@ -44,7 +44,7 @@ export interface AgentChatMessage {
   referenceImagePaths?: string[];
   /** Optional uploaded reference images */
   uploadedReferenceImages?: string[];
-  /** Optional image data URLs to include in the submitted chat message */
+  /** Optional image data URLs or durable image URLs to include in the submitted chat message */
   images?: string[];
   /** Stable tab identifier — auto-generated if omitted */
   tabId?: string;
@@ -63,7 +63,7 @@ export interface AgentChatMessage {
   model?: string;
   /** Engine preference paired with model for cross-provider switches. */
   engine?: string;
-  /** Reasoning effort preference paired with model. */
+  /** Effort preference paired with model. */
   effort?: ReasoningEffort;
   /**
    * Execution mode for this submitted turn. When omitted, sendToAgentChat
@@ -932,12 +932,18 @@ export function parseSubmitChatMessage(
   if (!raw) return null;
   const message = typeof raw.message === "string" ? raw.message : "";
   if (!message) return null;
-  const images = Array.isArray(raw.images)
-    ? raw.images.filter(
-        (image): image is string =>
-          typeof image === "string" && image.length > 0,
-      )
-    : undefined;
+  const imageSources = [
+    ...(Array.isArray(raw.images) ? raw.images : []),
+    ...(Array.isArray(raw.referenceImagePaths) ? raw.referenceImagePaths : []),
+    ...(Array.isArray(raw.uploadedReferenceImages)
+      ? raw.uploadedReferenceImages
+      : []),
+  ].filter(
+    (image): image is string =>
+      typeof image === "string" && image.trim().length > 0,
+  );
+  const images =
+    imageSources.length > 0 ? [...new Set(imageSources)] : undefined;
   return {
     message,
     context: typeof raw.context === "string" ? raw.context : undefined,

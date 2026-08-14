@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { sanitizeSlideHtml } from "@/lib/sanitize-slide-html";
 
 import {
+  alignSlideObjectMembers,
   applySlideObjectMoveDelta,
   buildPastedSlideObjects,
   clientPointToSlideCoordinates,
@@ -19,11 +20,16 @@ import {
   freezeSlideElementForFreeform,
   getSlideSelectionIdentity,
   getSlideSelectionMode,
+  findPersistedImageObject,
   getSlideTextBoxDefaultColor,
+  isDeletableFlowImage,
+  isDeletableSlideElement,
   removeSlideObjectAndLayoutSpacer,
   resolveSlideObjectContainingBlock,
   resizeSlideObject,
+  snapSlideObjectMove,
   SLIDE_OBJECT_PASTE_OFFSET,
+  distributeSlideObjectMembers,
   type SlideObjectGeometry,
 } from "./slide-object-interactions";
 
@@ -350,7 +356,7 @@ describe("slide object interactions", () => {
     },
   );
 
-  it("uses Shift aspect locking for corners while midpoint handles remain axis-only", () => {
+  it("uses Shift aspect locking for corners and midpoint handles", () => {
     expect(
       resizeSlideObject(
         { x: 100, y: 50, width: 200, height: 100 },
@@ -363,7 +369,7 @@ describe("slide object interactions", () => {
         { x: 100, y: 50, width: 200, height: 100 },
         { handle: "w", dx: 30, dy: 99, preserveAspectRatio: true },
       ),
-    ).toEqual({ x: 130, y: 50, width: 170, height: 100 });
+    ).toEqual({ x: 130, y: 57.5, width: 170, height: 85 });
   });
 
   it("freezes an in-flow text block without removing its layout slot", () => {
@@ -681,6 +687,111 @@ describe("slide object interactions", () => {
     expect(applied.get("b")).toEqual({ x: 130, y: 30, width: 50, height: 50 });
   });
 
+  it("snaps object edges and centers to nearby peer anchors and returns guides", () => {
+    const result = snapSlideObjectMove({
+      moving: { x: 100, y: 160, width: 80, height: 40 },
+      deltaX: 17,
+      deltaY: 0,
+      peers: [{ x: 200, y: 50, width: 120, height: 80 }],
+      canvas: { width: 1280, height: 720 },
+    });
+
+    expect(result.deltaX).toBe(20);
+    expect(result.deltaY).toBe(0);
+    expect(result.guides).toContainEqual({
+      orientation: "vertical",
+      position: 200,
+      start: 0,
+      end: 720,
+    });
+  });
+
+  it("snaps both axes to slide anchors, ignores distant targets, and bypasses with Cmd/Ctrl", () => {
+    const snapped = snapSlideObjectMove({
+      moving: { x: 4, y: 3, width: 80, height: 40 },
+      deltaX: -4,
+      deltaY: -3,
+      peers: [{ x: 500, y: 500, width: 40, height: 40 }],
+      canvas: { width: 1280, height: 720 },
+    });
+    expect(snapped.deltaX).toBe(-4);
+    expect(snapped.deltaY).toBe(-3);
+    expect(snapped.guides).toHaveLength(2);
+
+    const bypassed = snapSlideObjectMove({
+      moving: { x: 4, y: 3, width: 80, height: 40 },
+      deltaX: -4,
+      deltaY: -3,
+      peers: [],
+      canvas: { width: 1280, height: 720 },
+      bypass: true,
+    });
+    expect(bypassed).toEqual({ deltaX: -4, deltaY: -3, guides: [] });
+  });
+
+  it("aligns selected members to their shared bounds without changing size", () => {
+    const members = [
+      {
+        objectId: "a",
+        element: document.createElement("div"),
+        start: { x: 10, y: 20, width: 50, height: 40 },
+      },
+      {
+        objectId: "b",
+        element: document.createElement("div"),
+        start: { x: 110, y: 80, width: 30, height: 60 },
+      },
+    ];
+
+    const centered = alignSlideObjectMembers(members, "center");
+    expect(centered.get("a")).toEqual({
+      x: 50,
+      y: 20,
+      width: 50,
+      height: 40,
+    });
+    expect(centered.get("b")).toEqual({
+      x: 60,
+      y: 80,
+      width: 30,
+      height: 60,
+    });
+    expect(alignSlideObjectMembers(members, "bottom").get("a")).toEqual({
+      x: 10,
+      y: 100,
+      width: 50,
+      height: 40,
+    });
+  });
+
+  it("distributes three or more selected members with equal edge gaps", () => {
+    const members = [
+      {
+        objectId: "a",
+        element: document.createElement("div"),
+        start: { x: 0, y: 20, width: 40, height: 20 },
+      },
+      {
+        objectId: "b",
+        element: document.createElement("div"),
+        start: { x: 80, y: 80, width: 20, height: 30 },
+      },
+      {
+        objectId: "c",
+        element: document.createElement("div"),
+        start: { x: 200, y: 140, width: 40, height: 20 },
+      },
+    ];
+
+    const plan = distributeSlideObjectMembers(members, "horizontal");
+    expect(plan.get("a")?.x).toBe(0);
+    expect(plan.get("b")?.x).toBe(110);
+    expect(plan.get("c")?.x).toBe(200);
+    expect(
+      distributeSlideObjectMembers(members.slice(0, 2), "vertical"),
+    ).toEqual(new Map());
+  });
+
   it("strips transient builder ids when copying and remints ids when pasting", () => {
     const object = document.createElement("div");
     object.dataset.slideObjectId = "source-root";
@@ -736,5 +847,137 @@ describe("slide object interactions", () => {
 
     expect(pasted.style.left).toBe("");
     expect(pasted.style.top).toBe("");
+  });
+});
+
+describe("isDeletableFlowImage", () => {
+  it("accepts a plain image in flow layout", () => {
+    const img = document.createElement("img");
+    expect(isDeletableFlowImage(img)).toBe(true);
+  });
+
+  it("accepts an image placeholder box", () => {
+    const placeholder = document.createElement("div");
+    placeholder.className = "fmd-img-placeholder";
+    expect(isDeletableFlowImage(placeholder)).toBe(true);
+  });
+
+  it("does not classify ordinary flow containers as images", () => {
+    const card = document.createElement("div");
+    card.className = "fmd-card";
+    card.innerHTML = "<img src='x.png' /><p>Zamioculcas</p>";
+    expect(isDeletableFlowImage(card)).toBe(false);
+  });
+
+  it("refuses text blocks", () => {
+    const heading = document.createElement("h1");
+    heading.textContent = "Low LIGHT";
+    expect(isDeletableFlowImage(heading)).toBe(false);
+  });
+});
+
+describe("isDeletableSlideElement", () => {
+  it("accepts an AI-generated flow div", () => {
+    const rectangle = document.createElement("div");
+    rectangle.className = "generated-rectangle";
+    rectangle.dataset.builderId = "b-generated";
+    rectangle.textContent = "Generated content";
+
+    expect(isDeletableSlideElement(rectangle)).toBe(true);
+  });
+
+  it("removes the selected flow div without touching its sibling", () => {
+    const root = document.createElement("div");
+    const rectangle = document.createElement("div");
+    rectangle.className = "generated-rectangle";
+    rectangle.dataset.builderId = "b-generated";
+    const sibling = document.createElement("p");
+    sibling.textContent = "Keep this content";
+    root.append(rectangle, sibling);
+
+    removeSlideObjectAndLayoutSpacer(rectangle);
+
+    expect(root.contains(rectangle)).toBe(false);
+    expect(root.contains(sibling)).toBe(true);
+  });
+
+  it("keeps renderer shells and layout spacers protected", () => {
+    const shell = document.createElement("div");
+    shell.className = "fmd-slide";
+    const autofit = document.createElement("div");
+    autofit.className = "fmd-autofit-scale";
+    const contentLayer = document.createElement("div");
+    contentLayer.setAttribute("data-fmd-autofit-content", "true");
+    const canvas = document.createElement("div");
+    canvas.setAttribute("data-slide-canvas", "slide-1");
+    const spacer = document.createElement("div");
+    spacer.className = "fmd-layout-spacer";
+
+    for (const element of [shell, autofit, contentLayer, canvas, spacer]) {
+      expect(isDeletableSlideElement(element)).toBe(false);
+    }
+  });
+});
+
+describe("findPersistedImageObject", () => {
+  function importedSlide(): { root: HTMLElement; img: HTMLElement } {
+    const root = document.createElement("div");
+    root.className = "fmd-slide";
+    root.innerHTML =
+      '<div class="fmd-pptx-image" data-pptx-element-kind="image" ' +
+      'data-slide-object-id="pdf-img-1-0" style="position:absolute">' +
+      '<img src="plant.png" />' +
+      "</div>";
+    const img = root.querySelector("img") as HTMLElement;
+    return { root, img };
+  }
+
+  it("returns the wrapper that carries the persisted object id", () => {
+    const { root, img } = importedSlide();
+    const owner = findPersistedImageObject(img, root);
+    expect(owner?.getAttribute("data-slide-object-id")).toBe("pdf-img-1-0");
+  });
+
+  it("resolves an empty placeholder to the same wrapper", () => {
+    const root = document.createElement("div");
+    root.innerHTML =
+      '<div class="fmd-pptx-image" data-slide-object-id="pdf-img-2-0">' +
+      '<div class="fmd-img-placeholder"></div>' +
+      "</div>";
+    const placeholder = root.querySelector(
+      ".fmd-img-placeholder",
+    ) as HTMLElement;
+    expect(
+      findPersistedImageObject(placeholder, root)?.getAttribute(
+        "data-slide-object-id",
+      ),
+    ).toBe("pdf-img-2-0");
+  });
+
+  it("returns null for an ordinary flow image so only the image is removed", () => {
+    const root = document.createElement("div");
+    root.innerHTML = '<div class="card"><img src="a.png" /><p>Label</p></div>';
+    const img = root.querySelector("img") as HTMLElement;
+    expect(findPersistedImageObject(img, root)).toBeNull();
+  });
+
+  it("does not escape past the slide root", () => {
+    const outer = document.createElement("div");
+    outer.className = "fmd-pptx-image";
+    outer.setAttribute("data-slide-object-id", "outside");
+    const root = document.createElement("div");
+    outer.appendChild(root);
+    const img = document.createElement("img");
+    root.appendChild(img);
+    expect(findPersistedImageObject(img, root)).toBeNull();
+  });
+
+  it("ignores a positioned container that is not an image wrapper", () => {
+    const root = document.createElement("div");
+    root.innerHTML =
+      '<div class="fmd-pptx-shape" data-pptx-element-kind="shape" ' +
+      'data-slide-object-id="shape-1"><img src="a.png" /></div>';
+    const img = root.querySelector("img") as HTMLElement;
+    expect(findPersistedImageObject(img, root)).toBeNull();
   });
 });

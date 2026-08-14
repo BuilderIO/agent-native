@@ -22,6 +22,11 @@ export type ChatFirstCopy = (
   values?: Record<string, string>,
 ) => string;
 
+export interface ChatFirstAppIconRenderOptions {
+  isActive: boolean;
+  isInactive: boolean;
+}
+
 export interface ChatFirstEmbedTarget {
   url: string;
   title?: string;
@@ -47,6 +52,9 @@ export interface ChatFirstSurfaceTabsProps {
   onCloseToRight: (tab: ChatFirstSurfaceTab) => void;
   onCloseAll: () => void;
   onOpenSurface?: (kind: ChatFirstSurfaceKind) => void;
+  apps?: readonly ChatFirstAppItem[];
+  onOpenApp?: (app: ChatFirstAppItem) => void;
+  renderAppIcon?: (app: ChatFirstAppItem) => ReactNode;
   copy?: ChatFirstCopy;
 }
 
@@ -61,10 +69,14 @@ export interface ChatFirstAppRailProps {
   onLayoutError?: (reason: "unavailable" | "write-failed") => void;
   onRetry?: () => void;
   onOpenApp: (app: ChatFirstAppItem) => void;
+  onRemoveApp?: (app: ChatFirstAppItem) => void;
   onOpenAllApps?: () => void;
   onCreateApp?: () => void;
   createAppTrigger?: ReactNode;
-  renderIcon: (app: ChatFirstAppItem) => ReactNode;
+  renderIcon: (
+    app: ChatFirstAppItem,
+    options?: ChatFirstAppIconRenderOptions,
+  ) => ReactNode;
   copy?: ChatFirstCopy;
 }
 

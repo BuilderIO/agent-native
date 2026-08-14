@@ -18,6 +18,7 @@ import {
 } from "@agent-native/core/client/navigation";
 import {
   ErrorReportActions,
+  RouteTransitionIndicator,
   getThemeInitScript,
 } from "@agent-native/core/client/ui";
 import { resolveLocaleFromRequest } from "@agent-native/core/server";
@@ -51,7 +52,6 @@ import {
   useLoaderData,
   useLocation,
   useNavigate,
-  useNavigation,
   useRouteLoaderData,
   useRouteError,
 } from "react-router";
@@ -212,7 +212,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
           suppressHydrationWarning
           dangerouslySetInnerHTML={{ __html: localeInitScript }}
         />
-        <link rel="manifest" href={appPath("/manifest.json")} />
         <meta name="theme-color" content="#10B981" />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta
@@ -238,26 +237,6 @@ function AppSetup() {
   useDbSync();
   useNavigationState();
   return null;
-}
-
-function RouteTransitionIndicator() {
-  const navigation = useNavigation();
-  const pending = navigation.state !== "idle";
-
-  return (
-    <div
-      className="pointer-events-none fixed inset-x-0 top-0 z-[100] h-0.5 overflow-hidden"
-      aria-hidden={!pending}
-      role="progressbar"
-      data-pending={pending ? "true" : undefined}
-    >
-      <div
-        className={`h-full w-2/3 origin-left bg-primary shadow-[0_0_12px_hsl(var(--primary)/0.45)] transition-[transform,opacity] duration-200 ${
-          pending ? "scale-x-100 opacity-100" : "scale-x-0 opacity-0"
-        }`}
-      />
-    </div>
-  );
 }
 
 function ThemeToggleItem() {

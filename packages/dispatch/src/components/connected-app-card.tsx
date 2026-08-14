@@ -12,6 +12,8 @@ export function ConnectedAppCard({
   app: ConnectedAppSummary;
   className?: string;
 }) {
+  const launchUrl = app.homeUrl ?? app.url;
+
   return (
     <AppListRow className={className}>
       <AppIcon id={app.id} name={app.name} color={app.color} size="sm" />
@@ -25,11 +27,10 @@ export function ConnectedAppCard({
       </div>
       <AppOpenActions
         name={app.name}
-        href={withBuilderUtmTrackingParams(app.url, {
+        href={withBuilderUtmTrackingParams(launchUrl, {
           campaign: "product",
           content: "dispatch_app",
         })}
-        target="_blank"
         rel="noopener noreferrer"
         showNewTabOption
       />

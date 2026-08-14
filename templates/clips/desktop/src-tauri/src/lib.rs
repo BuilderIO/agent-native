@@ -6,6 +6,7 @@
 
 mod accessibility;
 mod adhoc_meetings_watcher;
+mod call_activity;
 mod capture_audio_bus;
 mod capture_graph;
 mod clips;
@@ -159,6 +160,7 @@ pub fn run() {
             native_screen::native_fullscreen_recording_resume,
             native_screen::native_fullscreen_recording_rotate_segment,
             native_screen::native_fullscreen_pending_uploads,
+            native_screen::native_fullscreen_recover_orphaned_uploads,
             native_screen::native_fullscreen_recording_retry_upload,
             native_screen::native_fullscreen_recording_mark_upload_error,
             native_screen::native_fullscreen_recording_clear_upload,
@@ -553,6 +555,8 @@ pub fn run() {
             // otherwise skips Rust destructors — make sure a live
             // `screencapture` fallback child doesn't survive us.
             if let tauri::RunEvent::Exit = _event {
+                whisper_speech::shutdown(_app_handle);
+                native_speech::shutdown();
                 let state = _app_handle.state::<native_screen::NativeFullscreenRecordingState>();
                 native_screen::kill_active_screencapture_child(&state);
             }

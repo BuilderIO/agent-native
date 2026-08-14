@@ -88,6 +88,25 @@ describe("first-party BigQuery backend", () => {
     expect(sql).toContain("'2026-08-05'");
   });
 
+  it("keeps union branches separated after source deduplication", () => {
+    const sql = renderFirstPartyAnalyticsBigQuerySql(
+      "SELECT * FROM analytics_events WHERE event_name = 'signup' UNION ALL SELECT * FROM analytics_events WHERE event_name = 'login'",
+      [],
+      {
+        projectId: "builder-3b0a2",
+        datasetId: "analytics",
+        tableId: "first_party_analytics_events_raw",
+        fullyQualified:
+          "builder-3b0a2.analytics.first_party_analytics_events_raw",
+      },
+    );
+
+    expect(sql).toContain(
+      "QUALIFY ROW_NUMBER() OVER (PARTITION BY id ORDER BY received_at DESC) = 1 UNION ALL",
+    );
+    expect(sql).not.toContain("= 1UNION ALL");
+  });
+
   it("translates the PostgreSQL date expressions used by dashboard SQL", () => {
     const sql = renderFirstPartyAnalyticsBigQuerySql(
       "SELECT to_char(CURRENT_DATE - INTERVAL '30 days', 'YYYY-MM-DD') AS start_date FROM analytics_events",
@@ -128,7 +147,7 @@ describe("first-party BigQuery backend", () => {
         "builder-3b0a2.analytics.first_party_analytics_events_raw",
         { now: () => "2026-08-08T00:00:00.000Z" },
       ),
-    ).resolves.toMatchObject({ copied: 0, complete: true });
+    ).resolves.toMatchObject({ nextCursor: null, copied: 0, complete: true });
 
     expect(execute).toHaveBeenCalledTimes(2);
     const [orgQuery] = execute.mock.calls[0] ?? [];
@@ -185,6 +204,47 @@ describe("first-party BigQuery backend", () => {
     expect(personalQuery.args).toEqual([
       "owner@example.com",
       "2026-06-09T00:00:00.000Z",
+      "2026-07-25T11:01:33.023Z",
+      "evt_last",
+      25,
+    ]);
+  });
+
+  it("keeps shard bounds disjoint while continuing from a shard cursor", async () => {
+    execute.mockResolvedValue({ rows: [] });
+
+    await expect(
+      backfillFirstPartyAnalyticsBatch(
+        { userEmail: "owner@example.com", orgId: "org_builder" },
+        JSON.stringify({
+          receivedAt: "2026-07-25T11:01:33.023Z",
+          id: "evt_last",
+        }),
+        25,
+        "builder-3b0a2.analytics.first_party_analytics_events_raw",
+        {
+          now: () => "2026-08-08T00:00:00.000Z",
+          rangeStart: {
+            receivedAt: "2026-07-25T00:00:00.000Z",
+            id: "",
+          },
+          rangeEnd: {
+            receivedAt: "2026-07-26T00:00:00.000Z",
+            id: "",
+          },
+          rangeEndInclusive: false,
+        },
+      ),
+    ).resolves.toMatchObject({ copied: 0, complete: true });
+
+    const [orgQuery] = execute.mock.calls[0] ?? [];
+    expect(orgQuery.sql).toContain("(received_at, id) < (?, ?)");
+    expect(orgQuery.sql).toContain("(received_at, id) > (?, ?)");
+    expect(orgQuery.args).toEqual([
+      "org_builder",
+      "2026-06-09T00:00:00.000Z",
+      "2026-07-26T00:00:00.000Z",
+      "",
       "2026-07-25T11:01:33.023Z",
       "evt_last",
       25,

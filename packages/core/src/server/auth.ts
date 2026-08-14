@@ -124,14 +124,17 @@ import {
 import { isValidWorkspaceAppIdFormat } from "../shared/workspace-app-id.js";
 import { injectAnalyticsIntoHtml } from "./analytics.js";
 import { getConfiguredAppBasePath } from "./app-base-path.js";
+import { getAppProductionUrl } from "./app-url.js";
 import {
   readAnalyticsAnonymousId,
+  readFirstTouchAttribution,
   signupAttributionFromCookieHeader,
 } from "./attribution.js";
 import { getAuthLoginMode } from "./auth-login-mode.js";
 import {
   createBetterAuthSessionForEmail,
   ensureGoogleAuthIdentity,
+  getAuthSecret,
   getBetterAuth,
   getBetterAuthSync,
   isDeployPreview,
@@ -168,15 +171,21 @@ import {
   decodeOAuthState,
   createOAuthSession,
   oauthCallbackResponse,
+  oauthDesktopExchangePage,
   oauthErrorPage,
   resolveOAuthRedirectUri,
   isAllowedOAuthRedirectUri,
 } from "./google-oauth.js";
-// Pure env-read feature switch from a leaf module (no dependency back on
-// auth.ts), so the guard and the SSO route handler share one validator and
-// can never disagree about whether federated SSO is enabled.
-import { isIdentitySsoEnabled } from "./identity-sso-store.js";
+import {
+  isCanonicalAgentNativeAppRequest,
+  isDesktopSsoCanaryUserAgent,
+  isIdentitySsoEnabled,
+} from "./identity-sso-store.js";
 import { ensureCanonicalUserForLegacySession } from "./legacy-auth-migration.js";
+import {
+  encodeMagicLinkSignupAttribution,
+  MAGIC_LINK_ATTRIBUTION_PARAM,
+} from "./magic-link-attribution.js";
 import { safeOAuthReturnUrl } from "./oauth-return-url.js";
 import {
   getOnboardingHtml,
@@ -305,18 +314,8 @@ export interface AuthOptions {
     tagline: string;
     description?: string;
     features?: string[];
+    /** @deprecated Local execution is no longer offered from auth pages. */
     runLocalCommand?: string;
-  };
-  /**
-   * Optional host-scoped notice shown before the built-in Google sign-in
-   * redirects to Google.
-   */
-  googleSignInNotice?: {
-    host?: string;
-    title: string;
-    body: string | string[];
-    continueLabel?: string;
-    cancelLabel?: string;
   };
   /**
    * Optional email signup legal copy for the built-in login page.
@@ -599,6 +598,30 @@ export function isDevEnvironment(): boolean {
  */
 export function safeReturnPath(raw: string | null | undefined): string {
   return normalizeAppPath(raw) ?? "/";
+}
+
+// Better Auth's relative callback validator is stricter than normalizeAppPath:
+// query values such as UTM labels may contain characters that are safe here but
+// invalid as a Better Auth relative callback. Promote those paths to the
+// canonical app origin so the callback remains same-origin and valid there.
+const BETTER_AUTH_RELATIVE_CALLBACK_PATH_RE =
+  /^\/(?!\/|\\|%2f|%5c)[\w\-.\+/@]*(?:\?[\w\-.\+/=&%@]*)?$/i;
+
+function betterAuthCallbackURL(
+  raw: string | null | undefined,
+  forceAbsolute = false,
+  event?: H3Event,
+): string {
+  const safePath = safeReturnPath(raw);
+  if (!forceAbsolute && BETTER_AUTH_RELATIVE_CALLBACK_PATH_RE.test(safePath)) {
+    return safePath;
+  }
+
+  try {
+    return new URL(safePath, getAppProductionUrl(event)).toString();
+  } catch {
+    return "/";
+  }
 }
 
 /**
@@ -1415,7 +1438,6 @@ function getOnboardingHtmlOptions(
     authMode,
     googleOnly: options.googleOnly,
     marketing: options.marketing,
-    googleSignInNotice: options.googleSignInNotice,
     signupLegalNotice: options.signupLegalNotice,
     googleAuthMode: options.googleAuthMode,
     requestHost: event ? getRequestHost(event) : undefined,
@@ -1501,14 +1523,23 @@ export interface DesktopExchangeErrorPayload {
 }
 
 type DesktopExchangeEntry =
-  | { token: string; email: string; expiresAt: number }
+  | { challenge: true; verifierHash: string; expiresAt: number }
+  | {
+      token: string;
+      email: string;
+      expiresAt: number;
+      verifierHash?: string;
+    }
   | { error: DesktopExchangeErrorPayload; expiresAt: number };
 type DesktopExchangeStoredEntry =
-  | { token: string; email: string }
+  | { challenge: true; verifierHash: string }
+  | { token: string; email: string; verifierHash?: string }
   | { error: DesktopExchangeErrorPayload };
 
 const _desktopExchanges = new Map<string, DesktopExchangeEntry>();
 const DESKTOP_EXCHANGE_ERROR_PREFIX = "__error__::";
+const DESKTOP_MAGIC_LINK_CHALLENGE_PREFIX = "__magic-link-challenge__::";
+const DESKTOP_MAGIC_LINK_EXCHANGE_PREFIX = "__magic-link-exchange__::";
 const DESKTOP_AUTH_TOKEN_BODY_ORIGINS = new Set([
   "tauri://localhost",
   "http://tauri.localhost",
@@ -1518,6 +1549,121 @@ const DESKTOP_AUTH_TOKEN_BODY_ORIGINS = new Set([
 
 // 5-minute TTL for exchange entries (short — single-use tokens).
 const DESKTOP_EXCHANGE_TTL_MS = 5 * 60 * 1000;
+
+function normalizeDesktopFlowId(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const flowId = value.trim();
+  return /^[A-Za-z0-9_-]{1,128}$/.test(flowId) ? flowId : null;
+}
+
+function normalizeDesktopFlowVerifier(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const verifier = value.trim();
+  return /^[A-Za-z0-9_-]{32,128}$/.test(verifier) ? verifier : null;
+}
+
+function desktopFlowVerifierHash(verifier: string): string {
+  return crypto.createHash("sha256").update(verifier).digest("base64url");
+}
+
+function matchesDesktopFlowVerifier(
+  verifier: string,
+  expectedHash: string,
+): boolean {
+  const actual = Buffer.from(desktopFlowVerifierHash(verifier));
+  const expected = Buffer.from(expectedHash);
+  return (
+    actual.length === expected.length &&
+    crypto.timingSafeEqual(actual, expected)
+  );
+}
+
+function parseDesktopExchangeStoredEntry(
+  packed: string,
+): DesktopExchangeStoredEntry | null {
+  if (packed.startsWith(DESKTOP_MAGIC_LINK_CHALLENGE_PREFIX)) {
+    const verifierHash = packed.slice(
+      DESKTOP_MAGIC_LINK_CHALLENGE_PREFIX.length,
+    );
+    return verifierHash ? { challenge: true, verifierHash } : null;
+  }
+  if (packed.startsWith(DESKTOP_EXCHANGE_ERROR_PREFIX)) {
+    const raw = packed.slice(DESKTOP_EXCHANGE_ERROR_PREFIX.length);
+    return {
+      error: JSON.parse(Buffer.from(raw, "base64url").toString()),
+    };
+  }
+  const isMagicLinkExchange = packed.startsWith(
+    DESKTOP_MAGIC_LINK_EXCHANGE_PREFIX,
+  );
+  const encoded = isMagicLinkExchange
+    ? packed.slice(DESKTOP_MAGIC_LINK_EXCHANGE_PREFIX.length)
+    : packed;
+  const verifierSeparator = isMagicLinkExchange ? encoded.indexOf("::") : -1;
+  const verifierHash =
+    verifierSeparator >= 0 ? encoded.slice(0, verifierSeparator) : undefined;
+  const tokenAndEmail =
+    verifierSeparator >= 0 ? encoded.slice(verifierSeparator + 2) : encoded;
+  const sepIdx = tokenAndEmail.indexOf("::");
+  if (sepIdx === -1) return null;
+  return {
+    token: tokenAndEmail.slice(0, sepIdx),
+    email: tokenAndEmail.slice(sepIdx + 2),
+    ...(verifierHash ? { verifierHash } : {}),
+  };
+}
+
+function isDesktopMagicLinkCallbackPath(value: string): boolean {
+  try {
+    return new URL(value, "http://agent-native.invalid").pathname.endsWith(
+      "/_agent-native/auth/magic-link/desktop-callback",
+    );
+  } catch {
+    // coercion-ok: malformed callback URLs are treated as non-desktop callbacks.
+    return false;
+  }
+}
+
+function withDesktopMagicLinkFlow(
+  callbackURL: string,
+  flow: { flowId: string; verifier: string },
+): string {
+  const url = new URL(callbackURL, "http://agent-native.invalid");
+  url.searchParams.set("flow_id", flow.flowId);
+  url.searchParams.set("verifier", flow.verifier);
+  return `${url.pathname}${url.search}${url.hash}`;
+}
+
+async function persistDesktopMagicLinkChallenge(
+  flowId: string,
+  verifierHash: string,
+): Promise<void> {
+  await addSession(
+    `dex:${flowId}`,
+    `${DESKTOP_MAGIC_LINK_CHALLENGE_PREFIX}${verifierHash}`,
+  );
+}
+
+async function issueDesktopMagicLinkFlow(): Promise<{
+  flowId: string;
+  verifier: string;
+}> {
+  const flowId = crypto.randomBytes(32).toString("base64url");
+  const verifier = crypto.randomBytes(32).toString("base64url");
+  const verifierHash = desktopFlowVerifierHash(verifier);
+  _desktopExchanges.set(flowId, {
+    challenge: true,
+    verifierHash,
+    expiresAt: Date.now() + DESKTOP_EXCHANGE_TTL_MS,
+  });
+  try {
+    await persistDesktopMagicLinkChallenge(flowId, verifierHash);
+  } catch (error) {
+    _desktopExchanges.delete(flowId);
+    throw error;
+  }
+  return { flowId, verifier };
+}
 
 export function setDesktopExchange(
   flowId: string,
@@ -1558,9 +1704,13 @@ async function persistDesktopExchangeToDB(
   flowId: string,
   token: string,
   email: string,
+  verifierHash?: string,
 ): Promise<void> {
   try {
-    await addSession(`dex:${flowId}`, `${token}::${email}`);
+    const packed = verifierHash
+      ? `${DESKTOP_MAGIC_LINK_EXCHANGE_PREFIX}${verifierHash}::${token}::${email}`
+      : `${token}::${email}`;
+    await addSession(`dex:${flowId}`, packed);
   } catch {
     // non-fatal — in-memory Map is the primary path
   }
@@ -1597,24 +1747,88 @@ async function consumeDesktopExchangeFromDB(
     // redeemed with the session table's default 30-day TTL.
     const client = getDbExec();
     const { rows } = await client.execute({
-      sql: `DELETE FROM sessions WHERE token = ? AND created_at > ? RETURNING email`,
-      args: [`dex:${flowId}`, Date.now() - DESKTOP_EXCHANGE_TTL_MS],
+      sql: `DELETE FROM sessions WHERE token = ? AND created_at > ? AND email NOT LIKE ? RETURNING email`,
+      args: [
+        `dex:${flowId}`,
+        Date.now() - DESKTOP_EXCHANGE_TTL_MS,
+        `${DESKTOP_MAGIC_LINK_CHALLENGE_PREFIX}%`,
+      ],
     });
     forgetCachedSessionEmail(`dex:${flowId}`);
     if (rows.length === 0) return null;
     const packed = (rows[0].email ?? rows[0][0]) as string | null;
     if (!packed) return null;
-    if (packed.startsWith(DESKTOP_EXCHANGE_ERROR_PREFIX)) {
-      const raw = packed.slice(DESKTOP_EXCHANGE_ERROR_PREFIX.length);
-      return {
-        error: JSON.parse(Buffer.from(raw, "base64url").toString()),
-      };
-    }
-    const sepIdx = packed.indexOf("::");
-    if (sepIdx === -1) return null;
-    return { token: packed.slice(0, sepIdx), email: packed.slice(sepIdx + 2) };
+    return parseDesktopExchangeStoredEntry(packed);
+  } catch {
+    // coercion-ok: a DB fallback outage leaves the exchange pending so polling can retry without consuming a token.
+    return null;
+  }
+}
+
+async function readDesktopMagicLinkChallengeFromDB(
+  flowId: string,
+): Promise<{ verifierHash: string } | null> {
+  try {
+    const client = getDbExec();
+    const { rows } = await client.execute({
+      sql: `SELECT email FROM sessions WHERE token = ? AND created_at > ? LIMIT 1`,
+      args: [`dex:${flowId}`, Date.now() - DESKTOP_EXCHANGE_TTL_MS],
+    });
+    if (rows.length === 0) return null;
+    const packed = (rows[0].email ?? rows[0][0]) as string | null;
+    if (!packed) return null;
+    const entry = parseDesktopExchangeStoredEntry(packed);
+    return entry && "challenge" in entry
+      ? { verifierHash: entry.verifierHash }
+      : null;
   } catch {
     return null;
+  }
+}
+
+async function claimDesktopMagicLinkFlow(
+  flowId: string,
+  verifier: string,
+  token: string,
+  email: string,
+): Promise<boolean> {
+  const verifierHash = desktopFlowVerifierHash(verifier);
+  const entry = _desktopExchanges.get(flowId);
+  if (entry) {
+    if (
+      !("challenge" in entry) ||
+      entry.expiresAt < Date.now() ||
+      !matchesDesktopFlowVerifier(verifier, entry.verifierHash)
+    ) {
+      return false;
+    }
+    _desktopExchanges.set(flowId, {
+      token,
+      email,
+      verifierHash,
+      expiresAt: Date.now() + DESKTOP_EXCHANGE_TTL_MS,
+    });
+    await persistDesktopExchangeToDB(flowId, token, email, verifierHash);
+    return true;
+  }
+
+  try {
+    const client = getDbExec();
+    const packed = `${DESKTOP_MAGIC_LINK_EXCHANGE_PREFIX}${verifierHash}::${token}::${email}`;
+    const { rows } = await client.execute({
+      sql: `UPDATE sessions SET email = ?, created_at = ? WHERE token = ? AND created_at > ? AND email = ? RETURNING email`,
+      args: [
+        packed,
+        Date.now(),
+        `dex:${flowId}`,
+        Date.now() - DESKTOP_EXCHANGE_TTL_MS,
+        `${DESKTOP_MAGIC_LINK_CHALLENGE_PREFIX}${verifierHash}`,
+      ],
+    });
+    return rows.length > 0;
+  } catch {
+    // coercion-ok: a failed DB claim must not issue a native session token.
+    return false;
   }
 }
 
@@ -2160,14 +2374,22 @@ function createAuthGuardFn(): (
     // definition, NOT yet signed in to THIS app) must bypass the blanket
     // 401-for-/_agent-native/*: they resolve / mint the browser session
     // themselves and verify a signature-bound, single-use, CSRF-stated
-    // hub token — not a cookie. This bypass is GATED on the opt-in env var
-    // so an unset `AGENT_NATIVE_IDENTITY_HUB_URL` is a true no-op (the
-    // guard's behaviour is byte-for-byte unchanged when SSO is off). The
-    // handler itself 404s when disabled as defence in depth.
+    // hub token — not a cookie. The handler fails closed with 404 unless
+    // direct web SSO is configured or this is the packaged SSO Canary on a
+    // canonical app origin. Keeping the bypass exact lets that request-scoped
+    // decision happen without exposing any other identity subpath.
+    const isIdentitySsoEntryPath =
+      p === "/_agent-native/identity/login" ||
+      p === "/_agent-native/identity/callback";
+    const isDesktopCanaryIdentityRequest =
+      isDesktopSsoCanaryUserAgent(getHeader(event, "user-agent")) &&
+      isCanonicalAgentNativeAppRequest(
+        getHeader(event, "host"),
+        getHeader(event, "x-forwarded-proto"),
+      );
     if (
-      isIdentitySsoEnabled() &&
-      (p === "/_agent-native/identity/login" ||
-        p === "/_agent-native/identity/callback")
+      isIdentitySsoEntryPath &&
+      (isIdentitySsoEnabled() || isDesktopCanaryIdentityRequest)
     ) {
       return;
     }
@@ -2391,6 +2613,14 @@ async function hasAutoDevAccountUser(
   return rows.length > 0;
 }
 
+async function hasRealUser(db: ReturnType<typeof getDbExec>): Promise<boolean> {
+  const { rows } = await db.execute({
+    sql: 'SELECT 1 FROM "user" WHERE email NOT IN (?, ?) LIMIT 1',
+    args: [AUTO_DEV_ACCOUNT_EMAIL, LEGACY_AUTO_DEV_ACCOUNT_EMAIL],
+  });
+  return rows.length > 0;
+}
+
 type AutoDevAccountCreationResult = { password: string } | null;
 
 const autoDevAccountCreationPromises = new Map<
@@ -2519,11 +2749,7 @@ async function createOrReuseAutoDevSession(
   if (session) return { email: session.email, token: session.token };
 
   const db = getDbExec();
-  const { rows: realUsers } = await db.execute({
-    sql: 'SELECT 1 FROM "user" WHERE email NOT IN (?, ?) LIMIT 1',
-    args: [AUTO_DEV_ACCOUNT_EMAIL, LEGACY_AUTO_DEV_ACCOUNT_EMAIL],
-  });
-  if (realUsers.length > 0) return null;
+  if (await hasRealUser(db)) return null;
 
   const devPassword = await createAutoDevAccountForSession(auth, db);
   if (!devPassword && !(await hasAutoDevAccountUser(db))) return null;
@@ -2541,8 +2767,40 @@ async function createOrReuseAutoDevSession(
   return session ? { email: session.email, token: session.token } : null;
 }
 
+type LocalDevAuthAvailability =
+  | { available: true }
+  | {
+      available: false;
+      reason: "not-allowed" | "existing-user" | "unreadable";
+    };
+
+async function getLocalDevAuthAvailability(
+  event: H3Event,
+  config?: BetterAuthConfig,
+): Promise<LocalDevAuthAvailability> {
+  if (!isLocalDevAuthAllowed(event)) {
+    return { available: false, reason: "not-allowed" };
+  }
+
+  try {
+    const db = getDbExec();
+    await getBetterAuth(config);
+    if (await hasAutoDevAccountUser(db)) return { available: true };
+    if (await hasRealUser(db)) {
+      return { available: false, reason: "existing-user" };
+    }
+    return { available: true };
+  } catch {
+    return { available: false, reason: "unreadable" };
+  }
+}
+
 function createLocalDevAuthHandler(config?: BetterAuthConfig) {
   return defineEventHandler(async (event) => {
+    if (getMethod(event) === "GET") {
+      setResponseHeader(event, "Cache-Control", "no-store");
+      return getLocalDevAuthAvailability(event, config);
+    }
     if (getMethod(event) !== "POST") {
       setResponseStatus(event, 405);
       return { error: "Method not allowed" };
@@ -2621,11 +2879,7 @@ async function maybeAutoCreateDevSession(
     // pre-fix local DB that still holds a `dev@local` row isn't treated
     // as having a "real user" (which would permanently disable
     // auto-create on that DB).
-    const { rows: realUsers } = await db.execute({
-      sql: 'SELECT 1 FROM "user" WHERE email NOT IN (?, ?) LIMIT 1',
-      args: [AUTO_DEV_ACCOUNT_EMAIL, LEGACY_AUTO_DEV_ACCOUNT_EMAIL],
-    });
-    if (realUsers.length > 0) return null;
+    if (await hasRealUser(db)) return null;
 
     // If the dev account already exists, this is not a freshly-scaffolded
     // app — the user has been through the auto-create flow at least
@@ -3397,15 +3651,7 @@ async function mountBetterAuthRoutes(
           });
 
           if (flowId && sessionToken) {
-            _desktopExchanges.set(flowId, {
-              token: sessionToken,
-              email,
-              expiresAt: Date.now() + DESKTOP_EXCHANGE_TTL_MS,
-            });
-            // Also persist to DB for cross-instance durability (Cloudflare
-            // Workers, multi-region). Fire-and-forget — in-memory Map is
-            // still the primary fast path for same-instance requests.
-            void persistDesktopExchangeToDB(flowId, sessionToken, email);
+            setDesktopExchange(flowId, sessionToken, email);
             logGoogleOAuthDebug(event, "callback-exchange-stored", {
               flowId,
               desktop,
@@ -3448,13 +3694,25 @@ async function mountBetterAuthRoutes(
         return { error: "Method not allowed" };
       }
       const query = getQuery(event);
-      const flowId = query.flow_id as string | undefined;
+      const flowId = normalizeDesktopFlowId(query.flow_id);
       if (!flowId) {
         setResponseStatus(event, 400);
         return { error: "Missing flow_id" };
       }
+      const verifier = normalizeDesktopFlowVerifier(getQuery(event).verifier);
       let entry = _desktopExchanges.get(flowId);
       if (!entry || entry.expiresAt < Date.now()) {
+        const challenge = await readDesktopMagicLinkChallengeFromDB(flowId);
+        if (challenge) {
+          if (
+            !verifier ||
+            !matchesDesktopFlowVerifier(verifier, challenge.verifierHash)
+          ) {
+            setResponseStatus(event, 403);
+            return { error: "Invalid desktop exchange verifier." };
+          }
+          return { pending: true, flow: oauthDebugFlowId(flowId) };
+        }
         // In-memory miss — fall back to the DB-persisted entry. This handles
         // cross-instance routing (Cloudflare Workers, multi-region) where the
         // OAuth callback and the polling request may hit different isolates.
@@ -3470,11 +3728,39 @@ async function mountBetterAuthRoutes(
         entry =
           "error" in fromDb
             ? { error: fromDb.error, expiresAt: Date.now() + 1 }
-            : {
-                token: fromDb.token,
-                email: fromDb.email,
-                expiresAt: Date.now() + 1,
-              };
+            : "challenge" in fromDb
+              ? {
+                  challenge: true,
+                  verifierHash: fromDb.verifierHash,
+                  expiresAt: Date.now() + 1,
+                }
+              : {
+                  token: fromDb.token,
+                  email: fromDb.email,
+                  ...(fromDb.verifierHash
+                    ? { verifierHash: fromDb.verifierHash }
+                    : {}),
+                  expiresAt: Date.now() + 1,
+                };
+      }
+      if ("challenge" in entry) {
+        if (
+          !verifier ||
+          !matchesDesktopFlowVerifier(verifier, entry.verifierHash)
+        ) {
+          setResponseStatus(event, 403);
+          return { error: "Invalid desktop exchange verifier." };
+        }
+        return { pending: true, flow: oauthDebugFlowId(flowId) };
+      }
+      if ("token" in entry && entry.verifierHash) {
+        if (
+          !verifier ||
+          !matchesDesktopFlowVerifier(verifier, entry.verifierHash)
+        ) {
+          setResponseStatus(event, 403);
+          return { error: "Invalid desktop exchange verifier." };
+        }
       }
       _desktopExchanges.delete(flowId);
       // Also wipe the DB-persisted entry so it cannot be replayed via the
@@ -3499,6 +3785,13 @@ async function mountBetterAuthRoutes(
       // still make a follow-up /auth/session?_session=... request, but the
       // OAuth handoff should not depend on that second request succeeding.
       setFrameworkSessionCookie(event, entry.token);
+      if (isElectronRequest(event)) {
+        await writeDesktopSso({
+          email: entry.email,
+          token: entry.token,
+          expiresAt: Date.now() + sessionMaxAge * 1000,
+        });
+      }
       setResponseHeader(event, "Referrer-Policy", "no-referrer");
       logGoogleOAuthDebug(event, "exchange-success", {
         flowId,
@@ -3508,12 +3801,74 @@ async function mountBetterAuthRoutes(
     }),
   );
 
+  // Magic-link verification happens in the system browser, so native shells
+  // need the verified browser session copied into the same one-time exchange
+  // used by Google OAuth before they can establish their own WebView session.
+  app.use(
+    "/_agent-native/auth/magic-link/desktop-callback",
+    defineEventHandler(async (event) => {
+      if (!isReadMethod(event)) {
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed" };
+      }
+      const flowId = normalizeDesktopFlowId(getQuery(event).flow_id);
+      const verifier = normalizeDesktopFlowVerifier(getQuery(event).verifier);
+      if (!flowId) {
+        setResponseStatus(event, 400);
+        return { error: "Missing flow_id" };
+      }
+      if (!verifier) {
+        return oauthErrorPage(AUTH_MAGIC_LINK_FALLBACK);
+      }
+
+      const session = await getSession(event);
+      if (!session?.email || !session.token) {
+        setDesktopExchangeError(flowId, {
+          message: AUTH_MAGIC_LINK_FALLBACK,
+          code: "callback_error",
+        });
+        return oauthErrorPage(AUTH_MAGIC_LINK_FALLBACK);
+      }
+
+      try {
+        // Better Auth owns the browser cookie, while native clients resolve
+        // the exchanged token through the framework session table.
+        await addSession(session.token, session.email);
+      } catch (error) {
+        captureAuthError(error, {
+          route: "magic-link",
+          email: session.email,
+        });
+        setDesktopExchangeError(flowId, {
+          message: AUTH_MAGIC_LINK_FALLBACK,
+          code: "callback_error",
+        });
+        return oauthErrorPage(AUTH_MAGIC_LINK_FALLBACK);
+      }
+
+      if (
+        !(await claimDesktopMagicLinkFlow(
+          flowId,
+          verifier,
+          session.token,
+          session.email,
+        ))
+      ) {
+        return oauthErrorPage(AUTH_MAGIC_LINK_FALLBACK);
+      }
+      return oauthDesktopExchangePage(
+        "Sign-in complete. You can return to the app.",
+      );
+    }),
+  );
+
   // Initialize Better Auth. Forward `googleScopes` into the BetterAuthConfig
   // so the social provider requests the broader product scopes (Gmail,
   // Calendar, etc.) up front during the primary sign-in — eliminating the
   // need for a separate "Connect Google" page.
   const betterAuthConfig: BetterAuthConfig = {
     ...(options.betterAuth ?? {}),
+    ...(options.maxAge !== undefined ? { sessionMaxAge: options.maxAge } : {}),
     ...(options.googleScopes ? { googleScopes: options.googleScopes } : {}),
   };
   const auth = await getBetterAuth(betterAuthConfig);
@@ -3608,10 +3963,15 @@ async function mountBetterAuthRoutes(
       }
 
       // The signup wrapper sanitizes callbackURL before calling Better Auth,
-      // but the resend endpoint is exposed directly so users can request a
-      // fresh link while unauthenticated. Keep that path equally strict:
-      // only same-origin relative return paths survive into the email.
-      if (isSendVerificationEmail || isMagicLinkRequest) {
+      // but the direct email and magic-link endpoints are also reachable from
+      // the browser. Keep every callback path valid for Better Auth's own
+      // stricter relative URL validator before it is embedded in an email.
+      if (
+        isSendVerificationEmail ||
+        isMagicLinkRequest ||
+        reqPath.includes("/sign-up/email") ||
+        reqPath.includes("/sign-in/email")
+      ) {
         try {
           const body = (await authRequest
             .clone()
@@ -3625,7 +3985,7 @@ async function mountBetterAuthRoutes(
             let changed = false;
             for (const key of callbackKeys) {
               if (typeof body[key] !== "string") continue;
-              const callbackURL = safeReturnPath(body[key]);
+              const callbackURL = betterAuthCallbackURL(body[key], true, event);
               if (callbackURL !== body[key]) {
                 sanitizedBody[key] = callbackURL;
                 changed = true;
@@ -3862,6 +4222,28 @@ async function mountBetterAuthRoutes(
   app.use(
     "/_agent-native/auth/magic-link",
     defineEventHandler(async (event) => {
+      if (getMethod(event) === "GET") {
+        const query = getQuery(event);
+        if (typeof query.token === "string") {
+          const verificationUrl = new URL(
+            `${getAppBasePath()}/_agent-native/auth/ba/magic-link/verify`,
+            getOrigin(event),
+          );
+          for (const key of [
+            "token",
+            "callbackURL",
+            "newUserCallbackURL",
+            "errorCallbackURL",
+          ]) {
+            const value = query[key];
+            if (typeof value === "string") {
+              verificationUrl.searchParams.set(key, value);
+            }
+          }
+          return redirectWithStagedCookies(event, verificationUrl.toString());
+        }
+      }
+
       if (getMethod(event) !== "POST") {
         setResponseStatus(event, 405);
         return { error: "Method not allowed" };
@@ -3870,10 +4252,11 @@ async function mountBetterAuthRoutes(
       const body = await readBody(event);
       const rawEmail = typeof body?.email === "string" ? body.email : "";
       const email = normalizeAuthEmail(rawEmail);
-      const callbackURL =
+      let callbackPath =
         typeof body?.callbackURL === "string"
           ? safeReturnPath(body.callbackURL)
           : "/";
+      let desktopFlow: { flowId: string; verifier: string } | undefined;
 
       if (!email) {
         setResponseStatus(event, 400);
@@ -3886,15 +4269,52 @@ async function mountBetterAuthRoutes(
       }
 
       try {
+        if (isDesktopMagicLinkCallbackPath(callbackPath)) {
+          desktopFlow = await issueDesktopMagicLinkFlow();
+          callbackPath = withDesktopMagicLinkFlow(callbackPath, desktopFlow);
+        }
+        const callbackURL = betterAuthCallbackURL(callbackPath, true, event);
+        const cookieHeader = getHeader(event, "cookie") ?? null;
+        const signupAttribution =
+          signupAttributionFromCookieHeader(cookieHeader);
+        const signupAnonymousId = readAnalyticsAnonymousId(cookieHeader);
+        const hasSignupAttribution =
+          !!readFirstTouchAttribution(cookieHeader) || !!signupAnonymousId;
+        const attributionToken = hasSignupAttribution
+          ? encodeMagicLinkSignupAttribution(
+              {
+                attribution: signupAttribution,
+                anonymousId: signupAnonymousId,
+              },
+              getAuthSecret(),
+            )
+          : undefined;
+        const newUserCallbackUrl = new URL(
+          `${getAppBasePath()}/_agent-native/auth/magic-link/new-user?return=${encodeURIComponent(callbackPath)}`,
+          getOrigin(event),
+        );
+        if (attributionToken) {
+          newUserCallbackUrl.searchParams.set(
+            MAGIC_LINK_ATTRIBUTION_PARAM,
+            attributionToken,
+          );
+        }
         await auth.api.signInMagicLink({
           body: {
             email,
             callbackURL,
-            newUserCallbackURL: `${getAppBasePath()}/_agent-native/auth/magic-link/new-user?return=${encodeURIComponent(callbackURL)}`,
+            newUserCallbackURL: betterAuthCallbackURL(
+              `${newUserCallbackUrl.pathname}${newUserCallbackUrl.search}`,
+              true,
+              event,
+            ),
           },
           headers: event.headers,
         });
-        return { ok: true };
+        return {
+          ok: true,
+          ...(desktopFlow ?? {}),
+        };
       } catch (e: any) {
         if (!isExpectedAuthFailure(e)) {
           captureAuthError(e, { route: "magic-link", email });
@@ -3921,8 +4341,8 @@ async function mountBetterAuthRoutes(
       const password = body?.password;
       const callbackURL =
         typeof body?.callbackURL === "string"
-          ? safeReturnPath(body.callbackURL)
-          : "/";
+          ? betterAuthCallbackURL(body.callbackURL, true, event)
+          : betterAuthCallbackURL("/", true, event);
 
       if (!email) {
         setResponseStatus(event, 400);
@@ -4339,12 +4759,7 @@ export async function autoMountAuth(
       customGetSession = options.getSession;
     }
     if (_authGuardConfig) {
-      if (
-        options.googleOnly ||
-        options.loginHtml ||
-        options.marketing ||
-        options.googleSignInNotice
-      ) {
+      if (options.googleOnly || options.loginHtml || options.marketing) {
         const loginHtmlConfig = getOnboardingLoginHtmlConfig(
           options,
           _authGuardConfig.authMode,

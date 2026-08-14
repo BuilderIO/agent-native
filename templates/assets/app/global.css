@@ -107,6 +107,10 @@
   text-align: center;
 }
 
+.assets-create-chat-panel [data-agent-empty-state="centered"] {
+  justify-content: safe center;
+}
+
 .assets-create-chat-intro h1 {
   margin: 0;
   color: hsl(var(--foreground));
@@ -248,7 +252,7 @@
   [data-agent-empty-state="centered"]
   .agent-composer-area {
   width: 100%;
-  max-width: min(684px, 90%);
+  max-width: min(750px, 100%);
   padding: 0;
 }
 

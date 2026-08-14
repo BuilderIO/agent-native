@@ -18,6 +18,7 @@ export {
   McpIntegrationDialog,
   type McpIntegrationDialogProps,
 } from "./McpIntegrationDialog.js";
+export { McpIntegrationLogo } from "./McpIntegrationLogo.js";
 export {
   McpConnectionSuggestion,
   type McpConnectionSuggestionProps,
@@ -31,6 +32,7 @@ export {
   useDeleteMcpServer,
   useReconnectMcpServer,
   testMcpServerUrl,
+  formatMcpServersLoadError,
   type CreateMcpServerArgs,
   type McpServer,
   type McpServerScope,

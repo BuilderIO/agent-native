@@ -22,7 +22,7 @@ describe("verifyA2ATokenWithClaims", () => {
     verifyA2ATokenMock.mockReset();
     verifyA2ATokenMock.mockResolvedValue({
       email: "operator@example.com",
-      orgDomain: null,
+      orgDomain: "builder.io",
     });
   });
 
@@ -52,9 +52,27 @@ describe("verifyA2ATokenWithClaims", () => {
     ).toEqual({
       email: "operator@example.com",
       orgId: "org-1",
+      orgDomain: "builder.io",
       jti: "call-1",
       issuer: "https://analytics.example.com",
       scope: ["flags:write"],
     });
+  });
+
+  it("rejects privileged delegation without a verified organization domain", async () => {
+    verifyA2ATokenMock.mockResolvedValue({
+      email: "operator@example.com",
+      orgDomain: null,
+    });
+    expect(
+      await verifyA2ATokenWithClaims(
+        await token({
+          aud: "https://content.example.com",
+          org_id: "org-1",
+          jti: "call-1",
+          scope: "flags:write",
+        }),
+      ),
+    ).toBeNull();
   });
 });

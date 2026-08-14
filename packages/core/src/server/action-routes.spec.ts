@@ -4,11 +4,13 @@ import type { ActionEntry } from "../agent/production-agent.js";
 
 const mockNotifyActionChange = vi.hoisted(() => vi.fn());
 const mockResolveOrgIdForEmail = vi.hoisted(() => vi.fn());
+const mockResolveOrgByDomain = vi.hoisted(() => vi.fn());
 const mockGetSession = vi.hoisted(() => vi.fn(async () => null));
 const mockGetOrgContext = vi.hoisted(() =>
   vi.fn(async () => ({ orgId: undefined })),
 );
 const mockVerifyA2ATokenWithClaims = vi.hoisted(() => vi.fn());
+const mockConsumeOneTimeJti = vi.hoisted(() => vi.fn(async () => false));
 const mockResolveEmbedSessionFromRequest = vi.hoisted(() =>
   vi.fn(async () => null),
 );
@@ -59,6 +61,7 @@ vi.mock("../org/context.js", () => ({
   resolveOrgIdForEmail: (...args: unknown[]) =>
     mockResolveOrgIdForEmail(...args),
   getOrgContext: (...args: unknown[]) => mockGetOrgContext(...args),
+  resolveOrgByDomain: (...args: unknown[]) => mockResolveOrgByDomain(...args),
 }));
 
 vi.mock("./auth.js", () => ({
@@ -78,6 +81,9 @@ vi.mock("../a2a-claims.js", () => ({
   verifyA2ATokenWithClaims: (...args: unknown[]) =>
     mockVerifyA2ATokenWithClaims(...args),
 }));
+vi.mock("./identity-sso-store.js", () => ({
+  consumeOneTimeJti: (...args: unknown[]) => mockConsumeOneTimeJti(...args),
+}));
 
 describe("mountActionRoutes", () => {
   afterEach(() => {
@@ -88,11 +94,18 @@ describe("mountActionRoutes", () => {
     delete process.env.AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION;
     mockNotifyActionChange.mockReset();
     mockResolveOrgIdForEmail.mockReset();
+    mockResolveOrgByDomain.mockReset();
+    mockResolveOrgByDomain.mockResolvedValue({
+      orgId: "receiver-org",
+      orgName: "Builder.io",
+    });
     mockGetSession.mockReset();
     mockGetSession.mockResolvedValue(null);
     mockGetOrgContext.mockReset();
     mockGetOrgContext.mockResolvedValue({ orgId: undefined });
     mockVerifyA2ATokenWithClaims.mockReset();
+    mockConsumeOneTimeJti.mockReset();
+    mockConsumeOneTimeJti.mockResolvedValue(false);
     mockResolveEmbedSessionFromRequest.mockReset();
     mockResolveEmbedSessionFromRequest.mockResolvedValue(null);
     vi.restoreAllMocks();
@@ -1324,6 +1337,7 @@ describe("mountActionRoutes", () => {
     mockVerifyA2ATokenWithClaims.mockResolvedValue({
       email: "admin@example.com",
       orgId: "org-1",
+      orgDomain: "builder.io",
       jti: "request-1",
       issuer: "https://analytics.example",
       scope: ["flags:read"],
@@ -1357,12 +1371,13 @@ describe("mountActionRoutes", () => {
     expect(context).toMatchObject({
       caller: "a2a",
       userEmail: "admin@example.com",
-      orgId: "org-1",
+      orgId: "receiver-org",
       networkProtocol: "a2a",
       networkId: "request-1",
       networkPeer: "https://analytics.example",
     });
     expect(getOwnerFromEvent).not.toHaveBeenCalled();
+    expect(mockResolveOrgByDomain).toHaveBeenCalledWith("builder.io");
   });
 
   it("recognizes a scope-only delegation in a space-separated scope claim", async () => {
@@ -1370,6 +1385,7 @@ describe("mountActionRoutes", () => {
     mockVerifyA2ATokenWithClaims.mockResolvedValue({
       email: "admin@example.com",
       orgId: "org-1",
+      orgDomain: "builder.io",
       jti: "request-scope-only",
       scope: ["other:read", "flags:read"],
     });
@@ -1400,7 +1416,7 @@ describe("mountActionRoutes", () => {
     expect(context).toMatchObject({
       caller: "a2a",
       userEmail: "admin@example.com",
-      orgId: "org-1",
+      orgId: "receiver-org",
     });
     expect(mockVerifyA2ATokenWithClaims).toHaveBeenCalledOnce();
     expect(getOwnerFromEvent).not.toHaveBeenCalled();
@@ -1481,6 +1497,7 @@ describe("mountActionRoutes", () => {
     mockVerifyA2ATokenWithClaims.mockResolvedValue({
       email: "writer@example.com",
       orgId: "org-2",
+      orgDomain: "builder.io",
       jti: "request-2",
       scope: ["flags:write"],
     });
@@ -1512,8 +1529,42 @@ describe("mountActionRoutes", () => {
     expect(context).toMatchObject({
       caller: "a2a",
       userEmail: "writer@example.com",
-      orgId: "org-2",
+      orgId: "receiver-org",
     });
+    expect(mockConsumeOneTimeJti).toHaveBeenCalledWith("request-2");
+  });
+
+  it("rejects a replayed built-in feature flag mutation", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    mockVerifyA2ATokenWithClaims.mockResolvedValue({
+      email: "writer@example.com",
+      orgId: "org-2",
+      orgDomain: "builder.io",
+      jti: "replayed-request",
+      scope: ["flags:write"],
+    });
+    mockConsumeOneTimeJti.mockResolvedValue(true);
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const run = vi.fn(async () => ({ ok: true }));
+    mountActionRoutes(
+      { use: (path: string, handler: any) => mounted.push({ path, handler }) },
+      { "set-feature-flag": { run } as any },
+    );
+    const token = fakeUnsignedJwt({
+      org_id: "org-2",
+      jti: "replayed-request",
+      scope: "flags:write",
+    });
+
+    await expect(
+      mounted[0].handler({
+        _method: "POST",
+        _headers: { authorization: `Bearer ${token}` },
+        context: {},
+        req: { json: async () => ({}) },
+      }),
+    ).rejects.toMatchObject({ statusCode: 401 });
+    expect(run).not.toHaveBeenCalled();
   });
 
   it("hard-rejects an invalid declared feature flag delegation", async () => {
@@ -1542,6 +1593,35 @@ describe("mountActionRoutes", () => {
       }),
     ).rejects.toMatchObject({ statusCode: 401 });
     expect(getOwnerFromEvent).not.toHaveBeenCalled();
+  });
+
+  it("hard-rejects a verified delegation whose domain has no local organization", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    mockVerifyA2ATokenWithClaims.mockResolvedValue({
+      email: "admin@example.com",
+      orgId: "sender-org",
+      orgDomain: "outside.example",
+      jti: "request-unknown-domain",
+      scope: ["flags:read"],
+    });
+    mockResolveOrgByDomain.mockResolvedValue(null);
+    const mounted: Array<{ path: string; handler: any }> = [];
+    mountActionRoutes(
+      { use: (path: string, handler: any) => mounted.push({ path, handler }) },
+      { "list-feature-flags": { run: vi.fn() } as any },
+    );
+
+    await expect(
+      mounted[0].handler({
+        _method: "POST",
+        _headers: {
+          authorization: `Bearer ${fakeUnsignedJwt({ scope: "flags:read" })}`,
+        },
+        context: {},
+        req: { json: async () => ({}) },
+      }),
+    ).rejects.toMatchObject({ statusCode: 401 });
+    expect(mockResolveOrgByDomain).toHaveBeenCalledWith("outside.example");
   });
 
   it("runs the action scoped to actionRouteAuth.resolveCaller and skips getOwnerFromEvent", async () => {
@@ -1727,6 +1807,184 @@ describe("mountActionRoutes", () => {
     );
     expect(received.ctx.orgId).toBe("org-owner-derived");
     expect(received.requestOrgId).toBe("org-owner-derived");
+  });
+
+  it("falls back to the stored active org for a cookie session that resolved none", async () => {
+    // A session minted before org selection — or one whose membership read
+    // failed — yields no org, and an undefined org narrows every scoped read
+    // to rows with a null org_id, hiding the user's own org-scoped data.
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const { getRequestOrgId } = await import("./request-context.js");
+    mockResolveOrgIdForEmail.mockResolvedValue("org-stored-active");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    let received: any;
+    const actions: Record<string, ActionEntry> = {
+      "do-thing": {
+        run: vi.fn(async (_params, ctx) => {
+          received = { ctx, requestOrgId: getRequestOrgId() };
+          return { ok: true };
+        }),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions, {
+      getOwnerFromEvent: async () => "steve@example.com",
+      resolveOrgId: async () => null,
+    });
+
+    await mounted[0].handler({
+      _method: "POST",
+      _headers: { "x-agent-native-frontend": "1" },
+      req: { json: async () => ({}) },
+    });
+
+    expect(mockResolveOrgIdForEmail).toHaveBeenCalledWith("steve@example.com");
+    expect(received.ctx.orgId).toBe("org-stored-active");
+    expect(received.requestOrgId).toBe("org-stored-active");
+  });
+
+  it("keeps an explicit Personal selection personal", async () => {
+    // resolveOrgIdForEmail returns null for an explicit Personal choice, so
+    // the fallback must not promote the user into their oldest membership.
+    const { mountActionRoutes } = await import("./action-routes.js");
+    mockResolveOrgIdForEmail.mockResolvedValue(null);
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    let received: any;
+    const actions: Record<string, ActionEntry> = {
+      "do-thing": {
+        run: vi.fn(async (_params, ctx) => {
+          received = ctx;
+          return { ok: true };
+        }),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions, {
+      getOwnerFromEvent: async () => "steve@example.com",
+      resolveOrgId: async () => null,
+    });
+
+    await mounted[0].handler({
+      _method: "POST",
+      _headers: { "x-agent-native-frontend": "1" },
+      req: { json: async () => ({}) },
+    });
+
+    expect(received.orgId).toBeNull();
+  });
+
+  it.each([
+    "no such table: org_members",
+    'relation "org_members" does not exist',
+  ])(
+    "suppresses the verified first-boot missing org table error: %s",
+    async (message) => {
+      const { mountActionRoutes } = await import("./action-routes.js");
+      mockResolveOrgIdForEmail.mockRejectedValue(new Error(message));
+      const mounted: Array<{ path: string; handler: any }> = [];
+      const nitroApp = {
+        use: vi.fn((path: string, handler: any) =>
+          mounted.push({ path, handler }),
+        ),
+      };
+      let received: any;
+      mountActionRoutes(
+        nitroApp,
+        {
+          "do-thing": {
+            run: vi.fn(async (_params, ctx) => {
+              received = ctx;
+              return { ok: true };
+            }),
+          } as any,
+        },
+        {
+          getOwnerFromEvent: async () => "steve@example.com",
+          resolveOrgId: async () => null,
+        },
+      );
+
+      await expect(
+        mounted[0].handler({
+          _method: "POST",
+          _headers: { "x-agent-native-frontend": "1" },
+          req: { json: async () => ({}) },
+        }),
+      ).resolves.toEqual({ ok: true });
+      expect(received.orgId).toBeNull();
+    },
+  );
+
+  it("propagates persistent org-resolution failures", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const error = new Error("permission denied for table org_members");
+    mockResolveOrgIdForEmail.mockRejectedValue(error);
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const run = vi.fn(async () => ({ ok: true }));
+    mountActionRoutes(
+      nitroApp,
+      { "do-thing": { run } as any },
+      {
+        getOwnerFromEvent: async () => "steve@example.com",
+        resolveOrgId: async () => null,
+      },
+    );
+
+    await expect(
+      mounted[0].handler({
+        _method: "POST",
+        _headers: { "x-agent-native-frontend": "1" },
+        req: { json: async () => ({}) },
+      }),
+    ).rejects.toBe(error);
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("preserves transient org-resolution failures", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const error = Object.assign(new Error("db query timed out"), {
+      code: "57014",
+    });
+    mockResolveOrgIdForEmail.mockRejectedValue(error);
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const run = vi.fn(async () => ({ ok: true }));
+    mountActionRoutes(
+      nitroApp,
+      { "do-thing": { run } as any },
+      {
+        getOwnerFromEvent: async () => "steve@example.com",
+        resolveOrgId: async () => null,
+      },
+    );
+
+    await expect(
+      mounted[0].handler({
+        _method: "POST",
+        _headers: { "x-agent-native-frontend": "1" },
+        req: { json: async () => ({}) },
+      }),
+    ).rejects.toBe(error);
+    expect(run).not.toHaveBeenCalled();
   });
 
   it("never lets the ambient session org override the adapter caller's org", async () => {

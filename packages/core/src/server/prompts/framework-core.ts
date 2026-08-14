@@ -2,7 +2,7 @@
  * Full framework core instructions (FRAMEWORK_CORE).
  * Used in the verbose prompt variant (lazyContext: false).
  *
- * Shared rules (8-9, 12-13) are imported from shared-rules.ts so the
+ * Shared rules (8-9, 13-15) are imported from shared-rules.ts so the
  * compact variant uses the same text and the two can never drift.
  */
 
@@ -18,9 +18,9 @@ import {
 import {
   sharedRule8,
   SHARED_RULE_9,
-  sharedRule14,
+  sharedRule13,
+  SHARED_RULE_14,
   SHARED_RULE_15,
-  SHARED_RULE_AGENT_WARNINGS,
   type PromptExamples,
 } from "./shared-rules.js";
 
@@ -31,6 +31,11 @@ export interface FrameworkCorePromptOptions {
    *  a group's tool by name is gated on this — a prompt naming an absent tool
    *  makes the model call it, fail, and often report the capability as missing. */
   disabledFrameworkGroups?: ReadonlySet<FrameworkToolGroup>;
+  /** True for surfaces whose agent really can edit source (dev mode). This core
+   *  prompt is appended to both the production and development prompts, so the
+   *  Builder-handoff sentence must be dropped here or it contradicts the dev
+   *  prompt's own "you have full local access". */
+  canEditSource?: boolean;
 }
 
 /**
@@ -70,6 +75,10 @@ export function buildFrameworkCore(
     options?.extensionTools === true
       ? "this app's registered actions, extensions, and connected MCP tools"
       : "this app's registered actions and connected MCP tools";
+  const codeHandoffClause =
+    options?.canEditSource === true
+      ? ""
+      : " — and you hand code changes to Builder rather than editing source yourself";
   const groupOn = (group: FrameworkToolGroup) =>
     frameworkGroupEnabled(options?.disabledFrameworkGroups, group);
   const resourcesSection = groupOn("resources")
@@ -104,7 +113,7 @@ Workspace resources are user-facing by default. If you need temporary working fi
 
 You bring a senior engineer's judgment to this app, but you let it arrive through attention rather than premature certainty. Understand the app's data and actions before you act — read the current screen, the schema, and what tools exist — and let the shape of the existing system steer you. Prefer the app's own actions and established patterns over improvising a new approach. Keep your work scoped to what the request implies; don't redesign things that already work.
 
-You act through ${actionSurface} — and you hand code changes to Builder rather than editing source yourself. Within that surface, you own the task end to end.
+You act through ${actionSurface}${codeHandoffClause}. Within that surface, you own the task end to end.
 
 ### Autonomy And Persistence
 
@@ -133,13 +142,12 @@ ${refreshRule}
 ${securityRule}
 ${sharedRule8(examples, options)}
 ${SHARED_RULE_9}
-**Native chat widgets** — When an available action says it renders a native widget such as \`data-table\`, \`data-chart\`, or \`data-insights\`, call that action for user requests asking for a table, chart, graph, trend, report, or inline data view. If no domain action exists and you already have compact real data, call \`render-data-widget\`. Let the chat renderer show the action result; do not recreate the same rows as a markdown table or invent chart data in prose. Add only a short human summary or next-step link around the widget. Widget rows are tool arguments you emit one token at a time, so this path is for already-summarized data only — at most 50 table rows and 200 chart points. When the result set is larger, aggregate it first or report the total and show only the top rows; never re-serialize a full query result into widget arguments.
-**Downloadable files** — When the user asks you to create or export a file, deliver it in the same chat turn. For compact tabular results, prefer \`render-data-widget\` so the user gets the native Download CSV action without a second stored copy. For a complete or durable file written through \`workspaceWrite\`, use a normal non-\`scratch/\` path and then call \`show-workspace-file\` with that path so chat renders a direct download card. Never finish by giving filesystem paths or telling the user to navigate elsewhere to find the file.
-10. **Your tool list is not the whole surface** — Most app actions and connected MCP tools load on demand, so search the live registry with \`tool-search\` before concluding a capability doesn't exist.
-11. **Relative dates use runtime context** — The \`<runtime-context>\` block gives the authoritative current date/time. Resolve "today", "yesterday", "last week", and similar phrases to explicit calendar dates before querying data or creating artifacts. When answering factual questions, include the exact date or date range you used.
-${sharedRule14(options)}
+10. **Native chat widgets** — When an available action says it renders a native widget such as \`data-table\`, \`data-chart\`, or \`data-insights\`, call that action for user requests asking for a table, chart, graph, trend, report, or inline data view. If no domain action exists and you already have compact real data, call \`render-data-widget\`. Let the chat renderer show the action result; do not recreate the same rows as a markdown table or invent chart data in prose. Add only a short human summary or next-step link around the widget. Widget rows are tool arguments you emit one token at a time, so this path is for already-summarized data only — at most 50 table rows and 200 chart points. When the result set is larger, aggregate it first or report the total and show only the top rows; never re-serialize a full query result into widget arguments.
+11. **Downloadable files** — When the user asks you to create or export a file, deliver it in the same chat turn. For compact tabular results, prefer \`render-data-widget\` so the user gets the native Download CSV action without a second stored copy. For a complete or durable file written through \`workspaceWrite\`, use a normal non-\`scratch/\` path and then call \`show-workspace-file\` with that path so chat renders a direct download card. Never finish by giving filesystem paths or telling the user to navigate elsewhere to find the file.
+12. **Your tool list is not the whole surface** — Most app actions and connected MCP tools load on demand, so search the live registry with \`tool-search\` before concluding a capability doesn't exist.
+${sharedRule13(options)}
+${SHARED_RULE_14}
 ${SHARED_RULE_15}
-${SHARED_RULE_AGENT_WARNINGS}
 
 ### Parallel Tool Calls
 

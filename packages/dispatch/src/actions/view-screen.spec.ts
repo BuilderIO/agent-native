@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   navigation: {} as Record<string, unknown>,
   listAgentRunFailures: vi.fn(),
   listThreadDebugSources: vi.fn(),
+  listWorkspaceResourceOptions: vi.fn(),
 }));
 
 vi.mock("@agent-native/core", () => ({
@@ -46,7 +47,7 @@ vi.mock("../server/lib/vault-store.js", () => ({
 }));
 
 vi.mock("../server/lib/workspace-resources-store.js", () => ({
-  listWorkspaceResourceOptions: vi.fn(),
+  listWorkspaceResourceOptions: mocks.listWorkspaceResourceOptions,
   listWorkspaceResourcesForApp: vi.fn(),
 }));
 
@@ -59,6 +60,8 @@ describe("view-screen Thread Debug summary", () => {
     mocks.listAgentRunFailures.mockResolvedValue({ failures: [] });
     mocks.listThreadDebugSources.mockReset();
     mocks.listThreadDebugSources.mockResolvedValue({ sources: [] });
+    mocks.listWorkspaceResourceOptions.mockReset();
+    mocks.listWorkspaceResourceOptions.mockResolvedValue([]);
   });
 
   it("matches the UI's default 24-hour failed-run range", async () => {
@@ -88,5 +91,30 @@ describe("view-screen Thread Debug summary", () => {
         lookbackHours: 24,
       }),
     );
+  });
+
+  it("surfaces the focused simple agent on the chat screen", async () => {
+    mocks.navigation = {
+      view: "chat",
+      agentPath: "agents/research-partner.md",
+    };
+    mocks.listWorkspaceResourceOptions.mockResolvedValue([
+      {
+        id: "agent-1",
+        kind: "agent",
+        name: "Research Partner",
+        description: "Synthesizes research",
+        path: "agents/research-partner.md",
+        scope: "all",
+        updatedAt: 1,
+      },
+    ]);
+
+    const result = JSON.parse(await viewScreen.run({}));
+
+    expect(result.chatSurface).toMatchObject({
+      agentPath: "agents/research-partner.md",
+      agent: { id: "agent-1", name: "Research Partner" },
+    });
   });
 });

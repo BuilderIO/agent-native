@@ -37,6 +37,7 @@ import {
   IconArrowsHorizontal,
   IconArrowsMaximize,
   IconExternalLink,
+  IconShare3,
 } from "@tabler/icons-react";
 import React, {
   useState,
@@ -48,6 +49,7 @@ import React, {
   Suspense,
   startTransition,
 } from "react";
+import { flushSync } from "react-dom";
 
 import type { AgentRun } from "../progress/types.js";
 import {
@@ -113,6 +115,7 @@ import type {
   MultiTabAssistantChatProps,
 } from "./MultiTabAssistantChat.js";
 import { isFirstRunOnboardingEnabled } from "./onboarding/first-run-enabled.js";
+import { useFirstRunOnboardingGateOwnsSurface } from "./onboarding/first-run-startup-gate.js";
 import { useOnboardingPreviewMode } from "./onboarding/use-preview-mode.js";
 import { recoverFromStaleChunkError } from "./route-chunk-recovery.js";
 import { withBuilderConnectTrackingParams } from "./settings/useBuilderStatus.js";
@@ -246,6 +249,32 @@ const AGENT_PANEL_CONTROL_STYLE = {
 } satisfies React.CSSProperties;
 const ACTIVATE_KEYS = new Set(["Enter", " "]);
 
+export function deferAgentPanelOverlayOpen(
+  event: { preventDefault: () => void },
+  closeMenu: () => void,
+  openOverlay: () => void,
+): void {
+  event.preventDefault();
+  closeMenu();
+  if (
+    typeof window !== "undefined" &&
+    typeof window.requestAnimationFrame === "function"
+  ) {
+    window.requestAnimationFrame(() => openOverlay());
+  } else {
+    setTimeout(openOverlay, 0);
+  }
+}
+
+export function consumeAgentPanelOverlayFocusRestore(
+  pendingOverlayRef: { current: boolean },
+  event: { preventDefault: () => void },
+): void {
+  if (!pendingOverlayRef.current) return;
+  pendingOverlayRef.current = false;
+  event.preventDefault();
+}
+
 interface AvailableCli {
   command: string;
   label: string;
@@ -326,6 +355,7 @@ function ChatLoadingSkeleton({
   composerAreaClassName?: string;
   composerLayoutVariant?: AssistantChatProps["composerLayoutVariant"];
 }) {
+  const t = useT();
   // Provide empty no-op implementations so renderHeader can render the real
   // tab/mode buttons without needing actual chat state.
   const noop = useCallback(() => {}, []);
@@ -354,7 +384,7 @@ function ChatLoadingSkeleton({
         >
           <div className="agent-chat-scroll flex-1 overflow-y-auto overflow-x-hidden min-h-0">
             <div className="agent-empty-state sr-only" aria-busy="true">
-              Loading chat...
+              {t("agentChat.empty.loadingChat")}
             </div>
           </div>
           {composerSlot}
@@ -466,6 +496,30 @@ export function shouldShowAgentPanelFullViewAction(
     currentPath !== agentPageHref &&
     (isSidebar || mode === "resources" || mode === "settings")
   );
+}
+
+export function resolveAgentPanelFullViewAction(
+  agentPageHref: string | undefined,
+  onFullViewRequest: (() => void) | undefined,
+  mode: PanelMode,
+  isSidebar = false,
+  currentPath?: string,
+) {
+  if (
+    !agentPageHref ||
+    !shouldShowAgentPanelFullViewAction(
+      agentPageHref,
+      mode,
+      isSidebar,
+      currentPath,
+    )
+  ) {
+    return null;
+  }
+
+  return onFullViewRequest
+    ? ({ kind: "callback" } as const)
+    : ({ kind: "link", href: agentPageHref } as const);
 }
 
 export function getAgentPanelShortcutHints(isMac: boolean) {
@@ -611,6 +665,8 @@ export interface AgentPanelProps extends Omit<
   isFullscreen?: boolean;
   /** @deprecated Fullscreen sidebar controls are no longer rendered. */
   onToggleFullscreen?: () => void;
+  /** Called when the user selects the full-view action from a sidebar chat. */
+  onFullViewRequest?: () => void;
   /** Called when the user asks the sidebar to use the wide chat width preset. */
   onSnapTo75Percent?: () => void;
   /** Whether the sidebar is currently using the wide fixed drawer presentation. */
@@ -786,6 +842,7 @@ function AgentPanelInner({
   onCollapse,
   isFullscreen,
   onToggleFullscreen,
+  onFullViewRequest,
   onSnapTo75Percent,
   isWideDrawer,
   onExitWideDrawer,
@@ -810,8 +867,11 @@ function AgentPanelInner({
   const location = useLocation();
   const mounted = useClientOnly();
   const onboardingPreviewMode = useOnboardingPreviewMode();
+  const firstRunOnboardingGateOwnsSurface =
+    useFirstRunOnboardingGateOwnsSurface();
   const showFirstRunOnboarding =
-    SHOW_FIRST_RUN_ONBOARDING || onboardingPreviewMode;
+    !firstRunOnboardingGateOwnsSurface &&
+    (SHOW_FIRST_RUN_ONBOARDING || onboardingPreviewMode);
   const insideAgentSidebar = React.useContext(AgentSidebarOnboardingContext);
   const isFirstRunOnboardingSurface =
     showFirstRunOnboarding && !insideAgentSidebar;
@@ -1203,6 +1263,12 @@ function AgentPanelInner({
 
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [shareFromMenuOpen, setShareFromMenuOpen] = useState(false);
+  const preventHeaderMenuFocusRestoreRef = useRef(false);
+  const closeHeaderMenuForOverlay = useCallback(() => {
+    preventHeaderMenuFocusRestoreRef.current = true;
+    setHeaderMenuOpen(false);
+  }, []);
 
   const getChatThreadShareUrl = useCallback(
     (threadId: string) => {
@@ -1227,14 +1293,12 @@ function AgentPanelInner({
   const wideDrawerLabel = t(
     isWideDrawer ? "agentPanel.returnChatToLayout" : "agentPanel.widenChat",
   );
-  const showFullViewAction = Boolean(
-    agentPageHref &&
-    shouldShowAgentPanelFullViewAction(
-      agentPageHref,
-      mode,
-      chatOnly,
-      location.pathname,
-    ),
+  const fullViewAction = resolveAgentPanelFullViewAction(
+    agentPageHref,
+    onFullViewRequest,
+    mode,
+    chatOnly,
+    location.pathname,
   );
 
   useEffect(() => {
@@ -1295,7 +1359,7 @@ function AgentPanelInner({
             <SetupButton />
           </Suspense>
         )}
-        {!onCollapse &&
+        {(!onCollapse || shareFromMenuOpen) &&
           (() => {
             const activeTab =
               mode === "chat" && activeChatSessionId
@@ -1311,10 +1375,12 @@ function AgentPanelInner({
               <ShareButton
                 resourceType="chat_thread"
                 resourceId={activeTab.id}
-                resourceTitle={activeTab.label || "Chat"}
+                allowedRoles={["viewer", "editor", "admin"]}
+                resourceTitle={activeTab.label || t("agentPanel.chat")}
                 shareUrl={getChatThreadShareUrl(activeTab.id)}
-                trigger="icon"
-                triggerClassName="h-7 w-7"
+                triggerClassName="h-7 px-2"
+                defaultOpen={onCollapse && shareFromMenuOpen}
+                onOpenChange={onCollapse ? setShareFromMenuOpen : undefined}
               />
             );
           })()}
@@ -1372,7 +1438,19 @@ function AgentPanelInner({
               <IconDotsVertical size={14} />
             </button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" sideOffset={6} className="w-48">
+          <DropdownMenuContent
+            align="end"
+            sideOffset={6}
+            className="w-48"
+            onCloseAutoFocus={(event) => {
+              // A sibling overlay owns focus next; restoring it to the menu
+              // trigger would dismiss that overlay as an outside interaction.
+              consumeAgentPanelOverlayFocusRestore(
+                preventHeaderMenuFocusRestoreRef,
+                event,
+              );
+            }}
+          >
             {onCollapse && (
               <>
                 <DropdownMenuItem onSelect={onCollapse}>
@@ -1395,10 +1473,18 @@ function AgentPanelInner({
                 <DropdownMenuShortcut>{widenChatHint}</DropdownMenuShortcut>
               </DropdownMenuItem>
             ) : null}
-            {showFullViewAction && agentPageHref ? (
+            {fullViewAction?.kind === "callback" && onFullViewRequest ? (
+              <DropdownMenuItem
+                onSelect={onFullViewRequest}
+                aria-label={t("agentPanel.openFullView")}
+              >
+                <IconArrowsMaximize size={14} className="shrink-0" />
+                {t("agentPanel.openFullView")}
+              </DropdownMenuItem>
+            ) : fullViewAction?.kind === "link" ? (
               <DropdownMenuItem asChild>
                 <Link
-                  to={agentPageHref}
+                  to={fullViewAction.href}
                   aria-label={t("agentPanel.openFullView")}
                 >
                   <IconArrowsMaximize size={14} className="shrink-0" />
@@ -1407,22 +1493,53 @@ function AgentPanelInner({
               </DropdownMenuItem>
             ) : null}
             {(onCollapse && mode === "chat" && wideDrawerAction) ||
-            showFullViewAction ? (
+            fullViewAction ? (
               <DropdownMenuSeparator />
             ) : null}
             {onCollapse && mode === "chat" && (
-              <DropdownMenuItem onSelect={addTab}>
-                <IconPlus size={14} className="shrink-0" />
-                {t("agentPanel.newChat")}
-              </DropdownMenuItem>
+              <>
+                <DropdownMenuItem onSelect={addTab}>
+                  <IconPlus size={14} className="shrink-0" />
+                  {t("agentPanel.newChat")}
+                </DropdownMenuItem>
+                {(() => {
+                  const activeTab = activeChatSessionId
+                    ? tabs.find((tab) => tab.id === activeChatSessionId)
+                    : undefined;
+                  if (
+                    !activeTab ||
+                    (activeTabMessageCount <= 0 && activeTab.status === "idle")
+                  ) {
+                    return null;
+                  }
+                  return (
+                    // ShareButton's content is portalled, so open it only
+                    // after the menu releases its dismissable layer.
+                    <DropdownMenuItem
+                      onSelect={(event) =>
+                        deferAgentPanelOverlayOpen(
+                          event,
+                          closeHeaderMenuForOverlay,
+                          () => setShareFromMenuOpen(true),
+                        )
+                      }
+                    >
+                      <IconShare3 size={14} className="shrink-0" />
+                      Share
+                    </DropdownMenuItem>
+                  );
+                })()}
+              </>
             )}
             {mode === "chat" && toggleHistory && (
               <DropdownMenuItem
-                onSelect={() => {
-                  // Let the menu finish restoring focus before mounting the
-                  // history popover; otherwise Radix dismisses the new overlay.
-                  setTimeout(() => toggleHistory(), 0);
-                }}
+                onSelect={(event) =>
+                  deferAgentPanelOverlayOpen(
+                    event,
+                    closeHeaderMenuForOverlay,
+                    toggleHistory,
+                  )
+                }
               >
                 <IconHistory size={14} className="shrink-0" />
                 {showHistory
@@ -1475,12 +1592,13 @@ function AgentPanelInner({
             )}
             {feedbackEnabled ? (
               <DropdownMenuItem
-                onSelect={() => {
-                  // Defer past the closing DropdownMenu's focus-restore/dismiss-layer
-                  // teardown, otherwise it can immediately dismiss the Popover we're
-                  // opening in the same tick (Radix nested-overlay race).
-                  setTimeout(() => setFeedbackOpen(true), 0);
-                }}
+                onSelect={(event) =>
+                  deferAgentPanelOverlayOpen(
+                    event,
+                    closeHeaderMenuForOverlay,
+                    () => setFeedbackOpen(true),
+                  )
+                }
               >
                 <IconMessageDots size={14} className="shrink-0" />
                 {t("agentPanel.feedback")}
@@ -1566,6 +1684,7 @@ function AgentPanelInner({
       allowSettingsMode,
       availableClis,
       canUseCodeTools,
+      closeHeaderMenuForOverlay,
       closeAllCliTabs,
       closeAllTabsHint,
       closeCliTab,
@@ -1578,19 +1697,21 @@ function AgentPanelInner({
       isWideDrawer,
       mode,
       agentPageHref,
+      fullViewAction,
       onCollapse,
+      onFullViewRequest,
       onExitWideDrawer,
       onSnapTo75Percent,
       openRunThread,
       selectCli,
       selectedCli,
+      shareFromMenuOpen,
       storageKey,
       switchMode,
       t,
       wideDrawerAction,
       wideDrawerLabel,
       widenChatHint,
-      showFullViewAction,
     ],
   );
 
@@ -1629,10 +1750,10 @@ function AgentPanelInner({
                 <ShareButton
                   resourceType="chat_thread"
                   resourceId={activeTab.id}
-                  resourceTitle={activeTab.label || "Chat"}
+                  allowedRoles={["viewer", "editor", "admin"]}
+                  resourceTitle={activeTab.label || t("agentPanel.chat")}
                   shareUrl={getChatThreadShareUrl(activeTab.id)}
-                  trigger="icon"
-                  triggerClassName="h-8 w-8 border border-border bg-background/95 shadow-sm backdrop-blur hover:bg-accent"
+                  triggerClassName="h-8 px-2 border border-border bg-background/95 shadow-sm backdrop-blur hover:bg-accent"
                 />
               ) : null}
               <button
@@ -1759,7 +1880,7 @@ function AgentPanelInner({
                         )}
                         <button
                           type="button"
-                          aria-label="Close tab"
+                          aria-label={t("agentPanel.closeTab")}
                           onClick={(e) => {
                             e.stopPropagation();
                             closeTab(tab.id);
@@ -1857,7 +1978,7 @@ function AgentPanelInner({
                                   )}
                                   <button
                                     type="button"
-                                    aria-label="Close tab"
+                                    aria-label={t("agentPanel.closeTab")}
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       closeTab(tab.id);
@@ -1904,7 +2025,7 @@ function AgentPanelInner({
                                 <span>Terminal {i + 1}</span>
                                 <button
                                   type="button"
-                                  aria-label="Close tab"
+                                  aria-label={t("agentPanel.closeTab")}
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     closeCliTab(id);
@@ -1983,7 +2104,7 @@ function AgentPanelInner({
                             )}
                             <button
                               type="button"
-                              aria-label="Close tab"
+                              aria-label={t("agentPanel.closeTab")}
                               onClick={(e) => {
                                 e.stopPropagation();
                                 closeTab(tab.id);
@@ -2029,6 +2150,7 @@ function AgentPanelInner({
       activeTabRefCb,
       activateOnKeyDown,
       closeCliTab,
+      t,
     ],
   );
 
@@ -2165,7 +2287,7 @@ function AgentPanelInner({
               <Suspense
                 fallback={
                   <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-                    Loading terminal...
+                    {t("agentPanel.loadingTerminal")}
                   </div>
                 }
               >
@@ -2914,9 +3036,21 @@ export interface AgentSidebarProps {
   chatViewTransitionHandoff?: boolean;
   /** Namespace for persisted chat state. Use the same key as AgentChatHome. */
   storageKey?: string;
+  /** Namespace for the persisted open/closed preference. Defaults to storageKey. */
+  openStorageKey?: string;
+  /** API base URL used by the chat surface. */
+  apiUrl?: string;
+  /** Runtime surface identity used for server-side chat capabilities. */
+  agentChatSurface?: AgentChatSurfaceKind;
+  /** Show the chat thread tab row. Default: true. */
+  showTabBar?: MultiTabAssistantChatProps["showTabBar"];
+  /** Keep inline app-opening results inside the current app chat. */
+  suppressInlineOpenApp?: AssistantChatProps["suppressInlineOpenApp"];
+  /** Placeholder shown in the chat composer. */
+  composerPlaceholder?: AssistantChatProps["composerPlaceholder"];
   /** Open the sidebar when a chat run is active or reconnects. */
   openOnChatRunning?: boolean;
-  /** @deprecated Fullscreen sidebar actions are no longer rendered. */
+  /** Called when the user selects the full-view action from the chat sidebar. */
   onFullscreenRequest?: () => void;
   /** Ambient resource context rendered as a composer chip. */
   scope?: import("./use-chat-threads.js").ChatThreadScope | null;
@@ -2955,7 +3089,14 @@ export function AgentSidebar({
   chatViewTransition = false,
   chatViewTransitionHandoff = false,
   storageKey,
+  openStorageKey,
+  apiUrl,
+  agentChatSurface,
+  showTabBar = true,
+  suppressInlineOpenApp,
+  composerPlaceholder,
   openOnChatRunning = false,
+  onFullscreenRequest,
   scope,
   showScopeBadge,
   browserTabId,
@@ -2963,14 +3104,19 @@ export function AgentSidebar({
   agentPageHref,
   suppressFirstRunOnboarding = false,
 }: AgentSidebarProps) {
+  const sidebarOpenStorageKey = openStorageKey ?? storageKey;
   const onboardingPreviewMode = useOnboardingPreviewMode();
+  const firstRunOnboardingGateOwnsSurface =
+    useFirstRunOnboardingGateOwnsSurface();
   const showFirstRunOnboarding =
+    !firstRunOnboardingGateOwnsSurface &&
     !suppressFirstRunOnboarding &&
     (SHOW_FIRST_RUN_ONBOARDING || onboardingPreviewMode);
   const initialWidth = defaultSidebarWidth ?? sidebarWidth ?? 380;
   const [open, setOpen] = useState(
     () =>
-      openOnChatRunning || getInitialAgentSidebarOpen(defaultOpen, storageKey),
+      openOnChatRunning ||
+      getInitialAgentSidebarOpen(defaultOpen, sidebarOpenStorageKey),
   );
   const [presentationMode, setPresentationMode] = useState(false);
   const [width, setWidth] = useState(initialWidth);
@@ -3032,17 +3178,17 @@ export function AgentSidebar({
     (next: boolean | ((prev: boolean) => boolean)) => {
       setOpen((prev) => {
         const value = typeof next === "function" ? next(prev) : next;
-        setAgentSidebarOpenPreference(value, storageKey);
+        setAgentSidebarOpenPreference(value, sidebarOpenStorageKey);
         return value;
       });
     },
-    [storageKey],
+    [sidebarOpenStorageKey],
   );
 
   const applyUrlOpenOverride = useCallback(() => {
-    const override = consumeAgentSidebarUrlOpenOverride(storageKey);
+    const override = consumeAgentSidebarUrlOpenOverride(sidebarOpenStorageKey);
     if (override !== null) setOpenPersisted(override);
-  }, [setOpenPersisted, storageKey]);
+  }, [setOpenPersisted, sidebarOpenStorageKey]);
 
   useEffect(() => {
     applyUrlOpenOverride();
@@ -3360,6 +3506,26 @@ export function AgentSidebar({
       return next;
     });
   }, []);
+  // `view-transition-name` is only legal to carry while a transition is
+  // actually capturing. Left on permanently it makes the panel its own
+  // stacking context and the containing block for every fixed/absolute
+  // descendant, and enlists it as a captured group in unrelated transitions
+  // (any React Router `viewTransition` navigation), which is how overlays end
+  // up painted at stale offsets. Apply it only around the drawer morph, and
+  // flush it into the DOM first: `startViewTransition` captures the old state
+  // before it invokes the callback, so a name applied in a normal React commit
+  // would land too late to be captured.
+  const [drawerMorphing, setDrawerMorphing] = useState(false);
+  const runDrawerMorph = useCallback((apply: () => void) => {
+    flushSync(() => setDrawerMorphing(true));
+    const settle = () => setDrawerMorphing(false);
+    const transition = startAgentChatViewTransition(apply);
+    if (!transition) {
+      settle();
+      return;
+    }
+    transition.finished.then(settle, settle);
+  }, []);
   const snapTo75Percent = useCallback(() => {
     if (drawerExitTimerRef.current !== null) {
       clearTimeout(drawerExitTimerRef.current);
@@ -3381,8 +3547,8 @@ export function AgentSidebar({
         // coercion-ok: the drawer remains applied in memory when storage is unavailable.
       } catch {}
     };
-    startAgentChatViewTransition(apply);
-  }, [drawerPlaceholderWidth, isWideDrawer, width]);
+    runDrawerMorph(apply);
+  }, [runDrawerMorph, drawerPlaceholderWidth, isWideDrawer, width]);
   const exitWideDrawer = useCallback(() => {
     if (!isWideDrawer || drawerExitTimerRef.current !== null) return;
     const next = drawerPlaceholderWidth;
@@ -3398,8 +3564,8 @@ export function AgentSidebar({
         setIsWideDrawer(false);
       }, SIDEBAR_ANIMATION_MS + 32);
     };
-    startAgentChatViewTransition(apply);
-  }, [drawerPlaceholderWidth, isWideDrawer]);
+    runDrawerMorph(apply);
+  }, [runDrawerMorph, drawerPlaceholderWidth, isWideDrawer]);
   const handleResizeStart = useCallback(() => setIsResizing(true), []);
   const handleResizeEnd = useCallback(() => setIsResizing(false), []);
 
@@ -3490,7 +3656,9 @@ export function AgentSidebar({
       borderLeft: isLeft ? "none" : "1px solid hsl(var(--border))",
       borderRight: isLeft ? "1px solid hsl(var(--border))" : "none",
       display: "flex",
-      viewTransitionName: SIDEBAR_DRAWER_VIEW_TRANSITION_NAME,
+      ...(drawerMorphing
+        ? { viewTransitionName: SIDEBAR_DRAWER_VIEW_TRANSITION_NAME }
+        : null),
     };
   } else {
     panelStyle = {
@@ -3513,7 +3681,9 @@ export function AgentSidebar({
       display: desktopAnimationEnabled || panelOpen ? "flex" : "none",
       minWidth: desktopAnimationEnabled ? 0 : undefined,
       pointerEvents: desktopAnimationEnabled && !panelOpen ? "none" : undefined,
-      viewTransitionName: SIDEBAR_DRAWER_VIEW_TRANSITION_NAME,
+      ...(drawerMorphing
+        ? { viewTransitionName: SIDEBAR_DRAWER_VIEW_TRANSITION_NAME }
+        : null),
     };
   }
 
@@ -3568,11 +3738,17 @@ export function AgentSidebar({
             onComposerTextChange={onComposerTextChange}
             imageModelMenu={imageModelMenu}
             threadFooterSlot={threadFooterSlot}
+            apiUrl={apiUrl}
+            agentChatSurface={agentChatSurface}
+            showTabBar={showTabBar}
+            suppressInlineOpenApp={suppressInlineOpenApp}
+            composerPlaceholder={composerPlaceholder}
             missingApiKeySetupLayout="sidebar"
             onCollapse={() => setOpenPersisted(false)}
             onSnapTo75Percent={isMobile ? undefined : snapTo75Percent}
             isWideDrawer={isMobile ? false : isWideDrawer}
             onExitWideDrawer={isMobile ? undefined : exitWideDrawer}
+            onFullViewRequest={onFullscreenRequest}
             storageKey={storageKey}
             scope={scope}
             showScopeBadge={showScopeBadge}
@@ -3639,6 +3815,9 @@ export function AgentSidebar({
           sees what page/filters the user is on, and applies URL-update
           commands the agent writes via `set-search-params` / `set-url`. */}
           {shouldMountPanel ? <URLSync browserTabId={browserTabId} /> : null}
+          {isResizing ? (
+            <div aria-hidden="true" className="agent-sidebar-resize-overlay" />
+          ) : null}
           {isLeft && !presentationMode ? sidebar : null}
           {isLeft && !presentationMode ? drawerPlaceholder : null}
           <div
@@ -3694,6 +3873,7 @@ export function focusAgentChat() {
  * Dispatches a custom event that AgentSidebar listens for.
  */
 export function AgentToggleButton({ className }: { className?: string }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   useEffect(() => {
     const handler = (event: Event) => {
@@ -3713,7 +3893,7 @@ export function AgentToggleButton({ className }: { className?: string }) {
       trigger={
         <button
           type="button"
-          aria-label="Toggle agent"
+          aria-label={t("agentPanel.toggleAgent")}
           onClick={() => window.dispatchEvent(new Event("agent-panel:toggle"))}
           className={cn(
             "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
@@ -3723,7 +3903,7 @@ export function AgentToggleButton({ className }: { className?: string }) {
           <IconMessageDots size={20} aria-hidden />
         </button>
       }
-      content="Toggle agent"
+      content={t("agentPanel.toggleAgent")}
       delayMs={200}
     />
   );

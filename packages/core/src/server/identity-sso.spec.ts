@@ -1,511 +1,441 @@
+import { createHash } from "node:crypto";
+
 import * as jose from "jose";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// --- h3 mock (mirror sibling specs) ---
-vi.mock("h3", () => ({
-  getMethod: (event: any) => event.method ?? "GET",
-  getHeader: (event: any, name: string) =>
-    event.headers?.[name.toLowerCase()] ?? event.headers?.[name],
-}));
-
-// --- auth.js mock: getSession + the two pure helpers we re-use ---
 const getSessionMock = vi.fn();
-const isExpectedAuthFailureMock = vi.fn((e: any) =>
-  /already\s+exists|user\s+already/i.test(String(e?.message ?? "")),
-);
-vi.mock("./auth.js", () => ({
-  getSession: (...a: any[]) => getSessionMock(...a),
-  // Real same-origin validator behaviour is exercised by auth.spec.ts; here
-  // we just need a faithful-enough stand-in for the redirect target.
-  safeReturnPath: (raw: string | null | undefined) => {
-    if (!raw) return "/";
-    if (/[\x00-\x1f]/.test(raw)) return "/";
-    try {
-      const u = new URL(raw, "http://safe-base.invalid");
-      if (u.origin !== "http://safe-base.invalid") return "/";
-      return u.pathname + u.search + u.hash;
-    } catch {
-      return "/";
-    }
-  },
-  isExpectedAuthFailure: (...a: any[]) => isExpectedAuthFailureMock(...a),
-}));
-
-// --- google-oauth.js mock: the literal session-mint path we re-use ---
 const createOAuthSessionMock = vi.fn(async () => ({
   sessionToken: "fresh-session-token",
 }));
-vi.mock("./google-oauth.js", () => ({
-  createOAuthSession: (...a: any[]) => createOAuthSessionMock(...a),
-  getOrigin: (event: any) =>
-    `https://${event.headers?.host ?? "mail.agent-native.com"}`,
-}));
-
-vi.mock("./app-name.js", () => ({ getAppName: () => "mail" }));
-
-// --- Better Auth: signUpEmail (new-user path) + internal adapter ---
 const signUpEmailMock = vi.fn(async () => ({}));
+const googleAuthRequiredMock = vi.fn(async () => false);
 const adapterUsers: Array<{
   id: string;
   email: string;
   accounts: Array<{ providerId: string; accountId: string }>;
 }> = [];
-const linkAccountMock = vi.fn(async (a: any) => {
-  const u = adapterUsers.find((x) => x.id === a.userId);
-  if (u) u.accounts.push({ providerId: a.providerId, accountId: a.accountId });
+const linkAccountMock = vi.fn(async (input: any) => {
+  const user = adapterUsers.find((candidate) => candidate.id === input.userId);
+  if (user) {
+    user.accounts.push({
+      providerId: input.providerId,
+      accountId: input.accountId,
+    });
+  }
   return {};
 });
 const findUserByEmailMock = vi.fn(async (email: string) => {
-  const u = adapterUsers.find((x) => x.email === email);
-  return u
-    ? { user: { id: u.id, email: u.email }, accounts: u.accounts }
+  const user = adapterUsers.find((candidate) => candidate.email === email);
+  return user
+    ? { user: { id: user.id, email: user.email }, accounts: user.accounts }
     : null;
 });
-vi.mock("./better-auth-instance.js", () => ({
-  getBetterAuth: async () => ({
-    api: { signUpEmail: (...a: any[]) => signUpEmailMock(...a) },
-  }),
-  getBetterAuthInternalAdapter: async () => ({
-    findUserByEmail: (...a: any[]) => findUserByEmailMock(...a),
-    linkAccount: (...a: any[]) => linkAccountMock(...a),
-    createUser: vi.fn(),
-  }),
+
+const states = new Map<
+  string,
+  {
+    returnPath: string | null;
+    binding: Record<string, string>;
+    consumed: boolean;
+  }
+>();
+const seenJtis = new Set<string>();
+let stateCounter = 0;
+
+vi.mock("h3", () => ({
+  deleteCookie: (event: any, name: string) => {
+    delete event.cookies[name];
+  },
+  getCookie: (event: any, name: string) => event.cookies?.[name],
+  getHeader: (event: any, name: string) =>
+    event.headers?.[name.toLowerCase()] ?? event.headers?.[name],
+  getMethod: (event: any) => event.method ?? "GET",
+  setCookie: (event: any, name: string, value: string) => {
+    event.cookies ??= {};
+    event.cookies[name] = value;
+  },
 }));
 
-// --- store mock: in-memory CSRF state + jti, real feature switch ---
-const stateRows = new Map<
-  string,
-  { returnPath: string | null; consumed: boolean; expired: boolean }
->();
-const jtiSeen = new Set<string>();
-let nextState = "state-0";
+vi.mock("./auth.js", () => ({
+  getSession: (...args: any[]) => getSessionMock(...args),
+  isExpectedAuthFailure: (error: any) =>
+    /already\s+exists|user\s+already/i.test(String(error?.message ?? "")),
+  safeReturnPath: (raw: string | null | undefined) => {
+    if (!raw) return "/";
+    try {
+      const url = new URL(raw, "http://safe.invalid");
+      return url.origin === "http://safe.invalid"
+        ? url.pathname + url.search + url.hash
+        : "/";
+    } catch {
+      return "/";
+    }
+  },
+}));
+vi.mock("./app-name.js", () => ({ getAppName: () => "mail" }));
+vi.mock("./google-oauth.js", () => ({
+  createOAuthSession: (...args: any[]) => createOAuthSessionMock(...args),
+  getOrigin: (event: any) =>
+    `https://${event.headers?.host ?? "mail.agent-native.com"}`,
+}));
+vi.mock("../org/auth-policy.js", () => ({
+  GOOGLE_AUTH_REQUIRED_MESSAGE: "Google sign-in is required.",
+  isGoogleSignInRequiredForEmail: (...args: any[]) =>
+    googleAuthRequiredMock(...args),
+}));
+vi.mock("./better-auth-instance.js", () => ({
+  getBetterAuth: async () => ({
+    api: { signUpEmail: (...args: any[]) => signUpEmailMock(...args) },
+  }),
+  getBetterAuthInternalAdapter: async () => ({
+    findUserByEmail: (...args: any[]) => findUserByEmailMock(...args),
+    linkAccount: (...args: any[]) => linkAccountMock(...args),
+  }),
+}));
 vi.mock("./identity-sso-store.js", () => ({
+  SSO_STATE_TTL_MS: 600_000,
   getIdentityHubUrl: () => {
     const raw = process.env.AGENT_NATIVE_IDENTITY_HUB_URL?.trim();
     if (!raw) return undefined;
     try {
-      const u = new URL(raw);
-      if (u.protocol !== "https:" && u.protocol !== "http:") return undefined;
-      return `${u.protocol}//${u.host}${u.pathname}`.replace(/\/+$/, "");
+      const url = new URL(raw);
+      return `${url.protocol}//${url.host}${url.pathname}`.replace(/\/+$/, "");
     } catch {
       return undefined;
     }
   },
-  isIdentitySsoEnabled: () => !!process.env.AGENT_NATIVE_IDENTITY_HUB_URL,
   identitySsoLoginButtonHtml: () =>
     process.env.AGENT_NATIVE_IDENTITY_HUB_URL ? "<a>sso</a>" : "",
-  createSsoState: vi.fn(async (returnPath: string | null) => {
-    const s = nextState;
-    nextState = `state-${stateRows.size + 1}`;
-    stateRows.set(s, { returnPath, consumed: false, expired: false });
-    return s;
+  isCanonicalAgentNativeAppRequest: (host: string, protocol: string) =>
+    protocol === "https" &&
+    ["mail.agent-native.com", "dispatch.agent-native.com"].includes(host),
+  isDesktopSsoCanaryUserAgent: (userAgent: string | undefined) =>
+    /AgentNativeDesktopSsoCanary\//i.test(userAgent ?? ""),
+  isIdentitySsoEnabled: () => !!process.env.AGENT_NATIVE_IDENTITY_HUB_URL,
+  isJtiReplayed: vi.fn(async (jti: string | undefined) => {
+    if (!jti) return true;
+    if (seenJtis.has(jti)) return true;
+    seenJtis.add(jti);
+    return false;
   }),
-  consumeSsoState: vi.fn(async (state: string) => {
-    const row = stateRows.get(state);
-    if (!row || row.consumed || row.expired)
+  createSsoState: vi.fn(async (input: any) => {
+    const state = `state-${String(stateCounter++).padStart(37, "0")}`;
+    states.set(state, {
+      returnPath: input.returnPath,
+      binding: {
+        appId: input.appId,
+        clientId: input.clientId,
+        redirectUri: input.redirectUri,
+        authority: input.authority,
+        codeChallenge: input.codeChallenge,
+      },
+      consumed: false,
+    });
+    return state;
+  }),
+  consumeSsoState: vi.fn(async (state: string, expected: any) => {
+    const row = states.get(state);
+    if (!row || row.consumed) return { ok: false, returnPath: null };
+    if (
+      Object.entries(expected).some(
+        ([key, value]) => row.binding[key] !== value,
+      )
+    ) {
       return { ok: false, returnPath: null };
+    }
     row.consumed = true;
     return { ok: true, returnPath: row.returnPath };
   }),
-  isJtiReplayed: vi.fn(async (jti: string | undefined) => {
-    if (!jti) return false;
-    if (jtiSeen.has(jti)) return true;
-    jtiSeen.add(jti);
-    return false;
-  }),
 }));
 
-const { handleIdentitySso } = await import("./identity-sso.js");
+const { handleIdentitySso, isIdentitySsoBypassPath, resolveIdentityHubUrl } =
+  await import("./identity-sso.js");
 
 const HUB = "https://dispatch.agent-native.com";
 const SECRET = "test-a2a-secret";
+const CALLBACK =
+  "https://mail.agent-native.com/_agent-native/identity/callback";
 
-function ev(opts: { method?: string; path?: string; host?: string }): any {
-  const path = opts.path ?? "/";
+function event(path: string, options: any = {}): any {
+  const staged: string[] = [];
   return {
-    method: opts.method ?? "GET",
-    headers: { host: opts.host ?? "mail.agent-native.com" },
+    method: "GET",
+    headers: {
+      host: "mail.agent-native.com",
+      "x-forwarded-proto": "https",
+      "user-agent": "Mozilla/5.0 Chrome/140",
+      ...(options.headers ?? {}),
+    },
     node: { req: { url: path } },
     path,
-    url: { pathname: path.split("?")[0] },
+    cookies: options.cookies ?? {},
+    res: { headers: { getSetCookie: () => staged } },
   };
 }
 
-async function signIdentity(
-  claims: Record<string, unknown>,
-  opts: { secret?: string; expiresIn?: string; iat?: number } = {},
+function challengeFor(verifier: string): string {
+  return createHash("sha256").update(verifier).digest("base64url");
+}
+
+async function signAssertion(
+  claims: Record<string, unknown> = {},
+  options: { secret?: string; issuer?: string; audience?: string } = {},
 ): Promise<string> {
-  const b = new jose.SignJWT({
-    aud: "https://mail.agent-native.com/_agent-native/identity/callback",
-    redirect_uri:
-      "https://mail.agent-native.com/_agent-native/identity/callback",
+  return new jose.SignJWT({
+    scope: "identity",
+    email: "alice@example.test",
+    sub: "alice@example.test",
+    identity_client_id: "mail",
+    identity_authority: HUB,
+    redirect_uri: CALLBACK,
+    jti: "jti-1",
     ...claims,
   })
     .setProtectedHeader({ alg: "HS256" })
-    .setExpirationTime(opts.expiresIn ?? "5m");
-  if (opts.iat !== undefined) b.setIssuedAt(opts.iat);
-  else b.setIssuedAt();
-  return b.sign(new TextEncoder().encode(opts.secret ?? SECRET));
+    .setIssuer(options.issuer ?? HUB)
+    .setAudience(options.audience ?? CALLBACK)
+    .setIssuedAt()
+    .setExpirationTime("2m")
+    .sign(new TextEncoder().encode(options.secret ?? SECRET));
+}
+
+async function startLogin(returnPath = "/inbox") {
+  const loginEvent = event(
+    `/_agent-native/identity/login?return=${returnPath}`,
+  );
+  const response = await handleIdentitySso(loginEvent, "/login");
+  const location = new URL(response.headers.get("Location")!);
+  const state = location.searchParams.get("state")!;
+  const verifier = Object.values(loginEvent.cookies)[0] as string;
+  return { loginEvent, response, location, state, verifier };
 }
 
 beforeEach(() => {
-  stateRows.clear();
-  jtiSeen.clear();
+  states.clear();
+  seenJtis.clear();
   adapterUsers.length = 0;
-  nextState = "state-0";
-  getSessionMock.mockReset();
-  getSessionMock.mockResolvedValue(null);
+  stateCounter = 0;
+  getSessionMock.mockReset().mockResolvedValue(null);
+  createOAuthSessionMock.mockClear();
   signUpEmailMock.mockClear();
+  googleAuthRequiredMock.mockReset().mockResolvedValue(false);
   linkAccountMock.mockClear();
   findUserByEmailMock.mockClear();
-  createOAuthSessionMock.mockClear();
   process.env.A2A_SECRET = SECRET;
   process.env.AGENT_NATIVE_IDENTITY_HUB_URL = HUB;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(
+      async () =>
+        new Response(JSON.stringify({ assertion: await signAssertion() }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    ),
+  );
 });
+
 afterEach(() => {
   delete process.env.A2A_SECRET;
   delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
+  vi.unstubAllGlobals();
 });
 
-describe("identity SSO — env-unset is a no-op", () => {
-  it("404s every subpath when AGENT_NATIVE_IDENTITY_HUB_URL is unset", async () => {
+describe("identity SSO browser contract", () => {
+  it("is a true no-op when the hub env is unset", async () => {
     delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
-    for (const p of ["/login", "/callback", "/", "/anything"]) {
-      const res = await handleIdentitySso(ev({ path: p }), p);
-      expect(res.status).toBe(404);
-    }
-    // No session minted, no Better Auth touched, no state created.
-    expect(createOAuthSessionMock).not.toHaveBeenCalled();
-    expect(signUpEmailMock).not.toHaveBeenCalled();
-    expect(stateRows.size).toBe(0);
-  });
-
-  it("the conditional login button is empty when disabled and present when enabled", async () => {
-    const mod = await import("./identity-sso-store.js");
-    delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
-    expect(mod.identitySsoLoginButtonHtml()).toBe("");
-    process.env.AGENT_NATIVE_IDENTITY_HUB_URL = HUB;
-    expect(mod.identitySsoLoginButtonHtml()).not.toBe("");
-  });
-});
-
-describe("identity SSO — /login", () => {
-  it("302s to the hub authorize endpoint with app, redirect_uri and state", async () => {
-    const res = await handleIdentitySso(
-      ev({ path: "/login?return=/inbox" }),
+    const response = await handleIdentitySso(
+      event("/_agent-native/identity/login"),
       "/login",
     );
-    expect(res.status).toBe(302);
-    const loc = res.headers.get("Location")!;
-    expect(loc.startsWith(`${HUB}/_agent-native/identity/authorize`)).toBe(
-      true,
-    );
-    const u = new URL(loc);
-    expect(u.searchParams.get("app")).toBe("mail");
-    expect(u.searchParams.get("redirect_uri")).toBe(
-      "https://mail.agent-native.com/_agent-native/identity/callback",
-    );
-    expect(u.searchParams.get("state")).toBeTruthy();
-    expect(stateRows.size).toBe(1);
-  });
-
-  it("skips the round-trip and 302s to the return path when already signed in", async () => {
-    getSessionMock.mockResolvedValue({ email: "a@b.com" });
-    const res = await handleIdentitySso(
-      ev({ path: "/login?return=/inbox" }),
-      "/login",
-    );
-    expect(res.status).toBe(302);
-    expect(res.headers.get("Location")).toBe("/inbox");
-    expect(stateRows.size).toBe(0);
-  });
-});
-
-describe("identity SSO — /callback rejects bad tokens", () => {
-  async function mintState(returnPath: string | null = null): Promise<string> {
-    const store = await import("./identity-sso-store.js");
-    return store.createSsoState(returnPath);
-  }
-
-  it("rejects a bad signature", async () => {
-    const state = await mintState();
-    const token = await signIdentity(
-      { email: "x@y.com", scope: "identity", jti: "j1" },
-      { secret: "WRONG-SECRET" },
-    );
-    const res = await handleIdentitySso(
-      ev({ path: `/callback?token=${token}&state=${state}` }),
-      "/callback",
-    );
-    expect(res.status).toBe(400);
+    expect(response.status).toBe(404);
     expect(createOAuthSessionMock).not.toHaveBeenCalled();
   });
 
-  it("rejects an expired token", async () => {
-    const state = await mintState();
-    const token = await signIdentity(
-      { email: "x@y.com", scope: "identity", jti: "j2" },
-      { expiresIn: "-1m" },
-    );
-    const res = await handleIdentitySso(
-      ev({ path: `/callback?token=${token}&state=${state}` }),
-      "/callback",
-    );
-    expect(res.status).toBe(400);
-    expect(createOAuthSessionMock).not.toHaveBeenCalled();
+  it("allows the packaged Canary to reach canonical apps without per-app env", async () => {
+    delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
+    const request = event("/_agent-native/identity/login?return=/inbox", {
+      headers: { "user-agent": "AgentNativeDesktopSsoCanary/1.0" },
+    });
+    getSessionMock.mockResolvedValue(null);
+    const response = await handleIdentitySso(request, "/login");
+    expect(resolveIdentityHubUrl(request)).toBe(HUB);
+    expect(response.status).toBe(302);
   });
 
-  it("rejects the wrong scope (an A2A delegation token)", async () => {
-    const state = await mintState();
-    const token = await signIdentity({
-      email: "x@y.com",
-      scope: "mcp-connect",
-      jti: "j3",
-    });
-    const res = await handleIdentitySso(
-      ev({ path: `/callback?token=${token}&state=${state}` }),
-      "/callback",
+  it("starts an authorization-code + PKCE request without a browser JWT", async () => {
+    const { response, location, verifier } = await startLogin();
+    expect(response.status).toBe(302);
+    expect(location.searchParams.get("response_type")).toBe("code");
+    expect(location.searchParams.get("client_id")).toBe("mail");
+    expect(location.searchParams.get("code_challenge_method")).toBe("S256");
+    expect(location.searchParams.get("code_challenge")).toBe(
+      challengeFor(verifier),
     );
-    expect(res.status).toBe(400);
-    expect(createOAuthSessionMock).not.toHaveBeenCalled();
+    expect(location.searchParams.has("token")).toBe(false);
+    expect(location.searchParams.has("id_token")).toBe(false);
   });
 
-  it("rejects a token minted for another app callback", async () => {
-    const state = await mintState();
-    const token = await signIdentity({
-      email: "x@y.com",
-      scope: "identity",
-      jti: "wrong-aud",
-      aud: "https://calendar.agent-native.com/_agent-native/identity/callback",
-      redirect_uri:
-        "https://calendar.agent-native.com/_agent-native/identity/callback",
-    });
-    const res = await handleIdentitySso(
-      ev({ path: `/callback?token=${token}&state=${state}` }),
-      "/callback",
+  it("exchanges the code server-to-server, binds state/PKCE, and links the verified email", async () => {
+    const { loginEvent, state, verifier } = await startLogin("/welcome");
+    const code = "c".repeat(43);
+    const callbackEvent = event(
+      `/_agent-native/identity/callback?code=${code}&state=${state}`,
+      {
+        cookies: { ...loginEvent.cookies },
+      },
     );
-    expect(res.status).toBe(400);
-    expect(createOAuthSessionMock).not.toHaveBeenCalled();
+    const response = await handleIdentitySso(callbackEvent, "/callback");
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe("/welcome");
+    expect(vi.mocked(fetch)).toHaveBeenCalledWith(
+      `${HUB}/_agent-native/identity/token`,
+      expect.objectContaining({
+        method: "POST",
+        body: expect.stringContaining(`\"code_verifier\":\"${verifier}\"`),
+      }),
+    );
+    const body = JSON.parse(vi.mocked(fetch).mock.calls[0][1]!.body as string);
+    expect(body).toMatchObject({
+      code,
+      state,
+      app_id: "mail",
+      client_id: "mail",
+      redirect_uri: CALLBACK,
+    });
+    expect(createOAuthSessionMock).toHaveBeenCalledWith(
+      expect.anything(),
+      "alice@example.test",
+      expect.objectContaining({ hasProductionSession: false }),
+    );
   });
 
-  it("rejects a legacy identity token without an audience", async () => {
-    const state = await mintState();
-    const token = await new jose.SignJWT({
-      email: "x@y.com",
-      scope: "identity",
-      jti: "missing-aud",
-    })
-      .setProtectedHeader({ alg: "HS256" })
-      .setIssuedAt()
-      .setExpirationTime("5m")
-      .sign(new TextEncoder().encode(SECRET));
-    const res = await handleIdentitySso(
-      ev({ path: `/callback?token=${token}&state=${state}` }),
-      "/callback",
-    );
-    expect(res.status).toBe(400);
-    expect(createOAuthSessionMock).not.toHaveBeenCalled();
-  });
-
-  it("rejects a missing/unknown CSRF state", async () => {
-    const token = await signIdentity({
-      email: "x@y.com",
-      scope: "identity",
-      jti: "j4",
-    });
-    const res = await handleIdentitySso(
-      ev({ path: `/callback?token=${token}&state=does-not-exist` }),
-      "/callback",
-    );
-    expect(res.status).toBe(400);
-    expect(createOAuthSessionMock).not.toHaveBeenCalled();
-  });
-
-  it("rejects a replayed (reused) CSRF state", async () => {
-    const state = await mintState();
-    const t1 = await signIdentity({
-      email: "x@y.com",
-      scope: "identity",
-      jti: "ra",
-    });
-    const ok = await handleIdentitySso(
-      ev({ path: `/callback?token=${t1}&state=${state}` }),
-      "/callback",
-    );
-    expect(ok.status).toBe(302);
-    // Same state again → rejected.
-    const t2 = await signIdentity({
-      email: "x@y.com",
-      scope: "identity",
-      jti: "rb",
-    });
-    const res = await handleIdentitySso(
-      ev({ path: `/callback?token=${t2}&state=${state}` }),
-      "/callback",
-    );
-    expect(res.status).toBe(400);
-  });
-
-  it("rejects a replayed jti even with a fresh valid state", async () => {
-    const s1 = await mintState();
-    const tok = await signIdentity({
-      email: "x@y.com",
-      scope: "identity",
-      jti: "dup-jti",
-    });
-    expect(
-      (
-        await handleIdentitySso(
-          ev({ path: `/callback?token=${tok}&state=${s1}` }),
-          "/callback",
-        )
-      ).status,
-    ).toBe(302);
-    const s2 = await mintState();
-    const tok2 = await signIdentity({
-      email: "x@y.com",
-      scope: "identity",
-      jti: "dup-jti",
-    });
-    const res = await handleIdentitySso(
-      ev({ path: `/callback?token=${tok2}&state=${s2}` }),
-      "/callback",
-    );
-    expect(res.status).toBe(400);
-  });
-
-  it("never trusts a query-param email — identity comes only from the verified token", async () => {
-    const state = await mintState();
-    // Token says alice; query says attacker.
-    const token = await signIdentity({
-      email: "alice@corp.com",
-      scope: "identity",
-      jti: "qp",
-    });
-    const res = await handleIdentitySso(
-      ev({
-        path: `/callback?token=${token}&state=${state}&email=attacker@evil.com`,
+  it("rejects code replay, missing PKCE, bad assertion binding, and legacy token query params", async () => {
+    const { loginEvent, state } = await startLogin();
+    const code = "d".repeat(43);
+    const first = await handleIdentitySso(
+      event(`/_agent-native/identity/callback?code=${code}&state=${state}`, {
+        cookies: { ...loginEvent.cookies },
       }),
       "/callback",
     );
-    expect(res.status).toBe(302);
-    // Session minted for the VERIFIED email, not the query param.
-    expect(createOAuthSessionMock).toHaveBeenCalledWith(
-      expect.anything(),
-      "alice@corp.com",
-      expect.objectContaining({ hasProductionSession: false }),
+    expect(first.status).toBe(302);
+    const replay = await handleIdentitySso(
+      event(`/_agent-native/identity/callback?code=${code}&state=${state}`, {
+        cookies: { ...loginEvent.cookies },
+      }),
+      "/callback",
     );
+    expect(replay.status).toBe(400);
+
+    const missingCode = await handleIdentitySso(
+      event(`/_agent-native/identity/callback?token=legacy&state=${state}`),
+      "/callback",
+    );
+    expect(missingCode.status).toBe(400);
+
+    const { loginEvent: badLogin, state: badState } = await startLogin();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              assertion: await signAssertion({
+                identity_client_id: "calendar",
+              }),
+            }),
+            { status: 200 },
+          ),
+      ),
+    );
+    const badAssertion = await handleIdentitySso(
+      event(
+        `/_agent-native/identity/callback?code=${"e".repeat(43)}&state=${badState}`,
+        {
+          cookies: { ...badLogin.cookies },
+        },
+      ),
+      "/callback",
+    );
+    expect(badAssertion.status).toBe(400);
+  });
+
+  it("preserves the local Google-required organization policy", async () => {
+    googleAuthRequiredMock.mockResolvedValue(true);
+    const { loginEvent, state } = await startLogin();
+    const response = await handleIdentitySso(
+      event(
+        `/_agent-native/identity/callback?code=${"h".repeat(43)}&state=${state}`,
+        {
+          cookies: { ...loginEvent.cookies },
+        },
+      ),
+      "/callback",
+    );
+    expect(response.status).toBe(400);
+    expect(await response.text()).toContain("Google sign-in is required.");
+    expect(signUpEmailMock).not.toHaveBeenCalled();
+    expect(createOAuthSessionMock).not.toHaveBeenCalled();
   });
 });
 
-describe("identity SSO — JIT link semantics", () => {
-  it("EXISTING email → adds the federated account link, never mutates the user, logs into the SAME user id", async () => {
+describe("additive JIT linking", () => {
+  it("keeps an existing local user and adds only the inert provider link", async () => {
     adapterUsers.push({
-      id: "user-existing-1",
-      email: "existing@corp.com",
-      accounts: [{ providerId: "credential", accountId: "existing@corp.com" }],
+      id: "existing-1",
+      email: "alice@example.test",
+      accounts: [{ providerId: "credential", accountId: "alice@example.test" }],
     });
-    const store = await import("./identity-sso-store.js");
-    const state = await store.createSsoState(null);
-    const token = await signIdentity({
-      email: "existing@corp.com",
-      sub: "hub-sub-123",
-      scope: "identity",
-      jti: "e1",
-      name: "Existing User",
-    });
-    const res = await handleIdentitySso(
-      ev({ path: `/callback?token=${token}&state=${state}` }),
+    const { loginEvent, state } = await startLogin();
+    const response = await handleIdentitySso(
+      event(
+        `/_agent-native/identity/callback?code=${"f".repeat(43)}&state=${state}`,
+        {
+          cookies: { ...loginEvent.cookies },
+        },
+      ),
       "/callback",
     );
-    expect(res.status).toBe(302);
-
-    // New user path NOT taken — no signup for an existing email.
+    expect(response.status).toBe(302);
     expect(signUpEmailMock).not.toHaveBeenCalled();
-    // The federated link was added additively via Better Auth's adapter.
     expect(linkAccountMock).toHaveBeenCalledWith({
-      userId: "user-existing-1",
+      userId: "existing-1",
       providerId: "agent-native",
-      accountId: "hub-sub-123",
+      accountId: "alice@example.test",
     });
-    // Original user row untouched: same id, email, and its pre-existing
-    // credential account is still present (only an additive row was added).
-    const u = adapterUsers.find((x) => x.id === "user-existing-1")!;
-    expect(u.email).toBe("existing@corp.com");
-    expect(u.accounts).toContainEqual({
-      providerId: "credential",
-      accountId: "existing@corp.com",
-    });
-    expect(u.accounts).toContainEqual({
-      providerId: "agent-native",
-      accountId: "hub-sub-123",
-    });
-    // Session minted for the SAME user's email via the Google-OAuth path.
-    expect(createOAuthSessionMock).toHaveBeenCalledWith(
-      expect.anything(),
-      "existing@corp.com",
-      expect.objectContaining({ hasProductionSession: false }),
-    );
   });
 
-  it("EXISTING email already linked → no duplicate link, still mints a session", async () => {
-    adapterUsers.push({
-      id: "u2",
-      email: "linked@corp.com",
-      accounts: [{ providerId: "agent-native", accountId: "linked@corp.com" }],
-    });
-    const store = await import("./identity-sso-store.js");
-    const state = await store.createSsoState(null);
-    const token = await signIdentity({
-      email: "linked@corp.com",
-      scope: "identity",
-      jti: "l1",
-    });
-    const res = await handleIdentitySso(
-      ev({ path: `/callback?token=${token}&state=${state}` }),
-      "/callback",
-    );
-    expect(res.status).toBe(302);
-    expect(linkAccountMock).not.toHaveBeenCalled();
-    expect(createOAuthSessionMock).toHaveBeenCalled();
-  });
-
-  it("NEW email → creates the user via the app's own signUpEmail path, then sessions", async () => {
-    // findUserByEmail starts empty; after signUpEmail the test adapter
-    // 'creates' the row so the post-create lookup resolves.
-    signUpEmailMock.mockImplementation(async (opts: any) => {
+  it("creates a new user with a random unusable credential", async () => {
+    signUpEmailMock.mockImplementation(async ({ body }: any) => {
       adapterUsers.push({
-        id: "new-user-9",
-        email: opts.body.email,
-        accounts: [{ providerId: "credential", accountId: opts.body.email }],
+        id: "new-1",
+        email: body.email,
+        accounts: [{ providerId: "credential", accountId: body.email }],
       });
       return {};
     });
-    const store = await import("./identity-sso-store.js");
-    const state = await store.createSsoState("/welcome");
-    const token = await signIdentity({
-      email: "brand-new@corp.com",
-      scope: "identity",
-      jti: "n1",
-      name: "Brand New",
-    });
-    const res = await handleIdentitySso(
-      ev({ path: `/callback?token=${token}&state=${state}` }),
+    const { loginEvent, state } = await startLogin();
+    const response = await handleIdentitySso(
+      event(
+        `/_agent-native/identity/callback?code=${"g".repeat(43)}&state=${state}`,
+        {
+          cookies: { ...loginEvent.cookies },
+        },
+      ),
       "/callback",
     );
-    expect(res.status).toBe(302);
-    expect(res.headers.get("Location")).toBe("/welcome");
-    // Created via the SAME Better Auth signup API the app already uses.
-    expect(signUpEmailMock).toHaveBeenCalledWith({
-      body: expect.objectContaining({
-        email: "brand-new@corp.com",
-        name: "Brand New",
-      }),
-    });
-    expect(createOAuthSessionMock).toHaveBeenCalledWith(
-      expect.anything(),
-      "brand-new@corp.com",
-      expect.objectContaining({ hasProductionSession: false }),
-    );
+    expect(response.status).toBe(302);
+    const password = signUpEmailMock.mock.calls[0][0].body.password;
+    expect(password).toMatch(/^an-sso_[A-Za-z0-9_-]{43}$/);
+    expect(password).not.toContain(SECRET);
+  });
+});
+
+describe("route boundaries", () => {
+  it("does not bypass auth for the Desktop completion page", () => {
+    expect(
+      isIdentitySsoBypassPath("/_agent-native/identity/desktop-complete"),
+    ).toBe(false);
   });
 });

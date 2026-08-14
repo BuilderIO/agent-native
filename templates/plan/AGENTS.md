@@ -5,11 +5,6 @@ agents: it turns agent plans into editable rich blocks, diagrams, wireframes,
 prototype options, annotations, and comments a person reviews before code
 changes happen.
 
-Before building common workspace or agent UI, read `agent-native-toolkit` to
-inventory existing public kits and installed package seams. Use
-`customizing-agent-native` for the configure → compose → eject → propose seam
-ladder.
-
 ## Skills
 
 The plan skills own all planning behavior. Read the matching SKILL.md before
@@ -20,7 +15,6 @@ generating or editing a plan.
   and `create-visual-questions`.
 - `visual-recap` — `/visual-recap`, visual code-review recaps for PRs, commits,
   branches, and git diffs.
-- `visualize-repo` — repo-native visual docs from local plan folders.
 - `plan-authoring-flow` — command/action routing and design fidelity.
 - `plan-hosted-writes` — session, revision guard, post-write verify.
 - `plan-comments-and-feedback` — feedback fields, anchors, replies, deletion.
@@ -31,16 +25,10 @@ generating or editing a plan.
 - `plan-review-recaps` — recap comparison blocks and PR recap CI.
 - `plan-events` — plan lifecycle events and automations.
 
-Root skills to read before implementation: `adding-a-feature`, `actions`,
-`storing-data`, `real-time-sync`, `security`, `delegate-to-agent`,
-`frontend-design`, `shadcn-ui`, `self-modifying-code`.
-
 ## Core Rules
 
 - Follow the root framework rules: data in SQL, actions first, application
   state for navigation/selection, and shared agent chat for AI work.
-- Use actions for app operations and keep frontend/API parity.
-- Keep database code provider-agnostic and additive.
 - Store large file/blob payloads in configured file/blob storage, not SQL: no
   base64, `data:` URLs, images, video/audio, PDFs, ZIPs, screenshots,
   thumbnails, or replay chunks in app tables, `application_state`, `settings`,
@@ -50,8 +38,6 @@ Root skills to read before implementation: `adding-a-feature`, `actions`,
   secrets/OAuth/runtime configuration and obvious placeholders in examples.
 - Use `view-screen` or application state when the active page/selection is
   unclear.
-- For new features, update UI, actions, skills/instructions, and application
-  state when applicable.
 - Default to structured visual artifacts over long Markdown. Text is one block
   type, not the whole plan.
 - Before edits, read pending feedback with `get-plan-feedback`.
@@ -91,3 +77,8 @@ Root skills to read before implementation: `adding-a-feature`, `actions`,
 | `read-visual-plan-source`, `import-visual-plan-source`, `patch-visual-plan-source` | Read, replace, patch MDX source |
 | `get-local-plan-folder`, `update-local-plan-folder`, `update-local-plan-comments`, `promote-local-plan-folder`, `validate-local-plan-source` | DB-free local plan folders |
 | `delete-visual-plan`, `report-visual-plan` | Delete/restore; report abuse |
+
+## Source Changes
+
+Before building common workspace or agent UI, read `agent-native-toolkit`; read
+`customizing-agent-native` before adapting shared UI.

@@ -100,6 +100,38 @@ describe("tracking providers", () => {
     ).toMatchObject({ session_id: "session-1" });
   });
 
+  it("keeps nested exception context out of Amplitude event properties", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("AMPLITUDE_API_KEY", "amp_test");
+    const { flushTracking, registerBuiltinProviders, track } =
+      await freshTrackingModules();
+
+    registerBuiltinProviders();
+    track(
+      "$exception",
+      {
+        exceptionType: "TypeError",
+        exceptionMessage: "boom",
+        exceptionTags: { route: "/api/run", status_code: 500 },
+        exceptionExtra: { request_id: "request-1", runId: "run-1" },
+      },
+      { userId: "u1", sessionId: "session-1" },
+    );
+    await flushTracking();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [, init] = fetchMock.mock.calls[0];
+    const properties = JSON.parse(init.body).events[0].event_properties;
+    expect(properties).toMatchObject({
+      exceptionType: "TypeError",
+      exceptionMessage: "boom",
+      session_id: "session-1",
+    });
+    expect(properties).not.toHaveProperty("exceptionTags");
+    expect(properties).not.toHaveProperty("exceptionExtra");
+  });
+
   it("falls back to the public Vite key for server-side Agent Native Analytics", async () => {
     vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_vite_test");
     const { listTrackingProviders, registerBuiltinProviders } =

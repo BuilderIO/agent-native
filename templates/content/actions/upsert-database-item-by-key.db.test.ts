@@ -2,9 +2,14 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { runWithRequestContext } from "@agent-native/core/server";
+import {
+  runFrameworkReleaseMigrations,
+  runWithRequestContext,
+} from "@agent-native/core/server";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+
+import { documentsPositionScope, withPositionLock } from "./_position-utils.js";
 
 // guard:allow-unscoped — isolated SQLite fixtures intentionally inspect rows directly.
 
@@ -16,6 +21,7 @@ const TEST_DATABASE_URL =
   process.env.CONTENT_ROW_MUTATION_POSTGRES_URL ?? `file:${TEST_DB_PATH}`;
 const OWNER = "owner@example.com";
 const OUTSIDER = "outsider@example.com";
+const COLLABORATOR = "collaborator@example.com";
 
 type Schema = typeof import("../server/db/schema.js");
 let getDb: () => any;
@@ -29,6 +35,8 @@ let upsertRow: typeof import("./upsert-database-item-by-key.js").default;
 
 const asOwner = <T>(run: () => Promise<T>) =>
   runWithRequestContext({ userEmail: OWNER }, run);
+const asCollaborator = <T>(run: () => Promise<T>) =>
+  runWithRequestContext({ userEmail: COLLABORATOR }, run);
 
 beforeAll(async () => {
   if (TEST_DATABASE_URL.startsWith("postgres")) {
@@ -50,6 +58,9 @@ beforeAll(async () => {
   createRow = (await import("./add-database-item.js")).default;
   updateRow = (await import("./update-database-item.js")).default;
   upsertRow = (await import("./upsert-database-item-by-key.js")).default;
+  if (TEST_DATABASE_URL.startsWith("postgres")) {
+    await runFrameworkReleaseMigrations(undefined);
+  }
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as any);
 }, 60_000);
@@ -131,6 +142,48 @@ async function addProperty(args: {
   );
   if (!property) throw new Error(`Property ${args.name} was not created.`);
   return property.definition.id;
+}
+
+async function shareDocument(documentId: string) {
+  await getDb()
+    .insert(schema.documentShares)
+    .values({
+      id: `share-${crypto.randomUUID()}`,
+      resourceId: documentId,
+      principalType: "user",
+      principalId: COLLABORATOR,
+      role: "editor",
+      createdBy: OWNER,
+      createdAt: new Date().toISOString(),
+    });
+}
+
+async function revokeDocumentShare(documentId: string) {
+  await getDb()
+    .delete(schema.documentShares)
+    .where(
+      and(
+        eq(schema.documentShares.resourceId, documentId),
+        eq(schema.documentShares.principalType, "user"),
+        eq(schema.documentShares.principalId, COLLABORATOR),
+      ),
+    );
+}
+
+async function waitUntilQueuedBehindPositionLock(
+  scope: string,
+  blocker: Promise<unknown>,
+) {
+  await expect
+    .poll(() => {
+      const locks = (
+        globalThis as typeof globalThis & {
+          __contentPositionLocks?: Map<string, Promise<unknown>>;
+        }
+      ).__contentPositionLocks;
+      return locks?.get(scope) !== blocker;
+    })
+    .toBe(true);
 }
 
 describe("reliable Content database row mutations", () => {
@@ -396,7 +449,43 @@ describe("reliable Content database row mutations", () => {
       title: "Feedback",
       propertyValues: { [evidenceId]: "first" },
     };
+    await expect(
+      asOwner(() =>
+        upsertRow.run({
+          ...input,
+          idempotencyKey: "feedback-upsert-conflicting-key",
+          propertyValues: {
+            ...input.propertyValues,
+            [keyPropertyId]: "feedback-002",
+          },
+        }),
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "INVALID_PROPERTY_VALUE",
+      details: { propertyId: keyPropertyId },
+    });
+    const [noConflictingRow] = await getDb()
+      .select({ id: schema.contentDatabaseItems.id })
+      .from(schema.contentDatabaseItems)
+      .where(eq(schema.contentDatabaseItems.databaseId, ids.databaseId))
+      .limit(1);
+    expect(noConflictingRow).toBeUndefined();
+
     const created = await asOwner(() => upsertRow.run(input));
+    await expect(
+      asOwner(() =>
+        upsertRow.run({
+          ...input,
+          propertyValues: {
+            ...input.propertyValues,
+            [keyPropertyId]: "feedback-002",
+          },
+        }),
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "INVALID_PROPERTY_VALUE",
+      details: { propertyId: keyPropertyId },
+    });
     const replayed = await asOwner(() => upsertRow.run(input));
     expect(replayed.receipt).toMatchObject({
       outcome: "created",
@@ -428,6 +517,180 @@ describe("reliable Content database row mutations", () => {
         },
       },
     });
+  });
+
+  it("replays the committed receipt after a later edit without applying the mutation again", async () => {
+    const ids = await fixture();
+    const discovered = await contract(ids.databaseId);
+    const input = {
+      ...envelope(discovered, "replay-after-later-edit"),
+      title: "Committed title",
+    };
+    const created = await asOwner(() => createRow.run(input));
+    await getDb()
+      .update(schema.documents)
+      .set({ title: "Later legitimate edit" })
+      .where(eq(schema.documents.id, created.receipt.row.documentId));
+
+    const replayed = await asOwner(() => createRow.run(input));
+
+    expect(replayed.receipt).toMatchObject({
+      receiptId: created.receipt.receiptId,
+      row: created.receipt.row,
+      idempotency: { result: "replayed" },
+      readback: { verified: true, title: "Committed title" },
+    });
+    const [current] = await getDb()
+      .select({ title: schema.documents.title })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, created.receipt.row.documentId));
+    expect(current?.title).toBe("Later legitimate edit");
+    const receipts = await getDb()
+      .select()
+      .from(schema.contentDatabaseRowMutationReceipts)
+      .where(
+        and(
+          eq(
+            schema.contentDatabaseRowMutationReceipts.databaseId,
+            ids.databaseId,
+          ),
+          eq(
+            schema.contentDatabaseRowMutationReceipts.idempotencyKey,
+            input.idempotencyKey,
+          ),
+        ),
+      );
+    expect(receipts).toHaveLength(1);
+  });
+
+  it("denies receipt replay after row access is revoked", async () => {
+    const ids = await fixture();
+    await shareDocument(ids.databaseDocumentId);
+    const discovered = await contract(ids.databaseId);
+    const input = {
+      ...envelope(discovered, "revoked-receipt-replay"),
+      title: "Private receipt data",
+    };
+    const created = await asOwner(() => createRow.run(input));
+    await expect(
+      asCollaborator(() => createRow.run(input)),
+    ).resolves.toMatchObject({
+      receipt: { idempotency: { result: "replayed" } },
+    });
+
+    await revokeDocumentShare(created.receipt.row.documentId);
+
+    await expect(asCollaborator(() => createRow.run(input))).rejects.toThrow();
+  });
+
+  it("rechecks exact-update row authorization after waiting for the mutation lock", async () => {
+    const ids = await fixture();
+    await shareDocument(ids.databaseDocumentId);
+    const discovered = await contract(ids.databaseId);
+    const created = await asOwner(() =>
+      createRow.run({
+        ...envelope(discovered, "locked-auth-create"),
+        title: "Before lock",
+      }),
+    );
+    const scope = documentsPositionScope(OWNER, ids.databaseDocumentId);
+    let releaseLock!: () => void;
+    let markAcquired!: () => void;
+    const acquired = new Promise<void>((resolve) => {
+      markAcquired = resolve;
+    });
+    const lockGate = new Promise<void>((resolve) => {
+      releaseLock = resolve;
+    });
+    const blocker = withPositionLock(scope, async () => {
+      markAcquired();
+      await lockGate;
+    });
+    await acquired;
+    const pending = asCollaborator(() =>
+      updateRow.run({
+        ...envelope(discovered, "locked-auth-update"),
+        itemId: created.receipt.row.itemId,
+        documentId: created.receipt.row.documentId,
+        expectedRowRevision: created.receipt.row.rowRevision,
+        title: "Must not land",
+      }),
+    ).then(
+      (value) => ({ value }),
+      (error: unknown) => ({ error }),
+    );
+    await waitUntilQueuedBehindPositionLock(scope, blocker);
+    await revokeDocumentShare(created.receipt.row.documentId);
+    releaseLock();
+
+    const outcome = await pending;
+    await blocker;
+    expect(outcome).toHaveProperty("error");
+    const [document] = await getDb()
+      .select({ title: schema.documents.title })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, created.receipt.row.documentId));
+    expect(document?.title).toBe("Before lock");
+  });
+
+  it("rechecks natural-key update authorization after waiting for the mutation lock", async () => {
+    const ids = await fixture();
+    await shareDocument(ids.databaseDocumentId);
+    const keyPropertyId = await addProperty({
+      ...ids,
+      name: "Feedback ID",
+      type: "text",
+      naturalKey: true,
+    });
+    const discovered = await contract(ids.databaseId);
+    const created = await asOwner(() =>
+      upsertRow.run({
+        ...envelope(discovered, "locked-upsert-create"),
+        keyValue: "feedback-locked",
+        expectedRowRevision: null,
+        title: "Before lock",
+      }),
+    );
+    expect(created.receipt.readback.propertyValues[keyPropertyId]).toBe(
+      "feedback-locked",
+    );
+    const scope = documentsPositionScope(OWNER, ids.databaseDocumentId);
+    let releaseLock!: () => void;
+    let markAcquired!: () => void;
+    const acquired = new Promise<void>((resolve) => {
+      markAcquired = resolve;
+    });
+    const lockGate = new Promise<void>((resolve) => {
+      releaseLock = resolve;
+    });
+    const blocker = withPositionLock(scope, async () => {
+      markAcquired();
+      await lockGate;
+    });
+    await acquired;
+    const pending = asCollaborator(() =>
+      upsertRow.run({
+        ...envelope(discovered, "locked-upsert-update"),
+        keyValue: "feedback-locked",
+        expectedRowRevision: created.receipt.row.rowRevision,
+        title: "Must not land",
+      }),
+    ).then(
+      (value) => ({ value }),
+      (error: unknown) => ({ error }),
+    );
+    await waitUntilQueuedBehindPositionLock(scope, blocker);
+    await revokeDocumentShare(created.receipt.row.documentId);
+    releaseLock();
+
+    const outcome = await pending;
+    await blocker;
+    expect(outcome).toHaveProperty("error");
+    const [document] = await getDb()
+      .select({ title: schema.documents.title })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, created.receipt.row.documentId));
+    expect(document?.title).toBe("Before lock");
   });
 
   it("keeps configured natural-key claims consistent across create and exact update", async () => {
@@ -465,6 +728,48 @@ describe("reliable Content database row mutations", () => {
         }),
       ),
     ).rejects.toMatchObject({ errorCode: "NATURAL_KEY_IMMUTABLE" });
+  });
+
+  it("rejects natural-key configuration when an existing value is only whitespace", async () => {
+    const ids = await fixture();
+    const keyPropertyId = await addProperty({
+      ...ids,
+      name: "Candidate key",
+      type: "text",
+    });
+    const discovered = await contract(ids.databaseId);
+    await asOwner(() =>
+      createRow.run({
+        ...envelope(discovered, "whitespace-key"),
+        propertyValues: { [keyPropertyId]: "   " },
+      }),
+    );
+
+    await expect(
+      asOwner(() =>
+        configureProperty.run({
+          id: keyPropertyId,
+          documentId: ids.databaseDocumentId,
+          databaseId: ids.databaseId,
+          name: "Candidate key",
+          type: "text",
+          naturalKey: true,
+        }),
+      ),
+    ).rejects.toThrow("Natural key values must be non-empty strings");
+
+    const [database] = await getDb()
+      .select()
+      .from(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.id, ids.databaseId));
+    expect(database.naturalKeyPropertyId).toBeNull();
+    const claims = await getDb()
+      .select()
+      .from(schema.contentDatabaseItemKeyClaims)
+      .where(
+        eq(schema.contentDatabaseItemKeyClaims.databaseId, ids.databaseId),
+      );
+    expect(claims).toHaveLength(0);
   });
 
   it("rejects stale schema, target mismatch, duplicate natural-key configuration, and unauthorized writes without side effects", async () => {

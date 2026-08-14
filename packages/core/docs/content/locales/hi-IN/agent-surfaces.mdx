@@ -1,10 +1,10 @@
 ---
-title: "Agent Surfaces"
+title: "एजेंट Surfaces"
 description: "चुनें कि एक एजेंटिक ऐप चैट से इनलाइन UI, टिकाऊ ऐप पेज, एम्बेडेड साइडकार, ऑटोमेशन और बाहरी एजेंट एक्सेस तक कैसे बढ़ता है।"
 search: "agentic app rich chat native chat UI full app automation headless BYO agent runtime AgentChatRuntime embed actions MCP A2A HTTP CLI"
 ---
 
-# Agent Surfaces
+# एजेंट Surfaces
 
 एक **surface** वह तरीका है जिससे उपयोगकर्ता (या अन्य सिस्टम) आपके ऐप के साथ इंटरैक्ट करते हैं: एक चैट विंडो, एक डैशबोर्ड पेज, एक बैकग्राउंड जॉब, किसी अन्य एजेंट से एक API कॉल। Agent-Native आपको इन्हें बिना अपनी मूल लॉजिक को फिर से बनाए मिक्स और मैच करने देता है, क्योंकि हर surface एक ही अंतर्निहित actions चलाता है। यदि आप Agent-Native में नए हैं, तो पहले [Key Concepts](/docs/key-concepts) पढ़ें।
 
@@ -155,6 +155,36 @@ export function ProjectChat({ threadId }: { threadId: string }) {
 ```
 
 Actions स्पष्ट native widget results वापस कर सकते हैं ताकि chat आउटपुट केवल टेक्स्ट न हो। Tables, charts, और typed product cards iframes के बिना chat में first-party React components के रूप में रेंडर होते हैं। [Native Chat UI](/docs/native-chat-ui) देखें। जब एजेंट को पूर्वनिर्धारित React widget के बजाय arbitrary generated controls की आवश्यकता हो, तो [Generative UI](/docs/generative-ui) का उपयोग करें: यह sandboxed Alpine/Tailwind UI इनलाइन रेंडर करता है, app state और slot context पढ़ सकता है, और चुने गए values को chat में वापस भेज सकता है।
+
+### अनुरोध-स्कोप वाली action surfaces
+
+जब चुने गए Agent या thread को केवल server द्वारा अधिकृत native actions का
+subset दिखाना हो, तब `resolveActionSurface` का उपयोग करें। callback हर
+interactive chat request पर `prepareRequest` के बाद चलता है। लौटाए गए नाम एक
+सख्त allowlist बनाते हैं: छोड़े गए actions provider schemas, execution
+registry, Plan mode preload और `tool-search` खोज में उपलब्ध नहीं होते।
+
+```ts
+createAgentChatPlugin({
+  actions,
+  nativeActionsInDev: true,
+  resolveActionSurface: async ({ threadId, availableActionNames }) => ({
+    allowedActionNames: await loadAllowedActions(
+      threadId,
+      availableActionNames,
+    ),
+  }),
+});
+```
+
+खाली सूची कोई native action उपलब्ध नहीं कराती। अज्ञात नाम access बढ़ाने के
+बजाय request को fail करते हैं। सभी अनुमत actions पहली model request पर सीधे
+लोड होते हैं; पहले से अधिकृत catalog में खोज चाहिए तभी `tool-search` को साफ़
+तौर पर शामिल करें। callback केवल interactive Agent chat को सीमित करता है,
+HTTP, MCP, A2A, jobs या triggers को नहीं। default framework guidance और शुरू
+किए गए sub-agents वही surface inherit करते हैं। trusted shell tools अपने-आप
+request-filtered sandbox तक सीमित हो जाते हैं, क्योंकि unrestricted shell
+सख्त action boundary लागू नहीं कर सकता।
 
 ## Native inline UI {#native-inline-ui}
 

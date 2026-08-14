@@ -12,6 +12,7 @@ import {
   IconNotes,
   IconPlugConnected,
   IconPlugOff,
+  IconPlus,
   IconSearch,
   IconSettings,
   IconX,
@@ -24,7 +25,6 @@ import { toast } from "sonner";
 import { PageHeader } from "@/components/library/page-header";
 import type { AttendeeStackParticipant } from "@/components/meetings/attendee-stack";
 import { DayHeader, formatDayLabel } from "@/components/meetings/day-header";
-import { GoogleOAuthIdentityNotice } from "@/components/meetings/google-oauth-identity-notice";
 import {
   UpcomingMeetingCard,
   MeetingCardSkeleton,
@@ -500,12 +500,11 @@ function ConnectCalendarEmptyState({
             <p className="mt-0.5 text-xs text-muted-foreground leading-relaxed">
               {t("meetingsRoute.desktopReminder")}
             </p>
-            <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
+            <div className="mt-3">
               <CalendarConnectionAction
                 label={t("meetingsRoute.connectGoogleCalendar")}
                 onConnected={onConnected}
               />
-              <GoogleOAuthIdentityNotice />
             </div>
             <div className="mt-4">
               <MeetingNotesSteps />
@@ -532,17 +531,11 @@ function CalendarAccountMenu({
   const [disconnectTarget, setDisconnectTarget] =
     useState<CalendarAccount | null>(null);
 
-  const primaryAccount = accounts[0] ?? null;
-  const statusText =
-    primaryAccount?.status === "disconnected"
-      ? "Disconnected"
-      : primaryAccount?.status === "needs-reauth"
-        ? "Needs reconnect"
-        : primaryAccount
-          ? "Connected"
-          : "Not connected";
+  const hasNeedsReconnect = accounts.some(
+    (account) => account.status === "needs-reauth",
+  );
 
-  const handleReconnect = () => {
+  const handleConnect = () => {
     setConnectPending(true);
     startCalendarOAuth()
       .then(() => onConnected?.())
@@ -588,48 +581,121 @@ function CalendarAccountMenu({
             aria-label={t("meetingsRoute.calendarSettings")}
           >
             <IconSettings className="h-4 w-4" />
-            Calendar
+            {t("meetingsRoute.calendarAccountsButton", {
+              defaultValue: "Calendars",
+            })}
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-72">
           <DropdownMenuLabel className="flex items-center gap-2">
-            {primaryAccount ? (
+            {accounts.length > 0 ? (
               <IconPlugConnected className="h-4 w-4 text-muted-foreground" />
             ) : (
               <IconPlugOff className="h-4 w-4 text-muted-foreground" />
             )}
             Google Calendar
           </DropdownMenuLabel>
-          <div className="px-2 pb-1 text-xs text-muted-foreground">
-            {primaryAccount ? (
-              <>
-                <div className="truncate">
-                  {calendarAccountLabel(primaryAccount)}
+          {accounts.length > 0 ? (
+            <div className="space-y-1.5 px-2 pb-1">
+              <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                {t("meetingsRoute.connectedAccounts", {
+                  defaultValue: "Connected accounts",
+                })}
+              </div>
+              {accounts.map((account) => (
+                <div
+                  key={account.id}
+                  className="flex min-w-0 items-center gap-2 text-xs"
+                >
+                  {account.status === "needs-reauth" ? (
+                    <IconAlertTriangle className="h-3.5 w-3.5 shrink-0 text-destructive" />
+                  ) : account.status === "disconnected" ? (
+                    <IconPlugOff className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  ) : (
+                    <IconPlugConnected className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  )}
+                  <span className="min-w-0 flex-1 truncate">
+                    {calendarAccountLabel(account)}
+                  </span>
+                  <span
+                    className={
+                      account.status === "needs-reauth" ||
+                      account.status === "disconnected"
+                        ? "shrink-0 text-[11px] text-destructive"
+                        : "shrink-0 text-[11px] text-muted-foreground"
+                    }
+                  >
+                    {account.status === "needs-reauth"
+                      ? t("meetingsRoute.calendarNeedsReconnectLabel", {
+                          defaultValue: "Needs reconnect",
+                        })
+                      : account.status === "disconnected"
+                        ? t("meetingsRoute.calendarDisconnectedLabel", {
+                            defaultValue: "Disconnected",
+                          })
+                        : account.status && account.status !== "connected"
+                          ? t("meetingsRoute.calendarStatusUnavailable", {
+                              defaultValue: "Status unavailable",
+                            })
+                          : t("meetingsRoute.calendarConnectedLabel", {
+                              defaultValue: "Connected",
+                            })}
+                  </span>
                 </div>
-                <div>{statusText}</div>
-              </>
-            ) : (
-              t("meetingsRoute.connectCalendarReminder")
-            )}
-          </div>
+              ))}
+            </div>
+          ) : (
+            <div className="px-2 pb-1 text-xs text-muted-foreground">
+              {t("meetingsRoute.connectCalendarReminder")}
+            </div>
+          )}
           <DropdownMenuSeparator />
+          {hasNeedsReconnect && (
+            <DropdownMenuItem
+              onSelect={(event) => {
+                event.preventDefault();
+                handleConnect();
+              }}
+              disabled={connectPending}
+            >
+              {connectPending ? (
+                <IconLoader2 className="me-2 h-4 w-4 animate-spin" />
+              ) : (
+                <IconExternalLink className="me-2 h-4 w-4" />
+              )}
+              {t("meetingsRoute.reconnectCalendar", {
+                defaultValue: "Reconnect calendar",
+              })}
+            </DropdownMenuItem>
+          )}
           <DropdownMenuItem
             onSelect={(event) => {
               event.preventDefault();
-              handleReconnect();
+              handleConnect();
             }}
             disabled={connectPending}
           >
             {connectPending ? (
               <IconLoader2 className="me-2 h-4 w-4 animate-spin" />
             ) : (
-              <IconExternalLink className="me-2 h-4 w-4" />
+              <IconPlus className="me-2 h-4 w-4" />
             )}
-            {primaryAccount ? "Reconnect calendar" : "Connect calendar"}
+            {accounts.length > 0
+              ? t("meetingsRoute.addAnotherCalendarAccount", {
+                  defaultValue: "Add another account",
+                })
+              : t("meetingsRoute.connectCalendar", {
+                  defaultValue: "Connect calendar",
+                })}
           </DropdownMenuItem>
           {accounts.length > 0 && (
             <>
               <DropdownMenuSeparator />
+              <DropdownMenuLabel className="text-[11px] text-muted-foreground">
+                {t("meetingsRoute.disconnectCalendarAccount", {
+                  defaultValue: "Disconnect an account",
+                })}
+              </DropdownMenuLabel>
               {accounts.map((account) => (
                 <DropdownMenuItem
                   key={account.id}

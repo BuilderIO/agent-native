@@ -43,15 +43,16 @@
  *   // guard:allow-raw-color — short reason
  *
  * Same diff-base contract as every guard built on changed-lines.mjs: if the
- * base can't be resolved we say so loudly and exit 0 — a silent pass here
- * would look identical to a real clean run.
+ * base can't be resolved the guard exits GUARD_EXIT_COULD_NOT_RUN, which
+ * run-guards.ts reports as SKIPPED. A silent pass here would look identical
+ * to a real clean run.
  */
 
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { addedLines } from "./lib/changed-lines.mjs";
+import { requireAddedLines } from "./lib/changed-lines.mjs";
 
 const REPO_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -163,16 +164,7 @@ function checkLine(lineText) {
 }
 
 function main() {
-  const added = addedLines(REPO_ROOT);
-  if (added === null) {
-    console.error(
-      "guard-no-raw-colors: could not resolve a diff base against this branch " +
-        "(checked GUARD_DIFF_BASE/GITHUB_BASE_REF, origin/main, main) — cannot " +
-        "tell which lines are new. Skipping the check rather than reporting a " +
-        "false pass; this is not a clean result.",
-    );
-    process.exit(0);
-  }
+  const added = requireAddedLines(REPO_ROOT, "guard-no-raw-colors");
 
   const violations = [];
 

@@ -22,7 +22,12 @@ import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { exportGif, blobToDataUrl } from "@/lib/ffmpeg-export";
-import { formatMs } from "@/lib/timestamp-mapping";
+import { seekVideoToTime } from "@/lib/thumbnail-capture";
+import {
+  resolveThumbnailPickerState,
+  type ThumbnailPickerTab,
+} from "@/lib/thumbnail-picker-state";
+import { formatMs, type ThumbnailSpec } from "@/lib/timestamp-mapping";
 
 export interface ThumbnailPickerProps {
   open: boolean;
@@ -33,9 +38,8 @@ export interface ThumbnailPickerProps {
   durationMs: number;
   currentThumbnailUrl?: string | null;
   currentAnimatedUrl?: string | null;
+  currentThumbnail?: ThumbnailSpec | null;
 }
-
-type Tab = "upload" | "frame" | "gif";
 
 export function ThumbnailPicker({
   open,
@@ -45,9 +49,11 @@ export function ThumbnailPicker({
   videoFormat = "webm",
   durationMs,
   currentThumbnailUrl,
+  currentAnimatedUrl,
+  currentThumbnail,
 }: ThumbnailPickerProps) {
   const t = useT();
-  const [tab, setTab] = useState<Tab>("frame");
+  const [tab, setTab] = useState<ThumbnailPickerTab>("frame");
   const [frameTime, setFrameTime] = useState(0);
   const [gifStart, setGifStart] = useState(0);
   const [gifDuration, setGifDuration] = useState(3000);
@@ -61,6 +67,7 @@ export function ThumbnailPicker({
   const gifVideoRef = useRef<HTMLVideoElement | null>(null);
   const gifPreviewRef = useRef<HTMLVideoElement | null>(null);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
+  const initializedThumbnailKeyRef = useRef<string | null>(null);
 
   const mutation = useActionMutation("set-thumbnail");
 
@@ -75,21 +82,43 @@ export function ThumbnailPicker({
     }
   }, [open]);
 
+  const currentThumbnailKey = currentThumbnail
+    ? `${currentThumbnail.kind}:${currentThumbnail.value}`
+    : currentAnimatedUrl
+      ? `animated:${currentAnimatedUrl}`
+      : "none";
+
+  useEffect(() => {
+    if (!open) {
+      initializedThumbnailKeyRef.current = null;
+      return;
+    }
+    const stateKey = `${durationMs}:${currentThumbnailKey}`;
+    if (initializedThumbnailKeyRef.current === stateKey) return;
+    initializedThumbnailKeyRef.current = stateKey;
+    const next = resolveThumbnailPickerState(currentThumbnail, {
+      durationMs,
+      hasAnimatedThumbnail: Boolean(currentAnimatedUrl),
+    });
+    setTab(next.tab);
+    setFrameTime(next.frameTime);
+    setGifStart(next.gifStart);
+    setGifDuration(next.gifDuration);
+  }, [
+    currentAnimatedUrl,
+    currentThumbnail,
+    currentThumbnailKey,
+    durationMs,
+    open,
+  ]);
+
   const handleFrameCapture = async () => {
     const video = videoRef.current;
     if (!video || !videoUrl) return;
     try {
-      // Seek to the chosen frame and draw to a canvas.
-      await new Promise<void>((resolve, reject) => {
-        const onSeek = () => {
-          video.removeEventListener("seeked", onSeek);
-          resolve();
-        };
-        video.addEventListener("seeked", onSeek);
-        video.currentTime = frameTime / 1000;
-        // Safety timeout
-        setTimeout(() => reject(new Error("seek timeout")), 5000);
-      }).catch(() => {});
+      // Do not persist the visible frame when the seek did not reach the
+      // selected timestamp.
+      await seekVideoToTime(video, frameTime);
 
       const canvas = document.createElement("canvas");
       canvas.width = video.videoWidth || 1280;
@@ -116,6 +145,17 @@ export function ThumbnailPicker({
       apply();
     }
   };
+
+  useEffect(() => {
+    if (!open) return;
+    if (tab === "frame") {
+      seekPreview(videoRef.current, frameTime);
+      seekPreview(framePreviewRef.current, frameTime);
+    } else if (tab === "gif") {
+      seekPreview(gifVideoRef.current, gifStart);
+      seekPreview(gifPreviewRef.current, gifStart);
+    }
+  }, [frameTime, gifStart, open, tab]);
 
   const handleGifGenerate = async () => {
     if (!videoUrl) return;
@@ -188,7 +228,10 @@ export function ThumbnailPicker({
           </DialogTitle>
         </DialogHeader>
 
-        <Tabs value={tab} onValueChange={(v) => setTab(v as Tab)}>
+        <Tabs
+          value={tab}
+          onValueChange={(v) => setTab(v as ThumbnailPickerTab)}
+        >
           <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="upload">
               <IconUpload className="w-4 h-4 mr-1" />

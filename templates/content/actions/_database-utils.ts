@@ -38,6 +38,7 @@ import {
   parsePropertyValue,
   type DocumentPropertyType,
 } from "../shared/properties.js";
+import { deleteBlocksFieldIdentity } from "./_blocks-field-identity.js";
 import { favoriteDocumentIds } from "./_content-favorites.js";
 import {
   listContentOrganizationMemberships,
@@ -201,6 +202,15 @@ function canManageRole(role: string | undefined) {
 
 function canEditRole(role: string | undefined) {
   return role === "owner" || role === "admin" || role === "editor";
+}
+
+function canCommentRole(role: string | undefined) {
+  return (
+    role === "owner" ||
+    role === "admin" ||
+    role === "editor" ||
+    role === "commenter"
+  );
 }
 
 function strongerRole(current: ShareRole | null, next: ShareRole): ShareRole {
@@ -427,6 +437,7 @@ function serializeDocument(
     visibility: doc.visibility,
     accessRole,
     canView,
+    canComment: canCommentRole(accessRole),
     canEdit: canEditRole(accessRole),
     canManage: canManageRole(accessRole),
     databaseMembership: membership
@@ -1446,15 +1457,21 @@ export async function deleteDatabaseDataForDocument(
       .from(schema.documentPropertyDefinitions)
       .where(eq(schema.documentPropertyDefinitions.databaseId, database.id));
 
-    for (const definition of definitions) {
+    const definitionIds = definitions.map((definition) => definition.id);
+    if (definitionIds.length > 0) {
+      await deleteBlocksFieldIdentity({ db, propertyIds: definitionIds });
       await db
         .delete(schema.documentPropertyValues)
-        .where(eq(schema.documentPropertyValues.propertyId, definition.id));
+        .where(
+          inArray(schema.documentPropertyValues.propertyId, definitionIds),
+        );
       // Independent Blocks-field content is keyed by property id; drop it so
       // deleting a database leaves no orphaned document_block_field_contents.
       await db
         .delete(schema.documentBlockFieldContents)
-        .where(eq(schema.documentBlockFieldContents.propertyId, definition.id));
+        .where(
+          inArray(schema.documentBlockFieldContents.propertyId, definitionIds),
+        );
     }
     const sources = await db
       .select({ id: schema.contentDatabaseSources.id })
@@ -1516,6 +1533,7 @@ export async function deleteDatabaseDataForDocument(
     db,
   );
   if (item) {
+    await deleteBlocksFieldIdentity({ db, documentId });
     await db
       .delete(schema.contentDatabaseItemKeyClaims)
       .where(eq(schema.contentDatabaseItemKeyClaims.documentId, documentId));

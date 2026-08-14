@@ -1351,7 +1351,7 @@ async function processIncomingMessage(
                 // leave a user-facing Slack reply empty.
                 maxOutputTokens: resolveMainChatMaxOutputTokens(resolvedModel),
                 // Explicitly resolve the normal chat default so an empty-final
-                // retry can step its reasoning effort down rather than
+                // retry can step its effort down rather than
                 // repeatedly letting the engine choose Medium.
                 reasoningEffort: normalizeReasoningEffortForRequest(
                   resolvedModel,
@@ -2150,7 +2150,7 @@ function extractSlackInputRequest(
   completedRun: ActiveRun,
 ): { text: string } | null {
   const events = completedRun.events.map((runEvent) => runEvent.event);
-  const didRequestInput = events.some(
+  const delivered = events.find(
     (event) =>
       event.type === "tool_done" &&
       event.tool === "ask-question" &&
@@ -2158,11 +2158,21 @@ function extractSlackInputRequest(
         "Asked the user a clarifying question and rendered it in the chat.",
       ),
   );
-  if (!didRequestInput) return null;
+  if (!delivered) return null;
 
+  // Match the start to the delivered call by id. A turn can also contain
+  // `ask-question` calls that never ran — the loop skips the rest of the
+  // message once one of them ends the turn, but still emits their start events
+  // — and scanning for the last start would project a question the user's chat
+  // never showed.
+  const deliveredId = delivered.type === "tool_done" ? delivered.id : "";
   for (let index = events.length - 1; index >= 0; index--) {
     const event = events[index];
-    if (event.type !== "tool_start" || event.tool !== "ask-question") {
+    if (
+      event.type !== "tool_start" ||
+      event.tool !== "ask-question" ||
+      event.id !== deliveredId
+    ) {
       continue;
     }
     const input = event.input as Record<string, unknown> | undefined;

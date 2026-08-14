@@ -87,6 +87,7 @@ export {
   identitySsoLoginButtonHtml,
   IDENTITY_SSO_PROVIDER_ID,
   IDENTITY_SSO_SCOPE,
+  IDENTITY_SSO_DESKTOP_COMPLETE_PATH,
 } from "./identity-sso.js";
 export { requireEnvKey, type MissingKeyResponse } from "./missing-key.js";
 export {
@@ -107,6 +108,8 @@ export {
   type ActionEntry,
   type ScriptEntry,
   type ProductionAgentOptions,
+  type AgentActionSurface,
+  type AgentActionSurfaceDetails,
   type ActionTool,
   type ScriptTool,
   type AgentMessage,
@@ -541,6 +544,7 @@ export {
   builderDesignSystemUrl,
   builderProjectBranchUrl,
   buildBuilderDesignSystemIndexFiles,
+  collectBuilderDesignSystemGitHubFiles,
   createBuilderDesignSystemProxyFields,
   fetchBuilderDesignSystemDecodeJobStatus,
   fetchBuilderDesignSystemDocs,
@@ -562,6 +566,9 @@ export {
   type BuilderDesignSystemIndexFromSourcesOptions,
   type BuilderDesignSystemIndexOptions,
   type BuilderDesignSystemIndexResult,
+  type BuilderDesignSystemGitHubFile,
+  type BuilderDesignSystemGitHubFileCollection,
+  type BuilderDesignSystemGitHubSource,
   type BuilderDesignSystemUploadAttachment,
   type BuilderDesignSystemUploadSlot,
   type BuilderDesignSystemProxyFields,

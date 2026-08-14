@@ -28,6 +28,11 @@ export {
 export { injectDocumentMarkup } from "./html-document.js";
 export { withBuilderUtmTrackingParams } from "./builder-link-tracking.js";
 export {
+  AGENT_NATIVE_DOCS_ORIGIN,
+  docsUrl,
+  type DocsUrlOptions,
+} from "./docs-url.js";
+export {
   buildRuntimeConfigPrompt,
   formatRuntimeConfigReport,
   getRuntimeConfigReport,
@@ -52,6 +57,7 @@ export {
   assertValidWorkspaceAppId,
   getWorkspaceAppIdValidationError,
   isValidWorkspaceAppIdFormat,
+  normalizeWorkspaceAppId,
 } from "./workspace-app-id.js";
 export {
   DEFAULT_WORKSPACE_APP_AUDIENCE,

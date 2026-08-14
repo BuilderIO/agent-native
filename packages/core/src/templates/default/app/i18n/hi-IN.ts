@@ -268,6 +268,8 @@ const messages = {
     publicDescription: "लिंक से साइन इन किया गया कोई भी व्यक्ति देख सकता है",
     viewer: "Viewer",
     viewerDescription: "देख सकते हैं",
+    commenter: "टिप्पणीकार",
+    commenterDescription: "देख और टिप्पणियां जोड़ सकते हैं",
     editor: "Editor",
     editorDescription: "संपादित कर सकते हैं",
     admin: "व्यवस्थापक",

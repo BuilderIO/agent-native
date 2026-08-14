@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { bodyToHtml } from "./utils";
+import { bodyToHtml, formatShortcut } from "./utils";
 
 describe("bodyToHtml", () => {
   it("matches sent email link rendering for angle-bracket pasted urls", () => {
@@ -11,5 +11,12 @@ describe("bodyToHtml", () => {
     expect(html).toContain(`>${url}</a>`);
     expect(html).not.toContain("&lt;");
     expect(html).not.toContain("&gt;");
+  });
+});
+
+describe("formatShortcut", () => {
+  it("separates shortcut keys with spaces", () => {
+    expect(formatShortcut("cmd+shift+enter")).not.toContain("+");
+    expect(formatShortcut("cmd+shift+enter")).toContain("Enter");
   });
 });

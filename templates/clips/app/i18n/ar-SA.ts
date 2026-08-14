@@ -255,6 +255,15 @@ const messages = {
     linkExpired: "انتهت صلاحية الرابط",
     linkExpiredMessage:
       "قام المنشئ بتعيين انتهاء الصلاحية على رابط المشاركة هذا.",
+    privateClip: "مقطع خاص",
+    privateClipMessage: "هذا المقطع خاص. اطلب الوصول وسيتم إخطار المالك.",
+    privateClipSignedOutMessage:
+      "هذا المقطع خاص. سجّل الدخول لطلب الوصول من المالك.",
+    requestAccess: "طلب الوصول",
+    requestingAccess: "جارٍ طلب الوصول...",
+    accessRequested: "تم طلب الوصول",
+    accessRequestSent: "تم إخطار مالك المقطع.",
+    accessRequestFailed: "تعذّر طلب الوصول. حاول مرة أخرى.",
     clipUnavailable: "المقطع غير متاح",
     clipUnavailableMessage:
       "هذا التسجيل ليس عامًا، أو أن الرابط غير صالح. إذا كان هذا هو المقطع الخاص بك، فقم بتسجيل الدخول للتحقق من الوصول.",
@@ -510,8 +519,13 @@ const messages = {
     },
     roles: {
       viewer: "مشاهد",
+      commenter: "معلّق",
       editor: "محرر",
       admin: "مسؤول",
+    },
+    recordingCommenter: {
+      label: "معلّق",
+      description: "يمكنه العرض والتعليق والتفاعل",
     },
   },
   quickAsk: {
@@ -646,13 +660,13 @@ const messages = {
     collapse: "طي",
     changelogMarkdown: `# سجل التغييرات
 
-يتم توثيق كل التغييرات المرئية لمستخدمي Clips هنا. يمكنك فتحه في أي وقت من قائمة الأوامر (Cmd+K -> "ما الجديد") أو من الإعدادات.
+يتم توثيق كل التغييرات المرئية لمستخدمي Clips هنا. يمكنك فتحه في أي وقت من قائمة الأوامر (Cmd K -> "ما الجديد") أو من الإعدادات.
 
 ## 2026-06-23
 
 ### تمت الإضافة
 
-- يمكنك الآن رؤية الجديد مباشرة داخل Clips. أصبح سجل التغييرات متاحًا في قائمة الأوامر (Cmd+K) وفي الإعدادات.`,
+- يمكنك الآن رؤية الجديد مباشرة داخل Clips. أصبح سجل التغييرات متاحًا في قائمة الأوامر (Cmd K) وفي الإعدادات.`,
     playback: "التشغيل",
     defaultPlaybackSpeed: "سرعة التشغيل الافتراضية",
     playbackDescription: "تُطبق تلقائيًا عند فتح تسجيل.",
@@ -978,6 +992,8 @@ const messages = {
     includeTranscriptDescription:
       "يمكن لأي شخص لديه حق الوصول إلى هذا الاجتماع قراءة النص الكامل.",
     transcriptUnavailable: "النص ليس جاهزًا بعد.",
+    agentLinkDescription:
+      "يتيح هذا الرابط المؤقت للوكلاء قراءة ملاحظات الاجتماع هذه من دون جعلها عامة. تنتهي صلاحيته بعد ساعتين.",
     transcript: "النص",
     copyTranscript: "نسخ النص",
     transcriptCopied: "تم نسخ النص",
@@ -1201,7 +1217,7 @@ const messages = {
     seekTo: "Seek to {{time}} (مترجم)",
   },
   editorToolbar: {
-    undoTooltip: "Undo (Cmd/Ctrl+Z) (مترجم)",
+    undoTooltip: "Undo (Cmd/Ctrl Z) (مترجم)",
     playPauseTooltip: "Play / Pause (Space) (مترجم)",
     sourceDuration: "({{duration}} src) (مترجم)",
     previewSpeed: "Preview speed (مترجم)",
@@ -1550,10 +1566,6 @@ const messages = {
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (مترجم)",
     connectGoogleCalendar: "Connect Google Calendar (مترجم)",
-    googleMayShowWarning: "مراجعة صلاحيات Google",
-    googleNotVerifiedTitle: "تحقق من التطبيق قبل الاتصال",
-    googleWarningBeforeAdvanced:
-      "تأكد من أن اسم التطبيق وصلاحيات Calendar المطلوبة تتطابق مع بيئة Clips التي تثق بها. إذا عرض Google تحذيرًا بأن التطبيق غير موثّق أو بدت الهوية غير مألوفة، فتوقف وتواصل مع مسؤول مساحة العمل.",
     desktopReminder:
       "Connect Google Calendar, keep Clips Desktop open, then click Start notes from the reminder or the menu bar when your meeting begins. (مترجم)",
     getDesktopApp: "Get desktop app (مترجم)",
@@ -1562,6 +1574,16 @@ const messages = {
     calendarConnected: "Calendar connected (مترجم)",
     calendarDisconnected: "Calendar disconnected (مترجم)",
     calendarSettings: "Calendar settings (مترجم)",
+    calendarAccountsButton: "التقويمات",
+    connectedAccounts: "الحسابات المتصلة",
+    calendarConnectedLabel: "متصل",
+    calendarNeedsReconnectLabel: "تحتاج إلى إعادة الاتصال",
+    calendarDisconnectedLabel: "غير متصل",
+    calendarStatusUnavailable: "الحالة غير متاحة",
+    reconnectCalendar: "إعادة الاتصال بالتقويم",
+    addAnotherCalendarAccount: "إضافة حساب آخر",
+    connectCalendar: "توصيل التقويم",
+    disconnectCalendarAccount: "فصل حساب",
     connectCalendarReminder:
       "Connect Google Calendar for meeting reminders. (مترجم)",
     disconnectGoogleCalendarTitle: "Disconnect Google Calendar? (مترجم)",

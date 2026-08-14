@@ -10,7 +10,7 @@ import {
   isPrimaryBlocksField,
 } from "../shared/properties.js";
 import "../server/db/index.js";
-import { listPropertiesForDocument } from "./_property-utils.js";
+import { listPropertiesForAllDocumentDatabases } from "./_property-utils.js";
 
 export default defineAction({
   description:
@@ -39,10 +39,15 @@ export default defineAction({
     if (!access) throw new Error(`Document "${id}" not found`);
 
     const doc = access.resource;
-    const properties = await listPropertiesForDocument(doc);
+    const properties = await listPropertiesForAllDocumentDatabases(doc);
     const blocksFields = properties
       .filter((property) => isBlocksPropertyType(property.definition.type))
       .map((property) => {
+        if (!property.definition.databaseId) {
+          throw new Error(
+            `Blocks field "${property.definition.id}" is not attached to a database`,
+          );
+        }
         if (!property.blocksField) {
           throw new Error(
             `Blocks field "${property.definition.id}" has no identity state`,
@@ -60,6 +65,7 @@ export default defineAction({
             ? property.blocksField
             : { ...property.blocksField, identityStatus: "stale" as const };
         return {
+          databaseId: property.definition.databaseId,
           propertyId: property.definition.id,
           name: property.definition.name,
           position: property.definition.position,

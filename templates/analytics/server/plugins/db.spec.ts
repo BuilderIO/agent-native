@@ -243,6 +243,69 @@ describe("analytics db.ts wires ensureAdditiveColumns after runMigrations", () =
     expect(jobEntry).not.toContain("FROM analytics_events");
   });
 
+  it("stores BigQuery backfill progress in additive PostgreSQL and SQLite shard tables", () => {
+    const shardStart = dbTsSource.indexOf("version: 142,");
+    const shardEnd = dbTsSource.indexOf("\n    },", shardStart);
+    const shardEntry = dbTsSource.slice(shardStart, shardEnd);
+
+    expect(shardStart).toBeGreaterThan(-1);
+    expect(shardEnd).toBeGreaterThan(shardStart);
+    expect(shardEntry).toContain('name: "analytics-bigquery-backfill-shards"');
+    expect(shardEntry).toContain("postgres:");
+    expect(shardEntry).toContain("sqlite:");
+    for (const column of [
+      "shard_id",
+      "job_id",
+      "org_id",
+      "owner_email",
+      "table_ref",
+      "start_at",
+      "start_id",
+      "end_at",
+      "end_id",
+      "end_inclusive",
+      "batch_size",
+      "backfill_cursor",
+      "backfill_cursor_at",
+      "backfill_cursor_id",
+      "status",
+      "copied_count",
+      "lease_token",
+      "lease_expires_at",
+      "next_run_at",
+      "last_error",
+      "completed_at",
+      "updated_at",
+    ]) {
+      expect(shardEntry).toContain(column);
+    }
+    expect(shardEntry).toContain(
+      "CHECK (status IN ('pending', 'running', 'completed'))",
+    );
+    expect(shardEntry).toContain("analytics_bigquery_backfill_shards_due_idx");
+    expect(shardEntry).toContain(
+      "analytics_bigquery_backfill_shards_scope_time_idx",
+    );
+    expect(shardEntry).not.toContain("ALTER TABLE");
+    expect(shardEntry).not.toContain("FROM analytics_events");
+
+    const shardColumnsEntryStart = dbTsSource.indexOf("version: 143,");
+    const shardColumnsEntryEnd = dbTsSource.indexOf(
+      "\n    },",
+      shardColumnsEntryStart,
+    );
+    const shardColumnsEntry = dbTsSource.slice(
+      shardColumnsEntryStart,
+      shardColumnsEntryEnd,
+    );
+    expect(shardColumnsEntry).toContain(
+      "analytics-bigquery-backfill-shard-columns",
+    );
+    expect(shardColumnsEntry).toContain(
+      "analytics_bigquery_backfill_shards_job_due_idx",
+    );
+  });
+
   it("does not serialize foreground rollup ingest behind historical backfill", () => {
     expect(analyticsRollupsTsSource).not.toContain("pg_advisory_xact_lock");
     expect(analyticsRollupsTsSource).not.toContain(

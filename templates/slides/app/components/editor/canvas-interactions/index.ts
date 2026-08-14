@@ -3,6 +3,7 @@ export {
   createSlidesCanvasInteractionCore,
   isWithinSlidesCanvasEdgeMoveBand,
   resolveSlidesCanvasDragTarget,
+  resolveSlidesCanvasNudge,
   resolveSlidesCanvasPointerIntent,
   slidesCanvasInteractionCore,
   SLIDES_CANVAS_EDGE_MOVE_BAND,

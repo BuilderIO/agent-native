@@ -2,10 +2,18 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
+import type { ActionEntry } from "../agent/production-agent.js";
+import { attachToolSearch } from "../agent/tool-search.js";
 import type { FrameworkToolGroup } from "../framework-tools.js";
 import {
   _agentChatPromptSectionsForTests,
+  buildLeanSystemPrompt,
   buildLeanRunPolicyPrompt,
+  filterFrameworkPromptToSurface,
+  filterPromptActionsToSurface,
+  filterRuntimeActionsToSurface,
+  resolveProductionCodeExecutionForActionSurface,
+  resolveHostedBuilderHandoff,
   resolveInteractiveAgentRunOptions,
   shouldBlockInProductCodeEditingSurface,
 } from "./agent-chat-plugin.js";
@@ -18,6 +26,7 @@ import {
   buildFrameworkCore,
   buildFrameworkCoreCompact,
 } from "./prompts/index.js";
+import { runWithRequestContext } from "./request-context.js";
 
 describe("shouldBlockInProductCodeEditingSurface", () => {
   it("blocks app-rendered chat surfaces, including legacy iframe labels", () => {
@@ -80,6 +89,21 @@ describe("lean production run policy", () => {
       restriction + codeExecution,
     );
   });
+
+  it("keeps resource-backed AGENTS.md in the lean system prompt", () => {
+    const agents =
+      '<resource name="AGENTS.md" scope="personal" path="AGENTS.md">\n# Saved rule\nAlways preserve the requested format.\n</resource>';
+
+    expect(
+      buildLeanSystemPrompt({
+        basePrompt: "lean base",
+        resources: `\n\n${agents}`,
+        additionalFramework: "policy",
+        cacheSplit: "split",
+        extra: "extra",
+      }),
+    ).toContain(agents);
+  });
 });
 
 describe("interactive agent run options", () => {
@@ -95,6 +119,234 @@ describe("interactive agent run options", () => {
       runNoProgressTimeoutMs: 3 * 60_000,
       durableBackgroundRuns: true,
     });
+  });
+});
+
+describe("request-scoped action surface", () => {
+  it("restores the durable worker org from the validated persisted surface", () => {
+    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+      encoding: "utf-8",
+    });
+
+    expect(source).toMatch(
+      /const persistedSurface = readPersistedActionSurface\(\s*workerBody,\s*"__resolvedActionSurface",\s*\);[\s\S]*?seedBackgroundAgentRunOwnerContext\([\s\S]*?persistedSurface\?\.orgId,/,
+    );
+  });
+
+  it("removes guidance for actions omitted from the request surface", () => {
+    const prompt = [
+      "Keep this general guidance.",
+      "Use `tool-search` before concluding a capability is unavailable.",
+      "Delegate with `agent-teams` for independent work.",
+      "Call `allowed-action` when it matches the request.",
+    ].join("\n");
+    const actions = {
+      "tool-search": {} as ActionEntry,
+      "agent-teams": {} as ActionEntry,
+      "allowed-action": {} as ActionEntry,
+    };
+
+    expect(
+      filterFrameworkPromptToSurface(prompt, actions, ["allowed-action"]),
+    ).toBe(
+      [
+        "Keep this general guidance.",
+        "Call `allowed-action` when it matches the request.",
+      ].join("\n"),
+    );
+  });
+
+  it("removes denied discovery, team, and job guidance from the default framework prompt", () => {
+    const { PROD_FRAMEWORK_PROMPT_COMPACT } =
+      _agentChatPromptSectionsForTests.buildFrameworkPrompts();
+    const filtered = filterFrameworkPromptToSurface(
+      PROD_FRAMEWORK_PROMPT_COMPACT,
+      {
+        "tool-search": {} as ActionEntry,
+        "agent-teams": {} as ActionEntry,
+        "manage-jobs": {} as ActionEntry,
+      },
+      [],
+    );
+
+    expect(filtered).not.toContain("tool-search");
+    expect(filtered).not.toContain("agent-teams");
+    expect(filtered).not.toContain("manage-jobs");
+    expect(filtered).toContain("### How You Work");
+  });
+
+  it("downgrades trusted production code execution to the sandbox for scoped surfaces", () => {
+    expect(
+      resolveProductionCodeExecutionForActionSurface("trusted", true),
+    ).toBe("sandboxed");
+    expect(
+      resolveProductionCodeExecutionForActionSurface("trusted", false),
+    ).toBe("trusted");
+    expect(resolveProductionCodeExecutionForActionSurface("off", true)).toBe(
+      "off",
+    );
+  });
+
+  it("wires the safe code-execution mode into the interactive production registry", () => {
+    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+      encoding: "utf-8",
+    });
+
+    expect(source).toMatch(
+      /resolveProductionCodeExecutionForActionSurface\(\s*resolvedProdCodeExec,\s*Boolean\(options\?\.resolveActionSurface\),/,
+    );
+    expect(source).toMatch(
+      /!canToggle && effectiveProdCodeExec === "trusted"\s*\? prodCodingTools/,
+    );
+  });
+
+  it("removes denied actions before the actions prompt is generated", () => {
+    const actions = {
+      allowed: {
+        tool: {
+          description: "Allowed action",
+          parameters: { type: "object", properties: {} },
+        },
+        run: async () => "allowed",
+        chatUI: { renderer: "core.allowed" },
+      },
+      denied: {
+        tool: {
+          description: "Denied action",
+          parameters: { type: "object", properties: {} },
+        },
+        run: async () => "denied",
+        chatUI: { renderer: "core.denied" },
+      },
+    } as never;
+
+    const prompt = _agentChatPromptSectionsForTests.generateActionsPrompt(
+      filterPromptActionsToSurface(actions, ["allowed"]),
+      "tool",
+    );
+
+    expect(prompt).toContain("core.allowed");
+    expect(prompt).not.toContain("Denied action");
+    expect(prompt).not.toContain("core.denied");
+  });
+
+  it("forwards the resolver into every interactive production handler", () => {
+    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+      encoding: "utf-8",
+    });
+
+    expect(
+      source.match(/resolveActionSurface: options\?\.resolveActionSurface,/g),
+    ).toHaveLength(3);
+  });
+
+  it("filters late-bound sandbox bridge registries to the request surface", async () => {
+    const actions = attachToolSearch({
+      allowed: {
+        tool: {
+          description: "Allowed reader",
+          parameters: { type: "object", properties: {} },
+        },
+        readOnly: true,
+        run: async () => "allowed",
+      },
+      denied: {
+        tool: {
+          description: "Denied reader",
+          parameters: { type: "object", properties: {} },
+        },
+        readOnly: true,
+        run: async () => "denied",
+      },
+    } satisfies Record<string, ActionEntry>);
+
+    await runWithRequestContext(
+      {
+        run: {
+          allowedActionNames: ["allowed", "tool-search", "run-code"],
+        },
+      },
+      async () => {
+        const filtered = filterRuntimeActionsToSurface(actions);
+        expect(Object.keys(filtered)).toEqual(["allowed", "tool-search"]);
+        const search = await filtered["tool-search"].run({});
+        expect(
+          search.results.map((item: { name: string }) => item.name),
+        ).toEqual(["allowed"]);
+      },
+    );
+  });
+
+  it("uses the request-filtered supplier for production, lean, and dev sandbox meta-tools", () => {
+    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+      encoding: "utf-8",
+    });
+
+    expect(
+      source.match(
+        /\(\) => filterRuntimeActionsToSurface\([^)]*RunCodeToolActions\)/g,
+      ),
+    ).toHaveLength(3);
+  });
+
+  it("filters the action registry before agent-team tasks snapshot it", () => {
+    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+      encoding: "utf-8",
+    });
+
+    expect(source).toMatch(
+      /getActions:\s*\(\) =>\s*filterRuntimeActionsToSurface\(buildSubAgentActions\(\)\),/,
+    );
+    expect(source).toMatch(
+      /baseSystemPrompt: filterFrameworkPromptToSurface\(\s*basePrompt,\s*prodActions,\s*payload\.allowedActionNames,/,
+    );
+  });
+});
+
+describe("hosted Builder handoff surface", () => {
+  const connectBuilder = {
+    tool: { description: "Render the Builder handoff.", parameters: {} },
+    run: async () => "card",
+  };
+
+  it("promotes connect-builder only for hosted registries", () => {
+    expect(
+      resolveHostedBuilderHandoff({ "connect-builder": connectBuilder }, false),
+    ).toEqual({ "connect-builder": connectBuilder });
+    expect(
+      resolveHostedBuilderHandoff({ "connect-builder": connectBuilder }, true),
+    ).toEqual({});
+    expect(resolveHostedBuilderHandoff({}, false)).toEqual({});
+  });
+
+  it("wires the hosted handoff into the first-request and lean registries", () => {
+    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+      encoding: "utf-8",
+    });
+    expect(source).toMatch(
+      /const hostedBuilderHandoff = resolveHostedBuilderHandoff\(\s*browserTools,\s*canToggle,\s*\);/,
+    );
+
+    const initialNamesStart = source.indexOf(
+      "const effectiveInitialToolNames = [",
+    );
+    const initialNamesBlock = source.slice(
+      initialNamesStart,
+      initialNamesStart + 900,
+    );
+    expect(initialNamesBlock).toContain(
+      "...Object.keys(hostedBuilderHandoff),",
+    );
+
+    const leanEntriesStart = source.indexOf(
+      "const leanActionEntries: Record<string, ActionEntry> = {",
+    );
+    const leanEntriesBlock = source.slice(
+      leanEntriesStart,
+      leanEntriesStart + 700,
+    );
+    expect(leanEntriesBlock).toContain("...workspaceFileActions,");
+    expect(leanEntriesBlock).toContain("...hostedBuilderHandoff,");
   });
 });
 
@@ -226,6 +478,20 @@ describe("framework tool gating — wiring guards", () => {
     // bypass the conflict check and split the app's tool surface in two.
     expect(source).not.toContain("options?.databaseTools");
     expect(source).not.toContain("options?.extensionTools");
+  });
+});
+
+describe("lean workspace-app surface — wiring guards", () => {
+  it("keeps cross-app discovery and delegation available when enabled", () => {
+    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+      encoding: "utf-8",
+    });
+
+    expect(source).toContain(
+      "...(a2aAgentDelegationEnabled ? callAgentScript : {}),",
+    );
+    expect(source).toContain('generateActionsPrompt(callAgentScript, "tool")');
+    expect(source).toContain("leanActionsPrompt");
   });
 });
 

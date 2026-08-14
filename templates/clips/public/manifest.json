@@ -3,7 +3,6 @@
   "short_name": "Clips",
   "description": "Async video — record your screen, share a link, watch it back.",
   "start_url": ".",
-  "display": "standalone",
   "background_color": "#0F0F14",
   "theme_color": "#18181B",
   "icons": [

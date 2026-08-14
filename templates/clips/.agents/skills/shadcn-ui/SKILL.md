@@ -60,7 +60,7 @@ behavior comes from the company design system.
 ## Component Composition
 
 - Use existing primitives before custom markup: `Alert` for callouts, `Badge` for small status labels, `Separator` for dividers, `Skeleton` for placeholders, `Table` for tabular data, and `Card` for framed content.
-- Use full card anatomy when appropriate: `CardHeader`, `CardTitle`, `CardDescription`, `CardContent`, and `CardFooter`.
+- Compose cards from `CardHeader`, `CardTitle`, `CardContent`, and `CardFooter`. Leave `CardDescription` out: a card gets a title or a description, never both. See `frontend-design` → Default Surface Density.
 - Dialog, Sheet, Drawer, and AlertDialog content must include an accessible title. Use visually hidden titles only when the visible UI already communicates the title.
 - Put items inside their group components: `SelectItem` in `SelectGroup`, `DropdownMenuItem` in `DropdownMenuGroup`, `CommandItem` in `CommandGroup`, and equivalent menu groups.
 - `TabsTrigger` belongs inside `TabsList`.

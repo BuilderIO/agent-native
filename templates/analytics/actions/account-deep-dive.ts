@@ -362,7 +362,7 @@ async function loadGongEvidence(options: {
 
 export default defineAction({
   description:
-    "Build a Fusion-quality account/deal deep-dive evidence bundle from HubSpot and Gong in one bounded read-only call. Use this first for named account, customer, deal, opportunity, renewal, risk, or 'deep dive' prompts before synthesizing the answer.",
+    "Build a bounded CRM/Gong account or deal evidence bundle from HubSpot and Gong. Use this first for named account, customer, deal, opportunity, renewal, risk, or deep-dive prompts. This is not a complete account-health result: for account health, follow it with verified product-usage queries for the resolved customer using the account-health skill.",
   schema: z.object({
     query: z
       .string()
@@ -414,6 +414,7 @@ export default defineAction({
   http: { method: "GET" },
   readOnly: true,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
+  grounding: true,
   run: async (args) => {
     const trimmedQuery = args.query.trim();
     const gaps: string[] = [];
@@ -601,10 +602,11 @@ export default defineAction({
         emailCount: emails.length,
         gongCallCount: gong.calls.length,
         transcriptCount: gong.transcripts.length,
+        productUsageIncluded: false,
         gaps,
       },
       guidance:
-        "Synthesize a Fusion-style deal deep dive from this evidence. Include: executive summary, company/deal overview, key contacts and roles, dated timeline, Gong conversation evidence with call dates/titles, current state and risk assessment, likely blockers, recommended next steps, and methodology/gaps. Attribute every claim to HubSpot or Gong evidence and distinguish customer statements from internal notes.",
+        "Synthesize a CRM/Gong deal deep dive from this evidence. Include: executive summary, company/deal overview, key contacts and roles, dated timeline, Gong conversation evidence with call dates/titles, current state and risk assessment, likely blockers, recommended next steps, and methodology/gaps. Attribute every claim to HubSpot or Gong evidence and distinguish customer statements from internal notes. This bundle does not include product usage, contract utilization, adoption, or cross-source identity validation; for account health, run the account-health checks and report those gaps until verified usage evidence is present.",
     };
   },
 });

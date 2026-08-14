@@ -2,8 +2,10 @@
 name: creative-context
 description: >-
   Reuse approved dashboards and creative context while respecting named
-  contexts, immutable packs, provenance, and opt-out state.
-scope: app
+  contexts, immutable packs, provenance, and opt-out state. Use when building
+  or refining a dashboard, or when the user references saved or approved
+  context.
+scope: both
 metadata:
   internal: true
 ---

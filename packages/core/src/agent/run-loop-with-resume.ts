@@ -43,24 +43,40 @@ import {
 } from "./tool-call-journal.js";
 import type { AgentChatEvent } from "./types.js";
 
+/**
+ * `persisted: false` means the durable half of the turn could not be read, so
+ * `events` holds only what this invocation saw. Callers that decide whether to
+ * DISCARD user-visible output must not read that as "nothing else happened".
+ */
 async function readCurrentTurnEventsForResume(
   threadId: string | undefined,
+  turnId: string | undefined,
   localEvents: readonly AgentChatEvent[] = [],
-): Promise<AgentChatEvent[]> {
+): Promise<{ events: AgentChatEvent[]; persisted: boolean }> {
   let persistedEvents: AgentChatEvent[] = [];
+  let persisted = true;
   try {
+    // Without the turnId this can return the PREVIOUS turn's events — see
+    // `getCurrentTurnEventsForThread`, whose run row is written without await.
     persistedEvents = threadId
-      ? await getCurrentTurnEventsForThread(threadId)
+      ? await getCurrentTurnEventsForThread(threadId, turnId)
       : [];
-  } catch {
-    persistedEvents = [];
+  } catch (err) {
+    persisted = false;
+    console.warn(
+      "[run-loop] current-turn ledger read failed:",
+      err instanceof Error ? err.message : String(err),
+    );
   }
-  if (localEvents.length === 0) return persistedEvents;
+  if (localEvents.length === 0) return { events: persistedEvents, persisted };
   const seen = new Set(persistedEvents.map((event) => JSON.stringify(event)));
-  return [
-    ...persistedEvents,
-    ...localEvents.filter((event) => !seen.has(JSON.stringify(event))),
-  ];
+  return {
+    events: [
+      ...persistedEvents,
+      ...localEvents.filter((event) => !seen.has(JSON.stringify(event))),
+    ],
+    persisted,
+  };
 }
 
 function actionPreparationContinuationOptions(
@@ -116,9 +132,14 @@ async function appendContinuationAndJournal(
   messages: EngineMessage[],
   reason: AgentLoopContinuationReason | "rate_limited",
   threadId: string | undefined,
+  turnId: string | undefined,
   localEvents: readonly AgentChatEvent[] = [],
 ): Promise<void> {
-  const events = await readCurrentTurnEventsForResume(threadId, localEvents);
+  const { events } = await readCurrentTurnEventsForResume(
+    threadId,
+    turnId,
+    localEvents,
+  );
   appendAgentLoopContinuation(
     messages,
     reason,
@@ -135,26 +156,35 @@ export async function appendDurableContinuationContext(
   messages: EngineMessage[],
   reason: AgentLoopContinuationReason,
   threadId: string,
+  turnId?: string,
 ): Promise<void> {
-  await appendContinuationAndJournal(messages, reason, threadId);
+  await appendContinuationAndJournal(messages, reason, threadId, turnId);
 }
 
-async function hasCompletedSideEffectToolCallInCurrentTurn(
+/**
+ * `"unknown"` is not `"none"`: the only caller uses this to decide whether to
+ * emit `clear`, and `clear` WIPES user-visible output. A transient ledger error
+ * must not delete the tool cards that are the user's only proof a side effect
+ * landed.
+ */
+async function completedSideEffectInCurrentTurn(
   threadId: string | undefined,
+  turnId: string | undefined,
   localEvents: readonly AgentChatEvent[] = [],
-): Promise<boolean> {
-  try {
-    const events = await readCurrentTurnEventsForResume(threadId, localEvents);
-    if (events.length === 0) return false;
-    return events.some(
-      (event) =>
-        event.type === "tool_done" &&
-        event.completedSideEffect === true &&
-        event.isError !== true,
-    );
-  } catch {
-    return false;
-  }
+): Promise<"some" | "none" | "unknown"> {
+  const { events, persisted } = await readCurrentTurnEventsForResume(
+    threadId,
+    turnId,
+    localEvents,
+  );
+  const found = events.some(
+    (event) =>
+      event.type === "tool_done" &&
+      event.completedSideEffect === true &&
+      event.isError !== true,
+  );
+  if (found) return "some";
+  return persisted ? "none" : "unknown";
 }
 
 function internalContinuationReasonForAttempt(
@@ -438,10 +468,11 @@ export async function runAgentLoopDirectWithSoftTimeout(
         lastAttemptWasUnfinishedContinuation = true;
         const continuationEvents = [...localTurnEvents];
         if (
-          !(await hasCompletedSideEffectToolCallInCurrentTurn(
+          (await completedSideEffectInCurrentTurn(
             opts.threadId,
+            opts.turnId,
             continuationEvents,
-          ))
+          )) === "none"
         ) {
           opts.send({ type: "clear" });
         }
@@ -449,6 +480,7 @@ export async function runAgentLoopDirectWithSoftTimeout(
           opts.messages,
           internalContinuationReason,
           opts.threadId,
+          opts.turnId,
           continuationEvents,
         );
         continue;
@@ -459,6 +491,7 @@ export async function runAgentLoopDirectWithSoftTimeout(
           opts.messages,
           "run_timeout",
           opts.threadId,
+          opts.turnId,
           localTurnEvents,
         );
         continue;
@@ -475,10 +508,11 @@ export async function runAgentLoopDirectWithSoftTimeout(
         // resumed model doesn't re-emit it and produce duplicated output.
         lastAttemptWasUnfinishedContinuation = true;
         if (
-          !(await hasCompletedSideEffectToolCallInCurrentTurn(
+          (await completedSideEffectInCurrentTurn(
             opts.threadId,
+            opts.turnId,
             localTurnEvents,
-          ))
+          )) === "none"
         ) {
           opts.send({ type: "clear" });
         }
@@ -486,6 +520,7 @@ export async function runAgentLoopDirectWithSoftTimeout(
           opts.messages,
           "run_timeout",
           opts.threadId,
+          opts.turnId,
           localTurnEvents,
         );
         continue;
@@ -507,10 +542,11 @@ export async function runAgentLoopDirectWithSoftTimeout(
         lastAttemptWasUnfinishedContinuation = true;
         backgroundRateLimitContinuations++;
         if (
-          !(await hasCompletedSideEffectToolCallInCurrentTurn(
+          (await completedSideEffectInCurrentTurn(
             opts.threadId,
+            opts.turnId,
             localTurnEvents,
-          ))
+          )) === "none"
         ) {
           opts.send({ type: "clear" });
         }
@@ -518,6 +554,7 @@ export async function runAgentLoopDirectWithSoftTimeout(
           opts.messages,
           "rate_limited",
           opts.threadId,
+          opts.turnId,
           localTurnEvents,
         );
         await waitForBackgroundRateLimitCooldown(upstreamSignal);
@@ -539,10 +576,11 @@ export async function runAgentLoopDirectWithSoftTimeout(
       if (!upstreamSignal.aborted && isResumableEngineError(err)) {
         lastAttemptWasUnfinishedContinuation = true;
         if (
-          !(await hasCompletedSideEffectToolCallInCurrentTurn(
+          (await completedSideEffectInCurrentTurn(
             opts.threadId,
+            opts.turnId,
             localTurnEvents,
-          ))
+          )) === "none"
         ) {
           opts.send({ type: "clear" });
         }
@@ -550,6 +588,7 @@ export async function runAgentLoopDirectWithSoftTimeout(
           opts.messages,
           continuationReasonForResumableError(err),
           opts.threadId,
+          opts.turnId,
           localTurnEvents,
         );
         continue;
@@ -594,10 +633,11 @@ export async function runAgentLoopDirectWithSoftTimeout(
     // Preserve completed tool cards: they are the user's only durable proof
     // that a side effect landed before the final assistant note timed out.
     if (
-      !(await hasCompletedSideEffectToolCallInCurrentTurn(
+      (await completedSideEffectInCurrentTurn(
         opts.threadId,
+        opts.turnId,
         localTurnEvents,
-      ))
+      )) === "none"
     ) {
       opts.send({ type: "clear" });
     }

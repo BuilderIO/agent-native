@@ -184,7 +184,7 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.agent-native.com
 整個模型依賴於一些故意的小保證：
 
 - **短暫的簽名權杖。**身分斷言是 `A2A_SECRET` 簽名的 JWT，具有 **≤ 2 分鐘** 到期時間和 `scope: "identity"`。它授權單次登入，並且不能長時間重播或重新用於 API/A2A 存取。
-- **嚴格的 `redirect_uri` 允許清單。** 預設情況下，調度僅重新導向到 `*.agent-native.com` 或本機主機。任意、方案相關 (`//host`) 和跨域重新導向目標都會被拒絕，因此權限無法轉變為開放重新導向或權杖滲透預言機。
+- **與應用程式綁定的嚴格 `redirect_uri` 允許清單。** 每個正式應用程式 ID 都對應一個精確的正式環境來源和回呼路徑；localhost 仍可用於開發。未知子網域、不相符的應用程式 ID、任意路徑和跨來源目標都會被拒絕。
 - **從經過驗證的權杖僅透過電子郵件加入。** 跨越信任邊界的*唯一*事物是簽名權杖中經過驗證的電子郵件。該應用程式不接受來自線路的使用者 ID、角色、組織成員資格或任何特權狀態 - 它從匹配的帳戶在本機派生所有內容。
 - **僅新增身分寫入。**連結可以不受影響地重複使用現有的同一電子郵件帳戶，也可以插入一個新帳戶。此路徑上不會發生任何身分行的更新、重新命名、重新指向或刪除。
 - **預設情況下關閉。**如果取消設定 `AGENT_NATIVE_IDENTITY_HUB_URL`，則整個功能將處於惰性狀態。
@@ -260,7 +260,7 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.yourcompany.com
 
 **重新導向允許清單。** 集線器（調度）在發出權杖之前驗證授權端點上的 `redirect_uri`。允許名單在`templates/dispatch/server/lib/identity-sso.ts`中設定：
 
-- **預設值：** 僅 `*.agent-native.com` 和 localhost（`DEFAULT_ALLOWED_HOST_SUFFIXES` 常量）。
+- **預設值：** 僅允許精確註冊的 Agent Native 應用程式 ID/來源組合和 localhost（`CANONICAL_IDENTITY_SSO_APP_ORIGINS`）。
 - **擴充功能它：**在 Dispatch 部署上設定 `IDENTITY_SSO_ALLOWED_HOST_SUFFIXES` 環境變數，並使用逗號分隔的其他主機後綴清單：
 
   ```bash
@@ -321,3 +321,8 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.agent-native.com
 - [Dispatch](/docs/dispatch) — 工作區身分授權和路由中心。
 - [Security & Data Scoping](/docs/security) - 僅附加資料寫入和每個帳戶範圍。
 - [Multi-App Workspaces](/docs/multi-app-workspace) — 統一的單來源部署，完全避免跨域 SSO。
+
+Dispatch 的 `desktop.workspace-sso` 旗標預設關閉，且只控制可用性；驗證、簽章、nonce、來源、回呼、工作階段及撤銷檢查一律強制執行。旗標關閉或無法讀取時，Desktop 不會變更逐一應用程式登入、登出或設定。
+User-Agent 中的 Canary 標記僅是可用性提示，不是遠端證明；驗證與授權皆不信任該標記。
+標準託管應用程式無需為每個應用程式設定身分中心環境變數，即可辨識封裝版 Desktop SSO Canary 的要求。一般瀏覽器和自行託管的應用程式仍需設定 `AGENT_NATIVE_IDENTITY_HUB_URL`。穩定版 Desktop 在後續版本獲得單獨核准前不會初始化代理程式。
+Canary 不會攔截匿名使用者前往應用程式登入頁面的導覽。使用者必須在 Desktop 設定中，為目前啟用的已註冊應用程式明確選擇工作區登入；一般應用程式登入仍是預設路徑。

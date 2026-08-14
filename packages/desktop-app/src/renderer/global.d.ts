@@ -17,6 +17,13 @@ type UpdateStatus =
   | { state: "downloaded"; version: string; releaseNotes?: string }
   | { state: "error"; message: string };
 
+type DesktopIdentityStatus =
+  | "idle"
+  | "signing-in"
+  | "signed-in"
+  | "sign-in-required"
+  | "failed";
+
 type CodeAgentRunStatus =
   | "queued"
   | "running"
@@ -695,6 +702,13 @@ interface ElectronAPI {
     ackActivation(requestId: string, appId?: string): void;
   };
 
+  identity: {
+    getStatus(): Promise<DesktopIdentityStatus>;
+    signIn(): Promise<boolean>;
+    signOut(): Promise<boolean>;
+    onStatusChange(cb: (status: DesktopIdentityStatus) => void): () => void;
+  };
+
   setActiveApp(appId: string): void;
   setActiveWebview(target: {
     appId: string;
@@ -705,6 +719,10 @@ interface ElectronAPI {
 
   clipboard: {
     writeText(text: string): Promise<boolean>;
+  };
+
+  shell: {
+    openExternal(url: string): Promise<void>;
   };
 
   interApp: {
@@ -885,6 +903,10 @@ interface ElectronAPI {
     ): Promise<DesktopCreateAppResult>;
     showContextMenu(appId: string): Promise<DesktopAppContextAction | null>;
     onRuntimeStatus(cb: (status: DesktopAppRuntimeStatus) => void): () => void;
+  };
+
+  desktopChat: {
+    getApiUrl(appId: string): Promise<string | null>;
   };
 
   mcpServers: {

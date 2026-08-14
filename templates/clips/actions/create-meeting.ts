@@ -78,7 +78,7 @@ export default defineAction({
     .refine((v) => v.title || v.calendarEventId, {
       message: "Provide either title or calendarEventId",
     }),
-  run: async (args) => {
+  run: async (args, actionContext) => {
     const db = getDb();
     const ownerEmail = getCurrentOwnerEmail();
     const orgId = await getActiveOrganizationId();
@@ -191,7 +191,11 @@ export default defineAction({
     }
 
     const visibility =
-      args.visibility ?? (await getDefaultRecordingVisibility(orgId));
+      args.visibility ??
+      (await getDefaultRecordingVisibility(
+        orgId,
+        actionContext?.userEmail ?? ownerEmail,
+      ));
 
     try {
       await db.insert(schema.meetings).values({

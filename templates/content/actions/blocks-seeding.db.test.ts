@@ -17,6 +17,13 @@ import {
   isPrimaryBlocksField,
 } from "../shared/properties.js";
 
+vi.mock("@agent-native/creative-context/server", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/creative-context/server")
+  >()),
+  getGenerationCreativeContext: vi.fn(async () => null),
+}));
+
 // A unique on-disk SQLite file in the OS temp dir, removed after the run. Kept
 // out of the repo working tree and isolated from the process-wide getDbExec
 // singleton other test files share.
@@ -33,6 +40,8 @@ let identityUtils: typeof import("./_blocks-field-identity.js");
 let databaseUtils: typeof import("./_database-utils.js");
 let createInlineContentDatabaseAction: typeof import("./create-inline-content-database.js").default;
 let updateDocumentAction: typeof import("./update-document.js").default;
+let editDocumentAction: typeof import("./edit-document.js").default;
+let setDocumentPropertyAction: typeof import("./set-document-property.js").default;
 let createContentDatabaseAction: typeof import("./create-content-database.js").default;
 let createContentDatabaseModule: typeof import("./create-content-database.js");
 let getContentDatabaseAction: typeof import("./get-content-database.js").default;
@@ -40,6 +49,7 @@ let getDocumentAction: typeof import("./get-document.js").default;
 let configureDocumentPropertyAction: typeof import("./configure-document-property.js").default;
 let addDatabaseItemAction: typeof import("./add-database-item.js").default;
 let removeDatabaseItemsAction: typeof import("./remove-database-items.js").default;
+let deleteDocumentPropertyAction: typeof import("./delete-document-property.js").default;
 
 const OWNER = "owner@example.com";
 
@@ -55,6 +65,9 @@ beforeAll(async () => {
     await import("./create-inline-content-database.js")
   ).default;
   updateDocumentAction = (await import("./update-document.js")).default;
+  editDocumentAction = (await import("./edit-document.js")).default;
+  setDocumentPropertyAction = (await import("./set-document-property.js"))
+    .default;
   createContentDatabaseModule = await import("./create-content-database.js");
   createContentDatabaseAction = createContentDatabaseModule.default;
   getContentDatabaseAction = (await import("./get-content-database.js"))
@@ -65,6 +78,8 @@ beforeAll(async () => {
   ).default;
   addDatabaseItemAction = (await import("./add-database-item.js")).default;
   removeDatabaseItemsAction = (await import("./remove-database-items.js"))
+    .default;
+  deleteDocumentPropertyAction = (await import("./delete-document-property.js"))
     .default;
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as any);
@@ -809,7 +824,10 @@ describe("database Blocks field identity sidecar", () => {
           now: new Date().toISOString(),
         });
       }),
-    ).rejects.toThrow("Blocks field revision conflict");
+    ).rejects.toMatchObject({
+      message: expect.stringContaining("Blocks field revision conflict"),
+      statusCode: 409,
+    });
 
     const [document] = await db
       .select({ content: schema.documents.content })
@@ -850,6 +868,31 @@ describe("database Blocks field identity sidecar", () => {
       .from(schema.documentBlockFields)
       .where(eq(schema.documentBlockFields.propertyId, propertyId));
     expect(field.revision).toBe(1);
+  });
+
+  it("allows concurrent first materialization of distinct fields with the same preferred ID", async () => {
+    const { documentId } = await createDatabaseRow();
+    const db = getDb();
+    const markdown = '<registry-block blockId="shared-preferred-id" />';
+    const attempts = await Promise.all(
+      ["first", "second"].map((suffix) =>
+        db.transaction((tx: any) =>
+          identityUtils.persistBlocksFieldIdentity({
+            db: tx,
+            ownerEmail: OWNER,
+            documentId,
+            propertyId: `${suffix}_${documentId}`,
+            previousMarkdown: "",
+            markdown,
+            expectedRevision: 0,
+            now: new Date().toISOString(),
+          }),
+        ),
+      ),
+    );
+
+    expect(attempts).toHaveLength(2);
+    expect(attempts[0]?.blocks[0]?.id).not.toBe(attempts[1]?.blocks[0]?.id);
   });
 
   it("revisions every primary membership and cleans up only the removed database", async () => {
@@ -903,6 +946,22 @@ describe("database Blocks field identity sidecar", () => {
     await runWithRequestContext({ userEmail: OWNER }, () =>
       updateDocumentAction.run({ id: rowDocumentId, content: "After" }),
     );
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      editDocumentAction.run({
+        id: rowDocumentId,
+        find: "After",
+        replace: "After edited",
+      }),
+    );
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      setDocumentPropertyAction.run({
+        documentId: rowDocumentId,
+        databaseId: first.databaseId,
+        propertyId: firstPropertyId,
+        value: "After set through one membership",
+        expectedBlocksFieldRevision: 2,
+      }),
+    );
     const beforeRemoval = await db
       .select()
       .from(schema.documentBlockFields)
@@ -913,10 +972,28 @@ describe("database Blocks field identity sidecar", () => {
       ),
     ).toEqual(
       new Map([
-        [firstPropertyId, 1],
-        [secondPropertyId, 1],
+        [firstPropertyId, 3],
+        [secondPropertyId, 3],
       ]),
     );
+
+    const [rowDocument] = await db
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, rowDocumentId));
+    const exportedProperties = await runWithRequestContext(
+      { userEmail: OWNER },
+      () => propertyUtils.listPropertiesForAllDocumentDatabases(rowDocument),
+    );
+    expect(
+      new Set(
+        exportedProperties
+          .filter((property) =>
+            isPrimaryBlocksField(property.definition.options),
+          )
+          .map((property) => property.definition.databaseId),
+      ),
+    ).toEqual(new Set([first.databaseId, second.databaseId]));
 
     await runWithRequestContext({ userEmail: OWNER }, () =>
       removeDatabaseItemsAction.run({
@@ -929,8 +1006,86 @@ describe("database Blocks field identity sidecar", () => {
       .from(schema.documentBlockFields)
       .where(eq(schema.documentBlockFields.documentId, rowDocumentId));
     expect(afterRemoval).toEqual([
+      expect.objectContaining({ propertyId: secondPropertyId, revision: 3 }),
+    ]);
+  });
+
+  it("preserves a shared body and surviving identity when one primary property is deleted", async () => {
+    const first = await createDatabaseRow();
+    const second = await createDatabaseRow();
+    const db = getDb();
+    const now = new Date().toISOString();
+    const firstPropertyId = await propertyUtils.seedDefaultBlocksField({
+      databaseId: first.databaseId,
+      ownerEmail: OWNER,
+      orgId: null,
+      now,
+    });
+    const secondPropertyId = await propertyUtils.seedDefaultBlocksField({
+      databaseId: second.databaseId,
+      ownerEmail: OWNER,
+      orgId: null,
+      now,
+    });
+    const rowDocumentId = `delete_shared_primary_${counter}`;
+    await db.insert(schema.documents).values({
+      id: rowDocumentId,
+      ownerEmail: OWNER,
+      title: "Shared row",
+      content: "Before",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.contentDatabaseItems).values([
+      {
+        id: `delete_first_${counter}`,
+        ownerEmail: OWNER,
+        databaseId: first.databaseId,
+        documentId: rowDocumentId,
+        position: 0,
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: `delete_second_${counter}`,
+        ownerEmail: OWNER,
+        databaseId: second.databaseId,
+        documentId: rowDocumentId,
+        position: 0,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      updateDocumentAction.run({ id: rowDocumentId, content: "Shared body" }),
+    );
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      deleteDocumentPropertyAction.run({
+        documentId: rowDocumentId,
+        databaseId: first.databaseId,
+        propertyId: firstPropertyId,
+      }),
+    );
+
+    const [rowDocument] = await db
+      .select({ content: schema.documents.content })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, rowDocumentId));
+    expect(rowDocument?.content).toBe("Shared body");
+    const identities = await db
+      .select()
+      .from(schema.documentBlockFields)
+      .where(eq(schema.documentBlockFields.documentId, rowDocumentId));
+    expect(identities).toEqual([
       expect.objectContaining({ propertyId: secondPropertyId, revision: 1 }),
     ]);
+    const surviving = await identityUtils.readBlocksFieldIdentity({
+      documentId: rowDocumentId,
+      propertyId: secondPropertyId,
+      markdown: "Shared body",
+    });
+    expect(surviving.identityStatus).toBe("materialized");
   });
 });
 
@@ -978,9 +1133,11 @@ describe("cascade cleanup of block-field content on delete (finding 7)", () => {
 
   it("deletes block-field rows by property id when a database is deleted", async () => {
     const { databaseId, documentId } = await createDatabaseRow();
+    const survivorDatabase = await createDatabaseRow();
     const db = getDb();
     const now = new Date().toISOString();
     const propertyId = `def_${databaseId}`;
+    const survivorDocumentId = `survivor_${databaseId}`;
     await db.insert(schema.documentPropertyDefinitions).values({
       id: propertyId,
       ownerEmail: OWNER,
@@ -1000,6 +1157,32 @@ describe("cascade cleanup of block-field content on delete (finding 7)", () => {
       content: "orphan-me",
       now,
     });
+    await db.insert(schema.documents).values({
+      id: survivorDocumentId,
+      ownerEmail: OWNER,
+      title: "Surviving row",
+      content: "survives",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.contentDatabaseItems).values({
+      id: `survivor_item_${databaseId}`,
+      ownerEmail: OWNER,
+      databaseId: survivorDatabase.databaseId,
+      documentId: survivorDocumentId,
+      position: 0,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await identityUtils.persistBlocksFieldIdentity({
+      db,
+      ownerEmail: OWNER,
+      documentId: survivorDocumentId,
+      propertyId,
+      previousMarkdown: "",
+      markdown: "historical field",
+      now,
+    });
 
     // documentId is the database PAGE document → hits the database-delete branch.
     await databaseUtils.deleteDatabaseDataForDocument(documentId, OWNER);
@@ -1009,6 +1192,16 @@ describe("cascade cleanup of block-field content on delete (finding 7)", () => {
       .from(schema.documentBlockFieldContents)
       .where(eq(schema.documentBlockFieldContents.propertyId, propertyId));
     expect(remaining).toHaveLength(0);
+    const [survivor] = await db
+      .select({ id: schema.documents.id })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, survivorDocumentId));
+    expect(survivor?.id).toBe(survivorDocumentId);
+    const remainingIdentity = await db
+      .select()
+      .from(schema.documentBlockFields)
+      .where(eq(schema.documentBlockFields.propertyId, propertyId));
+    expect(remainingIdentity).toHaveLength(0);
   });
 });
 

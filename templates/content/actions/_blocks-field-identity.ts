@@ -11,8 +11,23 @@ import {
   type BlocksFieldIdentity,
   type StoredBlocksFieldIdentity,
 } from "../shared/blocks-field-identity.js";
+import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 
 type ContentDb = ReturnType<typeof getDb>;
+
+export interface PrimaryBlocksField {
+  propertyId: string;
+  ownerEmail: string;
+}
+
+export class BlocksFieldRevisionConflictError extends Error {
+  readonly statusCode = 409;
+
+  constructor(message: string) {
+    super(message);
+    this.name = "BlocksFieldRevisionConflictError";
+  }
+}
 
 function nanoid(size = 12): string {
   const chars =
@@ -29,6 +44,86 @@ function groups<T>(values: T[], size: number): T[][] {
     result.push(values.slice(index, index + size));
   }
   return result;
+}
+
+export async function lockPrimaryBlocksFields(
+  db: ContentDb,
+  documentId: string,
+): Promise<PrimaryBlocksField[]> {
+  return (
+    (await lockPrimaryBlocksFieldsForDocuments(db, [documentId])).get(
+      documentId,
+    ) ?? []
+  );
+}
+
+export async function lockPrimaryBlocksFieldsForDocuments(
+  db: ContentDb,
+  documentIds: string[],
+): Promise<Map<string, PrimaryBlocksField[]>> {
+  const uniqueDocumentIds = [...new Set(documentIds)];
+  const memberships: Array<{
+    id: string;
+    documentId: string;
+  }> = [];
+  for (const documentIdGroup of groups(uniqueDocumentIds, 90)) {
+    memberships.push(
+      ...(await db
+        .select({
+          id: schema.contentDatabaseItems.id,
+          documentId: schema.contentDatabaseItems.documentId,
+        })
+        .from(schema.contentDatabaseItems)
+        .where(
+          inArray(schema.contentDatabaseItems.documentId, documentIdGroup),
+        )),
+    );
+  }
+  const membershipIds = memberships.map((membership) => membership.id);
+  await lockDatabaseMemberships(db, membershipIds);
+  if (membershipIds.length === 0) return new Map();
+
+  const fields: Array<{
+    documentId: string;
+    propertyId: string | null;
+    ownerEmail: string;
+  }> = [];
+  for (const membershipIdGroup of groups(membershipIds, 90)) {
+    fields.push(
+      ...(await db
+        .select({
+          documentId: schema.contentDatabaseItems.documentId,
+          propertyId: schema.contentDatabases.primaryBlocksPropertyId,
+          ownerEmail: schema.contentDatabases.ownerEmail,
+        })
+        .from(schema.contentDatabaseItems)
+        .innerJoin(
+          schema.contentDatabases,
+          eq(
+            schema.contentDatabases.id,
+            schema.contentDatabaseItems.databaseId,
+          ),
+        )
+        .where(inArray(schema.contentDatabaseItems.id, membershipIdGroup))),
+    );
+  }
+  const fieldsByDocument = new Map<string, Map<string, string>>();
+  for (const field of fields) {
+    if (!field.propertyId) continue;
+    const documentFields =
+      fieldsByDocument.get(field.documentId) ?? new Map<string, string>();
+    documentFields.set(field.propertyId, field.ownerEmail);
+    fieldsByDocument.set(field.documentId, documentFields);
+  }
+  return new Map(
+    [...fieldsByDocument].map(([id, documentFields]) => [
+      id,
+      [...documentFields].map(([propertyId, ownerEmail]) => ({
+        propertyId,
+        ownerEmail,
+      })),
+    ]),
+  );
 }
 
 async function loadStoredIdentity(
@@ -180,7 +275,7 @@ export async function persistBlocksFieldIdentity(args: {
     args.expectedRevision !== undefined &&
     args.expectedRevision !== actualRevision
   ) {
-    throw new Error(
+    throw new BlocksFieldRevisionConflictError(
       `Blocks field revision conflict: expected ${args.expectedRevision}, current ${actualRevision}`,
     );
   }
@@ -267,7 +362,7 @@ export async function persistBlocksFieldIdentity(args: {
       )
       .returning({ id: schema.documentBlockFields.id });
     if (applied.length === 0) {
-      throw new Error(
+      throw new BlocksFieldRevisionConflictError(
         `Blocks field revision conflict: expected ${actualRevision}, current revision changed`,
       );
     }
@@ -287,7 +382,7 @@ export async function persistBlocksFieldIdentity(args: {
       .onConflictDoNothing()
       .returning({ id: schema.documentBlockFields.id });
     if (inserted.length === 0) {
-      throw new Error(
+      throw new BlocksFieldRevisionConflictError(
         "Blocks field revision conflict: concurrent first materialization",
       );
     }
@@ -322,15 +417,34 @@ export async function persistBlocksFieldIdentity(args: {
 export async function deleteBlocksFieldIdentity(args: {
   db: ContentDb;
   documentId?: string;
+  documentIds?: string[];
   propertyId?: string;
+  propertyIds?: string[];
 }): Promise<void> {
-  if (!args.documentId && !args.propertyId) return;
+  if (
+    !args.documentId &&
+    !args.documentIds?.length &&
+    !args.propertyId &&
+    !args.propertyIds?.length
+  ) {
+    return;
+  }
   const clauses = [];
   if (args.documentId) {
     clauses.push(eq(schema.documentBlockFields.documentId, args.documentId));
   }
+  if (args.documentIds?.length) {
+    clauses.push(
+      inArray(schema.documentBlockFields.documentId, args.documentIds),
+    );
+  }
   if (args.propertyId) {
     clauses.push(eq(schema.documentBlockFields.propertyId, args.propertyId));
+  }
+  if (args.propertyIds?.length) {
+    clauses.push(
+      inArray(schema.documentBlockFields.propertyId, args.propertyIds),
+    );
   }
   const fields = await args.db
     .select({ id: schema.documentBlockFields.id })

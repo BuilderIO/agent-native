@@ -6,6 +6,12 @@ in `apps/<app>/AGENTS.md`; shared cross-app behavior belongs in
 The root `.agents/skills` path points at the shared package's skills so local
 coding agents can discover the same workspace-wide guidance from the root.
 
+The inherited skill set is intentionally small: actions, data, security,
+secrets, sync, shared UI, agent delegation, and workspace conventions. Skills
+for feature flags, translations, changelogs, providers, automations, release
+workflows, and other specialized work are opt-in. Add an optional skill to the
+workspace core or the app that needs it; do not copy it into every app.
+
 ## Framework Docs Lookup
 
 Version-matched Agent Native docs ship with `@agent-native/core` in
@@ -22,7 +28,8 @@ template patterns ships in `node_modules/@agent-native/core/corpus`.
   and `node_modules/@agent-native/core/dist/` for framework internals.
 - For advanced workspace features, start with `workspace`, `multi-app-workspace`,
   `a2a-protocol`, `pure-agent-apps`, `automations`, `recurring-jobs`,
-  `external-agents`, `mcp-protocol`, `feature-flags`, `sharing`, and `security`.
+  `external-agents`, `mcp-protocol`, `sharing`, and `security`. These are
+  optional skills; read them only when the app or workspace uses that feature.
 
 Use package docs for framework APIs, the package corpus for reusable
 template patterns, and `packages/shared/AGENTS.md` plus
@@ -44,6 +51,24 @@ After a manual core bump only, `pnpm skills:update` (or
 `npx @agent-native/core@latest skills update scaffold --project`) still
 refreshes framework-provided shared skills and repairs `CLAUDE.md` /
 `.claude/skills` compatibility links.
+
+## Lightweight defaults
+
+New apps use English as the source locale and do not generate changelog
+entries. To opt into additional translations or changelog generation, edit
+`agent-native.config.ts` at the workspace root:
+
+```ts
+import { defineAgentNativeConfig } from "@agent-native/core";
+
+export default defineAgentNativeConfig({
+  translations: { locales: ["en-US", "es-ES"] },
+  changelog: { enabled: true },
+});
+```
+
+An app-local config can override the workspace policy when only one app needs
+an additional locale or changelog.
 
 ## Core Agent Rule
 

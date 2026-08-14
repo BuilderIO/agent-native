@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { defineAction } from "../../action.js";
+import { roleSatisfies } from "../../sharing/schema.js";
 import {
   redactPublicReviewCommentIdentity,
   redactPublicReviewStatusIdentity,
@@ -69,10 +70,11 @@ export default defineAction({
     const commentsWithCapabilities = comments.map((comment) => ({
       ...comment,
       canDelete:
-        access.role !== "viewer" ||
-        Boolean(
-          actionCtx?.userEmail && comment.authorEmail === actionCtx.userEmail,
-        ),
+        roleSatisfies(access.role, "commenter") &&
+        (roleSatisfies(access.role, "editor") ||
+          Boolean(
+            actionCtx?.userEmail && comment.authorEmail === actionCtx.userEmail,
+          )),
     }));
     return redactIdentity
       ? {

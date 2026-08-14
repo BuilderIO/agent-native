@@ -13,12 +13,22 @@ export const VOICE_FOCUSED_AUDIO_CONSTRAINTS: MediaTrackConstraints = {
   channelCount: { ideal: 1 },
 };
 
+const RAW_AUDIO_CONSTRAINTS: MediaTrackConstraints = {
+  echoCancellation: false,
+  noiseSuppression: false,
+  autoGainControl: false,
+  channelCount: { ideal: 1 },
+};
+
 export function voiceFocusedAudioConstraints(
   deviceId?: string | null,
+  voiceCleanupEnabled = true,
 ): MediaTrackConstraints {
   const id = deviceId?.trim();
   return {
-    ...VOICE_FOCUSED_AUDIO_CONSTRAINTS,
+    ...(voiceCleanupEnabled
+      ? VOICE_FOCUSED_AUDIO_CONSTRAINTS
+      : RAW_AUDIO_CONSTRAINTS),
     ...(id ? { deviceId: { exact: id } } : {}),
   };
 }
@@ -73,9 +83,10 @@ function stopStream(stream: MediaStream): void {
 
 async function getVoiceFocusedAudioStream(
   deviceId?: string | null,
+  voiceCleanupEnabled = true,
 ): Promise<MediaStream> {
   return navigator.mediaDevices.getUserMedia({
-    audio: voiceFocusedAudioConstraints(deviceId),
+    audio: voiceFocusedAudioConstraints(deviceId, voiceCleanupEnabled),
     video: false,
   });
 }
@@ -101,6 +112,7 @@ async function fallbackAudioInput(
 async function tryFallbackAudioInput(
   savedLabel: string | null | undefined,
   avoidDeviceIds: Array<string | null | undefined>,
+  voiceCleanupEnabled = true,
 ): Promise<MediaStream | null> {
   const fallback = await fallbackAudioInput(savedLabel, avoidDeviceIds);
   if (!fallback) return null;
@@ -109,7 +121,10 @@ async function tryFallbackAudioInput(
       `[clips-recorder] selected mic unavailable; retrying ${fallback.reason} microphone`,
       { deviceId: fallback.deviceId, label: fallback.label },
     );
-    return await getVoiceFocusedAudioStream(fallback.deviceId);
+    return await getVoiceFocusedAudioStream(
+      fallback.deviceId,
+      voiceCleanupEnabled,
+    );
   } catch (fallbackErr) {
     if (!isMediaConstraintFailure(fallbackErr)) throw fallbackErr;
     console.warn(
@@ -122,9 +137,10 @@ async function tryFallbackAudioInput(
 
 async function getDefaultAudioStreamWithBasicFallback(
   reason: unknown,
+  voiceCleanupEnabled = true,
 ): Promise<MediaStream> {
   try {
-    return await getVoiceFocusedAudioStream();
+    return await getVoiceFocusedAudioStream(undefined, voiceCleanupEnabled);
   } catch (fallbackErr) {
     if (!isMediaConstraintFailure(fallbackErr)) throw fallbackErr;
     console.warn(
@@ -132,7 +148,7 @@ async function getDefaultAudioStreamWithBasicFallback(
       fallbackErr,
     );
     return navigator.mediaDevices.getUserMedia({
-      audio: true,
+      audio: voiceCleanupEnabled ? true : RAW_AUDIO_CONSTRAINTS,
       video: false,
     });
   } finally {
@@ -147,13 +163,16 @@ async function getDefaultAudioStreamWithBasicFallback(
 
 async function replacePhoneDefaultMicIfPossible(
   stream: MediaStream,
+  voiceCleanupEnabled = true,
 ): Promise<MediaStream> {
   const track = stream.getAudioTracks()[0];
   if (!track || !isLikelyPhoneMicLabel(track.label)) return stream;
   const settings = track.getSettings?.();
-  const replacement = await tryFallbackAudioInput(null, [
-    settings?.deviceId ?? null,
-  ]);
+  const replacement = await tryFallbackAudioInput(
+    null,
+    [settings?.deviceId ?? null],
+    voiceCleanupEnabled,
+  );
   if (!replacement) return stream;
   console.warn(
     "[clips-recorder] default mic resolved to a phone-like input; using explicit fallback mic",
@@ -198,12 +217,15 @@ export async function getCameraStreamWithFallback(
 export async function getAudioStreamWithFallback(
   deviceId?: string | null,
   savedLabel?: string | null,
+  voiceCleanupEnabled = true,
 ): Promise<MediaStream> {
   const id = deviceId?.trim();
 
   try {
-    const stream = await getVoiceFocusedAudioStream(id);
-    return id ? stream : replacePhoneDefaultMicIfPossible(stream);
+    const stream = await getVoiceFocusedAudioStream(id, voiceCleanupEnabled);
+    return id
+      ? stream
+      : replacePhoneDefaultMicIfPossible(stream, voiceCleanupEnabled);
   } catch (err) {
     let deviceGone = false;
     if (id && err instanceof DOMException && err.name === "NotAllowedError") {
@@ -227,11 +249,18 @@ export async function getAudioStreamWithFallback(
     }
     if (!isMediaConstraintFailure(err) && !deviceGone) throw err;
     if (id) {
-      const fallback = await tryFallbackAudioInput(savedLabel, [id]);
+      const fallback = await tryFallbackAudioInput(
+        savedLabel,
+        [id],
+        voiceCleanupEnabled,
+      );
       if (fallback) return fallback;
     }
 
-    const defaultStream = await getDefaultAudioStreamWithBasicFallback(err);
-    return replacePhoneDefaultMicIfPossible(defaultStream);
+    const defaultStream = await getDefaultAudioStreamWithBasicFallback(
+      err,
+      voiceCleanupEnabled,
+    );
+    return replacePhoneDefaultMicIfPossible(defaultStream, voiceCleanupEnabled);
   }
 }

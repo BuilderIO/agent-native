@@ -303,6 +303,34 @@ postgresSuite("migrate-content-database-rows PostgreSQL locking", () => {
     }
   });
 
+  it("materializes distinct fields concurrently without global block-ID contention", async () => {
+    const seed = await fixture();
+    const markdown = '<registry-block blockId="shared-preferred-id" />';
+    try {
+      const states = await Promise.all(
+        ["first", "second"].map((suffix) =>
+          getDb().transaction((tx: any) =>
+            blocksFieldIdentity.persistBlocksFieldIdentity({
+              db: tx,
+              ownerEmail: OWNER,
+              documentId: seed.documentId,
+              propertyId: `${suffix}_${seed.documentId}`,
+              previousMarkdown: "",
+              markdown,
+              expectedRevision: 0,
+              now: new Date().toISOString(),
+            }),
+          ),
+        ),
+      );
+
+      expect(states).toHaveLength(2);
+      expect(states[0]?.blocks[0]?.id).not.toBe(states[1]?.blocks[0]?.id);
+    } finally {
+      await cleanupFixture(seed);
+    }
+  });
+
   it("rejects stale plans before requesting an editor flush", async () => {
     const seed = await fixture();
     try {
@@ -771,11 +799,21 @@ postgresSuite("migrate-content-database-rows PostgreSQL locking", () => {
       deletion = runWithRequestContext({ userEmail: OWNER }, () =>
         permanentlyDeleteDocument.run({ id: seed.databaseDocumentId }),
       );
+      // The losing deletion rejects while the awaits below are still pending,
+      // and Node reports a rejection with no handler attached at that moment as
+      // a run-level unhandled rejection even though the assertion arrives a few
+      // lines later. Capture the outcome as it settles, then assert on it.
+      const deletionOutcome = deletion.then(
+        () => null,
+        (error: unknown) => error,
+      );
       await new Promise((resolve) => setTimeout(resolve, 100));
       releaseHolder();
       await holder;
       await restore;
-      await expect(deletion).rejects.toThrow(
+      const deletionError = await deletionOutcome;
+      expect(deletionError).toBeInstanceOf(Error);
+      expect((deletionError as Error).message).toContain(
         "Document must be in Trash and be a Trash root before permanent deletion",
       );
 
