@@ -215,10 +215,10 @@ export default function ContentTemplate() {
           </>
         }
       >
-        {capabilities.map((capability) => (
+        {capabilities.map((capability, index) => (
           <div
             key={capability.title}
-            className="flex min-h-[180px] flex-col justify-center gap-2 border-b border-[var(--docs-border)] p-6 last:border-b-0 sm:odd:border-e sm:last:col-span-2 sm:last:border-e-0 sm:[&:nth-last-child(-n+2)]:border-b-0 sm:p-8"
+            className={`flex min-h-[180px] flex-col justify-center gap-2 border-b border-[var(--docs-border)] p-6 last:border-b-0 sm:odd:border-e sm:last:col-span-2 sm:last:border-e-0 sm:[&:nth-last-child(-n+2)]:border-b-0 sm:p-8 ${index === 5 ? "!border !border-[var(--docs-border)] sm:!border" : ""}`}
           >
             <h3 className="m-0 text-lg font-medium leading-tight text-[var(--fg)]">
               {capability.title}
