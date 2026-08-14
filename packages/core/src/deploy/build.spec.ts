@@ -2627,6 +2627,28 @@ describe("durable-background Netlify function emit (single-template, default-on)
     );
   });
 
+  it("allows the explicitly bundled ffmpeg runtime without hiding ordinary growth", () => {
+    const cwd = setupNetlifyOutput();
+    prepareSingleTemplateNetlifyOutput(cwd);
+    const serverDir = path.join(
+      cwd,
+      ".netlify",
+      "functions-internal",
+      "server",
+    );
+    const ffmpegDir = path.join(serverDir, "node_modules", "ffmpeg-static");
+    fs.mkdirSync(ffmpegDir, { recursive: true });
+    const ffmpegFd = fs.openSync(path.join(ffmpegDir, "ffmpeg"), "w");
+    fs.ftruncateSync(ffmpegFd, 76 * 1024 * 1024);
+    fs.closeSync(ffmpegFd);
+
+    const baseFd = fs.openSync(path.join(serverDir, "runtime-growth.bin"), "w");
+    fs.ftruncateSync(baseFd, 121 * 1024 * 1024);
+    fs.closeSync(baseFd);
+
+    expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).not.toThrow();
+  });
+
   it("passes workspace deploy output with client assets under the normalized app base path", () => {
     process.env.AGENT_NATIVE_WORKSPACE = "1";
     process.env.APP_BASE_PATH = " //dispatch// ";

@@ -3629,6 +3629,29 @@ export function bundleYjsRuntimeForServerlessOutput(
 // tax on Chromium-backed templates.
 const NETLIFY_FUNCTION_SIZE_BUDGET_BYTES = 120 * 1024 * 1024;
 const NETLIFY_BROWSER_RUNTIME_SIZE_ALLOWANCE_BYTES = 100 * 1024 * 1024;
+// Clips intentionally ships ffmpeg-static for server-side frame extraction,
+// WebM seekability, filmstrips, and audio-only transcription. Keep that known
+// runtime payload separate from the ordinary bundle-growth budget.
+const NETLIFY_FFMPEG_RUNTIME_SIZE_ALLOWANCE_BYTES = 80 * 1024 * 1024;
+
+function hasBundledFfmpegStaticRuntime(internalDir: string): boolean {
+  if (!fs.existsSync(internalDir)) return false;
+  const binaryName = FFMPEG_STATIC_BINARY_NAMES[0];
+  return fs
+    .readdirSync(internalDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .some((entry) =>
+      fs.existsSync(
+        path.join(
+          internalDir,
+          entry.name,
+          "node_modules",
+          FFMPEG_STATIC_PACKAGE_NAME,
+          binaryName,
+        ),
+      ),
+    );
+}
 
 function reportNetlifyFunctionSizes(
   projectCwd: string,
@@ -3663,6 +3686,9 @@ function reportNetlifyFunctionSizes(
     NETLIFY_FUNCTION_SIZE_BUDGET_BYTES +
     (findServerlessBrowserRuntimeConsumer(projectCwd)
       ? NETLIFY_BROWSER_RUNTIME_SIZE_ALLOWANCE_BYTES
+      : 0) +
+    (hasBundledFfmpegStaticRuntime(internalDir)
+      ? NETLIFY_FFMPEG_RUNTIME_SIZE_ALLOWANCE_BYTES
       : 0);
   for (const fn of functions) {
     if (fn.size <= budget) continue;
