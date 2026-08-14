@@ -3,6 +3,7 @@ import { useRef, useState } from "react";
 import { Link } from "react-router";
 
 import { sitePathForLocale } from "../components/docs-locale";
+import { SectionDivider } from "../components/SectionDivider";
 import { TemplateDocsLink } from "../components/template-docs";
 import { templates, trackEvent } from "../components/TemplateCard";
 import { withTemplateSocialImage } from "../seo";
@@ -291,7 +292,8 @@ export default function ClipsTemplate() {
       </section>
 
       {/* By the numbers */}
-      <section className="border-t border-[var(--docs-border)] py-16">
+      <section className="border-t border-[var(--docs-border)] pb-16">
+        <SectionDivider />
         <div className="grid overflow-hidden rounded-xl border border-[var(--docs-border)] sm:grid-cols-3">
           {[
             { title: "Record", caption: "Share your screen" },
