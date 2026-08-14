@@ -612,11 +612,16 @@ export default function ClipsTemplate() {
       {/* Comparison table */}
       <section
         id="comparison"
-        className="scroll-mt-24 border-t border-[var(--docs-border)] py-16"
+        className="scroll-mt-24 border-t border-[#1a1a1a] pb-16"
       >
-        <h2 className="mb-8 text-2xl font-bold tracking-tight">
-          {t("templateLanding.clips.s032")}
-        </h2>
+        <div className="border-x border-[#1a1a1a] px-6 pb-10 pt-16 sm:px-8 sm:pb-14 sm:pt-24 lg:pb-20 lg:pt-32">
+          <p className="m-0 mb-2 font-mono text-sm font-semibold uppercase tracking-[0.28px] text-[#01c8f1]">
+            Plans
+          </p>
+          <h2 className="m-0 text-[1.75rem] font-medium leading-[1.05] tracking-[-0.56px] text-[#faf9f5] sm:text-4xl lg:text-[2.875rem] lg:tracking-[-0.92px]">
+            {t("templateLanding.clips.s032")}
+          </h2>
+        </div>
         <div className="overflow-x-auto rounded-xl border border-[var(--docs-border)]">
           <table className="comparison-table min-w-[42rem] w-full text-sm">
             <thead>
