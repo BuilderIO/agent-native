@@ -191,18 +191,20 @@ export default function GenericTemplatePage() {
 
       <SectionDivider showOnSmallScreens={false} />
 
-      <TemplateFinalCta
-        title={t("templateDetail.allTemplates")}
-        actions={
-          <Link
-            data-an-prefetch="viewport"
-            to={sitePathForLocale("/apps", locale)}
-            className="secondary-button"
-          >
-            {t("templateDetail.allTemplates")}
-          </Link>
-        }
-      />
+      {template.slug !== "assets" ? (
+        <TemplateFinalCta
+          title={t("templateDetail.allTemplates")}
+          actions={
+            <Link
+              data-an-prefetch="viewport"
+              to={sitePathForLocale("/apps", locale)}
+              className="secondary-button"
+            >
+              {t("templateDetail.allTemplates")}
+            </Link>
+          }
+        />
+      ) : null}
 
       {faqItems.length > 0 ? (
         <>
