@@ -22,7 +22,7 @@ describe("authenticated recording route loading", () => {
     expect(route).toContain("enabled: !!shareId && !sessionLoading");
     expect(route).toContain("if (sessionLoading || dataQ.isLoading)");
     expect(route).toContain("request-recording-access");
-    expect(route).toContain("dataQ.data?.status === 403");
+    expect(route).toContain("apiAccessDeniedStatus");
     expect(route).toContain("accessDeniedStatus");
     expect(route).toContain('IconLock className="h-5 w-5"');
   });
