@@ -86,6 +86,11 @@ Cowork-style folder, or another text-based agent setup. The importer strips
 credentials, hooks, shell commands, and local environment settings, and All-app
 imports remain subject to Dispatch approval policy.
 
+When editing a factory flow, an agent step can bind to either a shared reusable
+agent or a ready mounted agentic app from the same workspace database. The map
+stores the selected target type and id, while the graph remains a reviewable
+blueprint and does not silently change runtime routing.
+
 Use **Build app** on an agent row when the agent needs a full workspace face.
 The handoff carries the profile and every pack resource id into app creation;
 the original agent remains reusable after the app is created. Mounted apps and

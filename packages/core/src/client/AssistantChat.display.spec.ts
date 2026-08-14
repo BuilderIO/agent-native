@@ -30,6 +30,7 @@ import {
   assistantUiRecoverableRenderErrorKind,
   createUserMessageRunConfig,
   dedupeReconnectContentAgainstMessages,
+  shouldShowReconnectOverlay,
   hoistQueuedMessageToFront,
   displayableUserMessageText,
   isAssistantUiRecoverableRenderError,
@@ -2539,20 +2540,61 @@ describe("server thread snapshot caching", () => {
   });
 });
 
-describe("adapter reconnect handoff", () => {
-  it("defers wiping reconnect content until the adapter message catches up", () => {
-    const source = readFileSync("src/client/AssistantChat.tsx", {
-      encoding: "utf8",
-    });
-    expect(source).toContain("adapterHandoffPending");
-    expect(source).toContain("setAdapterHandoffPending(true)");
-    expect(source).toMatch(
-      /suppressToolRepeats:\s+adapterHandoffPending \|\| isReconnecting \|\| reconnectFrozen/,
-    );
-    expect(source).toContain("Do not memoize this on `messages` identity");
-    expect(source).toMatch(
-      /\(isReconnecting \|\|\s+reconnectFrozen \|\|\s+adapterHandoffPending\)/,
-    );
+describe("shouldShowReconnectOverlay", () => {
+  // The reconnect overlay is a second, independent fold of the same run. Every
+  // duplicate-render report traces back to it being on screen at the same time
+  // as the adapter's own message. Ownership decides visibility here, so these
+  // assert behavior rather than grepping the render source.
+  it("hides the overlay whenever a runtime owns the turn", () => {
+    expect(
+      shouldShowReconnectOverlay({
+        isRuntimeRunning: true,
+        isReconnecting: true,
+        reconnectFrozen: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldShowReconnectOverlay({
+        isRuntimeRunning: true,
+        isReconnecting: false,
+        reconnectFrozen: true,
+      }),
+    ).toBe(false);
+    // Both readers claiming the turn at once is the exact duplicate-render case.
+    expect(
+      shouldShowReconnectOverlay({
+        isRuntimeRunning: true,
+        isReconnecting: true,
+        reconnectFrozen: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("shows the overlay only when no runtime is streaming", () => {
+    expect(
+      shouldShowReconnectOverlay({
+        isRuntimeRunning: false,
+        isReconnecting: true,
+        reconnectFrozen: false,
+      }),
+    ).toBe(true);
+    expect(
+      shouldShowReconnectOverlay({
+        isRuntimeRunning: false,
+        isReconnecting: false,
+        reconnectFrozen: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("stays hidden when there is nothing to reconnect", () => {
+    expect(
+      shouldShowReconnectOverlay({
+        isRuntimeRunning: false,
+        isReconnecting: false,
+        reconnectFrozen: false,
+      }),
+    ).toBe(false);
   });
 });
 

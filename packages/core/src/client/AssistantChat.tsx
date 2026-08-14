@@ -1288,6 +1288,31 @@ function trimReconnectTextAlreadyRendered(
   return changed ? next : content;
 }
 
+/**
+ * Whether the reconnect overlay — a SECOND fold of a run, rendered as a sibling
+ * of the message list — may appear.
+ *
+ * The adapter runtime and the reconnect reader both fold the same SSE events
+ * into their own accumulator. Whenever both are on screen the user sees the
+ * turn twice: duplicate tool cards (one spinning, one static) and the final
+ * message streaming in two places. Content-similarity dedupe cannot reliably
+ * hide the second copy, because the two readers disagree on tool-call identity
+ * (id-less activity cards get reader-local ids) and on how a turn is split
+ * across assistant messages.
+ *
+ * So ownership decides visibility, not similarity: if a runtime owns the turn,
+ * the overlay does not render. Keep this a pure function — it is the invariant
+ * the duplicate-render bug kept violating, and it must stay falsifiable.
+ */
+export function shouldShowReconnectOverlay(state: {
+  isRuntimeRunning: boolean;
+  isReconnecting: boolean;
+  reconnectFrozen: boolean;
+}): boolean {
+  if (state.isRuntimeRunning) return false;
+  return state.isReconnecting || state.reconnectFrozen;
+}
+
 export function dedupeReconnectContentAgainstMessages(
   content: ContentPart[],
   messages: readonly unknown[],

@@ -337,6 +337,7 @@ describe("agent discovery", () => {
       url: "https://org.example.com",
     });
     expect(resourceGetMock).toHaveBeenCalledTimes(2);
+  });
 
   it("keeps local built-in URLs ahead of seeded production resources", async () => {
     process.env.NODE_ENV = "production";
