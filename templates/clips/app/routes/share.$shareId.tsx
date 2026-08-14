@@ -470,11 +470,16 @@ export default function ShareRoute() {
         readyMediaPollRef.current = null;
         return 2000;
       }
+      if (rec.seekableRepairPending === true) {
+        readyMediaPollRef.current = null;
+        return READY_MEDIA_SETTLE_POLL_INTERVAL_MS;
+      }
       const mediaKey = [
         rec.id,
         rec.durationMs ?? "",
         rec.videoSizeBytes ?? "",
         rec.videoFormat ?? "",
+        rec.updatedAt ?? "",
       ].join(":");
       const now = Date.now();
       if (readyMediaPollRef.current?.key !== mediaKey) {
@@ -1020,10 +1025,9 @@ export default function ShareRoute() {
               onVideoElementChange={setTrackedVideoEl}
               recordingId={recording.id}
               videoUrl={recording.videoUrl}
-              mediaVersion={[
-                recording.videoSizeBytes ?? "",
-                recording.updatedAt ?? "",
-              ].join(":")}
+              mediaVersion={
+                recording.mediaUpdatedAt ?? recording.videoSizeBytes ?? null
+              }
               videoFormat={recording.videoFormat}
               embedProvider={isLoomEmbedBacked ? "loom" : null}
               durationMs={recording.durationMs}

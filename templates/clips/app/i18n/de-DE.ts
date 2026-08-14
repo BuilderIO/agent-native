@@ -1003,6 +1003,8 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     includeTranscriptDescription:
       "Alle Personen mit Zugriff auf dieses Meeting können das vollständige Transkript lesen.",
     transcriptUnavailable: "Das Transkript ist noch nicht verfügbar.",
+    agentLinkDescription:
+      "Über diesen temporären Link können Agenten diese Meeting-Notizen lesen, ohne sie öffentlich zu machen. Er läuft nach zwei Stunden ab.",
     transcript: "Transkript",
     copyTranscript: "Transkript kopieren",
     transcriptCopied: "Transkript kopiert",
@@ -1590,6 +1592,16 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     calendarConnected: "Calendar connected (Lokalisiert)",
     calendarDisconnected: "Calendar disconnected (Lokalisiert)",
     calendarSettings: "Calendar settings (Lokalisiert)",
+    calendarAccountsButton: "Kalender",
+    connectedAccounts: "Verbundene Konten",
+    calendarConnectedLabel: "Verbunden",
+    calendarNeedsReconnectLabel: "Erneute Verbindung erforderlich",
+    calendarDisconnectedLabel: "Getrennt",
+    calendarStatusUnavailable: "Status nicht verfügbar",
+    reconnectCalendar: "Kalender erneut verbinden",
+    addAnotherCalendarAccount: "Weiteres Konto hinzufügen",
+    connectCalendar: "Kalender verbinden",
+    disconnectCalendarAccount: "Konto trennen",
     connectCalendarReminder:
       "Connect Google Calendar for meeting reminders. (Lokalisiert)",
     disconnectGoogleCalendarTitle: "Disconnect Google Calendar? (Lokalisiert)",

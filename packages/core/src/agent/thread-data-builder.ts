@@ -177,9 +177,27 @@ export function buildAssistantMessage(
     }
 
     if (event.type === "tool_start") {
+      const explicitToolCallId = event.id?.trim();
+      // A tool_start whose id is already in this turn is a REPLAY, not a new
+      // call: the tool-call journal and zombie-ledger recovery paths re-emit
+      // tool_start/tool_done for calls that already ran in an interrupted
+      // chunk. The live client coalesces those onto the original card, so a
+      // blind push here persisted a second copy of a call the user had only
+      // ever seen once — the duplicate that appears only after a reload.
+      // Matching the tool name too, so an id reused across different tools
+      // stays two cards rather than being silently merged into one.
+      if (explicitToolCallId) {
+        const replayed = content.some(
+          (part) =>
+            part.type === "tool-call" &&
+            part.toolCallId === explicitToolCallId &&
+            part.toolName === (event.tool ?? "unknown"),
+        );
+        if (replayed) continue;
+      }
       toolCallCounter += 1;
       const toolCallId =
-        event.id?.trim() ||
+        explicitToolCallId ||
         (runId ? `${runId}:tc_${toolCallCounter}` : `tc_${toolCallCounter}`);
       const args = (event.input ?? {}) as Record<string, string>;
       content.push({

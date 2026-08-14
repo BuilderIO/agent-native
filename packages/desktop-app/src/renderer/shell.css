@@ -781,9 +781,19 @@ body {
 .desktop-chat-first-hub .code-agents-start .code-agents-standard-composer {
   align-self: center;
   margin-inline: auto;
-  width: min(100%, 750px) !important;
-  inline-size: min(100%, 750px) !important;
-  max-width: 750px !important;
+  width: min(100%, var(--code-agents-chat-max)) !important;
+  inline-size: min(100%, var(--code-agents-chat-max)) !important;
+  max-width: var(--code-agents-chat-max) !important;
+}
+
+/* Keep the provider notice aligned with the composer when the start surface
+   is wider to make room for the app grid below it. */
+.desktop-chat-first-hub .code-agents-start .code-agents-provider-gate {
+  align-self: center;
+  margin-inline: auto;
+  width: min(100%, var(--code-agents-chat-max));
+  max-width: var(--code-agents-chat-max);
+  box-sizing: border-box;
 }
 
 .desktop-chat-first-hub .code-agents-start .code-agents-project-picker--bar {
@@ -961,6 +971,8 @@ body {
   border-radius: 0;
   background: transparent;
   color: hsl(var(--foreground));
+  cursor: pointer;
+  font: inherit;
   text-align: start;
 }
 
@@ -994,6 +1006,11 @@ body {
     transparent
   );
   color: var(--desktop-app-icon-color, hsl(var(--desktop-app-icon-hue)));
+}
+
+.desktop-app-icon--monochrome {
+  background: transparent;
+  color: hsl(var(--muted-foreground));
 }
 
 .desktop-app-card__icon .desktop-app-icon {

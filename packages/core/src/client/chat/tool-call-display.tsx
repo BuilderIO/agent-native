@@ -576,9 +576,9 @@ function ApprovalAffordance({
     );
   }
   return (
-    <div className="mt-1.5 flex items-center gap-2 rounded-md border border-border bg-muted/40 px-2.5 py-1.5">
+    <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-2 rounded-md border border-border bg-muted/40 px-2.5 py-1.5">
       <IconShieldCheck className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-      <span className="mr-auto text-xs text-muted-foreground">
+      <span className="min-w-0 flex-1 text-xs text-muted-foreground">
         Approve to run {toolName}?
       </span>
       {ctx && (
@@ -594,7 +594,7 @@ function ApprovalAffordance({
             ctx.onApprove(approval.approvalKey);
           }}
           className={cn(
-            "inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+            "inline-flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
             "bg-foreground text-background hover:bg-foreground/90",
           )}
         >
@@ -616,7 +616,7 @@ function ApprovalAffordance({
           }}
           title="Approve and always allow this exact command"
           className={cn(
-            "inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs font-medium transition-colors",
+            "inline-flex shrink-0 items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs font-medium transition-colors",
             "text-foreground hover:bg-muted",
           )}
         >
@@ -632,7 +632,7 @@ function ApprovalAffordance({
           ctx?.onDeny?.(approval.approvalKey);
         }}
         className={cn(
-          "inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs font-medium transition-colors",
+          "inline-flex shrink-0 items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs font-medium transition-colors",
           "text-foreground hover:bg-muted",
         )}
       >

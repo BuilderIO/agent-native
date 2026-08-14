@@ -10,6 +10,7 @@ export {
   defaultFeatureFlagRules,
   evaluateFeatureFlag,
   evaluateFeatureFlagRules,
+  hasActiveFeatureFlagRollout,
   isFeatureFlagEnabled,
   getFeatureFlagRules,
   normalizeFeatureFlagRules,

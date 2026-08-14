@@ -116,6 +116,7 @@
     "./client/automation": "./dist/client/automation/index.js",
     "./client/chat": "./dist/client/chat/index.js",
     "./client/changelog": "./dist/client/changelog/index.js",
+    "./client/markdown": "./dist/client/markdown/index.js",
     "./client/collab": "./dist/client/collab/index.js",
     "./client/composer": "./dist/client/composer/index.js",
     "./client/conversation": "./dist/client/conversation/index.js",

@@ -34,6 +34,18 @@ function StatusConsumer() {
   return <div data-testid="status">{status}</div>;
 }
 
+function RetryConsumer() {
+  const { status, retry } = useSession();
+  return (
+    <div>
+      <div data-testid="status">{status}</div>
+      <button type="button" onClick={retry}>
+        Retry
+      </button>
+    </div>
+  );
+}
+
 async function renderConsumers(labels: string[]) {
   await act(async () => {
     root.render(<SessionConsumers labels={labels} />);
@@ -188,6 +200,49 @@ describe("useSession", () => {
 
     expect(failingFetch).toHaveBeenCalledTimes(4);
     expect(container.textContent).toBe("loading");
+  });
+
+  it("retries successfully after the unavailable notice is shown", async () => {
+    vi.useFakeTimers();
+    let attempts = 0;
+    const fetchMock = vi.fn(async () => {
+      attempts += 1;
+      if (attempts < 5) return new Response(null, { status: 503 });
+      return new Response(
+        JSON.stringify({
+          userId: "user-recovered",
+          email: "retry-after-unavailable@example.com",
+          name: "Recovered",
+          orgId: "org-recovered",
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => {
+      root.render(<RetryConsumer />);
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000);
+    });
+
+    expect(container.querySelector('[data-testid="status"]')?.textContent).toBe(
+      "unavailable",
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>("button")?.click();
+      await Promise.resolve();
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+    expect(container.querySelector('[data-testid="status"]')?.textContent).toBe(
+      "authenticated",
+    );
   });
 
   it("caches a definitive unauthenticated response", async () => {

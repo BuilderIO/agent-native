@@ -7,8 +7,10 @@ import {
   formatRecurrenceText,
   getEditableEventTitle,
   getEventEndValidationMessage,
+  getLocalTimezone,
   getRecurrencePreset,
   normalizeAllDayEditEndDate,
+  resolveEventTimezone,
   resolveTimeEditScope,
 } from "./event-form-utils";
 
@@ -41,6 +43,24 @@ describe("dateTimeInTimezoneToIso", () => {
     expect(
       dateTimeInTimezoneToIso("2026-09-06", "00:00", "America/Santiago"),
     ).toBe("2026-09-06T04:00:00.000Z");
+  });
+});
+
+describe("resolveEventTimezone", () => {
+  it("uses the browser timezone when a new event has no explicit zone", () => {
+    expect(resolveEventTimezone()).toBe(getLocalTimezone());
+  });
+
+  it("preserves an explicit event timezone", () => {
+    expect(resolveEventTimezone("Europe/London")).toBe("Europe/London");
+  });
+
+  it("keeps a configured calendar timezone for a displayed wall-clock slot", () => {
+    const calendarTimezone = resolveEventTimezone("America/Los_Angeles");
+
+    expect(
+      dateTimeInTimezoneToIso("2026-01-15", "09:00", calendarTimezone),
+    ).toBe("2026-01-15T17:00:00.000Z");
   });
 });
 
