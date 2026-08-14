@@ -1,6 +1,8 @@
+import type { PromptComposerSubmitOptions } from "@agent-native/core/client/composer";
 import type { CodeLayerNode, CodeLayerTreeNode } from "@shared/code-layer";
 
 import type { PortableStyleSnapshot } from "@/components/design/types";
+import type { UploadedFile } from "@/components/editor/PromptDialog";
 import type { DesignClipboardManagedStyleSnapshot } from "@/lib/design-clipboard-managed-styles";
 
 import type { PendingLiveStructureEdit } from "./pending-edits";
@@ -103,3 +105,16 @@ export interface PatchProofState {
 }
 
 export type ResponsiveEditScope = "cascade-smaller" | "only";
+
+export interface RetryablePrompt {
+  prompt: string;
+  files: UploadedFile[];
+  model?: PromptComposerSubmitOptions["model"];
+  engine?: PromptComposerSubmitOptions["engine"];
+  effort?: PromptComposerSubmitOptions["effort"];
+  designSystemId?: string | null;
+  attempt?: number;
+  source?: string;
+  templateId?: string;
+  templateBaselineFiles?: Array<{ id: string; contentHash: string }>;
+}

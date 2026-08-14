@@ -14,14 +14,18 @@ const createPrimitiveStart = createPrimitiveSource.indexOf(
   "export function runCreatePrimitive",
 );
 const createPrimitiveEnd = createPrimitiveSource.length;
-const recordPendingStart = source.indexOf(
-  "const recordPendingLiveStructureEdit",
+// recordPendingLiveStructureEdit now lives in its own command module.
+const recordPendingSource = readFileSync(
+  new URL(
+    "./design-editor/commands/record-pending-live-structure-edit.ts",
+    import.meta.url,
+  ),
+  { encoding: "utf8" },
 );
-const recordPendingEnd = source.indexOf(
-  "const activeProjectionContent",
-  recordPendingStart,
+const recordPendingStart = recordPendingSource.indexOf(
+  "export function runRecordPendingLiveStructureEdit",
 );
-const recordPendingSource = source.slice(recordPendingStart, recordPendingEnd);
+const recordPendingEnd = recordPendingSource.length;
 
 describe("DesignEditor live primitive creation boundary", () => {
   it("routes URL-backed screens through the live insert bridge without rewriting the route URL", () => {

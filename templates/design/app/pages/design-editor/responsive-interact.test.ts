@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
@@ -101,6 +101,12 @@ describe("responsive Interact defaults", () => {
 // wiring-guard convention (see DesignEditor.breakpoints.test.ts).
 describe("responsive Interact wiring", () => {
   const source = readFileSync("app/pages/DesignEditor.tsx", "utf8");
+  // Editor behaviour that moved into command modules is still editor wiring.
+  const editorSurface =
+    source +
+    readdirSync("app/pages/design-editor/commands")
+      .map((f) => readFileSync(`app/pages/design-editor/commands/${f}`, "utf8"))
+      .join("\n");
 
   it("activates only for a focused screen outside embedded hosts", () => {
     expect(source).toContain("const responsiveInteractActive =");
@@ -159,7 +165,7 @@ describe("responsive Interact wiring", () => {
   it("routes every Interact request into the responsive view", () => {
     expect(source).toContain("enterSingleScreen(screenId)");
     expect(source).toContain("enterSingleScreen(activeFileId)");
-    expect(source).toContain("resolveModeChangeView({");
+    expect(editorSurface).toContain("resolveModeChangeView({");
     // Interact is the only mode that lives on a focused screen, so the bottom
     // toolbar's tools and mode tabs are hidden while it owns the surface.
     expect(source).toContain("!responsiveInteractActive &&");
@@ -218,7 +224,7 @@ describe("responsive Interact wiring", () => {
   });
 
   it("uses the selected screen size and the real canvas bounds", () => {
-    expect(source).toContain("resolveInteractDeviceForScreen(");
+    expect(editorSurface).toContain("resolveInteractDeviceForScreen(");
     expect(source).toContain("container.clientWidth - 48");
     expect(source).toContain("new ResizeObserver(updateZoomToFit)");
     expect(source).toContain("responsiveInteractActive ? interactZoom : zoom");

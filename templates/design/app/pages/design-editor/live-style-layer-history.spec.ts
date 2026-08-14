@@ -210,13 +210,14 @@ describe("pending live layer state history", () => {
   });
 
   it("queues localhost layer state before any snapshot-document write", () => {
-    const section = editorSource.slice(
-      editorSource.indexOf("const handleToggleLayerLocked"),
-      editorSource.indexOf("const handleToggleLayerHidden"),
+    const section = readFileSync(
+      new URL("./commands/toggle-layer-locked.ts", import.meta.url),
+      "utf8",
     );
-    const localhostBranch = section.slice(
-      section.indexOf("resolveOverviewScreenSourceType"),
-      section.indexOf("if (owner?.runtimeOnly)"),
+    const body = section.slice(section.indexOf("export function"));
+    const localhostBranch = body.slice(
+      body.indexOf("resolveOverviewScreenSourceType"),
+      body.indexOf("if (owner?.runtimeOnly)"),
     );
 
     expect(localhostBranch).toContain("recordPendingLiveLayerStateEdit(");
