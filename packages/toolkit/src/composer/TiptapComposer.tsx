@@ -1339,9 +1339,19 @@ function ModelSelector({
   const isCodexAgent =
     selectedAgent === "codex" || selectedAgent === "codex-cli";
   const modelProviderGroups = useMemo(() => {
+    const hasCodexLocalGroup = providerGroups.some(
+      (group) => group.engine === "codex-cli",
+    );
     return providerGroups.flatMap((group) => {
       if (group.engine === "codex-cli") {
         return isCodexAgent && isOpenAiModelProviderGroup(group) ? [group] : [];
+      }
+      if (
+        isCodexAgent &&
+        hasCodexLocalGroup &&
+        group.engine === "ai-sdk:openai"
+      ) {
+        return [];
       }
       if (LOCAL_RUNTIME_ENGINES.has(group.engine)) return [];
       if (!isCodexAgent) return [group];
@@ -1356,14 +1366,6 @@ function ModelSelector({
       return models.length > 0 ? [{ ...group, models }] : [];
     });
   }, [isCodexAgent, providerGroups]);
-  const primaryProviderGroups = useMemo(
-    () => modelProviderGroups.filter((group) => group.configured),
-    [modelProviderGroups],
-  );
-  const optionalProviderGroups = useMemo(
-    () => modelProviderGroups.filter((group) => !group.configured),
-    [modelProviderGroups],
-  );
   const effortOptions =
     reasoning?.getOptionsForModel?.(model) ??
     getComposerReasoningEffortOptions(model);
@@ -1390,13 +1392,7 @@ function ModelSelector({
   >(null);
   const resolvedSection = detailSection ?? "model";
 
-  const [moreProvidersExpanded, setMoreProvidersExpanded] = useState(false);
-  useEffect(() => {
-    if (open) setMoreProvidersExpanded(false);
-  }, [open]);
-  const visibleProviderGroups = moreProvidersExpanded
-    ? modelProviderGroups
-    : primaryProviderGroups;
+  const visibleProviderGroups = modelProviderGroups;
   const showModelListSkeleton = shouldShowModelSelectorSkeleton(
     modelListLoading,
     engines.length,
@@ -1963,35 +1959,6 @@ function ModelSelector({
                           </div>
                         );
                       })}
-                    {!onlyConnectPathAvailable &&
-                      optionalProviderGroups.length > 0 && (
-                        <button
-                          type="button"
-                          aria-expanded={moreProvidersExpanded}
-                          onClick={() =>
-                            setMoreProvidersExpanded((prev) => !prev)
-                          }
-                          className="mt-2 flex w-full items-center gap-1 rounded-md px-2 pt-2 text-start text-[11px] font-medium uppercase tracking-wide text-muted-foreground hover:text-foreground"
-                        >
-                          {moreProvidersExpanded ? (
-                            <IconChevronDown className="h-3 w-3 shrink-0" />
-                          ) : (
-                            <IconChevronRight className="h-3 w-3 shrink-0 rtl:-scale-x-100" />
-                          )}
-                          <span>
-                            {t(
-                              moreProvidersExpanded
-                                ? "agentChat.composer.fewerProviders"
-                                : "agentChat.composer.moreProviders",
-                              {
-                                defaultValue: moreProvidersExpanded
-                                  ? "Fewer providers"
-                                  : "More providers",
-                              },
-                            )}
-                          </span>
-                        </button>
-                      )}
                   </>
                 )}
                 {resolvedSection === "effort" && effortOptions.length > 0 && (

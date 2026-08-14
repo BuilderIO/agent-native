@@ -8096,9 +8096,6 @@ function getCodeAgentModelList(): CodeAgentModelListResult {
     const openAiConfigured = Boolean(
       providerStatusById(settings, "openai")?.configured,
     );
-    const googleConfigured = Boolean(
-      providerStatusById(settings, "google")?.configured,
-    );
     const customEngine = process.env.AGENT_ENGINE?.trim();
     const customModel = process.env.AGENT_MODEL?.trim();
 
@@ -8180,27 +8177,17 @@ function getCodeAgentModelList(): CodeAgentModelListResult {
         statusLabel: "Installed",
       });
     }
-    if (!claude.authenticated) {
-      pushCodeAgentModelOptions(models, {
-        engine: "anthropic",
-        engineLabel: "Anthropic",
-        supportedModels: ANTHROPIC_MODEL_CONFIG.supportedModels,
-        configured: anthropicConfigured,
-      });
-    }
-    if (!codex.authenticated) {
-      pushCodeAgentModelOptions(models, {
-        engine: "ai-sdk:openai",
-        engineLabel: "OpenAI",
-        supportedModels: AI_SDK_MODEL_CONFIG.openai.supportedModels,
-        configured: openAiConfigured,
-      });
-    }
     pushCodeAgentModelOptions(models, {
-      engine: "ai-sdk:google",
-      engineLabel: "Gemini",
-      supportedModels: AI_SDK_MODEL_CONFIG.google.supportedModels,
-      configured: googleConfigured,
+      engine: "ai-sdk:openai",
+      engineLabel: "OpenAI",
+      supportedModels: AI_SDK_MODEL_CONFIG.openai.supportedModels,
+      configured: openAiConfigured,
+    });
+    pushCodeAgentModelOptions(models, {
+      engine: "anthropic",
+      engineLabel: "Anthropic",
+      supportedModels: ANTHROPIC_MODEL_CONFIG.supportedModels,
+      configured: anthropicConfigured,
     });
 
     const selected = customEngine
