@@ -3,6 +3,7 @@ import { forwardRef, useImperativeHandle, useRef, useState } from "react";
 import { Link } from "react-router";
 
 import { sitePathForLocale } from "../components/docs-locale";
+import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import { SectionDivider } from "../components/SectionDivider";
 import { TemplateDocsLink } from "../components/template-docs";
 import { templates, trackEvent } from "../components/TemplateCard";
@@ -757,19 +758,58 @@ export default function ClipsTemplate() {
         </div>
 
         <div className="template-detail-cta-actions flex flex-col items-stretch justify-center gap-3 border-x border-t border-[#1a1a1a] px-6 py-10 sm:flex-row sm:items-center sm:gap-4 sm:px-8">
+          <a
+            href={template.demoUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(event) => {
+              applyFirstTouchAttributionToLink(event.currentTarget);
+              trackEvent("try live demo", {
+                template: template.slug,
+                location: "landing_page_cta",
+              });
+            }}
+            className="inline-flex h-10 items-center justify-center rounded-md border border-[#00dff6] bg-[#01c8f1] px-5 font-mono text-[14px] font-semibold uppercase leading-[1.2] tracking-[0.28px] text-[#0a0a0a] no-underline transition hover:no-underline"
+          >
+            Try Clips Now
+          </a>
           <TemplateDocsLink
             template={template}
             location="landing_page_cta"
-            className="inline-flex items-center justify-center gap-2 rounded-xl border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
+            className="inline-flex h-10 items-center justify-center gap-1 rounded-md border border-[#5e5e5e] bg-[#0a0a0a] px-5 font-mono text-[14px] font-semibold uppercase leading-[1.2] tracking-[0.28px] text-[#faf9f5] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
           >
             {t("templateLanding.clips.s061")}
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 18 18"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M13.3125 12C13.3125 12.3107 13.0606 12.5625 12.75 12.5625C12.4393 12.5625 12.1875 12.3107 12.1875 12V6.60791L5.64766 13.1477C5.42799 13.3674 5.07192 13.3674 4.85225 13.1477C4.63258 12.928 4.63258 12.572 4.85225 12.3523L11.392 5.8125H5.99996C5.6893 5.8125 5.43746 5.56066 5.43746 5.25C5.43746 4.93934 5.6893 4.6875 5.99996 4.6875H12.75C13.0606 4.6875 13.3125 4.93934 13.3125 5.25V12Z"
+                fill="#FAF9F5"
+              />
+            </svg>
           </TemplateDocsLink>
           <Link
             data-an-prefetch="viewport"
             to={sitePathForLocale("/apps", locale)}
-            className="inline-flex items-center justify-center gap-2 rounded-xl border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
+            className="inline-flex h-10 items-center justify-center gap-1 rounded-md border border-[#5e5e5e] bg-[#0a0a0a] px-5 font-mono text-[14px] font-semibold uppercase leading-[1.2] tracking-[0.28px] text-[#faf9f5] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
           >
             {t("templateLanding.clips.s062")}
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 18 18"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M13.3125 12C13.3125 12.3107 13.0606 12.5625 12.75 12.5625C12.4393 12.5625 12.1875 12.3107 12.1875 12V6.60791L5.64766 13.1477C5.42799 13.3674 5.07192 13.3674 4.85225 13.1477C4.63258 12.928 4.63258 12.572 4.85225 12.3523L11.392 5.8125H5.99996C5.6893 5.8125 5.43746 5.56066 5.43746 5.25C5.43746 4.93934 5.6893 4.6875 5.99996 4.6875H12.75C13.0606 4.6875 13.3125 4.93934 13.3125 5.25V12Z"
+                fill="#FAF9F5"
+              />
+            </svg>
           </Link>
         </div>
       </section>
