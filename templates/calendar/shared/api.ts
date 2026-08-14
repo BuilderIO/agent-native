@@ -331,6 +331,7 @@ export interface Settings {
   bookingPageTitle: string;
   bookingPageDescription: string;
   defaultEventDuration: number; // minutes
+  weekStart: import("./calendar-week.js").CalendarWeekStart;
 }
 
 export type ApolloPersonResult = {

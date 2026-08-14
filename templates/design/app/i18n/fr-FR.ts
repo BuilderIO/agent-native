@@ -59,7 +59,7 @@ const messages = {
     sendToAgent: "Envoyer à l’agent",
     sendingToAgent: "Envoi à l’agent…",
     enterToPost:
-      "Appuyez sur Entrée pour publier · Maj+Entrée pour insérer une nouvelle ligne",
+      "Appuyez sur Entrée pour publier · Maj Entrée pour insérer une nouvelle ligne",
     post: "Publier",
     posting: "Publication…",
     postFailed: "Impossible de publier ce commentaire",

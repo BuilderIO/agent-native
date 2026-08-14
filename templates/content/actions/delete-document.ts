@@ -6,6 +6,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { chunks } from "./_batch-utils.js";
+import { deleteBlocksFieldIdentity } from "./_blocks-field-identity.js";
 import {
   lockContentDatabaseMutation,
   touchContentDatabase,
@@ -695,6 +696,7 @@ async function deleteCollectedDocuments(
   });
 
   await deleteWhereIn(propertyDefinitionIds, async (propertyIdBatch) => {
+    await deleteBlocksFieldIdentity({ db, propertyIds: propertyIdBatch });
     await db
       .delete(schema.documentPropertyValues)
       .where(
@@ -730,6 +732,7 @@ async function deleteCollectedDocuments(
   });
 
   await deleteWhereIn(documentIds, async (documentIdBatch) => {
+    await deleteBlocksFieldIdentity({ db, documentIds: documentIdBatch });
     await db
       .delete(schema.contentDatabaseBodyHydrationQueue)
       .where(

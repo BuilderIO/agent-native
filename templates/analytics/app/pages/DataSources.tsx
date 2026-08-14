@@ -16,6 +16,7 @@ import {
   getDefaultMcpIntegrations,
   McpIntegrationLogo,
 } from "@agent-native/core/client/resources";
+import { docsUrl } from "@agent-native/core/shared";
 import {
   IconCheck,
   IconChevronDown,
@@ -1903,7 +1904,7 @@ function FirstPartyAnalyticsCard() {
                 each one happened.
               </p>
               <a
-                href="https://www.agent-native.com/docs/tracking#error-capture"
+                href={docsUrl("tracking", { hash: "posthog-error-tracking" })}
                 target="_blank"
                 rel="noreferrer"
                 className="mt-2 inline-flex items-center gap-1 font-medium text-primary hover:underline"

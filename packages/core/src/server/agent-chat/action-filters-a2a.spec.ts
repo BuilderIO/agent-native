@@ -5,6 +5,7 @@ import { CORE_ACTION_GROUPS } from "../../framework-tools.js";
 import {
   buildAuthenticatedAgentA2ASkills,
   buildPublicAgentA2ASkills,
+  filterDelegatedA2ACapabilityActions,
   filterDirectA2AActions,
   resolveInitialToolNames,
 } from "./action-filters-a2a.js";
@@ -192,6 +193,74 @@ describe("filterDirectA2AActions", () => {
     );
 
     expect(Object.keys(result)).toEqual(["allowed"]);
+  });
+
+  it("advertises exposed writes as message-only delegated capabilities", () => {
+    const write = action({
+      tool: {
+        description: "Create a campaign.",
+        parameters: {
+          type: "object",
+          properties: { title: { type: "string" } },
+          required: ["title"],
+        },
+      },
+      http: { method: "POST" },
+      readOnly: false,
+      publicAgent: {
+        expose: true,
+        readOnly: false,
+        requiresAuth: true,
+      },
+    });
+
+    const skills = buildAuthenticatedAgentA2ASkills(
+      { "create-campaign": write },
+      {},
+    );
+
+    expect(skills).toEqual([
+      {
+        id: "create-campaign",
+        name: "create-campaign",
+        description: "Create a campaign.",
+        publicAgent: write.publicAgent,
+        readOnly: false,
+      },
+    ]);
+    expect(skills[0]).not.toHaveProperty("inputSchema");
+    expect(filterDirectA2AActions({ "create-campaign": write }, {})).toEqual(
+      {},
+    );
+    expect(buildPublicAgentA2ASkills({ "create-campaign": write })).toEqual([]);
+  });
+
+  it("applies agentTool and deny policy to delegated capabilities", () => {
+    const write = (overrides: Partial<ActionEntry> = {}) =>
+      action({
+        http: { method: "POST" },
+        readOnly: false,
+        publicAgent: {
+          expose: true,
+          readOnly: false,
+          requiresAuth: true,
+        },
+        ...overrides,
+      });
+    const actions = {
+      allowed: write(),
+      denied: write(),
+      hidden: write({ agentTool: false }),
+      unexposed: write({ publicAgent: undefined }),
+    };
+
+    expect(
+      Object.keys(
+        filterDelegatedA2ACapabilityActions(actions, {
+          externalAgents: { denyActions: ["denied"] },
+        }),
+      ),
+    ).toEqual(["allowed"]);
   });
 });
 

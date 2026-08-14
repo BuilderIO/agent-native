@@ -235,6 +235,24 @@ describe("slackAdapter", () => {
     );
   });
 
+  it("converts bare Slack user IDs into mentions", () => {
+    const formatted = slackAdapter().formatAgentResponse(
+      "Please review this with @U0BNS6TLRK8's team.",
+    );
+
+    expect(formatted.text).toBe(
+      "Please review this with <@U0BNS6TLRK8>'s team.",
+    );
+  });
+
+  it("preserves existing Slack mentions", () => {
+    const formatted = slackAdapter().formatAgentResponse(
+      " cc <@U0BNS6TLRK8> and <@W0123456789>",
+    );
+
+    expect(formatted.text).toBe(" cc <@U0BNS6TLRK8> and <@W0123456789>");
+  });
+
   it("rejects Slack events in production when the team allowlist is missing", async () => {
     process.env.NODE_ENV = "production";
 

@@ -1,5 +1,38 @@
 # @agent-native/dispatch
 
+## 0.25.0
+
+### Minor Changes
+
+- 89f194f: Add a default-off Dispatch workspace sign-in rollout for iframe app panes. The
+  flagged path mints short-lived, app-scoped embed sessions for exact first-party
+  origins, explicitly registered custom workspace apps, and same-origin mounted
+  workspace apps without changing the existing MCP access policy.
+- 89f194f: Add folder-backed agent packs with safe Claude/Cowork-style import, agent-owned
+  references and skills, and a shared Factory Agents surface for managing simple
+  agents alongside mounted agentic apps.
+- 89f194f: Add a simple Agents workspace for creating reusable profiles, importing Claude-style or generic agent definitions, and connecting existing HTTP/A2A agents.
+
+### Patch Changes
+
+- 89f194f: Keep visited workspace app frames mounted while switching apps so returning restores live state instantly.
+- 89f194f: Provision cross-app SSO state and authorization-code tables during release migrations so production serverless requests never perform schema DDL.
+- Updated dependencies [89f194f]
+  - @agent-native/toolkit@0.14.3
+
+## 0.24.6
+
+### Patch Changes
+
+- Updated dependencies [2db503b]
+  - @agent-native/toolkit@0.14.2
+
+## 0.24.5
+
+### Patch Changes
+
+- 8008dfe: Centralize product docs links behind `docsUrl()` and retarget Settings, Team, onboarding, and template help links at live agent-native.com docs pages.
+
 ## 0.24.4
 
 ### Patch Changes

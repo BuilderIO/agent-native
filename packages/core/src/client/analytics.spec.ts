@@ -292,6 +292,49 @@ describe("browser analytics pageviews", () => {
     expect(sentryMock.captureException).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps exception context in first-party analytics but omits it from Amplitude", async () => {
+    installBrowser();
+    const { analyticsCalls } = installFetch();
+    vi.stubEnv("VITE_AMPLITUDE_API_KEY", "amplitude_test");
+    const { captureException, configureTracking } = await freshAnalytics();
+
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/track",
+      errorCapture: {
+        captureGlobalErrors: false,
+        captureUnhandledRejections: false,
+      },
+    });
+    await tick();
+    amplitudeMock.track.mockClear();
+    analyticsCalls.length = 0;
+
+    captureException(new Error("Renderer failed"), {
+      tags: { route: "/api/run", status_code: 500 },
+      extra: { request_id: "request-1", runId: "run-1" },
+    });
+    await tick();
+
+    const firstPartyException = analyticsCalls
+      .map(([, init]) => JSON.parse(String(init.body)))
+      .find((body) => body.event === "$exception");
+    expect(firstPartyException?.properties).toMatchObject({
+      exceptionTags: { route: "/api/run", status_code: "500" },
+      exceptionExtra: { request_id: "request-1", runId: "run-1" },
+    });
+
+    const amplitudeException = amplitudeMock.track.mock.calls.find(
+      ([name]) => name === "$exception",
+    );
+    expect(amplitudeException?.[1]).toMatchObject({
+      exceptionType: "Error",
+      exceptionMessage: "Renderer failed",
+    });
+    expect(amplitudeException?.[1]).not.toHaveProperty("exceptionTags");
+    expect(amplitudeException?.[1]).not.toHaveProperty("exceptionExtra");
+  });
+
   it("accepts the first-party public key and endpoint at configure time", async () => {
     installBrowser();
     const { analyticsCalls } = installFetch();

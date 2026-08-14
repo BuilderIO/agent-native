@@ -165,6 +165,19 @@ const messages = {
     metricRuns: "Läufe",
     rulesTab: "Regeln",
     automationsTab: "Automatisierungen",
+    agentsTab: "Agenten",
+    agenticAppsTitle: "Agentische Apps",
+    agenticAppsEmpty: "Noch keine agentischen Apps in diesem Workspace.",
+    editAppDetails: "App-Details bearbeiten",
+    editAppDetailsDescription:
+      "Gemeinsamen Anzeigenamen und Beschreibung aktualisieren.",
+    appName: "Name",
+    appDescription: "Beschreibung",
+    openApp: "App öffnen",
+    saveChanges: "Änderungen speichern",
+    appDetailsUpdated: "App-Details aktualisiert",
+    savingChanges: "Speichern...",
+    agentsTitle: "Agenten",
     auditTab: "Audit",
     auditTitle: "Ausführungs-Audit",
     auditDescription:
@@ -274,6 +287,16 @@ const messages = {
     stepName: "Schrittname",
     stepDescription: "Was passiert hier",
     agentOwner: "Agent oder Besitzer",
+    noTarget: "Kein verknüpftes Ziel",
+    customTarget: "Benutzerdefiniertes Ziel",
+    reusableAgents: "Wiederverwendbare Agenten",
+    agenticApps: "Agentische Apps",
+    agentTargetHint:
+      "Dieser Factory-Schritt verwendet den ausgewählten Agenten.",
+    appTargetHint:
+      "Dieser Factory-Schritt delegiert an die ausgewählte agentische App.",
+    customTargetHint:
+      "Verknüpfe einen gemeinsamen Agenten oder eine App, sobald der Schritt bereit ist.",
     optional: "Optional",
     connectStep: "Diesen Schritt verbinden",
     connectDescription:

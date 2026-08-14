@@ -24,6 +24,8 @@ const mockFetchS3ObjectByUrl = vi.hoisted(() => vi.fn());
 const mockDispatchPostFinalizeJob = vi.hoisted(() =>
   vi.fn(async () => undefined),
 );
+const mockClearSeekableRepairPending = vi.hoisted(() => vi.fn());
+const mockMarkSeekableRepairPending = vi.hoisted(() => vi.fn());
 const mockReadAppState = vi.hoisted(() => vi.fn());
 const mockWriteAppState = vi.hoisted(() => vi.fn());
 const mockDeleteAppState = vi.hoisted(() => vi.fn());
@@ -165,6 +167,13 @@ vi.mock("../server/lib/s3-upload-provider.js", () => ({
   fetchS3ObjectByUrl: (...args: unknown[]) => mockFetchS3ObjectByUrl(...args),
 }));
 
+vi.mock("../server/lib/seekable-media-state.js", () => ({
+  clearSeekableRepairPending: (...args: unknown[]) =>
+    mockClearSeekableRepairPending(...args),
+  markSeekableRepairPending: (...args: unknown[]) =>
+    mockMarkSeekableRepairPending(...args),
+}));
+
 vi.mock("../server/lib/video-remux.js", () => ({
   probeHasAudioStream: vi.fn(async () => null),
   remuxWebmToSeekable: vi.fn(async (bytes: Uint8Array) => ({
@@ -180,6 +189,10 @@ vi.mock("../server/lib/video-storage.js", () => ({
 
 vi.mock("./lib/ensure-seekable-video.js", () => ({
   ensureRecordingSeekable: vi.fn(),
+  isRemoteProviderUrl: vi.fn(
+    (videoUrl: string | null | undefined) =>
+      typeof videoUrl === "string" && videoUrl.startsWith("https://"),
+  ),
   markRecordingSeekable: vi.fn(),
 }));
 
@@ -326,6 +339,8 @@ describe("finalize-recording media serve verification", () => {
     mockState.selectRows = [];
     mockWriteAppState.mockResolvedValue(undefined);
     mockDeleteAppState.mockResolvedValue(undefined);
+    mockClearSeekableRepairPending.mockResolvedValue(undefined);
+    mockMarkSeekableRepairPending.mockResolvedValue(undefined);
     mockCompareAndSetAppState.mockResolvedValue(true);
     mockUpdateWhere.mockImplementation(() => ({
       returning: mockUpdateReturning,
@@ -363,6 +378,10 @@ describe("finalize-recording media serve verification", () => {
         videoSizeBytes: 11,
       }),
     );
+    expect(mockMarkSeekableRepairPending).toHaveBeenCalledWith({
+      recordingId: "rec_1",
+      videoUrl,
+    });
     expect(mockFetchS3ObjectByUrl).toHaveBeenCalledWith(videoUrl, {
       range: "bytes=0-1023",
       timeoutMs: 8_000,

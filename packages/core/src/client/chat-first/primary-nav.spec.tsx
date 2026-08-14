@@ -107,4 +107,26 @@ describe("ChatFirstPrimaryNavigation", () => {
     ).not.toContain("New chat");
     expect(container.querySelector(".code-agents-nav-list")).not.toBeNull();
   });
+
+  it("keeps collapsed New chat icon-only with an accessible tooltip", () => {
+    act(() => {
+      root.render(
+        <ChatFirstPrimaryNavigation
+          collapsed
+          onNewChat={vi.fn()}
+          onOpenIntegrations={vi.fn()}
+          onOpenScheduled={vi.fn()}
+          stickyNewChat
+        />,
+      );
+    });
+
+    const newChat = container.querySelector<HTMLButtonElement>(
+      ".code-agents-primary-new-chat",
+    );
+    expect(newChat).not.toBeNull();
+    expect(newChat?.querySelector("span")?.className).toContain("sr-only");
+    expect(newChat?.getAttribute("aria-label")).toBe("New chat");
+    expect(newChat?.getAttribute("title")).toBe("New chat");
+  });
 });

@@ -360,6 +360,8 @@ const messages = {
         " a Dispatch tab or a workspace app in this workspace.",
       agentsDescription:
         "Dispatch can delegate to the built-in app suite over A2A by default. Add extra agents here only if you want to route work to apps outside that built-in set.",
+      simpleAgentsDescription:
+        "Create reusable agents in minutes, or import a setup you already made in Claude or another agent tool.",
       mcpAccessUpdated: "Agent integration access updated",
       selectAppForMcp: "Select at least one app, or expose all apps.",
       mcpUrlCopied: "Agent integration URL copied",

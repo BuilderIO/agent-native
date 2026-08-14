@@ -6,7 +6,7 @@ import {
 import { useT } from "@agent-native/core/client/i18n";
 import {
   IconCheck,
-  IconCopy,
+  IconLink,
   IconLock,
   IconSend2,
   IconTrash,
@@ -273,10 +273,12 @@ export function CopyField({
   label,
   value,
   disabled,
+  description,
 }: {
   label: string;
   value: string;
   disabled?: boolean;
+  description?: string;
 }) {
   const t = useT();
   const [copied, setCopied] = useState(false);
@@ -287,26 +289,24 @@ export function CopyField({
     setTimeout(() => setCopied(false), 1400);
   };
   return (
-    <div>
-      {label ? (
-        <ShareSectionLabel className="mb-1">{label}</ShareSectionLabel>
-      ) : null}
-      <div className="flex items-stretch gap-2">
-        <Input
-          readOnly
-          value={value}
-          className="flex-1 h-9 font-mono text-xs"
-        />
+    <div className="flex items-center justify-between gap-3">
+      <div className="min-w-0">
+        {label ? <div className="text-sm font-medium">{label}</div> : null}
+        {description ? (
+          <div className="text-xs text-muted-foreground">{description}</div>
+        ) : null}
+      </div>
+      <div aria-live="polite" className="shrink-0">
         <Button
           type="button"
           variant="outline"
-          size="icon"
+          size="sm"
           onClick={copy}
-          aria-label={t("shareUi.copy")}
           disabled={disabled}
-          className="h-9 w-9"
+          className="h-9"
         >
-          {copied ? <IconCheck size={14} /> : <IconCopy size={14} />}
+          {copied ? <IconCheck size={14} /> : <IconLink size={14} />}
+          {copied ? t("recordRoute.linkCopied") : t("shareUi.copy")}
         </Button>
       </div>
     </div>

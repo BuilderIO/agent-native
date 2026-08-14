@@ -1009,6 +1009,9 @@ importers:
       tweetnacl:
         specifier: ^1.0.3
         version: 1.0.3
+      undici:
+        specifier: ^7.28.0
+        version: 7.28.0
       y-protocols:
         specifier: 'catalog:'
         version: 1.0.7(yjs@13.6.31)
@@ -4322,6 +4325,9 @@ importers:
       '@agent-native/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@agent-native/dispatch':
+        specifier: workspace:*
+        version: link:../../packages/dispatch
       '@agent-native/toolkit':
         specifier: workspace:*
         version: link:../../packages/toolkit

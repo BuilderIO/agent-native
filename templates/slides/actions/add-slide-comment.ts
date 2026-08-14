@@ -17,7 +17,7 @@ function displayNameFromEmail(email: string): string {
 
 export default defineAction({
   description:
-    "Add a comment to a slide. Omit threadId to start a new thread; provide threadId to reply.",
+    "Add a comment to a slide. Inline Markdown supports emphasis, inline code, links, and line breaks; headings are flattened. Omit threadId to start a new thread; provide threadId to reply.",
   schema: z.object({
     deckId: z.string().describe("Deck ID"),
     slideId: z.string().describe("Slide ID"),

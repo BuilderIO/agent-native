@@ -17,9 +17,8 @@
 
 import { signA2AToken } from "@agent-native/core/a2a";
 import {
-  getFeatureFlagRules,
+  hasActiveFeatureFlagRollout,
   isFeatureFlagEnabled,
-  normalizeFeatureFlagRules,
 } from "@agent-native/core/feature-flags";
 import { getOrgDomain } from "@agent-native/core/org";
 import { getH3App, getSession } from "@agent-native/core/server";
@@ -103,16 +102,8 @@ async function resolveOrgDomain(
 }
 
 export async function canAttemptWorkspaceSso(): Promise<boolean> {
-  const stored = await getFeatureFlagRules(
-    DESKTOP_WORKSPACE_SSO_FLAG.key,
-    {},
-  ).catch(() => null);
-  if (!stored) return false;
-  const rules = normalizeFeatureFlagRules(stored);
-  if (rules.mode === "off") return false;
-  if (rules.mode === "on") return true;
-  return (
-    rules.emails.length > 0 || rules.orgIds.length > 0 || rules.percentage > 0
+  return hasActiveFeatureFlagRollout(DESKTOP_WORKSPACE_SSO_FLAG.key).catch(
+    () => false,
   );
 }
 
