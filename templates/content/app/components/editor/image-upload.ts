@@ -9,17 +9,17 @@ interface UploadResponse {
 
 function normalizeImageFile(file: File): File | null {
   const mimeType = file.type.split(";")[0]?.trim().toLowerCase() ?? "";
-  if (mimeType.startsWith("image/")) return file;
-  if (
-    /\.svg$/i.test(file.name) &&
-    (mimeType === "" || mimeType === "application/octet-stream")
-  ) {
-    return new File([file], file.name, {
-      type: "image/svg+xml",
-      lastModified: file.lastModified,
-    });
+  if (/\.svg$/i.test(file.name)) {
+    if (mimeType === "image/svg+xml") return file;
+    if (mimeType === "" || mimeType === "application/octet-stream") {
+      return new File([file], file.name, {
+        type: "image/svg+xml",
+        lastModified: file.lastModified,
+      });
+    }
+    return null;
   }
-  return null;
+  return mimeType.startsWith("image/") ? file : null;
 }
 
 function isVideoFile(file: File): boolean {

@@ -87,6 +87,17 @@ describe("image uploads", () => {
     },
   );
 
+  it("rejects an SVG filename with a contradictory image MIME", async () => {
+    const file = new File(["<svg></svg>"], "diagram.svg", {
+      type: "image/png",
+    });
+
+    expect(getImageFiles([file])).toEqual([]);
+    await expect(uploadImageFile(file)).rejects.toThrow(
+      "Only image files can be uploaded.",
+    );
+  });
+
   it("points users to Builder.io when file storage is not configured", async () => {
     vi.stubGlobal(
       "fetch",
