@@ -1,1 +1,5 @@
-export { InlineMarkdown, type InlineMarkdownProps } from "./InlineMarkdown.js";
+export {
+  InlineMarkdown,
+  type InlineMarkdownProtectedSpan,
+  type InlineMarkdownProps,
+} from "./InlineMarkdown.js";
