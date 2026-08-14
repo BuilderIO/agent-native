@@ -35,7 +35,12 @@ vi.mock("../settings/useBuilderStatus.js", () => ({
   }),
 }));
 
-import { BuilderSetupContent, RunErrorRecoveryCard } from "./run-recovery.js";
+import { AgentNativeI18nProvider } from "../i18n.js";
+import {
+  BuilderSetupContent,
+  LoopLimitContinueCard,
+  RunErrorRecoveryCard,
+} from "./run-recovery.js";
 
 describe("run recovery surfaces", () => {
   let container: HTMLDivElement;
@@ -69,25 +74,37 @@ describe("run recovery surfaces", () => {
 
     await act(async () => {
       root.render(
-        <RunErrorRecoveryCard
-          info={{
-            message: "The agent stopped before finishing.",
-            errorCode: "connection_error",
-            runId: "run-123",
-            details: "attempted_runs: run-1, run-2",
-            recoverable: true,
-          }}
-          onContinue={vi.fn()}
-          onRetry={vi.fn()}
-          onDismiss={vi.fn()}
-        />,
+        <AgentNativeI18nProvider
+          initialLocale="de-DE"
+          initialPreference="de-DE"
+          persistPreference={false}
+        >
+          <RunErrorRecoveryCard
+            info={{
+              message:
+                "The model provider rejected the saved API key. Update the key in Settings → Integrations → API keys, then retry.",
+              errorCode: "connection_error",
+              runId: "run-123",
+              details: "attempted_runs: run-1, run-2",
+              recoverable: true,
+            }}
+            onContinue={vi.fn()}
+            onRetry={vi.fn()}
+            onDismiss={vi.fn()}
+          />
+        </AgentNativeI18nProvider>,
       );
     });
 
+    await vi.waitFor(() => {
+      expect(container.textContent).toContain("Debug-Informationen kopieren");
+      expect(container.textContent).toContain(
+        "Der Modellanbieter hat den gespeicherten API-Schlüssel abgelehnt.",
+      );
+    });
     const copyButton = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.includes("Copy debug"),
+      (button) => button.textContent?.includes("Debug-Informationen kopieren"),
     );
-    expect(copyButton).toBeDefined();
 
     await act(async () => {
       copyButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
@@ -97,12 +114,20 @@ describe("run recovery surfaces", () => {
     expect(clipboardMock.writeClipboardText).toHaveBeenCalledWith(
       expect.stringContaining("attempted_runs: run-1, run-2"),
     );
-    expect(container.textContent).toContain("Copy failed");
+    expect(container.textContent).toContain("Kopieren fehlgeschlagen");
   });
 
   it("shows the searchable provider setup while disclosing API keys", async () => {
     await act(async () => {
-      root.render(<BuilderSetupContent />);
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <BuilderSetupContent />
+        </AgentNativeI18nProvider>,
+      );
     });
 
     expect(container.textContent).toContain("Connect AI");
@@ -132,20 +157,49 @@ describe("run recovery surfaces", () => {
     expect(document.body.textContent).toContain("Ollama");
   });
 
+  it("formats the step limit with the selected locale", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
+
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="de-DE"
+          initialPreference="de-DE"
+          persistPreference={false}
+        >
+          <LoopLimitContinueCard
+            info={{ maxIterations: 12_345 }}
+            onContinue={vi.fn()}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    await vi.waitFor(() => {
+      expect(container.textContent).toContain("12.345 Schritte");
+    });
+  });
+
   it("shows the AI setup flow and retry for a rejected provider key", async () => {
     await act(async () => {
       root.render(
-        <RunErrorRecoveryCard
-          info={{
-            message:
-              "The saved provider key was rejected. Connect Builder.io for managed AI, or update your provider key, then retry.",
-            errorCode: "authentication_error",
-            details: '401 {"error":{"type":"authentication_error"}}',
-          }}
-          onContinue={vi.fn()}
-          onRetry={vi.fn()}
-          onDismiss={vi.fn()}
-        />,
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <RunErrorRecoveryCard
+            info={{
+              message:
+                "The saved provider key was rejected. Connect Builder.io for managed AI, or update your provider key, then retry.",
+              errorCode: "authentication_error",
+              details: '401 {"error":{"type":"authentication_error"}}',
+            }}
+            onContinue={vi.fn()}
+            onRetry={vi.fn()}
+            onDismiss={vi.fn()}
+          />
+        </AgentNativeI18nProvider>,
       );
     });
 
@@ -159,16 +213,22 @@ describe("run recovery surfaces", () => {
 
     await act(async () => {
       root.render(
-        <RunErrorRecoveryCard
-          info={{
-            message:
-              "The saved provider key was rejected. Connect Builder.io for managed AI, or update your provider key, then retry.",
-            errorCode: "authentication_error",
-          }}
-          onContinue={vi.fn()}
-          onRetry={vi.fn()}
-          onDismiss={onDismiss}
-        />,
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <RunErrorRecoveryCard
+            info={{
+              message:
+                "The saved provider key was rejected. Connect Builder.io for managed AI, or update your provider key, then retry.",
+              errorCode: "authentication_error",
+            }}
+            onContinue={vi.fn()}
+            onRetry={vi.fn()}
+            onDismiss={onDismiss}
+          />
+        </AgentNativeI18nProvider>,
       );
     });
 

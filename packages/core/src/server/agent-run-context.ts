@@ -11,6 +11,12 @@ export type AgentRunOwnerContext = {
   owner: string;
   anonymous: boolean;
   name?: string;
+  /**
+   * Trusted org binding for a cookieless durable worker. Presence matters:
+   * `null` means the authenticated foreground request had no org and must not
+   * fall back to another membership during worker re-entry.
+   */
+  orgId?: string | null;
 };
 
 export const AGENT_RUN_OWNER_CONTEXT_KEY = "__agentNativeOwnerContext";
@@ -109,12 +115,17 @@ export function seedAgentRunOwnerContext(
 export async function seedBackgroundAgentRunOwnerContext(
   event: H3Event,
   runId: string,
+  orgId?: string | null,
 ): Promise<AgentRunOwnerContext | null> {
   try {
     const { getRunOwnerEmail } = await import("../agent/run-store.js");
     const owner = await getRunOwnerEmail(runId);
     if (!owner) return null;
-    return seedAgentRunOwnerContext(event, { owner, anonymous: false });
+    return seedAgentRunOwnerContext(event, {
+      owner,
+      anonymous: false,
+      ...(orgId !== undefined ? { orgId } : {}),
+    });
   } catch {
     return null;
   }
@@ -158,6 +169,10 @@ export async function resolveAgentRunOrgId(options: {
   ownerContext: AgentRunOwnerContext;
   resolveOrgId?: OrgIdResolver;
 }): Promise<string | undefined> {
+  if (Object.prototype.hasOwnProperty.call(options.ownerContext, "orgId")) {
+    return normalizeId(options.ownerContext.orgId);
+  }
+
   let resolvedOrgId: string | undefined;
 
   if (options.resolveOrgId) {
