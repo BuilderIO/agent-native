@@ -12,7 +12,7 @@ afterEach(() => {
 });
 
 describe("SlidesTryNow", () => {
-  it("extracts only selected dropdown values rather than all option texts", () => {
+  it("encodes typed prompt text into the initialPrompt URL parameter", () => {
     render(
       <AgentNativeI18nProvider
         catalog={docsI18nCatalog}
@@ -24,6 +24,9 @@ describe("SlidesTryNow", () => {
       </AgentNativeI18nProvider>,
     );
 
+    const promptBox = screen.getByRole("textbox", { name: "Your prompt" });
+    promptBox.textContent = "A quarterly review deck for board members";
+
     const submitLink = screen.getByRole("link", { name: "Generate my deck" });
     fireEvent.click(submitLink);
 
@@ -31,12 +34,7 @@ describe("SlidesTryNow", () => {
     const url = new URL(href);
     const initialPrompt = url.searchParams.get("initialPrompt") || "";
 
-    expect(initialPrompt).toContain("B2B sales pitch");
-    expect(initialPrompt).toContain("brief");
-    expect(initialPrompt).not.toContain("capital raise");
-    expect(initialPrompt).not.toContain("offering memorandum");
-    expect(initialPrompt).not.toContain("minimal");
-    expect(initialPrompt).not.toContain("thorough");
+    expect(initialPrompt).toBe("A quarterly review deck for board members");
   });
 
   it("associates the visible prompt label with the editable textbox", () => {
@@ -59,5 +57,22 @@ describe("SlidesTryNow", () => {
       "Your prompt",
     );
     expect(prompt.getAttribute("contenteditable")).toBe("true");
+  });
+
+  it("renders tooltip next to Your prompt", () => {
+    render(
+      <AgentNativeI18nProvider
+        catalog={docsI18nCatalog}
+        initialLocale="en-US"
+        initialPreference="en-US"
+        persistPreference={false}
+      >
+        <SlidesTryNow />
+      </AgentNativeI18nProvider>,
+    );
+
+    expect(screen.getByRole("tooltip").textContent).toContain(
+      "Be specific. Generic prompts = generic decks.",
+    );
   });
 });
