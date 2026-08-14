@@ -33,7 +33,9 @@ export const CORPUS_REDUCTION_ACTIONS = new Set(["run-code"]);
 // includes one of these read actions, the bypass still applies even when an
 // authoring/save action ran alongside it.
 export const DASHBOARD_CONSTRUCTION_ACTIONS = new Set([
+  "search-dashboard-references",
   "get-sql-dashboard",
+  "get-explorer-dashboard",
   "list-sql-dashboards",
   "list-extensions",
   "get-extension",
@@ -159,7 +161,7 @@ function isDashboardMutationActionName(name: string): boolean {
 // dashboard construction, distinct from an analytics-result question. Turns
 // like this may inspect and clone a template without running a metric query.
 const DASHBOARD_CONSTRUCTION_INTENT_TERMS =
-  /\b(build|create|make|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh|simplify|switch|template|based (?:off|on)|using .{1,80}? as a template)\b/i;
+  /\b(build|create|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh|simplify|switch|template|based (?:off|on)|using .{1,80}? as a template)\b/i;
 
 const DASHBOARD_CONSTRUCTION_TARGET_TERMS =
   /\b(dashboard|extension|panel|widget)\b/i;

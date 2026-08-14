@@ -849,6 +849,11 @@ describe("incomplete evidence detection", () => {
         "Use the same source data as Company A, filter for Company B",
       ),
     ).toBe(false);
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Replicate the DevRel Leaderboard dashboard for the sales team",
+      ),
+    ).toBe(true);
   });
 
   it("still treats a plain numeric analytics question as a data request, not construction", () => {
@@ -862,10 +867,23 @@ describe("incomplete evidence detection", () => {
     ).toBe(false);
   });
 
-  it("accepts get-sql-dashboard and extension actions as construction progress", () => {
+  it("accepts dashboard reference and inspection actions as construction progress", () => {
     expect(
       hasDashboardConstructionAttempt([
         { name: "get-sql-dashboard", content: '{"id":"company-a-analysis"}' },
+      ]),
+    ).toBe(true);
+    expect(
+      hasDashboardConstructionAttempt([
+        {
+          name: "get-explorer-dashboard",
+          content: '{"id":"company-a-explorer"}',
+        },
+      ]),
+    ).toBe(true);
+    expect(
+      hasDashboardConstructionAttempt([
+        { name: "search-dashboard-references", content: "[]" },
       ]),
     ).toBe(true);
     expect(

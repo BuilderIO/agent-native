@@ -604,19 +604,23 @@ async function loadAgentsResourceForPrompt(
   scope: string,
   maxChars = SHARED_PROMPT_RESOURCE_MAX_CHARS,
 ): Promise<string | null> {
+  let agents: Awaited<ReturnType<typeof resourceGetByPath>>;
   try {
-    const agents = await resourceGetByPath(owner, "AGENTS.md");
-    if (!agents?.content?.trim()) return null;
-    return promptResourceBlock({
-      name: "AGENTS.md",
-      scope,
-      path: "AGENTS.md",
-      content: agents.content,
-      maxChars,
-    });
-  } catch {
-    return null;
+    agents = await resourceGetByPath(owner, "AGENTS.md");
+  } catch (error) {
+    throw new Error(
+      `Unable to read durable AGENTS.md instructions for ${scope} (${owner}). The run cannot safely continue without them.`,
+      { cause: error },
+    );
   }
+  if (!agents?.content?.trim()) return null;
+  return promptResourceBlock({
+    name: "AGENTS.md",
+    scope,
+    path: "AGENTS.md",
+    content: agents.content,
+    maxChars,
+  });
 }
 
 async function loadInstructionResourcesForPrompt(
@@ -924,7 +928,7 @@ export async function loadResourcesForPrompt(
     "workspace",
     promptResourceMaxChars,
   );
-  addSection(workspaceAgents);
+  addSection(workspaceAgents, "required");
   addSections(
     await loadInstructionResourcesForPrompt(
       WORKSPACE_OWNER,
@@ -944,7 +948,7 @@ export async function loadResourcesForPrompt(
     organizationOwner === SHARED_OWNER ? "shared" : "app-default",
     promptResourceMaxChars,
   );
-  addSection(appDefaultAgents);
+  addSection(appDefaultAgents, "required");
   addSections(
     await loadInstructionResourcesForPrompt(
       SHARED_OWNER,
@@ -964,7 +968,7 @@ export async function loadResourcesForPrompt(
       "organization",
       promptResourceMaxChars,
     );
-    addSection(organizationAgents);
+    addSection(organizationAgents, "required");
     addSections(
       await loadInstructionResourcesForPrompt(
         organizationOwner,
@@ -983,7 +987,7 @@ export async function loadResourcesForPrompt(
       "personal",
       promptResourceMaxChars,
     );
-    addSection(personalAgents, "user");
+    addSection(personalAgents, "required");
     addSections(
       await loadInstructionResourcesForPrompt(
         owner,

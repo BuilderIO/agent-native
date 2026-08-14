@@ -37,7 +37,7 @@ decisions, feedback, agent runs, and provider audit records.
 
 - `navigation.view`: `factory` when the workspace is open.
 - `navigation.factoryId`: selected Factory id when present.
-- `navigation.factoryTab`: `map` | `inbox` | `rules` | `automations` | `audit` | `settings`.
+- `navigation.factoryTab`: `map` | `inbox` | `rules` | `automations` | `agents` | `audit` | `settings`.
 - `navigation.factoryAuditRunId`: selected automation run in the audit view when present.
 - `navigation.factoryNodeId` / `navigation.factoryEdgeId`: selected graph item.
 - A selected graph node or edge is part of `navigation` context. Read
@@ -68,6 +68,10 @@ decisions, feedback, agent runs, and provider audit records.
 | `save-factory-graph` | Create or version a complete visual graph; never starts provider work. |
 | `list-factory-comments` / `add-factory-comment` | Read or attach comments to a canvas, node, or edge. |
 | `provider-api-catalog` / `provider-api-docs` / `provider-api-request` | Discover and use connected provider APIs with shared workspace credentials; never request raw keys. |
+| `list-workspace-apps` / `update-workspace-app-metadata` | Inventory and edit mounted agentic apps in the shared workspace. |
+| `list-workspace-resources` / `create-workspace-resource` / `update-workspace-resource` | Manage shared resource records used by agents and apps. |
+| `import-agent` / `import-agent-pack` / `list-agent-pack` | Import a simple profile or a Claude/Cowork-style folder-backed agent pack. |
+| `start-workspace-app-creation` | Promote an agent and all of its pack resource ids into an app-creation handoff. |
 
 Rules start in shadow mode; hard guards always apply. Organization automations
 execute stored prompts, and every external mutation needs a durable run,

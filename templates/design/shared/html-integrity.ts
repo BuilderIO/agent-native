@@ -32,6 +32,9 @@ export type DesignHtmlIntegrityIssue =
   | "close-tag-orphaned"
   | "content-truncated"
   | "runtime-missing"
+  | "runtime-alpine-missing"
+  | "runtime-cloak-missing"
+  | "runtime-overlay-unhidden"
   | "url-backed-screen-replaced";
 
 /**
@@ -86,6 +89,10 @@ const DOCUMENT_SHAPE_MESSAGES: Partial<
     "an editor-managed <style>/<script> block appears more than once; there must be exactly one of each",
   "url-backed-screen-replaced":
     "this screen's content is its live route URL, and the write would replace it with document markup — that permanently unbinds the screen from the running app. Edit the app's own source instead",
+  "runtime-cloak-missing":
+    "this document uses x-cloak without the CSS rule that keeps Alpine-controlled content hidden before Alpine starts",
+  "runtime-alpine-missing":
+    "this document uses x-cloak but does not load Alpine.js, so the hidden state can never be removed",
 };
 
 export function describeDesignHtmlIntegrityIssue(
@@ -140,6 +147,27 @@ export function describeDesignHtmlIntegrityIssue(
         `no Tailwind runtime is reachable from this document (expected a ` +
         `<script src="…@tailwindcss/browser@4"> or a <style type="text/tailwindcss">). ` +
         `Utility classes will not apply and the design renders unstyled.`
+      );
+    case "runtime-alpine-missing":
+      return (
+        `the document uses x-cloak on <${detail.tag ?? "element"}> at ${at}, ` +
+        `but no script source contains Alpine.js. The element will remain ` +
+        `hidden forever; load Alpine.js before relying on x-cloak.`
+      );
+    case "runtime-overlay-unhidden":
+      return (
+        `<${detail.tag ?? "element"}> at ${at} covers the whole frame and is ` +
+        `shown by Alpine (${detail.attribute ?? "x-show"}), but nothing hides ` +
+        `it before Alpine starts. It paints over the design on first render. ` +
+        `Add x-cloak plus [x-cloak] { display: none !important; }, or an ` +
+        `inline style="display:none".`
+      );
+    case "runtime-cloak-missing":
+      return (
+        `the document uses x-cloak on <${detail.tag ?? "element"}> at ${at}, ` +
+        `but no style block defines [x-cloak] { display: none !important; }. ` +
+        `Alpine-controlled overlays can flash or cover the entire screen before ` +
+        `Alpine starts. Add that exact hiding rule to the document.`
       );
     default:
       return `the document structure is invalid (${detail.issue}) at ${at}.`;
@@ -1078,10 +1106,146 @@ function collectManagedMarkerIssue(
 }
 
 /**
+ * The selector may sit anywhere in a comma-separated list, and any of the three
+ * hidings below is a correct pre-Alpine hide. Matching only
+ * `[x-cloak] { display: none }` rejects documents that render perfectly.
+ */
+const X_CLOAK_RULE =
+  /\[x-cloak\][^{}]*\{[^}]*(?:display\s*:\s*none|visibility\s*:\s*hidden|@apply[^;}]*\bhidden\b)/i;
+const ALPINE_RUNTIME = /\balpinejs\b/i;
+const INLINE_PRE_HIDE = /(?:display\s*:\s*none|visibility\s*:\s*hidden)/i;
+
+/**
+ * `x-cloak` is an Alpine convention, not a runtime feature: it only works
+ * when the authored document also supplies the CSS rule that hides the node
+ * before Alpine initializes. A missing rule is especially dangerous for
+ * fixed overlays, which can make a correct screen look completely replaced.
+ */
+function collectInteractiveRuntimeIssues(
+  parsed: ParsedDocument,
+  locate: Locator,
+): DesignHtmlIntegrityIssueDetail[] {
+  const cloaked = parsed.elements.find((element) =>
+    element.attrs.some(
+      (attribute) => attribute.name.toLowerCase() === "x-cloak",
+    ),
+  );
+  if (!cloaked) return [];
+
+  const hasAlpineRuntime = parsed.elements.some(
+    (element) =>
+      element.tagName === "script" &&
+      ALPINE_RUNTIME.test(attributeOf(element, "src") ?? ""),
+  );
+
+  // A linked stylesheet is content this parser cannot read, so its rules are
+  // unknown — not missing. Reporting "no rule defined" here would be the
+  // coercion this whole module exists to prevent.
+  const hasUnreadableStylesheet = parsed.elements.some(
+    (element) =>
+      element.tagName === "link" &&
+      /\bstylesheet\b/i.test(attributeOf(element, "rel") ?? "") &&
+      (attributeOf(element, "href") ?? "").trim().length > 0,
+  );
+
+  const hasCloakRule =
+    hasUnreadableStylesheet ||
+    INLINE_PRE_HIDE.test(attributeOf(cloaked, "style") ?? "") ||
+    parsed.elements.some((element) => {
+      if (element.tagName !== "style") return false;
+      const css = childrenOf(element)
+        .filter((node) => node.nodeName === "#text")
+        .map((node) => (node as DefaultTreeAdapterTypes.TextNode).value)
+        .join("\n");
+      return X_CLOAK_RULE.test(css);
+    });
+
+  const attribute = cloaked.attrs.find(
+    (entry) => entry.name.toLowerCase() === "x-cloak",
+  );
+  const offset =
+    locationOf(cloaked)?.attrs?.[attribute?.name ?? ""]?.startOffset ??
+    locationOf(cloaked)?.startOffset ??
+    0;
+  const detail = {
+    line: locate(offset).line,
+    column: locate(offset).column,
+    excerpt: locate(offset).excerpt,
+    tag: cloaked.tagName,
+    attribute: "x-cloak",
+  };
+  return [
+    ...(hasAlpineRuntime
+      ? []
+      : [{ issue: "runtime-alpine-missing" as const, ...detail }]),
+    ...(hasCloakRule
+      ? []
+      : [{ issue: "runtime-cloak-missing" as const, ...detail }]),
+  ];
+}
+
+/**
+ * Covers the frame when it is taken out of flow AND stretched to every edge.
+ * `fixed` alone is a toolbar; `inset-0` alone is a normal filled parent.
+ */
+function coversViewport(className: string): boolean {
+  const classes = new Set(className.split(/\s+/));
+  const positioned = classes.has("fixed") || classes.has("absolute");
+  const fullBleed =
+    classes.has("inset-0") ||
+    (classes.has("w-screen") && classes.has("h-screen"));
+  return positioned && fullBleed;
+}
+
+/**
+ * The shape the `x-cloak` checks above cannot see. An overlay toggled by
+ * `x-show` with no `x-cloak` at all paints over the design until Alpine
+ * evaluates the expression — the same symptom, minus the attribute that makes
+ * it detectable. Advisory rather than blocking: with Alpine healthy this is one
+ * frame, and a genuinely broken runtime is already caught above.
+ *
+ * `<template x-if>` is deliberately not checked: template content is inert
+ * until Alpine clones it, so it cannot paint early.
+ */
+function collectOverlayAdvisory(
+  parsed: ParsedDocument,
+  locate: Locator,
+): DesignHtmlIntegrityIssueDetail[] {
+  for (const element of parsed.elements) {
+    const names = new Set(
+      element.attrs.map((attribute) => attribute.name.toLowerCase()),
+    );
+    if (names.has("x-cloak") || !names.has("x-show")) continue;
+    if (!coversViewport(attributeOf(element, "class") ?? "")) continue;
+    if (INLINE_PRE_HIDE.test(attributeOf(element, "style") ?? "")) continue;
+
+    return [
+      {
+        issue: "runtime-overlay-unhidden",
+        ...locate(locationOf(element)?.startOffset ?? 0),
+        tag: element.tagName,
+        attribute: "x-show",
+      },
+    ];
+  }
+  return [];
+}
+
+/**
  * Reported, never enforced: legitimate fragments and token-only screens carry no
  * runtime of their own, so blocking here would reject valid work.
  */
 function collectAdvisoryIssues(
+  parsed: ParsedDocument,
+  locate: Locator,
+): DesignHtmlIntegrityIssueDetail[] {
+  return [
+    ...collectOverlayAdvisory(parsed, locate),
+    ...collectTailwindRuntimeAdvisory(parsed, locate),
+  ];
+}
+
+function collectTailwindRuntimeAdvisory(
   parsed: ParsedDocument,
   locate: Locator,
 ): DesignHtmlIntegrityIssueDetail[] {
@@ -1142,8 +1306,43 @@ export function inspectDesignHtmlDocumentIntegrity(
   const marker = collectManagedMarkerIssue(parsed);
   if (marker) return { valid: false, issue: marker };
 
+  const interactiveRuntime = collectInteractiveRuntimeIssues(parsed, locate);
+  if (interactiveRuntime.length > 0) {
+    return {
+      valid: false,
+      issue: interactiveRuntime[0]!.issue,
+      detail: interactiveRuntime,
+    };
+  }
+
   const advisory = collectAdvisoryIssues(parsed, locate);
   return advisory.length > 0 ? { valid: true, advisory } : { valid: true };
+}
+
+const RUNTIME_ISSUES: ReadonlySet<DesignHtmlIntegrityIssue> = new Set([
+  "runtime-alpine-missing",
+  "runtime-cloak-missing",
+]);
+
+/**
+ * The runtime issues are the one class an edit may carry forward. A screen
+ * saved before these checks existed still renders, and the person dragging on
+ * the canvas did not author its markup and cannot add a CSS rule — refusing
+ * their unrelated edit strands the screen. Block what the edit introduces;
+ * the create path still refuses to author the defect in the first place.
+ */
+function introducedRuntimeIssues(
+  next: DesignHtmlIntegrityIssueDetail[],
+  previousContent: string,
+): DesignHtmlIntegrityIssueDetail[] {
+  if (next.length === 0 || !previousContent.trim()) return next;
+  const inherited = new Set(
+    collectInteractiveRuntimeIssues(
+      parseDocument(previousContent),
+      createLocator(previousContent),
+    ).map((entry) => entry.issue),
+  );
+  return next.filter((entry) => !inherited.has(entry.issue));
 }
 
 /**
@@ -1186,6 +1385,19 @@ export function assertDesignHtmlEditIntegrity(args: {
         detail: structural,
       });
     }
+    const interactiveRuntime = introducedRuntimeIssues(
+      collectInteractiveRuntimeIssues(
+        parseDocument(args.nextContent),
+        createLocator(args.nextContent),
+      ),
+      args.previousContent,
+    );
+    if (interactiveRuntime.length > 0) {
+      throw new DesignHtmlIntegrityError(interactiveRuntime[0]!.issue, {
+        filename: args.filename,
+        detail: interactiveRuntime,
+      });
+    }
     return;
   }
   if (previousIsDocument && !nextIsDocument) {
@@ -1195,6 +1407,17 @@ export function assertDesignHtmlEditIntegrity(args: {
   }
   const result = inspectDesignHtmlDocumentIntegrity(args.nextContent);
   if (!result.valid) {
+    if (result.issue && RUNTIME_ISSUES.has(result.issue)) {
+      const introduced = introducedRuntimeIssues(
+        result.detail ?? [],
+        args.previousContent,
+      );
+      if (introduced.length === 0) return;
+      throw new DesignHtmlIntegrityError(introduced[0]!.issue, {
+        filename: args.filename,
+        detail: introduced,
+      });
+    }
     throw new DesignHtmlIntegrityError(result.issue ?? "document-root", {
       filename: args.filename,
       detail: result.detail,
@@ -1225,6 +1448,20 @@ export function assertDesignHtmlWellFormed(args: {
     throw new DesignHtmlIntegrityError(structural[0]!.issue, {
       filename: args.filename,
       detail: structural,
+    });
+  }
+  // Fragments are checked too, unlike the document-shape rules above: a screen
+  // is rendered as its own `srcdoc`, so nothing injects Alpine or a `[x-cloak]`
+  // rule around it. A sketch that omits them is broken exactly as a full
+  // document would be.
+  const interactiveRuntime = collectInteractiveRuntimeIssues(
+    parseDocument(args.content),
+    createLocator(args.content),
+  );
+  if (interactiveRuntime.length > 0) {
+    throw new DesignHtmlIntegrityError(interactiveRuntime[0]!.issue, {
+      filename: args.filename,
+      detail: interactiveRuntime,
     });
   }
 }

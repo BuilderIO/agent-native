@@ -104,4 +104,17 @@ describe("scanEnvCredentials", () => {
     const result = scanEnvCredentials({ root });
     expect(result.findings).toHaveLength(0);
   });
+
+  it("passes clean for SSO deployment configuration", () => {
+    const root = makeTempAppRoot({
+      "server/identity-sso.ts": [
+        "const origin = process.env.APP_URL;",
+        "const registry = process.env.IDENTITY_SSO_APP_REGISTRY_JSON;",
+        "export { origin, registry };",
+        "",
+      ].join("\n"),
+    });
+    const result = scanEnvCredentials({ root });
+    expect(result.findings).toHaveLength(0);
+  });
 });

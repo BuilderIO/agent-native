@@ -28,6 +28,7 @@ import type {
   CustomField,
   TimeSlot,
 } from "../../shared/api.js";
+import { normalizeAvailabilitySlots } from "../../shared/availability-schedule.js";
 import { getDb, schema } from "../db/index.js";
 import {
   parseBookingLinkDurations,
@@ -626,7 +627,7 @@ export function generateAvailableSlotsForDate({
     timezone,
   );
 
-  for (const scheduleSlot of daySchedule.slots) {
+  for (const scheduleSlot of normalizeAvailabilitySlots(daySchedule.slots)) {
     const [startHour, startMin] = scheduleSlot.start.split(":").map(Number);
     const [endHour, endMin] = scheduleSlot.end.split(":").map(Number);
     if (

@@ -1335,6 +1335,19 @@ function exceptionEventProperties(
   };
 }
 
+function amplitudeEventProperties(
+  name: string,
+  properties: Record<string, unknown>,
+): Record<string, unknown> {
+  if (name !== AGENT_NATIVE_EXCEPTION_EVENT_NAME) return properties;
+  const {
+    exceptionTags: _exceptionTags,
+    exceptionExtra: _exceptionExtra,
+    ...stableProperties
+  } = properties;
+  return stableProperties;
+}
+
 /**
  * Resolve browser PostHog config, or `undefined` when error capture should not
  * reach PostHog. Reads the SSR-injected shell config first, then Vite env for
@@ -1926,12 +1939,13 @@ export function trackEvent(
   if (typeof window === "undefined") return;
   ensureSentry();
   const props = resolveProps(name, params);
+  const amplitudeProps = amplitudeEventProperties(name, props);
   window.gtag?.("event", name.replace(/\s+/g, "_"), props);
   if (ensureAmplitude()) {
-    _amplitudeModule?.track(name, props);
+    _amplitudeModule?.track(name, amplitudeProps);
   } else if (_amplitudeApiKey) {
     if (_pendingAmplitudeEvents.length < 100) {
-      _pendingAmplitudeEvents.push([name, props]);
+      _pendingAmplitudeEvents.push([name, amplitudeProps]);
     }
   }
   sendAgentNativeAnalytics(name, props);

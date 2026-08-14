@@ -6,6 +6,7 @@ import {
   useBuilderConnectFlow,
   useBuilderStatus,
 } from "@agent-native/core/client/settings";
+import { docsUrl } from "@agent-native/core/shared";
 import {
   IconCheck,
   IconChevronDown,
@@ -58,8 +59,9 @@ import { cn } from "@/lib/utils";
 
 type ReplayRange = "24h" | "7d" | "30d" | "90d" | "all";
 
-const SESSION_REPLAY_DOCS_URL =
-  "https://www.agent-native.com/docs/tracking#session-replay";
+const SESSION_REPLAY_DOCS_URL = docsUrl("tracking", {
+  hash: "session-replay",
+});
 
 const S3_STORAGE_FIELDS = [
   {

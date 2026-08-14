@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 /**
- * Split the full fast-test suite into balanced CI lanes. There is deliberately
- * NO change-based selection here: every workspace test package runs on every
- * PR, so a test can never be silently skipped. This script only decides which
- * lane each package runs in, purely to parallelise wall-clock.
+ * Split the full fast-test suite for non-docs PRs into balanced CI lanes. There
+ * is deliberately NO change-based selection within this suite: every workspace
+ * test package runs when the suite is selected, so a test can never be silently
+ * skipped. Docs-only PRs bypass this script and use the focused docs job.
+ * This script only decides which lane each package runs in, purely to
+ * parallelise wall-clock.
  *
  * @agent-native/core is handled by its own dedicated CI job (isolated so it can
  * run uncapped), so it is excluded here. Every OTHER test package is partitioned

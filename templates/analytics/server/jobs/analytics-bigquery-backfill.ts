@@ -20,8 +20,8 @@ const DEFAULT_MAX_BATCHES_PER_SWEEP = 4;
 const MAX_BATCHES_PER_SWEEP = 4;
 const DEFAULT_PARALLELISM = 8;
 const MAX_PARALLELISM = 8;
-const DEFAULT_MAX_ACTIVE_SESSIONS = 80;
 const DEFAULT_MAX_TOTAL_SESSIONS = 250;
+const PRESSURE_RETRY_MS = 60 * 1000;
 
 type Query =
   | string
@@ -813,7 +813,7 @@ export async function queueFirstPartyAnalyticsBigQueryBackfill(
 
 async function pressureSnapshot(
   db: Executor,
-): Promise<{ paused: boolean; reason?: string }> {
+): Promise<{ paused: boolean; degraded?: boolean; reason?: string }> {
   if (!isPostgres()) return { paused: false };
   try {
     const result = await db.execute({
@@ -833,15 +833,11 @@ async function pressureSnapshot(
     const active = numberValue(row, "active_sessions");
     const waiting = numberValue(row, "waiting_sessions");
     const lockWaiters = numberValue(row, "lock_waiters");
-    const maxActive = positiveEnvNumber(
-      "ANALYTICS_BIGQUERY_BACKFILL_MAX_ACTIVE_SESSIONS",
-      DEFAULT_MAX_ACTIVE_SESSIONS,
-    );
     const maxTotal = positiveEnvNumber(
       "ANALYTICS_BIGQUERY_BACKFILL_MAX_TOTAL_SESSIONS",
       DEFAULT_MAX_TOTAL_SESSIONS,
     );
-    if (lockWaiters > 0 || active >= maxActive || total >= maxTotal) {
+    if (lockWaiters > 0 || waiting >= 8 || total >= maxTotal) {
       return {
         paused: true,
         reason: `database pressure: total=${total}, active=${active}, waiting=${waiting}, lockWaiters=${lockWaiters}`,
@@ -850,10 +846,28 @@ async function pressureSnapshot(
     return { paused: false };
   } catch (error) {
     return {
-      paused: true,
+      paused: false,
+      degraded: true,
       reason: `pressure probe failed: ${error instanceof Error ? error.message : String(error)}`,
     };
   }
+}
+
+async function recordPressurePause(
+  db: Executor,
+  jobId: string | null,
+  reason: string,
+): Promise<void> {
+  if (!jobId) return;
+  const retryAt = new Date(Date.now() + PRESSURE_RETRY_MS).toISOString();
+  await db.execute({
+    sql: `UPDATE ${JOB_TABLE}
+             SET last_error = ?, next_run_at = ?, updated_at = ?
+           WHERE id = ? AND status <> 'completed'`,
+    args: [reason.slice(0, 1_000), retryAt, new Date().toISOString(), jobId],
+    timeoutMs: 5_000,
+    maxAttempts: 1,
+  });
 }
 
 export async function runFirstPartyAnalyticsBigQueryBackfillOnce(): Promise<BigQueryBackfillSweepResult> {
@@ -862,8 +876,21 @@ export async function runFirstPartyAnalyticsBigQueryBackfillOnce(): Promise<BigQ
   }
 
   const db = executor();
+  const coordinator = await getNextFirstPartyAnalyticsBigQueryBackfillJob(
+    db,
+    new Date().toISOString(),
+  );
+  if (!coordinator) {
+    return { status: "idle", batches: 0, copied: 0, remaining: 0 };
+  }
+
   const initialPressure = await pressureSnapshot(db);
   if (initialPressure.paused) {
+    await recordPressurePause(
+      db,
+      coordinator.id,
+      initialPressure.reason ?? "database pressure",
+    );
     return {
       status: "paused-pressure",
       batches: 0,
@@ -873,21 +900,19 @@ export async function runFirstPartyAnalyticsBigQueryBackfillOnce(): Promise<BigQ
     };
   }
 
-  const coordinator = await getNextFirstPartyAnalyticsBigQueryBackfillJob(
-    db,
-    new Date().toISOString(),
-  );
-  if (!coordinator) {
-    return { status: "idle", batches: 0, copied: 0, remaining: 0 };
-  }
-
   await ensureBackfillShards(db, coordinator);
 
   let batches = 0;
   let copied = 0;
+  let degraded = initialPressure.degraded === true;
   for (let index = 0; index < maxBatchesPerSweep(); index += 1) {
     const pressure = await pressureSnapshot(db);
     if (pressure.paused) {
+      await recordPressurePause(
+        db,
+        coordinator.id,
+        pressure.reason ?? "database pressure",
+      );
       return {
         status: "paused-pressure",
         batches,
@@ -896,10 +921,11 @@ export async function runFirstPartyAnalyticsBigQueryBackfillOnce(): Promise<BigQ
         reason: pressure.reason,
       };
     }
+    degraded ||= pressure.degraded === true;
 
     const claimed = (
       await Promise.all(
-        Array.from({ length: parallelism() }, () =>
+        Array.from({ length: degraded ? 1 : parallelism() }, () =>
           claimNextShard(db, coordinator.id, new Date().toISOString()),
         ),
       )

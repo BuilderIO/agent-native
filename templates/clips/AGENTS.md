@@ -31,6 +31,8 @@ video sharing app. The agent and the UI share the same SQL data and actions.
   secrets/OAuth/runtime config and obvious placeholders.
 - Use actions for recording metadata, transcripts, cleanup, summaries, chapters,
   comments, spaces/folders, meetings, and sharing. Never bypass access helpers.
+- Comment text accepts inline Markdown for emphasis, inline code, links, and
+  line breaks; headings and other block structures stay flattened in comments.
 - Recording start/stop/pause are UI gestures — browser capture needs user
   activation; navigate to the recording view instead of a server action.
 - Native transcript first; cloud transcription is fallback-only. Never hide a

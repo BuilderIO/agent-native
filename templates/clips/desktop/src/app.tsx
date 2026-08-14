@@ -66,7 +66,10 @@ import { UpdateBanner } from "./components/UpdateBanner";
 import { useMediaDevices } from "./hooks/useMediaDevices";
 import { useMeetingTranscription } from "./hooks/useMeetingTranscription";
 import { stopAllMicMeters } from "./hooks/useMicMeter";
-import { useWhisperSettings } from "./hooks/useWhisperSettings";
+import {
+  useWhisperSettings,
+  type WhisperModelOption,
+} from "./hooks/useWhisperSettings";
 import { startBubbleFramePump } from "./lib/bubble-pump";
 import { shouldKeepBubbleSession } from "./lib/bubble-session";
 import {
@@ -112,6 +115,10 @@ import {
 import { REWIND_AGENT_PROMPT } from "./lib/rewind-agent-prompt";
 import { getRewindStatusPresentation } from "./lib/rewind-status";
 import {
+  initialDesktopSettingsTab,
+  type DesktopSettingsTab,
+} from "./lib/settings-navigation";
+import {
   loadBool,
   loadString,
   loadStringAllowEmpty,
@@ -133,6 +140,7 @@ import {
   type VoiceProvider,
   type VoiceShortcutPreference,
 } from "./lib/voice-dictation";
+import { whisperModelOptionLabel } from "./lib/whisper-model-picker";
 import {
   useFeatureConfig,
   type FeatureConfig,
@@ -168,7 +176,7 @@ type PopoverView =
   | "meetings"
   | "dictation";
 
-type SettingsTabId = "general" | "recording" | "meetings" | "dictation";
+type SettingsTabId = DesktopSettingsTab;
 
 interface PopoverMeeting {
   id: string;
@@ -377,7 +385,7 @@ const MIC_ON_KEY = "clips:mic-on";
 const SYSTEM_AUDIO_KEY = "clips:system-audio";
 const READINESS_REVIEWED_KEY = "clips:readiness-reviewed";
 const REWIND_DOCS_URL =
-  "https://www.agent-native.com/docs/template-clips#agent-readable-clips";
+  "https://www.agent-native.com/docs/template-clips-capture-everywhere#rewind-quick-save";
 
 // Sensible defaults so the user never has to type a URL on first launch.
 // Dev builds point at the local dev server; production builds point at the
@@ -739,6 +747,14 @@ function meetingCanStartNotes(meeting: PopoverMeeting): boolean {
   );
 }
 
+function humanReadableShortcutLabel(shortcut: string): string {
+  return shortcut
+    .split("+")
+    .map((token) => token.trim())
+    .filter(Boolean)
+    .join(" ");
+}
+
 function voiceShortcutLabel(
   shortcut: VoiceShortcutPreference,
   customShortcut: string,
@@ -747,13 +763,15 @@ function voiceShortcutLabel(
     case "fn":
       return "Fn";
     case "cmd-shift-space":
-      return "Cmd+Shift+Space";
+      return "Cmd Shift Space";
     case "ctrl-shift-space":
-      return "Ctrl+Shift+Space";
+      return "Ctrl Shift Space";
     case "custom":
-      return customShortcut || "Custom shortcut";
+      return customShortcut
+        ? humanReadableShortcutLabel(customShortcut)
+        : "Custom shortcut";
     case "both":
-      return "Fn, Cmd+Shift+Space, or Ctrl+Shift+Space";
+      return "Fn, Cmd Shift Space, or Ctrl Shift Space";
   }
 }
 
@@ -978,6 +996,14 @@ export function App() {
   const [shareLinkNotice, setShareLinkNotice] =
     useState<ShareLinkNotice | null>(null);
   const [popoverView, setPopoverView] = useState<PopoverView>("recorder");
+  const [initialSettingsTab, setInitialSettingsTab] =
+    useState<SettingsTabId>("general");
+
+  function openSettings(tab: SettingsTabId = "general") {
+    setInitialSettingsTab(tab);
+    setPopoverView("settings");
+  }
+
   const [rewindSettingsReturnView, setRewindSettingsReturnView] = useState<
     "recorder" | "settings"
   >("recorder");
@@ -3792,6 +3818,7 @@ export function App() {
         {pendingUploadBanner}
         {isRecording ? <ActiveRecordingBanner /> : null}
         <Setup
+          initialSettingsTab={initialSettingsTab}
           recordingActive={isRecording || recordingFlowActive}
           initial={serverUrl}
           serverUrl={serverUrl}
@@ -3845,7 +3872,7 @@ export function App() {
           onOpenMeeting={(meetingId) =>
             openInBrowser(`/meetings/${encodeURIComponent(meetingId)}`)
           }
-          onOpenSettings={() => setPopoverView("settings")}
+          onOpenSettings={() => openSettings()}
           onStartNotes={startMeetingNotes}
           onStartNotesAndJoin={startMeetingNotesAndJoin}
           onShowActiveMeeting={showActiveMeetingPill}
@@ -3867,7 +3894,7 @@ export function App() {
           voiceProvider={voiceProvider}
           onBack={() => setPopoverView("recorder")}
           onOpenDictate={() => openInBrowser("/dictate")}
-          onOpenSettings={() => setPopoverView("settings")}
+          onOpenSettings={() => openSettings("dictation")}
         />
       </div>
     );
@@ -3922,7 +3949,7 @@ export function App() {
           </>
         )}
         <div className="footer">
-          <a className="footer-link" onClick={() => setPopoverView("settings")}>
+          <a className="footer-link" onClick={() => openSettings()}>
             Settings
           </a>
         </div>
@@ -4144,7 +4171,7 @@ export function App() {
         <BottomButton
           icon="settings"
           label="Settings"
-          onClick={() => setPopoverView("settings")}
+          onClick={() => openSettings()}
         />
       </div>
     </div>
@@ -5286,6 +5313,7 @@ function desktopUpdateStatusText(status: UpdateStatus): string {
 
 function Setup({
   surface = "settings",
+  initialSettingsTab,
   promptRewindEnable = false,
   recordingActive = false,
   initial,
@@ -5314,6 +5342,7 @@ function Setup({
   onSignOut,
 }: {
   surface?: "settings" | "memory" | "rewind";
+  initialSettingsTab?: SettingsTabId;
   promptRewindEnable?: boolean;
   recordingActive?: boolean;
   initial?: string | null;
@@ -5343,7 +5372,9 @@ function Setup({
 }) {
   const [url, setUrl] = useState(initial ?? DEFAULT_URL);
   const [readinessOpen, setReadinessOpen] = useState(false);
-  const [settingsTab, setSettingsTab] = useState<SettingsTabId>("general");
+  const [settingsTab, setSettingsTab] = useState<SettingsTabId>(() =>
+    initialDesktopSettingsTab(initialSettingsTab),
+  );
   const [rewindSettingsOpen, setRewindSettingsOpen] = useState(false);
   const [rewindActivityOpen, setRewindActivityOpen] = useState(false);
   const [rewindMemoryOpen, setRewindMemoryOpen] = useState(false);
@@ -5351,6 +5382,12 @@ function Setup({
   const [rewindPrivacyOpen, setRewindPrivacyOpen] = useState(false);
   const [rewindAgentSetupOpen, setRewindAgentSetupOpen] = useState(false);
   const [rewindHandoffOpen, setRewindHandoffOpen] = useState(false);
+
+  useEffect(() => {
+    if (surface !== "settings") return;
+    setSettingsTab(initialDesktopSettingsTab(initialSettingsTab));
+  }, [initialSettingsTab, surface]);
+
   const featureConfig = useFeatureConfig();
   const updateStatus = useUpdateStatus();
   const voiceEnabled = featureConfig?.voiceEnabled !== false;
@@ -5983,10 +6020,10 @@ function Setup({
   const shortcutHint: Record<VoiceShortcutPreference, string> = {
     fn: "Press the Fn / globe key to dictate. macOS requires Input Monitoring for this one shortcut.",
     "cmd-shift-space":
-      "Press Cmd+Shift+Space to dictate. This does not need Input Monitoring.",
-    "ctrl-shift-space": "Press Ctrl+Shift+Space to dictate.",
+      "Press Cmd Shift Space to dictate. This does not need Input Monitoring.",
+    "ctrl-shift-space": "Press Ctrl Shift Space to dictate.",
     custom: `Press ${voiceCustomShortcut || "your recorded shortcut"} to dictate.`,
-    both: "Any of Fn, Cmd+Shift+Space, or Ctrl+Shift+Space. Includes Fn, so macOS may ask for Input Monitoring.",
+    both: "Any of Fn, Cmd Shift Space, or Ctrl Shift Space. Includes Fn, so macOS may ask for Input Monitoring.",
   };
   const fnShortcutSelected = voiceShortcut === "fn" || voiceShortcut === "both";
   const modeHint: Record<VoiceMode, string> = {
@@ -7373,7 +7410,7 @@ function Setup({
           />
           <DesktopSettingsRow
             label="Open Clips"
-            description="Open the tray popover; Cmd+Shift+L remains available."
+            description="Open the tray popover; Cmd Shift L remains available."
             control={
               <ShortcutRecorder
                 value={popoverCustomShortcut}
@@ -7383,7 +7420,7 @@ function Setup({
             }
           >
             <>
-              <span>Leave this empty to use only Cmd+Shift+L.</span>
+              <span>Leave this empty to use only Cmd Shift L.</span>
               {shortcutRegistrationError ? (
                 <span className="setup-warning">
                   {shortcutRegistrationError}
@@ -7481,22 +7518,15 @@ function Setup({
               "Choose the downloaded model used for offline transcription."
             }
             control={
-              <select
-                id="whisper-model"
-                className="setup-select"
-                value={whisperModelId}
-                onChange={(event) => whisper.setModelId(event.target.value)}
+              <WhisperModelPicker
+                models={whisperModels}
+                modelId={whisperModelId}
+                onChange={whisper.setModelId}
                 disabled={
                   whisperModels.length === 0 ||
                   whisperStatus?.state === "downloading"
                 }
-              >
-                {whisperModels.map((model) => (
-                  <option key={model.id} value={model.id}>
-                    {model.title} · {model.sizeMb} MB — {model.description}
-                  </option>
-                ))}
-              </select>
+              />
             }
           >
             <>
@@ -7707,8 +7737,8 @@ function Setup({
                       )
                     }
                   >
-                    <option value="cmd-shift-space">Cmd+Shift+Space</option>
-                    <option value="ctrl-shift-space">Ctrl+Shift+Space</option>
+                    <option value="cmd-shift-space">Cmd Shift Space</option>
+                    <option value="ctrl-shift-space">Ctrl Shift Space</option>
                     <option value="custom">Custom shortcut</option>
                     <option value="fn">
                       Fn (globe, needs Input Monitoring)
@@ -8051,6 +8081,83 @@ function SettingLabel({
   );
 }
 
+function WhisperModelPicker({
+  models,
+  modelId,
+  onChange,
+  disabled,
+}: {
+  models: WhisperModelOption[];
+  modelId: string;
+  onChange: (modelId: string) => void;
+  disabled: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const selectedModel = models.find((model) => model.id === modelId);
+
+  return (
+    <PopoverPrimitive.Root open={open} onOpenChange={setOpen}>
+      <PopoverPrimitive.Trigger asChild>
+        <button
+          type="button"
+          className="whisper-model-picker-trigger"
+          disabled={disabled}
+          aria-haspopup="listbox"
+          aria-expanded={open}
+        >
+          <span className="whisper-model-picker-trigger-label">
+            {selectedModel
+              ? whisperModelOptionLabel(selectedModel)
+              : "No models available"}
+          </span>
+          <IconChevronDown size={15} stroke={1.8} aria-hidden="true" />
+        </button>
+      </PopoverPrimitive.Trigger>
+      <PopoverPrimitive.Portal>
+        <PopoverPrimitive.Content
+          side="bottom"
+          align="end"
+          sideOffset={6}
+          collisionPadding={12}
+          className="whisper-model-picker"
+          data-popover-overlay="true"
+        >
+          <div
+            className="whisper-model-picker-list"
+            role="listbox"
+            aria-label="Whisper model"
+          >
+            {models.map((model) => {
+              const selected = model.id === modelId;
+              return (
+                <button
+                  key={model.id}
+                  type="button"
+                  role="option"
+                  aria-selected={selected}
+                  className={`whisper-model-picker-option ${selected ? "is-selected" : ""}`}
+                  onClick={() => {
+                    onChange(model.id);
+                    setOpen(false);
+                  }}
+                >
+                  <span className="whisper-model-picker-option-title">
+                    <span>{whisperModelOptionLabel(model)}</span>
+                    {selected ? <IconCheck size={15} stroke={2.1} /> : null}
+                  </span>
+                  <span className="whisper-model-picker-option-description">
+                    {model.description}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </PopoverPrimitive.Content>
+      </PopoverPrimitive.Portal>
+    </PopoverPrimitive.Root>
+  );
+}
+
 function WhisperModelStatusRow({
   status,
   enabled,
@@ -8239,7 +8346,11 @@ function ShortcutRecorder({
           event.stopPropagation();
         }}
       >
-        {recording ? "Press shortcut..." : value || placeholder}
+        {recording
+          ? "Press shortcut..."
+          : value
+            ? humanReadableShortcutLabel(value)
+            : placeholder}
       </button>
       {value ? (
         <button

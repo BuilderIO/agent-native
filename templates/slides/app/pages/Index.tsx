@@ -67,6 +67,12 @@ import { useWorkspaceDefaults } from "@/hooks/use-workspace-defaults";
 import { createDeckAgentMessage } from "@/lib/agent-visible-message";
 import { savePromptToComposerDraft } from "@/lib/composer-draft";
 import { isSourceImprovementRequest } from "@/lib/create-deck-generation";
+import {
+  readStoredDeckFilter,
+  resolveDeckFilter,
+  writeStoredDeckFilter,
+  type DeckFilter,
+} from "@/lib/deck-filter";
 import { sortDecksByRecency } from "@/lib/deck-sorting";
 import {
   IMPORT_ACTION_TIMEOUT_MS,
@@ -291,6 +297,7 @@ export default function Index() {
     string | null
   >(null);
   const [deckSearch, setDeckSearch] = useState("");
+  const [storedDeckFilter, setStoredDeckFilter] = useState<DeckFilter>("mine");
   // True while the picker still reflects an auto-applied default rather than
   // an explicit user choice. `useWorkspaceDefaults()`/`useDesignSystems()`
   // resolve asynchronously, so the initial value set on dialog open can be a
@@ -324,7 +331,8 @@ export default function Index() {
   const initialDesignSystemId =
     lastUsedDesignSystemId ?? workspaceDesignSystemId;
   const initialReferenceDeckId = lastUsedReferenceDeckId;
-  const deckFilter = searchParams.get("createdBy") === "me" ? "mine" : "all";
+  const createdByParam = searchParams.get("createdBy");
+  const deckFilter = resolveDeckFilter(createdByParam, storedDeckFilter);
   const normalizedDeckSearch = deckSearch.trim().toLowerCase();
   const visibleDecks = useMemo(
     () =>
@@ -355,6 +363,12 @@ export default function Index() {
     const result = readRecentReferences();
     if (result.readable) setRecentReferences(result.items);
   }, []);
+
+  useEffect(() => {
+    if (createdByParam !== null) return;
+    const savedFilter = readStoredDeckFilter();
+    if (savedFilter) setStoredDeckFilter(savedFilter);
+  }, [createdByParam]);
 
   const initialPrompt = searchParams.get("initialPrompt")?.trim() ?? "";
   const onboardingPreview = searchParams.get("onboarding") === "preview";
@@ -417,6 +431,8 @@ export default function Index() {
   const setDeckFilter = useCallback(
     (value: string) => {
       const nextFilter = value === "mine" ? "mine" : "all";
+      setStoredDeckFilter(nextFilter);
+      writeStoredDeckFilter(nextFilter);
       setSearchParams(
         (prev) => {
           const next = new URLSearchParams(prev);
@@ -1378,20 +1394,20 @@ export default function Index() {
               size="sm"
             >
               <ToggleGroupItem
-                value="all"
-                aria-label={t("home.showAllDecks")}
-                className="h-7 rounded-md px-3 text-xs data-[state=on]:bg-accent"
-              >
-                <IconStack2 className="me-1.5 h-3.5 w-3.5" />
-                {t("home.all")}
-              </ToggleGroupItem>
-              <ToggleGroupItem
                 value="mine"
                 aria-label={t("home.showMineDecks")}
                 className="h-7 rounded-md px-3 text-xs data-[state=on]:bg-accent"
               >
                 <IconUserCircle className="me-1.5 h-3.5 w-3.5" />
                 {t("home.mine")}
+              </ToggleGroupItem>
+              <ToggleGroupItem
+                value="all"
+                aria-label={t("home.showAllDecks")}
+                className="h-7 rounded-md px-3 text-xs data-[state=on]:bg-accent"
+              >
+                <IconStack2 className="me-1.5 h-3.5 w-3.5" />
+                {t("home.all")}
               </ToggleGroupItem>
             </ToggleGroup>
             <label className="flex h-8 w-full items-center gap-2 rounded-lg border border-border bg-card px-2.5 text-muted-foreground sm:w-60">

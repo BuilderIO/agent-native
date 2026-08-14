@@ -1,3 +1,4 @@
+import type { BlocksFieldIdentity } from "./blocks-field-identity.js";
 import { matchInlineMathAt } from "./inline-math.js";
 import { KATEX_STYLESHEET_URL, renderMathToHtml } from "./math-rendering.js";
 
@@ -9,6 +10,16 @@ export interface DocumentExportInput {
   content?: string | null;
   updatedAt?: string | null;
   format: DocumentExportFormat;
+  blocksFields?: BlocksFieldExport[];
+}
+
+export interface BlocksFieldExport {
+  databaseId: string;
+  propertyId: string;
+  name: string;
+  position: number;
+  markdown: string;
+  identity: BlocksFieldIdentity;
 }
 
 export interface DocumentExportPayload {
@@ -19,6 +30,15 @@ export interface DocumentExportPayload {
   mimeType: string;
   content: string;
   print: boolean;
+  blocksFields?: BlocksFieldExport[];
+}
+
+function serializeBlocksFieldsManifest(fields: BlocksFieldExport[]): string {
+  return JSON.stringify({ version: 1, fields })
+    .replace(/</g, "\\u003c")
+    .replace(/>/g, "\\u003e")
+    .replace(/&/g, "\\u0026")
+    .replace(/--/g, "\\u002d\\u002d");
 }
 
 const EXTENSION_BY_FORMAT: Record<DocumentExportFormat, string> = {
@@ -638,7 +658,10 @@ export function buildDocumentExport(
   const filename = exportFilename(title, input.format);
   const markdown = markdownWithTitle(title, input.content);
   const isHtmlLike = input.format === "html" || input.format === "pdf";
-  const content = isHtmlLike
+  const manifest = input.blocksFields?.length
+    ? serializeBlocksFieldsManifest(input.blocksFields)
+    : null;
+  let content = isHtmlLike
     ? buildHtmlDocument({
         title,
         content: input.content ?? "",
@@ -646,6 +669,14 @@ export function buildDocumentExport(
         print: input.format === "pdf",
       })
     : markdown;
+  if (manifest) {
+    content = isHtmlLike
+      ? content.replace(
+          "</body>",
+          `<script type="application/json" id="agent-native-blocks">${manifest}</script>\n</body>`,
+        )
+      : `${content.trimEnd()}\n\n<!-- agent-native-blocks:${manifest} -->\n`;
+  }
 
   return {
     id: input.id,
@@ -655,5 +686,6 @@ export function buildDocumentExport(
     mimeType: MIME_BY_FORMAT[input.format],
     content,
     print: input.format === "pdf",
+    ...(input.blocksFields?.length ? { blocksFields: input.blocksFields } : {}),
   };
 }

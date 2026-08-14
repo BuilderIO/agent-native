@@ -22,6 +22,7 @@ import {
   isLikelyPhoneMicLabel,
   type AudioInputFallback,
 } from "@shared/media-device-selection";
+import { createMicAudioCleanup } from "@shared/mic-audio-cleanup";
 import { scheduleReadyChime } from "@shared/recording-audio";
 import {
   SCREEN_CAPTURE_FRAME_RATE,
@@ -210,6 +211,7 @@ type ActiveRecording = {
   outputStream: MediaStream;
   sourceStreams: MediaStream[];
   audioContext: AudioContext | null;
+  cleanupAudio: () => void;
   chunkIndex: number;
   uploadChain: Promise<void>;
   uploadPromises: Promise<unknown>[];
@@ -787,17 +789,38 @@ async function buildCompositor(
 
 async function createMixedAudio(
   streams: MediaStream[],
-): Promise<{ audioContext: AudioContext | null; tracks: MediaStreamTrack[] }> {
-  const audioTracks = streams.flatMap((stream) => stream.getAudioTracks());
-  if (!audioTracks.length) return { audioContext: null, tracks: [] };
-  if (audioTracks.length === 1) {
-    return { audioContext: null, tracks: audioTracks };
+  microphoneStream: MediaStream | null,
+): Promise<{
+  audioContext: AudioContext | null;
+  tracks: MediaStreamTrack[];
+  cleanup: () => void;
+}> {
+  const audioInputs = streams.flatMap((stream) =>
+    stream.getAudioTracks().map((track) => ({
+      track,
+      isMicrophone: stream === microphoneStream,
+    })),
+  );
+  if (!audioInputs.length) {
+    return { audioContext: null, tracks: [], cleanup() {} };
+  }
+  if (audioInputs.length === 1 && !audioInputs[0].isMicrophone) {
+    return { audioContext: null, tracks: [audioInputs[0].track], cleanup() {} };
   }
 
   const audioContext = new AudioContext();
   await audioContext.resume().catch(() => undefined);
   const destination = audioContext.createMediaStreamDestination();
-  for (const track of audioTracks) {
+  const micCleanup: Array<{ stop: () => void }> = [];
+  for (const input of audioInputs) {
+    let track = input.track;
+    if (input.isMicrophone) {
+      const cleanup = createMicAudioCleanup(new MediaStream([track]), {
+        audioContext,
+      });
+      micCleanup.push(cleanup);
+      track = cleanup.stream.getAudioTracks()[0] ?? track;
+    }
     // One source per track (not per stream) so each input is isolated in the
     // mix graph and can be detached independently.
     const source = audioContext.createMediaStreamSource(
@@ -817,7 +840,16 @@ async function createMixedAudio(
       }
     });
   }
-  return { audioContext, tracks: destination.stream.getAudioTracks() };
+  let cleanedUp = false;
+  return {
+    audioContext,
+    tracks: destination.stream.getAudioTracks(),
+    cleanup() {
+      if (cleanedUp) return;
+      cleanedUp = true;
+      for (const cleanup of micCleanup) cleanup.stop();
+    },
+  };
 }
 
 async function uploadChunk(
@@ -1081,6 +1113,7 @@ function disposePrepared(): void {
 
 function cleanup(recording: ActiveRecording): void {
   recording.stopCompositor?.();
+  recording.cleanupAudio();
   stopStreams([recording.outputStream, ...recording.sourceStreams]);
   void recording.audioContext?.close().catch(() => undefined);
 }
@@ -1215,7 +1248,7 @@ async function begin(message: BeginMessage): Promise<{
       ? [ready.cameraStream]
       : []),
   ];
-  const mixedAudio = await createMixedAudio(audioInputs);
+  const mixedAudio = await createMixedAudio(audioInputs, ready.micStream);
 
   const outputStream = new MediaStream([videoTrack, ...mixedAudio.tracks]);
   const mimeType = pickMimeType() || "video/webm";
@@ -1257,6 +1290,7 @@ async function begin(message: BeginMessage): Promise<{
       ...(compositor ? [compositor.canvasStream] : []),
     ],
     audioContext: mixedAudio.audioContext,
+    cleanupAudio: mixedAudio.cleanup,
     chunkIndex: 0,
     uploadChain: Promise.resolve(),
     uploadPromises: [],
@@ -1802,6 +1836,7 @@ async function restart(
   // Tear down the old compositor + mixing context; keep the capture tracks alive
   // so the next BEGIN can build a fresh compositor/recorder on the same streams.
   recording.stopCompositor?.();
+  recording.cleanupAudio();
   void recording.audioContext?.close().catch(() => undefined);
   activeRecording = null;
 

@@ -2158,7 +2158,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       </TooltipTrigger>
       <TooltipContent side="top">
         {t("sidebar.searchShortcut", {
-          shortcut: `${shortcutModifierLabel()}+K`,
+          shortcut: `${shortcutModifierLabel()} K`,
         })}
       </TooltipContent>
     </Tooltip>

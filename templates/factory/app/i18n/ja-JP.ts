@@ -161,6 +161,20 @@ const messages = {
     metricRuns: "実行",
     rulesTab: "ルール",
     automationsTab: "自動化",
+    agentsTab: "エージェント",
+    agenticAppsTitle: "エージェントアプリ",
+    agenticAppsEmpty:
+      "このワークスペースにはまだエージェントアプリがありません。",
+    editAppDetails: "アプリの詳細を編集",
+    editAppDetailsDescription:
+      "このワークスペースアプリの共有表示名と説明を更新します。",
+    appName: "名前",
+    appDescription: "説明",
+    openApp: "アプリを開く",
+    saveChanges: "変更を保存",
+    appDetailsUpdated: "アプリの詳細を更新しました",
+    savingChanges: "保存中...",
+    agentsTitle: "エージェント",
     auditTab: "監査",
     auditTitle: "実行監査",
     auditDescription:
@@ -270,6 +284,16 @@ const messages = {
     stepName: "ステップ名",
     stepDescription: "ここで行われること",
     agentOwner: "エージェントまたは担当者",
+    noTarget: "リンクされた対象なし",
+    customTarget: "カスタム対象",
+    reusableAgents: "再利用可能なエージェント",
+    agenticApps: "エージェントアプリ",
+    agentTargetHint:
+      "この Factory ステップは選択した再利用可能なエージェントを使用します。",
+    appTargetHint:
+      "この Factory ステップは選択したエージェントアプリに委譲します。",
+    customTargetHint:
+      "ステップの準備ができたら共有エージェントまたはアプリをリンクします。",
     optional: "任意",
     connectStep: "このステップを接続",
     connectDescription:
