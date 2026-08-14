@@ -29,6 +29,28 @@ describe("recording share popover", () => {
     expect(shareDialogSource).toContain("agentDetailsOpen");
   });
 
+  it("uses the public JSON context URL for public agent sharing", () => {
+    const shareDialogSource = readSource("./share-dialog.tsx");
+
+    expect(shareDialogSource).toContain(
+      'import { buildAgentApiUrls } from "../../../shared/agent-context";',
+    );
+    expect(shareDialogSource).toContain(
+      "function absolutePublicAgentContextUrl(recordingId: string)",
+    );
+    expect(shareDialogSource).toContain("hasPassword === false");
+    expect(shareDialogSource).toContain(
+      "const agentLink = isPublic\n    ? publicAgentContextUrl || agentContextUrl",
+    );
+    expect(shareDialogSource).toContain("})) as { contextUrl?: string };");
+    expect(shareDialogSource).toContain(
+      "setAgentContextUrl(result.contextUrl)",
+    );
+    expect(shareDialogSource).not.toContain(
+      "const agentLink = isPublic ? shareUrl : agentContextUrl;",
+    );
+  });
+
   it("uses known recording access while share details load", () => {
     const shareDialogSource = readSource("./share-dialog.tsx");
 

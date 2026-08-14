@@ -163,6 +163,7 @@ export default defineAction({
             normalizedRequesterEmail
         );
       } catch {
+        // coercion-ok: malformed historical event payload cannot represent a matching requester.
         return false;
       }
     });

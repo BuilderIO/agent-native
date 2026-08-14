@@ -1238,6 +1238,8 @@ export function SimpleAgentsPanel({
     { kind: "agent" },
   );
   const agents = query.data ?? [];
+  const refreshAgents = () => void query.refetch();
+  const importAction = <ImportAgentDialog onImported={refreshAgents} />;
 
   if (query.isError) {
     return (
@@ -1259,8 +1261,8 @@ export function SimpleAgentsPanel({
           ) : null}
           {agents.length > 0 ? (
             <div className="flex flex-wrap items-center justify-end gap-2">
-              <ImportAgentDialog onImported={() => void query.refetch()} />
-              <AgentEditorDialog onSaved={() => void query.refetch()} />
+              {importAction}
+              <AgentEditorDialog onSaved={refreshAgents} />
             </div>
           ) : null}
         </div>
@@ -1292,7 +1294,7 @@ export function SimpleAgentsPanel({
           </div>
           <div className="mt-4 flex flex-wrap justify-center gap-2">
             <AgentEditorDialog
-              onSaved={() => void query.refetch()}
+              onSaved={refreshAgents}
               trigger={
                 <Button size="sm">
                   <IconPlus size={16} />
@@ -1300,7 +1302,7 @@ export function SimpleAgentsPanel({
                 </Button>
               }
             />
-            <ImportAgentDialog onImported={() => void query.refetch()} />
+            {importAction}
           </div>
         </div>
       )}

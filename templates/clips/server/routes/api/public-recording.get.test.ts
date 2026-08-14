@@ -392,6 +392,11 @@ describe("/api/public-recording route", () => {
       canRequestAccess: false,
     });
     expect(mockSetResponseStatus).toHaveBeenCalledWith(event, 401);
+    expect(mockSetResponseHeader).toHaveBeenCalledWith(
+      event,
+      "Cache-Control",
+      "private, max-age=0, no-store",
+    );
   });
 
   it("returns 403 with request-access capability for an authenticated outsider", async () => {
@@ -414,6 +419,11 @@ describe("/api/public-recording route", () => {
       canRequestAccess: true,
     });
     expect(mockSetResponseStatus).toHaveBeenCalledWith(event, 403);
+    expect(mockSetResponseHeader).toHaveBeenCalledWith(
+      event,
+      "Cache-Control",
+      "private, max-age=0, no-store",
+    );
   });
 
   it("allows an authenticated viewer with an explicit user share", async () => {

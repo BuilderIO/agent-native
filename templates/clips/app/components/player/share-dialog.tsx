@@ -47,6 +47,7 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 
+import { buildAgentApiUrls } from "../../../shared/agent-context";
 import { buildEmailPreviewMarkup } from "../../../shared/email-preview";
 import { isLoomEmbedUrl } from "../../../shared/loom";
 import { withShareAttribution } from "../../../shared/share-attribution";
@@ -55,6 +56,14 @@ import { preferredThumbnailVariant } from "../../../shared/share-meta";
 function absoluteAppUrl(path: string): string {
   if (typeof window === "undefined") return "";
   return new URL(appPath(path), window.location.origin).toString();
+}
+
+function absolutePublicAgentContextUrl(recordingId: string): string {
+  if (typeof window === "undefined") return "";
+  return buildAgentApiUrls(recordingId, {
+    origin: window.location.origin,
+    basePath: appPath("/").replace(/\/$/, ""),
+  }).contextUrl;
 }
 
 export interface ShareRecordingPopoverProps {
@@ -370,6 +379,14 @@ function LinkTab({
   const sharesLoaded = visibility !== null;
   const visibilityPending = isPending || sharesQuery.isLoading;
   const isLoomRecording = isLoomRecordingProp || isLoomEmbedUrl(videoUrl);
+  const needsScopedAgentContext = !isPublic || hasPassword !== false;
+  const publicAgentContextUrl = useMemo(
+    () =>
+      isPublic && hasPassword === false
+        ? absolutePublicAgentContextUrl(recordingId)
+        : "",
+    [hasPassword, isPublic, recordingId],
+  );
   const emailPreviewThumbnailUrl = useMemo(() => {
     if (!isPublic || hasPassword !== false || !sharesLoaded) return null;
     const variant = preferredThumbnailVariant({
@@ -433,10 +450,10 @@ function LinkTab({
     try {
       const result = (await createAgentLinkAsyncRef.current({
         recordingId,
-      })) as { url?: string };
+      })) as { contextUrl?: string };
       if (agentLinkRequestIdRef.current !== requestId) return;
-      if (result?.url) {
-        setAgentContextUrl(result.url);
+      if (result?.contextUrl) {
+        setAgentContextUrl(result.contextUrl);
       } else {
         setAgentLinkError(true);
       }
@@ -452,20 +469,30 @@ function LinkTab({
     setAgentLinkError(false);
     if (!sharesLoaded) return;
 
-    if (!isPublic) {
+    if (needsScopedAgentContext) {
       void loadAgentContextUrl();
     }
 
     return () => {
       agentLinkRequestIdRef.current += 1;
     };
-  }, [isPublic, loadAgentContextUrl, recordingId, sharesLoaded, visibility]);
+  }, [
+    loadAgentContextUrl,
+    needsScopedAgentContext,
+    recordingId,
+    sharesLoaded,
+    visibility,
+  ]);
 
-  const agentLink = isPublic ? shareUrl : agentContextUrl;
+  const agentLink = isPublic
+    ? publicAgentContextUrl || agentContextUrl
+    : agentContextUrl;
   const agentShareDisabled =
     visibilityPending ||
     !sharesLoaded ||
-    (!isPublic && (isPending || createAgentLink.isPending || !agentContextUrl));
+    !agentLink ||
+    (needsScopedAgentContext &&
+      (isPending || createAgentLink.isPending || !agentContextUrl));
   const agentPrompt = agentLink
     ? t("shareDialog.agentPrompt", { agentContextUrl: agentLink })
     : "";

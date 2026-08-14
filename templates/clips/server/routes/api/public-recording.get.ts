@@ -263,6 +263,7 @@ export default defineEventHandler(async (event) => {
     !viewerIsOrgMember &&
     !tokenAllowsAgentAccess
   ) {
+    setResponseHeader(event, "Cache-Control", "private, max-age=0, no-store");
     const status = session?.email ? 403 : 401;
     setResponseStatus(event, status);
     return {

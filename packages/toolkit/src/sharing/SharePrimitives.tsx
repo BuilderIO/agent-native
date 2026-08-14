@@ -137,6 +137,8 @@ export function ShareAgentsSection({
 }: ShareAgentsSectionProps) {
   const [internalOpen, setInternalOpen] = useState(defaultOpen);
   const isOpen = open ?? internalOpen;
+  const accessibleLabel =
+    typeof label === "string" ? label : "Share with agents";
   const handleOpenChange = (nextOpen: boolean) => {
     if (open === undefined) setInternalOpen(nextOpen);
     onOpenChange?.(nextOpen);
@@ -167,6 +169,8 @@ export function ShareAgentsSection({
           }
           emphasis="ghost"
           size="default"
+          aria-label={accessibleLabel}
+          title={accessibleLabel}
           aria-expanded={isOpen}
           className="flex min-h-10 w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm font-medium hover:bg-muted/50 focus-visible:ring-inset"
         />
