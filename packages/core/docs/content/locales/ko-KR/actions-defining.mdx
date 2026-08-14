@@ -1,0 +1,176 @@
+---
+title: "Actions 정의하기"
+description: "defineAction()의 구조: schema, run, HTTP 설정, 그리고 actions 표면을 작게 유지하는 방법."
+---
+
+# Actions 정의하기
+
+모든 action은 `defineAction()` 호출로 시작합니다. 여기에는 에이전트를 위한 description, 입력을 검증하는 schema, 실제 작업을 수행하는 `run` 함수가 함께 묶여 있어서, UI와 에이전트가 정확히 같은 코드를 호출합니다.
+
+<AnnotatedCode
+  id="doc-block-actions-defining-1"
+  title="action의 구조"
+  filename="actions/reply-to-email.ts"
+  language="ts"
+  code={
+    'import { defineAction } from "@agent-native/core/action";\nimport { z } from "zod";\n\nimport { getDb, schema } from "../server/db/index.js";\n\nexport default defineAction({\n  description: "Reply to an email thread in the user\'s voice.",\n  schema: z.object({\n    emailId: z.string().describe("The id of the email to reply to."),\n    body: z.string().describe("The reply body, in markdown."),\n  }),\n  run: async ({ emailId, body }) => {\n    const db = getDb();\n    await db.insert(schema.replies).values({ emailId, body });\n    return { ok: true, emailId };\n  },\n});'
+  }
+  annotations={[
+    {
+      lines: "7",
+      label: "도구 표면",
+      note: "`description`은 에이전트가 이 action을 언제 호출할지 판단하기 위해 읽는 내용입니다. 필드별 `.describe()` 호출도 JSON Schema에 함께 반영됩니다.",
+    },
+    {
+      lines: "8-11",
+      label: "타입이 지정된 계약",
+      note: "하나의 schema가 **모든** 표면의 입력을 검증하며, 모델을 위해 JSON Schema로 변환됩니다. 유효하지 않은 입력은 `run`에 도달하지 않습니다.",
+    },
+    {
+      lines: "12-16",
+      label: "하나의 구현",
+      note: "`run` 본문이 단일 진실 공급원입니다. UI 버튼과 에이전트 도구는 둘 다 정확히 이 코드를 실행합니다. `getDb()`와 `schema`는 앱의 `server/db/index.ts`에서 옵니다. [데이터베이스](/docs/database)를 참고하세요.",
+    },
+  ]}
+/>
+
+프레임워크는 `actions/` 안의 모든 파일을 자동으로 찾아 시작 시 마운트합니다. 수동으로 등록할 것은 아무것도 없습니다.
+
+<Signature
+  id="doc-block-actions-defining-2"
+  name="defineAction"
+  params={[
+    {
+      name: "config",
+      type: "DefineActionConfig<TSchema, TReturn, TOutputSchema>",
+      description: "아래 항목 전체가 하나의 설정 객체입니다. 필수인 것은 description, schema, run뿐입니다.",
+      fields: [
+        { name: "description", type: "string", description: "에이전트가 이 action을 언제 호출할지 판단하기 위해 읽는 내용입니다." },
+        { name: "schema", type: "StandardSchemaV1", description: "모든 표면에서 입력을 검증합니다. 아래 Schema 옵션 참고." },
+        { name: "run", type: "(args, ctx?) => Promise<TReturn> | TReturn", description: "모든 표면이 호출하는 단일 구현입니다. ctx 인자에 대해서는 실행 컨텍스트를 참고하세요." },
+        { name: "http", type: "ActionHttpConfig | false", optional: true, description: "마운트된 메서드/경로를 재정의하거나 HTTP 엔드포인트 자체를 비활성화합니다. 아래 HTTP 설정 참고." },
+        { name: "readOnly", type: "boolean", optional: true, default: "false", description: "http.method가 GET이면 자동으로 true가 됩니다. UI 폴링 새로 고침과 쓰기 감사를 건너뜁니다. 액세스 제어가 아닙니다." },
+        { name: "outputSchema", type: "StandardSchemaV1", optional: true, description: "run()이 반환하는 값을 검증합니다. 아래 반환값 검증하기 참고." },
+        { name: "outputErrorStrategy", type: '"warn" | "strict" | "fallback"', optional: true, default: '"warn"', description: "출력이 일치하지 않을 때 벌어지는 일입니다." },
+        { name: "outputFallback", type: "TReturn", optional: true, description: 'outputErrorStrategy가 "fallback"일 때 유효하지 않은 결과 대신 반환되는 값입니다.' },
+        { name: "parallelSafe", type: "boolean", optional: true, description: "변경(mutating) action이 같은 턴의 다른 도구 호출과 동시에 실행되도록 허용합니다." },
+        { name: "agentTool", type: "boolean", optional: true, default: "true", description: "모든 에이전트 도구 목록에서 숨기려면 false로 설정하세요. 액세스 및 권한 부여를 참고하세요." },
+        { name: "toolCallable", type: "boolean", optional: true, default: "true", description: "샌드박스된 확장 iframe 브리지를 차단하려면 false로 설정하세요. 액세스 및 권한 부여를 참고하세요." },
+        { name: "publicAgent", type: "PublicAgentActionConfig", optional: true, description: "{ expose: true }는 이 action을 공개 MCP/A2A/OpenAPI 표면에 추가합니다. 액세스 및 권한 부여를 참고하세요." },
+        { name: "needsApproval", type: "boolean | ((args, ctx?) => boolean | Promise<boolean>)", optional: true, default: "false", description: "run() 전에 사람의 승인을 받도록 에이전트 루프를 일시 정지합니다. Human-in-the-Loop 승인을 참고하세요." },
+        { name: "authorize", type: "ActionAuthorize<TInput>", optional: true, description: "이 호출자가 애초에 이 action을 실행할 수 있는지 판단하는 가드 함수입니다. 액세스 및 권한 부여를 참고하세요." },
+        { name: "audit", type: "ActionAuditConfig", optional: true, description: "모든 변경 action이 이미 자동으로 받는 감사 캡처를 세부 조정합니다. 감사 로그를 참고하세요." },
+        { name: "chatUI", type: "ActionChatUIConfig", optional: true, description: "action 결과에 대한 네이티브 채팅 UI 렌더러를 선언합니다. 다른 표면들을 참고하세요." },
+      ],
+    },
+  ]}
+  returns={{
+    type: "ActionDefinition<TInput, TReturn>",
+    description: "타입이 지정된 action 정의입니다. 파일의 기본 내보내기로 export하세요.",
+  }}
+/>
+
+## Schema 옵션 {#schemas}
+
+`schema`는 [Standard Schema](https://standardschema.dev) 호환 라이브러리라면 무엇이든 받아들입니다.
+
+- **Zod** (v4): 가장 흔한 선택지로, 타입 추론이 가장 뛰어나고 JSON Schema로 자동 변환됩니다.
+- **Valibot**: 번들 크기가 중요할 때 좋은 선택입니다.
+- **ArkType**: 이 라이브러리의 문법을 선호한다면 좋은 선택입니다.
+
+이 schema는 두 가지 역할을 합니다. Claude API 도구 정의를 위해 JSON Schema로 변환되고, `run()`이 실행되기 전에 런타임에 입력을 검증합니다. 유효하지 않은 입력은 여러분의 핸들러에 도달하지 않습니다.
+
+## 반환값 검증하기 {#output-schema}
+
+`schema`는 _입력값_ 을 검증합니다. action이 **반환하는** 값도 검증하려면 `outputSchema`(Zod, Valibot, ArkType 등 `schema`와 동일하게 Standard Schema 호환 schema라면 무엇이든)를 전달하세요. 프레임워크는 `run()` 전에 입력을 검증하고, `run()`이 완료되면 결과를 검증합니다.
+
+```ts
+export default defineAction({
+  description: "Summarize a thread.",
+  schema: z.object({ threadId: z.string() }),
+  outputSchema: z.object({
+    summary: z.string(),
+    messageCount: z.number(),
+  }),
+  outputErrorStrategy: "warn", // default
+  run: async ({ threadId }) => {
+    /* ...returns { summary, messageCount } ... */
+  },
+});
+```
+
+`outputErrorStrategy`는 불일치가 발생했을 때의 동작을 제어합니다.
+
+| 전략         | 불일치 시 동작                                                                                     |
+| ------------ | ---------------------------------------------------------------------------------------------------- |
+| `"warn"`     | **기본값.** 문제를 `console.warn`으로 남기고 **원본** 결과를 그대로 반환합니다. 기존 동작을 깨지 않습니다. |
+| `"strict"`   | 명확한 오류를 던져, action의 버그를 쉽게 알아챌 수 있게 합니다.                                       |
+| `"fallback"` | 유효하지 않은 결과 대신 제공된 `outputFallback` 값을 반환합니다.                                       |
+
+`run()`이 성공하면 프레임워크는 검증된 값을 반환하므로, `outputSchema`의 기본값이나 형 변환이 입력값과 마찬가지로 적용됩니다. `outputSchema`를 전달하지 않으면 반환값은 그대로 유지됩니다.
+
+## HTTP 설정 {#http}
+
+기본적으로 모든 action은 `POST /_agent-native/actions/<name>`으로 노출됩니다. `http` 옵션으로 이를 재정의하세요.
+
+```ts
+export default defineAction({
+  description: "Get details for a lead.",
+  schema: z.object({ leadId: z.string() }),
+  http: { method: "GET" },
+  run: async ({ leadId }) => {
+    return await db.select().from(leads).where(eq(leads.id, leadId));
+  },
+});
+```
+
+`GET` action의 경우 `leadId`는 쿼리 매개변수로 전달됩니다: `/_agent-native/actions/get-lead?leadId=abc`.
+
+<Endpoint id="doc-block-actions-defining-3" title="자동 마운트된 action 엔드포인트" method="GET" path="/_agent-native/actions/get-lead" summary={"모든 action은 여기에 자동으로 마운트됩니다. 파일 이름이 곧 action 이름입니다."} auth={"세션 쿠키(프런트엔드 호출은 `X-Agent-Native-Frontend: 1`을 함께 보냄), 또는 외부 호출자를 위한 `Authorization: Bearer <token>`"} params={[
+  {
+    "name": "leadId",
+    "in": "query",
+    "type": "string",
+    "required": true,
+    "description": "GET 인자는 쿼리 매개변수로 도착합니다. POST 인자는 JSON 본문으로 도착합니다."
+  }
+]} responses={[
+  {
+    "status": "200",
+    "description": "action의 반환값을 JSON으로."
+  },
+  {
+    "status": "400",
+    "description": "run()이 실행되기 전에 입력이 schema 검증에 실패했습니다."
+  }
+]}>
+
+POST가 기본값이며, `http: { method: "GET" }`을 지정하면 GET이 됩니다. React 후크와 `callAction()`은 `http.path` 재정의 여부와 관계없이 항상 이름으로 이 경로를 호출합니다. 외부 시스템은 장기 유효 bearer 토큰으로 같은 경로를 호출할 수 있습니다. [HTTP API](/docs/http-api)를 참고하세요.
+
+</Endpoint>
+
+- **`http: { method: "GET" | "POST" | "PUT" | "DELETE" }`**: 기본값은 `POST`입니다. `GET` action은 자동으로 `readOnly`로 표시되어, 성공적인 호출이 UI 폴링 새로 고침을 트리거하지 않습니다.
+- **`http: { path: "..." }`**: `/_agent-native/actions/` 아래에 마운트되는 URL을 재정의합니다. 기본값은 파일 이름입니다. 이 재정의는 직접 HTTP를 호출하는 쪽의 URL만 바꿉니다. `useActionQuery()`, `useActionMutation()`, `callAction()`은 이 재정의와 무관하게 항상 `/_agent-native/actions/<name>`을 호출하므로, 경로를 재정의하면 이 후크들이 404가 됩니다. 경로 재정의는 외부 HTTP 호출자를 위해서만 사용하세요. 또한 재정의된 경로의 `:param` 라우트 세그먼트는 `run()` 인자로 파싱되지 않습니다. 쿼리 문자열 매개변수와 JSON 본문 필드만 파싱됩니다.
+- **`http: false`**: HTTP 엔드포인트를 완전히 비활성화합니다. 에이전트와 CLI만 이 action을 호출할 수 있습니다.
+- **`readOnly: true`**: 아무것도 변경하지 않는 POST action이라도 폴링 새로 고침을 명시적으로 건너뜁니다. 이는 액세스 제어가 아닙니다. 누가 이 action을 호출할 수 있는지를 제한하지 않으며, `useActionQuery()`, `useActionMutation()`, 그 어떤 클라이언트 후크에도 영향을 주지 않습니다. 유일한 효과는 호출 후 새로 고침 이벤트를 억제하고, 이 action을 쓰기 감사 대상에서 제외하는 것뿐입니다. 모델에서 action을 숨기려면 `agentTool: false`를 사용하세요. 누가 호출할 수 있는지 제한하려면 [액세스 및 권한 부여](/docs/actions-access-control)의 인증 및 액세스 옵션을 사용하세요.
+- **`parallelSafe: true`**: 변경 action이 같은 턴의 다른 도구 호출과 동시에 실행되도록 허용합니다. 이 action이 동시 실행에 안전하고 순서에 의존하지 않을 때만 설정하세요. 변경 action은 기본적으로 직렬화됩니다.
+
+## Action 표면을 작게 유지하기 {#small-surface}
+
+에이전트가 볼 수 있는 모든 action은 모델의 도구 목록에서 한 자리를 차지하며, 목록이 길고 서로 겹치면 모델이 올바른 도구를 고르기 어려워집니다. UI의 버튼 하나마다 action을 하나씩 만들기보다, 여러분이 유지 관리하는 API처럼 action 표면을 설계하세요.
+
+- `update-name`, `update-order`, `update-color`처럼 필드별로 action을 여러 개 만드는 대신, 선택적 필드로 이루어진 패치를 받는 **하나의 CRUD 스타일 `update` action**을 선호하세요. 호출자는 바뀐 필드만 보내면 됩니다.
+- 모든 쿼리나 필터마다 새 읽기 action을 추가하기 전에, 더 범용적인 선택지를 먼저 고려하세요. 프로바이더 데이터에는 [provider API 트리오](/docs/template-dispatch-vault-integrations#provider-api)(`provider-api-catalog`, `provider-api-docs`, `provider-api-request`)를, 앱 데이터에는 개발용 `db-query` 도구를 사용하세요.
+- UI 전용이거나 프로그래밍 방식 action은 [`agentTool: false`](/docs/actions-access-control#agent-tool)로 표시하세요. 모델의 도구 목록에는 자리를 차지하지 않으면서, 프런트엔드나 HTTP를 통해서는 계속 호출할 수 있습니다.
+- UI가 더 이상 사용하지 않는 action은 모델에 노출된 채로 두지 말고 삭제하거나 숨기세요.
+
+이 저장소에는 참고용 도우미 `node scripts/audit-template-actions.mjs [template ...]`(별칭 `pnpm actions:audit`)가 포함되어 있습니다. 이 스크립트는 템플릿의 `actions/` 폴더를 스캔하여 UI가 더 이상 사용하지 않을 수 있는 action과, 하나로 합칠 수 있는 필드별 action 그룹을 알려줍니다. 항상 종료 코드 0으로 끝나며 CI를 실패시키지 않고, 휴리스틱도 보수적이므로 그 출력은 오류가 아니라 제안으로 다루세요.
+
+## 다음 단계
+
+- [**개요**](/docs/actions-overview) — action이란 무엇인지와 hello-world 진행 과정
+- [**액세스 및 권한 부여**](/docs/actions-access-control) — `agentTool`, `toolCallable`, `authorize`, `ctx` 범위 지정
+- [**실행 컨텍스트**](/docs/actions-run-context) — 전체 `ctx` 필드 표
+- [**다른 표면들**](/docs/actions-other-surfaces) — 네이티브 채팅 UI, CLI, A2A, MCP, 표준 actions
+- [**데이터베이스**](/docs/database) — `run()` 안에서 사용하는 `getDb()`/`schema`
+- [**데이터 및 동기화**](/docs/client-data) — UI에서 이 action을 호출하기

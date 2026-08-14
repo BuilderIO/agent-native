@@ -406,7 +406,7 @@ Três coisas a ter em mente:
 
 - **Desativar o cache não torna o SSR personalizado.** Os cookies continuam sendo removidos antes da renderização e os loaders SSR continuam vendo o branch anônimo. Os dados por usuário ainda precisam ser resolvidos no cliente. Esta variável controla apenas a _duração_ do cache.
 - **É uma configuração de toda a implantação, não por rota, por design.** Uma substituição de cache por rota ou por solicitação é como o payload de um visitante acaba na entrada de CDN compartilhada de outro visitante, então o framework não oferece uma — `guard:ssr-cache-shell` garante isso.
-- **Para dados atualizados após mutação, prefira actions em vez de desativar o cache.** Os dados do aplicativo pertencem a [Actions](/docs/actions), são lidos do cliente com `useActionQuery` / `useActionMutation` e mantidos atualizados pelo polling do `useDbSync()`; nada disso passa pelo cache do shell SSR. Mantenha os loaders SSR renderizando o shell público e recorra a esta variável apenas quando você realmente quiser que os dados do loader fiquem mais atualizados.
+- **Para dados atualizados após mutação, prefira actions em vez de desativar o cache.** Os dados do aplicativo pertencem a [Actions](/docs/actions-overview), são lidos do cliente com `useActionQuery` / `useActionMutation` e mantidos atualizados pelo polling do `useDbSync()`; nada disso passa pelo cache do shell SSR. Mantenha os loaders SSR renderizando o shell público e recorra a esta variável apenas quando você realmente quiser que os dados do loader fiquem mais atualizados.
 
 ## Variáveis de ambiente {#environment-variables}
 

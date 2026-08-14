@@ -92,7 +92,7 @@ La única diferencia arquitectónica respecto a un frontend típico: esta capa n
 
 ## Dónde encaja el cliente {#role}
 
-Las solicitudes del navegador, el bucle del agente y los clientes de API externos resuelven todos hacia las mismas acciones y la misma base de datos SQL: no existe un "backend de la app" aparte al que hable esta capa y que el agente no pueda alcanzar también. Construir una funcionalidad aquí significa construir una UI sobre una operación que el agente ya tiene, o definir una acción nueva y obtener una UI para ella al mismo tiempo. Consulta [Actions](/docs/actions) para el lado de la operación de ese contrato.
+Las solicitudes del navegador, el bucle del agente y los clientes de API externos resuelven todos hacia las mismas acciones y la misma base de datos SQL: no existe un "backend de la app" aparte al que hable esta capa y que el agente no pueda alcanzar también. Construir una funcionalidad aquí significa construir una UI sobre una operación que el agente ya tiene, o definir una acción nueva y obtener una UI para ella al mismo tiempo. Consulta [Actions](/docs/actions-overview) para el lado de la operación de ese contrato.
 
 Esta página cubre los directorios en los que trabajas y las piezas del runtime del navegador que no documenta ningún otro lugar (`root.tsx`, `public/`). Los hooks de React que conectan tus componentes con las acciones y con el agente viven en sus propias páginas dedicadas:
 
@@ -200,7 +200,7 @@ import { cn } from "@agent-native/toolkit/utils";
 - [**Avanzado**](/docs/client-advanced) — estado de la aplicación, envíos de chat en segundo plano y el puente de host de aplicaciones MCP
 - [**Sincronización interna**](/docs/client-sync-internals) — `useChangeVersion` para sincronizar un `useQuery` sin procesar
 - [**Enrutamiento**](/docs/client-routing) — páginas basadas en archivos, parámetros dinámicos y navegación
-- [**Actions**](/docs/actions) — la superficie `defineAction` detrás de cada hook de datos
+- [**Actions**](/docs/actions-overview) — la superficie `defineAction` detrás de cada hook de datos
 - [**Sistemas de diseño personalizados**](/docs/custom-design-system) — cómo sustituir tu propia librería de componentes a través de `app/design-system.ts`
 - [**Autenticación**](/docs/authentication) — las comprobaciones de sesión que `AppProviders` ejecuta en rutas privadas
   </content>

@@ -1,0 +1,226 @@
+---
+title: "الوصول والتخويل"
+description: "من يمكنه استدعاء action: أعلام التعريض (agentTool، وtoolCallable)، والنطاق المستند إلى ctx، وaccessFilter/assertAccess، وحارس authorize."
+---
+
+# الوصول والتخويل
+
+تحدد خمسة إعدادات من يمكنه استدعاء action: الوكيل، أو الواجهة الأمامية، أو امتداد، أو مستدعي API خارجي، أو لا أحد من دون موافقة إنسان أولًا. لا تحتاج معظم actions أبدًا إلى لمس أي من هذه، لأن القيم الافتراضية تناسب بالفعل الاستخدام العادي لواجهة المستخدم والوكيل.
+
+### أعلام التعريض {#exposure-flags}
+
+تُضبط الأعلام الخمسة جميعًا افتراضيًا على القيمة المتساهلة، لذا لا تضبط أيًا منها إلا عندما تحتاج إلى تشديد سطح معيّن. الجدول أدناه ملخص سريع. تضيف الأقسام التي تليه التفصيل الوحيد الذي يحتاجه كل علم.
+
+| العلم           | الافتراضي     | القيمة التقييدية ← من لا يزال بإمكانه الاستدعاء                                | الاستخدام النموذجي                                                     |
+| --------------- | ------------- | ------------------------------------------------------------------------------ | ----------------------------------------------------------------------- |
+| `agentTool`     | `true`        | `false` ← واجهة المستخدم وHTTP وCLI فقط (مخفي عن النموذج وMCP وA2A)             | actions خاصة بواجهة المستخدم فقط أو برمجية لا ينبغي أن تشغل فتحة أداة   |
+| `toolCallable`  | `true`        | `false` ← كل شيء **باستثناء** جسر iframe المعزول الخاص بالامتداد (403)          | تغييرات حساسة في الحساب أو المؤسسة (حذف حساب، تغيير عضوية)             |
+| `publicAgent`   | معطَّل (خاص)  | `{ expose: true }` ← يضيف الـ action إلى أسطح MCP/A2A/OpenAPI **العامة**       | أدوات قراءة أو استيعاب آمنة لا تتطلب مصادقة                            |
+| `needsApproval` | `false`       | `true` ← **يتوقف** الوكيل مؤقتًا، ويجب أن يوافق إنسان على الاستدعاء المحدد      | تأثيرات جانبية ذات عواقب (إرسال بريد إلكتروني، شحن بطاقة، حذف)          |
+| `authorize`     | لا شيء        | دالة حارسة ← فقط المستدعون الذين تقبلهم، على **كل** سطح                        | عمليات مقيَّدة بدور (RBAC لكل تطبيق، عمليات خاصة بالمسؤول فقط)          |
+
+هذه الأعلام مستقلة، لذا فإن ضبط واحد منها لا يغيّر الآخرين. يتحكم `agentTool` بما يراه النموذج، راجع [الإخفاء عن النموذج](#agent-tool) أدناه. يتحكم `toolCallable` فقط بـ iframe الامتداد، راجع [حظر أطر الامتداد](#tool-callable) أدناه. يضيف `publicAgent` سطحًا عامًا بالاختيار، ولا يعني مسار ويب عام أبدًا تعريضًا عامًا للأداة، راجع [التعريض للوكلاء العامين](#public-agent) أدناه. يضبط `needsApproval` التنفيذ بعد إجراء الاستدعاء فعلًا، راجع [طلب موافقة الإنسان](#needs-approval) أدناه. يقرر `authorize` ما إذا كان يجوز لهذا المستدعي تشغيل الـ action أصلًا، على كل مسار إرسال، قبل الدخول إلى `run()`، راجع [تقييد المستدعين حسب الدور](#authorize) أدناه.
+
+## الإخفاء عن النموذج {#agent-tool}
+
+بشكل افتراضي، كل action هو أداة وكيل قابلة للاستدعاء. اضبط `agentTool: false` لإزالته من كل قائمة أدوات وكيل، مع إبقائه خلف مصادقة إطار العمل وسطح actions. يبقى قابلًا للاستدعاء من واجهة المستخدم (`useActionMutation()` أو `callAction()`)، وCLI، و`/_agent-native/actions/<name>`:
+
+```ts
+export default defineAction({
+  description: "Persist the user's sidebar width.",
+  agentTool: false, // UI-only, not a tool in the model's context window
+  schema: z.object({ widthPx: z.number() }),
+  http: { method: "PUT" },
+  run: async ({ widthPx }) => {
+    /* ... */
+  },
+});
+```
+
+استخدم هذا عندما تضيف action خاصًا بواجهة المستخدم فقط أو برمجيًا بحتًا، أو عندما تتوقف واجهة المستخدم عن استخدام action كان سيبقى مكشوفًا للنموذج لولا ذلك.
+
+## حظر أطر الامتداد iframe {#tool-callable}
+
+تستدعي الامتدادات ([تطبيقات Alpine.js مصغّرة في إطارات iframe معزولة](/docs/extensions)) actions من خلال `appAction(name, params)`، وتعمل بصلاحيات المُشاهد نفسه وأسراره ونطاق SQL الخاص به. بالنسبة إلى العمليات الحساسة، هذه ثقة زائدة عن الحد بشكل افتراضي. اضبط `toolCallable: false` لجعل جسر الامتداد يُرجع 403، مع إبقاء الـ action قابلًا للاستدعاء من واجهة المستخدم والوكيل وCLI وMCP وA2A:
+
+```ts
+export default defineAction({
+  description: "Delete the current user's account.",
+  toolCallable: false, // never callable from an extension iframe
+  schema: z.object({ confirm: z.literal("yes") }),
+  run: async () => {
+    /* ... */
+  },
+});
+```
+
+استخدمه لأجل actions تحذف أو تنقل حسابًا أو مؤسسة، أو تغيّر حالة المصادقة، أو تعدّل عضوية المؤسسة، أو تمنح وصول مشاركة. تُلغي actions المدمجة في إطار العمل — `share-resource` و`unshare-resource` و`set-resource-visibility` — الاشتراك بالفعل. يفرض إطار العمل هذا برأس يضبطه المضيف على استدعاءات iframe، رأس لا يمكن لـ iframe تزييفه. تبقى استدعاءات واجهة المستخدم والوكيل وCLI وMCP وA2A العادية غير متأثرة. راجع [الأمان](/docs/security) للتفاصيل.
+
+## التعريض للوكلاء العامين {#public-agent}
+
+يبقى كل action خارج أي سطح بروتوكول عام بشكل افتراضي، حتى لو كان مسار الويب الخاص به عامًا. جعل صفحة قابلة للزحف لا يعرّض أداة أبدًا. اضبط `publicAgent: { expose: true, readOnly: true, ... }` لإدخال action آمن واحد ضمن أسطح MCP وA2A وOpenAPI العامة:
+
+```ts
+export default defineAction({
+  description: "Search published docs.",
+  schema: z.object({ query: z.string() }),
+  http: { method: "GET" },
+  readOnly: true,
+  publicAgent: {
+    expose: true,
+    readOnly: true,
+    requiresAuth: false,
+  },
+  run: async ({ query }) => {
+    /* ... */
+  },
+});
+```
+
+استخدمه فقط لأجل actions آمنة، للقراءة فقط، أو للاستيعاب فقط، من النوع الذي تسمح لغريب باستدعائه دون تسجيل الدخول. يخبر `requiresAuth: false` السطح العام أن هذا الـ action آمن للإدراج قبل المصادقة. اترکه `true` لأجل action ما زال يحتاج إلى هوية مستدعٍ متصل، مثل أداة استيعاب خاصة بكل حساب. راجع [الوكلاء الخارجيون](/docs/external-agents) و[بروتوكول MCP](/docs/mcp-protocol) للاطلاع على الكتالوج الكامل ونموذج المصادقة الذي يشترك فيه هذا.
+
+## طلب موافقة الإنسان {#needs-approval}
+
+عدد قليل من actions ذو عواقب كبيرة بحيث لا يمكن ترك الوكيل يشغّله بمفرده، مثل إرسال بريد إلكتروني، أو شحن بطاقة، أو حذف حساب. اضبط `needsApproval: true` (أو مسندًا `(args, ctx) => boolean | Promise<boolean>`) على `defineAction()`، وستتوقف الحلقة مؤقتًا قبل `run()`، ما يتطلب موافقة إنسان على ذلك الاستدعاء المحدد. الافتراضي هو **معطَّل**، ويجب أن يبقى كل action تقريبًا على هذا الحال.
+
+راجع [موافقات الإنسان في الحلقة](/docs/human-approval) للاطلاع على واجهة برمجة المسند، وحدث `approval_required`، والتدفق الكامل من طرف إلى طرف.
+
+## تقييد المستدعين حسب الدور {#authorize}
+
+يجيب `authorize` عن سؤال محدد واحد: **هل يجوز لهذا المستدعي تشغيل هذه العملية أصلًا؟** أعطه دالة حارسة، وستعمل قبل `run()` لدى كل مستدعٍ: أداة الوكيل، وHTTP، والواجهة الأمامية، وMCP، وA2A، وCLI.
+
+أعلن مفردات الأدوار مرة واحدة باستخدام `defineAppRoles()`:
+
+```ts
+// server/lib/access.ts
+import { defineAppRoles } from "@agent-native/core/org-team";
+
+export const coachAccess = defineAppRoles({
+  appId: "coach",
+  roles: ["member", "coach-admin"] as const,
+  defaultRole: "member", // display only, never satisfies a guard
+});
+```
+
+بعد ذلك، احمِ الـ action بقائمة صريحة من الأدوار المقبولة:
+
+```ts
+// actions/archive-plan.ts
+import { coachAccess } from "../server/lib/access.js";
+
+export default defineAction({
+  description: "Archive a training plan.",
+  schema: z.object({ id: z.string() }),
+  authorize: coachAccess.requireAny("coach-admin"),
+  run: async ({ id }) => {
+    /* ... */
+  },
+});
+```
+
+يغلّف الحارس `run()` نفسها، بدلاً من الارتباط بجزء آخر من الـ action. وذلك لأن `run()` هي الشيء الوحيد الذي تمر عبره كل مواقع الإرسال الستة، لذا لا توجد طريقة لكي يصل المستدعي إلى الجسم دون اجتياز الفحص. الحارس الذي يطرح خطأً يرفض الاستدعاء برسالة الخطأ الخاصة به. الحارس الذي يُرجع `false` يرفض الاستدعاء برمز 403 عام. أي شيء آخر، بما في ذلك `undefined`، يسمح بالاستدعاء. ولأن الفحص يحتاج إلى هوية مستدعٍ، يُرفض استدعاء CLI أو cron غير مراقَب لا يحمل بريد مستخدم بدلاً من السماح به.
+
+تتركب الأغلفة بهذا الترتيب:
+
+```text
+validate input -> authorize -> run -> validate output -> audit
+```
+
+يقع التخويل _داخل_ التحقق من صحة المدخل، لذا فإن الحارس الذي يفحص `args` يحصل على القيمة نفسها المحلَّلة والمتحقق من نوعها التي تستقبلها `run()`، لا أي شكل خام أرسله المستدعي. التدقيق هو الطبقة الأكثر خارجية، لذا يُسجَّل الرفض أيضًا.
+
+يفشل `requireAny()` في وقت التعريف، لا في وقت الطلب. استدعاؤه من دون أدوار، أو بدور خارج القائمة المُعلَنة، يطرح خطأً بمجرد تحميل الوحدة. بهذه الطريقة، ينكسر خطأ مثل `authorize: coachAccess.requireAny()` بوسيطة مفقودة تمامًا حيث وقع، بدلاً من أن يظهر لاحقًا كخطأ 403 غير مُفسَّر.
+
+### التحكم في الوصول داخل actions {#access-control}
+
+يجيب `authorize` فقط عمّا إذا كان يجوز للمستدعي تشغيل العملية أصلًا. فهو لا يقول شيئًا عن الصفوف التي يجوز له لمسها، وهذا فحص منفصل على مستوى الصف. يحصل الجدول المبني بـ `ownableColumns()` والمسجَّل بـ `registerShareableResource()` (راجع [المشاركة والخصوصية](/docs/sharing#building)) على مساعدَين لهذا: يحدّد `accessFilter()` نطاق استعلام القائمة أو القراءة إلى الصفوف التي يجوز للمستدعي رؤيتها، ويطرح `assertAccess()` خطأً قبل الكتابة إذا لم يكن المستدعي يحمل الدور المطلوب على ذلك الصف.
+
+استخدم `accessFilter()` داخل استعلام action من نوع قائمة أو قراءة:
+
+```ts
+// actions/list-decks.ts
+import { defineAction } from "@agent-native/core/action";
+import { accessFilter } from "@agent-native/core/sharing";
+import { z } from "zod";
+import { getDb, schema } from "../server/db/index.js";
+
+export default defineAction({
+  description: "List the decks the current user can see.",
+  schema: z.object({}),
+  http: { method: "GET" },
+  run: async () => {
+    const db = getDb();
+    return await db
+      .select()
+      .from(schema.decks)
+      .where(accessFilter(schema.decks, schema.deckShares));
+  },
+});
+```
+
+استخدم `assertAccess()` قبل عملية تحديث أو حذف، لأن جملة `WHERE` وحدها لا يمكنها إيقاف كتابة إلى صف تستبعده:
+
+```ts
+// actions/rename-deck.ts
+import { defineAction } from "@agent-native/core/action";
+import { assertAccess } from "@agent-native/core/sharing";
+import { eq } from "drizzle-orm";
+import { z } from "zod";
+import { getDb, schema } from "../server/db/index.js";
+
+export default defineAction({
+  description: "Rename a deck.",
+  schema: z.object({ id: z.string(), title: z.string() }),
+  run: async ({ id, title }) => {
+    await assertAccess("deck", id, "editor");
+    const db = getDb();
+    await db.update(schema.decks).set({ title }).where(eq(schema.decks.id, id));
+    return { ok: true };
+  },
+});
+```
+
+لا يستدعي action من نوع إنشاء أيًا من المساعدَين. فهو يحتاج فقط إلى ختم `ownerEmail` (و`orgId`) من سياق الطلب عند إدراج الصف الجديد، لأنه لا يوجد بعد صف موجود للتحقق من الوصول إليه. راجع [المشاركة والخصوصية](/docs/sharing#building) للاطلاع على نمط التسجيل والإنشاء الكامل، و[سياق التشغيل](/docs/actions-run-context) للاطلاع على الشكل الكامل للوسيطة الثانية `ctx` المستخدمة أعلاه.
+
+الآليات الثلاث غير قابلة للتبادل:
+
+| الآلية                            | السؤال الذي تجيب عنه                                       | تنطبق على                          |
+| ----------------------------------| -----------------------------------------------------------| ------------------------------------ |
+| `authorize`                       | هل يجوز لهذا المستدعي تنفيذ العملية أصلًا؟                    | كل مواقع الإرسال الستة              |
+| `needsApproval`                   | هل ينبغي أن يوافق إنسان على هذا الاستدعاء المسموح به تحديدًا؟ | حلقة الوكيل فقط                     |
+| `accessFilter()`/`assertAccess()` | ما الصفوف التي يجوز لهذا المستدعي المسموح له رؤيتها أو الكتابة إليها؟ | داخل `run()`، لكل استعلام أو صف |
+
+يحتاج action كتابة مقيَّد عادةً إلى كل من `authorize` و`assertAccess()`. يُبقي الأول غير المدربين خارج العملية. ويُبقي الثاني المدرب خارج خطة مؤسسة أخرى. `needsApproval` محور منفصل. فهو لا يقيّد أبدًا من يجوز له الاستدعاء، بل فقط ما إذا كان يجوز للوكيل المضي قدمًا دون مراقبة.
+
+يأتي `coachAccess` أعلاه من `defineAppRoles()`، طبقة الأدوار الخاصة بكل تطبيق فوق عضوية المؤسسة. راجع [المؤسسات والفرق والأذونات ← أدوار التطبيق](/docs/organizations-teams-permissions#app-roles-per-app-rbac) للاطلاع على نموذج الأدوار وضماناته.
+
+## تسجيل التدقيق {#audit}
+
+يُدقَّق كل action يغيّر البيانات تلقائيًا. يسجّل إطار العمل من شغّله، ومتى، ومن أي سطح، وعندما يكون الوكيل هو من شغّله، أي مسار وأي دور، مع مدخلات منقَّحة من بيانات الاعتماد. تُتخطى actions للقراءة فقط (`GET`). أنت لا تكتب أي كود لهذا. يحدث ذلك تلقائيًا داخل `defineAction()`.
+
+أضف كتلة `audit` فقط لضبط الالتقاط بدقة. السبب الأكثر شيوعًا هو الإعلان عن المورد الذي غيّره الـ action، بحيث يظهر التغيير في مسار مالك ذلك المورد:
+
+```ts
+export default defineAction({
+  description: "Delete a recording.",
+  schema: z.object({ id: z.string() }),
+  audit: {
+    target: (args, result) => ({ type: "recording", id: args.id }),
+    summary: (args) => `Deleted recording ${args.id}`,
+  },
+  run: async (args, ctx) => {
+    /* ...delete... */
+  },
+});
+```
+
+خيارات أخرى قليلة. يُدقّق `audit: { onRead: true }` قراءة حساسة، مثل الوصول إلى سر أو تصدير مجمّع. يستبعد `audit: { enabled: false }` كتابة صاخبة. يتخطى `audit: { recordInputs: false }` التقاط الوسائط. اقرأ المسار مرة أخرى باستخدام actions المدمجَين `list-audit-events` و`get-audit-event`. راجع [سجل التدقيق](/docs/audit-log) للتفاصيل الكاملة.
+
+## ما هي الخطوة التالية
+
+- [**نظرة عامة**](/docs/actions-overview) — ما هو action وجولة hello-world
+- [**تعريف Actions**](/docs/actions-defining) — تشريح `defineAction()`، والمخطط، وإعداد HTTP
+- [**سياق التشغيل**](/docs/actions-run-context) — وسيطة `ctx` التي تقرأها هذه الفحوصات
+- [**موافقات الإنسان في الحلقة**](/docs/human-approval) — بوابة `needsApproval` بالتفصيل
+- [**سجل التدقيق**](/docs/audit-log) — المسار التلقائي لمن غيّر ماذا
+- [**الأمان**](/docs/security) — `accessFilter`/`assertAccess` وحدود الثقة الخاصة بـ iframe الامتداد
+- [**المشاركة والخصوصية**](/docs/sharing) — نظام المشاركة في إطار العمل الذي يدعم هذين المساعدَين

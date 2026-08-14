@@ -1,0 +1,176 @@
+---
+title: "Actions definieren"
+description: "Der defineAction()-Aufbau: Schema, run und HTTP-Konfiguration, sowie wie Sie die Action-Oberfläche klein halten."
+---
+
+# Actions definieren
+
+Jede Action beginnt mit einem Aufruf von `defineAction()`. Sie bündelt eine Beschreibung für den Agenten, ein Schema, das die Eingabe validiert, und eine `run`-Funktion, die die eigentliche Arbeit erledigt, sodass die UI und der Agent exakt denselben Code aufrufen.
+
+<AnnotatedCode
+  id="doc-block-actions-defining-1"
+  title="Aufbau einer Action"
+  filename="actions/reply-to-email.ts"
+  language="ts"
+  code={
+    'import { defineAction } from "@agent-native/core/action";\nimport { z } from "zod";\n\nimport { getDb, schema } from "../server/db/index.js";\n\nexport default defineAction({\n  description: "Reply to an email thread in the user\'s voice.",\n  schema: z.object({\n    emailId: z.string().describe("The id of the email to reply to."),\n    body: z.string().describe("The reply body, in markdown."),\n  }),\n  run: async ({ emailId, body }) => {\n    const db = getDb();\n    await db.insert(schema.replies).values({ emailId, body });\n    return { ok: true, emailId };\n  },\n});'
+  }
+  annotations={[
+    {
+      lines: "7",
+      label: "Tool-Oberfläche",
+      note: "`description` ist das, was der Agent liest, um zu entscheiden, wann er dies aufruft. Die `.describe()`-Aufrufe pro Feld fließen ebenfalls in das JSON Schema ein.",
+    },
+    {
+      lines: "8-11",
+      label: "Typisierter Vertrag",
+      note: "Ein Schema validiert die Eingabe von **jeder** Oberfläche und wird für das Modell in JSON Schema umgewandelt. Ungültige Eingaben erreichen `run` nie.",
+    },
+    {
+      lines: "12-16",
+      label: "Eine Implementierung",
+      note: "Der `run`-Rumpf ist die einzige Quelle der Wahrheit. Die UI-Schaltfläche und das Agent-Tool führen beide genau diesen Code aus. `getDb()` und `schema` stammen aus der `server/db/index.ts` Ihrer App. Siehe [Datenbank](/docs/database).",
+    },
+  ]}
+/>
+
+Das Framework entdeckt jede Datei in `actions/` automatisch und bindet sie beim Start ein. Es gibt nichts weiter, das von Hand registriert werden muss.
+
+<Signature
+  id="doc-block-actions-defining-2"
+  name="defineAction"
+  params={[
+    {
+      name: "config",
+      type: "DefineActionConfig<TSchema, TReturn, TOutputSchema>",
+      description: "Alles unten ist ein einziges Config-Objekt. Nur description, schema und run sind erforderlich.",
+      fields: [
+        { name: "description", type: "string", description: "Was der Agent liest, um zu entscheiden, wann diese Action aufgerufen wird." },
+        { name: "schema", type: "StandardSchemaV1", description: "Validiert die Eingabe auf jeder Oberfläche. Siehe Schema-Optionen unten." },
+        { name: "run", type: "(args, ctx?) => Promise<TReturn> | TReturn", description: "Die einzige Implementierung, die jede Oberfläche aufruft. Siehe Ausführungskontext für das ctx-Argument." },
+        { name: "http", type: "ActionHttpConfig | false", optional: true, description: "Überschreibt die eingebundene Methode/den Pfad oder deaktiviert den HTTP-Endpunkt vollständig. Siehe HTTP-Konfiguration unten." },
+        { name: "readOnly", type: "boolean", optional: true, default: "false", description: "Automatisch true, wenn http.method GET ist. Überspringt die UI-Poll-Aktualisierung und das Write-Auditing. Keine Zugriffskontrolle." },
+        { name: "outputSchema", type: "StandardSchemaV1", optional: true, description: "Validiert, was run() zurückgibt. Siehe Rückgabewert validieren unten." },
+        { name: "outputErrorStrategy", type: '"warn" | "strict" | "fallback"', optional: true, default: '"warn"', description: "Was bei einer Abweichung der Ausgabe passiert." },
+        { name: "outputFallback", type: "TReturn", optional: true, description: 'Wird anstelle eines ungültigen Ergebnisses zurückgegeben, wenn outputErrorStrategy "fallback" ist.' },
+        { name: "parallelSafe", type: "boolean", optional: true, description: "Erlaubt einer mutierenden Action, gleichzeitig mit anderen Tool-Aufrufen derselben Runde zu laufen." },
+        { name: "agentTool", type: "boolean", optional: true, default: "true", description: "Auf false setzen, um sie aus jeder Agent-Tool-Liste auszublenden. Siehe Zugriff & Autorisierung." },
+        { name: "toolCallable", type: "boolean", optional: true, default: "true", description: "Auf false setzen, um die sandboxed Extension-Iframe-Bridge zu blockieren. Siehe Zugriff & Autorisierung." },
+        { name: "publicAgent", type: "PublicAgentActionConfig", optional: true, description: "{ expose: true } fügt die Action zu öffentlichen MCP-/A2A-/OpenAPI-Oberflächen hinzu. Siehe Zugriff & Autorisierung." },
+        { name: "needsApproval", type: "boolean | ((args, ctx?) => boolean | Promise<boolean>)", optional: true, default: "false", description: "Pausiert die Agentenschleife für eine menschliche Genehmigung vor run(). Siehe Human-in-the-Loop-Genehmigungen." },
+        { name: "authorize", type: "ActionAuthorize<TInput>", optional: true, description: "Guard-Funktion, die entscheidet, ob dieser Anrufer die Action überhaupt ausführen darf. Siehe Zugriff & Autorisierung." },
+        { name: "audit", type: "ActionAuditConfig", optional: true, description: "Feinabstimmung der automatischen Audit-Erfassung, die jede mutierende Action bereits erhält. Siehe Audit-Protokoll." },
+        { name: "chatUI", type: "ActionChatUIConfig", optional: true, description: "Deklariert einen nativen Chat-UI-Renderer für das Ergebnis der Action. Siehe Weitere Oberflächen." },
+      ],
+    },
+  ]}
+  returns={{
+    type: "ActionDefinition<TInput, TReturn>",
+    description: "Die typisierte Action-Definition. Exportieren Sie sie als Default-Export der Datei.",
+  }}
+/>
+
+## Schema-Optionen {#schemas}
+
+`schema` akzeptiert jede mit [Standard Schema](https://standardschema.dev) kompatible Bibliothek:
+
+- **Zod** (v4): die gängigste Wahl, mit der besten Typinferenz und automatischer Umwandlung in JSON Schema.
+- **Valibot**: eine gute Wahl, wenn die Bundle-Größe wichtig ist.
+- **ArkType**: eine gute Wahl, wenn Sie dessen Syntax bevorzugen.
+
+Das Schema erfüllt zwei Aufgaben. Es wandelt sich für die Tool-Definition der Claude API in JSON Schema um, und es validiert die Eingabe zur Laufzeit, bevor `run()` ausgelöst wird. Ungültige Eingaben erreichen Ihren Handler nie.
+
+## Rückgabewert validieren {#output-schema}
+
+`schema` validiert _Eingaben_. Um auch zu validieren, was eine Action **zurückgibt**, übergeben Sie ein `outputSchema` (ein beliebiges mit Standard Schema kompatibles Schema: Zod, Valibot, ArkType, dieselbe Oberfläche wie `schema`). Das Framework validiert die Eingabe vor `run()` und validiert das Ergebnis, nachdem `run()` aufgelöst wurde.
+
+```ts
+export default defineAction({
+  description: "Summarize a thread.",
+  schema: z.object({ threadId: z.string() }),
+  outputSchema: z.object({
+    summary: z.string(),
+    messageCount: z.number(),
+  }),
+  outputErrorStrategy: "warn", // default
+  run: async ({ threadId }) => {
+    /* ...returns { summary, messageCount } ... */
+  },
+});
+```
+
+`outputErrorStrategy` steuert, was bei einer Abweichung passiert:
+
+| Strategie    | Verhalten bei Abweichung                                                                              |
+| ------------ | ------------------------------------------------------------------------------------------------------ |
+| `"warn"`     | **Standard.** `console.warn` gibt die Probleme aus und gibt das **ursprüngliche** Ergebnis unverändert zurück. Nicht breaking. |
+| `"strict"`   | Wirft einen klaren Fehler, sodass ein Bug in der Action leicht auffällt.                                |
+| `"fallback"` | Gibt den bereitgestellten `outputFallback`-Wert anstelle des ungültigen Ergebnisses zurück.              |
+
+Wenn `run()` erfolgreich ist, gibt das Framework den validierten Wert zurück, sodass alle Defaults oder Coercions auf `outputSchema` greifen, genau wie bei der Eingabe. Wenn Sie kein `outputSchema` übergeben, bleibt der Rückgabewert unverändert.
+
+## HTTP-Konfiguration {#http}
+
+Standardmäßig wird jede Action als `POST /_agent-native/actions/<name>` exponiert. Überschreiben Sie dies mit der Option `http`:
+
+```ts
+export default defineAction({
+  description: "Get details for a lead.",
+  schema: z.object({ leadId: z.string() }),
+  http: { method: "GET" },
+  run: async ({ leadId }) => {
+    return await db.select().from(leads).where(eq(leads.id, leadId));
+  },
+});
+```
+
+Für eine `GET`-Action wird `leadId` als Query-Parameter übergeben: `/_agent-native/actions/get-lead?leadId=abc`.
+
+<Endpoint id="doc-block-actions-defining-3" title="Der automatisch eingebundene Action-Endpunkt" method="GET" path="/_agent-native/actions/get-lead" summary={"Jede Action wird hier automatisch eingebunden. Der Dateiname ist der Action-Name."} auth={"Session-Cookie (Frontend-Aufrufe tragen `X-Agent-Native-Frontend: 1`), oder `Authorization: Bearer <token>` für externe Aufrufer"} params={[
+  {
+    "name": "leadId",
+    "in": "query",
+    "type": "string",
+    "required": true,
+    "description": "GET-Argumente kommen als Query-Parameter an. POST-Argumente kommen im JSON-Body an."
+  }
+]} responses={[
+  {
+    "status": "200",
+    "description": "Der Rückgabewert der Action als JSON."
+  },
+  {
+    "status": "400",
+    "description": "Die Eingabe hat die Schemavalidierung nicht bestanden, bevor run() ausgelöst wurde."
+  }
+]}>
+
+POST ist der Standard, und `http: { method: "GET" }` macht daraus ein GET. Die React-Hooks und `callAction()` rufen diesen Pfad immer namentlich auf, unabhängig von einer `http.path`-Überschreibung. Externe Systeme können dieselbe Route mit einem langlebigen Bearer-Token aufrufen. Siehe [HTTP API](/docs/http-api).
+
+</Endpoint>
+
+- **`http: { method: "GET" | "POST" | "PUT" | "DELETE" }`**: Standard ist `POST`. `GET`-Actions werden automatisch als `readOnly` markiert, sodass ein erfolgreicher Aufruf keine UI-Poll-Aktualisierung auslöst.
+- **`http: { path: "..." }`**: überschreibt die eingebundene URL unter `/_agent-native/actions/`. Standardmäßig ist es der Dateiname. Diese Überschreibung ändert nur die URL für direkte HTTP-Aufrufer. `useActionQuery()`, `useActionMutation()` und `callAction()` rufen immer `/_agent-native/actions/<name>` auf, unabhängig von dieser Überschreibung, sodass ein Pfad-Override diese Hooks zu einem 404 führt. Verwenden Sie einen Pfad-Override nur für externe HTTP-Aufrufer. Beachten Sie außerdem, dass `:param`-Routensegmente im überschriebenen Pfad nicht in `run()`-Argumente geparst werden. Nur Query-String-Parameter und JSON-Body-Felder werden es.
+- **`http: false`**: deaktiviert den HTTP-Endpunkt vollständig. Nur der Agent und die CLI können die Action aufrufen.
+- **`readOnly: true`**: überspringt explizit die Poll-Aktualisierung, auch für POST-Actions, die nichts mutieren. Dies ist keine Zugriffskontrolle. Es beschränkt nicht, wer die Action aufrufen darf, und beeinflusst nicht `useActionQuery()`, `useActionMutation()` oder einen anderen Client-Hook. Die einzigen Effekte sind, das Refresh-Ereignis nach dem Aufruf zu unterdrücken und die Action vom Write-Auditing abzumelden. Um eine Action vor dem Modell zu verbergen, verwenden Sie `agentTool: false`. Um zu steuern, wer sie aufrufen darf, verwenden Sie die Auth- und Zugriffsoptionen unter [Zugriff & Autorisierung](/docs/actions-access-control).
+- **`parallelSafe: true`**: erlaubt einer mutierenden Action, gleichzeitig mit anderen Tool-Aufrufen derselben Runde zu laufen. Setzen Sie dies nur, wenn die Action sicher gleichzeitig laufen kann und nicht von der Reihenfolge abhängt. Mutierende Actions werden standardmäßig serialisiert.
+
+## Die Action-Oberfläche klein halten {#small-surface}
+
+Jede Action, die der Agent sehen kann, belegt einen Platz in der Tool-Liste des Modells, und eine lange, sich überschneidende Liste erschwert es dem Modell, das richtige Tool auszuwählen. Gestalten Sie die Action-Oberfläche wie eine API, die Sie pflegen, nicht wie eine Action pro Schaltfläche in der UI:
+
+- Bevorzugen Sie **eine CRUD-artige `update`-Action**, die ein Patch aus optionalen Feldern annimmt, gegenüber vielen Pro-Feld-Actions wie `update-name`, `update-order` und `update-color`. Der Aufrufer sendet nur die Felder, die sich geändert haben.
+- Bevor Sie für jede Abfrage oder jeden Filter eine neue Lese-Action hinzufügen, ziehen Sie zuerst eine allgemeinere Option in Betracht: das [Provider-API-Trio](/docs/template-dispatch-vault-integrations#provider-api) (`provider-api-catalog`, `provider-api-docs` und `provider-api-request`) für Provider-Daten, oder das Dev-Tool `db-query` für App-Daten.
+- Markieren Sie reine UI- oder programmatische Actions als [`agentTool: false`](/docs/actions-access-control#agent-tool). Sie bleiben vom Frontend oder über HTTP aufrufbar, ohne einen Platz in der Tool-Liste des Modells zu belegen.
+- Löschen oder verbergen Sie Actions, die die UI nicht mehr verwendet, statt sie dem Modell weiterhin auszusetzen.
+
+Das Repo enthält einen beratenden Helfer, `node scripts/audit-template-actions.mjs [template ...]` (Alias `pnpm actions:audit`). Er durchsucht den `actions/`-Ordner eines Templates und markiert Actions, die die UI möglicherweise nicht mehr verwendet, zusammen mit Gruppen von Pro-Feld-Actions, die zu einer zusammengefasst werden könnten. Er endet immer mit Code 0 und lässt CI nie fehlschlagen, und seine Heuristiken sind konservativ, behandeln Sie seine Ausgabe also als Vorschlag, nicht als Fehler.
+
+## Was kommt als nächstes?
+
+- [**Überblick**](/docs/actions-overview) — was eine Action ist und der Hello-World-Durchlauf
+- [**Zugriff & Autorisierung**](/docs/actions-access-control) — `agentTool`, `toolCallable`, `authorize` und `ctx`-Scoping
+- [**Ausführungskontext**](/docs/actions-run-context) — die vollständige `ctx`-Feldtabelle
+- [**Weitere Oberflächen**](/docs/actions-other-surfaces) — native Chat-UI, CLI, A2A, MCP und Standard-Actions
+- [**Datenbank**](/docs/database) — `getDb()`/`schema`, verwendet innerhalb von `run()`
+- [**Daten & Sync**](/docs/client-data) — diese Action aus der UI aufrufen

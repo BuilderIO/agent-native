@@ -1,0 +1,165 @@
+---
+title: "実行コンテキスト"
+description: "run() に渡される第二引数 ctx: ActionRunContext の完全なシグネチャと caller のユニオン型。トラッキング、自動化の帰属、横断的関心事に使います。"
+---
+
+# 実行コンテキスト
+
+`run` は、オプションの第二引数 `ctx` を受け取ります。これは、解決済みのリクエスト ID と、そのアクションを呼び出したサーフェスを保持しています。`getRequestUserEmail()` / `getRequestOrgId()` を手動で呼び出す代わりにこれを読み取り、トラッキングには `ctx` 全体を渡してください。
+
+```ts
+export default defineAction({
+  description: "Log an audit entry for the current request.",
+  schema: z.object({ event: z.string() }),
+  run: async (args, ctx) => {
+    // ctx is undefined-safe: a 1-arg `run(args)` is still valid.
+    const actor = ctx?.userEmail ?? "system";
+    if (ctx?.caller === "frontend") {
+      // tighter rules for browser-initiated calls, looser for "tool"/"cli"
+    }
+    await db.insert(audit).values({
+      actor,
+      orgId: ctx?.orgId ?? null,
+      source: ctx?.caller ?? "unknown",
+      event: args.event,
+    });
+    return { ok: true };
+  },
+});
+```
+
+ほとんどのアクションが読み取るのは `ctx?.userEmail` と `ctx?.orgId` だけで、これはほぼすべての実際のアクションで使われる[アクセス制御のスコープ設定](/docs/actions-access-control#access-control)です。このページの残りは、トラッキングや自動化の帰属といった横断的関心事を扱いますが、これらを必要とするアクションはより少数です。
+
+## `ctx` 引数 {#ctx}
+
+`ctx` は2種類の情報を運びます。ほぼすべての呼び出しに存在する解決済みのリクエスト ID (`userEmail`、`orgId`) と、アクションを呼び出したサーフェスに関するメタデータ (`caller`、および `threadId` や `automation` のような、特定の呼び出し元でのみ設定されるサーフェス固有のフィールド) です。`run()` の第二引数としての完全な形は次のとおりです。
+
+<Signature
+  id="doc-block-actions-run-context-1"
+  name="run"
+  params={[
+    {
+      name: "args",
+      type: "TInput",
+      description: "`schema` から解析された、検証済みの入力。",
+    },
+    {
+      name: "ctx",
+      type: "ActionRunContext",
+      optional: true,
+      description: "解決済みのリクエスト ID と、アクションを呼び出したサーフェス。undefined でも安全: 引数1つの `run(args)` ハンドラーも引き続き有効です。",
+      fields: [
+        {
+          name: "userEmail",
+          type: "string",
+          optional: true,
+          description: "解決済みのリクエスト ユーザー。**開発用の ID にデフォルトされることは決してありません**: リクエストに認証済みユーザーがない場合は `undefined` になります。必要であれば独自のフォールバックを用意してください。",
+        },
+        {
+          name: "orgId",
+          type: "string | null",
+          description: "解決済みの組織 ID。リクエストに組織がない場合は `null` になります。",
+        },
+        {
+          name: "caller",
+          type: "ActionCaller",
+          description: "アクションがどのように呼び出されたか。下記の[callerのユニオン型](#caller)を参照してください。",
+        },
+        {
+          name: "send",
+          type: "(event) => void",
+          optional: true,
+          description: "クライアントに SSE イベントを送出します。エージェント ツール ループの内部 (`caller: \"tool\"`) でのみ存在します。それ以外では `undefined` です。",
+        },
+        {
+          name: "attachments",
+          type: "AgentChatAttachment[]",
+          optional: true,
+          description: "現在のエージェント ターンとともに送信された、ファイル、画像、貼り付けられたテキスト ブロック。`caller: \"tool\"` のときにのみ設定されます。他のすべてのサーフェスでは `undefined` です。",
+        },
+        {
+          name: "signal",
+          type: "AbortSignal",
+          optional: true,
+          description: "run がソフト タイムアウトした場合、キャンセルされた場合、またはサーバーがシャットダウンした場合に abort します。`caller: \"tool\"` のときにのみ設定されます。長時間実行されるアクションは、ツールごとの 60 秒のハード タイムアウトを待つのではなく、これを監視して早期にキャンセルできます。",
+        },
+        {
+          name: "actionName",
+          type: "string",
+          optional: true,
+          description: "呼び出されているアクションのレジストリ キー (例: `delete-recording`)。各ディスパッチ サイトで設定され、監査ログのような横断的関心事がその呼び出しを帰属できるようにします。ディスパッチャーを経由しない、直接的なプログラム的 `run()` 呼び出しでは `undefined` です。",
+        },
+        {
+          name: "threadId",
+          type: "string",
+          optional: true,
+          description: "この呼び出しをトリガーしたエージェントの会話スレッド。`caller: \"tool\"` のときにのみ設定され、監査ログが変更を正確なエージェント実行にリンクし直せるようにします。",
+        },
+        {
+          name: "runId",
+          type: "string",
+          optional: true,
+          description: "この呼び出しをトリガーしたエージェントの実行試行。`caller: \"tool\"` のときにのみ設定されます。",
+        },
+        {
+          name: "turnId",
+          type: "string",
+          optional: true,
+          description: "その実行の中で、この呼び出しをトリガーした特定のターン。`caller: \"tool\"` のときにのみ設定されます。",
+        },
+        {
+          name: "automation",
+          type: "ActionAutomationContext",
+          optional: true,
+          description: "`caller: \"automation\"` のときにのみ存在します。この呼び出しをディスパッチしたイベント トリガー型の自動化について、`triggerId`、`triggerName`、任意の `policyId` を保持します。",
+        },
+        {
+          name: "networkProtocol",
+          type: '"a2a" | "mcp" | "provider-api"',
+          optional: true,
+          description: "このリクエストがどの委任呼び出しプロトコル経由で届いたか。それらの直接ディスパッチ経路でのみ設定されます。",
+        },
+        {
+          name: "networkId",
+          type: "string",
+          optional: true,
+          description: "その委任呼び出しの相関 ID。たとえば A2A 委任 JWT の ID です。",
+        },
+        {
+          name: "networkPeer",
+          type: "string",
+          optional: true,
+          description: "その委任呼び出しにおける、呼び出し元ピアの ID。",
+        },
+      ],
+    },
+  ]}
+  returns={{
+    type: "Promise<TReturn> | TReturn",
+    description: "アクションの結果。`outputSchema` が設定されていれば、それに対して検証されます。",
+  }}
+/>
+
+`run()` は後方互換性を保ちます。既存の引数1つのハンドラーや、`{ send }` だけを分割代入するハンドラーは、変更なく動作し続けます。
+
+### `caller` のユニオン型 {#caller}
+
+`caller` は、`"tool" | "http" | "frontend" | "cli" | "mcp" | "a2a" | "automation"` のユニオン型です。
+
+| `caller`       | 設定される条件                                                                                                                                                     |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `"tool"`       | アプリ内エージェント ループ、サブエージェントやエージェント チーム、または同じエージェント ループを駆動する自然言語のクロスアプリ A2A 委任。そのため、そのツール呼び出しは `"tool"` になります。 |
+| `"frontend"`   | `useActionMutation()`、`useActionQuery()`、`callAction()` を介したブラウザからの呼び出し (`X-Agent-Native-Frontend: 1` ヘッダーでタグ付けされます)。                |
+| `"http"`       | フロントエンド マーカーのない、`/_agent-native/actions/<name>` への素のプログラム的な `POST` または `GET`。                                                        |
+| `"cli"`        | `pnpm action <name>` (CLI ランナー)。                                                                                                                             |
+| `"mcp"`        | MCP の `tools/call` エンドポイント経由の外部エージェント。                                                                                                          |
+| `"a2a"`        | 署名された A2A 委任トークンを伴う、`/_agent-native/actions/<name>` への直接の HTTP 呼び出し。これは明示的に公開された、クロスアプリのディスパッチであり、上記の自然言語による `"tool"` 経路とは区別されます。 |
+| `"automation"` | 保存されたワークスペース トリガーからディスパッチされる、イベント トリガー型の自動化。`ctx.automation` がトリガーの系譜を保持します。[自動化](/docs/automations) を参照してください。 |
+
+## 次は何ですか
+
+- [**アクセスと認可**](/docs/actions-access-control) — このコンテキストが可能にする `ctx.userEmail`/`ctx.orgId` によるスコープ設定パターン
+- [**アクションを定義する**](/docs/actions-defining) — `defineAction()` の構造と HTTP 設定
+- [**その他のサーフェス**](/docs/actions-other-surfaces) — CLI、A2A、MCP、自動化の呼び出し元がどのように `caller` を設定するか
+- [**監査ログ**](/docs/audit-log) — `threadId`/`runId`/`turnId` が変更をエージェント実行にリンクし直す仕組み
+- [**自動化**](/docs/automations) — `ctx.automation` のトリガー系譜

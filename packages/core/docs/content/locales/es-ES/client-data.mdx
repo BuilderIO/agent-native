@@ -5,7 +5,7 @@ description: "Los hooks de acciones que usa app/ para leer, escribir y manteners
 
 # Datos y sincronización
 
-La forma principal de leer y escribir datos de la app desde el cliente es a través de los hooks de [acciones](/docs/actions). Al incorporar las solicitudes en acciones, tanto tu cliente como el agente pueden interactuar con tu aplicación de la misma manera.
+La forma principal de leer y escribir datos de la app desde el cliente es a través de los hooks de [acciones](/docs/actions-overview). Al incorporar las solicitudes en acciones, tanto tu cliente como el agente pueden interactuar con tu aplicación de la misma manera.
 
 En el ejemplo siguiente, un ticket se asigna al usuario actual manualmente a través de un desplegable, y luego a través del agente de chat. Tanto la UI como el agente acceden a la misma acción.
 
@@ -429,7 +429,7 @@ Para operaciones CRUD normales, prefiere `useActionQuery()` y `useActionMutation
 
 - [**Resumen**](/docs/client-overview) — la disposición de directorios `app/` y `public/` en la que viven los hooks de esta página
 - [**Chat del Agent**](/docs/client-agent-chat) — enviar prompts y preparar contexto para el agente
-- [**Actions**](/docs/actions) — la superficie `defineAction` detrás de cada hook de esta página
+- [**Actions**](/docs/actions-overview) — la superficie `defineAction` detrás de cada hook de esta página
 - [**Avanzado**](/docs/client-advanced) — acceso directo a `application_state`
 - [**Sincronización interna**](/docs/client-sync-internals) — sincronizar un `useQuery` sin procesar con `useChangeVersion`
 - [**Sincronización en vivo**](/docs/key-concepts#polling-sync) — cómo `useDbSync` mantiene la UI actualizada

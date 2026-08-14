@@ -5,7 +5,7 @@ description: "The Nitro server layer in an agent-native app: what it's for, when
 
 # Server
 
-The `server/` directory is the infrastructure layer of an agent-native app. It handles startup tasks, authentication, and the HTTP surfaces that actions don't cover. Most product behavior belongs in [Actions](/docs/actions). The server is what makes those actions available.
+The `server/` directory is the infrastructure layer of an agent-native app. It handles startup tasks, authentication, and the HTTP surfaces that actions don't cover. Most product behavior belongs in [Actions](/docs/actions-overview). The server is what makes those actions available.
 
 <Diagram id="doc-block-server-overview-1" title="How requests flow through the server" summary="Callers reach the Nitro server, which handles most requests through Actions. Middleware and Routes cover cases Actions can't. Both paths can query the database.">
 
@@ -223,11 +223,11 @@ Agent Native architecture is different. Whenever you think of a new feature for 
 - MCP and A2A-callable tools.
 - CLI commands for development.
 
-Use custom `/api/*` routes only when you need a route-shaped protocol or binary/streaming behavior. For more details, visit [Actions](/docs/actions).
+Use custom `/api/*` routes only when you need a route-shaped protocol or binary/streaming behavior. For more details, visit [Actions](/docs/actions-overview).
 
 ## What's next {#whats-next}
 
-- [**Actions**](/docs/actions): the default operation surface. Reach for a custom route only when it doesn't fit.
+- [**Actions**](/docs/actions-overview): the default operation surface. Reach for a custom route only when it doesn't fit.
 - [**Database**](/docs/server-database): the `getDb()`/schema pattern custom routes and actions both import
 - [**Middleware**](/docs/server-middleware): auth guards and the `server/middleware/` directory
 - [**Plugins**](/docs/server-plugins): startup plugins for auth, the agent, and optional app-owned migrations

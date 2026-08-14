@@ -1,0 +1,165 @@
+---
+title: "运行上下文"
+description: "传给 run() 的 ctx 第二个参数:完整的 ActionRunContext 签名和调用者联合类型,用于追踪、自动化归因,以及横切关注点。"
+---
+
+# 运行上下文
+
+`run` 接受一个可选的第二个参数 `ctx`,携带解析后的请求身份,以及调用该 action 的界面。用它来代替手动调用 `getRequestUserEmail()` / `getRequestOrgId()`,并把整个 `ctx` 传给追踪逻辑:
+
+```ts
+export default defineAction({
+  description: "Log an audit entry for the current request.",
+  schema: z.object({ event: z.string() }),
+  run: async (args, ctx) => {
+    // ctx is undefined-safe: a 1-arg `run(args)` is still valid.
+    const actor = ctx?.userEmail ?? "system";
+    if (ctx?.caller === "frontend") {
+      // tighter rules for browser-initiated calls, looser for "tool"/"cli"
+    }
+    await db.insert(audit).values({
+      actor,
+      orgId: ctx?.orgId ?? null,
+      source: ctx?.caller ?? "unknown",
+      event: args.event,
+    });
+    return { ok: true };
+  },
+});
+```
+
+大多数 action 只会读取 `ctx?.userEmail` 和 `ctx?.orgId`,这就是几乎每个真实 action 都会用到的[访问控制范围界定](/docs/actions-access-control#access-control)。本页剩下的内容涵盖追踪和自动化归因这类横切关注点,只有较少的 action 会用到它们。
+
+## `ctx` 参数 {#ctx}
+
+`ctx` 携带两类信息:几乎每次调用都存在的、解析后的请求身份(`userEmail`、`orgId`),以及关于调用该 action 的界面的元数据(`caller`,加上只对特定调用者才会填充的界面专属字段,比如 `threadId` 或 `automation`)。作为 `run()` 的第二个参数,它的完整形状是:
+
+<Signature
+  id="doc-block-actions-run-context-1"
+  name="run"
+  params={[
+    {
+      name: "args",
+      type: "TInput",
+      description: "经过校验的输入,从 `schema` 解析而来。",
+    },
+    {
+      name: "ctx",
+      type: "ActionRunContext",
+      optional: true,
+      description: "解析后的请求身份,以及调用该 action 的界面。undefined 安全:一个单参数的 `run(args)` 处理函数依然有效。",
+      fields: [
+        {
+          name: "userEmail",
+          type: "string",
+          optional: true,
+          description: "解析后的请求用户。**从不会默认成一个开发身份**:当请求没有已认证用户时为 `undefined`。如果需要回退值,请自行实现。",
+        },
+        {
+          name: "orgId",
+          type: "string | null",
+          description: "解析后的组织 id,当请求没有组织时为 `null`。",
+        },
+        {
+          name: "caller",
+          type: "ActionCaller",
+          description: "该 action 是如何被调用的。见下方[调用者联合类型](#caller)。",
+        },
+        {
+          name: "send",
+          type: "(event) => void",
+          optional: true,
+          description: "向客户端发出一个 SSE 事件。只有在代理工具循环内部(`caller: \"tool\"`)才存在,其他情况下为 `undefined`。",
+        },
+        {
+          name: "attachments",
+          type: "AgentChatAttachment[]",
+          optional: true,
+          description: "随当前代理轮次提交的文件、图片和粘贴的文本块。只有在 `caller: \"tool\"` 时才会填充,在所有其他界面上都是 `undefined`。",
+        },
+        {
+          name: "signal",
+          type: "AbortSignal",
+          optional: true,
+          description: "当运行被软超时、取消,或服务器关闭时触发中止。只有在 `caller: \"tool\"` 时才会填充。长时间运行的 action 可以监听它来提前取消,而不是等待每个工具 60 秒的硬性超时。",
+        },
+        {
+          name: "actionName",
+          type: "string",
+          optional: true,
+          description: "被调用的 action 的注册表键名(例如 `delete-recording`),在每个调用点设置,好让审计日志这类横切关注点能够对这次调用做归因。对于绕过分发器的直接程序化 `run()` 调用,该值为 `undefined`。",
+        },
+        {
+          name: "threadId",
+          type: "string",
+          optional: true,
+          description: "触发这次调用的代理对话 thread。只有在 `caller: \"tool\"` 时才会填充,这样审计日志就能把一次变更关联回确切的那次代理运行。",
+        },
+        {
+          name: "runId",
+          type: "string",
+          optional: true,
+          description: "触发这次调用的代理运行尝试。只有在 `caller: \"tool\"` 时才会填充。",
+        },
+        {
+          name: "turnId",
+          type: "string",
+          optional: true,
+          description: "在那次运行中,触发这次调用的具体那一轮。只有在 `caller: \"tool\"` 时才会填充。",
+        },
+        {
+          name: "automation",
+          type: "ActionAutomationContext",
+          optional: true,
+          description: "只有在 `caller: \"automation\"` 时才存在。携带触发这次调用的事件驱动自动化的 `triggerId`、`triggerName`,以及可选的 `policyId`。",
+        },
+        {
+          name: "networkProtocol",
+          type: '"a2a" | "mcp" | "provider-api"',
+          optional: true,
+          description: "这次请求所使用的委托调用协议。只对那些直接分发路径才会设置。",
+        },
+        {
+          name: "networkId",
+          type: "string",
+          optional: true,
+          description: "该次委托调用的关联 id,例如 A2A 委托 JWT 的 id。",
+        },
+        {
+          name: "networkPeer",
+          type: "string",
+          optional: true,
+          description: "该次委托调用中调用方对等端的身份。",
+        },
+      ],
+    },
+  ]}
+  returns={{
+    type: "Promise<TReturn> | TReturn",
+    description: "该 action 的结果,如果设置了 `outputSchema` 会针对它进行校验。",
+  }}
+/>
+
+`run()` 保持向后兼容:已有的单参数处理函数,以及只解构 `{ send }` 的处理函数,都可以照常继续工作。
+
+### `caller` 联合类型 {#caller}
+
+`caller` 是联合类型 `"tool" | "http" | "frontend" | "cli" | "mcp" | "a2a" | "automation"`:
+
+| `caller`       | 何时被设置…                                                                                                                          |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `"tool"`       | 应用内代理循环、一个子代理或代理团队,或者驱动同一个代理循环的自然语言跨应用 A2A 委托,它们的工具调用都是 `"tool"`。                     |
+| `"frontend"`   | 通过 `useActionMutation()`、`useActionQuery()` 或 `callAction()` 发起的浏览器调用(带有 `X-Agent-Native-Frontend: 1` 请求头标记)。   |
+| `"http"`       | 对 `/_agent-native/actions/<name>` 发起的、没有前端标记的裸程序化 `POST` 或 `GET`。                                                  |
+| `"cli"`        | `pnpm action <name>`(CLI 运行器)。                                                                                                  |
+| `"mcp"`        | 外部代理通过 MCP 的 `tools/call` 端点发起的调用。                                                                                    |
+| `"a2a"`        | 携带一个签名的 A2A 委托令牌、直接发往 `/_agent-native/actions/<name>` 的 HTTP 调用。这是一次显式暴露的跨应用调用,不同于上面那种自然语言的 `"tool"` 路径。 |
+| `"automation"` | 从一个已存储的工作区触发器分发出来的事件驱动自动化。`ctx.automation` 携带触发器的来龙去脉。参阅[自动化](/docs/automations)。          |
+
+## 下一步
+
+- [**访问与授权**](/docs/actions-access-control) — 这份上下文所支撑的 `ctx.userEmail`/`ctx.orgId` 范围界定模式
+- [**定义 Actions**](/docs/actions-defining) — `defineAction()` 的结构和 HTTP 配置
+- [**其他界面**](/docs/actions-other-surfaces) — CLI、A2A、MCP 和自动化这些调用者如何设置 `caller`
+- [**审核日志**](/docs/audit-log) — `threadId`/`runId`/`turnId` 如何把一次变更关联回它所属的代理运行
+- [**自动化**](/docs/automations) — `ctx.automation` 的触发器来龙去脉

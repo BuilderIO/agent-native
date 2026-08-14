@@ -1,0 +1,152 @@
+---
+title: "高度な機能とレガシー"
+description: "段階的に展開中のアクションに対するフィーチャー フラグ制御と、単発の開発スクリプト向けに残されている、より古い CLI 専用アクション スタイル (export default async function(args) と parseArgs)。"
+---
+
+# 高度な機能とレガシー
+
+## 段階的に公開する機能を保護する {#feature-flags}
+
+フィーチャー フラグが存在するのは、たった1つの特定の状況のためです。アクションはデプロイしても安全だが、全員に届ける前に、まず一部のアカウントだけで有効にしたい、という状況です。そこに至るには、3つの必須ステップと、UI 向けのオプションの4つ目のステップが必要です。
+
+<Steps>
+
+### フラグを宣言する
+
+同じフラグ キーがサーバーとクライアントの両方に届く必要があるため、両方からインポートできるモジュールでフラグを宣言します。
+
+```ts
+// shared/feature-flags.ts
+import { defineFeatureFlag } from "@agent-native/core/feature-flags";
+
+export const FULL_APP_BUILDING = defineFeatureFlag({
+  key: "full-app-building",
+  displayName: "Full app building",
+  description: "Create and edit Fusion-backed applications.",
+});
+```
+
+`key` は、他のすべてのコードが参照する唯一のフィールドなので、安定していなければなりません。`displayName` と `description` は、実際に誰かがフラグをオンにするオペレーター UI で、後になって初めて表示されます。ここでフラグを宣言しても、何かが有効になるわけではありません。すべてのフラグは、すべてのアカウントに対してオフの状態から始まります。
+
+### 起動時に登録する
+
+Nitro プラグインでフラグを登録し、実行中のサーバーがその存在を認識できるようにします。
+
+```ts
+// server/plugins/feature-flags.ts
+import { createFeatureFlagsPlugin } from "@agent-native/core/server";
+
+import { FULL_APP_BUILDING } from "../../shared/feature-flags.js";
+
+export default createFeatureFlagsPlugin({ flags: [FULL_APP_BUILDING] });
+```
+
+登録されていないフラグは、後でオペレーターが何を設定しようとも、常に `false` と評価されます。このステップによって、サーバーにとってフラグが実在するものになります。これでもまだ、誰に対してもフラグはオンになりません。それは、このセクションの最後で説明するオペレーター アクションを通じて行われます。
+
+### アクションをガードする
+
+これが実際に重要なチェックです。エージェントであれ、フロントエンドであれ、スクリプトであれ、すべての呼び出し元がこれを通過しなければならないからです。
+
+```ts
+// actions/create-fusion-app.ts
+import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
+
+run: async (args, ctx) => {
+  if (!(await isFeatureFlagEnabled(FULL_APP_BUILDING, ctx))) {
+    throw new Error("Full app building is not enabled for this account.");
+  }
+  // Perform the guarded operation.
+};
+```
+
+`isFeatureFlagEnabled()` は、`ctx` から呼び出し元の ID を読み取り ([ctx 引数](/docs/actions-run-context#ctx) を参照)、その特定のユーザーと組織についてフラグを評価します。フラグがその相手に対してオンでない場合、アクションは他の何かを行う前にスローします。このチェックは `run()` の内部に置かなければなりません。`run()` は、すべてのディスパッチ経路が必ず通過することが保証されている唯一の場所だからです。
+
+### UI で隠す (オプション)
+
+同じフラグをクライアント側でも使い、どうせ呼び出せない人からは機能を隠します。
+
+```tsx
+// app/routes/fusion.tsx
+import { Button } from "@/components/ui/button";
+import { useFeatureFlag } from "@agent-native/core/client";
+
+import { FULL_APP_BUILDING } from "../../shared/feature-flags.js";
+
+export function CreateFusionAppButton() {
+  const enabled = useFeatureFlag(FULL_APP_BUILDING.key);
+  if (!enabled) return null;
+  return <Button onClick={createFusionApp}>Create Fusion app</Button>;
+}
+```
+
+`useFeatureFlag()` は、サーバー側のチェックと同じ方法で、サインイン中のユーザーに対して評価された、単純なブール値を返します。`false` のときにボタンを隠すことで、まだ使えない機能に誰かがクリックして入り込むのを防げますが、これは表示上のことにすぎません。アクションへの直接的な呼び出しを止めるものは何もありません。だからこそ、UI が何を表示していようとも、前のステップの `run()` 内のチェックは必ず必要なのです。
+
+</Steps>
+
+フラグが宣言・登録されると、実際のアカウントに対してそれをオンにする作業は、3つのマウント済みアクションを通じて行われます。`get-feature-flags` は、`useFeatureFlag()` 自身が呼び出すものです。すべてのユーザーが自分自身のフラグを確認する必要があるため、サインイン済みの呼び出し元であれば誰でも利用できます。`list-feature-flags` と `set-feature-flag` は、2つの管理用アクションです。どちらも、組織のオーナーと管理者 (または組織なしの管理者) に制限されており、どちらも監査されます。
+
+`set-feature-flag` は、オペレーターが実際に、誰に対してフラグをオンにするかを変更する方法です。
+
+| 操作                                                    | 内容                                             | 引数の例                                                                                                       |
+| ------------------------------------------------------- | ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------- |
+| `enable-for-current-user`                                | 自分自身のアカウントに対してのみフラグをオンにします。 | `{ key: "full-app-building", operation: "enable-for-current-user" }`                                             |
+| `off`                                                    | 全員に対してフラグをオフにし、ルールをすべてリセットします。 | `{ key: "full-app-building", operation: "off" }`                                                                 |
+| `replace-rules`、モード `"on"`                           | 全員に対してフラグをオンにします。                | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "on" } }`                                |
+| `replace-rules`、モード `"rules"` と `emails`             | 特定のアカウント一覧に対してオンにします。        | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", emails: ["a@example.com"] } }`  |
+| `replace-rules`、モード `"rules"` と `orgIds`             | 特定の組織に対してオンにします。                  | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", orgIds: ["org_123"] } }`        |
+| `replace-rules`、モード `"rules"` と `percentage`         | パーセンテージによる段階的展開でオンにします。    | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", percentage: 10 } }`             |
+
+フリート オペレーター UI は、共有ログインの代わりに、狭くスコープされた A2A 委任を通じて、これらと同じアクションを呼び出します。Analytics が、それらの唯一のオペレーター UI です。アプリは独自のフラグ設定パネルを構築すべきではなく、フラグの書き込みは、汎用の設定エンドポイントや生の SQL を経由すべきではありません。
+
+<Callout id="doc-block-actions-advanced-1" tone="warning">
+
+認証、認可、監査、シークレット、SSR キャッシュの挙動を、ランタイム フラグの裏に置いてはいけません。これらは切り替え可能であってはならず、無条件に正しくなければなりません。
+
+</Callout>
+
+## レガシーな CLI スタイルのアクション {#legacy-cli-actions}
+
+フレームワークは、`defineAction()` でラップされていない、より古い `export default async function(args)` 形式のアクションも引き続きサポートしています。これらは、エージェントや HTTP への公開を必要としない、単発の開発スクリプトに便利です。これらは CLI 専用であり、エージェント ツールとして現れることも、HTTP エンドポイントをマウントすることも、型安全なフロントエンド フックを得ることもありません。
+
+```ts
+// actions/debug-dump.ts (CLI-only)
+import { parseArgs } from "@agent-native/core";
+
+export default async function main(args: string[]) {
+  const { table } = parseArgs(args);
+  // one-off script you wouldn't want the agent to call
+}
+```
+
+新しいコードでは `defineAction()` を優先すべきです。このパターンは、意図的にエージェントや UI にアクションを公開したくない場合にのみ使ってください。
+
+### `parseArgs(args)` {#parseargs}
+
+レガシー スタイルのアクション向けのヘルパーです。`--key value` または `--key=value` の形式で CLI 引数を解析します。
+
+```ts
+import { parseArgs } from "@agent-native/core";
+
+const args = parseArgs(["--name", "Steve", "--verbose", "--count=3"]);
+// { name: "Steve", verbose: "true", count: "3" }
+```
+
+## ユーティリティ関数 {#utility-functions}
+
+これらは、上記の `parseArgs()` と同じ `@agent-native/core` からインポートする、スクリプト作成向けの小さなヘルパーです。レガシーな CLI スタイルのアクションに特別に結びついているわけではありません。環境変数の読み込み、パス引数の検証、明確なエラーでの中断など、あらゆる単発の開発スクリプトで活用してください。
+
+| 関数                    | 戻り値                   | 説明                                                                                                                     |
+| ----------------------- | ------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
+| `loadEnv(path?)`        | `void`                   | プロジェクト ルートまたはカスタム パスから `.env` (と `.env.local`) を読み込みます。エンタープライズ ワークスペースでは、ワークスペース ルートの `.env` にフォールバックします。 |
+| `camelCaseArgs(args)`   | `Record<string, string>` | ケバブケースのキーをキャメルケースに変換します。                                                                          |
+| `isValidPath(p)`        | `boolean`                | 相対パスを検証します (トラバーサルなし、絶対パスなし)。                                                                   |
+| `isValidProjectPath(p)` | `boolean`                | プロジェクトのスラッグを検証します (例: `my-project` や `group/my-project`)。                                            |
+| `ensureDir(dir)`        | `void`                   | `mkdir -p` のヘルパーです。                                                                                               |
+| `fail(message)`         | `never`                  | エラーをスローしてスクリプトを中断します。CLI ランナーはこれを捕捉し、終了コード 1 で終了します。サーバー内の呼び出し元 (エージェント ツール、A2A) には、代わりにツール呼び出しのエラーとして返されます。 |
+
+## 次は何ですか
+
+- [**アクションを定義する**](/docs/actions-defining) — このレガシー スタイルより前からある `defineAction()` パターン
+- [**概要**](/docs/actions-overview) — アクションとは何か、hello world のウォークスルー
+- [**その他のサーフェス**](/docs/actions-other-surfaces) — これらのユーティリティとレガシー アクションが支える CLI ランナー
+- [**フィーチャー フラグ**](/docs/feature-flags) — 単一アクションのゲーティングを超えた、フラグの完全なライフサイクル

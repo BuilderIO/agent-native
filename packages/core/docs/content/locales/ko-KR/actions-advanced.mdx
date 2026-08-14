@@ -1,0 +1,193 @@
+---
+title: "고급 및 레거시"
+description: "아직 단계적으로 배포 중인 action을 위한 기능 플래그 게이팅, 그리고 일회성 개발 스크립트를 위해 남아 있는 예전의 CLI 전용 action 스타일(export default async function(args)와 parseArgs)."
+---
+
+# 고급 및 레거시
+
+## 단계적 배포 기능 가드하기 {#feature-flags}
+
+기능 플래그는 한 가지 구체적인 상황을 위해 존재합니다. action은 배포해도
+안전하지만, 모두에게 열리기 전에 몇몇 계정에서 먼저 켜보고 싶은 경우입니다.
+여기까지 가려면 세 가지 필수 단계와, UI를 위한 선택적인 네 번째 단계를
+거칩니다.
+
+<Steps>
+
+### 플래그 선언하기
+
+같은 플래그 키가 서버와 클라이언트 양쪽에 닿아야 하므로, 양쪽 모두
+임포트할 수 있는 모듈에서 플래그를 선언하세요.
+
+```ts
+// shared/feature-flags.ts
+import { defineFeatureFlag } from "@agent-native/core/feature-flags";
+
+export const FULL_APP_BUILDING = defineFeatureFlag({
+  key: "full-app-building",
+  displayName: "Full app building",
+  description: "Create and edit Fusion-backed applications.",
+});
+```
+
+`key`는 다른 모든 코드가 참조할 유일한 필드이므로 안정적이어야 합니다.
+`displayName`과 `description`은 나중에 실제로 플래그를 켜는 운영자 UI에만
+나타납니다. 여기서 플래그를 선언한다고 해서 아무것도 활성화되지는
+않습니다. 모든 플래그는 모든 계정에 대해 꺼진 상태로 시작합니다.
+
+### 시작 시 등록하기
+
+실행 중인 서버가 플래그의 존재를 알 수 있도록 Nitro 플러그인으로
+플래그를 등록하세요.
+
+```ts
+// server/plugins/feature-flags.ts
+import { createFeatureFlagsPlugin } from "@agent-native/core/server";
+
+import { FULL_APP_BUILDING } from "../../shared/feature-flags.js";
+
+export default createFeatureFlagsPlugin({ flags: [FULL_APP_BUILDING] });
+```
+
+등록되지 않은 플래그는 운영자가 나중에 무엇을 설정하든 항상 `false`로
+평가됩니다. 이 단계가 플래그를 서버에게 실재하는 것으로 만들어 줍니다.
+그래도 여전히 누구에게도 플래그를 켜주지는 않습니다. 그것은 이 섹션
+끝에서 설명하는 운영자 action을 통해 이루어집니다.
+
+### action 가드하기
+
+이것이 실제로 중요한 검사입니다. 에이전트든, 프런트엔드든, 스크립트든
+모든 호출자가 반드시 이를 거쳐야 하기 때문입니다.
+
+```ts
+// actions/create-fusion-app.ts
+import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
+
+run: async (args, ctx) => {
+  if (!(await isFeatureFlagEnabled(FULL_APP_BUILDING, ctx))) {
+    throw new Error("Full app building is not enabled for this account.");
+  }
+  // Perform the guarded operation.
+};
+```
+
+`isFeatureFlagEnabled()`는 `ctx`([ctx 인자](/docs/actions-run-context#ctx) 참고)에서
+호출자의 신원을 읽어, 그 특정 사용자와 조직에 대해 플래그를 평가합니다.
+플래그가 그들에게 켜져 있지 않으면, action은 다른 어떤 일도 하기 전에
+예외를 던집니다. 이 검사는 반드시 `run()` 안에 있어야 합니다. 모든
+디스패치 경로가 반드시 거치는 유일한 지점이 `run()`이기 때문입니다.
+
+### UI에서 숨기기 (선택 사항)
+
+어차피 호출할 수 없는 사람들에게서 기능을 숨기기 위해, 클라이언트에서도
+같은 플래그를 사용하세요.
+
+```tsx
+// app/routes/fusion.tsx
+import { Button } from "@/components/ui/button";
+import { useFeatureFlag } from "@agent-native/core/client";
+
+import { FULL_APP_BUILDING } from "../../shared/feature-flags.js";
+
+export function CreateFusionAppButton() {
+  const enabled = useFeatureFlag(FULL_APP_BUILDING.key);
+  if (!enabled) return null;
+  return <Button onClick={createFusionApp}>Create Fusion app</Button>;
+}
+```
+
+`useFeatureFlag()`는 서버 측 검사와 동일한 방식으로 로그인한 사용자에
+대해 평가된 순수한 불리언을 반환합니다. `false`일 때 버튼을 숨기면
+아직 사용할 수 없는 기능으로 누군가 잘못 들어가는 것을 막아주지만,
+이는 어디까지나 화면 표시일 뿐입니다. action에 대한 직접 호출을 막는
+것은 아무것도 없습니다. 그래서 UI가 무엇을 보여주든 상관없이, 이전
+단계에서 만든 `run()` 안의 검사가 여전히 필요한 것입니다.
+
+</Steps>
+
+플래그가 선언되고 등록되면, 실제 계정에 대해 켜는 작업은 마운트된 세
+개의 action을 거칩니다. `get-feature-flags`는 `useFeatureFlag()` 자신이
+호출하는 action으로, 모든 사용자가 자기 자신의 플래그를 확인해야
+하므로 로그인한 모든 호출자에게 열려 있습니다. `list-feature-flags`와
+`set-feature-flag`는 두 개의 관리 action입니다. 둘 다 조직의 소유자와
+관리자(또는 조직이 없는 경우의 관리자)로 제한되며, 둘 다 감사됩니다.
+
+`set-feature-flag`는 운영자가 실제로 플래그를 켤 대상을 바꾸는 방법입니다.
+
+| 작업 | 하는 일 | 예시 인자 |
+| --- | --- | --- |
+| `enable-for-current-user` | 자기 자신의 계정에 대해서만 플래그를 켭니다. | `{ key: "full-app-building", operation: "enable-for-current-user" }` |
+| `off` | 모두에 대해 플래그를 끄고, 모든 규칙을 초기화합니다. | `{ key: "full-app-building", operation: "off" }` |
+| `replace-rules`, 모드 `"on"` | 모두에 대해 플래그를 켭니다. | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "on" } }` |
+| `replace-rules`, 모드 `"rules"`와 `emails` | 특정 계정 목록에 대해 켭니다. | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", emails: ["a@example.com"] } }` |
+| `replace-rules`, 모드 `"rules"`와 `orgIds` | 특정 조직들에 대해 켭니다. | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", orgIds: ["org_123"] } }` |
+| `replace-rules`, 모드 `"rules"`와 `percentage` | 퍼센트 단위 롤아웃으로 켭니다. | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", percentage: 10 } }` |
+
+플릿 운영자 UI는 공유 로그인 대신 좁게 범위가 지정된 A2A 위임을 통해
+이 동일한 action들을 호출하며, Analytics가 이들을 위한 유일한 운영자
+UI입니다. 앱은 자체적인 플래그 설정 패널을 만들어서는 안 되며, 플래그
+쓰기는 일반적인 설정 엔드포인트나 원시 SQL을 거쳐서는 안 됩니다.
+
+<Callout id="doc-block-actions-advanced-1" tone="warning">
+
+인증, 권한 부여, 감사, 비밀, SSR 캐시 동작을 런타임 플래그 뒤에 절대
+두지 마세요. 이런 것들은 조건 없이 항상 올바르게 동작해야 하며, 켜고
+끌 수 있는 대상이 아닙니다.
+
+</Callout>
+
+## 레거시 CLI 스타일 actions {#legacy-cli-actions}
+
+프레임워크는 `defineAction()`으로 감싸지지 않은, 예전 방식의
+`export default async function(args)` action도 여전히 지원합니다. 이는
+에이전트나 HTTP 노출이 필요 없는 일회성 개발 스크립트에 유용합니다.
+CLI 전용이라서 에이전트 도구로 나타나지 않고, HTTP 엔드포인트도 마운트
+하지 않으며, 타입이 지정된 프런트엔드 후크도 얻지 못합니다.
+
+```ts
+// actions/debug-dump.ts (CLI-only)
+import { parseArgs } from "@agent-native/core";
+
+export default async function main(args: string[]) {
+  const { table } = parseArgs(args);
+  // one-off script you wouldn't want the agent to call
+}
+```
+
+새로 작성하는 코드는 `defineAction()`을 선호해야 합니다. 에이전트나
+UI에 이 action을 의도적으로 노출하고 싶지 않을 때만 이 패턴을 사용하세요.
+
+### `parseArgs(args)` {#parseargs}
+
+레거시 스타일 action을 위한 도우미입니다. `--key value` 또는
+`--key=value` 형식의 CLI 인자를 파싱합니다.
+
+```ts
+import { parseArgs } from "@agent-native/core";
+
+const args = parseArgs(["--name", "Steve", "--verbose", "--count=3"]);
+// { name: "Steve", verbose: "true", count: "3" }
+```
+
+## 유틸리티 함수 {#utility-functions}
+
+이들은 위의 `parseArgs()`와 같은 `@agent-native/core` 임포트에서 오는,
+스크립트 작성을 위한 작은 도우미들입니다. 레거시 CLI 스타일 action
+방식에 특별히 묶여 있지는 않습니다. 환경 변수 로딩, 경로 인자 검증,
+명확한 오류로 중단하기처럼, 어떤 일회성 개발 스크립트에서든 사용하세요.
+
+| 함수                    | 반환값                    | 설명                                                                                                          |
+| ----------------------- | ------------------------ | ----------------------------------------------------------------------------------------------------------------- |
+| `loadEnv(path?)`        | `void`                   | 프로젝트 루트나 커스텀 경로에서 `.env`(및 `.env.local`)를 로드합니다. 엔터프라이즈 워크스페이스에서는 워크스페이스 루트의 `.env`로 폴백합니다. |
+| `camelCaseArgs(args)`   | `Record<string, string>` | kebab-case 키를 camelCase로 변환합니다.                                                                            |
+| `isValidPath(p)`        | `boolean`                | 상대 경로를 검증합니다(트래버설 없음, 절대 경로 없음).                                                             |
+| `isValidProjectPath(p)` | `boolean`                | 프로젝트 슬러그를 검증합니다(예: `my-project` 또는 `group/my-project`).                                            |
+| `ensureDir(dir)`        | `void`                   | `mkdir -p` 도우미입니다.                                                                                           |
+| `fail(message)`         | `never`                  | 스크립트를 중단시키기 위해 오류를 던집니다. CLI 러너는 이를 잡아 종료 코드 1로 끝냅니다. 서버 내부 호출자(에이전트 도구, A2A)는 대신 이를 도구 호출 오류로 돌려받습니다. |
+
+## 다음 단계
+
+- [**Actions 정의하기**](/docs/actions-defining) — 이 레거시 스타일이 있기 전부터 존재했던 `defineAction()` 패턴
+- [**개요**](/docs/actions-overview) — action이란 무엇인지와 hello-world 진행 과정
+- [**다른 표면들**](/docs/actions-other-surfaces) — 이 유틸리티들과 레거시 action이 뒷받침하는 CLI 러너
+- [**기능 플래그**](/docs/feature-flags) — 하나의 action을 게이팅하는 것을 넘어선 전체 플래그 생애주기

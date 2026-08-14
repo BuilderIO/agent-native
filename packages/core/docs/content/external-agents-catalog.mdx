@@ -403,7 +403,7 @@ export default defineAction({
 });
 ```
 
-`GET` + `readOnly` keeps the action side-effect-free and out of the screen-refresh change event. `publicAgent` is the **explicit opt-in** — a public web route never implies public MCP/A2A exposure; see [Actions](/docs/actions). Design/content ingest actions MUST read **live** state (the Yjs collaborative document, not the stale DB snapshot column) so the external agent sees what the user actually has on screen. Content's `pull-document` flushes any open live collab session to SQL first; design's `get-design-snapshot` returns the live Yjs file contents plus the user's resolved tweak values.
+`GET` + `readOnly` keeps the action side-effect-free and out of the screen-refresh change event. `publicAgent` is the **explicit opt-in** — a public web route never implies public MCP/A2A exposure; see [Actions](/docs/actions-overview). Design/content ingest actions MUST read **live** state (the Yjs collaborative document, not the stale DB snapshot column) so the external agent sees what the user actually has on screen. Content's `pull-document` flushes any open live collab session to SQL first; design's `get-design-snapshot` returns the live Yjs file contents plus the user's resolved tweak values.
 
 ## Advanced: local development & manual setup {#advanced}
 
@@ -532,5 +532,5 @@ The fallback hosted `connect` flow never copies the deployment's shared secret. 
 - [MCP Server](/docs/mcp-protocol) — the auto-mounted MCP server and `ask-agent` meta-tool
 - [MCP Clients](/docs/mcp-clients) — the symmetric direction: your app consuming local/remote MCP servers
 - [A2A Protocol](/docs/a2a-protocol) — the `ask-agent` meta-tool and JSON-RPC peer calls
-- [Actions](/docs/actions) — defining actions, `publicAgent`, GET / `readOnly`
+- [Actions](/docs/actions-overview) — defining actions, `publicAgent`, GET / `readOnly`
 - [Context Awareness](/docs/context-awareness) — the `navigate` / `application_state` contract the open route bridges to

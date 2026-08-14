@@ -1,0 +1,165 @@
+---
+title: "실행 컨텍스트"
+description: "run()에 전달되는 두 번째 인자 ctx: 전체 ActionRunContext 시그니처와 caller 유니언, 추적, 자동화 귀속, 그리고 여러 표면을 아우르는 관심사들."
+---
+
+# 실행 컨텍스트
+
+`run`은 선택적인 두 번째 인자 `ctx`를 받으며, 여기에는 해석된 요청 신원과 이 action을 호출한 표면이 담겨 있습니다. `getRequestUserEmail()` / `getRequestOrgId()`를 직접 호출하는 대신 이것을 읽고, 추적에는 `ctx` 전체를 전달하세요.
+
+```ts
+export default defineAction({
+  description: "Log an audit entry for the current request.",
+  schema: z.object({ event: z.string() }),
+  run: async (args, ctx) => {
+    // ctx is undefined-safe: a 1-arg `run(args)` is still valid.
+    const actor = ctx?.userEmail ?? "system";
+    if (ctx?.caller === "frontend") {
+      // tighter rules for browser-initiated calls, looser for "tool"/"cli"
+    }
+    await db.insert(audit).values({
+      actor,
+      orgId: ctx?.orgId ?? null,
+      source: ctx?.caller ?? "unknown",
+      event: args.event,
+    });
+    return { ok: true };
+  },
+});
+```
+
+대부분의 action은 `ctx?.userEmail`과 `ctx?.orgId`만 읽습니다. 이는 거의 모든 실제 action에서 쓰이는 [액세스 제어 범위 지정](/docs/actions-access-control#access-control) 패턴입니다. 이 페이지의 나머지 부분은 추적이나 자동화 귀속처럼, 이보다 적은 수의 action에만 필요한 여러 표면을 아우르는 관심사들을 다룹니다.
+
+## `ctx` 인자 {#ctx}
+
+`ctx`는 두 종류의 정보를 담습니다. 거의 모든 호출에 존재하는 해석된 요청 신원(`userEmail`, `orgId`), 그리고 이 action을 호출한 표면에 대한 메타데이터(`caller`, 그리고 특정 호출자에게만 채워지는 `threadId`나 `automation` 같은 표면별 필드)입니다. `run()`의 두 번째 인자로서의 전체 형태는 다음과 같습니다.
+
+<Signature
+  id="doc-block-actions-run-context-1"
+  name="run"
+  params={[
+    {
+      name: "args",
+      type: "TInput",
+      description: "`schema`로부터 파싱된, 검증이 끝난 입력값입니다.",
+    },
+    {
+      name: "ctx",
+      type: "ActionRunContext",
+      optional: true,
+      description: "해석된 요청 신원과 이 action을 호출한 표면입니다. undefined에도 안전합니다: 1개 인자짜리 `run(args)` 핸들러도 여전히 유효합니다.",
+      fields: [
+        {
+          name: "userEmail",
+          type: "string",
+          optional: true,
+          description: "해석된 요청 사용자입니다. **개발용 신원으로 기본값이 채워지는 일은 절대 없습니다**: 요청에 인증된 사용자가 없으면 `undefined`입니다. 필요하다면 여러분만의 폴백을 적용하세요.",
+        },
+        {
+          name: "orgId",
+          type: "string | null",
+          description: "해석된 조직 id이며, 요청에 조직이 없으면 `null`입니다.",
+        },
+        {
+          name: "caller",
+          type: "ActionCaller",
+          description: "action이 어떻게 호출되었는지입니다. 아래 [caller 유니언](#caller)을 참고하세요.",
+        },
+        {
+          name: "send",
+          type: "(event) => void",
+          optional: true,
+          description: "클라이언트로 SSE 이벤트를 내보냅니다. 에이전트 도구 루프 안(`caller: \"tool\"`)에서만 존재하며, 그 외에는 `undefined`입니다.",
+        },
+        {
+          name: "attachments",
+          type: "AgentChatAttachment[]",
+          optional: true,
+          description: "현재 에이전트 턴과 함께 제출된 파일, 이미지, 붙여넣은 텍스트 블록입니다. `caller: \"tool\"`일 때만 채워지며, 다른 모든 표면에서는 `undefined`입니다.",
+        },
+        {
+          name: "signal",
+          type: "AbortSignal",
+          optional: true,
+          description: "실행이 소프트 타임아웃되거나, 취소되거나, 서버가 종료될 때 중단됩니다. `caller: \"tool\"`일 때만 채워집니다. 오래 걸리는 action은 도구별 60초 하드 타임아웃을 기다리는 대신 이를 감시해 조기에 취소할 수 있습니다.",
+        },
+        {
+          name: "actionName",
+          type: "string",
+          optional: true,
+          description: "호출되는 action의 레지스트리 키입니다(예: `delete-recording`). 각 디스패치 지점에서 설정되어, 감사 로그 같은 여러 표면을 아우르는 관심사가 이 호출의 주체를 알 수 있게 합니다. 디스패처를 우회하는 직접적인 프로그래밍 방식 `run()` 호출에서는 `undefined`입니다.",
+        },
+        {
+          name: "threadId",
+          type: "string",
+          optional: true,
+          description: "이 호출을 촉발한 에이전트 대화 스레드입니다. `caller: \"tool\"`일 때만 채워지며, 덕분에 감사 로그가 변경 사항을 정확한 에이전트 실행으로 연결할 수 있습니다.",
+        },
+        {
+          name: "runId",
+          type: "string",
+          optional: true,
+          description: "이 호출을 촉발한 에이전트 실행 시도입니다. `caller: \"tool\"`일 때만 채워집니다.",
+        },
+        {
+          name: "turnId",
+          type: "string",
+          optional: true,
+          description: "이 호출을 촉발한 실행 내의 구체적인 턴입니다. `caller: \"tool\"`일 때만 채워집니다.",
+        },
+        {
+          name: "automation",
+          type: "ActionAutomationContext",
+          optional: true,
+          description: "`caller: \"automation\"`일 때만 존재합니다. 이 호출을 디스패치한 이벤트 트리거 자동화의 `triggerId`, `triggerName`, 그리고 선택적 `policyId`를 담습니다.",
+        },
+        {
+          name: "networkProtocol",
+          type: '"a2a" | "mcp" | "provider-api"',
+          optional: true,
+          description: "이 요청이 어떤 위임 호출 프로토콜을 통해 도착했는지입니다. 해당하는 직접 디스패치 경로에서만 설정됩니다.",
+        },
+        {
+          name: "networkId",
+          type: "string",
+          optional: true,
+          description: "그 위임 호출에 대한 상관관계 id입니다. 예를 들어 A2A 위임 JWT의 id입니다.",
+        },
+        {
+          name: "networkPeer",
+          type: "string",
+          optional: true,
+          description: "그 위임 호출을 한 피어의 신원입니다.",
+        },
+      ],
+    },
+  ]}
+  returns={{
+    type: "Promise<TReturn> | TReturn",
+    description: "action의 결과이며, `outputSchema`가 설정되어 있다면 그에 대해 검증됩니다.",
+  }}
+/>
+
+`run()`은 하위 호환을 유지합니다. 기존의 1개 인자 핸들러나 `{ send }`만 구조 분해하는 핸들러도 변경 없이 계속 동작합니다.
+
+### `caller` 유니언 {#caller}
+
+`caller`는 `"tool" | "http" | "frontend" | "cli" | "mcp" | "a2a" | "automation"` 유니언입니다.
+
+| `caller`       | 설정되는 경우                                                                                                                                                    |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `"tool"`       | 앱 내 에이전트 루프, 서브 에이전트나 에이전트 팀, 또는 자연어 크로스앱 A2A 위임입니다. 이들은 모두 같은 에이전트 루프로 동작하므로 도구 호출이 `"tool"`이 됩니다.     |
+| `"frontend"`   | `useActionMutation()`, `useActionQuery()`, `callAction()`을 통한 브라우저 호출입니다(`X-Agent-Native-Frontend: 1` 헤더로 표시됨).                                    |
+| `"http"`       | 프런트엔드 마커 없이 `/_agent-native/actions/<name>`으로 보낸 순수한 프로그래밍 방식 `POST` 또는 `GET`입니다.                                                        |
+| `"cli"`        | `pnpm action <name>` (CLI 러너)입니다.                                                                                                                              |
+| `"mcp"`        | MCP `tools/call` 엔드포인트를 통한 외부 에이전트 호출입니다.                                                                                                        |
+| `"a2a"`        | 서명된 A2A 위임 토큰을 담아 `/_agent-native/actions/<name>`으로 보내는 직접 HTTP 호출입니다. 이는 명시적으로 노출된 크로스앱 디스패치로, 위의 자연어 `"tool"` 경로와는 다릅니다. |
+| `"automation"` | 저장된 워크스페이스 트리거에서 디스패치된 이벤트 트리거 자동화입니다. `ctx.automation`이 트리거 계보를 담습니다. [자동화](/docs/automations)를 참고하세요.              |
+
+## 다음 단계
+
+- [**액세스 및 권한 부여**](/docs/actions-access-control) — 이 컨텍스트가 가능하게 하는 `ctx.userEmail`/`ctx.orgId` 범위 지정 패턴
+- [**Actions 정의하기**](/docs/actions-defining) — `defineAction()`의 구조와 HTTP 설정
+- [**다른 표면들**](/docs/actions-other-surfaces) — CLI, A2A, MCP, 자동화 호출자가 `caller`를 설정하는 방법
+- [**감사 로그**](/docs/audit-log) — `threadId`/`runId`/`turnId`가 변경 사항을 에이전트 실행으로 연결하는 방법
+- [**자동화**](/docs/automations) — `ctx.automation` 트리거 계보

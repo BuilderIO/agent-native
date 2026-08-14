@@ -14,7 +14,7 @@ search: "HTTP API bearer token service token connect CLI curl action endpoint se
 | Let an AI host discover and call every action        | [MCP Server](/docs/mcp-protocol)         |
 | Connect Claude, ChatGPT, Codex, Cursor to your app   | [External Agents](/docs/external-agents) |
 | Have another agent-native app delegate work to yours | [A2A Protocol](/docs/a2a-protocol)       |
-| Define the operation in the first place              | [Actions](/docs/actions)                 |
+| Define the operation in the first place              | [Actions](/docs/actions-overview)                 |
 
 Every `defineAction` in `actions/` is already an HTTP endpoint. The frontend calls it through `useActionQuery` / `useActionMutation` with a session cookie, but the same route accepts an `Authorization: Bearer` token, so anything that can make an HTTPS request can call it. There is no separate "public API" to build and no REST wrapper to maintain — the action you wrote for the agent and the UI is the API.
 
@@ -156,7 +156,7 @@ curl -sS \
   -H "Authorization: Bearer $AGENT_NATIVE_TOKEN"
 ```
 
-`http: { path: "..." }` changes the mounted URL for direct HTTP callers only, and `http: false` removes the endpoint entirely. See [Actions — HTTP config](/docs/actions#http) for the full option set.
+`http: { path: "..." }` changes the mounted URL for direct HTTP callers only, and `http: false` removes the endpoint entirely. See [Actions — HTTP config](/docs/actions-defining#http) for the full option set.
 
 ### Errors {#errors}
 
@@ -238,7 +238,7 @@ Because `list-org-service-tokens` reports `lastUsedAt`, it doubles as a cleanup 
 - Give each caller its own named service token (`--service-token support-desk`, `--service-token ci`) so you can revoke one without breaking the others, and so `lastUsedAt` tells you who is actually calling.
 - Prefer the shortest `--ttl-days` the caller can live with.
 - A service token acts as an org **`member`, and only ever `member`.** The synthetic `svc-*@service.<orgId>` identity is never inserted into `org_members`; it resolves an implicit member role for the org it was minted against, and nothing higher. So it can read and write that org's data like any member, but it cannot mint further tokens, revoke existing ones, or manage org members and settings — every one of those is admin-gated. It can still do everything a normal member can do with the org's data, so scope it deliberately.
-- Actions you never want reachable this way should set `http: false` (agent and CLI only) or `toolCallable: false`. See [Actions — Exposure flags](/docs/actions#exposure-flags).
+- Actions you never want reachable this way should set `http: false` (agent and CLI only) or `toolCallable: false`. See [Actions — Exposure flags](/docs/actions-access-control#exposure-flags).
 
 </Callout>
 
@@ -259,7 +259,7 @@ A `401` means the token was not accepted at all. A `403` means the token _was_ a
 
 ## What's next {#related-docs}
 
-- [**Actions**](/docs/actions) — define the operation once; HTTP, MCP, A2A, CLI, and the UI all call the same one
+- [**Actions**](/docs/actions-overview) — define the operation once; HTTP, MCP, A2A, CLI, and the UI all call the same one
 - [**Authentication**](/docs/authentication) — session auth, orgs, and static `ACCESS_TOKEN` bearers
 - [**MCP Server**](/docs/mcp-protocol) — the tool-catalog surface these tokens are audience-bound to
 - [**A2A Protocol**](/docs/a2a-protocol) — agent-to-agent delegation between agent-native apps

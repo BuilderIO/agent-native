@@ -1,0 +1,165 @@
+---
+title: "Run Context"
+description: "run() को पास किया गया ctx दूसरा argument: पूरी ActionRunContext signature और caller union, tracking, automation attribution, और cross-cutting concerns के लिए।"
+---
+
+# Run Context
+
+`run` को एक वैकल्पिक दूसरा argument मिलता है, `ctx`, जो resolved request पहचान और action को invoke करने वाली सतह को carry करता है। हाथ से `getRequestUserEmail()` / `getRequestOrgId()` कॉल करने के बजाय इसे पढ़ें, और पूरे `ctx` को tracking में पास करें:
+
+```ts
+export default defineAction({
+  description: "Log an audit entry for the current request.",
+  schema: z.object({ event: z.string() }),
+  run: async (args, ctx) => {
+    // ctx is undefined-safe: a 1-arg `run(args)` is still valid.
+    const actor = ctx?.userEmail ?? "system";
+    if (ctx?.caller === "frontend") {
+      // tighter rules for browser-initiated calls, looser for "tool"/"cli"
+    }
+    await db.insert(audit).values({
+      actor,
+      orgId: ctx?.orgId ?? null,
+      source: ctx?.caller ?? "unknown",
+      event: args.event,
+    });
+    return { ok: true };
+  },
+});
+```
+
+अधिकतर actions कभी भी केवल `ctx?.userEmail` और `ctx?.orgId` पढ़ते हैं, [access-control scoping](/docs/actions-access-control#access-control) जो लगभग हर वास्तविक action में उपयोग होता है। इस पेज का बाकी हिस्सा tracking और automation attribution जैसे cross-cutting concerns को कवर करता है, जिनकी ज़रूरत कम actions को होती है।
+
+## `ctx` argument {#ctx}
+
+`ctx` दो तरह की जानकारी carry करता है: resolved request पहचान (`userEmail`, `orgId`) जो लगभग हर कॉल पर मौजूद होती है, और action को invoke करने वाली सतह के बारे में metadata (`caller`, साथ ही `threadId` या `automation` जैसे सतह-विशिष्ट फ़ील्ड जो केवल कुछ कॉलर्स के लिए भरे जाते हैं)। `run()` के दूसरे argument के रूप में पूरी संरचना:
+
+<Signature
+  id="doc-block-actions-run-context-1"
+  name="run"
+  params={[
+    {
+      name: "args",
+      type: "TInput",
+      description: "वैलिडेटेड इनपुट, `schema` से पार्स किया गया।",
+    },
+    {
+      name: "ctx",
+      type: "ActionRunContext",
+      optional: true,
+      description: "resolved request पहचान और action को invoke करने वाली सतह। Undefined-safe: एक 1-argument `run(args)` handler अभी भी मान्य है।",
+      fields: [
+        {
+          name: "userEmail",
+          type: "string",
+          optional: true,
+          description: "Resolved request user। **कभी किसी dev पहचान पर डिफ़ॉल्ट नहीं होता**: जब request में कोई authenticated user नहीं है तो `undefined`। यदि आपको ज़रूरत हो तो अपना fallback लागू करें।",
+        },
+        {
+          name: "orgId",
+          type: "string | null",
+          description: "Resolved org id, या `null` जब request में कोई org नहीं है।",
+        },
+        {
+          name: "caller",
+          type: "ActionCaller",
+          description: "action कैसे invoke किया गया था। नीचे [caller union](#caller) देखें।",
+        },
+        {
+          name: "send",
+          type: "(event) => void",
+          optional: true,
+          description: "क्लाइंट को एक SSE इवेंट emit करता है। केवल एजेंट टूल लूप के अंदर मौजूद (`caller: \"tool\"`)। बाकी जगह `undefined`।",
+        },
+        {
+          name: "attachments",
+          type: "AgentChatAttachment[]",
+          optional: true,
+          description: "वर्तमान एजेंट turn के साथ सबमिट की गई फ़ाइलें, इमेजेज़, और पेस्ट किए गए text blocks। केवल तब भरा जाता है जब `caller: \"tool\"`। बाकी सभी सतहों पर `undefined`।",
+        },
+        {
+          name: "signal",
+          type: "AbortSignal",
+          optional: true,
+          description: "जब run soft-timed-out हो, cancel हो, या सर्वर shut down हो जाए तो abort होता है। केवल तब भरा जाता है जब `caller: \"tool\"`। Long-running actions प्रति-टूल 60s hard timeout का इंतज़ार करने के बजाय जल्दी cancel करने के लिए इसे observe कर सकते हैं।",
+        },
+        {
+          name: "actionName",
+          type: "string",
+          optional: true,
+          description: "कॉल किए जा रहे action की registry key (जैसे `delete-recording`), हर dispatch साइट पर सेट की जाती है ताकि audit log जैसे cross-cutting concerns कॉल को attribute कर सकें। dispatcher को bypass करने वाले direct प्रोग्रामेटिक `run()` कॉल के लिए `undefined`।",
+        },
+        {
+          name: "threadId",
+          type: "string",
+          optional: true,
+          description: "वह एजेंट बातचीत thread जिसने इस कॉल को ट्रिगर किया। केवल तब भरा जाता है जब `caller: \"tool\"`, ताकि audit log किसी mutation को सटीक एजेंट run से वापस लिंक कर सके।",
+        },
+        {
+          name: "runId",
+          type: "string",
+          optional: true,
+          description: "वह एजेंट run attempt जिसने इस कॉल को ट्रिगर किया। केवल तब भरा जाता है जब `caller: \"tool\"`।",
+        },
+        {
+          name: "turnId",
+          type: "string",
+          optional: true,
+          description: "उस run के भीतर विशिष्ट turn जिसने इस कॉल को ट्रिगर किया। केवल तब भरा जाता है जब `caller: \"tool\"`।",
+        },
+        {
+          name: "automation",
+          type: "ActionAutomationContext",
+          optional: true,
+          description: "केवल तब मौजूद जब `caller: \"automation\"`। उस event-triggered automation के लिए `triggerId`, `triggerName`, और एक वैकल्पिक `policyId` carry करता है जिसने इस कॉल को dispatch किया।",
+        },
+        {
+          name: "networkProtocol",
+          type: '"a2a" | "mcp" | "provider-api"',
+          optional: true,
+          description: "यह request किस delegated-call प्रोटोकॉल पर आया। केवल उन direct-dispatch पथों के लिए सेट होता है।",
+        },
+        {
+          name: "networkId",
+          type: "string",
+          optional: true,
+          description: "उस delegated कॉल के लिए एक correlation id, जैसे A2A delegation JWT id।",
+        },
+        {
+          name: "networkPeer",
+          type: "string",
+          optional: true,
+          description: "उस delegated कॉल के लिए कॉल करने वाले peer की पहचान।",
+        },
+      ],
+    },
+  ]}
+  returns={{
+    type: "Promise<TReturn> | TReturn",
+    description: "action का result, अगर कोई `outputSchema` सेट है तो उसके विरुद्ध वैलिडेटेड।",
+  }}
+/>
+
+`run()` backward compatible बना रहता है: मौजूदा 1-argument handlers और वे handlers जो केवल `{ send }` destructure करते हैं, बिना बदलाव के काम करना जारी रखते हैं।
+
+### `caller` union {#caller}
+
+`caller` union है `"tool" | "http" | "frontend" | "cli" | "mcp" | "a2a" | "automation"`:
+
+| `caller`       | कब सेट होता है…                                                                                                                                                     |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `"tool"`       | in-app एजेंट लूप, कोई sub-agent या agent team, या natural-language cross-app A2A delegation, जो उसी एजेंट लूप को चलाता है, इसलिए इसके tool calls `"tool"` होते हैं।    |
+| `"frontend"`   | `useActionMutation()`, `useActionQuery()`, या `callAction()` के माध्यम से एक ब्राउज़र कॉल (`X-Agent-Native-Frontend: 1` header के साथ टैग किया गया)।                 |
+| `"http"`       | फ्रंटएंड मार्कर के बिना `/_agent-native/actions/<name>` पर एक साधारण प्रोग्रामेटिक `POST` या `GET`।                                                                    |
+| `"cli"`        | `pnpm action <name>` (CLI runner)।                                                                                                                                     |
+| `"mcp"`        | MCP `tools/call` endpoint पर एक बाहरी एजेंट।                                                                                                                           |
+| `"a2a"`        | एक signed A2A delegation token carry करने वाला `/_agent-native/actions/<name>` पर सीधा HTTP कॉल। यह एक स्पष्ट रूप से एक्सपोज़्ड, cross-app dispatch है, ऊपर दिए गए natural-language `"tool"` पथ से अलग। |
+| `"automation"` | किसी stored workspace trigger से dispatch किया गया event-triggered automation। `ctx.automation` trigger lineage carry करता है। [Automations](/docs/automations) देखें।  |
+
+## आगे क्या
+
+- [**Access और Authorization**](/docs/actions-access-control) — `ctx.userEmail`/`ctx.orgId` scoping पैटर्न जो यह context सक्षम करता है
+- [**Actions परिभाषित करना**](/docs/actions-defining) — `defineAction()` की संरचना और HTTP config
+- [**अन्य सतहें**](/docs/actions-other-surfaces) — कैसे CLI, A2A, MCP, और automation कॉलर्स `caller` सेट करते हैं
+- [**Audit Log**](/docs/audit-log) — कैसे `threadId`/`runId`/`turnId` किसी mutation को उसके एजेंट run से वापस लिंक करते हैं
+- [**Automations**](/docs/automations) — `ctx.automation` trigger lineage
