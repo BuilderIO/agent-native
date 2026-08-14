@@ -269,9 +269,9 @@ describe("extensions/actions", () => {
 
   it("requires targeted reads for large extension bodies", async () => {
     const content =
-      `<div>${"x".repeat(100_000)}` +
+      `<div>${"x".repeat(150_000)}` +
       "function tabMonthlyTableRows(activeTab) { return activeTab; }" +
-      `${"y".repeat(100_000)}</div>`;
+      `${"y".repeat(150_000)}</div>`;
     const getExtension = vi.fn(async () => ({
       ...extensionRow,
       content,
@@ -297,7 +297,7 @@ describe("extensions/actions", () => {
     expect(compact.extension.contentOmitted).toMatchObject({
       reason: "large-content-requires-targeted-read",
       contentLength: content.length,
-      inlineContentLimit: 60_000,
+      inlineContentLimit: 200_000,
     });
 
     const targeted = (await actions["get-extension"].run({
