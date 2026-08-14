@@ -2155,6 +2155,7 @@ export function VisualEditor({
         if (options?.immediate && onSaveContentRef.current) {
           return onSaveContentRef.current(normalized);
         }
+        if (options?.immediate) return false;
         // Don't persist an empty doc before Collaboration has seeded (would
         // clobber DB content with an empty string). `registerEmitted` records
         // this as the last-emitted value and returns false to skip the save.

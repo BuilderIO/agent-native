@@ -4822,6 +4822,16 @@ function DatabaseItemPreview({
     if (controller) scheduleDraftWrite(controller);
   }
 
+  async function handleContentSaveNow(nextContent: string) {
+    setLocalContent(nextContent);
+    if (!previewCanEdit || !document) return false;
+    const controller = saveControllerRef.current;
+    if (!controller) return false;
+    controller.changeContent(nextContent);
+    await controller.flush();
+    return controller.lastSaved.content === nextContent;
+  }
+
   function keepLocalBodyDraft() {
     if (!activeBodyDraftConflict) return;
     const controller = peekPreviewDocumentSaveController(documentId);
@@ -5140,6 +5150,7 @@ function DatabaseItemPreview({
                     documentId={previewDocument.id}
                     content={localContent}
                     onChange={handleContentChange}
+                    onSaveContent={handleContentSaveNow}
                     ydoc={null}
                     editable={previewCanEdit}
                   />

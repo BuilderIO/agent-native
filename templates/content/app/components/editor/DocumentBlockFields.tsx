@@ -667,7 +667,11 @@ export function useBlockFieldEditor({
     propertyId: string;
     value: string;
   }) => Promise<unknown>;
-}): { content: string; onChange: (markdown: string) => void } {
+}): {
+  content: string;
+  onChange: (markdown: string) => void;
+  onSaveContent: (markdown: string) => Promise<boolean>;
+} {
   const key = `${documentId}:${propertyId}`;
 
   // The shared controller calls the freshest save impl through a per-key ref. The
@@ -792,7 +796,16 @@ export function useBlockFieldEditor({
     controllerRef.current?.change(markdown);
   }
 
-  return { content, onChange };
+  async function onSaveContent(markdown: string) {
+    setContent(markdown);
+    const controller = controllerRef.current;
+    if (!controller) return false;
+    controller.change(markdown);
+    await controller.flush();
+    return controller.lastSaved === markdown;
+  }
+
+  return { content, onChange, onSaveContent };
 }
 
 /**
@@ -819,7 +832,7 @@ function AdditionalBlockEditor({
   const propertyId = property.definition.id;
   const initialContent =
     typeof property.value === "string" ? property.value : "";
-  const { content, onChange } = useBlockFieldEditor({
+  const { content, onChange, onSaveContent } = useBlockFieldEditor({
     documentId,
     propertyId,
     initialContent,
@@ -832,6 +845,7 @@ function AdditionalBlockEditor({
       documentId={documentId}
       content={content}
       onChange={onChange}
+      onSaveContent={onSaveContent}
       editable={canEdit}
       localFileMode
     />
