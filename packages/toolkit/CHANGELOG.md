@@ -1,5 +1,11 @@
 # @agent-native/toolkit
 
+## 0.14.3
+
+### Patch Changes
+
+- 89f194f: Fix toolkit canvas interaction and collaboration UI behavior.
+
 ## 0.14.2
 
 ### Patch Changes
