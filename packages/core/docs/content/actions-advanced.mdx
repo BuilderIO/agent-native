@@ -1,0 +1,152 @@
+---
+title: "Advanced & Legacy"
+description: "Feature-flag gating for actions still rolling out, and the older CLI-only action style (export default async function(args) plus parseArgs) kept for one-off dev scripts."
+---
+
+# Advanced & Legacy
+
+## Guarding staged features {#feature-flags}
+
+Feature flags exist for one specific situation: an action is safe to deploy, but you want to turn it on for a few accounts before everyone gets it. Getting there takes three required steps, plus an optional fourth for the UI.
+
+<Steps>
+
+### Declare the flag
+
+Declare the flag in a module both the server and the client can import, since the same flag key has to reach both sides:
+
+```ts
+// shared/feature-flags.ts
+import { defineFeatureFlag } from "@agent-native/core/feature-flags";
+
+export const FULL_APP_BUILDING = defineFeatureFlag({
+  key: "full-app-building",
+  displayName: "Full app building",
+  description: "Create and edit Fusion-backed applications.",
+});
+```
+
+`key` is the only field every other piece of code will reference, so it needs to be stable. `displayName` and `description` only show up later, in the operator UI where someone actually turns the flag on. Declaring the flag here doesn't enable anything. Every flag starts out off for every account.
+
+### Register it at startup
+
+Register the flag with a Nitro plugin so the running server knows it exists:
+
+```ts
+// server/plugins/feature-flags.ts
+import { createFeatureFlagsPlugin } from "@agent-native/core/server";
+
+import { FULL_APP_BUILDING } from "../../shared/feature-flags.js";
+
+export default createFeatureFlagsPlugin({ flags: [FULL_APP_BUILDING] });
+```
+
+An unregistered flag always evaluates to `false`, no matter what an operator later sets. This step is what makes the flag real to the server. It still doesn't turn the flag on for anyone. That happens through the operator actions described at the end of this section.
+
+### Guard the action
+
+This is the check that actually matters, since every caller, whether that's the agent, the frontend, or a script, has to go through it:
+
+```ts
+// actions/create-fusion-app.ts
+import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
+
+run: async (args, ctx) => {
+  if (!(await isFeatureFlagEnabled(FULL_APP_BUILDING, ctx))) {
+    throw new Error("Full app building is not enabled for this account.");
+  }
+  // Perform the guarded operation.
+};
+```
+
+`isFeatureFlagEnabled()` reads the caller's identity off `ctx` (see [the ctx argument](/docs/actions-run-context#ctx)) and evaluates the flag for that specific user and org. If the flag isn't on for them, the action throws before doing anything else. This check has to live inside `run()`, because `run()` is the one place every dispatch path is guaranteed to pass through.
+
+### Hide it in the UI (optional)
+
+Use the same flag on the client to hide the feature from people who can't call it anyway:
+
+```tsx
+// app/routes/fusion.tsx
+import { Button } from "@/components/ui/button";
+import { useFeatureFlag } from "@agent-native/core/client";
+
+import { FULL_APP_BUILDING } from "../../shared/feature-flags.js";
+
+export function CreateFusionAppButton() {
+  const enabled = useFeatureFlag(FULL_APP_BUILDING.key);
+  if (!enabled) return null;
+  return <Button onClick={createFusionApp}>Create Fusion app</Button>;
+}
+```
+
+`useFeatureFlag()` returns a plain boolean, evaluated for the signed-in user the same way the server-side check is. Hiding the button when it's `false` keeps someone from clicking into a feature they can't use yet, but it's presentation only. Nothing about it stops a direct call to the action. That's exactly why the check in `run()` from the previous step still has to be there, regardless of what the UI shows.
+
+</Steps>
+
+Once a flag is declared and registered, turning it on for real accounts goes through three mounted actions. `get-feature-flags` is the one `useFeatureFlag()` itself calls: it's open to any signed-in caller, since every user needs to check their own flags. `list-feature-flags` and `set-feature-flag` are the two management actions. Both are restricted to an organization's owners and admins (or the no-org administrator), and both are audited.
+
+`set-feature-flag` is how an operator actually changes who the flag is on for:
+
+| Operation                                         | What it does                                          | Example args                                                                                                    |
+| ------------------------------------------------- | ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `enable-for-current-user`                         | Turns the flag on for your own account only.          | `{ key: "full-app-building", operation: "enable-for-current-user" }`                                            |
+| `off`                                             | Turns the flag off for everyone, resetting any rules. | `{ key: "full-app-building", operation: "off" }`                                                                |
+| `replace-rules`, mode `"on"`                      | Turns the flag on for everyone.                       | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "on" } }`                               |
+| `replace-rules`, mode `"rules"` with `emails`     | Turns it on for a specific list of accounts.          | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", emails: ["a@example.com"] } }` |
+| `replace-rules`, mode `"rules"` with `orgIds`     | Turns it on for specific organizations.               | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", orgIds: ["org_123"] } }`       |
+| `replace-rules`, mode `"rules"` with `percentage` | Turns it on for a percentage rollout.                 | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", percentage: 10 } }`            |
+
+Fleet operator UIs call these same actions through narrowly scoped A2A delegation instead of a shared login, and Analytics is the sole operator UI for them. Apps should not build their own flag settings panel, and flag writes should never route through generic settings endpoints or raw SQL.
+
+<Callout id="doc-block-actions-advanced-1" tone="warning">
+
+Never put authentication, authorization, audit, secrets, or SSR cache behavior behind a runtime flag. Those need to be correct unconditionally, not toggled.
+
+</Callout>
+
+## Legacy CLI-style actions {#legacy-cli-actions}
+
+The framework still supports older `export default async function(args)` actions that aren't wrapped in `defineAction()`. These are useful for one-off dev scripts that don't need agent or HTTP exposure. They're CLI-only: they don't appear as agent tools, don't mount HTTP endpoints, and don't get typesafe frontend hooks.
+
+```ts
+// actions/debug-dump.ts (CLI-only)
+import { parseArgs } from "@agent-native/core";
+
+export default async function main(args: string[]) {
+  const { table } = parseArgs(args);
+  // one-off script you wouldn't want the agent to call
+}
+```
+
+New code should prefer `defineAction()`. Reach for this pattern only when you deliberately don't want the action exposed to agents or the UI.
+
+### `parseArgs(args)` {#parseargs}
+
+Helper for legacy-style actions. Parses CLI arguments in `--key value` or `--key=value` format:
+
+```ts
+import { parseArgs } from "@agent-native/core";
+
+const args = parseArgs(["--name", "Steve", "--verbose", "--count=3"]);
+// { name: "Steve", verbose: "true", count: "3" }
+```
+
+## Utility functions {#utility-functions}
+
+These are small helpers for writing scripts, from the same `@agent-native/core` import `parseArgs()` above comes from. They aren't tied to the legacy CLI-style action style specifically. Reach for them in any one-off dev script: loading environment variables, validating a path argument, or aborting with a clear error.
+
+| Function                | Returns                  | Description                                                                                                                                                       |
+| ----------------------- | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `loadEnv(path?)`        | `void`                   | Load `.env` (and `.env.local`) from the project root or a custom path. Falls back to the workspace root's `.env` in an enterprise workspace.                      |
+| `camelCaseArgs(args)`   | `Record<string, string>` | Convert kebab-case keys to camelCase.                                                                                                                             |
+| `isValidPath(p)`        | `boolean`                | Validate a relative path (no traversal, no absolute).                                                                                                             |
+| `isValidProjectPath(p)` | `boolean`                | Validate a project slug (e.g. `my-project` or `group/my-project`).                                                                                                |
+| `ensureDir(dir)`        | `void`                   | `mkdir -p` helper.                                                                                                                                                |
+| `fail(message)`         | `never`                  | Throw an error to abort a script. The CLI runner catches it and exits with code 1. In-server callers (agent tools, A2A) get it back as a tool-call error instead. |
+
+## What's next
+
+- [**Defining Actions**](/docs/actions-defining) — the `defineAction()` pattern this legacy style predates
+- [**Overview**](/docs/actions-overview) — what an action is and the hello-world walkthrough
+- [**Other Surfaces**](/docs/actions-other-surfaces) — the CLI runner these utilities and legacy actions support
+- [**Feature Flags**](/docs/feature-flags) — the full flag lifecycle beyond gating a single action
