@@ -66,13 +66,11 @@ function readNativeMessages(config: HostConfig): void {
 
 async function poll(config: HostConfig): Promise<void> {
   let retryMs = 250;
-  let bridgeHasResponded = false;
   while (!process.stdin.destroyed) {
     try {
       const response = await fetch(`${config.baseUrl}/v1/commands`, {
         headers: { authorization: `Bearer ${config.bearerToken}` },
       });
-      bridgeHasResponded = true;
       if (response.status === 200) {
         const text = await response.text();
         if (Buffer.byteLength(text) <= MAX_NATIVE_MESSAGE_BYTES) {
@@ -83,7 +81,6 @@ async function poll(config: HostConfig): Promise<void> {
       }
       retryMs = 250;
     } catch {
-      if (bridgeHasResponded) return;
       await new Promise((resolve) => setTimeout(resolve, retryMs));
       retryMs = Math.min(retryMs * 2, 5_000);
     }

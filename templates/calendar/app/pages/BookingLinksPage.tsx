@@ -1548,11 +1548,13 @@ export default function BookingLinksPage({
                   customFields={draft.customFields}
                   isActive={draft.isActive}
                   availability={availability ?? undefined}
-                  bookingSlug={
-                    selectedLink.id?.startsWith(OPTIMISTIC_PREFIX)
+                  bookingSourceSlug={
+                    selectedLink.id?.startsWith(OPTIMISTIC_PREFIX) ||
+                    !availabilityPreview
                       ? undefined
                       : selectedLink.slug
                   }
+                  availabilityPreview={availabilityPreview}
                   bookingUrl={previewUrl}
                   onCopy={() => void copyPreviewUrl(draft.slug)}
                   openHref={bookingPreviewPath(draft.slug)}
@@ -2040,7 +2042,8 @@ function BookingPreview({
   customFields = [],
   isActive,
   availability,
-  bookingSlug,
+  bookingSourceSlug,
+  availabilityPreview,
   bookingUrl,
   onCopy,
   openHref,
@@ -2053,7 +2056,8 @@ function BookingPreview({
   customFields?: CustomField[];
   isActive: boolean;
   availability?: AvailabilityConfig;
-  bookingSlug?: string;
+  bookingSourceSlug?: string;
+  availabilityPreview?: BookingAvailabilityPreview;
   bookingUrl?: string;
   onCopy?: () => void;
   openHref?: string;
@@ -2083,8 +2087,11 @@ function BookingPreview({
   });
 
   const liveAvailabilityDate =
-    bookingSlug && selectedDate ? format(selectedDate, "yyyy-MM-dd") : "";
-  const liveAvailabilityDuration = selectedDuration ?? primaryDuration;
+    bookingSourceSlug && selectedDate ? format(selectedDate, "yyyy-MM-dd") : "";
+  const liveAvailabilityDuration =
+    selectedDuration !== null && durations.includes(selectedDuration)
+      ? selectedDuration
+      : primaryDuration;
   const {
     data: liveSlots = [],
     isLoading: liveSlotsLoading,
@@ -2092,9 +2099,10 @@ function BookingPreview({
   } = useAvailableSlots(
     liveAvailabilityDate,
     liveAvailabilityDuration,
-    bookingSlug,
+    bookingSourceSlug,
+    availabilityPreview,
   );
-  const hasLiveAvailability = Boolean(bookingSlug && selectedDate);
+  const hasLiveAvailability = Boolean(bookingSourceSlug && selectedDate);
 
   // Reset selections when durations change
   useEffect(() => {

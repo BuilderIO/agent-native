@@ -376,7 +376,7 @@ describe("/api/public-recording route", () => {
     );
   });
 
-  it("returns 401 for an anonymous viewer of a private clip", async () => {
+  it("hides private recording existence from anonymous API callers", async () => {
     const event = { setCookies: [] as unknown[] };
     mockGetQuery.mockReturnValue({ id: "rec-1" });
     mockGetDb.mockReturnValue(
@@ -386,12 +386,9 @@ describe("/api/public-recording route", () => {
     );
 
     await expect(handler(event as any)).resolves.toEqual({
-      error: "Sign in to view this private clip",
-      accessDenied: true,
-      requiresSignIn: true,
-      canRequestAccess: false,
+      error: "Not found",
     });
-    expect(mockSetResponseStatus).toHaveBeenCalledWith(event, 401);
+    expect(mockSetResponseStatus).toHaveBeenCalledWith(event, 404);
     expect(mockSetResponseHeader).toHaveBeenCalledWith(
       event,
       "Cache-Control",
@@ -399,7 +396,7 @@ describe("/api/public-recording route", () => {
     );
   });
 
-  it("returns 403 with request-access capability for an authenticated outsider", async () => {
+  it("hides private recording existence from authenticated outsiders", async () => {
     const event = { setCookies: [] as unknown[] };
     mockGetQuery.mockReturnValue({ id: "rec-1" });
     mockGetSession.mockResolvedValue({
@@ -413,12 +410,9 @@ describe("/api/public-recording route", () => {
     );
 
     await expect(handler(event as any)).resolves.toEqual({
-      error: "You do not have access to this private clip",
-      accessDenied: true,
-      requiresSignIn: false,
-      canRequestAccess: true,
+      error: "Not found",
     });
-    expect(mockSetResponseStatus).toHaveBeenCalledWith(event, 403);
+    expect(mockSetResponseStatus).toHaveBeenCalledWith(event, 404);
     expect(mockSetResponseHeader).toHaveBeenCalledWith(
       event,
       "Cache-Control",

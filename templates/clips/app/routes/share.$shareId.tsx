@@ -121,16 +121,21 @@ type SharePageLoaderData = {
   agentContextUrl: string | null;
   origin: string | null;
   shareUrl: string | null;
+  accessDeniedStatus?: 401 | 403;
 };
 
 const CLIPS_AGENT_ACCESS_TTL_SECONDS = 2 * 60 * 60;
 
-function emptyLoaderData(url: URL): SharePageLoaderData {
+function emptyLoaderData(
+  url: URL,
+  accessDeniedStatus?: 401 | 403,
+): SharePageLoaderData {
   return {
     recording: null,
     agentContextUrl: null,
     origin: url.origin,
     shareUrl: null,
+    accessDeniedStatus,
   };
 }
 
@@ -230,10 +235,8 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
     const userEmail = getRequestUserEmail();
     const access = userEmail ? await resolveAccess("recording", id) : null;
     if (!access) {
-      return privateShareLoaderData(
-        emptyLoaderData(url),
-        userEmail ? 403 : 401,
-      );
+      const status = userEmail ? 403 : 401;
+      return privateShareLoaderData(emptyLoaderData(url, status), status);
     }
   }
 
@@ -539,6 +542,16 @@ export default function ShareRoute() {
   const transcriptFailureReason =
     dataQ.data?.data?.transcript?.failureReason ?? null;
   const ctas = dataQ.data?.data?.ctas ?? [];
+  const apiStatus = dataQ.data?.status;
+  const apiAccessDeniedStatus =
+    apiStatus === 401 || apiStatus === 403 ? apiStatus : null;
+  const accessDeniedStatus =
+    apiAccessDeniedStatus ??
+    (!recording && loaderData.accessDeniedStatus
+      ? session
+        ? 403
+        : 401
+      : null);
   const firstCta = ctas[0] ?? null;
   const viewerRole = dataQ.data?.data?.viewer?.role as
     | "owner"
@@ -772,10 +785,10 @@ export default function ShareRoute() {
     );
   }
 
-  if (dataQ.data?.status === 401 || dataQ.data?.status === 403) {
-    const canRequestAccess = dataQ.data.status === 403 && Boolean(session);
+  if (accessDeniedStatus === 401 || accessDeniedStatus === 403) {
+    const canRequestAccess = accessDeniedStatus === 403 && Boolean(session);
     const requestSent =
-      accessRequestSent || Boolean(dataQ.data.data?.alreadyRequested);
+      accessRequestSent || Boolean(dataQ.data?.data?.alreadyRequested);
 
     return (
       <>

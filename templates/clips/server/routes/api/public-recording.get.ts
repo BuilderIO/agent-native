@@ -264,17 +264,8 @@ export default defineEventHandler(async (event) => {
     !tokenAllowsAgentAccess
   ) {
     setResponseHeader(event, "Cache-Control", "private, max-age=0, no-store");
-    const status = session?.email ? 403 : 401;
-    setResponseStatus(event, status);
-    return {
-      error:
-        status === 401
-          ? "Sign in to view this private clip"
-          : "You do not have access to this private clip",
-      accessDenied: true,
-      requiresSignIn: status === 401,
-      canRequestAccess: status === 403,
-    };
+    setResponseStatus(event, 404);
+    return { error: "Not found" };
   }
 
   // Expiry check
