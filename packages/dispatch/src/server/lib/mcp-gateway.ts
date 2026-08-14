@@ -985,13 +985,17 @@ async function callTargetCreateEmbedSession(input: {
   }
 }
 
-async function resolveDispatchEmbedTarget(input: {
+async function resolveEmbedTarget(input: {
   app?: string;
   url?: string;
   path?: string;
+}, options: {
+  resolveApp: (app: string) => Promise<DispatchMcpAccessibleApp>;
+  listApps: () => Promise<DispatchMcpAccessibleApp[]>;
+  urlError: string;
 }): Promise<{ app: DispatchMcpAccessibleApp; path: string; url: string }> {
   const explicitApp = input.app?.trim()
-    ? await resolveGrantedDispatchMcpApp(input.app)
+    ? await options.resolveApp(input.app)
     : null;
   if (explicitApp && input.path) {
     const path = safeAppPath(input.path);
@@ -1024,19 +1028,42 @@ async function resolveDispatchEmbedTarget(input: {
     };
   }
 
-  const apps = explicitApp ? [explicitApp] : await listGrantedDispatchMcpApps();
+  const apps = explicitApp ? [explicitApp] : await options.listApps();
   const target = apps
     .filter((app) => appMatchesUrlPath(app, parsed))
     .sort((a, b) => appPathSpecificity(b) - appPathSpecificity(a))[0];
   if (!target) {
-    throw new Error(
-      "Embed URL must belong to an app granted through Dispatch.",
-    );
+    throw new Error(options.urlError);
   }
   const path = safeAppPath(appRelativePath(target, parsed));
   if (!path) throw new Error("Embed URL path is not safe.");
   assertAppCanOpenPath(target, path);
   return { app: target, path, url: `${appBaseUrl(target)}${path}` };
+}
+
+async function resolveDispatchEmbedTarget(input: {
+  app?: string;
+  url?: string;
+  path?: string;
+}): Promise<{ app: DispatchMcpAccessibleApp; path: string; url: string }> {
+  return resolveEmbedTarget(input, {
+    resolveApp: resolveGrantedDispatchMcpApp,
+    listApps: listGrantedDispatchMcpApps,
+    urlError: "Embed URL must belong to an app granted through Dispatch.",
+  });
+}
+
+async function resolveWorkspaceSsoEmbedTarget(input: {
+  app?: string;
+  url?: string;
+  path?: string;
+}): Promise<{ app: DispatchMcpAccessibleApp; path: string; url: string }> {
+  return resolveEmbedTarget(input, {
+    resolveApp: resolveWorkspaceSsoApp,
+    listApps: listWorkspaceSsoApps,
+    urlError:
+      "Embed URL must belong to an app registered for Dispatch workspace sign-in.",
+  });
 }
 
 async function createDispatchSelfEmbedSession(input: {
@@ -1081,14 +1108,34 @@ export async function createGrantedDispatchMcpEmbedSession(input: {
   if (!userEmail) throw new Error("no authenticated user");
   const target = await resolveDispatchEmbedTarget(input);
 
-  const orgId = getRequestOrgId();
+  return createEmbedSessionForResolvedApp({
+    ownerEmail: userEmail,
+    orgId: getRequestOrgId(),
+    target,
+    chrome: input.chrome,
+  });
+}
+
+async function createEmbedSessionForResolvedApp(input: {
+  ownerEmail: string;
+  orgId?: string;
+  target: { app: DispatchMcpAccessibleApp; path: string; url: string };
+  chrome?: "full" | "minimal";
+}): Promise<{
+  startUrl: string;
+  targetPath?: string;
+  expiresAt?: number;
+  app: string;
+}> {
+  const { ownerEmail, orgId, target, chrome } = input;
+
   if (target.app.id === DISPATCH_APP_ID) {
     return createDispatchSelfEmbedSession({
-      ownerEmail: userEmail,
+      ownerEmail,
       orgId,
       path: target.path,
       baseUrl: appBaseUrl(target.app),
-      chrome: input.chrome,
+      chrome,
     });
   }
 
@@ -1105,7 +1152,7 @@ export async function createGrantedDispatchMcpEmbedSession(input: {
   const useOrgSigning = usableOrgDomain && usableOrgSecret;
   const signedOrgDomain = usableOrgDomain ? orgDomain.trim() : undefined;
   const token = await signA2AToken(
-    userEmail,
+    ownerEmail,
     signedOrgDomain,
     useOrgSigning ? orgSecret.trim() : undefined,
     {
@@ -1121,7 +1168,7 @@ export async function createGrantedDispatchMcpEmbedSession(input: {
     app: target.app,
     token,
     url: target.url,
-    chrome: input.chrome,
+    chrome,
   });
   const parsed = parseMcpToolTextResult(result) as {
     startUrl?: string;
@@ -1143,4 +1190,35 @@ export async function createGrantedDispatchMcpEmbedSession(input: {
   if (parsed.targetPath) output.targetPath = parsed.targetPath;
   if (typeof parsed.expiresAt === "number") output.expiresAt = parsed.expiresAt;
   return output;
+}
+
+export async function createWorkspaceSsoEmbedSession(input: {
+  app?: string;
+  url?: string;
+  path?: string;
+  chrome?: "full" | "minimal";
+}): Promise<{
+  startUrl: string;
+  targetPath?: string;
+  expiresAt?: number;
+  app: string;
+}> {
+  const ownerEmail = getRequestUserEmail();
+  if (!ownerEmail) throw new Error("no authenticated user");
+  const enabled = await isFeatureFlagEnabled(DISPATCH_WORKSPACE_SSO_FLAG, {
+    userEmail: ownerEmail,
+    userKey: ownerEmail,
+    orgId: getRequestOrgId(),
+  });
+  if (!enabled) {
+    throw new Error("Dispatch workspace sign-in is not enabled.");
+  }
+
+  const target = await resolveWorkspaceSsoEmbedTarget(input);
+  return createEmbedSessionForResolvedApp({
+    ownerEmail,
+    orgId: getRequestOrgId(),
+    target,
+    chrome: input.chrome,
+  });
 }

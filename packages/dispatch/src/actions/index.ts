@@ -8,6 +8,7 @@ import askApp from "./ask_app.js";
 import askAppStatus from "./ask_app_status.js";
 import connectExternalAgent from "./connect-external-agent.js";
 import createBrowserChatSession from "./create-browser-chat-session.js";
+import createWorkspaceAppEmbedSession from "./create_workspace_app_embed_session.js";
 import createDreamReport from "./create-dream-report.js";
 import createLinkToken from "./create-link-token.js";
 import createPylonTicket from "./create-pylon-ticket.js";
@@ -121,6 +122,7 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "create-dream-report": createDreamReport,
   "create-browser-chat-session": createBrowserChatSession,
   create_embed_session: createEmbedSession,
+  "create-workspace-app-embed-session": createWorkspaceAppEmbedSession,
   "delete-staged-dataset": deleteStagedDataset,
   "delete-destination": deleteDestination,
   "delete-vault-secret": deleteVaultSecret,

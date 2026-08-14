@@ -9075,9 +9075,9 @@ function CommentThreadMessage({
             </p>
           )}
         </div>
-        <p className="mt-1 whitespace-pre-wrap text-sm leading-6">
+        <div className="mt-1 text-sm leading-6">
           {renderCommentMessage(comment.message)}
-        </p>
+        </div>
       </div>
       {action}
     </div>

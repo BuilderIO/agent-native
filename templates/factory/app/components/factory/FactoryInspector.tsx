@@ -32,8 +32,6 @@ interface FactoryInspectorProps {
 interface WorkspaceAgentOption {
   id: string;
   name: string;
-  path: string;
-  description?: string | null;
 }
 
 interface WorkspaceAppOption {
