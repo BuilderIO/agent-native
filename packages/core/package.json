@@ -182,6 +182,7 @@
     "./user-profile/server": "./dist/user-profile/store.js",
     "./feature-flags": "./dist/feature-flags/index.js",
     "./feature-flags/registry": "./dist/feature-flags/registry.js",
+    "./feature-flags/server": "./dist/feature-flags/server.js",
     "./feature-flags/actions/get-feature-flags": "./dist/feature-flags/actions/get-feature-flags.js",
     "./feature-flags/actions/list-feature-flags": "./dist/feature-flags/actions/list-feature-flags.js",
     "./feature-flags/actions/set-feature-flag": "./dist/feature-flags/actions/set-feature-flag.js",
