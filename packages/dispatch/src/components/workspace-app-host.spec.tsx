@@ -5,10 +5,14 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const clientState = vi.hoisted(() => {
-  const mutateAsync = vi.fn().mockImplementation(async () => ({
+  const legacyMutateAsync = vi.fn().mockImplementation(async () => ({
     startUrl: "about:blank",
   }));
-  return { mutateAsync };
+  const workspaceSsoMutateAsync = vi.fn().mockImplementation(async () => ({
+    startUrl: "about:blank",
+  }));
+  const actionNames: string[] = [];
+  return { actionNames, legacyMutateAsync, workspaceSsoMutateAsync };
 });
 
 vi.mock("@agent-native/core/client/chat-first", () => ({
@@ -37,7 +41,15 @@ vi.mock("@agent-native/core/client/feature-flags", () => ({
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
-  useActionMutation: () => ({ mutateAsync: clientState.mutateAsync }),
+  useActionMutation: (name: string) => {
+    clientState.actionNames.push(name);
+    return {
+      mutateAsync:
+        name === "create-workspace-app-embed-session"
+          ? clientState.workspaceSsoMutateAsync
+          : clientState.legacyMutateAsync,
+    };
+  },
   useActionQuery: () => ({
     data: [
       { id: "mail", name: "Mail", path: "/mail", url: null, status: "ready" },
@@ -84,7 +96,9 @@ describe("WorkspaceAppKeepAlive", () => {
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
-    clientState.mutateAsync.mockClear();
+    clientState.actionNames.length = 0;
+    clientState.legacyMutateAsync.mockClear();
+    clientState.workspaceSsoMutateAsync.mockClear();
   });
 
   afterEach(() => {
