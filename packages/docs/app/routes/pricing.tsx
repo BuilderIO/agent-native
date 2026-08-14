@@ -149,9 +149,18 @@ export default function PricingPage() {
               3. There's an easy button that costs money.
             </h3>
             <p className="m-0">
-              Storage, database, deploys, and auth on Builder's infrastructure
-              are a paid product. Prices are below, in the same font as
-              everything else, because that's how pricing should work.
+              There are &quot;all in one&quot; back-ends that cover agent tokens,
+              storage, databases, deploys, and auth seamlessly within
+              Agent-Native. You can simply turn on{" "}
+              <a
+                href="https://www.builder.io/m/pricing"
+                target="_blank"
+                rel="noreferrer"
+                className="text-[var(--fg)] underline underline-offset-4"
+              >
+                Builder.io
+              </a>{" "}
+              or configure another all-in-one provider within your app settings.
             </p>
           </div>
         </div>
