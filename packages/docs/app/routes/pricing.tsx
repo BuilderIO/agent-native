@@ -124,7 +124,7 @@ export default function PricingPage() {
         <div className="max-w-4xl space-y-12 text-lg leading-8 text-[var(--fg-secondary)] sm:text-xl sm:leading-9">
           <div>
             <h3 className="mb-3 text-xl font-bold text-[var(--fg)] sm:text-2xl">
-              1. Agent tokens are not free.
+              AI tokens are not free.
             </h3>
             <p className="m-0">
               Your agent runs on your API key — Anthropic, OpenAI, whoever you
