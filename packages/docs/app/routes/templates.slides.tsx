@@ -1,9 +1,23 @@
 import { useLocale, useT } from "@agent-native/core/client/i18n";
+import { IconArrowDown, IconCheck } from "@tabler/icons-react";
 import { Link } from "react-router";
 
 import { sitePathForLocale } from "../components/docs-locale";
+import { SectionDivider } from "../components/SectionDivider";
 import { SlidesTryNow } from "../components/SlidesTryNow";
 import { TemplateDocsLink } from "../components/template-docs";
+import {
+  TemplateActivationFrame,
+  TemplateCapabilityGrid,
+  TemplateComparisonTable,
+  TemplateFinalCta,
+  TemplateHero,
+  TemplateLandingFaq,
+  TemplateLandingShell,
+  TemplateSplitFeature,
+  TemplateStatOrStepsGrid,
+  TemplateStatOrStepsGridItem,
+} from "../components/template-landing";
 import { templates, trackEvent } from "../components/TemplateCard";
 import { withTemplateSocialImage } from "../seo";
 
@@ -67,352 +81,358 @@ const COMPARISON_ROWS = [
 export default function SlidesTemplate() {
   const t = useT();
   const { locale } = useLocale();
+  const workflowSteps = [
+    {
+      title: t("templateLanding.slides.s002"),
+      description: t("templateLanding.slides.howItWorksDescribe"),
+    },
+    {
+      title: t("templateLanding.slides.s003"),
+      description:
+        "The agent builds a complete deck — structure, content, layouts, and image prompts.",
+    },
+    {
+      title: t("templateLanding.slides.s004"),
+      description:
+        "Edit visually, conversationally, or in code. Changes appear through polling sync.",
+    },
+  ];
+  const capabilities = [
+    {
+      title: t("templateLanding.slides.s012"),
+      description: t("templateLanding.slides.s013"),
+    },
+    {
+      title: t("templateLanding.slides.s014"),
+      description: t("templateLanding.slides.s015"),
+    },
+    {
+      title: t("templateLanding.slides.s016"),
+      description: t("templateLanding.slides.s017"),
+    },
+    {
+      title: t("templateLanding.slides.s018"),
+      description: t("templateLanding.slides.s019"),
+    },
+    {
+      title: t("templateLanding.slides.s020"),
+      description: t("templateLanding.slides.s021"),
+    },
+    {
+      title: t("templateLanding.slides.s022"),
+      description: t("templateLanding.slides.s023"),
+    },
+  ];
+  const faqItems = [
+    {
+      id: "slides-question-1",
+      question: t("templateLanding.faq.question1"),
+      answer: <p className="m-0">{t("templateLanding.faq.answer1")}</p>,
+    },
+    {
+      id: "slides-question-2",
+      question: t("templateLanding.faq.question2"),
+      answer: <p className="m-0">{t("templateLanding.faq.answer2")}</p>,
+    },
+    {
+      id: "slides-question-3",
+      question: t("templateLanding.faq.question3"),
+      answer: <p className="m-0">{t("templateLanding.faq.answer3")}</p>,
+    },
+  ];
+
   return (
-    <main className="template-detail-page mx-auto w-full max-w-[1200px] overflow-x-clip px-4 sm:px-6">
-      {/* Hero */}
-      <section className="py-12 sm:py-16 lg:py-20">
-        <div className="grid min-w-0 gap-10 lg:grid-cols-2 lg:items-start lg:gap-12">
-          <div>
-            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] bg-[var(--bg-secondary)] px-3 py-1 text-xs text-[var(--fg-secondary)]">
+    <TemplateLandingShell>
+      <TemplateHero
+        eyebrow={
+          <span style={{ color: template.color }}>
+            Agent-Native {template.name}
+          </span>
+        }
+        title={t("templateLanding.slides.s006")}
+        description={<p className="m-0">{t("templateLanding.slides.s007")}</p>}
+        action={
+          <a
+            href="#build-now"
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md bg-[var(--fg)] px-5 text-sm font-semibold text-[var(--bg)] no-underline transition-opacity hover:opacity-85 hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--docs-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg)]"
+            onClick={() =>
+              trackEvent("try live demo", {
+                template: "slides",
+                location: "landing_page",
+              })
+            }
+          >
+            {t("templateLanding.slides.s008")}
+            <IconArrowDown aria-hidden="true" className="size-4" />
+          </a>
+        }
+        mediaClassName="bg-[var(--bg-secondary)]"
+        media={
+          <img
+            src={template.screenshot}
+            alt={t("templateLanding.slides.s001")}
+            loading="lazy"
+            decoding="async"
+            className="h-auto max-h-[640px] w-full object-cover object-top"
+          />
+        }
+      />
+
+      <TemplateActivationFrame
+        id="build-now"
+        className="scroll-mt-24"
+        heading={
+          <div className="flex flex-col gap-3">
+            <h2 className="m-0 text-[1.75rem] font-medium leading-[1.15] tracking-[-0.56px] text-[var(--fg)]">
+              {t("templateLanding.slides.s055")}
+            </h2>
+            <p className="m-0 text-lg leading-[1.3] text-[var(--fg-secondary)]">
+              {t("templateLanding.slides.s056")}
+            </p>
+          </div>
+        }
+      >
+        <SlidesTryNow />
+      </TemplateActivationFrame>
+
+      <SectionDivider />
+
+      <section className="border-t border-[var(--docs-border)]">
+        <div className="border-x border-[var(--docs-border)] px-6 pb-10 pt-16 sm:px-8 sm:pb-14 sm:pt-24">
+          <h2 className="m-0 text-[1.75rem] font-medium leading-[1.05] tracking-[-0.56px] text-[var(--fg)] sm:text-4xl">
+            {t("templateLanding.slides.s009")}
+          </h2>
+        </div>
+        <TemplateStatOrStepsGrid>
+          {workflowSteps.map((step, index) => (
+            <TemplateStatOrStepsGridItem key={step.title}>
               <span
-                className="inline-block h-2 w-2 rounded-full"
-                style={{ background: template.color }}
-              />
-              Agent-Native {template.name}
-            </div>
-
-            <h1 className="mb-4 text-[2rem] font-bold leading-[1.08] tracking-tight sm:text-4xl md:text-5xl">
-              {t("templateLanding.slides.s006")}
-            </h1>
-
-            <p className="mb-6 text-base leading-7 text-[var(--fg-secondary)] sm:text-lg sm:leading-relaxed">
-              {t("templateLanding.slides.s007")}
-            </p>
-
-            <div className="template-detail-actions mb-8 flex flex-wrap items-center gap-3">
-              <a
-                href="#build-now"
-                className="inline-flex items-center gap-2 rounded-xl bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
-                onClick={(event) => {
-                  event.preventDefault();
-                  document
-                    .getElementById("build-now")
-                    ?.scrollIntoView({ behavior: "smooth" });
-                  trackEvent("try live demo", {
-                    template: "slides",
-                    location: "landing_page",
-                  });
-                }}
+                aria-hidden="true"
+                className="font-mono text-sm font-semibold uppercase tracking-[0.14em]"
+                style={{ color: template.color }}
               >
-                {t("templateLanding.slides.s008")}
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <line x1="12" y1="5" x2="12" y2="19" />
-                  <polyline points="19 12 12 19 5 12" />
-                </svg>
-              </a>
-            </div>
-          </div>
-
-          <div className="overflow-hidden rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)]">
-            <img
-              src={template.screenshot}
-              alt={t("templateLanding.slides.s001")}
-              loading="lazy"
-              decoding="async"
-              className="w-full object-cover object-top"
-            />
-          </div>
-        </div>
-      </section>
-
-      {/* How it works - numbered steps */}
-      <section className="border-t border-[var(--docs-border)] py-16">
-        <h2 className="mb-8 text-2xl font-bold tracking-tight">
-          {t("templateLanding.slides.s009")}
-        </h2>
-        <div className="mx-auto grid max-w-3xl gap-6 sm:grid-cols-3">
-          {[
-            {
-              step: "1",
-              title: t("templateLanding.slides.s002"),
-              desc: t("templateLanding.slides.howItWorksDescribe"),
-            },
-            {
-              step: "2",
-              title: t("templateLanding.slides.s003"),
-              desc: "The agent builds a complete deck — structure, content, layouts, and image prompts.",
-            },
-            {
-              step: "3",
-              title: t("templateLanding.slides.s004"),
-              desc: "Edit visually, conversationally, or in code. Changes appear through polling sync.",
-            },
-          ].map((s) => (
-            <div key={s.step} className="text-center">
-              <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-[var(--docs-accent)] text-sm font-bold text-white">
-                {s.step}
-              </div>
-              <h3 className="mb-1 text-sm font-semibold">{s.title}</h3>
-              <p className="m-0 text-sm text-[var(--fg-secondary)]">{s.desc}</p>
-            </div>
+                {String(index + 1).padStart(2, "0")}
+              </span>
+              <h3 className="m-0 text-2xl font-medium leading-[1.15] tracking-tight text-[var(--fg)]">
+                {step.title}
+              </h3>
+              <p className="m-0 text-base leading-[1.4] text-[var(--fg-secondary)]">
+                {step.description}
+              </p>
+            </TemplateStatOrStepsGridItem>
           ))}
-        </div>
+        </TemplateStatOrStepsGrid>
       </section>
 
-      {/* Core features - icon cards */}
-      <section className="border-t border-[var(--docs-border)] py-16">
-        <h2 className="mb-3 text-2xl font-bold tracking-tight">
-          {t("templateLanding.slides.s010")}
-        </h2>
-        <p className="mb-8 max-w-2xl text-base text-[var(--fg-secondary)]">
-          {t("templateLanding.slides.s011")}
-        </p>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
-            <h3 className="mb-1 text-sm font-semibold">
-              {t("templateLanding.slides.s012")}
-            </h3>
-            <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              {t("templateLanding.slides.s013")}
-            </p>
-          </div>
-          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
-            <h3 className="mb-1 text-sm font-semibold">
-              {t("templateLanding.slides.s014")}
-            </h3>
-            <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              {t("templateLanding.slides.s015")}
-            </p>
-          </div>
-          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
-            <h3 className="mb-1 text-sm font-semibold">
-              {t("templateLanding.slides.s016")}
-            </h3>
-            <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              {t("templateLanding.slides.s017")}
-            </p>
-          </div>
-          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
-            <h3 className="mb-1 text-sm font-semibold">
-              {t("templateLanding.slides.s018")}
-            </h3>
-            <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              {t("templateLanding.slides.s019")}
-            </p>
-          </div>
-          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
-            <h3 className="mb-1 text-sm font-semibold">
-              {t("templateLanding.slides.s020")}
-            </h3>
-            <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              {t("templateLanding.slides.s021")}
-            </p>
-          </div>
-          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
-            <h3 className="mb-1 text-sm font-semibold">
-              {t("templateLanding.slides.s022")}
-            </h3>
-            <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              {t("templateLanding.slides.s023")}
-            </p>
-          </div>
-        </div>
-      </section>
+      <SectionDivider />
 
-      {/* Two-column highlight */}
-      <section className="border-t border-[var(--docs-border)] py-16">
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="rounded-xl border border-[var(--docs-border)] p-6">
-            <h3 className="mb-2 text-base font-semibold">
-              {t("templateLanding.slides.s024")}
-            </h3>
-            <p className="mb-4 text-sm text-[var(--fg-secondary)]">
-              {t("templateLanding.slides.s025")}
+      <TemplateCapabilityGrid
+        intro={
+          <>
+            <h2 className="m-0 text-[1.75rem] font-medium leading-[1.15] tracking-[-0.56px] text-[var(--fg)]">
+              {t("templateLanding.slides.s010")}
+            </h2>
+            <p className="m-0 max-w-[320px] text-lg leading-[1.3] text-[var(--fg-secondary)]">
+              {t("templateLanding.slides.s011")}
             </p>
-            <ul className="m-0 list-none space-y-2 p-0 text-sm text-[var(--fg-secondary)]">
-              <li className="flex items-start gap-2">
-                <svg
-                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-                {t("templateLanding.slides.s026")}
-              </li>
-              <li className="flex items-start gap-2">
-                <svg
-                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-                {t("templateLanding.slides.s027")}
-              </li>
-              <li className="flex items-start gap-2">
-                <svg
-                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-                {t("templateLanding.slides.s028")}
-              </li>
-            </ul>
-          </div>
-          <div className="rounded-xl border border-[var(--docs-border)] p-6">
-            <h3 className="mb-2 text-base font-semibold">
-              {t("templateLanding.slides.s029")}
+          </>
+        }
+      >
+        {capabilities.map((capability) => (
+          <article
+            key={capability.title}
+            className="flex min-h-[220px] flex-col gap-4 border-b border-[var(--docs-border)] p-6 last:border-b-0 sm:p-8 sm:odd:border-e sm:[&:nth-last-child(-n+2)]:border-b-0"
+          >
+            <div
+              aria-hidden="true"
+              className="h-1 w-10 rounded-full"
+              style={{ backgroundColor: template.color }}
+            />
+            <h3 className="m-0 text-lg font-medium leading-[1.15] tracking-tight text-[var(--fg)]">
+              {capability.title}
             </h3>
-            <p className="mb-4 text-sm text-[var(--fg-secondary)]">
-              {t("templateLanding.slides.s030")}
+            <p className="m-0 text-base leading-[1.4] text-[var(--fg-secondary)]">
+              {capability.description}
             </p>
-            <div className="space-y-3 rounded-lg bg-[var(--bg-secondary)] p-4 font-mono text-sm">
-              <div className="text-[var(--fg-secondary)]">
-                {t("templateLanding.slides.s031")}
-              </div>
-              <div className="text-[var(--fg-secondary)]">
-                {t("templateLanding.slides.s032")}
-              </div>
-              <div className="text-[var(--fg-secondary)]">
-                {t("templateLanding.slides.s033")}
-              </div>
-              <div className="text-[var(--fg-secondary)]">
-                {t("templateLanding.slides.s034")}
-              </div>
+          </article>
+        ))}
+      </TemplateCapabilityGrid>
+
+      <SectionDivider />
+
+      <TemplateSplitFeature
+        leading={
+          <article className="flex h-full flex-col gap-6 p-6 sm:p-8 lg:p-10">
+            <div className="flex flex-col gap-3">
+              <h2 className="m-0 text-[1.75rem] font-medium leading-[1.15] tracking-[-0.56px] text-[var(--fg)]">
+                {t("templateLanding.slides.s024")}
+              </h2>
+              <p className="m-0 text-lg leading-[1.3] text-[var(--fg-secondary)]">
+                {t("templateLanding.slides.s025")}
+              </p>
             </div>
-          </div>
-        </div>
-      </section>
+            <ul className="m-0 grid list-none gap-3 p-0 text-base text-[var(--fg-secondary)]">
+              {[
+                t("templateLanding.slides.s026"),
+                t("templateLanding.slides.s027"),
+                t("templateLanding.slides.s028"),
+              ].map((item) => (
+                <li key={item} className="flex items-start gap-3">
+                  <IconCheck
+                    aria-hidden="true"
+                    className="mt-0.5 size-5 shrink-0"
+                    style={{ color: template.color }}
+                  />
+                  <span>{item}</span>
+                </li>
+              ))}
+            </ul>
+          </article>
+        }
+        trailing={
+          <article className="flex h-full flex-col gap-6 p-6 sm:p-8 lg:p-10">
+            <div className="flex flex-col gap-3">
+              <h2 className="m-0 text-[1.75rem] font-medium leading-[1.15] tracking-[-0.56px] text-[var(--fg)]">
+                {t("templateLanding.slides.s029")}
+              </h2>
+              <p className="m-0 text-lg leading-[1.3] text-[var(--fg-secondary)]">
+                {t("templateLanding.slides.s030")}
+              </p>
+            </div>
+            <ul className="m-0 grid list-none border-t border-[var(--docs-border)] p-0 font-mono text-sm leading-6 text-[var(--fg-secondary)]">
+              {[
+                t("templateLanding.slides.s031"),
+                t("templateLanding.slides.s032"),
+                t("templateLanding.slides.s033"),
+                t("templateLanding.slides.s034"),
+              ].map((example) => (
+                <li
+                  key={example}
+                  className="border-b border-[var(--docs-border)] py-4"
+                >
+                  {example}
+                </li>
+              ))}
+            </ul>
+          </article>
+        }
+      />
 
-      {/* Comparison table */}
+      <SectionDivider />
+
       <section
         id="comparison"
-        className="scroll-mt-24 border-t border-[var(--docs-border)] py-16"
+        className="scroll-mt-24 border-t border-[var(--docs-border)]"
       >
-        <h2 className="mb-8 text-2xl font-bold tracking-tight">
-          {t("templateLanding.slides.s035")}
-        </h2>
-        <div className="overflow-x-auto rounded-xl border border-[var(--docs-border)]">
-          <table className="comparison-table min-w-[42rem] w-full text-sm">
-            <thead>
-              <tr className="border-b border-[var(--docs-border)] bg-[var(--bg-secondary)]">
-                <th className="px-5 py-3 text-left font-semibold text-[var(--fg)]"></th>
-                <th className="px-5 py-3 text-left font-semibold text-[var(--fg-secondary)]">
-                  Google Slides
-                </th>
-                <th className="px-5 py-3 text-left font-semibold text-[var(--fg-secondary)]">
-                  Gamma, Tome
-                </th>
-                <th className="px-5 py-3 text-left font-semibold text-[var(--docs-accent)]">
-                  Agent-Native Slides
-                </th>
-              </tr>
-            </thead>
-            <tbody className="text-[var(--fg-secondary)]">
-              {COMPARISON_ROWS.map((row) => (
-                <tr
-                  key={row.feature}
-                  className="border-b border-[var(--docs-border)] align-top"
-                >
-                  <td className="px-5 py-4 font-medium text-[var(--fg)]">
-                    {row.feature}
-                  </td>
-                  <td className="px-5 py-4">{row.google}</td>
-                  <td className="px-5 py-4">{row.gamma}</td>
-                  <td className="whitespace-pre-line px-5 py-4 text-[var(--fg)]">
-                    {row.slides}
-                  </td>
-                </tr>
-              ))}
-              <tr>
-                <td className="px-5 py-4 font-medium text-[var(--fg)]">
-                  {t("templateLanding.slides.s051")}
-                </td>
-                <td className="px-5 py-4">
-                  {t("templateLanding.slides.s052")}
-                </td>
-                <td className="px-5 py-4">
-                  {t("templateLanding.slides.s053")}
-                </td>
-                <td className="px-5 py-4 text-[var(--fg)]">
-                  {t("templateLanding.slides.s054")}
-                </td>
-              </tr>
-            </tbody>
-          </table>
+        <div className="border-x border-[var(--docs-border)] px-6 pb-10 pt-16 sm:px-8 sm:pb-14 sm:pt-24">
+          <h2 className="m-0 text-[1.75rem] font-medium leading-[1.05] tracking-[-0.56px] text-[var(--fg)] sm:text-4xl">
+            {t("templateLanding.slides.s035")}
+          </h2>
         </div>
+        <TemplateComparisonTable
+          caption={t("templateLanding.slides.s035")}
+          featureHeader={t("templateLanding.slides.s035")}
+          columns={[
+            {
+              id: "google",
+              className: "w-[22%]",
+              header: "Google Slides",
+            },
+            {
+              id: "gamma",
+              className: "w-[22%]",
+              header: "Gamma, Tome",
+            },
+            {
+              id: "slides",
+              className: "w-[30%]",
+              emphasized: true,
+              header: (
+                <span className="font-semibold">
+                  Agent-Native{" "}
+                  <span style={{ color: template.color }}>{template.name}</span>
+                </span>
+              ),
+            },
+          ]}
+          rows={[
+            ...COMPARISON_ROWS.map((row) => ({
+              id: row.feature,
+              label: row.feature,
+              cells: {
+                google: row.google,
+                gamma: row.gamma,
+                slides: (
+                  <span className="whitespace-pre-line">{row.slides}</span>
+                ),
+              },
+            })),
+            {
+              id: "pricing",
+              label: t("templateLanding.slides.s051"),
+              cells: {
+                google: t("templateLanding.slides.s052"),
+                gamma: t("templateLanding.slides.s053"),
+                slides: t("templateLanding.slides.s054"),
+              },
+            },
+          ]}
+        />
       </section>
 
-      {/* CTA */}
-      <section
-        id="build-now"
-        className="border-t border-[var(--docs-border)] py-16 text-center"
-      >
-        <h2 className="mb-3 text-2xl font-bold tracking-tight">
-          {t("templateLanding.slides.s055")}
-        </h2>
-        <p className="mx-auto mb-8 max-w-lg text-base text-[var(--fg-secondary)]">
-          {t("templateLanding.slides.s056")}
-        </p>
-        <SlidesTryNow />
-        <p className="mx-auto mb-4 mt-10 max-w-xl text-sm text-[var(--fg-secondary)]">
-          {t("templateLanding.slides.signInIntegration")}
-        </p>
-        <div className="template-detail-cta-actions flex flex-col items-stretch justify-center gap-3 sm:flex-row sm:items-center sm:gap-4">
-          <a
-            href="https://slides.agent-native.com/_agent-native/sign-in"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center justify-center gap-2 rounded-xl bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
+      <SectionDivider />
+
+      <TemplateFinalCta
+        className="[&>div:first-child]:py-10 sm:[&>div:first-child]:py-12 lg:[&>div:first-child]:py-16 [&>div:last-child]:gap-4 sm:[&>div:last-child]:gap-4"
+        eyebrow={
+          <span
+            className="font-mono text-sm font-semibold uppercase tracking-[0.14em]"
+            style={{ color: template.color }}
           >
-            {t("templateLanding.slides.signIn")}
-          </a>
-          <TemplateDocsLink
-            template={template}
-            location="landing_page_cta"
-            className="inline-flex items-center gap-2 rounded-xl border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
-          >
-            {t("templateLanding.slides.s057")}
-          </TemplateDocsLink>
-          <Link
-            data-an-prefetch="viewport"
-            to={sitePathForLocale("/apps", locale)}
-            className="inline-flex items-center gap-2 rounded-xl border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
-          >
-            {t("templateLanding.slides.s058")}
-          </Link>
-        </div>
-      </section>
-    </main>
+            Agent-Native {template.name}
+          </span>
+        }
+        title={t("templateLanding.slides.signInIntegration")}
+        actions={
+          <>
+            <a
+              href="https://slides.agent-native.com/_agent-native/sign-in"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex min-h-11 items-center justify-center rounded-md bg-[var(--fg)] px-5 text-sm font-semibold text-[var(--bg)] no-underline transition-opacity hover:opacity-85 hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--docs-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg)]"
+            >
+              {t("templateLanding.slides.signIn")}
+            </a>
+            <TemplateDocsLink
+              template={template}
+              location="landing_page_cta"
+              className="inline-flex min-h-11 items-center justify-center rounded-md border border-[var(--docs-border)] px-5 text-sm font-semibold text-[var(--fg)] no-underline transition-colors hover:border-[var(--fg-secondary)] hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--docs-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg)]"
+            >
+              {t("templateLanding.slides.s057")}
+            </TemplateDocsLink>
+            <Link
+              data-an-prefetch="viewport"
+              to={sitePathForLocale("/apps", locale)}
+              className="inline-flex min-h-11 items-center justify-center rounded-md border border-[var(--docs-border)] px-5 text-sm font-semibold text-[var(--fg)] no-underline transition-colors hover:border-[var(--fg-secondary)] hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--docs-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg)]"
+            >
+              {t("templateLanding.slides.s058")}
+            </Link>
+          </>
+        }
+      />
+
+      <SectionDivider />
+
+      <TemplateLandingFaq
+        idPrefix="slides-faq"
+        eyebrow={
+          <span style={{ color: template.color }}>
+            {t("templateLanding.faq.eyebrow")}
+          </span>
+        }
+        title={t("templateLanding.faq.title")}
+        items={faqItems}
+      />
+    </TemplateLandingShell>
   );
 }

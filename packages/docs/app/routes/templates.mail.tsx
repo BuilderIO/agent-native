@@ -1,10 +1,32 @@
 import { useLocale, useT } from "@agent-native/core/client/i18n";
+import {
+  IconArrowUpRight,
+  IconCheck,
+  IconCode,
+  IconCopy,
+  IconKeyboard,
+  IconMailAi,
+  IconSearch,
+} from "@tabler/icons-react";
 import { useState } from "react";
 import { Link } from "react-router";
 
 import { sitePathForLocale } from "../components/docs-locale";
 import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
+import { SectionDivider } from "../components/SectionDivider";
 import { TemplateDocsLink } from "../components/template-docs";
+import {
+  TemplateActivationFrame,
+  TemplateCapabilityGrid,
+  TemplateComparisonTable,
+  TemplateFinalCta,
+  TemplateHero,
+  TemplateLandingFaq,
+  TemplateLandingShell,
+  TemplateSplitFeature,
+  TemplateStatOrStepsGrid,
+  TemplateStatOrStepsGridItem,
+} from "../components/template-landing";
 import { templates, trackEvent } from "../components/TemplateCard";
 import { withTemplateSocialImage } from "../seo";
 
@@ -43,6 +65,7 @@ const template = templates.find((t) => t.slug === "mail")!;
 
 function CliCopy() {
   const [copied, setCopied] = useState(false);
+
   function handleCopy() {
     navigator.clipboard.writeText(template.cliCommand);
     setCopied(true);
@@ -52,11 +75,13 @@ function CliCopy() {
     });
     setTimeout(() => setCopied(false), 2000);
   }
+
   return (
     <button
+      type="button"
       onClick={handleCopy}
       data-template-cli-copy
-      className="group col-span-full flex w-full min-w-0 max-w-full items-center gap-3 rounded-md border border-[var(--code-border)] bg-[var(--code-bg)] px-4 py-3 font-mono text-sm transition hover:border-[var(--fg-secondary)] sm:w-auto sm:max-w-[min(100%,36rem)] sm:px-5"
+      className="group flex min-h-11 w-full min-w-0 items-center gap-3 rounded-md border border-[var(--code-border)] bg-[var(--code-bg)] px-4 py-3 font-mono text-sm transition-colors hover:border-[var(--fg-secondary)] sm:max-w-[36rem] sm:px-5"
     >
       <span className="shrink-0 text-[var(--fg-secondary)]">$</span>
       <span
@@ -65,586 +90,443 @@ function CliCopy() {
       >
         {template.cliCommand}
       </span>
-      <span className="ml-auto shrink-0 text-[var(--fg-secondary)] opacity-100 transition sm:opacity-0 sm:group-hover:opacity-100">
+      <span className="ms-auto inline-flex size-5 shrink-0 items-center justify-center text-[var(--fg-secondary)]">
         {copied ? (
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <polyline points="20 6 9 17 4 12" />
-          </svg>
+          <IconCheck aria-hidden="true" className="size-4" stroke={2} />
         ) : (
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-          </svg>
+          <IconCopy aria-hidden="true" className="size-4" stroke={2} />
         )}
       </span>
     </button>
   );
 }
 
+const activationLinkClassName =
+  "inline-flex min-h-11 items-center justify-center gap-2 rounded-md border border-[var(--docs-border)] px-5 py-3 text-sm font-medium text-[var(--fg)] no-underline transition-colors hover:border-[var(--fg-secondary)] hover:no-underline";
+
+const primaryLinkClassName =
+  "inline-flex min-h-11 items-center justify-center gap-2 rounded-md bg-[var(--fg)] px-5 py-3 text-sm font-medium text-[var(--bg)] no-underline transition-opacity hover:opacity-90 hover:no-underline";
+
 export default function MailTemplate() {
   const t = useT();
   const { locale } = useLocale();
+  const capabilities = [
+    {
+      icon: IconKeyboard,
+      title: t("templateLanding.mail.s012"),
+      body: (
+        <>
+          Superhuman-style bindings for compose, archive, reply, and navigation.
+          Zero mouse required.
+        </>
+      ),
+    },
+    {
+      icon: IconMailAi,
+      title: t("templateLanding.mail.s013"),
+      body: t("templateLanding.mail.s014"),
+    },
+    {
+      icon: IconSearch,
+      title: t("templateLanding.mail.s015"),
+      body: t("templateLanding.mail.s016"),
+    },
+    {
+      icon: IconCode,
+      title: t("templateLanding.mail.s017"),
+      body: t("templateLanding.mail.s018"),
+    },
+  ];
+  const faqItems = [
+    {
+      id: "mail-question-1",
+      question: t("templateLanding.faq.question1"),
+      answer: <p className="m-0">{t("templateLanding.faq.answer1")}</p>,
+    },
+    {
+      id: "mail-question-2",
+      question: t("templateLanding.faq.question2"),
+      answer: <p className="m-0">{t("templateLanding.faq.answer2")}</p>,
+    },
+    {
+      id: "mail-question-3",
+      question: t("templateLanding.faq.question3"),
+      answer: <p className="m-0">{t("templateLanding.faq.answer3")}</p>,
+    },
+  ];
+
   return (
-    <main className="template-detail-page mx-auto w-full max-w-[1200px] overflow-x-clip px-4 sm:px-6">
-      {/* Hero */}
-      <section className="py-12 sm:py-16 lg:py-20">
-        <div className="grid min-w-0 gap-10 lg:grid-cols-2 lg:items-start lg:gap-12">
-          <div>
-            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] bg-[var(--bg-secondary)] px-3 py-1 text-xs text-[var(--fg-secondary)]">
-              <span
-                className="inline-block h-2 w-2 rounded-full"
-                style={{ background: template.color }}
-              />
-              Agent-Native {template.name}
-            </div>
+    <TemplateLandingShell>
+      <TemplateHero
+        eyebrow={
+          <span style={{ color: template.color }}>
+            Agent-Native {template.name}
+          </span>
+        }
+        title={t("templateLanding.mail.s007")}
+        description={
+          <p className="m-0">
+            Superhuman-style keyboard shortcuts, AI triage, smart search, and
+            multi-account support — built on an agent you own. No subscription
+            fees, no vendor lock-in.
+          </p>
+        }
+        mediaClassName="bg-[var(--bg-secondary)]"
+        media={
+          <img
+            src={template.screenshot}
+            alt={t("templateLanding.mail.s001")}
+            loading="lazy"
+            decoding="async"
+            className="h-auto max-h-[536px] w-full object-cover object-top"
+          />
+        }
+      />
 
-            <h1 className="mb-4 text-[2rem] font-bold leading-[1.08] tracking-tight sm:text-4xl md:text-5xl">
-              {t("templateLanding.mail.s007")}
-            </h1>
-
-            <p className="mb-6 text-base leading-7 text-[var(--fg-secondary)] sm:text-lg sm:leading-relaxed">
-              Superhuman-style keyboard shortcuts, AI triage, smart search, and
-              multi-account support — built on an agent you own. No subscription
-              fees, no vendor lock-in.
-            </p>
-
-            <div className="template-detail-actions mb-8 grid grid-cols-2 items-stretch gap-3 sm:flex sm:flex-wrap sm:items-center">
-              <a
-                href="https://mail.agent-native.com"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 rounded-xl bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
-                onClick={(event) => {
-                  applyFirstTouchAttributionToLink(event.currentTarget);
-                  trackEvent("try live demo", {
-                    template: "mail",
-                    location: "landing_page",
-                  });
-                }}
-              >
-                {t("templateLanding.mail.s008")}
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-                  <polyline points="15 3 21 3 21 9" />
-                  <line x1="10" y1="14" x2="21" y2="3" />
-                </svg>
-              </a>
-              <TemplateDocsLink template={template} location="landing_page" />
-              <CliCopy />
-            </div>
-          </div>
-
-          <div className="overflow-hidden rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)]">
-            <img
-              src={template.screenshot}
-              alt={t("templateLanding.mail.s001")}
-              loading="lazy"
-              decoding="async"
-              className="w-full object-cover object-top"
+      <TemplateActivationFrame
+        heading={
+          <h2 className="m-0 text-2xl font-medium leading-[1.15] tracking-tight text-[var(--fg)]">
+            {t("templateLanding.mail.s008")}
+          </h2>
+        }
+      >
+        <div className="grid w-full min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 lg:flex lg:flex-wrap lg:items-center">
+          <a
+            href="https://mail.agent-native.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className={primaryLinkClassName}
+            onClick={(event) => {
+              applyFirstTouchAttributionToLink(event.currentTarget);
+              trackEvent("try live demo", {
+                template: "mail",
+                location: "landing_page",
+              });
+            }}
+          >
+            {t("templateLanding.mail.s008")}
+            <IconArrowUpRight
+              aria-hidden="true"
+              className="size-4"
+              stroke={2}
             />
+          </a>
+          <TemplateDocsLink
+            template={template}
+            location="landing_page"
+            className={activationLinkClassName}
+          />
+          <div className="col-span-full min-w-0 lg:basis-full">
+            <CliCopy />
           </div>
         </div>
-      </section>
+      </TemplateActivationFrame>
 
-      {/* Hosted demo note */}
-      <section className="border-t border-[var(--docs-border)] py-8">
-        <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
-          <h2 className="mb-2 text-base font-semibold">
+      <section className="border-t border-[var(--docs-border)]">
+        <div className="border-x border-b border-[var(--docs-border)] px-6 py-8 sm:px-8 lg:px-10">
+          <h2 className="mb-2 text-lg font-medium text-[var(--fg)]">
             {t("templateLanding.mail.s060")}
           </h2>
-          <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
+          <p className="m-0 max-w-3xl text-base leading-relaxed text-[var(--fg-secondary)]">
             {t("templateLanding.mail.s009")}
           </p>
         </div>
       </section>
 
-      {/* By the numbers */}
-      <section className="border-t border-[var(--docs-border)] py-16">
-        <div className="mx-auto grid max-w-3xl gap-px overflow-hidden rounded-xl border border-[var(--docs-border)] bg-[var(--docs-border)] sm:grid-cols-4">
+      <SectionDivider showOnSmallScreens={false} />
+
+      <section className="border-t border-[var(--docs-border)]">
+        <TemplateStatOrStepsGrid className="sm:!grid-cols-4">
           {[
-            { number: "⌨️", label: t("templateLanding.mail.s002") },
+            {
+              number: (
+                <IconKeyboard
+                  aria-hidden="true"
+                  className="size-9"
+                  stroke={1.75}
+                />
+              ),
+              label: t("templateLanding.mail.s002"),
+            },
             { number: "AI", label: t("templateLanding.mail.s003") },
             { number: "3", label: t("templateLanding.mail.s004") },
             { number: "∞", label: t("templateLanding.mail.s005") },
           ].map((stat) => (
-            <div key={stat.label} className="bg-[var(--bg)] p-6 text-center">
-              <div className="mb-1 text-2xl font-bold text-[var(--docs-accent)]">
+            <TemplateStatOrStepsGridItem key={stat.label}>
+              <div
+                className="text-3xl font-medium tracking-tight sm:text-4xl"
+                style={{ color: template.color }}
+              >
                 {stat.number}
               </div>
-              <div className="text-sm text-[var(--fg-secondary)]">
+              <div className="text-lg text-[var(--fg-secondary)] sm:text-xl">
                 {stat.label}
               </div>
-            </div>
+            </TemplateStatOrStepsGridItem>
           ))}
-        </div>
+        </TemplateStatOrStepsGrid>
       </section>
 
-      {/* Core capabilities */}
-      <section className="border-t border-[var(--docs-border)] py-16">
-        <h2 className="mb-3 text-2xl font-bold tracking-tight">
-          {t("templateLanding.mail.s010")}
-        </h2>
-        <p className="mb-8 max-w-2xl text-base text-[var(--fg-secondary)]">
-          {t("templateLanding.mail.s011")}
-        </p>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
-            <div className="mb-3 text-[var(--docs-accent)]">
-              <svg
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <polyline points="4 17 10 11 4 5" />
-                <line x1="12" y1="19" x2="20" y2="19" />
-              </svg>
-            </div>
-            <h3 className="mb-1 text-sm font-semibold">
-              {t("templateLanding.mail.s012")}
-            </h3>
-            <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              Superhuman-style bindings for compose, archive, reply, and
-              navigation. Zero mouse required.
-            </p>
-          </div>
-          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
-            <div className="mb-3 text-[var(--docs-accent)]">
-              <svg
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-              </svg>
-            </div>
-            <h3 className="mb-1 text-sm font-semibold">
-              {t("templateLanding.mail.s013")}
-            </h3>
-            <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              {t("templateLanding.mail.s014")}
-            </p>
-          </div>
-          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
-            <div className="mb-3 text-[var(--docs-accent)]">
-              <svg
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <circle cx="11" cy="11" r="8" />
-                <line x1="21" y1="21" x2="16.65" y2="16.65" />
-              </svg>
-            </div>
-            <h3 className="mb-1 text-sm font-semibold">
-              {t("templateLanding.mail.s015")}
-            </h3>
-            <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              {t("templateLanding.mail.s016")}
-            </p>
-          </div>
-          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
-            <div className="mb-3 text-[var(--docs-accent)]">
-              <svg
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <polyline points="16 18 22 12 16 6" />
-                <polyline points="8 6 2 12 8 18" />
-              </svg>
-            </div>
-            <h3 className="mb-1 text-sm font-semibold">
-              {t("templateLanding.mail.s017")}
-            </h3>
-            <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              {t("templateLanding.mail.s018")}
-            </p>
-          </div>
-        </div>
-      </section>
+      <SectionDivider showOnSmallScreens={false} />
 
-      {/* Inbox + Compose */}
-      <section className="border-t border-[var(--docs-border)] py-16">
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="rounded-xl border border-[var(--docs-border)] p-6">
-            <h3 className="mb-2 text-base font-semibold">
+      <TemplateCapabilityGrid
+        intro={
+          <>
+            <h2 className="m-0 text-[1.75rem] font-medium leading-[1.15] tracking-tight text-[var(--fg)]">
+              {t("templateLanding.mail.s010")}
+            </h2>
+            <p className="m-0 max-w-[320px] text-lg leading-[1.3] text-[var(--fg-secondary)]">
+              {t("templateLanding.mail.s011")}
+            </p>
+          </>
+        }
+      >
+        {capabilities.map(({ icon: Icon, title, body }) => (
+          <div
+            key={title}
+            className="flex flex-col gap-6 border-b border-[var(--docs-border)] p-6 sm:border-e sm:p-8 sm:even:border-e-0 sm:[&:nth-child(3)]:border-b-0 sm:[&:nth-child(4)]:border-b-0"
+          >
+            <div
+              className="inline-flex size-9 items-center justify-center rounded-md border border-[var(--docs-border)]"
+              style={{ color: template.color }}
+            >
+              <Icon aria-hidden="true" className="size-[18px]" stroke={1.75} />
+            </div>
+            <div className="flex flex-col gap-2">
+              <h3 className="m-0 text-lg font-medium leading-[1.15] text-[var(--fg)]">
+                {title}
+              </h3>
+              <p className="m-0 text-base leading-[1.4] text-[var(--fg-secondary)]">
+                {body}
+              </p>
+            </div>
+          </div>
+        ))}
+      </TemplateCapabilityGrid>
+
+      <SectionDivider showOnSmallScreens={false} />
+
+      <TemplateSplitFeature
+        leading={
+          <div className="flex h-full flex-col px-6 py-10 sm:px-8 lg:px-10 lg:py-16">
+            <h3 className="m-0 text-[1.75rem] font-medium leading-[1.15] text-[var(--fg)]">
               {t("templateLanding.mail.s019")}
             </h3>
-            <p className="mb-4 text-sm text-[var(--fg-secondary)]">
+            <p className="m-0 pt-5 text-lg leading-[1.3] text-[var(--fg-secondary)]">
               {t("templateLanding.mail.s020")}
             </p>
-            <ul className="m-0 list-none space-y-2 p-0 text-sm text-[var(--fg-secondary)]">
-              <li className="flex items-start gap-2">
-                <svg
-                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-                {t("templateLanding.mail.s021")}
-              </li>
-              <li className="flex items-start gap-2">
-                <svg
-                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-                {t("templateLanding.mail.s022")}
-              </li>
-              <li className="flex items-start gap-2">
-                <svg
-                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-                {t("templateLanding.mail.s023")}
-              </li>
+            <ul className="m-0 mt-6 list-none p-0 text-base leading-[1.4] text-[var(--fg-secondary)]">
+              {["s021", "s022", "s023"].map((key) => (
+                <li key={key} className="flex items-start gap-3 py-2">
+                  <IconCheck
+                    aria-hidden="true"
+                    className="mt-0.5 size-5 shrink-0"
+                    stroke={2}
+                    style={{ color: template.color }}
+                  />
+                  {t(`templateLanding.mail.${key}`)}
+                </li>
+              ))}
             </ul>
           </div>
-          <div className="rounded-xl border border-[var(--docs-border)] p-6">
-            <h3 className="mb-2 text-base font-semibold">
+        }
+        trailing={
+          <div className="flex h-full flex-col px-6 py-10 sm:px-8 lg:px-10 lg:py-16">
+            <h3 className="m-0 text-[1.75rem] font-medium leading-[1.15] text-[var(--fg)]">
               {t("templateLanding.mail.s024")}
             </h3>
-            <p className="mb-4 text-sm text-[var(--fg-secondary)]">
+            <p className="m-0 pt-5 text-lg leading-[1.3] text-[var(--fg-secondary)]">
               {t("templateLanding.mail.s025")}
             </p>
-            <ul className="m-0 list-none space-y-2 p-0 text-sm text-[var(--fg-secondary)]">
-              <li className="flex items-start gap-2">
-                <svg
-                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-                {t("templateLanding.mail.s026")}
-              </li>
-              <li className="flex items-start gap-2">
-                <svg
-                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-                {t("templateLanding.mail.s027")}
-              </li>
-              <li className="flex items-start gap-2">
-                <svg
-                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-                {t("templateLanding.mail.s028")}
-              </li>
+            <ul className="m-0 mt-6 list-none p-0 text-base leading-[1.4] text-[var(--fg-secondary)]">
+              {["s026", "s027", "s028"].map((key) => (
+                <li key={key} className="flex items-start gap-3 py-2">
+                  <IconCheck
+                    aria-hidden="true"
+                    className="mt-0.5 size-5 shrink-0"
+                    stroke={2}
+                    style={{ color: template.color }}
+                  />
+                  {t(`templateLanding.mail.${key}`)}
+                </li>
+              ))}
             </ul>
           </div>
-        </div>
-      </section>
+        }
+      />
 
-      {/* Agent actions */}
-      <section className="border-t border-[var(--docs-border)] py-16">
-        <div className="grid gap-8 lg:grid-cols-2 lg:items-center">
-          <div>
-            <h2 className="mb-3 text-2xl font-bold tracking-tight">
+      <SectionDivider showOnSmallScreens={false} />
+
+      <TemplateSplitFeature
+        leading={
+          <div className="flex h-full flex-col justify-center px-6 py-10 sm:px-8 lg:px-10 lg:py-16">
+            <h2 className="m-0 text-[1.75rem] font-medium leading-[1.15] text-[var(--fg)]">
               {t("templateLanding.mail.s029")}
             </h2>
-            <p className="mb-6 text-base text-[var(--fg-secondary)]">
+            <p className="m-0 pt-5 text-lg leading-[1.3] text-[var(--fg-secondary)]">
               {t("templateLanding.mail.s030")}
             </p>
-            <ul className="m-0 list-none space-y-3 p-0 text-sm text-[var(--fg-secondary)]">
-              <li className="flex items-start gap-2">
-                <svg
-                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-                {t("templateLanding.mail.s031")}
-              </li>
-              <li className="flex items-start gap-2">
-                <svg
-                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-                {t("templateLanding.mail.s032")}
-              </li>
-              <li className="flex items-start gap-2">
-                <svg
-                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-                {t("templateLanding.mail.s033")}
-              </li>
-              <li className="flex items-start gap-2">
-                <svg
-                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-                {t("templateLanding.mail.s034")}
-              </li>
+            <ul className="m-0 mt-6 list-none p-0 text-base leading-[1.4] text-[var(--fg-secondary)]">
+              {["s031", "s032", "s033", "s034"].map((key) => (
+                <li key={key} className="flex items-start gap-3 py-2">
+                  <IconCheck
+                    aria-hidden="true"
+                    className="mt-0.5 size-5 shrink-0"
+                    stroke={2}
+                    style={{ color: template.color }}
+                  />
+                  {t(`templateLanding.mail.${key}`)}
+                </li>
+              ))}
             </ul>
           </div>
-          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-6">
-            <div className="space-y-3 font-mono text-sm">
-              <div className="text-[var(--fg-secondary)]">
+        }
+        trailing={
+          <div className="flex h-full items-center p-6 sm:p-8 lg:p-10">
+            <div className="w-full overflow-x-auto border border-[var(--code-border)] bg-[var(--code-bg)] p-6 font-mono text-sm">
+              <div className="mb-4 text-[var(--fg-secondary)]">
                 {"// Available agent actions"}
               </div>
-              <div>
-                <span className="text-[var(--docs-accent)]">$</span>{" "}
-                <span className="text-[var(--fg)]">
-                  pnpm action sync-inbox --since 7d
-                </span>
-              </div>
-              <div>
-                <span className="text-[var(--docs-accent)]">$</span>{" "}
-                <span className="text-[var(--fg)]">
-                  pnpm action triage --label priority
-                </span>
-              </div>
-              <div>
-                <span className="text-[var(--docs-accent)]">$</span>{" "}
-                <span className="text-[var(--fg)]">
-                  pnpm action draft-reply --thread "RE: Q2 update"
-                </span>
-              </div>
-              <div>
-                <span className="text-[var(--docs-accent)]">$</span>{" "}
-                <span className="text-[var(--fg)]">
-                  pnpm action summarize --unread
-                </span>
+              <div className="grid min-w-[28rem] gap-3 text-[var(--fg)]">
+                <div>
+                  <span style={{ color: template.color }}>$</span> pnpm action
+                  sync-inbox --since 7d
+                </div>
+                <div>
+                  <span style={{ color: template.color }}>$</span> pnpm action
+                  triage --label priority
+                </div>
+                <div>
+                  <span style={{ color: template.color }}>$</span> pnpm action
+                  draft-reply --thread "RE: Q2 update"
+                </div>
+                <div>
+                  <span style={{ color: template.color }}>$</span> pnpm action
+                  summarize --unread
+                </div>
               </div>
             </div>
           </div>
+        }
+      />
+
+      <SectionDivider showOnSmallScreens={false} />
+
+      <section className="border-t border-[var(--docs-border)]">
+        <div className="border-x border-[var(--docs-border)] px-6 pb-10 pt-16 sm:px-8 sm:pb-14 sm:pt-24 lg:pb-20 lg:pt-32">
+          <h2 className="m-0 text-[1.75rem] font-medium leading-[1.05] tracking-tight text-[var(--fg)] sm:text-4xl lg:text-[2.875rem]">
+            {t("templateLanding.mail.s035")}
+          </h2>
         </div>
+        <TemplateComparisonTable
+          caption={t("templateLanding.mail.s035")}
+          columns={[
+            { id: "gmail", header: "Gmail" },
+            { id: "superhuman", header: "Superhuman" },
+            {
+              id: "agent-native",
+              emphasized: true,
+              header: (
+                <span style={{ color: template.color }}>Agent-Native Mail</span>
+              ),
+            },
+          ]}
+          rows={[
+            {
+              id: "keyboard-shortcuts",
+              label: t("templateLanding.mail.s036"),
+              cells: {
+                gmail: t("templateLanding.mail.s037"),
+                superhuman: t("templateLanding.mail.s038"),
+                "agent-native": t("templateLanding.mail.s039"),
+              },
+            },
+            {
+              id: "ai-assistance",
+              label: t("templateLanding.mail.s040"),
+              cells: {
+                gmail: t("templateLanding.mail.s041"),
+                superhuman: t("templateLanding.mail.s042"),
+                "agent-native": t("templateLanding.mail.s043"),
+              },
+            },
+            {
+              id: "customization",
+              label: t("templateLanding.mail.s044"),
+              cells: {
+                gmail: t("templateLanding.mail.s045"),
+                superhuman: t("templateLanding.mail.s046"),
+                "agent-native": t("templateLanding.mail.s047"),
+              },
+            },
+            {
+              id: "data-ownership",
+              label: t("templateLanding.mail.s048"),
+              cells: {
+                gmail: t("templateLanding.mail.s049"),
+                superhuman: t("templateLanding.mail.s050"),
+                "agent-native": t("templateLanding.mail.s051"),
+              },
+            },
+            {
+              id: "pricing",
+              label: t("templateLanding.mail.s052"),
+              cells: {
+                gmail: t("templateLanding.mail.s053"),
+                superhuman: t("templateLanding.mail.s054"),
+                "agent-native": t("templateLanding.mail.s055"),
+              },
+            },
+          ]}
+        />
       </section>
 
-      {/* Comparison table */}
-      <section className="border-t border-[var(--docs-border)] py-16">
-        <h2 className="mb-8 text-2xl font-bold tracking-tight">
-          {t("templateLanding.mail.s035")}
-        </h2>
-        <div className="overflow-x-auto rounded-xl border border-[var(--docs-border)]">
-          <table className="comparison-table min-w-[42rem] w-full text-sm">
-            <thead>
-              <tr className="border-b border-[var(--docs-border)] bg-[var(--bg-secondary)]">
-                <th className="px-5 py-3 text-left font-semibold text-[var(--fg)]"></th>
-                <th className="px-5 py-3 text-left font-semibold text-[var(--fg-secondary)]">
-                  Gmail
-                </th>
-                <th className="px-5 py-3 text-left font-semibold text-[var(--fg-secondary)]">
-                  Superhuman
-                </th>
-                <th className="px-5 py-3 text-left font-semibold text-[var(--docs-accent)]">
-                  Agent-Native Mail
-                </th>
-              </tr>
-            </thead>
-            <tbody className="text-[var(--fg-secondary)]">
-              <tr className="border-b border-[var(--docs-border)]">
-                <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  {t("templateLanding.mail.s036")}
-                </td>
-                <td className="px-5 py-3">{t("templateLanding.mail.s037")}</td>
-                <td className="px-5 py-3">{t("templateLanding.mail.s038")}</td>
-                <td className="px-5 py-3 text-[var(--fg)]">
-                  {t("templateLanding.mail.s039")}
-                </td>
-              </tr>
-              <tr className="border-b border-[var(--docs-border)]">
-                <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  {t("templateLanding.mail.s040")}
-                </td>
-                <td className="px-5 py-3">{t("templateLanding.mail.s041")}</td>
-                <td className="px-5 py-3">{t("templateLanding.mail.s042")}</td>
-                <td className="px-5 py-3 text-[var(--fg)]">
-                  {t("templateLanding.mail.s043")}
-                </td>
-              </tr>
-              <tr className="border-b border-[var(--docs-border)]">
-                <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  {t("templateLanding.mail.s044")}
-                </td>
-                <td className="px-5 py-3">{t("templateLanding.mail.s045")}</td>
-                <td className="px-5 py-3">{t("templateLanding.mail.s046")}</td>
-                <td className="px-5 py-3 text-[var(--fg)]">
-                  {t("templateLanding.mail.s047")}
-                </td>
-              </tr>
-              <tr className="border-b border-[var(--docs-border)]">
-                <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  {t("templateLanding.mail.s048")}
-                </td>
-                <td className="px-5 py-3">{t("templateLanding.mail.s049")}</td>
-                <td className="px-5 py-3">{t("templateLanding.mail.s050")}</td>
-                <td className="px-5 py-3 text-[var(--fg)]">
-                  {t("templateLanding.mail.s051")}
-                </td>
-              </tr>
-              <tr>
-                <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  {t("templateLanding.mail.s052")}
-                </td>
-                <td className="px-5 py-3">{t("templateLanding.mail.s053")}</td>
-                <td className="px-5 py-3">{t("templateLanding.mail.s054")}</td>
-                <td className="px-5 py-3 text-[var(--fg)]">
-                  {t("templateLanding.mail.s055")}
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      {/* CTA */}
-      <section className="border-t border-[var(--docs-border)] py-16 text-center">
-        <h2 className="mb-3 text-2xl font-bold tracking-tight">
-          {t("templateLanding.mail.s056")}
-        </h2>
-        <p className="mx-auto mb-8 max-w-lg text-base text-[var(--fg-secondary)]">
+      <TemplateFinalCta
+        eyebrow={
+          <span
+            className="font-mono text-sm font-semibold uppercase tracking-[0.14em]"
+            style={{ color: template.color }}
+          >
+            Agent-Native {template.name}
+          </span>
+        }
+        title={t("templateLanding.mail.s056")}
+        actions={
+          <>
+            <TemplateDocsLink
+              template={template}
+              location="landing_page_cta"
+              className={primaryLinkClassName}
+            >
+              {t("templateLanding.mail.s058")}
+            </TemplateDocsLink>
+            <Link
+              data-an-prefetch="viewport"
+              to={sitePathForLocale("/apps", locale)}
+              className={activationLinkClassName}
+            >
+              {t("templateLanding.mail.s059")}
+            </Link>
+          </>
+        }
+      >
+        <p className="m-0 max-w-2xl px-6 text-lg leading-[1.4] text-[var(--fg-secondary)] sm:px-8">
           {t("templateLanding.mail.s057")}
         </p>
-        <div className="template-detail-cta-actions flex flex-col items-stretch justify-center gap-3 sm:flex-row sm:items-center sm:gap-4">
-          <TemplateDocsLink
-            template={template}
-            location="landing_page_cta"
-            className="inline-flex items-center gap-2 rounded-xl bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
-          >
-            {t("templateLanding.mail.s058")}
-          </TemplateDocsLink>
-          <Link
-            data-an-prefetch="viewport"
-            to={sitePathForLocale("/apps", locale)}
-            className="inline-flex items-center gap-2 rounded-xl border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
-          >
-            {t("templateLanding.mail.s059")}
-          </Link>
-        </div>
-      </section>
-    </main>
+      </TemplateFinalCta>
+
+      <SectionDivider showOnSmallScreens={false} />
+
+      <TemplateLandingFaq
+        idPrefix="mail-faq"
+        eyebrow={
+          <span style={{ color: template.color }}>
+            {t("templateLanding.faq.eyebrow")}
+          </span>
+        }
+        title={t("templateLanding.faq.title")}
+        items={faqItems}
+      />
+    </TemplateLandingShell>
   );
 }

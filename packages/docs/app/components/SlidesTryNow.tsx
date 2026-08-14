@@ -225,10 +225,10 @@ export function SlidesTryNow() {
   }
 
   return (
-    <div className="mx-auto grid max-w-6xl gap-6 text-start lg:grid-cols-[minmax(0,1fr)_minmax(0,3fr)]">
-      <aside className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
+    <div className="grid w-full min-w-0 gap-4 text-start lg:grid-cols-[minmax(12rem,1fr)_minmax(0,2fr)]">
+      <aside className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-4 sm:p-5">
         <div className="mb-4 flex items-center gap-2">
-          <IconPalette size={18} stroke={1.8} />
+          <IconPalette aria-hidden="true" size={18} stroke={1.8} />
           <h3 className="m-0 text-sm font-semibold">{tn("designReference")}</h3>
         </div>
         <form onSubmit={handleReferenceSubmit}>
@@ -238,7 +238,7 @@ export function SlidesTryNow() {
           >
             {tn("websiteUrl")}
           </label>
-          <div className="relative">
+          <div className="flex items-stretch gap-2">
             <input
               id="slides-design-reference-url"
               type="text"
@@ -247,18 +247,22 @@ export function SlidesTryNow() {
               onChange={(event) => setUrl(event.target.value)}
               placeholder={tn("websiteUrlPlaceholder")}
               disabled={isLoading}
-              className="w-full rounded-lg border border-[var(--docs-border)] bg-[var(--bg)] py-2.5 ps-3 pe-10 text-sm text-[var(--fg)] outline-none transition placeholder:text-[var(--fg-secondary)] focus:border-[var(--docs-accent)] disabled:opacity-70"
+              className="min-h-11 min-w-0 flex-1 rounded-lg border border-[var(--docs-border)] bg-[var(--bg)] px-3 text-sm text-[var(--fg)] outline-none transition-colors placeholder:text-[var(--fg-secondary)] focus-visible:border-[var(--docs-accent)] focus-visible:ring-2 focus-visible:ring-[var(--docs-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg-secondary)] disabled:opacity-70"
             />
             <button
               type="submit"
               disabled={!url.trim() || isLoading}
               aria-label={tn("crawlWebsite")}
-              className="absolute end-1.5 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-[var(--fg-secondary)] transition hover:bg-[var(--bg-secondary)] hover:text-[var(--fg)] disabled:opacity-40"
+              className="inline-flex size-11 shrink-0 items-center justify-center rounded-lg border border-[var(--docs-border)] bg-[var(--bg)] text-[var(--fg-secondary)] outline-none transition-colors hover:border-[var(--fg-secondary)] hover:text-[var(--fg)] focus-visible:ring-2 focus-visible:ring-[var(--docs-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg-secondary)] disabled:opacity-40"
             >
               {isLoading ? (
-                <IconLoader2 className="animate-spin" size={16} />
+                <IconLoader2
+                  aria-hidden="true"
+                  className="animate-spin"
+                  size={18}
+                />
               ) : (
-                <IconArrowRight size={16} />
+                <IconArrowRight aria-hidden="true" size={18} />
               )}
             </button>
           </div>
@@ -286,14 +290,14 @@ export function SlidesTryNow() {
         <button
           type="button"
           disabled
-          className="mb-2 w-full rounded-lg border border-[var(--docs-border)] bg-[var(--bg)] px-3 py-2.5 text-sm font-medium text-[var(--fg-secondary)] opacity-50"
+          className="mb-2 min-h-11 w-full rounded-lg border border-[var(--docs-border)] bg-[var(--bg)] px-3 py-2.5 text-sm font-medium text-[var(--fg-secondary)] opacity-50"
         >
           {tn("uploadDesignReference")}
         </button>
         <button
           type="button"
           disabled
-          className="w-full rounded-lg border border-[var(--docs-border)] bg-[var(--bg)] px-3 py-2.5 text-sm font-medium text-[var(--fg-secondary)] opacity-50"
+          className="min-h-11 w-full rounded-lg border border-[var(--docs-border)] bg-[var(--bg)] px-3 py-2.5 text-sm font-medium text-[var(--fg-secondary)] opacity-50"
         >
           {tn("importDesignSystem")}
         </button>
@@ -301,35 +305,36 @@ export function SlidesTryNow() {
           href="https://slides.agent-native.com/_agent-native/sign-in"
           target="_blank"
           rel="noopener noreferrer"
-          className="mt-3 inline-flex items-center gap-1 text-xs text-[var(--fg-secondary)] underline-offset-2 hover:text-[var(--fg)] hover:underline"
+          className="mt-3 inline-flex min-h-11 items-center gap-1 text-xs text-[var(--fg-secondary)] underline-offset-2 outline-none hover:text-[var(--fg)] hover:underline focus-visible:rounded-md focus-visible:ring-2 focus-visible:ring-[var(--docs-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg-secondary)]"
         >
           {tn("loginDesignSystems")}
-          <IconExternalLink size={13} />
+          <IconExternalLink aria-hidden="true" size={13} />
         </a>
       </aside>
 
-      <div className="flex min-h-[22rem] flex-col gap-3 rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5 sm:p-6">
-        <label
-          htmlFor="slides-try-now-prompt"
+      <div className="flex min-h-[22rem] min-w-0 flex-col gap-3 rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-4 sm:p-6">
+        <div
+          id="slides-try-now-prompt-label"
           className="text-xs font-medium uppercase tracking-wide text-[var(--fg-secondary)]"
         >
           {tn("composerLabel")}
-        </label>
+        </div>
         <div
           ref={editorRef}
           id="slides-try-now-prompt"
           role="textbox"
+          aria-labelledby="slides-try-now-prompt-label"
           aria-multiline="true"
           contentEditable
           suppressContentEditableWarning
           onKeyDown={handlePromptKeyDown}
-          className="min-h-48 w-full flex-1 rounded-lg border border-[var(--docs-border)] bg-[var(--bg)] p-4 text-sm leading-8 text-[var(--fg)] outline-none transition focus:border-[var(--docs-accent)]"
+          className="min-h-48 w-full flex-1 rounded-lg border border-[var(--docs-border)] bg-[var(--bg)] p-4 text-sm leading-8 text-[var(--fg)] outline-none transition-colors focus-visible:border-[var(--docs-accent)] focus-visible:ring-2 focus-visible:ring-[var(--docs-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg-secondary)]"
         >
           {tn("promptCreatePrefix")}{" "}
           <select
             defaultValue="b2b-sales"
             aria-label={tn("deckTypeLabel")}
-            className="rounded-md border border-[var(--docs-border)] bg-[var(--bg-secondary)] px-2 py-1 text-sm font-medium text-[var(--fg)]"
+            className="min-h-10 rounded-md border border-[var(--docs-border)] bg-[var(--bg-secondary)] px-2 py-1 text-sm font-medium text-[var(--fg)] outline-none focus-visible:ring-2 focus-visible:ring-[var(--docs-accent)]"
             contentEditable={false}
           >
             <option value="capital-raise">{tn("deckCapitalRaise")}</option>
@@ -345,7 +350,7 @@ export function SlidesTryNow() {
           <select
             defaultValue="brief"
             aria-label={tn("textAmountLabel")}
-            className="rounded-md border border-[var(--docs-border)] bg-[var(--bg-secondary)] px-2 py-1 text-sm font-medium text-[var(--fg)]"
+            className="min-h-10 rounded-md border border-[var(--docs-border)] bg-[var(--bg-secondary)] px-2 py-1 text-sm font-medium text-[var(--fg)] outline-none focus-visible:ring-2 focus-visible:ring-[var(--docs-accent)]"
             contentEditable={false}
           >
             <option value="minimal">{tn("textMinimal")}</option>
@@ -359,7 +364,7 @@ export function SlidesTryNow() {
             href="https://slides.agent-native.com/?initialPrompt="
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 rounded-xl bg-black px-6 py-3 text-sm font-medium text-white transition hover:bg-gray-800 dark:bg-white dark:text-black dark:hover:bg-gray-200"
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-[var(--fg)] px-6 text-sm font-semibold text-[var(--bg)] outline-none transition-opacity hover:opacity-85 focus-visible:ring-2 focus-visible:ring-[var(--docs-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg-secondary)]"
             onClick={(event) => {
               const promptText = editorRef.current
                 ? extractPromptText(editorRef.current).trim()
@@ -374,7 +379,7 @@ export function SlidesTryNow() {
             }}
           >
             {tn("submit")}
-            <IconArrowRight size={16} />
+            <IconArrowRight aria-hidden="true" size={16} />
           </a>
         </div>
       </div>

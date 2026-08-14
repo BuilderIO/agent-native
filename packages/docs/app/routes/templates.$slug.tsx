@@ -2,6 +2,7 @@ import { useLocale, useT } from "@agent-native/core/client/i18n";
 import {
   IconArrowLeft,
   IconBrandGithub,
+  IconCheck,
   IconCopy,
   IconExternalLink,
   IconTerminal2,
@@ -11,7 +12,15 @@ import { Link, useParams, type LoaderFunctionArgs } from "react-router";
 
 import { sitePathForLocale } from "../components/docs-locale";
 import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
+import { SectionDivider } from "../components/SectionDivider";
 import { TemplateDocsLink } from "../components/template-docs";
+import {
+  TemplateActivationFrame,
+  TemplateFinalCta,
+  TemplateHero,
+  TemplateLandingFaq,
+  TemplateLandingShell,
+} from "../components/template-landing";
 import {
   templates,
   trackEvent,
@@ -61,14 +70,14 @@ function TemplateFallbackArt({ template }: { template: Template }) {
         alt={t("templateCard.screenshotAlt", { name: template.name })}
         loading="lazy"
         decoding="async"
-        className="h-full w-full object-cover object-top"
+        className="h-auto max-h-[640px] w-full object-cover object-top"
       />
     );
   }
 
   return (
     <div
-      className="flex h-full min-h-[320px] items-center justify-center"
+      className="flex min-h-[320px] w-full items-center justify-center"
       style={{
         background: `linear-gradient(135deg, ${template.color}, ${template.color}22)`,
       }}
@@ -96,11 +105,13 @@ function CliCopy({ template }: { template: Template }) {
 
   return (
     <button
+      type="button"
       onClick={handleCopy}
       data-template-cli-copy
-      className="flex w-full min-w-0 max-w-full items-center gap-3 rounded-md border border-[var(--code-border)] bg-[var(--code-bg)] px-4 py-3 font-mono text-sm transition hover:border-[var(--fg-secondary)] sm:w-auto sm:max-w-[min(100%,36rem)] sm:px-5"
+      className="group flex w-full min-w-0 max-w-full items-center gap-3 rounded-md border border-[var(--code-border)] bg-[var(--code-bg)] px-4 py-3 font-mono text-sm transition-[border-color] hover:border-[var(--fg-secondary)] sm:w-auto sm:max-w-[min(100%,36rem)] sm:px-5"
     >
       <IconTerminal2
+        aria-hidden="true"
         size={16}
         className="shrink-0 text-[var(--fg-secondary)]"
       />
@@ -110,10 +121,19 @@ function CliCopy({ template }: { template: Template }) {
       >
         {template.cliCommand}
       </span>
-      <IconCopy
-        size={16}
-        className="ml-auto shrink-0 text-[var(--fg-secondary)]"
-      />
+      {copied ? (
+        <IconCheck
+          aria-hidden="true"
+          size={16}
+          className="ms-auto shrink-0 text-[var(--fg-secondary)]"
+        />
+      ) : (
+        <IconCopy
+          aria-hidden="true"
+          size={16}
+          className="ms-auto shrink-0 text-[var(--fg-secondary)]"
+        />
+      )}
       <span className="sr-only">
         {copied ? t("common.copied") : t("common.copyCommand")}
       </span>
@@ -152,72 +172,111 @@ export default function GenericTemplatePage() {
   const sourceSlug = template.slug;
   const replaces = t(`templates.${template.slug}.replaces`);
   const description = t(`templates.${template.slug}.description`);
+  const faqItems = [
+    {
+      id: `${template.slug}-question-1`,
+      question: t("templateLanding.faq.question1"),
+      answer: <p className="m-0">{t("templateLanding.faq.answer1")}</p>,
+    },
+    {
+      id: `${template.slug}-question-2`,
+      question: t("templateLanding.faq.question2"),
+      answer: <p className="m-0">{t("templateLanding.faq.answer2")}</p>,
+    },
+    {
+      id: `${template.slug}-question-3`,
+      question: t("templateLanding.faq.question3"),
+      answer: <p className="m-0">{t("templateLanding.faq.answer3")}</p>,
+    },
+  ];
 
   return (
-    <main className="template-detail-page mx-auto w-full max-w-[1200px] overflow-x-clip px-4 sm:px-6">
-      <section className="py-12 sm:py-16 lg:py-20">
-        <div className="grid min-w-0 gap-10 lg:grid-cols-2 lg:items-start lg:gap-12">
-          <div>
-            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] bg-[var(--bg-secondary)] px-3 py-1 text-xs text-[var(--fg-secondary)]">
-              <span
-                className="inline-block h-2 w-2 rounded-full"
-                style={{ background: template.color }}
-              />
-              {t("templateDetail.badge", { name: template.name })}
-            </div>
+    <TemplateLandingShell>
+      <TemplateHero
+        eyebrow={
+          <span style={{ color: template.color }}>
+            {t("templateDetail.badge", { name: template.name })}
+          </span>
+        }
+        title={t("templateDetail.title", { name: template.name })}
+        description={<p className="m-0">{description}</p>}
+        mediaClassName="bg-[var(--bg-secondary)]"
+        media={<TemplateFallbackArt template={template} />}
+      />
 
-            <h1 className="mb-4 text-[2rem] font-bold leading-[1.08] tracking-tight sm:text-4xl md:text-5xl">
-              {t("templateDetail.title", { name: template.name })}
-            </h1>
-            <p className="mb-3 text-sm font-medium text-[var(--docs-accent)]">
-              {replaces}
-            </p>
-            <p className="mb-8 text-base leading-7 text-[var(--fg-secondary)] sm:text-lg sm:leading-relaxed">
-              {description}
-            </p>
-
-            <div className="template-detail-actions mb-8 grid grid-cols-2 items-stretch gap-3 sm:flex sm:flex-wrap sm:items-center">
-              {hasDemoUrl && (
-                <a
-                  href={template.demoUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 rounded-xl bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
-                  onClick={(event) => {
-                    applyFirstTouchAttributionToLink(event.currentTarget);
-                    trackEvent("try live demo", {
-                      template: template.slug,
-                      location: "generic_template_page",
-                    });
-                  }}
-                >
-                  {t("common.tryIt")}
-                  <IconExternalLink size={16} />
-                </a>
-              )}
-              <TemplateDocsLink
-                template={template}
-                location="generic_template_page"
-              />
+      <TemplateActivationFrame
+        heading={
+          <h2 className="m-0 text-2xl font-medium leading-tight tracking-tight text-[var(--fg)]">
+            {replaces}
+          </h2>
+        }
+      >
+        <div className="flex w-full min-w-0 flex-col gap-4">
+          <div className="template-detail-actions flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+            {hasDemoUrl ? (
               <a
-                href={`https://github.com/BuilderIO/agent-native/tree/main/templates/${sourceSlug}`}
+                href={template.demoUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 rounded-xl border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md bg-[var(--fg)] px-5 py-3 text-sm font-medium text-[var(--bg)] no-underline transition-[opacity] hover:opacity-90 hover:no-underline"
+                onClick={(event) => {
+                  applyFirstTouchAttributionToLink(event.currentTarget);
+                  trackEvent("try live demo", {
+                    template: template.slug,
+                    location: "generic_template_page",
+                  });
+                }}
               >
-                {t("common.source")}
-                <IconBrandGithub size={16} />
+                {t("common.tryIt")}
+                <IconExternalLink aria-hidden="true" size={16} />
               </a>
-            </div>
-
-            <CliCopy template={template} />
+            ) : null}
+            <TemplateDocsLink
+              template={template}
+              location="generic_template_page"
+              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md border border-[var(--docs-border)] px-5 py-3 text-sm font-medium text-[var(--fg)] no-underline transition-[border-color] hover:border-[var(--fg-secondary)] hover:no-underline"
+            />
+            <a
+              href={`https://github.com/BuilderIO/agent-native/tree/main/templates/${sourceSlug}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md border border-[var(--docs-border)] px-5 py-3 text-sm font-medium text-[var(--fg)] no-underline transition-[border-color] hover:border-[var(--fg-secondary)] hover:no-underline"
+            >
+              {t("common.source")}
+              <IconBrandGithub aria-hidden="true" size={16} />
+            </a>
           </div>
-
-          <div className="overflow-hidden rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)]">
-            <TemplateFallbackArt template={template} />
-          </div>
+          <CliCopy template={template} />
         </div>
-      </section>
-    </main>
+      </TemplateActivationFrame>
+
+      <SectionDivider showOnSmallScreens={false} />
+
+      <TemplateFinalCta
+        title={t("templateDetail.allTemplates")}
+        actions={
+          <Link
+            data-an-prefetch="viewport"
+            to={sitePathForLocale("/apps", locale)}
+            className="inline-flex min-h-11 items-center justify-center rounded-md border border-[var(--docs-border)] px-5 py-3 text-sm font-medium text-[var(--fg)] no-underline transition-[border-color] hover:border-[var(--fg-secondary)] hover:no-underline"
+          >
+            {t("templateDetail.allTemplates")}
+          </Link>
+        }
+      />
+
+      <SectionDivider showOnSmallScreens={false} />
+
+      <TemplateLandingFaq
+        idPrefix={`${template.slug}-faq`}
+        eyebrow={
+          <span style={{ color: template.color }}>
+            {t("templateLanding.faq.eyebrow")}
+          </span>
+        }
+        title={t("templateLanding.faq.title")}
+        items={faqItems}
+      />
+    </TemplateLandingShell>
   );
 }

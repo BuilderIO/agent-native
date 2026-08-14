@@ -78,4 +78,26 @@ describe("SlidesTryNow", () => {
     expect(initialPrompt).not.toContain("minimal");
     expect(initialPrompt).not.toContain("thorough");
   });
+
+  it("associates the visible prompt label with the editable textbox", () => {
+    render(
+      <AgentNativeI18nProvider
+        catalog={docsI18nCatalog}
+        initialLocale="en-US"
+        initialPreference="en-US"
+        persistPreference={false}
+      >
+        <SlidesTryNow />
+      </AgentNativeI18nProvider>,
+    );
+
+    const prompt = screen.getByRole("textbox", { name: "Your prompt" });
+    const labelId = prompt.getAttribute("aria-labelledby");
+
+    expect(labelId).toBe("slides-try-now-prompt-label");
+    expect(document.getElementById(labelId || "")?.textContent).toBe(
+      "Your prompt",
+    );
+    expect(prompt.getAttribute("contenteditable")).toBe("true");
+  });
 });
