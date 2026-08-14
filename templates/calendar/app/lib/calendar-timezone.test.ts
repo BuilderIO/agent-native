@@ -8,6 +8,7 @@ import {
   getEventSegmentForCalendarDay,
   getViewDateRange,
   moveEventToCalendarDate,
+  normalizeTimezone,
 } from "./calendar-timezone";
 import { dateTimeInTimezoneToIso } from "./event-form-utils";
 
@@ -102,5 +103,11 @@ describe("calendar timezone helpers", () => {
       from: "2026-08-10T07:00:00.000Z",
       to: "2026-08-17T07:00:00.000Z",
     });
+  });
+
+  it("falls back to the browser timezone when a saved zone is invalid", () => {
+    expect(normalizeTimezone("Not/AZone")).toBe(
+      Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+    );
   });
 });

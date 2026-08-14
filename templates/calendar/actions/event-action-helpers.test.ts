@@ -214,6 +214,17 @@ describe("buildStatusEventFields", () => {
       },
     });
   });
+
+  it("rejects Other working locations without a name", () => {
+    expect(() =>
+      buildStatusEventFields({
+        eventType: "workingLocation",
+        workingLocationType: "customLocation",
+        location: "",
+        title: "",
+      }),
+    ).toThrow("Other working locations require a name");
+  });
 });
 
 describe("normalizeCreateEventInput", () => {

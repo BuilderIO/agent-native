@@ -311,7 +311,17 @@ export function buildStatusEventFields(args: {
   }
 
   const type = args.workingLocationType ?? "customLocation";
-  const label = args.workingLocationLabel || args.location || args.title || "";
+  const label = (
+    args.workingLocationLabel ||
+    args.location ||
+    args.title ||
+    ""
+  ).trim();
+  if (type === "customLocation" && !label) {
+    throw new Error(
+      "Other working locations require a name. Pass workingLocationLabel.",
+    );
+  }
   return {
     eventType: args.eventType,
     transparency: "transparent" as const,
@@ -321,7 +331,7 @@ export function buildStatusEventFields(args: {
         ? { type, homeOffice: {} }
         : type === "officeLocation"
           ? { type, officeLocation: label ? { label } : {} }
-          : { type, customLocation: { label: label || "Working" } },
+          : { type, customLocation: { label } },
   };
 }
 

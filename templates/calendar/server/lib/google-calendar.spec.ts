@@ -957,6 +957,49 @@ describe("calendar event creation", () => {
     );
   });
 
+  it("ignores a generated Working location title for timed Home/Office summaries", async () => {
+    await createEvent(
+      {
+        id: "",
+        title: "Working location",
+        titleIsGenerated: true,
+        description: "",
+        location: "",
+        start: "2026-08-14T16:00:00.000Z",
+        end: "2026-08-15T00:00:00.000Z",
+        startTimeZone: "America/Los_Angeles",
+        endTimeZone: "America/Los_Angeles",
+        allDay: false,
+        source: "google",
+        accountEmail: "steve@example.com",
+        transparency: "transparent",
+        visibility: "public",
+        eventType: "workingLocation",
+        workingLocationProperties: {
+          type: "homeOffice",
+          homeOffice: {},
+        },
+        createdAt: "2026-08-14T00:00:00.000Z",
+        updatedAt: "2026-08-14T00:00:00.000Z",
+      },
+      {
+        account: {
+          ownerEmail: "steve@example.com",
+          accountEmail: "steve@example.com",
+        },
+      },
+    );
+
+    expect(calendarInsertEventMock).toHaveBeenCalledWith(
+      "access-token",
+      "primary",
+      expect.objectContaining({
+        summary: "Home",
+      }),
+      undefined,
+    );
+  });
+
   it("serializes full-day OOO semantics as timed Google event bounds", async () => {
     await createEvent(
       {

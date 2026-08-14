@@ -419,6 +419,19 @@ function toAllDayEndDateInputValue(iso: string, timezone?: string): string {
   return format(new Date(d.getTime() - 1), "yyyy-MM-dd");
 }
 
+/** Timed events ending at 00:00 already store the next date; don't add another day. */
+function inclusiveEndDateForAllDayConversion(
+  startDate: string,
+  endDate: string,
+  endTime: string,
+): string {
+  const bounded = endDate < startDate ? startDate : endDate;
+  if (endTime === "00:00" && bounded > startDate) {
+    return addCalendarDays(bounded, -1);
+  }
+  return bounded;
+}
+
 /** Convert an event time to the calendar's time input value. */
 function toTimeInputValue(iso: string, timezone?: string): string {
   if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return "00:00";
@@ -1093,7 +1106,15 @@ export function EventDetailPopover({
         !nextAllDay && editStartTime === "00:00" && editEndTime === "00:00"
           ? "17:00"
           : editEndTime;
-      const nextEndDate = editEndDate < editDate ? editDate : editEndDate;
+      const nextEndDate = nextAllDay
+        ? inclusiveEndDateForAllDayConversion(
+            editDate,
+            editEndDate,
+            editEndTime,
+          )
+        : editEndDate < editDate
+          ? editDate
+          : editEndDate;
       setEditEndDate(nextEndDate);
       setEditStartTime(nextStartTime);
       setEditEndTime(nextEndTime);

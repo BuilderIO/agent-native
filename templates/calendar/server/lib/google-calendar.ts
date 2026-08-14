@@ -1211,8 +1211,6 @@ export async function getEvent(
 
 function timedWorkingLocationSummary(event: CalendarEvent): string | undefined {
   if (event.eventType !== "workingLocation" || event.allDay) return undefined;
-  const trimmed = event.title?.trim();
-  if (trimmed) return trimmed;
   const properties = event.workingLocationProperties;
   if (properties?.type === "officeLocation") {
     return properties.officeLocation?.label || "Office";
@@ -1220,6 +1218,9 @@ function timedWorkingLocationSummary(event: CalendarEvent): string | undefined {
   if (properties?.type === "customLocation") {
     return properties.customLocation?.label || "Working location";
   }
+  if (properties?.type === "homeOffice") return "Home";
+  const trimmed = event.title?.trim();
+  if (trimmed && !event.titleIsGenerated) return trimmed;
   return "Home";
 }
 

@@ -96,6 +96,7 @@ import {
   getEventDateKey,
   getViewDateRange,
   moveEventToCalendarDate,
+  normalizeTimezone,
 } from "@/lib/calendar-timezone";
 import { resolveEventAccountEmail } from "@/lib/event-account-selection";
 import { getGoogleEventColorHex } from "@/lib/event-colors";
@@ -442,7 +443,7 @@ export default function CalendarView() {
   const { data: settings } = settingsQuery;
   const weekStartsOn = getWeekStartsOn(settings?.weekStart);
   const updateSettings = useUpdateSettings();
-  const displayTimezone = settings?.timezone ?? getBrowserTimezone();
+  const displayTimezone = normalizeTimezone(settings?.timezone);
   const [timezonePrompt, setTimezonePrompt] = useState<{
     savedTimezone: string;
     browserTimezone: string;

@@ -165,11 +165,14 @@ Creating from a calendar day uses the selected Home, Office, or Other type —
 do not leave the draft as Home and create that instead. Office does not need a
 custom building name; Other does. The Other name is `workingLocationLabel`
 (drafts keep `location` empty), so create must send that label — not an empty
-`location`. If that day already has a working location
+`location`. Create and update reject a blank Other name instead of storing
+`Working`. If that day already has a working location
 on the same account, update that day's occurrence (`scope: "single"`) instead
 of creating a second event. Timed (not all-day) working locations need a
-summary of Home, Office, or the custom label; all-day ones omit it so Google
-can derive the title.
+summary of Home, Office, or the custom label — never the generated
+`Working location` placeholder. All-day ones omit summary so Google can derive
+the title. Converting a timed location that ends at local midnight back to
+all-day keeps that single day; do not add another exclusive day.
 
 `--fullDay true` is semantic only for out-of-office creation. It does not send
 Google an all-day `date` event, which Google rejects for this event type.

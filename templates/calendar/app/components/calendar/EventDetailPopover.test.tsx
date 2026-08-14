@@ -868,6 +868,57 @@ describe("EventDetailPopover characterization", () => {
     );
   });
 
+  it("does not add an extra day when converting a midnight-ending timed location to all-day", () => {
+    const onDraftUpdate = vi.fn();
+    const event = baseEvent({
+      id: "working-location-draft",
+      title: "",
+      source: "local",
+      start: "2026-08-14T16:00:00.000Z",
+      end: "2026-08-15T00:00:00.000Z",
+      startTimeZone: "America/Los_Angeles",
+      endTimeZone: "America/Los_Angeles",
+      allDay: false,
+      eventType: "workingLocation",
+      workingLocationProperties: {
+        type: "homeOffice",
+        homeOffice: {},
+      },
+    });
+
+    act(() => {
+      root.render(
+        <EventDetailPopover
+          event={event}
+          timezone="America/Los_Angeles"
+          isDraft
+          defaultOpen
+          onDelete={() => undefined}
+          onDraftUpdate={onDraftUpdate}
+        >
+          <button type="button">Open</button>
+        </EventDetailPopover>,
+      );
+    });
+
+    const allDaySwitch =
+      document.querySelector<HTMLButtonElement>('[role="switch"]');
+    expect(allDaySwitch?.getAttribute("aria-checked")).toBe("false");
+
+    act(() => {
+      allDaySwitch?.click();
+    });
+
+    expect(onDraftUpdate).toHaveBeenCalledWith(
+      "working-location-draft",
+      expect.objectContaining({
+        allDay: true,
+        start: "2026-08-14",
+        end: "2026-08-15",
+      }),
+    );
+  });
+
   it("applies Home/Office/Other on a draft immediately and hides Save", () => {
     const onDraftUpdate = vi.fn();
     const event = baseEvent({
