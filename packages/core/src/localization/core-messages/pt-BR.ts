@@ -554,6 +554,13 @@ const messages: AgentChatTranslation = {
     "Controle como o acesso à organização aparece na pesquisa.",
   "share.copied": "Copiado",
   "share.copy": "Copiar",
+  "share.shareWithAgents": "Compartilhar com agentes",
+  "share.agentContext": "Link de contexto do agente",
+  "share.agentContextDescription":
+    "Contexto somente leitura para um agente externo.",
+  "share.preparingAgentLink": "Preparando link do agente...",
+  "share.agentLinkUnavailable": "Não foi possível criar o link do agente.",
+  "share.retryAgentLink": "Tentar novamente",
   "share.editor": "Editor",
   "share.editorDescription": "Pode editar",
   "share.generalAccess": "Acesso geral",
