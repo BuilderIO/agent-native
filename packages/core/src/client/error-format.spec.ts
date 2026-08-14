@@ -127,6 +127,22 @@ describe("formatChatErrorText", () => {
     expect(normalized.message).not.toContain("no body");
   });
 
+  it("normalizes overloaded provider JSON payloads without exposing raw details in the message", () => {
+    const raw =
+      '{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"},"request_id":"req_example"}';
+    const normalized = normalizeChatError(raw);
+
+    expect(normalized.message).toBe(
+      "The model provider is overloaded right now. Wait a moment, then retry.",
+    );
+    expect(normalized.details).toBe(raw);
+    expect(normalized.message).not.toContain("request_id");
+    expect(normalized.message).not.toContain("overloaded_error");
+    expect(formatChatErrorText(raw)).toBe(
+      "Error: The model provider is overloaded right now. Wait a moment, then retry.",
+    );
+  });
+
   it("formats provider rate limits as a plain retryable user message", () => {
     expect(
       formatChatErrorText(

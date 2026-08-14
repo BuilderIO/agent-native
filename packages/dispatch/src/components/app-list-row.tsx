@@ -2,8 +2,7 @@ import type { ReactNode } from "react";
 
 import { cn } from "../lib/utils";
 
-export const APP_LIST_GRID_CLASS =
-  "mx-auto w-full max-w-[1000px] xl:grid xl:grid-cols-2 xl:gap-3 xl:overflow-visible xl:rounded-none xl:bg-transparent";
+export const APP_LIST_GRID_CLASS = "w-full xl:grid xl:grid-cols-2 xl:gap-3";
 export const APP_LIST_GRID_ROW_CLASS =
   "xl:rounded-2xl xl:border xl:border-transparent xl:bg-card xl:transition-[background-color,border-color] xl:hover:border-border xl:focus-within:border-ring/50";
 

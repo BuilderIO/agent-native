@@ -1,3 +1,4 @@
+import type { BlocksFieldIdentity } from "./blocks-field-identity";
 import type {
   DocumentPropertyOptions,
   DocumentPropertyOption,
@@ -6,7 +7,12 @@ import type {
   DocumentPropertyVisibility,
 } from "./properties";
 
-export type DocumentAccessRole = "owner" | "viewer" | "editor" | "admin";
+export type DocumentAccessRole =
+  | "owner"
+  | "viewer"
+  | "commenter"
+  | "editor"
+  | "admin";
 
 export interface ContentContextPathEntry {
   id: string;
@@ -30,6 +36,7 @@ export interface Document {
   visibility?: "private" | "org" | "public";
   accessRole?: DocumentAccessRole;
   canView?: boolean;
+  canComment?: boolean;
   canEdit?: boolean;
   canManage?: boolean;
   source?: DocumentSourceInfo;
@@ -200,6 +207,7 @@ export interface DocumentProperty {
   definition: DocumentPropertyDefinition;
   value: DocumentPropertyValue;
   editable: boolean;
+  blocksField?: BlocksFieldIdentity;
 }
 
 export interface DocumentPropertiesResponse {
@@ -217,6 +225,7 @@ export interface ConfigureDocumentPropertyRequest {
   description?: string;
   visibility?: DocumentPropertyVisibility;
   options?: DocumentPropertyOptions;
+  naturalKey?: boolean;
 }
 
 export interface SetDocumentPropertyRequest {
@@ -224,6 +233,7 @@ export interface SetDocumentPropertyRequest {
   databaseId: string;
   propertyId: string;
   value: DocumentPropertyValue;
+  expectedBlocksFieldRevision?: number;
 }
 
 export interface DuplicateDocumentPropertyRequest {
@@ -249,8 +259,10 @@ export interface ReorderDocumentPropertyRequest {
 export interface ContentDatabase {
   id: string;
   documentId: string;
+  spaceId?: string | null;
   title: string;
   systemRole?: string | null;
+  naturalKeyPropertyId?: string | null;
   description?: string;
   viewConfig: ContentDatabaseViewConfig;
   createdAt: string;
@@ -460,6 +472,62 @@ export interface ContentDatabaseItem {
   // a secondary source contributes on top of it. Absent for non-federated rows.
   canonicalKey?: string | null;
   sourceOverlays?: ContentDatabaseSourceOverlay[];
+  rowRevision?: string;
+}
+
+export interface ContentDatabaseMutationTarget {
+  authorityScope:
+    | { kind: "personal"; id: string }
+    | { kind: "organization"; id: string };
+  spaceId: string;
+  databaseId: string;
+  databaseDocumentId: string;
+}
+
+export interface ContentDatabaseMutationContract {
+  target: ContentDatabaseMutationTarget;
+  schemaRevision: string;
+  naturalKeyPropertyId: string | null;
+  properties: Array<{
+    id: string;
+    name: string;
+    type: DocumentPropertyType;
+    writable: boolean;
+    sourceManaged: boolean;
+    acceptedShape: string | null;
+    options: DocumentPropertyOptions;
+  }>;
+}
+
+export interface ContentDatabaseRowMutationReceipt {
+  receiptId: string;
+  operation: "create" | "update" | "upsert";
+  outcome: "created" | "updated" | "unchanged";
+  target: ContentDatabaseMutationTarget;
+  schemaRevision: string;
+  row: {
+    itemId: string;
+    documentId: string;
+    urlPath: string;
+    rowRevision: string;
+  };
+  affected: { title: boolean; propertyIds: string[] };
+  idempotency: {
+    key: string;
+    result: "applied" | "replayed";
+    payloadDigest: string;
+  };
+  revisions: { before: string | null; after: string };
+  readback: {
+    verified: true;
+    title: string;
+    propertyValues: Record<string, DocumentPropertyValue>;
+  };
+}
+
+export interface ContentDatabaseRowMutationResult {
+  receipt: ContentDatabaseRowMutationReceipt;
+  createdItem?: ContentDatabaseItem;
 }
 
 // A secondary source's read-only contribution to a federated row, matched on the
@@ -819,6 +887,7 @@ export interface ContentDatabaseResponse {
   removedCount?: number;
   timings?: BuilderActionTiming[];
   tableQueryMode?: "server" | "client-required";
+  mutationContract?: ContentDatabaseMutationContract;
   /** Client-only optimistic state while real provider rows are being attached. */
   attachPreview?: {
     sourceTable: string;
@@ -883,9 +952,22 @@ export interface CreateInlineDatabaseResponse {
 }
 
 export interface AddDatabaseItemRequest {
-  databaseId: string;
+  target: ContentDatabaseMutationTarget;
+  expectedSchemaRevision: string;
+  idempotencyKey: string;
   title?: string;
-  propertyValues?: Record<string, DocumentPropertyValue>;
+  propertyValues?: Record<string, unknown>;
+}
+
+export interface UpdateDatabaseItemRequest extends AddDatabaseItemRequest {
+  itemId: string;
+  documentId: string;
+  expectedRowRevision: string;
+}
+
+export interface UpsertDatabaseItemByKeyRequest extends AddDatabaseItemRequest {
+  keyValue: string;
+  expectedRowRevision: string | null;
 }
 
 export interface SubmitContentDatabaseFormRequest {

@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   findSmartBlock,
   isTextLeaf,
+  isSlideTextEditingTarget,
   shouldStampBuilderId,
 } from "./slide-text-targets";
 
@@ -22,5 +23,20 @@ describe("slide text targets", () => {
     expect(findSmartBlock(styledRun, root)).toBe(heading);
     expect(shouldStampBuilderId(styledRun)).toBe(false);
     expect(shouldStampBuilderId(heading)).toBe(true);
+  });
+
+  it("recognizes an active text block even when focus has moved to the page", () => {
+    const block = document.createElement("div");
+    block.contentEditable = "true";
+    block.dataset.editingBlock = "true";
+    const text = document.createElement("span");
+    text.textContent = "editing";
+    block.append(text);
+    document.body.append(block);
+
+    expect(isSlideTextEditingTarget(text, document.body)).toBe(true);
+    expect(isSlideTextEditingTarget(document.body, document.body, block)).toBe(
+      true,
+    );
   });
 });

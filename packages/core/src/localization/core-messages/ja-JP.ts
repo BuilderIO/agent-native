@@ -470,6 +470,8 @@ const messages: AgentChatTranslation = {
   "share.addPeopleOrganization": "組織からユーザーを追加",
   "share.admin": "管理者",
   "share.adminDescription": "編集とアクセス管理が可能",
+  "share.commenter": "コメント投稿者",
+  "share.commenterDescription": "閲覧とコメントの追加が可能",
   "share.advanced": "詳細",
   "share.advancedAccess": "詳細なアクセス設定",
   "share.advancedDescription":

@@ -57,7 +57,7 @@ const messages = {
     commentMode: "コメント",
     sendToAgent: "エージェントに送信",
     sendingToAgent: "エージェントに送信中…",
-    enterToPost: "Enter で投稿 · Shift+Enter で改行",
+    enterToPost: "Enter で投稿 · Shift Enter で改行",
     post: "投稿",
     posting: "投稿中…",
     postFailed: "このコメントを投稿できませんでした",

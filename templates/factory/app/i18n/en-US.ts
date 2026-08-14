@@ -130,6 +130,11 @@ const messages = {
     newFactoryDescription:
       "Describe the work this factory turns into shipped outcomes.",
     selectFactory: "Select factory",
+    backToFactories: "Back to factories",
+    workspaceIntegrations: "Workspace integrations",
+    sourceRouting: "Source routing",
+    sourceRoutingProviders: "Slack, GitHub, and Sentry",
+    agentAccess: "Agent access",
     askAI: "Ask Factory AI",
     factoryViews: "Factory views",
     observeFirst: "Observe-first · shadow mode",
@@ -137,6 +142,8 @@ const messages = {
     mapTitle: "From signal to shipped outcome",
     mapHint: "Select a step or route to edit.",
     unsavedChanges: "Unsaved visual changes",
+    factoryListDescription:
+      "Choose a factory to review its purpose, flow, automations, and recent activity. Start a new one from a minimal blank graph when you want to define a fresh review path.",
     inboxTitle: "Observation inbox",
     inboxDescription: "Evidence entering the factory, before autonomous work.",
     selectObservation:
@@ -144,6 +151,7 @@ const messages = {
     approveAndStart: "Approve and start",
     rulesDescription: "Every rule is shadow-only until deliberately promoted.",
     editRule: "Edit triage rule",
+    editFlow: "Edit flow",
     settingsDescription:
       "Connect Slack, GitHub, and Sentry sources. Automations can dispatch governed work and expose their prompts and runs below.",
     blueprintTitle: "Blueprint mode.",
@@ -154,6 +162,19 @@ const messages = {
     metricRuns: "Runs",
     rulesTab: "Rules",
     automationsTab: "Automations",
+    agentsTab: "Agents",
+    agenticAppsTitle: "Agentic apps",
+    agenticAppsEmpty: "No agentic apps in this workspace yet.",
+    editAppDetails: "Edit app details",
+    editAppDetailsDescription:
+      "Update the shared display name and description for this workspace app.",
+    appName: "Name",
+    appDescription: "Description",
+    openApp: "Open app",
+    saveChanges: "Save changes",
+    appDetailsUpdated: "App details updated",
+    savingChanges: "Saving...",
+    agentsTitle: "Agents",
     auditTab: "Audit",
     auditTitle: "Run audit",
     auditDescription:
@@ -179,6 +200,7 @@ const messages = {
     auditClearBug: "Clear bug",
     auditUxImpact: "UX impact",
     auditOwnerArea: "Owner area",
+    auditGuardsLabel: "Guards",
     automationsTitle: "Automations",
     automationsDescription: "Schedule and run Factory prompts.",
     automationsLoading: "Loading automations...",
@@ -230,6 +252,14 @@ const messages = {
       "Could not load Factory diagnostics. Check access, deployment, and database migrations, then try again.",
     automationEmailReadinessHint:
       "Email uses the organization Dispatch vault. Configure a provider there if this is not ready.",
+    rulesTitle: "Rules",
+    shadowLabel: "Shadow",
+    rulesGuidance:
+      "Use prompts for classification; keep safety in structured guards.",
+    ruleNameLabel: "Name",
+    defaultFactoryLabel: "Default factory",
+    savedFactoryLabel: "Saved factory",
+    saveRule: "Save rule",
   },
   factoryCanvas: {
     dragHint: "Drag to arrange",
@@ -251,6 +281,13 @@ const messages = {
     stepName: "Step name",
     stepDescription: "What happens here",
     agentOwner: "Agent or owner",
+    noTarget: "No linked target",
+    customTarget: "Custom target",
+    reusableAgents: "Reusable agents",
+    agenticApps: "Agentic apps",
+    agentTargetHint: "This factory step uses the selected reusable agent.",
+    appTargetHint: "This factory step delegates to the selected agentic app.",
+    customTargetHint: "Link a shared agent or app when this step is ready.",
     optional: "Optional",
     connectStep: "Connect this step",
     connectDescription:

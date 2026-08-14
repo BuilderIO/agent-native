@@ -545,6 +545,8 @@ const messages: AgentChatTranslation = {
   "share.addPeopleOrganization": "Personen aus deiner Organisation hinzufügen",
   "share.admin": "Admin",
   "share.adminDescription": "Kann den Zugriff bearbeiten und verwalten",
+  "share.commenter": "Kommentator",
+  "share.commenterDescription": "Kann ansehen und Kommentare hinzufügen",
   "share.advanced": "Erweitert",
   "share.advancedAccess": "Erweiterter Zugriff",
   "share.advancedDescription":

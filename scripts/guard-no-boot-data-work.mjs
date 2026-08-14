@@ -42,15 +42,16 @@
  *   // guard:allow-boot-data-work — short reason
  *
  * Same diff-base contract as every guard built on changed-lines.mjs: if the
- * base cannot be resolved we say so loudly and exit 0, because a silent pass
- * here would look identical to a real clean run.
+ * base cannot be resolved the guard exits GUARD_EXIT_COULD_NOT_RUN, which
+ * run-guards.ts reports as SKIPPED, because a silent pass here would look
+ * identical to a real clean run.
  */
 
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { addedLines } from "./lib/changed-lines.mjs";
+import { requireAddedLines } from "./lib/changed-lines.mjs";
 
 const REPO_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -140,16 +141,7 @@ function isStartupContext(line, file) {
   return indent === 0;
 }
 
-const added = addedLines(REPO_ROOT);
-if (added === null) {
-  console.error(
-    "guard-no-boot-data-work: cannot resolve a diff base (no origin/main or main).",
-  );
-  console.error(
-    "  This is NOT a clean result — nothing was checked. Fetch main and re-run.",
-  );
-  process.exit(0);
-}
+const added = requireAddedLines(REPO_ROOT, "guard-no-boot-data-work");
 
 const violations = [];
 for (const [absPath, lineNumbers] of added) {

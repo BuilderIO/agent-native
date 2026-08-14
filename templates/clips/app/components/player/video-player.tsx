@@ -223,7 +223,7 @@ export interface VideoPlayerProps {
    * Viewer role for this recording. When `owner`, we opportunistically capture
    * a visible frame for missing or blank auto-generated library thumbnails.
    */
-  role?: "owner" | "admin" | "editor" | "viewer";
+  role?: "owner" | "admin" | "editor" | "commenter" | "viewer";
   /**
    * Called with the live `<video>` DOM node whenever it is created or
    * destroyed (e.g. swapping to/from the Loom iframe or unsupported-format
@@ -353,6 +353,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const [captionsOn, setCaptionsOn] = useState(false);
     const [hasPlaybackStarted, setHasPlaybackStarted] = useState(false);
     const [isFullscreen, setIsFullscreen] = useState(false);
+    const nativeFullscreenRef = useRef(false);
     const [isPip, setIsPip] = useState(false);
     const [canPlay, setCanPlay] = useState(false);
     const [isPlayPending, setIsPlayPending] = useState(false);
@@ -1362,33 +1363,83 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       const el = containerRef.current;
       const video = videoRef.current as WebkitFullscreenVideo | null;
       if (!el) return;
+      const hasNativeVideoFullscreen =
+        typeof video?.webkitEnterFullscreen === "function";
+      let nativeFullscreenAttempted = false;
       try {
-        if (!document.fullscreenElement) {
-          if (
-            video?.webkitDisplayingFullscreen ||
-            (isFullscreen && video?.webkitExitFullscreen)
-          ) {
-            video?.webkitExitFullscreen?.();
-            setIsFullscreen(false);
-          } else if (typeof el.requestFullscreen === "function") {
-            await el.requestFullscreen();
-            setIsFullscreen(true);
-          } else if (video?.webkitEnterFullscreen) {
-            // iPhone Safari exposes fullscreen on the video element, not the
-            // containing div used by the custom player controls.
-            video.webkitEnterFullscreen();
-            setIsFullscreen(true);
-          } else {
-            console.warn("[clips] Fullscreen unavailable");
-          }
-        } else {
+        if (document.fullscreenElement) {
           await document.exitFullscreen();
           setIsFullscreen(false);
+          return;
         }
+
+        if (nativeFullscreenRef.current || video?.webkitDisplayingFullscreen) {
+          video?.webkitExitFullscreen?.();
+          nativeFullscreenRef.current = false;
+          setIsFullscreen(false);
+          return;
+        }
+
+        // iPhone Safari exposes fullscreen on the video element, not the
+        // containing div used by the custom player controls. Older versions
+        // can expose requestFullscreen on the div without supporting it.
+        const documentFullscreenUnavailable = !document.fullscreenEnabled;
+        if (
+          hasNativeVideoFullscreen &&
+          (documentFullscreenUnavailable ||
+            typeof el.requestFullscreen !== "function")
+        ) {
+          nativeFullscreenAttempted = true;
+          video.webkitEnterFullscreen?.();
+          nativeFullscreenRef.current = true;
+          setIsFullscreen(true);
+          return;
+        }
+
+        if (isFullscreen) {
+          // Keep the control reversible when neither browser fullscreen API
+          // is available and the player is using its fixed-viewport fallback.
+          setIsFullscreen(false);
+          return;
+        }
+
+        if (typeof el.requestFullscreen === "function") {
+          await el.requestFullscreen();
+          if (document.fullscreenElement || !hasNativeVideoFullscreen) {
+            setIsFullscreen(true);
+            return;
+          }
+
+          // A few mobile WebKit versions resolve the container request but do
+          // not enter fullscreen. Retry against the video before falling back
+          // to the in-app fixed viewport.
+          nativeFullscreenAttempted = true;
+          video.webkitEnterFullscreen?.();
+          nativeFullscreenRef.current = true;
+          setIsFullscreen(true);
+          return;
+        }
+
+        if (hasNativeVideoFullscreen) {
+          nativeFullscreenAttempted = true;
+          video.webkitEnterFullscreen?.();
+          nativeFullscreenRef.current = true;
+          setIsFullscreen(true);
+          return;
+        }
+
+        // Keep fullscreen usable in browsers that expose neither API.
+        setIsFullscreen(true);
       } catch (err) {
-        if (video?.webkitEnterFullscreen && !document.fullscreenElement) {
+        if (
+          !nativeFullscreenAttempted &&
+          hasNativeVideoFullscreen &&
+          !document.fullscreenElement
+        ) {
           try {
-            video.webkitEnterFullscreen();
+            nativeFullscreenAttempted = true;
+            video.webkitEnterFullscreen?.();
+            nativeFullscreenRef.current = true;
             setIsFullscreen(true);
             return;
           } catch (fallbackErr) {
@@ -1396,14 +1447,21 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           }
         }
         console.warn("[clips] Fullscreen failed", err);
+        setIsFullscreen(true);
       }
     }
 
     useEffect(() => {
       const video = videoRef.current as WebkitFullscreenVideo | null;
       const onFs = () => setIsFullscreen(!!document.fullscreenElement);
-      const onNativeFsEnter = () => setIsFullscreen(true);
-      const onNativeFsExit = () => setIsFullscreen(false);
+      const onNativeFsEnter = () => {
+        nativeFullscreenRef.current = true;
+        setIsFullscreen(true);
+      };
+      const onNativeFsExit = () => {
+        nativeFullscreenRef.current = false;
+        setIsFullscreen(false);
+      };
       document.addEventListener("fullscreenchange", onFs);
       video?.addEventListener("webkitbeginfullscreen", onNativeFsEnter);
       video?.addEventListener("webkitendfullscreen", onNativeFsExit);
@@ -1456,7 +1514,9 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           // width (see CenterPlaybackOverlay) so it isn't oversized inside
           // small embeds like the Slack unfurl iframe.
           "relative @container bg-black overflow-hidden select-none group",
-          theaterMode ? "fixed inset-0 z-40" : "rounded-xl",
+          theaterMode || isFullscreen
+            ? "fixed inset-0 z-40 h-dvh w-dvw"
+            : "rounded-xl",
           className,
         )}
         onMouseMove={bumpControls}

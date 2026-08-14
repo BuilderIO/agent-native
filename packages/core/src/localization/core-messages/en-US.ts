@@ -468,6 +468,8 @@ const messages = {
   "share.addPeopleOrganization": "Add people from your organization",
   "share.admin": "Admin",
   "share.adminDescription": "Can edit and manage access",
+  "share.commenter": "Commenter",
+  "share.commenterDescription": "Can view and add comments",
   "share.advanced": "Advanced",
   "share.advancedAccess": "Advanced access",
   "share.advancedDescription":

@@ -9,6 +9,7 @@ import { isInBuilderFrame } from "@agent-native/core/client/host";
 import { useBuilderConnectFlow } from "@agent-native/core/client/settings/useBuilderStatus";
 import {
   buildChatFirstAppCreationPrompt,
+  docsUrl,
   getWorkspaceAppIdValidationError,
   titleFromChatFirstAppPrompt,
 } from "@agent-native/core/shared";
@@ -91,8 +92,9 @@ const ERROR_FAILURE_REASONS = new Set([
   "credential-store-unavailable",
   "settings-management-required",
 ]);
-const LOCAL_APP_DOCS_URL =
-  "https://agent-native.com/docs/multi-app-workspace#adding-a-new-app";
+const LOCAL_APP_DOCS_URL = docsUrl("multi-app-workspace", {
+  hash: "adding-a-new-app",
+});
 
 function isErrorFailureReason(reason: string | null): boolean {
   return !!reason && ERROR_FAILURE_REASONS.has(reason);
@@ -319,7 +321,7 @@ export function CreateAppFlow({
         </div>
         <Button asChild className="w-full sm:w-auto">
           <a href={branchUrl} target="_blank" rel="noreferrer">
-            Open Builder branch <IconArrowUpRight aria-hidden="true" />
+            Open in Builder <IconArrowUpRight aria-hidden="true" />
           </a>
         </Button>
       </div>
@@ -583,7 +585,7 @@ export function CreateAppFlow({
                 rel="noreferrer"
                 className="inline-flex items-center gap-1 font-medium text-foreground underline"
               >
-                Open branch <IconArrowUpRight className="h-3 w-3" />
+                Open in Builder <IconArrowUpRight className="h-3 w-3" />
               </a>
             ) : null}
           </div>

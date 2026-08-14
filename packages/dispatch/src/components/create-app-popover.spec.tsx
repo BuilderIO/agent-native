@@ -197,7 +197,7 @@ describe("CreateAppFlow", () => {
     );
     expect(localLink?.textContent).toContain("Create locally");
     expect(localLink?.href).toBe(
-      "https://agent-native.com/docs/multi-app-workspace#adding-a-new-app",
+      "https://www.agent-native.com/docs/multi-app-workspace#adding-a-new-app",
     );
   });
 
@@ -339,7 +339,7 @@ describe("CreateAppFlow", () => {
       });
     });
     const branchLink = Array.from(container.querySelectorAll("a")).find(
-      (candidate) => candidate.textContent?.includes("Open Builder branch"),
+      (candidate) => candidate.textContent?.includes("Open in Builder"),
     );
     expect(branchLink?.getAttribute("href")).toBe(
       "https://branch.example.test",

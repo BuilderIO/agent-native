@@ -105,6 +105,8 @@ const messages = {
     searchLanguages: "搜尋語言...",
     noBlocksFields: "沒有 Blocks 欄位。請從屬性選單新增一個。",
     noDocumentSelected: "未選取檔案",
+    blocksFieldRevisionConflict:
+      "此 Blocks 欄位已在其他位置變更。你的編輯未儲存；現在顯示的是最新版本。",
     couldNotReadLocalSourceFile: "無法讀取本機來源檔案",
     couldNotSaveLocalFile: "無法儲存本機檔案",
     collabConnectingReadOnly: "正在連接即時編輯器。顯示唯讀快照。",
@@ -460,7 +462,7 @@ const messages = {
       equationPlaceholder: String.raw`輸入 LaTeX，例如 \frac{a}{b}`,
       equationPreview: "預覽",
       equationPreviewEmpty: "公式將顯示於此。",
-      equationSubmitHint: "輸入時會即時更新預覽。按 Cmd/Ctrl+Enter 插入。",
+      equationSubmitHint: "輸入時會即時更新預覽。按 Cmd/Ctrl Enter 插入。",
       quote: "報價",
       quoteDescription: "塊報價",
       table: "表",

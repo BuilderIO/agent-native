@@ -17,16 +17,19 @@ describe("<ImageOverlay>", () => {
     const onGenerate = vi.fn();
     const onLibrary = vi.fn();
     const onUpload = vi.fn();
+    const onDownload = vi.fn();
     const onToggleObjectFit = vi.fn();
     const onClose = vi.fn();
 
     render(
       <ImageOverlay
         anchorRect={new DOMRect(200, 80, 300, 200)}
+        src="https://example.com/image.png"
         objectFit="cover"
         onGenerate={onGenerate}
         onLibrary={onLibrary}
         onUpload={onUpload}
+        onDownload={onDownload}
         onToggleObjectFit={onToggleObjectFit}
         onClose={onClose}
       />,
@@ -34,9 +37,18 @@ describe("<ImageOverlay>", () => {
 
     expect(
       screen.getAllByRole("button").map((button) => button.textContent),
-    ).toEqual(["Generate", "Asset Library", "Upload", "Fit: Cover"]);
+    ).toEqual([
+      "Generate",
+      "Asset Library",
+      "Upload",
+      "Download",
+      "Fit: Cover",
+    ]);
     expect(screen.queryByRole("button", { name: "Search" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Logo" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Download" }));
+    expect(onDownload).toHaveBeenCalledTimes(1);
 
     fireEvent.click(screen.getByRole("button", { name: "Fit: Cover" }));
     expect(onToggleObjectFit).toHaveBeenCalledTimes(1);

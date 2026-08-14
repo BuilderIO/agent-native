@@ -512,7 +512,10 @@ async function startDev(): Promise<RunningDev> {
       const retryable =
         !authLocked &&
         (message.includes("database is locked") ||
-          message.includes("SQLITE_BUSY"));
+          message.includes("SQLITE_BUSY") ||
+          message.includes("The database connection is not open") ||
+          message.includes("database connection is not open") ||
+          message.includes("socket hang up"));
       if (!retryable || attempt === devStartAttempts - 1) throw err;
       log(
         `dev startup race (attempt ${attempt + 1}/${devStartAttempts}), retrying…`,
@@ -1002,6 +1005,16 @@ async function runBrowserSmoke(
   // Warmup covers `/` + auto-login + Vite quiet + authenticated session.
   log("warmup: auto-login, Vite dep quiet, authenticated /");
   await waitForAuthenticatedShell(page, baseUrl, running);
+
+  log("warmup: /agent dependencies and Vite dep quiet");
+  await gotoAndWaitForAgentPage(
+    page,
+    running,
+    "/agent",
+    browserErrors,
+    httpErrors,
+  );
+  await waitForViteDepsQuiet(running.viteReload, running.logs);
 
   browserErrors.length = 0;
   httpErrors.length = 0;

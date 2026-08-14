@@ -5,8 +5,8 @@ import {
   IconTrash,
   IconCheck,
   IconChevronDown,
-  IconCopy,
   IconLoader2,
+  IconLink,
   IconSearch,
   IconSearchOff,
   IconShare3,
@@ -73,8 +73,8 @@ export interface ShareButtonProps {
   shareUrlLabel?: string;
   /** Optional helper text for the primary copyable link section. */
   shareUrlDescription?: ReactNode;
-  /** Where to render share links in the popover. Defaults to the bottom,
-   *  matching the historical Google-Docs-style share dialog. */
+  /** Where to render share links in the popover. Defaults to the top,
+   *  keeping the copyable link as the primary share action. */
   shareUrlPlacement?: "top" | "bottom";
   /** Whether to render copyable share URL fields. Defaults to true. */
   showShareLinks?: boolean;
@@ -106,6 +106,8 @@ export interface ShareButtonProps {
   >;
   /** Optional template-specific labels and descriptions for share roles. */
   roleCopy?: Partial<Record<Role, { label?: string; description?: string }>>;
+  /** Optional role capability boundary for resources without comment support. */
+  allowedRoles?: readonly Role[];
   /** Optional label for the explicit per-person access list. */
   peopleAccessLabel?: ReactNode;
   /** Optional label for the coarse visibility control. */
@@ -237,6 +239,13 @@ function roleOptions(
       }),
     },
     {
+      value: "commenter",
+      label: t("agentChat.share.commenter", { defaultValue: "Commenter" }),
+      description: t("agentChat.share.commenterDescription", {
+        defaultValue: "Can view and add comments",
+      }),
+    },
+    {
       value: "editor",
       label: t("agentChat.share.editor", { defaultValue: "Editor" }),
       description: t("agentChat.share.editorDescription", {
@@ -305,6 +314,7 @@ export function ShareButton(props: ShareButtonProps) {
     onOpenChange: props.onOpenChange,
     shareTabs: props.shareTabs,
     shareUrl: props.shareUrl,
+    allowedRoles: props.allowedRoles,
     hideInSearchControl: props.hideInSearchControl,
   });
   const triggerVisibility = controller.triggerVisibility;
@@ -364,7 +374,7 @@ function SharePanel(
   },
 ) {
   const t = useT();
-  const { resourceTitle, controller } = props;
+  const { controller } = props;
   const {
     inviteEmail,
     setInviteEmail: onInviteEmailChange,
@@ -442,246 +452,228 @@ function SharePanel(
     (Boolean(props.shareUrl) ||
       Boolean(props.shareUrlPlaceholder) ||
       Boolean(props.secondaryShareUrl));
-  const shareUrlPlacement = props.shareUrlPlacement ?? "bottom";
-  const extraTabs = props.shareTabs?.tabs ?? [];
+  const shareUrlPlacement = props.shareUrlPlacement ?? "top";
+  const extraTabs =
+    props.shareTabs?.tabs.filter((tab) => tab.value !== "context") ?? [];
   const hasTabs = extraTabs.length > 0;
   const shareTabLabel =
     props.shareTabs?.shareLabel ??
     t("agentChat.share.shareLink", { defaultValue: "Share link" });
 
-  const titleText = resourceTitle
-    ? t("agentChat.share.titleWithResource", {
-        defaultValue: 'Share "{{title}}"',
-        title: resourceTitle,
-      })
-    : t("agentChat.share.titleWithType", {
-        defaultValue: "Share {{type}}",
-        type: props.resourceType,
-      });
-
   const sharePanel = isLoading ? (
     <div>
-      {!hasTabs ? (
-        <div
-          className="mb-3 truncate text-base font-semibold"
-          title={titleText}
-        >
-          {titleText}
-        </div>
+      {showShareLinks ? (
+        <div className="mb-4 h-9 rounded-md bg-muted animate-pulse" />
       ) : null}
+      <div className="mb-2 text-sm font-semibold">{generalAccessLabel}</div>
       <div className="mb-4 h-9 rounded-md bg-muted animate-pulse" />
       <div className="mb-2 text-sm font-semibold">{peopleAccessLabel}</div>
       <div className="mb-4 h-7 rounded-md bg-muted animate-pulse" />
-      <div className="mb-2 text-sm font-semibold">{generalAccessLabel}</div>
-      <div className="mb-4 h-9 rounded-md bg-muted animate-pulse" />
     </div>
   ) : (
     <div>
-      {!hasTabs ? (
-        <div
-          className="mb-3 truncate text-base font-semibold"
-          title={titleText}
-        >
-          {titleText}
-        </div>
-      ) : null}
-
       {showShareLinks && shareUrlPlacement === "top" ? shareLinks : null}
 
-      {canManage ? (
-        <div className="mb-4 space-y-2">
-          <div className="flex items-stretch gap-2">
-            <MemberAutocomplete
-              value={inviteEmail}
-              open={suggestionsOpen}
-              onOpenChange={setSuggestionsOpen}
-              onValueChange={(next) => {
-                onInviteEmailChange(next);
-                if (shareError) setShareError(null);
-              }}
-              onSelectMember={(member) => {
-                onInviteEmailChange(member.email);
-                setSuggestionsOpen(false);
-                if (shareError) setShareError(null);
-              }}
-              onSubmit={handleAdd}
-              placeholder={
-                policy.requireOrgMemberForUserShares
-                  ? t("agentChat.share.addPeopleOrganization", {
-                      defaultValue: "Add people from your organization",
-                    })
-                  : t("agentChat.share.addPeopleEmail", {
-                      defaultValue: "Add people by email",
-                    })
-              }
-              suggestions={memberSuggestions}
-              search={memberSearch}
+      <div className="mb-4">
+        <div className="mb-2 text-sm font-semibold">{generalAccessLabel}</div>
+        <div className="flex items-center gap-3">
+          <span
+            aria-hidden
+            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"
+          >
+            <meta.Icon size={16} strokeWidth={1.75} />
+          </span>
+          <div className="min-w-0 flex-1">
+            <VisibilitySelect
+              value={visibility}
+              onChange={handleVisibility}
+              disabled={!canManage}
+              visibilityCopy={props.visibilityCopy}
+              allowPublic={policy.allowPublic}
             />
-            <RoleSelect
-              value={role}
-              onChange={setRole}
-              roleCopy={props.roleCopy}
-            />
-            <button
-              type="button"
-              onClick={handleAdd}
-              disabled={!hasInviteEmail}
-              className={BUTTON_PRIMARY_SM}
-            >
-              {t("agentChat.share.add", { defaultValue: "Add" })}
-            </button>
-          </div>
-          {shareError ? (
-            <div
-              role="alert"
-              className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
-            >
-              {shareError}
-            </div>
-          ) : null}
-          {hasInviteEmail ? (
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-muted-foreground">
-              <label className="inline-flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={notifyPeople}
-                  onChange={(e) => setNotifyPeople(e.target.checked)}
-                  className="h-4 w-4 rounded border-input accent-primary"
+            <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+              <span className="sr-only">{meta.description}</span>
+              {visibility === "org" && props.hideInSearchControl ? (
+                <AdvancedAccessPopover
+                  control={props.hideInSearchControl}
+                  canManage={canManage}
+                  onToggle={handleHideInSearch}
                 />
-                {t("agentChat.share.notifyPeople", {
-                  defaultValue: "Notify people",
-                })}
-              </label>
-              {notifyPeople ? (
-                <button
-                  type="button"
-                  aria-expanded={messageOpen}
-                  onClick={() => setMessageOpen(!messageOpen)}
-                  className="rounded-sm px-1 py-0.5 font-medium text-foreground underline decoration-border underline-offset-2 transition-colors hover:bg-accent hover:text-accent-foreground"
-                >
-                  {messageOpen
-                    ? t("agentChat.share.hideMessage", {
-                        defaultValue: "Hide message",
-                      })
-                    : t("agentChat.share.addMessage", {
-                        defaultValue: "Add a message",
-                      })}
-                </button>
               ) : null}
             </div>
-          ) : null}
-          {hasInviteEmail && notifyPeople && messageOpen ? (
-            <div className="rounded-md border border-border/70 bg-muted/20 p-2.5">
-              <textarea
-                aria-label={t("agentChat.share.message", {
-                  defaultValue: "Message",
-                })}
-                placeholder={t("agentChat.share.messagePlaceholder", {
-                  defaultValue: "Add a short note (optional)",
-                })}
-                value={shareMessage}
-                onChange={(event) => setShareMessage(event.target.value)}
-                maxLength={500}
-                rows={3}
-                className="w-full resize-y rounded-md border border-input bg-card px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background"
-              />
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-
-      <div className="mb-2 text-sm font-semibold">{peopleAccessLabel}</div>
-      <ul className="mb-4 flex flex-col gap-1 list-none p-0 m-0">
-        {data?.ownerEmail ? (
-          <li className="flex items-center gap-3 px-1 py-1.5 text-sm">
-            <Avatar label={displayName(data.ownerEmail, knownMembers, t)} />
-            <span className="flex-1 min-w-0 truncate">
-              {displayName(data.ownerEmail, knownMembers, t)}
-            </span>
-            <span className="text-xs text-muted-foreground">
-              {t("agentChat.share.owner", { defaultValue: "Owner" })}
-            </span>
-          </li>
-        ) : null}
-        {shares.map((s) => (
-          <li
-            key={keyOf(s)}
-            className={cn(
-              "flex items-center gap-3 px-1 py-1.5 text-sm",
-              inFlight.has(keyOf(s)) && "opacity-60",
-            )}
-          >
-            <Avatar
-              label={principalLabel(s, knownMembers, t)}
-              org={s.principalType === "org"}
-            />
-            <span className="flex-1 min-w-0 truncate">
-              {principalLabel(s, knownMembers, t)}
-            </span>
-            {canManage ? (
-              <RoleSelect
-                value={s.role}
-                onChange={(r) => handleChangeRole(s, r)}
-                disabled={inFlight.has(keyOf(s))}
-                plain
-                roleCopy={props.roleCopy}
-              />
-            ) : (
-              <span className="text-xs text-muted-foreground">
-                {roleMeta(s.role, t, props.roleCopy).label}
-              </span>
-            )}
-            {canManage ? (
-              <button
-                type="button"
-                aria-label={t("agentChat.share.remove", {
-                  defaultValue: "Remove",
-                })}
-                onClick={() => handleRemove(s)}
-                disabled={inFlight.has(keyOf(s))}
-                className={BUTTON_GHOST_ICON}
-              >
-                <IconTrash size={14} />
-              </button>
-            ) : null}
-          </li>
-        ))}
-        {!shares.length && !data?.ownerEmail ? (
-          <li className="px-1 py-1.5 text-sm text-muted-foreground">
-            {t("agentChat.share.noAccess", {
-              defaultValue: "No one has access yet.",
-            })}
-          </li>
-        ) : null}
-      </ul>
-
-      <div className="mb-2 text-sm font-semibold">{generalAccessLabel}</div>
-      <div className="mb-4 flex items-center gap-3">
-        <span
-          aria-hidden
-          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"
-        >
-          <meta.Icon size={16} strokeWidth={1.75} />
-        </span>
-        <div className="min-w-0 flex-1">
-          <VisibilitySelect
-            value={visibility}
-            onChange={handleVisibility}
-            disabled={!canManage}
-            visibilityCopy={props.visibilityCopy}
-            allowPublic={policy.allowPublic}
-          />
-          <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-            <span>{meta.description}</span>
-            {visibility === "org" && props.hideInSearchControl ? (
-              <AdvancedAccessPopover
-                control={props.hideInSearchControl}
-                canManage={canManage}
-                onToggle={handleHideInSearch}
-              />
-            ) : null}
           </div>
         </div>
+      </div>
+
+      <div className="mb-4 space-y-4">
+        <div className="text-sm font-semibold">{peopleAccessLabel}</div>
+        {canManage ? (
+          <div className="space-y-2">
+            <div className="flex items-stretch gap-2">
+              <MemberAutocomplete
+                value={inviteEmail}
+                open={suggestionsOpen}
+                onOpenChange={setSuggestionsOpen}
+                onValueChange={(next) => {
+                  onInviteEmailChange(next);
+                  if (shareError) setShareError(null);
+                }}
+                onSelectMember={(member) => {
+                  onInviteEmailChange(member.email);
+                  setSuggestionsOpen(false);
+                  if (shareError) setShareError(null);
+                }}
+                onSubmit={handleAdd}
+                placeholder={
+                  policy.requireOrgMemberForUserShares
+                    ? t("agentChat.share.addPeopleOrganization", {
+                        defaultValue: "Add people from your organization",
+                      })
+                    : t("agentChat.share.addPeopleEmail", {
+                        defaultValue: "Add people by email",
+                      })
+                }
+                suggestions={memberSuggestions}
+                search={memberSearch}
+              />
+              <RoleSelect
+                value={role}
+                onChange={setRole}
+                roleCopy={props.roleCopy}
+                allowedRoles={props.allowedRoles}
+              />
+              <button
+                type="button"
+                onClick={handleAdd}
+                disabled={!hasInviteEmail}
+                className={BUTTON_PRIMARY_SM}
+              >
+                {t("agentChat.share.add", { defaultValue: "Add" })}
+              </button>
+            </div>
+            {shareError ? (
+              <div
+                role="alert"
+                className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+              >
+                {shareError}
+              </div>
+            ) : null}
+            {hasInviteEmail ? (
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-muted-foreground">
+                <label className="inline-flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={notifyPeople}
+                    onChange={(e) => setNotifyPeople(e.target.checked)}
+                    className="h-4 w-4 rounded border-input accent-primary"
+                  />
+                  {t("agentChat.share.notifyPeople", {
+                    defaultValue: "Notify people",
+                  })}
+                </label>
+                {notifyPeople ? (
+                  <button
+                    type="button"
+                    aria-expanded={messageOpen}
+                    onClick={() => setMessageOpen(!messageOpen)}
+                    className="rounded-sm px-1 py-0.5 font-medium text-foreground underline decoration-border underline-offset-2 transition-colors hover:bg-accent hover:text-accent-foreground"
+                  >
+                    {messageOpen
+                      ? t("agentChat.share.hideMessage", {
+                          defaultValue: "Hide message",
+                        })
+                      : t("agentChat.share.addMessage", {
+                          defaultValue: "Add a message",
+                        })}
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+            {hasInviteEmail && notifyPeople && messageOpen ? (
+              <div className="rounded-md border border-border/70 bg-muted/20 p-2.5">
+                <textarea
+                  aria-label={t("agentChat.share.message", {
+                    defaultValue: "Message",
+                  })}
+                  placeholder={t("agentChat.share.messagePlaceholder", {
+                    defaultValue: "Add a short note (optional)",
+                  })}
+                  value={shareMessage}
+                  onChange={(event) => setShareMessage(event.target.value)}
+                  maxLength={500}
+                  rows={3}
+                  className="w-full resize-y rounded-md border border-input bg-card px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background"
+                />
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        <ul className="flex list-none flex-col gap-1 p-0 m-0">
+          {data?.ownerEmail ? (
+            <li className="flex items-center gap-3 px-1 py-1.5 text-sm">
+              <Avatar label={displayName(data.ownerEmail, knownMembers, t)} />
+              <span className="flex-1 min-w-0 truncate">
+                {displayName(data.ownerEmail, knownMembers, t)}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {t("agentChat.share.owner", { defaultValue: "Owner" })}
+              </span>
+            </li>
+          ) : null}
+          {shares.map((s) => (
+            <li
+              key={keyOf(s)}
+              className={cn(
+                "flex items-center gap-3 px-1 py-1.5 text-sm",
+                inFlight.has(keyOf(s)) && "opacity-60",
+              )}
+            >
+              <Avatar
+                label={principalLabel(s, knownMembers, t)}
+                org={s.principalType === "org"}
+              />
+              <span className="flex-1 min-w-0 truncate">
+                {principalLabel(s, knownMembers, t)}
+              </span>
+              {canManage ? (
+                <RoleSelect
+                  value={s.role}
+                  onChange={(r) => handleChangeRole(s, r)}
+                  disabled={inFlight.has(keyOf(s))}
+                  plain
+                  roleCopy={props.roleCopy}
+                  allowedRoles={props.allowedRoles}
+                />
+              ) : (
+                <span className="text-xs text-muted-foreground">
+                  {roleMeta(s.role, t, props.roleCopy).label}
+                </span>
+              )}
+              {canManage ? (
+                <button
+                  type="button"
+                  aria-label={t("agentChat.share.remove", {
+                    defaultValue: "Remove",
+                  })}
+                  onClick={() => handleRemove(s)}
+                  disabled={inFlight.has(keyOf(s))}
+                  className={BUTTON_GHOST_ICON}
+                >
+                  <IconTrash size={14} />
+                </button>
+              ) : null}
+            </li>
+          ))}
+          {!shares.length && !data?.ownerEmail ? (
+            <li className="px-1 py-1.5 text-sm text-muted-foreground">
+              {t("agentChat.share.noAccess", {
+                defaultValue: "No one has access yet.",
+              })}
+            </li>
+          ) : null}
+        </ul>
       </div>
 
       {shareError && !canManage ? (
@@ -1147,32 +1139,33 @@ function CopyLinkField({
   };
 
   return (
-    <div className="mb-4">
-      <div className="mb-2 text-sm font-semibold">
-        {label ??
-          t("agentChat.share.shareLink", { defaultValue: "Share link" })}
+    <div className="mb-4 flex items-center justify-between gap-4">
+      <div className="min-w-0">
+        <div className="text-sm font-semibold">
+          {label ??
+            t("agentChat.share.shareLink", { defaultValue: "Share link" })}
+        </div>
+        {description ? (
+          <div className="mt-1 text-xs text-muted-foreground">
+            {description}
+          </div>
+        ) : null}
       </div>
-      {description ? (
-        <div className="mb-2 text-xs text-muted-foreground">{description}</div>
-      ) : null}
-      <div className="flex min-w-0 items-center gap-2">
-        <input
-          readOnly
-          value={value}
-          className="h-9 min-w-0 flex-1 rounded-md border border-input bg-card px-3 text-sm text-muted-foreground outline-none"
-          onFocus={(event) => event.currentTarget.select()}
-        />
-        <button
-          type="button"
-          onClick={handleCopy}
-          className="inline-flex h-9 shrink-0 items-center gap-2 rounded-md border border-input bg-card px-3 text-sm font-medium text-foreground hover:bg-accent"
-        >
-          {copied ? <IconCheck size={15} /> : <IconCopy size={15} />}
-          {copied
+      <button
+        type="button"
+        onClick={handleCopy}
+        aria-label={
+          copied
             ? t("agentChat.share.copied", { defaultValue: "Copied" })
-            : t("agentChat.share.copy", { defaultValue: "Copy" })}
-        </button>
-      </div>
+            : t("agentChat.share.copy", { defaultValue: "Copy" })
+        }
+        className="inline-flex h-9 shrink-0 items-center gap-2 whitespace-nowrap rounded-md border border-input bg-card px-3 text-sm font-medium text-foreground hover:bg-accent"
+      >
+        {copied ? <IconCheck size={15} /> : <IconLink size={15} />}
+        {copied
+          ? t("agentChat.share.copied", { defaultValue: "Copied" })
+          : t("agentChat.share.copy", { defaultValue: "Copy" })}
+      </button>
     </div>
   );
 }
@@ -1227,13 +1220,19 @@ function RoleSelect(props: {
    *  the per-person role picker in Google Docs. */
   plain?: boolean;
   roleCopy?: ShareButtonProps["roleCopy"];
+  allowedRoles?: ShareButtonProps["allowedRoles"];
 }) {
   const t = useT();
-  const options = roleOptions(t).map((option) =>
-    roleMeta(option.value, t, props.roleCopy),
-  );
-  const current =
-    options.find((option) => option.value === props.value) ?? options[0];
+  const allOptions = roleOptions(t);
+  const current = roleMeta(props.value, t, props.roleCopy);
+  const allowedRoles =
+    props.allowedRoles ?? allOptions.map((item) => item.value);
+  const options = allOptions
+    .filter(
+      (option) =>
+        option.value === props.value || allowedRoles.includes(option.value),
+    )
+    .map((option) => roleMeta(option.value, t, props.roleCopy));
   return (
     <Select.Root
       value={props.value}

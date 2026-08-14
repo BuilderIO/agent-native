@@ -47,22 +47,23 @@ gates still apply before merging.
 
 **Step 0 — always do this first, before anything else:**
 
-1. Run `git status --short` to check for local uncommitted changes from concurrent agents.
-2. If stable safe paths exist: look at `git diff --stat` for that slice, then write a descriptive commit message based on the actual changes (e.g. "feat(tools): add error toast + dark mode sync" or "fix(analytics): update sidebar layout"). Never use generic messages like "chore: sweep concurrent agent changes".
-3. Stage every current non-ignored path, including leased or peer-owned files,
-   excluding only partial hunks, `bridge/**`, `data/**`, `learnings.md`, and
-   ignored/personal files. Stage whole files. If the hook rejects one path,
-   unstage only it and run `git commit -m "<descriptive message>" && git push`
-   for the rest immediately.
-4. Run `git log --oneline origin/<branch>..HEAD` to check for local commits not yet on the remote.
-5. If any unpushed commits exist: `git push` immediately.
-6. If one path cannot be staged, name it and push the rest; do not wait for a
-   complete clean slice or for the whole branch to settle. Keep the two-minute
-   batching cadence.
+```bash
+pnpm ship:push
+```
 
-This ensures every tick starts with the latest local snapshot on the PR while
-preserving peer editing boundaries. The worktree need not be clean until the
-final merge soak. Never skip this step.
+One command: it stages every current non-ignored path as whole files
+(including leased and peer-owned ones), excludes only `bridge/**`, `data/**`,
+and `learnings.md`, commits, pushes, and verifies the remote sha moved. It also
+covers the case where the tree is clean but commits are unpushed. Whatever it
+prints under "left behind" goes into your tick report by name.
+
+Prefer a real message for a coherent slice — `pnpm ship:push -m "fix(analytics):
+update sidebar layout"` — over the generated one. Never write "chore: sweep
+concurrent agent changes".
+
+Every tick starts here, no exceptions: on an active shared branch the tree is
+dirty again within minutes, so "I already pushed" is never a reason to skip it.
+The worktree need not be clean until the final merge soak.
 
 **Never `git stash` concurrent changes.** Stashes get orphaned, and a stash named `babysit-tickN-concurrent-work-*` left on the source branch while babysit-pr's PR ships without it is exactly how real work has been lost (2026-05-05: stash@{0} held a Sentry-instrumentation feature for clips, including a new `analytics.ts` module, that was meant to merge with PR #511's followup but stayed stuck in the stash list because babysit stashed instead of committing). If you see local changes you don't recognize, that's still other agents' work — commit it with a descriptive message based on the diff, don't hide it in a stash.
 

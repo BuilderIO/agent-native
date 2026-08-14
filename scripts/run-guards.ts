@@ -1,6 +1,8 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import os from "node:os";
 
+import { resultStatus, summarizeGuardRun } from "./lib/guard-run-summary";
+
 const guards = [
   "guard:no-drizzle-push",
   "guard:no-pnpm-patches",
@@ -49,10 +51,12 @@ const guards = [
   "guard:no-raw-colors",
   "guard:persistent-compositing",
   "guard:help-icon-scale",
+  "guard:no-default-chrome",
   "guard:no-boot-data-work",
   "guard:no-heavy-dashboard-list-reads",
   "guard:dead-settings-keys",
   "guard:serverless-function-payload",
+  "guard:hooks-registered",
 ] as const;
 
 type GuardName = (typeof guards)[number];
@@ -84,6 +88,9 @@ if (args.unknown.length > 0) {
 }
 
 const concurrency = resolveConcurrency(args.concurrency);
+
+/** Skips are tolerable on a shallow local clone; in CI they mean nothing was reviewed. */
+const strictSkips = Boolean(process.env.CI) && !process.env.GUARD_ALLOW_SKIPS;
 
 if (args.dryRun) {
   console.log(
@@ -121,18 +128,9 @@ console.error(
 );
 
 const results = await runAll(numericConcurrency);
-const failures = results.filter((result) => result.code !== 0 || result.signal);
-
-if (failures.length > 0) {
-  console.error(
-    `[guards] ${failures.length} check(s) failed: ${failures
-      .map((failure) => failure.name)
-      .join(", ")}`,
-  );
-  process.exit(1);
-}
-
-console.error("[guards] All checks passed");
+const summary = summarizeGuardRun(results, { strictSkips });
+console.error(summary.message);
+process.exit(summary.exitCode);
 
 async function runAll(concurrency: number): Promise<GuardResult[]> {
   const queue = [...guards];
@@ -187,7 +185,7 @@ function runGuard(name: GuardName): Promise<GuardResult> {
 }
 
 function printResult(result: GuardResult) {
-  const status = result.code === 0 && !result.signal ? "PASS" : "FAIL";
+  const status = resultStatus(result);
   const elapsed = formatElapsed(result.elapsedMs);
 
   if (result.output.trim().length > 0) {

@@ -55,13 +55,13 @@ import {
 import {
   humanizeToolName,
   isCallAgentToolCallShadowed,
+  isToolCallActive,
 } from "../tool-display.js";
 import { cn } from "../utils.js";
 import { ActionChatUiSurface } from "./action-chat-ui-surface.js";
 import {
   SmoothMarkdownText,
   HighlightedCodeBlock,
-  useSmoothStreamingText,
 } from "./markdown-renderer.js";
 import { resolveToolRenderer } from "./tool-render-registry.js";
 import {
@@ -584,9 +584,9 @@ function ApprovalAffordance({
     );
   }
   return (
-    <div className="mt-1.5 flex items-center gap-2 rounded-md border border-border bg-muted/40 px-2.5 py-1.5">
+    <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-2 rounded-md border border-border bg-muted/40 px-2.5 py-1.5">
       <IconShieldCheck className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-      <span className="me-auto text-xs text-muted-foreground">
+      <span className="min-w-0 flex-1 text-xs text-muted-foreground">
         {t("agentChat.approval.question", { tool: toolName })}
       </span>
       {ctx && (
@@ -602,7 +602,7 @@ function ApprovalAffordance({
             ctx.onApprove(approval.approvalKey);
           }}
           className={cn(
-            "inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+            "inline-flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
             "bg-foreground text-background hover:bg-foreground/90",
           )}
         >
@@ -624,7 +624,7 @@ function ApprovalAffordance({
           }}
           title={t("agentChat.approval.alwaysAllowHint")}
           className={cn(
-            "inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs font-medium transition-colors",
+            "inline-flex shrink-0 items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs font-medium transition-colors",
             "text-foreground hover:bg-muted",
           )}
         >
@@ -640,7 +640,7 @@ function ApprovalAffordance({
           ctx?.onDeny?.(approval.approvalKey);
         }}
         className={cn(
-          "inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs font-medium transition-colors",
+          "inline-flex shrink-0 items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs font-medium transition-colors",
           "text-foreground hover:bg-muted",
         )}
       >
@@ -664,6 +664,7 @@ export function ToolCallDisplay({
   isRunning,
   outcome,
   structuredMeta,
+  activity,
   approval,
   repeatCount,
   isLatestRunning = isRunning,
@@ -680,6 +681,7 @@ export function ToolCallDisplay({
   /** "unknown": the stream ended mid-flight, so the side effect may have landed. */
   outcome?: "unknown";
   structuredMeta?: Record<string, unknown>;
+  activity?: boolean;
   approval?: { approvalKey: string; dismissed?: boolean };
   repeatCount?: number;
   /** The latest tool shown while the overall chat turn is still active. */
@@ -687,6 +689,19 @@ export function ToolCallDisplay({
   /** @deprecated Use isActiveTail. */
   isLatestRunning?: boolean;
 }) {
+  const isDelegatedAgentCall =
+    toolName === "call-agent" || toolName.startsWith("agent:");
+  const effectiveIsRunning =
+    isRunning ||
+    (isDelegatedAgentCall &&
+      isToolCallActive({
+        type: "tool-call",
+        toolName,
+        result,
+        outcome,
+        activity,
+        structuredMeta,
+      }));
   const showActiveTail = isActiveTail ?? isLatestRunning;
   // Delegate to bespoke cells when structured metadata is present.
   // These must be separate components so hook order in ToolCallDisplayGeneric
@@ -695,7 +710,7 @@ export function ToolCallDisplay({
   const wrapToolDisplay = (children: React.ReactNode) => (
     <ToolActivityPresentation
       toolName={toolName}
-      isRunning={isRunning}
+      isRunning={effectiveIsRunning}
       toolCallId={toolCallId}
       suppressLongRunningHint={
         toolName === "call-agent" || toolName.startsWith("agent:")
@@ -711,7 +726,7 @@ export function ToolCallDisplay({
           structuredMeta as unknown as Parameters<typeof BashCell>[0]["meta"]
         }
         output={result}
-        isRunning={isRunning}
+        isRunning={effectiveIsRunning}
       />,
     );
   }
@@ -721,7 +736,7 @@ export function ToolCallDisplay({
         meta={
           structuredMeta as unknown as Parameters<typeof EditCell>[0]["meta"]
         }
-        isRunning={isRunning}
+        isRunning={effectiveIsRunning}
       />,
     );
   }
@@ -731,7 +746,7 @@ export function ToolCallDisplay({
         meta={
           structuredMeta as unknown as Parameters<typeof WriteCell>[0]["meta"]
         }
-        isRunning={isRunning}
+        isRunning={effectiveIsRunning}
       />,
     );
   }
@@ -744,7 +759,7 @@ export function ToolCallDisplay({
       result={result}
       mcpApp={mcpApp}
       chatUI={chatUI}
-      isRunning={isRunning}
+      isRunning={effectiveIsRunning}
       outcome={outcome}
       isActiveTail={showActiveTail}
       structuredMeta={structuredMeta}
@@ -1284,12 +1299,20 @@ export function ToolCallFallback({
   isActiveTail?: boolean;
 }) {
   const chatRunning = React.useContext(ChatRunningContext);
-  // A spinner is a claim that something is running right now, so it needs an
-  // actually-running chat. `chatRunning` already stays true across
-  // auto-continuation gaps and server-active runs (resolveAssistantChatRunningState),
-  // so an activity placeholder alone must never resurrect one on rehydrated
-  // history.
-  const isRunning = result === undefined && chatRunning;
+  // `chatRunning` covers ordinary live activity. An unresolved tool or a
+  // delegated-agent row is also explicit work evidence, while a generic
+  // activity placeholder alone must stay frozen when history is rehydrated.
+  const isRunning =
+    rest.outcome !== "unknown" &&
+    ((result === undefined && chatRunning) ||
+      isToolCallActive({
+        type: "tool-call",
+        toolName,
+        result,
+        outcome: rest.outcome,
+        activity: rest.activity,
+        structuredMeta: rest.structuredMeta,
+      }));
   return (
     <ToolCallDisplay
       toolName={toolName}
@@ -1306,6 +1329,7 @@ export function ToolCallFallback({
       mcpApp={rest.mcpApp}
       chatUI={rest.chatUI}
       structuredMeta={rest.structuredMeta}
+      activity={rest.activity}
       isRunning={isRunning}
       outcome={rest.outcome}
       isActiveTail={rest.isActiveTail}
@@ -1386,6 +1410,7 @@ export function ReconnectStreamMessage({
         mcpApp={part.mcpApp}
         chatUI={part.chatUI}
         structuredMeta={part.structuredMeta}
+        activity={part.activity}
         outcome={part.outcome}
         isRunning={
           part.result === undefined &&
@@ -1527,7 +1552,6 @@ const WorkSummaryContentContext = React.createContext(false);
 export function ReasoningCell({
   text,
   isStreaming = false,
-  resetKey,
   defaultOpen,
   autoCollapse = false,
   collapseWhenReplaced = false,
@@ -1535,7 +1559,7 @@ export function ReasoningCell({
 }: {
   text: string;
   isStreaming?: boolean;
-  /** Stable identity used to restart the reveal when a new reasoning part mounts. */
+  /** Stable identity retained for callers; reasoning renders chunk-natively. */
   resetKey?: string;
   defaultOpen?: boolean;
   /** Animate closed when a live reasoning segment finishes during a run. */
@@ -1557,11 +1581,10 @@ export function ReasoningCell({
   const wasStreamingRef = useRef(isStreaming);
   const wasReplacedRef = useRef(collapseWhenReplaced);
   const trimmed = text.trim();
-  const visibleText = useSmoothStreamingText(
-    trimmed,
-    isStreaming,
-    resetKey ?? "reasoning",
-  );
+  // Reasoning is already a compact live status surface. Rendering the latest
+  // chunk directly avoids a second character-level queue that can lag behind
+  // the model and make the surrounding chat look like it is jumping.
+  const visibleText = trimmed;
 
   useEffect(() => {
     if (autoCollapse && wasStreamingRef.current && !isStreaming) {

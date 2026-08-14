@@ -372,6 +372,13 @@ async function checkCatalogDir(dir: string): Promise<string[]> {
     errors.push(...target.errors.map((error) => `${relDir}: ${error}`));
     if (target.errors.length > 0) continue;
     errors.push(
+      ...checkCatalogDevelopmentMarkers({
+        relDir,
+        locale,
+        target: target.flat,
+      }),
+    );
+    errors.push(
       ...compareCatalogs({
         relDir,
         locale: locale as LocaleCode,
@@ -382,6 +389,21 @@ async function checkCatalogDir(dir: string): Promise<string[]> {
     );
   }
 
+  return errors;
+}
+
+export function checkCatalogDevelopmentMarkers(args: {
+  relDir: string;
+  locale: string;
+  target: FlatCatalog;
+}) {
+  const errors: string[] = [];
+  for (const [key, value] of args.target) {
+    if (!/\s\(Localizado\)/.test(value)) continue;
+    errors.push(
+      `${args.relDir}/${args.locale}: ${key} contains the development-only localization marker "(Localizado)" — remove it before shipping`,
+    );
+  }
   return errors;
 }
 

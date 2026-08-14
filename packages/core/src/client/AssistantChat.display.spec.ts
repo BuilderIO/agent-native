@@ -30,6 +30,7 @@ import {
   assistantUiRecoverableRenderErrorKind,
   createUserMessageRunConfig,
   dedupeReconnectContentAgainstMessages,
+  shouldShowReconnectOverlay,
   hoistQueuedMessageToFront,
   displayableUserMessageText,
   isAssistantUiRecoverableRenderError,
@@ -1370,15 +1371,22 @@ describe("missing agent engine setup", () => {
       "src/client/chat/message-components.tsx",
       { encoding: "utf8" },
     );
+    const messageScroller = readFileSync(
+      "src/client/components/ui/message-scroller.tsx",
+      { encoding: "utf8" },
+    );
 
     expect(source).toContain("hasComposerAccessoryAboveStack");
     expect(source).toContain("data-agent-composer-adjacent-ui");
-    expect(source).toContain("useNearBottomAutoscroll<HTMLDivElement>");
+    expect(source).toContain("<AssistantChatScrollerControls");
     expect(source).toContain(
       "if (!hideUserMessage) resumeFollowingRef.current()",
     );
-    expect(source).toContain('"agentChat.composer.scrollToBottom"');
-    expect(source).toContain("autoScroll={false}");
+    expect(messageScroller).toContain('"agentChat.composer.scrollToBottom"');
+    expect(source).toContain("<MessageScrollerButton />");
+    expect(source).toMatch(/<MessageScrollerProvider[\s\S]*?\bautoScroll\b/);
+    expect(source).not.toContain("autoScroll={false}");
+    expect(source).not.toContain("useNearBottomAutoscroll<HTMLDivElement>");
     expect(source).not.toContain("scrollAnchor");
     expect(source).toContain("composerContextItems.length > 0");
     expect(source).toContain('className="agent-composer-stack"');
@@ -1436,6 +1444,26 @@ describe("missing agent engine setup", () => {
   });
 });
 
+describe("tool approval continuation", () => {
+  it("keeps the approval acknowledgement out of visible chat history", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const start = source.indexOf("onApprove: (approvalKey: string) => {");
+    const end = source.indexOf("...(approvalActions?.onDeny", start);
+    const approvalSource = source.slice(start, end);
+
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    expect(approvalSource).toContain(
+      '"Approved. Go ahead and run the requested action."',
+    );
+    expect(approvalSource).toContain(
+      "true, // hideUserMessage: this is a protocol continuation, not a new prompt",
+    );
+  });
+});
+
 describe("chat connection suggestion alignment", () => {
   it("uses the fullscreen composer width contract and removes page-only insets", () => {
     const panelSource = readFileSync("src/client/AgentPanel.tsx", {
@@ -1458,6 +1486,23 @@ describe("chat connection suggestion alignment", () => {
     expect(suggestionSource).toContain(
       "agent-mcp-connection-suggestion-error--composer",
     );
+  });
+
+  it("keeps response connection cards before collapsible assistant work", () => {
+    const messageSource = readFileSync(
+      "src/client/chat/message-components.tsx",
+      { encoding: "utf8" },
+    );
+    const cardIndex = messageSource.indexOf(
+      "<McpConnectionSuggestion\n            text={responseConnectionText}",
+    );
+    const workStackIndex = messageSource.indexOf(
+      "<ToolCallStackMotion>",
+      cardIndex,
+    );
+
+    expect(cardIndex).toBeGreaterThan(-1);
+    expect(workStackIndex).toBeGreaterThan(cardIndex);
   });
 });
 
@@ -2355,7 +2400,9 @@ describe("waitForThreadRunToClear", () => {
     expect(renderSource).toContain("visibleReconnectContent.length > 0");
     expect(renderSource).toContain("visibleReconnectContent.length === 0");
     expect(renderSource).toContain("reconnectContent.length === 0");
-    expect(renderSource).toContain("adapterHandoffPending");
+    // The overlay is a second fold of the run; it may only render while no
+    // adapter runtime owns the turn. See the showReconnectOverlay tests below.
+    expect(renderSource).toContain("showReconnectOverlay");
     expect(renderSource.replace(/\s+/g, "")).toContain(
       "allowActivitySpinner={!reconnectFrozen}",
     );
@@ -2547,18 +2594,61 @@ describe("server thread snapshot caching", () => {
   });
 });
 
-describe("adapter reconnect handoff", () => {
-  it("defers wiping reconnect content until the adapter message catches up", () => {
-    const source = readFileSync("src/client/AssistantChat.tsx", {
-      encoding: "utf8",
-    });
-    expect(source).toContain("adapterHandoffPending");
-    expect(source).toContain("setAdapterHandoffPending(true)");
-    expect(source).toContain("suppressToolRepeats: adapterHandoffPending");
-    expect(source).toContain("Do not memoize this on `messages` identity");
-    expect(source).toMatch(
-      /\(isReconnecting \|\|\s+reconnectFrozen \|\|\s+adapterHandoffPending\)/,
-    );
+describe("shouldShowReconnectOverlay", () => {
+  // The reconnect overlay is a second, independent fold of the same run. Every
+  // duplicate-render report traces back to it being on screen at the same time
+  // as the adapter's own message. Ownership decides visibility here, so these
+  // assert behavior rather than grepping the render source.
+  it("hides the overlay whenever a runtime owns the turn", () => {
+    expect(
+      shouldShowReconnectOverlay({
+        isRuntimeRunning: true,
+        isReconnecting: true,
+        reconnectFrozen: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldShowReconnectOverlay({
+        isRuntimeRunning: true,
+        isReconnecting: false,
+        reconnectFrozen: true,
+      }),
+    ).toBe(false);
+    // Both readers claiming the turn at once is the exact duplicate-render case.
+    expect(
+      shouldShowReconnectOverlay({
+        isRuntimeRunning: true,
+        isReconnecting: true,
+        reconnectFrozen: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("shows the overlay only when no runtime is streaming", () => {
+    expect(
+      shouldShowReconnectOverlay({
+        isRuntimeRunning: false,
+        isReconnecting: true,
+        reconnectFrozen: false,
+      }),
+    ).toBe(true);
+    expect(
+      shouldShowReconnectOverlay({
+        isRuntimeRunning: false,
+        isReconnecting: false,
+        reconnectFrozen: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("stays hidden when there is nothing to reconnect", () => {
+    expect(
+      shouldShowReconnectOverlay({
+        isRuntimeRunning: false,
+        isReconnecting: false,
+        reconnectFrozen: false,
+      }),
+    ).toBe(false);
   });
 });
 
@@ -2642,6 +2732,16 @@ describe("assistantUiRecoverableRenderErrorKind", () => {
         ),
       ),
     ).toBe("assistant-ui-react-fiber-unmount");
+  });
+
+  it("matches React maximum update depth crashes from assistant-ui streaming", () => {
+    expect(
+      assistantUiRecoverableRenderErrorKind(
+        new Error(
+          "Minified React error #185; visit https://react.dev/errors/185",
+        ),
+      ),
+    ).toBe("assistant-ui-react-update-depth");
   });
 
   it("matches duplicate resource-key crashes from assistant-ui composer state", () => {

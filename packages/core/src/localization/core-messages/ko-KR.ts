@@ -462,6 +462,8 @@ const messages: AgentChatTranslation = {
   "share.addPeopleOrganization": "조직에서 사용자 추가",
   "share.admin": "관리자",
   "share.adminDescription": "편집 및 접근 권한 관리 가능",
+  "share.commenter": "댓글 작성자",
+  "share.commenterDescription": "보기 및 댓글 추가 가능",
   "share.advanced": "고급",
   "share.advancedAccess": "고급 접근 권한",
   "share.advancedDescription":

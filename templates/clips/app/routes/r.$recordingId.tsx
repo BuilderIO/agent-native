@@ -310,6 +310,10 @@ export default function RecordingPage() {
           readyMediaPollRef.current = null;
           return 1000;
         }
+        if (rec.seekableRepairPending === true) {
+          readyMediaPollRef.current = null;
+          return READY_MEDIA_SETTLE_POLL_INTERVAL_MS;
+        }
         // Fresh streaming uploads can become `ready` before the background
         // seekable/faststart repair swaps in the final player URL. Keep polling
         // briefly so the first post-recording page catches that URL update
@@ -319,6 +323,7 @@ export default function RecordingPage() {
           rec.durationMs ?? "",
           rec.videoSizeBytes ?? "",
           rec.videoFormat ?? "",
+          rec.updatedAt ?? "",
         ].join(":");
         const now = Date.now();
         if (readyMediaPollRef.current?.key !== mediaKey) {
@@ -379,6 +384,7 @@ export default function RecordingPage() {
     | "owner"
     | "admin"
     | "editor"
+    | "commenter"
     | "viewer"
     | undefined;
   const comments = playerDataQ.data?.comments ?? [];
@@ -391,6 +397,11 @@ export default function RecordingPage() {
   const transcriptCleanup = playerDataQ.data?.transcript?.cleanup ?? null;
   const ctas = playerDataQ.data?.ctas ?? [];
   const canEdit = role === "owner" || role === "admin" || role === "editor";
+  const canComment =
+    role === "owner" ||
+    role === "admin" ||
+    role === "editor" ||
+    role === "commenter";
   useEffect(() => {
     if (!canEdit && (panel === "insights" || panel === "settings")) {
       setPanel("comments");
@@ -518,6 +529,18 @@ export default function RecordingPage() {
   const canDownloadRecording = Boolean(
     recording?.enableDownloads && recording.videoUrl && !isLoomEmbedBacked,
   );
+  // Mirrors the /share/:shareId reshare restriction (same public/org scope):
+  // a plain viewer of a public or org clip must not trigger
+  // `list-resource-shares` (any read access is enough to call it, and its
+  // response includes every individually-shared principal's email) or see a
+  // raw video download/open action independent of `enableDownloads`.
+  const viewerReshareOnly =
+    (role === "viewer" || role === "commenter") &&
+    (recording?.visibility === "public" || recording?.visibility === "org");
+  const shareVideoUrl =
+    canDownloadRecording || isLoomEmbedBacked
+      ? (recording?.videoUrl ?? null)
+      : null;
   const downloadRecording = useCallback(async () => {
     if (!recording?.videoUrl) return;
     setDownloading(true);
@@ -956,7 +979,7 @@ export default function RecordingPage() {
               variant="ghost"
               size="icon"
               className="shrink-0"
-              aria-label={t("recordingPage.back")}
+              aria-label={t("recordingPage.backToLibrary")}
             >
               <Link to="/library" replace>
                 <IconArrowLeft className="h-4 w-4 rtl:-scale-x-100" />
@@ -977,6 +1000,7 @@ export default function RecordingPage() {
               initialVisibility={recording.visibility}
               initialRole={role}
               hasPassword={Boolean(recording.hasPassword)}
+              viewerReshareOnly={viewerReshareOnly}
             >
               <Button className="shrink-0 gap-1.5" size="sm">
                 {recording.visibility !== "public" ? (
@@ -1051,11 +1075,7 @@ export default function RecordingPage() {
         <p className="text-sm text-muted-foreground mb-4 max-w-md text-center">
           {failureReason}
         </p>
-        {isFailure &&
-        !storageSetupFailure &&
-        detail &&
-        role &&
-        role !== "viewer" ? (
+        {isFailure && !storageSetupFailure && detail && role && canEdit ? (
           <div className="mb-4 w-full max-w-xl rounded-md border border-border bg-card p-4 text-start shadow-sm">
             <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
               {t("recordingPage.details")}
@@ -1254,6 +1274,7 @@ export default function RecordingPage() {
             currentMs={currentMs}
             currentUserEmail={session?.email}
             enableComments={recording.enableComments}
+            canComment={canComment}
             onSeek={(ms) => playerRef.current?.seek(ms)}
             queryKey={[
               "action",
@@ -1302,11 +1323,14 @@ export default function RecordingPage() {
             asChild
             variant="ghost"
             size="icon"
-            className="shrink-0"
-            aria-label={t("recordingPage.back")}
+            className="shrink-0 sm:w-auto sm:px-2"
+            aria-label={t("recordingPage.backToLibrary")}
           >
             <Link to="/library" replace>
               <IconArrowLeft className="h-4 w-4 rtl:-scale-x-100" />
+              <span className="hidden sm:inline">
+                {t("recordingPage.backToLibrary")}
+              </span>
             </Link>
           </Button>
           <div className="flex-1 min-w-0">
@@ -1539,11 +1563,12 @@ export default function RecordingPage() {
               recordingTitle={recording.title}
               initialVisibility={recording.visibility}
               initialRole={role}
-              videoUrl={recording.videoUrl}
+              videoUrl={shareVideoUrl}
               thumbnailUrl={recording.thumbnailUrl}
               animatedThumbnailUrl={recording.animatedThumbnailUrl}
               isLoomRecording={isLoomEmbedBacked}
               hasPassword={Boolean(recording.hasPassword)}
+              viewerReshareOnly={viewerReshareOnly}
             >
               <Button
                 className="shrink-0 gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90"
@@ -1589,10 +1614,9 @@ export default function RecordingPage() {
                   onVideoElementChange={setTrackedVideoEl}
                   recordingId={recording.id}
                   videoUrl={recording.videoUrl}
-                  mediaVersion={[
-                    recording.videoSizeBytes ?? "",
-                    recording.updatedAt ?? "",
-                  ].join(":")}
+                  mediaVersion={
+                    recording.mediaUpdatedAt ?? recording.videoSizeBytes ?? null
+                  }
                   videoFormat={recording.videoFormat}
                   embedProvider={isLoomEmbedBacked ? "loom" : null}
                   durationMs={recording.durationMs}
@@ -1615,7 +1639,7 @@ export default function RecordingPage() {
                   onCommentClick={openCommentsPanel}
                   className="h-full w-full rounded-none sm:rounded-xl"
                 />
-                {commentOpen ? (
+                {commentOpen && canComment ? (
                   <TimestampedCommentBar
                     recordingId={recording.id}
                     atMs={commentAtMs}
@@ -1667,21 +1691,24 @@ export default function RecordingPage() {
                     </NavLink>
                   ) : null}
                   <div className="flex flex-wrap items-center gap-2">
-                    <TimestampedCommentButton
-                      enableComments={recording.enableComments}
-                      className="shrink-0"
-                      onOpen={() => {
-                        if (isCompactLayout) {
-                          openCommentsPanel();
-                          return;
-                        }
-                        setCommentAtMs(resolvePlaybackMs());
-                        setCommentOpen(true);
-                      }}
-                    />
+                    {canComment ? (
+                      <TimestampedCommentButton
+                        enableComments={recording.enableComments}
+                        canComment={canComment}
+                        className="shrink-0"
+                        onOpen={() => {
+                          if (isCompactLayout) {
+                            openCommentsPanel();
+                            return;
+                          }
+                          setCommentAtMs(resolvePlaybackMs());
+                          setCommentOpen(true);
+                        }}
+                      />
+                    ) : null}
                     {recording.enableReactions ? (
                       <ReactionsTray
-                        disabled={!recording.enableReactions}
+                        disabled={!recording.enableReactions || !canComment}
                         onReact={(emoji) => {
                           tracking.reportReaction(emoji);
                           const liveMs = resolvePlaybackMs();

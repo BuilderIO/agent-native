@@ -35,17 +35,28 @@ finds that existing organization and seeds its organization-owned automations.
 If Dispatch synced the vault into a different organization, set
 `AGENT_VAULT_ORG_ID` to that existing org id instead of creating a new org.
 
-Connect Slack in Dispatch or in Settings -> Integrations. Factory resolves
-Slack, GitHub, Sentry, and Builder credentials from the shared workspace vault
-and only uses matching deployment env vars as a last-resort fallback. All apps
-that read shared `app_secrets` rows must use the same
+Connect providers in Dispatch or in Settings -> Integrations. Factory resolves
+Slack, GitHub, Sentry, Builder, and other supported provider credentials from
+the shared workspace vault and only uses matching deployment env vars as a
+last-resort fallback. Factory never stores keys per factory. All apps that read
+shared `app_secrets` rows must use the same
 `WORKSPACE_SECRETS_ENCRYPTION_KEY` (or the workspace's existing shared
 encryption fallback). Never copy raw tokens between apps or add a second
 env-only read in a provider client.
 
-In Factory, set the Slack workspace, channel ID, channel name, repository, and
-polling switch. The default scheduler polls once per minute, evaluates a
-bounded page, and preserves errors for reconciliation.
+Factory's default observer still keeps organization-scoped source metadata -
+such as a Slack channel, repository, or Sentry project - for its normalized
+queue adapters. That metadata is not a credential or a per-factory integration
+setup. GitHub issue polling defaults to hourly; Slack and pull-request checks
+use shorter bounded cadences because those sources can need faster feedback.
+Every poll preserves errors for reconciliation.
+
+Factory agents can discover connected provider APIs with
+`provider-api-catalog`, inspect their docs with `provider-api-docs`, and call
+them through `provider-api-request`. Scheduled Factory runs also receive the
+workspace's connected MCP tools, subject to the same workspace and request
+scope gates. The three normalized pollers are compatibility adapters for the
+default triage queue, not the agent's capability limit.
 
 The generic Slack bot is wired to Factory. Mention `@agent-native` in a feedback
 thread to inspect the linked item, explain its decision, tune a rule, or say
@@ -62,6 +73,29 @@ needs `BUILDER_AI_SERVICES_URL` and `BUILDER_PROJECT_ID`; its private key and
 signed callback secret belong in Dispatch workspace credentials and are
 resolved at runtime. The app remains observe-only until a human explicitly
 approves a Factory item.
+
+## Agents and agentic apps
+
+Factory's top-level Agents tab is a shared workspace surface, not a second
+registry. It reads mounted agentic apps and their editable Dispatch metadata,
+then embeds Dispatch's reusable-agent manager for create, chat, import, and
+folder-backed pack editing. A simple agent's profile lives at
+`agents/<slug>.md`; its optional context, references, and private skills live
+under `agents/<slug>/`. Use the folder import to bring in a Claude Project,
+Cowork-style folder, or another text-based agent setup. The importer strips
+credentials, hooks, shell commands, and local environment settings, and All-app
+imports remain subject to Dispatch approval policy.
+
+When editing a factory flow, an agent step can bind to either a shared reusable
+agent or a ready mounted agentic app from the same workspace database. The map
+stores the selected target type and id, while the graph remains a reviewable
+blueprint and does not silently change runtime routing.
+
+Use **Build app** on an agent row when the agent needs a full workspace face.
+The handoff carries the profile and every pack resource id into app creation;
+the original agent remains reusable after the app is created. Mounted apps and
+simple agents continue to use the same Dispatch actions, SQL resources, grants,
+and application-state navigation.
 
 ## Development
 

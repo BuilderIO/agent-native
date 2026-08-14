@@ -1056,7 +1056,9 @@ export function compactComposerModelName(
     /^(?:openai\/)?gpt-5[.-]6[.-](sol|terra|luna)$/i,
   )?.[1];
   if (gpt56Variant) {
-    return gpt56Variant[0].toUpperCase() + gpt56Variant.slice(1).toLowerCase();
+    const variant =
+      gpt56Variant[0].toUpperCase() + gpt56Variant.slice(1).toLowerCase();
+    return `GPT-5.6 ${variant}`;
   }
   return friendlyModelName(model, t);
 }

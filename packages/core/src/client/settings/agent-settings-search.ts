@@ -76,7 +76,6 @@ export const INTEGRATION_SETTINGS_SECTIONS: readonly SettingsSectionId[] = [
   "secrets",
   "email",
   "browser",
-  "usage",
 ];
 
 export const WORKSPACE_SETTINGS_SECTIONS: readonly SettingsSectionId[] = [
@@ -202,8 +201,13 @@ export function getAgentSettingsSearchTabs(): AgentSettingsSearchTab[] {
       id: "integrations",
       label: "Integrations",
       keywords:
-        "integrations agent integrations connections secrets email browser usage tools",
+        "integrations agent integrations connections secrets email browser tools",
       searchEntries: buildSectionSearchEntries(INTEGRATION_SETTINGS_SECTIONS),
+    },
+    {
+      id: "usage",
+      label: "Usage",
+      keywords: "usage tokens cost spend billing consumption credits calls",
     },
     {
       id: "organization",

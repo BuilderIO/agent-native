@@ -434,7 +434,7 @@ describe("createBuilderEngine", () => {
             type: "tool-call-delta",
             id: "toolu_01",
             name: "x",
-            argsTextDelta: "}",
+            argsTextDelta: '"id":"ext"}',
           },
           { type: "tool-call", id: "toolu_01", name: "x", input: {} },
           { type: "stop", reason: "tool_use", requestId: "req_1" },
@@ -456,10 +456,15 @@ describe("createBuilderEngine", () => {
         type: "tool-input-delta",
         id: "toolu_01",
         name: "x",
-        text: "}",
+        text: '"id":"ext"}',
       },
     ]);
-    expect(events.find((e) => e.type === "tool-call")).toBeDefined();
+    expect(events.find((e) => e.type === "tool-call")).toEqual({
+      type: "tool-call",
+      id: "toolu_01",
+      name: "x",
+      input: { id: "ext" },
+    });
   });
 
   it("assembles a tool call whose arguments arrive across multiple deltas without a terminal tool-call frame", async () => {

@@ -8,6 +8,7 @@ import {
 import { useSession, getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { buildSignInReturnHref } from "@agent-native/core/client/ui";
+import { docsUrl } from "@agent-native/core/shared";
 import {
   IconAlertTriangle,
   IconArrowLeft,
@@ -289,8 +290,7 @@ const STORAGE_KEY_PREFIX = "clips-share-pw-";
 const CLIPS_SOURCE_URL =
   "https://github.com/BuilderIO/agent-native/tree/main/templates/clips";
 const CLIPS_TEMPLATE_URL = "https://www.agent-native.com/templates/clips";
-const CLIPS_AGENT_DOCS_URL =
-  "https://www.agent-native.com/docs/template-clips#agent-readable-clips";
+const CLIPS_AGENT_DOCS_URL = docsUrl("template-clips-sharing-and-teams");
 const UPLOAD_STUCK_TIMEOUT_MS = 5 * 60 * 1000;
 const PROCESSING_STUCK_TIMEOUT_MS = 12 * 60 * 1000;
 const READY_MEDIA_SETTLE_POLL_MS = 20 * 1000;
@@ -470,11 +470,16 @@ export default function ShareRoute() {
         readyMediaPollRef.current = null;
         return 2000;
       }
+      if (rec.seekableRepairPending === true) {
+        readyMediaPollRef.current = null;
+        return READY_MEDIA_SETTLE_POLL_INTERVAL_MS;
+      }
       const mediaKey = [
         rec.id,
         rec.durationMs ?? "",
         rec.videoSizeBytes ?? "",
         rec.videoFormat ?? "",
+        rec.updatedAt ?? "",
       ].join(":");
       const now = Date.now();
       if (readyMediaPollRef.current?.key !== mediaKey) {
@@ -518,6 +523,7 @@ export default function ShareRoute() {
     | "owner"
     | "admin"
     | "editor"
+    | "commenter"
     | "viewer"
     | undefined;
   const viewerCanEdit =
@@ -525,7 +531,21 @@ export default function ShareRoute() {
     viewerRole === "owner" ||
     viewerRole === "admin" ||
     viewerRole === "editor";
+  const viewerCanComment =
+    viewerRole === "owner" ||
+    viewerRole === "admin" ||
+    viewerRole === "editor" ||
+    viewerRole === "commenter";
   const viewerIsOwner = Boolean(dataQ.data?.data?.viewer?.isOwner);
+  const canReshareLink =
+    (viewerRole === "viewer" || viewerRole === "commenter") &&
+    (recording?.visibility === "public" || recording?.visibility === "org");
+  // A plain viewer only gets a copy-link control: it must not trigger
+  // `list-resource-shares` (any read access is enough to call it, and its
+  // response includes every individually-shared principal's email) and must
+  // not surface the raw video download/open action independent of
+  // `enableDownloads`.
+  const viewerReshareOnly = canReshareLink && !viewerCanEdit;
   const viewerCanOpenDashboard = Boolean(
     dataQ.data?.data?.viewer?.canOpenDashboard,
   );
@@ -888,6 +908,10 @@ export default function ShareRoute() {
   const canDownloadRecording = Boolean(
     recording.enableDownloads && recording.videoUrl && !isLoomEmbedBacked,
   );
+  // Loom-backed clips only ever get an "open player" link (not a raw
+  // download), so they're exempt from the enableDownloads gate here.
+  const shareVideoUrl =
+    canDownloadRecording || isLoomEmbedBacked ? recording.videoUrl : null;
 
   return (
     <div className="flex min-h-screen max-w-full flex-col overflow-x-hidden bg-background text-foreground lg:h-screen lg:flex-row lg:overflow-hidden">
@@ -984,17 +1008,18 @@ export default function ShareRoute() {
                 onDeleted={() => navigate("/library", { replace: true })}
               />
             ) : null}
-            {viewerCanEdit ? (
+            {viewerCanEdit || canReshareLink ? (
               <ShareRecordingPopover
                 recordingId={recording.id}
                 recordingTitle={recording.title}
                 initialVisibility={recording.visibility}
                 initialRole={viewerIsOwner ? "owner" : undefined}
-                videoUrl={recording.videoUrl}
+                videoUrl={shareVideoUrl}
                 thumbnailUrl={recording.thumbnailUrl}
                 animatedThumbnailUrl={recording.animatedThumbnailUrl}
                 isLoomRecording={isLoomEmbedBacked}
                 hasPassword={Boolean(recording.hasPassword)}
+                viewerReshareOnly={viewerReshareOnly}
               >
                 <Button size="sm" className="shrink-0 gap-1.5">
                   {recording.visibility !== "public" ? (
@@ -1014,10 +1039,9 @@ export default function ShareRoute() {
               onVideoElementChange={setTrackedVideoEl}
               recordingId={recording.id}
               videoUrl={recording.videoUrl}
-              mediaVersion={[
-                recording.videoSizeBytes ?? "",
-                recording.updatedAt ?? "",
-              ].join(":")}
+              mediaVersion={
+                recording.mediaUpdatedAt ?? recording.videoSizeBytes ?? null
+              }
               videoFormat={recording.videoFormat}
               embedProvider={isLoomEmbedBacked ? "loom" : null}
               durationMs={recording.durationMs}
@@ -1048,6 +1072,7 @@ export default function ShareRoute() {
             <div className="flex max-w-full flex-col items-stretch gap-2 sm:items-end">
               {recording.enableReactions ? (
                 <ReactionsTray
+                  disabled={!viewerCanComment}
                   onReact={(emoji) => {
                     if (!session) {
                       requireSignIn("react");
@@ -1182,6 +1207,7 @@ export default function ShareRoute() {
               currentMs={currentMs}
               currentUserEmail={session?.email}
               enableComments={recording.enableComments}
+              canComment={viewerCanComment}
               onSeek={(ms) => playerRef.current?.seek(ms)}
               onUnauthenticated={requireSignIn}
               queryKey={[

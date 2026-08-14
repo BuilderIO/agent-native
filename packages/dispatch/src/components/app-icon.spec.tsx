@@ -31,4 +31,14 @@ describe("AppIcon", () => {
     );
     expect(icon.style.color).toBe("rgb(var(--dispatch-app-icon-color-rgb))");
   });
+
+  it("removes the colored background for monochrome rail icons", () => {
+    act(() => {
+      root.render(<AppIcon id="plan" name="Plan" monochrome />);
+    });
+
+    const icon = container.firstElementChild as HTMLElement;
+    expect(icon.className).toContain("bg-transparent");
+    expect(icon.style.cssText).not.toContain("background-color");
+  });
 });

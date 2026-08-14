@@ -446,6 +446,8 @@ const messages: AgentChatTranslation = {
   "share.addPeopleOrganization": "從您的組織加入人員",
   "share.admin": "管理員",
   "share.adminDescription": "可以編輯並管理存取權",
+  "share.commenter": "留言者",
+  "share.commenterDescription": "可以檢視並新增留言",
   "share.advanced": "進階",
   "share.advancedAccess": "進階存取權",
   "share.advancedDescription": "控制組織存取權在搜尋結果中的顯示方式。",

@@ -30,6 +30,35 @@ describe("EditorToolbar layout contract", () => {
     );
   });
 
+  it("pushes the top-right actions to the row edge when the style toolbar moves below", () => {
+    expect(editorToolbarSource).toContain(
+      '<div className="ml-auto flex-shrink-0">',
+    );
+  });
+
+  it("right-aligns the AI presence indicator with the editor actions", () => {
+    expect(editorToolbarSource).toContain(
+      'className="ml-auto flex-shrink-0 mr-0.5 pl-2"',
+    );
+  });
+
+  it("lets the overflow menu use most of the viewport height", () => {
+    expect(editorToolbarSource).toContain(
+      'className="max-h-[90vh] w-64 overflow-y-auto"',
+    );
+  });
+
+  it("keeps media below slide tools and leaves comments as a single item", () => {
+    expect(
+      editorToolbarSource.indexOf('{t("editorToolbar.media")}'),
+    ).toBeGreaterThan(
+      editorToolbarSource.indexOf('{t("editorToolbar.slideTools")}'),
+    );
+    expect(editorToolbarSource).not.toContain(
+      '<DropdownMenuLabel>\n                  {t("editorToolbar.comments")}\n                </DropdownMenuLabel>',
+    );
+  });
+
   it("lets the wide contextual toolbar scroll instead of clipping rare overflow", () => {
     expect(globalCssSource).toContain(
       ".deck-editor-context-toolbar-host {\n  min-width: 0;\n  overflow: auto;\n}",

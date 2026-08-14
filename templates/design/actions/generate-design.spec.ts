@@ -1013,6 +1013,40 @@ describe("generate-design: single-device regen clears stale breakpoints", () => 
     });
     expect(mocks.getDesignData().breakpointSet).toBeDefined();
   });
+
+  it("does not overwrite a malformed breakpointSet when seeding generated-responsive breakpoints", async () => {
+    mocks.setDesignData({
+      breakpointSet: {
+        id: "broken",
+        breakpoints: "not-an-array",
+      },
+    });
+
+    await action.run({
+      designId: "design-1",
+      prompt: "Seed responsive screens",
+      files: oneFile,
+    });
+
+    expect(mocks.getDesignData().breakpointSet).toEqual({
+      id: "broken",
+      breakpoints: "not-an-array",
+    });
+  });
+
+  it("does not overwrite a breakpointSet object with no breakpoint array", async () => {
+    mocks.setDesignData({
+      breakpointSet: { id: "broken" },
+    });
+
+    await action.run({
+      designId: "design-1",
+      prompt: "Seed responsive screens",
+      files: oneFile,
+    });
+
+    expect(mocks.getDesignData().breakpointSet).toEqual({ id: "broken" });
+  });
 });
 
 describe("generate-design: placement clears rotated existing frames", () => {

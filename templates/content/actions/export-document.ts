@@ -3,8 +3,14 @@ import { buildDeepLink } from "@agent-native/core/server";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
+import { blocksContentHash } from "../shared/blocks-field-identity.js";
 import { buildDocumentExport } from "../shared/document-export.js";
+import {
+  isBlocksPropertyType,
+  isPrimaryBlocksField,
+} from "../shared/properties.js";
 import "../server/db/index.js";
+import { listPropertiesForAllDocumentDatabases } from "./_property-utils.js";
 
 export default defineAction({
   description:
@@ -33,12 +39,47 @@ export default defineAction({
     if (!access) throw new Error(`Document "${id}" not found`);
 
     const doc = access.resource;
+    const properties = await listPropertiesForAllDocumentDatabases(doc);
+    const blocksFields = properties
+      .filter((property) => isBlocksPropertyType(property.definition.type))
+      .map((property) => {
+        if (!property.definition.databaseId) {
+          throw new Error(
+            `Blocks field "${property.definition.id}" is not attached to a database`,
+          );
+        }
+        if (!property.blocksField) {
+          throw new Error(
+            `Blocks field "${property.definition.id}" has no identity state`,
+          );
+        }
+        const markdown =
+          content !== undefined &&
+          isPrimaryBlocksField(property.definition.options)
+            ? content
+            : typeof property.value === "string"
+              ? property.value
+              : "";
+        const identity =
+          blocksContentHash(markdown) === property.blocksField.contentHash
+            ? property.blocksField
+            : { ...property.blocksField, identityStatus: "stale" as const };
+        return {
+          databaseId: property.definition.databaseId,
+          propertyId: property.definition.id,
+          name: property.definition.name,
+          position: property.definition.position,
+          markdown,
+          identity,
+        };
+      });
     const payload = buildDocumentExport({
       id: doc.id,
       title: title ?? doc.title,
       content: content ?? doc.content,
       updatedAt: doc.updatedAt,
       format,
+      blocksFields,
     });
 
     return {

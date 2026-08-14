@@ -4,15 +4,21 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { IconCheck, IconLink, IconMail } from "@tabler/icons-react";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { IconChevronDown, IconLink, IconMail } from "@tabler/icons-react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { toast } from "sonner";
 
 import {
   CopyField,
   GeneralAccessSelect,
   MakePublicCard,
-  ShareCardHeader,
   SharePeopleTab,
   copyToClipboard,
   useResourceVisibilityMutation,
@@ -20,6 +26,12 @@ import {
   type SharesResponse,
   type Visibility,
 } from "@/components/sharing/share-ui";
+import { Button } from "@/components/ui/button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import {
   Popover,
   PopoverContent,
@@ -30,7 +42,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 export interface ShareMeetingPopoverProps {
   meetingId: string;
-  meetingTitle?: string;
   shareTranscript: boolean;
   transcriptReady: boolean;
   children: ReactNode;
@@ -38,7 +49,6 @@ export interface ShareMeetingPopoverProps {
 
 export function ShareMeetingPopover({
   meetingId,
-  meetingTitle,
   shareTranscript,
   transcriptReady,
   children,
@@ -52,7 +62,6 @@ export function ShareMeetingPopover({
       >
         <ShareMeetingContent
           meetingId={meetingId}
-          meetingTitle={meetingTitle}
           shareTranscript={shareTranscript}
           transcriptReady={transcriptReady}
         />
@@ -63,12 +72,10 @@ export function ShareMeetingPopover({
 
 function ShareMeetingContent({
   meetingId,
-  meetingTitle,
   shareTranscript,
   transcriptReady,
 }: {
   meetingId: string;
-  meetingTitle?: string;
   shareTranscript: boolean;
   transcriptReady: boolean;
 }) {
@@ -85,14 +92,9 @@ function ShareMeetingContent({
 
   const data = sharesQuery.data;
   const canManage = data?.role === "owner" || data?.role === "admin";
-  const titleText = meetingTitle
-    ? t("clipsFinalRaw.shareNamedMeeting", { title: meetingTitle })
-    : t("clipsFinalRaw.shareMeeting");
 
   return (
     <>
-      <ShareCardHeader title={titleText} ownerEmail={data?.ownerEmail} />
-
       <Tabs defaultValue="link" className="min-w-0 px-4 py-3">
         <TabsList className="grid w-full grid-cols-2">
           <TabsTrigger value="link" className="gap-1.5">
@@ -168,6 +170,56 @@ function LinkTab({
   const visibility: Visibility =
     (data?.visibility as Visibility | null) ?? "private";
   const isPublic = visibility === "public";
+  const sharesLoaded = data?.visibility != null;
+  const createAgentLink = useActionMutation("create-agent-resource-link");
+  const createAgentLinkAsyncRef = useRef(createAgentLink.mutateAsync);
+  const agentLinkRequestIdRef = useRef(0);
+  const [agentLink, setAgentLink] = useState("");
+  const [agentLinkError, setAgentLinkError] = useState(false);
+  const [agentDetailsOpen, setAgentDetailsOpen] = useState(false);
+
+  useEffect(() => {
+    createAgentLinkAsyncRef.current = createAgentLink.mutateAsync;
+  });
+
+  const loadAgentLink = useCallback(async () => {
+    const requestId = agentLinkRequestIdRef.current + 1;
+    agentLinkRequestIdRef.current = requestId;
+    setAgentLink("");
+    setAgentLinkError(false);
+
+    try {
+      const result = (await createAgentLinkAsyncRef.current({
+        resourceType: "meeting",
+        resourceId: meetingId,
+      })) as { contextUrl?: string };
+      if (agentLinkRequestIdRef.current !== requestId) return;
+      if (result?.contextUrl) setAgentLink(result.contextUrl);
+      else setAgentLinkError(true);
+    } catch {
+      if (agentLinkRequestIdRef.current === requestId) setAgentLinkError(true);
+    }
+  }, [meetingId]);
+
+  useEffect(() => {
+    setAgentLink("");
+    setAgentLinkError(false);
+    if (!sharesLoaded || isPublic) return;
+    void loadAgentLink();
+
+    return () => {
+      agentLinkRequestIdRef.current += 1;
+    };
+  }, [isPublic, loadAgentLink, meetingId, sharesLoaded, visibility]);
+
+  useEffect(() => {
+    if (isPublic) setAgentDetailsOpen(false);
+  }, [isPublic]);
+
+  const agentShareDisabled =
+    sharesQuery.isLoading ||
+    !sharesLoaded ||
+    (!isPublic && (createAgentLink.isPending || !agentLink));
 
   useEffect(() => {
     setIncludeTranscript(shareTranscript);
@@ -192,60 +244,51 @@ function LinkTab({
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <GeneralAccessSelect
         visibility={visibility}
         canManage={canManage}
         isPending={isPending}
         onChange={(next) => setResourceVisibility(next)}
+        showDescription={false}
       />
 
-      <div>
-        <div className="mb-2 text-xs font-semibold">
-          {t("shareMeeting.sharedContent")}
+      <div className="flex items-center justify-between gap-4 rounded-md border border-border px-3 py-2.5">
+        <div className="min-w-0">
+          <label
+            htmlFor={`meeting-share-transcript-${meetingId}`}
+            className="text-sm font-medium"
+          >
+            {t("shareMeeting.includeTranscript")}
+          </label>
+          <p
+            id={`meeting-share-transcript-description-${meetingId}`}
+            className="sr-only"
+          >
+            {transcriptReady
+              ? t("shareMeeting.includeTranscriptDescription")
+              : t("shareMeeting.transcriptUnavailable")}
+          </p>
         </div>
-        <div className="rounded-md border border-border">
-          <div className="flex items-center gap-3 border-b border-border px-3 py-2.5">
-            <span
-              aria-hidden
-              className="inline-flex size-5 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground"
-            >
-              <IconCheck size={12} strokeWidth={2.5} />
-            </span>
-            <span className="text-sm">{t("shareMeeting.summaryIncluded")}</span>
-          </div>
-          <div className="flex items-start justify-between gap-4 px-3 py-2.5">
-            <div className="min-w-0">
-              <label
-                htmlFor={`meeting-share-transcript-${meetingId}`}
-                className="text-sm font-medium"
-              >
-                {t("shareMeeting.includeTranscript")}
-              </label>
-              <p
-                id={`meeting-share-transcript-description-${meetingId}`}
-                className="mt-0.5 text-xs text-muted-foreground"
-              >
-                {transcriptReady
-                  ? t("shareMeeting.includeTranscriptDescription")
-                  : t("shareMeeting.transcriptUnavailable")}
-              </p>
-            </div>
-            <Switch
-              id={`meeting-share-transcript-${meetingId}`}
-              checked={includeTranscript}
-              onCheckedChange={handleTranscriptSharingChange}
-              disabled={
-                !canManage || !transcriptReady || updateMeeting.isPending
-              }
-              aria-describedby={`meeting-share-transcript-description-${meetingId}`}
-              className="mt-0.5 shrink-0"
-            />
-          </div>
-        </div>
+        <Switch
+          id={`meeting-share-transcript-${meetingId}`}
+          checked={includeTranscript}
+          onCheckedChange={handleTranscriptSharingChange}
+          disabled={!canManage || !transcriptReady || updateMeeting.isPending}
+          aria-describedby={`meeting-share-transcript-description-${meetingId}`}
+          className="shrink-0"
+        />
       </div>
 
-      <CopyField label={t("clipsFinalRaw.shareLink")} value={shareUrl} />
+      <CopyField
+        label={
+          isPublic
+            ? t("clipsFinalRaw.shareLink")
+            : t("shareDialog.shareWithHumans")
+        }
+        value={shareUrl}
+        disabled={!sharesLoaded}
+      />
 
       {!isPublic && canManage ? (
         <MakePublicCard
@@ -256,6 +299,67 @@ function LinkTab({
             })
           }
         />
+      ) : null}
+
+      {!isPublic ? (
+        <Collapsible
+          open={agentDetailsOpen}
+          onOpenChange={setAgentDetailsOpen}
+          className="overflow-hidden rounded-md border border-border"
+        >
+          <CollapsibleTrigger asChild>
+            <button
+              type="button"
+              className="flex min-h-10 w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm font-medium transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+            >
+              <span className="flex min-w-0 items-center gap-2 truncate">
+                <IconLink
+                  aria-hidden="true"
+                  className="size-3.5 shrink-0 text-muted-foreground"
+                  strokeWidth={1.8}
+                />
+                {t("shareDialog.shareWithAgents")}
+              </span>
+              <IconChevronDown
+                aria-hidden="true"
+                className={`size-4 shrink-0 text-muted-foreground transition-transform ${agentDetailsOpen ? "rotate-180" : ""}`}
+              />
+            </button>
+          </CollapsibleTrigger>
+          <CollapsibleContent className="clips-collapsible-content border-t border-border px-3 py-3">
+            <div className="space-y-2">
+              <CopyField
+                label={t("shareDialog.shareWithAgents")}
+                value={agentLink}
+                disabled={agentShareDisabled}
+              />
+              {sharesLoaded ? (
+                <>
+                  <p className="text-xs text-muted-foreground">
+                    {t("shareMeeting.agentLinkDescription")}
+                  </p>
+                  {agentLinkError ? (
+                    <div className="flex items-center justify-between gap-2 rounded-md border border-border bg-muted/30 px-3 py-2">
+                      <p className="text-xs text-muted-foreground">
+                        {t("shareDialog.agentLinkUnavailable")}
+                      </p>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-7"
+                        onClick={() => void loadAgentLink()}
+                        disabled={createAgentLink.isPending}
+                      >
+                        {t("shareDialog.retryAgentLink")}
+                      </Button>
+                    </div>
+                  ) : null}
+                </>
+              ) : null}
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
       ) : null}
     </div>
   );

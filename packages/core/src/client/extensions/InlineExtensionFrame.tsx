@@ -87,6 +87,7 @@ function normalizeRole(value: unknown): ExtensionBridgeRole {
   return value === "owner" ||
     value === "admin" ||
     value === "editor" ||
+    value === "commenter" ||
     value === "viewer"
     ? value
     : "viewer";

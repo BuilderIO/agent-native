@@ -4,6 +4,10 @@ import { registerShareableResource } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 
 import {
+  CLIPS_MEETING_AGENT_CONTEXT_ENDPOINT,
+  CLIPS_MEETING_AGENT_RESOURCE_KIND,
+} from "../../shared/meeting-agent-access.js";
+import {
   absoluteUrl,
   recordingShareEmailExtras,
   recordingShareHeroHtml,
@@ -75,6 +79,12 @@ registerShareableResource({
   displayName: "Meeting",
   titleColumn: "title",
   getResourcePath: (meeting) => `/meetings/${meeting.id}`,
+  agentReadable: {
+    resourceKind: CLIPS_MEETING_AGENT_RESOURCE_KIND,
+    getContextPath: () => CLIPS_MEETING_AGENT_CONTEXT_ENDPOINT,
+    getPagePath: (meeting) =>
+      `/share/meeting/${encodeURIComponent(meeting.id)}`,
+  },
   getDb,
 });
 

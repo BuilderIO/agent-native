@@ -482,6 +482,8 @@ const messages: AgentChatTranslation = {
   "share.addPeopleOrganization": "إضافة أشخاص من مؤسستك",
   "share.admin": "مشرف",
   "share.adminDescription": "يمكنه التعديل وإدارة الوصول",
+  "share.commenter": "معلّق",
+  "share.commenterDescription": "يمكنه العرض وإضافة التعليقات",
   "share.advanced": "متقدم",
   "share.advancedAccess": "وصول متقدم",
   "share.advancedDescription":

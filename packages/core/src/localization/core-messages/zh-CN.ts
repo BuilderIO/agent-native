@@ -444,6 +444,8 @@ const messages: AgentChatTranslation = {
   "share.addPeopleOrganization": "从您的组织添加人员",
   "share.admin": "管理员",
   "share.adminDescription": "可以编辑并管理访问权限",
+  "share.commenter": "评论者",
+  "share.commenterDescription": "可以查看并添加评论",
   "share.advanced": "高级",
   "share.advancedAccess": "高级访问权限",
   "share.advancedDescription": "控制组织访问权限在搜索结果中的显示方式。",

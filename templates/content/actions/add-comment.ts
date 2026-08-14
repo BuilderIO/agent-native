@@ -44,7 +44,8 @@ function displayNameFromEmail(email: string): string {
 }
 
 export default defineAction({
-  description: "Add a comment to a document. For new threads, omit threadId.",
+  description:
+    "Add a comment to a document. Comment text supports inline Markdown for emphasis, inline code, links, and line breaks; headings are flattened. For new threads, omit threadId.",
   schema: z.object({
     documentId: z.string().optional().describe("Document ID (required)"),
     content: z.string().optional().describe("Comment text (required)"),
@@ -77,7 +78,7 @@ export default defineAction({
     if (!documentId) throw new Error("--documentId is required");
     if (!content) throw new Error("--content is required");
 
-    const access = await assertAccess("document", documentId, "viewer");
+    const access = await assertAccess("document", documentId, "commenter");
     const ownerEmail = access.resource.ownerEmail as string;
     const id = Math.random().toString(36).slice(2, 14);
     const threadId = args.threadId ?? id;

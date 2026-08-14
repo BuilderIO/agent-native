@@ -482,6 +482,11 @@ const messages = {
     lastRun: "前回の実行:",
     automationsDescription:
       "AI を使って新しい受信メールを自動処理するルールです。",
+    allowAutomationSends: "自動化によるメールの自動送信を許可する",
+    allowAutomationSendsDescription:
+      "デフォルトではオフです。毎回承認を求めずに自動化でメールを送信する場合にオンにしてください。",
+    automationSendSettingSaveFailed:
+      "自動メール送信の設定を保存できませんでした。",
     loadingModels: "モデルを読み込み中",
     newRule: "新しいルール",
     noAutomationRules: "自動化ルールはまだありません。",

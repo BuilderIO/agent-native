@@ -51,8 +51,8 @@ Prefer the MCP App surface for a connected Design plugin, then the host's
 browser/preview tool as the universal fallback. Keep the canvas beside chat
 when the host supports rearrangeable panes.
 
-Inside Design, use **Show/Hide UI** from the `Cmd+K` menu or press Figma's
-`Shift+\` shortcut to toggle all editing chrome so only the canvas remains.
+Inside Design, use **Show/Hide UI** from the `Cmd K` menu or press Figma's
+`Shift \` shortcut to toggle all editing chrome so only the canvas remains.
 The same action is available from Design's empty-canvas context menu.
 
 ## Core Model

@@ -11,6 +11,7 @@ import {
   formatThreadAge,
   isElectronEmbeddedSearch,
   NavContent,
+  shouldAutoCollapseDispatchSidebar,
 } from "./Layout";
 
 const clientState = vi.hoisted(() => ({
@@ -60,6 +61,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       "dispatch.nav.chat": "Chat",
       "dispatch.nav.overview": "Overview",
       "dispatch.nav.apps": "Apps",
+      "dispatch.nav.agents": "Agents",
       "dispatch.pages.workspaceApps": "Workspace apps",
       "dispatch.nav.operate": "Operate",
       "dispatch.nav.advanced": "Advanced",
@@ -128,6 +130,15 @@ describe("Electron control-plane mode", () => {
   });
 });
 
+describe("Dispatch workspace app sidebar", () => {
+  it("auto-collapses for app host routes but not the app catalog", () => {
+    expect(shouldAutoCollapseDispatchSidebar("/apps/mail")).toBe(true);
+    expect(shouldAutoCollapseDispatchSidebar("/apps/mail/settings")).toBe(true);
+    expect(shouldAutoCollapseDispatchSidebar("/apps")).toBe(false);
+    expect(shouldAutoCollapseDispatchSidebar("/chat")).toBe(false);
+  });
+});
+
 describe("Dispatch NavContent", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -186,6 +197,7 @@ describe("Dispatch NavContent", () => {
     expect(primaryLabels.indexOf("Overview")).toBeLessThan(
       primaryLabels.indexOf("Chat"),
     );
+    expect(primaryLabels).toContain("Agents");
   });
 
   it("keeps collapsed navigation compact and preserves section spacing", async () => {

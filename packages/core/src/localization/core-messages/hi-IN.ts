@@ -464,6 +464,8 @@ const messages: AgentChatTranslation = {
   "share.addPeopleOrganization": "अपने संगठन से लोगों को जोड़ें",
   "share.admin": "एडमिन",
   "share.adminDescription": "संपादित कर सकता है और एक्सेस प्रबंधित कर सकता है",
+  "share.commenter": "टिप्पणीकार",
+  "share.commenterDescription": "देख सकता है और टिप्पणियाँ जोड़ सकता है",
   "share.advanced": "उन्नत",
   "share.advancedAccess": "उन्नत एक्सेस",
   "share.advancedDescription": "नियंत्रित करें कि संगठन का एक्सेस खोज में कैसे दिखाई दे।",

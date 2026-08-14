@@ -1,4 +1,5 @@
 import { useAvatarUrl } from "@agent-native/core/client/hooks";
+import { InlineMarkdown } from "@agent-native/core/client/markdown";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
@@ -100,9 +101,12 @@ export function PlaybackCommentOverlay({
             <p className="truncate text-xs font-semibold text-white/80">
               {author}
             </p>
-            <p className="line-clamp-3 break-words text-sm leading-5 text-white">
-              {comment.content}
-            </p>
+            <InlineMarkdown
+              content={comment.content}
+              className="line-clamp-3 text-sm leading-5 text-primary-foreground"
+              linkClassName="text-primary-foreground underline decoration-primary-foreground/60 hover:decoration-primary-foreground"
+              codeClassName="bg-primary-foreground/15 text-primary-foreground"
+            />
           </div>
         </div>
         {rest.length > 0 && (

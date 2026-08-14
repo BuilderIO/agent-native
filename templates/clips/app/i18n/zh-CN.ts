@@ -489,10 +489,11 @@ const messages = {
     },
     roles: {
       viewer: "观众",
+      commenter: "评论者",
       editor: "编辑",
       admin: "行政",
     },
-    recordingViewer: {
+    recordingCommenter: {
       label: "评论者",
       description: "可以查看、评论和回应",
     },
@@ -623,13 +624,13 @@ const messages = {
     collapse: "收起",
     changelogMarkdown: `# 更新日志
 
-Clips 中所有面向用户的重要更改都会记录在这里。你可以随时从命令菜单（Cmd+K -> “最新变化”）或设置中打开。
+Clips 中所有面向用户的重要更改都会记录在这里。你可以随时从命令菜单（Cmd K -> “最新变化”）或设置中打开。
 
 ## 2026-06-23
 
 ### 新增
 
-- 现在可以直接在 Clips 中查看最新变化。更新日志已加入命令菜单（Cmd+K）和设置。`,
+- 现在可以直接在 Clips 中查看最新变化。更新日志已加入命令菜单（Cmd K）和设置。`,
     playback: "播放",
     defaultPlaybackSpeed: "默认播放速度",
     playbackDescription: "打开录制时会自动应用。",
@@ -933,6 +934,8 @@ Clips 中所有面向用户的重要更改都会记录在这里。你可以随�
     includeTranscript: "包含完整转写",
     includeTranscriptDescription: "任何有权访问此会议的人都可以阅读完整转写。",
     transcriptUnavailable: "转写尚未准备好。",
+    agentLinkDescription:
+      "此临时链接可让代理读取这些会议记录，而无需将其公开。两小时后过期。",
     transcript: "转写",
     copyTranscript: "复制转写",
     transcriptCopied: "已复制转写",
@@ -1152,7 +1155,7 @@ Clips 中所有面向用户的重要更改都会记录在这里。你可以随�
     seekTo: "Seek to {{time}} (已本地化)",
   },
   editorToolbar: {
-    undoTooltip: "Undo (Cmd/Ctrl+Z) (已本地化)",
+    undoTooltip: "Undo (Cmd/Ctrl Z) (已本地化)",
     playPauseTooltip: "Play / Pause (Space) (已本地化)",
     sourceDuration: "({{duration}} src) (已本地化)",
     previewSpeed: "Preview speed (已本地化)",
@@ -1507,6 +1510,16 @@ Clips 中所有面向用户的重要更改都会记录在这里。你可以随�
     calendarConnected: "Calendar connected (已本地化)",
     calendarDisconnected: "Calendar disconnected (已本地化)",
     calendarSettings: "Calendar settings (已本地化)",
+    calendarAccountsButton: "日历",
+    connectedAccounts: "已连接的帐户",
+    calendarConnectedLabel: "已连接",
+    calendarNeedsReconnectLabel: "需要重新连接",
+    calendarDisconnectedLabel: "已断开连接",
+    calendarStatusUnavailable: "状态不可用",
+    reconnectCalendar: "重新连接日历",
+    addAnotherCalendarAccount: "添加其他帐户",
+    connectCalendar: "连接日历",
+    disconnectCalendarAccount: "断开一个帐户",
     connectCalendarReminder:
       "Connect Google Calendar for meeting reminders. (已本地化)",
     disconnectGoogleCalendarTitle: "Disconnect Google Calendar? (已本地化)",

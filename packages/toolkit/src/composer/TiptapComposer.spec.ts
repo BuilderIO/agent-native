@@ -83,9 +83,11 @@ describe("createTiptapComposerExtensions", () => {
   });
 
   it("uses compact GPT-5.6 model and effort names in the collapsed trigger", () => {
-    expect(compactComposerModelName("gpt-5.6-sol")).toBe("Sol");
-    expect(compactComposerModelName("gpt-5-6-terra")).toBe("Terra");
-    expect(compactComposerModelName("openai/gpt-5.6-luna")).toBe("Luna");
+    expect(compactComposerModelName("gpt-5.6-sol")).toBe("GPT-5.6 Sol");
+    expect(compactComposerModelName("gpt-5-6-terra")).toBe("GPT-5.6 Terra");
+    expect(compactComposerModelName("openai/gpt-5.6-luna")).toBe(
+      "GPT-5.6 Luna",
+    );
     expect(compactComposerModelName("claude-sonnet-5")).toBe("Sonnet 5");
     expect(compactComposerModelName("codex-cli")).toBe("Codex");
     expect(compactComposerReasoningEffortLabel("medium")).toBe("Med");

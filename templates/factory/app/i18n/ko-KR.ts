@@ -127,6 +127,11 @@ const messages = {
     newFactoryDescription:
       "이 팩토리가 배포 가능한 결과로 바꾸는 작업을 설명하세요.",
     selectFactory: "팩토리 선택",
+    backToFactories: "팩토리 목록으로 돌아가기",
+    workspaceIntegrations: "워크스페이스 통합",
+    sourceRouting: "소스 라우팅",
+    sourceRoutingProviders: "Slack, GitHub 및 Sentry",
+    agentAccess: "에이전트 액세스",
     askAI: "팩토리 AI에게 묻기",
     factoryViews: "팩토리 보기",
     observeFirst: "먼저 관찰 · 섀도 모드",
@@ -135,6 +140,8 @@ const messages = {
     mapHint:
       "검사하려면 단계나 경로를 클릭하세요. 댓글을 달려면 단계를 두 번 클릭하세요.",
     unsavedChanges: "저장되지 않은 시각적 변경 사항",
+    factoryListDescription:
+      "목적, 흐름, 자동화 및 최근 활동을 검토할 팩토리를 선택하세요. 새로운 검토 경로를 정의하려면 최소한의 빈 그래프에서 시작하세요.",
     inboxTitle: "관찰 받은편지함",
     inboxDescription: "자율 작업 전에 팩토리로 들어오는 증거입니다.",
     selectObservation: "경로와 피드백을 확인할 관찰을 선택하세요.",
@@ -142,6 +149,7 @@ const messages = {
     rulesDescription:
       "의도적으로 승격할 때까지 모든 규칙은 섀도 모드로 유지됩니다.",
     editRule: "트리아지 규칙 편집",
+    editFlow: "흐름 편집",
     settingsDescription:
       "Slack, GitHub, Sentry를 연결하세요. 자동화는 관리된 작업을 시작하고 아래에 프롬프트와 실행 기록을 표시할 수 있습니다.",
     blueprintTitle: "블루프린트 모드.",
@@ -152,6 +160,19 @@ const messages = {
     metricRuns: "실행",
     rulesTab: "규칙",
     automationsTab: "자동화",
+    agentsTab: "에이전트",
+    agenticAppsTitle: "에이전트 앱",
+    agenticAppsEmpty: "이 워크스페이스에는 아직 에이전트 앱이 없습니다.",
+    editAppDetails: "앱 세부정보 편집",
+    editAppDetailsDescription:
+      "이 워크스페이스 앱의 공유 표시 이름과 설명을 업데이트합니다.",
+    appName: "이름",
+    appDescription: "설명",
+    openApp: "앱 열기",
+    saveChanges: "변경사항 저장",
+    appDetailsUpdated: "앱 세부 정보가 업데이트되었습니다",
+    savingChanges: "저장 중...",
+    agentsTitle: "에이전트",
     auditTab: "감사",
     auditTitle: "실행 감사",
     auditDescription:
@@ -177,6 +198,7 @@ const messages = {
     auditClearBug: "명확한 버그",
     auditUxImpact: "UX 영향",
     auditOwnerArea: "담당 영역",
+    auditGuardsLabel: "가드",
     automationsTitle: "자동화",
     automationsDescription: "Factory 프롬프트를 예약하고 실행합니다.",
     automationsLoading: "자동화를 불러오는 중...",
@@ -228,6 +250,14 @@ const messages = {
       "Factory 진단을 불러올 수 없습니다. 액세스, 배포, 데이터베이스 마이그레이션을 확인한 후 다시 시도하세요.",
     automationEmailReadinessHint:
       "이메일은 조직의 Dispatch 볼트를 사용합니다. 준비되지 않았다면 그곳에서 제공업체를 구성하세요.",
+    rulesTitle: "규칙",
+    shadowLabel: "섀도",
+    rulesGuidance:
+      "분류에는 프롬프트를 사용하고, 안전성은 구조화된 가드로 지키세요.",
+    ruleNameLabel: "이름",
+    defaultFactoryLabel: "기본 Factory",
+    savedFactoryLabel: "저장된 Factory",
+    saveRule: "규칙 저장",
   },
   factoryCanvas: {
     dragHint: "노드를 끌어 팩토리 모양을 조정하세요",
@@ -249,6 +279,14 @@ const messages = {
     stepName: "단계 이름",
     stepDescription: "여기서 일어나는 일",
     agentOwner: "에이전트 또는 담당자",
+    noTarget: "연결된 대상 없음",
+    customTarget: "사용자 지정 대상",
+    reusableAgents: "재사용 가능한 에이전트",
+    agenticApps: "에이전트 앱",
+    agentTargetHint:
+      "이 Factory 단계는 선택한 재사용 가능한 에이전트를 사용합니다.",
+    appTargetHint: "이 Factory 단계는 선택한 에이전트 앱에 작업을 위임합니다.",
+    customTargetHint: "단계가 준비되면 공유 에이전트 또는 앱을 연결하세요.",
     optional: "선택 사항",
     connectStep: "이 단계 연결",
     connectDescription:

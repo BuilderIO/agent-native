@@ -25,6 +25,7 @@ export default defineAction({
       .describe("Comma-separated field names to include"),
   }),
   http: false,
+  grounding: true,
   run: async (args) => {
     const credentials = await requireActionCredentials(
       ["JIRA_BASE_URL", "JIRA_USER_EMAIL", "JIRA_API_TOKEN"],

@@ -191,6 +191,8 @@ describe("ShareButton", () => {
       );
     });
 
+    expect(container.textContent).not.toContain('Share "Launch notes"');
+
     const input = container.querySelector(
       'input[placeholder="Add people by email"]',
     ) as HTMLInputElement;
@@ -219,7 +221,7 @@ describe("ShareButton", () => {
     ).toBeTruthy();
   });
 
-  it("uses role copy overrides without changing the persisted role value", async () => {
+  it("uses commenter role copy overrides and persists the commenter role", async () => {
     await act(async () => {
       root.render(
         <QueryClientProvider client={queryClient}>
@@ -227,7 +229,7 @@ describe("ShareButton", () => {
             resourceType="deck"
             resourceId="deck-1"
             roleCopy={{
-              viewer: {
+              commenter: {
                 label: "Commenter",
                 description: "Can view and add comments",
               },
@@ -240,9 +242,15 @@ describe("ShareButton", () => {
     const roleTrigger = container.querySelector(
       'button[aria-label="Role"]',
     ) as HTMLButtonElement | null;
-    expect(roleTrigger?.textContent).toContain("Commenter");
+    expect(roleTrigger?.textContent).toContain("Viewer");
     await act(async () => roleTrigger?.click());
     expect(document.body.textContent).toContain("Can view and add comments");
+    const commenterOption = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="option"]'),
+    ).find((option) => option.textContent?.includes("Commenter"));
+    expect(commenterOption).toBeTruthy();
+    act(() => commenterOption?.click());
+    expect(roleTrigger?.textContent).toContain("Commenter");
 
     const input = container.querySelector(
       'input[placeholder="Add people by email"]',
@@ -258,10 +266,37 @@ describe("ShareButton", () => {
     expect(shareMutate).toHaveBeenCalledWith(
       expect.objectContaining({
         principalId: "commenter@example.com",
-        role: "viewer",
+        role: "commenter",
       }),
       expect.any(Object),
     );
+  });
+
+  it("can omit commenter for resources without comment support", async () => {
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton
+            resourceType="form"
+            resourceId="form-1"
+            allowedRoles={["viewer", "editor", "admin"]}
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    const roleTrigger = container.querySelector(
+      'button[aria-label="Role"]',
+    ) as HTMLButtonElement | null;
+    await act(async () => roleTrigger?.click());
+    expect(document.body.textContent).not.toContain(
+      "Can view and add comments",
+    );
+    expect(
+      Array.from(
+        document.querySelectorAll<HTMLElement>('[role="option"]'),
+      ).some((option) => option.textContent?.includes("Commenter")),
+    ).toBe(false);
   });
 
   it("sends an optional message with the notification", async () => {
@@ -496,15 +531,15 @@ describe("ShareButton", () => {
       );
     });
 
-    const inputs = Array.from(container.querySelectorAll("input"));
-    const editorInput = inputs.find(
-      (i) => i.value === "https://slides.agent-native.com/deck/deck-1",
-    );
-    const presentationInput = inputs.find(
-      (i) => i.value === "https://slides.agent-native.com/p/deck-1",
-    );
-    expect(editorInput).toBeTruthy();
-    expect(presentationInput).toBeTruthy();
+    const text = container.textContent ?? "";
+    expect(text).toContain("Editor link");
+    expect(text).toContain("Presentation link");
+    expect(text).not.toContain("https://slides.agent-native.com");
+    expect(
+      Array.from(container.querySelectorAll("button")).filter(
+        (button) => button.textContent === "Copy",
+      ),
+    ).toHaveLength(2);
   });
 
   it("can customize access labels and move the share URL to the top", async () => {
@@ -525,10 +560,17 @@ describe("ShareButton", () => {
     });
 
     const text = container.textContent ?? "";
-    expect(text).toContain("People with editing access");
     expect(text).toContain("General editing access");
-    expect(text.indexOf("Public response link")).toBeLessThan(
-      text.indexOf("People with editing access"),
+    expect(container.textContent).toContain("People with editing access");
+    expect(
+      Array.from(container.querySelectorAll("button")).some(
+        (button) => button.textContent === "Manage access",
+      ),
+    ).toBe(false);
+    expect(
+      (container.textContent ?? "").indexOf("General editing access"),
+    ).toBeLessThan(
+      (container.textContent ?? "").indexOf("People with editing access"),
     );
   });
 
@@ -686,6 +728,11 @@ describe("ShareButton", () => {
                   label: "Send to...",
                   content: <div>Send body</div>,
                 },
+                {
+                  value: "context",
+                  label: "Context",
+                  content: <div>Context body</div>,
+                },
               ],
             }}
           />
@@ -696,6 +743,8 @@ describe("ShareButton", () => {
     expect(container.textContent).toContain("Share link");
     expect(container.textContent).toContain("Export");
     expect(container.textContent).toContain("Send to...");
+    expect(container.textContent).not.toContain("Context");
+    expect(container.textContent).not.toContain("Context body");
     expect(container.textContent).not.toContain("Export body");
 
     const exportTab = Array.from(container.querySelectorAll("button")).find(
@@ -709,6 +758,33 @@ describe("ShareButton", () => {
 
     expect(container.textContent).toContain("Export body");
     expect(container.textContent).not.toContain("Send body");
+  });
+
+  it("omits the context tab when it is the only custom share tab", async () => {
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton
+            resourceType="deck"
+            resourceId="deck-1"
+            shareTabs={{
+              tabs: [
+                {
+                  value: "context",
+                  label: "Context",
+                  content: <div>Context body</div>,
+                },
+              ],
+            }}
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    expect(container.textContent).not.toContain("Share deck");
+    expect(container.textContent).not.toContain("Context");
+    expect(container.textContent).not.toContain("Context body");
+    expect(container.querySelector('[role="tablist"]')).toBeNull();
   });
 
   it("buries organization search visibility under Advanced", async () => {

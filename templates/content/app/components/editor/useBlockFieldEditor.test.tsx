@@ -11,7 +11,12 @@ import { useBlockFieldEditor } from "./DocumentBlockFields";
 // A save record we can assert against: which (documentId, propertyId) each
 // write targeted, and with what value. Resolves immediately so single-flight +
 // trailing logic settles within an act().
-type SaveCall = { documentId: string; propertyId: string; value: string };
+type SaveCall = {
+  documentId: string;
+  propertyId: string;
+  value: string;
+  expectedBlocksFieldRevision: number;
+};
 
 describe("useBlockFieldEditor (identity-safe save wiring)", () => {
   let container: HTMLDivElement | null = null;
@@ -35,25 +40,31 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
     documentId,
     propertyId,
     initialContent,
+    initialRevision = 0,
     save,
     onReady,
     onContent,
+    onRevisionConflict,
   }: {
     documentId: string;
     propertyId: string;
     initialContent: string;
+    initialRevision?: number;
     save: (req: SaveCall) => Promise<unknown>;
     onReady: (onChange: (markdown: string) => void) => void;
-    onContent?: (content: string) => void;
+    onContent?: (content: string, editorResetVersion: number) => void;
+    onRevisionConflict?: () => void;
   }) {
-    const { content, onChange } = useBlockFieldEditor({
+    const { content, editorResetVersion, onChange } = useBlockFieldEditor({
       documentId,
       propertyId,
       initialContent,
+      initialRevision,
       save,
+      onRevisionConflict,
     });
     onReady(onChange);
-    onContent?.(content);
+    onContent?.(content, editorResetVersion);
     return null;
   }
 
@@ -116,6 +127,7 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
       documentId: "doc-new",
       propertyId: "summary",
       value: "new doc text",
+      expectedBlocksFieldRevision: 0,
     });
     // The new field's write never leaked to the old field.
     expect(
@@ -182,6 +194,7 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
       documentId: "doc-old",
       propertyId: "outline",
       value: "unsaved old-field edit",
+      expectedBlocksFieldRevision: 0,
     });
     // It did NOT get misrouted to the new field.
     expect(calls.some((c) => c.documentId === "doc-new")).toBe(false);
@@ -452,6 +465,7 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
       documentId: "doc",
       propertyId: "field",
       value: "saved value",
+      expectedBlocksFieldRevision: 0,
     });
 
     // REMOUNT while the server query has NOT yet refetched — initialContent is
@@ -631,7 +645,12 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
     expect(seenContent).toBe("agent edit");
     // Only the original local save happened; adopting never saves.
     expect(calls).toEqual([
-      { documentId: "doc", propertyId: "field", value: "mine" },
+      {
+        documentId: "doc",
+        propertyId: "field",
+        value: "mine",
+        expectedBlocksFieldRevision: 0,
+      },
     ]);
   });
 
@@ -692,5 +711,218 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
     // The dirty edit is preserved (seeded from the controller's pending), not
     // reset to the server base.
     expect(seenContent).toBe("dirty edit in progress");
+  });
+
+  it("adopts the accepted server winner after a stale revision is rejected", async () => {
+    vi.useFakeTimers();
+    const calls: SaveCall[] = [];
+    const onRevisionConflict = vi.fn();
+    const save = (req: SaveCall) => {
+      calls.push(req);
+      if (calls.length === 1) {
+        // The action transport can cross a worker/realm boundary and reject
+        // with only the HTTP status preserved on a plain object.
+        return Promise.reject({ status: 409 });
+      }
+      return Promise.resolve({
+        properties: [
+          {
+            definition: { id: "field" },
+            blocksField: { revision: 12 },
+          },
+        ],
+      });
+    };
+
+    let onChange!: (markdown: string) => void;
+    const ready = (fn: (markdown: string) => void) => {
+      onChange = fn;
+    };
+    let seenContent = "";
+    let seenEditorResetVersion = -1;
+    const onContent = (content: string, editorResetVersion: number) => {
+      seenContent = content;
+      seenEditorResetVersion = editorResetVersion;
+    };
+
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    act(() => {
+      root!.render(
+        createElement(Harness, {
+          key: "doc:field",
+          documentId: "doc",
+          propertyId: "field",
+          initialContent: "server base",
+          initialRevision: 10,
+          save,
+          onReady: ready,
+          onContent,
+          onRevisionConflict,
+        }),
+      );
+    });
+    act(() => onChange("stale local draft"));
+    await act(async () => {
+      vi.advanceTimersByTime(600);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(onRevisionConflict).toHaveBeenCalledTimes(1);
+    expect(calls[0]?.expectedBlocksFieldRevision).toBe(10);
+    expect(seenEditorResetVersion).toBe(0);
+
+    // The mutation invalidates the field query after rejection. Once that
+    // refetch carries a newer revision, the editor must display the accepted
+    // server value instead of leaving the rejected draft looking current.
+    act(() => {
+      root!.render(
+        createElement(Harness, {
+          key: "doc:field",
+          documentId: "doc",
+          propertyId: "field",
+          initialContent: "accepted server winner",
+          initialRevision: 11,
+          save,
+          onReady: ready,
+          onContent,
+          onRevisionConflict,
+        }),
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(seenContent).toBe("accepted server winner");
+    expect(seenEditorResetVersion).toBe(1);
+
+    act(() => onChange("edit after conflict"));
+    await act(async () => {
+      vi.advanceTimersByTime(600);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(calls[1]).toMatchObject({
+      value: "edit after conflict",
+      expectedBlocksFieldRevision: 11,
+    });
+  });
+
+  it("does not retry a rejected stale draft when unmounted before refetch", async () => {
+    vi.useFakeTimers();
+    const calls: SaveCall[] = [];
+    let rejectSave!: (error: unknown) => void;
+    const save = (req: SaveCall) => {
+      calls.push(req);
+      return new Promise((_resolve, reject) => {
+        rejectSave = reject;
+      });
+    };
+    let onChange!: (markdown: string) => void;
+
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    act(() => {
+      root!.render(
+        createElement(Harness, {
+          key: "doc:field",
+          documentId: "doc",
+          propertyId: "field",
+          initialContent: "server base",
+          initialRevision: 10,
+          save,
+          onReady: (fn) => {
+            onChange = fn;
+          },
+        }),
+      );
+    });
+    act(() => onChange("stale local draft"));
+    await act(async () => {
+      vi.advanceTimersByTime(600);
+      await Promise.resolve();
+    });
+
+    // Collapse before the in-flight request reports its conflict. The shared
+    // controller must still discard that rejected payload after this hook's
+    // instance ref has gone away.
+    await act(async () => {
+      root!.render(createElement("div", null));
+      rejectSave({ status: 409 });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(calls).toHaveLength(1);
+  });
+
+  it("preserves a newer draft typed while the conflict winner refetches", async () => {
+    vi.useFakeTimers();
+    const calls: SaveCall[] = [];
+    const save = (req: SaveCall) => {
+      calls.push(req);
+      if (calls.length === 1) return Promise.reject({ status: 409 });
+      return Promise.resolve({
+        properties: [
+          {
+            definition: { id: "field" },
+            blocksField: { revision: 12 },
+          },
+        ],
+      });
+    };
+    let onChange!: (markdown: string) => void;
+    let seenContent = "";
+    let seenEditorResetVersion = -1;
+
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    const render = (initialContent: string, initialRevision: number) =>
+      root!.render(
+        createElement(Harness, {
+          key: "doc:field",
+          documentId: "doc",
+          propertyId: "field",
+          initialContent,
+          initialRevision,
+          save,
+          onReady: (fn) => {
+            onChange = fn;
+          },
+          onContent: (content, editorResetVersion) => {
+            seenContent = content;
+            seenEditorResetVersion = editorResetVersion;
+          },
+        }),
+      );
+
+    act(() => render("server base", 10));
+    act(() => onChange("rejected draft"));
+    await act(async () => {
+      vi.advanceTimersByTime(600);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    act(() => onChange("newer local draft"));
+    act(() => render("accepted server winner", 11));
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(seenContent).toBe("newer local draft");
+    expect(seenEditorResetVersion).toBe(0);
+    await act(async () => {
+      vi.advanceTimersByTime(600);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(calls[1]).toMatchObject({
+      value: "newer local draft",
+      expectedBlocksFieldRevision: 11,
+    });
   });
 });

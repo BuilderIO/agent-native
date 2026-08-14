@@ -31,7 +31,6 @@ import {
   IconPlayerStopFilled,
   IconTerminal,
   IconAlertTriangle,
-  IconChevronDown,
   IconRefresh,
 } from "@tabler/icons-react";
 import React, {
@@ -155,10 +154,12 @@ import { useAgentChatLifecycleTracking } from "./chat/use-agent-chat-lifecycle-t
 import { useReconnectReaderOwner } from "./chat/use-reconnect-reader-owner.js";
 import {
   MessageScroller,
+  MessageScrollerButton,
   MessageScrollerContent,
   MessageScrollerItem,
   MessageScrollerProvider,
   MessageScrollerViewport,
+  useMessageScroller,
 } from "./components/ui/message-scroller.js";
 import {
   Popover,
@@ -179,7 +180,6 @@ import {
   type Reference,
   type TiptapComposerHandle,
 } from "./composer/index.js";
-import { useNearBottomAutoscroll } from "./conversation/index.js";
 import {
   useAgentDynamicSuggestionsResult,
   type AgentDynamicSuggestionsOption,
@@ -196,6 +196,12 @@ import {
   type McpConnectionResumeRequest,
 } from "./resources/mcp-connection-resume.js";
 import { McpConnectionSuggestion } from "./resources/McpConnectionSuggestion.js";
+import {
+  claimRunStream,
+  createRunStreamToken,
+  ownsRunStream,
+  releaseRunStream,
+} from "./run-stream-ownership.js";
 import {
   AgentAutoContinueSignal,
   type ContentPart,
@@ -824,75 +830,6 @@ function getMessageText(message: unknown): string {
   return typeof content === "string" ? displayableUserMessageText(content) : "";
 }
 
-function contentPartFollowKey(part: unknown): string {
-  if (!part || typeof part !== "object") return "unknown";
-  const candidate = part as {
-    type?: unknown;
-    text?: unknown;
-    toolCallId?: unknown;
-    toolName?: unknown;
-    status?: { type?: unknown };
-    argsText?: unknown;
-    result?: unknown;
-    image?: unknown;
-  };
-  const type = typeof candidate.type === "string" ? candidate.type : "unknown";
-  if (type === "text" || type === "reasoning") {
-    return `${type}:${String(candidate.text ?? "").length}`;
-  }
-  if (type === "tool-call") {
-    return [
-      type,
-      candidate.toolCallId ?? "",
-      candidate.toolName ?? "",
-      candidate.status?.type ?? "",
-      String(candidate.argsText ?? "").length,
-      String(candidate.result ?? "").length,
-    ].join(":");
-  }
-  if (type === "image") return `image:${String(candidate.image ?? "").length}`;
-  return `${type}:${String(candidate.text ?? candidate.result ?? "").length}`;
-}
-
-function contentFollowKey(content: unknown): string {
-  if (typeof content === "string") return `text:${content.length}`;
-  if (!Array.isArray(content)) return "";
-  return content.map(contentPartFollowKey).join("|");
-}
-
-function messageFollowKey(message: unknown): string {
-  const candidate = ((message as { message?: unknown })?.message ??
-    message) as {
-    id?: unknown;
-    role?: unknown;
-    status?: { type?: unknown; reason?: unknown };
-    content?: unknown;
-  };
-  return [
-    candidate.id ?? "",
-    candidate.role ?? "",
-    candidate.status?.type ?? "",
-    candidate.status?.reason ?? "",
-    contentFollowKey(candidate.content),
-  ].join(",");
-}
-
-function queuedMessageFollowKey(message: QueuedMessage): string {
-  return [
-    message.id,
-    message.text.length,
-    message.images?.length ?? 0,
-    message.attachments?.length ?? 0,
-    message.references?.length ?? 0,
-    message.requestMode ?? "",
-    message.recoveryAction ?? "",
-  ].join(":");
-}
-
-function reconnectContentFollowKey(content: readonly ContentPart[]): string {
-  return content.map(contentPartFollowKey).join("|");
-}
-
 export function reconnectActivityFallbackContent(
   toolName: string | null | undefined,
 ): ContentPart[] {
@@ -1353,6 +1290,31 @@ function trimReconnectTextAlreadyRendered(
   }
 
   return changed ? next : content;
+}
+
+/**
+ * Whether the reconnect overlay — a SECOND fold of a run, rendered as a sibling
+ * of the message list — may appear.
+ *
+ * The adapter runtime and the reconnect reader both fold the same SSE events
+ * into their own accumulator. Whenever both are on screen the user sees the
+ * turn twice: duplicate tool cards (one spinning, one static) and the final
+ * message streaming in two places. Content-similarity dedupe cannot reliably
+ * hide the second copy, because the two readers disagree on tool-call identity
+ * (id-less activity cards get reader-local ids) and on how a turn is split
+ * across assistant messages.
+ *
+ * So ownership decides visibility, not similarity: if a runtime owns the turn,
+ * the overlay does not render. Keep this a pure function — it is the invariant
+ * the duplicate-render bug kept violating, and it must stay falsifiable.
+ */
+export function shouldShowReconnectOverlay(state: {
+  isRuntimeRunning: boolean;
+  isReconnecting: boolean;
+  reconnectFrozen: boolean;
+}): boolean {
+  if (state.isRuntimeRunning) return false;
+  return state.isReconnecting || state.reconnectFrozen;
 }
 
 export function dedupeReconnectContentAgainstMessages(
@@ -1846,6 +1808,25 @@ function AssistantChatAssistantMessageItem() {
       <AssistantMessage />
     </MessageScrollerItem>
   );
+}
+
+function AssistantChatScrollerControls({
+  resumeFollowingRef,
+}: {
+  resumeFollowingRef: React.MutableRefObject<() => void>;
+}) {
+  const { scrollToEnd } = useMessageScroller();
+
+  useBrowserLayoutEffect(() => {
+    resumeFollowingRef.current = () => {
+      scrollToEnd({ behavior: "auto" });
+    };
+    return () => {
+      resumeFollowingRef.current = () => {};
+    };
+  }, [resumeFollowingRef, scrollToEnd]);
+
+  return null;
 }
 
 // ─── Main Component ─────────────────────────────────────────────────────────
@@ -2466,7 +2447,10 @@ const AssistantChatInner = forwardRef<
       enabled: messages.length === 0,
     },
   );
-  const messageListResetKey = assistantUiMessageListStructureKey(messages);
+  const messageListResetKey = useMemo(
+    () => assistantUiMessageListStructureKey(messages),
+    [messages],
+  );
 
   // Chat-wide drag-and-drop: users expect to drop a file anywhere on the agent
   // sidebar (thread, header, composer) and have it attach — same as ChatGPT,
@@ -2763,7 +2747,6 @@ const AssistantChatInner = forwardRef<
   const [reconnectFrozen, setReconnectFrozen] = useState(false);
   // Adapter took over while reconnect still had visible tool cards — keep the
   // overlay until the adapter message catches up so we don't flash an empty gap.
-  const [adapterHandoffPending, setAdapterHandoffPending] = useState(false);
   const reconnectRunIdRef = useRef<string | null>(null);
   const reconnectTurnIdRef = useRef<string | null>(null);
   const reconnectTailOnlyRef = useRef(false);
@@ -2786,7 +2769,6 @@ const AssistantChatInner = forwardRef<
     setIsReconnecting(false);
     setReconnectFrozen(false);
     setReconnectContent([]);
-    setAdapterHandoffPending(false);
     setPendingReconnectRecovery(null);
     resetRunningActivity();
   }, [resetRunningActivity]);
@@ -2890,15 +2872,10 @@ const AssistantChatInner = forwardRef<
   });
   const reconnectActivityContent = useMemo(
     () =>
-      isReconnecting || reconnectFrozen || adapterHandoffPending
+      isReconnecting || reconnectFrozen
         ? reconnectActivityFallbackContent(runningActivityTool)
         : [],
-    [
-      adapterHandoffPending,
-      isReconnecting,
-      reconnectFrozen,
-      runningActivityTool,
-    ],
+    [isReconnecting, reconnectFrozen, runningActivityTool],
   );
   const lastBroadcastRunningRef = useRef(isRunning);
   const tiptapRef = useRef<TiptapComposerHandle>(null);
@@ -3249,6 +3226,12 @@ const AssistantChatInner = forwardRef<
       if (isRuntimeRunningRef.current || isAutoResumingRef.current) {
         return false;
       }
+      // The refs above lag a render and are per-component-instance, while
+      // MultiTabAssistantChat mounts several instances against one run. The
+      // claim is the actual mutual exclusion: module-scoped, synchronous, and
+      // re-checked on every state write below.
+      const ownershipToken = createRunStreamToken(`reconnect:${runId}`);
+      if (!claimRunStream(threadId, runId, ownershipToken)) return false;
 
       // SUPERSEDE THE PREVIOUS RECONNECT GENERATION. A turn that keeps failing
       // (e.g. repeated stale_run at "Contacting model") produces a new runId
@@ -3290,7 +3273,6 @@ const AssistantChatInner = forwardRef<
       });
       setIsReconnecting(true);
       setReconnectFrozen(false);
-      setAdapterHandoffPending(false);
       setReconnectContent([]);
       window.dispatchEvent(
         new CustomEvent("agentNative.chatRunning", {
@@ -3463,7 +3445,8 @@ const AssistantChatInner = forwardRef<
                 rafPending = false;
                 if (
                   !reconnectOwnerMountedRef.current ||
-                  reconnectRunIdRef.current !== runId
+                  reconnectRunIdRef.current !== runId ||
+                  !ownsRunStream(threadId, runId, ownershipToken)
                 ) {
                   return;
                 }
@@ -3479,9 +3462,13 @@ const AssistantChatInner = forwardRef<
                 tabId,
                 scheduleUpdate,
                 (seq, isProgress) => {
+                  // The adapter can preempt this reader mid-stream. Advancing
+                  // the cursor after that would move a run this reader no
+                  // longer represents.
+                  if (!ownsRunStream(threadId, runId, ownershipToken)) return;
                   markReconnectProgress();
                   reconnectRetryCount = 0;
-                  updateActiveRunSeq(seq, isProgress);
+                  updateActiveRunSeq(threadId, runId, seq, isProgress);
                 },
                 { preparingActionState },
               );
@@ -3532,6 +3519,7 @@ const AssistantChatInner = forwardRef<
           threadPollEngine?.stop();
           watchdog.stop();
           clearInterval(idleCheck);
+          releaseRunStream(threadId, runId, ownershipToken);
         }
 
         // A newer reader, live adapter, stop action, or component unmount took
@@ -4548,11 +4536,14 @@ const AssistantChatInner = forwardRef<
     prevIsRuntimeRunningRef.current = isRuntimeRunning;
     if (isRuntimeRunning && !wasRunning) {
       // SINGLE-READER OWNERSHIP: the adapter runtime just took over (a new run
-      // started or an adopted run resumed). Abort the reconnect reader, but keep
-      // its visible content until the adapter message has tool/text parts so the
-      // UI does not flash an empty gap between readers.
+      // started or an adopted run resumed), so it is now the only owner of this
+      // turn's rendering. The overlay used to be kept alive here for up to
+      // 2500ms so the UI would not flash a gap — but that deliberately put two
+      // independent folds of the same run on screen at once, and the only thing
+      // hiding the second was content-similarity guessing that fails whenever
+      // the two readers disagree (id-less activity cards, a turn split across
+      // several assistant messages). One owner, one surface: drop the overlay.
       if (reconnectRunIdRef.current !== null) {
-        const keepOverlay = reconnectContent.length > 0;
         reconnectRunIdRef.current = null;
         reconnectAbortRef.current?.abort();
         reconnectAbortRef.current = null;
@@ -4560,55 +4551,17 @@ const AssistantChatInner = forwardRef<
         setReconnectFrozen(false);
         reconnectCanMaterializeRef.current = false;
         reconnectTailOnlyRef.current = false;
-        if (keepOverlay) {
-          setAdapterHandoffPending(true);
-        } else {
-          setReconnectContent([]);
-          setAdapterHandoffPending(false);
-        }
+        setReconnectContent([]);
       } else if (reconnectFrozen) {
         setReconnectFrozen(false);
         setReconnectContent([]);
-        setAdapterHandoffPending(false);
         reconnectCanMaterializeRef.current = false;
       }
       if (forceStopped) {
         setForceStopped(false);
       }
     }
-  }, [
-    isRuntimeRunning,
-    reconnectFrozen,
-    forceStopped,
-    reconnectContent.length,
-  ]);
-
-  // Release the deferred reconnect overlay once thread messages have caught
-  // up enough that dedupe would hide the overlay, or after a short timeout so
-  // a stuck handoff cannot leave duplicate tool cards forever.
-  useEffect(() => {
-    if (!adapterHandoffPending) return;
-    if (!isRuntimeRunning) {
-      setReconnectContent([]);
-      setAdapterHandoffPending(false);
-      return;
-    }
-    const stillNeeded =
-      dedupeReconnectContentAgainstMessages(reconnectContent, messages, {
-        suppressToolRepeats: true,
-        trimTailTextOverlap: true,
-      }).length > 0;
-    if (!stillNeeded) {
-      setReconnectContent([]);
-      setAdapterHandoffPending(false);
-      return;
-    }
-    const timer = window.setTimeout(() => {
-      setReconnectContent([]);
-      setAdapterHandoffPending(false);
-    }, 2500);
-    return () => window.clearTimeout(timer);
-  }, [adapterHandoffPending, isRuntimeRunning, messages, reconnectContent]);
+  }, [isRuntimeRunning, reconnectFrozen, forceStopped]);
 
   // Same transition guard for isReconnecting: only clear forceStopped on
   // the false→true edge (a new reconnect starting on page load).
@@ -4626,7 +4579,6 @@ const AssistantChatInner = forwardRef<
     if (!reconnectCanMaterializeRef.current) {
       setReconnectFrozen(false);
       setReconnectContent([]);
-      setAdapterHandoffPending(false);
       return;
     }
     try {
@@ -4676,7 +4628,6 @@ const AssistantChatInner = forwardRef<
       threadRuntime.import(ensureMessageMetadata(repo));
       setReconnectFrozen(false);
       setReconnectContent([]);
-      setAdapterHandoffPending(false);
       reconnectCanMaterializeRef.current = false;
       reconnectTurnIdRef.current = null;
     } catch (err) {
@@ -4816,7 +4767,6 @@ const AssistantChatInner = forwardRef<
         reconnectAbortRef.current = null;
         reconnectRunIdRef.current = null;
         setIsReconnecting(false);
-        setAdapterHandoffPending(false);
         const shouldFreezeReconnectContent =
           !reconnectTailOnlyRef.current &&
           reconnectCanMaterializeRef.current &&
@@ -5341,11 +5291,26 @@ const AssistantChatInner = forwardRef<
     reconnectContent,
     messages,
     {
-      suppressToolRepeats: adapterHandoffPending,
-      trimTailTextOverlap:
-        adapterHandoffPending || reconnectTailOnlyRef.current,
+      // While the reconnect stack is mounted, the live assistant message is
+      // already the canonical visual owner for any tool it contains. Keeping
+      // an ahead-of-the-thread reconnect copy visible creates the familiar
+      // two-card stack while the adapter catches up, so prefer one row and
+      // let the live message advance in place.
+      suppressToolRepeats: isReconnecting || reconnectFrozen,
+      trimTailTextOverlap: reconnectTailOnlyRef.current,
     },
   );
+  // The reconnect overlay is a SECOND fold of the same run, rendered as a
+  // sibling of the message list. It may only appear while no adapter runtime
+  // owns the turn. Deriving it from `isRuntimeRunning` at render time — rather
+  // than relying on an effect to clear the overlay's own flags afterwards —
+  // is what makes two streaming copies structurally impossible instead of
+  // merely unlikely; the effect below runs a frame too late to prevent it.
+  const showReconnectOverlay = shouldShowReconnectOverlay({
+    isRuntimeRunning,
+    isReconnecting,
+    reconnectFrozen,
+  });
   const latestMessage = messages[messages.length - 1];
   const reconnectStatusContent =
     visibleReconnectContent.length > 0
@@ -5360,65 +5325,6 @@ const AssistantChatInner = forwardRef<
     latestMessage,
     reconnectContent: reconnectStatusContent,
   });
-  const autoscrollFollowKey = [
-    messages.map(messageFollowKey).join(";"),
-    `q:${queuedMessages.map(queuedMessageFollowKey).join("|")}`,
-    `r:${reconnectContentFollowKey(visibleReconnectContent)}`,
-    `status:${assistantChatAutoscrollStatusKey({
-      showGlobalRunningStatus,
-      runningStatusLabel,
-    })}`,
-  ].join(";;");
-  const {
-    scrollRef,
-    isNearBottomRef,
-    showScrollToBottom,
-    scrollToBottom,
-    scrollToBottomAfterPaint,
-    resumeFollowing,
-  } = useNearBottomAutoscroll<HTMLDivElement>({
-    followKey: autoscrollFollowKey,
-    streaming: textStreaming,
-  });
-  resumeFollowingRef.current = resumeFollowing;
-
-  const scrollToBottomWhileLayoutSettles = useCallback(() => {
-    scrollToBottomAfterPaint();
-    const element = scrollRef.current;
-    if (!element || typeof ResizeObserver === "undefined") return undefined;
-
-    let stopped = false;
-    const observer = new ResizeObserver(() => {
-      if (!stopped && isNearBottomRef.current) scrollToBottom();
-    });
-    observer.observe(element);
-    const timeout = window.setTimeout(() => {
-      stopped = true;
-      observer.disconnect();
-      if (isNearBottomRef.current) scrollToBottom();
-    }, 1600);
-
-    return () => {
-      stopped = true;
-      window.clearTimeout(timeout);
-      observer.disconnect();
-    };
-  }, [isNearBottomRef, scrollRef, scrollToBottom, scrollToBottomAfterPaint]);
-
-  const wasRestoringRef = useRef(isRestoring);
-  useEffect(() => {
-    const wasRestoring = wasRestoringRef.current;
-    wasRestoringRef.current = isRestoring;
-    if (wasRestoring && !isRestoring) {
-      return scrollToBottomWhileLayoutSettles();
-    }
-  }, [isRestoring, scrollToBottomWhileLayoutSettles]);
-
-  useEffect(() => {
-    if (!textStreaming && isNearBottomRef.current) {
-      scrollToBottomAfterPaint();
-    }
-  }, [isNearBottomRef, scrollToBottomAfterPaint, textStreaming]);
   const chatScrollResetKey = `${tabId ?? ""}:${threadId ?? ""}`;
 
   const { isDevMode: cpDevMode } = useDevMode(apiUrl);
@@ -5613,7 +5519,6 @@ const AssistantChatInner = forwardRef<
     showComposerSlot ||
     showCenteredEmptyThreadFooterSlot ||
     (guidedQuestions && guidedQuestions.length > 0) ||
-    showScrollToBottom ||
     composerContextItems.length > 0 ||
     showPlanModeCallout ||
     showInlineMissingKeySetup,
@@ -5682,7 +5587,7 @@ const AssistantChatInner = forwardRef<
           false,
           false,
           false,
-          false,
+          true, // hideUserMessage: this is a protocol continuation, not a new prompt
           undefined,
           [approvalKey],
         );
@@ -5781,10 +5686,13 @@ const AssistantChatInner = forwardRef<
                           {/* Messages area */}
                           <MessageScrollerProvider
                             key={chatScrollResetKey}
-                            autoScroll={false}
+                            autoScroll
                           >
+                            <AssistantChatScrollerControls
+                              resumeFollowingRef={resumeFollowingRef}
+                            />
                             <MessageScroller className="agent-chat-scroll">
-                              <MessageScrollerViewport ref={scrollRef}>
+                              <MessageScrollerViewport>
                                 {authError ? (
                                   <div className="flex flex-col items-center justify-center h-full px-4 gap-3">
                                     <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
@@ -6014,9 +5922,7 @@ const AssistantChatInner = forwardRef<
                                         />
                                       </MessageScrollerItem>
                                     )}
-                                    {(isReconnecting ||
-                                      reconnectFrozen ||
-                                      adapterHandoffPending) &&
+                                    {showReconnectOverlay &&
                                       visibleReconnectContent.length > 0 && (
                                         <MessageScrollerItem>
                                           <ReconnectStreamMessage
@@ -6027,9 +5933,7 @@ const AssistantChatInner = forwardRef<
                                           />
                                         </MessageScrollerItem>
                                       )}
-                                    {(isReconnecting ||
-                                      reconnectFrozen ||
-                                      adapterHandoffPending) &&
+                                    {showReconnectOverlay &&
                                       visibleReconnectContent.length === 0 &&
                                       reconnectContent.length === 0 &&
                                       reconnectActivityContent.length > 0 && (
@@ -6146,22 +6050,8 @@ const AssistantChatInner = forwardRef<
                                   </MessageScrollerContent>
                                 )}
                               </MessageScrollerViewport>
-                              {!authError &&
-                              !isRestoring &&
-                              !showEmptyState &&
-                              showScrollToBottom ? (
-                                <div className="shrink-0 flex justify-center -mb-1">
-                                  <button
-                                    type="button"
-                                    onClick={scrollToBottom}
-                                    className="flex h-7 w-7 items-center justify-center rounded-full border border-border bg-background shadow-sm hover:bg-accent"
-                                    aria-label={t(
-                                      "agentChat.composer.scrollToBottom",
-                                    )}
-                                  >
-                                    <IconChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-                                  </button>
-                                </div>
+                              {!authError && !isRestoring && !showEmptyState ? (
+                                <MessageScrollerButton />
                               ) : null}
                             </MessageScroller>
                           </MessageScrollerProvider>

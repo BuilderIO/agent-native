@@ -18,6 +18,7 @@ export {
   McpIntegrationDialog,
   type McpIntegrationDialogProps,
 } from "./McpIntegrationDialog.js";
+export { McpIntegrationLogo } from "./McpIntegrationLogo.js";
 export {
   McpConnectionSuggestion,
   type McpConnectionSuggestionProps,

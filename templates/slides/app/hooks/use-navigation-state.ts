@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router";
 
+import { readStoredDeckFilter, resolveDeckFilter } from "@/lib/deck-filter";
 import { TAB_ID } from "@/lib/tab-id";
 
 export interface NavigationState {
@@ -59,7 +60,10 @@ export function useNavigationState() {
     } else {
       const params = new URLSearchParams(location.search);
       state.deckFilter =
-        params.get("createdBy") === "me" ? "created-by-me" : "all";
+        resolveDeckFilter(params.get("createdBy"), readStoredDeckFilter()) ===
+        "mine"
+          ? "created-by-me"
+          : "all";
     }
 
     const write = (key: string) =>
@@ -152,22 +156,21 @@ export function useNavigationState() {
       path = `/deck/${cmd.deckId}`;
       if (cmd.view === "present") {
         path += "/present";
-      } else {
-        const internalSlideIndex =
-          typeof cmd.slideNumber === "number" &&
-          Number.isFinite(cmd.slideNumber) &&
-          cmd.slideNumber >= 1
-            ? cmd.slideNumber - 1
-            : cmd.slideIndex;
-        if (
-          typeof internalSlideIndex === "number" &&
-          Number.isFinite(internalSlideIndex) &&
-          internalSlideIndex >= 0
-        ) {
-          // Convert the internal zero-based value back to the 1-based
-          // ?slide=N URL param the editor reads.
-          path += `?slide=${internalSlideIndex + 1}`;
-        }
+      }
+      const internalSlideIndex =
+        typeof cmd.slideNumber === "number" &&
+        Number.isFinite(cmd.slideNumber) &&
+        cmd.slideNumber >= 1
+          ? cmd.slideNumber - 1
+          : cmd.slideIndex;
+      if (
+        typeof internalSlideIndex === "number" &&
+        Number.isFinite(internalSlideIndex) &&
+        internalSlideIndex >= 0
+      ) {
+        // Convert the internal zero-based value back to the 1-based
+        // ?slide=N URL param both the editor and presentation view read.
+        path += `?slide=${internalSlideIndex + 1}`;
       }
     }
 

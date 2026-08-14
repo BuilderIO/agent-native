@@ -40,12 +40,10 @@ type GranularOp =
       op: "add-slide";
       slideId: string;
       afterSlideId?: string;
-      fields: {
-        content: string;
-        notes?: string;
-        layout?: string;
-        background?: string;
-      };
+      /** Everything but `id` and the transient `imageLoading` flag. A slide
+       * copied or restored through this op keeps its transition, animations,
+       * and image/Excalidraw data instead of silently losing them on reload. */
+      fields: Omit<Partial<Slide>, "id" | "imageLoading"> & { content: string };
     }
   | {
       op: "patch-deck-fields";
@@ -57,6 +55,16 @@ type GranularOp =
   | { op: "full-replace"; deck: Deck };
 
 export type PatchDeckOp = Exclude<GranularOp, { op: "full-replace" }>;
+
+/** Slide payload for an `add-slide` op. `imageLoading` is transient UI state
+ * and must not persist; everything else on the slide has to survive the round
+ * trip or a duplicated/restored slide comes back missing fields. */
+function addSlideFields(
+  slide: Slide,
+): Extract<GranularOp, { op: "add-slide" }>["fields"] {
+  const { id: _id, imageLoading: _imageLoading, ...fields } = slide;
+  return fields;
+}
 export type DeckReloadStatus = "loaded" | "failed" | "stale";
 export interface UpdateSlideOptions {
   persistence?: "debounced" | "immediate";
@@ -223,7 +231,7 @@ interface DeckContextType {
     options?: UpdateSlideOptions,
   ) => void;
   deleteSlide: (deckId: string, slideId: string) => void;
-  duplicateSlide: (deckId: string, slideId: string) => void;
+  duplicateSlide: (deckId: string, slideId: string) => string | undefined;
   reorderSlides: (deckId: string, oldIndex: number, newIndex: number) => void;
   setDeckSlides: (deckId: string, slides: Slide[]) => void;
   /**
@@ -313,17 +321,24 @@ const DECK_SAVE_RETRY_BASE_MS = 250;
 // Ops are appended by enqueueDeckOp and drained when the debounce fires.
 const pendingOpsQueue = new Map<string, GranularOp[]>();
 
-// Cached snapshot for useSyncExternalStore. MUST be stable when the boolean
+// Cached snapshot for useSyncExternalStore. MUST be stable when either value
 // is unchanged or React will infinite-loop (it compares snapshots with
 // Object.is — a fresh object literal every call schedules a new update,
 // which calls getSnapshot again, which returns a new object… etc).
-let cachedSnapshot: { saving: boolean } = { saving: false };
+let cachedSnapshot: { saving: boolean; hasUnsavedChanges: boolean } = {
+  saving: false,
+  hasUnsavedChanges: false,
+};
 
 function recomputeSnapshot() {
   const saving =
     pendingSaves.size > 0 || inFlightSaves.size > 0 || pendingOpsQueue.size > 0;
-  if (saving !== cachedSnapshot.saving) {
-    cachedSnapshot = { saving };
+  const hasUnsavedChanges = saving || failedSaveDecks.size > 0;
+  if (
+    saving !== cachedSnapshot.saving ||
+    hasUnsavedChanges !== cachedSnapshot.hasUnsavedChanges
+  ) {
+    cachedSnapshot = { saving, hasUnsavedChanges };
   }
 }
 
@@ -342,8 +357,24 @@ export function subscribeSaveState(listener: () => void): () => void {
   return () => saveStateListeners.delete(listener);
 }
 
+/**
+ * True when a deck still has a local write that has not been confirmed by the
+ * server, including a save that exhausted its retry budget.
+ */
+export function hasUnsavedDeckChanges(deckId: string): boolean {
+  return (
+    pendingSaves.has(deckId) ||
+    inFlightSaves.has(deckId) ||
+    pendingOpsQueue.has(deckId) ||
+    failedSaveDecks.has(deckId)
+  );
+}
+
 /** Snapshot of save state — true when anything is debounced or in flight. */
-export function getSaveSnapshot(): { saving: boolean } {
+export function getSaveSnapshot(): {
+  saving: boolean;
+  hasUnsavedChanges: boolean;
+} {
   return cachedSnapshot;
 }
 
@@ -660,13 +691,11 @@ export function applyOpToDeck(deck: Deck, op: PatchDeckOp): Deck {
     case "add-slide": {
       if (deck.slides.some((s) => s.id === op.slideId)) return deck; // idempotent
       const newSlide: Slide = {
+        ...op.fields,
         id: op.slideId,
         content: op.fields.content,
         notes: op.fields.notes ?? "",
         layout: (op.fields.layout as SlideLayout) ?? "content",
-        ...(op.fields.background !== undefined
-          ? { background: op.fields.background }
-          : {}),
       };
       const slides = [...deck.slides];
       const afterIdx = op.afterSlideId
@@ -799,14 +828,7 @@ export function deriveInverseOp(
           op: "add-slide",
           slideId: prior.id,
           afterSlideId,
-          fields: {
-            content: prior.content,
-            notes: prior.notes,
-            layout: prior.layout,
-            ...(prior.background !== undefined
-              ? { background: prior.background }
-              : {}),
-          },
+          fields: addSlideFields(prior),
         },
         {
           op: "reorder-slides",
@@ -1040,12 +1062,7 @@ export function hasUncommittedDeckChanges(
   deckId: string,
   dirtyDeckIds: Set<string>,
 ): boolean {
-  return (
-    dirtyDeckIds.has(deckId) ||
-    pendingSaves.has(deckId) ||
-    inFlightSaves.has(deckId) ||
-    failedSaveDecks.has(deckId)
-  );
+  return dirtyDeckIds.has(deckId) || hasUnsavedDeckChanges(deckId);
 }
 
 /**
@@ -1174,6 +1191,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   const pendingDuplicateSourceIdsRef = useRef<Set<string>>(new Set());
   const dirtyDeckIdsRef = useRef<Set<string>>(new Set());
   const deckBaselineRequestIdRef = useRef(0);
+  const openDeckRequestIdByDeckRef = useRef<Map<string, number>>(new Map());
   // True only while the SSE channel is actually open. Stays false when SSE is
   // never started (embed auth), so the poll keeps its fast intervals there.
   const liveChannelConnectedRef = useRef(false);
@@ -1396,7 +1414,13 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   //     agent-added slides without ever overwriting or dropping local slides.
   const refetchOpenDeckIfChanged = useCallback(
     async (currentOpenId: string): Promise<Deck | null> => {
+      const requestId =
+        (openDeckRequestIdByDeckRef.current.get(currentOpenId) ?? 0) + 1;
+      openDeckRequestIdByDeckRef.current.set(currentOpenId, requestId);
       const serverDeck = await fetchDeckFromAPI(currentOpenId);
+      if (openDeckRequestIdByDeckRef.current.get(currentOpenId) !== requestId) {
+        return null;
+      }
       // Null means 404 (row not created yet), a transient failure, or a
       // still-pending create — nothing authoritative to reconcile.
       if (!serverDeck) return null;
@@ -1693,21 +1717,16 @@ export function DeckProvider({ children }: { children: ReactNode }) {
             lastExternalUpdateRef.current = Date.now();
             setDecks((prev) => prev.filter((d) => d.id !== data.deckId));
           } else if (data.type === "deck-changed") {
-            // Skip if a save for this deck is pending or in flight — this
-            // event is most likely the echo of our own write and the server
-            // copy may be a few hundred ms behind what the user just typed.
-            // Polling and the next save's response will bring the canonical
-            // state once the local burst settles.
-            if (
-              hasUncommittedDeckChanges(data.deckId, dirtyDeckIdsRef.current)
-            ) {
-              continue;
-            }
-            // Refetch the changed deck from the shared action surface.
-            void fetchDeckFromAPI(data.deckId).then((updated) => {
-              if (stopped || !updated) return;
-              lastExternalUpdateRef.current = Date.now(); // Suppress save-back
-              applyRemoteDeckUpdate(updated);
+            // Do not drop the event while a local edit/save is pending. The
+            // event may be an own-write echo, but it may also be an agent
+            // write that arrived during the same local edit. The reconciler
+            // preserves local slide bodies and local-only slides while still
+            // surfacing server-added slides immediately.
+            void refetchOpenDeckIfChanged(data.deckId).catch((error) => {
+              console.error(
+                `Failed to refresh deck ${data.deckId} after sync event:`,
+                error,
+              );
             });
           }
         }
@@ -1732,7 +1751,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       liveChannelConnectedRef.current = false;
       unsubscribe();
     };
-  }, [applyRemoteDeckUpdate, resyncDeckState]);
+  }, [refetchOpenDeckIfChanged, resyncDeckState]);
 
   // Flush pending (debounced) saves before the tab is hidden or unloaded so the
   // last ~500ms of edits aren't lost on close/navigation. `pagehide` is the
@@ -2107,12 +2126,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         op: "add-slide",
         slideId: newSlide.id,
         afterSlideId,
-        fields: {
-          content: newSlide.content,
-          notes: newSlide.notes,
-          layout: newSlide.layout,
-          background: newSlide.background,
-        },
+        fields: addSlideFields(newSlide),
       };
       enqueueDeckOp(deckId, op);
       if (before) recordUndo(before, op, { label: "Add slide" });
@@ -2203,7 +2217,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     (deckId: string, slideId: string) => {
       const before = decksRef.current.find((d) => d.id === deckId);
       const original = before?.slides.find((slide) => slide.id === slideId);
-      if (!before || !original) return;
+      if (!before || !original) return undefined;
 
       markDeckDirty(deckId);
       const copiedSlide: Slide = { ...original, id: nanoid(8) };
@@ -2220,20 +2234,15 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       // Granular add-slide op — inserts the copy after the original. Build it
       // from the current deck before scheduling the React state update; the
       // functional updater runs later and cannot be used to produce the op.
-      const { id: newSlideId, ...rest } = copiedSlide;
       const op: PatchDeckOp = {
         op: "add-slide",
-        slideId: newSlideId,
+        slideId: copiedSlide.id,
         afterSlideId: slideId,
-        fields: {
-          content: rest.content,
-          notes: rest.notes,
-          layout: rest.layout,
-          background: rest.background,
-        },
+        fields: addSlideFields(copiedSlide),
       };
       enqueueDeckOp(deckId, op);
       recordUndo(before, op, { label: "Duplicate slide" });
+      return copiedSlide.id;
     },
     [markDeckDirty, recordUndo, setDecksLocal],
   );
@@ -2344,15 +2353,21 @@ export function useDecks() {
 }
 
 /**
- * Subscribe to deck save-state. Returns `{ saving: boolean }` — true while any
- * deck has a pending debounce timer or an in-flight PUT.
+ * Subscribe to deck save-state. `saving` is true while any deck has a pending
+ * debounce timer or an in-flight PUT. `hasUnsavedChanges` also stays true when
+ * a save has exhausted its retry budget, so navigation can warn before the
+ * user leaves work that is still only local.
  *
  * Used by SaveStatusIndicator in the toolbar so users always see whether
  * their work has been committed (Rochkind reported losing a full deck because
  * there was no save signal).
  */
-export function useSaveState(): { saving: boolean } {
+export function useSaveState(): {
+  saving: boolean;
+  hasUnsavedChanges: boolean;
+} {
   return useSyncExternalStore(subscribeSaveState, getSaveSnapshot, () => ({
     saving: false,
+    hasUnsavedChanges: false,
   }));
 }
