@@ -23,13 +23,19 @@ interface LayoutOverflowCheckHistory {
   lastCheckAt: number;
 }
 
+// Keyed per deck (not one shared record) so checking deck A, then B, then A
+// again does not reset A's count on every deck switch within the same tab.
+function historyKeyForDeck(deckId: string): string {
+  return `layout-overflow-check-history:${deckId}`;
+}
+
 async function noteLayoutOverflowCheck(
   deckId: string,
-  stillOverflowing: boolean,
+  resolved: boolean,
 ): Promise<number> {
-  const key = "layout-overflow-check-history";
+  const key = historyKeyForDeck(deckId);
   const now = Date.now();
-  if (!stillOverflowing) {
+  if (resolved) {
     await writeAppStateForCurrentTab(key, {
       deckId,
       count: 0,
@@ -187,10 +193,7 @@ export default defineAction({
 
     const canClaimDeckFits =
       unknownSlideIds.length === 0 && overflows.length === 0;
-    const checkCount = await noteLayoutOverflowCheck(
-      deckId,
-      overflows.length > 0,
-    );
+    const checkCount = await noteLayoutOverflowCheck(deckId, canClaimDeckFits);
 
     return {
       deckId,
