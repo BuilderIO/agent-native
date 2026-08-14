@@ -1398,9 +1398,9 @@ function ModelSelector({
     engines.length,
   );
 
-  // When Builder.io isn't connected, surface a one-click connect path —
-  // it unlocks every model family (Claude, OpenAI, Gemini) without the
-  // user having to paste individual API keys.
+  // Keep setup actions beside model choices while any visible provider still
+  // needs configuration. The model rows remain visible so the user can see
+  // what becomes available after connecting or adding a key.
   const builderFlow = adapters.builder!.useConnectFlow!({
     enabled: providerConnectStatusEnabled,
     trackingSource: "composer_builder_cta",
@@ -1411,17 +1411,22 @@ function ModelSelector({
   const hasConnectedSubscription = providerGroups.some(
     (group) => group.configured && group.isSubscription,
   );
-  const showBuilderCta =
-    (builderFlow.hasFetchedStatus ||
-      (!providerConnectStatusEnabled && !!onConnectProvider)) &&
+  const hasUnconfiguredVisibleModels = modelProviderGroups.some(
+    (group) => !group.configured,
+  );
+  const showBuilderAction =
+    hasUnconfiguredVisibleModels &&
     !builderFlow.configured &&
     !builderFlow.envManaged &&
     !hasConfiguredBuilderModels &&
-    !hasConnectedSubscription;
+    !hasConnectedSubscription &&
+    Boolean(onConnectProvider || providerConnectStatusEnabled);
+  const showAddKeysAction = hasUnconfiguredVisibleModels;
+  const showProviderActions = showBuilderAction || showAddKeysAction;
   const onlyConnectPathAvailable = shouldShowOnlyConnectPath(
-    showBuilderCta,
+    showBuilderAction,
     providerGroups,
-  );
+  ) && modelProviderGroups.length === 0;
   const openLlmSettings = useCallback(() => {
     try {
       window.location.hash = "llm";
@@ -1705,69 +1710,75 @@ function ModelSelector({
                 )}
                 {resolvedSection === "model" && (
                   <>
-                    {showBuilderCta && (
+                    {showProviderActions && (
                       <>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (onConnectProvider) {
-                              onConnectProvider();
-                            } else {
-                              builderFlow.start();
-                            }
-                          }}
-                          disabled={
-                            !onConnectProvider && builderFlow.connecting
-                          }
-                          className="flex w-full items-start gap-2 rounded-md px-2 py-2 text-start hover:bg-accent/50 disabled:opacity-60"
-                        >
-                          <IconPlugConnected className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                          <span className="min-w-0 flex-1">
-                            <span className="block text-[12px] font-medium text-foreground">
-                              {!onConnectProvider && builderFlow.connecting
-                                ? t("agentPanel.connectingBuilder", {
-                                    defaultValue: "Connecting Builder.io…",
-                                  })
-                                : t("agentPanel.connectBuilderIo", {
-                                    defaultValue: "Connect Builder.io",
+                        {showBuilderAction && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (onConnectProvider) {
+                                  onConnectProvider();
+                                } else {
+                                  builderFlow.start();
+                                }
+                              }}
+                              disabled={
+                                !onConnectProvider && builderFlow.connecting
+                              }
+                              className="flex w-full items-start gap-2 rounded-md px-2 py-2 text-start hover:bg-accent/50 disabled:opacity-60"
+                            >
+                              <IconPlugConnected className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                              <span className="min-w-0 flex-1">
+                                <span className="block text-[12px] font-medium text-foreground">
+                                  {!onConnectProvider && builderFlow.connecting
+                                    ? t("agentPanel.connectingBuilder", {
+                                        defaultValue: "Connecting Builder.io…",
+                                      })
+                                    : t("agentPanel.connectBuilderIo", {
+                                        defaultValue: "Connect Builder.io",
+                                      })}
+                                </span>
+                                <span className="block text-[11px] text-muted-foreground">
+                                  {t("agentPanel.builderModelCredits", {
+                                    defaultValue:
+                                      "Free credits for Claude, OpenAI & Gemini",
                                   })}
-                            </span>
-                            <span className="block text-[11px] text-muted-foreground">
-                              {t("agentPanel.builderModelCredits", {
-                                defaultValue:
-                                  "Free credits for Claude, OpenAI & Gemini",
-                              })}
-                            </span>
-                          </span>
-                        </button>
-                        {!onConnectProvider && builderFlow.error && (
-                          <p
-                            role="alert"
-                            className="px-2 pb-2 ps-8 text-[11px] text-destructive"
-                          >
-                            {builderFlow.error}
-                          </p>
+                                </span>
+                              </span>
+                            </button>
+                            {!onConnectProvider && builderFlow.error && (
+                              <p
+                                role="alert"
+                                className="px-2 pb-2 ps-8 text-[11px] text-destructive"
+                              >
+                                {builderFlow.error}
+                              </p>
+                            )}
+                          </>
                         )}
-                        <button
-                          type="button"
-                          onClick={openLlmSettings}
-                          className="flex w-full items-start gap-2 rounded-md px-2 py-2 text-start hover:bg-accent/50"
-                        >
-                          <IconKey className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-                          <span className="min-w-0 flex-1">
-                            <span className="block text-[12px] font-medium text-foreground">
-                              {t("agentPanel.addOwnKeys", {
-                                defaultValue: "Add your own keys",
-                              })}
+                        {showAddKeysAction && (
+                          <button
+                            type="button"
+                            onClick={openLlmSettings}
+                            className="flex w-full items-start gap-2 rounded-md px-2 py-2 text-start hover:bg-accent/50"
+                          >
+                            <IconKey className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                            <span className="min-w-0 flex-1">
+                              <span className="block text-[12px] font-medium text-foreground">
+                                {t("agentPanel.addOwnKeys", {
+                                  defaultValue: "Add your own keys",
+                                })}
+                              </span>
+                              <span className="block text-[11px] text-muted-foreground">
+                                {t("agentPanel.configureProviderKeys", {
+                                  defaultValue:
+                                    "Choose a cloud, gateway, or local provider",
+                                })}
+                              </span>
                             </span>
-                            <span className="block text-[11px] text-muted-foreground">
-                              {t("agentPanel.configureProviderKeys", {
-                                defaultValue:
-                                  "Choose a cloud, gateway, or local provider",
-                              })}
-                            </span>
-                          </span>
-                        </button>
+                          </button>
+                        )}
                       </>
                     )}
                     {imageModel && imageModel.options.length > 0 && (

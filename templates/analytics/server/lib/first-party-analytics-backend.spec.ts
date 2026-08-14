@@ -156,15 +156,15 @@ describe("first-party BigQuery backend", () => {
         "builder-3b0a2.analytics.first_party_analytics_events_raw",
     };
     const scopedDate = renderFirstPartyAnalyticsBigQuerySql(
-      "WITH base AS (SELECT event_date AS cohort_date FROM analytics_events) SELECT * FROM base WHERE cohort_date >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD') AND cohort_date <= ?",
+      "WITH base AS (SELECT event_date AS cohort_date FROM analytics_events) SELECT * FROM base WHERE base.cohort_date >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD') AND base.cohort_date <= ?",
       ["2026-08-14"],
       table,
     );
 
     expect(scopedDate).toContain(
-      "cohort_date >= CAST(DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY) AS DATE)",
+      "base.cohort_date >= CAST(DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY) AS DATE)",
     );
-    expect(scopedDate).toContain("cohort_date <= DATE '2026-08-14'");
+    expect(scopedDate).toContain("base.cohort_date <= DATE '2026-08-14'");
     expect(scopedDate).not.toContain("cohort_date >= FORMAT_DATE");
   });
 
