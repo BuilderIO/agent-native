@@ -37,9 +37,13 @@ describe("DesignEditor pending live edits", () => {
       new URL("./DesignEditor.tsx", import.meta.url),
       "utf8",
     );
-    const applyHandler = source.slice(
-      source.indexOf("const handleApplyPendingVisualStylesWithAgent"),
-      source.indexOf("const handleAbortPendingVisualStyles"),
+    // The apply handler now lives in its own command module.
+    const applyHandler = readFileSync(
+      new URL(
+        "./design-editor/commands/apply-pending-visual-styles-with-agent.ts",
+        import.meta.url,
+      ),
+      "utf8",
     );
     const discardHandler = source.slice(
       source.indexOf("const handleAbortPendingVisualStyles"),

@@ -83,9 +83,15 @@ describe("live style runtime history", () => {
   });
 
   it("routes localhost forward styles and undo/redo through the shared targeted helper", () => {
-    const forwardSection = editorSource.slice(
-      editorSource.indexOf('if (activeCanvasSourceType === "localhost")'),
-      editorSource.indexOf(
+    const commitVisualStylesSource = readFileSync(
+      new URL("./commands/commit-visual-styles.ts", import.meta.url),
+      "utf8",
+    );
+    const forwardSection = commitVisualStylesSource.slice(
+      commitVisualStylesSource.indexOf(
+        'if (activeCanvasSourceType === "localhost")',
+      ),
+      commitVisualStylesSource.indexOf(
         "// Base every patch off the freshest known content",
       ),
     );

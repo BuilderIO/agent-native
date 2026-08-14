@@ -24,9 +24,11 @@ const source = readFileSync(
   "utf8",
 );
 
-const commitVisualStyles = source.slice(
-  source.indexOf("const commitVisualStyles = useCallback"),
-  source.indexOf("const commitStylesToSelectedLayers = useCallback"),
+// commitVisualStyles now lives in its own command module; the whole file is
+// the section these assertions used to slice out of DesignEditor.tsx.
+const commitVisualStyles = readFileSync(
+  new URL("./design-editor/commands/commit-visual-styles.ts", import.meta.url),
+  "utf8",
 );
 
 describe("commitVisualStyles on a localhost screen", () => {

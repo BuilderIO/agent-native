@@ -5,15 +5,15 @@ import { describe, expect, it } from "vitest";
 const source = readFileSync(new URL("./DesignEditor.tsx", import.meta.url), {
   encoding: "utf8",
 });
-const createPrimitiveStart = source.indexOf("const handleCreatePrimitive");
-const createPrimitiveEnd = source.indexOf(
-  "const removeEmptyTextNodeIfUntouched",
-  createPrimitiveStart,
+// handleCreatePrimitive now lives in its own command module.
+const createPrimitiveSource = readFileSync(
+  new URL("./design-editor/commands/create-primitive.ts", import.meta.url),
+  { encoding: "utf8" },
 );
-const createPrimitiveSource = source.slice(
-  createPrimitiveStart,
-  createPrimitiveEnd,
+const createPrimitiveStart = createPrimitiveSource.indexOf(
+  "export function runCreatePrimitive",
 );
+const createPrimitiveEnd = createPrimitiveSource.length;
 const recordPendingStart = source.indexOf(
   "const recordPendingLiveStructureEdit",
 );

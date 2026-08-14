@@ -541,24 +541,25 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
     // breakpointScoped + failure → hard error even when a legacy fallback
     // exists); this source assertion pins that commitVisualStyles actually
     // routes through it with the breakpoint-scope flag wired.
-    const start = source.indexOf(
+    const commitVisualStylesSource = readFileSync(
+      "app/pages/design-editor/commands/commit-visual-styles.ts",
+      "utf8",
+    );
+    const start = commitVisualStylesSource.indexOf(
       "const commitResolution = resolveVisualStyleCommitContent",
     );
     expect(start).toBeGreaterThanOrEqual(0);
-    const fallback = source.slice(start, start + 400);
+    const fallback = commitVisualStylesSource.slice(start, start + 400);
     expect(fallback).toContain(
       "breakpointScoped: activeBreakpointUpperBoundPx != null",
     );
   });
 
   it("item 7b: Delete routes through a display:none scoped write, not structural removal, while a breakpoint is active", () => {
-    const start = source.indexOf("const handleDeleteSelection = useCallback");
-    expect(start).toBeGreaterThanOrEqual(0);
-    const end = source.indexOf(
-      "// Wrap the current multi-layer selection into a new group container.",
+    const handler = readFileSync(
+      "app/pages/design-editor/commands/delete-selection.ts",
+      "utf8",
     );
-    expect(end).toBeGreaterThan(start);
-    const handler = source.slice(start, end);
     expect(handler).toContain("useBreakpointScopedDelete");
     expect(handler).toContain('property: "display"');
     expect(handler).toContain('value: "none"');
@@ -582,8 +583,10 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
     expect(multiElementBranch).toContain(
       "syncLiveScreenSnapshotPreview(file.id, content)",
     );
-    expect(multiElementBranch).toContain(
-      "if (shouldDeleteActiveLiveDom) {\n        deleteFromLiveDom(activeRuntimeSelectors);",
+    // Indentation-insensitive: the contract is that the live-DOM delete is the
+    // first statement in the guard, not how deeply the guard happens to nest.
+    expect(multiElementBranch).toMatch(
+      /if \(shouldDeleteActiveLiveDom\) \{\s*deleteFromLiveDom\(activeRuntimeSelectors\);/,
     );
     const singleElementEnd = handler.indexOf(
       "const nextContent = removeElementFromHtml",

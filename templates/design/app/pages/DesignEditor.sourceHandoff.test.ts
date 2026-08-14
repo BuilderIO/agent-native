@@ -4,10 +4,12 @@ import { describe, expect, it } from "vitest";
 
 describe("DesignEditor pending source handoff", () => {
   const source = readFileSync("app/pages/DesignEditor.tsx", "utf8");
-  const handler = source.slice(
-    source.indexOf("const handleApplyPendingVisualStylesWithAgent"),
-    source.indexOf("const handleAbortPendingVisualStyles"),
+  const agentHandoffSource = readFileSync(
+    "app/pages/design-editor/commands/apply-pending-visual-styles-with-agent.ts",
+    "utf8",
   );
+  // The extracted command module is exactly the handler body.
+  const handler = agentHandoffSource;
 
   it("waits for acknowledged host-or-local delivery before clearing previews", () => {
     expect(
