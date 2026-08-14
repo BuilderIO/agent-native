@@ -170,6 +170,39 @@ widget React predefinido, usa [Generative UI](/docs/generative-ui): renderiza in
 aislada en línea, puede leer el estado de la aplicación y el contexto del slot, y puede enviar
 los valores seleccionados de vuelta al chat.
 
+### Superficies de acciones por solicitud
+
+Usa `resolveActionSurface` cuando el agente o hilo seleccionado deba exponer
+solo un subconjunto de acciones nativas autorizado por el servidor. El callback
+se ejecuta en cada solicitud de chat interactivo después de `prepareRequest`.
+Los nombres devueltos forman una lista permitida estricta: las acciones omitidas
+no aparecen en los esquemas del proveedor, el registro de ejecución, la
+precarga del modo Plan ni la búsqueda de `tool-search`.
+
+```ts
+createAgentChatPlugin({
+  actions,
+  nativeActionsInDev: true,
+  resolveActionSurface: async ({ threadId, availableActionNames }) => ({
+    allowedActionNames: await loadAllowedActions(
+      threadId,
+      availableActionNames,
+    ),
+  }),
+});
+```
+
+Una lista vacía no expone acciones nativas. Los nombres desconocidos hacen
+fallar la solicitud en vez de ampliar el acceso. Todas las acciones permitidas
+se cargan directamente en la primera solicitud al modelo; incluye
+`tool-search` de forma explícita solo si deseas descubrir herramientas dentro
+del catálogo ya autorizado. El callback solo limita el chat interactivo, no
+HTTP, MCP, A2A, jobs ni triggers. En desarrollo local, usa acciones nativas y
+las instrucciones predeterminadas del framework y los subagentes iniciados
+heredan la misma superficie. Las herramientas shell de confianza se reducen
+automáticamente al sandbox filtrado por solicitud, porque una shell sin
+restricciones no puede imponer una frontera estricta de acciones.
+
 ## Interfaz de usuario nativa integrada {#native-inline-ui}
 
 Úsala cuando tus acciones devuelvan datos estructurados — una lista de registros, un conjunto de datos de gráfico, un resumen de estado — que deban renderizarse como un componente de interfaz de usuario real dentro del hilo de chat en lugar de una descripción de texto simple. Defines un renderizador `chatUI` en la acción, y Agent-Native lo renderiza como un componente React de primera clase: sin iframes, sin ruta de renderizado separada.

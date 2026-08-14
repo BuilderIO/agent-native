@@ -72,6 +72,7 @@ export interface SandboxExecutionRow {
   timedOut: boolean;
   error: string | null;
   bridgeToolsUsed: string[];
+  allowedActionNames: string[] | undefined;
   createdAt: number;
   startedAt: number | null;
   finishedAt: number | null;
@@ -87,6 +88,7 @@ export interface CreateSandboxExecutionInput {
   maxOutputChars: number;
   maxAttempts?: number;
   runtime?: string;
+  allowedActionNames?: readonly string[];
 }
 
 export interface FinalizeSandboxExecutionInput {
@@ -152,6 +154,7 @@ async function _doEnsureTable(): Promise<void> {
       timed_out ${intType()} NOT NULL DEFAULT 0,
       error TEXT,
       bridge_tools_used TEXT,
+      allowed_action_names TEXT,
       created_at ${intType()} NOT NULL,
       started_at ${intType()},
       finished_at ${intType()},
@@ -168,7 +171,10 @@ async function _doEnsureTable(): Promise<void> {
     await ensureTableExists(TABLE, createSql);
     // Additive-column guard: keeps older deployments (created before a column
     // was added) self-healing without destructive migrations.
-    const pgColumns: Array<[string, string]> = [["bridge_tools_used", "TEXT"]];
+    const pgColumns: Array<[string, string]> = [
+      ["bridge_tools_used", "TEXT"],
+      ["allowed_action_names", "TEXT"],
+    ];
     for (const [col, def] of pgColumns) {
       await ensureColumnExists(
         TABLE,
@@ -183,6 +189,20 @@ async function _doEnsureTable(): Promise<void> {
     await ensureIndexExists("sandbox_executions_due_idx", dueIdxSql);
   } else {
     await retryOnDdlRace(() => client.execute(createSql));
+    try {
+      await retryOnDdlRace(() =>
+        client.execute(
+          `ALTER TABLE ${TABLE} ADD COLUMN allowed_action_names TEXT`,
+        ),
+      );
+    } catch (error) {
+      const message = String(
+        (error as { message?: unknown } | null)?.message ?? error,
+      );
+      if (!/duplicate column name|column .* already exists/i.test(message)) {
+        throw error;
+      }
+    }
     await retryOnDdlRace(() => client.execute(ownerIdxSql));
     await retryOnDdlRace(() => client.execute(dueIdxSql));
   }
@@ -225,6 +245,27 @@ function rowFromDb(raw: Record<string, unknown>): SandboxExecutionRow {
       bridgeToolsUsed = [];
     }
   }
+  let allowedActionNames: string[] | undefined;
+  if (
+    raw.allowed_action_names !== null &&
+    raw.allowed_action_names !== undefined
+  ) {
+    if (typeof raw.allowed_action_names !== "string") {
+      allowedActionNames = [];
+    } else {
+      try {
+        const parsed = JSON.parse(raw.allowed_action_names);
+        allowedActionNames =
+          Array.isArray(parsed) &&
+          parsed.every((item) => typeof item === "string")
+            ? [...new Set(parsed)]
+            : [];
+      } catch {
+        // A malformed persisted surface must never restore the full registry.
+        allowedActionNames = [];
+      }
+    }
+  }
   return {
     id: String(raw.id),
     owner: String(raw.owner),
@@ -259,6 +300,7 @@ function rowFromDb(raw: Record<string, unknown>): SandboxExecutionRow {
     error:
       raw.error === null || raw.error === undefined ? null : String(raw.error),
     bridgeToolsUsed,
+    allowedActionNames,
     createdAt: toNumberOrNull(raw.created_at) ?? 0,
     startedAt: toNumberOrNull(raw.started_at),
     finishedAt: toNumberOrNull(raw.finished_at),
@@ -280,8 +322,8 @@ export async function createSandboxExecution(
   );
   await client.execute({
     sql: `INSERT INTO ${TABLE}
-      (id, owner, org_id, thread_id, runtime, code, status, timeout_ms, max_output_chars, attempt_count, max_attempts, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, 'queued', ?, ?, 0, ?, ?, ?)`,
+      (id, owner, org_id, thread_id, runtime, code, status, timeout_ms, max_output_chars, attempt_count, max_attempts, allowed_action_names, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, 'queued', ?, ?, 0, ?, ?, ?, ?)`,
     args: [
       id,
       input.owner,
@@ -292,6 +334,9 @@ export async function createSandboxExecution(
       input.timeoutMs,
       input.maxOutputChars,
       maxAttempts,
+      input.allowedActionNames === undefined
+        ? null
+        : JSON.stringify([...new Set(input.allowedActionNames)]),
       now,
       now,
     ],
