@@ -37,6 +37,71 @@ describe("extractThreadMeta", () => {
 });
 
 describe("buildAssistantMessage", () => {
+  it("folds a replayed tool_start onto the original card instead of persisting a second one", () => {
+    // Journal / zombie-ledger recovery re-emits tool_start + tool_done for a
+    // call that already ran in an interrupted chunk. The live client coalesces
+    // those onto the original card, so persisting both is how a tool output the
+    // user saw once came back duplicated after a reload.
+    const events: RunEvent[] = [
+      {
+        seq: 0,
+        event: {
+          type: "tool_start",
+          id: "call_a",
+          tool: "query",
+          input: { sql: "select 1" },
+        },
+      },
+      {
+        seq: 1,
+        event: { type: "tool_done", id: "call_a", tool: "query", result: "1" },
+      },
+      {
+        seq: 2,
+        event: {
+          type: "tool_start",
+          id: "call_a",
+          tool: "query",
+          input: { sql: "select 1" },
+        },
+      },
+      {
+        seq: 3,
+        event: {
+          type: "tool_done",
+          id: "call_a",
+          tool: "query",
+          result:
+            "(Already completed in an earlier interrupted attempt - not re-run to avoid a duplicate side effect.)\n\n1",
+        },
+      },
+    ];
+
+    const message = buildAssistantMessage(events, "run-replay");
+    const toolCalls = (message?.content ?? []).filter(
+      (part: { type: string }) => part.type === "tool-call",
+    );
+
+    expect(toolCalls).toHaveLength(1);
+    expect(toolCalls[0]).toMatchObject({ toolName: "query" });
+  });
+
+  it("keeps two cards when one id is reused across different tools", () => {
+    const events: RunEvent[] = [
+      { seq: 0, event: { type: "tool_start", id: "dup", tool: "query" } },
+      { seq: 1, event: { type: "tool_done", id: "dup", tool: "query", result: "1" } },
+      { seq: 2, event: { type: "tool_start", id: "dup", tool: "write" } },
+      { seq: 3, event: { type: "tool_done", id: "dup", tool: "write", result: "ok" } },
+    ];
+
+    const message = buildAssistantMessage(events, "run-id-reuse");
+    const toolCalls = (message?.content ?? []).filter(
+      (part: { type: string }) => part.type === "tool-call",
+    );
+
+    expect(toolCalls).toHaveLength(2);
+  });
+
   it("clears rejected draft text while preserving completed tool results", () => {
     const events: RunEvent[] = [
       {
