@@ -55,7 +55,7 @@ interface BubbleGroup {
   segments: { seg: TranscriptSegment; index: number }[];
 }
 
-interface SpeakerIdentity {
+export interface SpeakerIdentity {
   key: string;
   label: string | null;
   initialsSource: AttendeeStackParticipant | string;
@@ -75,7 +75,9 @@ function normalizeSpeaker(value: string): string {
   return value.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
-function findParticipant(
+// Exported for regression testing — see transcript-bubbles.test.ts. These
+// are pure functions with no dependency on the component itself.
+export function findParticipant(
   speaker: string | null | undefined,
   participants: AttendeeStackParticipant[],
 ): AttendeeStackParticipant | undefined {
@@ -88,19 +90,25 @@ function findParticipant(
   });
 }
 
-function resolveParticipantForSpeaker(
+export function resolveParticipantForSpeaker(
   source: "mic" | "system",
   participants: AttendeeStackParticipant[],
   ownerEmail?: string | null,
 ): AttendeeStackParticipant | undefined {
-  // When an explicit owner email is given, trust it exclusively — falling
-  // through to isOrganizer here would attribute mic segments to whichever
-  // participant organized the calendar event, which is frequently a
-  // different person than whoever actually recorded. Only guess via
-  // isOrganizer when no owner identity was supplied at all.
-  const ownerParticipant = ownerEmail
-    ? findParticipant(ownerEmail, participants)
-    : participants.find((participant) => participant.isOrganizer);
+  // `undefined` and `null` are different signals here, not two spellings of
+  // "no owner" — a caller that never threads owner data through at all
+  // passes `undefined` (the only case where guessing via isOrganizer is
+  // acceptable, e.g. legacy data with no recorded owner). The public share
+  // page passes an explicit `null` when it *knows* the owner but withholds
+  // them for privacy (they aren't a public participant) — that still means
+  // "don't guess a different specific identity," it just can't resolve to a
+  // name, so mic segments fall through to the generic "Me" label instead.
+  const ownerParticipant =
+    ownerEmail === undefined
+      ? participants.find((participant) => participant.isOrganizer)
+      : ownerEmail
+        ? findParticipant(ownerEmail, participants)
+        : undefined;
 
   if (source === "mic") return ownerParticipant;
   if (!ownerParticipant) return undefined;
@@ -126,7 +134,7 @@ function accentForSpeaker(key: string, isOwner: boolean): string {
   return SPEAKER_ACCENTS[Math.abs(hash) % SPEAKER_ACCENTS.length];
 }
 
-function resolveSpeaker(
+export function resolveSpeaker(
   segment: TranscriptSegment,
   participants: AttendeeStackParticipant[],
   ownerEmail?: string | null,
