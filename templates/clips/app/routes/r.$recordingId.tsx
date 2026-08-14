@@ -529,6 +529,18 @@ export default function RecordingPage() {
   const canDownloadRecording = Boolean(
     recording?.enableDownloads && recording.videoUrl && !isLoomEmbedBacked,
   );
+  // Mirrors the /share/:shareId reshare restriction (same public/org scope):
+  // a plain viewer of a public or org clip must not trigger
+  // `list-resource-shares` (any read access is enough to call it, and its
+  // response includes every individually-shared principal's email) or see a
+  // raw video download/open action independent of `enableDownloads`.
+  const viewerReshareOnly =
+    (role === "viewer" || role === "commenter") &&
+    (recording?.visibility === "public" || recording?.visibility === "org");
+  const shareVideoUrl =
+    canDownloadRecording || isLoomEmbedBacked
+      ? (recording?.videoUrl ?? null)
+      : null;
   const downloadRecording = useCallback(async () => {
     if (!recording?.videoUrl) return;
     setDownloading(true);
@@ -988,6 +1000,7 @@ export default function RecordingPage() {
               initialVisibility={recording.visibility}
               initialRole={role}
               hasPassword={Boolean(recording.hasPassword)}
+              viewerReshareOnly={viewerReshareOnly}
             >
               <Button className="shrink-0 gap-1.5" size="sm">
                 {recording.visibility !== "public" ? (
@@ -1550,11 +1563,12 @@ export default function RecordingPage() {
               recordingTitle={recording.title}
               initialVisibility={recording.visibility}
               initialRole={role}
-              videoUrl={recording.videoUrl}
+              videoUrl={shareVideoUrl}
               thumbnailUrl={recording.thumbnailUrl}
               animatedThumbnailUrl={recording.animatedThumbnailUrl}
               isLoomRecording={isLoomEmbedBacked}
               hasPassword={Boolean(recording.hasPassword)}
+              viewerReshareOnly={viewerReshareOnly}
             >
               <Button
                 className="shrink-0 gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90"
