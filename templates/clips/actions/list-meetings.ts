@@ -168,10 +168,25 @@ export default defineAction({
     const agendaFloorIso = new Date(
       now.getTime() - args.agendaLookbackMin * 60 * 1000,
     ).toISOString();
+    // Mirrors the live calendar's own forward cap (see timeMax below) so a
+    // meeting scheduled months out can't sit ahead of nearer ones in a
+    // consistent window; harmless under the ascending sort today, but keeps
+    // "agenda" honestly meaning "the near future" if that ever changes.
+    const agendaCeilingIso = new Date(
+      now.getTime() + THIRTY_DAYS_MS,
+    ).toISOString();
     // 'agenda' and 'upcoming' both read forward in time, so they share the
     // ascending sort. They differ in where the window starts and in whether a
     // meeting that already started is still allowed in.
     const isForwardLooking = args.view === "upcoming" || args.view === "agenda";
+    // Live calendar events require a global re-sort against persisted rows, so
+    // that branch keeps the "fetch the whole window from offset 0" approach.
+    // Every other view can paginate for real in SQL — which matters here
+    // because the whole-window approach caps out at 500 rows no matter how
+    // large `offset` grows, silently stranding "Load older" once history
+    // passes 500 meetings.
+    const willMergeLiveCalendar =
+      args.includeLiveCalendar && !args.recordedOnly && args.view !== "trash";
 
     const whereClauses = [accessFilter(schema.meetings, schema.meetingShares)];
 
@@ -204,6 +219,7 @@ export default defineAction({
         and(
           isNotNull(schema.meetings.scheduledStart),
           gte(schema.meetings.scheduledStart, agendaFloorIso),
+          lte(schema.meetings.scheduledStart, agendaCeilingIso),
         )!,
       );
     } else if (args.view === "past") {
@@ -233,13 +249,30 @@ export default defineAction({
           ),
         ];
 
-    const rows = await db
-      .select()
-      .from(schema.meetings)
-      .where(and(...whereClauses))
-      .orderBy(...orderBy)
-      .limit(Math.min(500, windowCount + 1))
-      .offset(0);
+    // `persistedHasMore` is only meaningful (and only trusted below) on the
+    // no-merge path — the merge path derives its own `hasMore` from the
+    // combined, re-sorted array once live events are folded in.
+    let persistedHasMore = false;
+    let rows: Array<typeof schema.meetings.$inferSelect>;
+    if (willMergeLiveCalendar) {
+      rows = await db
+        .select()
+        .from(schema.meetings)
+        .where(and(...whereClauses))
+        .orderBy(...orderBy)
+        .limit(Math.min(500, windowCount + 1))
+        .offset(0);
+    } else {
+      const page = await db
+        .select()
+        .from(schema.meetings)
+        .where(and(...whereClauses))
+        .orderBy(...orderBy)
+        .limit(Math.min(500, args.limit + 1))
+        .offset(args.offset);
+      persistedHasMore = page.length > args.limit;
+      rows = page.slice(0, args.limit);
+    }
 
     // Participants drive the history row's avatar stack and "who was on this
     // call" subtitle. Live calendar events carry their own attendees, so this
@@ -291,11 +324,7 @@ export default defineAction({
     // Google event externalId so we can match it against the emitted set.
     const calendarEventIdToExternalId = new Map<string, string>();
 
-    if (
-      args.includeLiveCalendar &&
-      !args.recordedOnly &&
-      args.view !== "trash"
-    ) {
+    if (willMergeLiveCalendar) {
       const accountWhere = [
         accessFilter(schema.calendarAccounts, schema.calendarAccountShares),
         eq(schema.calendarAccounts.status, "connected"),
@@ -434,10 +463,15 @@ export default defineAction({
               meeting: persisted,
             });
             if (liveMeeting) {
-              liveMeetings.push(liveMeeting);
+              // Mark the event as emitted regardless of hasContent, so an
+              // empty correlated persisted husk (below) stays suppressed
+              // rather than reappearing once its live event is filtered out.
               emittedLiveEventKeys.add(liveMeeting.id);
               if (liveMeeting.calendarExternalId) {
                 emittedLiveEventKeys.add(liveMeeting.calendarExternalId);
+              }
+              if (!args.hasContent || meetingRowHasContent(liveMeeting)) {
+                liveMeetings.push(liveMeeting);
               }
             }
           }
@@ -483,6 +517,18 @@ export default defineAction({
       }
       seenIds.add(meeting.id);
       combined.push(meeting);
+    }
+
+    // Without a live merge, `combined` is exactly `persistedMeetings` — a page
+    // the DB already ordered and offset correctly. Re-sorting by a different
+    // key and re-slicing by `offset` here would both scramble that order and
+    // apply the offset a second time, so the no-merge path returns as-is.
+    if (!willMergeLiveCalendar) {
+      return {
+        meetings: combined,
+        calendarErrors,
+        hasMore: persistedHasMore,
+      };
     }
 
     combined.sort((a, b) => {

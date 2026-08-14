@@ -200,6 +200,17 @@ function calendarAccountLabel(account: CalendarAccount): string {
   );
 }
 
+function historyTimestampMs(m: Meeting): number {
+  const ms = Date.parse(m.actualStart ?? m.scheduledStart);
+  return Number.isNaN(ms) ? 0 : ms;
+}
+
+// Groups by the same key (`actualStart ?? scheduledStart`) used to order the
+// day headers, then re-sorts each group by that key explicitly rather than
+// trusting incoming order: the array can arrive sorted by a different field
+// (list-meetings' merge path sorts by `scheduledStart ?? createdAt`, and
+// search-meetings doesn't guarantee this key either), so a meeting that
+// started later than scheduled could otherwise land out of order within its day.
 function groupByDay(meetings: Meeting[]): Array<[string, Meeting[]]> {
   const groups = new Map<string, Meeting[]>();
   for (const m of meetings) {
@@ -207,6 +218,9 @@ function groupByDay(meetings: Meeting[]): Array<[string, Meeting[]]> {
     const arr = groups.get(key) ?? [];
     arr.push(m);
     groups.set(key, arr);
+  }
+  for (const arr of groups.values()) {
+    arr.sort((a, b) => historyTimestampMs(b) - historyTimestampMs(a));
   }
   return Array.from(groups.entries());
 }
@@ -910,7 +924,11 @@ export default function MeetingsIndexRoute() {
   const nothingAtAll =
     historyMeetings.length === 0 && agendaMeetings.length === 0;
 
-  if (!hasCalendar && nothingAtAll) {
+  // Search reads server-side across all meetings regardless of calendar
+  // connection state (trashed/manually-created meetings, past imports), so a
+  // query in flight must still reach the search branch below rather than
+  // being preempted by the "connect your calendar" empty state.
+  if (!hasCalendar && nothingAtAll && !isSearching) {
     return (
       <div className="w-full p-6">
         <MeetingsHeader

@@ -195,7 +195,7 @@ export function pathFromCommand(cmd: NavigateCommand): string {
     case "settings":
       return "/settings";
     case "meetings":
-      return "/meetings";
+      return cmd.meetingsTab === "past" ? "/meetings?tab=past" : "/meetings";
     case "meeting":
       return cmd.meetingId ? `/meetings/${cmd.meetingId}` : "/meetings";
     case "dictate":

@@ -13,10 +13,11 @@
 
 import { defineAction } from "@agent-native/core";
 import { accessFilter } from "@agent-native/core/sharing";
-import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { booleanParam } from "./lib/cli-params.js";
 import { buildCaseInsensitiveSearchPattern } from "./search-recordings-utils.js";
 
 const SNIPPET_RADIUS = 90;
@@ -79,8 +80,7 @@ export default defineAction({
   schema: z.object({
     query: z.string().min(1).describe("Search text"),
     limit: z.coerce.number().int().min(1).max(100).default(30),
-    includeTrashed: z
-      .boolean()
+    includeTrashed: booleanParam
       .default(false)
       .describe("Include meetings that have been moved to trash."),
   }),
@@ -97,7 +97,16 @@ export default defineAction({
       return and(...clauses);
     };
 
-    const [ownRows, participantRows, transcriptRows] = await Promise.all([
+    // Shared with list-meetings' non-forward-looking sort: most-recent-first,
+    // falling back through actualStart -> scheduledStart -> createdAt. Applied
+    // as an ORDER BY before every LIMIT below, so a source with more matches
+    // than `limit` truncates to its most recent rows instead of an arbitrary
+    // DB-chosen subset that could skip the meeting the user is actually after.
+    const recencyOrder = desc(
+      sql`COALESCE(${schema.meetings.actualStart}, ${schema.meetings.scheduledStart}, ${schema.meetings.createdAt})`,
+    );
+
+    const [ownRows, participantMeetingIds, transcriptRows] = await Promise.all([
       db
         .select(MEETING_COLUMNS)
         .from(schema.meetings)
@@ -107,13 +116,14 @@ export default defineAction({
             sql`(lower(${schema.meetings.title}) LIKE ${pattern} ESCAPE '\\' OR lower(${schema.meetings.summaryMd}) LIKE ${pattern} ESCAPE '\\' OR lower(${schema.meetings.userNotesMd}) LIKE ${pattern} ESCAPE '\\')`,
           ),
         )
+        .orderBy(recencyOrder)
         .limit(args.limit),
+      // meeting_participants has one row per attendee, so limiting attendee
+      // rows directly could let one large meeting's matching attendees fill
+      // the whole quota and hide every other matching meeting. Limit distinct
+      // meeting ids instead, then fetch their participant rows unbounded.
       db
-        .select({
-          ...MEETING_COLUMNS,
-          participantName: schema.meetingParticipants.name,
-          participantEmail: schema.meetingParticipants.email,
-        })
+        .selectDistinct({ meetingId: schema.meetingParticipants.meetingId })
         .from(schema.meetingParticipants)
         .innerJoin(
           schema.meetings,
@@ -125,6 +135,7 @@ export default defineAction({
             sql`(lower(${schema.meetingParticipants.email}) LIKE ${pattern} ESCAPE '\\' OR lower(${schema.meetingParticipants.name}) LIKE ${pattern} ESCAPE '\\')`,
           ),
         )
+        .orderBy(recencyOrder)
         .limit(args.limit),
       db
         .select({
@@ -145,8 +156,35 @@ export default defineAction({
             sql`lower(${schema.recordingTranscripts.fullText}) LIKE ${pattern} ESCAPE '\\'`,
           ),
         )
+        .orderBy(recencyOrder)
         .limit(args.limit),
     ]);
+
+    const participantMeetingIdList = participantMeetingIds.map(
+      (row) => row.meetingId,
+    );
+    const participantRows = participantMeetingIdList.length
+      ? await db
+          .select({
+            ...MEETING_COLUMNS,
+            participantName: schema.meetingParticipants.name,
+            participantEmail: schema.meetingParticipants.email,
+          })
+          .from(schema.meetingParticipants)
+          .innerJoin(
+            schema.meetings,
+            eq(schema.meetingParticipants.meetingId, schema.meetings.id),
+          )
+          .where(
+            and(
+              inArray(
+                schema.meetingParticipants.meetingId,
+                participantMeetingIdList,
+              ),
+              sql`(lower(${schema.meetingParticipants.email}) LIKE ${pattern} ESCAPE '\\' OR lower(${schema.meetingParticipants.name}) LIKE ${pattern} ESCAPE '\\')`,
+            ),
+          )
+      : [];
 
     const merged = new Map<
       string,

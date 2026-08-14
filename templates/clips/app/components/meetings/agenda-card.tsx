@@ -34,6 +34,22 @@ export interface AgendaMeeting {
 
 type Translate = (key: string, params?: Record<string, unknown>) => string;
 
+/**
+ * Whether a meeting has actually finished. Agenda intentionally keeps
+ * already-ended meetings (see module doc), so "is this over" has to be its
+ * own check — `relativeStartLabel`'s `soon` only looks at scheduledStart and
+ * stays true for up to 2h after start regardless of whether the call ended.
+ */
+export function meetingHasEnded(
+  meeting: Pick<AgendaMeeting, "actualEnd" | "scheduledEnd" | "scheduledStart">,
+  nowMs: number = Date.now(),
+): boolean {
+  const endMs = Date.parse(
+    meeting.actualEnd ?? meeting.scheduledEnd ?? meeting.scheduledStart,
+  );
+  return !Number.isNaN(endMs) && endMs < nowMs;
+}
+
 function formatTime(iso?: string | null): string {
   if (!iso) return "";
   const d = new Date(iso);
@@ -120,11 +136,12 @@ function groupByCalendarDay(
 function AgendaRow({ meeting }: { meeting: AgendaMeeting }) {
   const t = useT();
   const isLive = !!(meeting.actualStart && !meeting.actualEnd);
+  const hasEnded = meetingHasEnded(meeting);
   const { text: whenText, soon } = relativeStartLabel(
     meeting.scheduledStart,
     t,
   );
-  const active = soon || isLive;
+  const active = isLive || (soon && !hasEnded);
   const start = formatTime(meeting.scheduledStart);
   const end = formatTime(meeting.scheduledEnd);
 
@@ -157,7 +174,7 @@ function AgendaRow({ meeting }: { meeting: AgendaMeeting }) {
                 </span>
                 {t("meetingCard.live")}
               </span>
-            ) : whenText ? (
+            ) : whenText && !hasEnded ? (
               <span className={cn(soon && "font-medium text-foreground")}>
                 {whenText}
               </span>
