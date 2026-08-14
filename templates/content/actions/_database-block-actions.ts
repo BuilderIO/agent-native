@@ -436,6 +436,7 @@ function actionMutation(
           operation: "upsert",
           blockId: input.blockId,
           block: input.block,
+          position: input.position,
         },
       };
     }

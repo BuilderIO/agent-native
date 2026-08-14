@@ -330,6 +330,38 @@ describe("individual Blocks-field document mutations", () => {
     );
   });
 
+  it("updates and repositions an existing upsert while retaining its stable ID", () => {
+    const markdown = "Alpha\nBeta\nGamma";
+    const before = identity(markdown);
+    const beta = before.blocks[1]!;
+    const gamma = before.blocks[2]!;
+    const changed = mutateBlocksFieldDocument({
+      markdown,
+      identity: before,
+      mutation: {
+        operation: "upsert",
+        blockId: beta.id,
+        block: { kind: "paragraph", nfm: "Beta moved" },
+        position: { placement: "after", anchorBlockId: gamma.id },
+      },
+    });
+
+    expect(changed.markdown).toBe("Alpha\nGamma\nBeta moved");
+    const stored = reconcileBlocksFieldIdentity({
+      documentId: "document-1",
+      propertyId: "property-1",
+      previous: persisted(markdown),
+      markdown: changed.markdown,
+      preferredIdsByPath: changed.preferredIdsByPath,
+      createId: () => "unexpected-upsert-id",
+    });
+    expect(
+      exposeBlocksFieldIdentity(stored, changed.markdown).blocks.map(
+        (block) => block.id,
+      ),
+    ).toEqual([before.blocks[0]!.id, gamma.id, beta.id]);
+  });
+
   it("rejects unsupported structural updates and kind conversion", () => {
     const list = identity("- one\n- two");
     const listItem = list.blocks.find((block) => block.kind === "listItem")!;

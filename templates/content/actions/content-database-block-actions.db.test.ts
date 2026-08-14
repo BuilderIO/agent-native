@@ -270,9 +270,11 @@ describe("exact Content database block actions", () => {
         operation: "upsert",
         blockId: beta!.id,
         block: { kind: "paragraph", nfm: "Beta upserted" },
+        position: { placement: "start" },
       }),
     );
     expect(existingUpsert.receipt.affected.blockIds).toContain(beta!.id);
+    expect(existingUpsert.receipt.affected.order[0]).toBe(beta!.id);
 
     current = await asOwner(() =>
       listBlocks.run({ target: state.target, limit: 100 }),
