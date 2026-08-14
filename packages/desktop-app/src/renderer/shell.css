@@ -572,6 +572,10 @@ body {
   isolation: isolate;
 }
 
+.content-area > .agent-sidebar-shell {
+  height: 100%;
+}
+
 .code-agents-shell-surface {
   position: absolute;
   inset: 0;
@@ -663,6 +667,23 @@ body {
   padding-top: 36px;
 }
 
+.desktop-chat-first-hub .code-agents-rail-scroll .code-agents-run-list {
+  flex: 0 0 auto;
+  overflow: visible;
+}
+
+.desktop-chat-first-hub
+  .code-agents-rail-scroll
+  .code-agents-run-list
+  > .an-chat-history,
+.desktop-chat-first-hub
+  .code-agents-rail-scroll
+  .code-agents-run-list
+  .an-chat-history__list {
+  flex: 0 0 auto;
+  overflow: visible;
+}
+
 /* Keep the blank rail strip beside the native traffic lights available for
    moving the frameless desktop window without covering rail controls. */
 .desktop-chat-first-hub .code-agents-window-drag-region {
@@ -680,6 +701,17 @@ body {
 
 .desktop-chat-first-hub
   .code-agents-rail--collapsed
+  .code-agents-primary-new-chat-shell {
+  padding-inline: 8px;
+  border-bottom: 0;
+}
+
+.desktop-chat-first-hub
+  .code-agents-rail--collapsed
+  .code-agents-primary-new-chat-shell
+  .code-agents-primary-new-chat,
+.desktop-chat-first-hub
+  .code-agents-rail--collapsed
   .code-agents-nav-list
   .code-agents-nav-link,
 .desktop-chat-first-hub
@@ -691,11 +723,20 @@ body {
   .code-agents-rail--collapsed
   .code-agents-nav-list
   > div
+  > button,
+.desktop-chat-first-hub
+  .code-agents-rail--collapsed
+  .code-agents-nav-list
   > button {
   justify-content: center;
   padding-inline: 0;
 }
 
+.desktop-chat-first-hub
+  .code-agents-rail--collapsed
+  .code-agents-primary-new-chat-shell
+  .code-agents-primary-new-chat
+  > span,
 .desktop-chat-first-hub
   .code-agents-rail--collapsed
   .code-agents-nav-list
@@ -744,9 +785,19 @@ body {
 .desktop-chat-first-hub .code-agents-start .code-agents-standard-composer {
   align-self: center;
   margin-inline: auto;
-  width: min(100%, 750px) !important;
-  inline-size: min(100%, 750px) !important;
-  max-width: 750px !important;
+  width: min(100%, var(--code-agents-chat-max)) !important;
+  inline-size: min(100%, var(--code-agents-chat-max)) !important;
+  max-width: var(--code-agents-chat-max) !important;
+}
+
+/* Keep the provider notice aligned with the composer when the start surface
+   is wider to make room for the app grid below it. */
+.desktop-chat-first-hub .code-agents-start .code-agents-provider-gate {
+  align-self: center;
+  margin-inline: auto;
+  width: min(100%, var(--code-agents-chat-max));
+  max-width: var(--code-agents-chat-max);
+  box-sizing: border-box;
 }
 
 .desktop-chat-first-hub .code-agents-start .code-agents-project-picker--bar {
@@ -772,6 +823,34 @@ body {
   margin-bottom: 10px;
 }
 
+.desktop-apps-grid__heading {
+  min-width: 0;
+}
+
+.desktop-apps-grid__back {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  margin-bottom: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.desktop-apps-grid__back:hover,
+.desktop-apps-grid__back:focus-visible {
+  color: hsl(var(--foreground));
+}
+
+.desktop-apps-grid__back:focus-visible {
+  outline: 2px solid hsl(var(--ring) / 0.55);
+  outline-offset: 3px;
+}
+
 .desktop-apps-grid__title {
   color: hsl(var(--foreground));
   font-size: 14px;
@@ -781,14 +860,50 @@ body {
 .desktop-apps-grid__actions {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 6px;
+  min-width: 0;
+  flex-wrap: nowrap;
+}
+
+.desktop-apps-grid__search {
+  display: flex;
+  flex: 0 1 220px;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  min-width: 0;
+  width: 220px;
+  margin: 0;
+  padding: 0 10px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 7px;
+  background: hsl(var(--card));
+  color: hsl(var(--muted-foreground));
+}
+
+.desktop-apps-grid__search:focus-within {
+  border-color: hsl(var(--ring) / 0.45);
+  box-shadow: 0 0 0 1px hsl(var(--ring) / 0.12);
+}
+
+.desktop-apps-grid__search-input {
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  padding-inline: 0;
+}
+
+.desktop-apps-grid__search-input:focus-visible {
+  box-shadow: none;
 }
 
 .desktop-apps-grid__action {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  height: 28px;
+  height: 36px;
   padding: 0 9px;
   border: 1px solid transparent;
   border-radius: 7px;
@@ -821,31 +936,53 @@ body {
   gap: 8px;
 }
 
+.desktop-apps-grid--full-page {
+  box-sizing: border-box;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: auto;
+  padding: clamp(40px, 8vh, 80px) 28px 40px;
+}
+
 .desktop-app-card {
   display: flex;
   min-width: 0;
   align-items: center;
-  gap: 10px;
-  padding: 12px;
+  gap: 12px;
+  padding: 10px 12px;
   border: 1px solid transparent;
   border-radius: 10px;
   background: hsl(var(--card));
-  color: hsl(var(--foreground));
-  text-align: start;
-  cursor: pointer;
   transition:
     background var(--ease),
     border-color var(--ease);
 }
 
 .desktop-app-card:hover,
-.desktop-app-card:focus-visible {
-  border-color: hsl(var(--ring) / 0.45);
-  background: hsl(var(--muted));
+.desktop-app-card:focus-within {
+  border-color: hsl(var(--border));
+  background: hsl(var(--muted) / 0.3);
 }
 
-.desktop-app-card:focus-visible {
-  outline: none;
+.desktop-app-card__body {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 10px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: hsl(var(--foreground));
+  cursor: pointer;
+  font: inherit;
+  text-align: start;
+}
+
+.desktop-app-card__actions {
+  flex: 0 0 auto;
+  align-self: center;
 }
 
 .desktop-app-card__icon {
@@ -873,6 +1010,11 @@ body {
     transparent
   );
   color: var(--desktop-app-icon-color, hsl(var(--desktop-app-icon-hue)));
+}
+
+.desktop-app-icon--monochrome {
+  background: transparent;
+  color: hsl(var(--muted-foreground));
 }
 
 .desktop-app-card__icon .desktop-app-icon {
@@ -905,9 +1047,54 @@ body {
   font-size: 11px;
 }
 
+.desktop-apps-grid__empty {
+  display: grid;
+  justify-items: start;
+  gap: 6px;
+  padding: 24px 16px;
+  border: 1px dashed hsl(var(--border));
+  border-radius: 12px;
+  background: hsl(var(--card));
+}
+
+.desktop-apps-grid__empty-title {
+  color: hsl(var(--foreground));
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.desktop-apps-grid__empty-description {
+  color: hsl(var(--muted-foreground));
+  font-size: 12px;
+}
+
+.desktop-apps-grid__empty-action {
+  color: hsl(var(--foreground));
+  font-size: 12px;
+  font-weight: 500;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 @media (max-width: 900px) {
   .desktop-apps-grid__list {
     grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 600px) {
+  .desktop-apps-grid__header {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .desktop-apps-grid__actions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .desktop-apps-grid__search {
+    flex: 1 1 auto;
   }
 }
 

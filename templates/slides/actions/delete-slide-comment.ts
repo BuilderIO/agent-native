@@ -30,7 +30,7 @@ export default defineAction({
 
     const userEmail = getRequestUserEmail();
     if (comment.authorEmail === userEmail) {
-      await assertAccess("deck", comment.deckId, "viewer");
+      await assertAccess("deck", comment.deckId, "commenter");
     } else {
       await assertAccess("deck", comment.deckId, "editor");
     }

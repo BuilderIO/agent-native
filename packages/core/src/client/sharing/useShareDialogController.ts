@@ -14,7 +14,7 @@ import {
 import type { ShareOrgMember } from "./share-controller-helpers.js";
 
 export type ShareVisibility = "private" | "org" | "public";
-export type ShareRole = "viewer" | "editor" | "admin";
+export type ShareRole = "viewer" | "commenter" | "editor" | "admin";
 export type ShareDialogTab = "link" | "invite" | "embed";
 
 export interface ResourceShare {
@@ -198,7 +198,7 @@ export function useShareDialogController({
   );
   const roleOptions = useMemo(
     () =>
-      (["viewer", "editor", "admin"] as const).map((value) =>
+      (["viewer", "commenter", "editor", "admin"] as const).map((value) =>
         roleOption(value, t),
       ),
     [t],
@@ -499,6 +499,7 @@ function roleOption(
 ): ShareOption<ShareRole> {
   const keys = {
     viewer: ["share.viewer", "share.viewerDescription"],
+    commenter: ["share.commenter", "share.commenterDescription"],
     editor: ["share.editor", "share.editorDescription"],
     admin: ["share.admin", "share.adminDescription"],
   } as const;

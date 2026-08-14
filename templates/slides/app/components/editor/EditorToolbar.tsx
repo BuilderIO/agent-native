@@ -31,7 +31,6 @@ import {
   IconCode,
   IconCopy,
   IconFileTypePdf,
-  IconPlugConnected,
 } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -74,8 +73,9 @@ interface EditorToolbarProps {
    *  edit affordances disabled, matching Google Slides' viewer experience.
    *  Defaults to true for backward compatibility. */
   canEdit?: boolean;
+  /** Whether the user may create and manage comments without editing slides. */
+  canComment?: boolean;
   onTitleChange: (title: string) => void;
-  slideCount: number;
   currentSlideIndex: number;
   sidebarOpen: boolean;
   onToggleSidebar: () => void;
@@ -120,6 +120,9 @@ interface EditorToolbarProps {
   textBoxMode?: boolean;
   /** Toggle the add-text-box tool */
   onToggleTextBoxMode?: () => void;
+  onChangeSlideTransition?: (
+    transition: NonNullable<Slide["transition"]>,
+  ) => void;
   /** Duplicate the current deck */
   onDuplicateDeck?: () => void;
   /** Export the deck as PDF */
@@ -128,16 +131,13 @@ interface EditorToolbarProps {
   onExportPptx?: () => Promise<void> | void;
   /** Create the deck in the user's Google Drive as native Google Slides */
   onExportGoogleSlides?: () => Promise<GoogleSlidesExportResult>;
-  /** Insert a blank slide after the current one */
+  /** Inserts a blank slide directly below the active slide. Threaded through
+   *  to the fallback action cluster below so an empty deck (no current
+   *  slide, so the primary element-controls toolbar never mounts) still has
+   *  a way to add its first slide. */
   onAddEmptySlide?: () => void;
-  /** Duplicate the current slide */
-  onDuplicateCurrentSlide?: () => void;
-  /** Id of the current slide, so an agent add-slide lands in the right place */
-  currentSlideId?: string;
-  /** True while an agent add-slide request is in flight */
+  /** True while an agent add-slide request is in flight. */
   addSlideGenerating?: boolean;
-  /** Called when an agent add-slide request is submitted */
-  onAddSlideGeneratingChange?: (generating: boolean) => void;
 }
 
 const TOOLBAR_ICON_BUTTON_CLASS =
@@ -148,7 +148,6 @@ export default function EditorToolbar({
   deckId,
   deckTitle,
   onTitleChange,
-  slideCount,
   currentSlideIndex,
   sidebarOpen,
   onToggleSidebar,
@@ -175,16 +174,15 @@ export default function EditorToolbar({
   onTogglePinMode,
   textBoxMode,
   onToggleTextBoxMode,
+  onChangeSlideTransition,
   onDuplicateDeck,
   onExportPdf,
   onExportPptx,
   onExportGoogleSlides,
   onAddEmptySlide,
-  onDuplicateCurrentSlide,
-  currentSlideId,
-  addSlideGenerating = false,
-  onAddSlideGeneratingChange,
+  addSlideGenerating,
   canEdit = true,
+  canComment = canEdit,
 }: EditorToolbarProps) {
   const t = useT();
   // Public decks default to the read-only presentation URL so recipients do
@@ -385,17 +383,17 @@ export default function EditorToolbar({
           run: onToggleDrawMode,
         });
       }
-      if (onTogglePinMode) {
-        commands.push({
-          id: "pin-comments",
-          group: "slideTools",
-          label: t("editorToolbar.pinComments"),
-          keywords: ["comment", "pin"],
-          icon: IconPin,
-          active: pinMode,
-          run: onTogglePinMode,
-        });
-      }
+    }
+    if (canComment && onTogglePinMode) {
+      commands.push({
+        id: "pin-comments",
+        group: "slideTools",
+        label: t("editorToolbar.pinComments"),
+        keywords: ["comment", "pin"],
+        icon: IconPin,
+        active: pinMode,
+        run: onTogglePinMode,
+      });
     }
     if (onToggleComments) {
       commands.push({
@@ -436,24 +434,14 @@ export default function EditorToolbar({
       },
     );
     if (onExportGoogleSlides) {
-      commands.push(
-        {
-          id: "connect-google",
-          group: "deck",
-          label: t("editorExport.connectGoogle"),
-          keywords: ["google", "drive", "connect"],
-          icon: IconPlugConnected,
-          run: () => void exportMenuRef.current?.connectGoogle(),
-        },
-        {
-          id: "open-in-google-slides",
-          group: "deck",
-          label: t("editorExport.openInGoogleSlides"),
-          keywords: ["google", "slides", "export"],
-          icon: IconBrandGoogle,
-          run: () => void exportMenuRef.current?.exportGoogleSlides(),
-        },
-      );
+      commands.push({
+        id: "export-to-google-slides",
+        group: "deck",
+        label: t("editorExport.openInGoogleSlides"),
+        keywords: ["google", "slides", "export"],
+        icon: IconBrandGoogle,
+        run: () => void exportMenuRef.current?.exportGoogleSlides(),
+      });
     }
     if (onDuplicateDeck) {
       commands.push({
@@ -498,6 +486,7 @@ export default function EditorToolbar({
     return commands;
   }, [
     animationsOpen,
+    canComment,
     canEdit,
     commentsOpen,
     currentSlide,
@@ -526,7 +515,7 @@ export default function EditorToolbar({
   useEffect(() => registerEditorCommands(() => editorCommandsRef.current), []);
 
   return (
-    <div className="deck-editor-toolbar flex h-11 shrink-0 items-center gap-1 overflow-x-auto whitespace-nowrap bg-background px-2 sm:px-3">
+    <div className="deck-editor-toolbar flex h-14 shrink-0 items-center gap-1 overflow-x-auto whitespace-nowrap bg-background px-2 sm:px-3">
       {/* Back button */}
       <Tooltip>
         <TooltipTrigger asChild>
@@ -557,23 +546,21 @@ export default function EditorToolbar({
         <TooltipContent>{t("editorToolbar.toggleSlideList")}</TooltipContent>
       </Tooltip>
 
-      {/* Add slide and the text-box tool live at the head of the contextual
-       * toolbar below. That row is desktop-only and needs a slide to mount on,
-       * so keep a fallback here for narrow screens and empty decks. */}
-      {canEdit && (
+      {/* New Slide and the text-box tool live at the head of the contextual
+       * toolbar below, which SlideEditor portals in at every viewport size
+       * (a wide inline row or a narrow standalone row) whenever there's a
+       * current slide. Render this fallback only when there isn't one — an
+       * empty deck — so those two rows never end up showing the same
+       * buttons twice. */}
+      {canEdit && !contextToolbarVisible && (
         <EditorActionCluster
-          className={contextToolbarVisible ? "lg:hidden" : undefined}
-          deckId={deckId}
-          deckTitle={deckTitle}
-          currentSlideId={currentSlideId}
-          slideCount={slideCount}
-          currentSlideIndex={currentSlideIndex}
-          addSlideGenerating={addSlideGenerating}
-          onAddSlideGeneratingChange={onAddSlideGeneratingChange}
-          onAddEmptySlide={onAddEmptySlide}
-          onDuplicateCurrentSlide={onDuplicateCurrentSlide}
           textBoxMode={textBoxMode}
           onToggleTextBoxMode={onToggleTextBoxMode}
+          onAddEmptySlide={onAddEmptySlide}
+          addSlideGenerating={addSlideGenerating}
+          currentSlideId={currentSlide?.id}
+          slideTransition={currentSlide?.transition}
+          onChangeSlideTransition={onChangeSlideTransition}
         />
       )}
 
@@ -628,11 +615,11 @@ export default function EditorToolbar({
         agentActive={agentActive}
         showAgentEditingDot={false}
         currentUserEmail={currentUserEmail}
-        className="flex-shrink-0 mr-0.5"
+        className="ml-auto flex-shrink-0 mr-0.5 pl-2"
       />
 
       {/* Consolidated editor menu */}
-      <div className="flex-shrink-0">
+      <div className="ml-auto flex-shrink-0">
         <DropdownMenu>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -653,10 +640,76 @@ export default function EditorToolbar({
           </Tooltip>
           <DropdownMenuContent
             align="end"
-            className="max-h-[min(80vh,32rem)] w-64 overflow-y-auto"
+            className="max-h-[90vh] w-64 overflow-y-auto"
           >
+            {((canEdit &&
+              (onToggleAnimations || onToggleTweaks || onToggleDrawMode)) ||
+              (canComment && onTogglePinMode)) && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuLabel>
+                  {t("editorToolbar.slideTools")}
+                </DropdownMenuLabel>
+                <DropdownMenuGroup>
+                  {canEdit && currentSlide && onToggleAnimations && (
+                    <DropdownMenuItem
+                      onSelect={onToggleAnimations}
+                      className={
+                        animationsOpen
+                          ? "bg-accent text-accent-foreground"
+                          : undefined
+                      }
+                    >
+                      <IconBolt className="size-4" />
+                      {t("editorToolbar.elementAnimations")}
+                    </DropdownMenuItem>
+                  )}
+                  {canEdit && onToggleTweaks && (
+                    <DropdownMenuItem
+                      onSelect={onToggleTweaks}
+                      className={
+                        tweaksOpen
+                          ? "bg-accent text-accent-foreground"
+                          : undefined
+                      }
+                    >
+                      <IconAdjustments className="size-4" />
+                      {t("editorToolbar.tweaks")}
+                    </DropdownMenuItem>
+                  )}
+                  {canEdit && onToggleDrawMode && (
+                    <DropdownMenuItem
+                      onSelect={onToggleDrawMode}
+                      data-toolbar-draw-button
+                      className={
+                        drawMode
+                          ? "bg-accent text-accent-foreground"
+                          : undefined
+                      }
+                    >
+                      <IconPencilPlus className="size-4" />
+                      {t("editorToolbar.drawOnSlide")}
+                    </DropdownMenuItem>
+                  )}
+                  {canComment && onTogglePinMode && (
+                    <DropdownMenuItem
+                      onSelect={onTogglePinMode}
+                      data-toolbar-pin-button
+                      className={
+                        pinMode ? "bg-accent text-accent-foreground" : undefined
+                      }
+                    >
+                      <IconPin className="size-4" />
+                      {t("editorToolbar.pinComments")}
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuGroup>
+              </>
+            )}
+
             {canEdit && (
               <>
+                <DropdownMenuSeparator />
                 <DropdownMenuLabel>
                   {t("editorToolbar.media")}
                 </DropdownMenuLabel>
@@ -673,81 +726,9 @@ export default function EditorToolbar({
               </>
             )}
 
-            {canEdit &&
-              (onToggleAnimations ||
-                onToggleTweaks ||
-                onToggleDrawMode ||
-                onTogglePinMode) && (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuLabel>
-                    {t("editorToolbar.slideTools")}
-                  </DropdownMenuLabel>
-                  <DropdownMenuGroup>
-                    {currentSlide && onToggleAnimations && (
-                      <DropdownMenuItem
-                        onSelect={onToggleAnimations}
-                        className={
-                          animationsOpen
-                            ? "bg-accent text-accent-foreground"
-                            : undefined
-                        }
-                      >
-                        <IconBolt className="size-4" />
-                        {t("editorToolbar.elementAnimations")}
-                      </DropdownMenuItem>
-                    )}
-                    {onToggleTweaks && (
-                      <DropdownMenuItem
-                        onSelect={onToggleTweaks}
-                        className={
-                          tweaksOpen
-                            ? "bg-accent text-accent-foreground"
-                            : undefined
-                        }
-                      >
-                        <IconAdjustments className="size-4" />
-                        {t("editorToolbar.tweaks")}
-                      </DropdownMenuItem>
-                    )}
-                    {onToggleDrawMode && (
-                      <DropdownMenuItem
-                        onSelect={onToggleDrawMode}
-                        data-toolbar-draw-button
-                        className={
-                          drawMode
-                            ? "bg-accent text-accent-foreground"
-                            : undefined
-                        }
-                      >
-                        <IconPencilPlus className="size-4" />
-                        {t("editorToolbar.drawOnSlide")}
-                      </DropdownMenuItem>
-                    )}
-                    {onTogglePinMode && (
-                      <DropdownMenuItem
-                        onSelect={onTogglePinMode}
-                        data-toolbar-pin-button
-                        className={
-                          pinMode
-                            ? "bg-accent text-accent-foreground"
-                            : undefined
-                        }
-                      >
-                        <IconPin className="size-4" />
-                        {t("editorToolbar.pinComments")}
-                      </DropdownMenuItem>
-                    )}
-                  </DropdownMenuGroup>
-                </>
-              )}
-
             {onToggleComments && (
               <>
                 <DropdownMenuSeparator />
-                <DropdownMenuLabel>
-                  {t("editorToolbar.comments")}
-                </DropdownMenuLabel>
                 <DropdownMenuItem
                   onSelect={onToggleComments}
                   className={
@@ -825,7 +806,7 @@ export default function EditorToolbar({
           resourceId={deckId}
           resourceTitle={deckTitle}
           roleCopy={{
-            viewer: {
+            commenter: {
               label: t("editorToolbar.commenterRoleLabel"),
               description: t("editorToolbar.commenterRoleDescription"),
             },

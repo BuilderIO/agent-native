@@ -203,9 +203,13 @@ fn segmented_output_enabled(output: CustomWriterOutput, live_upload_enabled: boo
 fn live_audio_mixing_enabled(
     output: CustomWriterOutput,
     include_audio: bool,
-    capture_system_audio: bool,
+    _capture_system_audio: bool,
 ) -> bool {
-    include_audio && capture_system_audio && !output.preserves_separate_audio()
+    // Keep every ordinary microphone capture on the realtime mixer so the
+    // live-upload path receives the same mic cleanup as finalized files. A
+    // system-only capture has no mic signal to clean and keeps its original
+    // stereo track; Rewind deliberately preserves separate source tracks.
+    include_audio && !output.preserves_separate_audio()
 }
 
 pub(crate) fn audio_sidecar_path(video_path: &Path, source: &str) -> PathBuf {
@@ -1202,6 +1206,7 @@ pub(crate) fn prepare_clip_sink(
     height: u32,
     include_mic: bool,
     include_system_audio: bool,
+    voice_cleanup_enabled: bool,
 ) -> Result<PreparedClipSink, String> {
     let mut installed = slot.lock().map_err(|e| e.to_string())?;
     if installed.is_some() {
@@ -1218,6 +1223,7 @@ pub(crate) fn prepare_clip_sink(
             include_mic,
             include_system_audio,
         ),
+        voice_cleanup_enabled,
         CustomWriterOutput::ClipHls,
         None,
     )?;
@@ -1370,6 +1376,7 @@ impl CustomScreenCaptureWriter {
         capture_system_audio: bool,
         include_audio: bool,
         mix_live: bool,
+        voice_cleanup_enabled: bool,
         output: CustomWriterOutput,
         audio_producer: Option<crate::capture_audio_bus::AudioProducer>,
     ) -> Result<Self, String> {
@@ -1508,14 +1515,20 @@ impl CustomScreenCaptureWriter {
 
             // AVAssetWriter's fragmented profiles reject two independent AAC
             // inputs. Rewind therefore writes video-only fMP4 plus local PCM
-            // sidecars; ordinary recordings retain their existing inputs.
+            // sidecars; ordinary recordings retain a single mixed input when
+            // a microphone is present, including mic-only recordings.
             let (system_audio_input, mic_audio_input, mixed_audio_input, mixer) = if mix_live {
                 let mixed = av_make_audio_writer_input(input_cls, &writer)?;
                 (
                     None,
                     None,
                     Some(mixed),
-                    Some(LiveAudioMixer::new(segmented)?),
+                    Some(LiveAudioMixer::new(
+                        segmented,
+                        include_audio,
+                        capture_system_audio,
+                        voice_cleanup_enabled,
+                    )?),
                 )
             } else {
                 let system_audio_input =
@@ -2254,6 +2267,102 @@ impl MicAutoGain {
     }
 }
 
+/// RNNoise-derived denoising for the native live-upload path. ScreenCaptureKit
+/// hands us stereo f32 PCM, while `nnnoiseless` consumes mono 16-bit-scaled
+/// f32 frames at 48 kHz. Keep the frame buffering here, before the source
+/// timeline, so the denoiser never sees zero-filled timeline gaps as speech.
+struct MicDenoiser {
+    state: Box<nnnoiseless::DenoiseState<'static>>,
+    pending: Vec<f32>,
+    pending_start_pts: Option<f64>,
+    first_frame: bool,
+}
+
+impl MicDenoiser {
+    const SAMPLE_RATE: f64 = 48_000.0;
+    const SCALE: f32 = 32_768.0;
+
+    fn new() -> Self {
+        Self {
+            state: nnnoiseless::DenoiseState::new(),
+            pending: Vec::new(),
+            pending_start_pts: None,
+            first_frame: true,
+        }
+    }
+
+    fn reset(&mut self) {
+        self.state = nnnoiseless::DenoiseState::new();
+        self.pending.clear();
+        self.pending_start_pts = None;
+        self.first_frame = true;
+    }
+
+    fn process(&mut self, interleaved: &[f32], pts_seconds: f64) -> Vec<(Vec<f32>, f64)> {
+        let frame_count = interleaved.len() / 2;
+        if frame_count == 0 {
+            return Vec::new();
+        }
+
+        if let Some(start) = self.pending_start_pts {
+            let expected = start + self.pending.len() as f64 / Self::SAMPLE_RATE;
+            if (pts_seconds - expected).abs() > 0.02 {
+                self.reset();
+            }
+        }
+        if self.pending_start_pts.is_none() {
+            self.pending_start_pts = Some(pts_seconds);
+        }
+        self.pending
+            .extend(interleaved[..frame_count * 2].chunks_exact(2).map(|frame| {
+                ((frame[0] + frame[1]) * 0.5 * Self::SCALE).clamp(-Self::SCALE, Self::SCALE)
+            }));
+
+        let frame_size = nnnoiseless::DenoiseState::FRAME_SIZE;
+        let mut output = Vec::new();
+        while self.pending.len() >= frame_size {
+            let start = self.pending_start_pts.unwrap_or(pts_seconds);
+            let input = self.pending[..frame_size].to_vec();
+            let mut denoised = vec![0.0_f32; frame_size];
+            self.state.process_frame(&mut denoised, &input);
+            let samples = if self.first_frame { &input } else { &denoised };
+            output.push((Self::stereo_samples(samples), start));
+            self.first_frame = false;
+            self.pending.drain(..frame_size);
+            self.pending_start_pts = Some(start + frame_size as f64 / Self::SAMPLE_RATE);
+        }
+        output
+    }
+
+    fn flush(&mut self) -> Vec<(Vec<f32>, f64)> {
+        if self.pending.is_empty() {
+            return Vec::new();
+        }
+        let frame_size = nnnoiseless::DenoiseState::FRAME_SIZE;
+        let count = self.pending.len();
+        let start = self.pending_start_pts.unwrap_or(0.0);
+        let mut input = vec![0.0_f32; frame_size];
+        input[..count].copy_from_slice(&self.pending);
+        let mut denoised = vec![0.0_f32; frame_size];
+        self.state.process_frame(&mut denoised, &input);
+        let samples = if self.first_frame { &input } else { &denoised };
+        let result = vec![(Self::stereo_samples(&samples[..count]), start)];
+        self.pending.clear();
+        self.pending_start_pts = None;
+        self.first_frame = false;
+        result
+    }
+
+    fn stereo_samples(mono: &[f32]) -> Vec<f32> {
+        let mut stereo = Vec::with_capacity(mono.len() * 2);
+        for &sample in mono {
+            let sample = (sample / Self::SCALE).clamp(-1.0, 1.0);
+            stereo.extend([sample, sample]);
+        }
+        stereo
+    }
+}
+
 /// Zero-latency peak limiter over the summed mix.
 ///
 /// This replaces a flat 0.5x weight on each source, which bought clip safety
@@ -2287,13 +2396,15 @@ impl PeakLimiter {
 /// is reachable without constructing a `CMFormatDescription` — the reported bug
 /// was a wrong per-frame weight, so that arithmetic is what needs covering.
 struct MixGainStage {
+    voice_cleanup_enabled: bool,
     mic: MicAutoGain,
     limiter: PeakLimiter,
 }
 
 impl MixGainStage {
-    fn new(sample_rate: i32) -> Self {
+    fn new(sample_rate: i32, voice_cleanup_enabled: bool) -> Self {
         Self {
+            voice_cleanup_enabled,
             mic: MicAutoGain::new(sample_rate),
             limiter: PeakLimiter::new(sample_rate),
         }
@@ -2303,7 +2414,11 @@ impl MixGainStage {
     /// at unity and the mic is only ever boosted, with the limiter owning peak
     /// safety for the sum.
     fn frame(&mut self, system: (f32, f32), mic: (f32, f32)) -> (f32, f32) {
-        let mic_gain = self.mic.next_gain(mic.0, mic.1);
+        let mic_gain = if self.voice_cleanup_enabled {
+            self.mic.next_gain(mic.0, mic.1)
+        } else {
+            1.0
+        };
         let left = system.0 + mic.0 * mic_gain;
         let right = system.1 + mic.1 * mic_gain;
         let limit = self.limiter.next_gain(left.abs().max(right.abs()));
@@ -2411,6 +2526,8 @@ enum SourceBound {
 struct LiveAudioMixer {
     format_desc: screencapturekit::cm::CMFormatDescription,
     sample_rate: i32,
+    include_microphone: bool,
+    capture_system_audio: bool,
     /// Subtract the writer session start from emitted PTS (segmented mode,
     /// where the session timeline is zero-based). Plain file mode keeps
     /// absolute source time to match `startSessionAtSourceTime:`.
@@ -2425,6 +2542,7 @@ struct LiveAudioMixer {
     out_pos: i64,
     system: MixerTimeline,
     mic: MixerTimeline,
+    mic_denoiser: Option<MicDenoiser>,
     /// Gain stage, carried across chunks: emitted frames are already uploaded,
     /// so its state is the only memory the mix has.
     gain: MixGainStage,
@@ -2432,7 +2550,12 @@ struct LiveAudioMixer {
 }
 
 impl LiveAudioMixer {
-    fn new(rebase_output: bool) -> Result<Self, String> {
+    fn new(
+        rebase_output: bool,
+        include_microphone: bool,
+        capture_system_audio: bool,
+        voice_cleanup_enabled: bool,
+    ) -> Result<Self, String> {
         let sample_rate = AUDIO_OUTPUT_SAMPLE_RATE as i32;
         let asbd = AudioStreamBasicDescription {
             sample_rate: AUDIO_OUTPUT_SAMPLE_RATE as f64,
@@ -2468,6 +2591,8 @@ impl LiveAudioMixer {
         Ok(Self {
             format_desc,
             sample_rate,
+            include_microphone,
+            capture_system_audio,
             rebase_output,
             session_start_seconds: None,
             pause_offset_seconds: 0.0,
@@ -2475,7 +2600,8 @@ impl LiveAudioMixer {
             out_pos: 0,
             system: MixerTimeline::new(),
             mic: MixerTimeline::new(),
-            gain: MixGainStage::new(sample_rate),
+            mic_denoiser: voice_cleanup_enabled.then(MicDenoiser::new),
+            gain: MixGainStage::new(sample_rate, voice_cleanup_enabled),
             created_at: Instant::now(),
         })
     }
@@ -2484,6 +2610,22 @@ impl LiveAudioMixer {
     /// position, zero-filling any gap since the previous push (capped so a
     /// glitched timestamp can't allocate gigabytes).
     fn push(&mut self, source: MixSource, interleaved: &[f32], pts_seconds: f64) {
+        if source == MixSource::Mic {
+            let processed = self
+                .mic_denoiser
+                .as_mut()
+                .map(|denoiser| denoiser.process(interleaved, pts_seconds));
+            if let Some(processed) = processed {
+                for (processed, processed_pts) in processed {
+                    self.push_timeline(MixSource::Mic, &processed, processed_pts);
+                }
+                return;
+            }
+        }
+        self.push_timeline(source, interleaved, pts_seconds);
+    }
+
+    fn push_timeline(&mut self, source: MixSource, interleaved: &[f32], pts_seconds: f64) {
         let frames = interleaved.len() / 2;
         if frames == 0 {
             return;
@@ -2512,6 +2654,11 @@ impl LiveAudioMixer {
     /// Update the accumulated pause offset (seconds) applied to incoming
     /// source PTS in `push`. Set from the writer's shared offset on resume.
     fn set_pause_offset(&mut self, seconds: f64) {
+        if seconds > self.pause_offset_seconds + f64::EPSILON {
+            if let Some(denoiser) = self.mic_denoiser.as_mut() {
+                denoiser.reset();
+            }
+        }
         self.pause_offset_seconds = seconds;
     }
 
@@ -2555,18 +2702,35 @@ impl LiveAudioMixer {
     /// active sources (or everything buffered when flushing at stop).
     fn compute_safe_end(&self, flush: bool) -> i64 {
         if flush {
-            return self.system.end_frame().max(self.mic.end_frame());
+            let mut end = self.out_pos;
+            if self.capture_system_audio {
+                end = end.max(self.system.end_frame());
+            }
+            if self.include_microphone {
+                end = end.max(self.mic.end_frame());
+            }
+            return end;
         }
         let now = Instant::now();
-        let sys = self.classify(&self.system, now);
-        let mic = self.classify(&self.mic, now);
-        if matches!(sys, SourceBound::Pending) || matches!(mic, SourceBound::Pending) {
+        let sys = self
+            .capture_system_audio
+            .then(|| self.classify(&self.system, now));
+        let mic = self
+            .include_microphone
+            .then(|| self.classify(&self.mic, now));
+        if sys
+            .as_ref()
+            .is_some_and(|bound| matches!(bound, SourceBound::Pending))
+            || mic
+                .as_ref()
+                .is_some_and(|bound| matches!(bound, SourceBound::Pending))
+        {
             // Still expecting a source to start; don't run ahead of it.
             return self.out_pos;
         }
         let mut bound = i64::MAX;
         let mut any_active = false;
-        for b in [&sys, &mic] {
+        for b in [sys.as_ref(), mic.as_ref()].into_iter().flatten() {
             if let SourceBound::Active(end) = b {
                 bound = bound.min(*end);
                 any_active = true;
@@ -2576,7 +2740,14 @@ impl LiveAudioMixer {
             bound
         } else {
             // Everything stalled/absent: drain whatever frozen data we have.
-            self.system.end_frame().max(self.mic.end_frame())
+            let mut end = self.out_pos;
+            if self.capture_system_audio {
+                end = end.max(self.system.end_frame());
+            }
+            if self.include_microphone {
+                end = end.max(self.mic.end_frame());
+            }
+            end
         }
     }
 
@@ -2593,6 +2764,14 @@ impl LiveAudioMixer {
         &mut self,
         flush: bool,
     ) -> Result<Vec<screencapturekit::cm::CMSampleBuffer>, String> {
+        if flush {
+            let processed = self.mic_denoiser.as_mut().map(MicDenoiser::flush);
+            if let Some(processed) = processed {
+                for (processed, processed_pts) in processed {
+                    self.push_timeline(MixSource::Mic, &processed, processed_pts);
+                }
+            }
+        }
         if self.anchor_seconds.is_none() {
             return Ok(Vec::new());
         }
@@ -3911,6 +4090,7 @@ pub(crate) fn start_custom_screencapturekit_backend_at(
         CustomWriterOutput::Standard
     };
     let mix_live = live_audio_mixing_enabled(output, include_audio, capture_system_audio);
+    let voice_cleanup_enabled = crate::config::feature_config(app).voice_cleanup_enabled;
     // The active custom capture is the single physical owner of mic/system
     // audio for both Rewind and ordinary Clips. Live transcription subscribes
     // to this producer instead of opening a competing SCK/AVAudioEngine input,
@@ -3929,6 +4109,7 @@ pub(crate) fn start_custom_screencapturekit_backend_at(
         capture_system_audio,
         include_audio,
         mix_live,
+        voice_cleanup_enabled,
         output,
         audio_producer,
     )?;
@@ -4116,6 +4297,16 @@ mod fragment_fence_tests {
             true,
             true
         ));
+        assert!(live_audio_mixing_enabled(
+            CustomWriterOutput::Standard,
+            true,
+            false
+        ));
+        assert!(!live_audio_mixing_enabled(
+            CustomWriterOutput::Standard,
+            false,
+            true
+        ));
         // Clip HLS is forced segmented regardless of the ordinary remote flag,
         // but keeps a single live-mixed AAC track and no Rewind sidecars.
         assert!(segmented_output_enabled(CustomWriterOutput::ClipHls, false));
@@ -4124,6 +4315,43 @@ mod fragment_fence_tests {
             true,
             true
         ));
+    }
+
+    #[test]
+    fn mic_denoiser_preserves_frame_boundaries_and_duration() {
+        let mut denoiser = MicDenoiser::new();
+        let first = vec![0.08_f32; 300 * 2];
+        let second = vec![0.12_f32; 300 * 2];
+
+        assert!(denoiser.process(&first, 10.0).is_empty());
+        let processed = denoiser.process(&second, 10.0 + 300.0 / 48_000.0);
+        assert_eq!(processed.len(), 1);
+        assert_eq!(processed[0].0.len(), 480 * 2);
+        assert_eq!(processed[0].1, 10.0);
+        assert!(processed[0].0.iter().all(|sample| sample.is_finite()));
+        assert!(processed[0].0.iter().any(|sample| sample.abs() > 0.01));
+
+        let flushed = denoiser.flush();
+        assert_eq!(flushed.len(), 1);
+        assert_eq!(flushed[0].0.len(), 120 * 2);
+        assert!(flushed[0].0.iter().all(|sample| sample.is_finite()));
+    }
+
+    #[test]
+    fn mic_denoiser_resets_pending_audio_after_pause() {
+        let mut denoiser = MicDenoiser::new();
+        let input = vec![0.1_f32; 120 * 2];
+        assert!(denoiser.process(&input, 10.0).is_empty());
+        denoiser.reset();
+        assert!(denoiser.flush().is_empty());
+        assert!(denoiser.process(&input, 20.0).is_empty());
+        assert_eq!(denoiser.flush()[0].1, 20.0);
+    }
+
+    #[test]
+    fn mic_only_mixer_does_not_wait_for_a_disabled_system_source() {
+        let mixer = LiveAudioMixer::new(false, true, false, true).unwrap();
+        assert_eq!(mixer.compute_safe_end(false), 0);
     }
 
     #[test]

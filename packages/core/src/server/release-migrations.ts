@@ -13,6 +13,7 @@ import {
 } from "../oauth-tokens/migrations.js";
 import { ORG_MIGRATIONS } from "../org/migrations.js";
 import { runBetterAuthMigrations } from "./better-auth-migrations.js";
+import { IDENTITY_SSO_MIGRATIONS } from "./identity-sso-migrations.js";
 
 /**
  * Apply framework-owned schema in one explicit release step.
@@ -32,6 +33,9 @@ export async function runFrameworkReleaseMigrations(
     table: OAUTH_TOKEN_MIGRATIONS_TABLE,
   })(nitroApp);
   await runMigrations(ORG_MIGRATIONS, { table: "_org_migrations" })(nitroApp);
+  await runMigrations(IDENTITY_SSO_MIGRATIONS, {
+    table: "_identity_sso_migrations",
+  })(nitroApp);
   await runMigrations(CONTEXT_XRAY_MIGRATIONS, {
     table: "_context_xray_migrations",
   })(nitroApp);

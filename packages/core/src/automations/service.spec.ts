@@ -118,6 +118,28 @@ describe("automation domain service", () => {
     );
   });
 
+  it("defaults a new scheduled automation to an hourly cadence", async () => {
+    resourceGetByPathMock
+      .mockResolvedValueOnce(null)
+      .mockImplementation(async (owner: string) =>
+        resource(resourcePutMock.mock.calls.at(-1)?.[2] as string, owner),
+      );
+
+    const definition = await defineAutomation(actor, {
+      name: "hourly-check",
+      scope: "organization",
+      triggerType: "schedule",
+      body: "Check for changed work.",
+    });
+
+    expect(definition.meta.schedule).toBe("0 * * * *");
+    expect(resourcePutMock).toHaveBeenCalledWith(
+      orgOwner,
+      "jobs/hourly-check.md",
+      expect.stringContaining('schedule: "0 * * * *"'),
+    );
+  });
+
   it("creates an organization event automation owned by the org but run as its creator", async () => {
     resourceGetByPathMock
       .mockResolvedValueOnce(null)

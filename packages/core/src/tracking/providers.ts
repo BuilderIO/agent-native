@@ -333,6 +333,28 @@ function createMixpanelProvider(token: string): TrackingProvider {
 
 // ─── Amplitude ─────────────────────────────────────────────────────────────
 
+function stripExceptionContextForAmplitude(
+  properties: Record<string, unknown>,
+): Record<string, unknown> {
+  const {
+    exceptionTags: _exceptionTags,
+    exceptionExtra: _exceptionExtra,
+    ...stableProperties
+  } = properties;
+  return stableProperties;
+}
+
+function amplitudeEventProperties(
+  event: TrackingEvent,
+): Record<string, unknown> | undefined {
+  const properties =
+    event.name === "$exception" && event.properties
+      ? stripExceptionContextForAmplitude(event.properties)
+      : event.properties;
+  if (!event.sessionId) return properties;
+  return { ...(properties ?? {}), session_id: event.sessionId };
+}
+
 function createAmplitudeProvider(apiKey: string): TrackingProvider {
   return {
     name: "amplitude",
@@ -345,9 +367,7 @@ function createAmplitudeProvider(apiKey: string): TrackingProvider {
             user_id: event.userId || "anonymous",
             // Amplitude's top-level `session_id` must be a numeric epoch, so
             // the browser session ships as an event property instead.
-            event_properties: event.sessionId
-              ? { ...event.properties, session_id: event.sessionId }
-              : event.properties,
+            event_properties: amplitudeEventProperties(event),
             time: event.timestamp
               ? new Date(event.timestamp).getTime()
               : undefined,

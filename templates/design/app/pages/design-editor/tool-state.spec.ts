@@ -42,16 +42,18 @@ describe("getDesignBottomToolbarMode", () => {
       getDesignBottomToolbarMode({
         isSignedIn: true,
         canEditDesign: true,
+        canCommentDesign: true,
         hasActiveFile: true,
       }),
     ).toBe("editor");
   });
 
-  it("shows a comment-only toolbar to signed-in viewers", () => {
+  it("shows a comment-only toolbar to signed-in commenters", () => {
     expect(
       getDesignBottomToolbarMode({
         isSignedIn: true,
         canEditDesign: false,
+        canCommentDesign: true,
         hasActiveFile: true,
       }),
     ).toBe("commenter");
@@ -62,6 +64,7 @@ describe("getDesignBottomToolbarMode", () => {
       getDesignBottomToolbarMode({
         isSignedIn: false,
         canEditDesign: false,
+        canCommentDesign: false,
         hasActiveFile: true,
       }),
     ).toBe("hidden");
@@ -69,7 +72,19 @@ describe("getDesignBottomToolbarMode", () => {
       getDesignBottomToolbarMode({
         isSignedIn: true,
         canEditDesign: false,
+        canCommentDesign: false,
         hasActiveFile: false,
+      }),
+    ).toBe("hidden");
+  });
+
+  it("keeps signed-in viewers read-only", () => {
+    expect(
+      getDesignBottomToolbarMode({
+        isSignedIn: true,
+        canEditDesign: false,
+        canCommentDesign: false,
+        hasActiveFile: true,
       }),
     ).toBe("hidden");
   });

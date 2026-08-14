@@ -754,7 +754,7 @@ const enUS = {
         big: "Big nudge",
         unit: "px",
         description:
-          "Arrow keys move by the small amount and Shift+arrow by the big one. Inside an auto layout frame, arrows reorder the layer instead of moving it.",
+          "Arrow keys move by the small amount and Shift arrow by the big one. Inside an auto layout frame, arrows reorder the layer instead of moving it.",
       },
       keys: {
         or: "or",
@@ -1472,6 +1472,8 @@ const enUS = {
       "Connect from a website, code, files, or an existing design system.",
     chooseSourcePrompt: "Choose one source to configure",
     continue: "Continue to generation",
+    starting: "Starting...",
+    githubIndexStarted: "GitHub indexing started",
     title: "Set up your design system",
     description:
       "Connect Figma, code, and optional design.md guidance through Builder DSI. More context gives the agent a more accurate system.",
@@ -1485,6 +1487,8 @@ const enUS = {
     websiteUrl: "Website-URL",
     add: "Add",
     githubRepository: "GitHub repository",
+    githubRef: "Branch, tag, or commit (optional)",
+    githubPaths: "Files or folders, comma-separated (optional)",
     privateRepoPrefix: "Private repos need a fine-grained token saved as",
     privateRepoSuffix: "with Contents read access.",
     localCodeFiles: "Connect code files",
@@ -1532,6 +1536,8 @@ const enUS = {
       enterGithub: "Enter a GitHub repository URL before adding it.",
       githubUrl:
         "Use a full GitHub repository URL, like https://github.com/org/repo.",
+      githubIndex:
+        "Could not start GitHub indexing. Check your Builder connection and repository access.",
       noSources: "Add at least one source before generating a design system.",
     },
     sections: {
@@ -1654,6 +1660,7 @@ const enUS = {
       logos: "Logos",
       assets: "Assets",
       savedCount: "{{count}} saved",
+      namedTokens: "Named tokens",
       colorLabels: {
         primary: "Primary",
         secondary: "Secondary",
@@ -1947,6 +1954,8 @@ const designLocaleOverrides = {
       otherSourcesDescription: "从网站、代码、文件或现有设计系统连接。",
       chooseSourcePrompt: "选择一个来源进行配置",
       continue: "继续生成",
+      starting: "正在启动…",
+      githubIndexStarted: "GitHub 索引已开始",
       title: "设置您的设计系统",
       description:
         "通过 Builder DSI 连接 Figma、代码和可选的 design.md 指引。上下文越多，代理得到的系统越准确。",
@@ -1958,6 +1967,8 @@ const designLocaleOverrides = {
       websiteUrl: "网站URL",
       add: "添加",
       githubRepository: "GitHub 存储库",
+      githubRef: "分支、标签或提交（可选）",
+      githubPaths: "文件或文件夹，以逗号分隔（可选）",
       privateRepoPrefix: "私人仓库需要一个细粒度的令牌，另存为",
       privateRepoSuffix: "具有内容读取权限。",
       localCodeFiles: "连接代码文件",
@@ -1999,6 +2010,8 @@ const designLocaleOverrides = {
         enterGithub: "在添加之前输入 GitHub 存储库 URL。",
         githubUrl:
           "使用完整的 GitHub 存储库 URL，例如 https://github.com/org/repo。",
+        githubIndex:
+          "无法启动 GitHub 索引。请检查 Builder 连接和仓库访问权限。",
         noSources: "在生成设计系统之前至少添加一个源。",
       },
       sections: {
@@ -2120,6 +2133,7 @@ const designLocaleOverrides = {
         logos: "标志",
         assets: "资产",
         savedCount: "已保存 {{count}} 个",
+        namedTokens: "具名代币",
         colorLabels: {
           primary: "基本的",
           secondary: "中学",
@@ -2356,6 +2370,8 @@ const designLocaleOverrides = {
         "Conecta desde un sitio web, código, archivos o un sistema de diseño existente.",
       chooseSourcePrompt: "Elige una fuente para configurar",
       continue: "continuar con la generación",
+      starting: "Iniciando…",
+      githubIndexStarted: "La indexación de GitHub ha comenzado",
       title: "Configure su sistema de diseño",
       description:
         "Conecta Figma, código y guía opcional de design.md mediante Builder DSI. Más contexto le da al agente un sistema más preciso.",
@@ -2369,6 +2385,8 @@ const designLocaleOverrides = {
       websiteUrl: "Sitio web URL",
       add: "Agregar",
       githubRepository: "repositorio GitHub",
+      githubRef: "Rama, etiqueta o commit (opcional)",
+      githubPaths: "Archivos o carpetas, separados por comas (opcional)",
       privateRepoPrefix:
         "Los repositorios privados necesitan un token detallado guardado como",
       privateRepoSuffix: "con acceso de lectura de contenidos.",
@@ -2418,6 +2436,8 @@ const designLocaleOverrides = {
         enterGithub: "Ingrese un repositorio GitHub URL antes de agregarlo.",
         githubUrl:
           "Utilice un repositorio GitHub completo URL, como https://github.com/org/repo.",
+        githubIndex:
+          "No se pudo iniciar la indexación de GitHub. Comprueba la conexión de Builder y el acceso al repositorio.",
         noSources:
           "Agregue al menos una fuente antes de generar un sistema de diseño.",
       },
@@ -2546,6 +2566,7 @@ const designLocaleOverrides = {
         logos: "Logotipos",
         assets: "Activos",
         savedCount: "{{count}} guardado",
+        namedTokens: "Tokens con nombre",
         colorLabels: {
           primary: "Primario",
           secondary: "Secundario",
@@ -2787,6 +2808,8 @@ const designLocaleOverrides = {
         "Connectez-vous depuis un site web, du code, des fichiers ou un système de conception existant.",
       chooseSourcePrompt: "Choisissez une source à configurer",
       continue: "Continuer jusqu'à la génération",
+      starting: "Démarrage…",
+      githubIndexStarted: "L’indexation GitHub a démarré",
       title: "Configurez votre système de conception",
       description:
         "Connectez Figma, le code et les consignes design.md facultatives via Builder DSI. Plus le contexte est riche, plus le système de l’agent est précis.",
@@ -2800,6 +2823,9 @@ const designLocaleOverrides = {
       websiteUrl: "Site Web URL",
       add: "Ajouter",
       githubRepository: "référentiel GitHub",
+      githubRef: "Branche, tag ou commit (facultatif)",
+      githubPaths:
+        "Fichiers ou dossiers, séparés par des virgules (facultatif)",
       privateRepoPrefix:
         "Les dépôts privés nécessitent un jeton à granularité fine enregistré sous",
       privateRepoSuffix: "avec accès en lecture au contenu.",
@@ -2849,6 +2875,8 @@ const designLocaleOverrides = {
         enterGithub: "Entrez un référentiel GitHub URL avant de l'ajouter.",
         githubUrl:
           "Utilisez un référentiel GitHub complet URL, comme https://github.com/org/repo.",
+        githubIndex:
+          "Impossible de démarrer l’indexation GitHub. Vérifiez la connexion à Builder et l’accès au dépôt.",
         noSources:
           "Ajoutez au moins une source avant de générer un système de conception.",
       },
@@ -2977,6 +3005,7 @@ const designLocaleOverrides = {
         logos: "Logos",
         assets: "Actifs",
         savedCount: "{{count}} enregistré",
+        namedTokens: "Jetons nommés",
         colorLabels: {
           primary: "Primaire",
           secondary: "Secondaire",
@@ -3218,6 +3247,8 @@ const designLocaleOverrides = {
         "Von einer Website, Code, Dateien oder einem vorhandenen Designsystem verbinden.",
       chooseSourcePrompt: "Quelle zum Konfigurieren auswählen",
       continue: "Weiter zur Generation",
+      starting: "Wird gestartet…",
+      githubIndexStarted: "GitHub-Indizierung gestartet",
       title: "Richten Sie Ihr Designsystem ein",
       description:
         "Verbinde Figma, Code und optionale design.md-Anweisungen über Builder DSI. Mehr Kontext gibt dem Agenten ein genaueres System.",
@@ -3231,6 +3262,8 @@ const designLocaleOverrides = {
       websiteUrl: "Website URL",
       add: "Hinzufügen",
       githubRepository: "GitHub-Repository",
+      githubRef: "Branch, Tag oder Commit (optional)",
+      githubPaths: "Dateien oder Ordner, durch Kommas getrennt (optional)",
       privateRepoPrefix:
         "Private Repos benötigen einen feinkörnigen Token, der unter gespeichert wird",
       privateRepoSuffix: "mit Lesezugriff auf Inhalte.",
@@ -3282,6 +3315,8 @@ const designLocaleOverrides = {
           "Geben Sie ein GitHub-Repository URL ein, bevor Sie es hinzufügen.",
         githubUrl:
           "Verwenden Sie ein vollständiges GitHub-Repository URL, wie https://github.com/org/repo.",
+        githubIndex:
+          "GitHub-Indizierung konnte nicht gestartet werden. Prüfe die Builder-Verbindung und den Repository-Zugriff.",
         noSources:
           "Fügen Sie mindestens eine Quelle hinzu, bevor Sie ein Designsystem erstellen.",
       },
@@ -3409,6 +3444,7 @@ const designLocaleOverrides = {
         logos: "Logos",
         assets: "Vermögenswerte",
         savedCount: "{{count}} gespeichert",
+        namedTokens: "Benannte Tokens",
         colorLabels: {
           primary: "Primär",
           secondary: "Sekundär",
@@ -3649,6 +3685,8 @@ const designLocaleOverrides = {
         "Webサイト、コード、ファイル、または既存のデザインシステムから接続します。",
       chooseSourcePrompt: "設定するソースを選択",
       continue: "世代を継続する",
+      starting: "開始中…",
+      githubIndexStarted: "GitHub のインデックス作成を開始しました",
       title: "デザインシステムをセットアップする",
       description:
         "Figma、コード、任意の design.md ガイドを Builder DSI で接続します。コンテキストが多いほど、エージェントのシステムは正確になります。",
@@ -3662,6 +3700,8 @@ const designLocaleOverrides = {
       websiteUrl: "ウェブサイト URL",
       add: "追加",
       githubRepository: "GitHub リポジトリ",
+      githubRef: "ブランチ、タグ、コミット（任意）",
+      githubPaths: "ファイルまたはフォルダー（カンマ区切り、任意）",
       privateRepoPrefix:
         "プライベート リポジトリには、次のように保存されたきめ細かいトークンが必要です。",
       privateRepoSuffix: "コンテンツ読み取りアクセス付き。",
@@ -3711,6 +3751,8 @@ const designLocaleOverrides = {
         enterGithub: "追加する前に、GitHub リポジトリ URL を入力します。",
         githubUrl:
           "https://github.com/org/repo など、完全な GitHub リポジトリ URL を使用します。",
+        githubIndex:
+          "GitHub のインデックス作成を開始できませんでした。Builder の接続とリポジトリへのアクセスを確認してください。",
         noSources:
           "デザイン システムを生成する前に、少なくとも 1 つのソースを追加します。",
       },
@@ -3836,6 +3878,7 @@ const designLocaleOverrides = {
         logos: "ロゴ",
         assets: "資産",
         savedCount: "{{count}} 保存しました",
+        namedTokens: "名前付きトークン",
         colorLabels: {
           primary: "主要な",
           secondary: "二次",
@@ -4075,6 +4118,8 @@ const designLocaleOverrides = {
         "웹사이트, 코드, 파일 또는 기존 디자인 시스템에서 연결합니다.",
       chooseSourcePrompt: "구성할 소스 선택",
       continue: "세대를 이어가다",
+      starting: "시작 중…",
+      githubIndexStarted: "GitHub 인덱싱이 시작되었습니다",
       title: "디자인 시스템 설정",
       description:
         "Figma, 코드, 선택적 design.md 지침을 Builder DSI로 연결하세요. 맥락이 많을수록 에이전트의 시스템이 더 정확해집니다.",
@@ -4087,6 +4132,8 @@ const designLocaleOverrides = {
       websiteUrl: "웹사이트 URL",
       add: "추가하다",
       githubRepository: "GitHub 저장소",
+      githubRef: "브랜치, 태그 또는 커밋 (선택 사항)",
+      githubPaths: "파일 또는 폴더, 쉼표로 구분 (선택 사항)",
       privateRepoPrefix:
         "비공개 저장소에는 다음과 같이 저장된 세분화된 토큰이 필요합니다.",
       privateRepoSuffix: "콘텐츠 읽기 액세스 권한이 있습니다.",
@@ -4133,6 +4180,8 @@ const designLocaleOverrides = {
         enterGithub: "추가하기 전에 GitHub 저장소 URL를 입력하세요.",
         githubUrl:
           "https://github.com/org/repo와 같은 전체 GitHub 저장소 URL를 사용하세요.",
+        githubIndex:
+          "GitHub 인덱싱을 시작할 수 없습니다. Builder 연결과 저장소 접근 권한을 확인하세요.",
         noSources: "디자인 시스템을 생성하기 전에 소스를 하나 이상 추가하세요.",
       },
       sections: {
@@ -4256,6 +4305,7 @@ const designLocaleOverrides = {
         logos: "로고",
         assets: "자산",
         savedCount: "{{count}}가 저장되었습니다.",
+        namedTokens: "이름이 지정된 토큰",
         colorLabels: {
           primary: "주요한",
           secondary: "반성",
@@ -4495,6 +4545,8 @@ const designLocaleOverrides = {
         "Conecte-se de um site, código, arquivos ou um sistema de design existente.",
       chooseSourcePrompt: "Escolha uma fonte para configurar",
       continue: "Continuar para a geração",
+      starting: "Iniciando…",
+      githubIndexStarted: "Indexação do GitHub iniciada",
       title: "Configure seu sistema de design",
       description:
         "Conecte Figma, código e orientações opcionais de design.md pelo Builder DSI. Mais contexto dá ao agente um sistema mais preciso.",
@@ -4508,6 +4560,8 @@ const designLocaleOverrides = {
       websiteUrl: "Site URL",
       add: "Adicionar",
       githubRepository: "repositório GitHub",
+      githubRef: "Branch, tag ou commit (opcional)",
+      githubPaths: "Arquivos ou pastas, separados por vírgulas (opcional)",
       privateRepoPrefix:
         "Os repositórios privados precisam de um token refinado salvo como",
       privateRepoSuffix: "com acesso de leitura de conteúdo.",
@@ -4556,6 +4610,8 @@ const designLocaleOverrides = {
         enterGithub: "Insira um repositório GitHub URL antes de adicioná-lo.",
         githubUrl:
           "Use um repositório GitHub completo URL, como https://github.com/org/repo.",
+        githubIndex:
+          "Não foi possível iniciar a indexação do GitHub. Verifique a conexão do Builder e o acesso ao repositório.",
         noSources:
           "Adicione pelo menos uma fonte antes de gerar um sistema de design.",
       },
@@ -4683,6 +4739,7 @@ const designLocaleOverrides = {
         logos: "Logotipos",
         assets: "Ativos",
         savedCount: "{{count}} salvo",
+        namedTokens: "Tokens nomeados",
         colorLabels: {
           primary: "Primário",
           secondary: "Secundário",
@@ -4921,6 +4978,8 @@ const designLocaleOverrides = {
         "वेबसाइट, कोड, फ़ाइलों या मौजूदा डिज़ाइन सिस्टम से कनेक्ट करें।",
       chooseSourcePrompt: "कॉन्फ़िगर करने के लिए एक स्रोत चुनें",
       continue: "पीढ़ी तक जारी रखें",
+      starting: "शुरू हो रहा है…",
+      githubIndexStarted: "GitHub इंडेक्सिंग शुरू हो गई",
       title: "अपना डिज़ाइन सिस्टम सेट करें",
       description:
         "Figma, कोड और वैकल्पिक design.md मार्गदर्शन को Builder DSI से कनेक्ट करें. अधिक संदर्भ एजेंट को अधिक सटीक सिस्टम देता है.",
@@ -4933,6 +4992,8 @@ const designLocaleOverrides = {
       websiteUrl: "वेबसाइट URL",
       add: "जोड़ना",
       githubRepository: "GitHub रिपॉजिटरी",
+      githubRef: "ब्रांच, टैग या कमिट (वैकल्पिक)",
+      githubPaths: "फ़ाइलें या फ़ोल्डर, कॉमा से अलग (वैकल्पिक)",
       privateRepoPrefix:
         "निजी रेपो को एक बढ़िया टोकन के रूप में सहेजे जाने की आवश्यकता होती है",
       privateRepoSuffix: "सामग्री पढ़ने की पहुंच के साथ।",
@@ -4977,6 +5038,8 @@ const designLocaleOverrides = {
         enterGithub: "इसे जोड़ने से पहले एक GitHub रिपॉजिटरी URL दर्ज करें।",
         githubUrl:
           "https://github.com/org/repo जैसे पूर्ण GitHub रिपॉजिटरी URL का उपयोग करें।",
+        githubIndex:
+          "GitHub इंडेक्सिंग शुरू नहीं हो सकी। Builder कनेक्शन और रिपॉजिटरी एक्सेस जाँचें।",
         noSources: "डिज़ाइन सिस्टम तैयार करने से पहले कम से कम एक स्रोत जोड़ें।",
       },
       sections: {
@@ -5101,6 +5164,7 @@ const designLocaleOverrides = {
         logos: "लोगो",
         assets: "संपत्ति",
         savedCount: "{{count}} सहेजा गया",
+        namedTokens: "नामित टोकन",
         colorLabels: {
           primary: "प्राथमिक",
           secondary: "माध्यमिक",
@@ -5337,6 +5401,8 @@ const designLocaleOverrides = {
         "الاتصال من موقع ويب أو رمز أو ملفات أو نظام تصميم موجود.",
       chooseSourcePrompt: "اختر مصدرًا لتهيئته",
       continue: "الاستمرار في الجيل",
+      starting: "جارٍ البدء…",
+      githubIndexStarted: "بدأت فهرسة GitHub",
       title: "قم بإعداد نظام التصميم الخاص بك",
       description:
         "اربط Figma والكود وإرشادات design.md الاختيارية عبر Builder DSI. كلما زاد السياق، حصل الوكيل على نظام أدق.",
@@ -5349,6 +5415,8 @@ const designLocaleOverrides = {
       websiteUrl: "موقع URL",
       add: "يضيف",
       githubRepository: "مستودع GitHub",
+      githubRef: "فرع أو وسم أو التزام (اختياري)",
+      githubPaths: "الملفات أو المجلدات، مفصولة بفواصل (اختياري)",
       privateRepoPrefix:
         "تحتاج عمليات إعادة الشراء الخاصة إلى رمز مميز محفوظ باسم",
       privateRepoSuffix: "مع محتويات الوصول للقراءة.",
@@ -5395,6 +5463,8 @@ const designLocaleOverrides = {
         enterGithub: "أدخل مستودع GitHub URL قبل إضافته.",
         githubUrl:
           "استخدم مستودع GitHub الكامل URL، مثل https://github.com/org/repo.",
+        githubIndex:
+          "تعذر بدء فهرسة GitHub. تحقق من اتصال Builder ومن صلاحية الوصول إلى المستودع.",
         noSources: "أضف مصدرًا واحدًا على الأقل قبل إنشاء نظام التصميم.",
       },
       sections: {
@@ -5518,6 +5588,7 @@ const designLocaleOverrides = {
         logos: "الشعارات",
         assets: "أصول",
         savedCount: "تم حفظ {{count}}",
+        namedTokens: "الرموز المميزة المسماة",
         colorLabels: {
           primary: "أساسي",
           secondary: "ثانوي",

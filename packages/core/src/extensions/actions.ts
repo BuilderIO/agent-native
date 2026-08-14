@@ -13,6 +13,7 @@ import {
   getRequestUserEmail,
 } from "../server/request-context.js";
 import { resolveAccess } from "../sharing/access.js";
+import { roleSatisfies } from "../sharing/schema.js";
 import {
   readWorkspaceFile,
   type WorkspaceFilesScope,
@@ -864,7 +865,7 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
         if (
           !access ||
           (access.resource as ExtensionRow | undefined)?.archivedAt ||
-          access.role === "viewer"
+          !roleSatisfies(access.role, "editor")
         )
           return `Error: editor access required for extension ${extensionId}.`;
 

@@ -17,5 +17,6 @@ export default defineAction({
   http: { method: "POST" },
   readOnly: true,
   toolCallable: true,
+  grounding: true,
   run: bigquery.run,
 });

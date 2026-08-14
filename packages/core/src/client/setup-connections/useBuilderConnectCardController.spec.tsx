@@ -68,14 +68,14 @@ describe("useBuilderConnectCardController", () => {
     expect(result).toMatchObject({
       title: "Builder connect",
       description:
-        "Connect Builder for managed model access, browser automation, and workspace identity. Free tier available.",
+        "Connect Builder.io for managed model access, browser automation, and workspace identity. Free tier available.",
       status: { kind: "ready", label: "Ready to connect" },
       configured: false,
       pending: false,
       error: null,
       orgName: null,
       action: {
-        label: "Connect Builder",
+        label: "Connect Builder.io",
         pending: false,
         disabled: false,
       },

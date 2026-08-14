@@ -9,6 +9,7 @@ import { isInBuilderFrame } from "@agent-native/core/client/host";
 import { useBuilderConnectFlow } from "@agent-native/core/client/settings/useBuilderStatus";
 import {
   buildChatFirstAppCreationPrompt,
+  docsUrl,
   getWorkspaceAppIdValidationError,
   titleFromChatFirstAppPrompt,
 } from "@agent-native/core/shared";
@@ -59,6 +60,10 @@ interface CreateAppPopoverProps {
    * Override the popover alignment. Defaults to "center" with a 10px offset.
    */
   align?: "start" | "center" | "end";
+  /**
+   * Called after the server accepts a Builder app creation request.
+   */
+  onCreated?: () => void;
 }
 
 async function fetchJson(url: string, init?: RequestInit): Promise<any> {
@@ -91,8 +96,9 @@ const ERROR_FAILURE_REASONS = new Set([
   "credential-store-unavailable",
   "settings-management-required",
 ]);
-const LOCAL_APP_DOCS_URL =
-  "https://agent-native.com/docs/multi-app-workspace#adding-a-new-app";
+const LOCAL_APP_DOCS_URL = docsUrl("multi-app-workspace", {
+  hash: "adding-a-new-app",
+});
 
 function isErrorFailureReason(reason: string | null): boolean {
   return !!reason && ERROR_FAILURE_REASONS.has(reason);
@@ -105,9 +111,11 @@ function isErrorFailureReason(reason: string | null): boolean {
  */
 export function CreateAppFlow({
   onClose,
+  onCreated,
   className = "",
 }: {
   onClose?: () => void;
+  onCreated?: () => void;
   className?: string;
 }) {
   const [step, setStep] = useState<"prompt" | "access">("prompt");
@@ -267,6 +275,7 @@ export function CreateAppFlow({
           },
         );
         if (result?.mode === "builder") {
+          onCreated?.();
           setBranchUrl(result?.url || null);
           setStatusMessage("Builder branch created.");
         } else if (result?.mode === "local-agent") {
@@ -319,7 +328,7 @@ export function CreateAppFlow({
         </div>
         <Button asChild className="w-full sm:w-auto">
           <a href={branchUrl} target="_blank" rel="noreferrer">
-            Open Builder branch <IconArrowUpRight aria-hidden="true" />
+            Open in Builder <IconArrowUpRight aria-hidden="true" />
           </a>
         </Button>
       </div>
@@ -583,7 +592,7 @@ export function CreateAppFlow({
                 rel="noreferrer"
                 className="inline-flex items-center gap-1 font-medium text-foreground underline"
               >
-                Open branch <IconArrowUpRight className="h-3 w-3" />
+                Open in Builder <IconArrowUpRight className="h-3 w-3" />
               </a>
             ) : null}
           </div>
@@ -632,6 +641,7 @@ export function CreateAppFlow({
 export function CreateAppPopover({
   trigger,
   align = "center",
+  onCreated,
 }: CreateAppPopoverProps) {
   const [open, setOpen] = useState(false);
   return (
@@ -654,7 +664,7 @@ export function CreateAppPopover({
         sideOffset={10}
         className="w-[calc(100vw-2rem)] rounded-xl p-3 shadow-xl sm:w-[460px]"
       >
-        <CreateAppFlow onClose={() => setOpen(false)} />
+        <CreateAppFlow onClose={() => setOpen(false)} onCreated={onCreated} />
       </PopoverContent>
     </Popover>
   );

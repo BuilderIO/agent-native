@@ -1328,6 +1328,10 @@ div[data-notion-column] > :last-child {
   transition: box-shadow 0.15s ease;
 }
 
+.notion-editor .node-image .media-block {
+  width: 100%;
+}
+
 .media-empty-block {
   position: relative;
   width: 100%;
@@ -1440,6 +1444,10 @@ div[data-notion-column] > :last-child {
   object-position: center;
   border-radius: 6px;
   user-select: none;
+}
+
+.notion-editor .node-image .media-block__content {
+  width: 100%;
 }
 
 .media-block__broken {

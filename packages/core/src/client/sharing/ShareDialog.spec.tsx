@@ -83,9 +83,10 @@ describe("ShareDialog primitive normalization", () => {
 
   it("routes sharing controls through the registered design system", () => {
     expect(source).toContain('from "@agent-native/toolkit/design-system"');
+    expect(source).toContain('from "@agent-native/toolkit/sharing"');
     expect(source).toContain("<DesignSystemDialog");
     expect(source).toContain("<Picker");
-    expect(source).toContain("<TextField");
+    expect(source).toContain("<ShareCopyRow");
     expect(source).toContain("<DesignSystemAvatar");
     expect(source).toContain("<Status");
     expect(source).toContain("<ActionButton");

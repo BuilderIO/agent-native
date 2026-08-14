@@ -279,6 +279,8 @@ const messages = {
     publicDescription: "يمكن لأي شخص قام بتسجيل الدخول باستخدام الرابط المشاهدة",
     viewer: "Viewer",
     viewerDescription: "يمكن عرض",
+    commenter: "معلّق",
+    commenterDescription: "يمكنه العرض وإضافة التعليقات",
     editor: "Editor",
     editorDescription: "يمكن تحرير",
     admin: "مسؤول",

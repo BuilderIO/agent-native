@@ -14,6 +14,8 @@ import {
   AppearancePicker,
   type AppearancePresetId,
 } from "@agent-native/core/client/ui";
+import type { CalendarWeekStart } from "@shared/calendar-week";
+import { isCalendarWeekStart } from "@shared/calendar-week";
 import {
   IconBrandZoom,
   IconExternalLink,
@@ -38,6 +40,13 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -55,6 +64,8 @@ import {
 import { shouldOfferGoogleOAuthSetup } from "@/lib/google-oauth-setup";
 
 import changelog from "../../CHANGELOG.md?raw";
+
+const AVAILABILITY_SETTINGS_PATH = "/booking-links?tab=availability";
 
 export default function Settings() {
   const t = useT();
@@ -83,6 +94,7 @@ export default function Settings() {
   const [bookingTitle, setBookingTitle] = useState("");
   const [bookingDescription, setBookingDescription] = useState("");
   const [defaultDuration, setDefaultDuration] = useState(30);
+  const [weekStart, setWeekStart] = useState<CalendarWeekStart>("sunday");
 
   useEffect(() => {
     if (settings) {
@@ -90,6 +102,9 @@ export default function Settings() {
       setBookingTitle(settings.bookingPageTitle);
       setBookingDescription(settings.bookingPageDescription);
       setDefaultDuration(settings.defaultEventDuration);
+      setWeekStart(
+        isCalendarWeekStart(settings.weekStart) ? settings.weekStart : "sunday",
+      );
     }
   }, [settings]);
 
@@ -100,6 +115,7 @@ export default function Settings() {
         bookingPageTitle: bookingTitle,
         bookingPageDescription: bookingDescription,
         defaultEventDuration: defaultDuration,
+        weekStart,
       },
       {
         onSuccess: () => toast.success(t("settings.saved")),
@@ -185,8 +201,15 @@ export default function Settings() {
       {
         id: "calendar-general",
         label: t("settings.general"),
-        keywords: "timezone booking duration defaults general",
+        keywords:
+          "timezone week start sunday monday booking duration defaults general",
         hash: "general-settings",
+      },
+      {
+        id: "calendar-availability",
+        label: t("bookingLinks.availability"),
+        keywords: "availability available hours booking schedule working hours",
+        hash: "availability",
       },
       {
         id: "calendar-appearance",
@@ -240,6 +263,18 @@ export default function Settings() {
                 }}
               />
             </SettingsRow>
+            <SettingsRow
+              id="availability"
+              label={t("bookingLinks.availability")}
+              description={t("bookingLinks.availabilityDescription")}
+              control={
+                <Button variant="outline" size="sm" asChild>
+                  <Link to={AVAILABILITY_SETTINGS_PATH}>
+                    {t("bookingLinks.availability")}
+                  </Link>
+                </Button>
+              }
+            />
           </SettingsGroup>
 
           {/* Google Calendar Connection */}
@@ -410,6 +445,30 @@ export default function Settings() {
               <div className="space-y-2">
                 <Label htmlFor="timezone">{t("settings.timezone")}</Label>
                 <TimezoneCombobox value={timezone} onChange={setTimezone} />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="week-start">
+                  {t("settings.weekStartLabel")}
+                </Label>
+                <Select
+                  value={weekStart}
+                  onValueChange={(value) => {
+                    if (isCalendarWeekStart(value)) setWeekStart(value);
+                  }}
+                >
+                  <SelectTrigger id="week-start" className="w-full sm:w-56">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="sunday">
+                      {t("settings.weekStartSunday")}
+                    </SelectItem>
+                    <SelectItem value="monday">
+                      {t("settings.weekStartMonday")}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
 
               <div className="space-y-2">

@@ -34,11 +34,14 @@ import {
   createPlanModeActionRegistry,
   createProductionAgentHandler,
   preloadPlanModeEngineTools,
+  readPersistedActionSurface,
+  readPersistedAllowedActionNames,
   isPlanModeToolCallAllowed,
   isCachedToolResultVisibleInContext,
   isContextTooLongError,
   isRetryableError,
   actionsToEngineTools,
+  filterActionsByAllowedNames,
   filterInitialEngineTools,
   findApprovedStructuredToolCall,
   MAX_BACKGROUND_RUN_CONTINUATIONS,
@@ -49,8 +52,10 @@ import {
   resolveFinalResponseGuardRequestText,
   resolveAgentRequestReasoningEffort,
   resolveSkillReferenceContent,
+  permanentPreconditionRemedy,
   runAgentLoop,
   runAgentLoopWithMainChatInternalContinuations,
+  runCompletionCallbackWithDatabaseRetry,
   shouldChainBackgroundContinuation,
   MAX_IDENTICAL_TOOL_CALLS,
   MAX_SAME_ERROR_ACROSS_ARGUMENTS,
@@ -64,6 +69,24 @@ import {
 import type { ActiveRun } from "./run-manager.js";
 import { attachToolSearch, searchToolRegistry } from "./tool-search.js";
 import type { AgentChatEvent, RunEvent } from "./types.js";
+
+describe("runCompletionCallbackWithDatabaseRetry", () => {
+  it("retries transient database failures before giving up the completion boundary", async () => {
+    const callback = vi
+      .fn()
+      .mockRejectedValueOnce({
+        code: "ECHECKOUTTIMEOUT",
+        message: "database checkout timed out",
+      })
+      .mockResolvedValue(undefined);
+    const sleep = vi.fn(async (_ms: number) => {});
+
+    await runCompletionCallbackWithDatabaseRetry(callback, { sleep });
+
+    expect(callback).toHaveBeenCalledTimes(2);
+    expect(sleep).toHaveBeenCalledWith(250);
+  });
+});
 
 function actionEntry(opts: {
   description?: string;
@@ -1399,6 +1422,266 @@ describe("resolveAgentOwnerEmail", () => {
 });
 
 describe("createProductionAgentHandler", () => {
+  it("limits each request to the action names returned by resolveActionSurface", async () => {
+    const seenTools: string[][] = [];
+    const lifecycle: string[] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        lifecycle.push("stream");
+        seenTools.push(opts.tools.map((tool) => tool.name));
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "done" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {
+        allowed: actionEntry({}),
+        denied: actionEntry({}),
+        "tool-search": actionEntry({}),
+      },
+      prepareRequest: async () => {
+        lifecycle.push("prepare");
+      },
+      resolveActionSurface: async ({ threadId, availableActionNames }) => {
+        lifecycle.push("surface");
+        expect(threadId).toBe("thread-allowed");
+        expect(availableActionNames).toEqual([
+          "allowed",
+          "denied",
+          "tool-search",
+        ]);
+        return { allowedActionNames: ["allowed"] };
+      },
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Use the configured agent",
+          threadId: "thread-allowed",
+        }),
+      }),
+    );
+
+    const response = await runWithRequestContext(
+      { userEmail: "owner@example.com", run: {} },
+      () => handler(event),
+    );
+    if (response instanceof ReadableStream) {
+      const reader = response.getReader();
+      while (!(await reader.read()).done) {}
+    }
+
+    await vi.waitFor(() => {
+      expect(seenTools).toEqual([["allowed"]]);
+    });
+    expect(lifecycle).toEqual(["prepare", "surface", "stream"]);
+    expect(getRequestRunContext()).toBeUndefined();
+  });
+
+  it("keeps concurrent request action surfaces isolated by thread", async () => {
+    const seenTools: string[][] = [];
+    const seenContinuations: Array<[string | undefined, boolean]> = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        seenTools.push(opts.tools.map((tool) => tool.name));
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "done" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {
+        alpha: actionEntry({}),
+        beta: actionEntry({}),
+        "tool-search": actionEntry({}),
+      },
+      resolveActionSurface: async ({ threadId, internalContinuation }) => {
+        seenContinuations.push([threadId, internalContinuation]);
+        if (threadId === "thread-alpha") {
+          await new Promise((resolve) => setTimeout(resolve, 10));
+          return { allowedActionNames: ["alpha"] };
+        }
+        return { allowedActionNames: ["beta"] };
+      },
+    });
+
+    const runThread = async (threadId: string, ownerEmail: string) => {
+      const event = mockEvent(
+        new Request("http://app.example.com/_agent-native/agent-chat", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            message: "Run",
+            threadId,
+            internalContinuation: threadId === "thread-beta",
+          }),
+        }),
+      );
+      const response = await runWithRequestContext(
+        { userEmail: ownerEmail, run: {} },
+        () => handler(event),
+      );
+      if (response instanceof ReadableStream) {
+        const reader = response.getReader();
+        while (!(await reader.read()).done) {}
+      }
+    };
+
+    await Promise.all([
+      runThread("thread-alpha", "alpha@example.com"),
+      runThread("thread-beta", "beta@example.com"),
+    ]);
+
+    expect(seenTools).toHaveLength(2);
+    expect(seenTools).toContainEqual(["alpha"]);
+    expect(seenTools).toContainEqual(["beta"]);
+    expect(seenContinuations).toContainEqual(["thread-alpha", false]);
+    expect(seenContinuations).toContainEqual(["thread-beta", true]);
+  });
+
+  it("fails closed when resolveActionSurface returns an unknown action", async () => {
+    const engineStream = vi.fn();
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      stream: engineStream,
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: { known: actionEntry({}) },
+      resolveActionSurface: async () => ({
+        allowedActionNames: ["missing"],
+      }),
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ message: "Run" }),
+      }),
+    );
+
+    await expect(
+      runWithRequestContext({ userEmail: "owner@example.com", run: {} }, () =>
+        handler(event),
+      ),
+    ).rejects.toThrow(
+      "resolveActionSurface returned unknown action name(s): missing",
+    );
+    expect(engineStream).not.toHaveBeenCalled();
+  });
+
+  it("ignores forged durable-worker fields on ordinary chat requests", async () => {
+    const seenTools: string[][] = [];
+    const resolver = vi.fn(async () => ({
+      allowedActionNames: ["allowed"],
+    }));
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        seenTools.push(opts.tools.map((tool) => tool.name));
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "done" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {
+        allowed: actionEntry({}),
+        denied: actionEntry({}),
+      },
+      resolveActionSurface: resolver,
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Run",
+          __backgroundRun: {
+            runId: "attacker-selected-run",
+            continuationCount: 1,
+          },
+          __resolvedActionSurface: {
+            orgId: "attacker-selected-org",
+            allowedActionNames: ["denied"],
+          },
+        }),
+      }),
+    );
+
+    const response = await runWithRequestContext(
+      { userEmail: "owner@example.com", orgId: "real-org", run: {} },
+      () => handler(event),
+    );
+    if (response instanceof ReadableStream) {
+      const reader = response.getReader();
+      while (!(await reader.read()).done) {}
+    }
+
+    await vi.waitFor(() => expect(seenTools).toEqual([["allowed"]]));
+    expect(resolver).toHaveBeenCalledWith(
+      expect.objectContaining({ orgId: "real-org" }),
+    );
+  });
+
   it("passes queued message identity to onRunPrepared", async () => {
     const onRunPrepared = vi.fn();
     const engine: AgentEngine = {
@@ -1448,6 +1731,113 @@ describe("createProductionAgentHandler", () => {
         queuedMessageId: "queued-1",
       }),
     );
+  });
+});
+
+describe("filterActionsByAllowedNames", () => {
+  it("treats an explicit empty allowlist as no actions", () => {
+    expect(
+      filterActionsByAllowedNames(
+        { one: actionEntry({}), two: actionEntry({}) },
+        [],
+      ),
+    ).toEqual({});
+  });
+
+  it("preserves the allowlist order and removes duplicates", () => {
+    expect(
+      Object.keys(
+        filterActionsByAllowedNames(
+          { one: actionEntry({}), two: actionEntry({}) },
+          ["two", "one", "two"],
+        ),
+      ),
+    ).toEqual(["two", "one"]);
+  });
+
+  it("rejects inherited object properties as unknown actions", () => {
+    expect(() =>
+      filterActionsByAllowedNames({ allowed: actionEntry({}) }, [
+        "constructor",
+      ]),
+    ).toThrow(
+      "resolveActionSurface returned unknown action name(s): constructor",
+    );
+  });
+
+  it("distinguishes absent persisted surfaces from malformed ones", () => {
+    expect(readPersistedAllowedActionNames({})).toBeUndefined();
+    expect(
+      readPersistedAllowedActionNames({
+        allowedActionNames: null,
+      }),
+    ).toEqual([]);
+    expect(
+      readPersistedActionSurface({}, "__resolvedActionSurface"),
+    ).toBeUndefined();
+    expect(
+      readPersistedActionSurface(
+        { __resolvedActionSurface: { allowedActionNames: "invalid" } },
+        "__resolvedActionSurface",
+      ),
+    ).toEqual({ orgId: null, allowedActionNames: [] });
+    expect(
+      readPersistedActionSurface(
+        { __resolvedActionSurface: { allowedActionNames: ["allowed"] } },
+        "__resolvedActionSurface",
+      ),
+    ).toEqual({ orgId: null, allowedActionNames: [] });
+    expect(
+      readPersistedActionSurface(
+        {
+          __resolvedActionSurface: {
+            orgId: 42,
+            allowedActionNames: ["allowed"],
+          },
+        },
+        "__resolvedActionSurface",
+      ),
+    ).toEqual({ orgId: null, allowedActionNames: [] });
+    expect(
+      readPersistedActionSurface(
+        {
+          __resolvedActionSurface: {
+            orgId: "org-123",
+            allowedActionNames: ["allowed", "allowed"],
+          },
+        },
+        "__resolvedActionSurface",
+      ),
+    ).toEqual({ orgId: "org-123", allowedActionNames: ["allowed"] });
+    expect(
+      readPersistedActionSurface(
+        {
+          __resolvedActionSurface: {
+            orgId: null,
+            allowedActionNames: ["allowed"],
+          },
+        },
+        "__resolvedActionSurface",
+      ),
+    ).toEqual({ orgId: null, allowedActionNames: ["allowed"] });
+  });
+
+  it("keeps tool-search scoped to the filtered request registry", async () => {
+    const fullRegistry = attachToolSearch({
+      allowed: actionEntry({ description: "Allowed action" }),
+      denied: actionEntry({ description: "Denied action" }),
+    });
+    const filtered = filterActionsByAllowedNames(fullRegistry, [
+      "allowed",
+      "tool-search",
+    ]);
+
+    const result = await filtered["tool-search"].run({});
+
+    expect(result.results.map((entry: { name: string }) => entry.name)).toEqual(
+      ["allowed"],
+    );
+    expect(result.totalTools).toBe(1);
   });
 });
 
@@ -4454,8 +4844,11 @@ describe("runAgentLoop", () => {
     expect(readAction).toHaveBeenCalledTimes(1);
     expect(streamCalls).toBe(4);
     expect(events).toContainEqual({
-      type: "text",
-      text: "I stopped because the agent kept asking for the same read-only context it already had. Please send the request again if you want me to retry from a fresh turn.",
+      type: "error",
+      error:
+        "I stopped because the agent kept asking for the same read-only context it already had. Please send the request again if you want me to retry from a fresh turn.",
+      errorCode: "duplicate_read_only_tool",
+      recoverable: false,
     });
   });
 
@@ -4571,8 +4964,11 @@ describe("runAgentLoop", () => {
     expect(second.streamCalls).toBe(2);
     expect(third.streamCalls).toBe(1);
     expect(third.events).toContainEqual({
-      type: "text",
-      text: "I stopped because the agent kept asking for the same read-only context it already had. Please send the request again if you want me to retry from a fresh turn.",
+      type: "error",
+      error:
+        "I stopped because the agent kept asking for the same read-only context it already had. Please send the request again if you want me to retry from a fresh turn.",
+      errorCode: "duplicate_read_only_tool",
+      recoverable: false,
     });
   });
 
@@ -5170,8 +5566,10 @@ describe("runAgentLoop", () => {
       }),
     );
     expect(events).toContainEqual({
-      type: "text",
-      text: "Stop: password=[REDACTED]",
+      type: "error",
+      error: "Stop: password=[REDACTED]",
+      errorCode: "tool_failed",
+      recoverable: false,
     });
   });
 
@@ -5787,7 +6185,7 @@ describe("runAgentLoop", () => {
     // detail — that it stops quickly is the contract.
     expect(streamCalls).toBeLessThanOrEqual(MAX_IDENTICAL_TOOL_CALLS);
     expect(run.mock.calls.length).toBeLessThanOrEqual(MAX_IDENTICAL_TOOL_CALLS);
-    expect(events).toContainEqual(expect.objectContaining({ type: "text" }));
+    expect(events).toContainEqual(expect.objectContaining({ type: "error" }));
   });
 
   it("stops a turn whose tool keeps failing the same way under different arguments", async () => {
@@ -5979,16 +6377,16 @@ describe("runAgentLoop", () => {
         result: expect.stringContaining("Stopped after 3 identical errors"),
       }),
     );
+    // The raw provider error rides in `details`, never in `error`: the client
+    // and the resume loop both sniff `error` for transport words and would
+    // auto-continue the very spiral this stop ends.
     expect(events).toContainEqual(
       expect.objectContaining({
-        type: "text",
-        text: expect.stringContaining("failed 3 times"),
-      }),
-    );
-    expect(events).toContainEqual(
-      expect.objectContaining({
-        type: "text",
-        text: expect.stringContaining("DB failed"),
+        type: "error",
+        errorCode: "repeated_identical_tool_error",
+        recoverable: false,
+        error: expect.stringContaining("failed 3 times"),
+        details: expect.stringContaining("DB failed"),
       }),
     );
   });
@@ -6046,9 +6444,244 @@ describe("runAgentLoop", () => {
     );
     expect(events).toContainEqual(
       expect.objectContaining({
-        type: "text",
-        text: expect.stringContaining("failed 3 times"),
+        type: "error",
+        errorCode: "repeated_identical_tool_error",
+        error: expect.stringContaining("failed 3 times"),
       }),
+    );
+  });
+
+  it("classifies permanent preconditions and leaves recoverable failures alone", () => {
+    // Verbatim production strings that were retried until a breaker or the
+    // iteration cap fired.
+    for (const permanent of [
+      "Error running add-slide: Requires editor role on deck ZJshjrXhjx (have viewer)",
+      "Error running generate-slides-ai: Gemini API key not configured. Save GEMINI_API_KEY in settings.",
+      "Error running index-design-system-with-builder: Connect Builder.io before indexing a design system from Figma or code.",
+      "Error running connect-google-calendar: Connect Google Calendar in settings first.",
+      "Plan mode blocked `update-extension`. Switch to Act mode after the user approves the plan, then retry the action.",
+      "no authenticated user",
+      "Error running call-agent: Error: The Analytics agent call failed. (SSRF blocked: refusing to fetch private/internal address (http://localhost:8088/a2a))",
+    ]) {
+      expect(permanentPreconditionRemedy(permanent)).not.toBeNull();
+    }
+
+    // Every one of these the model can act on. A false positive here kills a
+    // turn that would have succeeded, so they matter more than the list above.
+    for (const recoverable of [
+      "Error running query-agent-native-analytics: canceling statement due to statement timeout",
+      "Error running update-slide: Slide content changed since it was read. Call get-deck with this slideId again and rebase the patch.",
+      "Error running mutate-dashboard: mutation script does not support template literals",
+      "Invalid action parameters for update-extension: input must have required property 'id'. Received: {}. Expected: object",
+      "Error running provider-api-request: Staged dataset byte cap exceeded: this app already stores 49.9 MB (limit 50 MB). Delete older datasets before staging more data.",
+      "Error running bigquery: Not found: Dataset builder-3b0a2 was not found in location US",
+      'Error running run-sql: syntax error at or near "slect"',
+      "Error running run-sql: column deals.stage does not exist",
+      // Network failures. The canonical retryable error must never read as a
+      // "connect X first" setup instruction.
+      "Error running warehouse-query: failed to connect to the warehouse before the deadline",
+      "Error running warehouse-query: could not connect to host db-1 before timeout",
+      "Error running warehouse-query: Connect timed out, retry first",
+      // Retention windows, fixed by narrowing the range and asking again.
+      "Error running list-session-recordings: Data is only available from the last 90 days",
+      "Error running gong-calls: transcripts are only available in the last 12 months",
+    ]) {
+      expect(permanentPreconditionRemedy(recoverable)).toBeNull();
+    }
+  });
+
+  it("stops on the FIRST permanently-failing precondition instead of retrying it", async () => {
+    let streamCalls = 0;
+    const run = vi.fn(async () => {
+      throw new Error(
+        "Gemini API key not configured. Save GEMINI_API_KEY in settings.",
+      );
+    });
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: `gen-${streamCalls}`,
+              name: "generate-slides-ai",
+              // New arguments every attempt: the argument-keyed breaker never
+              // counts past one, which is why only content classification can
+              // stop this.
+              input: { prompt: `attempt ${streamCalls}` },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const events: AgentChatEvent[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "generate-slides-ai": { ...actionEntry({}), run },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(run).toHaveBeenCalledTimes(1);
+    const stop = events.find((e) => e.type === "error");
+    expect(stop).toMatchObject({
+      errorCode: "permanent_precondition",
+      recoverable: false,
+    });
+    // Raw tool error in `details`, remedy in `message` — the shape every other
+    // terminal stop uses, and the one `TerminalActionStop` documents.
+    expect((stop as { details: string }).details).toContain(
+      "Save GEMINI_API_KEY in settings",
+    );
+    expect((stop as { error: string }).error).not.toContain("GEMINI_API_KEY");
+    expect((stop as { error: string }).error).toContain(
+      "needs a setup step outside this turn",
+    );
+  });
+
+  // A model iterating ids that each genuinely 404 is not repeating a failure —
+  // it is making progress. Normalizing digits out of the breaker key merged
+  // them into one and ended the sweep at item six.
+  it("counts per-item not-found errors as distinct failures", async () => {
+    const ITEMS = 7;
+    let streamCalls = 0;
+    const run = vi.fn(async (input: { id: number }) => {
+      throw new Error(`Record ${input.id} not found`);
+    });
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls > ITEMS) {
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text" as const, text: "None of them exist." }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: `fetch-${streamCalls}`,
+              name: "fetch-record",
+              input: { id: 40 + streamCalls },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const events: AgentChatEvent[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "sweep" }] }],
+      actions: { "fetch-record": { ...actionEntry({ readOnly: true }), run } },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(run).toHaveBeenCalledTimes(ITEMS);
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "error" }),
+    );
+  });
+
+  it("terminates a source-sweep guard that keeps declining new arguments", async () => {
+    let streamCalls = 0;
+    const run = vi.fn(async () => "call data");
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: `sweep-${streamCalls}`,
+              name: "gong-calls",
+              // A fresh account every time: `noteRepeatedToolCall` mints a new
+              // key per call, so nothing but an error breaker can end this.
+              input: { company: `Account ${streamCalls}` },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const events: AgentChatEvent[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "sweep" }] }],
+      actions: { "gong-calls": { ...actionEntry({ readOnly: true }), run } },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    // 12 real calls exhaust the convergence budget; the declines that follow
+    // are bounded by the existing error breaker instead of running to
+    // maxIterations.
+    expect(streamCalls).toBeLessThan(25);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        errorCode: "repeated_tool_error_across_arguments",
+      }),
+    );
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "loop_limit" }),
     );
   });
 
@@ -6642,8 +7275,8 @@ describe("runAgentLoop", () => {
     // The agent should stop with a helpful message.
     expect(events).toContainEqual(
       expect.objectContaining({
-        type: "text",
-        text: expect.stringContaining("interrupted 2 time(s)"),
+        type: "error",
+        error: expect.stringContaining("interrupted 2 time(s)"),
       }),
     );
   });
@@ -7603,7 +8236,12 @@ describe("runAgentLoop", () => {
         isError: true,
         completedSideEffect: false,
       },
-      { type: "text", text: "BigQuery returned: nope" },
+      {
+        type: "error",
+        error: "BigQuery returned: nope",
+        errorCode: "bigquery_query_failed",
+        recoverable: false,
+      },
     ]);
     expect(outcomes).toEqual([
       {

@@ -1,5 +1,6 @@
 import { IconDatabase } from "@tabler/icons-react";
 
+import { useT } from "../../i18n.js";
 import type { DataWidgetResult } from "./data-widget-types.js";
 import { DataChartWidget } from "./DataChartWidget.js";
 import { DataTableWidget } from "./DataTableWidget.js";
@@ -19,7 +20,9 @@ function SummaryPill({ label, value }: { label: string; value: unknown }) {
 }
 
 export function DataInsightsWidget({ result }: { result: DataWidgetResult }) {
-  const title = result.display?.title ?? result.title ?? "Data insights";
+  const t = useT();
+  const title =
+    result.display?.title ?? result.title ?? t("agentChat.widget.dataInsights");
   const summary = result.summary ?? {};
 
   return (

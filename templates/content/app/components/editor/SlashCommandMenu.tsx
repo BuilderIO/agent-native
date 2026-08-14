@@ -49,6 +49,7 @@ import { cn } from "@/lib/utils";
 import { localContentComponents } from "@/local-components";
 
 import { focusMostRecentEmptyToggleSummary } from "./extensions/NotionExtensions";
+import { createImagePickerId } from "./image-upload";
 import { buildLocalComponentSlashItems } from "./localComponentSlashItems";
 import { MathRenderer } from "./MathRenderer";
 import { buildRegistrySlashItems } from "./registrySlashItems";
@@ -179,7 +180,7 @@ export function insertMediaPlaceholder(
 ) {
   const attrs =
     type === "image"
-      ? { src: null, alt: "" }
+      ? { src: null, alt: "", uploadId: createImagePickerId() }
       : type === "video"
         ? { src: null, sourcePanelOpen: true }
         : { src: null };

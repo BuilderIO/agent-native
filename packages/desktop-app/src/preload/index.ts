@@ -221,6 +221,12 @@ const electronAPI = {
     },
   },
 
+  /** Loopback URL for shell-owned chat requests in a selected app session. */
+  desktopChat: {
+    getApiUrl: (appId: string): Promise<string | null> =>
+      ipcRenderer.invoke(IPC.DESKTOP_CHAT_GET_API_URL, appId),
+  },
+
   /** Workspace identity commands expose intent and status, never credentials. */
   identity: {
     getStatus: (): Promise<DesktopIdentityStatus> =>
@@ -273,6 +279,12 @@ const electronAPI = {
   clipboard: {
     writeText: (text: string): Promise<boolean> =>
       ipcRenderer.invoke(IPC.CLIPBOARD_WRITE_TEXT, text),
+  },
+
+  /** Open a validated URL in the user's system browser. */
+  shell: {
+    openExternal: (url: string): Promise<void> =>
+      ipcRenderer.invoke(IPC.SHELL_OPEN_EXTERNAL, url),
   },
 
   /** Local dev frame settings */

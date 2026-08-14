@@ -101,25 +101,27 @@ Don't just dump raw data. Synthesize findings:
 
 ### Step 4: Generate Charts (when useful)
 
-When the analysis benefits from a visual — trends over time, distributions, comparisons between categories — call `generate-chart` before formatting the report. The action returns a `url` you embed directly in the markdown.
+When the analysis benefits from a visual — trends over time, distributions, or
+comparisons between categories — query the data first, then use the live
+`/chart` embed described in `data-querying` for an in-chat answer. Do not call
+`generate-chart` for a one-off chat result: it produces a static image for
+saved artifacts, requires pre-stringified JSON, and does not count as a real
+data query for the final response guard.
 
-```
-generate-chart
-  --title "Closed-lost deals by month"
-  --type bar
-  --labels '["Jan","Feb","Mar"]'
-  --data '[18, 22, 14]'
-```
+For a stacked multi-series bar chart, keep the query in long form and emit a
+panel with `chartType: "bar"`, `config.pivot` containing `xKey`, `seriesKey`,
+and `valueKey`, plus `config.stacked: true`. The live chart route pivots the
+rows and renders one stack per x-axis category. See `data-querying`'s
+"Inline Charts In Chat" section for the exact `embed` fence and encoding.
 
-Embed the returned URL in `resultMarkdown` using standard markdown image syntax:
+Only use `generate-chart` when a saved analysis artifact explicitly needs a
+static image. If it returns an error while answering in chat, switch to the
+live embed instead of retrying reformatted `labels` or `data` parameters.
 
-```markdown
-![Closed-lost deals by month](/api/media/closed-lost-deals-by-month-1234567890.png?v=1234567890)
-```
-
-You can include multiple charts in one analysis. Reach for a chart when it communicates the finding faster than a table — don't force visuals on every analysis.
-
-Include the re-generation step in your saved `instructions` so re-runs produce fresh charts.
+You can include multiple live charts in one analysis. Reach for a chart when it
+communicates the finding faster than a table - don't force visuals on every
+analysis. Include the query and embed configuration in saved `instructions` so
+re-runs produce fresh charts.
 
 ### Step 5: Format Results as Markdown
 

@@ -93,6 +93,19 @@ export default defineAction({
         purpose:
           "Create apps, manage workspace resources, route work to connected agents, and continue Dispatch conversations.",
       };
+      const agentPath =
+        typeof navigation.agentPath === "string"
+          ? navigation.agentPath.trim()
+          : "";
+      if (agentPath) {
+        const agents = await listWorkspaceResourceOptions({ kind: "agent" });
+        const agent = agents.find((resource) => resource.path === agentPath);
+        screen.chatSurface = {
+          ...(screen.chatSurface as Record<string, unknown>),
+          agentPath,
+          ...(agent ? { agent } : {}),
+        };
+      }
     }
     if (navigation?.view === "overview") {
       screen.recentAudit = overview.recentAudit.slice(0, 5);
@@ -101,13 +114,18 @@ export default defineAction({
     if (navigation?.view === "destinations") {
       screen.recentDestinations = overview.recentDestinations;
     }
-    if (navigation?.view === "agents") {
+    if (navigation?.view === "connected-agents") {
       const [connectedAgents, mcpAccess] = await Promise.all([
         runLocalDispatchAction("list-connected-agents", {}),
         runLocalDispatchAction("list-mcp-app-access", {}),
       ]);
       screen.connectedAgents = connectedAgents;
       screen.mcpAppAccess = mcpAccess;
+    }
+    if (navigation?.view === "agents") {
+      screen.simpleAgents = await listWorkspaceResourceOptions({
+        kind: "agent",
+      });
     }
     if (navigation?.view === "operations") {
       const nav = navigation as { operationsView?: string };

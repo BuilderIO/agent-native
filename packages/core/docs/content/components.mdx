@@ -233,11 +233,11 @@ outside the full agent runtime.
 | `<AgentConversation>`                           | Render a list of normalized agent messages.                      |
 | `<AgentConversationMessageView>`                | Render one normalized message.                                   |
 | `normalizeCodeAgentTranscriptForConversation()` | Convert code-agent transcript events into conversation messages. |
-| `useNearBottomAutoscroll()`                     | Keep a custom transcript pinned to the bottom while streaming.   |
 
 This layer is intentionally data-first: you own where messages come from, and
 the renderer owns consistent markdown, attachments, notices, artifacts, and
-tool-call display.
+tool-call display. `<AgentConversation>` already keeps itself pinned to the
+bottom while streaming — do not add your own scroll handling on top of it.
 
 ## Native Tool Widgets {#native-tool-widgets}
 

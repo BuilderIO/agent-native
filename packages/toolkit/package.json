@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/toolkit",
-  "version": "0.14.0",
+  "version": "0.15.1",
   "description": "Reusable app-building UI and helpers for Agent-Native apps.",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -271,7 +271,7 @@
     "build": "tsc && node scripts/finalize-build.mjs",
     "prepublishOnly": "npm run build",
     "typecheck": "tsc --noEmit",
-    "test": "vitest --run --passWithNoTests"
+    "test": "vitest --run --dir src --passWithNoTests"
   },
   "dependencies": {
     "@assistant-ui/react": "catalog:",

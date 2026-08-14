@@ -294,21 +294,13 @@
 }
 
 .an-chat-history--rail
-  .an-chat-history-row--has-menu
-  .an-chat-history-row__timestamp {
-  display: inline-flex;
-  min-width: 24px;
-  justify-content: flex-end;
-}
-
-.an-chat-history--rail
   .an-chat-history-row--active
   .an-chat-history-row__timestamp {
   color: hsl(var(--accent-foreground));
 }
 
-/* The menu overlays this fixed trailing slot so its hover state never changes
-   the title's available width or moves the rest of the rail. */
+/* Hide trailing metadata while the absolute menu takes its place so hover
+   never changes the title's available width or moves the rest of the rail. */
 .an-chat-history--rail
   .an-chat-history-row--has-menu:hover
   .an-chat-history-row__timestamp,
@@ -375,10 +367,13 @@
   position: absolute;
   top: 4px;
   inset-inline-end: 4px;
+  z-index: 1;
 }
 
 .an-chat-history--rail .an-chat-history-row__menu {
-  inset-inline-end: 10px;
+  /* Keep the visible icon aligned with the trailing timestamp column while
+     preserving the full 24px action hit target. */
+  inset-inline-end: 3px;
 }
 
 .an-chat-history-row__menu-trigger {
@@ -428,10 +423,7 @@
 }
 
 .an-chat-history-row__menu-content {
-  position: absolute;
-  top: calc(100% + 4px);
-  inset-inline-end: 0;
-  z-index: 30;
+  z-index: 290;
   min-width: 160px;
   padding: 4px;
   border: 1px solid hsl(var(--border));

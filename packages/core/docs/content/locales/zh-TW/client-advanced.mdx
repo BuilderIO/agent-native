@@ -1,0 +1,200 @@
+---
+title: "進階"
+description: "較低階的 app/ 原語與逃生口：直接存取應用程式狀態、背景聊天傳送、自訂建議標籤，以及 MCP App 主機橋接。"
+---
+
+# 進階
+
+總覽、資料與同步、Agent 聊天和路由涵蓋了典型情況：大多數頁面所需的掛鉤與輔助函式。此頁面涵蓋它們底下較低階的原語，以及範圍更窄的逃生口。大多數應用程式從不直接碰觸這些內容。當您要建置比預設掛鉤所支援的更為自訂的東西時，例如自訂選取同步或嵌入式 MCP App，才需要用到這些。若要以自訂鍵同步原始的 `useQuery`，請改參閱[同步內部機制](/docs/client-sync-internals)。
+
+## 應用程式狀態 {#application-state}
+
+`application_state` 是 SQL 支援的鍵/值儲存區，代理透過它得知 UI 目前正在看什麼，包括導覽、選取，以及其他聚焦物件的脈絡（請參閱[脈絡感知](/docs/context-awareness)）。`useAgentRouteState` 和 `useSemanticNavigationState`（同樣在脈絡感知中涵蓋）已經為常見的導覽情境包裝了這些內容。當您要同步它們未涵蓋的內容時，例如自訂選取，或是從元件渲染之外進行寫入，才直接使用下方的原語。
+
+### readClientAppState {#read-client-app-state}
+
+讀取某個鍵目前的值。解析為該鍵最後一次被寫入的內容，若該鍵從未被寫入過則為 `null`。
+
+```ts
+import { readClientAppState } from "@agent-native/core/client/hooks";
+
+const selection = await readClientAppState("selection");
+// selection is exactly what was last written to that key, e.g.:
+// { kind: "tickets.rows", ids: ["tik_182", "tik_209"] }
+//
+// or, if nothing has written "selection" yet:
+// null
+```
+
+### writeClientAppState {#write-client-app-state}
+
+寫入某個鍵的值。與下方的 `setClientAppState` 不同，它總是會寫入，即使您傳入 `null`。傳入 `undefined` 會擲出錯誤，因為 `undefined` 不是有效的 JSON。使用 `setClientAppState(key, undefined)` 或 `deleteClientAppState()` 來清除一個鍵。
+
+```ts
+import { writeClientAppState } from "@agent-native/core/client/hooks";
+
+await writeClientAppState(
+  "selection",
+  { id: recordId },
+  { requestSource: TAB_ID },
+);
+```
+
+### setClientAppState {#set-client-app-state}
+
+大多數 UI 程式碼應該使用的便利包裝器：寫入該值，或在您傳入 `null`/`undefined` 時刪除該鍵。除非某個呼叫端確實需要「總是寫入、永不刪除」，否則請改用這個函式，而不是 `writeClientAppState`。
+
+```ts
+import { setClientAppState } from "@agent-native/core/client/hooks";
+
+await setClientAppState(
+  "selection",
+  { id: recordId },
+  { requestSource: TAB_ID },
+);
+await setClientAppState("selection", null); // clears the key, same as deleteClientAppState
+```
+
+### deleteClientAppState {#delete-client-app-state}
+
+完全移除一個鍵。
+
+```ts
+import { deleteClientAppState } from "@agent-native/core/client/hooks";
+
+await deleteClientAppState("pending-selection-context");
+```
+
+### readClientAppStateMany {#read-client-app-state-many}
+
+在一次請求中讀取多個鍵。回傳 `{ values, missing }`。`values` 為伺服器有資料列的每個鍵保存一個項目，包括明確寫入為 `null` 的鍵。`missing` 列出從未被寫入過的鍵。這就是「從未寫入」如何與「寫入為 null」保持可區分的方式。
+
+```ts
+import { readClientAppStateMany } from "@agent-native/core/client/hooks";
+
+const { values, missing } = await readClientAppStateMany([
+  "selection",
+  "pending-selection-context",
+]);
+```
+
+超過 100 個鍵的請求會自動分批處理。`readClientAppState()` 本身就是建立在這之上：在同一個 tick 中發出的呼叫會在幕後合併為一次批次請求，因此在單一渲染流程中多次呼叫它的成本是一次來回，而不是每次呼叫都要一次。
+
+### 選項 {#application-state-options}
+
+上方五個函式都接受 `signal`，用於取消進行中的呼叫。`requestSource` 和 `keepalive` 只適用於三個寫入函式，因為它們對讀取沒有意義。
+
+| 選項            | 型別           | 適用於                                                             | 描述                                                                              |
+| --------------- | -------------- | ------------------------------------------------------------------ | --------------------------------------------------------------------------------- |
+| `requestSource` | `string?`      | `writeClientAppState`、`setClientAppState`、`deleteClientAppState` | 用一個 id 標記此次寫入，讓相符的 `useDbSync({ ignoreSource })` 可以跳過重新取得它 |
+| `keepalive`     | `boolean?`     | `writeClientAppState`、`setClientAppState`、`deleteClientAppState` | 讓請求在頁面卸載後仍能存活。用於清理性寫入，例如清除選取內容                      |
+| `signal`        | `AbortSignal?` | 全部五個函式                                                       | 取消請求                                                                          |
+
+### 失敗行為 {#failure-behavior}
+
+上方五個函式在請求失敗、非 2xx 回應，或無法解析的內文時都會擲出錯誤。擲出的 `Error` 在伺服器有回應時會帶有 `.status` 屬性，讓呼叫端可以根據 HTTP 狀態進行分支。將呼叫包裝在 `try`/`catch` 中，或讓它傳播到錯誤邊界，就像任何其他網路呼叫一樣。
+
+### TAB_ID 是什麼 {#tab-id}
+
+`requestSource` 通常設為 `TAB_ID`，這是每個範本都會從 `app/lib/tab-id.ts` 匯出的一個純常數：一個在分頁的生命週期內保持不變、且在不同分頁之間不同的短隨機字串。在寫入端配對 `requestSource: TAB_ID`，並在讀取端配對 `useDbSync({ ignoreSource: TAB_ID })`，就是分頁避免重新取得自己的寫入、同時仍對其他所有人的變化有反應的方式。完整走過此流程請參閱[脈絡感知](/docs/context-awareness#jitter-prevention)。
+
+## sendToAgentChat：背景傳送 {#background-send}
+
+當 UI 動作應該啟動真正的代理工作，卻不開啟或聚焦側邊欄時，使用
+`background: true`。這仍然會建立一個正常的聊天對話串/執行，
+使用代理的工具/actions/脈絡，並透過執行匣讓工作保持可觀察。
+它不是原始的一次性模型呼叫。
+
+```ts
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
+
+const tabId = sendToAgentChat({
+  message: "Analyze this import and create any missing records",
+  context: `Import batch id: ${batchId}`,
+  submit: true,
+  newTab: true,
+  background: true,
+  openSidebar: false,
+});
+```
+
+`background` 旨在與 `newTab` 配對使用，讓隱藏的工作不會
+覆蓋使用者目前正在進行的對話。若 UI 需要關聯後續狀態，
+或稍後深層連結到該執行，請使用回傳的 `tabId`。
+
+除了在[Agent 聊天](/docs/client-agent-chat#agentchatmessage)中涵蓋的選項之外，還有一些其他的 `AgentChatMessage` 選項，主要用於嵌入式或下游整合的情境：
+
+| 選項                  | 型別        | 描述                                                                  |
+| --------------------- | ----------- | --------------------------------------------------------------------- |
+| `background`          | `boolean?`  | 搭配 `newTab`，在不聚焦分頁的情況下執行，並在 `RunsTray` 中顯示該執行 |
+| `projectSlug`         | `string?`   | 用於結構化脈絡的選用專案 slug                                         |
+| `preset`              | `string?`   | 供下游消費者使用的選用預設名稱                                        |
+| `referenceImagePaths` | `string[]?` | 選用的參考圖片路徑                                                    |
+
+## MCP App 主機橋接 {#mcp-app-host-bridge}
+
+以 MCP App 形式嵌入的路由應該是 URL-first 的：從
+路徑/查詢參數載入目前的成品，渲染真正的 React 路由或聚焦的共用元件，
+並僅在主機自有的行為上使用主機橋接。`@agent-native/core/client`
+匯出嵌入路由所呼叫的輔助函式：
+
+```ts
+import {
+  getMcpAppHostContext,
+  openMcpAppHostLink,
+  requestMcpAppDisplayMode,
+  updateMcpAppModelContext,
+  useMcpAppHostContext,
+} from "@agent-native/core/client/agent-chat";
+```
+
+`getMcpAppHostContext()` 讀取最新推送的主機脈絡快照。
+`useMcpAppHostContext()` 讓 React 元件訂閱變更。這些請求
+輔助函式（`openMcpAppHostLink`、`requestMcpAppDisplayMode`、
+`updateMcpAppModelContext`）在嵌入式 MCP App 框架之外回傳 `false`，或在框架內回傳
+`Promise<boolean>`。
+
+`sendToAgentChat()`（請參閱[Agent 聊天](/docs/client-agent-chat#sendtoagentchat)）為自動提交的提示使用相同的橋接，適用於嵌入式路由。在使用 `embedApp()` 建立的 MCP App 嵌入內，自動提交的訊息（`submit` 省略或為 `true`）會被轉發到橋接，此橋接會要求包含此內容的主機新增隱藏脈絡並傳送可見的使用者回合。`context` 對模型保持可見，而不會以面向使用者的聊天形式發布。`submit: false` 會保留本機的預填/審閱行為，因為 MCP App 沒有定義標準的草稿預填 API。內部而言，這是有時會以 `agentNative.submitChat` 形式呈現的已提交聊天路徑。應用程式碼應該仍呼叫 `sendToAgentChat()`，而不是直接發布該事件。
+
+橋接本身、`ui/*` JSON-RPC 訊息、`agentNative.mcpHost.*`
+包裝轉送、移植與受控框架渲染、主機脈絡，以及
+顯示模式請求，都歸屬於
+[External Agents](/docs/external-agents#mcp-app-bridge)。完整協議請參閱[MCP Apps](/docs/mcp-apps)。
+
+## 自訂建議標籤 {#custom-suggestions}
+
+`<AgentSidebar>` 的 `dynamicSuggestions`（請參閱[Agent 聊天](/docs/client-agent-chat#dynamic-suggestions)）已經將靜態 `suggestions` 與框架自身的脈絡感知啟發式方法合併。當應用程式想要根據相同的 `application_state` 脈絡計算出確定性、特定領域的標籤，而非使用框架的預設啟發式方法時，改在 `dynamicSuggestions` 內傳入 `getSuggestions` 函式。
+
+```tsx
+<AgentSidebar
+  suggestions={["Summarize my inbox"]}
+  dynamicSuggestions={{
+    getSuggestions: ({ navigation }) => {
+      if (
+        typeof navigation !== "object" ||
+        navigation === null ||
+        (navigation as { view?: unknown }).view !== "inbox"
+      ) {
+        return [];
+      }
+      const label = (navigation as { label?: unknown }).label;
+      return [`Summarize ${typeof label === "string" ? label : "this"} label`];
+    },
+  }}
+>
+  <App />
+</AgentSidebar>
+```
+
+`getSuggestions` 收到的 `navigation`/`selection`/`pendingSelection` 快照，與內建啟發式方法讀取的完全相同，但其型別為 `unknown`，因為形狀由應用程式決定，因此讀取欄位前需要先縮小型別。自訂實作可以對內建方法所讀取的相同狀態做出反應，只是使用應用專屬的規則，而非通用規則。
+
+## 下一步是什麼
+
+- [**總覽**](/docs/client-overview) — 這些原語所在的 `app/` 和 `public/` 目錄配置
+- [**資料與同步**](/docs/client-data) — 大多數頁面應改用的預設 action 掛鉤與 `useDbSync`
+- [**同步內部機制**](/docs/client-sync-internals) — `useChangeVersion`/`useChangeVersions`，以及重新取得可能經過的兩條延遲路徑
+- [**Agent 聊天**](/docs/client-agent-chat) — 大多數 UI 應改用的預設 `sendToAgentChat`/`askUserQuestion` 輔助函式，以及暫存的代理聊天脈絡狀態 API
+- [**入口點**](/docs/client-entry-points) — `app/entry.client.tsx`/`app/entry.server.tsx` 與 SSR 串流自訂
+- [**脈絡感知**](/docs/context-awareness) — 建立在 `application_state` 之上的 `navigation`/`selection` 語意，以及 `TAB_ID`/防抖動走查
+- [**Generative UI**](/docs/generative-ui) — 超越 `askUserQuestion` 的更豐富行內聊天控制項
+- [**External Agents**](/docs/external-agents#mcp-app-bridge) — 完整的 MCP App 主機橋接內部機制

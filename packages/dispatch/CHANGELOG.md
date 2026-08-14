@@ -1,5 +1,92 @@
 # @agent-native/dispatch
 
+## 0.26.0
+
+### Minor Changes
+
+- 73c4a97: Reuse Dispatch app cards and the shared 2-column library treatment for Factory agent and app surfaces.
+
+### Patch Changes
+
+- 73c4a97: Refresh workspace app lists after starting a Builder app creation.
+- Updated dependencies [73c4a97]
+- Updated dependencies [73c4a97]
+  - @agent-native/toolkit@0.15.1
+
+## 0.25.1
+
+### Patch Changes
+
+- Updated dependencies [f07ec04]
+  - @agent-native/toolkit@0.15.0
+
+## 0.25.0
+
+### Minor Changes
+
+- 89f194f: Add a default-off Dispatch workspace sign-in rollout for iframe app panes. The
+  flagged path mints short-lived, app-scoped embed sessions for exact first-party
+  origins, explicitly registered custom workspace apps, and same-origin mounted
+  workspace apps without changing the existing MCP access policy.
+- 89f194f: Add folder-backed agent packs with safe Claude/Cowork-style import, agent-owned
+  references and skills, and a shared Factory Agents surface for managing simple
+  agents alongside mounted agentic apps.
+- 89f194f: Add a simple Agents workspace for creating reusable profiles, importing Claude-style or generic agent definitions, and connecting existing HTTP/A2A agents.
+
+### Patch Changes
+
+- 89f194f: Keep visited workspace app frames mounted while switching apps so returning restores live state instantly.
+- 89f194f: Provision cross-app SSO state and authorization-code tables during release migrations so production serverless requests never perform schema DDL.
+- Updated dependencies [89f194f]
+  - @agent-native/toolkit@0.14.3
+
+## 0.24.6
+
+### Patch Changes
+
+- Updated dependencies [2db503b]
+  - @agent-native/toolkit@0.14.2
+
+## 0.24.5
+
+### Patch Changes
+
+- 8008dfe: Centralize product docs links behind `docsUrl()` and retarget Settings, Team, onboarding, and template help links at live agent-native.com docs pages.
+
+## 0.24.4
+
+### Patch Changes
+
+- 47ba57a: Gate connected-agent mutations to workspace owners and admins instead of issuing failed shared-resource writes for organization members.
+
+## 0.24.3
+
+### Patch Changes
+
+- 405e17e: Gate connected-agent mutations to workspace owners and admins instead of issuing failed shared-resource writes for organization members.
+
+## 0.24.2
+
+### Patch Changes
+
+- 3eb5bdb: Surface app-creation settings authorization failures as HTTP 403 with the real message instead of a generic internal server error.
+
+## 0.24.1
+
+### Patch Changes
+
+- b3b4580: Align Dispatch app-row actions with shared open-in-new-tab and add-app menus.
+- b3b4580: Add workspace group management and Dispatch-scoped administrator access controls.
+- b3b4580: Hide untracked and confusing creation metadata from app settings popovers.
+- b3b4580: Make pending workspace apps full-width, hide branch IDs, and link directly to Builder.
+- b3b4580: Collapse the Dispatch sidebar when a workspace app opens in its embedded app surface.
+- b3b4580: Show workspace app error documents in the Dispatch iframe when embed-session setup fails.
+- b3b4580: Make spreadsheet-backed app creation preserve bounded source provenance and require confirmation when workbook formatting or candidate inputs and outputs are ambiguous.
+- b3b4580: Clarify personal MCP connections, workspace provider access, and legacy credential key scope.
+- Updated dependencies [b3b4580]
+- Updated dependencies [b3b4580]
+  - @agent-native/toolkit@0.14.1
+
 ## 0.24.0
 
 ### Minor Changes

@@ -484,6 +484,12 @@ const messages = {
     lastRun: "Última execução:",
     automationsDescription:
       "Regras que processam automaticamente novos emails da caixa de entrada usando IA.",
+    allowAutomationSends:
+      "Permitir que as automações enviem emails automaticamente",
+    allowAutomationSendsDescription:
+      "Desativado por padrão. Ative quando quiser que as automações enviem emails sem pedir aprovação todas as vezes.",
+    automationSendSettingSaveFailed:
+      "Não foi possível salvar a configuração de envio automático de emails.",
     loadingModels: "Carregando modelos",
     newRule: "Nova regra",
     noAutomationRules: "Ainda não há regras de automação.",

@@ -3,6 +3,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  APP_WEBVIEW_PREFERENCES,
   resolveAppWebviewPartition,
   resolveAppWebviewUrl,
 } from "./AppWebview.js";
@@ -77,5 +78,12 @@ describe("AppWebview URL resolution", () => {
         mode: "dev",
       }),
     ).toBe("http://localhost:3003");
+  });
+});
+
+describe("AppWebview runtime preferences", () => {
+  it("keeps guest pages eligible for Chromium background throttling", () => {
+    expect(APP_WEBVIEW_PREFERENCES).toContain("backgroundThrottling=true");
+    expect(APP_WEBVIEW_PREFERENCES).not.toContain("backgroundThrottling=false");
   });
 });

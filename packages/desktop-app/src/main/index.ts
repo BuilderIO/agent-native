@@ -39,7 +39,6 @@ import {
 } from "@shared/code-agents";
 import {
   formatDesktopShortcutAccelerator,
-  isMacAppHideShortcut,
   normalizeDesktopShortcutAccelerator,
   shortcutOpenPathForBinding,
   type DesktopShortcutBinding,
@@ -131,7 +130,6 @@ import {
   type IpcMainInvokeEvent,
   type WebContents,
 } from "electron";
-import { autoUpdater } from "electron-updater";
 
 import {
   AI_SDK_MODEL_CONFIG,
@@ -209,6 +207,7 @@ import { registerAppsIpc } from "./ipc/apps";
 import { registerChatFirstMcpIpc } from "./ipc/chat-first-mcp.js";
 import { registerCodeAgentsIpc } from "./ipc/code-agents";
 import { registerContentFilesIpc } from "./ipc/content-files";
+import { registerDesktopChatIpc } from "./ipc/desktop-chat";
 import { registerFrameIpc } from "./ipc/frame";
 import { registerInterAppIpc } from "./ipc/inter-app";
 import { registerPlanFilesIpc } from "./ipc/plan-files";
@@ -217,6 +216,7 @@ import { isDesktopSsoCanaryVersion } from "./ipc/update-policy.js";
 import {
   checkForAppUpdates,
   getCurrentUpdateStatus,
+  installDownloadedUpdate,
   registerUpdatesIpc,
 } from "./ipc/updates";
 import { registerWindowIpc } from "./ipc/window";
@@ -1180,7 +1180,25 @@ app.on("browser-window-focus", () => {
 // See main/ipc/updates.ts for the autoUpdater wiring, status broadcast, and
 // update-ready notification. `checkForAppUpdates`/`getCurrentUpdateStatus`
 // (imported above) are also used by the application menu below.
-registerUpdatesIpc({ refreshApplicationMenu, focusMainWindow });
+async function closeDesktopComputerMcpBridge(): Promise<void> {
+  const computerBridge = desktopComputerMcpBridge;
+  const browserBridge = desktopBrowserControlBridge;
+  desktopComputerMcpBridge = null;
+  desktopBrowserControlBridge = null;
+
+  const closePromises: Promise<void>[] = [];
+  if (computerBridge) closePromises.push(computerBridge.close());
+  if (browserBridge) closePromises.push(browserBridge.close());
+  for (const result of await Promise.allSettled(closePromises)) {
+    if (result.status === "rejected") throw result.reason;
+  }
+}
+
+registerUpdatesIpc({
+  refreshApplicationMenu,
+  focusMainWindow,
+  prepareForUpdate: closeDesktopComputerMcpBridge,
+});
 
 function isShellIdentityIpc(event: IpcMainInvokeEvent): boolean {
   return Boolean(
@@ -1668,6 +1686,20 @@ function registerDesktopShortcutBindings() {
       continue;
     }
 
+    // Stored settings can predate the reserved-key validation applied when a
+    // shortcut is created. Never let an old binding take over a native app
+    // command such as macOS's Command+H hide action.
+    const normalized = normalizeDesktopShortcutAccelerator(binding.accelerator);
+    if (!normalized.accelerator) {
+      registrations.set(binding.id, {
+        id: binding.id,
+        registered: false,
+        error: normalized.error ?? "Shortcut is invalid.",
+      });
+      continue;
+    }
+    const accelerator = normalized.accelerator;
+
     const targetApp = appsById.get(binding.app);
     if (!targetApp) {
       registrations.set(binding.id, {
@@ -1685,7 +1717,7 @@ function registerDesktopShortcutBindings() {
       });
       continue;
     }
-    if (claimedAccelerators.has(binding.accelerator)) {
+    if (claimedAccelerators.has(accelerator)) {
       registrations.set(binding.id, {
         id: binding.id,
         registered: false,
@@ -1695,16 +1727,16 @@ function registerDesktopShortcutBindings() {
     }
 
     try {
-      const registered = globalShortcut.register(binding.accelerator, () => {
+      const registered = globalShortcut.register(accelerator, () => {
         void handleDesktopShortcutBinding(binding);
       });
       if (registered) {
-        claimedAccelerators.add(binding.accelerator);
-        registeredDesktopShortcutAccelerators.add(binding.accelerator);
+        claimedAccelerators.add(accelerator);
+        registeredDesktopShortcutAccelerators.add(accelerator);
         registrations.set(binding.id, { id: binding.id, registered: true });
         debugDesktopShortcut("registered", {
           id: binding.id,
-          accelerator: binding.accelerator,
+          accelerator,
           app: binding.app,
         });
       } else {
@@ -1715,7 +1747,7 @@ function registerDesktopShortcutBindings() {
         });
         debugDesktopShortcut("registration rejected", {
           id: binding.id,
-          accelerator: binding.accelerator,
+          accelerator,
           app: binding.app,
         });
       }
@@ -1727,7 +1759,7 @@ function registerDesktopShortcutBindings() {
       });
       debugDesktopShortcut("registration failed", {
         id: binding.id,
-        accelerator: binding.accelerator,
+        accelerator,
         app: binding.app,
         error: err instanceof Error ? err.message : String(err),
       });
@@ -8481,6 +8513,11 @@ function openExternalUrl(url: string) {
   }
 }
 
+ipcMain.handle(IPC.SHELL_OPEN_EXTERNAL, (_event, url: unknown) => {
+  if (typeof url !== "string") return;
+  openExternalUrl(url);
+});
+
 function handleDesktopProtocolUrl(url: string): boolean {
   try {
     const parsed = new URL(url);
@@ -8664,6 +8701,8 @@ registerAppsIpc({
   createDesktopAppFromPrompt,
   showDesktopAppContextMenu,
 });
+
+registerDesktopChatIpc();
 
 registerChatFirstMcpIpc({
   resolveMcpHost: resolveDesktopMcpHost,
@@ -9529,12 +9568,6 @@ app.on("web-contents-created", (_event, contents) => {
   contents.on("before-input-event", (event, input) => {
     if (!(input.meta || input.control) || input.type !== "keyDown") return;
 
-    if (process.platform === "darwin" && isMacAppHideShortcut(input)) {
-      event.preventDefault();
-      app.hide();
-      return;
-    }
-
     const key = input.key.toLowerCase();
 
     // Cmd+Option+I (and legacy Cmd+Shift+I) — toggle devtools for the active app webview
@@ -9617,16 +9650,9 @@ app.on("web-contents-created", (_event, contents) => {
 function buildUpdateMenuItem(): Electron.MenuItemConstructorOptions {
   const currentUpdateStatus = getCurrentUpdateStatus();
 
-  if (IS_DEV) {
-    return {
-      label: "Check for Updates...",
-      enabled: false,
-    };
-  }
-
   if (currentUpdateStatus.state === "unsupported") {
     return {
-      label: "Check for Updates...",
+      label: currentUpdateStatus.reason,
       enabled: false,
     };
   }
@@ -9636,7 +9662,7 @@ function buildUpdateMenuItem(): Electron.MenuItemConstructorOptions {
       label: currentUpdateStatus.version
         ? `Relaunch to Install Update ${currentUpdateStatus.version}`
         : "Relaunch to Install Update",
-      click: () => autoUpdater.quitAndInstall(false, true),
+      click: () => void installDownloadedUpdate(),
     };
   }
 
@@ -10204,12 +10230,6 @@ app.whenReady().then(async () => {
   win.webContents.on("before-input-event", (_event, input) => {
     if (!(input.meta || input.control) || input.type !== "keyDown") return;
 
-    if (process.platform === "darwin" && isMacAppHideShortcut(input)) {
-      _event.preventDefault();
-      app.hide();
-      return;
-    }
-
     const key = input.key.toLowerCase();
 
     // Cmd+Option+I (and legacy Cmd+Shift+I) — open devtools for the active webview, not the shell
@@ -10312,9 +10332,12 @@ app.on("before-quit", (event) => {
     }
     remoteConnectorProcess?.kill("SIGTERM");
     remoteConnectorProcess = null;
-    void desktopComputerMcpBridge?.close();
-    desktopComputerMcpBridge = null;
-    desktopBrowserControlBridge = null;
+    void closeDesktopComputerMcpBridge().catch((error) => {
+      console.warn(
+        "[computer-control] failed to close desktop bridges during shutdown:",
+        error instanceof Error ? error.message : error,
+      );
+    });
   }
   if (multiFrontierAppIntegration) multiFrontierQuitGuard(event);
 });

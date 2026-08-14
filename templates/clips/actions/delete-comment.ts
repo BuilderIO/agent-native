@@ -32,6 +32,8 @@ export default defineAction({
     const userEmail = getRequestUserEmail();
     const isAuthor = !!userEmail && existing.authorEmail === userEmail;
 
+    await assertAccess("recording", existing.recordingId, "commenter");
+
     if (!isAuthor) {
       try {
         await assertAccess("recording", existing.recordingId, "editor");

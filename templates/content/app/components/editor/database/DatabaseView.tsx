@@ -113,6 +113,7 @@ import {
 import { Link, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
+import { QueryErrorState } from "@/components/QueryErrorState";
 import {
   contentSpaceForCatalogItem,
   createContentSpaceSelectionQueue,
@@ -1631,6 +1632,11 @@ function DatabaseTable({
   ) {
     if (!databaseId) return null;
     if (isWorkspaceCatalog) return null;
+    const mutationContract = data?.mutationContract;
+    if (!mutationContract) {
+      toast.error(dbText("failedToCreateRow"));
+      return null;
+    }
     const propertyValues = {
       ...databasePropertyValuesForNewItem(filters, properties, filterMode),
       ...propertyValueOverrides,
@@ -1638,8 +1644,10 @@ function DatabaseTable({
     let response;
     try {
       response = await addItem.mutateAsync({
-        databaseId,
-        title,
+        target: mutationContract.target,
+        expectedSchemaRevision: mutationContract.schemaRevision,
+        idempotencyKey: crypto.randomUUID(),
+        ...(title.trim() ? { title } : {}),
         propertyValues:
           Object.keys(propertyValues).length > 0 ? propertyValues : undefined,
       });
@@ -1650,12 +1658,7 @@ function DatabaseTable({
       });
       return null;
     }
-    const createdItem = databaseCreatedItemForImmediatePreview(response, {
-      databaseId,
-      parentDocument: document,
-      title,
-      propertyValues,
-    });
+    const createdItem = response.createdItem ?? null;
     const needsPreview =
       !!createdItem &&
       databaseCreatedItemNeedsPreview(items, createdItem, options);
@@ -4901,6 +4904,16 @@ function DatabaseItemPreview({
     if (controller) scheduleDraftWrite(controller);
   }
 
+  async function handleContentSaveNow(nextContent: string) {
+    setLocalContent(nextContent);
+    if (!previewCanEdit || !document) return false;
+    const controller = saveControllerRef.current;
+    if (!controller) return false;
+    controller.changeContent(nextContent);
+    await controller.flush();
+    return controller.lastSaved.content === nextContent;
+  }
+
   function keepLocalBodyDraft() {
     if (!activeBodyDraftConflict) return;
     const controller = peekPreviewDocumentSaveController(documentId);
@@ -5219,6 +5232,7 @@ function DatabaseItemPreview({
                     documentId={previewDocument.id}
                     content={localContent}
                     onChange={handleContentChange}
+                    onSaveContent={handleContentSaveNow}
                     ydoc={null}
                     editable={previewCanEdit}
                   />
@@ -9263,6 +9277,12 @@ function AddSourceView({
             <Spinner className="size-3.5" />
             {dbText("loadingTables")}
           </div>
+        ) : query.isError ? (
+          <QueryErrorState
+            compact
+            onRetry={() => void query.refetch()}
+            retrying={query.isFetching}
+          />
         ) : tables.length === 0 ? (
           <div className="min-w-0 break-words px-2 text-xs text-muted-foreground">
             {dbText("noOtherDatabasesAvailableToAdd")}

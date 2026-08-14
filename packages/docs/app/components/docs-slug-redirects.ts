@@ -25,6 +25,11 @@ export const DOCS_SLUG_REDIRECTS: Record<string, string> = {
   // server.mdx split into the Server section (server-overview, -database,
   // -middleware, -plugins, -routes).
   server: "server-overview",
+  // client.mdx split into the Client section (client-overview, -data,
+  // -agent-chat, -routing, -advanced, -sync-internals, -entry-points).
+  client: "client-overview",
+  // routing.mdx superseded by the Client section's own routing page.
+  routing: "client-routing",
 };
 
 /** True for a docs URL whose loader answers with a redirect, not a document. */

@@ -348,7 +348,7 @@ export function createAutomationToolEntries(
 
 - **list-events**: List all registered event types that automations can subscribe to. Returns event names, descriptions, and payload schemas. Call this BEFORE defining an automation to discover available events.
 - **list**: List all automations (triggers). Shows trigger, status, model, MCP allowlist, and delivery metadata. Optional params: scope, domain, enabled_only.
-- **define**: Create a new automation. IMPORTANT: Always confirm with the user before calling — show them a summary of what will be created. Required params: name, trigger_type, body. Optional: scope, event, schedule, timezone, condition, mode, domain, delegated_policy_id, model, mcpTools.
+- **define**: Create a new automation. IMPORTANT: Always confirm with the user before calling — show them a summary of what will be created. Required params: name, trigger_type, body. Optional: scope, event, schedule, timezone, condition, mode, domain, delegated_policy_id, model, mcpTools. A scheduled automation with no schedule defaults to once per hour; use an event trigger when it should run only when something changes.
 - **update**: Update an existing automation's settings without changing its creator (enabled, schedule, timezone, condition, body, policy, model, MCP allowlist). Required param: name. Use the same scope it was created in.
 - **delete**: Delete an automation. Always confirm with the user first. Required param: name.
 - **fire-test**: Fire a test event to validate automations. Emits a test.event.fired event. Optional param: data (JSON string).
@@ -391,7 +391,7 @@ export function createAutomationToolEntries(
             schedule: {
               type: "string",
               description:
-                'For schedule triggers: cron expression. Example: "0 9 * * 1-5" (9am weekdays).',
+                'For schedule triggers: cron expression. If omitted, defaults to "0 * * * *" (once per hour). Example: "0 9 * * 1-5" (9am weekdays).',
             },
             condition: {
               type: "string",

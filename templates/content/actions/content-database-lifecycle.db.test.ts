@@ -1665,15 +1665,25 @@ describe("content database soft-delete actions and reads", () => {
   });
 
   it("blocks row mutations for soft-deleted databases", async () => {
-    const { databaseId } = await createDatabase({
+    const { databaseId, databaseDocumentId } = await createDatabase({
       deletedAt: new Date().toISOString(),
     });
 
     await expect(
       runWithRequestContext({ userEmail: OWNER }, () =>
-        addDatabaseItemAction.run({ databaseId, title: "Should not write" }),
+        addDatabaseItemAction.run({
+          target: {
+            authorityScope: { kind: "personal", id: OWNER },
+            spaceId: "fixture-space",
+            databaseId,
+            databaseDocumentId,
+          },
+          expectedSchemaRevision: "sha256:fixture",
+          idempotencyKey: "soft-deleted-database",
+          title: "Should not write",
+        }),
       ),
-    ).rejects.toThrow(`Database "${databaseId}" not found`);
+    ).rejects.toThrow("Content database not found");
 
     const db = getDb();
     const rows = await db

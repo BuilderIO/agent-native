@@ -183,7 +183,7 @@ describe("data source status", () => {
         hubspot,
         {
           kind: "needs_credentials",
-          label: "Needs credentials",
+          label: "Not connected",
           providerId: "hubspot",
           providerLabel: "HubSpot",
         },
@@ -195,7 +195,7 @@ describe("data source status", () => {
         hubspot,
         {
           kind: "needs_credentials",
-          label: "Needs credentials",
+          label: "Not connected",
           providerId: "hubspot",
           providerLabel: "HubSpot",
         },
@@ -207,7 +207,7 @@ describe("data source status", () => {
         hubspot,
         {
           kind: "needs_grant",
-          label: "Needs grant",
+          label: "Available in workspace",
           providerId: "hubspot",
           providerLabel: "HubSpot",
         },
@@ -219,7 +219,7 @@ describe("data source status", () => {
         hubspot,
         {
           kind: "local_credentials",
-          label: "Local credentials",
+          label: "Configured in this app",
           providerId: "hubspot",
           providerLabel: "HubSpot",
         },

@@ -29,9 +29,35 @@ import { cn } from "../utils.js";
 import { defaultChatFirstCopy } from "./copy.js";
 import type {
   ChatFirstAppItem,
+  ChatFirstAppIconRenderOptions,
   ChatFirstAppRailProps,
   ChatFirstCopy,
 } from "./types.js";
+
+function ChatFirstRailAppIcon({
+  app,
+  activeAppId,
+  renderIcon,
+}: {
+  app: ChatFirstAppItem;
+  activeAppId?: string;
+  renderIcon: (
+    app: ChatFirstAppItem,
+    options?: ChatFirstAppIconRenderOptions,
+  ) => ReactNode;
+}) {
+  const isActive = activeAppId !== undefined && activeAppId === app.id;
+  const isInactive = activeAppId !== undefined && !isActive;
+
+  return (
+    <span
+      data-chat-first-app-icon
+      className={cn("transition-[filter]", isInactive && "grayscale")}
+    >
+      {renderIcon(app, { isActive, isInactive })}
+    </span>
+  );
+}
 
 function AppRows({
   apps,
@@ -57,7 +83,10 @@ function AppRows({
   onRemoveApp?: (app: ChatFirstAppItem) => void;
   onTogglePinned: (id: string) => void;
   onMove: (id: string, direction: -1 | 1) => void;
-  renderIcon: (app: ChatFirstAppItem) => ReactNode;
+  renderIcon: (
+    app: ChatFirstAppItem,
+    options?: ChatFirstAppIconRenderOptions,
+  ) => ReactNode;
   copy: ChatFirstCopy;
 }) {
   const orderedIds = orderChatFirstAppIds(
@@ -85,7 +114,7 @@ function AppRows({
                 className={cn(
                   "group flex h-8 w-full min-w-0 items-center gap-1 rounded-md px-0 text-sm",
                   active
-                    ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
+                    ? "font-medium text-sidebar-foreground"
                     : "text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
                 )}
                 onDragStart={(event) => {
@@ -113,7 +142,11 @@ function AppRows({
                   aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
                   aria-label={copy("openApp", { name: app.name })}
                 >
-                  {renderIcon(app)}
+                  <ChatFirstRailAppIcon
+                    app={app}
+                    activeAppId={activeAppId}
+                    renderIcon={renderIcon}
+                  />
                   <span className="truncate">{app.name}</span>
                 </button>
                 <button
@@ -282,7 +315,6 @@ export const ChatFirstAppsRail = memo(function ChatFirstAppsRail({
         className="flex flex-col items-center gap-1 px-1.5 pt-2"
         aria-label={copy("workspaceApps")}
       >
-        {createTrigger}
         {loading && apps.length === 0
           ? [0, 1, 2].map((index) => (
               <Skeleton key={index} className="size-9 rounded-md" />
@@ -296,14 +328,18 @@ export const ChatFirstAppsRail = memo(function ChatFirstAppsRail({
                 className={cn(
                   "flex size-9 items-center justify-center rounded-md",
                   activeAppId === app.id
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                    ? "text-sidebar-foreground"
                     : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
                 )}
                 onClick={() => onOpenApp(app)}
                 aria-label={copy("openApp", { name: app.name })}
                 title={app.name}
               >
-                {renderIcon(app)}
+                <ChatFirstRailAppIcon
+                  app={app}
+                  activeAppId={activeAppId}
+                  renderIcon={renderIcon}
+                />
               </button>
             ))}
         {onOpenAllApps ? (

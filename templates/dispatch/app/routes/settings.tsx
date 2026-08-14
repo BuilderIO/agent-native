@@ -23,6 +23,7 @@ import { Link } from "react-router";
 import { messagesByLocale } from "@/i18n-data";
 
 import changelog from "../../CHANGELOG.md?raw";
+import { dispatchAccessDescriptor } from "../../shared/app-roles";
 
 export function meta() {
   return [{ title: messagesByLocale["en-US"].routeTitles.settings }];
@@ -30,7 +31,19 @@ export function meta() {
 
 export default function SettingsRoute() {
   const t = useT();
-  const agentSettingsTabs = useAgentSettingsTabs();
+  const agentSettingsTabs = useAgentSettingsTabs({
+    usageAppId: "dispatch",
+    usageViewAllHref: "/admin/metrics",
+    organizationContent: (
+      <div className="mx-auto w-full max-w-3xl">
+        <TeamPage
+          showTitle={false}
+          appRoles={dispatchAccessDescriptor}
+          createOrgDescription="Set up a team to share dispatch destinations and approvals with your colleagues."
+        />
+      </div>
+    ),
+  });
   const settingsTabs = [
     ...agentSettingsTabs,
     {
@@ -151,14 +164,6 @@ export default function SettingsRoute() {
               ) : null}
             </SettingsRow>
           </SettingsGroup>
-        </div>
-      }
-      team={
-        <div className="mx-auto w-full max-w-3xl">
-          <TeamPage
-            showTitle={false}
-            createOrgDescription="Set up a team to share dispatch destinations and approvals with your colleagues."
-          />
         </div>
       }
       whatsNew={

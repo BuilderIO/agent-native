@@ -60,7 +60,7 @@ export interface ExtensionRenderBinding {
   /** True when viewer === author. */
   isAuthor: boolean;
   /**
-   * Resolved role for the viewer ("owner" | "admin" | "editor" | "viewer").
+   * Resolved role for the viewer ("owner" | "admin" | "editor" | "commenter" | "viewer").
    *
    * TODO(security, audit H4): the host-side bridge does not yet gate any
    * helper based on this value — every viewer gets the same powers as the
@@ -69,7 +69,7 @@ export interface ExtensionRenderBinding {
    * eventually require an explicit consent step before running a shared
    * extension, audit C1). For now this is metadata only.
    */
-  role: "owner" | "admin" | "editor" | "viewer";
+  role: "owner" | "admin" | "editor" | "commenter" | "viewer";
   /** Where the extension definition came from. Database extensions are the default. */
   source?: "database" | "local-files";
   /**
@@ -229,6 +229,11 @@ export function buildExtensionHtml(
   </style>
 	  <style>
 	    *, *::before, *::after { border-color: hsl(var(--border)); }
+	    /* Alpine only honours x-cloak when a stylesheet hides it, and extension
+	       content is a body snippet that cannot supply one. Without this, an
+	       x-cloak overlay paints over the whole extension until Alpine boots —
+	       and forever if it never does. */
+	    [x-cloak] { display: none !important; }
 	    html, body {
 	      /* Transparent so the iframe inherits the host surface (dashboard panel,
 	         sidebar, chat) instead of painting the browser's default white canvas.

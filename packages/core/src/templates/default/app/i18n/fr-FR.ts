@@ -283,6 +283,8 @@ const messages = {
     publicDescription: "Toute personne connectée avec le lien peut voir",
     viewer: "Viewer",
     viewerDescription: "Peut voir",
+    commenter: "Commentateur",
+    commenterDescription: "Peut consulter et ajouter des commentaires",
     editor: "Editor",
     editorDescription: "Peut modifier",
     admin: "Admin",

@@ -85,9 +85,9 @@ export function SpeakerNotesPanel({
       )}
       <button
         onClick={toggle}
-        className="flex w-full cursor-pointer items-center justify-between px-4 py-1.5"
+        className="group flex w-full cursor-pointer items-center justify-between px-4 py-1.5"
       >
-        <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+        <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider transition-colors group-hover:text-foreground/80">
           {t("raw.speakerNotes")}
         </span>
         {expanded ? (

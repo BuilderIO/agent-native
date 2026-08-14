@@ -5,6 +5,7 @@ import { verifyA2AToken } from "./a2a/server.js";
 export interface VerifiedA2AClaims {
   email: string;
   orgId: string;
+  orgDomain: string;
   jti: string;
   issuer?: string;
   scope: string[];
@@ -37,10 +38,12 @@ export async function verifyA2ATokenWithClaims(
         ? raw.scope.split(/\s+/).filter(Boolean)
         : [];
     const issuer = typeof raw.iss === "string" ? raw.iss.trim() : "";
-    return orgId && jti
+    const orgDomain = identity.orgDomain?.trim().toLowerCase() ?? "";
+    return orgId && orgDomain && jti
       ? {
           email: identity.email,
           orgId,
+          orgDomain,
           jti,
           ...(issuer ? { issuer } : {}),
           scope: scopes,

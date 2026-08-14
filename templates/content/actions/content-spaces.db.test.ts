@@ -477,10 +477,19 @@ describe("Content space provisioning", () => {
       ).rejects.toThrow("System Content database documents cannot be deleted");
       await expect(
         addDatabaseItemAction.run({
-          databaseId: workspaces.id,
+          target: {
+            authorityScope: { kind: "personal", id: OWNER },
+            spaceId: workspaces.spaceId!,
+            databaseId: workspaces.id,
+            databaseDocumentId: workspaces.documentId,
+          },
+          expectedSchemaRevision: "sha256:system-database",
+          idempotencyKey: "reject-system-workspace-create",
           title: "Not a workspace",
         }),
-      ).rejects.toThrow("Use create-content-space to add a workspace");
+      ).rejects.toThrow(
+        "Reliable row mutations are supported only for ordinary Content databases",
+      );
     });
   });
 

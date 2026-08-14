@@ -2593,6 +2593,53 @@ describe("Brain connector smoke coverage", () => {
     ).toBe(false);
   });
 
+  it("fails Slack channel validation closed for invalid requested refs", async () => {
+    const fetchSpy = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/auth.test")) {
+        return Response.json({
+          ok: true,
+          team: "Acme",
+          team_id: "T123",
+          user: "brain-bot",
+          user_id: "U123",
+        });
+      }
+      if (url.pathname.endsWith("/conversations.info")) {
+        const channel = url.searchParams.get("channel");
+        if (channel === "C999") {
+          return Response.json({ ok: false, error: "channel_not_found" });
+        }
+        return Response.json({
+          ok: true,
+          channel: {
+            id: channel,
+            name: "product-decisions",
+            is_channel: true,
+            is_archived: false,
+          },
+        });
+      }
+      return Response.json({ ok: false, error: "unexpected_method" });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const result = await testSlackConnection({
+      channelRefs: ["C123", "C999", "D123", "project"],
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      checkedChannels: 4,
+      channels: [
+        { ref: "C123", status: "ok" },
+        { ref: "C999", status: "missing" },
+        { ref: "D123", status: "excluded", directExcluded: true },
+        { ref: "project", status: "skipped" },
+      ],
+    });
+  });
+
   it("surfaces Slack missing-scope details without reading history", async () => {
     const fetchSpy = vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input));
@@ -2684,6 +2731,58 @@ describe("Brain connector smoke coverage", () => {
       },
     });
     expect(mocks.rows.captures).toHaveLength(0);
+    expect(
+      fetchSpy.mock.calls.some((call) =>
+        String(call[0]).includes("conversations.history"),
+      ),
+    ).toBe(false);
+  });
+
+  it("blocks a pilot before history reads when a requested channel is invalid", async () => {
+    const fetchSpy = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/auth.test")) {
+        return Response.json({
+          ok: true,
+          team: "Acme",
+          team_id: "T123",
+          user: "brain-bot",
+          url: "https://acme.slack.com/",
+        });
+      }
+      if (url.pathname.endsWith("/conversations.info")) {
+        return Response.json({
+          ok: true,
+          channel: {
+            id: "C123",
+            name: "product-decisions",
+            is_channel: true,
+            is_archived: false,
+          },
+        });
+      }
+      return Response.json({ ok: false, error: "history_must_not_run" });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    const source = seedSource({
+      id: "slack-source",
+      title: "Slack product",
+      provider: "slack",
+      configJson: JSON.stringify({ channelIds: ["C123", "D123"] }),
+    });
+
+    const report = await runSlackPilot(source as never, { readHistory: true });
+
+    expect(report).toMatchObject({
+      ok: false,
+      status: "blocked",
+      historyRead: false,
+      channelValidation: {
+        requested: 2,
+        ok: 1,
+        excluded: 1,
+      },
+    });
     expect(
       fetchSpy.mock.calls.some((call) =>
         String(call[0]).includes("conversations.history"),

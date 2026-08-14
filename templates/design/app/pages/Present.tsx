@@ -45,7 +45,7 @@ interface DesignData {
   id: string;
   title: string;
   files: DesignFile[];
-  accessRole?: "viewer" | "editor" | "admin" | "owner";
+  accessRole?: "viewer" | "commenter" | "editor" | "admin" | "owner";
 }
 
 export default function Present() {
@@ -77,7 +77,13 @@ export default function Present() {
     },
     { enabled: Boolean(id) },
   );
-  const canPost = Boolean(session?.email);
+  const canPost = Boolean(
+    session?.email &&
+    (design?.accessRole === "owner" ||
+      design?.accessRole === "admin" ||
+      design?.accessRole === "editor" ||
+      design?.accessRole === "commenter"),
+  );
   const canResolve = Boolean(
     design?.accessRole === "owner" ||
     design?.accessRole === "admin" ||

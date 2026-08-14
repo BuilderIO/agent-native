@@ -721,6 +721,10 @@ interface ElectronAPI {
     writeText(text: string): Promise<boolean>;
   };
 
+  shell: {
+    openExternal(url: string): Promise<void>;
+  };
+
   interApp: {
     send(targetAppId: string, event: string, data: unknown): void;
     on(cb: (from: string, event: string, data: unknown) => void): () => void;
@@ -899,6 +903,10 @@ interface ElectronAPI {
     ): Promise<DesktopCreateAppResult>;
     showContextMenu(appId: string): Promise<DesktopAppContextAction | null>;
     onRuntimeStatus(cb: (status: DesktopAppRuntimeStatus) => void): () => void;
+  };
+
+  desktopChat: {
+    getApiUrl(appId: string): Promise<string | null>;
   };
 
   mcpServers: {
