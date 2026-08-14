@@ -1616,7 +1616,10 @@ const messages = {
     intro:
       "Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time. (مترجم)",
     searchPlaceholder: "Search meetings, attendees, and transcripts... (مترجم)",
-    comingUp: "Coming up (مترجم)",
+    agendaTab: "Agenda (مترجم)",
+    pastTab: "Past (مترجم)",
+    now: "Now (مترجم)",
+    noPastMeetings: "No past meetings yet (مترجم)",
     loadOlder: "Load older (مترجم)",
     searchFailed: "Couldn't search meetings. Try again in a moment. (مترجم)",
     clearSearch: "Clear search (مترجم)",

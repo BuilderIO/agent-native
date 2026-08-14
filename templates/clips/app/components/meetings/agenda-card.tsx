@@ -1,16 +1,18 @@
 /**
- * <ComingUpCard /> — the Granola "Coming up" strip.
+ * <AgendaCard /> — the Meetings tab's rolling agenda.
  *
- * One bordered card holding the next few days of calendar events, not a grid
- * of tiles. Upcoming is orientation, not the job: it stays compact so meeting
- * history — the thing users actually come here to search — is above the fold.
- * See `desktop/design-refs/granola-ux.md` §2 (list rows, not Trello tiles).
+ * One bordered card of list rows, not a grid of tiles — see
+ * `desktop/design-refs/granola-ux.md` §2. It is a Zoom-style rolling window
+ * rather than a strict future list: `view=agenda` reaches 24h back, so the
+ * calls you already had today stay on your day, with a "now" marker between
+ * what has happened and what has not. Anything older falls out to the Past tab.
  *
  * Recording is a desktop gesture, so a row never offers a web "record" button
  * that cannot work; the imminent row offers Join and Open notes instead.
  */
 import { useT } from "@agent-native/core/client/i18n";
 import { IconExternalLink } from "@tabler/icons-react";
+import { Fragment } from "react";
 import { NavLink } from "react-router";
 
 import { Button } from "@/components/ui/button";
@@ -19,7 +21,7 @@ import { cn } from "@/lib/utils";
 
 import { AttendeeStack, type AttendeeStackParticipant } from "./attendee-stack";
 
-export interface ComingUpMeeting {
+export interface AgendaMeeting {
   id: string;
   title: string;
   scheduledStart: string;
@@ -34,14 +36,25 @@ type Translate = (key: string, params?: Record<string, unknown>) => string;
 
 function formatTime(iso?: string | null): string {
   if (!iso) return "";
-  try {
-    return new Date(iso).toLocaleTimeString([], {
-      hour: "numeric",
-      minute: "2-digit",
-    });
-  } catch {
-    return "";
-  }
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
+/**
+ * Index of the first meeting that has not finished yet — where the "now"
+ * marker goes. Returns -1 when every meeting is still ahead, so a day that
+ * hasn't started yet doesn't get a marker pinned above its first row.
+ */
+export function nowMarkerIndex(
+  meetings: AgendaMeeting[],
+  nowMs: number,
+): number {
+  const firstUnfinished = meetings.findIndex((m) => {
+    const endMs = Date.parse(m.actualEnd ?? m.scheduledEnd ?? m.scheduledStart);
+    return Number.isNaN(endMs) || endMs >= nowMs;
+  });
+  return firstUnfinished > 0 ? firstUnfinished : -1;
 }
 
 /** Human "now" / "in 5 min" / "in 2 hr" label for an upcoming row. */
@@ -83,9 +96,9 @@ function dayParts(iso: string): DayParts {
 }
 
 function groupByCalendarDay(
-  meetings: ComingUpMeeting[],
-): Array<[string, ComingUpMeeting[]]> {
-  const groups = new Map<string, ComingUpMeeting[]>();
+  meetings: AgendaMeeting[],
+): Array<[string, AgendaMeeting[]]> {
+  const groups = new Map<string, AgendaMeeting[]>();
   for (const m of meetings) {
     const d = new Date(m.scheduledStart);
     const key = Number.isNaN(d.getTime())
@@ -104,7 +117,7 @@ function groupByCalendarDay(
   return Array.from(groups.entries());
 }
 
-function ComingUpRow({ meeting }: { meeting: ComingUpMeeting }) {
+function AgendaRow({ meeting }: { meeting: AgendaMeeting }) {
   const t = useT();
   const isLive = !!(meeting.actualStart && !meeting.actualEnd);
   const { text: whenText, soon } = relativeStartLabel(
@@ -137,10 +150,10 @@ function ComingUpRow({ meeting }: { meeting: ComingUpMeeting }) {
           </div>
           <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-xs tabular-nums text-muted-foreground">
             {isLive ? (
-              <span className="inline-flex items-center gap-1 font-medium text-red-600 dark:text-red-400">
+              <span className="inline-flex items-center gap-1 font-medium text-destructive">
                 <span className="relative flex h-1.5 w-1.5">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-60" />
-                  <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-red-500" />
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-destructive opacity-60" />
+                  <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-destructive" />
                 </span>
                 {t("meetingCard.live")}
               </span>
@@ -193,50 +206,68 @@ function ComingUpRow({ meeting }: { meeting: ComingUpMeeting }) {
   );
 }
 
-export function ComingUpCard({ meetings }: { meetings: ComingUpMeeting[] }) {
+/** Zoom's orange current-time rule: what is behind you, and what is not. */
+function NowMarker() {
   const t = useT();
-  if (meetings.length === 0) return null;
-  const days = groupByCalendarDay(meetings);
-
   return (
-    <section className="space-y-2">
-      <h2 className="px-1 text-xs font-semibold tracking-tight text-foreground">
-        {t("meetingsRoute.comingUp", { defaultValue: "Coming up" })}
-      </h2>
-      <Card>
-        <CardContent className="divide-y divide-border p-0">
-          {days.map(([key, items]) => {
-            const { dayNumber, month, weekday } = dayParts(
-              items[0]!.scheduledStart,
-            );
-            return (
-              <div key={key} className="flex gap-4 px-4 py-3">
-                <div className="w-14 shrink-0">
-                  <div className="text-xl font-semibold leading-none tabular-nums text-foreground">
-                    {dayNumber}
-                  </div>
-                  <div className="mt-1 text-[11px] leading-tight text-muted-foreground">
-                    {month}
-                  </div>
-                  <div className="text-[11px] leading-tight text-muted-foreground">
-                    {weekday}
-                  </div>
-                </div>
-                <div className="min-w-0 flex-1 space-y-2.5">
-                  {items.map((m) => (
-                    <ComingUpRow key={m.id} meeting={m} />
-                  ))}
-                </div>
-              </div>
-            );
-          })}
-        </CardContent>
-      </Card>
-    </section>
+    <div className="flex items-center gap-2" aria-hidden>
+      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
+      <span className="text-[10px] font-medium uppercase tracking-[0.08em] text-primary">
+        {t("meetingsRoute.now", { defaultValue: "Now" })}
+      </span>
+      <span className="h-px flex-1 bg-primary/40" />
+    </div>
   );
 }
 
-export function ComingUpCardSkeleton() {
+export function AgendaCard({ meetings }: { meetings: AgendaMeeting[] }) {
+  if (meetings.length === 0) return null;
+  const days = groupByCalendarDay(meetings);
+  // The marker index is computed over the flat, already-sorted list, then
+  // matched back per day — a day group cannot know how many meetings preceded
+  // it, and the marker belongs between two rows, not at a day boundary.
+  const markerIndex = nowMarkerIndex(meetings, Date.now());
+  let flatIndex = 0;
+
+  return (
+    <Card>
+      <CardContent className="divide-y divide-border p-0">
+        {days.map(([key, items]) => {
+          const { dayNumber, month, weekday } = dayParts(
+            items[0]!.scheduledStart,
+          );
+          const dayStartIndex = flatIndex;
+          flatIndex += items.length;
+          return (
+            <div key={key} className="flex gap-4 px-4 py-3">
+              <div className="w-14 shrink-0">
+                <div className="text-xl font-semibold leading-none tabular-nums text-foreground">
+                  {dayNumber}
+                </div>
+                <div className="mt-1 text-[11px] leading-tight text-muted-foreground">
+                  {month}
+                </div>
+                <div className="text-[11px] leading-tight text-muted-foreground">
+                  {weekday}
+                </div>
+              </div>
+              <div className="min-w-0 flex-1 space-y-2.5">
+                {items.map((m, i) => (
+                  <Fragment key={m.id}>
+                    {dayStartIndex + i === markerIndex ? <NowMarker /> : null}
+                    <AgendaRow meeting={m} />
+                  </Fragment>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </CardContent>
+    </Card>
+  );
+}
+
+export function AgendaCardSkeleton() {
   return (
     <div className="rounded-xl border border-border bg-background">
       {Array.from({ length: 2 }).map((_, i) => (

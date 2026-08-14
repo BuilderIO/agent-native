@@ -1625,7 +1625,10 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     intro:
       "Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time.",
     searchPlaceholder: "Pesquisar reuniões, participantes e transcrições...",
-    comingUp: "Em breve",
+    agendaTab: "Agenda",
+    pastTab: "Anteriores",
+    now: "Agora",
+    noPastMeetings: "Ainda não há reuniões anteriores",
     loadOlder: "Carregar anteriores",
     searchFailed:
       "Não foi possível pesquisar as reuniões. Tente novamente em instantes.",

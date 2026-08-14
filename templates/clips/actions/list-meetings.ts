@@ -2,10 +2,15 @@
  * List meetings visible to the current user.
  *
  * Filtering:
- *   - view='upcoming' — scheduled_start in the future, not trashed
+ *   - view='upcoming' — scheduled_start in the future and not yet started
+ *   - view='agenda'   — scheduled_start from `agendaLookbackMin` ago onward,
+ *                       started or not. The Meetings tab's rolling day view.
  *   - view='past'     — actual_end OR scheduled_end in the past, not trashed
  *   - view='all'      — every visible meeting (excluding trashed)
  *   - view='trash'    — trashed_at is not null
+ *
+ *   'upcoming' and 'agenda' differ on purpose: desktop reminders need "has not
+ *   started yet", the Meetings agenda needs "belongs to the day you are in".
  *
  *   `hasContent` narrows any view to meetings that actually hold something —
  *   see `./lib/meeting-content.ts`. The Meetings history list uses it so notes
@@ -76,9 +81,20 @@ export default defineAction({
     "List meetings (Granola-style) the current user has access to. Connected calendars are read live; use view='upcoming' / 'past' / 'all' / 'trash' to filter by lifecycle.",
   schema: z.object({
     view: z
-      .enum(["upcoming", "past", "all", "trash"])
+      .enum(["upcoming", "agenda", "past", "all", "trash"])
       .default("upcoming")
-      .describe("Which list to show"),
+      .describe(
+        "Which list to show. 'agenda' is the Meetings tab's rolling window — everything scheduled from `agendaLookbackMin` ago onward, so calls that already happened today stay on the agenda; 'upcoming' is strictly not-yet-started and is what desktop reminders poll.",
+      ),
+    agendaLookbackMin: z.coerce
+      .number()
+      .int()
+      .min(0)
+      .max(60 * 24 * 7)
+      .default(60 * 24)
+      .describe(
+        "How far back view='agenda' reaches, in minutes. Default 1440 (24h): a meeting from earlier today is still part of today.",
+      ),
     limit: z.coerce.number().int().min(1).max(500).default(100),
     offset: z.coerce.number().int().min(0).default(0),
     recordedOnly: booleanParam
@@ -149,6 +165,13 @@ export default defineAction({
       startedWithinMin > 0
         ? new Date(now.getTime() - startedWithinMin * 60 * 1000).toISOString()
         : nowIso;
+    const agendaFloorIso = new Date(
+      now.getTime() - args.agendaLookbackMin * 60 * 1000,
+    ).toISOString();
+    // 'agenda' and 'upcoming' both read forward in time, so they share the
+    // ascending sort. They differ in where the window starts and in whether a
+    // meeting that already started is still allowed in.
+    const isForwardLooking = args.view === "upcoming" || args.view === "agenda";
 
     const whereClauses = [accessFilter(schema.meetings, schema.meetingShares)];
 
@@ -172,6 +195,17 @@ export default defineAction({
             : undefined,
         )!,
       );
+    } else if (args.view === "agenda") {
+      // Everything scheduled from the lookback floor onward. Deliberately does
+      // NOT exclude meetings that already started or ended: "the call you just
+      // finished" is the most useful row on a day's agenda, and excluding it is
+      // what made the old upcoming-only list feel like it had lost your day.
+      whereClauses.push(
+        and(
+          isNotNull(schema.meetings.scheduledStart),
+          gte(schema.meetings.scheduledStart, agendaFloorIso),
+        )!,
+      );
     } else if (args.view === "past") {
       // Either completed (actualEnd set) or scheduled-end in the past.
       whereClauses.push(
@@ -191,14 +225,13 @@ export default defineAction({
       whereClauses.push(meetingHasContentFilter());
     }
 
-    const orderBy =
-      args.view === "upcoming"
-        ? [asc(schema.meetings.scheduledStart)]
-        : [
-            desc(
-              sql`COALESCE(${schema.meetings.actualStart}, ${schema.meetings.scheduledStart}, ${schema.meetings.createdAt})`,
-            ),
-          ];
+    const orderBy = isForwardLooking
+      ? [asc(schema.meetings.scheduledStart)]
+      : [
+          desc(
+            sql`COALESCE(${schema.meetings.actualStart}, ${schema.meetings.scheduledStart}, ${schema.meetings.createdAt})`,
+          ),
+        ];
 
     const rows = await db
       .select()
@@ -296,10 +329,12 @@ export default defineAction({
               ? new Date(now.getTime() - THIRTY_DAYS_MS).toISOString()
               : args.view === "all"
                 ? new Date(now.getTime() - THIRTY_DAYS_MS).toISOString()
-                : startedWithinMin > 0
-                  ? upcomingWindowMinIso
-                  : // Small cushion for clock skew when listing pure upcoming.
-                    new Date(now.getTime() - 60 * 1000).toISOString();
+                : args.view === "agenda"
+                  ? agendaFloorIso
+                  : startedWithinMin > 0
+                    ? upcomingWindowMinIso
+                    : // Small cushion for clock skew when listing pure upcoming.
+                      new Date(now.getTime() - 60 * 1000).toISOString();
           const timeMax =
             args.view === "past"
               ? nowIso
@@ -375,6 +410,14 @@ export default defineAction({
               continue;
             }
             if (args.view === "past" && endMs >= now.getTime()) continue;
+            // The agenda keeps already-finished events, but only back to its
+            // floor — anything that started before it belongs in Past.
+            if (
+              args.view === "agenda" &&
+              startMs < Date.parse(agendaFloorIso)
+            ) {
+              continue;
+            }
             if (
               upcomingWindowMaxIso &&
               startMs > Date.parse(upcomingWindowMaxIso)

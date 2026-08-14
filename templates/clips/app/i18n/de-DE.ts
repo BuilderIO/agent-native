@@ -1648,7 +1648,10 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
       "Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time. (Lokalisiert)",
     searchPlaceholder:
       "Search meetings, attendees, and transcripts... (Lokalisiert)",
-    comingUp: "Coming up (Lokalisiert)",
+    agendaTab: "Agenda (Lokalisiert)",
+    pastTab: "Past (Lokalisiert)",
+    now: "Now (Lokalisiert)",
+    noPastMeetings: "No past meetings yet (Lokalisiert)",
     loadOlder: "Load older (Lokalisiert)",
     searchFailed:
       "Couldn't search meetings. Try again in a moment. (Lokalisiert)",

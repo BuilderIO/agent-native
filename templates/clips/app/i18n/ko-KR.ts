@@ -1610,7 +1610,10 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
       "Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time. (현지화됨)",
     searchPlaceholder:
       "Search meetings, attendees, and transcripts... (현지화됨)",
-    comingUp: "Coming up (현지화됨)",
+    agendaTab: "Agenda (현지화됨)",
+    pastTab: "Past (현지화됨)",
+    now: "Now (현지화됨)",
+    noPastMeetings: "No past meetings yet (현지화됨)",
     loadOlder: "Load older (현지화됨)",
     searchFailed: "Couldn't search meetings. Try again in a moment. (현지화됨)",
     clearSearch: "Clear search (현지화됨)",

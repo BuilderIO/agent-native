@@ -1631,7 +1631,10 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
       "Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time. (ローカライズ済み)",
     searchPlaceholder:
       "Search meetings, attendees, and transcripts... (ローカライズ済み)",
-    comingUp: "Coming up (ローカライズ済み)",
+    agendaTab: "Agenda (ローカライズ済み)",
+    pastTab: "Past (ローカライズ済み)",
+    now: "Now (ローカライズ済み)",
+    noPastMeetings: "No past meetings yet (ローカライズ済み)",
     loadOlder: "Load older (ローカライズ済み)",
     searchFailed:
       "Couldn't search meetings. Try again in a moment. (ローカライズ済み)",

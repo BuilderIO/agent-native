@@ -1558,7 +1558,10 @@ Clips 中所有面向用户的重要更改都会记录在这里。你可以随�
       "Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time. (已本地化)",
     searchPlaceholder:
       "Search meetings, attendees, and transcripts... (已本地化)",
-    comingUp: "Coming up (已本地化)",
+    agendaTab: "Agenda (已本地化)",
+    pastTab: "Past (已本地化)",
+    now: "Now (已本地化)",
+    noPastMeetings: "No past meetings yet (已本地化)",
     loadOlder: "Load older (已本地化)",
     searchFailed: "Couldn't search meetings. Try again in a moment. (已本地化)",
     clearSearch: "Clear search (已本地化)",

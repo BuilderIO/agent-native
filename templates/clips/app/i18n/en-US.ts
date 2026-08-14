@@ -1597,7 +1597,10 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     title: "Meetings",
     intro:
       "Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time.",
-    comingUp: "Coming up",
+    agendaTab: "Agenda",
+    pastTab: "Past",
+    now: "Now",
+    noPastMeetings: "No past meetings yet",
     loadOlder: "Load older",
     searchFailed: "Couldn't search meetings. Try again in a moment.",
     searchPlaceholder: "Search meetings, attendees, and transcripts...",

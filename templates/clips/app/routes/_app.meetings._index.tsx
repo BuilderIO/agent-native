@@ -21,11 +21,11 @@ import { useSearchParams } from "react-router";
 import { toast } from "sonner";
 
 import { PageHeader } from "@/components/library/page-header";
-import type { AttendeeStackParticipant } from "@/components/meetings/attendee-stack";
 import {
-  ComingUpCard,
-  ComingUpCardSkeleton,
-} from "@/components/meetings/coming-up-card";
+  AgendaCard,
+  AgendaCardSkeleton,
+} from "@/components/meetings/agenda-card";
+import type { AttendeeStackParticipant } from "@/components/meetings/attendee-stack";
 import { DayHeader, formatDayLabel } from "@/components/meetings/day-header";
 import {
   MeetingHistoryRow,
@@ -51,6 +51,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import enMessages from "@/i18n/en-US";
 
 export function meta() {
@@ -59,6 +60,12 @@ export function meta() {
 
 /** Rows per history page. History is the page body, so it loads in slices. */
 const HISTORY_PAGE_SIZE = 50;
+
+type MeetingsTab = "agenda" | "past";
+
+function isMeetingsTab(value: string | null): value is MeetingsTab {
+  return value === "agenda" || value === "past";
+}
 
 interface Meeting {
   id: string;
@@ -667,6 +674,25 @@ export default function MeetingsIndexRoute() {
   const trimmedQuery = debouncedQuery.trim();
   const isSearching = trimmedQuery.length > 0;
 
+  // Tab lives in the URL so it survives reload, is linkable, and shows up in
+  // navigation state for the agent — same treatment as `?q=`.
+  const tabParam = searchParams.get("tab");
+  const activeTab: MeetingsTab = isMeetingsTab(tabParam) ? tabParam : "agenda";
+  const setActiveTab = useCallback(
+    (next: string) => {
+      setSearchParams(
+        (prev) => {
+          const params = new URLSearchParams(prev);
+          if (next === "agenda") params.delete("tab");
+          else params.set("tab", next);
+          return params;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
+
   const accounts = useActionQuery<{ accounts: CalendarAccount[] } | undefined>(
     "list-calendar-accounts",
     {},
@@ -696,12 +722,13 @@ export default function MeetingsIndexRoute() {
     retry: false,
   });
 
-  // Upcoming calendar events, read live from connected calendars. Poll every
-  // 30s so a freshly-added calendar event (or one moving into the "now"
-  // window) shows up without a manual refresh.
-  const upcomingQuery = useActionQuery<ListMeetingsResponse | undefined>(
+  // The agenda window, read live from connected calendars: 24h back through
+  // the next 30 days, so a call from earlier today is still on your day rather
+  // than already filed under Past. Poll every 30s so a freshly-added event (or
+  // one crossing the "now" marker) shows up without a manual refresh.
+  const agendaQuery = useActionQuery<ListMeetingsResponse | undefined>(
     "list-meetings",
-    { view: "upcoming", includeLiveCalendar: true, limit: 50 },
+    { view: "agenda", includeLiveCalendar: true, limit: 50 },
     { retry: false, refetchInterval: 30_000 },
   );
 
@@ -779,18 +806,18 @@ export default function MeetingsIndexRoute() {
     [history.data],
   );
 
-  const upcomingMeetings: Meeting[] = useMemo(() => {
-    const data = upcomingQuery.data;
+  const agendaMeetings: Meeting[] = useMemo(() => {
+    const data = agendaQuery.data;
     if (!data) return [];
     if (Array.isArray(data)) return data as Meeting[];
     return data.meetings ?? [];
-  }, [upcomingQuery.data]);
+  }, [agendaQuery.data]);
 
   const calendarErrors: CalendarFetchError[] = useMemo(() => {
-    const data = upcomingQuery.data;
+    const data = agendaQuery.data;
     if (!data || Array.isArray(data)) return [];
     return data.calendarErrors ?? [];
-  }, [upcomingQuery.data]);
+  }, [agendaQuery.data]);
 
   const searchResults = searchQuery.data?.meetings ?? [];
   const searchSnippets = useMemo(() => {
@@ -827,13 +854,13 @@ export default function MeetingsIndexRoute() {
       ? "Couldn't load meetings. Try again in a moment."
       : null;
 
-  const upcomingSorted = useMemo(() => {
-    return [...upcomingMeetings].sort(
+  const agendaSorted = useMemo(() => {
+    return [...agendaMeetings].sort(
       (a, b) =>
         new Date(a.scheduledStart).getTime() -
         new Date(b.scheduledStart).getTime(),
     );
-  }, [upcomingMeetings]);
+  }, [agendaMeetings]);
 
   // A calendar can need re-auth either via a live fetch error (calendarErrors)
   // or — more commonly — because list-meetings skips non-"connected" accounts
@@ -852,7 +879,7 @@ export default function MeetingsIndexRoute() {
         </PageHeader>
         <div className="mx-auto w-full max-w-3xl p-6">
           <div className="mb-6 h-9 animate-pulse rounded-md bg-muted/70" />
-          <ComingUpCardSkeleton />
+          <AgendaCardSkeleton />
           <div className="mt-8 space-y-1">
             {Array.from({ length: 8 }).map((_, i) => (
               <MeetingHistoryRowSkeleton key={i} />
@@ -881,7 +908,7 @@ export default function MeetingsIndexRoute() {
   }
 
   const nothingAtAll =
-    historyMeetings.length === 0 && upcomingMeetings.length === 0;
+    historyMeetings.length === 0 && agendaMeetings.length === 0;
 
   if (!hasCalendar && nothingAtAll) {
     return (
@@ -947,43 +974,72 @@ export default function MeetingsIndexRoute() {
           />
         )
       ) : (
-        <div className="space-y-8">
-          <ComingUpCard meetings={upcomingSorted} />
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
+          <TabsList className="mb-4 grid w-full max-w-xs grid-cols-2">
+            <TabsTrigger value="agenda" className="text-xs">
+              {t("meetingsRoute.agendaTab", { defaultValue: "Agenda" })}
+            </TabsTrigger>
+            <TabsTrigger value="past" className="text-xs">
+              {t("meetingsRoute.pastTab", { defaultValue: "Past" })}
+            </TabsTrigger>
+          </TabsList>
 
-          {historyMeetings.length > 0 ? (
-            <div className="space-y-4">
-              <MeetingHistoryList meetings={historyMeetings} />
-              {history.hasNextPage ? (
-                <div className="flex justify-center pt-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => history.fetchNextPage()}
-                    disabled={history.isFetchingNextPage}
-                    className="h-8 cursor-pointer gap-1.5 text-xs"
-                  >
-                    {history.isFetchingNextPage ? (
-                      <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : null}
-                    {t("meetingsRoute.loadOlder", {
-                      defaultValue: "Load older",
-                    })}
-                  </Button>
-                </div>
-              ) : null}
-            </div>
-          ) : nothingAtAll ? (
-            <div className="rounded-lg border border-dashed border-border bg-accent/20 px-6 py-16 text-center">
-              <IconCalendar className="mx-auto h-10 w-10 text-muted-foreground/50" />
-              <p className="mt-3 text-sm font-medium text-foreground">
-                {t("meetingsRoute.noMeetingsYet")}
-              </p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {t("meetingsRoute.noMeetingsDescription")}
-              </p>
-            </div>
-          ) : null}
-        </div>
+          <TabsContent value="agenda">
+            {agendaQuery.isLoading && agendaMeetings.length === 0 ? (
+              <AgendaCardSkeleton />
+            ) : agendaSorted.length > 0 ? (
+              <AgendaCard meetings={agendaSorted} />
+            ) : (
+              <div className="rounded-lg border border-dashed border-border bg-accent/20 px-6 py-16 text-center">
+                <IconCalendar className="mx-auto h-10 w-10 text-muted-foreground/50" />
+                <p className="mt-3 text-sm font-medium text-foreground">
+                  {t("meetingsRoute.noMeetingsYet")}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {t("meetingsRoute.noMeetingsDescription")}
+                </p>
+              </div>
+            )}
+          </TabsContent>
+
+          <TabsContent value="past" className="space-y-4">
+            {historyMeetings.length > 0 ? (
+              <>
+                <MeetingHistoryList meetings={historyMeetings} />
+                {history.hasNextPage ? (
+                  <div className="flex justify-center pt-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => history.fetchNextPage()}
+                      disabled={history.isFetchingNextPage}
+                      className="h-8 cursor-pointer gap-1.5 text-xs"
+                    >
+                      {history.isFetchingNextPage ? (
+                        <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : null}
+                      {t("meetingsRoute.loadOlder", {
+                        defaultValue: "Load older",
+                      })}
+                    </Button>
+                  </div>
+                ) : null}
+              </>
+            ) : (
+              <div className="rounded-lg border border-dashed border-border bg-accent/20 px-6 py-16 text-center">
+                <IconCalendar className="mx-auto h-10 w-10 text-muted-foreground/50" />
+                <p className="mt-3 text-sm font-medium text-foreground">
+                  {t("meetingsRoute.noPastMeetings", {
+                    defaultValue: "No past meetings yet",
+                  })}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {t("meetingsRoute.noMeetingsDescription")}
+                </p>
+              </div>
+            )}
+          </TabsContent>
+        </Tabs>
       )}
     </div>
   );
