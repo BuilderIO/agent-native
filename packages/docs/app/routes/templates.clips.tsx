@@ -212,7 +212,7 @@ export default function ClipsTemplate() {
             </div>
           </div>
 
-          <div className="relative bg-[#0a0a0a] py-3 sm:py-4 lg:py-5">
+          <div className="relative bg-black py-3 sm:py-4 lg:py-5">
             <img
               src={template.screenshot}
               alt={t("templateLanding.clips.s001")}
