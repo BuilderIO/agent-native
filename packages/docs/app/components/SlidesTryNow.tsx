@@ -91,6 +91,18 @@ export function SlidesTryNow() {
           </a>
         </div>
       </div>
+      <p className="m-0 mt-3 text-center text-sm text-[var(--fg-secondary)]">
+        Or{" "}
+        <a
+          href="https://slides.agent-native.com/_agent-native/sign-in"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="font-medium text-[var(--fg)] underline underline-offset-2 hover:no-underline"
+        >
+          sign in
+        </a>{" "}
+        to access Slides via webhook, MCP, or A2A integration.
+      </p>
     </div>
   );
 }

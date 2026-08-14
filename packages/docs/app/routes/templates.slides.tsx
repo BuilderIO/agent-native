@@ -1,5 +1,5 @@
 import { useLocale, useT } from "@agent-native/core/client/i18n";
-import { IconArrowDown, IconCheck } from "@tabler/icons-react";
+import { IconCheck } from "@tabler/icons-react";
 import { Link } from "react-router";
 
 import { sitePathForLocale } from "../components/docs-locale";
@@ -18,7 +18,7 @@ import {
   TemplateStatOrStepsGrid,
   TemplateStatOrStepsGridItem,
 } from "../components/template-landing";
-import { templates, trackEvent } from "../components/TemplateCard";
+import { templates } from "../components/TemplateCard";
 import { withTemplateSocialImage } from "../seo";
 
 export const meta = () =>
@@ -146,21 +146,6 @@ export default function SlidesTemplate() {
         }
         title={t("templateLanding.slides.s006")}
         description={<p className="m-0">{t("templateLanding.slides.s007")}</p>}
-        action={
-          <a
-            href="#build-now"
-            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md bg-[var(--fg)] px-5 text-sm font-semibold text-[var(--bg)] no-underline transition-opacity hover:opacity-85 hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--docs-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg)]"
-            onClick={() =>
-              trackEvent("try live demo", {
-                template: "slides",
-                location: "landing_page",
-              })
-            }
-          >
-            {t("templateLanding.slides.s008")}
-            <IconArrowDown aria-hidden="true" className="size-4" />
-          </a>
-        }
         mediaClassName="bg-[var(--bg-secondary)]"
         media={
           <img
@@ -379,15 +364,6 @@ export default function SlidesTemplate() {
 
       <TemplateFinalCta
         className="[&>div:first-child]:py-10 sm:[&>div:first-child]:py-12 lg:[&>div:first-child]:py-16 [&>div:last-child]:gap-4 sm:[&>div:last-child]:gap-4"
-        eyebrow={
-          <span
-            className="font-mono text-sm font-semibold uppercase tracking-[0.14em]"
-            style={{ color: template.color }}
-          >
-            Agent-Native {template.name}
-          </span>
-        }
-        title={t("templateLanding.slides.signInIntegration")}
         actions={
           <>
             <a
