@@ -105,15 +105,17 @@ const ClipPreviewSlider = forwardRef<ClipPreviewSliderHandle>(
       <div className="mx-auto max-w-5xl text-left">
         <div
           ref={sliderRef}
-          className="flex snap-x snap-mandatory gap-4 overflow-x-auto pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          className="flex snap-x snap-mandatory overflow-x-auto border border-[#1a1a1a] bg-[#0a0a0a] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         >
-          {CLIP_PREVIEWS.map((clip) => (
+          {CLIP_PREVIEWS.map((clip, index) => (
             <a
               key={clip.href}
               href={clip.href}
               target="_blank"
               rel="noopener noreferrer"
-              className="group min-w-[82%] snap-start overflow-hidden rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline sm:min-w-[46%] lg:min-w-[31%]"
+              className={`group flex basis-[82%] shrink-0 snap-start flex-col bg-[#0a0a0a] text-[var(--fg)] no-underline transition hover:no-underline sm:basis-[46%] lg:basis-[33.3333%] ${
+                index > 0 ? "border-l border-[#1a1a1a]" : ""
+              }`}
               onClick={() =>
                 trackEvent("view clip preview", {
                   clip: clip.href,
@@ -121,26 +123,33 @@ const ClipPreviewSlider = forwardRef<ClipPreviewSliderHandle>(
                 })
               }
             >
-              <div className="relative aspect-[4/3] overflow-hidden border-b border-[var(--docs-border)] bg-black">
-                <img
-                  src={clip.thumbnail}
-                  alt=""
-                  loading="lazy"
-                  decoding="async"
-                  className="h-full w-full object-cover object-bottom transition duration-300 group-hover:scale-[1.02]"
-                />
-                <span className="absolute inset-0 flex items-center justify-center">
-                  <span className="flex h-12 w-12 items-center justify-center rounded-full bg-black/75 text-xl text-white shadow-lg transition group-hover:scale-105">
-                    <span className="ml-0.5" aria-hidden>
-                      ▶
-                    </span>
-                  </span>
-                </span>
-              </div>
-              <div className="p-4">
-                <h3 className="m-0 text-base font-semibold leading-snug">
+              <img
+                src={clip.thumbnail}
+                alt=""
+                loading="lazy"
+                decoding="async"
+                className="aspect-video w-full border-b border-[#1a1a1a] object-cover object-bottom"
+              />
+              <div className="flex flex-1 flex-col gap-2 p-6">
+                <h3 className="m-0 max-w-[328px] text-[1.4375rem] font-medium leading-[1.15] tracking-[-0.46px] text-[#faf9f5]">
                   {clip.title}
                 </h3>
+                <div className="flex flex-1 items-end">
+                  <span className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-[#5e5e5e] bg-[#0a0a0a] transition group-hover:border-[var(--fg-secondary)]">
+                    <svg
+                      width="18"
+                      height="18"
+                      viewBox="0 0 18 18"
+                      fill="none"
+                      xmlns="http://www.w3.org/2000/svg"
+                    >
+                      <path
+                        d="M13.3125 12C13.3125 12.3107 13.0606 12.5625 12.75 12.5625C12.4393 12.5625 12.1875 12.3107 12.1875 12V6.60791L5.64766 13.1477C5.42799 13.3674 5.07192 13.3674 4.85225 13.1477C4.63258 12.928 4.63258 12.572 4.85225 12.3523L11.392 5.8125H5.99996C5.6893 5.8125 5.43746 5.56066 5.43746 5.25C5.43746 4.93934 5.6893 4.6875 5.99996 4.6875H12.75C13.0606 4.6875 13.3125 4.93934 13.3125 5.25V12Z"
+                        fill="#FAF9F5"
+                      />
+                    </svg>
+                  </span>
+                </div>
               </div>
             </a>
           ))}
