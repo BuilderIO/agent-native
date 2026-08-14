@@ -8,6 +8,7 @@ import {
 } from "@agent-native/core/client/agent-chat";
 import { track } from "@agent-native/core/client/analytics";
 import { appPath, agentNativePath } from "@agent-native/core/client/api-path";
+import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import { emailToColor, emailToName } from "@agent-native/core/client/collab";
 import { PromptComposer } from "@agent-native/core/client/composer";
 import { useActionQuery, useSession } from "@agent-native/core/client/hooks";
@@ -33,7 +34,7 @@ import {
   useSetPageTitle,
 } from "@agent-native/toolkit/app-shell";
 import { type RichMarkdownCollabUser } from "@agent-native/toolkit/editor";
-import { ShareTrigger } from "@agent-native/toolkit/sharing";
+import { ShareCopyRow, ShareTrigger } from "@agent-native/toolkit/sharing";
 import {
   SOURCE_AUTHOR_COMMENT_MENTION_EMAIL,
   extractCommentMentions,
@@ -6192,11 +6193,18 @@ function PlanShareControl({
   }, []);
 
   const copyPublishedUrl = useCallback(
-    (url: string) => {
-      void navigator.clipboard.writeText(url).then(
-        () => toast.success(t("plansPage.share.linkCopied")),
-        () => toast.error(t("plansPage.share.copyFailed")),
-      );
+    async (url: string) => {
+      try {
+        if (!(await writeClipboardText(url))) {
+          toast.error(t("plansPage.share.copyFailed"));
+          return false;
+        }
+        toast.success(t("plansPage.share.linkCopied"));
+        return true;
+      } catch {
+        toast.error(t("plansPage.share.copyFailed"));
+        return false;
+      }
     },
     [t],
   );
@@ -6334,22 +6342,16 @@ function PlanShareControl({
           </div>
         ) : effectivePublishedUrl ? (
           <div className="space-y-3">
-            <div className="flex min-w-0 items-center gap-2 rounded-md border border-border bg-muted/35 px-2.5 py-2">
-              <IconLink className="size-4 shrink-0 text-muted-foreground" />
-              <span className="min-w-0 truncate text-xs text-muted-foreground">
-                {effectivePublishedUrl}
-              </span>
-            </div>
+            <ShareCopyRow
+              value={effectivePublishedUrl}
+              label={t("plansPage.share.linkLabel", { noun: Noun })}
+              description={t("plansPage.share.hostedCopy", { noun })}
+              copyLabel={t("plansPage.loggedOut.copy")}
+              copiedLabel={t("plansPage.loggedOut.copied")}
+              onCopy={copyPublishedUrl}
+              className="rounded-md border border-border bg-muted/35 px-2.5 py-2"
+            />
             <div className="flex flex-wrap items-center justify-end gap-2">
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                onClick={() => copyPublishedUrl(effectivePublishedUrl)}
-              >
-                <IconCopy className="size-3.5" />
-                {t("plansPage.loggedOut.copy")}
-              </Button>
               <Button
                 type="button"
                 size="sm"
@@ -6363,10 +6365,7 @@ function PlanShareControl({
                     {t("plansPage.share.updating")}
                   </>
                 ) : (
-                  <>
-                    <IconRefresh className="size-3.5" />
-                    {t("plansPage.share.updateLink")}
-                  </>
+                  t("plansPage.share.updateLink")
                 )}
               </Button>
               <Button type="button" size="sm" asChild>
@@ -6375,7 +6374,6 @@ function PlanShareControl({
                   target="_blank"
                   rel="noreferrer"
                 >
-                  <IconExternalLink className="size-3.5" />
                   {t("plansPage.share.openHostedPlan")}
                 </a>
               </Button>
@@ -6394,10 +6392,7 @@ function PlanShareControl({
                 {t("plansPage.share.creatingLink")}
               </>
             ) : (
-              <>
-                <IconLink className="size-4" />
-                {t("plansPage.share.createShareableLink")}
-              </>
+              t("plansPage.share.createShareableLink")
             )}
           </Button>
         )}

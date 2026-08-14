@@ -211,6 +211,7 @@ export default defineAction({
         calendarEventId: calendarEventIdLink,
         recordingId: null,
         transcriptStatus: "idle",
+        shareTranscript: true,
         summaryMd: "",
         bulletsJson: "[]",
         actionItemsJson: "[]",

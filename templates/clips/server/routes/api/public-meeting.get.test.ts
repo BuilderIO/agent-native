@@ -163,7 +163,7 @@ describe("/api/public-meeting route", () => {
       meeting: { id: "meeting-1", title: "Weekly sync" },
       viewer: null,
     });
-    expect(db.select).toHaveBeenCalledTimes(3);
+    expect(db.select).toHaveBeenCalledTimes(4);
   });
 
   it("does not treat an invalid agent token as anonymous meeting access", async () => {
@@ -186,7 +186,7 @@ describe("/api/public-meeting route", () => {
     expect(mockGetDb).not.toHaveBeenCalled();
   });
 
-  it("omits the transcript by default", async () => {
+  it("returns a null transcript when no transcript row exists", async () => {
     const db = createDbWithSelectResults([
       [{ email: "guest@example.com", name: "Guest", isOrganizer: false }],
       [
@@ -197,6 +197,7 @@ describe("/api/public-meeting route", () => {
           completedAt: null,
         },
       ],
+      [],
     ]);
     mockGetDb.mockReturnValue(db);
 
@@ -218,11 +219,11 @@ describe("/api/public-meeting route", () => {
             completedAt: null,
           },
         ],
+        transcript: null,
       },
       viewer: null,
     });
-    expect("transcript" in (result as any).meeting).toBe(false);
-    expect(db.select).toHaveBeenCalledTimes(2);
+    expect(db.select).toHaveBeenCalledTimes(3);
     expect(mockSetResponseHeader).toHaveBeenCalledWith(
       {},
       "Cache-Control",
@@ -230,35 +231,32 @@ describe("/api/public-meeting route", () => {
     );
   });
 
-  it("includes a normalized transcript only after the owner opts in", async () => {
+  it("includes a normalized transcript even when shareTranscript is false", async () => {
     mockResolveAccess.mockResolvedValue({
       role: "viewer",
-      resource: makeMeeting({ shareTranscript: true }),
+      resource: makeMeeting({ shareTranscript: false }),
     });
-    const db = createDbWithSelectResults([]);
-    db.select = vi
-      .fn()
-      .mockImplementationOnce(() => selectBuilder([]))
-      .mockImplementationOnce(() => selectBuilder([]))
-      .mockImplementationOnce(() =>
-        selectBuilder([
-          {
-            status: "ready",
-            language: "en",
-            fullText: "Hello team. We are ready.",
-            failureReason: null,
-            segmentsJson: JSON.stringify([
-              {
-                startMs: 0,
-                endMs: 1_200,
-                text: "Hello team.",
-                source: "mic",
-              },
-            ]),
-            updatedAt: "2026-07-20T17:31:00.000Z",
-          },
-        ]),
-      );
+    const db = createDbWithSelectResults([
+      [],
+      [],
+      [
+        {
+          status: "ready",
+          language: "en",
+          fullText: "Hello team. We are ready.",
+          failureReason: null,
+          segmentsJson: JSON.stringify([
+            {
+              startMs: 0,
+              endMs: 1_200,
+              text: "Hello team.",
+              source: "mic",
+            },
+          ]),
+          updatedAt: "2026-07-20T17:31:00.000Z",
+        },
+      ],
+    ]);
     mockGetDb.mockReturnValue(db);
 
     const result = await handler({} as any);

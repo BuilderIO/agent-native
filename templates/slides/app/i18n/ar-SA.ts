@@ -298,6 +298,7 @@ const messages = {
     creatingLink: "جار إنشاء الرابط...",
     createShareLink: "إنشاء رابط مشاركة",
     copyLink: "نسخ الرابط",
+    copied: "تم النسخ",
     openSharedLink: "فتح الرابط المشترك",
     anyoneWithLink: "يمكن لأي شخص لديه هذا الرابط عرض هذا العرض التقديمي.",
   },

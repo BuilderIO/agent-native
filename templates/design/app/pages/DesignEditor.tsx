@@ -4273,8 +4273,6 @@ function DesignEditor() {
     null,
   );
   const [codingHandoffLoading, setCodingHandoffLoading] = useState(false);
-  const [shareLinkCopied, setShareLinkCopied] = useState(false);
-  const shareLinkCopiedResetRef = useRef<number | null>(null);
   const [, setPatchProof] = useState<PatchProofState | null>(null);
   const pendingFileSavesRef = useRef<Record<string, FileContentSaveRequest>>(
     {},
@@ -4991,13 +4989,6 @@ function DesignEditor() {
     if (!id || typeof window === "undefined") return undefined;
     return getDesignEditorShareUrl(id, window.location.origin, appBasePath());
   }, [id]);
-  useEffect(() => {
-    return () => {
-      if (shareLinkCopiedResetRef.current !== null) {
-        window.clearTimeout(shareLinkCopiedResetRef.current);
-      }
-    };
-  }, []);
   const {
     designSystems,
     defaultSystem,
@@ -24301,27 +24292,6 @@ function DesignEditor() {
     }
   }, [ensureCodingHandoff, getCodingHandoffClipboardText, t]);
 
-  const handleCopyShareLink = useCallback(async () => {
-    if (!editorShareUrl) return;
-    try {
-      if (!(await writeClipboardText(editorShareUrl))) {
-        toast.error(t("designEditor.toasts.clipboardBlocked"));
-        return;
-      }
-      setShareLinkCopied(true);
-      if (shareLinkCopiedResetRef.current !== null) {
-        window.clearTimeout(shareLinkCopiedResetRef.current);
-      }
-      shareLinkCopiedResetRef.current = window.setTimeout(() => {
-        setShareLinkCopied(false);
-        shareLinkCopiedResetRef.current = null;
-      }, 1400);
-      toast.success("Share link copied" /* i18n-ignore share copy toast */);
-    } catch {
-      toast.error(t("designEditor.toasts.clipboardBlocked"));
-    }
-  }, [editorShareUrl, t]);
-
   const hasPendingVisualStyleEdits =
     pendingVisualStyleEdits.length > 0 || pendingLiveNonStyleEdits.length > 0;
   usePendingLiveEditUnloadGuard(hasPendingVisualStyleEdits);
@@ -25818,32 +25788,6 @@ function DesignEditor() {
         >
           <IconClipboard className="size-3.5" />
           {"Copy agent prompt" /* i18n-ignore share send action */}
-        </Button>
-      </div>
-    </div>
-  );
-  const shareLinkFooter = (
-    <div className="mt-3 space-y-2 border-t border-[var(--design-editor-panel-divider-color)] pt-3">
-      <p className="text-[11px] leading-4 text-muted-foreground">
-        {t("review.shareLinkDescription")}
-      </p>
-      <div className="flex flex-wrap items-center gap-2">
-        <Button
-          type="button"
-          onClick={() => void handleCopyShareLink()}
-          disabled={!editorShareUrl}
-          className="h-8 min-w-[8.75rem] gap-1.5 rounded-md px-3 text-[12px]"
-        >
-          {shareLinkCopied ? (
-            <IconCheck className="size-3.5" />
-          ) : (
-            <IconClipboard className="size-3.5" />
-          )}
-          {
-            shareLinkCopied
-              ? "Copied" /* i18n-ignore share copy action copied */
-              : "Copy share link" /* i18n-ignore share copy action */
-          }
         </Button>
       </div>
     </div>
@@ -31084,8 +31028,6 @@ function DesignEditor() {
                   description: t("designEditor.commenterRoleDescription"),
                 },
               }}
-              showShareLinks={false}
-              shareFooterContent={shareLinkFooter}
               shareTabs={designShareTabs}
               popoverClassName={designSharePopoverClassName}
               triggerClassName="h-8 rounded-md !border-[var(--design-editor-accent-color)] !bg-[var(--design-editor-accent-color)] px-3 text-sm !text-[var(--design-editor-accent-contrast-color)] shadow-none hover:!border-[var(--design-editor-accent-hover-color)] hover:!bg-[var(--design-editor-accent-hover-color)] hover:!text-[var(--design-editor-accent-contrast-color)] focus-visible:ring-[var(--design-editor-accent-color)] [&_svg]:!text-[var(--design-editor-accent-contrast-color)]"

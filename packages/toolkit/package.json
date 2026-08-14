@@ -75,6 +75,20 @@
       "import": "./dist/dashboard/*.js",
       "default": "./dist/dashboard/*.js"
     },
+    "./data-grid": {
+      "types": "./dist/data-grid/index.d.ts",
+      "browser": "./dist/data-grid/index.js",
+      "development": "./dist/data-grid/index.js",
+      "import": "./dist/data-grid/index.js",
+      "default": "./dist/data-grid/index.js"
+    },
+    "./data-grid/*": {
+      "types": "./dist/data-grid/*.d.ts",
+      "browser": "./dist/data-grid/*.js",
+      "development": "./dist/data-grid/*.js",
+      "import": "./dist/data-grid/*.js",
+      "default": "./dist/data-grid/*.js"
+    },
     "./chat-history": {
       "types": "./dist/chat-history/index.d.ts",
       "browser": "./dist/chat-history/index.js",

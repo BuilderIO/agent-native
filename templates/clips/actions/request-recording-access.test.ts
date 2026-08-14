@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   renderEmail: vi.fn(() => ({ html: "<p>request</p>", text: "request" })),
   emailStrong: vi.fn((value: string) => value),
   getAppProductionUrl: vi.fn(() => "https://clips.example.com"),
+  signScopedAgentAccessToken: vi.fn(() => "approval-token"),
   verifyScopedAgentAccessToken: vi.fn(),
   withConfiguredAppBasePath: vi.fn((value: string) => value),
 }));
@@ -33,6 +34,8 @@ vi.mock("@agent-native/core/server", () => ({
   isEmailConfigured: (...args: unknown[]) => mocks.isEmailConfigured(...args),
   renderEmail: (...args: unknown[]) => mocks.renderEmail(...args),
   sendEmail: (...args: unknown[]) => mocks.sendEmail(...args),
+  signScopedAgentAccessToken: (...args: unknown[]) =>
+    mocks.signScopedAgentAccessToken(...args),
   verifyScopedAgentAccessToken: (...args: unknown[]) =>
     mocks.verifyScopedAgentAccessToken(...args),
   withConfiguredAppBasePath: (...args: unknown[]) =>
@@ -130,11 +133,14 @@ describe("request-recording-access", () => {
     mocks.nanoid.mockReturnValue("event-1");
   });
 
-  it("requires a signed-in requester", async () => {
+  it("requires a requester identity", async () => {
     mocks.getRequestUserEmail.mockReturnValue(null);
 
     await expect(
-      (requestRecordingAccess as any).run({ recordingId: "rec-1" }),
+      (requestRecordingAccess as any).run({
+        recordingId: "rec-1",
+        accessRequestToken: "request-token",
+      }),
     ).rejects.toMatchObject({ statusCode: 401 });
     expect(mocks.getDb).not.toHaveBeenCalled();
   });
@@ -220,12 +226,64 @@ describe("request-recording-access", () => {
         templateId: "clips.access-request",
       }),
     );
+    expect(mocks.signScopedAgentAccessToken).toHaveBeenCalledWith({
+      resourceKind: "clips-access-approval",
+      resourceId: "rec-1",
+      viewerEmail: "viewer@example.com",
+      ttlSeconds: 604800,
+    });
+    expect(mocks.renderEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cta: {
+          label: "Allow access",
+          url: "https://clips.example.com/access-request/approve?recordingId=rec-1&token=approval-token",
+        },
+      }),
+    );
     expect(mocks.verifyScopedAgentAccessToken).toHaveBeenCalledWith(
       "request-token",
       {
         resourceKind: "clips-access-request",
         resourceId: "rec-1",
       },
+    );
+  });
+
+  it("records a guest request for the provided email", async () => {
+    mocks.getRequestUserEmail.mockReturnValue(null);
+    mocks.getRequestOrgId.mockReturnValue(null);
+    const db = createDb([privateRecording()]);
+    mocks.getDb.mockReturnValue(db);
+
+    await expect(
+      (requestRecordingAccess as any).run({
+        recordingId: "rec-1",
+        accessRequestToken: "request-token",
+        requesterEmail: "Guest@Example.com",
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      alreadyHasAccess: false,
+      alreadyRequested: false,
+      notifiedOwner: true,
+    });
+
+    expect(mocks.resolveAccess).toHaveBeenCalledWith("recording", "rec-1", {
+      userEmail: "guest@example.com",
+      orgId: undefined,
+    });
+    expect(db.insert.mock.results[0].value.values).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.stringContaining(
+          '"requesterEmail":"guest@example.com"',
+        ),
+      }),
+    );
+    expect(mocks.sendEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: "owner@example.com",
+        replyTo: "guest@example.com",
+      }),
     );
   });
 
@@ -288,10 +346,24 @@ describe("request-recording-access", () => {
         requesterEmail: "viewer@example.com",
         recordingTitle: "Private demo",
         url: "https://clips.example.com/share/rec-1",
+        allowAccessUrl:
+          "https://clips.example.com/access-request/approve?recordingId=rec-1&token=approval-token",
       }),
     ).toMatchObject({
-      subject: 'Viewer Example requested access to "Private demo"',
+      subject: 'Access request for "Private demo"',
       html: "<p>request</p>",
     });
+    expect(mocks.renderEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cta: {
+          label: "Allow access",
+          url: "https://clips.example.com/access-request/approve?recordingId=rec-1&token=approval-token",
+        },
+        secondaryCta: {
+          label: "Open Clip",
+          url: "https://clips.example.com/share/rec-1",
+        },
+      }),
+    );
   });
 });

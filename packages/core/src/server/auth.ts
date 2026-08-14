@@ -178,8 +178,9 @@ import {
 } from "./google-oauth.js";
 import {
   isCanonicalAgentNativeAppRequest,
+  isCanonicalIdentitySsoClientRequest,
   isDesktopSsoCanaryUserAgent,
-  isIdentitySsoEnabled,
+  isIdentitySsoExplicitlyEnabled,
 } from "./identity-sso-store.js";
 import { ensureCanonicalUserForLegacySession } from "./legacy-auth-migration.js";
 import {
@@ -2375,9 +2376,9 @@ function createAuthGuardFn(): (
     // 401-for-/_agent-native/*: they resolve / mint the browser session
     // themselves and verify a signature-bound, single-use, CSRF-stated
     // hub token — not a cookie. The handler fails closed with 404 unless
-    // direct web SSO is configured or this is the packaged SSO Canary on a
-    // canonical app origin. Keeping the bypass exact lets that request-scoped
-    // decision happen without exposing any other identity subpath.
+    // direct web SSO is configured or the request is from an exact canonical
+    // hosted app origin. Keeping the bypass exact avoids exposing any other
+    // identity subpath.
     const isIdentitySsoEntryPath =
       p === "/_agent-native/identity/login" ||
       p === "/_agent-native/identity/callback";
@@ -2387,9 +2388,16 @@ function createAuthGuardFn(): (
         getHeader(event, "host"),
         getHeader(event, "x-forwarded-proto"),
       );
+    const isCanonicalHostedIdentityRequest =
+      isCanonicalIdentitySsoClientRequest(
+        getHeader(event, "host"),
+        getHeader(event, "x-forwarded-proto"),
+      );
     if (
       isIdentitySsoEntryPath &&
-      (isIdentitySsoEnabled() || isDesktopCanaryIdentityRequest)
+      (isIdentitySsoExplicitlyEnabled() ||
+        isDesktopCanaryIdentityRequest ||
+        isCanonicalHostedIdentityRequest)
     ) {
       return;
     }

@@ -6,6 +6,7 @@ import {
   isEmailConfigured,
   renderEmail,
   sendEmail,
+  signScopedAgentAccessToken,
   verifyScopedAgentAccessToken,
   withConfiguredAppBasePath,
 } from "@agent-native/core/server";
@@ -21,7 +22,10 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { nanoid, normalizeOwnerEmail } from "../server/lib/recordings.js";
 import {
+  CLIPS_ACCESS_APPROVAL_TOKEN_PREFIX,
+  CLIPS_ACCESS_APPROVAL_TOKEN_TTL_SECONDS,
   CLIPS_ACCESS_REQUEST_TOKEN_PREFIX,
+  recordingAccessApprovalPath,
   recordingSharePath,
 } from "../shared/recording-link.js";
 
@@ -48,25 +52,38 @@ function absoluteRecordingUrl(recordingId: string): string {
   return `${withConfiguredAppBasePath(getAppProductionUrl()).replace(/\/+$/, "")}${recordingSharePath(recordingId)}`;
 }
 
+function absoluteAccessApprovalUrl(
+  recordingId: string,
+  approvalToken: string,
+): string {
+  return `${withConfiguredAppBasePath(getAppProductionUrl()).replace(/\/+$/, "")}${recordingAccessApprovalPath(recordingId, approvalToken)}`;
+}
+
 export function renderRecordingAccessRequestEmail(input: {
   requesterName: string;
   requesterEmail: string;
   recordingTitle: string;
   url: string;
+  allowAccessUrl: string;
 }) {
-  const subject = `${input.requesterName} requested access to "${input.recordingTitle}"`;
+  const subject = `Access request for "${input.recordingTitle}"`;
   return {
     subject,
     ...renderEmail({
       brandName: "Clips",
       preheader: subject,
-      heading: "Access request",
+      heading: "Access requested",
       paragraphs: [
-        `${emailStrong(input.requesterName)} (${emailStrong(input.requesterEmail)}) requested access to ${emailStrong(input.recordingTitle)}.`,
-        "Open the Clip and use Share to grant access if this request should be approved.",
+        `${emailStrong(input.requesterName)} (${emailStrong(input.requesterEmail)}) requested viewer access to ${emailStrong(input.recordingTitle)}.`,
+        "Select Allow access to add them to this Clip's standard sharing list. You can also open the Clip to review sharing first.",
       ],
-      cta: { label: "Open Clip", url: input.url },
-      footer: "You received this because you own this Clip.",
+      cta: { label: "Allow access", url: input.allowAccessUrl },
+      secondaryCta: { label: "Open Clip", url: input.url },
+      closingParagraphs: [
+        "This approval link expires in 7 days and requires you to be signed in as a Clip owner or admin.",
+      ],
+      footer:
+        "You received this because you own this Clip. If you do not recognize the requester, you can ignore this email.",
     }),
   };
 }
@@ -83,12 +100,23 @@ async function notifyOwner(input: {
   }
   if (!(await isEmailConfigured())) return false;
 
+  const approvalToken = signScopedAgentAccessToken({
+    resourceKind: CLIPS_ACCESS_APPROVAL_TOKEN_PREFIX,
+    resourceId: input.recordingId,
+    viewerEmail: input.requesterEmail,
+    ttlSeconds: CLIPS_ACCESS_APPROVAL_TOKEN_TTL_SECONDS,
+  });
+
   await sendEmail({
     ...renderRecordingAccessRequestEmail({
       requesterName: input.requesterName,
       requesterEmail: input.requesterEmail,
       recordingTitle: input.recordingTitle,
       url: absoluteRecordingUrl(input.recordingId),
+      allowAccessUrl: absoluteAccessApprovalUrl(
+        input.recordingId,
+        approvalToken,
+      ),
     }),
     to: input.ownerEmail,
     replyTo: input.requesterEmail,
@@ -99,7 +127,7 @@ async function notifyOwner(input: {
 
 export default defineAction({
   description:
-    "Request access to a private Clips recording. Records the request and notifies the owner in-app and by email when configured.",
+    "Request access to a private Clips recording. Signed-in viewers use their account email; anonymous viewers may provide an email address. Records the request and notifies the owner in-app and by email when configured.",
   schema: z.object({
     recordingId: z
       .string()
@@ -111,18 +139,53 @@ export default defineAction({
       .min(1)
       .optional()
       .describe("Short-lived capability from the private share page."),
+    requesterEmail: z
+      .string()
+      .trim()
+      .email()
+      .optional()
+      .describe(
+        "Email address to request access for when the viewer is not signed in.",
+      ),
   }),
   agentTool: false,
-  run: async ({ recordingId, accessRequestToken }) => {
-    const requesterEmail = getRequestUserEmail();
-    if (!requesterEmail) {
-      throw httpError("Sign in to request access to this clip.", 401);
+  run: async ({ recordingId, accessRequestToken, requesterEmail }) => {
+    const sessionEmail = getRequestUserEmail();
+    const token = accessRequestToken
+      ? verifyScopedAgentAccessToken(accessRequestToken, {
+          resourceKind: CLIPS_ACCESS_REQUEST_TOKEN_PREFIX,
+          resourceId: recordingId,
+        })
+      : { ok: false as const, reason: "missing" };
+    if (!token.ok) {
+      throw httpError(`Recording ${recordingId} not found`, 404);
     }
 
-    const normalizedRequesterEmail = normalizeOwnerEmail(requesterEmail);
+    const normalizedRequesterEmail = sessionEmail
+      ? normalizeOwnerEmail(sessionEmail)
+      : requesterEmail
+        ? normalizeOwnerEmail(requesterEmail)
+        : null;
+    if (!normalizedRequesterEmail) {
+      throw httpError(
+        "Sign in or provide an email address to request access to this clip.",
+        401,
+      );
+    }
+
+    const tokenViewerEmail = token.viewerEmail
+      ? normalizeOwnerEmail(token.viewerEmail)
+      : null;
+    if (tokenViewerEmail && tokenViewerEmail !== normalizedRequesterEmail) {
+      throw httpError(
+        "This request is tied to a different email. Sign in with the email that opened the link.",
+        403,
+      );
+    }
+
     const access = await resolveAccess("recording", recordingId, {
       userEmail: normalizedRequesterEmail,
-      orgId: getRequestOrgId() ?? undefined,
+      orgId: sessionEmail ? (getRequestOrgId() ?? undefined) : undefined,
     });
 
     if (access) {
@@ -139,16 +202,6 @@ export default defineAction({
         notifiedOwner: false,
         message: "You already have access to this clip.",
       };
-    }
-
-    if (
-      !accessRequestToken ||
-      !verifyScopedAgentAccessToken(accessRequestToken, {
-        resourceKind: CLIPS_ACCESS_REQUEST_TOKEN_PREFIX,
-        resourceId: recordingId,
-      }).ok
-    ) {
-      throw httpError(`Recording ${recordingId} not found`, 404);
     }
 
     const db = getDb();

@@ -47,6 +47,7 @@ import {
 import {
   DEFAULT_VOICE_DICTATION_ENABLED,
   TiptapComposer,
+  type ComposerAgentOption,
   type ComposerSubmitIntent,
   type TiptapComposerHandle,
   type TiptapComposerSubmitOptions,
@@ -149,6 +150,12 @@ export interface PromptComposerProps {
   selectedEffort?: ReasoningEffort;
   onModelChange?: (model: string, engine: string) => void;
   onEffortChange?: (effort: ReasoningEffort) => void;
+  /** Local or hosted agent runtimes shown above the model list. */
+  availableAgents?: ComposerAgentOption[];
+  /** Selected agent runtime identifier. */
+  selectedAgent?: string;
+  /** Callback when the user picks an agent runtime. */
+  onAgentChange?: (agent: string) => void;
   /**
    * Enable server-backed model/provider status checks. Defaults off when the
    * host supplies model state and callbacks, otherwise on.
@@ -515,6 +522,9 @@ function PromptComposerInner({
   selectedEffort,
   onModelChange,
   onEffortChange,
+  availableAgents,
+  selectedAgent,
+  onAgentChange,
   modelStatusChecksEnabled,
   onTextChange,
   onConnectProvider,
@@ -689,10 +699,13 @@ function PromptComposerInner({
           selectedModel={composerModel}
           selectedEffort={composerEffort}
           availableModels={composerModelGroups}
+          availableAgents={availableAgents}
+          selectedAgent={selectedAgent}
           showAutoModelOption={showAutoModelOption}
           modelListLoading={composerModelListLoading}
           onModelChange={handleModelChange}
           onEffortChange={handleEffortChange}
+          onAgentChange={onAgentChange}
           providerConnectStatusEnabled={resolvedModelStatusChecksEnabled}
           onConnectProvider={onConnectProvider}
           onConnectLocalRuntime={onConnectLocalRuntime}

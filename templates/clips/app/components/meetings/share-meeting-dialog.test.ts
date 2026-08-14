@@ -9,16 +9,13 @@ const source = readFileSync(
 );
 
 describe("meeting share popover", () => {
-  it("makes transcript sharing an explicit admin-managed opt-in", () => {
-    expect(source).toContain('t("shareMeeting.includeTranscript")');
-    expect(source).toContain("checked={includeTranscript}");
-    expect(source).toContain("!canManage || !transcriptReady");
-    expect(source).toContain("{ id: meetingId, shareTranscript: next }");
-  });
-
-  it("explains when the transcript is unavailable", () => {
-    expect(source).toContain('t("shareMeeting.includeTranscriptDescription")');
-    expect(source).toContain('t("shareMeeting.transcriptUnavailable")');
+  it("no longer exposes the transcript toggle or mutation in the meeting share UI", () => {
+    expect(source).not.toContain('t("shareMeeting.includeTranscript")');
+    expect(source).not.toContain("checked={includeTranscript}");
+    expect(source).not.toContain("update-meeting");
+    expect(source).not.toContain("Switch");
+    expect(source).not.toContain("transcriptReady");
+    expect(source).not.toContain("shareTranscript: next");
   });
 
   it("offers a separate temporary agent link for private meetings", () => {
@@ -32,5 +29,10 @@ describe("meeting share popover", () => {
       "const visibleAgentLink = isPublic ? shareUrl : agentLink;",
     );
     expect(source).not.toContain("!isPublic ? (");
+  });
+
+  it("keeps individual access in the primary share surface", () => {
+    expect(source).toContain("<SharePeopleTab");
+    expect(source).not.toContain('value="invite"');
   });
 });

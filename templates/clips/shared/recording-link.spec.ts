@@ -6,7 +6,11 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { buildRecordingShareUrl, recordingSharePath } from "./recording-link";
+import {
+  buildRecordingShareUrl,
+  recordingAccessApprovalPath,
+  recordingSharePath,
+} from "./recording-link";
 
 describe("recordingSharePath", () => {
   it("builds the public /share/:id path", () => {
@@ -16,6 +20,21 @@ describe("recordingSharePath", () => {
   it("URL-encodes ids with special characters", () => {
     expect(recordingSharePath("a b/c?d#e")).toBe("/share/a%20b%2Fc%3Fd%23e");
     expect(recordingSharePath("clip+1&2")).toBe("/share/clip%2B1%262");
+  });
+});
+
+describe("recordingAccessApprovalPath", () => {
+  it("keeps the owner approval link on the dedicated route", () => {
+    const url = new URL(
+      `https://clips.example.com${recordingAccessApprovalPath(
+        "rec 1",
+        "signed.token",
+      )}`,
+    );
+
+    expect(url.pathname).toBe("/access-request/approve");
+    expect(url.searchParams.get("recordingId")).toBe("rec 1");
+    expect(url.searchParams.get("token")).toBe("signed.token");
   });
 });
 

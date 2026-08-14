@@ -704,12 +704,6 @@ export default function MeetingDetailRoute() {
           ) : null}
           <ShareMeetingPopover
             meetingId={meeting.id}
-            shareTranscript={meeting.shareTranscript === true}
-            transcriptReady={
-              meeting.transcriptStatus === "ready" &&
-              (segments.length > 0 ||
-                Boolean(data?.transcript?.fullText?.trim()))
-            }
           >
             <ShareTrigger
               label={t("meetingDetail.share")}

@@ -19,7 +19,10 @@ import AppSettings, {
   AddAppDialog,
   AppEditForm,
 } from "./components/AppSettings.js";
-import AppWebview, { type AppWebviewHandle } from "./components/AppWebview.js";
+import AppWebview, {
+  type AppWebviewAuthState,
+  type AppWebviewHandle,
+} from "./components/AppWebview.js";
 import CodeAgentsHub from "./components/CodeAgentsHub.js";
 import DesktopAppChatShell from "./components/DesktopAppChatShell.js";
 import Sidebar, { WindowControls } from "./components/Sidebar.js";
@@ -28,6 +31,7 @@ import UpdatePrompt from "./components/UpdatePrompt.js";
 import { shouldRouteDesktopAppToChatFirst } from "./lib/desktop-shortcut-routing.js";
 import { shouldReserveMacOSWindowControlsSpace } from "./lib/platform.js";
 import { getTabDisplayTitle } from "./lib/tab-title.js";
+import { useRendererTheme } from "./lib/theme.js";
 
 const reserveMacOSWindowControlsSpace = shouldReserveMacOSWindowControlsSpace();
 
@@ -131,6 +135,7 @@ function isCodeTabShortcut(e: KeyboardEvent): boolean {
 }
 
 export default function App() {
+  const theme = useRendererTheme();
   const [apps, setApps] = useState<AppConfig[]>([]);
   const [loading, setLoading] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
@@ -208,6 +213,9 @@ export default function App() {
   const [mountedAppIds, setMountedAppIds] = useState<Set<string>>(
     () => new Set(),
   );
+  const [appAuthStates, setAppAuthStates] = useState<
+    Record<string, AppWebviewAuthState>
+  >({});
 
   // Initialize tabs when apps load
   useEffect(() => {
@@ -262,6 +270,20 @@ export default function App() {
   const [findQuery, setFindQuery] = useState("");
   const findInputRef = useRef<HTMLInputElement>(null);
   const webviewRefs = useRef(new Map<string, AppWebviewHandle>());
+
+  const handleAppAuthStateChange = useCallback(
+    (appId: string, state: AppWebviewAuthState) => {
+      setAppAuthStates((current) =>
+        current[appId] === state ? current : { ...current, [appId]: state },
+      );
+    },
+    [],
+  );
+
+  const focusActiveAppWebview = useCallback(() => {
+    const tabId = appTabs[activeSidebarAppId]?.activeTabId;
+    if (tabId) webviewRefs.current.get(tabId)?.focus();
+  }, [activeSidebarAppId, appTabs]);
 
   const currentAppTabs = appTabs[activeSidebarAppId];
   const activeTabId = currentAppTabs?.activeTabId ?? "";
@@ -1062,11 +1084,15 @@ export default function App() {
       app={appDef}
       appConfig={app}
       isActive={isActive}
+      theme={theme}
       urlOpenNonce={tab.urlOpenNonce}
       urlPath={tab.urlPath}
       urlOpenSoft={tab.urlOpenSoft}
       refreshKey={isActive ? refreshKey : 0}
       onTitleChange={(title) => handleTabTitleChange(tab.id, title)}
+      onAuthStateChange={(state) => {
+        if (isActive) handleAppAuthStateChange(app.id, state);
+      }}
       onAppsChanged={handleAppsChanged}
     />
   ));
@@ -1224,6 +1250,8 @@ export default function App() {
               key={activeApp.id}
               appId={activeApp.id}
               appName={activeApp.name}
+              authState={appAuthStates[activeApp.id] ?? "unknown"}
+              onSignInRequest={focusActiveAppWebview}
             >
               {webviewContent}
             </DesktopAppChatShell>

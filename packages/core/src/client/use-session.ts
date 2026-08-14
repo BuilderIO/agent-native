@@ -70,6 +70,24 @@ function publishSessionIdentity(session: AuthSession | null): void {
   trackSessionStatus(Boolean(session));
 }
 
+function notifyParentAuthState(
+  status: "authenticated" | "unauthenticated",
+): void {
+  if (typeof window === "undefined" || window.parent === window) return;
+  try {
+    window.parent.postMessage(
+      {
+        type: "agentNative.authState",
+        data: { status },
+      },
+      "*",
+    );
+    // coercion-ok: Posting auth state is best-effort when an embedded host is being detached.
+  } catch {
+    // A host may revoke the frame while the session request is settling.
+  }
+}
+
 function invalidateSessionCache(): void {
   sessionGeneration += 1;
   cachedSession = undefined;
@@ -211,6 +229,7 @@ export function useSession(): UseSessionResult {
       setSession(resolved);
       setError(null);
       setStatus(resolved ? "authenticated" : "unauthenticated");
+      notifyParentAuthState(resolved ? "authenticated" : "unauthenticated");
     };
 
     void resolveSession();

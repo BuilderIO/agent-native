@@ -39,6 +39,7 @@ import {
   StatsCard,
   buildDashboardPanelGroups,
 } from "@agent-native/toolkit/dashboard";
+import { DataGrid } from "@agent-native/toolkit/data-grid";
 import {
   CanvasCommentPins,
   DrawOverlay,
@@ -109,6 +110,29 @@ than sharing dashboard rows between apps. Resolve panel data with a
 `PanelSourceResolver`; the built-in `program` resolver runs an app-owned data
 program and is the zero-wiring default. Provider-specific resolvers stay in the
 app that owns their credentials and query policy.
+
+## Data grid kit
+
+`@agent-native/toolkit/data-grid` provides the spreadsheet-like interaction
+layer without owning a data model. Supply rows, typed columns, editor slots,
+selection state, and commit callbacks from the app. Keyboard navigation,
+selection, column resizing, and the scroll surface are shared; `renderHeader`,
+`renderBody`, `renderRow`, and `renderFooter` let an app preserve product-
+specific headers, grouping, and row actions while adopting the same grid
+mechanics.
+
+```tsx
+<DataGrid
+  rows={rows}
+  columns={columns}
+  getRowId={(row) => row.id}
+  onCellCommit={({ row, column, value }) => updateCell(row.id, column.id, value)}
+/>
+```
+
+The kit never fetches data, calls actions, resolves credentials, or persists
+edits. Eject it with `agent-native eject toolkit/data-grid --app <app>` when a
+product needs a deeper local visual or interaction change.
 
 ## Customize Or Take Ownership
 

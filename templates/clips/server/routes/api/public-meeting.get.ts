@@ -2,8 +2,8 @@
  * GET /api/public-meeting?id=<meetingId>
  *
  * Access-checked meeting notes for the anonymous share surface. Meeting access
- * governs the payload; the linked transcript is an explicit, default-off part
- * of that share and is omitted unless the meeting owner enables it.
+ * governs the payload; the transcript is included whenever the meeting has a
+ * linked recording transcript, regardless of the legacy shareTranscript flag.
  */
 
 import {
@@ -120,7 +120,7 @@ export default defineEventHandler(async (event) => {
         })
         .from(schema.meetingActionItems)
         .where(eq(schema.meetingActionItems.meetingId, meetingId)),
-      meeting.shareTranscript && meeting.recordingId
+      meeting.recordingId
         ? db
             .select({
               status: schema.recordingTranscripts.status,
@@ -160,18 +160,14 @@ export default defineEventHandler(async (event) => {
         bullets: parseBullets(meeting.bulletsJson),
         participants,
         actionItems,
-        ...(meeting.shareTranscript
+        transcript: transcript
           ? {
-              transcript: transcript
-                ? {
-                    status: transcriptPresentation.status,
-                    language: transcript.language,
-                    fullText: transcript.fullText,
-                    segments: transcriptSegments,
-                  }
-                : null,
+              status: transcriptPresentation.status,
+              language: transcript.language,
+              fullText: transcript.fullText,
+              segments: transcriptSegments,
             }
-          : {}),
+          : null,
       },
       viewer: session?.email
         ? {

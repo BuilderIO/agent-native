@@ -12,13 +12,29 @@
  */
 import { withShareAttribution } from "./share-attribution";
 
-/** Short-lived capability used by a signed-in private share viewer to request access. */
+/** Short-lived capability used by a private share viewer to request access. */
 export const CLIPS_ACCESS_REQUEST_TOKEN_PREFIX = "clips-access-request";
 export const CLIPS_ACCESS_REQUEST_TOKEN_TTL_SECONDS = 10 * 60;
+
+/** Signed capability embedded in the owner's access-request email. */
+export const CLIPS_ACCESS_APPROVAL_TOKEN_PREFIX = "clips-access-approval";
+export const CLIPS_ACCESS_APPROVAL_TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60;
 
 /** Public share path for a recording, relative to the app base path. */
 export function recordingSharePath(recordingId: string): string {
   return `/share/${encodeURIComponent(recordingId)}`;
+}
+
+/** Owner-only route used by the one-click approval button in access emails. */
+export function recordingAccessApprovalPath(
+  recordingId: string,
+  approvalToken: string,
+): string {
+  const params = new URLSearchParams({
+    recordingId,
+    token: approvalToken,
+  });
+  return `/access-request/approve?${params.toString()}`;
 }
 
 export interface RecordingShareUrlParams {

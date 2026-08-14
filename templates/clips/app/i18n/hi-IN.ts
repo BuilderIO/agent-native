@@ -258,12 +258,37 @@ const messages = {
     privateClipMessage:
       "यह क्लिप निजी है। पहुंच का अनुरोध करें और मालिक को सूचित किया जाएगा।",
     privateClipSignedOutMessage:
-      "यह क्लिप निजी है। मालिक से पहुंच का अनुरोध करने के लिए साइन इन करें।",
+      "यह क्लिप निजी है। पहुंच का अनुरोध करने के लिए साइन इन करें या अपना ईमेल दर्ज करें।",
     requestAccess: "पहुंच का अनुरोध करें",
+    requestAccessDialogTitle: "पहुंच का अनुरोध करें",
+    requestAccessDialogDescription:
+      "चुनें कि क्लिप साझा करते समय मालिक आपकी पहचान कैसे करे।",
+    requestAccessSignIn: "साइन इन या साइन अप करें",
+    requestAccessOr: "या",
+    requestAccessEmailLabel: "ईमेल पता",
+    requestAccessEmailPlaceholder: "you@example.com",
+    requestAccessEmailHint:
+      "पहुंच मिलने के बाद क्लिप देखने के लिए इसी ईमेल से साइन इन करें।",
+    requestAccessWithEmail: "ईमेल से अनुरोध करें",
+    requestAccessEmailRequired: "मान्य ईमेल पता दर्ज करें।",
     requestingAccess: "पहुंच का अनुरोध किया जा रहा है...",
     accessRequested: "पहुंच का अनुरोध किया गया",
     accessRequestSent: "क्लिप के मालिक को सूचित कर दिया गया है।",
+    accessRequestSentWithEmail:
+      "मालिक से यह क्लिप {{email}} के साथ साझा करने को कहा गया है।",
     accessRequestFailed: "पहुंच का अनुरोध नहीं किया जा सका। फिर से कोशिश करें।",
+    accessApprovalTitle: "पहुंच दे दी गई",
+    accessApprovalAlreadyTitle: "पहुंच पहले से दी गई है",
+    accessApprovalMessage: "{{email}} अब इस क्लिप को देख सकते हैं।",
+    accessApprovalAlreadyMessage: "{{email}} के पास इस क्लिप की पहुंच पहले से है।",
+    accessApprovalErrorTitle: "पहुंच नहीं दी जा सकी",
+    accessApprovalInvalid: "यह पहुंच अनुरोध अमान्य या समाप्त हो चुका है।",
+    accessApprovalSignInTitle: "पहुंच देने के लिए साइन इन करें",
+    accessApprovalSignInMessage:
+      "इस अनुरोध को मंजूर करने के लिए क्लिप मालिक या एडमिन के रूप में साइन इन करें।",
+    accessApprovalOpenClip: "क्लिप खोलें",
+    accessApprovalSignIn: "साइन इन करें",
+    accessApprovalLoading: "पहुंच दी जा रही है...",
     clipUnavailable: "क्लिप अनुपलब्ध",
     clipUnavailableMessage:
       "यह रिकॉर्डिंग सार्वजनिक नहीं है, या लिंक अमान्य है. यदि यह आपकी क्लिप है, तो पहुंच जांचने के लिए साइन इन करें।",
@@ -969,17 +994,12 @@ Clips में उपयोगकर्ताओं को दिखने व�
     actionItems: "कार्य आइटम",
     sharedContent: "साझा की गई सामग्री",
     summaryIncluded: "सारांश, मुख्य बिंदु और कार्य आइटम",
-    includeTranscript: "पूरी ट्रांसक्रिप्ट शामिल करें",
-    includeTranscriptDescription:
-      "इस मीटिंग का एक्सेस रखने वाला कोई भी व्यक्ति पूरी ट्रांसक्रिप्ट पढ़ सकता है।",
-    transcriptUnavailable: "ट्रांसक्रिप्ट अभी तैयार नहीं है।",
     agentLinkDescription:
       "यह अस्थायी लिंक एजेंट को इन मीटिंग नोट्स को सार्वजनिक किए बिना पढ़ने देता है। यह दो घंटे बाद समाप्त हो जाता है।",
     transcript: "ट्रांसक्रिप्ट",
     copyTranscript: "ट्रांसक्रिप्ट कॉपी करें",
     transcriptCopied: "ट्रांसक्रिप्ट कॉपी हो गई",
     copyTranscriptFailed: "ट्रांसक्रिप्ट कॉपी नहीं हो सकी",
-    updateTranscriptSharingFailed: "ट्रांसक्रिप्ट शेयरिंग अपडेट नहीं हो सकी",
   },
   deleteRecordingMenu: {
     movedToTrash: "क्लिप ट्रैश में ले जाया गया",

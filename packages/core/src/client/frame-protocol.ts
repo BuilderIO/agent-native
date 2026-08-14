@@ -90,6 +90,7 @@ export interface DesignCloseMessage {
 
 export type AppToFrameMessage =
   | AppReadyMessage
+  | AuthStateMessage
   | SubmitChatMessage
   | SetChatContextMessage
   | RemoveChatContextMessage
@@ -125,6 +126,12 @@ export interface ChatRunningMessage {
 export interface UserInfoMessage {
   type: "agentNative.userInfo";
   data: { name?: string; email?: string };
+}
+
+/** The embedded app's own session state, surfaced to a trusted host frame. */
+export interface AuthStateMessage {
+  type: "agentNative.authState";
+  data: { status: "authenticated" | "unauthenticated" };
 }
 
 export interface CodeCompleteMessage {

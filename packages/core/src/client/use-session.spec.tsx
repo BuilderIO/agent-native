@@ -94,6 +94,36 @@ describe("useSession", () => {
     expect(analyticsMocks.trackSessionStatus).toHaveBeenCalledWith(true);
   });
 
+  it("reports the definitive session state to an embedding host", async () => {
+    const postMessage = vi.fn();
+    const parentWindow = { postMessage };
+    const parentDescriptor = Object.getOwnPropertyDescriptor(window, "parent");
+    Object.defineProperty(window, "parent", {
+      configurable: true,
+      value: parentWindow,
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse({ error: "signed out" })),
+    );
+
+    try {
+      await renderConsumers(["embedded"]);
+
+      expect(postMessage).toHaveBeenCalledWith(
+        {
+          type: "agentNative.authState",
+          data: { status: "unauthenticated" },
+        },
+        "*",
+      );
+    } finally {
+      if (parentDescriptor) {
+        Object.defineProperty(window, "parent", parentDescriptor);
+      }
+    }
+  });
+
   it("keeps loading and retries after a non-OK response", async () => {
     vi.useFakeTimers();
     const fetchMock = vi

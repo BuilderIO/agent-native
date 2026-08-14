@@ -3008,6 +3008,18 @@ export interface AgentSidebarProps {
   onComposerTextChange?: AssistantChatProps["onComposerTextChange"];
   /** Optional secondary model menu shown inside the chat composer model picker. */
   imageModelMenu?: AssistantChatProps["imageModelMenu"];
+  /** Local or hosted agent runtimes shown above the model list. */
+  availableAgents?: AssistantChatProps["availableAgents"];
+  /** Selected agent runtime identifier. */
+  selectedAgent?: AssistantChatProps["selectedAgent"];
+  /** Callback when the user picks an agent runtime. */
+  onAgentChange?: AssistantChatProps["onAgentChange"];
+  /** Route local runtime setup through the host's native bridge. */
+  onConnectLocalRuntime?: AssistantChatProps["onConnectLocalRuntime"];
+  /** Bring-your-own runtime used by embedded hosts such as Electron. */
+  runtime?: AssistantChatProps["runtime"];
+  /** Explicit key for recreating an injected runtime adapter. */
+  adapterReloadKey?: AssistantChatProps["adapterReloadKey"];
   /** Optional content rendered at the bottom of the chat thread. */
   threadFooterSlot?: AssistantChatProps["threadFooterSlot"];
   /** Initial sidebar width in pixels. Mount-only; user resize and a saved
@@ -3079,6 +3091,12 @@ export function AgentSidebar({
   composerSlot,
   onComposerTextChange,
   imageModelMenu,
+  availableAgents,
+  selectedAgent,
+  onAgentChange,
+  onConnectLocalRuntime,
+  runtime,
+  adapterReloadKey,
   threadFooterSlot,
   defaultSidebarWidth,
   sidebarWidth,
@@ -3737,6 +3755,12 @@ export function AgentSidebar({
             composerSlot={composerSlot}
             onComposerTextChange={onComposerTextChange}
             imageModelMenu={imageModelMenu}
+            availableAgents={availableAgents}
+            selectedAgent={selectedAgent}
+            onAgentChange={onAgentChange}
+            onConnectLocalRuntime={onConnectLocalRuntime}
+            runtime={runtime}
+            adapterReloadKey={adapterReloadKey}
             threadFooterSlot={threadFooterSlot}
             apiUrl={apiUrl}
             agentChatSurface={agentChatSurface}

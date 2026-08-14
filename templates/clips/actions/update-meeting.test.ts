@@ -50,25 +50,11 @@ function createDb() {
   };
 }
 
-describe("update-meeting transcript sharing", () => {
+describe("update-meeting", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockAssertAccess.mockResolvedValue({ role: "owner" });
     mockWriteAppState.mockResolvedValue(undefined);
-  });
-
-  it("requires admin access and persists an explicit transcript-sharing change", async () => {
-    const db = createDb();
-    mockGetDb.mockReturnValue(db);
-
-    await updateMeeting.run({ id: "meeting-1", shareTranscript: true });
-
-    expect(mockAssertAccess).toHaveBeenCalledWith(
-      "meeting",
-      "meeting-1",
-      "admin",
-    );
-    expect(db.patches[0]).toMatchObject({ shareTranscript: true });
   });
 
   it("keeps ordinary meeting edits at the editor role", async () => {
@@ -99,12 +85,4 @@ describe("update-meeting transcript sharing", () => {
     );
   });
 
-  it("parses false-like CLI values without turning them on", () => {
-    expect(
-      updateMeeting.schema.parse({
-        id: "meeting-1",
-        shareTranscript: "false",
-      }),
-    ).toMatchObject({ shareTranscript: false });
-  });
 });

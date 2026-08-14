@@ -269,12 +269,38 @@ const messages = {
     privateClipMessage:
       "Este clip es privado. Solicita acceso y se notificará al propietario.",
     privateClipSignedOutMessage:
-      "Este clip es privado. Inicia sesión para solicitar acceso al propietario.",
+      "Este clip es privado. Inicia sesión o introduce tu correo para solicitar acceso.",
     requestAccess: "Solicitar acceso",
+    requestAccessDialogTitle: "Solicitar acceso",
+    requestAccessDialogDescription:
+      "Elige cómo puede identificarte el propietario al compartir este clip.",
+    requestAccessSignIn: "Iniciar sesión o registrarse",
+    requestAccessOr: "o",
+    requestAccessEmailLabel: "Dirección de correo electrónico",
+    requestAccessEmailPlaceholder: "you@example.com",
+    requestAccessEmailHint:
+      "Cuando se conceda el acceso, inicia sesión con este correo para ver el clip.",
+    requestAccessWithEmail: "Solicitar con correo electrónico",
+    requestAccessEmailRequired: "Introduce una dirección de correo válida.",
     requestingAccess: "Solicitando acceso...",
     accessRequested: "Acceso solicitado",
     accessRequestSent: "Se notificó al propietario del clip.",
+    accessRequestSentWithEmail:
+      "Se pidió al propietario que compartiera este clip con {{email}}.",
     accessRequestFailed: "No se pudo solicitar el acceso. Inténtalo de nuevo.",
+    accessApprovalTitle: "Acceso concedido",
+    accessApprovalAlreadyTitle: "El acceso ya está concedido",
+    accessApprovalMessage: "{{email}} ya puede ver este clip.",
+    accessApprovalAlreadyMessage: "{{email}} ya tiene acceso a este clip.",
+    accessApprovalErrorTitle: "No se pudo conceder el acceso",
+    accessApprovalInvalid:
+      "Esta solicitud de acceso no es válida o ha caducado.",
+    accessApprovalSignInTitle: "Inicia sesión para permitir el acceso",
+    accessApprovalSignInMessage:
+      "Inicia sesión como propietario o administrador del clip para aprobar esta solicitud.",
+    accessApprovalOpenClip: "Abrir clip",
+    accessApprovalSignIn: "Iniciar sesión",
+    accessApprovalLoading: "Concediendo acceso...",
     clipUnavailable: "Clip no disponible",
     clipUnavailableMessage:
       "Esta grabación no es pública o el enlace no es válido. Si es tu clip, inicia sesión para verificar el acceso.",
@@ -1003,18 +1029,12 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     actionItems: "Elementos de acción",
     sharedContent: "Contenido compartido",
     summaryIncluded: "Resumen, puntos clave y elementos de acción",
-    includeTranscript: "Incluir la transcripción completa",
-    includeTranscriptDescription:
-      "Cualquier persona con acceso a esta reunión puede leer la transcripción completa.",
-    transcriptUnavailable: "La transcripción aún no está lista.",
     agentLinkDescription:
       "Este enlace temporal permite a los agentes leer estas notas de reunión sin hacerlas públicas. Caduca después de dos horas.",
     transcript: "Transcripción",
     copyTranscript: "Copiar transcripción",
     transcriptCopied: "Transcripción copiada",
     copyTranscriptFailed: "No se pudo copiar la transcripción",
-    updateTranscriptSharingFailed:
-      "No se pudo actualizar el uso compartido de la transcripción",
   },
   deleteRecordingMenu: {
     movedToTrash: "Clip movido a la papelera",

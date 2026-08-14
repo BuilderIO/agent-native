@@ -84,6 +84,7 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
       actualStart: schema.meetings.actualStart,
       actualEnd: schema.meetings.actualEnd,
       transcriptStatus: schema.meetings.transcriptStatus,
+      recordingId: schema.meetings.recordingId,
       visibility: schema.meetings.visibility,
     })
     .from(schema.meetings)
@@ -104,7 +105,7 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
     return shareMeetingLoaderData({ meeting: null }, hasAgentAccessToken);
   }
 
-  const [participants, actionItems] = await Promise.all([
+  const [participants, actionItems, transcriptRows] = await Promise.all([
     getDb()
       .select({
         email: schema.meetingParticipants.email,
@@ -122,7 +123,32 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
       })
       .from(schema.meetingActionItems)
       .where(eq(schema.meetingActionItems.meetingId, meetingId)),
+    meeting.recordingId
+      ? getDb()
+          .select({
+            status: schema.recordingTranscripts.status,
+            language: schema.recordingTranscripts.language,
+            fullText: schema.recordingTranscripts.fullText,
+            failureReason: schema.recordingTranscripts.failureReason,
+            segmentsJson: schema.recordingTranscripts.segmentsJson,
+            updatedAt: schema.recordingTranscripts.updatedAt,
+          })
+          .from(schema.recordingTranscripts)
+          .where(
+            eq(schema.recordingTranscripts.recordingId, meeting.recordingId),
+          )
+          .limit(1)
+      : Promise.resolve([]),
   ]);
+
+  const transcript = transcriptRows[0] ?? null;
+  const transcriptPresentation = resolveTranscriptPresentation(transcript);
+  const transcriptSegments = transcript
+    ? normalizeTranscriptSegments({
+        segments: parseTranscriptSegments(transcript.segmentsJson),
+        fullText: transcript.fullText,
+      })
+    : [];
 
   let bullets: PublicMeeting["bullets"] = [];
   try {
@@ -150,6 +176,14 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
         actualStart: meeting.actualStart,
         actualEnd: meeting.actualEnd,
         transcriptStatus: meeting.transcriptStatus,
+        transcript: transcript
+          ? {
+              status: transcriptPresentation.status,
+              language: transcript.language,
+              fullText: transcript.fullText,
+              segments: transcriptSegments,
+            }
+          : null,
       },
     },
     hasAgentAccessToken,
