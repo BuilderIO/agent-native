@@ -1,3 +1,5 @@
+export { MemoryRouter as AgentChatMemoryRouter } from "react-router";
+
 export {
   AgentAskPopover,
   type AgentAskPopoverProps,

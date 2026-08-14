@@ -19,6 +19,8 @@ const REQUIRED_CONTENT_ACTIONS = [
   "update-document",
   "move-document",
   "navigate",
+  "add-database-item",
+  "update-database-item",
   "upsert-database-item-by-key",
 ];
 

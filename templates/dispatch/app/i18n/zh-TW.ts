@@ -306,6 +306,8 @@ const messages = {
     },
     pages: {
       adminDescription: "工作區控制與營運",
+      simpleAgentsDescription:
+        "幾分鐘內建立可重複使用的代理，或匯入你已在 Claude 或其他代理工具中建立的設定。",
       adminNavigation: "管理導覽",
       adminWelcome: "工作區控制中心",
       adminChooseArea: "在同一處管理應用程式、連線、自動化和營運工具。",

@@ -11,6 +11,8 @@ Read the relevant skill before deeper work:
 - `data-querying` for source inspection, SQL generation, result handling, and
   `/chart` embeds; `bigquery`, `hubspot`, `gong`, `prometheus` for provider
   specifics.
+- `account-health` for named customer health, QBR, renewal, contract usage,
+  identity, and product adoption.
 - `cross-source-analysis` for questions spanning sources (identity stitching,
   de-duplication).
 - `dashboard-management` for dashboard/panel storage, layout, extensions,
@@ -64,6 +66,7 @@ Read the relevant skill before deeper work:
   suggest and wait otherwise. Scope them to the question, avoid decorative
   metrics, and never modify existing dashboards without a directive.
 - For named account/deal deep dives, call `account-deep-dive` first.
+- For named account health, read `account-health` before querying.
 - When the user challenges coverage or asks why records are missing, rerun from
   the source cohort and include the updated answer directly — never claim a
   revision you didn't produce.

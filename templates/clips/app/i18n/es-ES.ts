@@ -265,6 +265,16 @@ const messages = {
     linkExpired: "Enlace caducado",
     linkExpiredMessage:
       "El creador estableció una caducidad para este enlace para compartir.",
+    privateClip: "Clip privado",
+    privateClipMessage:
+      "Este clip es privado. Solicita acceso y se notificará al propietario.",
+    privateClipSignedOutMessage:
+      "Este clip es privado. Inicia sesión para solicitar acceso al propietario.",
+    requestAccess: "Solicitar acceso",
+    requestingAccess: "Solicitando acceso...",
+    accessRequested: "Acceso solicitado",
+    accessRequestSent: "Se notificó al propietario del clip.",
+    accessRequestFailed: "No se pudo solicitar el acceso. Inténtalo de nuevo.",
     clipUnavailable: "Clip no disponible",
     clipUnavailableMessage:
       "Esta grabación no es pública o el enlace no es válido. Si es tu clip, inicia sesión para verificar el acceso.",
@@ -997,6 +1007,8 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     includeTranscriptDescription:
       "Cualquier persona con acceso a esta reunión puede leer la transcripción completa.",
     transcriptUnavailable: "La transcripción aún no está lista.",
+    agentLinkDescription:
+      "Este enlace temporal permite a los agentes leer estas notas de reunión sin hacerlas públicas. Caduca después de dos horas.",
     transcript: "Transcripción",
     copyTranscript: "Copiar transcripción",
     transcriptCopied: "Transcripción copiada",
@@ -1577,6 +1589,16 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     calendarConnected: "Calendar connected",
     calendarDisconnected: "Calendar disconnected",
     calendarSettings: "Calendar settings",
+    calendarAccountsButton: "Calendarios",
+    connectedAccounts: "Cuentas conectadas",
+    calendarConnectedLabel: "Conectado",
+    calendarNeedsReconnectLabel: "Necesita volver a conectarse",
+    calendarDisconnectedLabel: "Desconectado",
+    calendarStatusUnavailable: "Estado no disponible",
+    reconnectCalendar: "Volver a conectar el calendario",
+    addAnotherCalendarAccount: "Añadir otra cuenta",
+    connectCalendar: "Conectar calendario",
+    disconnectCalendarAccount: "Desconectar una cuenta",
     connectCalendarReminder: "Connect Google Calendar for meeting reminders.",
     disconnectGoogleCalendarTitle: "Disconnect Google Calendar?",
     title: "Meetings",

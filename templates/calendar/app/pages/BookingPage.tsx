@@ -5,6 +5,7 @@ import {
   StarfieldBackground,
 } from "@agent-native/core/client/ui";
 import type { Booking } from "@shared/api";
+import { getWeekStartsOn } from "@shared/calendar-week";
 import { IconAlertTriangle, IconCalendar } from "@tabler/icons-react";
 import {
   addMinutes,
@@ -432,6 +433,7 @@ export default function BookingPage() {
                     availabilityLoading={availableDatesLoading}
                     viewMonth={viewMonth}
                     onViewMonthChange={setViewMonth}
+                    weekStartsOn={getWeekStartsOn(settings?.weekStart)}
                   />
                 </div>
               )}

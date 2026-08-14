@@ -122,6 +122,43 @@ describe("analytics query catalog", () => {
     expect(results[0]).toMatchObject({ panelId: "quarterly-bookings" });
   });
 
+  it("does not return explicitly retired catalog references", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "account usage",
+      limit: 6,
+      dashboards: [
+        {
+          id: "retired-dashboard",
+          title: "Account Usage",
+          origin: "saved-dashboard",
+          config: {
+            panels: [
+              {
+                id: "retired-panel",
+                title: "Account Usage",
+                source: "bigquery",
+                status: "deprecated",
+                sql: "SELECT * FROM current_usage",
+              },
+            ],
+          },
+        },
+      ],
+      dictionaryEntries: [
+        {
+          id: "retired-metric",
+          metric: "Account Usage",
+          table: "account_usage",
+          queryTemplate: "SELECT * FROM account_usage",
+          lifecycle: "retired",
+          approved: true,
+        },
+      ],
+    });
+
+    expect(results).toEqual([]);
+  });
+
   it("surfaces extension panels that have no SQL", () => {
     const results = rankAnalyticsQueryCatalog({
       search: "risk meeting",

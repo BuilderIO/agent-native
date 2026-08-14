@@ -186,6 +186,26 @@ async function orderedRows(databaseId: string) {
     .orderBy(asc(schema.contentDatabaseItems.position));
 }
 
+async function createRowThroughMutationContract(
+  databaseId: string,
+  title: string,
+  idempotencyKey: string,
+) {
+  const discovered = await runWithRequestContext({ userEmail: OWNER }, () =>
+    getContentDatabaseAction.run({ databaseId }),
+  );
+  if (!("database" in discovered) || !discovered.mutationContract)
+    throw new Error("Fixture database has no mutation contract.");
+  return runWithRequestContext({ userEmail: OWNER }, () =>
+    addDatabaseItemAction.run({
+      target: discovered.mutationContract!.target,
+      expectedSchemaRevision: discovered.mutationContract!.schemaRevision,
+      idempotencyKey,
+      title,
+    }),
+  );
+}
+
 describe("database row batch actions", () => {
   it("reports truthful page-view capability for database rows", async () => {
     const { databaseId, databaseDocumentId, rows } =
@@ -688,31 +708,42 @@ describe("database row batch actions", () => {
   });
 
   it("rejects removal from system databases whose memberships are canonical", async () => {
-    const [filesDatabase] = await getDb()
-      .select({ id: schema.contentDatabases.id })
+    const db = getDb();
+    const [filesDatabase] = await db
+      .select({
+        id: schema.contentDatabases.id,
+        documentId: schema.contentDatabases.documentId,
+      })
       .from(schema.contentDatabases)
       .where(eq(schema.contentDatabases.systemRole, "files"));
-    const created = await runWithRequestContext({ userEmail: OWNER }, () =>
-      addDatabaseItemAction.run({
-        databaseId: filesDatabase.id,
-        title: "Canonical file",
-      }),
-    );
+    const documentId = await createDocument({
+      parentId: filesDatabase.documentId,
+      title: "Canonical file",
+    });
+    const itemId = nextId("files_item");
+    const now = new Date().toISOString();
+    await db.insert(schema.contentDatabaseItems).values({
+      id: itemId,
+      ownerEmail: OWNER,
+      databaseId: filesDatabase.id,
+      documentId,
+      position: 0,
+      createdAt: now,
+      updatedAt: now,
+    });
 
     await expect(
       runWithRequestContext({ userEmail: OWNER }, () =>
         removeDatabaseItemsAction.run({
           databaseId: filesDatabase.id,
-          itemIds: [created.createdItemId],
+          itemIds: [itemId],
         }),
       ),
     ).rejects.toThrow(
       "System database memberships cannot be removed from this surface.",
     );
     expect(await orderedRows(filesDatabase.id)).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ itemId: created.createdItemId }),
-      ]),
+      expect.arrayContaining([expect.objectContaining({ itemId })]),
     );
   });
 
@@ -1280,27 +1311,30 @@ describe("database row batch actions", () => {
     const results = await Promise.all(
       Array.from({ length: concurrentAdds }, (_, index) =>
         runWithRequestContext({ userEmail: OWNER }, () =>
-          addDatabaseItemAction.run({
+          createRowThroughMutationContract(
             databaseId,
-            title: `Concurrent ${index}`,
-          }),
+            `Concurrent ${index}`,
+            `concurrent-add-${index}`,
+          ),
         ),
       ),
     );
 
     expect(results).toHaveLength(concurrentAdds);
-    const createdItemIds = results.map((result) => result.createdItemId);
+    const createdItemIds = results.map((result) => result.receipt.row.itemId);
     expect(new Set(createdItemIds).size).toBe(concurrentAdds);
     for (const result of results) {
       expect(result.createdItem).toMatchObject({
-        id: result.createdItemId,
-        document: { id: result.createdDocumentId },
+        id: result.receipt.row.itemId,
+        document: { id: result.receipt.row.documentId },
       });
       const [createdDocument] = await getDb()
         .select({ updatedAt: schema.documents.updatedAt })
         .from(schema.documents)
-        .where(eq(schema.documents.id, result.createdDocumentId));
-      expect(result.createdDocumentUpdatedAt).toBe(createdDocument.updatedAt);
+        .where(eq(schema.documents.id, result.receipt.row.documentId));
+      expect(result.createdItem.document.updatedAt).toBe(
+        createdDocument.updatedAt,
+      );
     }
 
     const rows = await orderedRows(databaseId);

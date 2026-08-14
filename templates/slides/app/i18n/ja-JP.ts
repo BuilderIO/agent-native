@@ -511,11 +511,16 @@ const messages = {
     generatingSlide: "正在生成幻灯片",
     uploadFailed: "上传失败",
     uploadAttachedFileFailed: "无法上传附加文件。",
+    newSlideSaveFailed:
+      "新しいスライドを保存できませんでした。もう一度お試しください。",
     addSlides: "添加幻灯片",
     addEmptySlide: "添加空白幻灯片",
     noAi: "无 AI",
     duplicateCurrentSlide: "复制当前幻灯片",
     promptPlaceholder: "描述你想要的幻灯片...",
+    newSlide: "新しいスライド",
+    closeAddSlides: "閉じる",
+    describeThisSlide: "このスライドを説明してください",
   },
   presentation: {
     loadFailed: "このプレゼンテーションを読み込めませんでした。",

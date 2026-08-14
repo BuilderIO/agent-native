@@ -102,8 +102,8 @@ describe("desktop passive-access regressions", () => {
     expect(runDetail).not.toContain("code-agents-session-details");
     expect(runDetail).not.toContain("TokenUsageMeter");
     expect(runDetail).not.toContain("Open Task workspace");
-    expect(agent).toContain('code-agents-rail-label">Chats');
-    expect(agent).not.toContain('code-agents-rail-label">Tasks');
+    expect(agent).toContain("<ChatFirstChatHistory");
+    expect(agent).toContain("chatFirstNavigation?.onOpenChats");
   });
 
   it("retries a missing-provider chat after Builder connects", () => {
@@ -111,7 +111,7 @@ describe("desktop passive-access regressions", () => {
     const connectFlow = between(
       agent,
       "const connectBuilderProvider = useCallback(async () =>",
-      "useEffect(() => {\n    if (!isActive || !host.getRemoteConnectorStatus)",
+      "  const connectLocalRuntime = useCallback(",
     );
 
     expect(connectFlow).toContain('modelSelection.model === "auto"');
@@ -211,5 +211,25 @@ describe("desktop passive-access regressions", () => {
     expect(modelList).toContain('statusLabel: "ChatGPT subscription"');
     expect(modelList).toContain('statusLabel: "Claude subscription"');
     expect(modelList).not.toContain('engine: "auto"');
+  });
+
+  it("closes both desktop bridges during update preparation and quit", () => {
+    const main = source("./index.ts");
+    const closeLifecycle = between(
+      main,
+      "async function closeDesktopComputerMcpBridge(): Promise<void> {",
+      "function isShellIdentityIpc(",
+    );
+
+    expect(closeLifecycle).toContain("if (computerBridge)");
+    expect(closeLifecycle).toContain("computerBridge.close()");
+    expect(closeLifecycle).toContain("if (browserBridge)");
+    expect(closeLifecycle).toContain("browserBridge.close()");
+    expect(closeLifecycle).toContain("Promise.allSettled(closePromises)");
+    expect(closeLifecycle).not.toContain("} else {");
+    expect(closeLifecycle).toContain(
+      "prepareForUpdate: closeDesktopComputerMcpBridge",
+    );
+    expect(main).toContain("void closeDesktopComputerMcpBridge().catch(");
   });
 });

@@ -236,6 +236,17 @@ const databaseResponse: ContentDatabaseResponse = {
   source: null,
   sources: [],
   pagination: databasePagination,
+  mutationContract: {
+    target: {
+      authorityScope: { kind: "personal", id: "owner@example.com" },
+      spaceId: "space-1",
+      databaseId: "database-1",
+      databaseDocumentId: "document-1",
+    },
+    schemaRevision: "sha256:test-schema-revision",
+    naturalKeyPropertyId: null,
+    properties: [],
+  },
 };
 
 const fakeDocument = {
@@ -408,6 +419,17 @@ describe("DatabaseView UI regressions", () => {
     });
 
     expect(addItemMutation.mutateAsync).toHaveBeenCalledTimes(1);
+    expect(addItemMutation.mutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        target: databaseResponse.mutationContract!.target,
+        expectedSchemaRevision:
+          databaseResponse.mutationContract!.schemaRevision,
+        idempotencyKey: expect.any(String),
+      }),
+    );
+    expect(addItemMutation.mutateAsync.mock.calls[0]?.[0]).not.toHaveProperty(
+      "title",
+    );
     expect(toastErrorMock).toHaveBeenCalledTimes(1);
     expect(toastErrorMock).toHaveBeenCalledWith(
       failedToCreateRow,

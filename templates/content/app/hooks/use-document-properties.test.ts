@@ -118,4 +118,37 @@ describe("useSetDocumentProperty", () => {
       ]),
     );
   });
+
+  it("refetches the field revision after a rejected stale write", () => {
+    const queryClient = {
+      cancelQueries: vi.fn(),
+      getQueriesData: vi.fn(() => []),
+      setQueriesData: vi.fn(),
+      setQueryData: vi.fn(),
+      invalidateQueries: vi.fn(),
+    };
+    useQueryClient.mockReturnValue(queryClient);
+    useActionMutation.mockImplementation((_name, options) => options);
+
+    useSetDocumentProperty("row-1", "database-1", "database-page-1");
+    const options = useActionMutation.mock.calls[0][1];
+    options.onError(
+      new Error("Blocks field revision conflict"),
+      {
+        documentId: "row-1",
+        propertyId: "notes",
+        value: "stale edit",
+        expectedBlocksFieldRevision: 2,
+      },
+      { previous: [] },
+    );
+
+    expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
+      queryKey: [
+        "action",
+        "list-document-properties",
+        { documentId: "row-1", databaseId: "database-1" },
+      ],
+    });
+  });
 });

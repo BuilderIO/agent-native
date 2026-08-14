@@ -232,6 +232,26 @@ describe("VideoPlayer playback", () => {
     expect(getVideo().getAttribute("src")).toContain("media=repaired");
   });
 
+  it("uses an updated timestamp as the media version when the replacement size is unchanged", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <VideoPlayer
+            recordingId="recording-1"
+            videoUrl="/api/video/recording-1"
+            videoFormat="webm"
+            mediaVersion="2026-08-13T12:00:00.000Z"
+            durationMs={10_000}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(getVideo().getAttribute("src")).toContain(
+      "media=2026-08-13T12%3A00%3A00.000Z",
+    );
+  });
+
   it("starts after an intro cut instead of rewinding into the excluded range", () => {
     act(() => {
       root.render(
@@ -512,6 +532,124 @@ describe("VideoPlayer playback", () => {
     });
 
     expect(enterFullscreen).toHaveBeenCalledTimes(1);
+  });
+
+  it("prefers WebKit video fullscreen when the document API is unavailable", () => {
+    const surface = getPlayerSurface();
+    const video = getVideo();
+    const requestFullscreen = vi.fn().mockResolvedValue(undefined);
+    const enterFullscreen = vi.fn();
+
+    Object.defineProperty(surface, "requestFullscreen", {
+      configurable: true,
+      value: requestFullscreen,
+    });
+    Object.defineProperty(video, "webkitEnterFullscreen", {
+      configurable: true,
+      value: enterFullscreen,
+    });
+    const fullscreenEnabledDescriptor = Object.getOwnPropertyDescriptor(
+      document,
+      "fullscreenEnabled",
+    );
+    Object.defineProperty(document, "fullscreenEnabled", {
+      configurable: true,
+      value: false,
+    });
+
+    try {
+      act(() => {
+        container
+          .querySelector<HTMLButtonElement>(
+            'button[aria-label="Fullscreen (F)"]',
+          )
+          ?.click();
+      });
+
+      expect(requestFullscreen).not.toHaveBeenCalled();
+      expect(enterFullscreen).toHaveBeenCalledTimes(1);
+    } finally {
+      if (fullscreenEnabledDescriptor) {
+        Object.defineProperty(
+          document,
+          "fullscreenEnabled",
+          fullscreenEnabledDescriptor,
+        );
+      } else {
+        Reflect.deleteProperty(document, "fullscreenEnabled");
+      }
+    }
+  });
+
+  it("retries video fullscreen when a mobile container request is a no-op", async () => {
+    const surface = getPlayerSurface();
+    const video = getVideo();
+    const requestFullscreen = vi.fn().mockResolvedValue(undefined);
+    const enterFullscreen = vi.fn();
+
+    Object.defineProperty(surface, "requestFullscreen", {
+      configurable: true,
+      value: requestFullscreen,
+    });
+    Object.defineProperty(video, "webkitEnterFullscreen", {
+      configurable: true,
+      value: enterFullscreen,
+    });
+    const fullscreenEnabledDescriptor = Object.getOwnPropertyDescriptor(
+      document,
+      "fullscreenEnabled",
+    );
+    Object.defineProperty(document, "fullscreenEnabled", {
+      configurable: true,
+      value: true,
+    });
+
+    try {
+      await act(async () => {
+        container
+          .querySelector<HTMLButtonElement>(
+            'button[aria-label="Fullscreen (F)"]',
+          )
+          ?.click();
+        await Promise.resolve();
+      });
+
+      expect(requestFullscreen).toHaveBeenCalledTimes(1);
+      expect(enterFullscreen).toHaveBeenCalledTimes(1);
+    } finally {
+      if (fullscreenEnabledDescriptor) {
+        Object.defineProperty(
+          document,
+          "fullscreenEnabled",
+          fullscreenEnabledDescriptor,
+        );
+      } else {
+        Reflect.deleteProperty(document, "fullscreenEnabled");
+      }
+    }
+  });
+
+  it("uses a fixed viewport when fullscreen APIs are unavailable", () => {
+    const surface = getPlayerSurface();
+    const video = getVideo();
+
+    Object.defineProperty(surface, "requestFullscreen", {
+      configurable: true,
+      value: undefined,
+    });
+    Object.defineProperty(video, "webkitEnterFullscreen", {
+      configurable: true,
+      value: undefined,
+    });
+
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="Fullscreen (F)"]')
+        ?.click();
+    });
+
+    expect(surface.className).toContain("fixed");
+    expect(surface.className).toContain("h-dvh");
   });
 });
 

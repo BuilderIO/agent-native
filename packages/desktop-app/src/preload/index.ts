@@ -221,6 +221,12 @@ const electronAPI = {
     },
   },
 
+  /** Loopback URL for shell-owned chat requests in a selected app session. */
+  desktopChat: {
+    getApiUrl: (appId: string): Promise<string | null> =>
+      ipcRenderer.invoke(IPC.DESKTOP_CHAT_GET_API_URL, appId),
+  },
+
   /** Workspace identity commands expose intent and status, never credentials. */
   identity: {
     getStatus: (): Promise<DesktopIdentityStatus> =>

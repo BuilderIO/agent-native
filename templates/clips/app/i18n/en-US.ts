@@ -256,6 +256,16 @@ const messages = {
     passwordProtected: "This clip is password-protected",
     linkExpired: "Link expired",
     linkExpiredMessage: "The creator set an expiry on this share link.",
+    privateClip: "Private clip",
+    privateClipMessage:
+      "This clip is private. Request access and the owner will be notified.",
+    privateClipSignedOutMessage:
+      "This clip is private. Sign in to request access from the owner.",
+    requestAccess: "Request access",
+    requestingAccess: "Requesting access...",
+    accessRequested: "Access requested",
+    accessRequestSent: "The clip owner was notified.",
+    accessRequestFailed: "Couldn't request access. Try again.",
     clipUnavailable: "Clip unavailable",
     clipUnavailableMessage:
       "This recording isn't public, or the link is invalid. If it's your clip, sign in to check access.",
@@ -969,6 +979,8 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     includeTranscriptDescription:
       "Anyone with access to this meeting can read the complete transcript.",
     transcriptUnavailable: "The transcript isn't ready yet.",
+    agentLinkDescription:
+      "This temporary link lets agents read these meeting notes without making them public. It expires after two hours.",
     transcript: "Transcript",
     copyTranscript: "Copy transcript",
     transcriptCopied: "Transcript copied",
@@ -1545,6 +1557,16 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     calendarConnected: "Calendar connected",
     calendarDisconnected: "Calendar disconnected",
     calendarSettings: "Calendar settings",
+    calendarAccountsButton: "Calendars",
+    connectedAccounts: "Connected accounts",
+    calendarConnectedLabel: "Connected",
+    calendarNeedsReconnectLabel: "Needs reconnect",
+    calendarDisconnectedLabel: "Disconnected",
+    calendarStatusUnavailable: "Status unavailable",
+    reconnectCalendar: "Reconnect calendar",
+    addAnotherCalendarAccount: "Add another account",
+    connectCalendar: "Connect calendar",
+    disconnectCalendarAccount: "Disconnect an account",
     connectCalendarReminder: "Connect Google Calendar for meeting reminders.",
     disconnectGoogleCalendarTitle: "Disconnect Google Calendar?",
     title: "Meetings",

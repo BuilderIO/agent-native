@@ -1,7 +1,7 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 
 const featureFlagMocks = vi.hoisted(() => ({
-  getRules: vi.fn(),
+  hasActiveRollout: vi.fn(),
   isEnabled: vi.fn(),
 }));
 const getSessionMock = vi.hoisted(() => vi.fn());
@@ -32,7 +32,7 @@ vi.mock("@agent-native/core/feature-flags", async () => {
   >("@agent-native/core/feature-flags");
   return {
     ...actual,
-    getFeatureFlagRules: featureFlagMocks.getRules,
+    hasActiveFeatureFlagRollout: featureFlagMocks.hasActiveRollout,
     isFeatureFlagEnabled: featureFlagMocks.isEnabled,
   };
 });
@@ -101,6 +101,7 @@ vi.mock("@agent-native/core/db", () => ({
     },
   }),
   intType: () => "INTEGER",
+  isProductionServerlessFunctionRuntime: () => false,
 }));
 vi.mock("h3", () => ({
   defineEventHandler: (handler: any) => handler,
@@ -145,15 +146,7 @@ beforeEach(() => {
   codeRows.length = 0;
   process.env.APP_URL = AUTHORITY;
   process.env.A2A_SECRET = "test-a2a-secret";
-  featureFlagMocks.getRules.mockResolvedValue({
-    version: 1,
-    mode: "off",
-    emails: [],
-    orgIds: [],
-    percentage: 0,
-    updatedAt: null,
-    updatedBy: null,
-  });
+  featureFlagMocks.hasActiveRollout.mockResolvedValue(false);
   featureFlagMocks.isEnabled.mockResolvedValue(false);
   getSessionMock.mockResolvedValue({
     email: "user@example.test",
@@ -175,13 +168,7 @@ afterEach(() => {
 describe("rollout availability", () => {
   it("keeps ordinary anonymous browser availability false", async () => {
     getSessionMock.mockResolvedValue(null);
-    featureFlagMocks.getRules.mockResolvedValue({
-      version: 1,
-      mode: "on",
-      emails: [],
-      orgIds: [],
-      percentage: 0,
-    });
+    featureFlagMocks.hasActiveRollout.mockResolvedValue(true);
     const response = await availabilityHandler(
       event("/_agent-native/identity/availability"),
     );
@@ -190,13 +177,7 @@ describe("rollout availability", () => {
 
   it("exposes only a Canary availability hint for anonymous Desktop", async () => {
     getSessionMock.mockResolvedValue(null);
-    featureFlagMocks.getRules.mockResolvedValue({
-      version: 1,
-      mode: "rules",
-      emails: ["user@example.test"],
-      orgIds: [],
-      percentage: 0,
-    });
+    featureFlagMocks.hasActiveRollout.mockResolvedValue(true);
     const response = await availabilityHandler(
       event("/_agent-native/identity/availability", {
         headers: {
@@ -207,10 +188,26 @@ describe("rollout availability", () => {
     expect(await response.json()).toEqual({ available: true });
   });
 
+  it("keeps authenticated availability strict after the anonymous hint", async () => {
+    featureFlagMocks.hasActiveRollout.mockResolvedValue(true);
+    featureFlagMocks.isEnabled.mockResolvedValue(false);
+    const response = await availabilityHandler(
+      event("/_agent-native/identity/availability", {
+        headers: {
+          "user-agent": "AgentNativeDesktopSsoCanary/1.0",
+        },
+      }),
+    );
+    expect(await response.json()).toEqual({ available: false });
+    expect(featureFlagMocks.isEnabled).toHaveBeenCalled();
+  });
+
   it("fails closed when rollout state is missing or unreadable", async () => {
-    featureFlagMocks.getRules.mockResolvedValue(null);
+    featureFlagMocks.hasActiveRollout.mockResolvedValue(false);
     await expect(canAttemptWorkspaceSso()).resolves.toBe(false);
-    featureFlagMocks.getRules.mockRejectedValue(new Error("unavailable"));
+    featureFlagMocks.hasActiveRollout.mockRejectedValue(
+      new Error("unavailable"),
+    );
     await expect(canAttemptWorkspaceSso()).resolves.toBe(false);
   });
 
@@ -325,6 +322,24 @@ describe("authorization code and PKCE handlers", () => {
       isDesktopWorkspaceSsoRequest("AgentNativeDesktopSsoCanary/1.0"),
     ).toBe(true);
     expect(response.status).toBe(404);
+  });
+
+  it("does not let anonymous discovery bypass the authenticated target check", async () => {
+    featureFlagMocks.hasActiveRollout.mockResolvedValue(true);
+    featureFlagMocks.isEnabled.mockResolvedValue(false);
+    const response = await authorizeHandler(
+      event(
+        `/_agent-native/identity/authorize?response_type=code&app=mail&client_id=mail&redirect_uri=${encodeURIComponent(CALLBACK)}&state=${STATE}&code_challenge=${"c".repeat(43)}&code_challenge_method=S256`,
+        {
+          headers: { "user-agent": "AgentNativeDesktopSsoCanary/1.0" },
+        },
+      ),
+    );
+    expect(response.status).toBe(404);
+    expect(featureFlagMocks.isEnabled).toHaveBeenCalledWith(
+      expect.objectContaining({ key: "desktop.workspace-sso" }),
+      expect.objectContaining({ orgId: "org-1" }),
+    );
   });
 
   it("bounces a logged-out browser through the existing sign-in journey", async () => {

@@ -5,6 +5,13 @@ const mocks = vi.hoisted(() => ({
   runBetterAuthMigrations: vi.fn(async () => {}),
   runAutomationRunMigrations: vi.fn(async () => {}),
   runAutomationSchedulerHealthMigrations: vi.fn(async () => {}),
+  identitySsoMigrations: [
+    {
+      version: 1,
+      name: "identity-sso-flow-state-and-jti",
+      sql: "CREATE TABLE identity_sso_flow_state",
+    },
+  ],
   agentToolApprovalMigrations: [
     {
       version: 1,
@@ -41,6 +48,9 @@ vi.mock("../oauth-tokens/migrations.js", () => ({
 vi.mock("../org/migrations.js", () => ({
   ORG_MIGRATIONS: [],
 }));
+vi.mock("./identity-sso-migrations.js", () => ({
+  IDENTITY_SSO_MIGRATIONS: mocks.identitySsoMigrations,
+}));
 vi.mock("./better-auth-migrations.js", () => ({
   runBetterAuthMigrations: mocks.runBetterAuthMigrations,
 }));
@@ -58,6 +68,10 @@ describe("runFrameworkReleaseMigrations", () => {
     expect(mocks.runMigrations).toHaveBeenCalledWith(
       mocks.agentToolApprovalMigrations,
       { table: "_agent_tool_approval_migrations" },
+    );
+    expect(mocks.runMigrations).toHaveBeenCalledWith(
+      mocks.identitySsoMigrations,
+      { table: "_identity_sso_migrations" },
     );
   });
 });

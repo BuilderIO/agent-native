@@ -28,7 +28,10 @@ const localeMessages = {
 } as const;
 
 const requiredKeys = [
+  "navigation.agents",
+  "navigation.triage",
   "factoryRoute.rulesTitle",
+  "factoryRoute.createApp",
   "factoryRoute.shadowLabel",
   "factoryRoute.rulesGuidance",
   "factoryRoute.ruleNameLabel",

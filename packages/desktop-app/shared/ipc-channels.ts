@@ -49,6 +49,9 @@ export const IPC = {
   APPS_CREATE_FROM_PROMPT: "apps:create-from-prompt",
   APPS_SHOW_CONTEXT_MENU: "apps:show-context-menu",
 
+  /** Loopback relay for shell-owned chat requests using an app's session */
+  DESKTOP_CHAT_GET_API_URL: "desktop-chat:get-api-url",
+
   /** Hosted Plan app local-file sync (Plan webview ↔ main) */
   PLAN_FILES_GET_FOLDER: "plan-files:get-folder",
   PLAN_FILES_CHOOSE_FOLDER: "plan-files:choose-folder",

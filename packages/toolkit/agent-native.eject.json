@@ -451,7 +451,25 @@
       "strategy": "source-copy",
       "sourceEntries": ["src/sharing"],
       "targetRoot": "app/components/agent-native/toolkit",
-      "dependencies": ["@tabler/icons-react"],
+      "dependencies": [
+        "@radix-ui/react-avatar",
+        "@radix-ui/react-checkbox",
+        "@radix-ui/react-collapsible",
+        "@radix-ui/react-dialog",
+        "@radix-ui/react-dropdown-menu",
+        "@radix-ui/react-popover",
+        "@radix-ui/react-select",
+        "@radix-ui/react-slot",
+        "@radix-ui/react-switch",
+        "@radix-ui/react-tabs",
+        "@radix-ui/react-tooltip",
+        "@tabler/icons-react",
+        "class-variance-authority",
+        "clsx",
+        "culori",
+        "react",
+        "tailwind-merge"
+      ],
       "verification": ["pnpm typecheck"]
     },
     {

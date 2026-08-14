@@ -255,6 +255,15 @@ const messages = {
     linkExpired: "انتهت صلاحية الرابط",
     linkExpiredMessage:
       "قام المنشئ بتعيين انتهاء الصلاحية على رابط المشاركة هذا.",
+    privateClip: "مقطع خاص",
+    privateClipMessage: "هذا المقطع خاص. اطلب الوصول وسيتم إخطار المالك.",
+    privateClipSignedOutMessage:
+      "هذا المقطع خاص. سجّل الدخول لطلب الوصول من المالك.",
+    requestAccess: "طلب الوصول",
+    requestingAccess: "جارٍ طلب الوصول...",
+    accessRequested: "تم طلب الوصول",
+    accessRequestSent: "تم إخطار مالك المقطع.",
+    accessRequestFailed: "تعذّر طلب الوصول. حاول مرة أخرى.",
     clipUnavailable: "المقطع غير متاح",
     clipUnavailableMessage:
       "هذا التسجيل ليس عامًا، أو أن الرابط غير صالح. إذا كان هذا هو المقطع الخاص بك، فقم بتسجيل الدخول للتحقق من الوصول.",
@@ -983,6 +992,8 @@ const messages = {
     includeTranscriptDescription:
       "يمكن لأي شخص لديه حق الوصول إلى هذا الاجتماع قراءة النص الكامل.",
     transcriptUnavailable: "النص ليس جاهزًا بعد.",
+    agentLinkDescription:
+      "يتيح هذا الرابط المؤقت للوكلاء قراءة ملاحظات الاجتماع هذه من دون جعلها عامة. تنتهي صلاحيته بعد ساعتين.",
     transcript: "النص",
     copyTranscript: "نسخ النص",
     transcriptCopied: "تم نسخ النص",
@@ -1563,6 +1574,16 @@ const messages = {
     calendarConnected: "Calendar connected (مترجم)",
     calendarDisconnected: "Calendar disconnected (مترجم)",
     calendarSettings: "Calendar settings (مترجم)",
+    calendarAccountsButton: "التقويمات",
+    connectedAccounts: "الحسابات المتصلة",
+    calendarConnectedLabel: "متصل",
+    calendarNeedsReconnectLabel: "تحتاج إلى إعادة الاتصال",
+    calendarDisconnectedLabel: "غير متصل",
+    calendarStatusUnavailable: "الحالة غير متاحة",
+    reconnectCalendar: "إعادة الاتصال بالتقويم",
+    addAnotherCalendarAccount: "إضافة حساب آخر",
+    connectCalendar: "توصيل التقويم",
+    disconnectCalendarAccount: "فصل حساب",
     connectCalendarReminder:
       "Connect Google Calendar for meeting reminders. (مترجم)",
     disconnectGoogleCalendarTitle: "Disconnect Google Calendar? (مترجم)",

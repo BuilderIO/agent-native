@@ -3,9 +3,26 @@ import { z } from "zod";
 
 import {
   defineAction,
+  ActionContractError,
+  isActionContractError,
   AgentActionStopError,
   isAgentActionStopError,
 } from "./action.js";
+
+describe("ActionContractError", () => {
+  it("carries only explicitly safe structured contract details", () => {
+    const error = new ActionContractError("Stale schema", {
+      errorCode: "SCHEMA_REVISION_CONFLICT",
+      details: { expected: "before", actual: "after" },
+    });
+    expect(isActionContractError(error)).toBe(true);
+    expect(error).toMatchObject({
+      statusCode: 409,
+      errorCode: "SCHEMA_REVISION_CONFLICT",
+      details: { expected: "before", actual: "after" },
+    });
+  });
+});
 
 // Uses the legacy `parameters` mode so we don't need to pull in zod as a test
 // dep — the readOnly inference logic is independent of the schema path.

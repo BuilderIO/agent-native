@@ -302,6 +302,14 @@ function findCatalogDirs(): string[] {
       "packages",
       "core",
       "src",
+      "localization",
+      "core-messages",
+    ),
+    path.join(
+      rootDir,
+      "packages",
+      "core",
+      "src",
       "templates",
       "default",
       "app",
@@ -801,6 +809,27 @@ function extractPlaceholders(message: string): Set<string> {
 }
 
 const rawLiteralRoots = [
+  "packages/core/src/client/AgentPanel.tsx",
+  "packages/core/src/client/AssistantChat.tsx",
+  "packages/core/src/client/MultiTabAssistantChat.tsx",
+  "packages/core/src/client/chat/ChatHistoryList.tsx",
+  "packages/core/src/client/chat/action-chat-ui-surface.tsx",
+  "packages/core/src/client/chat/markdown-renderer.tsx",
+  "packages/core/src/client/chat/message-components.tsx",
+  "packages/core/src/client/chat/run-recovery.tsx",
+  "packages/core/src/client/chat/tool-call-display.tsx",
+  "packages/core/src/client/chat/tool-render-registry.tsx",
+  "packages/core/src/client/chat/widgets",
+  "packages/core/src/client/context-xray/ContextMeter.tsx",
+  "packages/core/src/client/context-xray/ContextXRayPanel.tsx",
+  "packages/core/src/client/error-format.ts",
+  "packages/core/src/client/observability/ThumbsFeedback.tsx",
+  "packages/core/src/client/sharing/ShareButton.tsx",
+  "packages/toolkit/src/composer",
+  "packages/toolkit/src/context-ui/ContextMeter.tsx",
+  "packages/toolkit/src/context-ui/ContextSegmentRow.tsx",
+  "packages/toolkit/src/context-ui/ContextTreemap.tsx",
+  "packages/toolkit/src/context-ui/ContextXRayPanel.tsx",
   "packages/docs/app/components",
   "packages/docs/app/routes/_index.tsx",
   "packages/docs/app/routes/skills.tsx",
@@ -1024,6 +1053,13 @@ function checkRawVisibleLiteralFile(
     if (lineText.includes("i18n-ignore")) return;
     if (/^\s*(?:\/\/|\*)/.test(lineText)) return;
     const trimmed = value.replace(/\s+/g, " ").trim();
+    if (
+      (rel.startsWith("packages/core/src/client/") ||
+        rel.startsWith("packages/toolkit/src/")) &&
+      /,\s*\w+\??:\s*(?:readonly\s+)?(?:Readonly\w*|Pick)\b/.test(trimmed)
+    ) {
+      return;
+    }
     if (!isLikelyVisibleLiteral(trimmed)) return;
     const id = `${rel}|${trimmed}`;
     issues.push({
@@ -1034,6 +1070,14 @@ function checkRawVisibleLiteralFile(
       )}`,
     });
   };
+
+  const markdownOnly = rel.endsWith("/error-format.ts");
+  if (markdownOnly) {
+    for (const match of text.matchAll(/\[([^\]{}]*[A-Za-z][^\]{}]*)\]\(/g)) {
+      report(match.index ?? 0, match[1] ?? "");
+    }
+    return issues;
+  }
 
   for (const match of text.matchAll(/>([^<>{}]*[A-Za-z][^<>{}]*)</g)) {
     report(match.index ?? 0, match[1] ?? "");

@@ -38,12 +38,17 @@ import {
   parsePropertyValue,
   type DocumentPropertyType,
 } from "../shared/properties.js";
+import { deleteBlocksFieldIdentity } from "./_blocks-field-identity.js";
 import { favoriteDocumentIds } from "./_content-favorites.js";
 import {
   listContentOrganizationMemberships,
   normalizeContentSpaceEmail,
   resolveContentSpaceAccess,
 } from "./_content-space-access.js";
+import {
+  databaseRowRevision,
+  getDatabaseMutationContract,
+} from "./_database-row-mutation.js";
 import { getAllContentDatabaseSourceSnapshots } from "./_database-source-utils.js";
 import {
   applyFederatedOverlayValues,
@@ -1049,6 +1054,21 @@ export async function getContentDatabasePageResponse(
         queued: bodyHydrationQueued,
       }),
       properties: propertiesByDocumentId.get(document.id) ?? [],
+      rowRevision: databaseRowRevision({
+        itemId: item.id,
+        documentId: document.id,
+        title: document.title,
+        values: (propertiesByDocumentId.get(document.id) ?? [])
+          .filter(
+            (property) =>
+              !isBlocksPropertyType(property.definition.type) &&
+              !isComputedPropertyType(property.definition.type),
+          )
+          .map((property) => ({
+            propertyId: property.definition.id,
+            value: property.value,
+          })),
+      }),
     });
   }
 
@@ -1194,6 +1214,26 @@ export async function getContentDatabaseResponse(
     sources: page.sources,
     pagination: page.pagination,
     tableQueryMode: page.tableQueryMode,
+    mutationContract:
+      page.databaseRecord.spaceId && !page.databaseRecord.systemRole
+        ? await getDatabaseMutationContract(
+            {
+              authorityScope: page.databaseRecord.orgId
+                ? {
+                    kind: "organization",
+                    id: page.databaseRecord.orgId,
+                  }
+                : {
+                    kind: "personal",
+                    id: page.databaseRecord.ownerEmail,
+                  },
+              spaceId: page.databaseRecord.spaceId,
+              databaseId: page.databaseRecord.id,
+              databaseDocumentId: page.databaseRecord.documentId,
+            },
+            { accessAlreadyResolved: true },
+          )
+        : undefined,
   };
 }
 
@@ -1417,15 +1457,21 @@ export async function deleteDatabaseDataForDocument(
       .from(schema.documentPropertyDefinitions)
       .where(eq(schema.documentPropertyDefinitions.databaseId, database.id));
 
-    for (const definition of definitions) {
+    const definitionIds = definitions.map((definition) => definition.id);
+    if (definitionIds.length > 0) {
+      await deleteBlocksFieldIdentity({ db, propertyIds: definitionIds });
       await db
         .delete(schema.documentPropertyValues)
-        .where(eq(schema.documentPropertyValues.propertyId, definition.id));
+        .where(
+          inArray(schema.documentPropertyValues.propertyId, definitionIds),
+        );
       // Independent Blocks-field content is keyed by property id; drop it so
       // deleting a database leaves no orphaned document_block_field_contents.
       await db
         .delete(schema.documentBlockFieldContents)
-        .where(eq(schema.documentBlockFieldContents.propertyId, definition.id));
+        .where(
+          inArray(schema.documentBlockFieldContents.propertyId, definitionIds),
+        );
     }
     const sources = await db
       .select({ id: schema.contentDatabaseSources.id })
@@ -1464,6 +1510,11 @@ export async function deleteDatabaseDataForDocument(
         eq(schema.contentDatabaseMigrationReceipts.databaseId, database.id),
       );
     await db
+      .delete(schema.contentDatabaseRowMutationReceipts)
+      .where(
+        eq(schema.contentDatabaseRowMutationReceipts.databaseId, database.id),
+      );
+    await db
       .delete(schema.documentPropertyDefinitions)
       .where(eq(schema.documentPropertyDefinitions.databaseId, database.id));
     await db
@@ -1482,6 +1533,7 @@ export async function deleteDatabaseDataForDocument(
     db,
   );
   if (item) {
+    await deleteBlocksFieldIdentity({ db, documentId });
     await db
       .delete(schema.contentDatabaseItemKeyClaims)
       .where(eq(schema.contentDatabaseItemKeyClaims.documentId, documentId));

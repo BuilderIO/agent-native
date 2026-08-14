@@ -326,6 +326,30 @@ describe("resolveBuilderOwnerContextForRequest", () => {
     expect(context.anonymous).toBe(true);
   });
 
+  it("recovers signed callback state when a mounted event loses its query", async () => {
+    const originalOwner = "anon-original@agent-native.com";
+    const freshOwner = "anon-fresh@agent-native.com";
+    const state = signBuilderCallbackState(originalOwner);
+    const event = createMockEvent(
+      `https://agent-native.com/_agent-native/builder/callback?${BUILDER_STATE_PARAM}=${encodeURIComponent(state)}`,
+    );
+    event.url = new URL(
+      "https://agent-native.com/_agent-native/builder/callback",
+    );
+
+    const context = await resolveBuilderOwnerContextForRequest(
+      event,
+      {
+        getSessionForEvent: async () => ({ email: freshOwner }),
+      },
+      "callback",
+    );
+
+    expect(context.email).toBe(originalOwner);
+    expect(context.session).toBeNull();
+    expect(context.anonymous).toBe(true);
+  });
+
   it("uses signed connect owner when docs auth minted a fresh anonymous session", async () => {
     const originalOwner = "anon-original@agent-native.com";
     const freshOwner = "anon-fresh@agent-native.com";

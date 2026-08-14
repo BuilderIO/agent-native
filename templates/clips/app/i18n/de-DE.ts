@@ -266,6 +266,17 @@ const messages = {
     linkExpired: "Link abgelaufen",
     linkExpiredMessage:
       "Der Ersteller hat für diesen Freigabelink ein Ablaufdatum festgelegt.",
+    privateClip: "Privater Clip",
+    privateClipMessage:
+      "Dieser Clip ist privat. Fordern Sie Zugriff an, und der Eigentümer wird benachrichtigt.",
+    privateClipSignedOutMessage:
+      "Dieser Clip ist privat. Melden Sie sich an, um beim Eigentümer Zugriff anzufordern.",
+    requestAccess: "Zugriff anfordern",
+    requestingAccess: "Zugriff wird angefordert...",
+    accessRequested: "Zugriff angefordert",
+    accessRequestSent: "Der Eigentümer des Clips wurde benachrichtigt.",
+    accessRequestFailed:
+      "Zugriff konnte nicht angefordert werden. Versuchen Sie es erneut.",
     clipUnavailable: "Clip nicht verfügbar",
     clipUnavailableMessage:
       "Diese Aufzeichnung ist nicht öffentlich oder der Link ist ungültig. Wenn es sich um Ihren Clip handelt, melden Sie sich an, um den Zugriff zu überprüfen.",
@@ -1003,6 +1014,8 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     includeTranscriptDescription:
       "Alle Personen mit Zugriff auf dieses Meeting können das vollständige Transkript lesen.",
     transcriptUnavailable: "Das Transkript ist noch nicht verfügbar.",
+    agentLinkDescription:
+      "Über diesen temporären Link können Agenten diese Meeting-Notizen lesen, ohne sie öffentlich zu machen. Er läuft nach zwei Stunden ab.",
     transcript: "Transkript",
     copyTranscript: "Transkript kopieren",
     transcriptCopied: "Transkript kopiert",
@@ -1590,6 +1603,16 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     calendarConnected: "Calendar connected (Lokalisiert)",
     calendarDisconnected: "Calendar disconnected (Lokalisiert)",
     calendarSettings: "Calendar settings (Lokalisiert)",
+    calendarAccountsButton: "Kalender",
+    connectedAccounts: "Verbundene Konten",
+    calendarConnectedLabel: "Verbunden",
+    calendarNeedsReconnectLabel: "Erneute Verbindung erforderlich",
+    calendarDisconnectedLabel: "Getrennt",
+    calendarStatusUnavailable: "Status nicht verfügbar",
+    reconnectCalendar: "Kalender erneut verbinden",
+    addAnotherCalendarAccount: "Weiteres Konto hinzufügen",
+    connectCalendar: "Kalender verbinden",
+    disconnectCalendarAccount: "Konto trennen",
     connectCalendarReminder:
       "Connect Google Calendar for meeting reminders. (Lokalisiert)",
     disconnectGoogleCalendarTitle: "Disconnect Google Calendar? (Lokalisiert)",
