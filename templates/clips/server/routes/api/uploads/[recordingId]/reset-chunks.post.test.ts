@@ -2,7 +2,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockWriteAppState = vi.hoisted(() => vi.fn());
 const mockReadAppState = vi.hoisted(() => vi.fn());
+const mockDeleteAppState = vi.hoisted(() => vi.fn());
 const mockCompareAndSetAppState = vi.hoisted(() => vi.fn());
+const mockPendingCleanup = vi.hoisted(() => ({
+  current: null as Record<string, unknown> | null,
+}));
 const mockDeleteRecordingChunks = vi.hoisted(() => vi.fn());
 const mockGetActiveFileUploadProviderForRequest = vi.hoisted(() => vi.fn());
 const mockGetRouterParam = vi.hoisted(() => vi.fn());
@@ -21,6 +25,8 @@ const mockShouldEnableStreamingUpload = vi.hoisted(() => vi.fn());
 const mockAllowsSqlRecordingChunkScratch = vi.hoisted(() => vi.fn());
 const mockIsMediaVerificationPending = vi.hoisted(() => vi.fn());
 const mockUpdateSets = vi.hoisted(() => [] as Record<string, unknown>[]);
+const mockResetWins = vi.hoisted(() => ({ current: true }));
+const mockReplaceCleanupOnRelease = vi.hoisted(() => ({ current: false }));
 const mockExistingRecording = vi.hoisted(() => ({
   current: {
     id: "rec-1",
@@ -45,7 +51,9 @@ const mockDb = vi.hoisted(() => ({
         return builder;
       }),
       where: vi.fn(() => builder),
-      returning: vi.fn(async () => [{ id: "rec-1" }]),
+      returning: vi.fn(async () =>
+        mockResetWins.current ? [{ id: "rec-1" }] : [],
+      ),
     };
     return builder;
   }),
@@ -54,6 +62,7 @@ const mockDb = vi.hoisted(() => ({
 vi.mock("@agent-native/core/application-state", () => ({
   compareAndSetAppState: (...args: unknown[]) =>
     mockCompareAndSetAppState(...args),
+  deleteAppState: (...args: unknown[]) => mockDeleteAppState(...args),
   readAppState: (...args: unknown[]) => mockReadAppState(...args),
   writeAppState: (...args: unknown[]) => mockWriteAppState(...args),
 }));
@@ -146,6 +155,8 @@ describe("/api/uploads/:recordingId/reset-chunks route", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockUpdateSets.length = 0;
+    mockResetWins.current = true;
+    mockReplaceCleanupOnRelease.current = false;
     mockGetRouterParam.mockReturnValue("rec-1");
     mockGetEventOwnerContext.mockResolvedValue({
       userEmail: "owner@example.com",
@@ -156,12 +167,59 @@ describe("/api/uploads/:recordingId/reset-chunks route", () => {
     mockDeleteResumableSession.mockResolvedValue(undefined);
     mockGetResumableSession.mockResolvedValue(null);
     mockSetResumableSession.mockResolvedValue(undefined);
-    mockWriteAppState.mockResolvedValue(undefined);
-    mockReadAppState.mockResolvedValue({
-      recordingId: "rec-1",
-      status: "uploading",
+    mockPendingCleanup.current = null;
+    mockReadAppState.mockImplementation(async (key: string) =>
+      key === "recording-resumable-cleanup-rec-1"
+        ? mockPendingCleanup.current
+        : {
+            recordingId: "rec-1",
+            status: "uploading",
+          },
+    );
+    mockWriteAppState.mockImplementation(
+      async (key: string, value: Record<string, unknown>) => {
+        if (key === "recording-resumable-cleanup-rec-1") {
+          mockPendingCleanup.current = value;
+        }
+      },
+    );
+    mockDeleteAppState.mockImplementation(async (key: string) => {
+      if (key === "recording-resumable-cleanup-rec-1") {
+        mockPendingCleanup.current = null;
+      }
+      return true;
     });
-    mockCompareAndSetAppState.mockResolvedValue(true);
+    mockCompareAndSetAppState.mockImplementation(
+      async (
+        key: string,
+        expected: Record<string, unknown> | null,
+        next: Record<string, unknown> | null,
+      ) => {
+        if (key === "recording-resumable-cleanup-rec-1") {
+          const current = mockPendingCleanup.current;
+          if (JSON.stringify(current) !== JSON.stringify(expected)) {
+            return false;
+          }
+          if (next === null && mockReplaceCleanupOnRelease.current) {
+            mockPendingCleanup.current = {
+              recordingId: "rec-1",
+              generationId: "generation-old",
+              ownerGenerationId: "generation-newer",
+              claimId: "newer-claim",
+              session: {
+                providerId: "test-provider",
+                sessionId: "newer-session",
+                meta: { objectKey: "clips/rec-1-newer.webm" },
+                bytesUploaded: 0,
+              },
+            };
+            return false;
+          }
+          mockPendingCleanup.current = next;
+        }
+        return true;
+      },
+    );
     mockRenewUploadLease.mockResolvedValue({ held: true });
     mockAbortSession.mockResolvedValue(undefined);
     mockAllowsSqlRecordingChunkScratch.mockReturnValue(false);
@@ -276,6 +334,169 @@ describe("/api/uploads/:recordingId/reset-chunks route", () => {
       meta: { objectKey: "clips/rec-1.webm" },
     });
     expect(mockDeleteResumableSession).toHaveBeenCalledWith(
+      "rec-1",
+      "generation-old",
+    );
+  });
+
+  it("does not leave a cleanup claim when it loses the generation fence", async () => {
+    mockResetWins.current = false;
+    mockExistingRecording.current.uploadGenerationId = "generation-old";
+    mockReadBody.mockResolvedValue({
+      uploadGenerationId: "generation-old",
+      useGenerationFence: true,
+    });
+    mockGetResumableSession.mockResolvedValue({
+      providerId: "test-provider",
+      sessionId: "old-session",
+      meta: { objectKey: "clips/rec-1.webm" },
+      bytesUploaded: 12,
+    });
+
+    await expect(handler({} as any)).resolves.toEqual(
+      expect.objectContaining({ staleAttempt: true }),
+    );
+    expect(mockPendingCleanup.current).toBeNull();
+    expect(mockCompareAndSetAppState).not.toHaveBeenCalled();
+    expect(mockAbortSession).not.toHaveBeenCalled();
+  });
+
+  it("does not let a stale cleanup claim hide the current generation session", async () => {
+    mockExistingRecording.current.uploadGenerationId = "generation-current";
+    mockPendingCleanup.current = {
+      recordingId: "rec-1",
+      generationId: "generation-old",
+      ownerGenerationId: "generation-old",
+      claimId: "stale-claim",
+      session: {
+        providerId: "test-provider",
+        sessionId: "stale-session",
+        meta: { objectKey: "clips/rec-1-stale.webm" },
+        bytesUploaded: 12,
+      },
+    };
+    mockReadBody.mockResolvedValue({
+      uploadGenerationId: "generation-current",
+      useGenerationFence: true,
+    });
+    mockGetResumableSession.mockResolvedValue({
+      providerId: "test-provider",
+      sessionId: "active-session",
+      meta: { objectKey: "clips/rec-1-active.webm" },
+      bytesUploaded: 24,
+    });
+
+    await expect(handler({} as any)).resolves.toEqual(
+      expect.objectContaining({ ok: true }),
+    );
+    expect(mockAbortSession).toHaveBeenCalledWith({
+      sessionId: "active-session",
+      meta: { objectKey: "clips/rec-1-active.webm" },
+    });
+    expect(mockDeleteResumableSession).toHaveBeenCalledWith(
+      "rec-1",
+      "generation-current",
+    );
+  });
+
+  it("ignores an unowned cleanup claim during a fenced reset", async () => {
+    mockExistingRecording.current.uploadGenerationId = "generation-current";
+    mockPendingCleanup.current = {
+      recordingId: "rec-1",
+      generationId: "generation-old",
+      ownerGenerationId: null,
+      claimId: null,
+      session: {
+        providerId: "test-provider",
+        sessionId: "legacy-session",
+        meta: { objectKey: "clips/rec-1-legacy.webm" },
+        bytesUploaded: 12,
+      },
+    };
+    mockReadBody.mockResolvedValue({
+      uploadGenerationId: "generation-current",
+      useGenerationFence: true,
+    });
+    mockGetResumableSession.mockResolvedValue({
+      providerId: "test-provider",
+      sessionId: "active-session",
+      meta: { objectKey: "clips/rec-1-active.webm" },
+      bytesUploaded: 24,
+    });
+
+    await expect(handler({} as any)).resolves.toEqual(
+      expect.objectContaining({ ok: true }),
+    );
+    expect(mockAbortSession).toHaveBeenCalledWith({
+      sessionId: "active-session",
+      meta: { objectKey: "clips/rec-1-active.webm" },
+    });
+  });
+
+  it("does not release a cleanup claim replaced by a newer reset", async () => {
+    mockReplaceCleanupOnRelease.current = true;
+    mockExistingRecording.current.uploadGenerationId = "generation-old";
+    mockReadBody.mockResolvedValue({
+      uploadGenerationId: "generation-old",
+      useGenerationFence: true,
+    });
+    mockGetResumableSession.mockResolvedValue({
+      providerId: "test-provider",
+      sessionId: "old-session",
+      meta: { objectKey: "clips/rec-1.webm" },
+      bytesUploaded: 12,
+    });
+
+    await expect(handler({} as any)).resolves.toEqual(
+      expect.objectContaining({ ok: true }),
+    );
+    expect(mockPendingCleanup.current).toEqual(
+      expect.objectContaining({ claimId: "newer-claim" }),
+    );
+  });
+
+  it("retains a cleanup claim when provider abort fails so a retry can finish it", async () => {
+    mockExistingRecording.current.uploadGenerationId = "generation-old";
+    mockReadBody.mockResolvedValue({
+      uploadGenerationId: "generation-old",
+      useGenerationFence: true,
+    });
+    mockGetResumableSession.mockResolvedValue({
+      providerId: "test-provider",
+      sessionId: "old-session",
+      meta: { objectKey: "clips/rec-1.webm" },
+      bytesUploaded: 12,
+    });
+    mockAbortSession
+      .mockRejectedValueOnce(new Error("provider cleanup failed"))
+      .mockResolvedValue(true);
+
+    await expect(handler({} as any)).resolves.toEqual({
+      error:
+        "The previous recording upload could not be cleaned up. Retry the upload restart.",
+    });
+    expect(mockPendingCleanup.current).toEqual(
+      expect.objectContaining({
+        recordingId: "rec-1",
+        generationId: "generation-old",
+      }),
+    );
+    const pendingOwnerGenerationId = (
+      mockPendingCleanup.current as { ownerGenerationId: string }
+    ).ownerGenerationId;
+    expect(pendingOwnerGenerationId).toEqual(expect.any(String));
+
+    mockExistingRecording.current.uploadGenerationId = pendingOwnerGenerationId;
+    mockReadBody.mockResolvedValue({
+      uploadGenerationId: pendingOwnerGenerationId,
+      useGenerationFence: true,
+    });
+    await expect(handler({} as any)).resolves.toEqual(
+      expect.objectContaining({ ok: true }),
+    );
+    expect(mockAbortSession).toHaveBeenCalledTimes(2);
+    expect(mockPendingCleanup.current).toBeNull();
+    expect(mockDeleteResumableSession).toHaveBeenLastCalledWith(
       "rec-1",
       "generation-old",
     );
