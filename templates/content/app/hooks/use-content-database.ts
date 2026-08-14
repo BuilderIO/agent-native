@@ -1,4 +1,5 @@
 import {
+  callAction,
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
@@ -56,7 +57,7 @@ import type {
   ValidateBuilderSourceExecutionRequest,
 } from "@shared/api";
 import type { Query, QueryClient } from "@tanstack/react-query";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { documentQueryFilter } from "../lib/document-query";
 
@@ -1390,16 +1391,95 @@ export function useContentDatabases(args: {
   excludeDatabaseIds?: string[];
   enabled: boolean;
 }) {
-  return useActionQuery<ListContentDatabasesResponse>(
-    "list-content-databases",
-    args.enabled
-      ? {
-          excludeDatabaseId: args.excludeDatabaseId ?? undefined,
-          excludeDatabaseIds: args.excludeDatabaseIds ?? undefined,
-        }
-      : undefined,
-    { enabled: args.enabled, retry: false },
-  );
+  const filters = {
+    excludeDatabaseId: args.excludeDatabaseId ?? undefined,
+    excludeDatabaseIds: args.excludeDatabaseIds ?? undefined,
+  };
+  return useQuery({
+    queryKey: ["action", "list-content-databases", filters],
+    queryFn: async ({ signal }) => ({
+      databases: await fetchCompleteContentDatabaseList((offset, limit) =>
+        callAction<ListContentDatabasesResponse>(
+          "list-content-databases",
+          { ...filters, offset, limit },
+          { method: "GET", signal },
+        ),
+      ),
+    }),
+    enabled: args.enabled,
+    retry: false,
+  });
+}
+
+const CONTENT_DATABASE_LIST_PAGE_SIZE = 50;
+
+export async function fetchCompleteContentDatabaseList(
+  fetchPage: (
+    offset: number,
+    limit: number,
+  ) => Promise<ListContentDatabasesResponse>,
+) {
+  const databases: ListContentDatabasesResponse["databases"] = [];
+  const databaseIds = new Set<string>();
+  let offset = 0;
+  let expectedTotal: number | null = null;
+
+  while (true) {
+    const page = await fetchPage(offset, CONTENT_DATABASE_LIST_PAGE_SIZE);
+    const { pagination } = page;
+    if (!pagination) {
+      throw new Error(
+        "list-content-databases returned no pagination boundary; refusing to treat the result as complete.",
+      );
+    }
+    if (
+      pagination.offset !== offset ||
+      pagination.limit !== CONTENT_DATABASE_LIST_PAGE_SIZE ||
+      pagination.returnedItems !== page.databases.length
+    ) {
+      throw new Error(
+        "list-content-databases returned inconsistent pagination metadata; retry the complete read.",
+      );
+    }
+    if (expectedTotal === null) expectedTotal = pagination.totalItems;
+    if (pagination.totalItems !== expectedTotal) {
+      throw new Error(
+        "Content databases changed during paginated discovery; retry the complete read.",
+      );
+    }
+    for (const database of page.databases) {
+      if (databaseIds.has(database.databaseId)) {
+        throw new Error(
+          `list-content-databases repeated database "${database.databaseId}" across pages; refusing an ambiguous result.`,
+        );
+      }
+      databaseIds.add(database.databaseId);
+      databases.push(database);
+    }
+
+    const expectedNextOffset = offset + page.databases.length;
+    if (!pagination.hasMore) {
+      if (
+        pagination.nextOffset !== null ||
+        expectedNextOffset !== expectedTotal ||
+        databases.length !== expectedTotal
+      ) {
+        throw new Error(
+          "list-content-databases claimed exhaustion before every declared database was returned.",
+        );
+      }
+      return databases;
+    }
+    if (
+      pagination.nextOffset !== expectedNextOffset ||
+      pagination.nextOffset <= offset
+    ) {
+      throw new Error(
+        "list-content-databases returned a non-advancing continuation; refusing a clipped result.",
+      );
+    }
+    offset = pagination.nextOffset;
+  }
 }
 
 export function useSuggestSourceJoinKey(args: {

@@ -1220,11 +1220,7 @@ export default function App() {
             </div>
           )}
           {!isCodeAgentsActive && activeApp ? (
-            <DesktopAppChatShell
-              key={activeApp.id}
-              appId={activeApp.id}
-              appName={activeApp.name}
-            >
+            <DesktopAppChatShell appId={activeApp.id} appName={activeApp.name}>
               {webviewContent}
             </DesktopAppChatShell>
           ) : (

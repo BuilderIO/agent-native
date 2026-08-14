@@ -483,7 +483,12 @@ async function resolveAvailabilityContext({
             draft
               ? and(
                   eq(schema.bookingLinks.slug, slug),
-                  accessFilter(schema.bookingLinks, schema.bookingLinkShares),
+                  accessFilter(
+                    schema.bookingLinks,
+                    schema.bookingLinkShares,
+                    undefined,
+                    "editor",
+                  ),
                 )
               : eq(schema.bookingLinks.slug, slug),
           )
