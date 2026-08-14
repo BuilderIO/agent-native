@@ -215,6 +215,38 @@ describe("server/auth", () => {
       expect(reportRequest.body.newUserCallbackURL).toBe(
         "https://clips.agent-native.com/_agent-native/auth/magic-link/new-user?return=%2Flibrary%3Ferror%3DINVALID_TOKEN",
       );
+
+      const legacyEvent = createMockEvent({
+        path: "/_agent-native/auth/magic-link",
+        query: {
+          token: "mail-token",
+          callbackURL: "/library",
+          newUserCallbackURL: "/new-user",
+          errorCallbackURL: "/error",
+          ignored: "drop-me",
+        },
+      });
+      const legacyResponse = await handler(legacyEvent);
+      expect(legacyResponse).toBeInstanceOf(Response);
+      expect(legacyResponse.status).toBe(302);
+      const verificationUrl = new URL(legacyResponse.headers.get("Location")!);
+      expect(verificationUrl.pathname).toBe(
+        "/_agent-native/auth/ba/magic-link/verify",
+      );
+      expect(Object.fromEntries(verificationUrl.searchParams)).toEqual({
+        token: "mail-token",
+        callbackURL: "/library",
+        newUserCallbackURL: "/new-user",
+        errorCallbackURL: "/error",
+      });
+
+      const missingTokenEvent = createMockEvent({
+        path: "/_agent-native/auth/magic-link",
+      });
+      await expect(handler(missingTokenEvent)).resolves.toEqual({
+        error: "Method not allowed",
+      });
+      expect(missingTokenEvent.res.status).toBe(405);
     });
 
     it("carries signup attribution into the delayed verification request", async () => {
@@ -4532,7 +4564,7 @@ describe("server/auth", () => {
       expect(html).not.toContain('src="/agent-native-icon-dark.svg"');
     });
 
-    it("renders an optional run-local command in the marketing panel", async () => {
+    it("does not render a run-local command in the marketing panel", async () => {
       const { getOnboardingHtml } = await import("./onboarding-html.js");
       const html = getOnboardingHtml({
         marketing: {
@@ -4543,12 +4575,10 @@ describe("server/auth", () => {
         },
       });
 
-      expect(html).toContain('id="run-local-button"');
-      expect(html).toContain("Run Locally");
-      expect(html).toContain(
-        "npx @agent-native/core@latest create my-mail-app --template mail",
-      );
-      expect(html).toContain("function __anCopyRunLocalCommand()");
+      expect(html).not.toContain('id="run-local-button"');
+      expect(html).not.toContain('id="run-local-panel"');
+      expect(html).not.toContain("Run Locally");
+      expect(html).not.toContain("function __anCopyRunLocalCommand()");
     });
 
     it("defaults the active tab from the login or signup path", async () => {

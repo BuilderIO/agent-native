@@ -58,6 +58,7 @@ import {
   parseSpaceIds,
   type RecordingVisibility,
 } from "../../lib/recordings.js";
+import { isSeekableRepairPending } from "../../lib/seekable-media-state.js";
 import { verifySharePassword } from "../../lib/share-password.js";
 
 function appPath(path: string): string {
@@ -262,6 +263,7 @@ export default defineEventHandler(async (event) => {
     !viewerIsOrgMember &&
     !tokenAllowsAgentAccess
   ) {
+    setResponseHeader(event, "Cache-Control", "private, max-age=0, no-store");
     setResponseStatus(event, 404);
     return { error: "Not found" };
   }
@@ -406,11 +408,19 @@ export default defineEventHandler(async (event) => {
   // Referer of any outbound link the share page renders.
   setResponseHeader(event, "Referrer-Policy", "no-referrer");
   const transcriptPresentation = resolveTranscriptPresentation(transcript);
-  const verificationPending = await isMediaVerificationPending({
-    ownerEmail: rec.ownerEmail,
-    recordingId,
-    recordingStatus: rec.status,
-  });
+  const [verificationPending, seekableRepairPending] = await Promise.all([
+    isMediaVerificationPending({
+      ownerEmail: rec.ownerEmail,
+      recordingId,
+      recordingStatus: rec.status,
+    }),
+    isSeekableRepairPending({
+      ownerEmail: rec.ownerEmail,
+      recordingId,
+      recordingStatus: rec.status,
+      videoUrl: rec.videoUrl,
+    }),
+  ]);
 
   const [viewCount, agentViewCount] = await Promise.all([
     countRecordingViews(recordingId),
@@ -454,12 +464,14 @@ export default defineEventHandler(async (event) => {
       videoUrl: playbackVideoUrl,
       videoFormat: rec.videoFormat,
       videoSizeBytes: rec.videoSizeBytes ?? null,
+      mediaUpdatedAt: rec.mediaUpdatedAt,
       width: rec.width,
       height: rec.height,
       hasAudio: Boolean(rec.hasAudio),
       hasCamera: Boolean(rec.hasCamera),
       status: rec.status,
       verificationPending,
+      seekableRepairPending,
       uploadProgress: rec.uploadProgress,
       failureReason: rec.failureReason,
       // Don't leak the password to clients; just indicate whether one was set.

@@ -52,6 +52,7 @@ import {
   type AgentChatContextItem,
   type AgentComposerReference,
   type AgentComposerReferenceInsertPayload,
+  type ComposerTranslate,
   type ReasoningEffort,
   type VoiceContextPack,
   useComposerRuntimeAdapters,
@@ -289,10 +290,12 @@ export function getOversizedDocumentAttachmentError(
   options: {
     maxBytes?: number;
     label?: string;
+    translate?: ComposerTranslate;
   } = {},
 ): string | null {
   const maxBytes = options.maxBytes ?? MAX_DOCUMENT_ATTACHMENT_BYTES;
   const label = options.label ?? "PDFs";
+  const t = options.translate;
   for (const attachment of attachments) {
     if (!attachment || typeof attachment !== "object") continue;
     const candidate = attachment as Record<string, unknown>;
@@ -306,7 +309,17 @@ export function getOversizedDocumentAttachmentError(
         : file.name;
     const mb = (file.size / 1024 / 1024).toFixed(1);
     const maxMb = (maxBytes / 1024 / 1024).toFixed(0);
-    return `"${name}" is ${mb} MB. ${label} are capped at ${maxMb} MB to stay within message limits. Please reduce the file size or split it into smaller parts.`;
+    return (
+      t?.("agentChat.composer.documentTooLarge", {
+        defaultValue:
+          '"{{name}}" is {{size}} MB. {{label}} are capped at {{maxSize}} MB to stay within message limits. Please reduce the file size or split it into smaller parts.',
+        name,
+        size: mb,
+        label,
+        maxSize: maxMb,
+      }) ??
+      `"${name}" is ${mb} MB. ${label} are capped at ${maxMb} MB to stay within message limits. Please reduce the file size or split it into smaller parts.`
+    );
   }
   return null;
 }
@@ -356,10 +369,13 @@ export function displayableComposerModeMessage(options: {
   messagePrefix: string;
   trimmedText: string;
   attachmentCount: number;
+  attachedContextFallback?: string;
 }): string {
   const modePrompt =
     options.trimmedText ||
-    (options.attachmentCount > 0 ? "Use the attached context." : "");
+    (options.attachmentCount > 0
+      ? (options.attachedContextFallback ?? "Use the attached context.")
+      : "");
   return `${options.messagePrefix}${modePrompt}`;
 }
 
@@ -408,14 +424,52 @@ export function handleComposerFileDrop(options: {
   return true;
 }
 
-const BUILT_IN_COMMANDS: SlashCommand[] = [
-  { name: "clear", description: "Start a new chat", icon: "clear" },
-  { name: "new", description: "Start a new chat", icon: "new" },
-  { name: "history", description: "Browse all chats", icon: "history" },
-  { name: "plan", description: "Switch to read-only planning", icon: "plan" },
-  { name: "act", description: "Switch back to acting", icon: "act" },
-  { name: "help", description: "Show available commands", icon: "help" },
-];
+function builtInCommands(t: ComposerTranslate): SlashCommand[] {
+  return [
+    {
+      name: "clear",
+      description: t("agentChat.commands.clearShort", {
+        defaultValue: "Start a new chat",
+      }),
+      icon: "clear",
+    },
+    {
+      name: "new",
+      description: t("agentChat.commands.newShort", {
+        defaultValue: "Start a new chat",
+      }),
+      icon: "new",
+    },
+    {
+      name: "history",
+      description: t("agentChat.commands.history", {
+        defaultValue: "Browse all chats",
+      }),
+      icon: "history",
+    },
+    {
+      name: "plan",
+      description: t("agentChat.commands.plan", {
+        defaultValue: "Switch to read-only planning",
+      }),
+      icon: "plan",
+    },
+    {
+      name: "act",
+      description: t("agentChat.commands.act", {
+        defaultValue: "Switch back to acting",
+      }),
+      icon: "act",
+    },
+    {
+      name: "help",
+      description: t("agentChat.commands.help", {
+        defaultValue: "Show available commands",
+      }),
+      icon: "help",
+    },
+  ];
+}
 
 function normalizeSlashCommandName(name: string): string {
   return name.replace(/^\/+/, "").trim().toLowerCase();
@@ -448,19 +502,13 @@ function mergeSlashSkills(skills: SkillResult[]): SkillResult[] {
 const COMPOSER_MODE_CONFIGS: Record<
   ComposerMode,
   {
-    label: string;
     icon: React.ComponentType<{ className?: string }>;
-    placeholder: string;
-    messagePrefix: string;
     getContext: (prompt: string) => string;
     beforeSend?: () => void;
   }
 > = {
   skill: {
-    label: "Create Skill",
     icon: IconBulb,
-    placeholder: "Describe the skill you want to create...",
-    messagePrefix: "Create a skill: ",
     getContext: (prompt) =>
       `The user wants to create an agent skill. Their description: "${prompt}"
 
@@ -482,10 +530,7 @@ After creating, update the shared AGENTS.md resource to reference the new skill 
 Keep the skill concise (under 500 lines) and actionable.`,
   },
   job: {
-    label: "Schedule Task",
     icon: IconClock,
-    placeholder: "Describe what should happen and when...",
-    messagePrefix: "Create a recurring job: ",
     getContext: (prompt) =>
       `The user wants to create a recurring job. Their description: "${prompt}"
 
@@ -498,10 +543,7 @@ Use the manage-jobs tool with action "create" to create this. You need to:
 The job will run automatically on the schedule. Make the instructions specific — include which actions to call and what to do with results.`,
   },
   automation: {
-    label: "Create Automation",
     icon: IconBolt,
-    placeholder: "Describe what you want to automate...",
-    messagePrefix: "Create an automation: ",
     beforeSend: () => {
       window.dispatchEvent(
         new CustomEvent("agent-panel:set-mode", {
@@ -515,10 +557,7 @@ The job will run automatically on the schedule. Make the instructions specific �
 Use manage-automations with action=define to create it. Ask clarifying questions if needed about what event to trigger on, conditions, and what actions to take.`,
   },
   extension: {
-    label: "Create Extension",
     icon: IconTool,
-    placeholder: "Describe the interactive extension you want to build...",
-    messagePrefix: "Create an extension: ",
     getContext: (prompt) =>
       `The user wants to create an interactive extension (sandboxed mini-app). Their description: "${prompt}"
 
@@ -532,6 +571,60 @@ Prefer appAction()/appFetch() for app data. Some actions return JSON strings for
   },
 };
 
+function localizedComposerModeConfig(mode: ComposerMode, t: ComposerTranslate) {
+  const config = COMPOSER_MODE_CONFIGS[mode];
+  const copies: Record<
+    ComposerMode,
+    { label: string; placeholder: string; messagePrefix: string }
+  > = {
+    skill: {
+      label: t("agentChat.composer.createSkill", {
+        defaultValue: "Create Skill",
+      }),
+      placeholder: t("agentChat.composer.describeSkill", {
+        defaultValue: "Describe the skill you want to create...",
+      }),
+      messagePrefix: t("agentChat.composer.createSkillPrefix", {
+        defaultValue: "Create a skill: ",
+      }),
+    },
+    job: {
+      label: t("agentChat.composer.scheduleTask", {
+        defaultValue: "Schedule Task",
+      }),
+      placeholder: t("agentChat.composer.describeSchedule", {
+        defaultValue: "Describe what should happen and when...",
+      }),
+      messagePrefix: t("agentChat.composer.scheduleTaskPrefix", {
+        defaultValue: "Create a recurring job: ",
+      }),
+    },
+    automation: {
+      label: t("agentChat.composer.createAutomation", {
+        defaultValue: "Create Automation",
+      }),
+      placeholder: t("agentChat.composer.describeAutomation", {
+        defaultValue: "Describe what you want to automate...",
+      }),
+      messagePrefix: t("agentChat.composer.createAutomationPrefix", {
+        defaultValue: "Create an automation: ",
+      }),
+    },
+    extension: {
+      label: t("agentChat.composer.createExtension", {
+        defaultValue: "Create Extension",
+      }),
+      placeholder: t("agentChat.composer.describeExtension", {
+        defaultValue: "Describe the interactive extension you want to build...",
+      }),
+      messagePrefix: t("agentChat.composer.createExtensionPrefix", {
+        defaultValue: "Create an extension: ",
+      }),
+    },
+  };
+  return { ...config, ...copies[mode] };
+}
+
 function ComposerModeChip({
   mode,
   onRemove,
@@ -539,7 +632,8 @@ function ComposerModeChip({
   mode: ComposerMode;
   onRemove: () => void;
 }) {
-  const config = COMPOSER_MODE_CONFIGS[mode];
+  const t = useComposerRuntimeAdapters().translate!;
+  const config = localizedComposerModeConfig(mode, t);
   const Icon = config.icon;
   return (
     <span className="inline-flex items-center gap-1 rounded-md border border-border bg-muted/50 px-1.5 py-0.5 text-xs font-medium text-foreground">
@@ -761,25 +855,37 @@ function ModeSelector({
   mode,
   onChange,
   planModeDisabled = false,
-  planModeDisabledReason = "Open Agent Native Desktop to use Plan mode.",
+  planModeDisabledReason,
 }: {
   mode: ExecMode;
   onChange: (mode: ExecMode) => void;
   planModeDisabled?: boolean;
   planModeDisabledReason?: string;
 }) {
+  const t = useComposerRuntimeAdapters().translate!;
   const [open, setOpen] = useState(false);
+  const resolvedPlanModeDisabledReason =
+    planModeDisabledReason ??
+    t("agentChat.composer.planDesktopRequired", {
+      defaultValue: "Open Agent Native Desktop to use Plan mode.",
+    });
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <button
           type="button"
-          aria-label={mode === "build" ? "Act mode" : "Plan mode"}
+          aria-label={
+            mode === "build"
+              ? t("agentChat.composer.actMode", { defaultValue: "Act mode" })
+              : t("agentChat.plan.mode", { defaultValue: "Plan mode" })
+          }
           data-agent-composer-slot="mode-button"
           className="agent-composer-mode-button shrink-0 flex items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground"
         >
-          {mode === "build" ? "Act" : "Plan"}
+          {mode === "build"
+            ? t("agentChat.plan.act", { defaultValue: "Act" })
+            : t("agentChat.composer.plan", { defaultValue: "Plan" })}
           <IconChevronDown className="h-3 w-3 opacity-60" />
         </button>
       </PopoverTrigger>
@@ -802,9 +908,13 @@ function ModeSelector({
         >
           <IconPencil className="h-4 w-4 shrink-0 text-muted-foreground" />
           <div className="flex-1 min-w-0">
-            <span className="font-medium text-foreground text-[13px]">Act</span>
+            <span className="font-medium text-foreground text-[13px]">
+              {t("agentChat.plan.act", { defaultValue: "Act" })}
+            </span>
             <p className="text-[11px] text-muted-foreground mt-0.5">
-              Use tools and make approved changes
+              {t("agentChat.composer.actDescription", {
+                defaultValue: "Use tools and make approved changes",
+              })}
             </p>
           </div>
           {mode === "build" && (
@@ -814,7 +924,7 @@ function ModeSelector({
         <button
           type="button"
           disabled={planModeDisabled}
-          title={planModeDisabled ? planModeDisabledReason : undefined}
+          title={planModeDisabled ? resolvedPlanModeDisabledReason : undefined}
           onClick={() => {
             if (planModeDisabled) return;
             onChange("plan");
@@ -829,12 +939,14 @@ function ModeSelector({
           <IconClipboardList className="h-4 w-4 shrink-0 text-muted-foreground" />
           <div className="flex-1 min-w-0">
             <span className="font-medium text-foreground text-[13px]">
-              Plan
+              {t("agentChat.composer.plan", { defaultValue: "Plan" })}
             </span>
             <p className="text-[11px] text-muted-foreground mt-0.5">
               {planModeDisabled
-                ? planModeDisabledReason
-                : "Read-only research and approval first"}
+                ? resolvedPlanModeDisabledReason
+                : t("agentChat.composer.planDescription", {
+                    defaultValue: "Read-only research and approval first",
+                  })}
             </p>
           </div>
           {mode === "plan" && !planModeDisabled && (
@@ -879,7 +991,14 @@ export function shouldShowOnlyConnectPath(
   return showBuilderCta && groups.every((group) => !group.configured);
 }
 
-function friendlyModelName(model: string): string {
+function friendlyModelName(model: string, t?: ComposerTranslate): string {
+  if (model === "auto") {
+    return (
+      t?.("agentChat.composer.defaultModel", {
+        defaultValue: "Default model",
+      }) ?? "Default model"
+    );
+  }
   if (FRIENDLY_MODEL_NAMES[model]) return FRIENDLY_MODEL_NAMES[model];
   // Claude: claude-{tier}-{major}[-minor][-dateYYYYMMDD] → Tier Major[.Minor]
   const claude = model.match(
@@ -929,23 +1048,74 @@ function friendlyModelName(model: string): string {
   return model;
 }
 
-export function compactComposerModelName(model: string): string {
+export function compactComposerModelName(
+  model: string,
+  t?: ComposerTranslate,
+): string {
   const gpt56Variant = model.match(
     /^(?:openai\/)?gpt-5[.-]6[.-](sol|terra|luna)$/i,
   )?.[1];
   if (gpt56Variant) {
-    return gpt56Variant[0].toUpperCase() + gpt56Variant.slice(1).toLowerCase();
+    const variant =
+      gpt56Variant[0].toUpperCase() + gpt56Variant.slice(1).toLowerCase();
+    return `GPT-5.6 ${variant}`;
   }
-  return friendlyModelName(model);
+  return friendlyModelName(model, t);
 }
 
 export function compactComposerReasoningEffortLabel(
   effort: ReasoningEffort,
+  t?: ComposerTranslate,
 ): string {
-  if (effort === "medium" || effort === "auto") return "Med";
-  if (effort === "minimal") return "Min";
-  if (effort === "xhigh") return "XHigh";
-  return reasoningEffortLabel(effort);
+  if (effort === "medium" || effort === "auto") {
+    return (
+      t?.("agentChat.composer.reasoningMediumShort", {
+        defaultValue: "Med",
+      }) ?? "Med"
+    );
+  }
+  if (effort === "minimal") {
+    return (
+      t?.("agentChat.composer.reasoningMinimalShort", {
+        defaultValue: "Min",
+      }) ?? "Min"
+    );
+  }
+  if (effort === "xhigh") {
+    return (
+      t?.("agentChat.composer.reasoningExtraHighShort", {
+        defaultValue: "XHigh",
+      }) ?? "XHigh"
+    );
+  }
+  return t
+    ? localizedReasoningEffortLabel(t, effort, reasoningEffortLabel(effort))
+    : reasoningEffortLabel(effort);
+}
+
+function localizedReasoningEffortLabel(
+  t: ComposerTranslate,
+  effort: ReasoningEffort,
+  defaultValue: string,
+): string {
+  switch (effort) {
+    case "auto":
+      return t("agentChat.composer.reasoningEffort.auto", { defaultValue });
+    case "none":
+      return t("agentChat.composer.reasoningEffort.none", { defaultValue });
+    case "minimal":
+      return t("agentChat.composer.reasoningEffort.minimal", { defaultValue });
+    case "low":
+      return t("agentChat.composer.reasoningEffort.low", { defaultValue });
+    case "medium":
+      return t("agentChat.composer.reasoningEffort.medium", { defaultValue });
+    case "high":
+      return t("agentChat.composer.reasoningEffort.high", { defaultValue });
+    case "xhigh":
+      return t("agentChat.composer.reasoningEffort.xhigh", { defaultValue });
+    case "max":
+      return t("agentChat.composer.reasoningEffort.max", { defaultValue });
+  }
 }
 
 /**
@@ -997,16 +1167,21 @@ const MODEL_COST_TIERS: ReadonlyArray<readonly [string, 1 | 2 | 3]> = [
   ["pro", 3],
 ];
 
-const COST_TIER_LABELS = { 1: "Lower", 2: "Medium", 3: "Higher" } as const;
-
 export function composerModelCostTier(model: string): 1 | 2 | 3 | undefined {
   const normalized = model.toLowerCase();
   return MODEL_COST_TIERS.find(([token]) => normalized.includes(token))?.[1];
 }
 
 function ModelCostTier({ model }: { model: string }) {
+  const t = useComposerRuntimeAdapters().translate!;
   const tier = composerModelCostTier(model);
   if (!tier) return null;
+  const costLabel =
+    tier === 1
+      ? t("agentChat.composer.costLower", { defaultValue: "Lower cost" })
+      : tier === 2
+        ? t("agentChat.composer.costMedium", { defaultValue: "Medium cost" })
+        : t("agentChat.composer.costHigher", { defaultValue: "Higher cost" });
   return (
     <>
       <span
@@ -1015,7 +1190,7 @@ function ModelCostTier({ model }: { model: string }) {
       >
         {"$".repeat(tier)}
       </span>
-      <span className="sr-only">{COST_TIER_LABELS[tier]} cost</span>
+      <span className="sr-only">{costLabel}</span>
     </>
   );
 }
@@ -1102,7 +1277,15 @@ function ModelSelector({
   const selectedEffort =
     reasoning?.resolve?.(model, effort) ??
     resolveReasoningEffortSelection(model, effort ?? defaultEffort);
-  const effortLabel = reasoning?.label ?? reasoningEffortLabel;
+  const effortLabel = useCallback(
+    (value: ReasoningEffort) =>
+      localizedReasoningEffortLabel(
+        t,
+        value,
+        (reasoning?.label ?? reasoningEffortLabel)(value),
+      ),
+    [reasoning?.label, t],
+  );
 
   // Collapse non-selected families by default. The family containing the
   // currently-selected model stays expanded so the user sees their pick at
@@ -1200,19 +1383,23 @@ function ModelSelector({
         <button
           type="button"
           data-agent-composer-slot="model-button"
-          aria-label={`Model: ${friendlyModelName(model)}${
+          aria-label={`${t("agentChat.composer.model", {
+            defaultValue: "Model",
+          })}: ${friendlyModelName(model, t)}${
             effortOptions.length > 0
-              ? `. Effort: ${effortLabel(selectedEffort)}`
+              ? `. ${t("agentChat.composer.reasoning", {
+                  defaultValue: "Reasoning",
+                })}: ${effortLabel(selectedEffort)}`
               : ""
           }`}
           className="agent-composer-model-button flex min-w-0 max-w-[10.5rem] shrink items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground"
         >
           <span className="min-w-0 truncate">
-            {compactComposerModelName(model)}
+            {compactComposerModelName(model, t)}
           </span>
           {effortOptions.length > 0 && (
             <span className="agent-composer-model-effort min-w-0 shrink truncate text-muted-foreground/70">
-              · {compactComposerReasoningEffortLabel(selectedEffort)}
+              · {compactComposerReasoningEffortLabel(selectedEffort, t)}
             </span>
           )}
           <IconChevronDown className="h-3 w-3 shrink-0 opacity-60" />
@@ -1306,7 +1493,10 @@ function ModelSelector({
                   <IconChevronRight className="h-3 w-3 shrink-0 text-muted-foreground rtl:-scale-x-100" />
                 )}
                 <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide shrink-0">
-                  {imageModel.label ?? "Image model"}
+                  {imageModel.label ??
+                    t("agentChat.composer.imageModel", {
+                      defaultValue: "Image model",
+                    })}
                 </span>
                 {!imageExpanded && imageModelLabel && (
                   <span className="text-[11px] text-muted-foreground/80 truncate">
@@ -1348,7 +1538,7 @@ function ModelSelector({
             className="flex w-full items-center gap-3 px-3 py-1.5 text-start hover:bg-accent/50"
           >
             <span className="flex-1 min-w-0 text-[13px] text-foreground truncate">
-              Auto
+              {t("agentChat.composer.auto", { defaultValue: "Auto" })}
             </span>
             {model === "auto" && (
               <IconCheck className="h-3.5 w-3.5 shrink-0 text-blue-500" />
@@ -1374,8 +1564,10 @@ function ModelSelector({
               group.statusLabel ??
               (!group.configured
                 ? canConnectLocalRuntime
-                  ? "sign in"
-                  : "needs API key"
+                  ? t("agentChat.auth.logIn", { defaultValue: "Sign in" })
+                  : t("agentChat.composer.needsApiKey", {
+                      defaultValue: "needs API key",
+                    })
                 : undefined);
             return (
               <div key={groupKey}>
@@ -1392,7 +1584,7 @@ function ModelSelector({
                     </span>
                     {!isExpanded && groupKey === selectedGroupKey && (
                       <span className="text-[11px] text-muted-foreground/80 truncate">
-                        {friendlyModelName(model)}
+                        {friendlyModelName(model, t)}
                       </span>
                     )}
                   </button>
@@ -1447,7 +1639,7 @@ function ModelSelector({
                       }`}
                     >
                       <span className="flex-1 min-w-0 text-[13px] text-foreground truncate">
-                        {friendlyModelName(m)}
+                        {friendlyModelName(m, t)}
                       </span>
                       <ModelCostTier model={m} />
                       {m === model && group.configured && (
@@ -1476,7 +1668,9 @@ function ModelSelector({
                     <IconChevronRight className="h-3 w-3 shrink-0 text-muted-foreground rtl:-scale-x-100" />
                   )}
                   <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide shrink-0">
-                    Effort
+                    {t("agentChat.composer.reasoning", {
+                      defaultValue: "Reasoning",
+                    })}
                   </span>
                   {!effortExpanded && (
                     <span className="text-[11px] text-muted-foreground/80 truncate">
@@ -1509,13 +1703,20 @@ function ModelSelector({
 }
 
 function ModelSelectorSkeleton() {
+  const t = useComposerRuntimeAdapters().translate!;
   return (
     <div
       className="space-y-1 px-2 py-2"
       role="status"
-      aria-label="Loading models"
+      aria-label={t("agentChat.composer.loadingModels", {
+        defaultValue: "Loading models",
+      })}
     >
-      <span className="sr-only">Loading models…</span>
+      <span className="sr-only">
+        {t("agentChat.composer.loadingModelsProgress", {
+          defaultValue: "Loading models…",
+        })}
+      </span>
       {["w-24", "w-32", "w-20", "w-28"].map((width, index) => (
         <div key={index} className="flex items-center gap-1.5 px-1 py-1.5">
           <Skeleton className="size-3 rounded-sm" />
@@ -1534,7 +1735,7 @@ type PopoverState = {
 } | null;
 
 export function TiptapComposer({
-  placeholder = "Message agent...",
+  placeholder,
   disabled = false,
   maxDocumentAttachmentBytes = MAX_DOCUMENT_ATTACHMENT_BYTES,
   documentAttachmentLimitLabel = "PDFs",
@@ -1649,10 +1850,10 @@ export function TiptapComposer({
   const allSlashCommands = useMemo(
     () =>
       mergeSlashCommands([
-        ...(includeDefaultSlashCommands ? BUILT_IN_COMMANDS : []),
+        ...(includeDefaultSlashCommands ? builtInCommands(t) : []),
         ...slashCommands,
       ]),
-    [includeDefaultSlashCommands, slashCommands],
+    [includeDefaultSlashCommands, slashCommands, t],
   );
 
   const allSlashSkills = useMemo(
@@ -1734,12 +1935,14 @@ export function TiptapComposer({
   }, [composerRuntime]);
   // Tiptap reads extension config once at init; ref keeps runtime prop
   // changes visible to Placeholder's function form.
-  const placeholderRef = useRef(placeholder);
-  useEffect(() => {
-    placeholderRef.current = composerMode
-      ? COMPOSER_MODE_CONFIGS[composerMode].placeholder
-      : placeholder;
-  }, [placeholder, composerMode]);
+  const resolvedPlaceholder = composerMode
+    ? localizedComposerModeConfig(composerMode, t).placeholder
+    : (placeholder ??
+      t("agentChat.composer.messageAgent", {
+        defaultValue: "Message agent...",
+      }));
+  const placeholderRef = useRef(resolvedPlaceholder);
+  placeholderRef.current = resolvedPlaceholder;
 
   const editor = useEditor({
     extensions: createTiptapComposerExtensions(() => placeholderRef.current),
@@ -1828,7 +2031,10 @@ export function TiptapComposer({
             const msg =
               error instanceof Error
                 ? error.message
-                : "Could not attach the pasted image. Try a different format.";
+                : t("agentChat.composer.pastedImageError", {
+                    defaultValue:
+                      "Could not attach the pasted image. Try a different format.",
+                  });
             onAttachmentErrorRef.current?.(msg);
           });
           return true;
@@ -1849,7 +2055,9 @@ export function TiptapComposer({
               const msg =
                 error instanceof Error
                   ? error.message
-                  : "Could not attach the pasted text.";
+                  : t("agentChat.composer.pastedTextError", {
+                      defaultValue: "Could not attach the pasted text.",
+                    });
               onAttachmentErrorRef.current?.(msg);
             });
           return true;
@@ -1868,7 +2076,10 @@ export function TiptapComposer({
             const msg =
               error instanceof Error
                 ? error.message
-                : "Could not attach the dropped file. Try a different format.";
+                : t("agentChat.composer.droppedFileError", {
+                    defaultValue:
+                      "Could not attach the dropped file. Try a different format.",
+                  });
             onAttachmentErrorRef.current?.(msg);
           },
         });
@@ -2046,6 +2257,13 @@ export function TiptapComposer({
       },
     },
   });
+
+  // Placeholder decorations are computed by ProseMirror. Dispatching an empty
+  // transaction makes a locale or composer-mode change visible immediately.
+  useEffect(() => {
+    if (!isComposerEditorUsable(editor)) return;
+    editor.view.dispatch(editor.state.tr.setSelection(editor.state.selection));
+  }, [editor, resolvedPlaceholder]);
 
   // A tab can stay mounted while becoming the active composer later. Publish
   // its existing draft when the host starts observing it so contextual UI is
@@ -2287,7 +2505,12 @@ export function TiptapComposer({
       3200,
     );
     if (activeContext) {
-      snippets.push({ label: "Active app context", value: activeContext });
+      snippets.push({
+        label: t("agentChat.composer.activeAppContext", {
+          defaultValue: "Active app context",
+        }),
+        value: activeContext,
+      });
     }
 
     const selectedReferences = trimVoiceContextValue(
@@ -2296,7 +2519,9 @@ export function TiptapComposer({
     );
     if (selectedReferences) {
       snippets.push({
-        label: "Selected references",
+        label: t("agentChat.composer.selectedReferences", {
+          defaultValue: "Selected references",
+        }),
         value: selectedReferences,
       });
     }
@@ -2304,16 +2529,35 @@ export function TiptapComposer({
     const draft = isComposerEditorUsable(editor)
       ? trimVoiceContextValue(editor.state.doc.textContent, 1200)
       : null;
-    if (draft) snippets.push({ label: "Current draft", value: draft });
+    if (draft) {
+      snippets.push({
+        label: t("agentChat.composer.currentDraft", {
+          defaultValue: "Current draft",
+        }),
+        value: draft,
+      });
+    }
 
     if (typeof document !== "undefined") {
       const title = trimVoiceContextValue(document.title, 160);
-      if (title) snippets.push({ label: "Page title", value: title });
+      if (title) {
+        snippets.push({
+          label: t("agentChat.composer.pageTitle", {
+            defaultValue: "Page title",
+          }),
+          value: title,
+        });
+      }
     }
 
     if (typeof window !== "undefined") {
       const route = trimVoiceContextValue(window.location.pathname, 240);
-      if (route) snippets.push({ label: "Route", value: route });
+      if (route) {
+        snippets.push({
+          label: t("agentChat.composer.route", { defaultValue: "Route" }),
+          value: route,
+        });
+      }
     }
 
     if (snippets.length === 0) return undefined;
@@ -2322,7 +2566,7 @@ export function TiptapComposer({
       mode: "dictation",
       snippets,
     };
-  }, [adapters, contextItems, editor, slotReferences]);
+  }, [adapters, contextItems, editor, slotReferences, t]);
 
   const voice = useVoiceDictation({
     onTranscript: insertTranscript,
@@ -2552,6 +2796,7 @@ export function TiptapComposer({
         {
           maxBytes: maxDocumentAttachmentBytes,
           label: documentAttachmentLimitLabel,
+          translate: t,
         },
       );
       if (oversizedDocumentError) {
@@ -2609,16 +2854,23 @@ export function TiptapComposer({
 
       // Composer mode: send with context via agent chat bridge
       if (composerMode) {
-        const config = COMPOSER_MODE_CONFIGS[composerMode];
+        const config = localizedComposerModeConfig(composerMode, t);
         config.beforeSend?.();
         const message = displayableComposerModeMessage({
           messagePrefix: config.messagePrefix,
           trimmedText: trimmed,
           attachmentCount: attachments.length,
+          attachedContextFallback: t("agentChat.composer.useAttachedContext", {
+            defaultValue: "Use the attached context.",
+          }),
         });
         const modePrompt =
           trimmed ||
-          (attachments.length > 0 ? "Use the attached context." : "");
+          (attachments.length > 0
+            ? t("agentChat.composer.useAttachedContext", {
+                defaultValue: "Use the attached context.",
+              })
+            : "");
         if (attachments.length > 0) {
           composerRuntime.setText(
             `${message}\n\n<context>\n${config.getContext(modePrompt)}\n</context>`,
@@ -2693,6 +2945,7 @@ export function TiptapComposer({
       syncComposerState,
       voice,
       allSlashCommands,
+      t,
     ],
   );
 
@@ -2944,7 +3197,10 @@ export function TiptapComposer({
                     editor.commands.focus("end");
                   }
                 }}
-                aria-label={`Remove ${slotReferenceTitle(ref)} reference`}
+                aria-label={t("agentChat.composer.removeReference", {
+                  defaultValue: "Remove {{name}} reference",
+                  name: slotReferenceTitle(ref),
+                })}
                 className="ms-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
               >
                 <IconX className="h-3 w-3" />
@@ -2972,7 +3228,10 @@ export function TiptapComposer({
                   setSelectedContextItemKey(null);
                   onRemoveContextItem?.(item.key);
                 }}
-                aria-label={`Remove ${item.title} context`}
+                aria-label={t("agentChat.composer.removeContext", {
+                  defaultValue: "Remove {{name}} context",
+                  name: item.title,
+                })}
                 className="ms-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
               >
                 <IconX className="h-3 w-3" />

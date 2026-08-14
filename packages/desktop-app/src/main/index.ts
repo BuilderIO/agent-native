@@ -130,7 +130,6 @@ import {
   type IpcMainInvokeEvent,
   type WebContents,
 } from "electron";
-import { autoUpdater } from "electron-updater";
 
 import {
   AI_SDK_MODEL_CONFIG,
@@ -208,6 +207,7 @@ import { registerAppsIpc } from "./ipc/apps";
 import { registerChatFirstMcpIpc } from "./ipc/chat-first-mcp.js";
 import { registerCodeAgentsIpc } from "./ipc/code-agents";
 import { registerContentFilesIpc } from "./ipc/content-files";
+import { registerDesktopChatIpc } from "./ipc/desktop-chat";
 import { registerFrameIpc } from "./ipc/frame";
 import { registerInterAppIpc } from "./ipc/inter-app";
 import { registerPlanFilesIpc } from "./ipc/plan-files";
@@ -216,6 +216,7 @@ import { isDesktopSsoCanaryVersion } from "./ipc/update-policy.js";
 import {
   checkForAppUpdates,
   getCurrentUpdateStatus,
+  installDownloadedUpdate,
   registerUpdatesIpc,
 } from "./ipc/updates";
 import { registerWindowIpc } from "./ipc/window";
@@ -1179,7 +1180,25 @@ app.on("browser-window-focus", () => {
 // See main/ipc/updates.ts for the autoUpdater wiring, status broadcast, and
 // update-ready notification. `checkForAppUpdates`/`getCurrentUpdateStatus`
 // (imported above) are also used by the application menu below.
-registerUpdatesIpc({ refreshApplicationMenu, focusMainWindow });
+async function closeDesktopComputerMcpBridge(): Promise<void> {
+  const computerBridge = desktopComputerMcpBridge;
+  const browserBridge = desktopBrowserControlBridge;
+  desktopComputerMcpBridge = null;
+  desktopBrowserControlBridge = null;
+
+  const closePromises: Promise<void>[] = [];
+  if (computerBridge) closePromises.push(computerBridge.close());
+  if (browserBridge) closePromises.push(browserBridge.close());
+  for (const result of await Promise.allSettled(closePromises)) {
+    if (result.status === "rejected") throw result.reason;
+  }
+}
+
+registerUpdatesIpc({
+  refreshApplicationMenu,
+  focusMainWindow,
+  prepareForUpdate: closeDesktopComputerMcpBridge,
+});
 
 function isShellIdentityIpc(event: IpcMainInvokeEvent): boolean {
   return Boolean(
@@ -8683,6 +8702,8 @@ registerAppsIpc({
   showDesktopAppContextMenu,
 });
 
+registerDesktopChatIpc();
+
 registerChatFirstMcpIpc({
   resolveMcpHost: resolveDesktopMcpHost,
   codeAgentWorkspaceRoot: () => resolveCodeAgentsTerminalCwd({}),
@@ -9629,16 +9650,9 @@ app.on("web-contents-created", (_event, contents) => {
 function buildUpdateMenuItem(): Electron.MenuItemConstructorOptions {
   const currentUpdateStatus = getCurrentUpdateStatus();
 
-  if (IS_DEV) {
-    return {
-      label: "Check for Updates...",
-      enabled: false,
-    };
-  }
-
   if (currentUpdateStatus.state === "unsupported") {
     return {
-      label: "Check for Updates...",
+      label: currentUpdateStatus.reason,
       enabled: false,
     };
   }
@@ -9648,7 +9662,7 @@ function buildUpdateMenuItem(): Electron.MenuItemConstructorOptions {
       label: currentUpdateStatus.version
         ? `Relaunch to Install Update ${currentUpdateStatus.version}`
         : "Relaunch to Install Update",
-      click: () => autoUpdater.quitAndInstall(false, true),
+      click: () => void installDownloadedUpdate(),
     };
   }
 
@@ -10318,9 +10332,12 @@ app.on("before-quit", (event) => {
     }
     remoteConnectorProcess?.kill("SIGTERM");
     remoteConnectorProcess = null;
-    void desktopComputerMcpBridge?.close();
-    desktopComputerMcpBridge = null;
-    desktopBrowserControlBridge = null;
+    void closeDesktopComputerMcpBridge().catch((error) => {
+      console.warn(
+        "[computer-control] failed to close desktop bridges during shutdown:",
+        error instanceof Error ? error.message : error,
+      );
+    });
   }
   if (multiFrontierAppIntegration) multiFrontierQuitGuard(event);
 });

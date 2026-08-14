@@ -41,6 +41,7 @@ const messages = {
     unpinChat: "채팅 고정 해제",
   },
   navigation: {
+    agents: "에이전트",
     chat: "채팅",
     collapseSidebar: "사이드바 접기",
     database: "데이터베이스",
@@ -52,7 +53,7 @@ const messages = {
     openNavigation: "탐색 열기",
     settings: "설정",
     team: "팀",
-    triage: "Factory",
+    triage: "팩토리",
   },
   triage: {
     title: "Factory",
@@ -160,6 +161,20 @@ const messages = {
     metricRuns: "실행",
     rulesTab: "규칙",
     automationsTab: "자동화",
+    agentsTab: "에이전트",
+    agenticAppsTitle: "에이전트 앱",
+    agenticAppsEmpty: "이 워크스페이스에는 아직 에이전트 앱이 없습니다.",
+    createApp: "앱 만들기",
+    editAppDetails: "앱 세부정보 편집",
+    editAppDetailsDescription:
+      "이 워크스페이스 앱의 공유 표시 이름과 설명을 업데이트합니다.",
+    appName: "이름",
+    appDescription: "설명",
+    openApp: "앱 열기",
+    saveChanges: "변경사항 저장",
+    appDetailsUpdated: "앱 세부 정보가 업데이트되었습니다",
+    savingChanges: "저장 중...",
+    agentsTitle: "에이전트",
     auditTab: "감사",
     auditTitle: "실행 감사",
     auditDescription:
@@ -266,6 +281,14 @@ const messages = {
     stepName: "단계 이름",
     stepDescription: "여기서 일어나는 일",
     agentOwner: "에이전트 또는 담당자",
+    noTarget: "연결된 대상 없음",
+    customTarget: "사용자 지정 대상",
+    reusableAgents: "재사용 가능한 에이전트",
+    agenticApps: "에이전트 앱",
+    agentTargetHint:
+      "이 Factory 단계는 선택한 재사용 가능한 에이전트를 사용합니다.",
+    appTargetHint: "이 Factory 단계는 선택한 에이전트 앱에 작업을 위임합니다.",
+    customTargetHint: "단계가 준비되면 공유 에이전트 또는 앱을 연결하세요.",
     optional: "선택 사항",
     connectStep: "이 단계 연결",
     connectDescription:

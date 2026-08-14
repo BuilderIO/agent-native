@@ -258,6 +258,16 @@ const messages = {
     passwordProtected: "이 클립은 비밀번호로 보호되어 있습니다",
     linkExpired: "링크가 만료되었습니다",
     linkExpiredMessage: "작성자는 이 공유 링크에 만료를 설정했습니다.",
+    privateClip: "비공개 클립",
+    privateClipMessage:
+      "이 클립은 비공개입니다. 액세스를 요청하면 소유자에게 알림이 전송됩니다.",
+    privateClipSignedOutMessage:
+      "이 클립은 비공개입니다. 소유자에게 액세스를 요청하려면 로그인하세요.",
+    requestAccess: "액세스 요청",
+    requestingAccess: "액세스 요청 중...",
+    accessRequested: "액세스 요청됨",
+    accessRequestSent: "클립 소유자에게 알림을 보냈습니다.",
+    accessRequestFailed: "액세스를 요청하지 못했습니다. 다시 시도하세요.",
     clipUnavailable: "클립을 사용할 수 없음",
     clipUnavailableMessage:
       "이 녹음 파일은 공개되지 않았거나 링크가 유효하지 않습니다. 귀하의 클립인 경우 로그인하여 액세스 권한을 확인하세요.",
@@ -971,6 +981,8 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     includeTranscriptDescription:
       "이 회의에 액세스할 수 있는 모든 사용자가 전체 스크립트를 읽을 수 있습니다.",
     transcriptUnavailable: "스크립트가 아직 준비되지 않았습니다.",
+    agentLinkDescription:
+      "이 임시 링크를 사용하면 회의 메모를 공개하지 않고 에이전트가 읽을 수 있습니다. 2시간 후 만료됩니다.",
     transcript: "스크립트",
     copyTranscript: "스크립트 복사",
     transcriptCopied: "스크립트가 복사되었습니다",
@@ -1558,6 +1570,16 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     calendarConnected: "Calendar connected (현지화됨)",
     calendarDisconnected: "Calendar disconnected (현지화됨)",
     calendarSettings: "Calendar settings (현지화됨)",
+    calendarAccountsButton: "캘린더",
+    connectedAccounts: "연결된 계정",
+    calendarConnectedLabel: "연결됨",
+    calendarNeedsReconnectLabel: "다시 연결 필요",
+    calendarDisconnectedLabel: "연결 해제됨",
+    calendarStatusUnavailable: "상태를 확인할 수 없음",
+    reconnectCalendar: "캘린더 다시 연결",
+    addAnotherCalendarAccount: "계정 추가",
+    connectCalendar: "캘린더 연결",
+    disconnectCalendarAccount: "계정 연결 해제",
     connectCalendarReminder:
       "Connect Google Calendar for meeting reminders. (현지화됨)",
     disconnectGoogleCalendarTitle: "Disconnect Google Calendar? (현지화됨)",

@@ -64,22 +64,11 @@ const AUDIO_SIGNAL_MIN_MAX_VOLUME_DB: f64 = -30.0;
 // stereo content that must not be flattened.
 const AUDIO_DOWNMIX_FILTER: &str =
     "aformat=channel_layouts=stereo,pan=stereo|FL=0.5*FL+0.5*FR|FR=0.5*FL+0.5*FR";
-// The legacy ScreenCaptureKit output carries mic + system audio together on
-// the two source channels. Remove only the narrow mains tones before the
-// centered downmix; do not apply the mic-only high-pass/expander to system
-// audio, which may legitimately contain bass.
-const AUDIO_MIXED_HUM_FILTER: &str =
-    "bandreject=f=50:t=q:w=18,bandreject=f=60:t=q:w=18,bandreject=f=100:t=q:w=18,bandreject=f=120:t=q:w=18";
 // Mild FFT denoise for native mic captures. Browser recordings already request
 // WebRTC noise suppression; ScreenCaptureKit/screencapture mic capture does
 // not, so reduce steady broadband room/mic hiss during the existing optimize
 // step. Keep this conservative to avoid watery speech artifacts.
 const AUDIO_DENOISE_FILTER: &str = "afftdn=nr=10:nf=-50:tn=1";
-// The FFT pass above is intentionally broad and does not reliably remove a
-// tonal HVAC hum. Apply this narrower chain only to mic-only captures so
-// system audio/music keeps its low end when both sources are recorded.
-const AUDIO_MIC_CLEANUP_FILTER: &str =
-    "highpass=f=65,bandreject=f=50:t=q:w=18,bandreject=f=60:t=q:w=18,bandreject=f=100:t=q:w=18,bandreject=f=120:t=q:w=18,agate=threshold=0.008:ratio=2:range=0.35:attack=10:release=180:knee=4:detection=rms";
 // loudnorm operates internally at 192 kHz and emits at 192 kHz; without an
 // explicit output rate the AAC track ends up at 192 kHz and plays back slow.
 const AUDIO_OUTPUT_SAMPLE_RATE: u32 = 48000;
@@ -97,20 +86,18 @@ const AUDIO_MIC_PREGAIN_FILTER: &str = "volume=12dB";
 const AUDIO_DOWNMIX_MAKEUP_FILTER: &str = "volume=6dB";
 
 // Loudness normalization, optionally preceded by the centered-stereo downmix
-// that repairs the mic+system L/R split and denoise for native mic captures.
+// that repairs the legacy mic+system L/R split. Realtime custom captures are
+// denoised before they reach the writer, so this pass stays for legacy files
+// and non-ScreenCaptureKit fallbacks.
 // Pair with `-ar AUDIO_OUTPUT_SAMPLE_RATE` so loudnorm's 192 kHz output is
 // resampled back.
 fn audio_filter_chain(downmix: bool, denoise: bool, mic_pregain: bool) -> String {
     let mut filters = Vec::new();
     if downmix {
-        filters.push(AUDIO_MIXED_HUM_FILTER);
         filters.push(AUDIO_DOWNMIX_FILTER);
         // Undo pan attenuation; do not also apply mic-only pregain here —
         // system audio would get a double boost.
         filters.push(AUDIO_DOWNMIX_MAKEUP_FILTER);
-    }
-    if mic_pregain {
-        filters.push(AUDIO_MIC_CLEANUP_FILTER);
     }
     if denoise {
         filters.push(AUDIO_DENOISE_FILTER);
@@ -345,6 +332,9 @@ struct NativeFullscreenSession {
     /// nothing is written to disk. `begin` attaches it and flips this false.
     pending_recording_output: bool,
     custom_pipeline: bool,
+    /// True when the native realtime microphone denoiser already touched the
+    /// audio in this file. Retry preparation must not denoise it a second time.
+    audio_cleanup_applied: bool,
     /// Active live-upload task: streams the growing fragmented MP4 to the
     /// server in chunks during recording (custom pipeline only). `None` when
     /// live upload is disabled or for local-only recordings.
@@ -645,6 +635,7 @@ pub(crate) fn prepare_shared_clip_sink(
         request.height,
         request.include_mic,
         request.include_system_audio,
+        crate::config::feature_config(app).voice_cleanup_enabled,
     ) {
         Ok(sink) => sink,
         Err(error) => {
@@ -1047,6 +1038,9 @@ struct SavedNativeRecording {
     retry_attempt_id: Option<String>,
     #[serde(default)]
     custom_pipeline: bool,
+    /// True when native realtime microphone cleanup was already applied.
+    #[serde(default)]
+    audio_cleanup_applied: bool,
     /// True when the SCK finalization callback reported an error, meaning the
     /// MP4 is missing its moov atom and cannot be recovered by retrying.
     #[serde(default)]
@@ -1070,6 +1064,8 @@ struct NativeRecordingIntent {
     system_audio_captured: bool,
     has_camera: bool,
     custom_pipeline: bool,
+    #[serde(default)]
+    audio_cleanup_applied: bool,
     saved_at: String,
 }
 
@@ -1183,6 +1179,7 @@ pub(crate) struct FinalizedNativeArtifact {
     pub system_audio_captured: bool,
     pub has_camera: bool,
     pub custom_pipeline: bool,
+    pub audio_cleanup_applied: bool,
 }
 
 impl FinalizedNativeArtifact {
@@ -1197,6 +1194,7 @@ impl FinalizedNativeArtifact {
             system_audio_captured: session.restart.capture_system_audio,
             has_camera: false,
             custom_pipeline: session.custom_pipeline,
+            audio_cleanup_applied: session.audio_cleanup_applied,
         }
     }
 
@@ -1218,6 +1216,7 @@ impl FinalizedNativeArtifact {
             system_audio_captured,
             has_camera: false,
             custom_pipeline: true,
+            audio_cleanup_applied: false,
         }
     }
 }
@@ -1427,6 +1426,7 @@ fn persist_active_recording_intent(
         session.restart.capture_system_audio,
         has_camera,
         session.custom_pipeline,
+        session.audio_cleanup_applied,
     ) {
         eprintln!("[clips-tray] native recording recovery intent unavailable: {error}");
     }
@@ -1783,14 +1783,20 @@ pub async fn native_fullscreen_recording_stop_and_upload(
 
     if multi_segment {
         if let Err(merge_err) = &consolidate_outcome {
-            let mut saved = saved_recording_from_segments(
+            let mut saved = match saved_recording_from_segments(
                 &session,
                 &server_url,
                 &recording_id,
                 duration_ms,
                 has_audio,
                 has_camera,
-            )?;
+            ) {
+                Ok(saved) => saved,
+                Err(error) => {
+                    remove_empty_recording_artifacts(&session);
+                    return Err(error);
+                }
+            };
             saved.last_error = Some(match &stop_outcome {
                 Err(stop_err) => {
                     format!("{stop_err}. Segment consolidation failed: {merge_err}")
@@ -1814,14 +1820,20 @@ pub async fn native_fullscreen_recording_stop_and_upload(
         }
     }
 
-    let mut saved = saved_recording_from_session(
+    let mut saved = match saved_recording_from_session(
         &session,
         &server_url,
         &recording_id,
         duration_ms,
         has_audio,
         has_camera,
-    )?;
+    ) {
+        Ok(saved) => saved,
+        Err(error) => {
+            remove_empty_recording_artifacts(&session);
+            return Err(error);
+        }
+    };
     let stop_error = stop_outcome.err();
     if let Some(stop_err) = &stop_error {
         // Capture-side finalize/write failure: the on-disk file is incomplete
@@ -3150,6 +3162,12 @@ pub async fn native_fullscreen_pending_uploads(
             continue;
         }
         let Ok(saved) = read_saved_recording_metadata_path(&path) else {
+            if std::fs::metadata(&path)
+                .map(|metadata| metadata.len() == 0)
+                .unwrap_or(false)
+            {
+                let _ = std::fs::remove_file(&path);
+            }
             continue;
         };
         if saved_recording_has_local_artifact(&saved) {
@@ -3316,6 +3334,7 @@ fn orphan_recording_intent(
                 system_audio_captured: false,
                 has_camera: false,
                 custom_pipeline: is_rewind,
+                audio_cleanup_applied: false,
                 saved_at: now_iso(),
             }
         }
@@ -3418,6 +3437,7 @@ fn recover_orphaned_recording(
         retry_count: 0,
         retry_attempt_id: None,
         custom_pipeline: intent.custom_pipeline,
+        audio_cleanup_applied: intent.audio_cleanup_applied,
         corrupt: false,
     };
     write_saved_recording_metadata(app, &saved)?;
@@ -3537,6 +3557,7 @@ mod orphan_recovery_tests {
             false,
             false,
             true,
+            false,
         )
         .unwrap();
         let intent_path = recording_intent_path(&media);
@@ -3932,6 +3953,7 @@ pub(crate) fn persist_recording_intent(
     system_audio_captured: bool,
     has_camera: bool,
     custom_pipeline: bool,
+    audio_cleanup_applied: bool,
 ) -> Result<(), String> {
     if recording_id.trim().is_empty() || server_url.trim().is_empty() {
         return Err("recording recovery intent requires a recording ID and server URL".into());
@@ -3952,6 +3974,7 @@ pub(crate) fn persist_recording_intent(
         system_audio_captured,
         has_camera,
         custom_pipeline,
+        audio_cleanup_applied,
         saved_at: now_iso(),
     };
     let data = serde_json::to_vec_pretty(&intent)
@@ -4018,7 +4041,41 @@ fn describe_recording_path(path: &Path) -> String {
 }
 
 fn saved_recording_has_local_artifact(saved: &SavedNativeRecording) -> bool {
-    saved.file_path.exists() || saved.segment_paths.iter().any(|path| path.exists())
+    recording_file_has_bytes(&saved.file_path)
+        || saved
+            .segment_paths
+            .iter()
+            .any(|path| recording_file_has_bytes(path))
+}
+
+fn recording_file_has_bytes(path: &Path) -> bool {
+    std::fs::metadata(path)
+        .map(|metadata| metadata.len() > 0)
+        .unwrap_or(false)
+}
+
+fn remove_empty_recording_artifacts(session: &NativeFullscreenSession) {
+    for path in session.segments.iter().chain(std::iter::once(&session.path)) {
+        if !path.exists() {
+            continue;
+        }
+        if std::fs::metadata(path)
+            .map(|metadata| metadata.len() > 0)
+            .unwrap_or(true)
+        {
+            continue;
+        }
+        if let Err(error) = std::fs::remove_file(path) {
+            if error.kind() != ErrorKind::NotFound {
+                eprintln!(
+                    "[clips-tray] empty native recording cleanup failed for {}: {error}",
+                    path.display()
+                );
+            }
+        } else {
+            remove_recording_intent(path);
+        }
+    }
 }
 
 fn pending_uploads_dir(app: &AppHandle) -> Result<PathBuf, String> {
@@ -4412,6 +4469,7 @@ fn saved_recording_from_path(
         retry_count: 0,
         retry_attempt_id: None,
         custom_pipeline: session.custom_pipeline,
+        audio_cleanup_applied: session.audio_cleanup_applied,
         corrupt: false,
     })
 }
@@ -4423,11 +4481,25 @@ fn write_saved_recording_metadata(
     let path = saved_recording_metadata_path(app, &saved.recording_id)?;
     let data = serde_json::to_vec_pretty(saved)
         .map_err(|e| format!("pending recording metadata encode failed: {e}"))?;
-    std::fs::write(path, data)
-        .map_err(|e| format!("pending recording metadata write failed: {e}"))?;
+    write_bytes_atomically(&path, &data, "pending recording metadata")?;
     remove_recording_intent(&saved.file_path);
     for segment_path in &saved.segment_paths {
         remove_recording_intent(segment_path);
+    }
+    Ok(())
+}
+
+fn write_bytes_atomically(path: &Path, data: &[u8], label: &str) -> Result<(), String> {
+    let file_name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("recording");
+    let temporary = path.with_file_name(format!(".{file_name}.tmp"));
+    std::fs::write(&temporary, data)
+        .map_err(|error| format!("{label} write failed: {error}"))?;
+    if let Err(error) = std::fs::rename(&temporary, path) {
+        let _ = std::fs::remove_file(&temporary);
+        return Err(format!("{label} finalize failed: {error}"));
     }
     Ok(())
 }
@@ -4506,6 +4578,7 @@ pub(crate) fn persist_shared_clip_recording(
     include_mic: bool,
     include_system_audio: bool,
     has_camera: bool,
+    audio_cleanup_applied: bool,
     error: Option<&str>,
 ) -> Result<(), String> {
     let bytes = std::fs::metadata(path)
@@ -4534,6 +4607,7 @@ pub(crate) fn persist_shared_clip_recording(
         retry_count: u32::from(error.is_some()),
         retry_attempt_id: None,
         custom_pipeline: true,
+        audio_cleanup_applied,
         corrupt: false,
     };
     write_saved_recording_metadata(app, &saved)?;
@@ -4745,6 +4819,9 @@ fn start_screencapturekit_recording(
             capture_region,
         },
     );
+    session.audio_cleanup_applied = use_custom_sck_pipeline
+        && include_audio
+        && crate::config::feature_config(app).voice_cleanup_enabled;
     session.pending_recording_output = defer_recording_output;
     session.disk_monitor_stop = Some(spawn_disk_monitor(app.clone(), session.path.clone()));
     Ok(session)
@@ -4807,6 +4884,7 @@ fn start_screencapture_recording(
             capture_region,
         },
     );
+    session.audio_cleanup_applied = false;
     session.disk_monitor_stop = Some(spawn_disk_monitor(app.clone(), session.path.clone()));
     Ok(session)
 }
@@ -4846,6 +4924,7 @@ fn new_fullscreen_session(
         restart,
         pending_recording_output: false,
         custom_pipeline,
+        audio_cleanup_applied: false,
         #[cfg(target_os = "macos")]
         live_upload: None,
         had_live_upload: false,
@@ -5167,6 +5246,7 @@ pub(crate) async fn upload_finalized_native_artifact(
         artifact.mic_captured,
         artifact.system_audio_captured,
         artifact.custom_pipeline,
+        artifact.audio_cleanup_applied,
     )?;
     let upload_result = upload_prepared_recording_file(
         app,
@@ -5233,6 +5313,7 @@ fn prepare_saved_recording_file(
         saved.mic_captured,
         saved.system_audio_captured,
         saved.custom_pipeline,
+        saved.audio_cleanup_applied,
     )?;
     Ok((prepared, retry_combined_path))
 }
@@ -6712,13 +6793,18 @@ fn prepare_recording_file(
     // track written by the custom pipeline; the L/R downmix repair assumes
     // mic and system on separate stereo channels and must not run on it.
     audio_premixed: bool,
+    audio_cleanup_applied: bool,
 ) -> Result<PreparedRecordingFile, String> {
     // Downmix only repairs mic+system L/R split. Applying it to mic-only
     // capture halves speech energy (~6 dB) when SCK puts the mic on one channel.
     let downmix_audio = mic_captured_audio && system_audio_captured && !audio_premixed;
-    let denoise_audio = mic_captured_audio;
+    let voice_cleanup_enabled = crate::config::feature_config(app).voice_cleanup_enabled;
+    let denoise_audio = mic_captured_audio && !audio_cleanup_applied && voice_cleanup_enabled;
     // Pregain only for mic-only (no system audio compete) — SCK has no AGC.
-    let mic_pregain = mic_captured_audio && !system_audio_captured;
+    let mic_pregain = mic_captured_audio
+        && !system_audio_captured
+        && !audio_cleanup_applied
+        && voice_cleanup_enabled;
     let metadata = std::fs::metadata(path).map_err(|e| {
         let diag = describe_recording_path(path);
         eprintln!("[clips-tray] native recording file missing at prepare: {e}; {diag}");
@@ -8176,8 +8262,7 @@ mod audio_track_probe_tests {
         audio_filter_chain, decide_prepared_audio_signal, mp4_has_audio_track,
         parse_ffmpeg_volume_db, AudioSignalProbe, PreparedAudioSignalDecision,
         AUDIO_DENOISE_FILTER, AUDIO_DOWNMIX_FILTER, AUDIO_DOWNMIX_MAKEUP_FILTER,
-        AUDIO_LOUDNESS_FILTER, AUDIO_MIC_CLEANUP_FILTER, AUDIO_MIC_PREGAIN_FILTER,
-        AUDIO_MIXED_HUM_FILTER,
+        AUDIO_LOUDNESS_FILTER, AUDIO_MIC_PREGAIN_FILTER,
     };
     use std::io::Write;
 
@@ -8230,14 +8315,12 @@ mod audio_track_probe_tests {
         );
         assert_eq!(
             audio_filter_chain(false, true, true),
-            format!(
-                "{AUDIO_MIC_CLEANUP_FILTER},{AUDIO_DENOISE_FILTER},{AUDIO_MIC_PREGAIN_FILTER},{AUDIO_LOUDNESS_FILTER}"
-            )
+            format!("{AUDIO_DENOISE_FILTER},{AUDIO_MIC_PREGAIN_FILTER},{AUDIO_LOUDNESS_FILTER}")
         );
         assert_eq!(
             audio_filter_chain(true, true, false),
             format!(
-                "{AUDIO_MIXED_HUM_FILTER},{AUDIO_DOWNMIX_FILTER},{AUDIO_DOWNMIX_MAKEUP_FILTER},{AUDIO_DENOISE_FILTER},{AUDIO_LOUDNESS_FILTER}"
+                "{AUDIO_DOWNMIX_FILTER},{AUDIO_DOWNMIX_MAKEUP_FILTER},{AUDIO_DENOISE_FILTER},{AUDIO_LOUDNESS_FILTER}"
             )
         );
     }
@@ -8450,6 +8533,7 @@ mod segment_recovery_tests {
             },
             pending_recording_output: false,
             custom_pipeline: false,
+            audio_cleanup_applied: false,
             #[cfg(target_os = "macos")]
             live_upload: None,
             had_live_upload: false,

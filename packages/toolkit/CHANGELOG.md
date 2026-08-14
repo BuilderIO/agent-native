@@ -1,5 +1,24 @@
 # @agent-native/toolkit
 
+## 0.15.1
+
+### Patch Changes
+
+- 73c4a97: Align chat history rail overflow actions with trailing timestamps.
+- 73c4a97: Standardize share triggers, compact copy rows, and agent-sharing sections across framework surfaces.
+
+## 0.15.0
+
+### Minor Changes
+
+- f07ec04: Localize the Core agent-chat interface and Toolkit composer across every supported locale, provide built-in Core translations with app-level catalog overrides, and guard the complete chat surface against new raw visible strings.
+
+## 0.14.3
+
+### Patch Changes
+
+- 89f194f: Fix toolkit canvas interaction and collaboration UI behavior.
+
 ## 0.14.2
 
 ### Patch Changes

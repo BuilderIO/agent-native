@@ -254,6 +254,16 @@ const messages = {
     passwordProtected: "यह क्लिप पासवर्ड से सुरक्षित है",
     linkExpired: "लिंक की अवधि समाप्त हो",
     linkExpiredMessage: "निर्माता ने इस शेयर लिंक पर एक समाप्ति तिथि निर्धारित की है।",
+    privateClip: "निजी क्लिप",
+    privateClipMessage:
+      "यह क्लिप निजी है। पहुंच का अनुरोध करें और मालिक को सूचित किया जाएगा।",
+    privateClipSignedOutMessage:
+      "यह क्लिप निजी है। मालिक से पहुंच का अनुरोध करने के लिए साइन इन करें।",
+    requestAccess: "पहुंच का अनुरोध करें",
+    requestingAccess: "पहुंच का अनुरोध किया जा रहा है...",
+    accessRequested: "पहुंच का अनुरोध किया गया",
+    accessRequestSent: "क्लिप के मालिक को सूचित कर दिया गया है।",
+    accessRequestFailed: "पहुंच का अनुरोध नहीं किया जा सका। फिर से कोशिश करें।",
     clipUnavailable: "क्लिप अनुपलब्ध",
     clipUnavailableMessage:
       "यह रिकॉर्डिंग सार्वजनिक नहीं है, या लिंक अमान्य है. यदि यह आपकी क्लिप है, तो पहुंच जांचने के लिए साइन इन करें।",
@@ -963,6 +973,8 @@ Clips में उपयोगकर्ताओं को दिखने व�
     includeTranscriptDescription:
       "इस मीटिंग का एक्सेस रखने वाला कोई भी व्यक्ति पूरी ट्रांसक्रिप्ट पढ़ सकता है।",
     transcriptUnavailable: "ट्रांसक्रिप्ट अभी तैयार नहीं है।",
+    agentLinkDescription:
+      "यह अस्थायी लिंक एजेंट को इन मीटिंग नोट्स को सार्वजनिक किए बिना पढ़ने देता है। यह दो घंटे बाद समाप्त हो जाता है।",
     transcript: "ट्रांसक्रिप्ट",
     copyTranscript: "ट्रांसक्रिप्ट कॉपी करें",
     transcriptCopied: "ट्रांसक्रिप्ट कॉपी हो गई",
@@ -1547,6 +1559,16 @@ Clips में उपयोगकर्ताओं को दिखने व�
     calendarConnected: "Calendar connected (स्थानीयकृत)",
     calendarDisconnected: "Calendar disconnected (स्थानीयकृत)",
     calendarSettings: "Calendar settings (स्थानीयकृत)",
+    calendarAccountsButton: "कैलेंडर",
+    connectedAccounts: "कनेक्ट किए गए खाते",
+    calendarConnectedLabel: "कनेक्टेड",
+    calendarNeedsReconnectLabel: "पुनः कनेक्ट करना आवश्यक",
+    calendarDisconnectedLabel: "डिस्कनेक्टेड",
+    calendarStatusUnavailable: "स्थिति उपलब्ध नहीं",
+    reconnectCalendar: "कैलेंडर को फिर से कनेक्ट करें",
+    addAnotherCalendarAccount: "दूसरा खाता जोड़ें",
+    connectCalendar: "कैलेंडर कनेक्ट करें",
+    disconnectCalendarAccount: "एक खाता डिस्कनेक्ट करें",
     connectCalendarReminder:
       "Connect Google Calendar for meeting reminders. (स्थानीयकृत)",
     disconnectGoogleCalendarTitle: "Disconnect Google Calendar? (स्थानीयकृत)",

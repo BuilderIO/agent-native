@@ -30,6 +30,7 @@ import {
   assistantUiRecoverableRenderErrorKind,
   createUserMessageRunConfig,
   dedupeReconnectContentAgainstMessages,
+  shouldShowReconnectOverlay,
   hoistQueuedMessageToFront,
   displayableUserMessageText,
   isAssistantUiRecoverableRenderError,
@@ -41,6 +42,7 @@ import {
   resolveAssistantChatRunningState,
   resolveAssistantChatRunningStatusLabel,
   resolveAssistantChatComposerPlaceholder,
+  shouldShowAssistantChatModelSelector,
   resolveAssistantChatSubmitIntent,
   settleInterruptedAssistantToolCallsInRepo,
   shouldAcceptRunError,
@@ -49,6 +51,22 @@ import {
   useAutoResumeStatus,
   waitForThreadRunToClear,
 } from "./AssistantChat.js";
+
+describe("shouldShowAssistantChatModelSelector", () => {
+  it("keeps the framework selector by default and lets hosts replace only its visual control", () => {
+    expect(shouldShowAssistantChatModelSelector(undefined)).toBe(true);
+    expect(shouldShowAssistantChatModelSelector(true)).toBe(true);
+    expect(shouldShowAssistantChatModelSelector(false)).toBe(false);
+
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    expect(source).toContain("showModelSelector?: boolean");
+    expect(source).toContain(
+      "shouldShowAssistantChatModelSelector(\n                                          showModelSelector,",
+    );
+  });
+});
 
 describe("assistantUiMessageListStructureKey", () => {
   it("ignores text changes within existing message resources", () => {
@@ -1353,6 +1371,10 @@ describe("missing agent engine setup", () => {
       "src/client/chat/message-components.tsx",
       { encoding: "utf8" },
     );
+    const messageScroller = readFileSync(
+      "src/client/components/ui/message-scroller.tsx",
+      { encoding: "utf8" },
+    );
 
     expect(source).toContain("hasComposerAccessoryAboveStack");
     expect(source).toContain("data-agent-composer-adjacent-ui");
@@ -1360,6 +1382,7 @@ describe("missing agent engine setup", () => {
     expect(source).toContain(
       "if (!hideUserMessage) resumeFollowingRef.current()",
     );
+    expect(messageScroller).toContain('"agentChat.composer.scrollToBottom"');
     expect(source).toContain("<MessageScrollerButton />");
     expect(source).toMatch(/<MessageScrollerProvider[\s\S]*?\bautoScroll\b/);
     expect(source).not.toContain("autoScroll={false}");
@@ -1377,7 +1400,7 @@ describe("missing agent engine setup", () => {
     );
     expect(source).toContain("<BuilderSetupCard");
     expect(source).toContain("showInlineMissingKeySetup");
-    expect(source).toContain("Connect AI above to start chatting...");
+    expect(source).toContain('"agentChat.setup.connectPlaceholder"');
     expect(source).toContain('className="agent-composer-missing-key-trigger"');
     expect(source).toContain('className="agent-composer-missing-key-cta"');
     expect(source).toContain("<BuilderSetupContent");
@@ -1417,6 +1440,26 @@ describe("missing agent engine setup", () => {
     );
     expect(submitSource).not.toContain(
       'reportAgentChatSubmitResult(submitMessageId, false, "missing-engine");',
+    );
+  });
+});
+
+describe("tool approval continuation", () => {
+  it("keeps the approval acknowledgement out of visible chat history", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const start = source.indexOf("onApprove: (approvalKey: string) => {");
+    const end = source.indexOf("...(approvalActions?.onDeny", start);
+    const approvalSource = source.slice(start, end);
+
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    expect(approvalSource).toContain(
+      '"Approved. Go ahead and run the requested action."',
+    );
+    expect(approvalSource).toContain(
+      "true, // hideUserMessage: this is a protocol continuation, not a new prompt",
     );
   });
 });
@@ -1731,6 +1774,28 @@ describe("resolveAssistantChatRunningStatusLabel", () => {
     ).toBe("Preparing generate-design action");
   });
 
+  it("localizes Core-owned activity labels while preserving the tool name", () => {
+    expect(
+      resolveAssistantChatRunningStatusLabel({
+        runningActivityLabel: "Preparing generate-design...",
+        isAutoResuming: false,
+        isReconnecting: false,
+        hasReconnectContent: false,
+        labels: {
+          thinking: "Denkt nach",
+          resuming: "Wird fortgesetzt",
+          stillWorking: "Arbeitet weiter",
+          working: "Arbeitet",
+          contactingModel: "Modell wird kontaktiert",
+          starting: (activity) => `${activity} wird gestartet...`,
+          preparing: (activity) => `${activity} wird vorbereitet...`,
+          writing: (activity) => `${activity} wird geschrieben...`,
+          stillGenerating: (activity) => `${activity} wird weiterhin generiert`,
+        },
+      }),
+    ).toBe("generate-design wird vorbereitet...");
+  });
+
   it("shows replayed recovery as still working instead of reconnecting", () => {
     expect(
       resolveAssistantChatRunningStatusLabel({
@@ -1738,8 +1803,13 @@ describe("resolveAssistantChatRunningStatusLabel", () => {
         isAutoResuming: false,
         isReconnecting: true,
         hasReconnectContent: true,
+        labels: {
+          thinking: "Denkt nach",
+          resuming: "Wird fortgesetzt",
+          stillWorking: "Arbeitet weiter",
+        },
       }),
-    ).toBe("Still working");
+    ).toBe("Arbeitet weiter");
   });
 
   it("keeps bare reconnect recovery as thinking", () => {
@@ -1749,8 +1819,13 @@ describe("resolveAssistantChatRunningStatusLabel", () => {
         isAutoResuming: false,
         isReconnecting: true,
         hasReconnectContent: false,
+        labels: {
+          thinking: "Denkt nach",
+          resuming: "Wird fortgesetzt",
+          stillWorking: "Arbeitet weiter",
+        },
       }),
-    ).toBe("Thinking");
+    ).toBe("Denkt nach");
   });
 });
 
@@ -2325,7 +2400,9 @@ describe("waitForThreadRunToClear", () => {
     expect(renderSource).toContain("visibleReconnectContent.length > 0");
     expect(renderSource).toContain("visibleReconnectContent.length === 0");
     expect(renderSource).toContain("reconnectContent.length === 0");
-    expect(renderSource).toContain("adapterHandoffPending");
+    // The overlay is a second fold of the run; it may only render while no
+    // adapter runtime owns the turn. See the showReconnectOverlay tests below.
+    expect(renderSource).toContain("showReconnectOverlay");
     expect(renderSource.replace(/\s+/g, "")).toContain(
       "allowActivitySpinner={!reconnectFrozen}",
     );
@@ -2517,20 +2594,61 @@ describe("server thread snapshot caching", () => {
   });
 });
 
-describe("adapter reconnect handoff", () => {
-  it("defers wiping reconnect content until the adapter message catches up", () => {
-    const source = readFileSync("src/client/AssistantChat.tsx", {
-      encoding: "utf8",
-    });
-    expect(source).toContain("adapterHandoffPending");
-    expect(source).toContain("setAdapterHandoffPending(true)");
-    expect(source).toMatch(
-      /suppressToolRepeats:\s+adapterHandoffPending \|\| isReconnecting \|\| reconnectFrozen/,
-    );
-    expect(source).toContain("Do not memoize this on `messages` identity");
-    expect(source).toMatch(
-      /\(isReconnecting \|\|\s+reconnectFrozen \|\|\s+adapterHandoffPending\)/,
-    );
+describe("shouldShowReconnectOverlay", () => {
+  // The reconnect overlay is a second, independent fold of the same run. Every
+  // duplicate-render report traces back to it being on screen at the same time
+  // as the adapter's own message. Ownership decides visibility here, so these
+  // assert behavior rather than grepping the render source.
+  it("hides the overlay whenever a runtime owns the turn", () => {
+    expect(
+      shouldShowReconnectOverlay({
+        isRuntimeRunning: true,
+        isReconnecting: true,
+        reconnectFrozen: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldShowReconnectOverlay({
+        isRuntimeRunning: true,
+        isReconnecting: false,
+        reconnectFrozen: true,
+      }),
+    ).toBe(false);
+    // Both readers claiming the turn at once is the exact duplicate-render case.
+    expect(
+      shouldShowReconnectOverlay({
+        isRuntimeRunning: true,
+        isReconnecting: true,
+        reconnectFrozen: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("shows the overlay only when no runtime is streaming", () => {
+    expect(
+      shouldShowReconnectOverlay({
+        isRuntimeRunning: false,
+        isReconnecting: true,
+        reconnectFrozen: false,
+      }),
+    ).toBe(true);
+    expect(
+      shouldShowReconnectOverlay({
+        isRuntimeRunning: false,
+        isReconnecting: false,
+        reconnectFrozen: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("stays hidden when there is nothing to reconnect", () => {
+    expect(
+      shouldShowReconnectOverlay({
+        isRuntimeRunning: false,
+        isReconnecting: false,
+        reconnectFrozen: false,
+      }),
+    ).toBe(false);
   });
 });
 

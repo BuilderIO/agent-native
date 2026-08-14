@@ -72,6 +72,7 @@ function viewForPath(pathname: string): string {
   if (pathname.startsWith("/database")) return "database";
   if (pathname.startsWith("/extensions")) return "extensions";
   if (pathname.startsWith("/observability")) return "observability";
+  if (pathname.startsWith("/agents")) return "agents";
   if (pathname.startsWith("/factory")) return "factory";
   if (pathname.startsWith("/settings/agent") || pathname.startsWith("/agent")) {
     return "agent";
@@ -95,6 +96,8 @@ function pathForView(view?: string): string {
       return "/observability";
     case "factory":
       return "/factory";
+    case "agents":
+      return "/agents";
     case "agent":
       return "/settings/agent";
     case "settings":

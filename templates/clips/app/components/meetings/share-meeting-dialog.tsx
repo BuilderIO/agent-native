@@ -4,8 +4,16 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { ShareAgentsSection } from "@agent-native/toolkit/sharing";
 import { IconLink, IconMail } from "@tabler/icons-react";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { toast } from "sonner";
 
 import {
@@ -19,6 +27,7 @@ import {
   type SharesResponse,
   type Visibility,
 } from "@/components/sharing/share-ui";
+import { Button } from "@/components/ui/button";
 import {
   Popover,
   PopoverContent,
@@ -157,6 +166,57 @@ function LinkTab({
   const visibility: Visibility =
     (data?.visibility as Visibility | null) ?? "private";
   const isPublic = visibility === "public";
+  const sharesLoaded = data?.visibility != null;
+  const createAgentLink = useActionMutation("create-agent-resource-link");
+  const createAgentLinkAsyncRef = useRef(createAgentLink.mutateAsync);
+  const agentLinkRequestIdRef = useRef(0);
+  const [agentLink, setAgentLink] = useState("");
+  const [agentLinkError, setAgentLinkError] = useState(false);
+  const [agentDetailsOpen, setAgentDetailsOpen] = useState(false);
+
+  useEffect(() => {
+    createAgentLinkAsyncRef.current = createAgentLink.mutateAsync;
+  });
+
+  const loadAgentLink = useCallback(async () => {
+    const requestId = agentLinkRequestIdRef.current + 1;
+    agentLinkRequestIdRef.current = requestId;
+    setAgentLink("");
+    setAgentLinkError(false);
+
+    try {
+      const result = (await createAgentLinkAsyncRef.current({
+        resourceType: "meeting",
+        resourceId: meetingId,
+      })) as { contextUrl?: string };
+      if (agentLinkRequestIdRef.current !== requestId) return;
+      if (result?.contextUrl) setAgentLink(result.contextUrl);
+      else setAgentLinkError(true);
+    } catch {
+      if (agentLinkRequestIdRef.current === requestId) setAgentLinkError(true);
+    }
+  }, [meetingId]);
+
+  useEffect(() => {
+    setAgentLink("");
+    setAgentLinkError(false);
+    if (!sharesLoaded || isPublic) return;
+    void loadAgentLink();
+
+    return () => {
+      agentLinkRequestIdRef.current += 1;
+    };
+  }, [isPublic, loadAgentLink, meetingId, sharesLoaded, visibility]);
+
+  useEffect(() => {
+    if (isPublic) setAgentDetailsOpen(false);
+  }, [isPublic]);
+
+  const agentShareDisabled =
+    sharesQuery.isLoading ||
+    !sharesLoaded ||
+    (!isPublic && (createAgentLink.isPending || !agentLink));
+  const visibleAgentLink = isPublic ? shareUrl : agentLink;
 
   useEffect(() => {
     setIncludeTranscript(shareTranscript);
@@ -217,7 +277,15 @@ function LinkTab({
         />
       </div>
 
-      <CopyField label={t("clipsFinalRaw.shareLink")} value={shareUrl} />
+      <CopyField
+        label={
+          isPublic
+            ? t("clipsFinalRaw.shareLink")
+            : t("shareDialog.shareWithHumans")
+        }
+        value={shareUrl}
+        disabled={!sharesLoaded}
+      />
 
       {!isPublic && canManage ? (
         <MakePublicCard
@@ -229,6 +297,45 @@ function LinkTab({
           }
         />
       ) : null}
+
+      <ShareAgentsSection
+        label={t("shareDialog.shareWithAgents")}
+        open={agentDetailsOpen}
+        onOpenChange={setAgentDetailsOpen}
+        contentClassName="clips-collapsible-content"
+      >
+        <div className="space-y-2">
+          <CopyField
+            label={t("shareDialog.shareLink")}
+            value={visibleAgentLink}
+            disabled={agentShareDisabled}
+          />
+          {sharesLoaded ? (
+            <>
+              <p className="text-xs text-muted-foreground">
+                {t("shareMeeting.agentLinkDescription")}
+              </p>
+              {agentLinkError ? (
+                <div className="flex items-center justify-between gap-2 rounded-md border border-border bg-muted/30 px-3 py-2">
+                  <p className="text-xs text-muted-foreground">
+                    {t("shareDialog.agentLinkUnavailable")}
+                  </p>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7"
+                    onClick={() => void loadAgentLink()}
+                    disabled={createAgentLink.isPending}
+                  >
+                    {t("shareDialog.retryAgentLink")}
+                  </Button>
+                </div>
+              ) : null}
+            </>
+          ) : null}
+        </div>
+      </ShareAgentsSection>
     </div>
   );
 }

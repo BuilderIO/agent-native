@@ -905,6 +905,10 @@ interface ElectronAPI {
     onRuntimeStatus(cb: (status: DesktopAppRuntimeStatus) => void): () => void;
   };
 
+  desktopChat: {
+    getApiUrl(appId: string): Promise<string | null>;
+  };
+
   mcpServers: {
     list(): Promise<
       import("@agent-native/core/client/resources").McpServersList

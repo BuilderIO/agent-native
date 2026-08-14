@@ -231,4 +231,38 @@ describe("server/agent-run-context", () => {
     await expect(resolveAgentRunOwnerContext(event)).resolves.toBe(seeded);
     expect(getSessionMock).not.toHaveBeenCalled();
   });
+
+  it("preserves the foreground org binding for cookieless background workers", async () => {
+    const event = makeEvent();
+    getRunOwnerEmailMock.mockResolvedValue("owner@example.com");
+    resolveOrgIdForEmailMock.mockResolvedValue("org-from-another-membership");
+
+    const seeded = await seedBackgroundAgentRunOwnerContext(
+      event,
+      "run_123",
+      "org-from-foreground",
+    );
+
+    await expect(
+      resolveAgentRunOrgId({ event, ownerContext: seeded! }),
+    ).resolves.toBe("org-from-foreground");
+    expect(resolveOrgIdForEmailMock).not.toHaveBeenCalled();
+  });
+
+  it("preserves an explicitly org-less foreground request in the worker", async () => {
+    const event = makeEvent();
+    getRunOwnerEmailMock.mockResolvedValue("owner@example.com");
+    resolveOrgIdForEmailMock.mockResolvedValue("org-from-membership");
+
+    const seeded = await seedBackgroundAgentRunOwnerContext(
+      event,
+      "run_123",
+      null,
+    );
+
+    await expect(
+      resolveAgentRunOrgId({ event, ownerContext: seeded! }),
+    ).resolves.toBeUndefined();
+    expect(resolveOrgIdForEmailMock).not.toHaveBeenCalled();
+  });
 });

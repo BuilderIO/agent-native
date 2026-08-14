@@ -41,6 +41,7 @@ const messages = {
     unpinChat: "Desfijar chat",
   },
   navigation: {
+    agents: "Agentes",
     chat: "Chat",
     collapseSidebar: "Contraer barra lateral",
     database: "Base de datos",
@@ -52,7 +53,7 @@ const messages = {
     openNavigation: "Abrir navegación",
     settings: "Ajustes",
     team: "Equipo",
-    triage: "Factory",
+    triage: "Fábricas",
   },
   triage: {
     title: "Factory",
@@ -170,6 +171,21 @@ const messages = {
     metricRuns: "Ejecuciones",
     rulesTab: "Reglas",
     automationsTab: "Automatizaciones",
+    agentsTab: "Agentes",
+    agenticAppsTitle: "Aplicaciones agenticas",
+    agenticAppsEmpty:
+      "Aún no hay aplicaciones agenticas en este espacio de trabajo.",
+    createApp: "Crear aplicación",
+    editAppDetails: "Editar detalles de la aplicación",
+    editAppDetailsDescription:
+      "Actualiza el nombre y la descripción compartidos de esta aplicación.",
+    appName: "Nombre",
+    appDescription: "Descripción",
+    openApp: "Abrir aplicación",
+    saveChanges: "Guardar cambios",
+    appDetailsUpdated: "Detalles de la aplicación actualizados",
+    savingChanges: "Guardando...",
+    agentsTitle: "Agentes",
     auditTab: "Auditoría",
     auditTitle: "Auditoría de ejecuciones",
     auditDescription:
@@ -279,6 +295,16 @@ const messages = {
     stepName: "Nombre del paso",
     stepDescription: "Qué ocurre aquí",
     agentOwner: "Agente o propietario",
+    noTarget: "Sin objetivo vinculado",
+    customTarget: "Objetivo personalizado",
+    reusableAgents: "Agentes reutilizables",
+    agenticApps: "Aplicaciones agenticas",
+    agentTargetHint:
+      "Este paso de la fábrica usa el agente reutilizable seleccionado.",
+    appTargetHint:
+      "Este paso de la fábrica delega en la aplicación agentica seleccionada.",
+    customTargetHint:
+      "Vincula un agente o una aplicación compartida cuando el paso esté listo.",
     optional: "Opcional",
     connectStep: "Conectar este paso",
     connectDescription:

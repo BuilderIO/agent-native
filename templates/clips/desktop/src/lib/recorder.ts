@@ -55,10 +55,6 @@ import {
   waitForAcceptedRecordingAfterFinalizeError,
   waitForReadyRecordingAfterFinalizeError,
 } from "../../../shared/finalize-recovery";
-import {
-  createMicAudioCleanup,
-  type MicAudioCleanupHandle,
-} from "../../../shared/mic-audio-cleanup";
 import type { LocalRecordingMode } from "../shared/config";
 import { createAudioCue, type AudioCue } from "./audio-cue";
 import { createCameraCompositeStream } from "./camera-composite";
@@ -83,6 +79,10 @@ import {
   type PauseTransitionQueue,
 } from "./pause-transition";
 import { reconcileProcessingBackup } from "./processing-backup-recovery";
+import {
+  buildCreateRecordingRequestBody,
+  type NativeRecordingRequestOptions,
+} from "./recording-request";
 import {
   guardRecordingStart,
   RECORDING_START_TIMEOUT_MS,
@@ -143,7 +143,6 @@ const STREAM_CHUNK_BYTES = 15 * GCS_CHUNK_ALIGN_BYTES; // 3.75 MiB
 //  - "streaming" — server has a resumable session; flush aligned chunks live.
 //  - "buffered"  — per-blob chunks staged server-side, assembled on finalize.
 type UploadMode = "streaming" | "buffered";
-type StreamingUploadClient = "desktop-native";
 const CLOUD_CAPTURE_FRAME_RATE = 24;
 const CLOUD_CAPTURE_MAX_WIDTH = 1920;
 const CLOUD_CAPTURE_MAX_HEIGHT = 1080;
@@ -236,6 +235,8 @@ export interface StartParams {
   cameraOn: boolean;
   /** Record + transcribe system/desktop audio. Default true. */
   systemAudioOn?: boolean;
+  /** Apply the browser/native voice cleanup path to microphone audio. */
+  voiceCleanupEnabled?: boolean;
   /** Cancels or bounds the pre-record capture setup. */
   signal?: AbortSignal;
   localRecordingMode?: LocalRecordingMode;
@@ -545,9 +546,9 @@ interface RecordingAudio {
 }
 
 /**
- * Build the audio track(s) for the recording. Microphone tracks pass through
- * the cleanup graph whether or not system/display audio is also present, then
- * both sources are mixed into one track when needed.
+ * Build the audio track(s) for the recording. Browser capture requests its
+ * built-in voice processing; this graph only combines raw source tracks when
+ * MediaRecorder needs one mixed track.
  */
 function buildRecordingAudio(
   micTracks: MediaStreamTrack[],
@@ -568,22 +569,13 @@ function buildRecordingAudio(
   }
   const ctx: AudioContext = new AudioCtx();
   const destination = ctx.createMediaStreamDestination();
-  const micCleanup: MicAudioCleanupHandle[] = [];
-  const cleanedMicTracks = micTracks.map((track) => {
-    const cleanup = createMicAudioCleanup(new MediaStream([track]), {
-      audioContext: ctx,
-    });
-    micCleanup.push(cleanup);
-    return cleanup.stream.getAudioTracks()[0] ?? track;
-  });
-  for (const tracks of [cleanedMicTracks, systemTracks]) {
+  for (const tracks of [micTracks, systemTracks]) {
     if (!tracks.length) continue;
     ctx.createMediaStreamSource(new MediaStream(tracks)).connect(destination);
   }
   return {
     tracks: destination.stream.getAudioTracks(),
     cleanup() {
-      for (const cleanup of micCleanup) cleanup.stop();
       ctx.close().catch(() => {});
     },
   };
@@ -1538,13 +1530,7 @@ async function createServerRecording(
   hasCamera: boolean,
   hasAudio: boolean,
   titleContext?: CaptureTitleResult,
-  options?: {
-    mimeType?: string;
-    requestStreaming?: boolean;
-    streamingUploadClient?: StreamingUploadClient;
-    visibility?: "public" | "private";
-    signal?: AbortSignal;
-  },
+  options?: NativeRecordingRequestOptions & { signal?: AbortSignal },
 ) {
   const url = `${serverUrl.replace(/\/+$/, "")}/_agent-native/actions/create-recording`;
   console.log("[clips-recorder] POST", url, {
@@ -1564,27 +1550,14 @@ async function createServerRecording(
       // cookies aren't needed.
       credentials: "include",
       signal: options?.signal,
-      body: JSON.stringify({
-        hasCamera,
-        hasAudio,
-        spaceIds: [],
-        visibility: options?.visibility ?? "public",
-        ...(options?.requestStreaming
-          ? {
-              requestStreaming: true,
-              mimeType: options.mimeType,
-              streamingUploadClient: options.streamingUploadClient,
-            }
-          : {}),
-        ...(titleContext
-          ? {
-              title: titleContext.title,
-              titleSource: titleContext.titleSource,
-              sourceAppName: titleContext.sourceAppName,
-              sourceWindowTitle: titleContext.sourceWindowTitle,
-            }
-          : {}),
-      }),
+      body: JSON.stringify(
+        buildCreateRecordingRequestBody(
+          hasCamera,
+          hasAudio,
+          titleContext,
+          options,
+        ),
+      ),
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -4323,7 +4296,11 @@ async function startRecordingInner(
   const audioStreamPromise: Promise<MediaStream> | null = resumedAudioStream
     ? Promise.resolve(resumedAudioStream)
     : wantsAudio
-      ? getAudioStreamWithFallback(params.micId, params.micLabel)
+      ? getAudioStreamWithFallback(
+          params.micId,
+          params.micLabel,
+          params.voiceCleanupEnabled,
+        )
       : null;
 
   // getDisplayMedia can remain pending in a long-lived WebKit tray webview.

@@ -1,5 +1,163 @@
 # @agent-native/core
 
+## 0.157.1
+
+### Patch Changes
+
+- 73c4a97: Support app-scoped chat sidebars with a shared persisted open state and iframe-safe resizing.
+- 73c4a97: Hide the create-app control when the chat-first sidebar is collapsed.
+- 73c4a97: Redirect tokenized legacy magic-link URLs to Better Auth's verification endpoint.
+- 73c4a97: Make account name editing compact and disable Save changes until the name differs from the saved value.
+- 73c4a97: Recover chat surfaces with an inaccessible saved thread by opening a fresh thread before the first message is sent.
+- 73c4a97: Remove the run-local option from shared signup and sign-in pages.
+- 73c4a97: Chat no longer flashes and yanks the scroll while an answer streams. Two causes,
+  both in how streamed markdown was rendered:
+  - The finished message was rendered as one whole-document ReactMarkdown while
+    the streaming message was rendered as memoized per-block pieces. The instant
+    streaming stopped, the element tree changed shape, so React unmounted the
+    message and rebuilt it: code blocks re-highlighted, images refetched, and the
+    height collapsed for a frame — the "jumps especially at the end" report. The
+    block split now drives both phases, so nothing is rebuilt when a turn ends.
+  - The in-progress tail rendered through a different component than completed
+    blocks. A trailing newline promotes the tail to a completed block and the next
+    character pulls it back, so on every line break that paragraph's DOM was
+    destroyed and recreated — the "div rapidly being inserted and removed as text
+    streams" report. The tail now renders through the same component, so the
+    promotion reuses the DOM.
+
+  The message list was keyed on a digest of every message's part structure, so
+  the whole transcript unmounted and remounted each time a tool call started or a
+  placeholder tool id was rewritten to its server id — a flash and a lost scroll
+  position in the middle of an answer. That key guarded assistant-ui's stale
+  tap-resource render errors, which the error boundary around the list already
+  catches, clears and retries. `assistant-ui-part-churn.spec.tsx` drives part
+  append, mutation, id rename and splice through both the repository-import and
+  the streaming-adapter paths and records that no such error occurs, so the key is
+  gone and the boundary remains.
+
+  The scroll-to-bottom button was a flex sibling of the scroll viewport, so it
+  took 28px from the viewport when it appeared and gave it back when it hid —
+  and whether it appears is derived from scroll position, so it could scroll the
+  content enough to hide itself, which showed it again. That loop is the scroll
+  oscillating while text streams. It is now overlaid rather than in flow.
+
+  A code block that lost its highlighted HTML (a re-highlight after its content
+  changed) was hidden until Shiki resolved, blanking code the user was reading.
+  Space is still reserved invisibly on first paint, but a block that has already
+  painted never hides again.
+
+  Using one split for both phases required the split to be faithful to a
+  whole-document parse, which it was not: lists continue across blank lines and
+  link-reference/footnote definitions resolve document-wide, so splitting on a
+  blank line rendered a spaced list as several one-item lists and a referenced
+  link as literal `[text]`. That was visible during streaming and was silently
+  corrected only when the stream ended. `splitMarkdownBlocks` now keeps lists
+  whole across blank lines and declines to split a document containing reference
+  definitions, keeps indented code blocks whole across blank lines, and detects
+  those definitions during the fence-aware scan rather than over the raw text —
+  a TypeScript index signature inside a fence reads exactly like `[id]: url`, and
+  matching it disabled splitting for the whole message. `markdown-block-split.spec.ts`
+  asserts split/whole render parity construct by construct.
+
+- 73c4a97: Standardize share triggers, compact copy rows, and agent-sharing sections across framework surfaces.
+- Updated dependencies [73c4a97]
+- Updated dependencies [73c4a97]
+  - @agent-native/toolkit@0.15.1
+
+## 0.157.0
+
+### Minor Changes
+
+- afe636c: Add request-scoped action allowlists for interactive agent chat.
+
+## 0.156.0
+
+### Minor Changes
+
+- f07ec04: Allow host chat surfaces to replace the shared composer's visual model selector while preserving model state and request routing.
+- f07ec04: Localize the Core agent-chat interface and Toolkit composer across every supported locale, provide built-in Core translations with app-level catalog overrides, and guard the complete chat surface against new raw visible strings.
+
+### Patch Changes
+
+- Updated dependencies [f07ec04]
+  - @agent-native/toolkit@0.15.0
+
+## 0.155.0
+
+### Minor Changes
+
+- 89f194f: Support durable, scoped GitHub sources and replayable sync for Builder design-system imports.
+
+### Patch Changes
+
+- 89f194f: Action routes now fall back to the caller's stored active organization when a
+  cookie session resolves no org, matching what the adapter/A2A path already did.
+  An empty org silently narrowed every scoped read to rows with a null `org_id`,
+  so a user could stop seeing their own org-scoped dashboards and resources. An
+  explicit Personal selection still resolves to no org, and a transient database
+  failure propagates instead of reading as "this user has no org".
+- 89f194f: Add `motion` to `BrandKitTokenType` so durations, easings, and transitions have
+  a real category. Extractors drop tokens they cannot classify, so the missing
+  bucket meant no imported design system ever carried its motion.
+- 89f194f: Open agent chat image attachments in a full-size lightbox when their thumbnails are clicked.
+- 89f194f: Keep the chat-first New chat action icon-only when the desktop rail is collapsed.
+- 89f194f: Simplify share controls with compact copy-link rows and always-visible access details.
+- 89f194f: Ensure durable resource instructions remain in lean agent prompts and fail loudly when AGENTS.md cannot be read.
+- 89f194f: Hide `x-cloak` content in the extension iframe shell until Alpine boots.
+  Extension content is a body snippet, so it cannot define the rule itself: an
+  `x-cloak` overlay painted over the whole extension until the deferred Alpine
+  CDN script resolved, and permanently when it failed to.
+- 89f194f: Keep feedback and other sibling overlays open when launched from the Agent panel overflow menu.
+- 89f194f: Repair and validate native SQLite bindings against the Node runtime used by development, builds, and production starts.
+- 89f194f: Convert bare Slack user IDs in outbound agent responses into native mentions.
+- 89f194f: Add folder-backed agent packs with safe Claude/Cowork-style import, agent-owned
+  references and skills, and a shared Factory Agents surface for managing simple
+  agents alongside mounted agentic apps.
+- 89f194f: Grayscale non-selected workspace app icons so the active app is easier to identify in the chat-first rail.
+- 89f194f: Add an optional `submitContext` to the guided-questions payload, appended to the
+  context of whichever message the card sends. A question card's answer opens a
+  continuation turn that inherits nothing from the turn that posed it, so context
+  the follow-up work depends on had no way to survive the hop.
+- 89f194f: Detect active organization-scoped feature-flag rollouts for anonymous Desktop discovery while keeping authenticated authorization scoped to the user's email and organization.
+- 89f194f: Preserve signed Builder callback state when mounted route events normalize away the raw query string.
+- 89f194f: Provision cross-app SSO state and authorization-code tables during release migrations so production serverless requests never perform schema DDL.
+- 89f194f: Keep approval continuations out of visible chat history and keep approval controls usable at narrow widths.
+- 89f194f: Continue chat turns when a background tool completes before the assistant sends its final response.
+- 89f194f: Add a safe inline Markdown renderer for compact user-authored text surfaces.
+- 89f194f: Repair existing workspace app skill copies during scaffold updates by linking them to the shared workspace skill surface.
+- 89f194f: Chat no longer renders the same assistant turn twice — the long-standing report
+  of a final message streaming in two places at once and tool outputs appearing
+  more than once. Four independent causes, all of which let one run be folded into
+  UI state more than once:
+  - SSE resume cursors were kept in a single browser-wide slot, and
+    `updateActiveRunSeq` took no run identity, so it wrote the caller's sequence
+    into whichever run happened to occupy the slot. With chats streaming in
+    parallel (agent teams, multiple tabs) runs evicted each other, and
+    `resolveReconnectAfterSeq` then returned 0 — replaying an entire run on top of
+    history that already contained it. Cursors are now stored per `{threadId,
+runId}`, identity is required to advance one, and a cursor outlives its run
+    losing focus so a later reconnect resumes instead of replaying.
+  - The adapter's stream and the reconnect reader could both fold one run at once.
+    Ownership was a React ref re-checked by a 1s poll that is skipped while the tab
+    is hidden, and the refs were per-component-instance while several chat
+    instances mount against one run. Ownership now lives in a module-scoped
+    registry claimed and checked synchronously, and the adapter preempts the
+    reconnect fallback when it takes over.
+  - The reconnect overlay was deliberately kept mounted beside the live message
+    list for up to 2500ms after handoff, leaving two independent folds of the same
+    turn on screen with only content-similarity heuristics hiding the second. The
+    overlay now renders only while no runtime owns the turn.
+  - The server fold pushed a tool card for every `tool_start`, including the
+    replays that journal and zombie-ledger recovery emit for calls that already
+    ran. The live client coalesced those onto the original card, so a duplicate
+    tool output appeared only after a reload. A replayed `tool_start` now folds
+    onto its existing card.
+
+- 89f194f: Prevent assistant panel crashes when dense chat replays synchronously update React.
+- 89f194f: Keep nested exception debugging context out of Amplitude event properties while preserving it for internal error tracking.
+- Updated dependencies [89f194f]
+  - @agent-native/toolkit@0.14.3
+
 ## 0.154.5
 
 ### Patch Changes

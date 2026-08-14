@@ -216,6 +216,7 @@ export const recordings = table("recordings", {
 
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
+  mediaUpdatedAt: text("media_updated_at").notNull().default(now()),
   archivedAt: text("archived_at"),
   trashedAt: text("trashed_at"),
 
@@ -724,6 +725,7 @@ export const recordingEvents = table("recording_events", {
       "resume",
       "cta-click",
       "reaction",
+      "access-request",
     ],
   }).notNull(),
   // Video-time position (for progress/seek/pause/resume/reaction/cta-click).

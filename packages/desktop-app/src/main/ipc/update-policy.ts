@@ -25,7 +25,7 @@ export function resolveDesktopUpdateSupport(
   if (!isPackaged || buildChannel !== "release") {
     return {
       supported: false,
-      reason: "Auto-update is disabled in development",
+      reason: "Auto-update is unavailable for local development builds",
     };
   }
 
