@@ -947,7 +947,7 @@ describe("ShareButton", () => {
   // Keep the non-source-locale provider test last: react-i18next's global
   // fallback instance otherwise leaks the selected language into tests that
   // intentionally exercise providerless compatibility.
-  it("localizes the icon-only trigger and its visibility", async () => {
+  it("localizes the standardized text trigger", async () => {
     await act(async () => {
       root.render(
         <AgentNativeI18nProvider
@@ -967,10 +967,12 @@ describe("ShareButton", () => {
     });
 
     await vi.waitFor(() => {
-      expect(
-        container.querySelector('button[aria-label="Teilen (Privat)"]'),
-        container.innerHTML,
-      ).not.toBeNull();
+      const trigger = container.querySelector(
+        'button[aria-label="Teilen"]',
+      ) as HTMLButtonElement | null;
+      expect(trigger, container.innerHTML).not.toBeNull();
+      expect(trigger?.textContent).toBe("Teilen");
+      expect(trigger?.querySelector("svg")).toBeFalsy();
     });
   });
 });
