@@ -133,6 +133,10 @@ describe("get-layout-overflows", () => {
       canClaimDeckFits: false,
       guidance: expect.stringContaining("checked 3 times"),
     });
+    expect(result!.guidance).toContain("overflow still present");
+    expect(result!.guidance).not.toContain(
+      "measurements are still unavailable",
+    );
   });
 
   it("keeps incrementing through unknown (not-yet-measured) results, not just overflow", async () => {
@@ -160,6 +164,8 @@ describe("get-layout-overflows", () => {
       canClaimDeckFits: false,
       guidance: expect.stringContaining("checked 3 times"),
     });
+    expect(result!.guidance).toContain("measurements are still unavailable");
+    expect(result!.guidance).not.toContain("overflow still present");
   });
 
   it("tracks separate decks independently instead of one shared record", async () => {

@@ -205,7 +205,10 @@ export default defineAction({
       canClaimDeckFits,
       ...(checkCount >= REPEATED_CHECK_WARNING_THRESHOLD
         ? {
-            guidance: `This deck has been checked ${checkCount} times with overflow still present. Stop re-measuring and patching one slide at a time. Report the exact remaining overflow (slide, pixels, dimension) to the user instead of calling get-layout-overflows again this turn.`,
+            guidance:
+              overflows.length > 0
+                ? `This deck has been checked ${checkCount} times with overflow still present. Stop re-measuring and patching one slide at a time. Report the exact remaining overflow (slide, pixels, dimension) to the user instead of calling get-layout-overflows again this turn.`
+                : `This deck has been checked ${checkCount} times and slide measurements are still unavailable (unknownSlideIds). Stop re-checking and tell the user which slides could not be measured instead of calling get-layout-overflows again this turn.`,
           }
         : {}),
     };
