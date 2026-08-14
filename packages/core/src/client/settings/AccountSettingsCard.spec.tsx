@@ -8,13 +8,18 @@ const mutationState = vi.hoisted(() => ({
   error: null as Error | null,
   success: false,
 }));
+const profileQueryState = vi.hoisted(() => ({
+  data: { email: "steve@example.com", name: "Steve" } as
+    | { email: string; name: string }
+    | undefined,
+}));
 const updateProfileMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../use-action.js", () => ({
   useActionQuery: (name: string) =>
     name === "get-user-profile"
       ? {
-          data: { email: "steve@example.com", name: "Steve" },
+          data: profileQueryState.data,
           error: null,
           isLoading: false,
         }
@@ -108,6 +113,10 @@ describe("AccountSettingsForm name editing", () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     mutationState.error = null;
     mutationState.success = false;
+    profileQueryState.data = {
+      email: "steve@example.com",
+      name: "Steve",
+    };
     updateProfileMock.mockClear();
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -183,5 +192,81 @@ describe("AccountSettingsForm name editing", () => {
     expect(
       container.querySelector('button[aria-label="Edit name"]'),
     ).not.toBeNull();
+  });
+
+  it("syncs a profile name that resolves after Edit is opened", async () => {
+    profileQueryState.data = undefined;
+    await act(async () => {
+      root.render(
+        <TooltipProvider>
+          <AccountSettingsForm />
+        </TooltipProvider>,
+      );
+    });
+
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="Edit name"]')
+        ?.click();
+    });
+
+    await act(async () => {
+      profileQueryState.data = {
+        email: "steve@example.com",
+        name: "Profile Name",
+      };
+      root.render(
+        <TooltipProvider>
+          <AccountSettingsForm />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(
+      container.querySelector<HTMLInputElement>("#agent-native-profile-name")
+        ?.value,
+    ).toBe("Profile Name");
+  });
+
+  it("preserves a typed draft while a profile name resolves", async () => {
+    profileQueryState.data = undefined;
+    await act(async () => {
+      root.render(
+        <TooltipProvider>
+          <AccountSettingsForm />
+        </TooltipProvider>,
+      );
+    });
+
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="Edit name"]')
+        ?.click();
+    });
+    act(() => {
+      setInputValue(
+        container.querySelector<HTMLInputElement>(
+          "#agent-native-profile-name",
+        )!,
+        "Draft Name",
+      );
+    });
+
+    await act(async () => {
+      profileQueryState.data = {
+        email: "steve@example.com",
+        name: "Profile Name",
+      };
+      root.render(
+        <TooltipProvider>
+          <AccountSettingsForm />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(
+      container.querySelector<HTMLInputElement>("#agent-native-profile-name")
+        ?.value,
+    ).toBe("Draft Name");
   });
 });

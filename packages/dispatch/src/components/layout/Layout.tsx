@@ -1942,6 +1942,32 @@ export function Layout({
   }, [isWorkspaceAppRoute, localPathname]);
 
   useEffect(() => {
+    if (!workspaceAppRouteActive) return;
+
+    const handleWorkspaceAppMessage = (event: MessageEvent) => {
+      if (event.data?.type !== "agentNative.toggleSidebar") return;
+      const frame = document.querySelector(
+        "[data-dispatch-workspace-app-frame]",
+      );
+      if (!(frame instanceof HTMLIFrameElement)) return;
+      if (event.source !== frame.contentWindow) return;
+
+      const open = event.data.data?.open;
+      if (open === true) {
+        window.dispatchEvent(new Event("agent-panel:open"));
+      } else if (open === false) {
+        window.dispatchEvent(new Event("agent-panel:close"));
+      } else {
+        window.dispatchEvent(new Event("agent-panel:toggle"));
+      }
+    };
+
+    window.addEventListener("message", handleWorkspaceAppMessage);
+    return () =>
+      window.removeEventListener("message", handleWorkspaceAppMessage);
+  }, [workspaceAppRouteActive]);
+
+  useEffect(() => {
     if (typeof window === "undefined" || isWorkspaceAppHostRoute) return;
     try {
       window.localStorage.setItem(
@@ -2300,6 +2326,43 @@ export function Layout({
         renderTab={renderChatFirstSurfaceTab}
       />
     ) : null;
+  const workspaceAppChatName =
+    (workspaceAppId
+      ? chatFirstAppRegistrations.find(
+          (app) => app.id.toLowerCase() === workspaceAppId.toLowerCase(),
+        )?.name
+      : null) ??
+    workspaceAppId ??
+    "Workspace app";
+  const workspaceAppContent =
+    workspaceAppRouteActive && workspaceAppId ? (
+      <AgentSidebar
+        position="left"
+        defaultOpen
+        openStorageKey="dispatch-app-chat"
+        storageKey={`dispatch-app-chat:${workspaceAppId}`}
+        scope={{
+          type: "workspace-app",
+          id: workspaceAppId,
+          label: workspaceAppChatName,
+          contextKey: `workspace-app:${workspaceAppId}`,
+        }}
+        agentChatSurface="app"
+        showTabBar
+        suppressInlineOpenApp
+        dynamicSuggestions={false}
+        suggestions={[]}
+        emptyStateText={`Ask about ${workspaceAppChatName}`}
+        agentPageHref={agentPageHref}
+        onFullscreenRequest={openAskAgentFullscreen}
+      >
+        <WorkspaceAppKeepAlive activeAppId={workspaceAppId} />
+      </AgentSidebar>
+    ) : (
+      <WorkspaceAppKeepAlive
+        activeAppId={workspaceAppRouteActive ? workspaceAppId : null}
+      />
+    );
   const content = isChatRoute ? (
     <div
       className={cn(
@@ -2438,9 +2501,7 @@ export function Layout({
 
           <div className="relative min-w-0 flex-1 overflow-hidden">
             {content}
-            <WorkspaceAppKeepAlive
-              activeAppId={workspaceAppRouteActive ? workspaceAppId : null}
-            />
+            {workspaceAppContent}
           </div>
         </div>
       </HeaderActionsProvider>

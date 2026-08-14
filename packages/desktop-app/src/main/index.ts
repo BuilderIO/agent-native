@@ -207,6 +207,7 @@ import { registerAppsIpc } from "./ipc/apps";
 import { registerChatFirstMcpIpc } from "./ipc/chat-first-mcp.js";
 import { registerCodeAgentsIpc } from "./ipc/code-agents";
 import { registerContentFilesIpc } from "./ipc/content-files";
+import { registerDesktopChatIpc } from "./ipc/desktop-chat";
 import { registerFrameIpc } from "./ipc/frame";
 import { registerInterAppIpc } from "./ipc/inter-app";
 import { registerPlanFilesIpc } from "./ipc/plan-files";
@@ -8698,6 +8699,8 @@ registerAppsIpc({
   createDesktopAppFromPrompt,
   showDesktopAppContextMenu,
 });
+
+registerDesktopChatIpc();
 
 registerChatFirstMcpIpc({
   resolveMcpHost: resolveDesktopMcpHost,

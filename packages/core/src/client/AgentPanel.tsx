@@ -3816,10 +3816,7 @@ export function AgentSidebar({
           commands the agent writes via `set-search-params` / `set-url`. */}
           {shouldMountPanel ? <URLSync browserTabId={browserTabId} /> : null}
           {isResizing ? (
-            <div
-              aria-hidden="true"
-              className="agent-sidebar-resize-overlay"
-            />
+            <div aria-hidden="true" className="agent-sidebar-resize-overlay" />
           ) : null}
           {isLeft && !presentationMode ? sidebar : null}
           {isLeft && !presentationMode ? drawerPlaceholder : null}

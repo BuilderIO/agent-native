@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   isSlidesItalicEditableTarget,
+  shouldSuppressSlidesItalicShortcut,
   shouldStopSlidesItalicShortcut,
 } from "./editor-shortcuts";
 
@@ -65,5 +66,21 @@ describe("slides italic shortcut helper", () => {
       isSlidesItalicEditableTarget(shortcutEvent({ target: editor })),
     ).toBe(true);
     expect(isSlidesItalicEditableTarget(shortcutEvent())).toBe(false);
+  });
+
+  it("suppresses the slide shortcut only outside editable targets", () => {
+    const editor = document.createElement("div");
+    editor.contentEditable = "true";
+
+    expect(
+      shouldSuppressSlidesItalicShortcut(
+        shortcutEvent({ metaKey: true, target: editor }),
+      ),
+    ).toBe(false);
+    expect(
+      shouldSuppressSlidesItalicShortcut(
+        shortcutEvent({ metaKey: true, target: document.body }),
+      ),
+    ).toBe(true);
   });
 });

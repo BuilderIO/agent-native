@@ -1783,14 +1783,20 @@ pub async fn native_fullscreen_recording_stop_and_upload(
 
     if multi_segment {
         if let Err(merge_err) = &consolidate_outcome {
-            let mut saved = saved_recording_from_segments(
+            let mut saved = match saved_recording_from_segments(
                 &session,
                 &server_url,
                 &recording_id,
                 duration_ms,
                 has_audio,
                 has_camera,
-            )?;
+            ) {
+                Ok(saved) => saved,
+                Err(error) => {
+                    remove_empty_recording_artifacts(&session);
+                    return Err(error);
+                }
+            };
             saved.last_error = Some(match &stop_outcome {
                 Err(stop_err) => {
                     format!("{stop_err}. Segment consolidation failed: {merge_err}")
@@ -1814,14 +1820,20 @@ pub async fn native_fullscreen_recording_stop_and_upload(
         }
     }
 
-    let mut saved = saved_recording_from_session(
+    let mut saved = match saved_recording_from_session(
         &session,
         &server_url,
         &recording_id,
         duration_ms,
         has_audio,
         has_camera,
-    )?;
+    ) {
+        Ok(saved) => saved,
+        Err(error) => {
+            remove_empty_recording_artifacts(&session);
+            return Err(error);
+        }
+    };
     let stop_error = stop_outcome.err();
     if let Some(stop_err) = &stop_error {
         // Capture-side finalize/write failure: the on-disk file is incomplete
@@ -3150,6 +3162,12 @@ pub async fn native_fullscreen_pending_uploads(
             continue;
         }
         let Ok(saved) = read_saved_recording_metadata_path(&path) else {
+            if std::fs::metadata(&path)
+                .map(|metadata| metadata.len() == 0)
+                .unwrap_or(false)
+            {
+                let _ = std::fs::remove_file(&path);
+            }
             continue;
         };
         if saved_recording_has_local_artifact(&saved) {
@@ -4023,7 +4041,41 @@ fn describe_recording_path(path: &Path) -> String {
 }
 
 fn saved_recording_has_local_artifact(saved: &SavedNativeRecording) -> bool {
-    saved.file_path.exists() || saved.segment_paths.iter().any(|path| path.exists())
+    recording_file_has_bytes(&saved.file_path)
+        || saved
+            .segment_paths
+            .iter()
+            .any(|path| recording_file_has_bytes(path))
+}
+
+fn recording_file_has_bytes(path: &Path) -> bool {
+    std::fs::metadata(path)
+        .map(|metadata| metadata.len() > 0)
+        .unwrap_or(false)
+}
+
+fn remove_empty_recording_artifacts(session: &NativeFullscreenSession) {
+    for path in session.segments.iter().chain(std::iter::once(&session.path)) {
+        if !path.exists() {
+            continue;
+        }
+        if std::fs::metadata(path)
+            .map(|metadata| metadata.len() > 0)
+            .unwrap_or(true)
+        {
+            continue;
+        }
+        if let Err(error) = std::fs::remove_file(path) {
+            if error.kind() != ErrorKind::NotFound {
+                eprintln!(
+                    "[clips-tray] empty native recording cleanup failed for {}: {error}",
+                    path.display()
+                );
+            }
+        } else {
+            remove_recording_intent(path);
+        }
+    }
 }
 
 fn pending_uploads_dir(app: &AppHandle) -> Result<PathBuf, String> {
@@ -4429,11 +4481,25 @@ fn write_saved_recording_metadata(
     let path = saved_recording_metadata_path(app, &saved.recording_id)?;
     let data = serde_json::to_vec_pretty(saved)
         .map_err(|e| format!("pending recording metadata encode failed: {e}"))?;
-    std::fs::write(path, data)
-        .map_err(|e| format!("pending recording metadata write failed: {e}"))?;
+    write_bytes_atomically(&path, &data, "pending recording metadata")?;
     remove_recording_intent(&saved.file_path);
     for segment_path in &saved.segment_paths {
         remove_recording_intent(segment_path);
+    }
+    Ok(())
+}
+
+fn write_bytes_atomically(path: &Path, data: &[u8], label: &str) -> Result<(), String> {
+    let file_name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("recording");
+    let temporary = path.with_file_name(format!(".{file_name}.tmp"));
+    std::fs::write(&temporary, data)
+        .map_err(|error| format!("{label} write failed: {error}"))?;
+    if let Err(error) = std::fs::rename(&temporary, path) {
+        let _ = std::fs::remove_file(&temporary);
+        return Err(format!("{label} finalize failed: {error}"));
     }
     Ok(())
 }

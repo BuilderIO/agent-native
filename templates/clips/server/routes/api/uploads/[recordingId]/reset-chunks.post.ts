@@ -53,8 +53,10 @@ import {
   getEventOwnerContext,
   ownerEmailMatches,
 } from "../../../../lib/recordings.js";
+import { abortResumableUploadSession } from "../../../../lib/resumable-upload-cleanup.js";
 import {
   deleteResumableSession,
+  getResumableSession,
   setResumableSession,
 } from "../../../../lib/resumable-session.js";
 import { shouldEnableStreamingUpload } from "../../../../lib/streaming-upload-mode.js";
@@ -217,6 +219,10 @@ export default defineEventHandler(async (event: H3Event) => {
     const nextGenerationId = useGenerationFence ? randomUUID() : null;
     const uploadStateKey = `recording-upload-${recordingId}`;
     const uploadStateSnapshot = await readAppState(uploadStateKey);
+    const discardedResumableSession = await getResumableSession(
+      recordingId,
+      existingGenerationId,
+    );
     const reset = await db
       .update(schema.recordings)
       .set({
@@ -251,6 +257,19 @@ export default defineEventHandler(async (event: H3Event) => {
       };
     }
 
+    if (discardedResumableSession) {
+      const cleaned = await abortResumableUploadSession(
+        discardedResumableSession,
+        { label: `reset-${recordingId}` },
+      );
+      if (!cleaned) {
+        setResponseStatus(event, 502);
+        return {
+          error:
+            "The previous recording upload could not be cleaned up. Retry the upload restart.",
+        };
+      }
+    }
     const cleared = await deleteRecordingChunks(
       ownerEmail,
       recordingId,

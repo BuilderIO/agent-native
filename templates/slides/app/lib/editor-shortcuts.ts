@@ -37,3 +37,10 @@ export function shouldStopSlidesItalicShortcut(event: EditorShortcutEvent) {
 export function isSlidesItalicEditableTarget(event: EditorShortcutEvent) {
   return isEditableSurface(event.target);
 }
+
+export function shouldSuppressSlidesItalicShortcut(event: EditorShortcutEvent) {
+  return (
+    shouldStopSlidesItalicShortcut(event) &&
+    !isSlidesItalicEditableTarget(event)
+  );
+}

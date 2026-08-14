@@ -46,6 +46,7 @@ import {
   getEventOwnerContext,
   ownerEmailMatches,
 } from "../../../../lib/recordings.js";
+import { abortResumableUploadSession } from "../../../../lib/resumable-upload-cleanup.js";
 import {
   deleteResumableSession,
   getResumableSession,
@@ -854,6 +855,23 @@ async function handleResumableChunk(
     `[resumable-chunk-${recordingId}] resumable session exists - bytesUploaded=${session.bytesUploaded} index=${index} isFinal=${isFinal}`,
   );
 
+  const cleanupFailedFinalSession = async () => {
+    const cleaned = await abortResumableUploadSession(session, {
+      provider: uploadProvider,
+      label: `resumable-final-${recordingId}`,
+    });
+    if (cleaned) {
+      await deleteResumableSession(recordingId, uploadGenerationId).catch(
+        (error) =>
+          console.warn(
+            `[resumable-chunk-${recordingId}] failed to retire aborted session:`,
+            error,
+          ),
+      );
+    }
+    return !cleaned;
+  };
+
   const raw = await readRawBody(event, false);
   const bytes: Uint8Array = raw ?? new Uint8Array(0);
   let finalizedSourceSizeBytes = session.bytesUploaded;
@@ -884,19 +902,37 @@ async function handleResumableChunk(
     // 0-byte sentinel from the recorder after stop(). All data chunks have
     // already been PUT to the provider; send Content-Range: bytes */<total>
     // to close the session before handing off to finalize-recording.
-    const closeRes = await uploadProvider.resumable.relayChunk(
-      { sessionId: session.sessionId, meta: session.meta },
-      `bytes */${session.bytesUploaded}`,
-      new Uint8Array(0),
-    );
-    if (!closeRes.ok || closeRes.status === 308) {
+    let closeRes;
+    try {
+      closeRes = await uploadProvider.resumable.relayChunk(
+        { sessionId: session.sessionId, meta: session.meta },
+        `bytes */${session.bytesUploaded}`,
+        new Uint8Array(0),
+      );
+    } catch (error) {
+      const cleanupFailed = await cleanupFailedFinalSession();
+      const detail = error instanceof Error ? error.message : String(error);
       console.error(
-        `[resumable-chunk-${recordingId}] session close failed (${closeRes.status})`,
+        `[resumable-chunk-${recordingId}] session close threw:`,
+        error,
       );
       setResponseStatus(event, 502);
       return {
         ok: false,
+        error: `Resumable session close failed: ${detail}`,
+        ...(cleanupFailed ? { cleanupFailed: true } : {}),
+      };
+    }
+    if (!closeRes.ok || closeRes.status === 308) {
+      console.error(
+        `[resumable-chunk-${recordingId}] session close failed (${closeRes.status})`,
+      );
+      const cleanupFailed = await cleanupFailedFinalSession();
+      setResponseStatus(event, 502);
+      return {
+        ok: false,
         error: `Resumable session close failed (${closeRes.status})`,
+        ...(cleanupFailed ? { cleanupFailed: true } : {}),
       };
     }
     if (closeRes.updatedMeta) {
@@ -964,12 +1000,31 @@ async function handleResumableChunk(
         : `bytes ${start}-${end}/*`;
 
       const putT0 = Date.now();
-      const putResult = await uploadProvider.resumable.relayChunk(
-        { sessionId: session.sessionId, meta: session.meta },
-        contentRange,
-        bytes,
-        { mimeType: mimeType.split(";")[0].trim() },
-      );
+      let putResult;
+      try {
+        putResult = await uploadProvider.resumable.relayChunk(
+          { sessionId: session.sessionId, meta: session.meta },
+          contentRange,
+          bytes,
+          { mimeType: mimeType.split(";")[0].trim() },
+        );
+      } catch (error) {
+        if (isFinal) {
+          const cleanupFailed = await cleanupFailedFinalSession();
+          const detail = error instanceof Error ? error.message : String(error);
+          console.error(
+            `[resumable-chunk-${recordingId}] final chunk upload threw:`,
+            error,
+          );
+          setResponseStatus(event, 502);
+          return {
+            ok: false,
+            error: `Final chunk upload failed: ${detail}`,
+            ...(cleanupFailed ? { cleanupFailed: true } : {}),
+          };
+        }
+        throw error;
+      }
       console.log(
         `[resumable-chunk-${recordingId}] PUT ${Date.now() - putT0}ms status=${putResult.status} range="${contentRange}"`,
       );
@@ -980,7 +1035,10 @@ async function handleResumableChunk(
       if (!resultOk) {
         const restartRequired =
           putResult.status === 404 || putResult.status === 410;
-        if (restartRequired) {
+        const cleanupFailed = isFinal
+          ? await cleanupFailedFinalSession()
+          : false;
+        if (restartRequired && !cleanupFailed) {
           await deleteResumableSession(recordingId, uploadGenerationId).catch(
             () => {},
           );
@@ -990,6 +1048,7 @@ async function handleResumableChunk(
           ok: false,
           error: `Chunk upload failed (${putResult.status})`,
           ...(restartRequired ? { restartRequired: true } : {}),
+          ...(cleanupFailed ? { cleanupFailed: true } : {}),
         };
       }
 

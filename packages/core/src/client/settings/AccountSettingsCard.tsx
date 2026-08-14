@@ -274,21 +274,21 @@ export function AccountSettingsForm({
   const [name, setName] = useState("");
   const [savedName, setSavedName] = useState("");
   const [isEditingName, setIsEditingName] = useState(false);
-  const nameEditedRef = useRef(false);
+  const nameFieldEditedRef = useRef(false);
 
   const profileName = profileQuery.data?.name || session?.name || "";
   const displayName =
     name || profileName || email || t("settings.profileSignedOut");
 
   useEffect(() => {
-    nameEditedRef.current = false;
+    nameFieldEditedRef.current = false;
     setIsEditingName(false);
     setName("");
     setSavedName("");
   }, [email]);
 
   useEffect(() => {
-    if (nameEditedRef.current) return;
+    if (nameFieldEditedRef.current) return;
     setName(profileName);
     setSavedName(profileName);
   }, [email, profileName]);
@@ -318,7 +318,7 @@ export function AccountSettingsForm({
         onSuccess: (profile) => {
           setName(profile.name);
           setSavedName(profile.name);
-          nameEditedRef.current = false;
+          nameFieldEditedRef.current = false;
           setIsEditingName(false);
         },
       },
@@ -327,14 +327,14 @@ export function AccountSettingsForm({
 
   const handleProfileEdit = () => {
     updateProfile.reset();
-    nameEditedRef.current = true;
+    nameFieldEditedRef.current = false;
     setName(savedName);
     setIsEditingName(true);
   };
 
   const handleProfileCancel = () => {
     updateProfile.reset();
-    nameEditedRef.current = false;
+    nameFieldEditedRef.current = false;
     setName(savedName);
     setIsEditingName(false);
   };
@@ -420,7 +420,7 @@ export function AccountSettingsForm({
                 id="agent-native-profile-name"
                 value={name}
                 onChange={(value) => {
-                  nameEditedRef.current = true;
+                  nameFieldEditedRef.current = true;
                   updateProfile.reset();
                   setName(value);
                 }}
