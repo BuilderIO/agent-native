@@ -625,15 +625,30 @@ export default function ClipsTemplate() {
         <div className="overflow-x-auto rounded-xl border border-[var(--docs-border)]">
           <table className="comparison-table min-w-[42rem] w-full text-sm">
             <thead>
-              <tr className="border-b border-[var(--docs-border)] bg-[var(--bg-secondary)]">
-                <th className="w-[18%] px-5 py-3 text-left font-semibold text-[var(--fg)]"></th>
-                <th className="w-[30%] px-5 py-3 text-left font-semibold text-[var(--docs-accent)]">
-                  Agent-Native Clips
+              <tr className="border border-[#1a1a1a] bg-[#0f0f0f]">
+                <th className="w-[18%] border border-[#1a1a1a] px-5 py-3"></th>
+                <th className="w-[30%] border border-[#1a1a1a] px-8 py-3 text-center text-[15px] font-medium leading-[1.4] text-[#faf9f5]">
+                  <span className="inline-flex items-center gap-2">
+                    <img
+                      src="/agent-native-icon-dark.svg"
+                      alt=""
+                      aria-hidden="true"
+                      className="h-5 w-5"
+                      loading="lazy"
+                      decoding="async"
+                    />
+                    <span className="font-semibold uppercase tracking-tight">
+                      Agent-Native{" "}
+                      <span style={{ color: template.color }}>
+                        {template.name}
+                      </span>
+                    </span>
+                  </span>
                 </th>
-                <th className="w-[20%] px-5 py-3 text-left font-semibold text-[var(--fg-secondary)]">
+                <th className="w-[20%] border border-[#1a1a1a] px-8 py-3 text-center text-[15px] font-medium leading-[1.4] text-[#faf9f5]">
                   Loom
                 </th>
-                <th className="w-[32%] px-5 py-3 text-left font-semibold text-[var(--fg-secondary)]">
+                <th className="w-[32%] border border-[#1a1a1a] px-8 py-3 text-center text-[15px] font-medium leading-[1.4] text-[#faf9f5]">
                   Tella, Screenpal, Vidyard
                 </th>
               </tr>
