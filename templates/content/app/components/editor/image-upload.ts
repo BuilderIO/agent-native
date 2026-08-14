@@ -75,7 +75,7 @@ export function waitForRenderedImage(
     }
 
     function handleLoad() {
-      finish(true);
+      frame = window.requestAnimationFrame(observe);
     }
 
     function handleError() {
@@ -89,7 +89,16 @@ export function waitForRenderedImage(
         return;
       }
       if (image.complete) {
-        finish(image.naturalWidth > 0);
+        if (image.naturalWidth <= 0) {
+          finish(false);
+          return;
+        }
+        const bounds = image.getBoundingClientRect();
+        if (bounds.width > 0 && bounds.height > 0) {
+          finish(true);
+          return;
+        }
+        frame = window.requestAnimationFrame(observe);
         return;
       }
       image.addEventListener("load", handleLoad, { once: true });

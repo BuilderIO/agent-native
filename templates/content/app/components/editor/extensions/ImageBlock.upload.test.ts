@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   completeImageFileUpload,
@@ -11,6 +11,11 @@ import {
 describe("image node-view upload completion", () => {
   const file = new File(["image-bytes"], "diagram.png", {
     type: "image/png",
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
   });
 
   it("reports success only after the committed image node renders", async () => {
@@ -101,15 +106,45 @@ describe("image node-view upload completion", () => {
 
   it("waits for the image element committed into the editor", async () => {
     const image = document.createElement("img");
-    Object.defineProperty(image, "complete", { value: false });
+    let loaded = false;
+    Object.defineProperty(image, "complete", { get: () => loaded });
+    Object.defineProperty(image, "naturalWidth", { value: 640 });
+    vi.spyOn(image, "getBoundingClientRect").mockReturnValue({
+      width: 640,
+      height: 360,
+    } as DOMRect);
     let committed = false;
     const completion = waitForRenderedImage(() => (committed ? image : null));
 
     committed = true;
     await new Promise((resolve) => requestAnimationFrame(resolve));
+    loaded = true;
     image.dispatchEvent(new Event("load"));
 
     await expect(completion).resolves.toBeUndefined();
+  });
+
+  it("does not accept a decoded image that has collapsed to zero size", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      "requestAnimationFrame",
+      vi.fn(() => 1),
+    );
+    vi.stubGlobal("cancelAnimationFrame", vi.fn());
+    const image = document.createElement("img");
+    Object.defineProperty(image, "complete", { value: true });
+    Object.defineProperty(image, "naturalWidth", { value: 300 });
+    vi.spyOn(image, "getBoundingClientRect").mockReturnValue({
+      width: 0,
+      height: 0,
+    } as DOMRect);
+
+    const completion = waitForRenderedImage(() => image);
+    const rejection =
+      expect(completion).rejects.toBeInstanceOf(ImageRenderError);
+    await vi.advanceTimersByTimeAsync(15_000);
+
+    await rejection;
   });
 
   it("rejects when the committed editor image errors", async () => {
