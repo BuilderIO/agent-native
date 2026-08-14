@@ -178,7 +178,7 @@ export default function ClipsTemplate() {
     <main className="template-detail-page mx-auto w-full max-w-[1200px] overflow-x-clip px-4 sm:px-6">
       {/* Hero */}
       <section className="py-12 sm:py-16 lg:py-20">
-        <div className="relative overflow-hidden">
+        <div className="relative overflow-hidden border-x border-[var(--docs-border)]">
           <div
             aria-hidden="true"
             className="pointer-events-none absolute inset-0 hidden lg:grid lg:grid-cols-3"
