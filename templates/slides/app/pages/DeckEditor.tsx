@@ -76,6 +76,7 @@ import {
   shouldShowDeckEditorSkeleton,
 } from "@/lib/deck-editor-loading";
 import { getPreset } from "@/lib/design-systems";
+import { shouldSuppressSlidesItalicShortcut } from "@/lib/editor-shortcuts";
 import { exportDeckToGoogleSlides } from "@/lib/export-google-slides-client";
 import { exportDeckAsPdf } from "@/lib/export-pdf-client";
 import { exportDeckAsPptx } from "@/lib/export-pptx-client";
@@ -783,6 +784,18 @@ export default function DeckEditor() {
     return () =>
       document.removeEventListener("keydown", handleTextToolShortcut);
   }, [canEdit]);
+
+  useEffect(() => {
+    const handleItalicShortcut = (event: KeyboardEvent) => {
+      if (!shouldSuppressSlidesItalicShortcut(event)) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    };
+
+    document.addEventListener("keydown", handleItalicShortcut, true);
+    return () =>
+      document.removeEventListener("keydown", handleItalicShortcut, true);
+  }, []);
 
   // Delete key deletes the current slide
   useEffect(() => {

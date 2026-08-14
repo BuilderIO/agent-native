@@ -1378,8 +1378,7 @@ function AgentPanelInner({
                 allowedRoles={["viewer", "editor", "admin"]}
                 resourceTitle={activeTab.label || t("agentPanel.chat")}
                 shareUrl={getChatThreadShareUrl(activeTab.id)}
-                trigger="icon"
-                triggerClassName="h-7 w-7"
+                triggerClassName="h-7 px-2"
                 defaultOpen={onCollapse && shareFromMenuOpen}
                 onOpenChange={onCollapse ? setShareFromMenuOpen : undefined}
               />
@@ -1754,8 +1753,7 @@ function AgentPanelInner({
                   allowedRoles={["viewer", "editor", "admin"]}
                   resourceTitle={activeTab.label || t("agentPanel.chat")}
                   shareUrl={getChatThreadShareUrl(activeTab.id)}
-                  trigger="icon"
-                  triggerClassName="h-8 w-8 border border-border bg-background/95 shadow-sm backdrop-blur hover:bg-accent"
+                  triggerClassName="h-8 px-2 border border-border bg-background/95 shadow-sm backdrop-blur hover:bg-accent"
                 />
               ) : null}
               <button
@@ -3038,6 +3036,18 @@ export interface AgentSidebarProps {
   chatViewTransitionHandoff?: boolean;
   /** Namespace for persisted chat state. Use the same key as AgentChatHome. */
   storageKey?: string;
+  /** Namespace for the persisted open/closed preference. Defaults to storageKey. */
+  openStorageKey?: string;
+  /** API base URL used by the chat surface. */
+  apiUrl?: string;
+  /** Runtime surface identity used for server-side chat capabilities. */
+  agentChatSurface?: AgentChatSurfaceKind;
+  /** Show the chat thread tab row. Default: true. */
+  showTabBar?: MultiTabAssistantChatProps["showTabBar"];
+  /** Keep inline app-opening results inside the current app chat. */
+  suppressInlineOpenApp?: AssistantChatProps["suppressInlineOpenApp"];
+  /** Placeholder shown in the chat composer. */
+  composerPlaceholder?: AssistantChatProps["composerPlaceholder"];
   /** Open the sidebar when a chat run is active or reconnects. */
   openOnChatRunning?: boolean;
   /** Called when the user selects the full-view action from the chat sidebar. */
@@ -3079,6 +3089,12 @@ export function AgentSidebar({
   chatViewTransition = false,
   chatViewTransitionHandoff = false,
   storageKey,
+  openStorageKey,
+  apiUrl,
+  agentChatSurface,
+  showTabBar = true,
+  suppressInlineOpenApp,
+  composerPlaceholder,
   openOnChatRunning = false,
   onFullscreenRequest,
   scope,
@@ -3088,6 +3104,7 @@ export function AgentSidebar({
   agentPageHref,
   suppressFirstRunOnboarding = false,
 }: AgentSidebarProps) {
+  const sidebarOpenStorageKey = openStorageKey ?? storageKey;
   const onboardingPreviewMode = useOnboardingPreviewMode();
   const firstRunOnboardingGateOwnsSurface =
     useFirstRunOnboardingGateOwnsSurface();
@@ -3098,7 +3115,8 @@ export function AgentSidebar({
   const initialWidth = defaultSidebarWidth ?? sidebarWidth ?? 380;
   const [open, setOpen] = useState(
     () =>
-      openOnChatRunning || getInitialAgentSidebarOpen(defaultOpen, storageKey),
+      openOnChatRunning ||
+      getInitialAgentSidebarOpen(defaultOpen, sidebarOpenStorageKey),
   );
   const [presentationMode, setPresentationMode] = useState(false);
   const [width, setWidth] = useState(initialWidth);
@@ -3160,17 +3178,17 @@ export function AgentSidebar({
     (next: boolean | ((prev: boolean) => boolean)) => {
       setOpen((prev) => {
         const value = typeof next === "function" ? next(prev) : next;
-        setAgentSidebarOpenPreference(value, storageKey);
+        setAgentSidebarOpenPreference(value, sidebarOpenStorageKey);
         return value;
       });
     },
-    [storageKey],
+    [sidebarOpenStorageKey],
   );
 
   const applyUrlOpenOverride = useCallback(() => {
-    const override = consumeAgentSidebarUrlOpenOverride(storageKey);
+    const override = consumeAgentSidebarUrlOpenOverride(sidebarOpenStorageKey);
     if (override !== null) setOpenPersisted(override);
-  }, [setOpenPersisted, storageKey]);
+  }, [setOpenPersisted, sidebarOpenStorageKey]);
 
   useEffect(() => {
     applyUrlOpenOverride();
@@ -3720,6 +3738,11 @@ export function AgentSidebar({
             onComposerTextChange={onComposerTextChange}
             imageModelMenu={imageModelMenu}
             threadFooterSlot={threadFooterSlot}
+            apiUrl={apiUrl}
+            agentChatSurface={agentChatSurface}
+            showTabBar={showTabBar}
+            suppressInlineOpenApp={suppressInlineOpenApp}
+            composerPlaceholder={composerPlaceholder}
             missingApiKeySetupLayout="sidebar"
             onCollapse={() => setOpenPersisted(false)}
             onSnapTo75Percent={isMobile ? undefined : snapTo75Percent}
@@ -3792,6 +3815,9 @@ export function AgentSidebar({
           sees what page/filters the user is on, and applies URL-update
           commands the agent writes via `set-search-params` / `set-url`. */}
           {shouldMountPanel ? <URLSync browserTabId={browserTabId} /> : null}
+          {isResizing ? (
+            <div aria-hidden="true" className="agent-sidebar-resize-overlay" />
+          ) : null}
           {isLeft && !presentationMode ? sidebar : null}
           {isLeft && !presentationMode ? drawerPlaceholder : null}
           <div

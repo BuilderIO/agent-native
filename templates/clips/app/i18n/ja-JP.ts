@@ -262,6 +262,17 @@ const messages = {
     passwordProtected: "このクリップはパスワードで保護されています",
     linkExpired: "リンクの有効期限が切れました",
     linkExpiredMessage: "作成者はこの共有リンクに有効期限を設定しました。",
+    privateClip: "非公開クリップ",
+    privateClipMessage:
+      "このクリップは非公開です。アクセスをリクエストすると、所有者に通知されます。",
+    privateClipSignedOutMessage:
+      "このクリップは非公開です。所有者にアクセスをリクエストするにはサインインしてください。",
+    requestAccess: "アクセスをリクエスト",
+    requestingAccess: "アクセスをリクエスト中...",
+    accessRequested: "アクセスをリクエストしました",
+    accessRequestSent: "クリップの所有者に通知しました。",
+    accessRequestFailed:
+      "アクセスをリクエストできませんでした。もう一度お試しください。",
     clipUnavailable: "クリップが使用できません",
     clipUnavailableMessage:
       "この録音は公開されていないか、リンクが無効です。自分のクリップの場合は、サインインしてアクセスを確認してください。",

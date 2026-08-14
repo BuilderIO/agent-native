@@ -41,6 +41,7 @@ const messages = {
     unpinChat: "Chat lösen",
   },
   navigation: {
+    agents: "Agenten",
     chat: "Chat",
     collapseSidebar: "Seitenleiste einklappen",
     database: "Datenbank",
@@ -52,7 +53,7 @@ const messages = {
     openNavigation: "Navigation öffnen",
     settings: "Einstellungen",
     team: "Team",
-    triage: "Factory",
+    triage: "Factories",
   },
   triage: {
     title: "Factory",
@@ -168,6 +169,7 @@ const messages = {
     agentsTab: "Agenten",
     agenticAppsTitle: "Agentische Apps",
     agenticAppsEmpty: "Noch keine agentischen Apps in diesem Workspace.",
+    createApp: "App erstellen",
     editAppDetails: "App-Details bearbeiten",
     editAppDetailsDescription:
       "Gemeinsamen Anzeigenamen und Beschreibung aktualisieren.",

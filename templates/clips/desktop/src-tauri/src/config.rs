@@ -111,6 +111,8 @@ pub struct FeatureConfig {
     pub clips_enabled: bool,
     pub meetings_enabled: bool,
     pub voice_enabled: bool,
+    #[serde(default = "default_voice_cleanup_enabled")]
+    pub voice_cleanup_enabled: bool,
     #[serde(default = "default_launch_at_login_enabled")]
     pub launch_at_login_enabled: bool,
     #[serde(default)]
@@ -157,6 +159,10 @@ pub enum LocalRecordingMode {
 }
 
 fn default_launch_at_login_enabled() -> bool {
+    true
+}
+
+fn default_voice_cleanup_enabled() -> bool {
     true
 }
 
@@ -223,6 +229,7 @@ impl Default for FeatureConfig {
             clips_enabled: true,
             meetings_enabled: true,
             voice_enabled: true,
+            voice_cleanup_enabled: default_voice_cleanup_enabled(),
             launch_at_login_enabled: true,
             auto_hide_popover_enabled: false,
             meeting_transcription_mode: default_meeting_transcription_mode(),
@@ -436,6 +443,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(config.whisper_model_id, "base");
+        assert!(config.voice_cleanup_enabled);
     }
 
     #[test]

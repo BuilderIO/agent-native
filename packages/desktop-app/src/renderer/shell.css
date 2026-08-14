@@ -572,6 +572,10 @@ body {
   isolation: isolate;
 }
 
+.content-area > .agent-sidebar-shell {
+  height: 100%;
+}
+
 .code-agents-shell-surface {
   position: absolute;
   inset: 0;

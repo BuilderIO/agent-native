@@ -6,8 +6,8 @@ import {
   useSession,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { ShareAgentsSection } from "@agent-native/toolkit/sharing";
 import {
-  IconChevronDown,
   IconCode,
   IconExternalLink,
   IconLink,
@@ -35,11 +35,6 @@ import {
   type Visibility,
 } from "@/components/sharing/share-ui";
 import { Button } from "@/components/ui/button";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -52,6 +47,7 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 
+import { buildAgentApiUrls } from "../../../shared/agent-context";
 import { buildEmailPreviewMarkup } from "../../../shared/email-preview";
 import { isLoomEmbedUrl } from "../../../shared/loom";
 import { withShareAttribution } from "../../../shared/share-attribution";
@@ -60,6 +56,14 @@ import { preferredThumbnailVariant } from "../../../shared/share-meta";
 function absoluteAppUrl(path: string): string {
   if (typeof window === "undefined") return "";
   return new URL(appPath(path), window.location.origin).toString();
+}
+
+function absolutePublicAgentContextUrl(recordingId: string): string {
+  if (typeof window === "undefined") return "";
+  return buildAgentApiUrls(recordingId, {
+    origin: window.location.origin,
+    basePath: appPath("/").replace(/\/$/, ""),
+  }).contextUrl;
 }
 
 export interface ShareRecordingPopoverProps {
@@ -375,6 +379,14 @@ function LinkTab({
   const sharesLoaded = visibility !== null;
   const visibilityPending = isPending || sharesQuery.isLoading;
   const isLoomRecording = isLoomRecordingProp || isLoomEmbedUrl(videoUrl);
+  const needsScopedAgentContext = !isPublic || hasPassword !== false;
+  const publicAgentContextUrl = useMemo(
+    () =>
+      isPublic && hasPassword === false
+        ? absolutePublicAgentContextUrl(recordingId)
+        : "",
+    [hasPassword, isPublic, recordingId],
+  );
   const emailPreviewThumbnailUrl = useMemo(() => {
     if (!isPublic || hasPassword !== false || !sharesLoaded) return null;
     const variant = preferredThumbnailVariant({
@@ -438,10 +450,10 @@ function LinkTab({
     try {
       const result = (await createAgentLinkAsyncRef.current({
         recordingId,
-      })) as { url?: string };
+      })) as { contextUrl?: string };
       if (agentLinkRequestIdRef.current !== requestId) return;
-      if (result?.url) {
-        setAgentContextUrl(result.url);
+      if (result?.contextUrl) {
+        setAgentContextUrl(result.contextUrl);
       } else {
         setAgentLinkError(true);
       }
@@ -457,20 +469,30 @@ function LinkTab({
     setAgentLinkError(false);
     if (!sharesLoaded) return;
 
-    if (!isPublic) {
+    if (needsScopedAgentContext) {
       void loadAgentContextUrl();
     }
 
     return () => {
       agentLinkRequestIdRef.current += 1;
     };
-  }, [isPublic, loadAgentContextUrl, recordingId, sharesLoaded, visibility]);
+  }, [
+    loadAgentContextUrl,
+    needsScopedAgentContext,
+    recordingId,
+    sharesLoaded,
+    visibility,
+  ]);
 
-  const agentLink = isPublic ? shareUrl : agentContextUrl;
+  const agentLink = isPublic
+    ? publicAgentContextUrl || agentContextUrl
+    : agentContextUrl;
   const agentShareDisabled =
     visibilityPending ||
     !sharesLoaded ||
-    (!isPublic && (isPending || createAgentLink.isPending || !agentContextUrl));
+    !agentLink ||
+    (needsScopedAgentContext &&
+      (isPending || createAgentLink.isPending || !agentContextUrl));
   const agentPrompt = agentLink
     ? t("shareDialog.agentPrompt", { agentContextUrl: agentLink })
     : "";
@@ -529,71 +551,49 @@ function LinkTab({
         disabled={visibilityPending || !sharesLoaded}
       />
 
-      {!isPublic ? (
-        <Collapsible
-          open={agentDetailsOpen}
-          onOpenChange={setAgentDetailsOpen}
-          className="overflow-hidden rounded-md border border-border"
-        >
-          <CollapsibleTrigger asChild>
-            <button
-              type="button"
-              className="flex min-h-10 w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm font-medium transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
-            >
-              <span className="flex min-w-0 items-center gap-2 truncate">
-                <IconLink
-                  aria-hidden="true"
-                  className="size-3.5 shrink-0 text-muted-foreground"
-                  strokeWidth={1.8}
-                />
-                {t("shareDialog.shareWithAgents")}
-              </span>
-              <IconChevronDown
-                aria-hidden="true"
-                className={`size-4 shrink-0 text-muted-foreground transition-transform ${agentDetailsOpen ? "rotate-180" : ""}`}
-              />
-            </button>
-          </CollapsibleTrigger>
-          <CollapsibleContent className="clips-collapsible-content border-t border-border px-3 py-3">
-            <div className="space-y-2">
+      <ShareAgentsSection
+        label={t("shareDialog.shareWithAgents")}
+        open={agentDetailsOpen}
+        onOpenChange={setAgentDetailsOpen}
+        contentClassName="clips-collapsible-content"
+      >
+        <div className="space-y-2">
+          <CopyField
+            label={t("shareDialog.shareLink")}
+            value={agentLink}
+            disabled={agentShareDisabled}
+          />
+          {sharesLoaded ? (
+            <>
+              <p className="text-xs text-muted-foreground">
+                {t("shareDialog.agentTokenDescription")}
+              </p>
+              {agentLinkError ? (
+                <div className="flex items-center justify-between gap-2 rounded-md border border-border bg-muted/30 px-3 py-2">
+                  <p className="text-xs text-muted-foreground">
+                    {t("shareDialog.agentLinkUnavailable")}
+                  </p>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7"
+                    onClick={() => void loadAgentContextUrl()}
+                    disabled={createAgentLink.isPending}
+                  >
+                    {t("shareDialog.retryAgentLink")}
+                  </Button>
+                </div>
+              ) : null}
               <CopyField
-                label={t("shareDialog.shareWithAgents")}
-                value={agentLink}
+                label={t("shareDialog.copyAgentPrompt")}
+                value={agentPrompt}
                 disabled={agentShareDisabled}
               />
-              {sharesLoaded ? (
-                <>
-                  <p className="text-xs text-muted-foreground">
-                    {t("shareDialog.agentTokenDescription")}
-                  </p>
-                  {agentLinkError ? (
-                    <div className="flex items-center justify-between gap-2 rounded-md border border-border bg-muted/30 px-3 py-2">
-                      <p className="text-xs text-muted-foreground">
-                        {t("shareDialog.agentLinkUnavailable")}
-                      </p>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="h-7"
-                        onClick={() => void loadAgentContextUrl()}
-                        disabled={createAgentLink.isPending}
-                      >
-                        {t("shareDialog.retryAgentLink")}
-                      </Button>
-                    </div>
-                  ) : null}
-                  <CopyField
-                    label={t("shareDialog.copyAgentPrompt")}
-                    value={agentPrompt}
-                    disabled={agentShareDisabled}
-                  />
-                </>
-              ) : null}
-            </div>
-          </CollapsibleContent>
-        </Collapsible>
-      ) : null}
+            </>
+          ) : null}
+        </div>
+      </ShareAgentsSection>
 
       {showMakePublic ? (
         <MakePublicCard

@@ -262,6 +262,16 @@ const messages = {
     linkExpired: "O link expirou",
     linkExpiredMessage:
       "O criador definiu uma expiração neste link de compartilhamento.",
+    privateClip: "Clipe privado",
+    privateClipMessage:
+      "Este clipe é privado. Solicite acesso e o proprietário será notificado.",
+    privateClipSignedOutMessage:
+      "Este clipe é privado. Faça login para solicitar acesso ao proprietário.",
+    requestAccess: "Solicitar acesso",
+    requestingAccess: "Solicitando acesso...",
+    accessRequested: "Acesso solicitado",
+    accessRequestSent: "O proprietário do clipe foi notificado.",
+    accessRequestFailed: "Não foi possível solicitar acesso. Tente novamente.",
     clipUnavailable: "Clipe indisponível",
     clipUnavailableMessage:
       "Esta gravação não é pública ou o link é inválido. Se for o seu clipe, faça login para verificar o acesso.",

@@ -86,6 +86,7 @@ registerShareableResource({
       `/share/meeting/${encodeURIComponent(meeting.id)}`,
   },
   getDb,
+  ownerAccessIgnoresOrg: true,
 });
 
 registerShareableResource({

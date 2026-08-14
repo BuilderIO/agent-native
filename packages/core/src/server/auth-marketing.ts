@@ -3,6 +3,7 @@ export interface AuthMarketingContent {
   tagline: string;
   description?: string;
   features?: string[];
+  /** @deprecated Local execution is no longer offered from auth pages. */
   runLocalCommand?: string;
   signupLocalModeNote?: {
     text: string;
@@ -78,7 +79,6 @@ export const BUILT_IN_AUTH_MARKETING: Record<string, AuthMarketingContent> = {
       "Review PR recaps with diagrams, file maps, and annotated code",
       "Share links for async comments and product review",
     ],
-    runLocalCommand: PLAN_LOCAL_FILES_COMMAND,
     signupLocalModeNote: {
       text: "Prefer no account or self-hosting? Switch /visual-plan to local files only:",
       command: PLAN_LOCAL_FILES_COMMAND,
@@ -132,8 +132,6 @@ export const BUILT_IN_AUTH_MARKETING: Record<string, AuthMarketingContent> = {
       "Multi-account Gmail in a single unified inbox",
       "Autonomous triage, archiving, and follow-ups",
     ],
-    runLocalCommand:
-      "npx @agent-native/core@latest create my-mail-app --template mail",
   },
   slides: {
     appName: "Agent-Native Slides",

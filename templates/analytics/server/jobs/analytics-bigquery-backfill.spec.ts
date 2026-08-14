@@ -85,6 +85,29 @@ afterEach(() => {
 });
 
 describe("durable BigQuery backfill worker", () => {
+  it("can constrain a bounded sweep to one explicit organization", async () => {
+    const db = {
+      execute: vi.fn().mockResolvedValueOnce({ rows: [] }),
+    };
+    mocks.getDbExec.mockReturnValue(db);
+
+    await expect(
+      runFirstPartyAnalyticsBigQueryBackfillOnce(scope),
+    ).resolves.toMatchObject({ status: "idle", batches: 0, copied: 0 });
+
+    expect(db.execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        args: [
+          expect.any(String),
+          expect.any(String),
+          scope.orgId,
+          scope.userEmail,
+        ],
+        sql: expect.stringContaining("AND org_id = ?"),
+      }),
+    );
+  });
+
   it("builds contiguous daily shards from the durable cursor through today", () => {
     const ranges = buildBackfillShardRanges(
       {
@@ -176,6 +199,13 @@ describe("durable BigQuery backfill worker", () => {
         batches: 0,
         remaining: 1,
       }),
+    );
+    const pressureQuery = db.execute.mock.calls[1]?.[0] as { sql?: string };
+    expect(pressureQuery.sql).toContain(
+      "state = 'active' AND wait_event_type IS NOT NULL",
+    );
+    expect(pressureQuery.sql).toContain(
+      "state = 'active' AND wait_event_type = 'Lock'",
     );
     expect(db.execute).toHaveBeenCalledTimes(3);
     expect(mocks.backfill).not.toHaveBeenCalled();

@@ -19,6 +19,7 @@ import {
   type H3Event,
 } from "h3";
 import { nanoid } from "nanoid";
+import { z } from "zod";
 
 import type {
   Booking,
@@ -33,6 +34,7 @@ import { getDb, schema } from "../db/index.js";
 import {
   parseBookingLinkDurations,
   resolveAvailabilityDuration,
+  type BookingDurationSource,
 } from "../lib/booking-durations.js";
 import {
   sendBookingCancellationEmails,
@@ -45,6 +47,7 @@ import {
 import {
   getBookingLinkCoHostEmails,
   getBookingLinkRequiredHostEmails,
+  normalizeBookingHosts,
 } from "../lib/booking-link-utils.js";
 import { getOwnerBookingTimeZone } from "../lib/booking-timezone.js";
 import { eventBlocksAvailability } from "../lib/calendar-availability.js";
@@ -173,6 +176,7 @@ type AvailabilityContext = {
   hostEmails: string[];
   slug: string;
   bookingLink?: BookingLinkRow;
+  durationSource?: BookingDurationSource;
   conflictSlugs: string[];
 };
 
@@ -181,6 +185,86 @@ type ConflictResult = { items: ConflictItem[]; unavailableReason?: string };
 type BookingLinkRow = typeof schema.bookingLinks.$inferSelect;
 type ConflictDb = Pick<ReturnType<typeof getDb>, "select">;
 const BOOKING_SLOT_STEP_MINUTES = 30;
+
+const bookingAvailabilityDraftSchema = z
+  .object({
+    slug: z.string().trim().min(1).max(200),
+    durations: z
+      .array(
+        z
+          .number()
+          .int()
+          .min(1)
+          .max(24 * 60),
+      )
+      .min(1)
+      .max(20),
+    hosts: z
+      .array(
+        z.object({
+          email: z.string().email().max(320),
+          displayName: z.string().max(200).optional(),
+        }),
+      )
+      .max(20),
+  })
+  .strict();
+
+type BookingAvailabilityDraft = z.infer<typeof bookingAvailabilityDraftSchema>;
+
+export function parseBookingAvailabilityDraft(
+  raw: unknown,
+): { draft: BookingAvailabilityDraft } | { error: string } {
+  if (typeof raw !== "string") {
+    return { error: "draft must be a JSON object" };
+  }
+  if (raw.length > 16_000) {
+    return { error: "draft is too large" };
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return { error: "draft must be valid JSON" };
+  }
+
+  const result = bookingAvailabilityDraftSchema.safeParse(parsed);
+  return result.success
+    ? { draft: result.data }
+    : { error: "draft has an invalid booking-link configuration" };
+}
+
+export function resolveBookingLinkAvailabilityOverrides({
+  bookingLink,
+  draft,
+}: {
+  bookingLink: BookingLinkRow;
+  draft?: BookingAvailabilityDraft;
+}): {
+  hostEmails: string[];
+  durationSource: BookingDurationSource;
+} {
+  if (!draft) {
+    return {
+      hostEmails: getBookingLinkRequiredHostEmails(bookingLink),
+      durationSource: bookingLink,
+    };
+  }
+
+  const ownerEmail = bookingLink.ownerEmail;
+  const draftHosts = normalizeBookingHosts(draft.hosts, ownerEmail);
+  return {
+    hostEmails: [
+      ...(ownerEmail ? [ownerEmail] : []),
+      ...draftHosts.map((host) => host.email),
+    ],
+    durationSource: {
+      duration: draft.durations[0],
+      durations: JSON.stringify(draft.durations),
+    },
+  };
+}
 
 type LocalDateTimeParts = {
   year: number;
@@ -382,9 +466,11 @@ function formatLocalTime(totalMinutes: number): string {
 
 async function resolveAvailabilityContext({
   slug,
+  draft,
   db = getDb(),
 }: {
   slug: string;
+  draft?: BookingAvailabilityDraft;
   db?: ConflictDb;
 }): Promise<AvailabilityContext> {
   const [configRaw, bookingLink] = await Promise.all([
@@ -393,17 +479,29 @@ async function resolveAvailabilityContext({
       ? db
           .select()
           .from(schema.bookingLinks)
-          .where(eq(schema.bookingLinks.slug, slug))
+          .where(
+            draft
+              ? and(
+                  eq(schema.bookingLinks.slug, slug),
+                  accessFilter(schema.bookingLinks, schema.bookingLinkShares),
+                )
+              : eq(schema.bookingLinks.slug, slug),
+          )
           .then((rows) => rows[0])
       : Promise.resolve(undefined),
   ]);
+  if (draft && !bookingLink) {
+    throw createError({
+      statusCode: 404,
+      statusMessage: "Booking link not found",
+    });
+  }
   const config = configRaw as unknown as AvailabilityConfig | null;
   const ownerEmail = bookingLink?.ownerEmail;
-  const hostEmails = bookingLink
-    ? getBookingLinkRequiredHostEmails(bookingLink)
-    : ownerEmail
-      ? [ownerEmail]
-      : [];
+  const overrides = bookingLink
+    ? resolveBookingLinkAvailabilityOverrides({ bookingLink, draft })
+    : undefined;
+  const hostEmails = overrides?.hostEmails ?? (ownerEmail ? [ownerEmail] : []);
   const [ownerConfigRaw, ownerSettingsRaw, conflictSlugs] = await Promise.all([
     ownerEmail
       ? getUserSetting(ownerEmail, "calendar-availability")
@@ -432,6 +530,7 @@ async function resolveAvailabilityContext({
     hostEmails,
     slug,
     bookingLink,
+    durationSource: overrides?.durationSource,
     conflictSlugs,
   };
 }
@@ -1182,111 +1281,138 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
   }
 });
 
-export const getAvailableSlots = defineEventHandler(async (event: H3Event) => {
-  try {
-    const query = getQuery(event);
-    const date = typeof query.date === "string" ? query.date : "";
-    const from = parseDateOnly(query.from);
-    const to = parseDateOnly(query.to);
-    const hasRangeQuery = query.from !== undefined || query.to !== undefined;
-    const slug = typeof query.slug === "string" ? query.slug : "";
+async function getAvailableSlotsForQuery(
+  event: H3Event,
+  query: Record<string, unknown>,
+  draft?: BookingAvailabilityDraft,
+) {
+  const date = typeof query.date === "string" ? query.date : "";
+  const from = parseDateOnly(query.from);
+  const to = parseDateOnly(query.to);
+  const hasRangeQuery = query.from !== undefined || query.to !== undefined;
+  const slug = typeof query.slug === "string" ? query.slug : "";
 
-    if (hasRangeQuery) {
-      if (!from || !to) {
-        setResponseStatus(event, 400);
-        return {
-          error:
-            "from and to query parameters are required together in YYYY-MM-DD format",
-        };
-      }
-      if (from > to) {
-        setResponseStatus(event, 400);
-        return { error: "from must be before to" };
-      }
-      if (countDaysInclusive(from, to) > MAX_AVAILABILITY_RANGE_DAYS) {
-        setResponseStatus(event, 400);
-        return {
-          error: `date range cannot exceed ${MAX_AVAILABILITY_RANGE_DAYS} days`,
-        };
-      }
-    } else if (!parseDateOnly(date)) {
+  if (hasRangeQuery) {
+    if (!from || !to) {
       setResponseStatus(event, 400);
-      return { error: "date query parameter is required" };
+      return {
+        error:
+          "from and to query parameters are required together in YYYY-MM-DD format",
+      };
     }
-
-    const context = await resolveAvailabilityContext({ slug });
-    if (!context.effectiveConfig) {
-      return hasRangeQuery ? { dates: [] } : { slots: [] };
-    }
-    const durationResult = resolveAvailabilityDuration({
-      rawDuration: query.duration,
-      bookingLink: context.bookingLink,
-      availability: context.effectiveConfig,
-    });
-    if ("error" in durationResult) {
+    if (from > to) {
       setResponseStatus(event, 400);
-      return { error: durationResult.error };
+      return { error: "from must be before to" };
     }
-    const duration = durationResult.duration;
-
-    if (hasRangeQuery) {
-      const rangeStart = formatDateOnly(from!);
-      const rangeEnd = formatDateOnly(to!);
-      const timezone = context.effectiveConfig.timezone || "UTC";
-      const conflictResult = await getConflictItems({
-        ownerEmail: context.ownerEmail,
-        hostEmails: context.hostEmails,
-        conflictSlugs: context.conflictSlugs,
-        rangeStartIso: dateStartIso(rangeStart, timezone),
-        rangeEndIso: dateEndIso(rangeEnd, timezone),
-        timezone,
-      });
-      if (conflictResult.unavailableReason) {
-        return unavailableAvailabilityResponse(event);
-      }
-      const dates: string[] = [];
-      for (
-        let cursor = new Date(from!);
-        cursor <= to!;
-        cursor = addLocalDays(cursor, 1)
-      ) {
-        const day = formatDateOnly(cursor);
-        const slots = generateAvailableSlotsForDate({
-          date: day,
-          duration,
-          config: context.effectiveConfig,
-          conflictItems: conflictResult.items,
-        });
-        if (slots.length > 0) {
-          dates.push(day);
-        }
-      }
-      return { dates };
+    if (countDaysInclusive(from, to) > MAX_AVAILABILITY_RANGE_DAYS) {
+      setResponseStatus(event, 400);
+      return {
+        error: `date range cannot exceed ${MAX_AVAILABILITY_RANGE_DAYS} days`,
+      };
     }
+  } else if (!parseDateOnly(date)) {
+    setResponseStatus(event, 400);
+    return { error: "date query parameter is required" };
+  }
 
+  const context = await resolveAvailabilityContext({ slug, draft });
+  if (!context.effectiveConfig) {
+    return hasRangeQuery ? { dates: [] } : { slots: [] };
+  }
+  const durationResult = resolveAvailabilityDuration({
+    rawDuration: query.duration,
+    bookingLink: context.durationSource ?? context.bookingLink,
+    availability: context.effectiveConfig,
+  });
+  if ("error" in durationResult) {
+    setResponseStatus(event, 400);
+    return { error: durationResult.error };
+  }
+  const duration = durationResult.duration;
+
+  if (hasRangeQuery) {
+    const rangeStart = formatDateOnly(from!);
+    const rangeEnd = formatDateOnly(to!);
     const timezone = context.effectiveConfig.timezone || "UTC";
     const conflictResult = await getConflictItems({
       ownerEmail: context.ownerEmail,
       hostEmails: context.hostEmails,
       conflictSlugs: context.conflictSlugs,
-      rangeStartIso: dateStartIso(date, timezone),
-      rangeEndIso: dateEndIso(date, timezone),
+      rangeStartIso: dateStartIso(rangeStart, timezone),
+      rangeEndIso: dateEndIso(rangeEnd, timezone),
       timezone,
     });
     if (conflictResult.unavailableReason) {
       return unavailableAvailabilityResponse(event);
     }
-    const availableSlots = generateAvailableSlotsForDate({
-      date,
-      duration,
-      config: context.effectiveConfig,
-      conflictItems: conflictResult.items,
-    });
+    const dates: string[] = [];
+    for (
+      let cursor = new Date(from!);
+      cursor <= to!;
+      cursor = addLocalDays(cursor, 1)
+    ) {
+      const day = formatDateOnly(cursor);
+      const slots = generateAvailableSlotsForDate({
+        date: day,
+        duration,
+        config: context.effectiveConfig,
+        conflictItems: conflictResult.items,
+      });
+      if (slots.length > 0) {
+        dates.push(day);
+      }
+    }
+    return { dates };
+  }
 
-    return { slots: availableSlots };
+  const timezone = context.effectiveConfig.timezone || "UTC";
+  const conflictResult = await getConflictItems({
+    ownerEmail: context.ownerEmail,
+    hostEmails: context.hostEmails,
+    conflictSlugs: context.conflictSlugs,
+    rangeStartIso: dateStartIso(date, timezone),
+    rangeEndIso: dateEndIso(date, timezone),
+    timezone,
+  });
+  if (conflictResult.unavailableReason) {
+    return unavailableAvailabilityResponse(event);
+  }
+  const availableSlots = generateAvailableSlotsForDate({
+    date,
+    duration,
+    config: context.effectiveConfig,
+    conflictItems: conflictResult.items,
+  });
+
+  return { slots: availableSlots };
+}
+
+export const getAvailableSlots = defineEventHandler(async (event: H3Event) => {
+  try {
+    const query = getQuery(event);
+    const rawDraft = query.draft;
+    if (rawDraft !== undefined) {
+      const parsedDraft = parseBookingAvailabilityDraft(rawDraft);
+      if ("error" in parsedDraft) {
+        setResponseStatus(event, 400);
+        return { error: parsedDraft.error };
+      }
+      if (typeof query.slug !== "string" || !query.slug) {
+        setResponseStatus(event, 400);
+        return { error: "slug query parameter is required for draft preview" };
+      }
+      return await requireRequestContext(event, () =>
+        getAvailableSlotsForQuery(event, query, parsedDraft.draft),
+      );
+    }
+
+    return await getAvailableSlotsForQuery(event, query);
   } catch (error: any) {
-    setResponseStatus(event, 500);
-    return { error: error.message };
+    setResponseStatus(
+      event,
+      Number.isInteger(error?.statusCode) ? error.statusCode : 500,
+    );
+    return { error: error?.message || "Failed to fetch available slots" };
   }
 });
 

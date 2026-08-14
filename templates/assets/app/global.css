@@ -107,6 +107,10 @@
   text-align: center;
 }
 
+.assets-create-chat-panel [data-agent-empty-state="centered"] {
+  justify-content: safe center;
+}
+
 .assets-create-chat-intro h1 {
   margin: 0;
   color: hsl(var(--foreground));

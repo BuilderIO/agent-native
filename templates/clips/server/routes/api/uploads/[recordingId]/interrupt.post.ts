@@ -31,7 +31,7 @@ import {
 } from "../../../../lib/recordings.js";
 import {
   isRetryableUploadInterruption,
-  RETRYABLE_UPLOAD_INTERRUPTION_REASON,
+  retryableUploadInterruptionReason,
 } from "../../../../lib/upload-interruption.js";
 import abortUpload from "./abort.post.js";
 
@@ -131,12 +131,13 @@ export default defineEventHandler(async (event: H3Event) => {
     const uploadStateRaw = await readAppState(uploadStateKey);
     const uploadState = uploadStateRaw ?? {};
     const interruptedAt = new Date().toISOString();
+    const failureReason = retryableUploadInterruptionReason(interruptionDetail);
     if (!alreadyInterrupted) {
       const interrupted = await db
         .update(schema.recordings)
         .set({
           status: "failed",
-          failureReason: RETRYABLE_UPLOAD_INTERRUPTION_REASON,
+          failureReason,
           updatedAt: interruptedAt,
         })
         .where(
@@ -167,7 +168,7 @@ export default defineEventHandler(async (event: H3Event) => {
         ...uploadState,
         recordingId,
         status: "failed",
-        failureReason: RETRYABLE_UPLOAD_INTERRUPTION_REASON,
+        failureReason,
         retryableInterruption: true,
         uploadAttemptId: attemptId,
         uploadGenerationId,

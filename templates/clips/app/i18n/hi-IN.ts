@@ -254,6 +254,16 @@ const messages = {
     passwordProtected: "यह क्लिप पासवर्ड से सुरक्षित है",
     linkExpired: "लिंक की अवधि समाप्त हो",
     linkExpiredMessage: "निर्माता ने इस शेयर लिंक पर एक समाप्ति तिथि निर्धारित की है।",
+    privateClip: "निजी क्लिप",
+    privateClipMessage:
+      "यह क्लिप निजी है। पहुंच का अनुरोध करें और मालिक को सूचित किया जाएगा।",
+    privateClipSignedOutMessage:
+      "यह क्लिप निजी है। मालिक से पहुंच का अनुरोध करने के लिए साइन इन करें।",
+    requestAccess: "पहुंच का अनुरोध करें",
+    requestingAccess: "पहुंच का अनुरोध किया जा रहा है...",
+    accessRequested: "पहुंच का अनुरोध किया गया",
+    accessRequestSent: "क्लिप के मालिक को सूचित कर दिया गया है।",
+    accessRequestFailed: "पहुंच का अनुरोध नहीं किया जा सका। फिर से कोशिश करें।",
     clipUnavailable: "क्लिप अनुपलब्ध",
     clipUnavailableMessage:
       "यह रिकॉर्डिंग सार्वजनिक नहीं है, या लिंक अमान्य है. यदि यह आपकी क्लिप है, तो पहुंच जांचने के लिए साइन इन करें।",
