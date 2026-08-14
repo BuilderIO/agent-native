@@ -156,4 +156,18 @@ describe("list-meetings history", () => {
       (state.where as { conditions: Array<{ kind?: string }> }).conditions,
     ).toContainEqual(expect.objectContaining({ kind: "or" }));
   });
+
+  it("keeps the persisted-history sentinel beyond the first 500 rows", async () => {
+    const parsed = action.schema.parse({
+      view: "past",
+      hasContent: true,
+      includeLiveCalendar: false,
+      limit: 50,
+      offset: 450,
+    });
+
+    await action.run(parsed);
+
+    expect(state.limit).toBe(501);
+  });
 });

@@ -651,9 +651,13 @@ function rewriteSqlFunctionCalls(
   return match ? result : result + sql.slice(cursor);
 }
 
-function coerceEventDateComparisonOperands(sql: string): string {
-  const comparisonRe =
-    /\b(?:[A-Za-z_][A-Za-z0-9_]*\.)?event_date\s*(?:<=|>=|<>|=|<|>)\s*/gi;
+function coerceDateComparisonOperands(sql: string): string {
+  const dateField = "(?:event_date|cohort_date)";
+  const qualifiedDateField = `(?:[A-Za-z_][A-Za-z0-9_]*\\.)?${dateField}`;
+  const comparisonRe = new RegExp(
+    `\\b${qualifiedDateField}\\s*(?:<=|>=|<>|=|<|>)\\s*`,
+    "gi",
+  );
   let cursor = 0;
   let result = "";
   let match = comparisonRe.exec(sql);
@@ -685,7 +689,10 @@ function coerceEventDateComparisonOperands(sql: string): string {
   }
   result += sql.slice(cursor);
   return result.replace(
-    /(\b(?:[A-Za-z_][A-Za-z0-9_]*\.)?event_date\s*(?:<=|>=|<>|=|<|>)\s*)'(\d{4}-\d{2}-\d{2})'/gi,
+    new RegExp(
+      `(\\b${qualifiedDateField}\\s*(?:<=|>=|<>|=|<|>)\\s*)'(\\d{4}-\\d{2}-\\d{2})'`,
+      "gi",
+    ),
     "$1DATE '$2'",
   );
 }
@@ -975,7 +982,7 @@ export function renderFirstPartyAnalyticsBigQuerySql(
     translateFirstPartyAnalyticsBigQuerySql(normalizedScopeSql);
   const bound = bindSqlArguments(translated, args);
   return addPartitionPrunedEventDeduplication(
-    coerceEventDateComparisonOperands(qualifyQuerySources(bound, table)),
+    coerceDateComparisonOperands(qualifyQuerySources(bound, table)),
     table,
   );
 }

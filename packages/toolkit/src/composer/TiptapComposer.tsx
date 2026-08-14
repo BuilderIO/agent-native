@@ -1500,6 +1500,7 @@ function ModelSelector({
                   type="button"
                   role="tab"
                   aria-selected={resolvedSection === "agent"}
+                  onClick={() => setDetailSection("agent")}
                   onMouseEnter={() => setDetailSection("agent")}
                   className={`flex w-full min-w-0 items-center gap-1 rounded-md px-2 py-2 text-start transition-colors ${
                     resolvedSection === "agent"
@@ -1558,6 +1559,7 @@ function ModelSelector({
                 type="button"
                 role="tab"
                 aria-selected={resolvedSection === "model"}
+                onClick={() => setDetailSection("model")}
                 onMouseEnter={() => setDetailSection("model")}
                 className={`flex w-full min-w-0 items-center gap-1 rounded-md px-2 py-2 text-start transition-colors ${
                   resolvedSection === "model"
@@ -1576,6 +1578,7 @@ function ModelSelector({
                   type="button"
                   role="tab"
                   aria-selected={resolvedSection === "effort"}
+                  onClick={() => setDetailSection("effort")}
                   onMouseEnter={() => setDetailSection("effort")}
                   className={`flex w-full min-w-0 items-center gap-1 rounded-md px-2 py-2 text-start transition-colors ${
                     resolvedSection === "effort"

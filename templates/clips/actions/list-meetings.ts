@@ -129,8 +129,9 @@ export default defineAction({
     // slice(offset, offset + limit) at the end. To make that final slice
     // correct we must fetch enough rows from BOTH sources to cover the whole
     // offset + limit window before merging — fetching only `limit` would drop
-    // events once offset > 0 or the calendar is large. Keep the hard caps
-    // (500 persisted, 250 live) so a huge calendar can't blow up the request.
+    // events once offset > 0 or the calendar is large. Keep the live-event cap
+    // so a huge calendar can't blow up the request. Persisted history needs
+    // the full sentinel window so pages remain available after 500 rows.
     const windowCount = args.offset + args.limit;
     const upcomingWindowMaxIso = args.upcomingWithinMin
       ? new Date(
@@ -198,7 +199,7 @@ export default defineAction({
       .from(schema.meetings)
       .where(and(...whereClauses))
       .orderBy(...orderBy)
-      .limit(Math.min(500, windowCount + 1))
+      .limit(windowCount + 1)
       .offset(0);
 
     // Add a derived `summaryPreview` (first ~100 chars of summaryMd) so the
