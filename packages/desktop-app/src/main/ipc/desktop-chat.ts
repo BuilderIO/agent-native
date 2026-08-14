@@ -87,6 +87,7 @@ function parseRelayPath(pathname: string, secret: string): RelayPath | null {
   try {
     appId = decodeURIComponent(parts[2]).trim();
   } catch {
+    // coercion-ok: malformed percent-encoding cannot produce a relay target.
     return null;
   }
   if (!appId) return null;
@@ -107,6 +108,7 @@ function resolveTargetUrl(baseUrl: string, targetPath: string): URL | null {
     if (base.protocol !== "http:" && base.protocol !== "https:") return null;
     return base;
   } catch {
+    // coercion-ok: malformed relay URL cannot produce a relay target.
     return null;
   }
 }

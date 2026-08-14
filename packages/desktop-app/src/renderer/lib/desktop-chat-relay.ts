@@ -28,6 +28,7 @@ function resolveRequestUrl(input: RequestInfo | URL): URL | null {
           : input.toString();
     return new URL(rawUrl, window.location.href);
   } catch {
+    // coercion-ok: malformed fetch input cannot produce a relay request.
     return null;
   }
 }

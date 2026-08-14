@@ -171,6 +171,7 @@ function parseStoredResumableSession(
     try {
       parsed = JSON.parse(parsed);
     } catch {
+      // coercion-ok: malformed persisted session is absent, not an active session.
       return null;
     }
   }
