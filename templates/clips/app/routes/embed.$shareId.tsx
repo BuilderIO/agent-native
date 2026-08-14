@@ -230,7 +230,9 @@ export default function EmbedRoute() {
         onVideoElementChange={setTrackedVideoEl}
         recordingId={recording.id}
         videoUrl={recording.videoUrl}
-        mediaVersion={recording.mediaUpdatedAt ?? recording.videoSizeBytes ?? null}
+        mediaVersion={
+          recording.mediaUpdatedAt ?? recording.videoSizeBytes ?? null
+        }
         videoFormat={recording.videoFormat}
         embedProvider={isLoomEmbedBacked ? "loom" : null}
         durationMs={recording.durationMs}

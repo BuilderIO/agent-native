@@ -13,7 +13,7 @@ UI state more than once:
   parallel (agent teams, multiple tabs) runs evicted each other, and
   `resolveReconnectAfterSeq` then returned 0 — replaying an entire run on top of
   history that already contained it. Cursors are now stored per `{threadId,
-  runId}`, identity is required to advance one, and a cursor outlives its run
+runId}`, identity is required to advance one, and a cursor outlives its run
   losing focus so a later reconnect resumes instead of replaying.
 - The adapter's stream and the reconnect reader could both fold one run at once.
   Ownership was a React ref re-checked by a 1s poll that is skipped while the tab
