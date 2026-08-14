@@ -269,12 +269,37 @@ const messages = {
     privateClipMessage:
       "Ce clip est privé. Demandez l’accès et le propriétaire sera prévenu.",
     privateClipSignedOutMessage:
-      "Ce clip est privé. Connectez-vous pour demander l’accès au propriétaire.",
+      "Ce clip est privé. Connectez-vous ou saisissez votre adresse e-mail pour demander l’accès.",
     requestAccess: "Demander l’accès",
+    requestAccessDialogTitle: "Demander l’accès",
+    requestAccessDialogDescription:
+      "Choisissez comment le propriétaire doit vous identifier pour partager ce clip.",
+    requestAccessSignIn: "Se connecter ou s’inscrire",
+    requestAccessOr: "ou",
+    requestAccessEmailLabel: "Adresse e-mail",
+    requestAccessEmailPlaceholder: "you@example.com",
+    requestAccessEmailHint:
+      "Après l’octroi de l’accès, connectez-vous avec cette adresse pour voir le clip.",
+    requestAccessWithEmail: "Demander par e-mail",
+    requestAccessEmailRequired: "Saisissez une adresse e-mail valide.",
     requestingAccess: "Demande d’accès...",
     accessRequested: "Accès demandé",
     accessRequestSent: "Le propriétaire du clip a été prévenu.",
+    accessRequestSentWithEmail:
+      "Le propriétaire a été invité à partager ce clip avec {{email}}.",
     accessRequestFailed: "Impossible de demander l’accès. Veuillez réessayer.",
+    accessApprovalTitle: "Accès accordé",
+    accessApprovalAlreadyTitle: "Accès déjà accordé",
+    accessApprovalMessage: "{{email}} peut maintenant voir ce clip.",
+    accessApprovalAlreadyMessage: "{{email}} a déjà accès à ce clip.",
+    accessApprovalErrorTitle: "Impossible d’accorder l’accès",
+    accessApprovalInvalid: "Cette demande d’accès est invalide ou expirée.",
+    accessApprovalSignInTitle: "Connectez-vous pour autoriser l’accès",
+    accessApprovalSignInMessage:
+      "Connectez-vous en tant que propriétaire ou administrateur du clip pour approuver cette demande.",
+    accessApprovalOpenClip: "Ouvrir le clip",
+    accessApprovalSignIn: "Se connecter",
+    accessApprovalLoading: "Accès en cours...",
     clipUnavailable: "Extrait indisponible",
     clipUnavailableMessage:
       "Cet enregistrement n'est pas public ou le lien n'est pas valide. S'il s'agit de votre clip, connectez-vous pour vérifier l'accès.",

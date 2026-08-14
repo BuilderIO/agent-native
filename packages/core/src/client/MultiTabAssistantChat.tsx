@@ -17,6 +17,7 @@ import {
   claimAgentChatSubmit,
   drainBufferedAgentChatOpenRequests,
   drainBufferedAgentChatSubmits,
+  filterAgentChatContextItems,
   getAgentChatContextState,
   isAgentChatSubmitCancelled,
   normalizeAgentChatContextItem,
@@ -776,6 +777,9 @@ export function MultiTabAssistantChat({
   ...props
 }: MultiTabAssistantChatProps) {
   const translate = useT();
+  const contextNamespace = scope
+    ? scope.contextKey?.trim() || `scope:${scope.type}:${scope.id}`
+    : undefined;
   const {
     enabled: threadUrlSyncEnabled,
     paramName: threadUrlParamName,
@@ -1038,6 +1042,9 @@ export function MultiTabAssistantChat({
       item: AgentChatContextItem,
       options?: { focus?: boolean },
     ) => {
+      if (filterAgentChatContextItems([item], contextNamespace).length === 0) {
+        return;
+      }
       const ref = chatRefs.current.get(threadId);
       if (ref) {
         ref.setComposerContextItem(item, options);
@@ -1053,7 +1060,7 @@ export function MultiTabAssistantChat({
             );
       pendingContextItems.current.set(threadId, next);
     },
-    [],
+    [contextNamespace],
   );
 
   const removeContextInTab = useCallback((threadId: string, key: string) => {
@@ -1273,7 +1280,8 @@ export function MultiTabAssistantChat({
     const title =
       nextScope.label?.trim() ||
       type.replace(/^./, (character) => character.toUpperCase());
-    const key = nextScope.contextKey || "agent-current-resource-context";
+    const key =
+      nextScope.contextKey?.trim() || "agent-current-resource-context";
     const marker = `Resource context: ${nextScope.type}:${nextScope.id}`;
     const existing = getAgentChatContextState().items.find(
       (item) => item.key === key,
@@ -1283,6 +1291,7 @@ export function MultiTabAssistantChat({
       setAgentChatContextItem({
         key,
         title,
+        ...(contextNamespace ? { contextNamespace } : {}),
         context: [
           marker,
           `The user is currently viewing this ${type}.`,
@@ -1307,7 +1316,13 @@ export function MultiTabAssistantChat({
         removeAgentChatContextItem(key);
       }
     };
-  }, [scope?.contextKey, scope?.id, scope?.label, scope?.type]);
+  }, [
+    contextNamespace,
+    scope?.contextKey,
+    scope?.id,
+    scope?.label,
+    scope?.type,
+  ]);
 
   // Persist open tab IDs to localStorage (exclude sub-agent tabs — they're session-only)
   useEffect(() => {
@@ -2657,6 +2672,7 @@ export function MultiTabAssistantChat({
                   threadId={tabId}
                   tabId={tabId}
                   browserTabId={browserTabId}
+                  contextNamespace={contextNamespace}
                   isActiveComposer={tabId === activeThreadId}
                   apiUrl={apiUrl}
                   isNewThread={

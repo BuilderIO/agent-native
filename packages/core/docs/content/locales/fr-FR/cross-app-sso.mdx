@@ -177,7 +177,7 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.agent-native.com
 ```
 
 - **Set** → l'application affiche une option **"Connectez-vous avec Agent-Native"** qui exécute le flux ci-dessus. La connexion locale directe (e-mail/mot de passe, Google) fonctionne toujours en parallèle.
-- **Désactivé (par défaut)** → **zéro changement de comportement.** L'application s'authentifie exactement comme avant ; le chemin du code de la fédération est inactif. Il n'y a aucun changement de schéma et rien à migrer, donc l'activation ou la désactivation de la variable est entièrement réversible à tout moment.
+- **Client hébergé canonique** → l'application affiche l'option **« Se connecter avec Agent-Native »** pour l'origine enregistrée ; les applications auto-hébergées doivent toujours définir la variable. Il n'y a aucun changement de schéma ni rien à migrer.
 
 ## Sécurité {#security}
 
@@ -187,7 +187,7 @@ L'ensemble du modèle repose sur quelques garanties volontairement petites :
 - **Liste stricte de `redirect_uri` liée à l'application.** Chaque identifiant d'application canonique correspond à une origine de production et à un chemin de rappel exacts ; localhost reste disponible pour le développement. Les sous-domaines inconnus, identifiants incompatibles, chemins arbitraires et destinations inter-origines sont rejetés.
 - **Jointure par e-mail uniquement à partir d'un jeton vérifié.** La seule chose qui traverse la limite de confiance est l'e-mail vérifié dans un jeton signé. L'application n'accepte pas d'identifiant d'utilisateur, de rôle, d'appartenance à une organisation ou tout autre état privilégié du fil : elle dérive tout localement du compte correspondant.
 - **Écrites d'identité additives uniquement.** La liaison réutilise un compte de même adresse existant sans modification ou en insère un nouveau. Aucune mise à jour, renommage, redirection ou suppression des lignes d'identité ne se produit sur ce chemin.
-- **Désactivé par défaut.** Avec `AGENT_NATIVE_IDENTITY_HUB_URL` désactivé, toute la fonctionnalité est inerte.
+- **Clients hébergés canoniques activés par origine.** Les applications hébergées canoniques avec une origine enregistrée sont activées automatiquement ; les applications auto-hébergées restent inactives sans `AGENT_NATIVE_IDENTITY_HUB_URL`.
 
 <Callout id="doc-block-yjxbff" tone="success">
 
@@ -326,5 +326,5 @@ Le déploiement déconnecte les utilisateurs lorsque chaque application est acti
 
 Le flag Dispatch `desktop.workspace-sso`, désactivé par défaut, ne contrôle que la disponibilité ; les contrôles d’authentification, de signature, de nonce, d’origine, de callback, de session et de révocation restent toujours obligatoires. Si le flag est désactivé ou illisible, Desktop ne modifie ni la connexion, ni la déconnexion, ni les réglages propres à chaque application.
 Le marqueur Canary de l’agent utilisateur est seulement un indice de disponibilité, pas une attestation distante ; l’authentification et l’autorisation ne lui font pas confiance.
-Les applications hébergées canoniques reconnaissent les requêtes de Desktop SSO Canary empaqueté sans configuration du hub d’identité pour chaque application. Les navigateurs ordinaires et les applications auto-hébergées nécessitent toujours `AGENT_NATIVE_IDENTITY_HUB_URL`. Les versions stables de Desktop n’initialisent pas le courtier avant l’approbation séparée d’une version ultérieure.
+Les applications hébergées canoniques reconnaissent les requêtes de Desktop SSO Canary empaqueté et les navigateurs ordinaires sans configuration du hub d’identité pour chaque application. Les applications auto-hébergées nécessitent toujours `AGENT_NATIVE_IDENTITY_HUB_URL`. Les versions stables de Desktop n’initialisent pas le courtier avant l’approbation séparée d’une version ultérieure.
 La version Canary n’intercepte pas la navigation de connexion anonyme des applications. L’utilisateur doit choisir explicitement la connexion à l’espace de travail dans les paramètres de Desktop pour l’application enregistrée active ; la connexion normale de l’application reste le parcours par défaut.

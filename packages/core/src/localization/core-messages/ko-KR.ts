@@ -470,6 +470,13 @@ const messages: AgentChatTranslation = {
     "조직 접근 권한이 검색 결과에 표시되는 방식을 제어합니다.",
   "share.copied": "복사됨",
   "share.copy": "복사",
+  "share.shareWithAgents": "에이전트와 공유",
+  "share.agentContext": "에이전트 컨텍스트 링크",
+  "share.agentContextDescription":
+    "외부 에이전트를 위한 읽기 전용 컨텍스트입니다.",
+  "share.preparingAgentLink": "에이전트 링크 준비 중...",
+  "share.agentLinkUnavailable": "에이전트 링크를 만들 수 없습니다.",
+  "share.retryAgentLink": "다시 시도",
   "share.editor": "편집자",
   "share.editorDescription": "편집 가능",
   "share.generalAccess": "일반 접근 권한",

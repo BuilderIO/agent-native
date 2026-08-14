@@ -43,7 +43,7 @@ export interface PublicMeeting {
   actualStart: string | null;
   actualEnd: string | null;
   transcriptStatus: string | null;
-  transcript?: PublicMeetingTranscript | null;
+  transcript: PublicMeetingTranscript | null;
 }
 
 export interface PublicMeetingPayload {

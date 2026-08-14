@@ -78,7 +78,7 @@ When meetings are enabled, the Clips desktop app also watches for native Zoom (`
 | `list-meetings`           | Upcoming + past, scoped via `accessFilter`; reads connected Google Calendar live |
 | `get-meeting`             | One meeting + participants + segments + notes                         |
 | `create-meeting`          | Create a meeting row (`source`: `calendar` / `adhoc` / `manual`); desktop adhoc Zoom/Teams detection passes `source: "adhoc"` |
-| `update-meeting`          | Inline title/notes edits; owners/admins can opt the full transcript into or out of the meeting share link with `shareTranscript` |
+| `update-meeting`          | Inline title/notes edits and owner/admin visibility changes; meeting share links include the full transcript whenever one exists |
 | `delete-meeting`          | Soft-delete a meeting from the visible list; linked recordings and calendar events stay intact |
 | `start-meeting-recording` | Begin native macOS transcript stream + create the linked recording   |
 | `stop-meeting-recording`  | End the active capture                                                |
@@ -103,11 +103,11 @@ sharing/status boundary.
 ## Sharing meeting notes and transcripts
 
 Meeting share links always include generated notes: the summary, key points,
-and action items. Full transcripts are more sensitive and stay excluded by
-default. Owners and share admins can call `update-meeting` with
-`shareTranscript=true|false` or use the Share popover's transcript switch.
-The setting controls only the meeting share payload; it must not change the
-linked recording's visibility or expose recording media and comments.
+action items, and the full transcript whenever a linked transcript exists.
+There is no transcript-sharing toggle. The legacy `share_transcript` column is
+retained for database compatibility, but it is no longer a control and does not
+change the meeting share payload. Sharing a meeting still must not expose the
+linked recording's media or comments.
 
 ## Cleanup credential order
 
@@ -139,7 +139,7 @@ The app exposes `view`, `meetingId`, and `dictationId` so the agent always knows
     "scheduledStart": "...",
     "scheduledEnd": "...",
     "transcriptStatus": "ready",
-    "shareTranscript": false,
+    "shareTranscript": true,
     "participants": [{ "email": "alice@ex.com", "name": "Alice" }, ...],
     "actionItems": [{ "assigneeEmail": "alice@ex.com", "text": "..." }, ...],
     "hasRecording": true,

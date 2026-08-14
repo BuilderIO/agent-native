@@ -126,6 +126,27 @@ describe("first-party BigQuery backend", () => {
     expect(sql).not.toMatch(/to_char|INTERVAL '30 days'/i);
   });
 
+  it("keeps event_date comparisons typed as BigQuery dates", () => {
+    const table = {
+      projectId: "builder-3b0a2",
+      datasetId: "analytics",
+      tableId: "first_party_analytics_events_raw",
+      fullyQualified:
+        "builder-3b0a2.analytics.first_party_analytics_events_raw",
+    };
+    const scopedDate = renderFirstPartyAnalyticsBigQuerySql(
+      "SELECT * FROM (SELECT * FROM analytics_events WHERE event_date <= ?) AS analytics_events WHERE event_date >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD')",
+      ["2026-08-14"],
+      table,
+    );
+
+    expect(scopedDate).toContain("event_date <= DATE '2026-08-14'");
+    expect(scopedDate).toContain(
+      "event_date >= CAST(DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY) AS DATE)",
+    );
+    expect(scopedDate).not.toContain("event_date <= '2026-08-14'");
+  });
+
   it("uses the Builder production project and isolated raw table by default", async () => {
     await expect(getFirstPartyAnalyticsTable()).resolves.toEqual({
       projectId: "builder-3b0a2",

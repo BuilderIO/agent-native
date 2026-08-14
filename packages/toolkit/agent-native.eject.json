@@ -347,6 +347,22 @@
       ]
     },
     {
+      "id": "toolkit/data-grid",
+      "label": "Data grid kit",
+      "catalog": "toolkit-ui",
+      "catalogItems": ["data-grid"],
+      "entrypoints": ["./data-grid", "./data-grid/*"],
+      "strategy": "source-copy",
+      "sourceEntries": ["src/data-grid"],
+      "targetRoot": "app/components/agent-native/toolkit",
+      "dependencies": ["clsx", "react", "tailwind-merge"],
+      "protectedImports": ["@agent-native/toolkit/utils"],
+      "verification": [
+        "pnpm --filter @agent-native/toolkit typecheck",
+        "pnpm --filter @agent-native/toolkit test"
+      ]
+    },
+    {
       "id": "toolkit/editor",
       "label": "Rich editor",
       "catalog": "toolkit-ui",

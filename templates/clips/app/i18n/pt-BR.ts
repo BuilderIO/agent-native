@@ -266,12 +266,37 @@ const messages = {
     privateClipMessage:
       "Este clipe é privado. Solicite acesso e o proprietário será notificado.",
     privateClipSignedOutMessage:
-      "Este clipe é privado. Faça login para solicitar acesso ao proprietário.",
+      "Este clipe é privado. Faça login ou informe seu e-mail para solicitar acesso.",
     requestAccess: "Solicitar acesso",
+    requestAccessDialogTitle: "Solicitar acesso",
+    requestAccessDialogDescription:
+      "Escolha como o proprietário deve identificar você ao compartilhar este clipe.",
+    requestAccessSignIn: "Entrar ou criar conta",
+    requestAccessOr: "ou",
+    requestAccessEmailLabel: "Endereço de e-mail",
+    requestAccessEmailPlaceholder: "you@example.com",
+    requestAccessEmailHint:
+      "Depois que o acesso for concedido, entre com este e-mail para ver o clipe.",
+    requestAccessWithEmail: "Solicitar por e-mail",
+    requestAccessEmailRequired: "Informe um endereço de e-mail válido.",
     requestingAccess: "Solicitando acesso...",
     accessRequested: "Acesso solicitado",
     accessRequestSent: "O proprietário do clipe foi notificado.",
+    accessRequestSentWithEmail:
+      "Pedimos ao proprietário que compartilhe este clipe com {{email}}.",
     accessRequestFailed: "Não foi possível solicitar acesso. Tente novamente.",
+    accessApprovalTitle: "Acesso concedido",
+    accessApprovalAlreadyTitle: "Acesso já concedido",
+    accessApprovalMessage: "{{email}} agora pode ver este clipe.",
+    accessApprovalAlreadyMessage: "{{email}} já tem acesso a este clipe.",
+    accessApprovalErrorTitle: "Não foi possível conceder acesso",
+    accessApprovalInvalid: "Esta solicitação de acesso é inválida ou expirou.",
+    accessApprovalSignInTitle: "Entre para permitir o acesso",
+    accessApprovalSignInMessage:
+      "Entre como proprietário ou administrador do clipe para aprovar esta solicitação.",
+    accessApprovalOpenClip: "Abrir clipe",
+    accessApprovalSignIn: "Entrar",
+    accessApprovalLoading: "Concedendo acesso...",
     clipUnavailable: "Clipe indisponível",
     clipUnavailableMessage:
       "Esta gravação não é pública ou o link é inválido. Se for o seu clipe, faça login para verificar o acesso.",

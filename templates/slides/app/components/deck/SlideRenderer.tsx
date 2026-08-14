@@ -816,7 +816,8 @@ export function SlideInner({
     </div>
   );
 
-  // Slides with fmd-slide class use inline styles — render as raw HTML to avoid layout conflicts
+  // Slides with fmd-slide markup carry their layout in the raw HTML contract;
+  // render them as-is so supported semantic classes and inline styles survive.
   const content = typeof slide.content === "string" ? slide.content : "";
   const isRawHtml =
     content.includes('class="fmd-slide"') ||

@@ -161,7 +161,11 @@ import {
   parseAdditionalChromeExtensionIds,
 } from "./browser-control/native-host";
 import { isClaudeSubscriptionAuthMethod } from "./claude-subscription.js";
-import { cachedCliStatus, createCliStatusCache } from "./cli-status-cache.js";
+import {
+  cachedCliStatus,
+  createCliStatusCache,
+  type CliStatusCache,
+} from "./cli-status-cache.js";
 import { guardCodeAgentPersistence } from "./code-agent-persistence-guard.js";
 import { resolveCodeAgentRunnerInvocation } from "./code-agent-runner.js";
 import {
@@ -348,6 +352,8 @@ const CODE_AGENT_PROVIDER_SETTING_KEYS: CodeAgentProviderCredentialKey[] = [
 const CODEX_CLI_ENGINE_NAME = "codex-cli";
 const CODEX_CLI_DEFAULT_MODEL = "codex-cli";
 const CLAUDE_CLI_ENGINE_NAME = "claude-cli";
+const PI_CLI_ENGINE_NAME = "pi-cli";
+const OPENCODE_CLI_ENGINE_NAME = "opencode-cli";
 const DESKTOP_BUILDER_CONNECT_TIMEOUT_MS = 5 * 60 * 1000;
 export {
   CODE_AGENTS_SUBSCRIBE_TRANSCRIPT_CHANNEL,
@@ -7618,6 +7624,20 @@ function hasRuntimeCodeAgentLlmProvider(): boolean {
   if (hasRuntimeNonCodexCodeAgentLlmProvider()) return true;
   if (getLocalCodexCliStatus().authenticated) return true;
   if (getLocalClaudeCliStatus().authenticated) return true;
+  if (
+    getLocalCliAvailability("pi", "Pi", localPiCliAvailabilityCache).available
+  ) {
+    return true;
+  }
+  if (
+    getLocalCliAvailability(
+      "opencode",
+      "OpenCode",
+      localOpenCodeCliAvailabilityCache,
+    ).available
+  ) {
+    return true;
+  }
   return false;
 }
 
@@ -7901,6 +7921,61 @@ function parseLocalClaudeCliStatus(
   };
 }
 
+interface LocalCliAvailability {
+  available: boolean;
+  label: string;
+  version?: string;
+  error?: string;
+}
+
+const localPiCliAvailabilityCache =
+  createCliStatusCache<LocalCliAvailability>();
+const localOpenCodeCliAvailabilityCache =
+  createCliStatusCache<LocalCliAvailability>();
+
+function getLocalCliAvailability(
+  command: string,
+  label: string,
+  cache: CliStatusCache<LocalCliAvailability>,
+): LocalCliAvailability {
+  return cachedCliStatus(
+    cache,
+    () =>
+      parseLocalCliAvailability(
+        command,
+        label,
+        runCliSync(command, ["--version"]),
+      ),
+    async () =>
+      parseLocalCliAvailability(
+        command,
+        label,
+        await runCliAsync(command, ["--version"]),
+      ),
+  );
+}
+
+function parseLocalCliAvailability(
+  command: string,
+  label: string,
+  result: CliRun,
+): LocalCliAvailability {
+  const version = (result.stdout || result.stderr).trim();
+  return {
+    available: !result.error && result.status === 0,
+    label,
+    ...(version ? { version } : {}),
+    ...(!result.error && result.status === 0
+      ? {}
+      : {
+          error:
+            result.error?.code === "ENOENT"
+              ? `${label} was not found.`
+              : version || `${command} could not be started.`,
+        }),
+  };
+}
+
 function getCodeAgentProviderSettings(): CodeAgentProviderSettings {
   return withLocalCodexProviderStatus(
     AppStore.getCodeAgentProviderSettingsStatus(),
@@ -8008,6 +8083,12 @@ function getCodeAgentModelList(): CodeAgentModelListResult {
     );
     const codex = getLocalCodexCliStatus();
     const claude = getLocalClaudeCliStatus();
+    const pi = getLocalCliAvailability("pi", "Pi", localPiCliAvailabilityCache);
+    const opencode = getLocalCliAvailability(
+      "opencode",
+      "OpenCode",
+      localOpenCodeCliAvailabilityCache,
+    );
     const anthropicConfigured = Boolean(
       providerStatusById(settings, "anthropic")?.configured,
     );
@@ -8062,6 +8143,28 @@ function getCodeAgentModelList(): CodeAgentModelListResult {
         ...(claude.authenticated
           ? { statusLabel: "Claude subscription", isSubscription: true }
           : {}),
+      });
+    }
+    if (pi.available) {
+      models.push({
+        engine: PI_CLI_ENGINE_NAME,
+        engineLabel: "Pi",
+        model: PI_CLI_ENGINE_NAME,
+        label: "Pi",
+        description: "Run locally through the Pi coding agent.",
+        configured: true,
+        statusLabel: "Installed",
+      });
+    }
+    if (opencode.available) {
+      models.push({
+        engine: OPENCODE_CLI_ENGINE_NAME,
+        engineLabel: "OpenCode",
+        model: OPENCODE_CLI_ENGINE_NAME,
+        label: "OpenCode",
+        description: "Run locally through the OpenCode coding agent.",
+        configured: true,
+        statusLabel: "Installed",
       });
     }
     if (!claude.authenticated) {

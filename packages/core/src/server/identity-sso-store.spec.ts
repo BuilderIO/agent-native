@@ -127,15 +127,37 @@ beforeEach(() => {
 
 afterEach(() => {
   delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
+  delete process.env.APP_URL;
+  delete process.env.BETTER_AUTH_URL;
+  delete process.env.VITE_APP_URL;
+  delete process.env.VITE_BETTER_AUTH_URL;
+  delete process.env.URL;
+  delete process.env.DEPLOY_PRIME_URL;
+  delete process.env.DEPLOY_URL;
 });
 
 describe("identity SSO feature switch and request classifiers", () => {
   it("is disabled when the hub env is missing or malformed", () => {
     delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
+    delete process.env.APP_URL;
     expect(store.getIdentityHubUrl()).toBeUndefined();
     expect(store.isIdentitySsoEnabled()).toBe(false);
 
     process.env.AGENT_NATIVE_IDENTITY_HUB_URL = "javascript:alert(1)";
+    expect(store.getIdentityHubUrl()).toBeUndefined();
+  });
+
+  it("defaults canonical hosted clients to Dispatch but excludes the authority", () => {
+    delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
+    process.env.APP_URL = "https://mail.agent-native.com";
+    expect(store.getIdentityHubUrl()).toBe("https://dispatch.agent-native.com");
+    expect(store.isIdentitySsoEnabled()).toBe(true);
+
+    process.env.APP_URL = "https://dispatch.agent-native.com";
+    expect(store.getIdentityHubUrl()).toBeUndefined();
+    expect(store.isIdentitySsoEnabled()).toBe(false);
+
+    process.env.APP_URL = "https://workspace.example.test";
     expect(store.getIdentityHubUrl()).toBeUndefined();
   });
 
@@ -167,6 +189,18 @@ describe("identity SSO feature switch and request classifiers", () => {
     ).toBe(true);
     expect(
       store.isCanonicalAgentNativeAppRequest("evil.agent-native.com", "https"),
+    ).toBe(false);
+    expect(
+      store.isCanonicalIdentitySsoClientRequest(
+        "mail.agent-native.com",
+        "https",
+      ),
+    ).toBe(true);
+    expect(
+      store.isCanonicalIdentitySsoClientRequest(
+        "dispatch.agent-native.com",
+        "https",
+      ),
     ).toBe(false);
   });
 });

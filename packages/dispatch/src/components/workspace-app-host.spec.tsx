@@ -15,6 +15,7 @@ const clientState = vi.hoisted(() => {
   return {
     actionNames,
     legacyMutateAsync,
+    theme: "dark" as "dark" | "light",
     workspaceSsoEnabled: false,
     workspaceSsoMutateAsync,
   };
@@ -90,6 +91,10 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 
+vi.mock("next-themes", () => ({
+  useTheme: () => ({ resolvedTheme: clientState.theme }),
+}));
+
 import { WorkspaceAppFrame, WorkspaceAppKeepAlive } from "./workspace-app-host";
 
 describe("WorkspaceAppKeepAlive", () => {
@@ -104,6 +109,7 @@ describe("WorkspaceAppKeepAlive", () => {
     clientState.actionNames.length = 0;
     clientState.legacyMutateAsync.mockClear();
     clientState.workspaceSsoMutateAsync.mockClear();
+    clientState.theme = "dark";
     clientState.workspaceSsoEnabled = false;
   });
 
@@ -161,6 +167,57 @@ describe("WorkspaceAppKeepAlive", () => {
       chrome: "minimal",
     });
     expect(clientState.legacyMutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("sends the parent theme on iframe load and when the parent changes", async () => {
+    await act(async () => {
+      root.render(
+        <WorkspaceAppFrame app={{ id: "mail", name: "Mail", path: "/mail" }} />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const iframe = container.querySelector<HTMLIFrameElement>("iframe");
+    expect(iframe).not.toBeNull();
+    if (!iframe) throw new Error("Workspace app iframe was not rendered");
+
+    const postMessage = vi.fn();
+    Object.defineProperty(iframe, "contentWindow", {
+      configurable: true,
+      value: { postMessage },
+    });
+
+    await act(async () => {
+      iframe?.dispatchEvent(new Event("load"));
+      await Promise.resolve();
+    });
+
+    expect(postMessage).toHaveBeenCalledWith(
+      {
+        type: "agent-native-theme-update",
+        theme: "dark",
+        isDark: true,
+      },
+      "*",
+    );
+
+    clientState.theme = "light";
+    await act(async () => {
+      root.render(
+        <WorkspaceAppFrame app={{ id: "mail", name: "Mail", path: "/mail" }} />,
+      );
+      await Promise.resolve();
+    });
+
+    expect(postMessage).toHaveBeenLastCalledWith(
+      {
+        type: "agent-native-theme-update",
+        theme: "light",
+        isDark: false,
+      },
+      "*",
+    );
   });
 
   it("evicts the oldest inactive app after reaching the keep-alive limit", async () => {

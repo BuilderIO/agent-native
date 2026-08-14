@@ -772,6 +772,7 @@ const messages = {
     embedUrl: "Embed URL",
     embedCode: "Embed code",
     copy: "Copy",
+    copied: "Copied",
     role: "Role",
     private: "Private",
     privateDescription: "Only people with access can view",

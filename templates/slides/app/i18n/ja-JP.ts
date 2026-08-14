@@ -297,6 +297,7 @@ const messages = {
     creatingLink: "リンクを作成中...",
     createShareLink: "共有リンクを作成",
     copyLink: "リンクをコピー",
+    copied: "コピーしました",
     openSharedLink: "共有リンクを開く",
     anyoneWithLink:
       "このリンクを持つ人は誰でもこのプレゼンテーションを表示できます。",

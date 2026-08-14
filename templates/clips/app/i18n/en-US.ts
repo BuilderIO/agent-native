@@ -260,12 +260,37 @@ const messages = {
     privateClipMessage:
       "This clip is private. Request access and the owner will be notified.",
     privateClipSignedOutMessage:
-      "This clip is private. Sign in to request access from the owner.",
+      "This clip is private. Sign in or enter your email to request access.",
     requestAccess: "Request access",
+    requestAccessDialogTitle: "Request access",
+    requestAccessDialogDescription:
+      "Sign in, or enter the email address the owner should share this clip with.",
+    requestAccessSignIn: "Sign in or sign up",
+    requestAccessOr: "or",
+    requestAccessEmailLabel: "Email address",
+    requestAccessEmailPlaceholder: "you@example.com",
+    requestAccessEmailHint:
+      "After access is granted, sign in with this email to view the clip.",
+    requestAccessWithEmail: "Request with email",
+    requestAccessEmailRequired: "Enter a valid email address.",
     requestingAccess: "Requesting access...",
     accessRequested: "Access requested",
     accessRequestSent: "The clip owner was notified.",
+    accessRequestSentWithEmail:
+      "The clip owner was asked to share this clip with {{email}}.",
     accessRequestFailed: "Couldn't request access. Try again.",
+    accessApprovalTitle: "Access granted",
+    accessApprovalAlreadyTitle: "Access already granted",
+    accessApprovalMessage: "{{email}} can now view this clip.",
+    accessApprovalAlreadyMessage: "{{email}} already has access to this clip.",
+    accessApprovalErrorTitle: "Couldn't grant access",
+    accessApprovalInvalid: "This access request is invalid or expired.",
+    accessApprovalSignInTitle: "Sign in to allow access",
+    accessApprovalSignInMessage:
+      "Sign in as the clip owner or admin to approve this request.",
+    accessApprovalOpenClip: "Open clip",
+    accessApprovalSignIn: "Sign in",
+    accessApprovalLoading: "Granting access...",
     clipUnavailable: "Clip unavailable",
     clipUnavailableMessage:
       "This recording isn't public, or the link is invalid. If it's your clip, sign in to check access.",

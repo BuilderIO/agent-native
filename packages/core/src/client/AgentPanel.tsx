@@ -94,6 +94,12 @@ import {
 } from "./agent-sidebar-state.js";
 import { trackEvent } from "./analytics.js";
 import { agentNativePath, appPath, isWorkspaceAppPath } from "./api-path.js";
+import {
+  APP_CHAT_SIDEBAR_STATE_EVENT,
+  APP_CHAT_SIDEBAR_STATE_REQUEST_MESSAGE,
+  buildAppChatSidebarStateMessage,
+  isPerAppChatStorageKey,
+} from "./app-chat-sidebar.js";
 import { readClientAppState } from "./application-state.js";
 import { assistantUiRecoverableRenderErrorKind } from "./assistant-ui-recovery.js";
 import type { AssistantChatProps } from "./AssistantChat.js";
@@ -131,6 +137,13 @@ const AgentTerminal = lazy(() =>
 const AGENT_PANEL_PREPARE_EVENT = "agent-panel:prepare";
 const AGENT_PANEL_SET_MODE_EVENT = "agent-panel:set-mode";
 const AGENT_PANEL_OPEN_SETTINGS_EVENT = "agent-panel:open-settings";
+
+function postPerAppChatSidebarStateToEmbeddedFrames(open: boolean): void {
+  const message = buildAppChatSidebarStateMessage(open);
+  for (const frame of document.querySelectorAll("iframe")) {
+    frame.contentWindow?.postMessage(message, "*");
+  }
+}
 
 function settingsRouteHashForSection(section?: string | null): string {
   const normalized = section?.replace(/^#/, "").toLowerCase() ?? "";
@@ -3008,6 +3021,18 @@ export interface AgentSidebarProps {
   onComposerTextChange?: AssistantChatProps["onComposerTextChange"];
   /** Optional secondary model menu shown inside the chat composer model picker. */
   imageModelMenu?: AssistantChatProps["imageModelMenu"];
+  /** Local or hosted agent runtimes shown above the model list. */
+  availableAgents?: AssistantChatProps["availableAgents"];
+  /** Selected agent runtime identifier. */
+  selectedAgent?: AssistantChatProps["selectedAgent"];
+  /** Callback when the user picks an agent runtime. */
+  onAgentChange?: AssistantChatProps["onAgentChange"];
+  /** Route local runtime setup through the host's native bridge. */
+  onConnectLocalRuntime?: AssistantChatProps["onConnectLocalRuntime"];
+  /** Bring-your-own runtime used by embedded hosts such as Electron. */
+  runtime?: AssistantChatProps["runtime"];
+  /** Explicit key for recreating an injected runtime adapter. */
+  adapterReloadKey?: AssistantChatProps["adapterReloadKey"];
   /** Optional content rendered at the bottom of the chat thread. */
   threadFooterSlot?: AssistantChatProps["threadFooterSlot"];
   /** Initial sidebar width in pixels. Mount-only; user resize and a saved
@@ -3079,6 +3104,12 @@ export function AgentSidebar({
   composerSlot,
   onComposerTextChange,
   imageModelMenu,
+  availableAgents,
+  selectedAgent,
+  onAgentChange,
+  onConnectLocalRuntime,
+  runtime,
+  adapterReloadKey,
   threadFooterSlot,
   defaultSidebarWidth,
   sidebarWidth,
@@ -3105,6 +3136,7 @@ export function AgentSidebar({
   suppressFirstRunOnboarding = false,
 }: AgentSidebarProps) {
   const sidebarOpenStorageKey = openStorageKey ?? storageKey;
+  const isPerAppChatSidebar = isPerAppChatStorageKey(sidebarOpenStorageKey);
   const onboardingPreviewMode = useOnboardingPreviewMode();
   const firstRunOnboardingGateOwnsSurface =
     useFirstRunOnboardingGateOwnsSurface();
@@ -3251,6 +3283,43 @@ export function AgentSidebar({
     open,
     presentationMode,
     hasFrameSidebarState,
+  ]);
+
+  useEffect(() => {
+    if (!isPerAppChatSidebar) return;
+
+    const frameOwned = frameCodeMode && shouldParentFrameOwnAgentPanel();
+    if (frameOwned && !hasFrameSidebarState) return;
+
+    const openState =
+      !presentationMode && (frameOwned ? frameSidebarOpen : open);
+    const message = buildAppChatSidebarStateMessage(openState);
+
+    window.dispatchEvent(
+      new CustomEvent(APP_CHAT_SIDEBAR_STATE_EVENT, {
+        detail: message.data,
+      }),
+    );
+    postPerAppChatSidebarStateToEmbeddedFrames(openState);
+
+    const handleStateRequest = (event: MessageEvent) => {
+      if (event.data?.type !== APP_CHAT_SIDEBAR_STATE_REQUEST_MESSAGE) return;
+      const frame = Array.from(document.querySelectorAll("iframe")).find(
+        (candidate) => candidate.contentWindow === event.source,
+      );
+      if (!frame) return;
+      frame.contentWindow?.postMessage(message, event.origin || "*");
+    };
+
+    window.addEventListener("message", handleStateRequest);
+    return () => window.removeEventListener("message", handleStateRequest);
+  }, [
+    frameCodeMode,
+    frameSidebarOpen,
+    hasFrameSidebarState,
+    isPerAppChatSidebar,
+    open,
+    presentationMode,
   ]);
 
   useEffect(() => {
@@ -3716,6 +3785,9 @@ export function AgentSidebar({
         data-agent-sidebar-layout={panelLayout}
         data-agent-sidebar-position={position}
         data-agent-sidebar-state={panelOpen ? "open" : "closed"}
+        data-agent-sidebar-per-app-chat={
+          isPerAppChatSidebar ? "true" : undefined
+        }
         data-agent-sidebar-resizing={isResizing ? "true" : undefined}
         data-agent-sidebar-chat-handoff={
           chatViewTransitionHandoff ? "true" : undefined
@@ -3737,6 +3809,12 @@ export function AgentSidebar({
             composerSlot={composerSlot}
             onComposerTextChange={onComposerTextChange}
             imageModelMenu={imageModelMenu}
+            availableAgents={availableAgents}
+            selectedAgent={selectedAgent}
+            onAgentChange={onAgentChange}
+            onConnectLocalRuntime={onConnectLocalRuntime}
+            runtime={runtime}
+            adapterReloadKey={adapterReloadKey}
             threadFooterSlot={threadFooterSlot}
             apiUrl={apiUrl}
             agentChatSurface={agentChatSurface}

@@ -478,6 +478,13 @@ const messages: AgentChatTranslation = {
     "組織のアクセス権を検索結果に表示する方法を設定します。",
   "share.copied": "コピーしました",
   "share.copy": "コピー",
+  "share.shareWithAgents": "エージェントと共有",
+  "share.agentContext": "エージェントコンテキストリンク",
+  "share.agentContextDescription":
+    "外部エージェント用の読み取り専用コンテキスト。",
+  "share.preparingAgentLink": "エージェントリンクを準備中...",
+  "share.agentLinkUnavailable": "エージェントリンクを作成できませんでした。",
+  "share.retryAgentLink": "再試行",
   "share.editor": "編集者",
   "share.editorDescription": "編集可能",
   "share.generalAccess": "一般的なアクセス",

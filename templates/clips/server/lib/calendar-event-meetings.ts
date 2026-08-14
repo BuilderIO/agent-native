@@ -504,6 +504,7 @@ export async function materializeCalendarMeetingFromVirtualId(
         calendarEventId: snapshot.id,
         recordingId: null,
         transcriptStatus: "idle",
+        shareTranscript: false,
         summaryMd: "",
         bulletsJson: "[]",
         actionItemsJson: "[]",
