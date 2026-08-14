@@ -146,7 +146,7 @@ export default function PricingPage() {
           </div>
           <div>
             <h3 className="mb-3 text-xl font-bold text-[var(--fg)] sm:text-2xl">
-              3. If you use our backend, that costs money.
+              3. There's an easy button that costs money.
             </h3>
             <p className="m-0">
               Storage, database, deploys, and auth on Builder's infrastructure
