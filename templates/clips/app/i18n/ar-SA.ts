@@ -344,7 +344,7 @@ const messages = {
     attendee_other: "الحضور {{count}}",
     joinCall: "الانضمام إلى المكالمة",
     myNotes: "ملاحظاتي",
-    aiNotes: "تلاحظ منظمة العفو الدولية",
+    aiNotes: "ملاحظات الذكاء الاصطناعي",
     summary: "الملخص",
     actionItems: "عناصر العمل",
     working: "عمل…",

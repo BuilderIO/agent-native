@@ -145,31 +145,42 @@ export function BulletLink({
       <div className="group flex items-start gap-1.5">
         <div className="flex min-w-0 flex-1">{children}</div>
         {timestamp ? (
-          <button
-            type="button"
-            onClick={() => onJumpTo(matchIndex)}
-            aria-label={t("bulletLink.jumpToTranscript", { time: timestamp })}
-            className={cn(
-              "mt-0.5 inline-flex h-5 shrink-0 items-center rounded px-1 font-mono text-[10px] tabular-nums text-muted-foreground/80 opacity-0 transition-opacity",
-              "group-hover:opacity-100 [@media(hover:none)]:opacity-100",
-              "cursor-pointer hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
-            )}
-          >
-            {timestamp}
-          </button>
-        ) : (
           <Tooltip>
             <TooltipTrigger asChild>
               <button
                 type="button"
-                disabled
-                aria-label={t("bulletLink.noMatchingMoment")}
-                className="mt-0.5 inline-flex h-5 shrink-0 cursor-default items-center rounded px-1 font-mono text-[10px] tabular-nums text-muted-foreground/40 opacity-0 transition-opacity group-hover:opacity-100 [@media(hover:none)]:opacity-100"
+                onClick={() => onJumpTo(matchIndex)}
+                aria-label={t("bulletLink.jumpToTranscript", {
+                  time: timestamp,
+                })}
+                className={cn(
+                  "mt-0.5 inline-flex h-5 shrink-0 items-center rounded px-1 font-mono text-[10px] tabular-nums text-muted-foreground/80 opacity-0 transition-opacity",
+                  "group-hover:opacity-100 [@media(hover:none)]:opacity-100",
+                  "cursor-pointer hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+                )}
               >
-                --:--
+                {timestamp}
               </button>
             </TooltipTrigger>
-            <TooltipContent side="left">
+            <TooltipContent side="top">
+              {t("bulletLink.jumpToTranscript", { time: timestamp })}
+            </TooltipContent>
+          </Tooltip>
+        ) : (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              {/* A span, not a button — there's no action to disable, just
+                  a status to announce, and tabIndex keeps it keyboard- and
+                  screen-reader-reachable (a disabled button wouldn't be). */}
+              <span
+                tabIndex={0}
+                aria-label={t("bulletLink.noMatchingMoment")}
+                className="mt-0.5 inline-flex h-5 shrink-0 cursor-default items-center rounded px-1 font-mono text-[10px] tabular-nums text-muted-foreground/40 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 [@media(hover:none)]:opacity-100"
+              >
+                --:--
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="top">
               {t("bulletLink.noMatchingMoment")}
             </TooltipContent>
           </Tooltip>

@@ -6,12 +6,17 @@ import {
   IconSearch,
   IconX,
 } from "@tabler/icons-react";
-import type { KeyboardEvent } from "react";
+import type { KeyboardEvent, ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 import { TranscriptSegmentRow } from "../transcript/transcript-segment-row";
@@ -38,6 +43,11 @@ interface TranscriptBubblesProps {
    * Receives a function (segmentIndex) => void.
    */
   registerScrollTo?: (fn: (segmentIndex: number) => void) => void;
+  /** Rendered at the left of the header row. Omit for no title (the header
+   * then shows only the search trigger, e.g. the compact share-page use). */
+  title?: ReactNode;
+  /** Rendered in the header, before the search trigger (e.g. a copy button). */
+  headerActions?: ReactNode;
 }
 
 interface BubbleGroup {
@@ -199,6 +209,8 @@ export function TranscriptBubbles({
   participants = [],
   ownerEmail,
   registerScrollTo,
+  title,
+  headerActions,
 }: TranscriptBubblesProps) {
   const t = useT();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -366,80 +378,120 @@ export function TranscriptBubbles({
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex shrink-0 items-center justify-end gap-1.5 border-b border-border px-2 py-1.5">
-        {searchOpen ? (
-          <>
-            <Input
-              ref={searchInputRef}
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Escape") {
-                  e.preventDefault();
-                  closeSearch();
-                } else if (e.key === "Enter") {
-                  e.preventDefault();
-                  goToMatch(e.shiftKey ? -1 : 1);
-                }
-              }}
-              onBlur={() => {
-                if (!searchQuery.trim()) closeSearch();
-              }}
-              placeholder={t("transcriptBubbles.searchPlaceholder")}
-              className="h-7 flex-1 text-xs"
-            />
-            {normalizedQuery && (
-              <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">
-                {matchIndexes.length > 0
-                  ? t("transcriptBubbles.searchMatchCount", {
-                      current: (matchCursor % matchIndexes.length) + 1,
-                      total: matchIndexes.length,
-                    })
-                  : t("transcriptBubbles.searchNoMatches")}
-              </span>
-            )}
+      {/* Primary header — title/actions never get displaced by search, so the
+          panel's identity stays put and this row's height always matches
+          sibling panels. The search UI is a second row that only exists
+          while search is actually open, not permanent chrome. */}
+      <div
+        className={cn(
+          "flex h-11 shrink-0 items-center gap-1.5 px-4",
+          // Only the last header row gets the divider below it — when
+          // search is open that's the search row, not this one, so the two
+          // read as one frame instead of stacked, separate boxes.
+          !searchOpen && "border-b border-border",
+        )}
+      >
+        <div className="flex flex-1 items-center gap-1.5 text-xs font-medium">
+          {title}
+        </div>
+        {headerActions}
+        <Tooltip>
+          <TooltipTrigger asChild>
             <Button
               size="icon"
               variant="ghost"
-              className="h-7 w-7 shrink-0 cursor-pointer"
-              disabled={!matchIndexes.length}
-              aria-label={t("transcriptBubbles.searchPrevMatch")}
-              onClick={() => goToMatch(-1)}
+              aria-pressed={searchOpen}
+              className={cn(
+                "h-7 w-7 shrink-0 cursor-pointer",
+                searchOpen && "bg-accent",
+              )}
+              aria-label={
+                searchOpen
+                  ? t("transcriptBubbles.searchClose")
+                  : t("transcriptBubbles.searchTranscript")
+              }
+              // Without this, clicking here while the input is focused blurs
+              // it first (onBlur may already auto-close on an empty query),
+              // then this handler runs against state that just changed out
+              // from under it — sometimes reopening what onBlur just closed.
+              // Keeping focus on the input means blur never fires from this
+              // click at all, so there's nothing left to race.
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => (searchOpen ? closeSearch() : setSearchOpen(true))}
             >
-              <IconChevronUp className="h-3.5 w-3.5" />
+              <IconSearch className="h-3.5 w-3.5" />
             </Button>
-            <Button
-              size="icon"
-              variant="ghost"
-              className="h-7 w-7 shrink-0 cursor-pointer"
-              disabled={!matchIndexes.length}
-              aria-label={t("transcriptBubbles.searchNextMatch")}
-              onClick={() => goToMatch(1)}
-            >
-              <IconChevronDown className="h-3.5 w-3.5" />
-            </Button>
-            <Button
-              size="icon"
-              variant="ghost"
-              className="h-7 w-7 shrink-0 cursor-pointer"
-              aria-label={t("transcriptBubbles.searchClose")}
-              onClick={closeSearch}
-            >
-              <IconX className="h-3.5 w-3.5" />
-            </Button>
-          </>
-        ) : (
+          </TooltipTrigger>
+          <TooltipContent>
+            {searchOpen
+              ? t("transcriptBubbles.searchClose")
+              : t("transcriptBubbles.searchTranscript")}
+          </TooltipContent>
+        </Tooltip>
+      </div>
+
+      {searchOpen && (
+        <div className="flex shrink-0 items-center gap-1.5 border-b border-border px-4 py-1.5">
+          <Input
+            ref={searchInputRef}
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                e.preventDefault();
+                closeSearch();
+              } else if (e.key === "Enter") {
+                e.preventDefault();
+                goToMatch(e.shiftKey ? -1 : 1);
+              }
+            }}
+            onBlur={() => {
+              if (!searchQuery.trim()) closeSearch();
+            }}
+            placeholder={t("transcriptBubbles.searchPlaceholder")}
+            className="h-7 flex-1 text-xs"
+          />
+          {normalizedQuery && (
+            <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">
+              {matchIndexes.length > 0
+                ? t("transcriptBubbles.searchMatchCount", {
+                    current: (matchCursor % matchIndexes.length) + 1,
+                    total: matchIndexes.length,
+                  })
+                : t("transcriptBubbles.searchNoMatches")}
+            </span>
+          )}
           <Button
             size="icon"
             variant="ghost"
             className="h-7 w-7 shrink-0 cursor-pointer"
-            aria-label={t("transcriptBubbles.searchTranscript")}
-            onClick={() => setSearchOpen(true)}
+            disabled={!matchIndexes.length}
+            aria-label={t("transcriptBubbles.searchPrevMatch")}
+            onClick={() => goToMatch(-1)}
           >
-            <IconSearch className="h-3.5 w-3.5" />
+            <IconChevronUp className="h-3.5 w-3.5" />
           </Button>
-        )}
-      </div>
+          <Button
+            size="icon"
+            variant="ghost"
+            className="h-7 w-7 shrink-0 cursor-pointer"
+            disabled={!matchIndexes.length}
+            aria-label={t("transcriptBubbles.searchNextMatch")}
+            onClick={() => goToMatch(1)}
+          >
+            <IconChevronDown className="h-3.5 w-3.5" />
+          </Button>
+          <Button
+            size="icon"
+            variant="ghost"
+            className="h-7 w-7 shrink-0 cursor-pointer"
+            aria-label={t("transcriptBubbles.searchClose")}
+            onClick={closeSearch}
+          >
+            <IconX className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      )}
       <div ref={containerRef} className="flex-1 overflow-y-auto p-4">
         <div className="mx-auto max-w-3xl space-y-4">
           {groups.map((group, gi) => {

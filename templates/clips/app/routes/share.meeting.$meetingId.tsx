@@ -364,7 +364,7 @@ export default function ShareMeetingRoute() {
                   {meeting.bullets.map((bullet, index) => (
                     <li
                       key={index}
-                      className="flex gap-2 text-sm leading-relaxed text-muted-foreground"
+                      className="flex gap-2 text-sm leading-relaxed text-foreground"
                     >
                       <span>•</span>
                       <span className="flex-1">{bullet.text}</span>
