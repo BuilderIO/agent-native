@@ -1087,6 +1087,180 @@ function decodeHtmlText(value: string): string {
     .replace(/&#x25cf;/gi, "●");
 }
 
+/** Split a CSS function argument list on top-level commas — `rgba(0,0,0,.5)` carries its own. */
+function splitTopLevel(value: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < value.length; i++) {
+    const char = value[i];
+    if (char === "(") depth++;
+    else if (char === ")") depth--;
+    else if (char === "," && depth === 0) {
+      parts.push(value.slice(start, i));
+      start = i + 1;
+    }
+  }
+  parts.push(value.slice(start));
+  return parts.map((part) => part.trim()).filter(Boolean);
+}
+
+/** `<a:srgbClr>` carrying the alpha an `rgba()` / `#rrggbbaa` value declares. */
+function drawingMlColor(parsed: {
+  hex: string;
+  transparency?: number;
+}): string {
+  return parsed.transparency
+    ? `<a:srgbClr val="${parsed.hex}"><a:alpha val="${Math.round((100 - parsed.transparency) * 1000)}"/></a:srgbClr>`
+    : `<a:srgbClr val="${parsed.hex}"/>`;
+}
+
+/**
+ * The inverse of the importer's `parseGradientFill` (packages/core
+ * `ingestion/pptx.ts`): CSS measures a linear angle clockwise from "up",
+ * OOXML's `<a:lin ang>` clockwise from the positive x-axis, so the two differ
+ * by 90°, and `<a:fillToRect>`'s edge insets collapse to the radial focus.
+ *
+ * Returns `undefined` for a gradient it cannot express (`conic`, the
+ * `to bottom right` keyword form, a single stop) so the caller keeps the
+ * flattened solid fill instead of writing a background PowerPoint rejects.
+ */
+export function cssGradientToDrawingMl(css: string): string | undefined {
+  const match = css.trim().match(/^(linear|radial)-gradient\(([\s\S]*)\)$/i);
+  if (!match) return undefined;
+  const kind = match[1].toLowerCase();
+  const args = splitTopLevel(match[2]);
+
+  let geometry: string;
+  let stopArgs = args;
+  if (kind === "linear") {
+    const degrees = args[0]?.match(/^(-?[\d.]+)deg$/i)?.[1];
+    if (degrees !== undefined) stopArgs = args.slice(1);
+    const cssAngle = degrees === undefined ? 180 : Number(degrees);
+    const ang = Math.round(((((cssAngle - 90) % 360) + 360) % 360) * 60000);
+    geometry = `<a:lin ang="${ang}" scaled="0"/>`;
+  } else {
+    const at = args[0]?.match(/at\s+([\d.]+)%\s+([\d.]+)%/i);
+    if (at) stopArgs = args.slice(1);
+    const centerX = at ? Number(at[1]) : 50;
+    const centerY = at ? Number(at[2]) : 50;
+    const pct = (value: number) => Math.round(value * 1000);
+    geometry = `<a:path path="circle"><a:fillToRect l="${pct(centerX)}" t="${pct(centerY)}" r="${pct(100 - centerX)}" b="${pct(100 - centerY)}"/></a:path>`;
+  }
+  if (stopArgs.length < 2) return undefined;
+
+  const stops = stopArgs.map((stopArg, index) => {
+    const positionMatch = stopArg.match(/\s([\d.]+)%$/);
+    const color = positionMatch
+      ? stopArg.slice(0, positionMatch.index).trim()
+      : stopArg;
+    const position = positionMatch
+      ? Number(positionMatch[1])
+      : (index / (stopArgs.length - 1)) * 100;
+    const clamped = Math.min(100, Math.max(0, position));
+    return `<a:gs pos="${Math.round(clamped * 1000)}">${drawingMlColor(colorToHex(color))}</a:gs>`;
+  });
+  return `<a:gradFill rotWithShape="1"><a:gsLst>${stops.join("")}</a:gsLst>${geometry}</a:gradFill>`;
+}
+
+/** `<a:clrScheme>` requires every slot, in this order. */
+const THEME_COLOR_SLOTS = [
+  "dk1",
+  "lt1",
+  "dk2",
+  "lt2",
+  "accent1",
+  "accent2",
+  "accent3",
+  "accent4",
+  "accent5",
+  "accent6",
+  "hlink",
+  "folHlink",
+] as const;
+
+/** The deck's own palette as a `<a:clrScheme>`, or `undefined` when a slot is missing. */
+export function themeClrSchemeXml(
+  colorsByName: Record<string, string>,
+): string | undefined {
+  const slots: string[] = [];
+  for (const slot of THEME_COLOR_SLOTS) {
+    const color = colorsByName[slot];
+    if (!color) return undefined;
+    slots.push(`<a:${slot}>${drawingMlColor(colorToHex(color))}</a:${slot}>`);
+  }
+  return `<a:clrScheme name="Deck">${slots.join("")}</a:clrScheme>`;
+}
+
+function replaceOnce(
+  xml: string,
+  pattern: RegExp,
+  replacement: string,
+  what: string,
+): string {
+  if (!pattern.test(xml)) {
+    throw new Error(
+      `[export-pptx] could not rewrite ${what}: pptxgenjs no longer emits the node this patches. Nothing was written rather than shipping a deck that silently lost it.`,
+    );
+  }
+  return xml.replace(pattern, () => replacement);
+}
+
+/**
+ * Rewrite the two parts pptxgenjs hardcodes. `ShapeFillProps.type` is only
+ * `'none' | 'solid'` and `makeXmlTheme` templates a fixed Office `clrScheme`,
+ * so a deck's theme palette and its gradient slide backgrounds cannot be
+ * expressed through the API at all; they have to be patched into the finished
+ * package. Shape-level gradients stay flattened — unlike `<p:bg>` there is no
+ * stable node to address per shape, so that one really is the library ceiling.
+ */
+export async function applyDeckIdentity(
+  buffer: Buffer,
+  args: {
+    themeColors?: Record<string, string>;
+    /** 0-based slide index -> `<a:gradFill>` XML. */
+    slideGradients: Map<number, string>;
+  },
+): Promise<Buffer> {
+  const clrScheme = args.themeColors
+    ? themeClrSchemeXml(args.themeColors)
+    : undefined;
+  if (!clrScheme && args.slideGradients.size === 0) return buffer;
+
+  const JSZip = (await import("jszip")).default;
+  const zip = await JSZip.loadAsync(buffer);
+  const rewrite = async (
+    partPath: string,
+    pattern: RegExp,
+    replacement: string,
+    what: string,
+  ) => {
+    const xml = await zip.file(partPath)?.async("string");
+    if (xml === undefined) {
+      throw new Error(`[export-pptx] generated package is missing ${partPath}`);
+    }
+    zip.file(partPath, replaceOnce(xml, pattern, replacement, what));
+  };
+
+  if (clrScheme) {
+    await rewrite(
+      "ppt/theme/theme1.xml",
+      /<a:clrScheme name="[^"]*">[\s\S]*?<\/a:clrScheme>/,
+      clrScheme,
+      "the theme color scheme",
+    );
+  }
+  for (const [slideIndex, gradFill] of args.slideGradients) {
+    await rewrite(
+      `ppt/slides/slide${slideIndex + 1}.xml`,
+      /<p:bg>[\s\S]*?<\/p:bg>/,
+      `<p:bg><p:bgPr>${gradFill}<a:effectLst/></p:bgPr></p:bg>`,
+      `slide ${slideIndex + 1}'s gradient background`,
+    );
+  }
+  return zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" });
+}
+
 /**
  * Fetch a URL and return it as a base64 data URI.
  *
@@ -1160,7 +1334,21 @@ export default defineAction({
     )
       ? rawAspectRatio
       : undefined;
-    const dims = getAspectRatioDims(aspectRatio);
+    // `<p:sldSz>` is per presentation, so the first slide that declares a
+    // source page size settles it for the whole export; `parseSlideHtml`
+    // re-derives the same value per slide.
+    const slideContents: string[] = slides.map((slide: unknown) =>
+      slide && typeof slide === "object" && typeof (slide as { content?: unknown }).content === "string"
+        ? (slide as { content: string }).content
+        : "",
+    );
+    const sourcePage = slideContents
+      .map(sourcePageInches)
+      .find((page) => page !== undefined);
+    const dims: SlideDims = {
+      ...getAspectRatioDims(aspectRatio),
+      ...(sourcePage ? { pptxInches: sourcePage } : {}),
+    };
 
     const PptxGenJS = (await import("pptxgenjs")).default;
     const pptx = new PptxGenJS();
@@ -1181,19 +1369,41 @@ export default defineAction({
     pptx.author = "Agent Native Slides";
     pptx.title = row.title;
 
+    const slideGradients = new Map<number, string>();
+    let backgroundGradientsFlattened = 0;
+
     for (const [slideIndex, slide] of slides.entries()) {
       const pptxSlide = pptx.addSlide();
-      const slideContent =
-        slide && typeof slide === "object" && typeof slide.content === "string"
-          ? slide.content
-          : "";
-      const { texts, images, shapes, tables, grid, bgColor, bgTransparency } =
-        parseSlideHtml(slideContent, aspectRatio, slideIndex + 1);
+      const slideContent = slideContents[slideIndex];
+      const {
+        texts,
+        images,
+        shapes,
+        tables,
+        grid,
+        bgColor,
+        bgTransparency,
+        bgGradient,
+      } = parseSlideHtml(slideContent, aspectRatio, slideIndex + 1);
 
+      // The solid fill stays the pre-rewrite value: `applyDeckIdentity`
+      // replaces the whole `<p:bg>` when the gradient survives, and this is
+      // what the deck falls back to when it does not.
       pptxSlide.background = {
         color: bgColor,
         ...(bgTransparency != null ? { transparency: bgTransparency } : {}),
       };
+      if (bgGradient) {
+        const gradFill = cssGradientToDrawingMl(bgGradient);
+        if (gradFill) {
+          slideGradients.set(slideIndex, gradFill);
+        } else {
+          backgroundGradientsFlattened++;
+          console.warn(
+            `[export-pptx] slide ${slideIndex + 1} background "${bgGradient}" has no DrawingML equivalent; exported as flat #${bgColor}`,
+          );
+        }
+      }
 
       if (grid) {
         const gridWidth = pxToIn(grid.stepX, dims);
@@ -1356,7 +1566,10 @@ export default defineAction({
       }
     }
 
-    const buffer = (await pptx.write({ outputType: "nodebuffer" })) as Buffer;
+    const buffer = await applyDeckIdentity(
+      (await pptx.write({ outputType: "nodebuffer" })) as Buffer,
+      { themeColors: deckThemeColors(deckData), slideGradients },
+    );
     const filename = safeGeneratedFilename(row.title, ".pptx");
 
     // Disk write is only useful when the same process can later serve the
@@ -1374,9 +1587,37 @@ export default defineAction({
       fs.writeFileSync(filePath, buffer);
     }
 
-    return { buffer, filePath, filename, slideCount: slides.length };
+    return {
+      buffer,
+      filePath,
+      filename,
+      slideCount: slides.length,
+      ...(backgroundGradientsFlattened > 0
+        ? { backgroundGradientsFlattened }
+        : {}),
+    };
   },
 });
+
+/**
+ * The palette an imported deck kept from its source `<a:clrScheme>`, in the
+ * shape `import-pptx` already returns. Absent on decks imported before the
+ * importer persisted it, and on decks the editor authored — both export with
+ * pptxgenjs's Office default, which is the honest answer for a deck that has
+ * no theme of its own.
+ */
+function deckThemeColors(
+  deckData: unknown,
+): Record<string, string> | undefined {
+  const colorsByName = (
+    deckData as { theme?: { colorsByName?: unknown } } | null
+  )?.theme?.colorsByName;
+  if (!colorsByName || typeof colorsByName !== "object") return undefined;
+  const entries = Object.entries(colorsByName).filter(
+    (entry): entry is [string, string] => typeof entry[1] === "string",
+  );
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
 
 function isServerless(): boolean {
   return Boolean(

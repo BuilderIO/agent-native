@@ -278,11 +278,7 @@
   width: 100%;
   border: 1px solid hsl(var(--border));
   border-radius: calc(var(--radius) - 2px);
-  background: color-mix(
-    in srgb,
-    hsl(var(--card)) 97%,
-    hsl(var(--foreground)) 3%
-  );
+  background: hsl(var(--card));
   color: hsl(var(--foreground) / 0.84);
   font-size: 12px;
   font-weight: 500;
@@ -1801,7 +1797,11 @@
   padding: 10px 12px;
   border: 1px solid hsl(var(--border));
   border-radius: var(--radius);
-  background: hsl(var(--card));
+  background: color-mix(
+    in srgb,
+    hsl(var(--card)) 97%,
+    hsl(var(--foreground)) 3%
+  );
   color: hsl(var(--foreground) / 0.82);
 }
 
