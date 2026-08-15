@@ -586,8 +586,10 @@ async function buildSlideTemplateContext(args: {
     clrMap: masterInfo.clrMap,
   };
   const background =
-    parseBackgroundNode(record(layoutRoot?.["p:cSld"])?.["p:bg"], colorContext) ??
-    parseBackgroundNode(masterInfo.background, colorContext);
+    parseBackgroundNode(
+      record(layoutRoot?.["p:cSld"])?.["p:bg"],
+      colorContext,
+    ) ?? parseBackgroundNode(masterInfo.background, colorContext);
 
   // `showMasterSp="0"` is a layout opting out of the master's own decoration;
   // honouring it is the difference between reproducing a template and
@@ -596,7 +598,11 @@ async function buildSlideTemplateContext(args: {
   const layerElements: ParsedPptxElement[] = [];
   const layerSources: { xml: string; path: string; prefix: string }[] = [];
   if (masterInfo.xml && stringValue(layoutRoot?.["@_showMasterSp"]) !== "0") {
-    layerSources.push({ xml: masterInfo.xml, path: masterPath, prefix: "master" });
+    layerSources.push({
+      xml: masterInfo.xml,
+      path: masterPath,
+      prefix: "master",
+    });
   }
   if (layoutXml) {
     layerSources.push({ xml: layoutXml, path: layoutPath, prefix: "layout" });

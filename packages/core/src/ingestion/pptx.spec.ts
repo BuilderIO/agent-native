@@ -725,7 +725,604 @@ describe("parsePptxPresentation", () => {
       height: 6_858_000,
     });
   });
+
+  it("inherits the master's gradient background when neither slide nor layout declares one", async () => {
+    const presentation = await parsePptxPresentation(
+      await buildPptxBufferWithParts({
+        slides: [textSlideXml("Great Idea!")],
+        master: masterXml({
+          background: `<p:bg><p:bgPr><a:gradFill><a:gsLst>
+            <a:gs pos="0"><a:srgbClr val="013445"/></a:gs>
+            <a:gs pos="100000"><a:srgbClr val="018589"/></a:gs>
+          </a:gsLst><a:path path="circle"><a:fillToRect b="100%" l="0%" r="100%" t="0%"/></a:path></a:gradFill></p:bgPr></p:bg>`,
+        }),
+      }),
+    );
+
+    expect(presentation.slides[0]?.backgroundColor).toBe(
+      "radial-gradient(circle at 0% 0%, #013445 0%, #018589 100%)",
+    );
+  });
+
+  it("prefers the layout's own background over the master's, and the slide's over both", async () => {
+    const master = masterXml({
+      background: `<p:bg><p:bgPr><a:solidFill><a:srgbClr val="9CCB5A"/></a:solidFill></p:bgPr></p:bg>`,
+    });
+    const layout = layoutXml({
+      background: `<p:bg><p:bgPr><a:gradFill><a:gsLst>
+        <a:gs pos="0"><a:srgbClr val="038DAF"/></a:gs>
+        <a:gs pos="100000"><a:srgbClr val="57308B"/></a:gs>
+      </a:gsLst><a:lin ang="13500000"/></a:gradFill></p:bgPr></p:bg>`,
+    });
+
+    const inherited = await parsePptxPresentation(
+      await buildPptxBufferWithParts({
+        slides: [textSlideXml("Layout background")],
+        master,
+        layout,
+      }),
+    );
+    expect(inherited.slides[0]?.backgroundColor).toBe(
+      "linear-gradient(315deg, #038DAF 0%, #57308B 100%)",
+    );
+
+    const own = await parsePptxPresentation(
+      await buildPptxBufferWithParts({
+        slides: [
+          textSlideXml("Own background", {
+            background: `<p:bg><p:bgPr><a:solidFill><a:srgbClr val="242424"/></a:solidFill></p:bgPr></p:bg>`,
+          }),
+        ],
+        master,
+        layout,
+      }),
+    );
+    expect(own.slides[0]?.backgroundColor).toBe("#242424");
+  });
+
+  it("renders the layout's and master's own non-placeholder shapes behind the slide's, honouring showMasterSp", async () => {
+    const master = masterXml({
+      shapes: `<p:sp>
+        <p:nvSpPr><p:cNvPr id="85" name="Master band"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+        <p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="12192000" cy="400000"/></a:xfrm>
+          <a:solidFill><a:srgbClr val="013445"/></a:solidFill></p:spPr>
+      </p:sp>`,
+    });
+    const layout = layoutXml({
+      shapes: `<p:sp>
+        <p:nvSpPr><p:cNvPr id="86" name="Layout band"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+        <p:spPr><a:xfrm><a:off x="0" y="6458000"/><a:ext cx="12192000" cy="400000"/></a:xfrm>
+          <a:solidFill><a:srgbClr val="00FFFF"/></a:solidFill></p:spPr>
+      </p:sp>`,
+    });
+
+    const withMaster = await parsePptxPresentation(
+      await buildPptxBufferWithParts({
+        slides: [textSlideXml("Great Idea!")],
+        master,
+        layout,
+      }),
+    );
+    expect(withMaster.slides[0]?.elements.map((element) => element.id)).toEqual(
+      ["master-85", "layout-86", "2"],
+    );
+    expect(withMaster.slides[0]?.elements[0]?.fill).toBe("#013445");
+
+    const hidingMaster = await parsePptxPresentation(
+      await buildPptxBufferWithParts({
+        slides: [textSlideXml("Great Idea!")],
+        master,
+        layout: layoutXml({
+          shapes: `<p:sp>
+            <p:nvSpPr><p:cNvPr id="86" name="Layout band"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+            <p:spPr><a:xfrm><a:off x="0" y="6458000"/><a:ext cx="12192000" cy="400000"/></a:xfrm>
+              <a:solidFill><a:srgbClr val="00FFFF"/></a:solidFill></p:spPr>
+          </p:sp>`,
+          attributes: ` showMasterSp="0"`,
+        }),
+      }),
+    );
+    expect(
+      hidingMaster.slides[0]?.elements.map((element) => element.id),
+    ).toEqual(["layout-86", "2"]);
+  });
+
+  it("imports a layout's own picture as a background-layer image", async () => {
+    const presentation = await parsePptxPresentation(
+      await buildPptxBufferWithParts({
+        slides: [textSlideXml("Great Idea!")],
+        layout: layoutXml({
+          shapes: `<p:pic>
+            <p:nvPicPr><p:cNvPr id="90" name="Brand mark"/><p:cNvPicPr/><p:nvPr/></p:nvPicPr>
+            <p:blipFill><a:blip r:embed="rId9"/></p:blipFill>
+            <p:spPr><a:xfrm><a:off x="100" y="200"/><a:ext cx="300" cy="400"/></a:xfrm></p:spPr>
+          </p:pic>`,
+        }),
+        layoutRels: [
+          { id: "rId9", type: "image", target: "../media/image1.png" },
+        ],
+        files: { "ppt/media/image1.png": TINY_PNG },
+      }),
+    );
+
+    expect(presentation.slides[0]?.images.map((image) => image.name)).toEqual([
+      "image1.png",
+    ]);
+    expect(presentation.slides[0]?.elements[0]).toMatchObject({
+      id: "layout-90",
+      kind: "image",
+    });
+  });
+
+  it("inherits size, typeface and bold from the layout placeholder's lstStyle, not just its color", async () => {
+    const presentation = await parsePptxPresentation(
+      await buildPptxBufferWithParts({
+        slides: [titlePlaceholderSlideXml("Great Idea!", "title")],
+        layout: layoutXml({
+          shapes: `<p:sp>
+            <p:nvSpPr><p:cNvPr id="10" name="Title"/><p:cNvSpPr/><p:nvPr><p:ph type="title"/></p:nvPr></p:nvSpPr>
+            <p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="9000000" cy="1000000"/></a:xfrm></p:spPr>
+            <p:txBody><a:bodyPr/><a:lstStyle>
+              <a:lvl1pPr><a:defRPr sz="12800" b="1"><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill><a:latin typeface="Poppins"/></a:defRPr></a:lvl1pPr>
+            </a:lstStyle></p:txBody>
+          </p:sp>`,
+        }),
+      }),
+    );
+
+    expect(presentation.slides[0]?.texts[0]).toEqual({
+      content: "Great Idea!",
+      fontSize: 128,
+      bold: true,
+      color: "#FFFFFF",
+      fontFamily: "Poppins",
+    });
+  });
+
+  it("resolves a slide's ctrTitle against the master's title placeholder shape", async () => {
+    const presentation = await parsePptxPresentation(
+      await buildPptxBufferWithParts({
+        slides: [titlePlaceholderSlideXml("HERE GOES YOUR", "ctrTitle")],
+        master: masterXml({
+          shapes: `<p:sp>
+            <p:nvSpPr><p:cNvPr id="42" name="Title"/><p:cNvSpPr/><p:nvPr><p:ph type="title"/></p:nvPr></p:nvSpPr>
+            <p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="9000000" cy="1000000"/></a:xfrm></p:spPr>
+            <p:txBody><a:bodyPr/><a:lstStyle>
+              <a:lvl1pPr><a:defRPr><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill></a:defRPr></a:lvl1pPr>
+            </a:lstStyle></p:txBody>
+          </p:sp>`,
+          txStyles: `<p:txStyles><p:titleStyle>
+            <a:lvl1pPr><a:defRPr><a:solidFill><a:srgbClr val="000000"/></a:solidFill></a:defRPr></a:lvl1pPr>
+          </p:titleStyle></p:txStyles>`,
+        }),
+      }),
+    );
+
+    expect(presentation.slides[0]?.texts[0]?.color).toBe("#FFFFFF");
+  });
+
+  it("reads the deck palette from the slide master's own theme, not ppt/theme/theme1.xml", async () => {
+    const presentation = await parsePptxPresentation(
+      await buildPptxBufferWithParts({
+        slides: [textSlideXml("Great Idea!")],
+      }),
+    );
+
+    // theme1.xml is the notes master's theme in every Google Slides export.
+    expect(presentation.theme?.colors).toContain("#00FFFF");
+    expect(presentation.theme?.colors).not.toContain("#058DC7");
+  });
+
+  it("resolves a:hlinkClick into the run's href", async () => {
+    const presentation = await parsePptxPresentation(
+      await buildPptxBufferWithParts({
+        slides: [
+          textSlideXml("Click here for edit files", {
+            runProperties: `<a:rPr lang="en-GB"><a:hlinkClick r:id="rId7"/></a:rPr>`,
+          }),
+        ],
+        slideRels: [
+          {
+            id: "rId7",
+            type: "hyperlink",
+            target: "https://example.com/edit-files",
+          },
+        ],
+      }),
+    );
+
+    expect(presentation.slides[0]?.texts[0]?.href).toBe(
+      "https://example.com/edit-files",
+    );
+  });
+
+  it("substitutes a slidenum field with the slide's own number, including on a layout", async () => {
+    const presentation = await parsePptxPresentation(
+      await buildPptxBufferWithParts({
+        slides: [
+          textSlideXml("First"),
+          `<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+            <p:cSld><p:spTree>
+              <p:sp>
+                <p:nvSpPr><p:cNvPr id="3" name="Footer"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+                <p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="100" cy="100"/></a:xfrm></p:spPr>
+                <p:txBody><a:bodyPr/><a:lstStyle/><a:p>
+                  <a:fld id="{0}" type="slidenum"><a:t>&#8249;#&#8250;</a:t></a:fld>
+                </a:p></p:txBody>
+              </p:sp>
+            </p:spTree></p:cSld>
+          </p:sld>`,
+        ],
+        layout: layoutXml({
+          shapes: `<p:sp>
+            <p:nvSpPr><p:cNvPr id="70" name="Page number"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+            <p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="100" cy="100"/></a:xfrm></p:spPr>
+            <p:txBody><a:bodyPr/><a:lstStyle/><a:p>
+              <a:fld id="{1}" type="slidenum"><a:t>&#8249;#&#8250;</a:t></a:fld>
+            </a:p></p:txBody>
+          </p:sp>`,
+        }),
+      }),
+    );
+
+    const contents = presentation.slides.map((slide) =>
+      slide.texts.map((run) => run.content).join("|"),
+    );
+    expect(contents[0]).toBe("1|\n|First");
+    expect(contents[1]).toBe("2|\n|2");
+  });
+
+  it("reads spcBef/spcAft from their nested a:spcPts value", async () => {
+    const presentation = await parsePptxPresentation(
+      await buildMinimalPptxBuffer(`
+        <p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+          <p:cSld><p:spTree>
+            <p:sp>
+              <p:nvSpPr><p:cNvPr id="2" name="Body"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+              <p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="100" cy="100"/></a:xfrm></p:spPr>
+              <p:txBody><a:bodyPr/><a:lstStyle/>
+                <a:p>
+                  <a:pPr><a:spcBef><a:spcPts val="1600"/></a:spcBef><a:spcAft><a:spcPts val="300"/></a:spcAft></a:pPr>
+                  <a:r><a:t>Highlight 1</a:t></a:r>
+                </a:p>
+              </p:txBody>
+            </p:sp>
+          </p:spTree></p:cSld>
+        </p:sld>
+      `),
+    );
+
+    expect(presentation.slides[0]?.elements[0]?.paragraphs?.[0]).toMatchObject({
+      spaceBeforePt: 16,
+      spaceAfterPt: 3,
+    });
+  });
+
+  it("keeps numeric-looking text as text, leading zeros intact", async () => {
+    const presentation = await parsePptxPresentation(
+      await buildMinimalPptxBuffer(`
+        <p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+          <p:cSld><p:spTree>
+            <p:sp>
+              <p:nvSpPr><p:cNvPr id="2" name="Specimen"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+              <p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="100" cy="100"/></a:xfrm></p:spPr>
+              <p:txBody><a:bodyPr/><a:lstStyle/>
+                <a:p><a:r><a:t>0123456789</a:t></a:r></a:p>
+                <a:p><a:r><a:t>CMYK: 00, 00, 00, 00</a:t></a:r></a:p>
+              </p:txBody>
+            </p:sp>
+          </p:spTree></p:cSld>
+        </p:sld>
+      `),
+    );
+
+    expect(presentation.slides[0]?.texts.map((run) => run.content)).toEqual([
+      "0123456789",
+      "\n",
+      "CMYK: 00, 00, 00, 00",
+    ]);
+  });
+
+  it("keeps a:br hard line breaks in document order between runs", async () => {
+    const presentation = await parsePptxPresentation(
+      await buildMinimalPptxBuffer(`
+        <p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+          <p:cSld><p:spTree>
+            <p:sp>
+              <p:nvSpPr><p:cNvPr id="2" name="Heading"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+              <p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="100" cy="100"/></a:xfrm></p:spPr>
+              <p:txBody><a:bodyPr/><a:lstStyle/>
+                <a:p>
+                  <a:r><a:rPr sz="2400"/><a:t>IMAGE GUIDELINES</a:t></a:r>
+                  <a:br/>
+                  <a:r><a:rPr sz="2400"/><a:t>FOR SOCIAL MEDIA</a:t></a:r>
+                </a:p>
+              </p:txBody>
+            </p:sp>
+          </p:spTree></p:cSld>
+        </p:sld>
+      `),
+    );
+
+    const runs = presentation.slides[0]?.elements[0]?.paragraphs?.[0]?.runs;
+    expect(runs?.map((run) => run.content)).toEqual([
+      "IMAGE GUIDELINES",
+      "\n",
+      "FOR SOCIAL MEDIA",
+    ]);
+    // The break inherits its neighbour's size, or it collapses the line it makes.
+    expect(runs?.[1]?.fontSize).toBe(24);
+  });
+
+  it("sizes a table from its tblGrid instead of the graphicFrame's sentinel ext", async () => {
+    const presentation = await parsePptxPresentation(
+      await buildMinimalPptxBuffer(`
+        <p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+          <p:cSld><p:spTree>
+            <p:graphicFrame>
+              <p:nvGraphicFramePr><p:cNvPr id="140" name="Table"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr>
+              <p:xfrm><a:off x="310725" y="976513"/><a:ext cx="3000000" cy="3000000"/></p:xfrm>
+              <a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table">
+                <a:tbl>
+                  <a:tblGrid>
+                    <a:gridCol w="4000000"/>
+                    <a:gridCol w="4097950"/>
+                  </a:tblGrid>
+                  <a:tr h="600000">
+                    <a:tc><a:txBody><a:bodyPr/><a:p><a:r><a:t>KPI (USA)</a:t></a:r></a:p></a:txBody></a:tc>
+                    <a:tc><a:txBody><a:bodyPr/><a:p><a:r><a:t>ARPPU</a:t></a:r></a:p></a:txBody></a:tc>
+                  </a:tr>
+                </a:tbl>
+              </a:graphicData></a:graphic>
+            </p:graphicFrame>
+          </p:spTree></p:cSld>
+        </p:sld>
+      `),
+    );
+
+    expect(presentation.slides[0]?.elements[0]).toMatchObject({
+      kind: "table",
+      width: 8_097_950,
+      height: 600_000,
+    });
+  });
+
+  it("applies a normAutofit fontScale to the text the author let PowerPoint shrink", async () => {
+    const presentation = await parsePptxPresentation(
+      await buildMinimalPptxBuffer(`
+        <p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+          <p:cSld><p:spTree>
+            <p:sp>
+              <p:nvSpPr><p:cNvPr id="2" name="Title"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+              <p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="100" cy="100"/></a:xfrm></p:spPr>
+              <p:txBody>
+                <a:bodyPr><a:normAutofit fontScale="90000" lnSpcReduction="10000"/></a:bodyPr>
+                <a:lstStyle/>
+                <a:p>
+                  <a:pPr><a:lnSpc><a:spcPct val="100000"/></a:lnSpc></a:pPr>
+                  <a:r><a:rPr sz="4000"/><a:t>Overflowing title</a:t></a:r>
+                </a:p>
+              </p:txBody>
+            </p:sp>
+          </p:spTree></p:cSld>
+        </p:sld>
+      `),
+    );
+
+    const paragraph = presentation.slides[0]?.elements[0]?.paragraphs?.[0];
+    expect(paragraph?.runs[0]?.fontSize).toBe(36);
+    expect(paragraph?.lineSpacing).toBe(0.9);
+  });
+
+  it("skips slides the author removed from the deck flow with show=0", async () => {
+    const presentation = await parsePptxPresentation(
+      await buildPptxBufferWithParts({
+        slides: [
+          textSlideXml("Kept"),
+          textSlideXml("Cut", { attributes: ` show="0"` }),
+          textSlideXml("Also kept"),
+        ],
+      }),
+    );
+
+    expect(presentation.slides.map((slide) => slide.texts[0]?.content)).toEqual(
+      ["Kept", "Also kept"],
+    );
+  });
+
+  it("keeps a cxnSp connector's authored id stable across imports", async () => {
+    const slideXml = `
+      <p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+        <p:cSld><p:spTree>
+          <p:cxnSp>
+            <p:nvCxnSpPr><p:cNvPr id="152" name="Rule"/><p:cNvCxnSpPr/><p:nvPr/></p:nvCxnSpPr>
+            <p:spPr>
+              <a:xfrm><a:off x="0" y="0"/><a:ext cx="3959400" cy="8400"/></a:xfrm>
+              <a:ln w="38100"><a:solidFill><a:srgbClr val="00FFFF"/></a:solidFill></a:ln>
+            </p:spPr>
+          </p:cxnSp>
+        </p:spTree></p:cSld>
+      </p:sld>`;
+    const first = await parsePptxPresentation(
+      await buildMinimalPptxBuffer(slideXml),
+    );
+    const second = await parsePptxPresentation(
+      await buildMinimalPptxBuffer(slideXml),
+    );
+
+    expect(first.slides[0]?.elements[0]?.id).toBe("152");
+    expect(second.slides[0]?.elements[0]?.id).toBe("152");
+  });
 });
+
+/** A 1×1 transparent PNG — real bytes, so `loadPptxImage` produces a browser-renderable image. */
+const TINY_PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+  "base64",
+);
+
+function textSlideXml(
+  content: string,
+  options: {
+    attributes?: string;
+    background?: string;
+    runProperties?: string;
+  } = {},
+): string {
+  return `<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"${options.attributes ?? ""}>
+    <p:cSld>${options.background ?? ""}<p:spTree>
+      <p:sp>
+        <p:nvSpPr><p:cNvPr id="2" name="Body"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+        <p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="100" cy="100"/></a:xfrm></p:spPr>
+        <p:txBody><a:bodyPr/><a:lstStyle/><a:p>
+          <a:r>${options.runProperties ?? ""}<a:t>${content}</a:t></a:r>
+        </a:p></p:txBody>
+      </p:sp>
+    </p:spTree></p:cSld>
+  </p:sld>`;
+}
+
+function titlePlaceholderSlideXml(content: string, type: string): string {
+  return `<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+    <p:cSld><p:spTree>
+      <p:sp>
+        <p:nvSpPr><p:cNvPr id="2" name="Title"/><p:cNvSpPr/><p:nvPr><p:ph type="${type}"/></p:nvPr></p:nvSpPr>
+        <p:spPr/>
+        <p:txBody><a:bodyPr/><a:lstStyle/><a:p>
+          <a:r><a:rPr lang="en-GB"/><a:t>${content}</a:t></a:r>
+        </a:p></p:txBody>
+      </p:sp>
+    </p:spTree></p:cSld>
+  </p:sld>`;
+}
+
+function masterXml(
+  options: { background?: string; shapes?: string; txStyles?: string } = {},
+): string {
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    <p:sldMaster xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+      <p:cSld>${options.background ?? ""}<p:spTree>${options.shapes ?? ""}</p:spTree></p:cSld>
+      <p:clrMap bg1="lt1" tx1="dk1" bg2="lt2" tx2="dk2" accent1="accent1" accent2="accent2" accent3="accent3" accent4="accent4" accent5="accent5" accent6="accent6" hlink="hlink" folHlink="folHlink"/>
+      ${options.txStyles ?? ""}
+    </p:sldMaster>`;
+}
+
+function layoutXml(
+  options: { background?: string; shapes?: string; attributes?: string } = {},
+): string {
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    <p:sldLayout xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"${options.attributes ?? ""}>
+      <p:cSld>${options.background ?? ""}<p:spTree>${options.shapes ?? ""}</p:spTree></p:cSld>
+    </p:sldLayout>`;
+}
+
+function themeXml(name: string, accent1: string): string {
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    <a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" name="${name}">
+      <a:themeElements>
+        <a:clrScheme name="${name}">
+          <a:dk1><a:sysClr val="windowText" lastClr="000000"/></a:dk1>
+          <a:lt1><a:sysClr val="window" lastClr="FFFFFF"/></a:lt1>
+          <a:dk2><a:srgbClr val="000000"/></a:dk2>
+          <a:lt2><a:srgbClr val="FFFFFF"/></a:lt2>
+          <a:accent1><a:srgbClr val="${accent1}"/></a:accent1>
+          <a:accent2><a:srgbClr val="013445"/></a:accent2>
+          <a:accent3><a:srgbClr val="018589"/></a:accent3>
+          <a:accent4><a:srgbClr val="336699"/></a:accent4>
+          <a:accent5><a:srgbClr val="336699"/></a:accent5>
+          <a:accent6><a:srgbClr val="336699"/></a:accent6>
+          <a:hlink><a:srgbClr val="0000FF"/></a:hlink>
+          <a:folHlink><a:srgbClr val="800080"/></a:folHlink>
+        </a:clrScheme>
+        <a:fontScheme name="${name}">
+          <a:majorFont><a:latin typeface="Arial"/></a:majorFont>
+          <a:minorFont><a:latin typeface="Arial"/></a:minorFont>
+        </a:fontScheme>
+      </a:themeElements>
+    </a:theme>`;
+}
+
+/**
+ * A real slide → slideLayout → slideMaster → theme package with every part
+ * overridable, so a test can put a background, a decorative shape or a picture
+ * on the layout/master the way a real template does. `ppt/theme/theme1.xml`
+ * is deliberately a *different* palette than the master's own theme2 — that is
+ * exactly the Google Slides shape where theme1 belongs to the notes master.
+ */
+async function buildPptxBufferWithParts(parts: {
+  slides: string[];
+  layout?: string;
+  master?: string;
+  slideRels?: { id: string; type: string; target: string }[];
+  layoutRels?: { id: string; type: string; target: string }[];
+  files?: Record<string, string | Buffer>;
+}): Promise<Uint8Array> {
+  const zip = new JSZip();
+  zip.file(
+    "ppt/presentation.xml",
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+      <p:presentation xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+                      xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+                      xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+        <p:sldIdLst>
+          ${parts.slides.map((_, index) => `<p:sldId id="${256 + index}" r:id="rId${index + 1}"/>`).join("\n")}
+        </p:sldIdLst>
+        <p:sldSz cx="12192000" cy="6858000"/>
+      </p:presentation>`,
+  );
+  zip.file(
+    "ppt/_rels/presentation.xml.rels",
+    pptxRelsXml([
+      ...parts.slides.map((_, index) => ({
+        id: `rId${index + 1}`,
+        type: "slide",
+        target: `slides/slide${index + 1}.xml`,
+      })),
+      {
+        id: `rId${parts.slides.length + 1}`,
+        type: "slideMaster",
+        target: "slideMasters/slideMaster1.xml",
+      },
+    ]),
+  );
+  zip.file("ppt/theme/theme1.xml", themeXml("Notes master", "058DC7"));
+  zip.file("ppt/theme/theme2.xml", themeXml("Real template", "00FFFF"));
+  zip.file("ppt/slideMasters/slideMaster1.xml", parts.master ?? masterXml());
+  zip.file(
+    "ppt/slideMasters/_rels/slideMaster1.xml.rels",
+    pptxRelsXml([{ id: "rId1", type: "theme", target: "../theme/theme2.xml" }]),
+  );
+  zip.file("ppt/slideLayouts/slideLayout1.xml", parts.layout ?? layoutXml());
+  zip.file(
+    "ppt/slideLayouts/_rels/slideLayout1.xml.rels",
+    pptxRelsXml([
+      {
+        id: "rId1",
+        type: "slideMaster",
+        target: "../slideMasters/slideMaster1.xml",
+      },
+      ...(parts.layoutRels ?? []),
+    ]),
+  );
+  for (const [index, slideXml] of parts.slides.entries()) {
+    zip.file(`ppt/slides/slide${index + 1}.xml`, slideXml);
+    zip.file(
+      `ppt/slides/_rels/slide${index + 1}.xml.rels`,
+      pptxRelsXml([
+        {
+          id: "rId1",
+          type: "slideLayout",
+          target: "../slideLayouts/slideLayout1.xml",
+        },
+        ...(parts.slideRels ?? []),
+      ]),
+    );
+  }
+  for (const [path, content] of Object.entries(parts.files ?? {})) {
+    zip.file(path, content);
+  }
+  return zip.generateAsync({ type: "uint8array" });
+}
 
 async function buildMinimalPptxBuffer(slideXml: string): Promise<Uint8Array> {
   const zip = new JSZip();
