@@ -833,7 +833,10 @@ export default function SessionsScreen() {
         animationType="slide"
         onRequestClose={() => setSignInOpen(false)}
       >
-        <SafeAreaView edges={["top"]} className="flex-1 bg-background-dark">
+        <SafeAreaView
+          edges={["top", "bottom"]}
+          className="flex-1 bg-background-dark"
+        >
           <View className="flex-row items-center justify-between border-b border-border-dark px-3 py-2">
             <Text className="px-2 text-[17px] font-bold text-foreground">
               Sign in to Dispatch

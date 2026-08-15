@@ -20,7 +20,7 @@ const HIDDEN_APP_ROUTES = [
 export default function TabLayout() {
   return (
     <Tabs
-      initialRouteName="sessions"
+      initialRouteName="chat"
       tabBar={(props) => <ChatFirstBottomTabs {...props} />}
       screenOptions={{
         headerShown: false,

@@ -41,6 +41,7 @@ import {
 import {
   isTrustedWebViewUrl,
   parseTrustedOrigin,
+  shouldOpenExternalWebViewUrl,
 } from "@/lib/webview-security";
 
 interface AppWebViewProps {
@@ -367,7 +368,7 @@ function AppWebView(
           void openGoogleSession(parsed.toString());
           return false;
         }
-        if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+        if (shouldOpenExternalWebViewUrl(parsed.toString())) {
           void Linking.openURL(parsed.toString());
         }
       } catch {

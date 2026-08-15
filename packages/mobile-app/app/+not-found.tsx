@@ -5,7 +5,7 @@ import { SafeAreaView } from "@/components/uniwind-interop";
 
 export default function NotFoundScreen() {
   return (
-    <SafeAreaView className="flex-1 bg-background-dark">
+    <SafeAreaView edges={["top", "bottom"]} className="flex-1 bg-background-dark">
       <View className="flex-1 items-center justify-center px-7.5">
         <Text className="text-text-muted text-xs font-bold tracking-[2px]">
           ROUTE NOT FOUND
@@ -13,10 +13,10 @@ export default function NotFoundScreen() {
         <Text className="text-white text-2xl font-bold tracking-tight mt-2.5 text-center">
           This page is unavailable.
         </Text>
-        <Link href="/sessions" asChild>
+        <Link href="/chat" asChild>
           <Pressable className="bg-primary rounded-xl px-5 py-3 mt-7 active:opacity-75">
             <Text className="text-background-dark text-sm font-bold">
-              Back to Sessions
+              Back to Chat
             </Text>
           </Pressable>
         </Link>
