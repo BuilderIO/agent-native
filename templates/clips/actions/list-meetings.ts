@@ -5,7 +5,9 @@
  *   - view='upcoming' — scheduled_start in the future and not yet started
  *   - view='agenda'   — scheduled_start from `agendaLookbackMin` ago onward,
  *                       started or not. The Meetings tab's rolling day view.
- *   - view='past'     — actual_end OR scheduled_end in the past, not trashed
+ *   - view='past'     — actual_end OR scheduled_end in the past, OR a
+ *                       manual/ad-hoc meeting with no scheduling and no
+ *                       in-progress recording; not trashed
  *   - view='all'      — every visible meeting (excluding trashed)
  *   - view='trash'    — trashed_at is not null
  *
@@ -223,13 +225,23 @@ export default defineAction({
         )!,
       );
     } else if (args.view === "past") {
-      // Either completed (actualEnd set) or scheduled-end in the past.
+      // Either completed (actualEnd set), scheduled-end in the past, or a
+      // manual/ad-hoc meeting with no scheduling and no in-progress recording
+      // at all. That last group (dictation-style notes with no calendar event
+      // and no actualStart) can never satisfy 'agenda' or 'upcoming' — both
+      // require scheduledStart — so 'past' is the only lifecycle view left
+      // for their content to surface in. A meeting that IS actively recording
+      // (actualStart set, actualEnd not yet) still waits for actualEnd.
       whereClauses.push(
         or(
           isNotNull(schema.meetings.actualEnd),
           and(
             isNotNull(schema.meetings.scheduledEnd),
             lt(schema.meetings.scheduledEnd, nowIso),
+          )!,
+          and(
+            isNull(schema.meetings.scheduledStart),
+            isNull(schema.meetings.actualStart),
           )!,
         )!,
       );
