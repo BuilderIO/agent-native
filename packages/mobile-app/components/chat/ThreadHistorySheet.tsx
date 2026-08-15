@@ -1,4 +1,4 @@
-import { IconTrash, IconX } from "@tabler/icons-react-native";
+import { IconPlus, IconTrash, IconX } from "@tabler/icons-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -80,12 +80,14 @@ export function ThreadHistorySheet({
   activeThreadId,
   activeBaseUrl,
   onSelect,
+  onNewChat,
   onClose,
 }: {
   visible: boolean;
   activeThreadId: string;
   activeBaseUrl: string;
   onSelect: (threadId: string, baseUrl?: string) => void;
+  onNewChat: () => void;
   onClose: () => void;
 }) {
   const [threads, setThreads] = useState<ChatThreadSummary[]>([]);
@@ -155,131 +157,158 @@ export function ThreadHistorySheet({
   return (
     <Modal
       visible={visible}
-      animationType="slide"
-      presentationStyle="formSheet"
+      animationType="fade"
+      transparent
       onRequestClose={onClose}
     >
-      <SafeAreaView
-        edges={["top", "bottom"]}
-        className="flex-1 bg-background-dark"
-      >
-        <View className="flex-row items-center justify-between px-4 pt-3 pb-2 border-b border-border-dark">
-          <Text className="text-white text-lg font-bold">Chats</Text>
-          <Pressable
-            className="p-1.5 active:opacity-75"
-            onPress={onClose}
-            accessibilityRole="button"
-            accessibilityLabel="Close chat history"
-          >
-            <IconX color="#71717a" size={20} strokeWidth={2} />
-          </Pressable>
-        </View>
+      <View className="flex-1 flex-row bg-black/60">
+        <Pressable
+          className="w-[88%] max-w-[380px] bg-background-dark"
+          onPress={(event) => event.stopPropagation()}
+        >
+          <SafeAreaView edges={["top", "bottom"]} className="flex-1">
+            <View className="flex-row items-center justify-between px-4 pt-3 pb-2 border-b border-border-dark">
+              <Text className="text-white text-lg font-bold">Chats</Text>
+              <Pressable
+                className="p-1.5 active:opacity-75"
+                onPress={onClose}
+                accessibilityRole="button"
+                accessibilityLabel="Close chat history"
+              >
+                <IconX color="#71717a" size={20} strokeWidth={2} />
+              </Pressable>
+            </View>
 
-        <View className="border-b border-border-dark">
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerClassName="flex-row items-center gap-2 px-3 py-3"
-          >
-            {apps.map((app) => (
-              <AppFilterChip
-                key={app.id}
-                label={app.name}
-                icon={app.icon}
-                selected={selectedAppId === app.id}
-                onPress={() => setSelectedAppId(app.id)}
-              />
-            ))}
-          </ScrollView>
-        </View>
-
-        {loading && threads.length === 0 ? (
-          <View className="flex-1 items-center justify-center">
-            <ActivityIndicator color="#d4d4d8" />
-          </View>
-        ) : loadError ? (
-          <View className="flex-1 items-center justify-center px-8 gap-3">
-            <Text className="text-error-text text-sm text-center">
-              {loadError}
-            </Text>
             <Pressable
-              className="h-9 px-4 rounded-lg border border-gray-border-light items-center justify-center active:opacity-75"
-              onPress={refresh}
+              className="flex-row items-center gap-3 px-4 py-3.5 border-b border-border-dark active:opacity-75"
+              onPress={() => {
+                onNewChat();
+                onClose();
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Start a new chat"
             >
-              <Text className="text-text-light text-[13px] font-semibold">
-                Retry
+              <View className="h-8 w-8 items-center justify-center rounded-lg bg-white">
+                <IconPlus color="#18181b" size={18} strokeWidth={2.2} />
+              </View>
+              <Text className="text-white text-[15px] font-semibold">
+                New chat
               </Text>
             </Pressable>
-          </View>
-        ) : threads.length === 0 ? (
-          <View className="flex-1 items-center justify-center px-8">
-            <Text className="text-status-gray text-sm text-center">
-              {`No ${apps.find((a) => a.id === selectedAppId)?.name ?? "app"} chats yet. Start a conversation there and it will show up here.`}
-            </Text>
-          </View>
-        ) : (
-          <FlatList
-            data={rows}
-            keyExtractor={(row) => row.key}
-            renderItem={({ item }) => {
-              const thread = item.thread;
-              const isActive =
-                thread.id === activeThreadId &&
-                (thread.baseUrl ?? "") === activeBaseUrl;
-              const confirming = confirmingDeleteKey === item.key;
-              return (
+
+            <View className="border-b border-border-dark">
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerClassName="flex-row items-center gap-2 px-3 py-3"
+              >
+                {apps.map((app) => (
+                  <AppFilterChip
+                    key={app.id}
+                    label={app.name}
+                    icon={app.icon}
+                    selected={selectedAppId === app.id}
+                    onPress={() => setSelectedAppId(app.id)}
+                  />
+                ))}
+              </ScrollView>
+            </View>
+
+            {loading && threads.length === 0 ? (
+              <View className="flex-1 items-center justify-center">
+                <ActivityIndicator color="#d4d4d8" />
+              </View>
+            ) : loadError ? (
+              <View className="flex-1 items-center justify-center px-8 gap-3">
+                <Text className="text-error-text text-sm text-center">
+                  {loadError}
+                </Text>
                 <Pressable
-                  className={`flex-row items-center gap-3 px-4 py-3 border-b border-border-dark active:opacity-75 ${
-                    isActive ? "bg-card-dark" : ""
-                  }`}
-                  onPress={() => {
-                    onSelect(thread.id, thread.baseUrl);
-                    onClose();
-                  }}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Open chat ${thread.title}`}
+                  className="h-9 px-4 rounded-lg border border-gray-border-light items-center justify-center active:opacity-75"
+                  onPress={refresh}
                 >
-                  <View className="flex-1">
-                    <Text
-                      className="text-white text-[15px] font-medium"
-                      numberOfLines={1}
-                    >
-                      {thread.title}
-                    </Text>
-                    {thread.preview ? (
-                      <Text
-                        className="text-status-gray text-[13px] mt-0.5"
-                        numberOfLines={1}
-                      >
-                        {thread.preview}
-                      </Text>
-                    ) : null}
-                  </View>
-                  <Text className="text-status-gray text-xs">
-                    {formatWhen(thread.updatedAt)}
+                  <Text className="text-text-light text-[13px] font-semibold">
+                    Retry
                   </Text>
-                  <Pressable
-                    className="p-1.5 active:opacity-75"
-                    onPress={() => handleDelete(thread)}
-                    accessibilityRole="button"
-                    accessibilityLabel={
-                      confirming
-                        ? "Confirm delete"
-                        : `Delete chat ${thread.title}`
-                    }
-                  >
-                    <IconTrash
-                      color={confirming ? "#fb7185" : "#71717a"}
-                      size={17}
-                      strokeWidth={1.8}
-                    />
-                  </Pressable>
                 </Pressable>
-              );
-            }}
-          />
-        )}
-      </SafeAreaView>
+              </View>
+            ) : threads.length === 0 ? (
+              <View className="flex-1 items-center justify-center px-8">
+                <Text className="text-status-gray text-sm text-center">
+                  {`No ${apps.find((a) => a.id === selectedAppId)?.name ?? "app"} chats yet. Start a conversation there and it will show up here.`}
+                </Text>
+              </View>
+            ) : (
+              <FlatList
+                data={rows}
+                keyExtractor={(row) => row.key}
+                renderItem={({ item }) => {
+                  const thread = item.thread;
+                  const isActive =
+                    thread.id === activeThreadId &&
+                    (thread.baseUrl ?? "") === activeBaseUrl;
+                  const confirming = confirmingDeleteKey === item.key;
+                  return (
+                    <Pressable
+                      className={`flex-row items-center gap-3 px-4 py-3 border-b border-border-dark active:opacity-75 ${
+                        isActive ? "bg-card-dark" : ""
+                      }`}
+                      onPress={() => {
+                        onSelect(thread.id, thread.baseUrl);
+                        onClose();
+                      }}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Open chat ${thread.title}`}
+                    >
+                      <View className="flex-1">
+                        <Text
+                          className="text-white text-[15px] font-medium"
+                          numberOfLines={1}
+                        >
+                          {thread.title}
+                        </Text>
+                        {thread.preview ? (
+                          <Text
+                            className="text-status-gray text-[13px] mt-0.5"
+                            numberOfLines={1}
+                          >
+                            {thread.preview}
+                          </Text>
+                        ) : null}
+                      </View>
+                      <Text className="text-status-gray text-xs">
+                        {formatWhen(thread.updatedAt)}
+                      </Text>
+                      <Pressable
+                        className="p-1.5 active:opacity-75"
+                        onPress={() => handleDelete(thread)}
+                        accessibilityRole="button"
+                        accessibilityLabel={
+                          confirming
+                            ? "Confirm delete"
+                            : `Delete chat ${thread.title}`
+                        }
+                      >
+                        <IconTrash
+                          color={confirming ? "#fb7185" : "#71717a"}
+                          size={17}
+                          strokeWidth={1.8}
+                        />
+                      </Pressable>
+                    </Pressable>
+                  );
+                }}
+              />
+            )}
+          </SafeAreaView>
+        </Pressable>
+        <Pressable
+          className="flex-1"
+          onPress={onClose}
+          accessibilityRole="button"
+          accessibilityLabel="Close chat history"
+        />
+      </View>
     </Modal>
   );
 }

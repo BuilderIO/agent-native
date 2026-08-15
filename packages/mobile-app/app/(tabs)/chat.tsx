@@ -2,8 +2,8 @@ import { TEMPLATE_APPS } from "@agent-native/shared-app-config";
 import {
   IconCopy,
   IconGitFork,
-  IconHistory,
   IconId,
+  IconMenu2,
   IconShare2,
   IconSquareRoundedPlus,
 } from "@tabler/icons-react-native";
@@ -228,14 +228,17 @@ export default function ChatTab() {
   return (
     <SafeAreaView edges={["top"]} className="flex-1 bg-background-dark">
       <View className="flex-row items-center gap-0.5 px-2 py-1.5">
+        <HeaderButton
+          label="Open chat history"
+          onPress={() => setHistoryOpen(true)}
+        >
+          <IconMenu2 color="#fafafa" size={21} strokeWidth={1.9} />
+        </HeaderButton>
         <Text className="flex-1 text-white text-[17px] font-bold pl-2">
           Chat
         </Text>
         <HeaderButton label="Share chat" onPress={shareThread}>
           <IconShare2 color="#fafafa" size={19} strokeWidth={1.9} />
-        </HeaderButton>
-        <HeaderButton label="Chat history" onPress={() => setHistoryOpen(true)}>
-          <IconHistory color="#fafafa" size={20} strokeWidth={1.9} />
         </HeaderButton>
         <HeaderButton label="New chat" onPress={chat.newChat}>
           <IconSquareRoundedPlus color="#fafafa" size={20} strokeWidth={1.9} />
@@ -318,6 +321,7 @@ export default function ChatTab() {
         activeThreadId={chat.threadId}
         activeBaseUrl={chat.baseUrl}
         onSelect={chat.openThread}
+        onNewChat={chat.newChat}
         onClose={() => setHistoryOpen(false)}
       />
       <ChatSettingsSheet
