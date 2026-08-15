@@ -1067,41 +1067,113 @@ function splitTopLevel(list: string): string[] | undefined {
   return parts;
 }
 
+const round3 = (value: number) => `${Math.round(value * 1000) / 1000}`;
+
+/** `#RRGGBBAA` split into the two attributes SVG stops take; anything else is already a colour a stop accepts. */
+function stopPaint(color: string): { color: string; opacity?: string } {
+  const hex8 = color.match(/^#([\da-f]{6})([\da-f]{2})$/i);
+  if (!hex8) return { color };
+  return {
+    color: `#${hex8[1]}`,
+    opacity: round3(Number.parseInt(hex8[2], 16) / 255),
+  };
+}
+
+function appendGradientStops(
+  gradient: SVGElement,
+  stopParts: string[],
+): SVGElement {
+  stopParts.forEach((part, index) => {
+    const position = part.match(/\s(-?[\d.]+)%$/)?.[1];
+    const raw = position == null ? part : part.slice(0, -position.length - 1);
+    const paint = stopPaint(raw.trim());
+    const stop = document.createElementNS(SVG_NAMESPACE, "stop");
+    stop.setAttribute(
+      "offset",
+      position != null
+        ? `${position}%`
+        : `${(index / (stopParts.length - 1)) * 100}%`,
+    );
+    stop.setAttribute("stop-color", paint.color);
+    if (paint.opacity) stop.setAttribute("stop-opacity", paint.opacity);
+    gradient.appendChild(stop);
+  });
+  return gradient;
+}
+
 /**
- * A CSS `linear-gradient` as an SVG paint server for the traced outline.
- * Without this the outline is filled with `background-color`, which a
- * gradient-filled shape leaves at `rgba(0, 0, 0, 0)`: canyon's master draws 20
- * `gradFill` freeforms behind every slide, and each one rasterized to a fully
- * transparent PNG that the export then shipped as a successful render.
+ * A CSS gradient as an SVG paint server for the traced outline. Without this
+ * the outline is filled with `background-color`, which a gradient-filled shape
+ * leaves at `rgba(0, 0, 0, 0)`: canyon's layout draws 20 `gradFill` freeforms
+ * behind every slide, and each one rasterized to a fully transparent PNG that
+ * the export then shipped as a successful render.
  *
- * `userSpaceOnUse` rather than the default bounding box because the CSS
- * gradient line's length depends on the box's real proportions, which
- * normalized coordinates have already thrown away.
+ * `userSpaceOnUse` rather than the default bounding box because both the
+ * gradient line's length and the radial's farthest-corner radius depend on the
+ * box's real proportions, which normalized coordinates have thrown away.
  */
-export function linearGradientPaint(
+export function gradientPaint(
   backgroundImage: string,
   width: number,
   height: number,
   id: string,
-): SVGLinearGradientElement | undefined {
-  const body = backgroundImage
+): SVGElement | undefined {
+  const declaration = backgroundImage
     .trim()
-    .match(/^linear-gradient\(([\s\S]*)\)$/i)?.[1];
-  if (body == null) return undefined;
-  const parts = splitTopLevel(body);
+    .match(/^(linear|radial)-gradient\(([\s\S]*)\)$/i);
+  if (!declaration) return undefined;
+  const parts = splitTopLevel(declaration[2]);
   if (!parts || parts.length < 2) return undefined;
-
   const head = parts[0].toLowerCase();
+
+  if (declaration[1].toLowerCase() === "radial") {
+    const focus = head.match(
+      /^(?:circle|ellipse)?\s*at\s+(-?[\d.]+)%\s+(-?[\d.]+)%$/,
+    );
+    // A size keyword, a length focus, or an ellipse's two radii are all shapes
+    // this does not place. Reporting them blank beats inventing a circle.
+    if (!focus && head !== "circle" && head !== "ellipse") return undefined;
+    const stopParts = parts.slice(1);
+    if (stopParts.length < 2) return undefined;
+    const cx = focus ? (Number.parseFloat(focus[1]) / 100) * width : width / 2;
+    const cy = focus
+      ? (Number.parseFloat(focus[2]) / 100) * height
+      : height / 2;
+    const gradient = document.createElementNS(SVG_NAMESPACE, "radialGradient");
+    gradient.setAttribute("id", id);
+    gradient.setAttribute("gradientUnits", "userSpaceOnUse");
+    gradient.setAttribute("cx", round3(cx));
+    gradient.setAttribute("cy", round3(cy));
+    // CSS sizes an unqualified radial to its farthest corner.
+    gradient.setAttribute(
+      "r",
+      round3(
+        Math.max(
+          Math.hypot(cx, cy),
+          Math.hypot(width - cx, cy),
+          Math.hypot(cx, height - cy),
+          Math.hypot(width - cx, height - cy),
+        ),
+      ),
+    );
+    return appendGradientStops(gradient, stopParts);
+  }
+
   const declaredAngle = head.match(/^(-?[\d.]+)deg$/)?.[1];
   const sideAngle = GRADIENT_SIDE_ANGLES[head];
   const hasDirection = declaredAngle != null || sideAngle !== undefined;
   // A corner keyword or a unit this does not read is still a direction, so it
   // is not a colour stop either. Reporting it blank beats inventing an angle.
-  if (!hasDirection && /^(to\b|calc\(|-?[\d.]+(deg|rad|grad|turn))/.test(head)) {
+  if (
+    !hasDirection &&
+    /^(to\b|calc\(|-?[\d.]+(deg|rad|grad|turn))/.test(head)
+  ) {
     return undefined;
   }
   const angle =
-    declaredAngle != null ? Number.parseFloat(declaredAngle) : (sideAngle ?? 180);
+    declaredAngle != null
+      ? Number.parseFloat(declaredAngle)
+      : (sideAngle ?? 180);
   const stopParts = hasDirection ? parts.slice(1) : parts;
   if (stopParts.length < 2) return undefined;
 
@@ -1112,26 +1184,11 @@ export function linearGradientPaint(
   const gradient = document.createElementNS(SVG_NAMESPACE, "linearGradient");
   gradient.setAttribute("id", id);
   gradient.setAttribute("gradientUnits", "userSpaceOnUse");
-  const round = (value: number) => `${Math.round(value * 1000) / 1000}`;
-  gradient.setAttribute("x1", round(width / 2 - (dx * lineLength) / 2));
-  gradient.setAttribute("y1", round(height / 2 - (dy * lineLength) / 2));
-  gradient.setAttribute("x2", round(width / 2 + (dx * lineLength) / 2));
-  gradient.setAttribute("y2", round(height / 2 + (dy * lineLength) / 2));
-
-  stopParts.forEach((part, index) => {
-    const position = part.match(/\s(-?[\d.]+)%$/)?.[1];
-    const color = position == null ? part : part.slice(0, -position.length - 1);
-    const stop = document.createElementNS(SVG_NAMESPACE, "stop");
-    stop.setAttribute(
-      "offset",
-      position != null
-        ? `${position}%`
-        : `${(index / (stopParts.length - 1)) * 100}%`,
-    );
-    stop.setAttribute("stop-color", color.trim());
-    gradient.appendChild(stop);
-  });
-  return gradient;
+  gradient.setAttribute("x1", round3(width / 2 - (dx * lineLength) / 2));
+  gradient.setAttribute("y1", round3(height / 2 - (dy * lineLength) / 2));
+  gradient.setAttribute("x2", round3(width / 2 + (dx * lineLength) / 2));
+  gradient.setAttribute("y2", round3(height / 2 + (dy * lineLength) / 2));
+  return appendGradientStops(gradient, stopParts);
 }
 
 function clipPathPixels(raw: string | undefined, side: number) {
@@ -1187,7 +1244,7 @@ export function materializeClipPathShapes(root: HTMLElement) {
 
     const path = document.createElementNS(SVG_NAMESPACE, "path");
     path.setAttribute("d", outline);
-    const gradient = linearGradientPaint(
+    const gradient = gradientPaint(
       style.backgroundImage,
       width,
       height,

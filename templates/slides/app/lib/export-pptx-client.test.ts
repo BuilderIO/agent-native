@@ -15,7 +15,7 @@ import {
   blankRasterResult,
   buildDeckPptxBlob,
   exportDeckAsPptx,
-  linearGradientPaint,
+  gradientPaint,
   materializeClipPathShapes,
   patchBulletIndentsInPptxBlob,
   pptxExportScale,
@@ -666,7 +666,7 @@ describe("materializeClipPathShapes", () => {
   });
 });
 
-describe("linearGradientPaint", () => {
+describe("gradientPaint", () => {
   it("fills a gradient shape with a paint server, not the transparent background-color", () => {
     const element = document.createElement("div");
     element.setAttribute(
@@ -691,7 +691,7 @@ describe("linearGradientPaint", () => {
   });
 
   it("places the gradient line the way CSS measures it", () => {
-    const toRight = linearGradientPaint(
+    const toRight = gradientPaint(
       "linear-gradient(to right, #000000, #ffffff)",
       200,
       100,
@@ -703,7 +703,7 @@ describe("linearGradientPaint", () => {
     expect(toRight?.getAttribute("y2")).toBe("50");
 
     // No direction: CSS defaults to `to bottom`, and the stops spread evenly.
-    const implicit = linearGradientPaint(
+    const implicit = gradientPaint(
       "linear-gradient(rgb(1, 2, 3), rgb(4, 5, 6), rgb(7, 8, 9))",
       200,
       100,
@@ -725,7 +725,7 @@ describe("linearGradientPaint", () => {
       "radial-gradient(circle at 50% 50%, #000000, #ffffff)",
       "none",
     ]) {
-      expect(linearGradientPaint(value, 200, 100, "g")).toBeUndefined();
+      expect(gradientPaint(value, 200, 100, "g")).toBeUndefined();
     }
   });
 });
