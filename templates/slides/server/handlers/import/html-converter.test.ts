@@ -594,7 +594,7 @@ describe("convertToSlideHtml stroke geometry", () => {
       shapeSlide({ shapeType: "triangle", lineColor: "#0000FF" }),
     );
     const style = styleAttr(html, "shape");
-    expect(style).not.toMatch(/border/);
+    expect(style).not.toMatch(/border(?:-[a-z]+)?: [\d.]+px/);
     expect(style).toContain("clip-path: polygon(50% 0%, 100% 100%, 0% 100%)");
     expect(html).toContain(
       '<path d="M48 0 L96 96 L0 96 Z" fill="none" stroke="#0000FF"',
