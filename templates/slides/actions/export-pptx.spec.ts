@@ -631,6 +631,20 @@ describe("parseSlideHtml", () => {
     expect(connector.w).toBe(0);
   });
 
+  it("collapses a thin imported rule onto its line axis", () => {
+    const [connector] = parseSlideHtml(
+      sourcePagedSlide(CONNECTOR_ELEMENT.replace("width: 0px;", "width: 2px;")),
+      "16:9",
+      4,
+    ).shapes;
+
+    expect(connector).toMatchObject({
+      shapeType: "line",
+      w: 0,
+    });
+    expect(connector.h).toBeGreaterThan(0);
+  });
+
   it("caps only the end of a line the source actually decorated", () => {
     const tailOnly = CONNECTOR_ELEMENT.replace(
       '<circle cx="3" cy="2.25" r="2.25" fill="#3A3838" />',
@@ -1137,6 +1151,14 @@ describe("exported slide XML", () => {
     );
     expect(slideXml).toContain('<a:headEnd type="oval"/>');
     expect(slideXml).toContain('<a:tailEnd type="oval"/>');
+  });
+
+  it("round-trips a thin imported rule without making it diagonal", async () => {
+    const thinRule = CONNECTOR_ELEMENT.replace("width: 0px;", "width: 2px;");
+    const slideXml = await writeParsedSlide(sourcePagedSlide(thinRule));
+
+    expect(slideXml).toContain('<a:prstGeom prst="line">');
+    expect(slideXml).toContain('cx="0"');
   });
 
   it("round-trips a source spcPct of 100% back to 100%, not 120%", async () => {

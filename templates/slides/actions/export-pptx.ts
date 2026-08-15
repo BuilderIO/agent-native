@@ -1060,6 +1060,8 @@ function importedLineStroke(
       | "lineDashType"
       | "lineHeadType"
       | "lineTailType"
+      | "w"
+      | "h"
     >
   | undefined {
   for (const [property, axis] of Object.entries(SINGLE_EDGE_BORDER_AXES)) {
@@ -1068,6 +1070,10 @@ function importedLineStroke(
     const color = colorToHex(border.color);
     return {
       shapeType: "line",
+      // A single-edge border is a line in the element's local coordinate
+      // system. Keep its perpendicular dimension collapsed after the box
+      // geometry has been parsed, or a thin rule becomes a diagonal line.
+      ...(axis === "x" ? { h: 0 } : { w: 0 }),
       lineColor: color.hex,
       lineTransparency: color.transparency,
       // The same 0.5pt floor the outline paths use, for the same reason:
