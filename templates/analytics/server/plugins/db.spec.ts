@@ -284,6 +284,23 @@ describe("analytics db.ts wires ensureAdditiveColumns after runMigrations", () =
     expect(dbTsSource).toContain("getAnalyticsMigrationDatabaseUrl()");
   });
 
+  it("indexes bounded purge inventory counts", () => {
+    const repairStart = dbTsSource.indexOf("version: 146,");
+    const repairEnd = dbTsSource.indexOf("\n    },", repairStart);
+    const repairEntry = dbTsSource.slice(repairStart, repairEnd);
+
+    expect(repairStart).toBeGreaterThan(-1);
+    expect(repairEnd).toBeGreaterThan(repairStart);
+    expect(repairEntry).toContain(
+      'name: "analytics-events-purge-inventory-index-direct-repair"',
+    );
+    expect(dbTsSource).toContain(
+      "analytics_event_daily_rollups_org_event_date_idx",
+    );
+    expect(dbTsSource).toContain("analytics_user_days_org_event_date_idx");
+    expect(repairEntry).toContain("repairAnalyticsEventCursorIndexes");
+  });
+
   it("stores BigQuery backfill progress in additive PostgreSQL and SQLite shard tables", () => {
     const shardStart = dbTsSource.indexOf("version: 142,");
     const shardEnd = dbTsSource.indexOf("\n    },", shardStart);

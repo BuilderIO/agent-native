@@ -62,6 +62,31 @@ async function repairAnalyticsEventCursorIndexes(): Promise<
 > {
   if (!isPostgres()) return;
 
+  const repairIndexes = [
+    {
+      name: "analytics_events_org_received_id_non_http_idx",
+      createSql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_events_org_received_id_non_http_idx
+        ON analytics_events (org_id, received_at, id)
+        WHERE event_name IS DISTINCT FROM 'http.response'`,
+    },
+    {
+      name: "analytics_events_owner_received_id_non_http_idx",
+      createSql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_events_owner_received_id_non_http_idx
+        ON analytics_events (owner_email, received_at, id)
+        WHERE org_id IS NULL AND event_name IS DISTINCT FROM 'http.response'`,
+    },
+    {
+      name: "analytics_event_daily_rollups_org_event_date_idx",
+      createSql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_event_daily_rollups_org_event_date_idx
+        ON analytics_event_daily_rollups (org_id, event_date)`,
+    },
+    {
+      name: "analytics_user_days_org_event_date_idx",
+      createSql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_user_days_org_event_date_idx
+        ON analytics_user_days (org_id, event_date)`,
+    },
+  ];
+
   const exec = await createDbExec({ url: getAnalyticsMigrationDatabaseUrl() });
   const query = (sql: string) =>
     exec.execute({
@@ -82,38 +107,21 @@ async function repairAnalyticsEventCursorIndexes(): Promise<
       SELECT c.relname, i.indisvalid, i.indisready
       FROM pg_class c
       JOIN pg_index i ON i.indexrelid = c.oid
-      WHERE c.relname IN (
-        'analytics_events_org_received_id_non_http_idx',
-        'analytics_events_owner_received_id_non_http_idx'
-      )
+      WHERE c.relname IN (${repairIndexes.map(({ name }) => `'${name}'`).join(", ")})
     `);
       const readyIndexes = new Set(
         rows
           .filter((row) => row.indisvalid === true && row.indisready === true)
           .map((row) => String(row.relname)),
       );
-      const expectedIndexes = [
-        "analytics_events_org_received_id_non_http_idx",
-        "analytics_events_owner_received_id_non_http_idx",
-      ];
+      const expectedIndexes = repairIndexes.map(({ name }) => name);
       if (expectedIndexes.every((name) => readyIndexes.has(name))) return;
 
-      await query(
-        "DROP INDEX CONCURRENTLY IF EXISTS analytics_events_org_received_id_non_http_idx",
-      );
-      await query(
-        `CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_events_org_received_id_non_http_idx
-       ON analytics_events (org_id, received_at, id)
-       WHERE event_name IS DISTINCT FROM 'http.response'`,
-      );
-      await query(
-        "DROP INDEX CONCURRENTLY IF EXISTS analytics_events_owner_received_id_non_http_idx",
-      );
-      await query(
-        `CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_events_owner_received_id_non_http_idx
-       ON analytics_events (owner_email, received_at, id)
-       WHERE org_id IS NULL AND event_name IS DISTINCT FROM 'http.response'`,
-      );
+      for (const { name, createSql } of repairIndexes) {
+        if (readyIndexes.has(name)) continue;
+        await query(`DROP INDEX CONCURRENTLY IF EXISTS ${name}`);
+        await query(createSql);
+      }
     } finally {
       if (lockHeld) {
         await query(
@@ -1776,6 +1784,15 @@ export const runAnalyticsMigrations = runMigrations(
     {
       version: 145,
       name: "analytics-events-backfill-filtered-cursor-index-direct-repair",
+      run: repairAnalyticsEventCursorIndexes,
+      sql: {
+        postgres: "SELECT 1",
+        sqlite: "SELECT 1",
+      },
+    },
+    {
+      version: 146,
+      name: "analytics-events-purge-inventory-index-direct-repair",
       run: repairAnalyticsEventCursorIndexes,
       sql: {
         postgres: "SELECT 1",
