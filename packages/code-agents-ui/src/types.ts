@@ -40,7 +40,7 @@ export type CodeAgentPromptAttachment = AgentPromptAttachment;
 
 export type CodeAgentFollowUpMode = "immediate" | "queued";
 
-export type CodeAgentExecutionTarget = "local" | "worktree";
+export type CodeAgentExecutionTarget = "local" | "worktree" | "portal";
 
 export interface CodeAgentRemoteWaitlistRequest {
   email: string;

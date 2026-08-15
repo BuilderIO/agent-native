@@ -154,6 +154,10 @@ import {
   loadMcpConfig,
   type McpServerConfig,
 } from "../../../core/src/mcp-client/config.js";
+import {
+  createPortalHandoff,
+  type PortalHandoff,
+} from "../../../core/src/cli/portal-workspace.js";
 import * as AppStore from "./app-store";
 import { BrowserControlLoopbackBridge } from "./browser-control/bridge";
 import {
@@ -1958,6 +1962,7 @@ function readRemoteDeviceConfig(): {
   relayUrl?: string;
   deviceId?: string;
   deviceName?: string;
+  workspacePath?: string;
 } | null {
   try {
     const raw = JSON.parse(
@@ -1977,6 +1982,12 @@ function readRemoteDeviceConfig(): {
       relayUrl: firstStringValue(raw.relayUrl, raw.url, raw.baseUrl),
       deviceId: firstStringValue(raw.deviceId, raw.id),
       deviceName: firstStringValue(raw.deviceName, raw.name),
+      workspacePath: firstStringValue(
+        raw.workspacePath,
+        raw.workspace,
+        raw.cwd,
+        raw.projectPath,
+      ),
     };
   } catch {
     return null;
@@ -1988,6 +1999,7 @@ function writeRemoteDeviceConfig(config: {
   relayUrl: string;
   deviceId?: string;
   deviceName?: string;
+  workspacePath?: string;
 }): void {
   writeJsonFileAtomically(
     remoteDeviceConfigPath(),
@@ -1996,6 +2008,7 @@ function writeRemoteDeviceConfig(config: {
       relayUrl: config.relayUrl,
       deviceId: config.deviceId,
       deviceName: config.deviceName,
+      workspacePath: config.workspacePath,
     },
     { mode: 0o600 },
   );

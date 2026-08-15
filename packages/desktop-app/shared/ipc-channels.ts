@@ -775,7 +775,7 @@ export interface CodeAgentRetryRunResult {
   error?: string;
 }
 
-export type CodeAgentExecutionTarget = "local" | "worktree";
+export type CodeAgentExecutionTarget = "local" | "worktree" | "portal";
 
 export interface CodeAgentRemoteWaitlistRequest {
   email: string;

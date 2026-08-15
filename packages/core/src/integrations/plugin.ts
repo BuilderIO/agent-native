@@ -601,6 +601,7 @@ function remoteCodeCommandParams(
       model: readString(command.model),
       effort: readString(command.effort),
       reasoningEffort: readString(command.reasoningEffort),
+      runId: readString(command.runId),
       workload: readString(command.workload) ?? "code-agent",
       metadata: readObject(command.metadata) ?? undefined,
     };
@@ -646,6 +647,7 @@ function enqueueBodyToRemoteCodeCommand(
       model: payload.model,
       effort: payload.effort,
       reasoningEffort: payload.reasoningEffort,
+      runId: payload.runId,
       workload: payload.workload,
       metadata: payload.metadata,
     };
@@ -752,6 +754,7 @@ function remoteDeviceToHost(device: RemoteDevice): Record<string, unknown> {
       (engine) => `engine:${engine}`,
     ),
     ...(executionCapabilities?.acceptsScheduledWork ? ["scheduled-task"] : []),
+    ...(executionCapabilities?.acceptsPortalHandoffs ? ["portal"] : []),
     ...(device.metadata?.computerCapabilities ? ["computer"] : []),
   ];
   return {

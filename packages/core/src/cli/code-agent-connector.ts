@@ -28,6 +28,13 @@ import {
   type CodeAgentRunRecord,
   type CodeAgentTranscriptEvent,
 } from "./code-agent-runs.js";
+import {
+  loadPortalEnvironment,
+  preparePortalWorkspace,
+  parsePortalHandoff,
+  type PortalEnvironment,
+  type PortalWorkspace,
+} from "./portal-workspace.js";
 
 export interface RemoteCodeAgentDeviceConfig {
   token: string;
@@ -89,6 +96,7 @@ export const DEFAULT_REMOTE_EXECUTION_CAPABILITIES: RemoteExecutionCapabilities 
     workloads: ["code-agent", "scheduled-code"],
     engines: ["codex-cli", "claude-cli", "pi-cli", "opencode-cli"],
     acceptsScheduledWork: true,
+    acceptsPortalHandoffs: true,
     persistence: "local-files",
     adapters: ["agent-native-code"],
   };
@@ -299,7 +307,7 @@ class RemoteCodeAgentConnector {
     );
   }
 
-  private createRun(command: RemoteCommand) {
+  private async createRun(command: RemoteCommand) {
     const prompt = firstTextValue(
       command.params.prompt,
       command.params.message,
@@ -309,9 +317,57 @@ class RemoteCodeAgentConnector {
       return { ok: false, error: "Missing prompt." };
     }
     const goalId = firstStringValue(command.params.goalId) ?? "task";
-    const cwd = resolveCommandCwd(
+    const metadata = isObject(command.params.metadata)
+      ? command.params.metadata
+      : {};
+    let cwd = resolveCommandCwd(
       command.params.cwd ?? this.config.workspacePath,
     );
+    let portalWorkspace: PortalWorkspace | undefined;
+    let portalEnvironment: PortalEnvironment | undefined;
+    if (metadata.portal !== undefined) {
+      try {
+        portalWorkspace = await preparePortalWorkspace({
+          handoff: parsePortalHandoff(metadata.portal),
+          workspacePath: this.config.workspacePath,
+        });
+        portalEnvironment = loadPortalEnvironment(
+          portalWorkspace.environmentRoot,
+        );
+        cwd = portalWorkspace.workspacePath;
+      } catch (error) {
+        return {
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    }
+    const requestedRunId = firstStringValue(command.params.runId);
+    if (portalWorkspace && requestedRunId && !isSafeRunId(requestedRunId)) {
+      return { ok: false, error: "Portal run id is invalid." };
+    }
+    if (portalWorkspace && requestedRunId) {
+      const existing = getCodeAgentRunRecord(requestedRunId);
+      const existingRemote = isObject(existing?.metadata?.remote)
+        ? existing.metadata.remote
+        : {};
+      if (
+        existing &&
+        firstStringValue(existingRemote.commandId) === command.id
+      ) {
+        this.remoteRunIds.add(existing.id);
+        this.transcriptCursors.set(existing.id, { offset: 0, seq: 0 });
+        if (!activeRunners.has(existing.id)) {
+          this.spawnRunner(
+            existing.id,
+            existing.cwd,
+            existing.permissionMode,
+            portalEnvironment?.values,
+          );
+        }
+        return { ok: true, runId: existing.id, run: existing, resumed: true };
+      }
+    }
     const permissionMode =
       normalizeCodeAgentPermissionMode(command.params.permissionMode) ??
       "full-auto";
@@ -321,13 +377,13 @@ class RemoteCodeAgentConnector {
       command.params.effort,
       command.params.reasoningEffort,
     );
-    const metadata = isObject(command.params.metadata)
-      ? command.params.metadata
-      : {};
     const run = createCodeAgentRunRecord({
+      ...(portalWorkspace && requestedRunId ? { id: requestedRunId } : {}),
       goalId,
       title: firstStringValue(command.params.title) ?? titleFromPrompt(prompt),
-      subtitle: "Remote coding task",
+      subtitle: portalWorkspace
+        ? `Portal on ${this.config.deviceName ?? "paired computer"}`
+        : "Remote coding task",
       status: "queued",
       phase: "queued",
       permissionMode,
@@ -342,6 +398,20 @@ class RemoteCodeAgentConnector {
         { label: "Prompt", value: truncateForDisplay(prompt, 160) },
         { label: "Agent", value: "Remote connector" },
         { label: "Mode", value: permissionMode },
+        ...(portalWorkspace
+          ? [
+              {
+                label: "Workspace",
+                value: `Portal · ${portalWorkspace.workspacePath}`,
+              },
+              {
+                label: "Environment",
+                value: portalEnvironment?.files.length
+                  ? `Loaded ${portalEnvironment.files.join(", ")}`
+                  : "Using paired computer environment",
+              },
+            ]
+          : []),
       ],
       metadata: {
         ...metadata,
@@ -354,7 +424,26 @@ class RemoteCodeAgentConnector {
           commandId: command.id,
           deviceId: this.config.deviceId,
           relayUrl: this.relayUrl,
+          ...(portalWorkspace ? { remoteRunId: run.id } : {}),
         },
+        ...(portalWorkspace
+          ? {
+              portal: portalWorkspace.handoff,
+              executionResidence: {
+                schemaVersion: 1,
+                kind: "portal",
+                hostId: this.config.deviceId,
+                hostLabel: this.config.deviceName ?? os.hostname(),
+                workspacePath: portalWorkspace.workspacePath,
+                sourceBranch: portalWorkspace.handoff.sourceBranch,
+                sourceCommit: portalWorkspace.handoff.commit,
+                handoffId: portalWorkspace.handoff.handoffId,
+                envPolicy: portalWorkspace.handoff.envPolicy,
+                environmentFiles: portalEnvironment?.files ?? [],
+                environmentLoadedAt: new Date().toISOString(),
+              },
+            }
+          : {}),
       },
     });
 
@@ -372,7 +461,12 @@ class RemoteCodeAgentConnector {
     });
     this.remoteRunIds.add(run.id);
     this.transcriptCursors.set(run.id, { offset: 0, seq: 0 });
-    this.spawnRunner(run.id, cwd, permissionMode);
+    this.spawnRunner(
+      run.id,
+      cwd,
+      permissionMode,
+      portalEnvironment?.values,
+    );
     return { ok: true, runId: run.id, run };
   }
 
@@ -564,6 +658,7 @@ class RemoteCodeAgentConnector {
     runId: string,
     cwd: string,
     permissionMode?: CodeAgentPermissionMode,
+    portalEnvironment?: Record<string, string>,
   ) {
     if (activeRunners.has(runId)) return;
     const invocation = resolveCodeAgentCliInvocation();
@@ -576,6 +671,7 @@ class RemoteCodeAgentConnector {
         stdio: ["ignore", "pipe", "pipe"],
         env: {
           ...process.env,
+          ...portalEnvironment,
           AGENT_NATIVE_CODE_AGENTS_HOME: codeAgentStoreRoot(),
           ...(permissionMode
             ? { AGENT_NATIVE_CODE_AGENT_PERMISSION_MODE: permissionMode }
@@ -924,6 +1020,13 @@ function isRemoteStartedRun(
 function resolveCommandCwd(value: unknown): string {
   const cwd = firstStringValue(value);
   return cwd ? path.resolve(cwd) : process.cwd();
+}
+
+function isSafeRunId(value: string): boolean {
+  return (
+    value.length <= 160 &&
+    /^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(value)
+  );
 }
 
 function remoteExecutionCapabilities(): RemoteExecutionCapabilities {
