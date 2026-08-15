@@ -210,7 +210,7 @@ function MenuItemHelp({
         <span
           role="img"
           tabIndex={0}
-          aria-label={`${label} details`}
+          aria-label={`${label}: ${description}`}
           className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         >
           <IconHelpCircle
