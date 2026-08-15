@@ -249,7 +249,7 @@ export function ActivityRow({ label }: { label: string }) {
       entering={FadeIn.duration(200)}
       className="flex-row items-center gap-2 px-4 py-1.5"
     >
-      <View className="w-1.5 h-1.5 rounded-full bg-accent-green" />
+      <View className="w-1.5 h-1.5 rounded-full bg-accent-neutral" />
       <Text className="text-status-gray text-[13px]">{label}</Text>
     </Animated.View>
   );

@@ -174,7 +174,7 @@ function InlineText({
           return (
             <Text
               key={index}
-              className="text-accent-green text-[13.5px]"
+              className="text-accent-neutral text-[13.5px]"
               style={{ fontFamily: MONO_FONT }}
             >
               <TextFadeInStaggeredIfStreaming startIndex={tokenStart}>

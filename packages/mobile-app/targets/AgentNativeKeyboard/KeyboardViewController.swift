@@ -90,7 +90,7 @@ final class KeyboardViewController: UIInputViewController {
   private func configurePrimaryButton(_ button: UIButton, title: String) {
     var configuration = UIButton.Configuration.filled()
     configuration.title = title
-    configuration.baseBackgroundColor = UIColor(red: 0.78, green: 0.95, blue: 0.42, alpha: 1)
+    configuration.baseBackgroundColor = UIColor(white: 0.84, alpha: 1)
     configuration.baseForegroundColor = .black
     configuration.cornerStyle = .large
     button.configuration = configuration

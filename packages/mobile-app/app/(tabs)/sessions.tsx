@@ -540,7 +540,7 @@ export default function SessionsScreen() {
           )}
           {notice && (
             <View className="flex-row items-center gap-2 p-3 rounded-lg bg-success-bg border border-success-border my-2">
-              <Feather name="check-circle" size={16} color="#86EFAC" />
+              <Feather name="check-circle" size={16} color="#d4d4d8" />
               <Text className="flex-1 text-success-text text-sm">{notice}</Text>
             </View>
           )}
@@ -956,7 +956,7 @@ function StepRow({ index, text }: { index: string; text: string }) {
 function RelayPill({ state }: { state: RelayState }) {
   const color =
     state === "online"
-      ? "#86EFAC"
+      ? "#d4d4d8"
       : state === "offline"
         ? "#FCA5A5"
         : state === "error"
@@ -1100,7 +1100,7 @@ function HostControls({
             <Feather
               name={pushDone ? "bell" : "bell-off"}
               size={14}
-              color={pushDone ? "#86EFAC" : "#ffffff"}
+              color={pushDone ? "#d4d4d8" : "#ffffff"}
             />
           )}
           <Text
@@ -1300,7 +1300,7 @@ function EmptyInline({
 }
 
 function hostStatusColor(status: RemoteHostStatus): string {
-  if (status === "online") return "#86EFAC";
+  if (status === "online") return "#d4d4d8";
   if (status === "busy") return "#FBBF24";
   if (status === "offline") return "#6B7280";
   return "#9CA3AF";
@@ -1314,7 +1314,7 @@ function hostStatusLabel(host: RemoteHost): string {
 }
 
 function runStatusColor(status: RemoteRunStatus): string {
-  if (status === "completed") return "#86EFAC";
+  if (status === "completed") return "#d4d4d8";
   if (status === "needs-approval") return "#FBBF24";
   if (status === "errored") return "#FCA5A5";
   if (status === "running" || status === "queued") return "#93C5FD";
@@ -1322,7 +1322,7 @@ function runStatusColor(status: RemoteRunStatus): string {
 }
 
 function runStatusBg(status: RemoteRunStatus): string {
-  if (status === "completed") return "#052E16";
+  if (status === "completed") return "#27272a";
   if (status === "needs-approval") return "#422006";
   if (status === "errored") return "#450A0A";
   if (status === "running" || status === "queued") return "#172554";

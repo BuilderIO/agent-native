@@ -61,7 +61,7 @@ function StatusIcon({
   if (status === "awaiting-approval") {
     return <IconAlertTriangle color="#f5d999" size={15} strokeWidth={2} />;
   }
-  return <IconCheck color="#86efac" size={15} strokeWidth={2.2} />;
+  return <IconCheck color="#d4d4d8" size={15} strokeWidth={2.2} />;
 }
 
 export function ToolCallCard({

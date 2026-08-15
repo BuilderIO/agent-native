@@ -873,6 +873,11 @@
   padding-inline: 0 !important;
 }
 
+.agent-builder-setup-card--sidebar {
+  container-type: inline-size;
+  container-name: agent-builder-setup;
+}
+
 .agent-builder-setup-inline--attached {
   position: relative;
   z-index: 1;
@@ -913,6 +918,20 @@
 .agent-builder-setup-card--sidebar .agent-builder-setup-card__key-button:hover {
   background: transparent;
   color: hsl(var(--foreground));
+}
+
+.agent-builder-setup-card__content > .agent-builder-setup-card__actions {
+  flex: 1 1 auto;
+}
+
+.agent-builder-setup-card__actions
+  > :is(
+    .agent-builder-setup-card__builder-cta,
+    .agent-builder-setup-card__builder-button,
+    .agent-builder-setup-card__key-button
+  ) {
+  flex: 1 1 0;
+  min-width: 0;
 }
 
 @container agent-builder-setup (max-width: 560px) {
@@ -965,6 +984,11 @@
   .agent-builder-setup-card__builder-cta,
   .agent-builder-setup-card__key-button {
     align-self: stretch;
+    flex: 0 0 auto;
+    width: 100%;
+  }
+
+  .agent-builder-setup-card__actions > .agent-builder-setup-card__builder-button {
     flex: 0 0 auto;
     width: 100%;
   }

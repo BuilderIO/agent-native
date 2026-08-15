@@ -9,7 +9,7 @@
     "com.apple.security.application-groups": ["group.com.agentnative.mobile"]
   },
   "colors": {
-    "$accent": "#C7F36B",
+    "$accent": "#D4D4D8",
     "$widgetBackground": "#18181B"
   }
 }

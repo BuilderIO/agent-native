@@ -429,7 +429,7 @@ export default function AudioCaptureView({
 
       <View className="items-center flex-1 justify-center">
         <View
-          className={`items-center bg-card-dark border border-border-dark rounded-full h-24 justify-center mb-7 w-24 ${isActive ? "bg-primary border-accent-lime-bright" : ""}`}
+          className={`items-center bg-card-dark border border-border-dark rounded-full h-24 justify-center mb-7 w-24 ${isActive ? "bg-primary border-accent-neutral-bright" : ""}`}
         >
           <IconMicrophone
             color={isActive ? "#0b0b0c" : "#f4f4f5"}
