@@ -350,10 +350,10 @@ body {
 .desktop-chat-first-hub .collapsed-mac-window-controls::before {
   position: absolute;
   z-index: 0;
-  top: -2px;
-  left: -3px;
-  width: 49px;
-  height: 26px;
+  top: -3px;
+  left: -7px;
+  width: 78px;
+  height: 28px;
   border: 1px solid hsl(var(--sidebar-foreground) / 0.14);
   border-radius: 999px;
   background-color: hsl(var(--sidebar-background));
@@ -361,11 +361,7 @@ body {
   content: "";
   opacity: 0;
   pointer-events: none;
-  transform: scaleX(1);
-  transform-origin: left center;
-  transition:
-    opacity var(--ease-collapse),
-    transform var(--ease-collapse);
+  transition: opacity var(--ease-collapse);
 }
 
 .desktop-chat-first-hub .collapsed-mac-window-controls .win-btn {
@@ -398,7 +394,6 @@ body {
 .desktop-chat-first-hub .collapsed-mac-window-controls:hover::before,
 .desktop-chat-first-hub .collapsed-mac-window-controls:focus-within::before {
   opacity: 1;
-  transform: scaleX(1.5);
 }
 
 .desktop-chat-first-hub .collapsed-mac-window-controls:hover .win-btn--maximize,
@@ -949,10 +944,6 @@ body {
   .desktop-chat-first-hub .collapsed-mac-window-controls::before,
   .desktop-chat-first-hub .collapsed-mac-window-controls .win-btn {
     transition: none;
-  }
-
-  .desktop-chat-first-hub .collapsed-mac-window-controls::before {
-    transform: none;
   }
 
   .desktop-chat-first-hub .collapsed-mac-window-controls .win-btn--maximize {

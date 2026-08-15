@@ -588,6 +588,13 @@ const DEFAULT_CORNER_ADJUSTMENT = 0.16667;
  * OOXML's own guide formulas measure their adjustments against; each literal
  * fraction below is that preset's default `a:avLst` value.
  */
+const diamondPoints = (w: number, h: number): [number, number][] => [
+  [w / 2, 0],
+  [w, h / 2],
+  [w / 2, h],
+  [0, h / 2],
+];
+
 const CLIP_PATH_GEOMETRIES: Record<
   string,
   (
@@ -624,12 +631,10 @@ const CLIP_PATH_GEOMETRIES: Record<
     [w, h],
     [0, h],
   ],
-  diamond: (w, h) => [
-    [w / 2, 0],
-    [w, h / 2],
-    [w / 2, h],
-    [0, h / 2],
-  ],
+  diamond: diamondPoints,
+  // OOXML states the flow chart decision node as the same four points; a
+  // rectangle in its place reads as one more process box in the chart.
+  flowChartDecision: diamondPoints,
   homePlate: (w, h, ss) => {
     const x = ss * 0.16667;
     return [
@@ -1073,6 +1078,11 @@ function geometryCss(
       return `border-radius: ${corner}px ${corner}px 0 0;`;
     case "round2DiagRect":
       return `border-radius: ${corner}px 0 ${corner}px 0;`;
+    // OOXML defines this one as a `roundRect` whose adjustment is pinned at
+    // 50%: a pill, and a flow chart's start and end nodes are the one place a
+    // reader tells them apart from its process boxes by shape alone.
+    case "flowChartTerminator":
+      return `border-radius: ${round3(shortest / 2)}px;`;
     case "blockArc": {
       const path = blockArcPath(adjustments, widthPx, heightPx);
       return path ? `clip-path: path('${path}');` : "";
