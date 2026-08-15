@@ -46,7 +46,10 @@ describe("mobile chat-first navigation", () => {
   it("keeps Chat and More outside the four app slots", () => {
     expect(MOBILE_BOTTOM_TAB_LIMIT).toBe(4);
     expect(
-      toggleMobileTabAppId(["mail", "calendar", "content", "analytics"], "clips"),
+      toggleMobileTabAppId(
+        ["mail", "calendar", "content", "analytics"],
+        "clips",
+      ),
     ).toEqual({
       ids: ["mail", "calendar", "content", "analytics"],
       changed: false,
