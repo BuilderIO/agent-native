@@ -63,7 +63,12 @@ function makeAllocatorDb(shared?: { v: number; ids: Map<string, number> }) {
       return { rows: [], rowsAffected: 0 };
     },
   };
-  return db;
+  return {
+    ...db,
+    transaction: async (
+      fn: (tx: typeof db) => Promise<unknown>,
+    ): Promise<unknown> => fn(db),
+  };
 }
 
 function baseEvent(extra: Record<string, unknown> = {}) {
