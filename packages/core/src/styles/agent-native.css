@@ -843,12 +843,12 @@
 .agent-builder-setup-card--attached {
   position: relative;
   z-index: 1;
-  margin-bottom: -1.875rem;
+  margin-bottom: -1.25rem;
   padding-bottom: 0 !important;
 }
 
 .agent-builder-setup-card--attached .agent-builder-setup-card__panel {
-  padding-bottom: calc(0.75rem + 1.875rem);
+  padding-bottom: calc(0.75rem + 1.25rem);
   border-bottom-color: transparent;
   border-bottom-left-radius: 0;
   border-bottom-right-radius: 0;
@@ -857,7 +857,7 @@
 
 .agent-builder-setup-card--attached.agent-builder-setup-card--sidebar
   .agent-builder-setup-card__panel {
-  padding-bottom: calc(0.625rem + 1.875rem);
+  padding-bottom: calc(0.625rem + 1.25rem);
 }
 
 .agent-builder-setup-card--attached:not(.agent-builder-setup-card--sidebar) {
@@ -869,8 +869,8 @@
 .agent-builder-setup-inline--attached {
   position: relative;
   z-index: 1;
-  margin-bottom: -1.875rem !important;
-  padding-bottom: calc(0.625rem + 1.875rem) !important;
+  margin-bottom: -1.25rem !important;
+  padding-bottom: calc(0.625rem + 1.25rem) !important;
   border-bottom-color: transparent;
   border-bottom-left-radius: 0;
   border-bottom-right-radius: 0;
