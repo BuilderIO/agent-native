@@ -2102,23 +2102,19 @@ async function portalRelayRequest(
   body?: unknown,
 ): Promise<PortalRelayResult> {
   const relaySession = findRemoteRelaySession(relayUrl);
-  const cookieHeader = await cookieHeaderForRelay(relaySession, relayUrl);
-  if (!cookieHeader) {
-    return {
-      ok: false,
-      error:
-        "Sign in to the Portal relay in Desktop before starting a Portal run.",
-    };
-  }
   try {
-    const response = await fetch(new URL(pathname, relayUrl), {
-      method,
-      headers: {
-        ...(cookieHeader ? { cookie: cookieHeader } : {}),
-        ...(method === "POST" ? { "content-type": "application/json" } : {}),
+    const response = await relaySession.fetch(
+      new URL(pathname, relayUrl).toString(),
+      {
+        method,
+        headers: {
+          ...(method === "POST" ? { "content-type": "application/json" } : {}),
+        },
+        ...(method === "POST" ? { body: JSON.stringify(body ?? {}) } : {}),
+        credentials: "include",
+        redirect: "manual",
       },
-      ...(method === "POST" ? { body: JSON.stringify(body ?? {}) } : {}),
-    });
+    );
     const text = await response.text();
     let payload: PortalRelayResult = {};
     if (text) {
@@ -2804,26 +2800,21 @@ async function pairRemoteCodeAgentConnector(
 
   try {
     const relaySession = findRemoteRelaySession(relayUrl);
-    const cookieHeader = await cookieHeaderForRelay(relaySession, relayUrl);
-    if (!cookieHeader) {
-      return {
-        ok: false,
-        status: getRemoteConnectorStatus(),
-        error: "Sign in to that app in Desktop before pairing this computer.",
-      };
-    }
-
-    const response = await fetch(
-      new URL("/_agent-native/integrations/remote/register", relayUrl),
+    const response = await relaySession.fetch(
+      new URL(
+        "/_agent-native/integrations/remote/register",
+        relayUrl,
+      ).toString(),
       {
         method: "POST",
         headers: {
           "content-type": "application/json",
-          cookie: cookieHeader,
         },
         body: JSON.stringify({
           label: request.label ?? `${os.hostname()} Desktop`,
         }),
+        credentials: "include",
+        redirect: "manual",
       },
     );
     const text = await response.text();
