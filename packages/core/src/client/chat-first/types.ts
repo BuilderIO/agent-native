@@ -63,6 +63,8 @@ export interface ChatFirstSurfaceTabsProps {
 
 export interface ChatFirstAppRailProps {
   apps: readonly ChatFirstAppItem[];
+  /** Optional host-specific fallback order for apps without a saved layout. */
+  defaultAppIds?: readonly string[];
   activeAppId?: string;
   loading?: boolean;
   error?: string | null;

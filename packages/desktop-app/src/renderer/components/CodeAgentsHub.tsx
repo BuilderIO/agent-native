@@ -65,6 +65,7 @@ import {
 import { ToastAction } from "@agent-native/toolkit/ui/toast";
 import { toast } from "@agent-native/toolkit/ui/use-toast";
 import {
+  DESKTOP_CHAT_FIRST_DEFAULT_APP_IDS,
   getDesktopVisibleApps,
   isDesktopAppVisible,
   toAppDefinition,
@@ -176,6 +177,7 @@ export function orderDesktopApps<T extends Pick<AppConfig, "id" | "enabled">>(
   const orderedVisibleIds = orderChatFirstAppIds(
     visibleApps.map((app) => app.id),
     layout,
+    DESKTOP_CHAT_FIRST_DEFAULT_APP_IDS,
   );
   const byId = new Map(visibleApps.map((app) => [app.id, app]));
   return orderedVisibleIds
@@ -890,6 +892,7 @@ export default function CodeAgentsHub({
         ) : null}
         <ChatFirstAppsRail
           apps={chatFirstAppItems}
+          defaultAppIds={DESKTOP_CHAT_FIRST_DEFAULT_APP_IDS}
           activeAppId={
             activeChatFirstSurfaceTab?.kind === "app"
               ? activeChatFirstSurfaceTab.appId
