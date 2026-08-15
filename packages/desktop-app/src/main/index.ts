@@ -2071,7 +2071,7 @@ function resolvePortalRelayUrl(input: unknown): string {
     DEFAULT_PORTAL_RELAY_URL,
   ];
   for (const candidate of candidates) {
-    const normalized = normalizeRemoteRelayUrl(candidate);
+    const normalized = normalizeRemoteRelayUrl(candidate ?? undefined);
     if (normalized) return normalized;
   }
   return DEFAULT_PORTAL_RELAY_URL;

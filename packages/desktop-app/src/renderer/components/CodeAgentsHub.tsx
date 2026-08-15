@@ -763,12 +763,24 @@ export default function CodeAgentsHub({
     ],
   );
   const openChatFirstAppFromRail = useCallback(
-    (app: ChatFirstAppItem) => openChatFirstApp(app.id),
-    [openChatFirstApp],
+    (app: ChatFirstAppItem) =>
+      openChatFirstApp(
+        app.id,
+        undefined,
+        undefined,
+        terminalPreferences.enabled ? "side" : "main",
+      ),
+    [openChatFirstApp, terminalPreferences.enabled],
   );
   const openChatFirstAppFromGrid = useCallback(
-    (app: AppConfig) => openChatFirstApp(app.id),
-    [openChatFirstApp],
+    (app: AppConfig) =>
+      openChatFirstApp(
+        app.id,
+        undefined,
+        undefined,
+        terminalPreferences.enabled ? "side" : "main",
+      ),
+    [openChatFirstApp, terminalPreferences.enabled],
   );
   const openChatFirstAppInBrowser = useCallback((app: AppConfig) => {
     const url = resolveAppWebviewUrl(toAppDefinition(app), app);
