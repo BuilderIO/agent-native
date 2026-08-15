@@ -1421,6 +1421,36 @@ describe("parsePptxPresentation", () => {
       adj2: 12102207,
     });
   });
+
+  it("keeps a picture's own frame geometry, which is what makes a portrait a circle", async () => {
+    const presentation = await parsePptxPresentation(
+      await buildPptxBufferWithParts({
+        slides: [
+          `<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+            <p:cSld><p:spTree>
+              <p:pic>
+                <p:nvPicPr><p:cNvPr id="116" name="Portrait"/><p:cNvPicPr/><p:nvPr/></p:nvPicPr>
+                <p:blipFill><a:blip r:embed="rId9"/></p:blipFill>
+                <p:spPr>
+                  <a:xfrm><a:off x="0" y="0"/><a:ext cx="2450400" cy="2439900"/></a:xfrm>
+                  <a:prstGeom prst="ellipse"><a:avLst/></a:prstGeom>
+                </p:spPr>
+              </p:pic>
+            </p:spTree></p:cSld>
+          </p:sld>`,
+        ],
+        slideRels: [
+          { id: "rId9", type: "image", target: "../media/image1.png" },
+        ],
+        files: { "ppt/media/image1.png": TINY_PNG },
+      }),
+    );
+
+    expect(presentation.slides[0]?.elements[0]).toMatchObject({
+      kind: "image",
+      shapeType: "ellipse",
+    });
+  });
 });
 
 /** A 1×1 transparent PNG — real bytes, so `loadPptxImage` produces a browser-renderable image. */
