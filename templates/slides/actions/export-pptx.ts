@@ -1523,9 +1523,9 @@ function drawingMlColor(parsed: {
  * OOXML's `<a:lin ang>` clockwise from the positive x-axis, so the two differ
  * by 90°, and `<a:fillToRect>`'s edge insets collapse to the radial focus.
  *
- * Returns `undefined` for a gradient it cannot express (`conic`, the
- * `to bottom right` keyword form, a single stop) so the caller keeps the
- * flattened solid fill instead of writing a background PowerPoint rejects.
+ * Returns `undefined` for a gradient it cannot express (`conic`, an angle unit
+ * other than `deg`, a single stop) so the caller keeps the flattened solid fill
+ * instead of writing a background PowerPoint rejects.
  */
 export function cssGradientToDrawingMl(css: string): string | undefined {
   const match = css.trim().match(/^(linear|radial)-gradient\(([\s\S]*)\)$/i);
@@ -1533,36 +1533,111 @@ export function cssGradientToDrawingMl(css: string): string | undefined {
   const kind = match[1].toLowerCase();
   const args = splitTopLevel(match[2]);
 
+  // A gradient's first argument is either its configuration (`45deg`,
+  // `to right`, `circle at 20% 30%`) or already the first color stop, and one
+  // thing tells them apart: a stop starts with a color. Recognizing only the
+  // configuration spellings we had handled let every other one — `to right`, a
+  // bare `circle` — fall through to `colorToHex`, which turned a direction
+  // keyword into a white stop the source never had.
+  const config =
+    args.length > 0 && !parseCssColor(splitGradientStop(args[0]).color)
+      ? args[0]
+      : undefined;
+  const stopArgs = config === undefined ? args : args.slice(1);
+  if (stopArgs.length < 2) return undefined;
+
   let geometry: string;
-  let stopArgs = args;
   if (kind === "linear") {
-    const degrees = args[0]?.match(/^(-?[\d.]+)deg$/i)?.[1];
-    if (degrees !== undefined) stopArgs = args.slice(1);
-    const cssAngle = degrees === undefined ? 180 : Number(degrees);
+    const cssAngle = linearGradientAngle(config);
+    if (cssAngle === undefined) return undefined;
     const ang = Math.round(((((cssAngle - 90) % 360) + 360) % 360) * 60000);
     geometry = `<a:lin ang="${ang}" scaled="0"/>`;
   } else {
-    const at = args[0]?.match(/at\s+([\d.]+)%\s+([\d.]+)%/i);
-    if (at) stopArgs = args.slice(1);
-    const centerX = at ? Number(at[1]) : 50;
-    const centerY = at ? Number(at[2]) : 50;
+    const center = radialGradientCenter(config);
+    if (!center) return undefined;
     const pct = (value: number) => Math.round(value * 1000);
-    geometry = `<a:path path="circle"><a:fillToRect l="${pct(centerX)}" t="${pct(centerY)}" r="${pct(100 - centerX)}" b="${pct(100 - centerY)}"/></a:path>`;
+    geometry = `<a:path path="circle"><a:fillToRect l="${pct(center.x)}" t="${pct(center.y)}" r="${pct(100 - center.x)}" b="${pct(100 - center.y)}"/></a:path>`;
   }
-  if (stopArgs.length < 2) return undefined;
 
-  const stops = stopArgs.map((stopArg, index) => {
-    const positionMatch = stopArg.match(/\s([\d.]+)%$/);
-    const color = positionMatch
-      ? stopArg.slice(0, positionMatch.index).trim()
-      : stopArg;
-    const position = positionMatch
-      ? Number(positionMatch[1])
-      : (index / (stopArgs.length - 1)) * 100;
-    const clamped = Math.min(100, Math.max(0, position));
-    return `<a:gs pos="${Math.round(clamped * 1000)}">${drawingMlColor(colorToHex(color))}</a:gs>`;
-  });
+  const stops: string[] = [];
+  for (const [index, stopArg] of stopArgs.entries()) {
+    const { color, position } = splitGradientStop(stopArg);
+    const parsed = parseCssColor(color);
+    if (!parsed) return undefined;
+    const resolved = position ?? (index / (stopArgs.length - 1)) * 100;
+    const clamped = Math.min(100, Math.max(0, resolved));
+    stops.push(
+      `<a:gs pos="${Math.round(clamped * 1000)}">${drawingMlColor(parsed)}</a:gs>`,
+    );
+  }
   return `<a:gradFill rotWithShape="1"><a:gsLst>${stops.join("")}</a:gsLst>${geometry}</a:gradFill>`;
+}
+
+/** `#013445 20%` split into its color and position; a stop may omit the position. */
+function splitGradientStop(arg: string): { color: string; position?: number } {
+  const match = arg.match(/\s([\d.]+)%$/);
+  return match
+    ? { color: arg.slice(0, match.index).trim(), position: Number(match[1]) }
+    : { color: arg };
+}
+
+/**
+ * CSS `to <side-or-corner>` as its angle. A corner's true angle depends on the
+ * box's aspect ratio, but `<a:lin scaled="0">` takes an absolute one, so the
+ * 45° diagonals are the closest fixed stand-in.
+ */
+const LINEAR_GRADIENT_SIDE_ANGLES: Record<string, number> = {
+  top: 0,
+  "top right": 45,
+  "right top": 45,
+  right: 90,
+  "bottom right": 135,
+  "right bottom": 135,
+  bottom: 180,
+  "bottom left": 225,
+  "left bottom": 225,
+  left: 270,
+  "top left": 315,
+  "left top": 315,
+};
+
+/** The CSS angle a `linear-gradient` configuration argument names, or `undefined` when it names one we cannot express. */
+function linearGradientAngle(config: string | undefined): number | undefined {
+  if (config === undefined) return 180; // CSS defaults to `to bottom`
+  const degrees = config.match(/^(-?[\d.]+)deg$/i)?.[1];
+  if (degrees !== undefined) return Number(degrees);
+  const side = config.match(/^to\s+([a-z]+(?:\s+[a-z]+)?)$/i)?.[1];
+  return side === undefined
+    ? undefined
+    : LINEAR_GRADIENT_SIDE_ANGLES[side.toLowerCase().replace(/\s+/g, " ")];
+}
+
+/** CSS position keywords as a percentage along their own axis. */
+const RADIAL_POSITION_PERCENTS: Record<string, number> = {
+  left: 0,
+  top: 0,
+  center: 50,
+  right: 100,
+  bottom: 100,
+};
+
+/** The focus a `radial-gradient` configuration argument names, or `undefined` when it names one we cannot express. */
+function radialGradientCenter(
+  config: string | undefined,
+): { x: number; y: number } | undefined {
+  if (config === undefined) return { x: 50, y: 50 };
+  const at = config.match(/\bat\s+(.+)$/i)?.[1].trim();
+  if (at === undefined) return { x: 50, y: 50 };
+  const axes = at.split(/\s+/).map((axis) => {
+    const percent = axis.match(/^([\d.]+)%$/)?.[1];
+    return percent !== undefined
+      ? Number(percent)
+      : RADIAL_POSITION_PERCENTS[axis.toLowerCase()];
+  });
+  // A lone value positions the x axis and centers the y axis.
+  const [x, y = 50] = axes;
+  if (axes.length > 2 || x === undefined || y === undefined) return undefined;
+  return { x, y };
 }
 
 /** `<a:clrScheme>` requires every slot, in this order. */
