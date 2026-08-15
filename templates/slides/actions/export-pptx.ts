@@ -1368,6 +1368,10 @@ export default defineAction({
     }
     pptx.author = "Agent Native Slides";
     pptx.title = row.title;
+    // The font scheme is the one half of the theme pptxgenjs does expose;
+    // without it a themed deck re-imports as Calibri Light / Calibri.
+    const [headFontFace, bodyFontFace] = deckThemeFonts(deckData);
+    if (headFontFace) pptx.theme = { headFontFace, bodyFontFace };
 
     const slideGradients = new Map<number, string>();
     let backgroundGradientsFlattened = 0;
@@ -1617,6 +1621,20 @@ function deckThemeColors(
     (entry): entry is [string, string] => typeof entry[1] === "string",
   );
   return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
+/** `[majorFont, minorFont]` from the deck's theme, in `parseTheme`'s own order. */
+function deckThemeFonts(
+  deckData: unknown,
+): [string | undefined, string | undefined] {
+  const fonts = (deckData as { theme?: { fonts?: unknown } } | null)?.theme
+    ?.fonts;
+  if (!Array.isArray(fonts)) return [undefined, undefined];
+  const face = (index: number) =>
+    typeof fonts[index] === "string" && fonts[index]
+      ? (fonts[index] as string)
+      : undefined;
+  return [face(0), face(1) ?? face(0)];
 }
 
 function isServerless(): boolean {
