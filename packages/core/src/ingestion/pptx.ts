@@ -267,8 +267,21 @@ export async function parsePptxPresentation(
     // `show="0"` is the author having removed this slide from the deck's own
     // flow. Importing it anyway hands every deck back slides its presenter
     // had already cut.
-    if (stringValue(record(record(slide)?.["p:sld"])?.["@_show"]) === "0")
+    if (stringValue(record(record(slide)?.["p:sld"])?.["@_show"]) === "0") {
+      if (process.env.PPTX_PROBE)
+        console.error(
+          "PROBE skip:show0",
+          slidePath,
+          JSON.stringify(
+            Object.fromEntries(
+              Object.entries(record(record(slide)?.["p:sld"]) ?? {}).filter(
+                ([key]) => key.startsWith("@_"),
+              ),
+            ),
+          ),
+        );
       continue;
+    }
     const metadata = parsePptxSlideMetadata(slide);
     let elements: ParsedPptxElement[] = [];
     const images: ParsedPptxImage[] = [];
@@ -356,6 +369,8 @@ export async function parsePptxPresentation(
       ...metadata,
     });
   }
+  if (process.env.PPTX_PROBE)
+    console.error("PROBE pushed", slides.length, "of", slidePaths.length);
   const firstSlide = slides[0]?.texts ?? [];
   const title =
     [...firstSlide]
