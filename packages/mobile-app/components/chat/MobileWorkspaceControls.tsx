@@ -38,7 +38,9 @@ function TargetPill({
       onPress={onPress}
       accessibilityRole="radio"
       accessibilityState={{ selected }}
-      accessibilityLabel={target === "cloud" ? "Use cloud chat" : "Use a computer"}
+      accessibilityLabel={
+        target === "cloud" ? "Use cloud chat" : "Use a computer"
+      }
     >
       {selected ? (
         <TargetIcon target={target} />

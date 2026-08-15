@@ -95,7 +95,10 @@ export default function AppForm({
         onClose();
       }}
     >
-      <SafeAreaView edges={["top", "bottom"]} className="flex-1 bg-background-pure">
+      <SafeAreaView
+        edges={["top", "bottom"]}
+        className="flex-1 bg-background-pure"
+      >
         <View className="flex-row justify-between items-center px-4 pt-4 pb-3 border-b border-border-dark">
           <TouchableOpacity onPress={onClose} className="active:opacity-75">
             <Text className="text-status-gray text-base">Cancel</Text>

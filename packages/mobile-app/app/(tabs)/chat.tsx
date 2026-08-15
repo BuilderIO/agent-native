@@ -155,7 +155,11 @@ function ComputerMessages({
   return (
     <ScrollView
       className="flex-1"
-      contentContainerStyle={{ paddingTop: 12, paddingHorizontal: 16, paddingBottom: 12 }}
+      contentContainerStyle={{
+        paddingTop: 12,
+        paddingHorizontal: 16,
+        paddingBottom: 12,
+      }}
       showsVerticalScrollIndicator={false}
     >
       {events.map((event) => {
@@ -208,9 +212,7 @@ export default function ChatTab() {
     string | undefined
   >();
   const [remoteRun, setRemoteRun] = useState<RemoteRun | null>(null);
-  const [remoteEvents, setRemoteEvents] = useState<RemoteTranscriptEvent[]>(
-    [],
-  );
+  const [remoteEvents, setRemoteEvents] = useState<RemoteTranscriptEvent[]>([]);
   const [remoteLoading, setRemoteLoading] = useState(false);
   const [remoteSending, setRemoteSending] = useState(false);
   const [remoteError, setRemoteError] = useState<string | null>(null);
@@ -306,9 +308,7 @@ export default function ChatTab() {
     setRemoteHosts(hosts);
     setSelectedRemoteHostId((current) => {
       if (current && hosts.some((host) => host.id === current)) return current;
-      return (
-        hosts.find((host) => host.status === "online")?.id ?? hosts[0]?.id
-      );
+      return hosts.find((host) => host.status === "online")?.id ?? hosts[0]?.id;
     });
     setRemoteError(null);
   }, []);
@@ -556,9 +556,7 @@ export default function ChatTab() {
             settings={settings}
             baseUrl={chat.baseUrl}
             onSend={chatTarget === "computer" ? handleRemoteSend : chat.send}
-            onStop={
-              chatTarget === "computer" ? handleRemoteStop : chat.stop
-            }
+            onStop={chatTarget === "computer" ? handleRemoteStop : chat.stop}
             onOpenSettings={() => setSettingsOpen(true)}
             onToggleMode={() =>
               setSettings({
@@ -630,7 +628,10 @@ export default function ChatTab() {
         animationType="slide"
         onRequestClose={() => setSignInOpen(false)}
       >
-        <SafeAreaView edges={["top", "bottom"]} className="flex-1 bg-background-dark">
+        <SafeAreaView
+          edges={["top", "bottom"]}
+          className="flex-1 bg-background-dark"
+        >
           <View className="flex-row items-center justify-between border-b border-border-dark px-3 py-2">
             <Text className="px-2 text-[17px] font-bold text-foreground">
               Sign in to Chat

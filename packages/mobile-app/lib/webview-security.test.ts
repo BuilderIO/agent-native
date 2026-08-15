@@ -22,9 +22,9 @@ describe("WebView origin policy", () => {
 
   it("blocks Vector tracking hosts from opening outside the WebView", () => {
     expect(isBlockedWebViewHost("api.vector.co")).toBe(true);
-    expect(shouldOpenExternalWebViewUrl("https://api.vector.co/pixel/123")).toBe(
-      false,
-    );
+    expect(
+      shouldOpenExternalWebViewUrl("https://api.vector.co/pixel/123"),
+    ).toBe(false);
     expect(shouldOpenExternalWebViewUrl("https://vector.co")).toBe(false);
     expect(shouldOpenExternalWebViewUrl("https://vector.co.evil.example")).toBe(
       true,
