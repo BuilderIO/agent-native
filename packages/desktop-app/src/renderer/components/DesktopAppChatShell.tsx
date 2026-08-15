@@ -379,8 +379,10 @@ export default function DesktopAppChatShell({
               ? localCodeChange.message
               : localCodeChange.status === "ready"
                 ? "The app is now running from your local code."
-                : localCodeChange.message ??
-                  "Cloning the template, installing dependencies, and applying your request."}
+                : localCodeChange.status === "starting"
+                  ? localCodeChange.message ??
+                    "Cloning the template, installing dependencies, and applying your request."
+                  : ""}
           </DialogDescription>
         </DialogHeader>
         <div className="flex items-center gap-3 rounded-lg border border-border/70 bg-muted/30 px-3 py-3 text-sm">

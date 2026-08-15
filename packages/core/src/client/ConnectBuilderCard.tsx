@@ -260,7 +260,7 @@ export function ConnectBuilderCard({
   let subtitle: React.ReactNode;
   if (localCodeChangeRequested) {
     title = "Preparing a local copy";
-    subtitle = `Desktop is cloning ${initialOrgName ? `${initialOrgName}'s ` : ""}app and applying this request.`;
+    subtitle = "Desktop is cloning this app and applying this request.";
   } else if (runResult) {
     title = "Builder is working on it";
     subtitle = (
