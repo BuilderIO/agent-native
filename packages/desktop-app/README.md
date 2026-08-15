@@ -121,6 +121,15 @@ Right-click any app in the rail or app grid to edit, hide/remove, or move it. Th
 existing app** disclosure in the New dialog keeps the local-folder and hosted
 URL flows available for advanced use.
 
+### Make a code change locally from app chat
+
+When a prompt needs a code change, the Electron app offers **Do locally** next
+to the existing Builder cloud handoff. Choosing it creates an editable clone of
+the selected first-party template with the CLI, installs dependencies, and
+applies the request in a managed local workspace. Desktop then switches only
+that app's preview to its local dev server; the app's production URL and hosted
+deployment remain unchanged.
+
 The manual registry workflow below is only needed when adding a new built-in
 app to the Desktop distribution.
 
