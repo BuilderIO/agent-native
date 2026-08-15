@@ -702,6 +702,43 @@ describe("parseSlideHtml", () => {
     expect(result.texts[0]?.fontSize).toBeUndefined();
   });
 
+  it("does not spread a bold first run over the rest of its text box", () => {
+    const result = parseSlideHtml(
+      importedSlide(
+        `<div data-pptx-element-kind="text" style="position:absolute;left:72px;top:68px;width:480px;height:120px;">` +
+          `<p><span style="font-size:11px;font-weight:700;color:#000000;">Soft Launch</span></p>` +
+          `<p><span style="font-size:8px;font-weight:400;color:#000000;">(Current stage)</span></p>` +
+          `</div>`,
+      ),
+      "16:9",
+      1,
+    );
+
+    // pptxgenjs copies a box-level option onto any run whose own value is
+    // falsy, so a `bold: true` default here re-bolds every `bold: false` run:
+    // gamesfund came back with 28 bold runs the source never had.
+    expect(result.texts[0]?.bold).toBe(false);
+    expect(result.texts[0]?.runs?.map((run) => run.options.bold)).toEqual([
+      true,
+      undefined,
+      false,
+    ]);
+  });
+
+  it("keeps a box-level bold when every run in it is bold", () => {
+    const result = parseSlideHtml(
+      importedSlide(
+        `<div data-pptx-element-kind="text" style="position:absolute;left:72px;top:68px;width:480px;height:120px;">` +
+          `<p><span style="font-weight:700;color:#000000;">All</span><span style="font-weight:800;color:#000000;"> bold</span></p>` +
+          `</div>`,
+      ),
+      "16:9",
+      1,
+    );
+
+    expect(result.texts[0]?.bold).toBe(true);
+  });
+
   it("uses the deck wrapper's font family on normal-flow slides", () => {
     const result = parseSlideHtml(
       `<div class="fmd-slide" style="font-family: 'Montserrat', sans-serif;"><h1 style="font-size: 48px;">Title</h1></div>`,
