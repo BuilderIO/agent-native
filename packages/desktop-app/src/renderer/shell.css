@@ -336,9 +336,6 @@ body {
   > span,
 .desktop-chat-first-hub
   .code-agents-rail--collapsed
-  span:not(.code-agents-mobile-indicator),
-.desktop-chat-first-hub
-  .code-agents-rail--collapsed
   .desktop-chat-first-rail-footer-actions
   span,
 .desktop-chat-first-hub
@@ -354,6 +351,21 @@ body {
   overflow: hidden;
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
+  border: 0;
+}
+
+/* App icons are spans too; keep their visual wrapper in the compact rail. */
+.desktop-chat-first-hub
+  .code-agents-rail--collapsed
+  [data-chat-first-app-icon] {
+  position: static;
+  width: auto;
+  height: auto;
+  padding: 0;
+  margin: 0;
+  overflow: visible;
+  clip: auto;
+  white-space: normal;
   border: 0;
 }
 
@@ -380,6 +392,41 @@ body {
 .desktop-chat-first-hub .code-agents-overview--chat-surface > * {
   flex: 1 1 auto;
   min-height: 0;
+}
+
+.desktop-chat-first-hub .desktop-terminal-surface {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--agent-native-lower-surface, hsl(var(--sidebar-background)));
+  color: hsl(var(--foreground));
+}
+
+.desktop-chat-first-hub .desktop-terminal-surface__header {
+  padding: 0 8px;
+  background: var(--agent-native-lower-surface, hsl(var(--sidebar-background)));
+  border-bottom: 1px solid hsl(var(--border));
+}
+
+.desktop-chat-first-hub .desktop-terminal-surface__body {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.desktop-chat-first-hub .desktop-terminal-surface__tab-content {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .desktop-chat-first-hub .code-agents-start {

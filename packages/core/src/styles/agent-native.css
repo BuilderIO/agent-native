@@ -950,7 +950,7 @@
   }
 }
 
-@container agent-builder-setup (max-width: 360px) {
+@container agent-builder-setup (max-width: 250px) {
   .agent-builder-setup-card__actions {
     align-items: stretch;
     flex-direction: column;

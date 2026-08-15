@@ -39,21 +39,36 @@ function findTerminalApp(apps: readonly AppConfig[]): AppConfig | undefined {
   return apps.find(isLocalDevApp);
 }
 
-function readSidebarSurface(): HTMLElement | null {
+function readChatSurface(): HTMLElement | null {
   if (typeof document === "undefined") return null;
   return (
+    document.querySelector<HTMLElement>(".agent-sidebar-panel") ??
+    document.querySelector<HTMLElement>(".agent-sidebar-shell") ??
     document.querySelector<HTMLElement>(".code-agents-rail") ??
     document.querySelector<HTMLElement>(".code-agents-surface")
   );
 }
 
-function readSidebarBackground(): string {
-  const surface = readSidebarSurface();
+function readChatSurfaceBackground(): string {
+  const surface = readChatSurface();
   if (surface) {
     const background = getComputedStyle(surface).backgroundColor.trim();
     if (background) return background;
   }
   if (typeof document === "undefined") return "var(--sidebar-bg)";
+  const host =
+    document.querySelector<HTMLElement>(".desktop-chat-first-hub") ??
+    document.body;
+  const probe = document.createElement("span");
+  probe.style.position = "absolute";
+  probe.style.width = "1px";
+  probe.style.height = "1px";
+  probe.style.backgroundColor =
+    "var(--agent-native-lower-surface, hsl(var(--sidebar-background)))";
+  host.appendChild(probe);
+  const lowerSurface = getComputedStyle(probe).backgroundColor.trim();
+  probe.remove();
+  if (lowerSurface) return lowerSurface;
   return (
     getComputedStyle(document.documentElement)
       .getPropertyValue("--sidebar-bg")
@@ -62,7 +77,7 @@ function readSidebarBackground(): string {
 }
 
 function readSidebarForeground(): string {
-  const surface = readSidebarSurface();
+  const surface = readChatSurface();
   if (surface) {
     const foreground = getComputedStyle(surface).color.trim();
     if (foreground) return foreground;
@@ -100,7 +115,7 @@ export default function DesktopTerminalTabs({
     state: "loading",
   });
   const [terminalBackground, setTerminalBackground] = useState(
-    readSidebarBackground,
+    readChatSurfaceBackground,
   );
   const [terminalForeground, setTerminalForeground] = useState(
     readSidebarForeground,
@@ -111,7 +126,8 @@ export default function DesktopTerminalTabs({
     DESKTOP_TERMINAL_AGENT_OPTIONS[0];
 
   useEffect(() => {
-    const syncBackground = () => setTerminalBackground(readSidebarBackground());
+    const syncBackground = () =>
+      setTerminalBackground(readChatSurfaceBackground());
     const syncForeground = () => setTerminalForeground(readSidebarForeground());
     syncBackground();
     syncForeground();
