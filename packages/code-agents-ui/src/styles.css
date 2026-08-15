@@ -416,6 +416,7 @@
 .code-agents-remote-waitlist-content {
   width: min(calc(100vw - 32px), 360px);
   padding: 16px;
+  box-shadow: 0 18px 44px hsl(var(--agent-shadow, 0 0% 0%) / 0.42);
 }
 
 .code-agents-remote-waitlist {

@@ -118,10 +118,14 @@ describe("CodeAgentsApp project folder picker", () => {
     expect(source).not.toContain('aria-label="Add folder"');
     expect(source).toContain('value="remote"');
     expect(source).toContain("onRemoteSelect?.();");
+    expect(source).toContain('description="Use the selected folder directly"');
     expect(source.indexOf('aria-label="Select working folder"')).toBeLessThan(
       source.indexOf('aria-label="Select workspace"'),
     );
     expect(css).toContain("margin-top: 8px;");
+    expect(css).toContain(
+      "box-shadow: 0 18px 44px hsl(var(--agent-shadow, 0 0% 0%) / 0.42);",
+    );
   });
 });
 

@@ -3001,7 +3001,10 @@ function ProjectFolderPicker({
             </SelectTrigger>
             <SelectContent className="code-agents-select-content">
               <SelectGroup>
-                <SelectItem value="local">
+                <SelectItem
+                  value="local"
+                  description="Use the selected folder directly"
+                >
                   <span className="code-agents-project-select__item">
                     <IconDeviceDesktop size={14} strokeWidth={1.8} />
                     <span>Local</span>
