@@ -22,6 +22,8 @@ export interface ParsedPptxParagraph {
   lineSpacing?: number;
   spaceBeforePt?: number;
   spaceAfterPt?: number;
+  /** `a:pPr/@_rtl` — the paragraph's base writing direction is right-to-left. Only set when the source states it; absent means inherit (LTR). */
+  rtl?: boolean;
 }
 
 export interface ParsedPptxElement {
@@ -2537,16 +2539,35 @@ function parseColor(
 const MIN_LINE_SPACING_RATIO = 0.8;
 const MAX_LINE_SPACING_RATIO = 3;
 
+// `a:spcPct` is a percentage of *single* line spacing, and single spacing in
+// PowerPoint and Google Slides is the font's own line height (ascent +
+// descent + line gap), not its em size — the same quantity CSS calls
+// `line-height: normal`. Treating `100%` as CSS `line-height: 1` therefore
+// shipped every body paragraph ~17% tighter than the source, which is what
+// five unrelated decks were independently reported for. CSS cannot scale
+// `normal`, so a constant stands in for it.
+// ponytail: one constant for every font; per-font ascent/descent metrics if a
+// specific deck's leading still reads off.
+const SINGLE_LINE_SPACING_RATIO = 1.2;
+
+// Must match html-converter's `DEFAULT_PPTX_FONT_SIZE_PT`: the ratio returned
+// here is divided out again against whatever font size that renderer puts on
+// the paragraph, so guessing a different default silently scales the line box.
+const DEFAULT_FONT_SIZE_PT = 18;
+
 function parseParagraphSpacing(
   value: unknown,
   fontSizePt: number | undefined,
 ): number | undefined {
   const node = record(value);
   const percent = Number(record(node?.["a:spcPct"])?.["@_val"]);
-  if (Number.isFinite(percent) && percent > 0) return percent / 100000;
+  if (Number.isFinite(percent) && percent > 0) {
+    return (percent / 100000) * SINGLE_LINE_SPACING_RATIO;
+  }
   const points = parsePoints(node?.["a:spcPts"]);
   if (points === undefined) return undefined;
-  const ratio = fontSizePt && fontSizePt > 0 ? points / fontSizePt : points;
+  const ratio =
+    points / (fontSizePt && fontSizePt > 0 ? fontSizePt : DEFAULT_FONT_SIZE_PT);
   return Math.min(
     MAX_LINE_SPACING_RATIO,
     Math.max(MIN_LINE_SPACING_RATIO, ratio),

@@ -524,11 +524,34 @@ function buildFidelityTableCell(
     widthEmu,
     refWidthPx,
   );
-  // No border: the parser does not read `a:tcPr`'s line properties or the
-  // table style, and a stamped-on one is a fabrication that lands wrong
-  // either way — a light rule is invisible on the white slides these tables
-  // usually sit on, and a dark one draws a grid the source never had.
-  return `<td colspan="${cell.colSpan ?? 1}" rowspan="${cell.rowSpan ?? 1}" style="padding:${paddingY}px ${paddingX}px;vertical-align:top;${fill}">${paragraphsHtml}</td>`;
+  const borders = TABLE_CELL_SIDES.map((side) =>
+    tableCellBorderCss(side, cell.borders?.[side], widthEmu, refWidthPx),
+  ).join("");
+  return `<td colspan="${cell.colSpan ?? 1}" rowspan="${cell.rowSpan ?? 1}" style="padding:${paddingY}px ${paddingX}px;vertical-align:top;${fill}${borders}">${paragraphsHtml}</td>`;
+}
+
+const TABLE_CELL_SIDES = ["top", "right", "bottom", "left"] as const;
+
+/**
+ * A side the source draws nothing on emits nothing: under
+ * `border-collapse: collapse` an unset side yields to its neighbour's rule
+ * rather than erasing it, which is what a table styled with only outer edges
+ * needs. The 1px floor is there because the hairline these decks author
+ * (9525 EMU = 0.75pt) scales below a device pixel on the reference canvas,
+ * and a rule the browser rounds away is the same missing grid this is fixing.
+ */
+function tableCellBorderCss(
+  side: (typeof TABLE_CELL_SIDES)[number],
+  border: NonNullable<ParsedTableCell["borders"]>["top"],
+  widthEmu: number,
+  refWidthPx: number,
+): string {
+  if (!border) return "";
+  const width = Math.max(
+    1,
+    toSlidePxX(border.widthEmu ?? 9525, widthEmu, refWidthPx),
+  );
+  return `border-${side}:${round3(width)}px ${border.dash ?? "solid"} ${esc(border.color)};`;
 }
 
 /**
