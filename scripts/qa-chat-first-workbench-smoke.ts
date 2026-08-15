@@ -871,6 +871,16 @@ async function runElectronSmoke(): Promise<void> {
       ["mail", "calendar", "design", "clips", "content", "analytics"],
       "Electron first-run apps should use the desktop default order",
     );
+    const newChatAppIds = await page
+      .locator(".code-agents-overview-footer .desktop-apps-grid [data-app-id]")
+      .evaluateAll((elements) =>
+        elements.map((element) => element.getAttribute("data-app-id")),
+      );
+    assert.deepEqual(
+      newChatAppIds.slice(0, 6),
+      ["mail", "calendar", "design", "clips", "content", "analytics"],
+      "Electron New chat app list should use the desktop default order",
+    );
     assert.equal(
       await page.getByRole("button", { name: "Show more" }).count(),
       1,
