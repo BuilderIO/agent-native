@@ -190,6 +190,28 @@ describe("desktop passive-access regressions", () => {
     expect(runner).toContain('phase: "missing-credentials"');
   });
 
+  it("starts empty desktop app creation from the framework workspace", () => {
+    const main = source("./index.ts");
+    const repository = between(
+      main,
+      "function resolveRepositoryRoot(",
+      "function touchCodeAgentRunRecord(",
+    );
+    const creation = between(
+      main,
+      "async function createDesktopAppFromPrompt(",
+      "const lastDesktopAppRuntimeStatus",
+    );
+
+    expect(repository).toContain(
+      'IS_DEV ? path.resolve(__dirname, "../../../..") : undefined',
+    );
+    expect(creation).toContain(
+      "const appCreationCwd = resolveRepositoryRoot(appsRoot);",
+    );
+    expect(creation).toContain("cwd: appCreationCwd");
+  });
+
   it("only marks the local Codex provider configured after authentication", () => {
     const main = source("./index.ts");
     const providerStatus = between(

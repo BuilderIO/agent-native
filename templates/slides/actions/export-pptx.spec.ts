@@ -139,7 +139,9 @@ describe("parseSlideHtml", () => {
     expect(result.texts).toHaveLength(1);
     expect(result.texts[0].x).toBeCloseTo(1, 3);
     expect(result.texts[0].y).toBeCloseTo((68 / 540) * 7.5, 4);
-    expect(result.texts[0].fontSize).toBe(36);
+    // 16:9 decks are 72 px/in, so CSS px and pt match 1:1 — not the fixed
+    // 96dpi (0.75x) conversion, which would wrongly give 36 here.
+    expect(result.texts[0].fontSize).toBe(48);
     expect(result.texts[0].runs?.map((run) => run.text).join("")).toContain(
       "Body accent",
     );
@@ -199,6 +201,89 @@ describe("parseSlideHtml", () => {
     expect(result.images[0]?.src).toBe(
       "https://files.example/page.png?token=abc&signature=def",
     );
+  });
+
+  it("derives px-to-pt from the deck's actual px/inch ratio, not a fixed 96dpi assumption", () => {
+    // 1:1 decks are 108 px/in (1080px / 10in), not the 96dpi (0.75x) the
+    // fixed conversion assumed: 48px at 108dpi is 32pt, not 36pt.
+    const result = parseSlideHtml(
+      '<div class="fmd-slide"><h1 style="font-size: 48px;">Title</h1></div>',
+      "1:1",
+      1,
+    );
+
+    expect(result.texts[0].fontSize).toBe(32);
+  });
+
+  it("threads rgba alpha through as pptxgenjs transparency instead of discarding it", () => {
+    const result = parseSlideHtml(
+      '<div class="fmd-slide"><h1 style="color: rgba(255, 0, 0, 0.5);">Title</h1></div>',
+      undefined,
+      1,
+    );
+
+    expect(result.texts[0].color).toBe("FF0000");
+    expect(result.texts[0].transparency).toBe(50);
+  });
+
+  it("preserves 8-digit CSS hex alpha through PPTX export", () => {
+    const result = parseSlideHtml(
+      '<div class="fmd-slide"><h1 style="color: #11223380;">Title</h1></div>',
+      undefined,
+      1,
+    );
+
+    expect(result.texts[0].color).toBe("112233");
+    expect(result.texts[0].transparency).toBe(50);
+  });
+
+  it("exports imported tables with cell text, fills, and spans", () => {
+    const result = parseSlideHtml(
+      [
+        '<div class="fmd-slide fmd-imported-pptx" data-imported-pptx="true" style="background:#000000;">',
+        '<div data-pptx-element-kind="table" style="position:absolute;left:72px;top:68px;width:480px;height:180px;">',
+        '<table><tr><td colspan="2" style="background:#11223380;border:1px solid rgba(255,255,255,0.25);"><p><span style="font-size:24px;color:#ffffff;font-weight:700;">Header</span></p></td></tr>',
+        '<tr><td rowspan="2"><p>Left</p></td><td><p>Right</p></td></tr><tr><td><p>Bottom</p></td></tr></table>',
+        "</div></div>",
+      ].join(""),
+      "16:9",
+      1,
+    );
+
+    expect(result.tables).toHaveLength(1);
+    expect(result.tables[0]?.x).toBeCloseTo(1, 3);
+    const [headerRow, bodyRow] = result.tables[0]?.rows ?? [];
+    expect(headerRow?.[0]?.options).toMatchObject({
+      colspan: 2,
+      fill: { color: "112233", transparency: 50 },
+    });
+    expect(headerRow?.[0]?.text).toEqual(
+      expect.arrayContaining([expect.objectContaining({ text: "Header" })]),
+    );
+    expect(bodyRow?.[0]?.options).toMatchObject({ rowspan: 2 });
+    expect(bodyRow?.[0]?.text).toEqual(
+      expect.arrayContaining([expect.objectContaining({ text: "Left" })]),
+    );
+    expect(bodyRow?.[1]?.text).toEqual(
+      expect.arrayContaining([expect.objectContaining({ text: "Right" })]),
+    );
+  });
+
+  it("warns and falls back to white instead of silently defaulting an unrecognized color", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const result = parseSlideHtml(
+      '<div class="fmd-slide"><h1 style="color: hsl(200 50% 50%);">Title</h1></div>',
+      undefined,
+      1,
+    );
+
+    expect(result.texts[0].color).toBe("FFFFFF");
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("hsl(200 50% 50%)"),
+    );
+
+    warnSpy.mockRestore();
   });
 
   it("ignores imported grids with non-positive spacing", () => {

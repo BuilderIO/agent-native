@@ -3901,6 +3901,9 @@ const AssistantChatInner = forwardRef<
       })();
       return () => {
         cancelled = true;
+        // React StrictMode replays effects without resetting refs. Let the
+        // replay start the restore again after cancelling this attempt.
+        hasRestoredRef.current = false;
       };
     } else if (threadId && isNewThread) {
       // Client-created empty tabs do not have a server row until the first
@@ -3994,6 +3997,7 @@ const AssistantChatInner = forwardRef<
       })();
       return () => {
         cancelled = true;
+        hasRestoredRef.current = false;
       };
     } else {
       // Legacy: restore from sessionStorage

@@ -99,4 +99,66 @@ describe("convertToSlideHtml fidelity text sizing", () => {
     // 24 * 96/72 = 32px a source-size-blind pt->px conversion would give.
     expect(Number(match[1])).toBeCloseTo(24, 0);
   });
+
+  it("defaults an undecorated slide's background to white, not black", () => {
+    // A slide with no `<p:bg>` fill has no `backgroundColor` on the parsed
+    // slide — PowerPoint's own default for that case is a white slide, not
+    // black, and defaulting to black silently made the source's own (often
+    // dark) text unreadable.
+    const html = convertToSlideHtml(widescreenTextSlide(24));
+    const slideStyle = html.match(
+      /class="fmd-slide fmd-imported-pptx"[^>]*style="([^"]*)"/,
+    )?.[1];
+    if (!slideStyle) throw new Error("missing imported-pptx slide style");
+    expect(slideStyle).toContain("background: #ffffff");
+  });
+});
+
+describe("convertToSlideHtml table fidelity", () => {
+  function tableSlide(): ParsedSlide {
+    const widthEmu = 12192000;
+    const heightEmu = 6858000;
+    const table: ParsedElement = {
+      id: "table-1",
+      kind: "table",
+      x: 100,
+      y: 200,
+      width: 4000,
+      height: 2000,
+      table: {
+        rows: [
+          [
+            { paragraphs: [{ runs: [{ content: "A1" }] }] },
+            { paragraphs: [{ runs: [{ content: "B1" }] }] },
+          ],
+          [
+            {
+              paragraphs: [{ runs: [{ content: "Merged" }] }],
+              colSpan: 2,
+              fill: "#112233",
+            },
+          ],
+        ],
+      },
+    };
+    return {
+      texts: [],
+      images: [],
+      elements: [table],
+      widthEmu,
+      heightEmu,
+    };
+  }
+
+  it("renders a table element as a real <table> with cell content and spans, not empty or dropped", () => {
+    const html = convertToSlideHtml(tableSlide());
+
+    expect(html).toContain('data-pptx-element-kind="table"');
+    expect(html).toContain("<table");
+    expect(html).toContain(">A1<");
+    expect(html).toContain(">B1<");
+    expect(html).toContain('colspan="2"');
+    expect(html).toContain(">Merged<");
+    expect(html).toContain("background:#112233");
+  });
 });
