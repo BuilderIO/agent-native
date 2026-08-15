@@ -857,7 +857,9 @@ describe("cssGradientToDrawingMl", () => {
     // the way it is meant to — by defaulting to white. The gradient came out
     // with a phantom white stop the deck never had, pointing down instead of
     // right.
-    expect(cssGradientToDrawingMl("linear-gradient(to right, #013445, #018589)")).toBe(
+    expect(
+      cssGradientToDrawingMl("linear-gradient(to right, #013445, #018589)"),
+    ).toBe(
       '<a:gradFill rotWithShape="1"><a:gsLst>' +
         '<a:gs pos="0"><a:srgbClr val="013445"/></a:gs>' +
         '<a:gs pos="100000"><a:srgbClr val="018589"/></a:gs>' +
