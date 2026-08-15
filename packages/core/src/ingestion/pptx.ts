@@ -189,7 +189,7 @@ export async function parsePptxPresentation(
   // resolved (missing rels, unusual authoring tools) — see
   // `resolveSlideMasterContext` below for the per-slide resolution that
   // presentations with more than one slide master actually need.
-  const theme = await parseTheme(zip, parseXml);
+  const theme = await parseTheme(zip, parseXml, slideMasterRelationship);
   const masterColorInfo = slideMasterRelationship
     ? await parseMasterColorInfo({
         zip,
@@ -198,42 +198,54 @@ export async function parsePptxPresentation(
       })
     : {
         clrMap: {},
-        titleFillByLevel: {},
-        bodyFillByLevel: {},
-        otherFillByLevel: {},
-        placeholderFills: [],
+        titleDefaultsByLevel: {},
+        bodyDefaultsByLevel: {},
+        otherDefaultsByLevel: {},
+        placeholderDefaults: [],
+        background: null,
       };
   const colorContext: ColorContext = {
     themeColorsByName: theme.colorsByName,
     clrMap: masterColorInfo.clrMap,
   };
-  const resolveFillsByLevel = (
-    fillsByLevel: Record<number, Record<string, unknown> | null>,
-  ): Record<number, string | undefined> =>
-    Object.fromEntries(
-      Object.entries(fillsByLevel).map(([level, fill]) => [
-        Number(level),
-        parseColor(fill, colorContext),
-      ]),
-    );
-  const placeholderDefaults: PlaceholderDefaultColors = {
-    title: resolveFillsByLevel(masterColorInfo.titleFillByLevel),
-    body: resolveFillsByLevel(masterColorInfo.bodyFillByLevel),
-    other: resolveFillsByLevel(masterColorInfo.otherFillByLevel),
-    layoutPlaceholders: [],
-    masterPlaceholders: resolvePlaceholderShapeColors(
-      masterColorInfo.placeholderFills,
+  const placeholderDefaults: PlaceholderDefaults = {
+    title: resolveRunDefaultsByLevel(
+      masterColorInfo.titleDefaultsByLevel,
       colorContext,
     ),
+    body: resolveRunDefaultsByLevel(
+      masterColorInfo.bodyDefaultsByLevel,
+      colorContext,
+    ),
+    other: resolveRunDefaultsByLevel(
+      masterColorInfo.otherDefaultsByLevel,
+      colorContext,
+    ),
+    layoutPlaceholders: [],
+    masterPlaceholders: resolvePlaceholderShapeDefaults(
+      masterColorInfo.placeholderDefaults,
+      colorContext,
+    ),
+  };
+  const fallbackBackground = parseBackgroundNode(
+    masterColorInfo.background,
+    colorContext,
+  );
+  const fallbackContext: SlideTemplateContext = {
+    colorContext,
+    placeholderDefaults,
+    ...(fallbackBackground ? { background: fallbackBackground } : {}),
+    layerElements: [],
+    layerImages: [],
   };
   const themeCache = new Map<string, Promise<ThemeInfo>>();
   const masterInfoCache = new Map<
     string,
     ReturnType<typeof parseMasterColorInfo>
   >();
-  const layoutPlaceholdersCache = new Map<
+  const templateContextCache = new Map<
     string,
-    Promise<RawPlaceholderShapeFill[]>
+    Promise<SlideTemplateContext | undefined>
   >();
   const slides: ParsedPptxSlide[] = [];
   for (const slidePath of slidePaths) {
@@ -245,6 +257,11 @@ export async function parsePptxPresentation(
     } catch {
       continue;
     }
+    // `show="0"` is the author having removed this slide from the deck's own
+    // flow. Importing it anyway hands every deck back slides its presenter
+    // had already cut.
+    if (stringValue(record(record(slide)?.["p:sld"])?.["@_show"]) === "0")
+      continue;
     const metadata = parsePptxSlideMetadata(slide);
     let elements: ParsedPptxElement[] = [];
     const images: ParsedPptxImage[] = [];
@@ -264,14 +281,18 @@ export async function parsePptxPresentation(
     // slide's own layout→master chain instead of reusing whichever master
     // happened to be first in the presentation, falling back to the
     // deck-wide default above only when that chain can't be resolved.
-    const slideMasterContext = (await resolveSlideMasterContext({
-      zip,
-      parseXml,
-      slideRelationships,
-      themeCache,
-      masterInfoCache,
-      layoutPlaceholdersCache,
-    })) ?? { colorContext, placeholderDefaults };
+    const slideMasterContext =
+      (await resolveSlideMasterContext({
+        zip,
+        parseXml,
+        slideRelationships,
+        slideWidthEmu,
+        slideHeightEmu,
+        themeCache,
+        masterInfoCache,
+        templateContextCache,
+      })) ?? fallbackContext;
+    const number = slideNumber(slidePath);
     elements = await parseSlideElements({
       xml,
       parseXml,
@@ -284,9 +305,14 @@ export async function parsePptxPresentation(
       tablesDegraded,
       colorContext: slideMasterContext.colorContext,
       placeholderDefaults: slideMasterContext.placeholderDefaults,
+      slideNumber: slides.length + 1,
     });
+    // The template layer sits behind the slide's own scene graph: it is the
+    // background band, brand mark and silhouette the layout draws under
+    // everything the slide itself places.
+    images.unshift(...slideMasterContext.layerImages);
+    elements.unshift(...slideMasterContext.layerElements);
     const texts = flattenElementText(elements);
-    const number = slideNumber(slidePath);
     const notesXml = await zip
       .file(`ppt/notesSlides/notesSlide${number}.xml`)
       ?.async("string");
@@ -306,10 +332,9 @@ export async function parsePptxPresentation(
       elements,
       widthEmu: slideWidthEmu,
       heightEmu: slideHeightEmu,
-      backgroundColor: extractSlideBackgroundColor(
-        slide,
-        slideMasterContext.colorContext,
-      ),
+      backgroundColor:
+        extractSlideBackground(slide, slideMasterContext.colorContext) ??
+        slideMasterContext.background,
       ...(backgroundGrid ? { backgroundGrid } : {}),
       notes,
       layoutHint: guessLayoutHint(texts, images.length > 0),
@@ -1179,9 +1204,14 @@ function parseGraphicFrameFragment(
     context: ShapeTransformContext;
     tablesDegraded: { count: number };
     colorContext?: ColorContext;
+    slideRelationships?: Map<string, { target: string; type: string }>;
+    slideNumber?: number;
   },
 ): ParsedPptxElement[] {
-  const table = parseGraphicFrameTable(node, args.colorContext);
+  const table = parseGraphicFrameTable(node, args.colorContext, {
+    relationships: args.slideRelationships,
+    slideNumber: args.slideNumber,
+  });
   if (!table) {
     args.tablesDegraded.count += 1;
     return [];
@@ -1217,6 +1247,7 @@ function parseGraphicFrameFragment(
 function parseGraphicFrameTable(
   node: Record<string, unknown>,
   context?: ColorContext,
+  text?: TextResolutionContext,
 ): ParsedPptxTable | undefined {
   const graphicData = record(record(node["a:graphic"])?.["a:graphicData"]);
   const tbl = record(graphicData?.["a:tbl"]);
@@ -1243,7 +1274,11 @@ function parseGraphicFrameTable(
       const rowSpan = Number(cell["@_rowSpan"]);
       const fill = parseShapeFill(record(cell["a:tcPr"]), context);
       cells.push({
-        paragraphs: parseTextBodyParagraphs(record(cell["a:txBody"]), context),
+        paragraphs: parseTextBodyParagraphs(
+          record(cell["a:txBody"]),
+          context,
+          text,
+        ),
         ...(Number.isFinite(gridSpan) && gridSpan > 1
           ? { colSpan: gridSpan }
           : {}),
@@ -1673,10 +1708,10 @@ function placeholderTypeCandidates(type: string): string[] {
 
 /** Finds the layout/master placeholder shape a slide's own `<p:ph>` inherits from: an exact `type`+`idx` match first, then `type` alone (a title's `idx` is commonly a sentinel like `4294967295` that won't match anything real), then the same two passes for that type's aliases, then — for a slide placeholder with no `type` at all, a generic content placeholder — `idx` alone. */
 function findMatchingPlaceholderShape(
-  placeholders: PlaceholderShapeColors[],
+  placeholders: PlaceholderShapeDefaults[],
   type: string | undefined,
   idx: string | undefined,
-): PlaceholderShapeColors | undefined {
+): PlaceholderShapeDefaults | undefined {
   if (type) {
     for (const candidate of placeholderTypeCandidates(type)) {
       const match =
@@ -2253,11 +2288,36 @@ interface ThemeInfo {
   fonts: string[];
 }
 
+/**
+ * The deck's exposed palette is the *slide* master's theme, not
+ * `ppt/theme/theme1.xml`. In every Google Slides export theme1 belongs to the
+ * notes master, so hardcoding that path persisted a stock scheme that appears
+ * nowhere in the deck and poisoned every restyle, generated slide and export
+ * that reads it.
+ */
 async function parseTheme(
   zip: ZipArchive,
   parseXml: (xml: string) => unknown,
+  slideMasterRelationship?: { target: string; type: string },
 ): Promise<ThemeInfo> {
-  return parseThemeFromPath(zip, parseXml, "ppt/theme/theme1.xml");
+  const masterPath = slideMasterRelationship
+    ? resolvePptxRelationshipPath("ppt", slideMasterRelationship.target)
+    : undefined;
+  const masterRelsXml = masterPath
+    ? await zip.file(relsPathForPptxPart(masterPath))?.async("string")
+    : undefined;
+  const themeTarget = masterRelsXml
+    ? [...parseRelationships(parseXml(masterRelsXml)).values()].find(
+        (relationship) => relationship.type.endsWith("/theme"),
+      )?.target
+    : undefined;
+  const themePath = themeTarget
+    ? resolvePptxRelationshipPath("ppt/slideMasters", themeTarget)
+    : "ppt/theme/theme1.xml";
+  const theme = await parseThemeFromPath(zip, parseXml, themePath);
+  return theme.colors.length > 0
+    ? theme
+    : parseThemeFromPath(zip, parseXml, "ppt/theme/theme1.xml");
 }
 
 async function parseThemeFromPath(
