@@ -1937,7 +1937,7 @@ export default function CodeAgentsApp({
       }
       return;
     }
-    if (providerGate.blocked) {
+    if (providerGate.blocked && newRunExecutionTarget !== "portal") {
       toast("Connect a model provider first", {
         description: providerGate.description,
         duration: 3600,

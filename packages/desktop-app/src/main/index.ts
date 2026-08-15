@@ -2136,7 +2136,7 @@ async function portalRelayRequest(
           `Portal relay returned ${response.status}.`,
       };
     }
-    return payload;
+    return payload.error ? { ...payload, ok: false } : payload;
   } catch (error) {
     return {
       ok: false,
@@ -2163,7 +2163,7 @@ async function selectPortalHost(input: unknown): Promise<
         .map(normalizePortalHost)
         .filter((host): host is PortalRemoteHost => Boolean(host))
     : [];
-  if (result.ok === false)
+  if (result.ok === false || result.error)
     return { error: result.error ?? "Portal hosts are unavailable." };
   const requestedHostId = isObject(input)
     ? firstStringValue(input.portalHostId, input.hostId)

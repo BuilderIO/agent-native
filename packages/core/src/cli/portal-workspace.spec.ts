@@ -1,6 +1,8 @@
+import { execFile as execFileCallback } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
 
 import { describe, expect, it } from "vitest";
 
@@ -26,7 +28,106 @@ const handoff = {
   envPolicy: "load-local" as const,
 };
 
+const execFile = promisify(execFileCallback);
+
+const runRealGit: RunPortalGit = async (args, cwd, env) => {
+  try {
+    const result = await execFile("git", args, {
+      cwd,
+      env: { ...process.env, ...env },
+      encoding: "utf8",
+    });
+    return {
+      status: 0,
+      stdout: String(result.stdout),
+      stderr: String(result.stderr),
+    };
+  } catch (error) {
+    const candidate = error as {
+      code?: number;
+      stdout?: string | Buffer;
+      stderr?: string | Buffer;
+    };
+    return {
+      status: candidate.code ?? 1,
+      stdout: candidate.stdout ? String(candidate.stdout) : undefined,
+      stderr: candidate.stderr ? String(candidate.stderr) : undefined,
+      error: error instanceof Error ? error : new Error(String(error)),
+    };
+  }
+};
+
 describe("createPortalHandoff", () => {
+  it("transfers a real dirty working tree without moving the source branch or index", async () => {
+    const root = await fs.promises.mkdtemp(
+      path.join(os.tmpdir(), "portal-git-test-"),
+    );
+    const source = path.join(root, "source");
+    const remote = path.join(root, "remote.git");
+    await fs.promises.mkdir(source, { recursive: true });
+    await execFile("git", ["init", "--bare", remote]);
+    await execFile("git", ["init", source]);
+    await execFile("git", ["config", "user.name", "Portal Test"], {
+      cwd: source,
+    });
+    await execFile("git", ["config", "user.email", "portal@example.test"], {
+      cwd: source,
+    });
+    await fs.promises.writeFile(path.join(source, "tracked.txt"), "before\n");
+    await execFile("git", ["add", "tracked.txt"], { cwd: source });
+    await execFile("git", ["commit", "-m", "initial"], { cwd: source });
+    await execFile("git", ["remote", "add", "origin", remote], {
+      cwd: source,
+    });
+    await fs.promises.writeFile(path.join(source, "tracked.txt"), "after\n");
+    await fs.promises.writeFile(path.join(source, "untracked.txt"), "new\n");
+    const beforeHead = String(
+      (await execFile("git", ["rev-parse", "HEAD"], { cwd: source })).stdout,
+    ).trim();
+    const beforeStatus = String(
+      (await execFile("git", ["status", "--porcelain"], { cwd: source })).stdout,
+    );
+
+    try {
+      const result = await createPortalHandoff({
+        sourcePath: source,
+        handoffId: "real-1",
+        now: new Date("2026-08-15T12:34:56.000Z"),
+        runGit: runRealGit,
+      });
+      const transferred = String(
+        (
+          await execFile(
+            "git",
+            ["--git-dir", remote, "show", `${result.branch}:tracked.txt`],
+          )
+        ).stdout,
+      );
+      const transferredUntracked = String(
+        (
+          await execFile(
+            "git",
+            ["--git-dir", remote, "show", `${result.branch}:untracked.txt`],
+          )
+        ).stdout,
+      );
+      const afterHead = String(
+        (await execFile("git", ["rev-parse", "HEAD"], { cwd: source })).stdout,
+      ).trim();
+      const afterStatus = String(
+        (await execFile("git", ["status", "--porcelain"], { cwd: source })).stdout,
+      );
+
+      expect(result.createdCommit).toBe(true);
+      expect(transferred).toBe("after\n");
+      expect(transferredUntracked).toBe("new\n");
+      expect(afterHead).toBe(beforeHead);
+      expect(afterStatus).toBe(beforeStatus);
+    } finally {
+      await fs.promises.rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("snapshots dirty code without changing the source checkout and pushes a unique ref", async () => {
     const calls: Array<{ args: string[]; cwd: string }> = [];
     const runGit: RunPortalGit = async (args, cwd) => {
