@@ -278,7 +278,7 @@ describe("<ExportMenu>", () => {
           ...imported.slides,
           // An agent-written slide has no source geometry to preserve, and the
           // server would render it without the browser's measurements.
-          { id: "new", content: '<div class="fmd-slide"><h1>Added</h1></div>' },
+          { content: '<div class="fmd-slide"><h1>Added</h1></div>' },
         ],
       }),
     ).toBe(false);
@@ -287,7 +287,6 @@ describe("<ExportMenu>", () => {
         ...imported,
         slides: [
           {
-            id: "s0",
             content: importedSlide(
               '<div class="fmd-freeform-object" data-slide-object-id="frozen-1" style="position:absolute;left:10px;top:10px">Frozen block</div>',
             ),
