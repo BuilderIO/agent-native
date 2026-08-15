@@ -1,5 +1,11 @@
 # @agent-native/toolkit
 
+## 0.16.1
+
+### Patch Changes
+
+- fb18771: Keep shared composer labels theme-safe and translatable.
+
 ## 0.16.0
 
 ### Minor Changes

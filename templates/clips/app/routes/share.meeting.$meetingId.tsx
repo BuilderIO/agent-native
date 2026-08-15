@@ -86,6 +86,7 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
       scheduledStart: schema.meetings.scheduledStart,
       summaryMd: schema.meetings.summaryMd,
       bulletsJson: schema.meetings.bulletsJson,
+      ownerEmail: schema.meetings.ownerEmail,
       actualStart: schema.meetings.actualStart,
       actualEnd: schema.meetings.actualEnd,
       transcriptStatus: schema.meetings.transcriptStatus,
@@ -169,6 +170,15 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
     }
   } catch {}
 
+  // The owner's email is only safe to disclose here when it's already public
+  // via the attendee list — an unauthenticated viewer must never learn an
+  // account email that isn't otherwise visible on this page.
+  const ownerEmailIsPublic = participants.some(
+    (participant) =>
+      participant.email.trim().toLowerCase() ===
+      meeting.ownerEmail?.trim().toLowerCase(),
+  );
+
   return shareMeetingLoaderData(
     {
       meeting: {
@@ -179,6 +189,7 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
         bullets,
         participants,
         actionItems,
+        ownerEmail: ownerEmailIsPublic ? meeting.ownerEmail : null,
         actualStart: meeting.actualStart,
         actualEnd: meeting.actualEnd,
         transcriptStatus: meeting.transcriptStatus,
@@ -363,6 +374,7 @@ export default function ShareMeetingRoute() {
     (participant) => ({
       email: participant.email,
       name: participant.name ?? undefined,
+      isOrganizer: participant.isOrganizer,
     }),
   );
   const transcript = meeting.transcript;
@@ -449,7 +461,7 @@ export default function ShareMeetingRoute() {
                   {meeting.bullets.map((bullet, index) => (
                     <li
                       key={index}
-                      className="flex gap-2 text-sm leading-relaxed text-muted-foreground"
+                      className="flex gap-2 text-sm leading-relaxed text-foreground"
                     >
                       <span>•</span>
                       <span className="flex-1">{bullet.text}</span>
@@ -522,6 +534,8 @@ export default function ShareMeetingRoute() {
                 <TranscriptBubbles
                   segments={transcript.segments}
                   isLive={false}
+                  participants={attendees}
+                  ownerEmail={meeting.ownerEmail}
                 />
               </div>
             ) : transcript.fullText ? (

@@ -1,0 +1,161 @@
+---
+title: "其他界面"
+description: "除了 UI 钩子之外,所有能调用一个 action 的东西:原生聊天 UI 控件结果、CLI、A2A、MCP,以及每个模板都自带的两个标准 action。"
+---
+
+# 其他界面
+
+UI 钩子这个界面在 [数据与同步](/docs/client-data) 中已经讲过:`useActionQuery()`、`useActionMutation()` 和 `callAction()`。本页涵盖其他所有可以调用、或被一个 action 驱动的东西。
+
+## 渲染原生聊天 UI {#native-chat-ui}
+
+Action 可以返回应用内聊天会原生渲染的结构化控件数据。这是可复用表格、图表、设置摘要和洞察卡片的第一方聊天路径。当代理需要在应用内聊天中生成任意的交互控件时,使用 [生成式 UI](/docs/generative-ui);当需要在外部 MCP 主机中提供内联 UI 时,使用 [MCP 应用程序](/docs/mcp-apps)。
+
+```ts
+import { defineAction } from "@agent-native/core/action";
+import { ACTION_CHAT_UI_DATA_CHART_RENDERER } from "@agent-native/core/action-ui";
+import {
+  createDataChartWidgetResult,
+  dataChartWidgetResultSchema,
+} from "@agent-native/core/data-widgets";
+
+export default defineAction({
+  description: "Summarize response trends.",
+  readOnly: true,
+  outputSchema: dataChartWidgetResultSchema,
+  chatUI: { renderer: ACTION_CHAT_UI_DATA_CHART_RENDERER },
+  run: async () =>
+    createDataChartWidgetResult({
+      title: "Response trends",
+      chartSeries: {
+        type: "line",
+        xKey: "day",
+        series: [{ key: "responses", label: "Responses" }],
+        data: [
+          { day: "Mon", responses: 12 },
+          { day: "Tue", responses: 18 },
+        ],
+      },
+    }),
+});
+```
+
+内置的判别值有 `"data-table"`、`"data-chart"` 和
+`"data-insights"`,配套的服务端安全构建函数和 schema 位于
+`@agent-native/core/data-widgets`。仅图表类的回答用 `data-chart`,
+SQL/列表结果用 `data-table`,只有当组合的摘要/图表/表格卡片才是正确输出时才用
+`data-insights`。完整的结果契约参阅
+[原生聊天 UI](/docs/native-chat-ui);如果你要接入的是自定义代理运行时,而不是内置的聊天循环,参阅
+[自建代理运行时](/docs/native-chat-ui#byo-agent-runtimes)。同一个 action 如何既保持对自动化友好,又能在聊天中渲染,还能成长为一个完整界面,参阅
+[Agent 界面](/docs/agent-surfaces)。
+
+## 从 CLI 调用它 {#cli}
+
+每个 action 都可以通过 `pnpm action` 运行:
+
+```bash
+pnpm action reply-to-email '{"emailId":"thread-123","body":"Thanks!"}'
+```
+
+JSON 输入是代理和复杂对象的首选形式。对于简单的手动运行和现有脚本,
+flag 的效果是一样的:
+
+```bash
+pnpm action reply-to-email --emailId thread-123 --body "Thanks!"
+```
+
+这对代理开发循环、脚本和定时任务都很有用。
+
+## 从另一个代理调用它(A2A) {#a2a}
+
+如果你的应用是一个 [A2A](/docs/a2a-protocol) 对等端,其他代理本机应用会自动发现你的 action,并能按名称调用它们。同源部署会跳过 JWT 签名。跨源部署则使用一个共享的 `A2A_SECRET`。
+
+## 通过 MCP 暴露它 {#mcp}
+
+启用 MCP 后,你的 action 会出现在框架位于 `/mcp` 的 MCP 服务器中。每个调用者默认都会拿到一份精简目录(面向应用的内置项加上模板声明的应用 action),而 `tool-search` 始终存在,所以任何其他工具都可以按需被发现。完整的 action 界面只有在显式选择加入时才会提供(`--full-catalog` token 或 `AGENT_NATIVE_MCP_FULL_CATALOG=1`),而 [`publicAgent.expose`](/docs/actions-access-control#public-agent) 会让一个安全的读取/摄取类工具加入公共界面。目录层级、鉴权,以及 `mcpApp` 资源的细节,参阅 [MCP 协议](/docs/mcp-protocol)。
+
+对于支持 UI 的 MCP 主机,一个 action 可以通过 `mcpApp` 字段(加上一个匹配的 `link`)声明一个可选的 MCP 应用程序资源,这样有能力的主机就能内联渲染结果。当 `link` 和 `mcpApp` 应该指向同一个路由时,`embedRoute()` 可以用一个纯粹的路径构建函数同时构建出两者:
+
+```ts
+import { embedRoute } from "@agent-native/core";
+
+export default defineAction({
+  description: "Create an email draft for review.",
+  schema: z.object({ body: z.string() }),
+  run: async ({ body }) => ({ body }),
+  ...embedRoute({
+    title: "Review draft",
+    openLabel: "Open in Mail",
+    path: ({ result }) => ({
+      label: "Open draft in Mail",
+      url: "/_agent-native/open?app=mail&view=inbox",
+    }),
+  }),
+});
+```
+
+把 `link` 保留作为 CLI 和非 UI MCP 主机的兜底方案,它同时也是这次内嵌的启动目标。内嵌桥接(签名的内嵌启动会话、transplant 与受控 frame 渲染的取舍、`ui/*` 主机桥接、CSP,以及高度限制)由 [外部代理](/docs/external-agents#mcp-app-bridge) 负责。
+
+## 标准 actions {#standard-actions}
+
+出于[情境意识](/docs/context-awareness)的考虑,每个模板都应该包含以下这两个。
+
+### view-screen {#view-screen}
+
+读取当前导航状态,获取相关的上下文数据,并返回用户当前所见内容的一份快照。当代理需要重新看一眼界面时,会调用这个 action。
+
+```ts
+// actions/view-screen.ts
+import { defineAction } from "@agent-native/core/action";
+import { readAppState } from "@agent-native/core/application-state";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Read the current screen state for context.",
+  schema: z.object({}),
+  http: { method: "GET" },
+  run: async () => {
+    const navigation = await readAppState("navigation");
+    const screen: Record<string, unknown> = { navigation };
+
+    if (navigation?.view === "inbox") {
+      screen.emailList = await listEmailsForLabel(navigation.label);
+    }
+
+    return screen;
+  },
+});
+```
+
+### navigate {#navigate}
+
+向应用程序状态写入一次一次性的导航命令。UI 读取它、执行导航,然后删除这条记录。
+
+```ts
+// actions/navigate.ts
+import { defineAction } from "@agent-native/core/action";
+import { writeAppState } from "@agent-native/core/application-state";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Navigate the user to a view.",
+  schema: z.object({
+    view: z.string(),
+    threadId: z.string().optional(),
+  }),
+  run: async (args) => {
+    await writeAppState("navigate", args);
+    return { ok: true };
+  },
+});
+```
+
+## 下一步
+
+- [**数据与同步**](/docs/client-data) — UI 中的 `useActionQuery`、`useActionMutation` 和 `callAction`
+- [**概览**](/docs/actions-overview) — action 是什么,以及 hello-world 演练
+- [**情境意识**](/docs/context-awareness) — 深入讲解 `view-screen` + `navigate` 模式
+- [**A2A 协议**](/docs/a2a-protocol) — 其他代理如何发现并调用你的 action
+- [**MCP 协议**](/docs/mcp-protocol) — 目录层级、鉴权和 `mcpApp` 资源
+- [**生成式 UI**](/docs/generative-ui) — 在聊天中内联渲染临时或已保存的生成式 UI
+- [**原生聊天 UI**](/docs/native-chat-ui) — 完整的控件结果契约
