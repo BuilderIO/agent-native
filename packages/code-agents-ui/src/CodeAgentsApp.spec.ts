@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   findRunsThatBecameUnread,
+  getCodeAgentSelection,
   groupCodeAgentModelOptions,
   normalizeModelSelection,
   resolveNewSessionExtensionComposerState,
@@ -140,6 +141,53 @@ describe("code-agent model selection", () => {
     });
   });
 
+  it("keeps Luna out of Claude Code and prefers Sonnet", () => {
+    const mixedModels: CodeAgentModelOption[] = [
+      {
+        engine: "claude-cli",
+        engineLabel: "Anthropic",
+        model: "gpt-5.6-luna",
+        label: "GPT-5.6 Luna",
+        configured: true,
+      },
+      ...models,
+    ];
+
+    expect(
+      normalizeModelSelection(
+        { engine: "claude-cli", model: "gpt-5.6-luna", effort: "high" },
+        mixedModels,
+      ),
+    ).toMatchObject({ engine: "claude-cli", model: "claude-sonnet-5" });
+    expect(
+      getCodeAgentSelection(
+        "claude-code",
+        { engine: "codex-cli", model: "gpt-5.6-luna", effort: "high" },
+        mixedModels,
+      ),
+    ).toMatchObject({ engine: "claude-cli", model: "claude-sonnet-5" });
+  });
+
+  it("keeps Luna as the default for non-Claude Code agents", () => {
+    const mixedModels: CodeAgentModelOption[] = [
+      ...models,
+      {
+        engine: "codex-cli",
+        engineLabel: "OpenAI",
+        model: "gpt-5.6-luna",
+        label: "GPT-5.6 Luna",
+        configured: true,
+      },
+    ];
+    expect(
+      getCodeAgentSelection(
+        "codex",
+        { engine: "claude-cli", model: "claude-sonnet-5", effort: "high" },
+        mixedModels,
+      ),
+    ).toMatchObject({ engine: "codex-cli", model: "gpt-5.6-luna" });
+  });
+
   it("defaults an empty selection to Luna with high effort", () => {
     expect(normalizeModelSelection({}, [])).toEqual({
       engine: "ai-sdk:openai",
@@ -168,6 +216,49 @@ describe("code-agent model selection", () => {
         isSubscription: true,
       },
     ]);
+  });
+
+  it("lets Default enter the hosted model list before a provider is configured", () => {
+    const hostedModels: CodeAgentModelOption[] = [
+      {
+        engine: "anthropic",
+        engineLabel: "Anthropic",
+        model: "claude-sonnet-5",
+        label: "Claude Sonnet 5",
+        configured: false,
+      },
+      {
+        engine: "builder",
+        engineLabel: "Builder.io",
+        model: "claude-sonnet-5",
+        label: "Claude Sonnet 5",
+        configured: true,
+      },
+    ];
+
+    expect(
+      getCodeAgentSelection(
+        "default",
+        { engine: "codex-cli", model: "gpt-5.6-luna", effort: "high" },
+        hostedModels,
+      ),
+    ).toEqual({
+      engine: "builder",
+      model: "claude-sonnet-5",
+      effort: "high",
+    });
+
+    expect(
+      getCodeAgentSelection(
+        "default",
+        { engine: "codex-cli", model: "gpt-5.6-luna", effort: "high" },
+        hostedModels.slice(0, 1),
+      ),
+    ).toEqual({
+      engine: "anthropic",
+      model: "claude-sonnet-5",
+      effort: "high",
+    });
   });
 });
 

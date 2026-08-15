@@ -51,7 +51,10 @@ export {
   buildAppChatSidebarStateMessage,
   buildAppChatSidebarStateRequest,
   isPerAppChatStorageKey,
+  requestPerAppChatCommand,
+  usePerAppChatState,
   usePerAppChatOpen,
+  type AppChatSidebarCommand,
   type AppChatSidebarState,
 } from "../app-chat-sidebar.js";
 export { usePinchZoom, type UsePinchZoomOptions } from "../use-pinch-zoom.js";

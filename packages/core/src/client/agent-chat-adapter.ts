@@ -141,6 +141,10 @@ const MAX_HISTORY_ATTACHMENT_CHARS = 60_000;
 const MAX_OUTBOUND_ATTACHMENT_CHARS = 200_000;
 const MAX_HISTORY_MESSAGES = 24;
 const MAX_HISTORY_TOTAL_CHARS = 64_000;
+// Budget for everything actually said in the thread — every user ask and every
+// assistant conclusion. Separate from MAX_HISTORY_TOTAL_CHARS, which bounds the
+// tool args/results those turns produced. See limitPriorMessagesForRequest.
+const MAX_HISTORY_WORD_CHARS = 32_000;
 const MAX_HISTORY_MESSAGE_CHARS = 12_000;
 const MAX_HISTORY_TOOL_ARGS_CHARS = 8_000;
 const MAX_HISTORY_TOOL_RESULT_CHARS = 12_000;
@@ -983,21 +987,34 @@ function limitPriorMessagesForRequest<
 >(messages: readonly T[]): T[] {
   const recent = messages.slice(-MAX_HISTORY_MESSAGES);
   const kept: T[] = [];
-  let totalChars = 0;
+  let words = 0;
+  let payload = 0;
 
   for (let i = recent.length - 1; i >= 0; i--) {
     const message = recent[i];
     if (message.role !== "user" && message.role !== "assistant") continue;
-    const cost = estimateHistoryMessageCost(message);
-    if (kept.length > 0 && totalChars + cost > MAX_HISTORY_TOTAL_CHARS) {
-      break;
-    }
-    kept.push(message);
-    totalChars += cost;
+    // What was said is cheap and cannot be re-derived; what a tool returned is
+    // ~97% of a tool-heavy turn and can always be re-read. Pricing both against
+    // one budget let a single read-heavy turn evict the whole conversation, so
+    // the agent re-derived the same answer and re-asked the same question.
+    const wordCost = messageTextForHistory(message).length;
+    if (kept.length > 0 && words + wordCost > MAX_HISTORY_WORD_CHARS) continue;
+    const payloadCost = estimateHistoryMessageCost(message) - wordCost;
+    const affordsPayload = payload + payloadCost <= MAX_HISTORY_TOTAL_CHARS;
+    const content = affordsPayload
+      ? message.content
+      : message.content.filter((part) => part.type === "text");
+    if (!content.length) continue;
+    kept.push(affordsPayload ? message : { ...message, content });
+    words += wordCost;
+    if (affordsPayload) payload += payloadCost;
   }
 
   kept.reverse();
-  while (kept.length > 0 && kept[0].role !== "user") {
+  // Stop before emptying: this rule exists to start history on a user turn for
+  // providers that require it, not to license sending no history at all. It was
+  // the last step that turned an over-budget turn into a blank conversation.
+  while (kept.length > 1 && kept[0].role !== "user") {
     kept.shift();
   }
   return kept;
@@ -1776,6 +1793,8 @@ export interface CreateAgentChatAdapterOptions {
   modelRef?: { current: string | undefined };
   engineRef?: { current: string | undefined };
   effortRef?: { current: ReasoningEffort | undefined };
+  harnessRef?: { current: string | undefined };
+  hostedHarnessRef?: { current: boolean };
   execModeRef?: { current: "build" | "plan" | undefined };
   browserTabId?: string;
   scopeRef?: { current: ChatThreadScope | null | undefined };
@@ -1863,6 +1882,8 @@ export function createAgentChatAdapter(
   const modelRef = options?.modelRef;
   const engineRef = options?.engineRef;
   const effortRef = options?.effortRef;
+  const harnessRef = options?.harnessRef;
+  const hostedHarnessRef = options?.hostedHarnessRef;
   const execModeRef = options?.execModeRef;
   const browserTabId = options?.browserTabId;
   const scopeRef = options?.scopeRef;
@@ -1967,7 +1988,9 @@ export function createAgentChatAdapter(
       // Queued turns carry the model/engine/effort they were composed with.
       // The refs track the live picker, so without this a queue that flushes
       // after the user switches models runs under the wrong one.
-      const runConfigSelection = (key: "model" | "engine" | "effort") => {
+      const runConfigSelection = (
+        key: "model" | "engine" | "effort" | "harness",
+      ) => {
         const raw =
           runConfig?.custom && typeof runConfig.custom === "object"
             ? (runConfig.custom as Record<string, unknown>)[key]
@@ -1979,6 +2002,9 @@ export function createAgentChatAdapter(
       const effort =
         (runConfigSelection("effort") as ReasoningEffort | undefined) ??
         effortRef?.current;
+      const harness = hostedHarnessRef?.current
+        ? (runConfigSelection("harness") ?? harnessRef?.current)
+        : undefined;
       const requestedTurnId = (() => {
         const raw =
           runConfig?.custom && typeof runConfig.custom === "object"
@@ -2443,6 +2469,7 @@ export function createAgentChatAdapter(
         // "dev-frame" explicitly; the reusable in-product chat defaults to
         // "app" even when it is running in Desktop or inside a preview iframe.
         headers["x-agent-native-surface"] = surface;
+        if (harness) headers["x-agent-native-hosted-harness"] = "1";
 
         const reconnectCurrentRun = async function* (): AsyncGenerator<
           ChatModelRunResult,
@@ -3759,6 +3786,7 @@ export function createAgentChatAdapter(
                   ...(model ? { model } : {}),
                   ...(engine ? { engine } : {}),
                   ...(effort ? { effort } : {}),
+                  ...(harness ? { harness: { runtime: harness } } : {}),
                   ...(browserTabId ? { browserTabId } : {}),
                   ...(scopeRef?.current ? { scope: scopeRef.current } : {}),
                   ...(includeAttachments ? { attachments } : {}),

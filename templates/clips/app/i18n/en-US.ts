@@ -1575,6 +1575,7 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     transcriptPending: "Transcript pending",
     notesPending: "Notes pending",
     pastRecordings: "Past recordings",
+    loadOlder: "Load older",
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings.",
     connectGoogleCalendar: "Connect Google Calendar",

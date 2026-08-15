@@ -1509,6 +1509,7 @@ const messages = {
     transcriptPending: "逐字稿待處理",
     notesPending: "筆記待處理",
     pastRecordings: "過去的錄製",
+    loadOlder: "載入較舊的",
     calendarNeedsReconnect:
       "需要重新連線 Google Calendar，才能繼續顯示即將到來的會議。",
     connectGoogleCalendar: "連線 Google Calendar",

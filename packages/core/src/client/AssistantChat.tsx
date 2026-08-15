@@ -102,6 +102,10 @@ import {
   estimateAttachmentBodyBytes,
   type QueuedAttachment,
 } from "./chat/attachment-adapters.js";
+import {
+  readAssistantChatComposerDraft,
+  writeAssistantChatComposerDraft,
+} from "./chat/composer-draft.js";
 import { TextStreamingContext } from "./chat/markdown-renderer.js";
 import {
   CheckpointContext,
@@ -233,6 +237,7 @@ export {
 export { displayableUserMessageText } from "./chat/message-components.js";
 
 type AuthSessionCheckResult = "available" | "missing" | "unknown";
+type ThreadRestoreErrorKind = "not-found" | "unavailable";
 
 const useBrowserLayoutEffect =
   typeof window === "undefined" ? useEffect : useLayoutEffect;
@@ -617,13 +622,6 @@ function clearPendingSelection() {
     window.dispatchEvent(new CustomEvent("agent-panel:selection-cleared"));
   }
 }
-
-// Thread ids the server has already told us don't exist (a prior mount's
-// /threads/:id probe returned 404). Module-scoped so it survives remounts:
-// re-probing a known-absent thread on every navigation just re-spams DevTools
-// with 404s for a thread that has no server row yet (e.g. a freshly created,
-// not-yet-sent chat). Reset on a full page reload.
-const knownAbsentThreadIds = new Set<string>();
 
 export async function waitForThreadRunToClear(
   apiUrl: string,
@@ -1895,6 +1893,8 @@ export interface AssistantChatAdapterContext {
   modelRef: { current: string | undefined };
   engineRef: { current: string | undefined };
   effortRef: { current: ReasoningEffort | undefined };
+  harnessRef?: { current: string | undefined };
+  hostedHarnessRef?: { current: boolean };
   execModeRef: { current: "build" | "plan" | undefined };
   browserTabId?: string;
   scopeRef: { current: ChatThreadScope | null | undefined };
@@ -2022,6 +2022,8 @@ export interface AssistantChatProps {
   availableAgents?: ComposerAgentOption[];
   /** Selected agent runtime identifier. */
   selectedAgent?: string;
+  /** Mark the selected runtime as the hosted tools-only harness mode. */
+  hostedHarness?: boolean;
   /** Callback when the user picks an agent runtime. */
   onAgentChange?: (agent: string) => void;
   /**
@@ -2416,6 +2418,7 @@ const AssistantChatInner = forwardRef<
     onEffortChange,
     availableAgents,
     selectedAgent,
+    hostedHarness,
     onAgentChange,
     imageModelMenu,
     onForkChat,
@@ -2480,12 +2483,18 @@ const AssistantChatInner = forwardRef<
   // Cleared on the next message send.
   const [composerError, setComposerError] = useState<string | null>(null);
   const [composerText, setComposerText] = useState("");
+  const composerDraftScope = threadId || tabId;
+  const initialComposerText = useMemo(
+    () => readAssistantChatComposerDraft(composerDraftScope),
+    [composerDraftScope],
+  );
   const handleComposerTextChange = useCallback(
     (text: string) => {
       setComposerText(text);
+      writeAssistantChatComposerDraft(composerDraftScope, text);
       onComposerTextChange?.(text);
     },
-    [onComposerTextChange],
+    [composerDraftScope, onComposerTextChange],
   );
   const dropDepthRef = useRef(0);
   const handleChatDragEnter = useCallback((e: React.DragEvent) => {
@@ -2698,10 +2707,12 @@ const AssistantChatInner = forwardRef<
     [],
   );
 
-  useEffect(() => {
+  useBrowserLayoutEffect(() => {
     if (!isActiveComposer) return;
     let cancelled = false;
-    void refreshAgentChatContext().then((state) => {
+    const applyVisibleItems = (
+      state: ReturnType<typeof getAgentChatContextState>,
+    ) => {
       if (cancelled || !isActiveComposerRef.current) return;
       const visibleItems = filterAgentChatContextItems(
         state.items,
@@ -2709,7 +2720,9 @@ const AssistantChatInner = forwardRef<
       );
       composerContextItemsRef.current = visibleItems;
       setComposerContextItems(visibleItems);
-    });
+    };
+    applyVisibleItems(getAgentChatContextState());
+    void refreshAgentChatContext().then(applyVisibleItems);
     const unsubscribe = subscribeAgentChatContext(() => {
       if (cancelled || !isActiveComposerRef.current) return;
       const state = getAgentChatContextState();
@@ -2725,6 +2738,14 @@ const AssistantChatInner = forwardRef<
       unsubscribe();
     };
   }, [isActiveComposer, normalizedContextNamespace]);
+  const visibleComposerContextItems = useMemo(
+    () =>
+      filterAgentChatContextItems(
+        composerContextItems,
+        normalizedContextNamespace,
+      ),
+    [composerContextItems, normalizedContextNamespace],
+  );
   // Tracks the JSON of the last queue we successfully persisted so the
   // debounced save effect can skip no-op writes (e.g. restore-from-server
   // on mount, or queue state that hasn't actually changed).
@@ -2965,6 +2986,9 @@ const AssistantChatInner = forwardRef<
 
   // ─── Chat persistence ──────────────────────────────────────────────
   const hasRestoredRef = useRef(false);
+  const [threadRestoreError, setThreadRestoreError] =
+    useState<ThreadRestoreErrorKind | null>(null);
+  const [restoreAttempt, setRestoreAttempt] = useState(0);
   const [initialCachedThreadSnapshot] = useState(() =>
     readCachedThreadSnapshot(apiUrl, threadId),
   );
@@ -2974,6 +2998,13 @@ const AssistantChatInner = forwardRef<
       !isNewThread &&
       !initialCachedThreadSnapshot,
   );
+  const retryThreadRestore = useCallback(() => {
+    if (!threadId || isNewThread) return;
+    hasRestoredRef.current = false;
+    setThreadRestoreError(null);
+    setIsRestoring(true);
+    setRestoreAttempt((attempt) => attempt + 1);
+  }, [isNewThread, threadId]);
   const onSaveThreadRef = useRef(onSaveThread);
   onSaveThreadRef.current = onSaveThread;
   const onGenerateTitleRef = useRef(onGenerateTitle);
@@ -3852,84 +3883,107 @@ const AssistantChatInner = forwardRef<
     hasRestoredRef.current = true;
 
     if (loadHistoryRepository) {
+      let cancelled = false;
       (async () => {
         try {
           const repo = await loadHistoryRepository();
+          if (cancelled) return;
           if (repo) {
             importThreadData(repo, { markTitleGenerated: true });
           }
           titleGeneratedRef.current = true;
+          setThreadRestoreError(null);
         } catch {
-          // Start fresh
+          if (!cancelled) setThreadRestoreError("unavailable");
         } finally {
-          setIsRestoring(false);
+          if (!cancelled) setIsRestoring(false);
         }
       })();
+      return () => {
+        cancelled = true;
+      };
     } else if (threadId && isNewThread) {
       // Client-created empty tabs do not have a server row until the first
       // message is sent. Avoid probing /threads/:id on mount; that request
       // can only 404 and makes normal app startup look broken in DevTools.
-      setIsRestoring(false);
-    } else if (threadId && knownAbsentThreadIds.has(threadId)) {
-      // A prior mount already learned this thread has no server row (404).
-      // Skip the re-probe so remounts don't re-spam 404s for the same id.
+      setThreadRestoreError(null);
       setIsRestoring(false);
     } else if (threadId) {
+      let cancelled = false;
       (async () => {
+        let canReconnect = false;
         try {
           const res = await fetch(
             `${apiUrl}/threads/${encodeURIComponent(threadId)}`,
           );
-          if (res.ok) {
-            const data = await res.json();
-            if (data.threadData) {
-              const repo = importThreadData(data.threadData, {
-                markTitleGenerated: true,
-              });
-              if (repo) {
-                let shouldCacheServerSnapshot = true;
-                try {
-                  shouldCacheServerSnapshot = shouldImportServerThreadData(
-                    normalizeThreadRepository(threadRuntime.export()),
-                    repo,
-                  );
-                } catch {
-                  shouldCacheServerSnapshot = false;
-                }
-                if (shouldCacheServerSnapshot) {
-                  const { title, preview } = extractThreadMeta(repo);
-                  writeCachedThreadSnapshot(apiUrl, threadId, {
-                    threadData:
-                      typeof data.threadData === "string"
-                        ? data.threadData
-                        : JSON.stringify(data.threadData),
-                    title: data.title || title,
-                    preview,
-                    messageCount: Array.isArray(repo.messages)
-                      ? repo.messages.length
-                      : 0,
-                  });
-                }
+          if (!res.ok) {
+            if (!cancelled) {
+              setThreadRestoreError(
+                res.status === 404 ? "not-found" : "unavailable",
+              );
+            }
+            return;
+          }
+
+          const data = await res.json();
+          if (cancelled || !data || typeof data !== "object") {
+            if (!cancelled) setThreadRestoreError("unavailable");
+            return;
+          }
+
+          if (!data.threadData) {
+            if (!cancelled) setThreadRestoreError("unavailable");
+            return;
+          }
+
+          if (data.threadData) {
+            const repo = importThreadData(data.threadData, {
+              markTitleGenerated: true,
+            });
+            if (repo) {
+              let shouldCacheServerSnapshot = true;
+              try {
+                shouldCacheServerSnapshot = shouldImportServerThreadData(
+                  normalizeThreadRepository(threadRuntime.export()),
+                  repo,
+                );
+              } catch {
+                shouldCacheServerSnapshot = false;
+              }
+              if (shouldCacheServerSnapshot) {
+                const { title, preview } = extractThreadMeta(repo);
+                writeCachedThreadSnapshot(apiUrl, threadId, {
+                  threadData:
+                    typeof data.threadData === "string"
+                      ? data.threadData
+                      : JSON.stringify(data.threadData),
+                  title: data.title || title,
+                  preview,
+                  messageCount: Array.isArray(repo.messages)
+                    ? repo.messages.length
+                    : 0,
+                });
               }
             }
             // Also skip title generation if thread already has a title
             if (data.title) {
               titleGeneratedRef.current = true;
             }
-          } else if (res.status === 404) {
-            // No server row for this thread yet — remember it so later remounts
-            // skip the probe instead of re-fetching a known 404.
-            knownAbsentThreadIds.add(threadId);
+            if (!cancelled) {
+              setThreadRestoreError(null);
+              canReconnect = true;
+            }
           }
         } catch {
-          // Start fresh
+          if (!cancelled) setThreadRestoreError("unavailable");
         } finally {
           // Clear the skeleton as soon as the persisted messages are imported.
           // The active-run reconnect probe below must NOT gate first paint — it
           // only matters when a run is mid-flight (e.g. after a hot reload), and
           // it streams on top of the already-rendered messages.
-          setIsRestoring(false);
+          if (!cancelled) setIsRestoring(false);
         }
+        if (cancelled || !canReconnect) return;
         // Reconnect to an in-progress run after the skeleton has cleared, so a
         // background `/runs/active` probe never delays showing the conversation.
         try {
@@ -3938,6 +3992,9 @@ const AssistantChatInner = forwardRef<
           // No active run to reconnect to.
         }
       })();
+      return () => {
+        cancelled = true;
+      };
     } else {
       // Legacy: restore from sessionStorage
       const storageKey = `${CHAT_STORAGE_PREFIX}${tabId || "default"}`;
@@ -3962,6 +4019,7 @@ const AssistantChatInner = forwardRef<
     loadHistoryRepository,
     isNewThread,
     isThreadStateLoading,
+    restoreAttempt,
   ]);
 
   useEffect(() => {
@@ -5532,6 +5590,24 @@ const AssistantChatInner = forwardRef<
     !authError &&
     showEmptyState &&
     !isRestoring;
+  const threadRestoreErrorSurface = threadRestoreError ? (
+    <div
+      role="alert"
+      className="flex max-w-[320px] flex-col items-center gap-3 rounded-lg border border-border bg-muted/30 px-4 py-3 text-center"
+    >
+      <IconRefresh className="h-5 w-5 text-muted-foreground" />
+      <p className="text-sm text-muted-foreground">
+        {t("agentChat.message.restoreRequestFailed")}
+      </p>
+      <button
+        type="button"
+        onClick={retryThreadRestore}
+        className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent"
+      >
+        {t("agentChat.common.retry")}
+      </button>
+    </div>
+  ) : null;
 
   // Clarifying-question surface: the `ask-question` action writes a
   // GuidedQuestionPayload to application_state under "guided-questions". The
@@ -5558,7 +5634,7 @@ const AssistantChatInner = forwardRef<
     showComposerSlot ||
     showCenteredEmptyThreadFooterSlot ||
     (guidedQuestions && guidedQuestions.length > 0) ||
-    composerContextItems.length > 0 ||
+    visibleComposerContextItems.length > 0 ||
     showPlanModeCallout ||
     showInlineMissingKeySetup,
   );
@@ -5844,6 +5920,11 @@ const AssistantChatInner = forwardRef<
                                       <div className="h-4 w-40 rounded bg-muted animate-pulse" />
                                     </div>
                                   </div>
+                                ) : threadRestoreError &&
+                                  messages.length === 0 ? (
+                                  <div className="flex h-full flex-col items-center justify-center gap-3 px-4 py-16">
+                                    {threadRestoreErrorSurface}
+                                  </div>
                                 ) : showEmptyState ? (
                                   <div
                                     className={cn(
@@ -5889,6 +5970,11 @@ const AssistantChatInner = forwardRef<
                                   </div>
                                 ) : (
                                   <MessageScrollerContent className="agent-thread-content gap-4 px-4 py-4">
+                                    {threadRestoreErrorSurface ? (
+                                      <MessageScrollerItem>
+                                        {threadRestoreErrorSurface}
+                                      </MessageScrollerItem>
+                                    ) : null}
                                     <AssistantMessageListErrorBoundary
                                       resetKey={messageListResetKey}
                                     >
@@ -6240,6 +6326,10 @@ const AssistantChatInner = forwardRef<
                                     <ComposerAttachmentPreviewStrip />
                                     <TiptapComposer
                                       focusRef={tiptapRef}
+                                      initialText={
+                                        initialComposerText ?? undefined
+                                      }
+                                      initialTextKey={composerDraftScope}
                                       onTextChange={
                                         isActiveComposer
                                           ? handleComposerTextChange
@@ -6281,7 +6371,7 @@ const AssistantChatInner = forwardRef<
                                       }
                                       onSubmit={
                                         isRunning ||
-                                        composerContextItems.length > 0
+                                        visibleComposerContextItems.length > 0
                                           ? (
                                               text,
                                               references,
@@ -6325,6 +6415,7 @@ const AssistantChatInner = forwardRef<
                                       availableModels={availableModels}
                                       availableAgents={availableAgents}
                                       selectedAgent={selectedAgent}
+                                      hostedHarness={hostedHarness}
                                       modelListLoading={modelListLoading}
                                       onModelChange={
                                         shouldShowAssistantChatModelSelector(
@@ -6341,7 +6432,7 @@ const AssistantChatInner = forwardRef<
                                         onConnectLocalRuntime
                                       }
                                       toolbarSlot={composerToolbarSlot}
-                                      contextItems={composerContextItems}
+                                      contextItems={visibleComposerContextItems}
                                       onRemoveContextItem={
                                         removeComposerContextItem
                                       }
@@ -6351,7 +6442,7 @@ const AssistantChatInner = forwardRef<
                                         providerStatusChecksEnabled
                                       }
                                       voiceEnabled
-                                      draftScope={threadId || tabId}
+                                      draftScope={composerDraftScope}
                                       interceptBuildRequestsForBuilder
                                       onAttachmentError={setComposerError}
                                       extraActionButton={
@@ -6447,6 +6538,12 @@ export const AssistantChat = forwardRef<
   engineRef.current = props.selectedEngine;
   const effortRef = useRef<ReasoningEffort | undefined>(props.selectedEffort);
   effortRef.current = props.selectedEffort;
+  const harnessRef = useRef<string | undefined>(
+    props.hostedHarness ? props.selectedAgent : undefined,
+  );
+  harnessRef.current = props.hostedHarness ? props.selectedAgent : undefined;
+  const hostedHarnessRef = useRef(props.hostedHarness === true);
+  hostedHarnessRef.current = props.hostedHarness === true;
   const execModeRef = useRef<"build" | "plan" | undefined>(props.execMode);
   execModeRef.current = props.execMode;
   const scopeRef = useRef<ChatThreadScope | null | undefined>(contextScope);
@@ -6466,6 +6563,8 @@ export const AssistantChat = forwardRef<
         modelRef,
         engineRef,
         effortRef,
+        harnessRef,
+        hostedHarnessRef,
         execModeRef,
         browserTabId,
         scopeRef,

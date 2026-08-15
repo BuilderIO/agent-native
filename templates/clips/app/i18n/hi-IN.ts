@@ -1573,6 +1573,7 @@ Clips में उपयोगकर्ताओं को दिखने व�
     transcriptPending: "Transcript pending (स्थानीयकृत)",
     notesPending: "Notes pending (स्थानीयकृत)",
     pastRecordings: "Past recordings (स्थानीयकृत)",
+    loadOlder: "पुराने लोड करें",
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (स्थानीयकृत)",
     connectGoogleCalendar: "Connect Google Calendar (स्थानीयकृत)",

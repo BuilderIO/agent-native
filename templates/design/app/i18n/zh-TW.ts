@@ -966,6 +966,8 @@ const messages = {
       pngReadOnlyUnavailable: "唯讀預覽不支援 PNG 擷取",
       pngSaveError: "無法儲存 PNG",
       pngExportError: "無法匯出 PNG",
+      pdfExportError: "無法匯出 PDF",
+      pdfDownloaded: "PDF 已下載",
       pdfAllScreensDownloaded: "PDF 已下載（所有畫面）",
       openScreenSvg: "匯出 SVG 前請先開啟一個螢幕",
       svgDownloaded: "SVG 已下載",

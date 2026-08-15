@@ -38,6 +38,24 @@ type WebviewLoadFailedEvent = Event & {
   isMainFrame?: boolean;
 };
 type WebviewConsoleMessageEvent = Event & { message?: string };
+type WebviewIpcMessageEvent = Event & {
+  channel?: string;
+  args?: unknown[];
+};
+
+export type GuestChatCommandEvent =
+  | "agent-panel:toggle"
+  | "agent-panel:open"
+  | "agent-panel:close";
+
+export function resolveGuestChatCommand(
+  command: unknown,
+): GuestChatCommandEvent | null {
+  if (command === "toggle") return "agent-panel:toggle";
+  if (command === "open") return "agent-panel:open";
+  if (command === "close") return "agent-panel:close";
+  return null;
+}
 
 export type AppWebviewAuthState =
   | "unknown"
@@ -251,7 +269,7 @@ export function buildGuestAppChatSidebarStateScript(open: boolean): string {
   const encodedEventName = JSON.stringify(APP_CHAT_SIDEBAR_STATE_EVENT);
   const encodedMessage = JSON.stringify({
     type: APP_CHAT_SIDEBAR_STATE_MESSAGE,
-    data: { open },
+    data: { open, hosted: true },
   });
   return `(() => {
     const message = ${encodedMessage};
@@ -555,6 +573,12 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
           recoverOutdatedOptimizeDep();
         }
       };
+      const onIpcMessage = (event: Event) => {
+        const details = event as WebviewIpcMessageEvent;
+        if (details.channel !== "agent-native:chat-command") return;
+        const eventName = resolveGuestChatCommand(details.args?.[0]);
+        if (eventName) window.dispatchEvent(new Event(eventName));
+      };
 
       const onEnterFullscreen = () => setIsFullscreen(true);
       const onLeaveFullscreen = () => setIsFullscreen(false);
@@ -566,6 +590,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       wv.addEventListener("did-stop-loading", onNavigation);
       wv.addEventListener("did-fail-load", onFailed);
       wv.addEventListener("console-message", onConsoleMessage);
+      wv.addEventListener("ipc-message", onIpcMessage);
       wv.addEventListener("enter-html-full-screen", onEnterFullscreen);
       wv.addEventListener("leave-html-full-screen", onLeaveFullscreen);
 
@@ -579,6 +604,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         wv.removeEventListener("did-stop-loading", onNavigation);
         wv.removeEventListener("did-fail-load", onFailed);
         wv.removeEventListener("console-message", onConsoleMessage);
+        wv.removeEventListener("ipc-message", onIpcMessage);
         wv.removeEventListener("enter-html-full-screen", onEnterFullscreen);
         wv.removeEventListener("leave-html-full-screen", onLeaveFullscreen);
       };
@@ -843,16 +869,13 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
               ) as ElectronWebviewElement;
               wv.className = "app-webview";
               wv.setAttribute("allowpopups", "");
-              if (
-                (app.id === "plan" ||
-                  app.id === "content" ||
-                  app.id === "design") &&
-                window.electronAPI?.webviewPreloadPath
-              ) {
-                wv.setAttribute(
-                  "preload",
-                  window.electronAPI.webviewPreloadPath,
-                );
+              const preloadPath =
+                app.id === "plan" || app.id === "content" || app.id === "design"
+                  ? window.electronAPI?.webviewPreloadPath ||
+                    window.electronAPI?.webviewChatPreloadPath
+                  : window.electronAPI?.webviewChatPreloadPath;
+              if (preloadPath) {
+                wv.setAttribute("preload", preloadPath);
               }
               wv.setAttribute("webpreferences", APP_WEBVIEW_PREFERENCES);
               wv.setAttribute(

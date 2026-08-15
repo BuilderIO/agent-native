@@ -68,6 +68,53 @@ describe("shouldShowAssistantChatModelSelector", () => {
   });
 });
 
+describe("AssistantChat thread restore and composer recovery", () => {
+  it("keeps failed thread restores visible and retryable", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).not.toContain("knownAbsentThreadIds");
+    expect(source).toContain('setThreadRestoreError("unavailable")');
+    expect(source).toContain('res.status === 404 ? "not-found"');
+    expect(source).toContain("retryThreadRestore");
+    expect(source).toContain('t("agentChat.common.retry")');
+  });
+
+  it("persists composer text before the toolkit draft debounce can run", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).toContain(
+      "writeAssistantChatComposerDraft(composerDraftScope, text)",
+    );
+    expect(source).toContain("initialTextKey={composerDraftScope}");
+    expect(source).toContain("draftScope={composerDraftScope}");
+  });
+
+  it("synchronizes app context before a scope-switch paint", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const contextSyncStart = source.indexOf(
+      "useBrowserLayoutEffect(() => {\n    if (!isActiveComposer) return;",
+    );
+    const contextSyncEnd = source.indexOf(
+      "  // Tracks the JSON of the last queue",
+      contextSyncStart,
+    );
+    const contextSync = source.slice(contextSyncStart, contextSyncEnd);
+
+    expect(contextSync).toContain(
+      "applyVisibleItems(getAgentChatContextState());",
+    );
+    expect(contextSync).toContain(
+      "refreshAgentChatContext().then(applyVisibleItems)",
+    );
+  });
+});
+
 describe("assistantUiMessageListStructureKey", () => {
   it("ignores text changes within existing message resources", () => {
     const before = assistantUiMessageListStructureKey([
@@ -1388,7 +1435,7 @@ describe("missing agent engine setup", () => {
     expect(source).not.toContain("autoScroll={false}");
     expect(source).not.toContain("useNearBottomAutoscroll<HTMLDivElement>");
     expect(source).not.toContain("scrollAnchor");
-    expect(source).toContain("composerContextItems.length > 0");
+    expect(source).toContain("visibleComposerContextItems.length > 0");
     expect(source).toContain('className="agent-composer-stack"');
     expect(messageComponents).toContain("agent-selection-attached-pill");
     expect(source).toContain("missingKeySetupOpen");

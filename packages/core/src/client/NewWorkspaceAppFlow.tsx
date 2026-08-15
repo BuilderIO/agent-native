@@ -307,7 +307,13 @@ export function NewWorkspaceAppFlow({
         sendToAgentChat({ message, submit: true, type: "code" });
         setStatusMessage("Sent to Builder chat.");
       } else if (isDevMode) {
-        sendToAgentChat({ message, submit: true, type: "code", newTab: true });
+        sendToAgentChat({
+          message,
+          submit: true,
+          type: "code",
+          newTab: true,
+          reuseEmptyTab: true,
+        });
         setStatusMessage("Sent to the local agent.");
       } else {
         const result = await fetchJson(

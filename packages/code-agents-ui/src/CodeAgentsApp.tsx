@@ -23,7 +23,10 @@ import {
 import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import {
   PromptComposer,
+  isClaudeCodeAgentId,
+  isLunaModel,
   readAgentPromptAttachment,
+  resolvePreferredAgentModel,
   type PromptComposerFile,
   type SlashCommand,
   type TiptapComposerHandle,
@@ -783,7 +786,7 @@ export default function CodeAgentsApp({
   const [loadingProjects, setLoadingProjects] = useState(false);
   const [codePack, setCodePack] = useState<CodeAgentCodePack | null>(null);
   const [modelSelection, setModelSelection] = useState<CodeAgentModelSelection>(
-    () => readStoredModelSelection(),
+    () => readCodeAgentModelSelection(),
   );
   const [remoteConnectorStatus, setRemoteConnectorStatus] =
     useState<CodeAgentRemoteConnectorStatus | null>(null);
@@ -1477,7 +1480,7 @@ export default function CodeAgentsApp({
   }, [host, isActive, selectedProjectPath]);
 
   useEffect(() => {
-    writeStoredModelSelection(selectedModelSelection);
+    writeCodeAgentModelSelection(selectedModelSelection);
   }, [selectedModelSelection]);
 
   usePollLoop(() => loadRuns(), {
@@ -2554,11 +2557,7 @@ export default function CodeAgentsApp({
                                   : handleSlashCommand
                               }
                               onSubmit={createRunFromPrompt}
-                              onConnectProvider={
-                                activeNewSessionExtension
-                                  ? undefined
-                                  : connectBuilderProvider
-                              }
+                              onConnectProvider={connectBuilderProvider}
                               onConnectLocalRuntime={
                                 !activeNewSessionExtension && host.openTerminal
                                   ? connectLocalRuntime
@@ -3161,11 +3160,19 @@ function CodeAgentComposer({
       }
       selectedEffort={showModelSelector ? normalizedModel.effort : undefined}
       onModelChange={(model, engine) =>
-        onModelSelectionChange({
-          engine,
-          model,
-          effort: normalizedModel.effort,
-        })
+        onModelSelectionChange(
+          isClaudeCodeAgentId(selectedAgent) && isLunaModel(model)
+            ? getCodeAgentSelection(
+                selectedAgent,
+                normalizedModel,
+                modelOptions,
+              )
+            : {
+                engine,
+                model,
+                effort: normalizedModel.effort,
+              },
+        )
       }
       onAgentChange={showModelSelector ? handleAgentChange : undefined}
       onEffortChange={(effort) =>
@@ -3340,10 +3347,26 @@ export function normalizeModelSelection(
   models: CodeAgentModelOption[],
 ): CodeAgentModelSelection {
   const first = models[0] ?? DEFAULT_CODE_AGENT_MODEL_OPTIONS[0];
+  const engineCandidates =
+    value.engine === "claude-cli"
+      ? models.filter(
+          (model) => model.engine === value.engine && !isLunaModel(model.model),
+        )
+      : models;
   const selected =
-    models.find(
+    engineCandidates.find(
       (model) => model.engine === value.engine && model.model === value.model,
-    ) ?? first;
+    ) ??
+    (value.engine === "claude-cli"
+      ? (engineCandidates.find(
+          (model) =>
+            model.configured !== false &&
+            model.model.toLowerCase().includes("sonnet"),
+        ) ??
+        engineCandidates.find((model) => model.configured !== false) ??
+        engineCandidates[0])
+      : first) ??
+    first;
   return {
     engine: selected.engine,
     model: selected.model,
@@ -3380,13 +3403,17 @@ export function groupCodeAgentModelOptions(models: CodeAgentModelOption[]) {
   return [...groups.values()];
 }
 
-function getCodeAgentPickerOptions(models: CodeAgentModelOption[]) {
+export function getCodeAgentPickerOptions(models: CodeAgentModelOption[]) {
   return CODE_AGENT_RUNTIME_OPTIONS.map((agent) => {
     if (agent.id === "default") {
       return { ...agent, configured: true };
     }
 
-    const model = models.find((option) => option.engine === agent.engine);
+    const model = models.find(
+      (option) =>
+        option.engine === agent.engine &&
+        (!isClaudeCodeAgentId(agent.id) || !isLunaModel(option.model)),
+    );
     return {
       ...agent,
       configured: model !== undefined && model.configured !== false,
@@ -3395,7 +3422,7 @@ function getCodeAgentPickerOptions(models: CodeAgentModelOption[]) {
   });
 }
 
-function getCodeAgentIdForEngine(engine: string | undefined): string {
+export function getCodeAgentIdForEngine(engine: string | undefined): string {
   return (
     CODE_AGENT_RUNTIME_OPTIONS.find(
       (agent) => getCodeAgentEngine(agent.id) === engine,
@@ -3410,18 +3437,36 @@ function getCodeAgentEngine(agentId: string): string | undefined {
   return agent && "engine" in agent ? agent.engine : undefined;
 }
 
-function getCodeAgentSelection(
+export function getCodeAgentSelection(
   agentId: string,
   current: CodeAgentModelSelection,
   models: CodeAgentModelOption[],
 ): CodeAgentModelSelection {
   const engine = getCodeAgentEngine(agentId);
-  const option = models.find((model) =>
+  const candidates = models.filter((model) =>
     engine
       ? model.engine === engine
       : !CODE_AGENT_LOCAL_ENGINES.has(model.engine),
   );
-  if (!option || option.configured === false) return current;
+  const eligibleCandidates = isClaudeCodeAgentId(agentId)
+    ? candidates.filter((model) => !isLunaModel(model.model))
+    : candidates;
+  const preferredModel = resolvePreferredAgentModel(
+    agentId,
+    eligibleCandidates.map((model) => ({
+      engine: model.engine,
+      models: [model.model],
+      configured: model.configured,
+    })),
+  )?.model;
+  const option =
+    eligibleCandidates.find(
+      (model) => model.model === preferredModel && model.configured !== false,
+    ) ??
+    eligibleCandidates.find((model) => model.model === preferredModel) ??
+    eligibleCandidates.find((model) => model.configured !== false) ??
+    eligibleCandidates[0];
+  if (!option) return current;
   return {
     engine: option.engine,
     model: option.model,
@@ -3436,7 +3481,7 @@ function normalizeReasoningEffort(value: unknown): CodeAgentReasoningEffort {
     : "high";
 }
 
-function readStoredModelSelection(): CodeAgentModelSelection {
+export function readCodeAgentModelSelection(): CodeAgentModelSelection {
   if (typeof window === "undefined") return {};
   try {
     const raw = window.localStorage.getItem(CODE_AGENT_MODEL_SELECTION_KEY);
@@ -3452,7 +3497,9 @@ function readStoredModelSelection(): CodeAgentModelSelection {
   }
 }
 
-function writeStoredModelSelection(value: CodeAgentModelSelection): void {
+export function writeCodeAgentModelSelection(
+  value: CodeAgentModelSelection,
+): void {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.setItem(

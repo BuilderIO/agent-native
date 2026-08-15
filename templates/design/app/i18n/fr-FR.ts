@@ -7,6 +7,11 @@ const messages = {
     commenterRoleLabel: "Commentateur",
     commenterRoleDescription:
       "Peut consulter et ajouter des commentaires de révision",
+    toasts: {
+      ...messagesByLocale["fr-FR"].designEditor.toasts,
+      pdfExportError: "Impossible d’exporter le PDF",
+      pdfDownloaded: "PDF téléchargé",
+    },
     nodeRewrite: {
       composerTitle: "Questionner ou modifier la sélection",
       send: "Envoyer",

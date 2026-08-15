@@ -1585,6 +1585,7 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     transcriptPending: "Transcript pending (현지화됨)",
     notesPending: "Notes pending (현지화됨)",
     pastRecordings: "Past recordings (현지화됨)",
+    loadOlder: "이전 항목 불러오기",
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (현지화됨)",
     connectGoogleCalendar: "Connect Google Calendar (현지화됨)",

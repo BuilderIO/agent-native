@@ -1592,6 +1592,7 @@ const messages = {
     transcriptPending: "Transcript pending (مترجم)",
     notesPending: "Notes pending (مترجم)",
     pastRecordings: "Past recordings (مترجم)",
+    loadOlder: "تحميل الأقدم",
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (مترجم)",
     connectGoogleCalendar: "Connect Google Calendar (مترجم)",

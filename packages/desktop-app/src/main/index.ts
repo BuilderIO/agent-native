@@ -167,7 +167,10 @@ import {
   type CliStatusCache,
 } from "./cli-status-cache.js";
 import { guardCodeAgentPersistence } from "./code-agent-persistence-guard.js";
-import { resolveCodeAgentRunnerInvocation } from "./code-agent-runner.js";
+import {
+  isCodeAgentRunnerInFlight,
+  resolveCodeAgentRunnerInvocation,
+} from "./code-agent-runner.js";
 import {
   CODE_AGENTS_SUBSCRIBE_TRANSCRIPT_CHANNEL,
   CODE_AGENTS_TRANSCRIPT_EVENTS_CHANNEL,
@@ -206,6 +209,7 @@ import {
 import {
   initializeDesktopStartup,
   resolveDesktopSsoBrokerStatePath,
+  runDesktopStartupStep,
 } from "./desktop-startup.js";
 import { registerAppsIpc } from "./ipc/apps";
 import { registerChatFirstMcpIpc } from "./ipc/chat-first-mcp.js";
@@ -230,6 +234,7 @@ import {
   type MultiFrontierAppIntegration,
 } from "./multi-frontier-app-integration.js";
 import {
+  isQuickPromptActive,
   registerQuickPromptIpc,
   registerQuickPromptShortcut,
 } from "./quick-prompt";
@@ -350,7 +355,7 @@ const CODE_AGENT_PROVIDER_SETTING_KEYS: CodeAgentProviderCredentialKey[] = [
   "BUILDER_PUBLIC_KEY",
 ];
 const CODEX_CLI_ENGINE_NAME = "codex-cli";
-const CODEX_CLI_DEFAULT_MODEL = "codex-cli";
+const CODEX_CLI_DEFAULT_MODEL = "gpt-5.6-luna";
 const CLAUDE_CLI_ENGINE_NAME = "claude-cli";
 const PI_CLI_ENGINE_NAME = "pi-cli";
 const OPENCODE_CLI_ENGINE_NAME = "opencode-cli";
@@ -1272,6 +1277,7 @@ function createWindow(): BrowserWindow {
       webSecurity: true,
       additionalArguments: [
         `--an-webview-preload=${path.join(__dirname, "../preload/webview.js")}`,
+        `--an-webview-chat-preload=${path.join(__dirname, "../preload/webview-chat.js")}`,
       ],
     },
   });
@@ -2433,7 +2439,12 @@ function reconcileInterruptedCodeAgentRun(
   let currentRecord = record;
   if (
     !currentRecord ||
-    (reason !== "shutdown" && activeCodeAgentProcesses.has(runId))
+    (reason !== "shutdown" &&
+      isCodeAgentRunnerInFlight(
+        runId,
+        activeCodeAgentProcesses,
+        startingCodeAgentRuns,
+      ))
   )
     return;
   if (!isDesktopCodeAgentRunInterruptible(currentRecord)) return;
@@ -2443,7 +2454,11 @@ function reconcileInterruptedCodeAgentRun(
   currentRecord = readCodeAgentRunRecord(runId) ?? currentRecord;
   if (
     reason !== "shutdown" &&
-    (activeCodeAgentProcesses.has(runId) ||
+    (isCodeAgentRunnerInFlight(
+      runId,
+      activeCodeAgentProcesses,
+      startingCodeAgentRuns,
+    ) ||
       hasLivePersistedCodeAgentRunner(currentRecord))
   )
     return;
@@ -8095,9 +8110,6 @@ function getCodeAgentModelList(): CodeAgentModelListResult {
     const openAiConfigured = Boolean(
       providerStatusById(settings, "openai")?.configured,
     );
-    const googleConfigured = Boolean(
-      providerStatusById(settings, "google")?.configured,
-    );
     const customEngine = process.env.AGENT_ENGINE?.trim();
     const customModel = process.env.AGENT_MODEL?.trim();
 
@@ -8120,17 +8132,29 @@ function getCodeAgentModelList(): CodeAgentModelListResult {
       });
     }
     if (codex.available) {
-      models.push({
-        engine: CODEX_CLI_ENGINE_NAME,
-        engineLabel: "OpenAI",
-        model: codex.model || CODEX_CLI_DEFAULT_MODEL,
-        label: codex.model || "Codex",
-        description: "Run locally through your signed-in ChatGPT subscription.",
-        configured: codex.authenticated,
-        ...(codex.authenticated
-          ? { statusLabel: "ChatGPT subscription", isSubscription: true }
-          : {}),
-      });
+      const codexModels = Array.from(
+        new Set([
+          ...(codex.model && codex.model !== CODEX_CLI_ENGINE_NAME
+            ? [codex.model]
+            : []),
+          ...AI_SDK_MODEL_CONFIG.openai.supportedModels,
+          CODEX_CLI_DEFAULT_MODEL,
+        ]),
+      );
+      for (const model of codexModels) {
+        models.push({
+          engine: CODEX_CLI_ENGINE_NAME,
+          engineLabel: "OpenAI",
+          model,
+          label: model,
+          description:
+            "Run locally through your signed-in ChatGPT subscription.",
+          configured: codex.authenticated,
+          ...(codex.authenticated
+            ? { statusLabel: "ChatGPT subscription", isSubscription: true }
+            : {}),
+        });
+      }
     }
     if (claude.available) {
       models.push({
@@ -8167,27 +8191,17 @@ function getCodeAgentModelList(): CodeAgentModelListResult {
         statusLabel: "Installed",
       });
     }
-    if (!claude.authenticated) {
-      pushCodeAgentModelOptions(models, {
-        engine: "anthropic",
-        engineLabel: "Anthropic",
-        supportedModels: ANTHROPIC_MODEL_CONFIG.supportedModels,
-        configured: anthropicConfigured,
-      });
-    }
-    if (!codex.authenticated) {
-      pushCodeAgentModelOptions(models, {
-        engine: "ai-sdk:openai",
-        engineLabel: "OpenAI",
-        supportedModels: AI_SDK_MODEL_CONFIG.openai.supportedModels,
-        configured: openAiConfigured,
-      });
-    }
     pushCodeAgentModelOptions(models, {
-      engine: "ai-sdk:google",
-      engineLabel: "Gemini",
-      supportedModels: AI_SDK_MODEL_CONFIG.google.supportedModels,
-      configured: googleConfigured,
+      engine: "ai-sdk:openai",
+      engineLabel: "OpenAI",
+      supportedModels: AI_SDK_MODEL_CONFIG.openai.supportedModels,
+      configured: openAiConfigured,
+    });
+    pushCodeAgentModelOptions(models, {
+      engine: "anthropic",
+      engineLabel: "Anthropic",
+      supportedModels: ANTHROPIC_MODEL_CONFIG.supportedModels,
+      configured: anthropicConfigured,
     });
 
     const selected = customEngine
@@ -10052,12 +10066,22 @@ app.whenReady().then(async () => {
         refreshApplicationMenu();
       },
     });
-    await desktopIdentityBroker.refreshStatus(
-      resolveDesktopIdentityApp("dispatch"),
-    );
+    const shouldContinueStartup = await runDesktopStartupStep({
+      start: () =>
+        desktopIdentityBroker!.refreshStatus(
+          resolveDesktopIdentityApp("dispatch"),
+        ),
+      isShuttingDown: () => appIsQuitting,
+    });
+    if (!shouldContinueStartup) return;
   }
 
-  await initializeDesktopComputerMcpBridge();
+  const shouldContinueStartup = await runDesktopStartupStep({
+    start: initializeDesktopComputerMcpBridge,
+    isShuttingDown: () => appIsQuitting,
+    abort: closeDesktopComputerMcpBridge,
+  });
+  if (!shouldContinueStartup) return;
   // Process any deep link that arrived before the app was ready
   if (pendingDeepLink) {
     handleDeepLink(pendingDeepLink);
@@ -10408,6 +10432,7 @@ app.whenReady().then(async () => {
 
   // macOS: restore/focus the window when dock icon is clicked
   app.on("activate", () => {
+    if (isQuickPromptActive()) return;
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
     } else if (win && !win.isDestroyed()) {

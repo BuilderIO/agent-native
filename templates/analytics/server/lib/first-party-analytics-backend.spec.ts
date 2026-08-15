@@ -147,6 +147,45 @@ describe("first-party BigQuery backend", () => {
     expect(scopedDate).not.toContain("event_date <= '2026-08-14'");
   });
 
+  it("keeps derived cohort_date comparisons typed as BigQuery dates", () => {
+    const table = {
+      projectId: "builder-3b0a2",
+      datasetId: "analytics",
+      tableId: "first_party_analytics_events_raw",
+      fullyQualified:
+        "builder-3b0a2.analytics.first_party_analytics_events_raw",
+    };
+    const scopedDate = renderFirstPartyAnalyticsBigQuerySql(
+      "WITH base AS (SELECT event_date AS cohort_date FROM analytics_events) SELECT * FROM base WHERE base.cohort_date >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD') AND base.cohort_date <= ?",
+      ["2026-08-14"],
+      table,
+    );
+
+    expect(scopedDate).toContain(
+      "base.cohort_date >= CAST(DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY) AS DATE)",
+    );
+    expect(scopedDate).toContain("base.cohort_date <= DATE '2026-08-14'");
+    expect(scopedDate).not.toContain("cohort_date >= FORMAT_DATE");
+  });
+
+  it("removes redundant COALESCE arguments from dashboard SQL", () => {
+    const table = {
+      projectId: "builder-3b0a2",
+      datasetId: "analytics",
+      tableId: "first_party_analytics_events_raw",
+      fullyQualified:
+        "builder-3b0a2.analytics.first_party_analytics_events_raw",
+    };
+    const rendered = renderFirstPartyAnalyticsBigQuerySql(
+      "SELECT COALESCE(template, template, app) AS value FROM analytics_events",
+      [],
+      table,
+    );
+
+    expect(rendered).toContain("COALESCE(template, app)");
+    expect(rendered).not.toContain("COALESCE(template, template, app)");
+  });
+
   it("uses the Builder production project and isolated raw table by default", async () => {
     await expect(getFirstPartyAnalyticsTable()).resolves.toEqual({
       projectId: "builder-3b0a2",

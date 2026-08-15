@@ -94,6 +94,10 @@ const WEBVIEW_PRELOAD_PATH =
   process.argv
     .find((arg) => arg.startsWith("--an-webview-preload="))
     ?.slice("--an-webview-preload=".length) ?? "";
+const WEBVIEW_CHAT_PRELOAD_PATH =
+  process.argv
+    .find((arg) => arg.startsWith("--an-webview-chat-preload="))
+    ?.slice("--an-webview-chat-preload=".length) ?? "";
 
 type CodeAgentTranscriptSubscriptionBatch = CodeAgentTranscriptResult & {
   subscriptionId?: string;
@@ -112,6 +116,8 @@ const electronAPI = {
 
   /** Dedicated preload for hosted app webviews. Exposes only app-safe bridges. */
   webviewPreloadPath: WEBVIEW_PRELOAD_PATH,
+  /** Chat-only preload for every hosted app webview. */
+  webviewChatPreloadPath: WEBVIEW_CHAT_PRELOAD_PATH,
 
   /** Window chrome controls */
   windowControls: {
@@ -304,6 +310,14 @@ const electronAPI = {
       ipcRenderer.invoke(IPC.QUICK_PROMPT_UPDATE, settings),
     dismiss: (): void => {
       ipcRenderer.send(IPC.QUICK_PROMPT_DISMISS);
+    },
+    setPickerOpen: (open: boolean): void => {
+      ipcRenderer.send(IPC.QUICK_PROMPT_SET_PICKER_OPEN, open);
+    },
+    onHidden: (cb: () => void): (() => void) => {
+      const handler = () => cb();
+      ipcRenderer.on(IPC.QUICK_PROMPT_HIDDEN, handler);
+      return () => ipcRenderer.removeListener(IPC.QUICK_PROMPT_HIDDEN, handler);
     },
     submit: (
       request: QuickPromptSubmitRequest,

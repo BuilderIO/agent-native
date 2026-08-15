@@ -1533,6 +1533,7 @@ Clips 中所有面向用户的重要更改都会记录在这里。你可以随�
     transcriptPending: "Transcript pending (已本地化)",
     notesPending: "Notes pending (已本地化)",
     pastRecordings: "Past recordings (已本地化)",
+    loadOlder: "加载更早的",
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (已本地化)",
     connectGoogleCalendar: "Connect Google Calendar (已本地化)",

@@ -1623,6 +1623,7 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     transcriptPending: "Transcript pending (Lokalisiert)",
     notesPending: "Notes pending (Lokalisiert)",
     pastRecordings: "Past recordings (Lokalisiert)",
+    loadOlder: "Ältere laden",
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (Lokalisiert)",
     connectGoogleCalendar: "Connect Google Calendar (Lokalisiert)",

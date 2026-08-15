@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { dispatchCodeAgentRunnerCommand } from "./code-agent-runner-dispatch.js";
 import {
+  isCodeAgentRunnerInFlight,
   resolveCodeAgentRunnerInvocation,
   runCodeAgentRunnerWithSignal,
 } from "./code-agent-runner.js";
@@ -17,6 +18,25 @@ afterEach(() => {
   for (const root of tempRoots.splice(0)) {
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+describe("isCodeAgentRunnerInFlight", () => {
+  it("keeps a run live while its child process is still starting", () => {
+    const activeRunIds = new Set<string>();
+    const startingRunIds = new Set(["task-1"]);
+
+    expect(
+      isCodeAgentRunnerInFlight("task-1", activeRunIds, startingRunIds),
+    ).toBe(true);
+    expect(
+      isCodeAgentRunnerInFlight("task-2", activeRunIds, startingRunIds),
+    ).toBe(false);
+
+    activeRunIds.add("task-2");
+    expect(
+      isCodeAgentRunnerInFlight("task-2", activeRunIds, startingRunIds),
+    ).toBe(true);
+  });
 });
 
 describe("resolveCodeAgentRunnerInvocation", () => {

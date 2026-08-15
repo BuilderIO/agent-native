@@ -18,6 +18,12 @@ export {
   type TiptapComposerSubmitOptions,
 } from "./TiptapComposer.js";
 export {
+  isClaudeCodeAgentId,
+  isLunaModel,
+  resolvePreferredAgentModel,
+  type ComposerModelGroupLike,
+} from "./model-selection.js";
+export {
   PromptComposer,
   type PromptComposerProps,
   type PromptComposerFile,
