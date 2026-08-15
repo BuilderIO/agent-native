@@ -125,6 +125,9 @@ function cssFillToSolid(
   return undefined;
 }
 
+/** The deck templates' own family, used only when no HTML declares one. */
+const DEFAULT_DECK_FONT_FACE = "Poppins";
+
 /** First family name of a CSS `font-family` declaration, unquoted. */
 function cssFontFace(style: string): string | undefined {
   return (
@@ -328,14 +331,19 @@ export function parseSlideHtml(
 
   // Check for background color on the outer .fmd-slide div
   const slideStyleMatch = html.match(/class="fmd-slide"[^>]*style="([^"]*)"/);
-  if (slideStyleMatch) {
-    const bg = getStyle(slideStyleMatch[1], "background(?:-color)?");
-    if (bg) {
-      const parsedBg = colorToHex(bg);
-      bgColor = parsedBg.hex;
-      bgTransparency = parsedBg.transparency;
-    }
+  const parsedBg = slideStyleMatch
+    ? cssFillToSolid(getStyle(slideStyleMatch[1], "background(?:-color)?"))
+    : undefined;
+  if (parsedBg) {
+    bgColor = parsedBg.hex;
+    bgTransparency = parsedBg.transparency;
   }
+  // Deck templates set the family once on the wrapper; individual headings and
+  // paragraphs only override it. Reading it is what keeps a Work Sans or
+  // Montserrat design system from exporting as this template's default.
+  const slideFontFace = slideStyleMatch
+    ? cssFontFace(slideStyleMatch[1])
+    : undefined;
 
   // Extract padding from the .fmd-slide wrapper
   const paddingStr = slideStyleMatch
@@ -488,7 +496,7 @@ export function parseSlideHtml(
       texts.push({
         text,
         fontSize: pxToPt(fontSize, dims),
-        fontFace: "Poppins",
+        fontFace: cssFontFace(style) ?? slideFontFace ?? DEFAULT_DECK_FONT_FACE,
         color: parsedColor.hex,
         transparency: parsedColor.transparency,
         bold,
@@ -497,9 +505,7 @@ export function parseSlideHtml(
         w: contentW,
         h: elHeight + 0.2,
         letterSpacing: letterSpacing ? parseFloat(letterSpacing) : undefined,
-        lineSpacing: lineH
-          ? Math.round(lineH * pxToPt(fontSize, dims))
-          : undefined,
+        lineSpacingMultiple: lineH,
       });
 
       yPos += elHeight + pxToIn(marginBottom, dims) + 0.1;
@@ -744,6 +750,81 @@ function pxToInY(px: number, dims: SlideDims): number {
   return (px / dims.height) * dims.pptxInches.h;
 }
 
+/**
+ * Recover the shape's PowerPoint geometry. `<a:prstGeom prst="...">` is the
+ * only lossless carrier — CSS cannot distinguish a trapezoid from a hexagon
+ * once both are `clip-path: polygon(...)` — so the importer's
+ * `data-pptx-shape-type` attribute wins when present. Otherwise trace what CSS
+ * can prove: a polygon becomes a custom outline, and a border radius becomes an
+ * ellipse or a real corner radius instead of pptxgen's default roundRect.
+ */
+function importedShapeGeometry(
+  attrs: string,
+  style: string,
+  size: { w: number; h: number },
+  dims: SlideDims,
+): Pick<ShapeElement, "shapeType" | "rectRadius" | "points"> {
+  const preset = getAttribute(attrs, "data-pptx-shape-type");
+  if (preset) return { shapeType: preset };
+
+  const polygon = getStyle(style, "clip-path")?.match(
+    /polygon\(([^)]*)\)/i,
+  )?.[1];
+  if (polygon) {
+    const points = clipPathPolygonPoints(polygon, size, dims);
+    if (points) return { shapeType: "custGeom", points };
+  }
+
+  const radius = getStyle(style, "border-radius")?.split(/\s+/)[0];
+  if (!radius) return {};
+  const shortSide = Math.min(size.w, size.h);
+  const value = Number.parseFloat(radius);
+  if (!Number.isFinite(value) || value <= 0) return {};
+  if (radius.endsWith("%")) {
+    return value >= 50
+      ? { shapeType: "ellipse" }
+      : { shapeType: "roundRect", rectRadius: (value / 100) * shortSide };
+  }
+  return {
+    shapeType: "roundRect",
+    // A pill (`border-radius: 9999px`) clamps to the half-side PowerPoint caps
+    // its `adj` value at, rather than overflowing the shape.
+    rectRadius: Math.min(pxToIn(value, dims), shortSide / 2),
+  };
+}
+
+/**
+ * `clip-path: polygon(x y, ...)` traced as pptxgenjs custom-geometry points,
+ * in inches relative to the shape's own box.
+ */
+function clipPathPolygonPoints(
+  polygon: string,
+  size: { w: number; h: number },
+  dims: SlideDims,
+): NonNullable<ShapeElement["points"]> | undefined {
+  const points: Array<{ x: number; y: number }> = [];
+  for (const pair of polygon.split(",")) {
+    const [rawX, rawY] = pair.trim().split(/\s+/);
+    const x = clipPathCoord(rawX, size.w, dims, pxToIn);
+    const y = clipPathCoord(rawY, size.h, dims, pxToInY);
+    if (x == null || y == null) return undefined;
+    points.push({ x, y });
+  }
+  return points.length >= 3 ? [...points, { close: true }] : undefined;
+}
+
+function clipPathCoord(
+  raw: string | undefined,
+  side: number,
+  dims: SlideDims,
+  toInches: (px: number, dims: SlideDims) => number,
+): number | undefined {
+  if (!raw) return undefined;
+  const value = Number.parseFloat(raw);
+  if (!Number.isFinite(value)) return undefined;
+  return raw.endsWith("%") ? (value / 100) * side : toInches(value, dims);
+}
+
 function importedTextRuns(html: string, dims: SlideDims): TextRunElement[] {
   const paragraphs = [...html.matchAll(/<p\b[^>]*>([\s\S]*?)<\/p>/gi)].map(
     (match) => match[1],
@@ -778,13 +859,11 @@ function importedTableRows(html: string, dims: SlideDims): TableRow[] {
           const cellHtml = cellMatch[2];
           const style = getAttribute(attrs, "style") ?? "";
           const runs = importedTextRuns(cellHtml, dims);
-          const fill = getStyle(style, "background(?:-color)?");
-          const parsedFill = fill ? colorToHex(fill) : undefined;
-          const border = getStyle(style, "border");
-          const borderMatch = border?.match(/([\d.]+)px\s+solid\s+(.+)/i);
-          const parsedBorder = borderMatch
-            ? colorToHex(borderMatch[2])
-            : undefined;
+          const parsedFill = cssFillToSolid(
+            getStyle(style, "background(?:-color)?"),
+          );
+          const border = parseCssBorder(getStyle(style, "border"));
+          const parsedBorder = border ? colorToHex(border.color) : undefined;
           const colSpan = Number.parseInt(
             getAttribute(attrs, "colspan") ?? "",
             10,
@@ -814,15 +893,14 @@ function importedTableRows(html: string, dims: SlideDims): TableRow[] {
                   },
                 }
               : {}),
-            ...(parsedBorder && borderMatch
+            ...(parsedBorder && border
               ? {
                   border: {
-                    type: "solid" as const,
+                    // pptxgenjs table borders only offer solid or dash, so a
+                    // dotted rule maps to the nearest broken stroke.
+                    type: border.dashType ? ("dash" as const) : ("solid" as const),
                     color: parsedBorder.hex,
-                    pt: Math.max(
-                      0.5,
-                      pxToPt(Number.parseFloat(borderMatch[1]), dims),
-                    ),
+                    pt: Math.max(0.5, pxToPt(border.widthPx, dims)),
                   },
                 }
               : {}),
@@ -848,10 +926,7 @@ function importedRunOptions(
   dims: SlideDims,
 ): TextRunElement["options"] {
   const fontSizePx = cssPx(style, "font-size");
-  const fontFamily = getStyle(style, "font-family")
-    ?.replace(/["']/g, "")
-    .split(",")[0]
-    ?.trim();
+  const fontFamily = cssFontFace(style);
   const fontWeight = getStyle(style, "font-weight");
   const colorValue = getStyle(style, "color");
   const parsedColor = colorValue
@@ -1078,19 +1153,19 @@ export default defineAction({
             y: t.y,
             w: t.w,
             h: t.h,
-            fontSize: t.fontSize,
-            fontFace: t.fontFace,
             color: t.color,
             bold: t.bold,
             align: t.align || "left",
             valign: "top" as const,
             wrap: true,
+            ...(t.fontSize != null ? { fontSize: t.fontSize } : {}),
+            ...(t.fontFace != null ? { fontFace: t.fontFace } : {}),
             ...(t.transparency != null ? { transparency: t.transparency } : {}),
             ...(t.letterSpacing != null
               ? { charSpacing: t.letterSpacing }
               : {}),
-            ...(t.lineSpacing != null
-              ? { lineSpacingMultiple: t.lineSpacing / t.fontSize }
+            ...(t.lineSpacingMultiple != null
+              ? { lineSpacingMultiple: t.lineSpacingMultiple }
               : {}),
           };
           if (t.runs?.length) {
@@ -1123,36 +1198,40 @@ export default defineAction({
           });
         } else {
           const shape = object.value;
-          pptxSlide.addShape(
-            shape.rounded ? pptx.ShapeType.roundRect : pptx.ShapeType.rect,
-            {
-              x: shape.x,
-              y: shape.y,
-              w: shape.w,
-              h: shape.h,
-              ...(shape.fill
-                ? {
-                    fill: {
-                      color: shape.fill,
-                      ...(shape.fillTransparency != null
-                        ? { transparency: shape.fillTransparency }
-                        : {}),
-                    },
-                  }
-                : {}),
-              ...(shape.lineColor
-                ? {
-                    line: {
-                      color: shape.lineColor,
-                      width: shape.lineWidth ?? 1,
-                      ...(shape.lineTransparency != null
-                        ? { transparency: shape.lineTransparency }
-                        : {}),
-                    },
-                  }
-                : {}),
-            },
-          );
+          pptxSlide.addShape(resolveShapeType(pptx, shape.shapeType), {
+            x: shape.x,
+            y: shape.y,
+            w: shape.w,
+            h: shape.h,
+            ...(shape.rectRadius != null
+              ? { rectRadius: shape.rectRadius }
+              : {}),
+            ...(shape.points ? { points: shape.points } : {}),
+            ...(shape.fill
+              ? {
+                  fill: {
+                    color: shape.fill,
+                    ...(shape.fillTransparency != null
+                      ? { transparency: shape.fillTransparency }
+                      : {}),
+                  },
+                }
+              : {}),
+            ...(shape.lineColor
+              ? {
+                  line: {
+                    color: shape.lineColor,
+                    width: shape.lineWidth ?? 1,
+                    ...(shape.lineDashType
+                      ? { dashType: shape.lineDashType }
+                      : {}),
+                    ...(shape.lineTransparency != null
+                      ? { transparency: shape.lineTransparency }
+                      : {}),
+                  },
+                }
+              : {}),
+          });
         }
       }
 

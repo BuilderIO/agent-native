@@ -456,17 +456,309 @@ function buildFidelityTableCell(
   return `<td colspan="${cell.colSpan ?? 1}" rowspan="${cell.rowSpan ?? 1}" style="border:1px solid ${DEFAULT_PPTX_TABLE_BORDER};padding:4px 8px;vertical-align:top;${fill}">${paragraphsHtml}</td>`;
 }
 
+/**
+ * Preset geometries whose real outline leaves most of their bounding box
+ * empty — a ring, an L-bracket, a hooked arrow. There is no CSS shape for
+ * them here, and painting the bounding box instead is not a degraded
+ * rendering but an actively wrong one: it covers the neighbouring content
+ * the real geometry leaves visible, so a four-ring diagram becomes one
+ * opaque square over the title. Until a geometry is reproduced, its fill and
+ * stroke are dropped rather than approximated by a rectangle.
+ */
+const UNRENDERABLE_GEOMETRIES = new Set([
+  "arc",
+  "bentArrow",
+  "bentUpArrow",
+  "blockArc",
+  "bracePair",
+  "bracketPair",
+  "chord",
+  "circularArrow",
+  "corner",
+  "curvedDownArrow",
+  "curvedLeftArrow",
+  "curvedRightArrow",
+  "curvedUpArrow",
+  "donut",
+  "frame",
+  "halfFrame",
+  "heart",
+  "leftBrace",
+  "leftBracket",
+  "leftCircularArrow",
+  "noSmoking",
+  "pie",
+  "rightBrace",
+  "rightBracket",
+  "uturnArrow",
+]);
+
+/**
+ * PowerPoint's own default `a:avLst` adjustment for the corner-rounding
+ * presets, as a fraction of the shape's shortest side. The parser records
+ * `a:prstGeom/@_prst` but not the adjust values, so a deck that overrides
+ * `adj` (a 50% pill, say) still renders at this default.
+ */
+const DEFAULT_CORNER_ADJUSTMENT = 0.16667;
+
+/**
+ * Preset geometries reproduced as a `clip-path` polygon, keyed by
+ * `a:prstGeom/@_prst`. `ss` is the shape's shortest side, which is what
+ * OOXML's own guide formulas measure their adjustments against; each literal
+ * fraction below is that preset's default `a:avLst` value.
+ */
+const CLIP_PATH_GEOMETRIES: Record<
+  string,
+  (w: number, h: number, ss: number) => [number, number][]
+> = {
+  triangle: (w, h) => [
+    [w / 2, 0],
+    [w, h],
+    [0, h],
+  ],
+  rtTriangle: (w, h) => [
+    [0, 0],
+    [w, h],
+    [0, h],
+  ],
+  diamond: (w, h) => [
+    [w / 2, 0],
+    [w, h / 2],
+    [w / 2, h],
+    [0, h / 2],
+  ],
+  homePlate: (w, h, ss) => {
+    const x = ss * 0.16667;
+    return [
+      [0, 0],
+      [w - x, 0],
+      [w, h / 2],
+      [w - x, h],
+      [0, h],
+    ];
+  },
+  chevron: (w, h, ss) => {
+    const x = ss * 0.5;
+    return [
+      [0, 0],
+      [w - x, 0],
+      [w, h / 2],
+      [w - x, h],
+      [0, h],
+      [x, h / 2],
+    ];
+  },
+  hexagon: (w, h, ss) => {
+    const x = ss * 0.25;
+    return [
+      [x, 0],
+      [w - x, 0],
+      [w, h / 2],
+      [w - x, h],
+      [x, h],
+      [0, h / 2],
+    ];
+  },
+  trapezoid: (w, h, ss) => {
+    const x = ss * 0.25;
+    return [
+      [x, 0],
+      [w - x, 0],
+      [w, h],
+      [0, h],
+    ];
+  },
+  parallelogram: (w, h, ss) => {
+    const x = ss * 0.25;
+    return [
+      [x, 0],
+      [w, 0],
+      [w - x, h],
+      [0, h],
+    ];
+  },
+  octagon: (w, h, ss) => {
+    const c = ss * 0.29289;
+    return [
+      [c, 0],
+      [w - c, 0],
+      [w, c],
+      [w, h - c],
+      [w - c, h],
+      [c, h],
+      [0, h - c],
+      [0, c],
+    ];
+  },
+  pentagon: (w, h) => [
+    [w / 2, 0],
+    [w, h * 0.38],
+    [w * 0.82, h],
+    [w * 0.18, h],
+    [0, h * 0.38],
+  ],
+  plus: (w, h, ss) => {
+    const a = ss * 0.25;
+    return [
+      [a, 0],
+      [w - a, 0],
+      [w - a, a],
+      [w, a],
+      [w, h - a],
+      [w - a, h - a],
+      [w - a, h],
+      [a, h],
+      [a, h - a],
+      [0, h - a],
+      [0, a],
+      [a, a],
+    ];
+  },
+  downArrow: (w, h, ss) => arrowPoints(w, h, ss, "down"),
+  upArrow: (w, h, ss) => arrowPoints(w, h, ss, "up"),
+  rightArrow: (w, h, ss) => arrowPoints(w, h, ss, "right"),
+  leftArrow: (w, h, ss) => arrowPoints(w, h, ss, "left"),
+};
+
+function arrowPoints(
+  w: number,
+  h: number,
+  ss: number,
+  direction: "up" | "down" | "left" | "right",
+): [number, number][] {
+  const shaft = ss * 0.25;
+  const head = ss * 0.5;
+  if (direction === "down" || direction === "up") {
+    const cx = w / 2;
+    const base: [number, number][] = [
+      [cx - shaft, 0],
+      [cx + shaft, 0],
+      [cx + shaft, h - head],
+      [w, h - head],
+      [cx, h],
+      [0, h - head],
+      [cx - shaft, h - head],
+    ];
+    return direction === "down"
+      ? base
+      : base.map(([x, y]) => [x, h - y] as [number, number]);
+  }
+  const cy = h / 2;
+  const base: [number, number][] = [
+    [0, cy - shaft],
+    [w - head, cy - shaft],
+    [w - head, 0],
+    [w, cy],
+    [w - head, h],
+    [w - head, cy + shaft],
+    [0, cy + shaft],
+  ];
+  return direction === "right"
+    ? base
+    : base.map(([x, y]) => [w - x, y] as [number, number]);
+}
+
+function toPercent(value: number, total: number): number {
+  return Math.round((value / Math.max(total, 0.001)) * 10000) / 100;
+}
+
+/**
+ * Reproduce the shape's declared preset geometry. `shapeType` is the only
+ * geometry the parser records, so this maps the preset to the CSS that draws
+ * it — without it every preset renders as the plain rectangle its bounding
+ * box happens to be.
+ */
+function geometryCss(
+  shapeType: string | undefined,
+  widthPx: number,
+  heightPx: number,
+): string {
+  if (!shapeType) return "";
+  const shortest = Math.min(widthPx, heightPx);
+  const corner = round3(shortest * DEFAULT_CORNER_ADJUSTMENT);
+  switch (shapeType) {
+    case "ellipse":
+    case "smileyFace":
+      return "border-radius: 50%;";
+    case "roundRect":
+      return `border-radius: ${corner}px;`;
+    case "round1Rect":
+      return `border-radius: 0 ${corner}px 0 0;`;
+    case "round2SameRect":
+      return `border-radius: ${corner}px ${corner}px 0 0;`;
+    case "round2DiagRect":
+      return `border-radius: ${corner}px 0 ${corner}px 0;`;
+  }
+  const points = CLIP_PATH_GEOMETRIES[shapeType]?.(
+    widthPx,
+    heightPx,
+    shortest,
+  );
+  if (!points) return "";
+  const polygon = points
+    .map(
+      ([x, y]) =>
+        `${toPercent(x, widthPx)}% ${toPercent(y, heightPx)}%`,
+    )
+    .join(", ");
+  return `clip-path: polygon(${polygon});`;
+}
+
+function round3(value: number): number {
+  return Math.round(value * 1000) / 1000;
+}
+
+/** A box narrower (or shorter) than its own stroke is a line, not a filled shape. */
+const DEGENERATE_AXIS_PX = 1;
+
+/**
+ * A PPTX line or connector is a box with one dimension of zero. Emitting the
+ * `border` shorthand on it paints *both* parallel edges, so every rule draws
+ * at twice its authored weight, overruns its own length by the stroke width
+ * at each end, and grows perpendicular nubs from the two edges that should
+ * not exist at all. A degenerate box gets the single edge it actually is.
+ */
+function strokeDecoration(
+  element: ParsedElement,
+  widthEmu: number,
+  refWidthPx: number,
+  widthPx: number,
+  heightPx: number,
+): string {
+  if (!element.lineColor) return "";
+  const stroke = Math.max(
+    1,
+    toSlidePxX(element.lineWidth ?? 12700, widthEmu, refWidthPx),
+  );
+  const color = esc(element.lineColor);
+  if (heightPx < DEGENERATE_AXIS_PX) {
+    return `border-top: ${stroke}px solid ${color};`;
+  }
+  if (widthPx < DEGENERATE_AXIS_PX) {
+    return `border-left: ${stroke}px solid ${color};`;
+  }
+  return `border: ${stroke}px solid ${color};`;
+}
+
 function shapeDecoration(
   element: ParsedElement,
   widthEmu: number,
   refWidthPx: number,
+  widthPx: number,
+  heightPx: number,
 ): string {
+  if (element.shapeType && UNRENDERABLE_GEOMETRIES.has(element.shapeType)) {
+    return "";
+  }
   const fill = element.fill ? `background: ${esc(element.fill)};` : "";
-  const line = element.lineColor
-    ? `border: ${Math.max(1, toSlidePxX(element.lineWidth ?? 12700, widthEmu, refWidthPx))}px solid ${esc(element.lineColor)};`
-    : "";
-  const radius = element.shapeType === "roundRect" ? "border-radius: 6px;" : "";
-  return `${fill}${line}${radius}`;
+  const line = strokeDecoration(
+    element,
+    widthEmu,
+    refWidthPx,
+    widthPx,
+    heightPx,
+  );
+  return `${fill}${line}${geometryCss(element.shapeType, widthPx, heightPx)}`;
 }
 
 function textBoxStyle(

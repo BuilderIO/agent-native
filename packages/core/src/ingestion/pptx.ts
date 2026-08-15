@@ -567,17 +567,22 @@ async function parseMasterColorInfo(args: {
   parseXml: (xml: string) => unknown;
 }): Promise<{
   clrMap: Record<string, string>;
-  titleFillByLevel: Record<number, Record<string, unknown> | null>;
-  bodyFillByLevel: Record<number, Record<string, unknown> | null>;
-  otherFillByLevel: Record<number, Record<string, unknown> | null>;
-  placeholderFills: RawPlaceholderShapeFill[];
+  titleDefaultsByLevel: Record<number, Record<string, unknown> | null>;
+  bodyDefaultsByLevel: Record<number, Record<string, unknown> | null>;
+  otherDefaultsByLevel: Record<number, Record<string, unknown> | null>;
+  placeholderDefaults: RawPlaceholderShapeDefaults[];
+  /** The master's own `<p:cSld><p:bg>` node, unresolved — the theme it needs to resolve `schemeClr` against isn't known here. */
+  background: Record<string, unknown> | null;
+  /** The master's own non-placeholder `<p:spTree>` XML, for the shapes and pictures that carry a template's actual visual identity. */
+  xml?: string;
 }> {
   const empty = {
     clrMap: {},
-    titleFillByLevel: {},
-    bodyFillByLevel: {},
-    otherFillByLevel: {},
-    placeholderFills: [],
+    titleDefaultsByLevel: {},
+    bodyDefaultsByLevel: {},
+    otherDefaultsByLevel: {},
+    placeholderDefaults: [],
+    background: null,
   };
   const path = args.target.startsWith("/")
     ? args.target.slice(1)
@@ -590,46 +595,64 @@ async function parseMasterColorInfo(args: {
   const txStyles = record(root["p:txStyles"]);
   return {
     clrMap,
-    titleFillByLevel: levelFillsFromTextStyle(
+    titleDefaultsByLevel: levelDefaultsFromTextStyle(
       record(txStyles?.["p:titleStyle"]),
     ),
-    bodyFillByLevel: levelFillsFromTextStyle(record(txStyles?.["p:bodyStyle"])),
-    otherFillByLevel: levelFillsFromTextStyle(
+    bodyDefaultsByLevel: levelDefaultsFromTextStyle(
+      record(txStyles?.["p:bodyStyle"]),
+    ),
+    otherDefaultsByLevel: levelDefaultsFromTextStyle(
       record(txStyles?.["p:otherStyle"]),
     ),
-    placeholderFills: parsePlaceholderShapeFills(xml, args.parseXml),
+    placeholderDefaults: parsePlaceholderShapeDefaults(xml, args.parseXml),
+    background: record(record(root["p:cSld"])?.["p:bg"]),
+    xml,
   };
 }
 
-/** Reads a `<p:titleStyle>`/`<p:bodyStyle>` node's per-level (`a:lvl1pPr`..`a:lvl9pPr`) default run fill, keyed 0-indexed to match `ParsedPptxParagraph.level` (`a:lvl1pPr` is level 0, `a:lvl2pPr` is level 1, etc.) — using only the first level's default for every nested bullet level silently drops the distinct colors PowerPoint themes commonly assign to deeper levels. */
-function levelFillsFromTextStyle(
+/** Reads a `<p:titleStyle>`/`<p:bodyStyle>`/`<a:lstStyle>` node's per-level (`a:lvl1pPr`..`a:lvl9pPr`) `<a:defRPr>`, keyed 0-indexed to match `ParsedPptxParagraph.level` (`a:lvl1pPr` is level 0, `a:lvl2pPr` is level 1, etc.) — using only the first level's default for every nested bullet level silently drops the distinct styling PowerPoint themes commonly assign to deeper levels. The whole `defRPr` is kept, not just its fill: size, typeface and bold/italic are inherited by exactly the same chain the color is, and a placeholder run that declares none of them is the common case, not the exception. */
+function levelDefaultsFromTextStyle(
   style: Record<string, unknown> | null,
 ): Record<number, Record<string, unknown> | null> {
-  const fills: Record<number, Record<string, unknown> | null> = {};
+  const defaults: Record<number, Record<string, unknown> | null> = {};
   for (let level = 0; level < 9; level++) {
-    const defRPr = record(
+    defaults[level] = record(
       record(style?.[`a:lvl${level + 1}pPr`])?.["a:defRPr"],
     );
-    fills[level] = record(defRPr?.["a:solidFill"]);
   }
-  return fills;
+  return defaults;
 }
 
-/** A slideLayout's or slideMaster's own placeholder shape (a `<p:sp>` carrying a `<p:ph>`) and its per-level `<a:lstStyle>` default run fills — this is where a placeholder type's *real* default color usually lives; Google Slides exports still emit a `<p:txStyles>` bucket, but only as an unused boilerplate stub with its own (often wrong) colors, so this shape-level default has to be tried first. */
-interface RawPlaceholderShapeFill {
+/** Every run property a placeholder can inherit from its layout/master, in the same shape a parsed run carries them. */
+type InheritedRunProperties = Omit<ParsedPptxTextRun, "content">;
+
+function resolveRunDefaultsByLevel(
+  defaultsByLevel: Record<number, Record<string, unknown> | null>,
+  colorContext: ColorContext,
+): Record<number, InheritedRunProperties> {
+  return Object.fromEntries(
+    Object.entries(defaultsByLevel).map(([level, defRPr]) => [
+      Number(level),
+      runProperties(defRPr, {}, colorContext),
+    ]),
+  );
+}
+
+/** A slideLayout's or slideMaster's own placeholder shape (a `<p:sp>` carrying a `<p:ph>`) and its per-level `<a:lstStyle>` default run properties — this is where a placeholder type's *real* defaults usually live; Google Slides exports still emit a `<p:txStyles>` bucket, but only as an unused boilerplate stub with its own (often wrong) values, so this shape-level default has to be tried first. */
+interface RawPlaceholderShapeDefaults {
   type?: string;
   idx?: string;
-  fillsByLevel: Record<number, Record<string, unknown> | null>;
+  defaultsByLevel: Record<number, Record<string, unknown> | null>;
   /** This placeholder shape's own `<p:spPr><a:xfrm>`, when the layout/master author gave it explicit position/size — absent for placeholder types (commonly Google Slides' `idx="4294967295"` sentinel) that inherit geometry from further up the chain, or nowhere at all. */
   transform?: ParsedShapeTransform;
 }
 
 /** Parses every direct placeholder shape out of a slideLayout's or slideMaster's `p:spTree`, keyed by that shape's own `<p:ph>` `type`/`idx` — reuses `extractDirectShapeFragments`, since layouts and masters share the same `spTree` structure slides do. */
-function parsePlaceholderShapeFills(
+function parsePlaceholderShapeDefaults(
   xml: string,
   parseXml: (xml: string) => unknown,
-): RawPlaceholderShapeFill[] {
-  const placeholders: RawPlaceholderShapeFill[] = [];
+): RawPlaceholderShapeDefaults[] {
+  const placeholders: RawPlaceholderShapeDefaults[] = [];
   for (const fragment of extractDirectShapeFragments(xml, "spTree")) {
     const node = record(record(parseXml(fragment))?.["p:sp"]);
     const ph = record(record(record(node?.["p:nvSpPr"])?.["p:nvPr"])?.["p:ph"]);
@@ -638,7 +661,7 @@ function parsePlaceholderShapeFills(
     placeholders.push({
       type: stringValue(ph["@_type"]),
       idx: stringValue(ph["@_idx"]),
-      fillsByLevel: levelFillsFromTextStyle(
+      defaultsByLevel: levelDefaultsFromTextStyle(
         record(record(node["p:txBody"])?.["a:lstStyle"]),
       ),
       ...(transform.width > 0 && transform.height > 0 ? { transform } : {}),
@@ -647,19 +670,17 @@ function parsePlaceholderShapeFills(
   return placeholders;
 }
 
-/** Resolves a set of raw placeholder-shape fills' `schemeClr` references against the slide's theme/clrMap, mirroring `resolveFillsByLevel`'s deferred-resolution pattern above (the raw fills are cached before the theme is known, so resolution happens per-call instead). */
-function resolvePlaceholderShapeColors(
-  raw: RawPlaceholderShapeFill[],
+/** Resolves a set of raw placeholder-shape defaults' `schemeClr` references against the slide's theme/clrMap (the raw nodes are cached before the theme is known, so resolution happens per-call instead). */
+function resolvePlaceholderShapeDefaults(
+  raw: RawPlaceholderShapeDefaults[],
   colorContext: ColorContext,
-): PlaceholderShapeColors[] {
+): PlaceholderShapeDefaults[] {
   return raw.map((placeholder) => ({
     type: placeholder.type,
     idx: placeholder.idx,
-    colorsByLevel: Object.fromEntries(
-      Object.entries(placeholder.fillsByLevel).map(([level, fill]) => [
-        Number(level),
-        parseColor(fill, colorContext),
-      ]),
+    runDefaultsByLevel: resolveRunDefaultsByLevel(
+      placeholder.defaultsByLevel,
+      colorContext,
     ),
     transform: placeholder.transform,
   }));
