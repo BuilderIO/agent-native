@@ -128,7 +128,7 @@ body.quick-prompt-surface #root {
   border: 1px solid hsl(var(--border) / 0.72) !important;
   border-radius: 14px;
   background: hsl(var(--muted) / 0.45);
-  box-shadow: 0 12px 32px hsl(0 0% 0% / 0.18);
+  box-shadow: 0 12px 32px hsl(var(--foreground) / 0.18);
 }
 
 /* Leave room for the shared picker's nested model list inside this narrow window. */
