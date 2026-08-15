@@ -836,6 +836,8 @@
    sidebars stack the copy and actions before the secondary button clips. */
 .agent-builder-setup-card {
   min-inline-size: min(18rem, 100%);
+  container-type: inline-size;
+  container-name: agent-builder-setup;
 }
 
 /* Provider setup tucks behind the composer. The extra bottom paint is hidden
@@ -887,11 +889,6 @@
   box-shadow: none;
 }
 
-.agent-builder-setup-card--sidebar {
-  container-type: inline-size;
-  container-name: agent-builder-setup;
-}
-
 .agent-builder-setup-card--sidebar .agent-builder-setup-card__actions {
   gap: 0.25rem;
 }
@@ -934,7 +931,9 @@
 
   .agent-builder-setup-card__builder-cta {
     align-items: stretch;
-    flex: 0 1 auto;
+    flex: 1 1 0;
+    min-width: 0;
+    width: 100%;
   }
 
   .agent-builder-setup-card__builder-button {
@@ -944,9 +943,15 @@
   }
 
   .agent-builder-setup-card__key-button {
-    flex: 0 0 auto;
+    align-self: stretch;
+    flex: 1 1 0;
     min-width: 0;
-    width: auto;
+    width: 100%;
+  }
+
+  .agent-builder-setup-card--sidebar .agent-builder-setup-card__key-button {
+    align-self: stretch;
+    width: 100%;
   }
 }
 
@@ -954,6 +959,14 @@
   .agent-builder-setup-card__actions {
     align-items: stretch;
     flex-direction: column;
+    flex-wrap: nowrap;
+  }
+
+  .agent-builder-setup-card__builder-cta,
+  .agent-builder-setup-card__key-button {
+    align-self: stretch;
+    flex: 0 0 auto;
+    width: 100%;
   }
 }
 
