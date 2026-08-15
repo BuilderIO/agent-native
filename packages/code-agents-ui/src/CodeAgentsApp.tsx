@@ -314,6 +314,8 @@ export interface CodeAgentsAppProps {
   onChatFirstMainKindChange?: (kind: "agent" | "code") => void;
   /** Host-rendered shared Agent-Native chat surface for the agent chat tab. */
   renderChatFirstMainSurface?: ReactNode;
+  /** Host-rendered replacement for the chat stream and composer region. */
+  renderChatFirstChatSurface?: ReactNode;
   /** Navigation callbacks for the shared chat-first rail. */
   chatFirstNavigation?: {
     activeTab?: ChatFirstPrimaryTab;
@@ -663,6 +665,7 @@ export default function CodeAgentsApp({
   suppressChatFirstUnavailableNotice = false,
   onChatFirstMainKindChange,
   renderChatFirstMainSurface,
+  renderChatFirstChatSurface,
   chatFirstNavigation,
   onChatFirstOpenApp,
   onWatchedRunChange,
@@ -2390,6 +2393,10 @@ export default function CodeAgentsApp({
                     />
                   )}
                 </div>
+              </div>
+            ) : renderChatFirstChatSurface ? (
+              <div className="code-agents-overview code-agents-overview--chat-surface">
+                {renderChatFirstChatSurface}
               </div>
             ) : (
               <div

@@ -531,9 +531,10 @@ export default function CodeAgentsHub({
   const visibleChatFirstSurfaceTabs = useMemo(
     () =>
       chatFirstSurfaceTabs.tabs.filter((tab) =>
-        isVisibleChatFirstSurfaceTab(tab, apps),
+        isVisibleChatFirstSurfaceTab(tab, apps) &&
+        !(terminalPreferences.enabled && tab.kind === "terminal"),
       ),
-    [apps, chatFirstSurfaceTabs.tabs],
+    [apps, chatFirstSurfaceTabs.tabs, terminalPreferences.enabled],
   );
   const visibleActiveChatFirstSurfaceTabId = visibleChatFirstSurfaceTabs.some(
     (tab) => tab.id === chatFirstSurfaceTabs.activeTabId,
@@ -966,7 +967,7 @@ export default function CodeAgentsHub({
   useEffect(() => {
     const tabCount = visibleChatFirstSurfaceTabs.length;
     const previousTabCount = previousChatFirstSurfaceTabCountRef.current;
-    if (!hasChatFirstActiveChat) {
+    if (!hasChatFirstActiveChat && !terminalPreferences.enabled) {
       setChatFirstSurfacePanelOpen(false);
     } else if (
       tabCount > 0 &&
@@ -984,7 +985,19 @@ export default function CodeAgentsHub({
   }, [
     hasChatFirstActiveChat,
     setChatFirstSurfacePanelOpen,
+    terminalPreferences.enabled,
     visibleChatFirstSurfaceTabs.length,
+  ]);
+
+  useEffect(() => {
+    if (!terminalPreferences.enabled) return;
+    for (const tab of chatFirstSurfaceTabs.tabs) {
+      if (tab.kind === "terminal") chatFirstSurfaceTabsStore.close(tab.id);
+    }
+  }, [
+    chatFirstSurfaceTabs.tabs,
+    chatFirstSurfaceTabsStore,
+    terminalPreferences.enabled,
   ]);
 
   useEffect(() => {
@@ -1068,6 +1081,7 @@ export default function CodeAgentsHub({
         return;
       }
       if (kind === "terminal") {
+        if (terminalPreferences.enabled) return;
         closeChatFirstSessionWatch();
         chatFirstSurfaceTabsStore.open({
           id: chatFirstSurfaceTabId("terminal", "desktop"),
@@ -1085,7 +1099,11 @@ export default function CodeAgentsHub({
         title: "Agents",
       });
     },
-    [chatFirstSurfaceTabsStore, setChatFirstSurfacePanelOpen],
+    [
+      chatFirstSurfaceTabsStore,
+      setChatFirstSurfacePanelOpen,
+      terminalPreferences.enabled,
+    ],
   );
 
   const watchChatFirstAgent = useCallback(
@@ -2160,8 +2178,7 @@ export default function CodeAgentsHub({
           railCollapsed={chatFirstRailCollapsed}
           chatFirstMainKind={
             chatFirstAllAppsOpen ||
-            chatFirstAppTakesMain ||
-            terminalPreferences.enabled
+            chatFirstAppTakesMain
               ? "agent"
               : "code"
           }
@@ -2183,7 +2200,10 @@ export default function CodeAgentsHub({
                 activeTabId={visibleActiveChatFirstSurfaceTabId}
                 renderTab={renderChatFirstSurfaceTab}
               />
-            ) : terminalPreferences.enabled ? (
+            ) : undefined
+          }
+          renderChatFirstChatSurface={
+            terminalPreferences.enabled ? (
               <DesktopTerminalSurface
                 apps={apps}
                 agent={terminalPreferences.agent}
@@ -2275,7 +2295,7 @@ export default function CodeAgentsHub({
             </div>
           )}
         />
-        {hasChatFirstActiveChat &&
+        {(hasChatFirstActiveChat || terminalPreferences.enabled) &&
         chatFirstSurfacePanel.open &&
         !chatFirstAppTakesMain ? (
           <ChatFirstSurfacePanel

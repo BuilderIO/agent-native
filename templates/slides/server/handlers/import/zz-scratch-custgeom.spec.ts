@@ -29,9 +29,13 @@ describe("scratch", () => {
             slide.elements?.filter((element) => element.geometry).length ?? 0;
           totalClip += clip;
           totalStroke += stroke;
+          const added = [
+            ...(html.match(/clip-path: path\('[^']*'\);/g) ?? []),
+            ...(html.match(/<svg viewBox[\s\S]*?<\/svg>/g) ?? []),
+          ].reduce((sum, part) => sum + part.length, 0);
           if (geo)
             perSlide.push(
-              `s${index + 1}: geom=${geo} clip=${clip} stroke=${stroke} html=${Math.round(html.length / 1024)}kb`,
+              `s${index + 1}: geom=${geo} clip=${clip} stroke=${stroke} html=${Math.round(html.length / 1024)}kb (+${Math.round(added / 1024)}kb from geometry)`,
             );
         });
         console.log(
