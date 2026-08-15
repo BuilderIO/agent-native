@@ -40,6 +40,21 @@ export type CodeAgentPromptAttachment = AgentPromptAttachment;
 
 export type CodeAgentFollowUpMode = "immediate" | "queued";
 
+export type CodeAgentExecutionTarget = "local" | "worktree";
+
+export interface CodeAgentRemoteWaitlistRequest {
+  email: string;
+  pageUrl?: string;
+  source?: string;
+  useCase?: string;
+}
+
+export interface CodeAgentRemoteWaitlistResult {
+  ok: boolean;
+  message?: string;
+  error?: string;
+}
+
 export interface CodeAgentProjectCommand {
   kind: "command";
   name: string;
@@ -208,6 +223,7 @@ export interface CodeAgentCreateRunRequest {
   goalId?: string;
   prompt: string;
   cwd?: string;
+  executionTarget?: CodeAgentExecutionTarget;
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
@@ -368,6 +384,7 @@ export interface CodeAgentRerunRequest {
   runId: string;
   prompt?: string;
   cwd?: string;
+  executionTarget?: CodeAgentExecutionTarget;
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
