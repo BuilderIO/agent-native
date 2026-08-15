@@ -123,7 +123,10 @@ describe("CodeAgentsApp project folder picker", () => {
       source.indexOf('aria-label="Select workspace"'),
     );
     expect(css).toContain("margin-top: 8px;");
-    expect(css).toContain("box-shadow: 0 18px 44px hsl(0 0% 0% / 0.42);");
+    expect(css).toContain(
+      ".dark .code-agents-popover-content {\n  box-shadow: 0 18px 44px hsl(var(--code-agents-dark-shadow, 0 0% 0%) / 0.42);",
+    );
+    expect(css).not.toContain("hsl(var(--foreground, 0 0% 90%) / 0.42)");
   });
 });
 

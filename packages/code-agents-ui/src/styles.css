@@ -37,6 +37,7 @@
   --sidebar-border: 0 0% 93%;
   --ease: 120ms cubic-bezier(0.16, 1, 0.3, 1);
   --code-agents-chat-max: 750px;
+  --code-agents-dark-shadow: 0 0% 0%;
   --code-agents-rail-gutter: 8px;
   --code-agents-rail-row-inset: 8px;
   --code-agents-rail-icon-size: 15px;
@@ -400,23 +401,18 @@
 }
 
 .dark .code-agents-popover-content {
-  box-shadow:
-    0 18px 44px hsl(var(--foreground, 0 0% 90%) / 0.42),
-    inset 0 1px 0 hsl(var(--foreground, 0 0% 90%) / 0.04);
+  box-shadow: 0 18px 44px hsl(var(--code-agents-dark-shadow, 0 0% 0%) / 0.42);
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not(.light) .code-agents-popover-content {
-    box-shadow:
-      0 18px 44px hsl(var(--foreground, 0 0% 90%) / 0.42),
-      inset 0 1px 0 hsl(var(--foreground, 0 0% 90%) / 0.04);
+    box-shadow: 0 18px 44px hsl(var(--code-agents-dark-shadow, 0 0% 0%) / 0.42);
   }
 }
 
 .code-agents-remote-waitlist-content {
   width: min(calc(100vw - 32px), 360px);
   padding: 16px;
-  box-shadow: 0 18px 44px hsl(0 0% 0% / 0.42);
 }
 
 .code-agents-remote-waitlist {
