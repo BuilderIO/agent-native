@@ -22,6 +22,8 @@ const electronState = vi.hoisted(() => {
 
     readonly setAlwaysOnTop = vi.fn();
     readonly setVisibleOnAllWorkspaces = vi.fn();
+    readonly setVibrancy = vi.fn();
+    readonly setHasShadow = vi.fn();
     readonly getSize = vi.fn(() => this.size);
     readonly getPosition = vi.fn(() => this.position);
     readonly setSize = vi.fn((width: number, height: number) => {
@@ -237,6 +239,10 @@ describe("Quick Prompt focus behavior", () => {
     );
     expect(promptWindow?.getSize()).toEqual([760, 360]);
     expect(promptWindow?.getPosition()).toEqual([340, 270]);
+    if (process.platform === "darwin") {
+      expect(promptWindow?.setVibrancy).toHaveBeenCalledWith(null);
+      expect(promptWindow?.setHasShadow).toHaveBeenCalledWith(false);
+    }
 
     electronState.ipcMain.handlers.get(IPC.QUICK_PROMPT_SET_PICKER_OPEN)?.(
       undefined,
@@ -244,6 +250,12 @@ describe("Quick Prompt focus behavior", () => {
     );
     expect(promptWindow?.getSize()).toEqual([460, 108]);
     expect(promptWindow?.getPosition()).toEqual([490, 396]);
+    if (process.platform === "darwin") {
+      expect(promptWindow?.setVibrancy).toHaveBeenLastCalledWith(
+        "under-window",
+      );
+      expect(promptWindow?.setHasShadow).toHaveBeenLastCalledWith(true);
+    }
   });
 
   it("does not resurrect after dismissal before ready-to-show", async () => {

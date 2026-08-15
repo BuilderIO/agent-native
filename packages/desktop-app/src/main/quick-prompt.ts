@@ -89,6 +89,18 @@ function resizeQuickPromptWindow(
   );
 }
 
+function setQuickPromptWindowChrome(
+  window: BrowserWindow,
+  pickerOpen: boolean,
+): void {
+  if (process.platform !== "darwin") return;
+
+  // The vibrancy material should cover the compact composer, not the larger
+  // transparent bounds needed to keep the shared picker on-screen.
+  window.setVibrancy(pickerOpen ? null : "under-window");
+  window.setHasShadow(!pickerOpen);
+}
+
 function hideQuickPrompt(options: { restoreFocus?: boolean } = {}): void {
   const window = quickPromptWindow;
   if (
@@ -105,6 +117,7 @@ function hideQuickPrompt(options: { restoreFocus?: boolean } = {}): void {
   quickPromptShouldBeVisible = false;
 
   window.hide();
+  setQuickPromptWindowChrome(window, false);
   resizeQuickPromptWindow(window, QUICK_PROMPT_COMPACT_SIZE);
   window.webContents.send(IPC.QUICK_PROMPT_HIDDEN);
 
@@ -211,6 +224,7 @@ function showQuickPrompt(): void {
 
   quickPromptPreviousFocusedWindow = BrowserWindow.getFocusedWindow();
   quickPromptShouldBeVisible = true;
+  setQuickPromptWindowChrome(window, false);
   resizeQuickPromptWindow(window, QUICK_PROMPT_COMPACT_SIZE);
   positionQuickPromptWindow(window);
   window.show();
@@ -314,6 +328,7 @@ export function registerQuickPromptIpc(
   ipcMain.on(IPC.QUICK_PROMPT_SET_PICKER_OPEN, (_event, value: unknown) => {
     const window = quickPromptWindow;
     if (!window || window.isDestroyed() || typeof value !== "boolean") return;
+    setQuickPromptWindowChrome(window, value);
     resizeQuickPromptWindow(
       window,
       value ? QUICK_PROMPT_PICKER_SIZE : QUICK_PROMPT_COMPACT_SIZE,

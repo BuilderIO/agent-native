@@ -81,9 +81,9 @@ body.quick-prompt-surface #root {
 }
 
 .quick-prompt-overlay__composer {
-  width: 100%;
+  width: 460px;
+  flex: 0 0 460px;
   max-width: 460px;
-  min-width: 0;
   -webkit-app-region: no-drag;
 }
 
@@ -122,6 +122,13 @@ body.quick-prompt-surface #root {
 
 .quick-prompt-overlay .quick-prompt-overlay__composer {
   --composer-surface-radius: 14px;
+}
+
+.quick-prompt-overlay--picker-open .agent-composer-root {
+  border: 1px solid hsl(var(--border) / 0.72) !important;
+  border-radius: 14px;
+  background: hsl(var(--muted) / 0.45);
+  box-shadow: 0 12px 32px hsl(0 0% 0% / 0.18);
 }
 
 /* Leave room for the shared picker's nested model list inside this narrow window. */
