@@ -715,8 +715,8 @@ const CORE_FALLBACK_MESSAGES: Record<string, string> = {
   "runsTray.finishedHours": "Finished {{count}}h ago",
   "runsTray.updatedDate": "Updated {{date}}",
   "runsTray.finishedDate": "Finished {{date}}",
-  "agentTask.backgroundTask": "Background task",
-  "agentTask.stop": "Stop background task",
+  "agentTask.spawnedAgent": "Spawned agent",
+  "agentTask.stop": "Stop spawned agent",
   "agentTask.openThread": "Open task thread",
   "codeRequired.fallbackDetail":
     "Edit locally or use Builder.io to edit this code in the cloud and continue customizing the app any way you like.",

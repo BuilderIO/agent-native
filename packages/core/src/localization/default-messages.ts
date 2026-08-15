@@ -823,8 +823,8 @@ const messages = {
     finishedDate: "Finished {{date}}",
   },
   agentTask: {
-    backgroundTask: "Background task",
-    stop: "Stop background task",
+    spawnedAgent: "Spawned agent",
+    stop: "Stop spawned agent",
     openThread: "Open task thread",
   },
   codeRequired: {
