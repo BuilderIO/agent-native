@@ -121,6 +121,12 @@ body.quick-prompt-surface [data-agent-native-composer-popover="true"] {
   width: min(16rem, calc(50vw - 24px));
 }
 
+body.quick-prompt-surface
+  [data-radix-popper-content-wrapper]
+  > [class*="z-[320]"] {
+  width: min(16rem, calc(50vw - 24px));
+}
+
 .quick-prompt-overlay .quick-prompt-overlay__composer :is(textarea, input) {
   font-size: 14px;
 }
