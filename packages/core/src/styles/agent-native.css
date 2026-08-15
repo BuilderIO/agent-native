@@ -843,7 +843,7 @@
 .agent-builder-setup-card--attached {
   position: relative;
   z-index: 1;
-  margin-bottom: -1.875rem;
+  margin-bottom: -2.5rem;
   padding-bottom: 0 !important;
 }
 
@@ -869,7 +869,7 @@
 .agent-builder-setup-inline--attached {
   position: relative;
   z-index: 1;
-  margin-bottom: -1.875rem !important;
+  margin-bottom: -2.5rem !important;
   padding-bottom: calc(0.625rem + 1.875rem) !important;
   border-bottom-color: transparent;
   border-bottom-left-radius: 0;
