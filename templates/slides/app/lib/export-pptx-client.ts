@@ -1179,7 +1179,12 @@ async function flattenCroppedImages(root: HTMLElement) {
     canvas.width = Math.max(1, Math.round(width * scaleX));
     canvas.height = Math.max(1, Math.round(height * scaleY));
     const context = canvas.getContext("2d");
-    if (!context) continue;
+    if (!context) {
+      console.warn(
+        `[export-pptx] no 2d canvas to crop with; image exports uncropped: ${image.src}`,
+      );
+      continue;
+    }
     context.drawImage(
       image,
       (left - imageRect.left) * scaleX,
