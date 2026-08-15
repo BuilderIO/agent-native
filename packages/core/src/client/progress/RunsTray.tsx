@@ -562,8 +562,8 @@ async function readLegacyRuns(
   try {
     const body: unknown = await response.json();
     return Array.isArray(body) ? (body as AgentRunDto[]) : null;
-    // coercion-ok: malformed responses return null, distinct from an empty run list.
   } catch {
+    // coercion-ok: malformed responses return null, distinct from an empty run list.
     return null;
   }
 }
@@ -576,8 +576,8 @@ async function readBackgroundRuns(
     if (!body || typeof body !== "object" || !("runs" in body)) return null;
     const runs = (body as { runs?: unknown }).runs;
     return Array.isArray(runs) ? (runs as BackgroundAgentRunDto[]) : null;
-    // coercion-ok: malformed responses return null, distinct from an empty run list.
   } catch {
+    // coercion-ok: malformed responses return null, distinct from an empty run list.
     return null;
   }
 }
