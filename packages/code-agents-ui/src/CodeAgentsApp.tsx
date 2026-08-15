@@ -3005,12 +3005,12 @@ function ProjectFolderPicker({
         ) : null}
       </div>
       <p className="code-agents-project-path" title={active?.path}>
-        {active?.path ??
-          (executionTarget === "worktree"
-            ? "A new isolated worktree will be created for this chat."
-            : executionTarget === "portal"
-              ? "Code is pushed to a paired computer before the run starts."
-              : "Runs use the selected folder as cwd.")}
+        {executionTarget === "portal"
+          ? "Code is pushed to a paired computer before the run starts."
+          : (active?.path ??
+            (executionTarget === "worktree"
+              ? "A new isolated worktree will be created for this chat."
+              : "Runs use the selected folder as cwd."))}
       </p>
     </div>
   );

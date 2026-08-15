@@ -3285,17 +3285,6 @@ body {
   background: var(--desktop-terminal-background);
 }
 
-.desktop-terminal-tabs__pane {
-  display: none;
-  width: 100%;
-  height: 100%;
-  min-height: 0;
-}
-
-.desktop-terminal-tabs__pane.is-active {
-  display: block;
-}
-
 .desktop-terminal-tabs__terminal {
   width: 100%;
   height: 100%;
