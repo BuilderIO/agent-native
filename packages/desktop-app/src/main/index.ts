@@ -144,6 +144,10 @@ import {
   writeJsonFileAtomically,
 } from "../../../core/src/cli/atomic-json-file.js";
 import {
+  createPortalHandoff,
+  type PortalHandoff,
+} from "../../../core/src/cli/portal-workspace.js";
+import {
   getBackgroundAgentRun,
   listBackgroundAgentRuns,
   listBackgroundAgentTranscriptEvents,
@@ -154,10 +158,6 @@ import {
   loadMcpConfig,
   type McpServerConfig,
 } from "../../../core/src/mcp-client/config.js";
-import {
-  createPortalHandoff,
-  type PortalHandoff,
-} from "../../../core/src/cli/portal-workspace.js";
 import * as AppStore from "./app-store";
 import { BrowserControlLoopbackBridge } from "./browser-control/bridge";
 import {
@@ -2105,7 +2105,8 @@ async function portalRelayRequest(
   if (!cookieHeader) {
     return {
       ok: false,
-      error: "Sign in to the Portal relay in Desktop before starting a Portal run.",
+      error:
+        "Sign in to the Portal relay in Desktop before starting a Portal run.",
     };
   }
   try {
@@ -2144,10 +2145,13 @@ async function portalRelayRequest(
   }
 }
 
-async function selectPortalHost(input: unknown): Promise<{
-  relayUrl: string;
-  host: PortalRemoteHost;
-} | { error: string }> {
+async function selectPortalHost(input: unknown): Promise<
+  | {
+      relayUrl: string;
+      host: PortalRemoteHost;
+    }
+  | { error: string }
+> {
   const relayUrl = resolvePortalRelayUrl(input);
   const result = await portalRelayRequest(
     relayUrl,
@@ -2159,13 +2163,14 @@ async function selectPortalHost(input: unknown): Promise<{
         .map(normalizePortalHost)
         .filter((host): host is PortalRemoteHost => Boolean(host))
     : [];
-  if (result.ok === false) return { error: result.error ?? "Portal hosts are unavailable." };
+  if (result.ok === false)
+    return { error: result.error ?? "Portal hosts are unavailable." };
   const requestedHostId = isObject(input)
     ? firstStringValue(input.portalHostId, input.hostId)
     : undefined;
   const host = requestedHostId
     ? hosts.find((candidate) => candidate.id === requestedHostId)
-    : hosts.find((candidate) => candidate.status === "online") ?? hosts[0];
+    : (hosts.find((candidate) => candidate.status === "online") ?? hosts[0]);
   if (!host) {
     return {
       error:
@@ -2176,7 +2181,9 @@ async function selectPortalHost(input: unknown): Promise<{
     return { error: "The selected Portal computer is no longer paired." };
   }
   if (host.executionCapabilities?.acceptsPortalHandoffs === false) {
-    return { error: "The selected Portal computer needs the latest connector." };
+    return {
+      error: "The selected Portal computer needs the latest connector.",
+    };
   }
   return { relayUrl, host };
 }
@@ -2212,7 +2219,11 @@ async function createPortalCodeAgentRun(input: {
 }): Promise<CodeAgentCreateRunResult> {
   const selected = await selectPortalHost(input.payload);
   if ("error" in selected) {
-    return { ok: false, message: "Could not start the Portal run.", error: selected.error };
+    return {
+      ok: false,
+      message: "Could not start the Portal run.",
+      error: selected.error,
+    };
   }
 
   let handoff: PortalHandoff;
@@ -2337,7 +2348,10 @@ async function createPortalCodeAgentRun(input: {
     details: [
       { label: "Goal", value: input.goal.slashCommand },
       { label: "Workspace", value: `Portal · ${selected.host.label}` },
-      { label: "Snapshot", value: `${handoff.branch} @ ${handoff.commit.slice(0, 12)}` },
+      {
+        label: "Snapshot",
+        value: `${handoff.branch} @ ${handoff.commit.slice(0, 12)}`,
+      },
       { label: "Environment", value: "Loaded locally on paired computer" },
       { label: "Mode", value: input.permissionMode },
     ],
@@ -2373,7 +2387,13 @@ async function createPortalCodeAgentRun(input: {
       input.runId,
       input.prompt,
       input.goal.id,
-      { queue, steering, attachments: input.attachments, executionTarget: "portal", portal: handoff },
+      {
+        queue,
+        steering,
+        attachments: input.attachments,
+        executionTarget: "portal",
+        portal: handoff,
+      },
     );
     const eventFile = appendCodeAgentTranscriptEvent(event);
     return {
@@ -2388,7 +2408,8 @@ async function createPortalCodeAgentRun(input: {
   } catch (error) {
     return {
       ok: false,
-      message: "The Portal run was queued remotely but could not be recorded locally.",
+      message:
+        "The Portal run was queued remotely but could not be recorded locally.",
       error: error instanceof Error ? error.message : String(error),
     };
   }
@@ -2465,9 +2486,7 @@ async function appendPortalCodeAgentFollowUp(input: {
   };
 }
 
-function isPortalCodeAgentRunRecord(
-  record: Record<string, unknown>,
-): boolean {
+function isPortalCodeAgentRunRecord(record: Record<string, unknown>): boolean {
   const metadata = isObject(record.metadata) ? record.metadata : {};
   return metadata.executionTarget === "portal" || isObject(metadata.portal);
 }
@@ -9229,8 +9248,7 @@ async function controlCodeAgentRun(
       : {};
     const portalRelayUrl = firstStringValue(portalRemote.relayUrl);
     const portalHostId = firstStringValue(portalRemote.deviceId);
-    const portalRunId =
-      firstStringValue(portalRemote.remoteRunId) ?? runId;
+    const portalRunId = firstStringValue(portalRemote.remoteRunId) ?? runId;
     if (command === "stop") {
       if (!portalRelayUrl || !portalHostId) {
         return {
@@ -9265,12 +9283,17 @@ async function controlCodeAgentRun(
         error: result.error,
       };
     }
-    if (command === "approve" || command === "approve-always" || command === "deny") {
+    if (
+      command === "approve" ||
+      command === "approve-always" ||
+      command === "deny"
+    ) {
       return {
         ok: false,
         command,
         action: "open-ui",
-        message: "Approve or deny this Portal run from the paired computer or phone.",
+        message:
+          "Approve or deny this Portal run from the paired computer or phone.",
       };
     }
   }

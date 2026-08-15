@@ -461,12 +461,7 @@ class RemoteCodeAgentConnector {
     });
     this.remoteRunIds.add(run.id);
     this.transcriptCursors.set(run.id, { offset: 0, seq: 0 });
-    this.spawnRunner(
-      run.id,
-      cwd,
-      permissionMode,
-      portalEnvironment?.values,
-    );
+    this.spawnRunner(run.id, cwd, permissionMode, portalEnvironment?.values);
     return { ok: true, runId: run.id, run };
   }
 
@@ -1023,10 +1018,7 @@ function resolveCommandCwd(value: unknown): string {
 }
 
 function isSafeRunId(value: string): boolean {
-  return (
-    value.length <= 160 &&
-    /^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(value)
-  );
+  return value.length <= 160 && /^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(value);
 }
 
 function remoteExecutionCapabilities(): RemoteExecutionCapabilities {

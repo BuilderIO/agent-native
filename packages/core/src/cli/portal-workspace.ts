@@ -149,7 +149,9 @@ export async function createPortalHandoff(input: {
     repositoryPath,
   );
   const sourceBranch =
-    branchResult.status === 0 ? branchResult.stdout?.trim() || undefined : undefined;
+    branchResult.status === 0
+      ? branchResult.stdout?.trim() || undefined
+      : undefined;
   const sourceDirty = Boolean(status.stdout?.trim());
   let commit = head;
   let createdCommit = false;
@@ -190,14 +192,7 @@ export async function createPortalHandoff(input: {
         )) ?? "portal@agent-native.local";
       const committed = await requiredGitOutput(
         executeGit,
-        [
-          "commit-tree",
-          tree,
-          "-p",
-          head,
-          "-m",
-          `Portal handoff ${handoffId}`,
-        ],
+        ["commit-tree", tree, "-p", head, "-m", `Portal handoff ${handoffId}`],
         repositoryPath,
         "Portal could not create the local code snapshot.",
         {
@@ -265,7 +260,13 @@ export async function preparePortalWorkspace(input: {
   );
   const trackingRef = `refs/remotes/${handoff.remoteName}/${handoff.branch}`;
   const fetched = await executeGit(
-    ["fetch", "--no-tags", "--no-prune", handoff.remoteName, `${handoff.remoteRef}:${trackingRef}`],
+    [
+      "fetch",
+      "--no-tags",
+      "--no-prune",
+      handoff.remoteName,
+      `${handoff.remoteRef}:${trackingRef}`,
+    ],
     repositoryPath,
   );
   if (fetched.status !== 0) {
@@ -363,7 +364,10 @@ export function parsePortalHandoff(value: unknown): PortalHandoff {
   if (record.schemaVersion !== 1 || record.envPolicy !== "load-local") {
     throw new Error("Portal handoff metadata has an unsupported version.");
   }
-  if (typeof record.sourceDirty !== "boolean" || typeof record.createdCommit !== "boolean") {
+  if (
+    typeof record.sourceDirty !== "boolean" ||
+    typeof record.createdCommit !== "boolean"
+  ) {
     throw new Error("Portal handoff metadata has invalid snapshot state.");
   }
   const sourceBranch = stringField(record.sourceBranch);
@@ -419,7 +423,9 @@ export function loadPortalEnvironment(
       );
     }
     for (const line of content.split(/\r?\n/)) {
-      const match = line.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$/);
+      const match = line.match(
+        /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$/,
+      );
       if (!match || PORTAL_PROTECTED_ENV_KEYS.has(match[1])) continue;
       values[match[1]] = parsePortalEnvValue(match[2]);
     }
@@ -431,7 +437,7 @@ function parsePortalEnvValue(value: string): string {
   const trimmed = value.trim();
   if (
     trimmed.length >= 2 &&
-    ((trimmed.startsWith("\"") && trimmed.endsWith("\"")) ||
+    ((trimmed.startsWith('"') && trimmed.endsWith('"')) ||
       (trimmed.startsWith("'") && trimmed.endsWith("'")))
   ) {
     return trimmed.slice(1, -1);
@@ -497,7 +503,9 @@ async function optionalGitOutput(
 }
 
 function gitFailure(result: PortalGitResult, fallback: string): Error {
-  const detail = sanitizeGitError(result.stderr?.trim() || result.error?.message);
+  const detail = sanitizeGitError(
+    result.stderr?.trim() || result.error?.message,
+  );
   return new Error(detail ? `${fallback} ${detail}` : fallback);
 }
 

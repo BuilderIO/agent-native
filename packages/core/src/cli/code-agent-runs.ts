@@ -219,7 +219,8 @@ export function createCodeAgentRunRecord(
 ): CodeAgentRunRecord {
   const now = new Date().toISOString();
   const id =
-    input.id ?? `${input.goalId}-${timestampSlug(now)}-${crypto.randomUUID().slice(0, 8)}`;
+    input.id ??
+    `${input.goalId}-${timestampSlug(now)}-${crypto.randomUUID().slice(0, 8)}`;
   const record: CodeAgentRunRecord = {
     schemaVersion: 1,
     id,

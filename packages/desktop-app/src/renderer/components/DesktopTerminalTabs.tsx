@@ -1,4 +1,11 @@
 import { AgentTerminal } from "@agent-native/core/client";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@agent-native/toolkit/ui";
 import type { AppConfig } from "@shared/app-registry";
 import {
   IconLoader2,
@@ -181,7 +188,11 @@ export default function DesktopTerminalTabs({
   const closeTab = useCallback(
     (tabId: string) => {
       setTabs((current) => {
-        if (current.length === 1) return current;
+        if (current.length === 1) {
+          const replacement = createTerminalTab();
+          setActiveTabId(replacement.id);
+          return [replacement];
+        }
         const index = current.findIndex((tab) => tab.id === tabId);
         const next = current.filter((tab) => tab.id !== tabId);
         if (tabId === activeTabId) {
@@ -192,6 +203,21 @@ export default function DesktopTerminalTabs({
     },
     [activeTabId],
   );
+
+  const closeOtherTabs = useCallback((tabId: string) => {
+    setTabs((current) => {
+      const tab = current.find((candidate) => candidate.id === tabId);
+      if (!tab) return current;
+      setActiveTabId(tab.id);
+      return [tab];
+    });
+  }, []);
+
+  const closeAllTabs = useCallback(() => {
+    const replacement = createTerminalTab();
+    setTabs([replacement]);
+    setActiveTabId(replacement.id);
+  }, []);
 
   const workbenchStyle = {
     "--desktop-terminal-background": terminalBackground,
@@ -204,58 +230,108 @@ export default function DesktopTerminalTabs({
       data-desktop-terminal-tabs
       data-terminal-background={terminalBackground}
     >
-      <header className="desktop-terminal-tabs__header">
+      <div
+        className="flex shrink-0 items-center gap-0.5 border-b border-border px-2 py-1"
+        data-agent-terminal-tab-bar
+      >
         <div
-          className="desktop-terminal-tabs__tab-list"
+          className="agent-tabs-scroll flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto"
           role="tablist"
           aria-label="Terminal tabs"
         >
-          {tabs.map((tab) => {
+          {tabs.map((tab, index) => {
             const active = tab.id === activeTabId;
+            const nextIndex = (offset: number) =>
+              (index + offset + tabs.length) % tabs.length;
             return (
-              <div
-                key={tab.id}
-                className={`desktop-terminal-tabs__tab${active ? " is-active" : ""}`}
-              >
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={active}
-                  className="desktop-terminal-tabs__tab-button"
-                  onClick={() => setActiveTabId(tab.id)}
-                >
-                  <IconTerminal2 size={14} aria-hidden="true" />
-                  <span>{tab.label}</span>
-                </button>
-                {tabs.length > 1 ? (
-                  <button
-                    type="button"
-                    className="desktop-terminal-tabs__tab-close"
-                    aria-label={`Close ${tab.label}`}
-                    title={`Close ${tab.label}`}
-                    onClick={() => closeTab(tab.id)}
+              <ContextMenu key={tab.id}>
+                <ContextMenuTrigger asChild>
+                  <div
+                    className={`agent-tab group relative flex max-w-[130px] shrink-0 items-center rounded-md text-[11px] font-medium${active ? " bg-accent text-foreground ring-1 ring-inset ring-border/60 shadow-sm" : " text-muted-foreground hover:bg-accent/50 hover:text-foreground"}`}
                   >
-                    <IconX size={12} aria-hidden="true" />
-                  </button>
-                ) : null}
-              </div>
+                    <button
+                      type="button"
+                      role="tab"
+                      tabIndex={active ? 0 : -1}
+                      aria-selected={active}
+                      className="flex min-w-0 flex-1 items-center px-2.5 py-1.5 text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          setActiveTabId(tab.id);
+                          return;
+                        }
+                        const targetIndex =
+                          event.key === "ArrowRight"
+                            ? nextIndex(1)
+                            : event.key === "ArrowLeft"
+                              ? nextIndex(-1)
+                              : event.key === "Home"
+                                ? 0
+                                : event.key === "End"
+                                  ? tabs.length - 1
+                                  : -1;
+                        if (targetIndex < 0) return;
+                        event.preventDefault();
+                        const target = tabs[targetIndex];
+                        if (!target) return;
+                        setActiveTabId(target.id);
+                        requestAnimationFrame(() => {
+                          document
+                            .querySelector<HTMLElement>(
+                              `[data-agent-terminal-tab-id="${CSS.escape(target.id)}"]`,
+                            )
+                            ?.focus();
+                        });
+                      }}
+                      onClick={() => setActiveTabId(tab.id)}
+                      data-agent-terminal-tab-id={tab.id}
+                    >
+                      <span className="truncate">{tab.label}</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="agent-tab-close absolute inset-y-0 right-0 flex w-7 items-center justify-end rounded-r-md pe-1.5 text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100"
+                      aria-label={`Close ${tab.label}`}
+                      title={`Close ${tab.label}`}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        closeTab(tab.id);
+                      }}
+                    >
+                      <IconX size={10} aria-hidden="true" />
+                    </button>
+                  </div>
+                </ContextMenuTrigger>
+                <ContextMenuContent>
+                  <ContextMenuItem onSelect={() => closeTab(tab.id)}>
+                    Close
+                  </ContextMenuItem>
+                  <ContextMenuItem
+                    disabled={tabs.length < 2}
+                    onSelect={() => closeOtherTabs(tab.id)}
+                  >
+                    Close others
+                  </ContextMenuItem>
+                  <ContextMenuSeparator />
+                  <ContextMenuItem onSelect={closeAllTabs}>
+                    Close all
+                  </ContextMenuItem>
+                </ContextMenuContent>
+              </ContextMenu>
             );
           })}
-          <button
-            type="button"
-            className="desktop-terminal-tabs__add"
-            aria-label="New terminal"
-            title="New terminal"
-            onClick={addTab}
-          >
-            <IconPlus size={15} aria-hidden="true" />
-          </button>
         </div>
-        <div className="desktop-terminal-tabs__meta">
-          <span>{selectedAgent.label}</span>
-          {terminalApp ? <span>{terminalApp.name}</span> : null}
-        </div>
-      </header>
+        <button
+          type="button"
+          className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground/60 hover:bg-accent/50 hover:text-foreground"
+          aria-label="New terminal"
+          title="New terminal"
+          onClick={addTab}
+        >
+          <IconPlus size={14} aria-hidden="true" />
+        </button>
+      </div>
 
       <div className="desktop-terminal-tabs__body">
         {connection.state === "loading" ? (

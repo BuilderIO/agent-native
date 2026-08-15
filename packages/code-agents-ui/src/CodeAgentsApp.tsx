@@ -2513,59 +2513,59 @@ export default function CodeAgentsApp({
                                 />
                               )}
                             <NewSessionComposer
-                                prompt={newPrompt}
-                                promptSeed={newPromptSeed}
-                                inputRef={newPromptRef}
-                                creating={creatingRun}
-                                permissionMode={newRunPermissionMode}
-                                modelSelection={selectedModelSelection}
-                                modelOptions={modelOptions}
-                                slashCommands={
-                                  activeNewSessionExtension ? [] : slashCommands
-                                }
-                                disabled={
-                                  activeNewSessionExtension
-                                    ? activeNewSessionExtension.disabled
-                                    : providerGate.blocked && !portalSelected
-                                }
-                                onDisabledClick={
-                                  !activeNewSessionExtension &&
-                                  providerGate.blocked &&
-                                  !portalSelected
-                                    ? bounceProviderGate
-                                    : undefined
-                                }
-                                modeControl={newSessionExtension?.renderModeControl?.(
-                                  {
-                                    permissionMode: newRunPermissionMode,
-                                    onPermissionModeChange:
-                                      setNewRunPermissionMode,
-                                  },
-                                )}
-                                useDefaultModeControl={
-                                  newSessionExtensionComposerState.useDefaultModeControl
-                                }
-                                showModelSelector={
-                                  newSessionExtensionComposerState.showModelSelector
-                                }
-                                onPromptChange={setNewPrompt}
-                                onPermissionModeChange={setNewRunPermissionMode}
-                                onModelSelectionChange={setModelSelection}
-                                onSlashCommand={
-                                  activeNewSessionExtension
-                                    ? undefined
-                                    : handleSlashCommand
-                                }
-                                onSubmit={createRunFromPrompt}
-                                onConnectProvider={connectBuilderProvider}
-                                onConnectLocalRuntime={
-                                  !activeNewSessionExtension &&
-                                  host.openTerminal
-                                    ? connectLocalRuntime
-                                    : undefined
-                                }
+                              prompt={newPrompt}
+                              promptSeed={newPromptSeed}
+                              inputRef={newPromptRef}
+                              creating={creatingRun}
+                              permissionMode={newRunPermissionMode}
+                              modelSelection={selectedModelSelection}
+                              modelOptions={modelOptions}
+                              slashCommands={
+                                activeNewSessionExtension ? [] : slashCommands
+                              }
+                              disabled={
+                                activeNewSessionExtension
+                                  ? activeNewSessionExtension.disabled
+                                  : providerGate.blocked && !portalSelected
+                              }
+                              onDisabledClick={
+                                !activeNewSessionExtension &&
+                                providerGate.blocked &&
+                                !portalSelected
+                                  ? bounceProviderGate
+                                  : undefined
+                              }
+                              modeControl={newSessionExtension?.renderModeControl?.(
+                                {
+                                  permissionMode: newRunPermissionMode,
+                                  onPermissionModeChange:
+                                    setNewRunPermissionMode,
+                                },
+                              )}
+                              useDefaultModeControl={
+                                newSessionExtensionComposerState.useDefaultModeControl
+                              }
+                              showModelSelector={
+                                newSessionExtensionComposerState.showModelSelector
+                              }
+                              onPromptChange={setNewPrompt}
+                              onPermissionModeChange={setNewRunPermissionMode}
+                              onModelSelectionChange={setModelSelection}
+                              onSlashCommand={
+                                activeNewSessionExtension
+                                  ? undefined
+                                  : handleSlashCommand
+                              }
+                              onSubmit={createRunFromPrompt}
+                              onConnectProvider={connectBuilderProvider}
+                              onConnectLocalRuntime={
+                                !activeNewSessionExtension && host.openTerminal
+                                  ? connectLocalRuntime
+                                  : undefined
+                              }
                             />
-                            {(projects.length > 0 || canChooseProjectFolder) && (
+                            {(projects.length > 0 ||
+                              canChooseProjectFolder) && (
                               <ProjectFolderPicker
                                 variant="bar"
                                 projects={projects}
