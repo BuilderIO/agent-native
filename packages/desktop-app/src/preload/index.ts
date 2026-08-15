@@ -233,6 +233,8 @@ const electronAPI = {
   desktopChat: {
     getApiUrl: (appId: string): Promise<string | null> =>
       ipcRenderer.invoke(IPC.DESKTOP_CHAT_GET_API_URL, appId),
+    getTerminalInfoUrl: (appId: string): Promise<string | null> =>
+      ipcRenderer.invoke(IPC.DESKTOP_CHAT_GET_TERMINAL_INFO_URL, appId),
   },
 
   /** Workspace identity commands expose intent and status, never credentials. */

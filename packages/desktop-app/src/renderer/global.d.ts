@@ -908,6 +908,7 @@ interface ElectronAPI {
 
   desktopChat: {
     getApiUrl(appId: string): Promise<string | null>;
+    getTerminalInfoUrl(appId: string): Promise<string | null>;
   };
 
   mcpServers: {

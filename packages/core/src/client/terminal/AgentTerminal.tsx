@@ -57,7 +57,7 @@ function injectXtermCss() {
     .xterm .composition-view { display: none; position: absolute; white-space: nowrap; z-index: 1; }
     .xterm .composition-view.active { display: block; }
     .xterm .xterm-viewport {
-      background-color: #000; overflow-y: scroll;
+      background-color: var(--agent-terminal-background, #000); overflow-y: scroll;
       cursor: default; position: absolute; right: 0; left: 0; top: 0; bottom: 0;
     }
     .xterm .xterm-screen { position: relative; }
@@ -449,6 +449,7 @@ export function AgentTerminal({
     ...style,
     background: terminalBackground,
     backgroundColor: terminalBackground,
+    "--agent-terminal-background": terminalBackground,
   };
 
   return (
@@ -471,7 +472,7 @@ export function AgentTerminal({
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            backgroundColor: "#111",
+            backgroundColor: terminalBackground,
             color: "#ff7b72",
             fontSize: "13px",
             fontFamily: "monospace",

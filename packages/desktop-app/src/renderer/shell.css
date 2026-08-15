@@ -3253,3 +3253,163 @@ body {
   background: hsl(var(--accent));
   color: hsl(var(--foreground));
 }
+
+/* Embedded terminal tabs intentionally use the resolved code-agent rail color
+   so the PTY feels like another shell surface instead of a dark widget. */
+.desktop-terminal-tabs {
+  --desktop-terminal-background: var(--sidebar-bg);
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--desktop-terminal-background);
+  color: var(--shell-fg);
+}
+
+.desktop-terminal-tabs__header {
+  display: flex;
+  min-width: 0;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--separator);
+  background: var(--desktop-terminal-background);
+  padding: 6px 10px 6px 12px;
+}
+
+.desktop-terminal-tabs__tab-list {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 3px;
+  overflow-x: auto;
+}
+
+.desktop-terminal-tabs__tab {
+  display: flex;
+  min-width: 0;
+  max-width: 180px;
+  align-items: center;
+  border-radius: 6px;
+  color: var(--label-inactive);
+  font-size: 12px;
+}
+
+.desktop-terminal-tabs__tab.is-active {
+  background: var(--item-active-bg);
+  color: var(--shell-fg);
+}
+
+.desktop-terminal-tabs__tab-button,
+.desktop-terminal-tabs__tab-close,
+.desktop-terminal-tabs__add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  color: inherit;
+}
+
+.desktop-terminal-tabs__tab-button {
+  min-width: 0;
+  gap: 6px;
+  padding: 5px 7px;
+  overflow: hidden;
+  text-align: left;
+}
+
+.desktop-terminal-tabs__tab-button span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.desktop-terminal-tabs__tab-close {
+  width: 22px;
+  height: 24px;
+  border-radius: 4px;
+  opacity: 0.6;
+}
+
+.desktop-terminal-tabs__tab-close:hover,
+.desktop-terminal-tabs__add:hover {
+  background: var(--item-hover-bg);
+  opacity: 1;
+}
+
+.desktop-terminal-tabs__add {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  border-radius: 5px;
+  color: var(--label-inactive);
+}
+
+.desktop-terminal-tabs__meta {
+  display: flex;
+  min-width: 0;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  color: var(--label-inactive);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.desktop-terminal-tabs__meta span + span::before {
+  margin-right: 8px;
+  color: var(--separator);
+  content: "/";
+}
+
+.desktop-terminal-tabs__body {
+  position: relative;
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
+  background: var(--desktop-terminal-background);
+}
+
+.desktop-terminal-tabs__pane {
+  display: none;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+.desktop-terminal-tabs__pane.is-active {
+  display: block;
+}
+
+.desktop-terminal-tabs__terminal {
+  width: 100%;
+  height: 100%;
+  background: var(--desktop-terminal-background);
+}
+
+.desktop-terminal-tabs__state {
+  display: flex;
+  height: 100%;
+  min-height: 160px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px;
+  color: var(--label-inactive);
+  font-size: 12px;
+  text-align: center;
+}
+
+.desktop-terminal-settings-select {
+  min-width: 176px;
+  height: 34px;
+  border: 1px solid hsl(var(--border));
+  border-radius: calc(var(--radius) - 2px);
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  padding: 0 9px;
+}

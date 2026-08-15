@@ -411,7 +411,7 @@ describe("parsePptxPresentation", () => {
     expect(presentation.slides[0]?.tablesDegraded).toBe(1);
   });
 
-  it("approximates a gradient fill with its first stop's color instead of leaving the shape unfilled", async () => {
+  it("keeps every gradient stop instead of collapsing the fill to its first color", async () => {
     const presentation = await parsePptxPresentation(
       await buildMinimalPptxBuffer(`
         <p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
@@ -435,7 +435,9 @@ describe("parsePptxPresentation", () => {
 
     const element = presentation.slides[0]?.elements[0];
     expect(element?.kind).toBe("shape");
-    expect(element?.fill).toBe("#112233");
+    expect(element?.fill).toBe(
+      "linear-gradient(180deg, #112233 0%, #445566 100%)",
+    );
   });
 
   it("reads a:alpha and encodes it as trailing hex alpha digits on the resolved color", async () => {

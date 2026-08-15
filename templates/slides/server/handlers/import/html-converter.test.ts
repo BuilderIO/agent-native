@@ -353,6 +353,25 @@ describe("convertToSlideHtml stroke geometry", () => {
     expect(style).not.toMatch(/(?<!-)border: /);
   });
 
+  it("treats a hairline thinner than its own two borders as a line too", () => {
+    // A 1.638px-wide, 200px-tall rule (a real one, from an imported deck):
+    // its left and right 1px borders already overlap, so the shorthand can
+    // only ever draw a doubled line, never an outlined box.
+    const style = styleAttr(
+      convertToSlideHtml(
+        shapeSlide({
+          width: 20802,
+          height: 2536825,
+          lineColor: "#595959",
+          lineWidth: 12700,
+        }),
+      ),
+      "shape",
+    );
+    expect(style).toContain("border-left: 1px solid #595959");
+    expect(style).not.toMatch(/(?<!-)border: /);
+  });
+
   it("keeps a real four-sided border on a box with both dimensions", () => {
     const style = styleAttr(
       convertToSlideHtml(

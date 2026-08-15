@@ -735,15 +735,13 @@ function round3(value: number): number {
   return Math.round(value * 1000) / 1000;
 }
 
-/** A box narrower (or shorter) than its own stroke is a line, not a filled shape. */
-const DEGENERATE_AXIS_PX = 1;
-
 /**
- * A PPTX line or connector is a box with one dimension of zero. Emitting the
- * `border` shorthand on it paints *both* parallel edges, so every rule draws
- * at twice its authored weight, overruns its own length by the stroke width
- * at each end, and grows perpendicular nubs from the two edges that should
- * not exist at all. A degenerate box gets the single edge it actually is.
+ * A PPTX line or connector is a box with one dimension of zero — or thinner
+ * than the two borders that would have to meet inside it. Emitting the
+ * `border` shorthand on it paints *both* parallel edges, so the rule draws at
+ * twice its authored weight, overruns its own length by the stroke width at
+ * each end, and grows perpendicular nubs from the two edges that should not
+ * exist at all. A box with no room for an interior gets the single edge it is.
  */
 function strokeDecoration(
   element: ParsedElement,
@@ -758,10 +756,12 @@ function strokeDecoration(
     toSlidePxX(element.lineWidth ?? 12700, widthEmu, refWidthPx),
   );
   const color = esc(element.lineColor);
-  if (heightPx < DEGENERATE_AXIS_PX) {
+  // The longer axis has to win, or a small square outline (a 2px dot, say)
+  // would lose three of its four edges.
+  if (heightPx < stroke * 2 && widthPx > heightPx) {
     return `border-top: ${stroke}px solid ${color};`;
   }
-  if (widthPx < DEGENERATE_AXIS_PX) {
+  if (widthPx < stroke * 2 && heightPx > widthPx) {
     return `border-left: ${stroke}px solid ${color};`;
   }
   return `border: ${stroke}px solid ${color};`;
