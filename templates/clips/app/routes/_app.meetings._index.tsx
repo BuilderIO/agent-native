@@ -77,6 +77,7 @@ interface Meeting {
   scheduledEnd?: string | null;
   actualStart?: string | null;
   actualEnd?: string | null;
+  createdAt?: string | null;
   recordingId?: string | null;
   joinUrl?: string | null;
   platform?: string | null;
@@ -203,8 +204,12 @@ function calendarAccountLabel(account: CalendarAccount): string {
   );
 }
 
+// Manual/ad-hoc notes-only meetings admitted into the past view (see
+// list-meetings' view='past' predicate) can have neither actualStart nor
+// scheduledStart — createdAt is the only timestamp left to group and display
+// them by.
 function historyIso(m: Meeting): string {
-  return m.actualStart ?? m.scheduledStart;
+  return m.actualStart ?? m.scheduledStart ?? m.createdAt ?? "";
 }
 
 function historyTimestampMs(m: Meeting): number {

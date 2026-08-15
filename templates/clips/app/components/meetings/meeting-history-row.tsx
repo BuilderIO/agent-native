@@ -24,6 +24,7 @@ export interface MeetingHistoryItem {
   scheduledEnd?: string | null;
   actualStart?: string | null;
   actualEnd?: string | null;
+  createdAt?: string | null;
   participants?: AttendeeStackParticipant[];
 }
 
@@ -67,7 +68,9 @@ export function MeetingHistoryRow({
   const participants = meeting.participants ?? [];
   const subtitle =
     snippet?.trim() || formatParticipantNames(participants, session?.email);
-  const time = formatTime(meeting.actualStart ?? meeting.scheduledStart);
+  const time = formatTime(
+    meeting.actualStart ?? meeting.scheduledStart ?? meeting.createdAt,
+  );
 
   return (
     <NavLink

@@ -30,6 +30,7 @@ const MEETING_COLUMNS = {
   scheduledEnd: schema.meetings.scheduledEnd,
   actualStart: schema.meetings.actualStart,
   actualEnd: schema.meetings.actualEnd,
+  createdAt: schema.meetings.createdAt,
   recordingId: schema.meetings.recordingId,
   transcriptStatus: schema.meetings.transcriptStatus,
   summaryMd: schema.meetings.summaryMd,
