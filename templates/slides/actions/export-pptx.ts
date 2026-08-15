@@ -719,6 +719,7 @@ function parseImportedSlideHtml(html: string, dims: SlideDims): ParsedSlide {
       );
       const border = parseCssBorder(getStyle(style, "border"));
       const parsedLine = border ? colorToHex(border.color) : undefined;
+      const outline = importedFreeformStroke(innerHtml, dims);
       shapes.push({
         ...geometry,
         ...(parsedFill
@@ -733,8 +734,14 @@ function parseImportedSlideHtml(html: string, dims: SlideDims): ParsedSlide {
               lineWidth: Math.max(0.5, pxToPt(border.widthPx, dims)),
               ...(border.dashType ? { lineDashType: border.dashType } : {}),
             }
-          : {}),
-        ...importedShapeGeometry(attrs, style, geometry, dims),
+          : outline
+            ? {
+                lineColor: outline.color.hex,
+                lineTransparency: outline.color.transparency,
+                lineWidth: outline.width,
+              }
+            : {}),
+        ...importedShapeGeometry(attrs, style, outline?.path, geometry, dims),
         order: match.index,
       });
       continue;
@@ -859,21 +866,31 @@ function pxToInY(px: number, dims: SlideDims): number {
  * only lossless carrier — CSS cannot distinguish a trapezoid from a hexagon
  * once both are `clip-path: polygon(...)` — so the importer's
  * `data-pptx-shape-type` attribute wins when present. Otherwise trace what CSS
- * can prove: a polygon becomes a custom outline, and a border radius becomes an
- * ellipse or a real corner radius instead of pptxgen's default roundRect.
+ * can prove: a freeform outline and a polygon become custom outlines, and a
+ * border radius becomes an ellipse or a real corner radius instead of
+ * pptxgen's default roundRect.
  */
 function importedShapeGeometry(
   attrs: string,
   style: string,
+  strokeOutline: string | undefined,
   size: { w: number; h: number },
   dims: SlideDims,
 ): Pick<ShapeElement, "shapeType" | "rectRadius" | "points"> {
   const preset = getAttribute(attrs, "data-pptx-shape-type");
   if (preset) return { shapeType: preset };
 
-  const polygon = getStyle(style, "clip-path")?.match(
-    /polygon\(([^)]*)\)/i,
-  )?.[1];
+  const clipPath = getStyle(style, "clip-path");
+  // A stroke-only freeform carries no clip (clipping an unfilled box would eat
+  // half the stroke), so its overlay path is the only outline it has.
+  const outline =
+    clipPath?.match(/path\(\s*(["']?)([^"')]*)\1\s*\)/i)?.[2] ?? strokeOutline;
+  if (outline) {
+    const points = svgPathPoints(outline, dims);
+    if (points) return { shapeType: "custGeom", points };
+  }
+
+  const polygon = clipPath?.match(/polygon\(([^)]*)\)/i)?.[1];
   if (polygon) {
     const points = clipPathPolygonPoints(polygon, size, dims);
     if (points) return { shapeType: "custGeom", points };
@@ -894,6 +911,206 @@ function importedShapeGeometry(
     // A pill (`border-radius: 9999px`) clamps to the half-side PowerPoint caps
     // its `adj` value at, rather than overflowing the shape.
     rectRadius: Math.min(pxToIn(value, dims), shortSide / 2),
+  };
+}
+
+/**
+ * A freeform outline's stroke follows the path, not the box, so the importer
+ * draws it as an SVG overlay instead of a `border`. Read that overlay back:
+ * it carries the shape's line color and width, and for a line-art pictogram —
+ * no fill, so nothing to clip — it is the only copy of the outline itself.
+ */
+function importedFreeformStroke(
+  innerHtml: string,
+  dims: SlideDims,
+): { path: string; color: ReturnType<typeof colorToHex>; width: number } | undefined {
+  const pathAttrs = innerHtml.match(/<svg\b[^>]*>\s*<path\b([^>]*)>/i)?.[1];
+  if (!pathAttrs) return undefined;
+  const path = getAttribute(pathAttrs, "d");
+  const stroke = getAttribute(pathAttrs, "stroke");
+  if (!path || !stroke) return undefined;
+  const widthPx = Number.parseFloat(
+    getAttribute(pathAttrs, "stroke-width") ?? "1",
+  );
+  return {
+    path: decodeHtmlText(path),
+    color: colorToHex(stroke),
+    // The same 0.5pt floor the CSS-border path uses: `pxToPt` rounds, and a
+    // hairline outline that rounds to 0pt is an invisible shape.
+    width: Math.max(0.5, pxToPt(Number.isFinite(widthPx) ? widthPx : 1, dims)),
+  };
+}
+
+type CustomGeometryPoint = NonNullable<ShapeElement["points"]>[number];
+
+/** Numbers each SVG path command consumes. The importer emits only these. */
+const SVG_PATH_ARITY: Record<string, number> = {
+  M: 2,
+  L: 2,
+  Q: 4,
+  C: 6,
+  A: 7,
+};
+
+/**
+ * Trace the importer's freeform outline — `clip-path: path('...')`, or the
+ * stroke overlay it draws for an unfilled one — as pptxgenjs custom geometry.
+ * Every command `customGeometryPath`/`blockArcPath` emit has an exact
+ * counterpart in `ShapeProps.points`: `moveTo`/`lnTo` are bare points and
+ * `cubicBezTo`/`quadBezTo`/`arcTo` are its three curve types, so nothing is
+ * flattened. Coordinates are the shape's own pixel box, which converts to the
+ * inches `addShape` writes into `<a:path>` the same way a polygon's do.
+ *
+ * Returns `undefined` rather than a partial outline when a command cannot be
+ * read, so the caller falls back to a whole rectangle instead of exporting a
+ * fragment of the shape.
+ */
+function svgPathPoints(
+  path: string,
+  dims: SlideDims,
+): NonNullable<ShapeElement["points"]> | undefined {
+  const points: CustomGeometryPoint[] = [];
+  const toX = (px: number) => pxToIn(px, dims);
+  const toY = (px: number) => pxToInY(px, dims);
+  let cursorX = 0;
+  let cursorY = 0;
+  let seenCommand = false;
+
+  for (const match of path.matchAll(/([A-Za-z])([^A-Za-z]*)/g)) {
+    const command = match[1].toUpperCase();
+    if (match[1] !== command) {
+      console.warn(
+        `[export-pptx] relative SVG path command "${match[1]}" in a shape outline; exported as a rectangle`,
+      );
+      return undefined;
+    }
+    seenCommand = true;
+    const args = match[2]
+      .trim()
+      .split(/[\s,]+/)
+      .filter(Boolean)
+      .map(Number);
+    if (command === "Z") {
+      if (args.length > 0) return undefined;
+      points.push({ close: true });
+      continue;
+    }
+    const arity = SVG_PATH_ARITY[command];
+    if (
+      !arity ||
+      args.length === 0 ||
+      args.length % arity !== 0 ||
+      args.some((value) => !Number.isFinite(value))
+    ) {
+      console.warn(
+        `[export-pptx] unreadable SVG path command "${match[0].trim().slice(0, 40)}" in a shape outline; exported as a rectangle`,
+      );
+      return undefined;
+    }
+    for (let i = 0; i < args.length; i += arity) {
+      const chunk = args.slice(i, i + arity);
+      const [endX, endY] = chunk.slice(-2);
+      if (command === "M") {
+        // A repeated pair after `M` is an implicit lineto, and every `M` past
+        // the first opens a subpath pptxgenjs only reopens for `moveTo`.
+        points.push(
+          i === 0
+            ? { x: toX(endX), y: toY(endY), moveTo: true }
+            : { x: toX(endX), y: toY(endY) },
+        );
+      } else if (command === "L") {
+        points.push({ x: toX(endX), y: toY(endY) });
+      } else if (command === "C") {
+        points.push({
+          x: toX(endX),
+          y: toY(endY),
+          curve: {
+            type: "cubic",
+            x1: toX(chunk[0]),
+            y1: toY(chunk[1]),
+            x2: toX(chunk[2]),
+            y2: toY(chunk[3]),
+          },
+        });
+      } else if (command === "Q") {
+        points.push({
+          x: toX(endX),
+          y: toY(endY),
+          curve: { type: "quadratic", x1: toX(chunk[0]), y1: toY(chunk[1]) },
+        });
+      } else {
+        const arc = svgArcToPptxCurve(cursorX, cursorY, chunk, dims);
+        if (!arc) return undefined;
+        points.push(arc);
+      }
+      cursorX = endX;
+      cursorY = endY;
+    }
+  }
+
+  if (!seenCommand) return undefined;
+  return points.length > 0 ? points : undefined;
+}
+
+/**
+ * `<a:arcTo>` names an arc by its radii and its start/swing angles around a
+ * center it derives from the current point; SVG's `A` names the same arc by
+ * its endpoint plus two flags. This is the SVG spec's endpoint-to-center
+ * conversion (F.6.5) with the x-axis rotation the importer never emits left
+ * out, so the ring segments and rounded freeforms come back as true arcs
+ * rather than as chords across them.
+ */
+function svgArcToPptxCurve(
+  startX: number,
+  startY: number,
+  [radiusX, radiusY, rotation, largeArc, sweep, endX, endY]: number[],
+  dims: SlideDims,
+): CustomGeometryPoint | undefined {
+  if (rotation !== 0) {
+    console.warn(
+      `[export-pptx] rotated elliptical arc (${rotation}deg) in a shape outline; exported as a rectangle`,
+    );
+    return undefined;
+  }
+  const point = { x: pxToIn(endX, dims), y: pxToInY(endY, dims) };
+  let rx = Math.abs(radiusX);
+  let ry = Math.abs(radiusY);
+  // A zero radius is a straight line in SVG, and PowerPoint draws nothing at
+  // all for one.
+  if (!(rx > 0) || !(ry > 0)) return point;
+
+  const midX = (startX - endX) / 2;
+  const midY = (startY - endY) / 2;
+  const scale = (midX * midX) / (rx * rx) + (midY * midY) / (ry * ry);
+  if (scale > 1) {
+    rx *= Math.sqrt(scale);
+    ry *= Math.sqrt(scale);
+  }
+  const denominator = rx * rx * midY * midY + ry * ry * midX * midX;
+  const numerator = rx * rx * ry * ry - denominator;
+  const factor =
+    (largeArc !== sweep ? 1 : -1) *
+    Math.sqrt(Math.max(0, numerator / denominator));
+  const centerX = (factor * (rx * midY)) / ry + (startX + endX) / 2;
+  const centerY = (-factor * (ry * midX)) / rx + (startY + endY) / 2;
+  const startAngle = Math.atan2((startY - centerY) / ry, (startX - centerX) / rx);
+  const endAngle = Math.atan2((endY - centerY) / ry, (endX - centerX) / rx);
+  let swingAngle = endAngle - startAngle;
+  if (sweep && swingAngle < 0) swingAngle += 2 * Math.PI;
+  if (!sweep && swingAngle > 0) swingAngle -= 2 * Math.PI;
+
+  const toDegrees = (radians: number) => (radians * 180) / Math.PI;
+  return {
+    ...point,
+    curve: {
+      type: "arc",
+      wR: pxToIn(rx, dims),
+      hR: pxToInY(ry, dims),
+      // pptxgenjs subtracts a full turn from anything over 360 before scaling
+      // to 60000ths of a degree, so the start angle has to arrive inside one.
+      stAng: (toDegrees(startAngle) + 360) % 360,
+      swAng: toDegrees(swingAngle),
+    },
   };
 }
 
