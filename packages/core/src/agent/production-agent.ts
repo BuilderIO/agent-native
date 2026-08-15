@@ -9226,8 +9226,14 @@ export function createProductionAgentHandler(
           (await getThread(threadId))?.threadData,
         );
         if (recovered.length > 0) messages.unshift(...recovered);
-      } catch {
-        // A turn without recovered history still runs; never drop it.
+      } catch (err) {
+        // Never drop the run over this — but never let it pass for "the thread
+        // had nothing to recover" either. That silence is the same failure this
+        // block exists to fix, one layer down.
+        console.warn(
+          `[agent-chat] history recovery failed for thread ${threadId}; continuing with no prior context:`,
+          err,
+        );
       }
     }
     setupMark("depsThread");
