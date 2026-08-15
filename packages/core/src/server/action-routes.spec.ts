@@ -529,6 +529,7 @@ describe("mountActionRoutes", () => {
       ping: {
         run: vi.fn(async () => ({
           browserSessionId: getRequestContext()?.browserSessionId,
+          clientPlatform: getRequestContext()?.clientPlatform,
         })),
       } as any,
     };
@@ -539,7 +540,10 @@ describe("mountActionRoutes", () => {
 
     const withSession = {
       _method: "POST",
-      _headers: { "x-agent-native-session-id": "pinned-session-1" },
+      _headers: {
+        "x-agent-native-session-id": "pinned-session-1",
+        "x-agent-native-client-platform": "mobile",
+      },
       req: { json: async () => ({}) },
     };
     const withoutSession = {
@@ -550,9 +554,11 @@ describe("mountActionRoutes", () => {
 
     expect(await mounted[0].handler(withSession)).toEqual({
       browserSessionId: "pinned-session-1",
+      clientPlatform: "mobile",
     });
     expect(await mounted[0].handler(withoutSession)).toEqual({
       browserSessionId: undefined,
+      clientPlatform: undefined,
     });
   });
 

@@ -26,6 +26,7 @@ import {
 import { actionCallIsReadOnly, notifyActionChange } from "./action-change.js";
 import {
   readBrowserSessionIdHeader,
+  readAnalyticsClientPlatformHeader,
   seedAgentRunOwnerContext,
   type AgentRunOwnerContext,
 } from "./agent-run-context.js";
@@ -228,7 +229,7 @@ function handleOptionsRequest(event: any): string {
       event,
       "Access-Control-Allow-Headers",
       cors.credentials
-        ? `Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-CSRF,X-User-Timezone,X-Agent-Native-Session-Id,X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend,X-Agent-Native-Client-Compatibility,X-Agent-Native-Build-Id,${EMBED_TARGET_HEADER}`
+        ? `Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-CSRF,X-User-Timezone,X-Agent-Native-Session-Id,X-Agent-Native-Client-Platform,X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend,X-Agent-Native-Client-Compatibility,X-Agent-Native-Build-Id,${EMBED_TARGET_HEADER}`
         : `${MCP_EMBED_CORS_ALLOW_HEADERS},X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend,X-Agent-Native-Client-Compatibility,X-Agent-Native-Build-Id`,
     );
   }
@@ -564,6 +565,7 @@ export function mountActionRoutes(
         }
         const timezone = readTimezoneHeader(event);
         const browserSessionId = readBrowserSessionIdHeader(event);
+        const clientPlatform = readAnalyticsClientPlatformHeader(event);
 
         return runWithRequestContext(
           {
@@ -573,6 +575,7 @@ export function mountActionRoutes(
             authCapability,
             timezone,
             browserSessionId,
+            clientPlatform,
             requestOrigin: getRequestURL(event).origin,
             // Captured here because this is the last layer that still holds
             // the h3 event; everything below reads it off the request store.

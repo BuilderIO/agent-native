@@ -32,7 +32,9 @@ describe("countFirstPartyAnalyticsPostgresRows", () => {
     expect(execute).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
-        sql: expect.stringContaining("FROM analytics_events"),
+        sql: expect.stringMatching(
+          /FROM analytics_events[\s\S]*event_name IS DISTINCT FROM 'http\.response'/,
+        ),
         args: ["org-1", "2026-07-01T00:00:00.000Z"],
         timeoutMs: 5_000,
         maxAttempts: 1,

@@ -254,7 +254,7 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
 
     expect(hubSource).toContain("desktop-chat-first-rail-footer-actions");
     expect(hubSource).toContain(
-      'desktop-chat-first-rail-settings"\n                      onClick',
+      'desktop-chat-first-rail-settings"\n                    onClick',
     );
     expect(hubSource).toContain("IconLayoutSidebarLeftCollapse");
     expect(hubSource).toContain("desktop-chat-first-rail-collapse");
@@ -268,8 +268,8 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
       ".desktop-chat-first-rail-footer-actions > .code-agents-nav-link",
     );
     expect(shellCss).toContain("code-agents-primary-new-chat-shell");
-    expect(shellCss).toMatch(
-      /\.code-agents-rail--collapsed[\s\S]*\.code-agents-nav-list\s*>\s*button/,
+    expect(shellCss).toContain(
+      ".desktop-chat-first-hub .code-agents-rail--collapsed .code-agents-nav-link",
     );
     expect(shellCss).toContain("border-bottom: 0;");
     expect(shellCss).toMatch(
@@ -315,6 +315,31 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     ]);
   });
 
+  it("uses the Electron default app order before the remaining catalog", () => {
+    const ordered = orderDesktopApps(
+      [
+        { id: "brain", enabled: true },
+        { id: "analytics", enabled: true },
+        { id: "content", enabled: true },
+        { id: "design", enabled: true },
+        { id: "mail", enabled: true },
+        { id: "calendar", enabled: true },
+        { id: "clips", enabled: true },
+      ],
+      { pinnedIds: [], orderedIds: [] },
+    );
+
+    expect(ordered.map((app) => app.id)).toEqual([
+      "mail",
+      "calendar",
+      "design",
+      "clips",
+      "content",
+      "analytics",
+      "brain",
+    ]);
+  });
+
   it("renders the desktop apps grid controls in the hub source", () => {
     const hubSource = readFileSync(
       "src/renderer/components/CodeAgentsHub.tsx",
@@ -346,9 +371,8 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     );
 
     expect(hubSource).toContain(
-      "(app: ChatFirstAppItem) => openChatFirstApp(app.id)",
+      'terminalPreferences.enabled ? "side" : "main"',
     );
-    expect(hubSource).toContain("(app: AppConfig) => openChatFirstApp(app.id)");
     expect(hubSource).toContain("<AppWebview");
     expect(hubSource).toContain("onOpenInBrowser={openChatFirstAppInBrowser}");
     expect(hubSource).toContain(
@@ -378,9 +402,7 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
       "utf8",
     );
 
-    expect(hubSource).toContain(
-      "suppressChatFirstUnavailableNotice={chatFirstMode}",
-    );
+    expect(hubSource).toContain("suppressChatFirstUnavailableNotice");
     expect(hubSource).toContain('error: "Desktop bridge is not available."');
   });
 

@@ -12,6 +12,7 @@ import {
   IconArrowLeft,
   IconX,
   IconHelpCircle,
+  IconTerminal2,
 } from "@tabler/icons-react";
 import React, {
   useState,
@@ -23,6 +24,7 @@ import React, {
 import { createPortal } from "react-dom";
 
 import { Popover, PopoverTrigger, PopoverContent } from "../ui/popover.js";
+import { Switch } from "../ui/switch.js";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip.js";
 import { cn } from "../utils.js";
 import {
@@ -32,6 +34,12 @@ import {
 } from "./asset-picker-url.js";
 import { useComposerRuntimeAdapters } from "./runtime-adapters.js";
 import type { ComposerMode } from "./types.js";
+
+export interface ComposerTerminalModeControl {
+  enabled: boolean;
+  onChange: (enabled: boolean) => void;
+  onNewTerminal?: () => void;
+}
 
 interface ComposerPlusMenuProps {
   onSelectMode?: (mode: ComposerMode) => void;
@@ -46,9 +54,11 @@ interface ComposerPlusMenuProps {
    * Automation, and MCP Server. Extension is included only when
    * `extensionTools` is true. "upload-only": clicking + opens the file picker
    * directly — no popover, no other modes. Use for prompt popovers where the
-   * only thing to attach is a file.
+   * only thing to attach is a file. "terminal": one new-terminal action plus
+   * the Terminal mode switch.
    */
-  mode?: "full" | "upload-only";
+  mode?: "full" | "upload-only" | "terminal";
+  terminalModeControl?: ComposerTerminalModeControl;
 }
 
 type View = "menu" | "skill-upload";
@@ -294,9 +304,15 @@ export function ComposerPlusMenu({
   onAttachmentError,
   extensionTools = false,
   mode = "full",
+  terminalModeControl,
 }: ComposerPlusMenuProps) {
   if (mode === "upload-only") {
     return <UploadOnlyAttachButton onAttachmentError={onAttachmentError} />;
+  }
+  if (mode === "terminal" && terminalModeControl) {
+    return (
+      <ComposerPlusMenuTerminal terminalModeControl={terminalModeControl} />
+    );
   }
   return (
     <ComposerPlusMenuFull
@@ -304,6 +320,73 @@ export function ComposerPlusMenu({
       onAttachmentError={onAttachmentError}
       extensionTools={extensionTools}
     />
+  );
+}
+
+function ComposerPlusMenuTerminal({
+  terminalModeControl,
+}: Pick<ComposerPlusMenuProps, "terminalModeControl">) {
+  const [open, setOpen] = useState(false);
+
+  if (!terminalModeControl) return null;
+
+  const handlePrimaryAction = () => {
+    if (!terminalModeControl.enabled) {
+      terminalModeControl.onChange(true);
+      setOpen(false);
+      return;
+    }
+    terminalModeControl.onNewTerminal?.();
+    setOpen(false);
+  };
+
+  return (
+    <>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+            aria-label="Terminal options" /* i18n-ignore -- portable toolkit label */
+            title="Terminal options" /* i18n-ignore -- portable toolkit label */
+          >
+            <IconPlus className="h-4 w-4" />
+          </button>
+        </PopoverTrigger>
+        <PopoverContent
+          align="start"
+          sideOffset={8}
+          className="w-56 border-input bg-muted p-1 text-foreground"
+          onOpenAutoFocus={(event) => event.preventDefault()}
+        >
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-start text-[12px] font-medium text-foreground hover:bg-accent/60"
+            onClick={handlePrimaryAction}
+          >
+            <IconTerminal2
+              size={14}
+              className="shrink-0 text-muted-foreground"
+              aria-hidden="true"
+            />
+            <span>
+              {terminalModeControl.enabled ? "New terminal" : "Start terminal"}
+            </span>
+          </button>
+          <div className="my-1 border-t border-border/70" />
+          <div className="flex items-center justify-between gap-3 px-2.5 py-2">
+            <span className="text-[12px] font-medium text-foreground">
+              {"Terminal mode" /* i18n-ignore -- portable toolkit label */}
+            </span>
+            <Switch
+              checked={terminalModeControl.enabled}
+              onCheckedChange={terminalModeControl.onChange}
+              aria-label="Terminal mode" /* i18n-ignore -- portable toolkit label */
+            />
+          </div>
+        </PopoverContent>
+      </Popover>
+    </>
   );
 }
 
@@ -631,7 +714,7 @@ function ComposerPlusMenuFull({
           align="start"
           sideOffset={8}
           className={cn(
-            "p-0 rounded-lg",
+            "rounded-lg border-input bg-muted p-0 text-foreground",
             view === "skill-upload"
               ? "max-h-[70vh] w-[calc(100vw-24px)] max-w-[380px] overflow-y-auto"
               : "w-[260px]",
@@ -703,7 +786,7 @@ function ComposerPlusMenuFull({
                         onMouseEnter={() => openSkillFlyout()}
                         onMouseLeave={scheduleSkillFlyoutClose}
                         className={cn(
-                          "absolute top-0 z-20 w-[240px] rounded-lg border border-border bg-popover py-1 shadow-md",
+                          "absolute top-0 z-20 w-[240px] rounded-lg border border-input bg-muted py-1 text-foreground shadow-md",
                           skillFlyoutSide === "right"
                             ? "left-full ml-1"
                             : "right-full mr-1",

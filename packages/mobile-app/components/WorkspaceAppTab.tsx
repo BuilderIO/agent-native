@@ -27,7 +27,7 @@ export default function WorkspaceAppTab({
   }
 
   return (
-    <SafeAreaView className="flex-1 bg-background-dark">
+    <SafeAreaView edges={["top"]} className="flex-1 bg-background-dark">
       <AppWebView
         url={getAppUrl(app)}
         captureSessionToken={captureSessionToken}

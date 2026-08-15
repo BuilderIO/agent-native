@@ -20,6 +20,7 @@ import {
 import { memo, useMemo, useState, type ReactNode } from "react";
 
 import {
+  CHAT_FIRST_DEFAULT_APP_IDS,
   orderChatFirstAppIds,
   readChatFirstAppLayout,
   writeChatFirstAppLayout,
@@ -61,6 +62,7 @@ function ChatFirstRailAppIcon({
 
 function AppRows({
   apps,
+  defaultAppIds,
   activeAppId,
   layout,
   onDragStart,
@@ -74,6 +76,7 @@ function AppRows({
   copy,
 }: {
   apps: ChatFirstAppItem[];
+  defaultAppIds?: readonly string[];
   activeAppId?: string;
   layout: ChatFirstAppLayoutPreference;
   onDragStart: (id: string) => void;
@@ -92,6 +95,7 @@ function AppRows({
   const orderedIds = orderChatFirstAppIds(
     apps.map((app) => app.id),
     layout,
+    defaultAppIds,
   );
   const appsById = new Map(apps.map((app) => [app.id, app]));
   const orderedApps = orderedIds
@@ -214,6 +218,7 @@ function AppRows({
 
 export const ChatFirstAppsRail = memo(function ChatFirstAppsRail({
   apps,
+  defaultAppIds,
   activeAppId,
   loading = false,
   error,
@@ -240,23 +245,27 @@ export const ChatFirstAppsRail = memo(function ChatFirstAppsRail({
     const orderedIds = orderChatFirstAppIds(
       apps.map((app) => app.id),
       layout,
+      defaultAppIds,
     );
     const appsById = new Map(apps.map((app) => [app.id, app]));
     return orderedIds
       .map((id) => appsById.get(id))
       .filter((app): app is ChatFirstAppItem => Boolean(app));
-  }, [apps, layout]);
+  }, [apps, defaultAppIds, layout]);
   const visibleApps = useMemo(() => {
     if (showAllApps) return orderedApps;
 
-    const defaultApps = orderedApps.slice(0, 5);
+    const defaultApps = orderedApps.slice(
+      0,
+      defaultAppIds?.length ?? CHAT_FIRST_DEFAULT_APP_IDS.length,
+    );
     if (!activeAppId || defaultApps.some((app) => app.id === activeAppId)) {
       return defaultApps;
     }
 
     const activeApp = orderedApps.find((app) => app.id === activeAppId);
     return activeApp ? [...defaultApps, activeApp] : defaultApps;
-  }, [activeAppId, orderedApps, showAllApps]);
+  }, [activeAppId, defaultAppIds, orderedApps, showAllApps]);
   const hasMoreApps = orderedApps.length > visibleApps.length;
   const createTrigger =
     createAppTrigger ??
@@ -291,6 +300,7 @@ export const ChatFirstAppsRail = memo(function ChatFirstAppsRail({
     const currentOrder = orderChatFirstAppIds(
       apps.map((app) => app.id),
       layout,
+      defaultAppIds,
     );
     const fromIndex = currentOrder.indexOf(draggedAppId);
     const toIndex = currentOrder.indexOf(targetId);
@@ -306,6 +316,7 @@ export const ChatFirstAppsRail = memo(function ChatFirstAppsRail({
     const currentOrder = orderChatFirstAppIds(
       apps.map((app) => app.id),
       layout,
+      defaultAppIds,
     );
     const index = currentOrder.indexOf(appId);
     const nextIndex = index + direction;
@@ -414,6 +425,7 @@ export const ChatFirstAppsRail = memo(function ChatFirstAppsRail({
       ) : (
         <AppRows
           apps={visibleApps}
+          defaultAppIds={defaultAppIds}
           activeAppId={activeAppId}
           layout={layout}
           onDragStart={setDraggedAppId}

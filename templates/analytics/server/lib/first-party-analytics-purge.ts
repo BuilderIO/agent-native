@@ -1,5 +1,5 @@
 import { getDbExec } from "@agent-native/core/db";
-import { and, eq, gte, isNull, or } from "drizzle-orm";
+import { and, eq, gte, isNull, ne, or } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
 
@@ -67,6 +67,10 @@ async function countScopedRows(
   const args: unknown[] = includeLegacyOwnerRows
     ? [scope.orgId, scope.userEmail]
     : [scope.orgId];
+  const eventFilter =
+    table === "analytics_events"
+      ? "\n             AND event_name IS DISTINCT FROM 'http.response'"
+      : "";
   args.push(
     timeColumn === "received_at"
       ? window.startReceivedAt
@@ -75,8 +79,9 @@ async function countScopedRows(
 
   const { rows } = await getDbExec().execute({
     sql: `SELECT COUNT(*) AS row_count
-            FROM ${table}
+           FROM ${table}
            WHERE ${scopeSql}
+             ${eventFilter}
              AND ${timeColumn} >= ?`,
     args,
     timeoutMs: 5_000,
@@ -135,10 +140,17 @@ export async function purgeFirstPartyAnalyticsPostgresRows(
     await tx
       .delete(schema.analyticsEvents)
       .where(
-        windowPredicate(
-          schema.analyticsEvents,
-          scopePredicate(schema.analyticsEvents, scope, includeLegacyOwnerRows),
-          window,
+        and(
+          windowPredicate(
+            schema.analyticsEvents,
+            scopePredicate(
+              schema.analyticsEvents,
+              scope,
+              includeLegacyOwnerRows,
+            ),
+            window,
+          ),
+          ne(schema.analyticsEvents.eventName, "http.response"),
         ),
       );
     await tx

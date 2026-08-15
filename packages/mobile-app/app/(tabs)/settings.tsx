@@ -10,6 +10,7 @@ import {
   Alert,
   Platform,
   PlatformColor,
+  Pressable,
   ScrollView,
   Switch,
   Text,
@@ -25,7 +26,6 @@ import {
 import AppForm from "@/components/AppForm";
 import DictationSettings from "@/components/DictationSettings";
 import { SafeAreaView } from "@/components/uniwind-interop";
-import { useChatFirstMode } from "@/lib/chat-first-mode";
 import { supportsMobileTab } from "@/lib/mobile-app-navigation";
 import { useMobileTabLayout } from "@/lib/mobile-tab-layout";
 import { useApps } from "@/lib/use-apps";
@@ -39,10 +39,10 @@ const SWITCH_COLORS = {
         : "#3f3f46",
   onTrack:
     Platform.OS === "ios"
-      ? PlatformColor("systemGreen")
+      ? PlatformColor("systemBlue")
       : Platform.OS === "android"
         ? PlatformColor("?android:attr/colorAccent")
-        : "#9ad6b0",
+        : "#0A84FF",
   offThumb:
     Platform.OS === "ios"
       ? PlatformColor("secondaryLabelColor")
@@ -51,11 +51,53 @@ const SWITCH_COLORS = {
         : "#71717a",
   onThumb:
     Platform.OS === "ios"
-      ? PlatformColor("labelColor")
+      ? "#ffffff"
       : Platform.OS === "android"
         ? PlatformColor("?android:attr/textColorPrimary")
-        : "#fafafa",
+        : "#ffffff",
 };
+
+function IOSBlueSwitch({
+  value,
+  onValueChange,
+  disabled = false,
+}: {
+  value: boolean;
+  onValueChange: (value: boolean) => void;
+  disabled?: boolean;
+}) {
+  if (Platform.OS === "web") {
+    return (
+      <Pressable
+        className={`h-5 w-10 justify-center rounded-full p-0.5 ${
+          value ? "bg-accent-blue" : "bg-gray-zinc"
+        } ${disabled ? "opacity-50" : ""}`}
+        disabled={disabled}
+        onPress={() => onValueChange(!value)}
+        accessibilityRole="switch"
+        accessibilityState={{ checked: value, disabled }}
+      >
+        <View
+          className={`h-4 w-4 rounded-full bg-white-pure ${value ? "ml-5" : "ml-0"}`}
+        />
+      </Pressable>
+    );
+  }
+
+  return (
+    <Switch
+      value={value}
+      disabled={disabled}
+      onValueChange={onValueChange}
+      ios_backgroundColor={SWITCH_COLORS.offTrack}
+      trackColor={{
+        false: SWITCH_COLORS.offTrack,
+        true: SWITCH_COLORS.onTrack,
+      }}
+      thumbColor={value ? SWITCH_COLORS.onThumb : SWITCH_COLORS.offThumb}
+    />
+  );
+}
 
 function SectionLabel({ children }: { children: string }) {
   return (
@@ -79,11 +121,6 @@ function AppIdentity({ app }: { app: AppConfig }) {
 
 export default function SettingsScreen() {
   const { apps, updateApp, addApp, removeApp, resetToDefaults } = useApps();
-  const {
-    enabled: chatFirstMode,
-    error: chatFirstModeError,
-    setEnabled: setChatFirstMode,
-  } = useChatFirstMode();
   const {
     error: tabLayoutError,
     limit: tabLimit,
@@ -171,36 +208,6 @@ export default function SettingsScreen() {
           </Text>
         </View>
 
-        <DictationSettings />
-
-        <SectionLabel>WORKSPACE</SectionLabel>
-        <View className="flex-row items-center justify-between border-b border-gray-dark px-4 py-3.5">
-          <View className="flex-1 pr-4">
-            <Text className="text-white text-[15px] font-semibold">
-              Chat-first workspace
-            </Text>
-            <Text className="text-gray-medium text-xs mt-0.5">
-              {chatFirstMode ? "Chat opens first" : "Home opens first"}
-            </Text>
-          </View>
-          <Switch
-            value={chatFirstMode}
-            onValueChange={(value) => void setChatFirstMode(value)}
-            trackColor={{
-              false: SWITCH_COLORS.offTrack,
-              true: SWITCH_COLORS.onTrack,
-            }}
-            thumbColor={
-              chatFirstMode ? SWITCH_COLORS.onThumb : SWITCH_COLORS.offThumb
-            }
-          />
-        </View>
-        {chatFirstModeError ? (
-          <Text className="px-4 pt-2 text-error text-xs">
-            {chatFirstModeError}
-          </Text>
-        ) : null}
-
         <SectionLabel>BOTTOM TABS</SectionLabel>
         <View className="flex-row items-center justify-between border-b border-gray-dark px-4 pb-2">
           <Text className="text-text-muted text-xs">
@@ -221,17 +228,10 @@ export default function SettingsScreen() {
                   {app.name}
                 </Text>
               </View>
-              <Switch
+              <IOSBlueSwitch
                 value={selected}
                 disabled={!app.enabled}
                 onValueChange={() => void handleToggleTab(app.id)}
-                trackColor={{
-                  false: SWITCH_COLORS.offTrack,
-                  true: SWITCH_COLORS.onTrack,
-                }}
-                thumbColor={
-                  selected ? SWITCH_COLORS.onThumb : SWITCH_COLORS.offThumb
-                }
               />
             </View>
           );
@@ -271,20 +271,15 @@ export default function SettingsScreen() {
                   <IconTrash color="#f87171" size={16} strokeWidth={1.8} />
                 </TouchableOpacity>
               )}
-              <Switch
+              <IOSBlueSwitch
                 value={app.enabled}
                 onValueChange={(value) => handleToggle(app.id, value)}
-                trackColor={{
-                  false: SWITCH_COLORS.offTrack,
-                  true: SWITCH_COLORS.onTrack,
-                }}
-                thumbColor={
-                  app.enabled ? SWITCH_COLORS.onThumb : SWITCH_COLORS.offThumb
-                }
               />
             </View>
           </View>
         ))}
+
+        <DictationSettings />
 
         <View className="gap-3 p-4">
           <TouchableOpacity

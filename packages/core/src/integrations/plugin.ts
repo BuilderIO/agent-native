@@ -138,6 +138,7 @@ import {
   authenticateRemoteDeviceToken,
   createRemoteDevice,
   getRemoteComputerCapabilities,
+  getRemoteExecutionCapabilities,
   getRemoteDeviceForOwner,
   listRemoteDevicesForOwner,
   revokeRemoteDeviceForOwner,
@@ -165,6 +166,7 @@ import type {
   RemoteCommand,
   RemoteCommandKind,
   RemoteDevice,
+  RemoteExecutionCapabilities,
 } from "./remote-types.js";
 import { listIntegrationScopes, saveIntegrationScope } from "./scope-store.js";
 import { buildSlackAgentManifest } from "./slack-manifest.js";
@@ -517,10 +519,17 @@ export async function enqueueRemoteCommand(
   });
   const requestedDeviceId =
     readString(command.hostId) ?? readString(command.deviceId);
-  const device =
-    (requestedDeviceId
-      ? devices.find((candidate) => candidate.id === requestedDeviceId)
-      : undefined) ?? devices[0];
+  const device = requestedDeviceId
+    ? devices.find((candidate) => candidate.id === requestedDeviceId)
+    : devices[0];
+  if (requestedDeviceId && !device) {
+    return {
+      ok: false,
+      hostOnline: false,
+      hostStatus: "offline",
+      error: "The requested execution host is not paired with this account.",
+    };
+  }
   if (!device) {
     return {
       ok: false,
@@ -588,6 +597,13 @@ function remoteCodeCommandParams(
       cwd: readString(command.cwd),
       goalId: readString(command.goalId) ?? "task",
       permissionMode: readString(command.permissionMode),
+      engine: readString(command.engine),
+      model: readString(command.model),
+      effort: readString(command.effort),
+      reasoningEffort: readString(command.reasoningEffort),
+      runId: readString(command.runId),
+      workload: readString(command.workload) ?? "code-agent",
+      metadata: readObject(command.metadata) ?? undefined,
     };
   }
   if (type === "continue") {
@@ -627,6 +643,13 @@ function enqueueBodyToRemoteCodeCommand(
       cwd: payload.cwd,
       goalId: payload.goalId,
       permissionMode: payload.permissionMode,
+      engine: payload.engine,
+      model: payload.model,
+      effort: payload.effort,
+      reasoningEffort: payload.reasoningEffort,
+      runId: payload.runId,
+      workload: payload.workload,
+      metadata: payload.metadata,
     };
   }
   if (operation === "code-agent.run.follow-up") {
@@ -722,6 +745,18 @@ async function hasOnlineRemoteDevice(
 
 function remoteDeviceToHost(device: RemoteDevice): Record<string, unknown> {
   const online = device.status === "active" && isRemoteDeviceOnline(device);
+  const executionCapabilities = getRemoteExecutionCapabilities(device);
+  const capabilities = [
+    ...(executionCapabilities?.workloads ?? []).map(
+      (workload) => `workload:${workload}`,
+    ),
+    ...(executionCapabilities?.engines ?? []).map(
+      (engine) => `engine:${engine}`,
+    ),
+    ...(executionCapabilities?.acceptsScheduledWork ? ["scheduled-task"] : []),
+    ...(executionCapabilities?.acceptsPortalHandoffs ? ["portal"] : []),
+    ...(device.metadata?.computerCapabilities ? ["computer"] : []),
+  ];
   return {
     id: device.id,
     name: device.label,
@@ -734,6 +769,8 @@ function remoteDeviceToHost(device: RemoteDevice): Record<string, unknown> {
     platform: device.platform ?? "desktop",
     appVersion: device.appVersion ?? undefined,
     hostName: device.hostName ?? undefined,
+    capabilities,
+    executionCapabilities: executionCapabilities ?? undefined,
     metadata: device.metadata ?? undefined,
     device: toPublicRemoteDevice(device),
   };
@@ -967,9 +1004,14 @@ export function createIntegrationsPlugin(
     }
 
     async function requireRemoteDevice(event: any) {
-      const token = extractBearerToken(
-        getRequestHeader(event, "authorization"),
-      );
+      // Some managed proxies omit Authorization before a serverless function
+      // sees the request. Keep the device secret in a dedicated TLS-only
+      // header as a transport fallback; the value is still hashed and looked
+      // up by authenticateRemoteDeviceToken, never persisted raw.
+      const token =
+        extractBearerToken(getRequestHeader(event, "authorization")) ??
+        (getRequestHeader(event, "x-agent-native-device-token")?.trim() ||
+          null);
       const device = await authenticateRemoteDeviceToken(token);
       if (device) return device;
       setResponseStatus(event, 401);
@@ -1095,11 +1137,17 @@ export function createIntegrationsPlugin(
           hostName?: unknown;
           hostname?: unknown;
           metadata?: unknown;
+          executionCapabilities?: unknown;
         };
         const label =
           typeof body.label === "string" && body.label.trim()
             ? body.label.trim().slice(0, 200)
             : "Remote device";
+        const metadata = readObject(body.metadata);
+        const hasExecutionCapabilities = Object.prototype.hasOwnProperty.call(
+          body,
+          "executionCapabilities",
+        );
         const { device, token } = await createRemoteDevice({
           ownerEmail: ctx.ownerEmail,
           orgId: ctx.orgId,
@@ -1107,7 +1155,19 @@ export function createIntegrationsPlugin(
           platform: readString(body.platform),
           appVersion: readString(body.appVersion) ?? readString(body.version),
           hostName: readString(body.hostName) ?? readString(body.hostname),
-          metadata: readObject(body.metadata),
+          metadata:
+            metadata || hasExecutionCapabilities
+              ? {
+                  ...(metadata ?? {}),
+                  ...(hasExecutionCapabilities
+                    ? {
+                        executionCapabilities: readRemoteExecutionCapabilities(
+                          body.executionCapabilities,
+                        ),
+                      }
+                    : {}),
+                }
+              : null,
         });
         return { device: toPublicRemoteDevice(device), token };
       }),
@@ -1600,13 +1660,15 @@ export function createIntegrationsPlugin(
                 waitMs?: unknown;
                 computerCapabilities?: unknown;
                 browserSession?: unknown;
+                executionCapabilities?: unknown;
               })
             : {};
         let pollingDevice = device;
         if (
           method === "POST" &&
           (Object.prototype.hasOwnProperty.call(body, "computerCapabilities") ||
-            Object.prototype.hasOwnProperty.call(body, "browserSession"))
+            Object.prototype.hasOwnProperty.call(body, "browserSession") ||
+            Object.prototype.hasOwnProperty.call(body, "executionCapabilities"))
         ) {
           const updated = await updateRemoteDeviceDetails({
             id: device.id,
@@ -1619,6 +1681,16 @@ export function createIntegrationsPlugin(
                 ? {
                     computerCapabilities: readComputerCapabilities(
                       body.computerCapabilities,
+                    ),
+                  }
+                : {}),
+              ...(Object.prototype.hasOwnProperty.call(
+                body,
+                "executionCapabilities",
+              )
+                ? {
+                    executionCapabilities: readRemoteExecutionCapabilities(
+                      body.executionCapabilities,
                     ),
                   }
                 : {}),
@@ -3528,6 +3600,48 @@ function readComputerCapabilities(value: unknown) {
   return {
     browser: readSurface(input?.browser),
     desktop: readSurface(input?.desktop, true),
+  };
+}
+
+function readRemoteExecutionCapabilities(
+  value: unknown,
+): RemoteExecutionCapabilities {
+  const input = readObject(value);
+  if (!input) return {};
+  const backend = readString(input.backend);
+  const persistence = readString(input.persistence);
+  const list = (candidate: unknown, max: number) =>
+    [
+      ...new Set(
+        Array.isArray(candidate)
+          ? candidate
+              .filter((entry): entry is string => typeof entry === "string")
+              .map((entry) => entry.trim().slice(0, 120))
+              .filter(Boolean)
+          : [],
+      ),
+    ].slice(0, max);
+  return {
+    ...(backend === "desktop" ||
+    backend === "container" ||
+    backend === "kubernetes" ||
+    backend === "external"
+      ? { backend }
+      : {}),
+    workloads: list(
+      input.workloads,
+      16,
+    ) as RemoteExecutionCapabilities["workloads"],
+    engines: list(input.engines, 32),
+    ...(typeof input.acceptsScheduledWork === "boolean"
+      ? { acceptsScheduledWork: input.acceptsScheduledWork }
+      : {}),
+    ...(persistence === "local-files" ||
+    persistence === "persistent-volume" ||
+    persistence === "ephemeral"
+      ? { persistence }
+      : {}),
+    adapters: list(input.adapters, 32),
   };
 }
 

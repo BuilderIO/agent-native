@@ -41,6 +41,7 @@ import {
 import {
   isTrustedWebViewUrl,
   parseTrustedOrigin,
+  shouldOpenExternalWebViewUrl,
 } from "@/lib/webview-security";
 
 interface AppWebViewProps {
@@ -84,6 +85,12 @@ const FORCE_REDIRECT_AUTH_SCRIPT = `
       }
     } catch (e) {}
     return true;
+  })();
+  true;
+`;
+const MOBILE_ANALYTICS_PLATFORM_SCRIPT = `
+  (function () {
+    window.__AGENT_NATIVE_HOST_PLATFORM__ = "mobile";
   })();
   true;
 `;
@@ -361,7 +368,7 @@ function AppWebView(
           void openGoogleSession(parsed.toString());
           return false;
         }
-        if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+        if (shouldOpenExternalWebViewUrl(parsed.toString())) {
           void Linking.openURL(parsed.toString());
         }
       } catch {
@@ -370,6 +377,16 @@ function AppWebView(
       return false;
     },
     [trustedOrigin, startGoogleAuth, openGoogleSession],
+  );
+
+  const handleOpenWindow = useCallback(
+    (event: { nativeEvent: { targetUrl?: string } }) => {
+      const targetUrl = event.nativeEvent.targetUrl;
+      if (typeof targetUrl === "string" && targetUrl.length > 0) {
+        void handleShouldStartLoad({ url: targetUrl });
+      }
+    },
+    [handleShouldStartLoad],
   );
 
   // Handle messages from the web app (e.g. open a URL in the system browser)
@@ -508,8 +525,10 @@ function AppWebView(
           if (event.nativeEvent.statusCode >= 500) setError(true);
         }}
         onShouldStartLoadWithRequest={handleShouldStartLoad}
+        onOpenWindow={handleOpenWindow}
         onMessage={handleMessage}
-        injectedJavaScriptBeforeContentLoaded={FORCE_REDIRECT_AUTH_SCRIPT}
+        injectedJavaScriptBeforeContentLoaded={`${MOBILE_ANALYTICS_PLATFORM_SCRIPT}
+${FORCE_REDIRECT_AUTH_SCRIPT}`}
         javaScriptEnabled
         domStorageEnabled
         sharedCookiesEnabled

@@ -16,14 +16,15 @@ vi.mock("electron", () => ({
   },
 }));
 
-describe("chat-only webview preload", () => {
+describe("chat webview preload", () => {
   beforeAll(async () => {
     await import("./webview-chat.js");
   });
 
-  it("exposes only host-routed chat commands", () => {
+  it("exposes host-routed chat commands and platform attribution", () => {
     const chat = (
       electron.exposed as {
+        analytics: { clientPlatform: string };
         chat: {
           toggle(): void;
           open(): void;
@@ -31,6 +32,11 @@ describe("chat-only webview preload", () => {
         };
       }
     ).chat;
+
+    expect(
+      (electron.exposed as { analytics: { clientPlatform: string } }).analytics
+        .clientPlatform,
+    ).toBe("electron");
 
     chat.toggle();
     chat.open();

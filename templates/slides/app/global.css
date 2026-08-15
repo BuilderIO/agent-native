@@ -537,9 +537,21 @@ button[title="Open agent sidebar"] {
 }
 
 .fmd-autofit-scale {
+  transform-origin: top left;
+}
+
+/* Only apply the fit transform once autofit is actually shrinking content
+   (see SlideRenderer's `data-fmd-autofit-active`). Any non-"none" `transform`
+   value — even the identity transform this rule used to apply unconditionally
+   — creates a new containing block for `position: absolute` descendants
+   (CSS Transforms spec). Freeform slide objects are authored against the
+   full `.fmd-slide` box; an always-on transform here silently re-anchored
+   them to this layer's smaller, padding-inset box instead, shifting them
+   off-canvas. Scoping the transform to the active-fit state keeps the
+   common (no scaling needed) case free of a containing block at all. */
+.fmd-autofit-scale[data-fmd-autofit-active] {
   transform: translate(var(--fmd-fit-x, 0px), var(--fmd-fit-y, 0px))
     scale(var(--fmd-fit-scale, 1));
-  transform-origin: top left;
 }
 
 .fmd-slide > [data-fmd-autofit-content] {
@@ -1084,8 +1096,14 @@ button[title="Open agent sidebar"] {
   font-style: normal;
 }
 
+/* An imported PPTX `a:srcRect` crop is rendered by oversizing the `<img>` past
+   its `overflow: hidden` box (e.g. `width: 255%; left: -77%`), so both caps
+   have to be lifted, not just the vertical one — `max-width: 100%` alone
+   silently shrank the image back to its box while the negative `left` kept
+   scrolling, leaving the visible crop window off the picture entirely. */
 .slide-content .fmd-slide img {
   border-radius: 0;
+  max-width: none;
   max-height: none;
   margin: 0;
 }

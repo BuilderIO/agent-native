@@ -64,7 +64,7 @@ export default function ClipsTab() {
 
   if (authState === "checking") {
     return (
-      <SafeAreaView className="flex-1 bg-background-dark">
+      <SafeAreaView edges={["top"]} className="flex-1 bg-background-dark">
         <View className="items-center flex-1 justify-center">
           <ActivityIndicator color="#d4d4d8" />
           <Text className="text-status-gray text-[13px] mt-2.5">
@@ -91,7 +91,7 @@ export default function ClipsTab() {
   }
 
   return (
-    <SafeAreaView className="flex-1 bg-background-dark">
+    <SafeAreaView edges={["top"]} className="flex-1 bg-background-dark">
       <AppWebView
         url={getAppUrl(clips)}
         captureSessionToken

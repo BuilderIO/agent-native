@@ -5,6 +5,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   filterAvailableMobileTabAppIds,
   getDefaultMobileTabAppIds,
+  LEGACY_MOBILE_DEFAULT_APP_IDS,
+  MOBILE_DEFAULT_APP_IDS,
   MOBILE_BOTTOM_TAB_LIMIT,
   supportsMobileTab,
   toggleMobileTabAppId,
@@ -46,6 +48,12 @@ export async function loadMobileTabLayout(): Promise<MobileTabLayoutReadResult> 
         ids: null,
         reason: "The saved mobile tab layout is not valid.",
       };
+    }
+    if (
+      ids.length === LEGACY_MOBILE_DEFAULT_APP_IDS.length &&
+      ids.every((id, index) => id === LEGACY_MOBILE_DEFAULT_APP_IDS[index])
+    ) {
+      return { ok: true, ids: [...MOBILE_DEFAULT_APP_IDS] };
     }
     return { ok: true, ids };
   } catch (error) {

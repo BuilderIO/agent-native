@@ -35,11 +35,51 @@ import {
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
 } from "@/components/ui/dropdown-menu";
+import { useDecks } from "@/context/DeckContext";
 import type { GoogleSlidesExportResult } from "@/lib/export-google-slides-client";
 
 /** Google Slides' File → Import dialog, primed to ask for a file. */
 const GOOGLE_SLIDES_IMPORT_URL =
   "https://docs.google.com/presentation/u/0/?usp=import";
+
+/**
+ * The importer stamps this on every slide it writes, and `parseSlideHtml` in
+ * actions/export-pptx.ts branches on the same marker: those slides carry the
+ * source file's own geometry, which the server emits as real `custGeom` vector
+ * shapes. dom-to-pptx has no custGeom at all and rasterizes them to PNGs.
+ */
+const IMPORTED_SLIDE_MARKER = 'data-imported-pptx="true"';
+
+/**
+ * Objects whose geometry only exists once a browser has laid the slide out:
+ * `freezeSlideElementForFreeform` and the text-box tool mint
+ * `data-slide-object-id` client-side, while every object the importer emits
+ * also carries `data-pptx-element-kind`. The server has no layout engine to
+ * measure the former, so it refuses those slides rather than reflowing them.
+ */
+const BROWSER_AUTHORED_OBJECT =
+  "[data-slide-object-id]:not([data-pptx-element-kind]), .fmd-freeform-object";
+
+/**
+ * Whether the vector-capable server exporter can render this deck losslessly.
+ * `get-deck` returns the import receipt alongside the deck body, so the client
+ * deck carries `sourceImport` at runtime even though the type predates it.
+ */
+export function canExportPptxFromServer(
+  deck:
+    | { sourceImport?: unknown; slides: { content?: string }[] }
+    | null
+    | undefined,
+): boolean {
+  if (!deck?.sourceImport || deck.slides.length === 0) return false;
+  return deck.slides.every((slide) => {
+    const html = slide.content ?? "";
+    if (!html.includes(IMPORTED_SLIDE_MARKER)) return false;
+    return !new DOMParser()
+      .parseFromString(html, "text/html")
+      .querySelector(BROWSER_AUTHORED_OBJECT);
+  });
+}
 
 interface ExportMenuProps {
   deckId: string;
@@ -76,6 +116,7 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
     ref,
   ) {
     const t = useT();
+    const { getDeck, flushDeckSave } = useDecks();
     const [googleSlidesImportOpen, setGoogleSlidesImportOpen] = useState(false);
     const googleSlidesImportTarget = useRef<Window | null>(null);
     const triggerBlobDownload = (blob: Blob, filename: string) => {
@@ -108,8 +149,38 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
       }
     };
 
+    const exportPptxFromServer = async () => {
+      // The server exports the persisted deck, so an unflushed edit would be
+      // missing from the file the user just asked for.
+      await flushDeckSave(deckId);
+      const res = await fetch(`${appBasePath()}/api/exports/pptx`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deckId }),
+      });
+      if (!res.ok) {
+        throw new Error(
+          await readErrorMessage(res, t("editorExport.exportPptxError")),
+        );
+      }
+      triggerBlobDownload(
+        await res.blob(),
+        filenameFromDisposition(
+          res.headers.get("content-disposition"),
+          ".pptx",
+        ),
+      );
+    };
+
     const handleExportPptx = async () => {
       try {
+        // An imported deck's shapes survive only on the server path. Falling
+        // back to the browser exporter on failure would hand back rasterized
+        // silhouettes of the same deck without saying so.
+        if (canExportPptxFromServer(getDeck(deckId))) {
+          await exportPptxFromServer();
+          return;
+        }
         await onExportPptx();
       } catch (err) {
         console.error("Export failed:", err);

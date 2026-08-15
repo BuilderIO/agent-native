@@ -42,7 +42,8 @@ function TabButton({
       accessibilityRole="tab"
       accessibilityState={{ selected: active }}
       accessibilityLabel={item.label}
-      className="flex-1 items-center justify-center gap-0.5 rounded-xl py-1 active:opacity-70"
+      className="min-w-0 flex-1 items-center justify-center gap-0.5 rounded-xl py-1 active:opacity-70"
+      style={{ flexBasis: 0 }}
       onPress={onPress}
     >
       <View
@@ -52,7 +53,9 @@ function TabButton({
             ? item.app
               ? appAccentBackgroundColor(accentColor)
               : "#27272a"
-            : "transparent",
+            : item.app
+              ? appAccentBackgroundColor(accentColor)
+              : "transparent",
         }}
       >
         {item.app ? (
@@ -72,7 +75,7 @@ function TabButton({
         )}
       </View>
       <Text
-        className={`text-[10px] font-semibold ${active ? "text-foreground" : "text-status-gray"}`}
+        className={`max-w-full text-[10px] font-semibold ${active ? "text-foreground" : "text-status-gray"}`}
         numberOfLines={1}
       >
         {item.label}
@@ -130,9 +133,12 @@ export default function ChatFirstBottomTabs({
     <View
       accessibilityLabel="Primary navigation"
       className="border-border-dark bg-background-dark border-t"
-      style={{ paddingBottom: insets.bottom }}
+      style={{ paddingBottom: insets.bottom, width: "100%" }}
     >
-      <View className="min-h-[62px] flex-row items-start px-1 pt-1.5">
+      <View
+        className="min-h-[62px] min-w-0 w-full flex-row items-start px-1 pt-1.5"
+        style={{ flexBasis: 0 }}
+      >
         {items.map((item) => {
           const active =
             currentRouteName === item.routeName ||

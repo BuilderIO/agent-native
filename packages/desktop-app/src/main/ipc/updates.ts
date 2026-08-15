@@ -4,7 +4,7 @@
 // `publish:` target in electron-builder.yml (currently the BuilderIO/agent-native
 // GitHub repo). We auto-download in the background, surface progress and
 // readiness to the renderer over IPC, and let the user trigger
-// quitAndInstall from a sidebar pill / restart prompt. The app also
+// quitAndInstall from a chat-first rail action / restart prompt. The app also
 // installs queued updates automatically on quit.
 //
 // Un-packaged development builds cannot install a release. Packaged local

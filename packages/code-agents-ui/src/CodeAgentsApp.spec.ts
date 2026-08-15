@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   findRunsThatBecameUnread,
+  getCodeAgentPickerOptions,
   getCodeAgentSelection,
   groupCodeAgentModelOptions,
   normalizeModelSelection,
@@ -55,6 +56,15 @@ describe("CodeAgentsApp full-page chat width", () => {
     expect(css).toMatch(
       /\.code-agents-overview-skeleton\s*\{[\s\S]*?max-width: var\(--code-agents-chat-max\);/,
     );
+    expect(css).toMatch(
+      /\.code-agents-project-picker--bar\s*\{[\s\S]*?width: min\(100%, var\(--code-agents-chat-max\)\);/,
+    );
+    expect(css).toMatch(
+      /\.code-agents-project-picker--bar\s*\{[\s\S]*?margin-top: 8px;/,
+    );
+    expect(css).toMatch(
+      /\.code-agents-project-picker--bar \.code-agents-project-select\s*\{[\s\S]*?flex: 0 1 auto;/,
+    );
   });
 });
 
@@ -71,6 +81,34 @@ describe("CodeAgentsApp chat-first rail scrolling", () => {
   });
 });
 
+describe("CodeAgentsApp transcript selection", () => {
+  it("does not let an older transcript read replace a newly selected chat", () => {
+    const source = readFileSync("src/CodeAgentsApp.tsx", "utf8");
+    const loadTranscriptStart = source.indexOf("const loadTranscript =");
+    const loadProjectsStart = source.indexOf("const loadProjects =");
+    const loadTranscriptSource = source.slice(
+      loadTranscriptStart,
+      loadProjectsStart,
+    );
+
+    expect(loadTranscriptSource).toContain(
+      "const transcriptRequestId = ++transcriptRequestRef.current;",
+    );
+    expect(loadTranscriptSource).toContain(
+      "transcriptRequestId !== transcriptRequestRef.current ||",
+    );
+    expect(loadTranscriptSource).toContain(
+      "runId !== selectedRunIdRef.current",
+    );
+    expect(loadTranscriptSource).toContain(
+      "transcriptRequestId === transcriptRequestRef.current &&",
+    );
+    expect(source).toContain(
+      "<RunDetailCard\n                            key={selectedRun.id}",
+    );
+  });
+});
+
 describe("CodeAgentsApp project folder picker", () => {
   it("keeps folder creation in the dropdown instead of duplicating its action", () => {
     const source = readFileSync("src/CodeAgentsApp.tsx", "utf8");
@@ -78,7 +116,18 @@ describe("CodeAgentsApp project folder picker", () => {
 
     expect(source).toContain("<span>Add folder...</span>");
     expect(source).not.toContain('aria-label="Add folder"');
-    expect(css).toContain("margin-top: -10px;");
+    expect(source).toContain('value="portal"');
+    expect(source).toContain('description="Continue on a paired computer"');
+    expect(source).not.toContain("onRemoteSelect?.();");
+    expect(source).toContain('description="Use the selected folder directly"');
+    expect(source.indexOf('aria-label="Select working folder"')).toBeLessThan(
+      source.indexOf('aria-label="Select workspace"'),
+    );
+    expect(css).toContain("margin-top: 8px;");
+    expect(css).toContain(
+      ".dark .code-agents-popover-content {\n  box-shadow: 0 18px 44px hsl(var(--code-agents-dark-shadow, 0 0% 0%) / 0.42);",
+    );
+    expect(css).not.toContain("hsl(var(--foreground, 0 0% 90%) / 0.42)");
   });
 });
 
@@ -259,6 +308,12 @@ describe("code-agent model selection", () => {
       model: "claude-sonnet-5",
       effort: "high",
     });
+  });
+
+  it("keeps Remote out of the agent runtime list", () => {
+    expect(
+      getCodeAgentPickerOptions(models).find((agent) => agent.id === "remote"),
+    ).toBeUndefined();
   });
 });
 

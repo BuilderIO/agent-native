@@ -144,9 +144,9 @@ export const CHAT_FIRST_SURFACE_CATALOG: readonly {
     kind: "terminal",
     label: "Terminal",
     description: "Run commands beside the conversation.",
-    availability: "deferred",
+    availability: "desktop",
     disabledReason:
-      "Deferred in this release: the existing terminal is a standalone host surface; a shared PTY lifecycle is needed for an embedded pane.",
+      "Open a local coding-agent terminal beside the conversation.",
   },
   {
     kind: "files",
@@ -555,11 +555,10 @@ export function writeChatFirstAppLayout(
 export function orderChatFirstAppIds(
   appIds: readonly string[],
   layout: ChatFirstAppLayoutPreference,
+  preferredAppIds: readonly string[] = CHAT_FIRST_DEFAULT_APP_IDS,
 ): string[] {
   const available = new Set(appIds);
-  const preferredDefaults = CHAT_FIRST_DEFAULT_APP_IDS.filter((id) =>
-    available.has(id),
-  );
+  const preferredDefaults = preferredAppIds.filter((id) => available.has(id));
   const preferredDefaultSet = new Set<string>(preferredDefaults);
   const fallbackOrder = [
     ...preferredDefaults,

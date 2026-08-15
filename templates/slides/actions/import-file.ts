@@ -202,6 +202,7 @@ export default defineAction({
           aspectRatio,
           sourceImport,
           pptxResults[0]?.sourceText,
+          presentation.theme,
         );
         return {
           format: "pptx",
@@ -704,6 +705,7 @@ async function appendDeckSlides(
   aspectRatio?: AspectRatio,
   sourceImport?: ReturnType<typeof buildSourceImportMetadata>,
   titleSource?: unknown,
+  theme?: import("../server/handlers/import/pptx-parser.js").ParsedPresentation["theme"],
 ): Promise<string> {
   await assertAccess("deck", deckId, "editor");
 
@@ -752,6 +754,15 @@ async function appendDeckSlides(
       title: nextTitle,
       slides: [...previousSlides, ...slides],
       ...(!hadExistingSlides && aspectRatio ? { aspectRatio } : {}),
+      // Same rule as aspectRatio above: an appended file's palette only
+      // becomes the deck's theme when the deck had no slides yet, so
+      // appending onto an existing deck can't silently restyle every slide
+      // already on it. Deliberately keyed on slides rather than on whether a
+      // theme already exists: export writes one deck-level theme (OOXML allows
+      // one per master), so with zero slides there is nothing to protect, and
+      // refusing a new theme there would strand a deck whose slides were
+      // deleted with the old file's palette, unfixable by re-importing.
+      ...(!hadExistingSlides && theme ? { theme } : {}),
       ...(nextSourceImport ? { sourceImport: nextSourceImport } : {}),
       updatedAt: writeNow,
     };

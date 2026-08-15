@@ -168,4 +168,38 @@ describe("ChatFirstAppsRail", () => {
     expect(visibleAppIds.at(-1)).toBe("app-5");
     expect(container.querySelector('[data-app-id="app-5"]')).not.toBeNull();
   });
+
+  it("uses a host-provided default order and visible-app count", () => {
+    const defaultAppIds = [
+      "mail",
+      "calendar",
+      "design",
+      "clips",
+      "content",
+      "analytics",
+    ];
+    const apps = [
+      ...defaultAppIds.map((id) => ({ id, name: id })),
+      { id: "brain", name: "Brain" },
+    ];
+
+    act(() => {
+      root.render(
+        <ChatFirstAppsRail
+          apps={apps}
+          defaultAppIds={defaultAppIds}
+          collapsed
+          onOpenApp={vi.fn()}
+          renderIcon={(app) => <span>{app.name}</span>}
+        />,
+      );
+    });
+
+    expect(
+      Array.from(
+        container.querySelectorAll<HTMLElement>("[data-chat-first-app]"),
+        (app) => app.dataset.appId,
+      ),
+    ).toEqual(defaultAppIds);
+  });
 });

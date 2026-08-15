@@ -5,7 +5,7 @@ import type {
   McpServerScope,
   TestMcpUrlResult,
 } from "@agent-native/core/client/resources";
-import type { AppConfig, FrameSettings } from "@shared/app-registry";
+import type { AppConfig } from "@shared/app-registry";
 import {
   CHAT_FIRST_MCP_IPC,
   type ChatFirstMcpPluginImportResult,
@@ -19,6 +19,8 @@ import {
   type CodeAgentComputerSetupResult,
   type CodeAgentCreateRunRequest,
   type CodeAgentCreateRunResult,
+  type CodeAgentRemoteWaitlistRequest,
+  type CodeAgentRemoteWaitlistResult,
   type CodeAgentFollowUpRequest,
   type CodeAgentFollowUpResult,
   type CodeAgentHostMetadata,
@@ -53,6 +55,8 @@ import {
   type DesktopIdentityStatus,
   type DesktopCreateAppRequest,
   type DesktopCreateAppResult,
+  type DesktopPrepareLocalCodeChangeRequest,
+  type DesktopPrepareLocalCodeChangeResult,
   type DesktopShortcutActivationRequest,
   type DesktopShortcutSettings,
   type DesktopShortcutUpdateResult,
@@ -124,6 +128,8 @@ const electronAPI = {
     minimize: () => ipcRenderer.send(IPC.WINDOW_MINIMIZE),
     maximize: () => ipcRenderer.send(IPC.WINDOW_MAXIMIZE),
     close: () => ipcRenderer.send(IPC.WINDOW_CLOSE),
+    setNativeTrafficLightsVisible: (visible: boolean): void =>
+      ipcRenderer.send(IPC.WINDOW_NATIVE_BUTTONS_VISIBILITY, visible),
     isMaximized: (): Promise<boolean> =>
       ipcRenderer.invoke(IPC.WINDOW_IS_MAXIMIZED),
 
@@ -213,6 +219,10 @@ const electronAPI = {
       request: DesktopCreateAppRequest,
     ): Promise<DesktopCreateAppResult> =>
       ipcRenderer.invoke(IPC.APPS_CREATE_FROM_PROMPT, request),
+    prepareLocalCodeChange: (
+      request: DesktopPrepareLocalCodeChangeRequest,
+    ): Promise<DesktopPrepareLocalCodeChangeResult> =>
+      ipcRenderer.invoke(IPC.APPS_PREPARE_LOCAL_CODE_CHANGE, request),
     showContextMenu: (appId: string): Promise<DesktopAppContextAction | null> =>
       ipcRenderer.invoke(IPC.APPS_SHOW_CONTEXT_MENU, appId),
     onRuntimeStatus: (
@@ -231,6 +241,8 @@ const electronAPI = {
   desktopChat: {
     getApiUrl: (appId: string): Promise<string | null> =>
       ipcRenderer.invoke(IPC.DESKTOP_CHAT_GET_API_URL, appId),
+    getTerminalInfoUrl: (appId: string): Promise<string | null> =>
+      ipcRenderer.invoke(IPC.DESKTOP_CHAT_GET_TERMINAL_INFO_URL, appId),
   },
 
   /** Workspace identity commands expose intent and status, never credentials. */
@@ -293,13 +305,6 @@ const electronAPI = {
       ipcRenderer.invoke(IPC.SHELL_OPEN_EXTERNAL, url),
   },
 
-  /** Local dev frame settings */
-  frame: {
-    load: (): Promise<FrameSettings> => ipcRenderer.invoke(IPC.FRAME_LOAD),
-    update: (settings: Partial<FrameSettings>): Promise<FrameSettings> =>
-      ipcRenderer.invoke(IPC.FRAME_UPDATE, settings),
-  },
-
   /** Global Quick Prompt overlay controls */
   quickPrompt: {
     load: (): Promise<QuickPromptSettings> =>
@@ -356,6 +361,10 @@ const electronAPI = {
       request: CodeAgentCreateRunRequest,
     ): Promise<CodeAgentCreateRunResult> =>
       ipcRenderer.invoke(IPC.CODE_AGENTS_CREATE_RUN, request),
+    submitRemoteWaitlist: (
+      request: CodeAgentRemoteWaitlistRequest,
+    ): Promise<CodeAgentRemoteWaitlistResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_REMOTE_WAITLIST, request),
     readTranscript: (
       request: CodeAgentTranscriptRequest,
     ): Promise<CodeAgentTranscriptResult> =>

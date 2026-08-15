@@ -5,6 +5,8 @@ import {
   type DesktopAppCreationSettings,
   type DesktopCreateAppRequest,
   type DesktopCreateAppResult,
+  type DesktopPrepareLocalCodeChangeRequest,
+  type DesktopPrepareLocalCodeChangeResult,
   type LocalAppFolderSelectResult,
 } from "@shared/ipc-channels";
 import { ipcMain, type IpcMainInvokeEvent } from "electron";
@@ -22,12 +24,15 @@ export interface AppsIpcDeps {
   createDesktopAppFromPrompt: (
     input: DesktopCreateAppRequest,
   ) => Promise<DesktopCreateAppResult>;
+  prepareDesktopAppForLocalCodeChange: (
+    input: DesktopPrepareLocalCodeChangeRequest,
+  ) => Promise<DesktopPrepareLocalCodeChangeResult>;
   showDesktopAppContextMenu: (
     appId: string,
   ) => Promise<DesktopAppContextAction | null>;
 }
 
-/** Registers the app-config (sidebar app list) CRUD and creation IPC handlers. */
+/** Registers the app-config (chat-first app rail) CRUD and creation IPC handlers. */
 export function registerAppsIpc(deps: AppsIpcDeps): void {
   const {
     getManagedDesktopAppIds,
@@ -37,6 +42,7 @@ export function registerAppsIpc(deps: AppsIpcDeps): void {
     desktopAppCreationSettings,
     normalizeDesktopAppsRoot,
     createDesktopAppFromPrompt,
+    prepareDesktopAppForLocalCodeChange,
     showDesktopAppContextMenu,
   } = deps;
 
@@ -123,6 +129,15 @@ export function registerAppsIpc(deps: AppsIpcDeps): void {
       _event: IpcMainInvokeEvent,
       input: DesktopCreateAppRequest,
     ): Promise<DesktopCreateAppResult> => createDesktopAppFromPrompt(input),
+  );
+
+  ipcMain.handle(
+    IPC.APPS_PREPARE_LOCAL_CODE_CHANGE,
+    (
+      _event: IpcMainInvokeEvent,
+      input: DesktopPrepareLocalCodeChangeRequest,
+    ): Promise<DesktopPrepareLocalCodeChangeResult> =>
+      prepareDesktopAppForLocalCodeChange(input),
   );
 
   ipcMain.handle(

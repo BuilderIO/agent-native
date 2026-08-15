@@ -8,7 +8,7 @@ const slides = TEMPLATE_APPS.find((a) => a.id === "slides")!;
 
 export default function SlidesTab() {
   return (
-    <SafeAreaView className="flex-1 bg-background-dark">
+    <SafeAreaView edges={["top"]} className="flex-1 bg-background-dark">
       <AppWebView url={getAppUrl(slides)} />
     </SafeAreaView>
   );

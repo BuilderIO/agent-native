@@ -16,6 +16,7 @@ export const IPC = {
   WINDOW_MINIMIZE: "window:minimize",
   WINDOW_MAXIMIZE: "window:maximize",
   WINDOW_CLOSE: "window:close",
+  WINDOW_NATIVE_BUTTONS_VISIBILITY: "window:native-buttons-visibility",
 
   /** Window state query (renderer ↔ main) */
   WINDOW_IS_MAXIMIZED: "window:is-maximized",
@@ -47,10 +48,13 @@ export const IPC = {
   APPS_GET_CREATION_SETTINGS: "apps:get-creation-settings",
   APPS_UPDATE_CREATION_SETTINGS: "apps:update-creation-settings",
   APPS_CREATE_FROM_PROMPT: "apps:create-from-prompt",
+  APPS_PREPARE_LOCAL_CODE_CHANGE: "apps:prepare-local-code-change",
   APPS_SHOW_CONTEXT_MENU: "apps:show-context-menu",
 
   /** Loopback relay for shell-owned chat requests using an app's session */
   DESKTOP_CHAT_GET_API_URL: "desktop-chat:get-api-url",
+  /** Loopback relay for discovering a local app's PTY WebSocket */
+  DESKTOP_CHAT_GET_TERMINAL_INFO_URL: "desktop-chat:get-terminal-info-url",
 
   /** Hosted Plan app local-file sync (Plan webview ↔ main) */
   PLAN_FILES_GET_FOLDER: "plan-files:get-folder",
@@ -81,10 +85,6 @@ export const IPC = {
   CLIPBOARD_WRITE_TEXT: "clipboard:write-text",
   SHELL_OPEN_EXTERNAL: "shell:open-external",
 
-  /** Frame settings (renderer ↔ main) */
-  FRAME_LOAD: "frame:load",
-  FRAME_UPDATE: "frame:update",
-
   /** Auto-update (renderer ↔ main) */
   UPDATE_CHECK: "update:check",
   UPDATE_DOWNLOAD: "update:download",
@@ -96,6 +96,7 @@ export const IPC = {
   /** Agent-Native Code hub (renderer ↔ main) */
   CODE_AGENTS_LIST_RUNS: "code-agents:list-runs",
   CODE_AGENTS_CREATE_RUN: "code-agents:create-run",
+  CODE_AGENTS_REMOTE_WAITLIST: "code-agents:remote-waitlist",
   CODE_AGENTS_LIST_MODELS: "code-agents:list-models",
   CODE_AGENTS_READ_TRANSCRIPT: "code-agents:read-transcript",
   CODE_AGENTS_APPEND_FOLLOW_UP: "code-agents:append-follow-up",
@@ -205,6 +206,11 @@ export interface DesktopCreateAppRequest {
   appsRoot?: string;
 }
 
+export interface DesktopPrepareLocalCodeChangeRequest {
+  appId: string;
+  prompt: string;
+}
+
 export interface DesktopCreateAppResult {
   ok: boolean;
   apps: import("@agent-native/shared-app-config").AppConfig[];
@@ -213,6 +219,8 @@ export interface DesktopCreateAppResult {
   message: string;
   error?: string;
 }
+
+export type DesktopPrepareLocalCodeChangeResult = DesktopCreateAppResult;
 
 export type DesktopAppContextAction =
   | "edit"
@@ -566,6 +574,7 @@ export interface CodeAgentCreateRunRequest {
   goalId?: string;
   prompt: string;
   cwd?: string;
+  executionTarget?: CodeAgentExecutionTarget;
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
@@ -647,6 +656,7 @@ export interface CodeAgentRemoteConnectorStatus {
   configured: boolean;
   configPath: string;
   relayUrl?: string;
+  workspacePath?: string;
   pid?: number;
   startedAt?: string;
   lastExitAt?: string;
@@ -666,6 +676,7 @@ export interface CodeAgentRemoteConnectorControlResult {
 export interface CodeAgentRemoteConnectorPairRequest {
   relayUrl?: string;
   label?: string;
+  workspacePath?: string;
 }
 
 export interface CodeAgentRemoteConnectorPairResult {
@@ -745,6 +756,7 @@ export interface CodeAgentRerunRequest {
   runId: string;
   prompt?: string;
   cwd?: string;
+  executionTarget?: CodeAgentExecutionTarget;
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
@@ -771,6 +783,21 @@ export interface CodeAgentRetryRunResult {
   ok: boolean;
   run?: CodeAgentRun;
   message: string;
+  error?: string;
+}
+
+export type CodeAgentExecutionTarget = "local" | "worktree" | "portal";
+
+export interface CodeAgentRemoteWaitlistRequest {
+  email: string;
+  pageUrl?: string;
+  source?: string;
+  useCase?: string;
+}
+
+export interface CodeAgentRemoteWaitlistResult {
+  ok: boolean;
+  message?: string;
   error?: string;
 }
 
