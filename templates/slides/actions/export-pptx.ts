@@ -131,8 +131,8 @@ function pxToPt(
 
 interface TextElement {
   text: string;
-  fontSize: number; // in pt
-  fontFace: string;
+  fontSize?: number; // in pt; omitted when the source declares none
+  fontFace?: string; // omitted when the source declares none
   color: string; // 6-char hex
   transparency?: number; // 0-100, percent transparent
   bold: boolean;
@@ -142,7 +142,7 @@ interface TextElement {
   h: number; // inches
   align?: "left" | "center" | "right";
   letterSpacing?: number;
-  lineSpacing?: number;
+  lineSpacingMultiple?: number;
   runs?: TextRunElement[];
   order?: number;
 }

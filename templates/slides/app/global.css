@@ -1096,8 +1096,14 @@ button[title="Open agent sidebar"] {
   font-style: normal;
 }
 
+/* An imported PPTX `a:srcRect` crop is rendered by oversizing the `<img>` past
+   its `overflow: hidden` box (e.g. `width: 255%; left: -77%`), so both caps
+   have to be lifted, not just the vertical one — `max-width: 100%` alone
+   silently shrank the image back to its box while the negative `left` kept
+   scrolling, leaving the visible crop window off the picture entirely. */
 .slide-content .fmd-slide img {
   border-radius: 0;
+  max-width: none;
   max-height: none;
   margin: 0;
 }
