@@ -3259,6 +3259,7 @@ body {
 .desktop-terminal-tabs {
   --desktop-terminal-background: var(--sidebar-bg);
   display: flex;
+  height: 100%;
   min-width: 0;
   min-height: 0;
   flex: 1;
@@ -3270,6 +3271,7 @@ body {
 
 .desktop-terminal-surface {
   display: flex;
+  height: 100%;
   min-width: 0;
   min-height: 0;
   flex: 1;
