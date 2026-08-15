@@ -1,4 +1,4 @@
-import { AgentTerminal } from "@agent-native/core/client";
+import { AgentTerminal } from "@agent-native/core/terminal";
 import type { AppConfig } from "@shared/app-registry";
 import { IconLoader2, IconTerminal2 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
@@ -39,21 +39,40 @@ function findTerminalApp(apps: readonly AppConfig[]): AppConfig | undefined {
   return apps.find(isLocalDevApp);
 }
 
-function readSidebarBackground(theme: RendererTheme): string {
-  if (typeof document === "undefined") {
-    return theme === "dark" ? "hsl(0 0% 10%)" : "hsl(0 0% 97%)";
-  }
+function readSidebarSurface(): HTMLElement | null {
+  if (typeof document === "undefined") return null;
+  return (
+    document.querySelector<HTMLElement>(".code-agents-rail") ??
+    document.querySelector<HTMLElement>(".code-agents-surface")
+  );
+}
 
-  const rail = document.querySelector<HTMLElement>(".code-agents-rail");
-  const surface =
-    rail ?? document.querySelector<HTMLElement>(".code-agents-surface");
-  const background = surface
-    ? getComputedStyle(surface).backgroundColor
-    : getComputedStyle(document.documentElement).getPropertyValue(
-        "--sidebar-bg",
-      );
-  if (background && background !== "rgba(0, 0, 0, 0)") return background.trim();
-  return theme === "dark" ? "hsl(0 0% 10%)" : "hsl(0 0% 97%)";
+function readSidebarBackground(): string {
+  const surface = readSidebarSurface();
+  if (surface) {
+    const background = getComputedStyle(surface).backgroundColor.trim();
+    if (background) return background;
+  }
+  if (typeof document === "undefined") return "var(--sidebar-bg)";
+  return (
+    getComputedStyle(document.documentElement)
+      .getPropertyValue("--sidebar-bg")
+      .trim() || "var(--sidebar-bg)"
+  );
+}
+
+function readSidebarForeground(): string {
+  const surface = readSidebarSurface();
+  if (surface) {
+    const foreground = getComputedStyle(surface).color.trim();
+    if (foreground) return foreground;
+  }
+  if (typeof document === "undefined") return "var(--shell-fg)";
+  return (
+    getComputedStyle(document.documentElement)
+      .getPropertyValue("--shell-fg")
+      .trim() || "var(--shell-fg)"
+  );
 }
 
 function terminalInfoFrom(value: unknown): TerminalInfo {
@@ -80,8 +99,11 @@ export default function DesktopTerminalTabs({
   const [connection, setConnection] = useState<TerminalConnection>({
     state: "loading",
   });
-  const [terminalBackground, setTerminalBackground] = useState(() =>
-    readSidebarBackground(theme),
+  const [terminalBackground, setTerminalBackground] = useState(
+    readSidebarBackground,
+  );
+  const [terminalForeground, setTerminalForeground] = useState(
+    readSidebarForeground,
   );
   const terminalApp = useMemo(() => findTerminalApp(apps), [apps]);
   const selectedAgent =
@@ -89,11 +111,16 @@ export default function DesktopTerminalTabs({
     DESKTOP_TERMINAL_AGENT_OPTIONS[0];
 
   useEffect(() => {
-    const syncBackground = () =>
-      setTerminalBackground(readSidebarBackground(theme));
+    const syncBackground = () => setTerminalBackground(readSidebarBackground());
+    const syncForeground = () => setTerminalForeground(readSidebarForeground());
     syncBackground();
+    syncForeground();
     const frame = window.requestAnimationFrame(syncBackground);
-    return () => window.cancelAnimationFrame(frame);
+    const foregroundFrame = window.requestAnimationFrame(syncForeground);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.cancelAnimationFrame(foregroundFrame);
+    };
   }, [theme]);
 
   useEffect(() => {
@@ -181,8 +208,8 @@ export default function DesktopTerminalTabs({
             className="desktop-terminal-tabs__terminal"
             theme={{
               background: terminalBackground,
-              cursor: theme === "dark" ? "#d4d4d4" : "#4b5563",
-              foreground: theme === "dark" ? "#e5e7eb" : "#374151",
+              cursor: terminalForeground,
+              foreground: terminalForeground,
             }}
           />
         )}

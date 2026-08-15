@@ -57,7 +57,8 @@ function readPreferences(): DesktopTerminalPreferences {
         ? value.agent
         : DEFAULT_DESKTOP_TERMINAL_PREFERENCES.agent,
     };
-  } catch {
+  } catch (error) {
+    console.warn("Unable to read desktop terminal preferences.", error);
     return DEFAULT_DESKTOP_TERMINAL_PREFERENCES;
   }
 }
@@ -87,8 +88,11 @@ export function writeDesktopTerminalPreferences(
       DESKTOP_TERMINAL_PREFERENCES_STORAGE_KEY,
       JSON.stringify(next),
     );
-  } catch {
-    // Renderer preferences remain usable for this session if storage is unavailable.
+  } catch (error) {
+    console.warn(
+      "Unable to persist desktop terminal preferences; keeping them in memory.",
+      error,
+    );
   }
   for (const listener of listeners) listener();
   return next;
