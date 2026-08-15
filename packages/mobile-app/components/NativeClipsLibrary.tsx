@@ -51,7 +51,6 @@ import {
   type NativeClipSummary,
 } from "@/lib/clips-library";
 import { getClipsSession } from "@/lib/clips-session";
-import { useTabBarLayout } from "@/lib/tab-bar-layout";
 
 interface NativeClipsLibraryProps {
   onAuthRequired: () => void;
@@ -294,7 +293,6 @@ function NativeClipPlayerContent({
   onReload: () => Promise<void>;
   onAuthRequired: () => void;
 }) {
-  const { contentInset } = useTabBarLayout();
   const videoUrl = resolveTrustedClipsUrl(detail.recording.videoUrl);
   const source = useMemo(
     () =>
@@ -414,11 +412,11 @@ function NativeClipPlayerContent({
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === "ios" ? "padding" : undefined}
+      keyboardVerticalOffset={82}
       className="flex-1"
     >
       <ScrollView
-        contentContainerClassName="px-4.5 pt-2.5"
-        contentContainerStyle={{ paddingBottom: contentInset }}
+        contentContainerClassName="pb-15 px-4.5 pt-2.5"
         keyboardShouldPersistTaps="handled"
       >
         <View className="flex-row items-center justify-between mb-3">
@@ -700,7 +698,6 @@ export default function NativeClipsLibrary({
   onSelectionChange,
 }: NativeClipsLibraryProps) {
   const router = useRouter();
-  const { contentInset } = useTabBarLayout();
   const [view, setView] = useState<ClipsLibraryView>("library");
   const [recordings, setRecordings] = useState<NativeClipSummary[]>([]);
   const [searchResults, setSearchResults] = useState<
@@ -804,8 +801,7 @@ export default function NativeClipsLibrary({
 
   return (
     <FlatList
-      contentContainerClassName={`px-5 ${visibleRecordings.length === 0 ? "flex-grow" : ""}`}
-      contentContainerStyle={{ paddingBottom: contentInset }}
+      contentContainerClassName={`pb-8 px-5 ${visibleRecordings.length === 0 ? "flex-grow" : ""}`}
       data={visibleRecordings}
       ItemSeparatorComponent={() => <View className="h-px bg-border-dark" />}
       keyboardDismissMode="on-drag"
