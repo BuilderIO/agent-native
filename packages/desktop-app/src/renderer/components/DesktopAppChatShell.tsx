@@ -389,7 +389,7 @@ export default function DesktopAppChatShell({
           {localCodeChange.status === "error" ? (
             <IconAlertCircle className="size-5 shrink-0 text-destructive" />
           ) : localCodeChange.status === "ready" ? (
-            <IconCircleCheck className="size-5 shrink-0 text-emerald-600" />
+            <IconCircleCheck className="size-5 shrink-0 text-primary" />
           ) : (
             <IconLoader2 className="size-5 shrink-0 animate-spin text-muted-foreground" />
           )}
