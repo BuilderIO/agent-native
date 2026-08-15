@@ -5,18 +5,9 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-  Switch,
 } from "@agent-native/toolkit/ui";
 import type { AppConfig } from "@shared/app-registry";
-import {
-  IconDotsVertical,
-  IconPlus,
-  IconTerminal2,
-  IconX,
-} from "@tabler/icons-react";
+import { IconDotsVertical, IconPlus, IconX } from "@tabler/icons-react";
 import { useCallback, useRef, useState } from "react";
 
 import { type DesktopTerminalAgentId } from "../lib/desktop-terminal-preferences.js";
@@ -32,7 +23,6 @@ interface DesktopTerminalSurfaceProps {
   className?: string;
   submitRequest?: AgentTerminalSubmitRequest;
   onPromptSubmitted?: (request: AgentTerminalSubmitRequest) => void;
-  onTerminalModeChange: (enabled: boolean) => void;
 }
 
 interface DesktopTerminalTab {
@@ -54,14 +44,12 @@ export default function DesktopTerminalSurface({
   className,
   submitRequest,
   onPromptSubmitted,
-  onTerminalModeChange,
 }: DesktopTerminalSurfaceProps) {
   const tabCounter = useRef(1);
   const [tabs, setTabs] = useState<DesktopTerminalTab[]>(() => [
     createTerminalTab(1),
   ]);
   const [activeTabId, setActiveTabId] = useState("desktop-terminal-1");
-  const [addMenuOpen, setAddMenuOpen] = useState(false);
 
   const addTab = useCallback(() => {
     const next = createTerminalTab(++tabCounter.current);
@@ -152,51 +140,15 @@ export default function DesktopTerminalSurface({
           })}
         </div>
         <div className="flex shrink-0 items-center gap-0.5">
-          <Popover open={addMenuOpen} onOpenChange={setAddMenuOpen}>
-            <PopoverTrigger asChild>
-              <button
-                type="button"
-                className="flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-                aria-label="Add terminal"
-                title="Add terminal"
-              >
-                <IconPlus size={14} aria-hidden="true" />
-              </button>
-            </PopoverTrigger>
-            <PopoverContent
-              align="end"
-              sideOffset={6}
-              className="w-56 p-1"
-              onOpenAutoFocus={(event) => event.preventDefault()}
-            >
-              <button
-                type="button"
-                className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-start text-[12px] font-medium text-foreground hover:bg-accent/60"
-                onClick={() => {
-                  addTab();
-                  setAddMenuOpen(false);
-                }}
-              >
-                <IconTerminal2
-                  size={14}
-                  className="shrink-0 text-muted-foreground"
-                  aria-hidden="true"
-                />
-                <span>New terminal</span>
-              </button>
-              <div className="my-1 border-t border-border/70" />
-              <div className="flex items-center justify-between gap-3 px-2.5 py-2">
-                <span className="text-[12px] font-medium text-foreground">
-                  Terminal mode
-                </span>
-                <Switch
-                  checked
-                  onCheckedChange={onTerminalModeChange}
-                  aria-label="Terminal mode"
-                />
-              </div>
-            </PopoverContent>
-          </Popover>
+          <button
+            type="button"
+            className="flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+            aria-label="New terminal"
+            title="New terminal"
+            onClick={addTab}
+          >
+            <IconPlus size={14} aria-hidden="true" />
+          </button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
