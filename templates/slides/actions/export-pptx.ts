@@ -5,6 +5,7 @@ import { defineAction } from "@agent-native/core";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { resolveAccess } from "@agent-native/core/sharing";
+import type PptxGenJS from "pptxgenjs";
 import { z } from "zod";
 
 import "../server/db/index.js"; // ensure registerShareableResource runs
@@ -19,6 +20,9 @@ import {
   ASPECT_RATIO_VALUES,
 } from "../shared/aspect-ratios.js";
 
+type TableCell = PptxGenJS.TableCell;
+type TableRow = PptxGenJS.TableRow;
+
 /**
  * Extract inline style value for a given property from a style string.
  */
@@ -30,8 +34,8 @@ function getStyle(style: string, prop: string): string | null {
 
 /**
  * Convert a CSS color string to a 6-char hex string (no #) plus an optional
- * pptxgenjs transparency (0-100, percent transparent) carried from an RGBA
- * alpha channel.
+ * pptxgenjs transparency (0-100, percent transparent) carried from an
+ * alpha-bearing CSS color.
  * Handles #hex, #shortHex, rgb(), rgba(), and named colors.
  */
 function colorToHex(color: string): { hex: string; transparency?: number } {
@@ -42,7 +46,7 @@ function colorToHex(color: string): { hex: string; transparency?: number } {
 
   // Already hex
   if (/^#[0-9a-f]{8}$/i.test(color)) {
-    const alpha = parseInt(color.slice(7), 16) / 255;
+    const alpha = parseInt(color.slice(7, 9), 16) / 255;
     return {
       hex: color.slice(1, 7).toUpperCase(),
       transparency: Math.round((1 - alpha) * 100),
@@ -179,25 +183,8 @@ interface ShapeElement {
   order?: number;
 }
 
-interface TableCellElement {
-  text: string;
-  options?: {
-    align?: "left" | "center" | "right" | "justify";
-    bold?: boolean;
-    color?: string;
-    fill?: { color: string; transparency?: number };
-    fontFace?: string;
-    fontSize?: number;
-    margin?: number;
-    colspan?: number;
-    rowspan?: number;
-    transparency?: number;
-    valign?: "top" | "middle" | "bottom";
-  };
-}
-
 interface TableElement {
-  rows: TableCellElement[][];
+  rows: TableRow[];
   x: number;
   y: number;
   w: number;
@@ -579,8 +566,10 @@ function parseImportedSlideHtml(html: string, dims: SlideDims): ParsedSlide {
     }
 
     if (kind === "table") {
-      const table = parseImportedTable(innerHtml, geometry, dims);
-      if (table) tables.push({ ...table, order: match.index });
+      const rows = importedTableRows(innerHtml, dims);
+      if (rows.length > 0) {
+        tables.push({ ...geometry, rows, order: match.index });
+      }
       continue;
     }
 
@@ -614,74 +603,6 @@ function parseImportedSlideHtml(html: string, dims: SlideDims): ParsedSlide {
   }
 
   return { texts, images, shapes, tables, grid, bgColor, bgTransparency };
-}
-
-function parseImportedTable(
-  html: string,
-  geometry: { x: number; y: number; w: number; h: number },
-  dims: SlideDims,
-): TableElement | null {
-  const rows: TableCellElement[][] = [];
-  for (const rowMatch of html.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)) {
-    const cells: TableCellElement[] = [];
-    for (const cellMatch of rowMatch[1].matchAll(
-      /<t[dh]\b([^>]*)>([\s\S]*?)<\/t[dh]>/gi,
-    )) {
-      const attrs = cellMatch[1];
-      const cellHtml = cellMatch[2];
-      const style = getAttribute(attrs, "style") ?? "";
-      const runs = importedTextRuns(cellHtml, dims);
-      const firstRun = runs.find((run) => run.text.trim()) ?? runs[0];
-      const fillValue = getStyle(style, "background(?:-color)?");
-      const parsedFill = fillValue ? colorToHex(fillValue) : undefined;
-      const alignValue = getStyle(style, "text-align");
-      const colspan = positiveIntegerAttribute(attrs, "colspan");
-      const rowspan = positiveIntegerAttribute(attrs, "rowspan");
-      cells.push({
-        text: runs.map((run) => run.text).join(""),
-        options: {
-          ...(firstRun?.options.fontFace
-            ? { fontFace: firstRun.options.fontFace }
-            : {}),
-          ...(firstRun?.options.fontSize
-            ? { fontSize: firstRun.options.fontSize }
-            : {}),
-          ...(firstRun?.options.color ? { color: firstRun.options.color } : {}),
-          ...(firstRun?.options.bold != null
-            ? { bold: firstRun.options.bold }
-            : {}),
-          ...(firstRun?.options.transparency != null
-            ? { transparency: firstRun.options.transparency }
-            : {}),
-          ...(parsedFill
-            ? {
-                fill: {
-                  color: parsedFill.hex,
-                  ...(parsedFill.transparency != null
-                    ? { transparency: parsedFill.transparency }
-                    : {}),
-                },
-              }
-            : {}),
-          ...(alignValue === "center" ||
-          alignValue === "right" ||
-          alignValue === "justify"
-            ? { align: alignValue }
-            : {}),
-          ...(colspan ? { colspan } : {}),
-          ...(rowspan ? { rowspan } : {}),
-          valign: "top",
-        },
-      });
-    }
-    if (cells.length > 0) rows.push(cells);
-  }
-  return rows.length > 0 ? { rows, ...geometry } : null;
-}
-
-function positiveIntegerAttribute(attrs: string, name: string): number | null {
-  const value = Number.parseInt(getAttribute(attrs, name) ?? "", 10);
-  return Number.isInteger(value) && value > 1 ? value : null;
 }
 
 function parseImportedGrid(style: string): GridElement | undefined {
@@ -767,6 +688,80 @@ function importedTextRuns(html: string, dims: SlideDims): TextRunElement[] {
     }
   });
   return runs;
+}
+
+function importedTableRows(html: string, dims: SlideDims): TableRow[] {
+  return [...html.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)].map(
+    (rowMatch): TableRow =>
+      [...rowMatch[1].matchAll(/<t[dh]\b([^>]*)>([\s\S]*?)<\/t[dh]>/gi)].map(
+        (cellMatch): TableCell => {
+          const attrs = cellMatch[1];
+          const cellHtml = cellMatch[2];
+          const style = getAttribute(attrs, "style") ?? "";
+          const runs = importedTextRuns(cellHtml, dims);
+          const fill = getStyle(style, "background(?:-color)?");
+          const parsedFill = fill ? colorToHex(fill) : undefined;
+          const border = getStyle(style, "border");
+          const borderMatch = border?.match(/([\d.]+)px\s+solid\s+(.+)/i);
+          const parsedBorder = borderMatch
+            ? colorToHex(borderMatch[2])
+            : undefined;
+          const colSpan = Number.parseInt(
+            getAttribute(attrs, "colspan") ?? "",
+            10,
+          );
+          const rowSpan = Number.parseInt(
+            getAttribute(attrs, "rowspan") ?? "",
+            10,
+          );
+          const align = getStyle(style, "text-align");
+          const verticalAlign = getStyle(style, "vertical-align");
+          const options: NonNullable<TableCell["options"]> = {
+            ...(align === "center" || align === "right" || align === "justify"
+              ? { align }
+              : {}),
+            ...(verticalAlign === "top" ||
+            verticalAlign === "middle" ||
+            verticalAlign === "bottom"
+              ? { valign: verticalAlign }
+              : {}),
+            ...(parsedFill
+              ? {
+                  fill: {
+                    color: parsedFill.hex,
+                    ...(parsedFill.transparency != null
+                      ? { transparency: parsedFill.transparency }
+                      : {}),
+                  },
+                }
+              : {}),
+            ...(parsedBorder && borderMatch
+              ? {
+                  border: {
+                    type: "solid" as const,
+                    color: parsedBorder.hex,
+                    pt: Math.max(
+                      0.5,
+                      pxToPt(Number.parseFloat(borderMatch[1]), dims),
+                    ),
+                  },
+                }
+              : {}),
+            ...(Number.isFinite(colSpan) && colSpan > 1
+              ? { colspan: colSpan }
+              : {}),
+            ...(Number.isFinite(rowSpan) && rowSpan > 1
+              ? { rowspan: rowSpan }
+              : {}),
+          };
+          const text: TableCell["text"] =
+            runs.length > 0
+              ? runs.map((run) => ({ text: run.text, options: run.options }))
+              : "";
+          return { text, options };
+        },
+      ),
+  );
 }
 
 function importedRunOptions(
@@ -1036,7 +1031,18 @@ export default defineAction({
               h: img.h,
             });
           }
-        } else if (object.kind === "shape") {
+        } else if (object.kind === "table") {
+          const table = object.value;
+          pptxSlide.addTable(table.rows, {
+            x: table.x,
+            y: table.y,
+            w: table.w,
+            h: table.h,
+            autoPage: false,
+            border: { type: "solid", color: "FFFFFF", pt: 0.5 },
+            margin: 0.04,
+          });
+        } else {
           const shape = object.value;
           pptxSlide.addShape(
             shape.rounded ? pptx.ShapeType.roundRect : pptx.ShapeType.rect,
@@ -1068,14 +1074,6 @@ export default defineAction({
                 : {}),
             },
           );
-        } else {
-          const table = object.value;
-          pptxSlide.addTable(table.rows, {
-            x: table.x,
-            y: table.y,
-            w: table.w,
-            h: table.h,
-          });
         }
       }
 

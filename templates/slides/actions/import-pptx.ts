@@ -12,7 +12,10 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
 import { convertToSlideHtml } from "../server/handlers/import/html-converter.js";
-import { uploadPptxSlideImages } from "../server/handlers/import/pptx-assets.js";
+import {
+  assertPptxImagesRenderable,
+  uploadPptxSlideImages,
+} from "../server/handlers/import/pptx-assets.js";
 import {
   parsePptx,
   type ParsedElement,
@@ -27,6 +30,7 @@ import {
 } from "../shared/aspect-ratios.js";
 import { getDeckUrl } from "./_app-url.js";
 import { readUserUploadedFile } from "./_uploaded-files.js";
+import { withDeckLock } from "./patch-deck.js";
 
 export interface ImportedImageFallback {
   slideIndex: number;
@@ -121,9 +125,18 @@ export async function importPptxBufferToDeck(args: {
   // Check edit access before uploading any embedded images — uploads are
   // a side effect with real storage cost, so an unauthorized caller must
   // be rejected before that side effect happens, not after.
+  const db = getDb();
   if (deckId) {
     await assertAccess("deck", deckId, "editor");
+    const [deck] = await db
+      .select()
+      .from(schema.decks)
+      .where(eq(schema.decks.id, deckId));
+    if (!deck) {
+      throw new Error(`Deck ${deckId} not found`);
+    }
   }
+  assertPptxImagesRenderable(presentation.slides);
 
   // Convert each parsed slide to its positioned scene graph, uploading every
   // browser-renderable image so the imported deck keeps the source layering
@@ -193,56 +206,59 @@ export async function importPptxBufferToDeck(args: {
     presentation.slides[0]?.heightEmu,
   );
 
-  const db = getDb();
   const now = new Date().toISOString();
 
   if (deckId) {
-    const existing = await db
-      .select()
-      .from(schema.decks)
-      .where(eq(schema.decks.id, deckId));
+    return withDeckLock(deckId, async () => {
+      // Image uploads happen before this lock because they are independent of
+      // the deck row. Re-read inside the lock so the replacement is based on
+      // the latest deck data rather than the preflight snapshot.
+      const [latestDeck] = await db
+        .select()
+        .from(schema.decks)
+        .where(eq(schema.decks.id, deckId));
+      if (!latestDeck) {
+        throw new Error(`Deck ${deckId} not found`);
+      }
 
-    if (!existing.length) {
-      throw new Error(`Deck ${deckId} not found`);
-    }
-
-    const previousData = safeParseDeckData(existing[0].data);
-    const data = {
-      ...previousData,
-      title: deckTitle,
-      slides,
-      ...(aspectRatio ? { aspectRatio } : {}),
-      sourceImport,
-      updatedAt: now,
-    };
-    await db
-      .update(schema.decks)
-      .set({
+      const previousData = safeParseDeckData(latestDeck.data);
+      const data = {
+        ...previousData,
         title: deckTitle,
-        data: JSON.stringify(data),
-        ...(designSystemId !== undefined
-          ? { designSystemId }
-          : { designSystemId: existing[0].designSystemId }),
+        slides,
+        ...(aspectRatio ? { aspectRatio } : {}),
+        sourceImport,
         updatedAt: now,
-      })
-      .where(eq(schema.decks.id, deckId));
+      };
+      await db
+        .update(schema.decks)
+        .set({
+          title: deckTitle,
+          data: JSON.stringify(data),
+          ...(designSystemId !== undefined
+            ? { designSystemId }
+            : { designSystemId: latestDeck.designSystemId }),
+          updatedAt: now,
+        })
+        .where(eq(schema.decks.id, deckId));
 
-    notifyClients(deckId);
-    await writeAppState("refresh-signal", {
-      ts: now,
-      source,
+      notifyClients(deckId);
+      await writeAppState("refresh-signal", {
+        ts: now,
+        source,
+      });
+
+      return {
+        id: deckId,
+        title: deckTitle,
+        slideCount: slides.length,
+        theme: presentation.theme,
+        imported: true,
+        url: getDeckUrl(deckId),
+        ...(imagesSkipped > 0 ? { imagesSkipped } : {}),
+        ...(tablesDegraded > 0 ? { tablesDegraded } : {}),
+      };
     });
-
-    return {
-      id: deckId,
-      title: deckTitle,
-      slideCount: slides.length,
-      theme: presentation.theme,
-      imported: true,
-      url: getDeckUrl(deckId),
-      ...(imagesSkipped > 0 ? { imagesSkipped } : {}),
-      ...(tablesDegraded > 0 ? { tablesDegraded } : {}),
-    };
   }
 
   // Create new deck

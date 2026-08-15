@@ -1,5 +1,5 @@
 import { OPS } from "pdfjs-dist/legacy/build/pdf.mjs";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import {
   annotateLineDecorations,
@@ -547,6 +547,16 @@ describe("detectBlockAlignment", () => {
     expect(detectBlockAlignment(lines, 10, 90)).toBe("center");
   });
 
+  it("keeps equal-width left-aligned lines left when their midpoint is ambiguous", () => {
+    const lines = [box({ left: 10, right: 90 }), box({ left: 10, right: 90 })];
+    expect(detectBlockAlignment(lines, 10, 90)).toBe("left");
+  });
+
+  it("keeps near-equal widths eligible for midpoint alignment when bounds shift", () => {
+    const lines = [box({ left: 10, right: 90 }), box({ left: 11, right: 89 })];
+    expect(detectBlockAlignment(lines, 10, 90)).toBe("center");
+  });
+
   it("detects right-aligned lines from their shared right edge", () => {
     const lines = [
       box({ left: 50, right: 200 }),
@@ -655,7 +665,15 @@ describe("groupIntoLines: column-aware baseline grouping", () => {
   });
 });
 
-function fakeFullPage(fnArray: number[], argsArray: unknown[][]) {
+type FakeTextContentLoader = () => Promise<unknown>;
+
+function fakeFullPage(
+  fnArray: number[],
+  argsArray: unknown[][],
+  getTextContent: FakeTextContentLoader = async () => ({
+    items: [{ str: "Hi", transform: [12, 0, 0, 12, 50, 50], width: 24 }],
+  }),
+) {
   return {
     rotate: 0,
     getViewport: () => ({
@@ -665,15 +683,17 @@ function fakeFullPage(fnArray: number[], argsArray: unknown[][]) {
     }),
     getOperatorList: async () => ({ fnArray, argsArray }),
     getAnnotations: async () => [],
-    getTextContent: async () => ({
-      items: [{ str: "Hi", transform: [12, 0, 0, 12, 50, 50], width: 24 }],
-    }),
+    getTextContent,
     commonObjs: { has: () => false, get: () => null },
   } as unknown as Parameters<typeof walkPageGraphics>[0];
 }
 
-function fakeDoc(fnArray: number[], argsArray: unknown[][]) {
-  const page = fakeFullPage(fnArray, argsArray);
+function fakeDoc(
+  fnArray: number[],
+  argsArray: unknown[][],
+  getTextContent?: FakeTextContentLoader,
+) {
+  const page = fakeFullPage(fnArray, argsArray, getTextContent);
   return {
     numPages: 1,
     getPage: async () => page,
@@ -686,12 +706,55 @@ function fakeDoc(fnArray: number[], argsArray: unknown[][]) {
 describe("parsePdfFidelity: paint order", () => {
   it("sorts a later-painted image after earlier-painted text instead of always putting images first", async () => {
     const fnArray = [OPS.showText, OPS.transform, OPS.paintImageXObject];
-    const argsArray = [[[{}, {}]], [100, 0, 0, 100, 10, 10], []];
+    const argsArray = [[[{}, {}]], [100, 0, 0, 100, 10, 10], ["image-1"]];
     const doc = fakeDoc(fnArray, argsArray);
     const pages = await parsePdfFidelity(doc, [
-      { pageNumber: 1, images: [{ data: new Uint8Array([1, 2, 3]) }] },
+      {
+        pageNumber: 1,
+        images: [{ data: new Uint8Array([1, 2, 3]), name: "image-1" }],
+      },
     ]);
     expect(pages[0].elements.map((el) => el.kind)).toEqual(["text", "image"]);
+  });
+
+  it("matches extracted image bytes to their named paint rect instead of their filtered array index", async () => {
+    const fnArray = [
+      OPS.save,
+      OPS.transform,
+      OPS.paintImageXObject,
+      OPS.restore,
+      OPS.save,
+      OPS.transform,
+      OPS.paintImageXObject,
+      OPS.restore,
+    ];
+    const argsArray = [
+      [],
+      [100, 0, 0, 100, 10, 10],
+      ["skipped-image"],
+      [],
+      [],
+      [100, 0, 0, 100, 100, 100],
+      ["kept-image"],
+      [],
+    ];
+    const doc = fakeDoc(fnArray, argsArray);
+    const pages = await parsePdfFidelity(doc, [
+      {
+        pageNumber: 1,
+        images: [{ data: new Uint8Array([4, 5, 6]), name: "kept-image" }],
+      },
+    ]);
+
+    const image = pages[0].elements.find((element) => element.kind === "image");
+    expect(image).toMatchObject({
+      kind: "image",
+      x: 1_270_000,
+      y: 1_270_000,
+    });
+    expect(image?.kind).toBe("image");
+    expect(image?.image?.data).toEqual(new Uint8Array([4, 5, 6]));
+    expect(pages[0].imagesSkipped).toBe(1);
   });
 });
 
@@ -701,28 +764,76 @@ describe("parsePdfFidelity: paint order", () => {
 describe("parsePdfFidelity: imagesSkipped", () => {
   it("counts a detected image with no extracted bytes as skipped", async () => {
     const fnArray = [OPS.showText, OPS.transform, OPS.paintImageXObject];
-    const argsArray = [[[{}, {}]], [100, 0, 0, 100, 10, 10], []];
+    const argsArray = [[[{}, {}]], [100, 0, 0, 100, 10, 10], ["image-1"]];
     const doc = fakeDoc(fnArray, argsArray);
     const pages = await parsePdfFidelity(doc, []);
     expect(pages[0].imagesSkipped).toBe(1);
     expect(pages[0].elements.map((el) => el.kind)).toEqual(["text"]);
   });
 
-  it("marks a page parse failure as degraded instead of source-faithful", async () => {
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const doc = {
-      numPages: 1,
-      getPage: async () => {
-        throw new Error("synthetic page failure");
+  it("does not count an extracted image that is intentionally below the placement-size threshold", async () => {
+    const fnArray = [OPS.transform, OPS.paintImageXObject];
+    const argsArray = [[1, 0, 0, 1, 10, 10], ["tiny-image"]];
+    const doc = fakeDoc(fnArray, argsArray);
+    const pages = await parsePdfFidelity(doc, [
+      {
+        pageNumber: 1,
+        images: [{ data: new Uint8Array([1, 2, 3]), name: "tiny-image" }],
       },
-    } as unknown as Parameters<typeof parsePdfFidelity>[0];
+    ]);
 
-    try {
-      const pages = await parsePdfFidelity(doc, []);
-      expect(pages[0]?.imagesSkipped).toBe(1);
-      expect(pages[0]?.elements).toEqual([]);
-    } finally {
-      warnSpy.mockRestore();
-    }
+    expect(pages[0].imagesSkipped).toBe(0);
+    expect(pages[0].elements.map((el) => el.kind)).toEqual(["text"]);
+  });
+
+  it("counts an empty extracted image buffer as skipped without shifting later named images", async () => {
+    const fnArray = [
+      OPS.save,
+      OPS.transform,
+      OPS.paintImageXObject,
+      OPS.restore,
+      OPS.save,
+      OPS.transform,
+      OPS.paintImageXObject,
+      OPS.restore,
+    ];
+    const argsArray = [
+      [],
+      [100, 0, 0, 100, 10, 10],
+      ["empty-image"],
+      [],
+      [],
+      [100, 0, 0, 100, 100, 100],
+      ["valid-image"],
+      [],
+    ];
+    const doc = fakeDoc(fnArray, argsArray);
+    const pages = await parsePdfFidelity(doc, [
+      {
+        pageNumber: 1,
+        images: [
+          { data: new Uint8Array(), name: "empty-image" },
+          { data: new Uint8Array([7, 8, 9]), name: "valid-image" },
+        ],
+      },
+    ]);
+
+    const image = pages[0].elements.find((element) => element.kind === "image");
+    expect(image).toMatchObject({ x: 1_270_000, y: 1_270_000 });
+    expect(image?.image?.data).toEqual(new Uint8Array([7, 8, 9]));
+    expect(pages[0].imagesSkipped).toBe(1);
+  });
+
+  it("marks a page partial when fidelity parsing fails after detecting an image", async () => {
+    const fnArray = [OPS.transform, OPS.paintImageXObject];
+    const argsArray = [[100, 0, 0, 100, 10, 10], ["image-1"]];
+    const doc = fakeDoc(fnArray, argsArray, async () => {
+      throw new Error("text extraction failed");
+    });
+
+    const pages = await parsePdfFidelity(doc, []);
+
+    expect(pages[0].imagesSkipped).toBe(1);
+    expect(pages[0].elements).toEqual([]);
   });
 });

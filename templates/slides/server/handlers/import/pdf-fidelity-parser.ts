@@ -21,14 +21,14 @@ export interface PdfFidelityPage {
   backgroundColor: string | undefined;
   /** Sorted by the PDF's own real paint order, so an image painted over text (or vice versa) keeps its real stacking instead of images always sitting behind. */
   elements: ParsedElement[];
-  /** Images detected on this page whose pixel data never made it into `elements` (extraction failed, or no canvas renderer was available) — a non-zero count means this page's fidelity is not source-faithful. */
+  /** Images detected on this page whose pixel data could not be matched to a paint placement (extraction failed, or no canvas renderer was available) — intentionally size-filtered placements are not counted. */
   imagesSkipped: number;
 }
 
 /** An embedded raster image already resolved by `pdf.getImage()`, keyed by its page. */
 export interface PdfPageImage {
   pageNumber: number;
-  images: { data: Uint8Array }[];
+  images: { data: Uint8Array; name: string }[];
 }
 
 interface Rect {
@@ -37,6 +37,8 @@ interface Rect {
   right: number;
   bottom: number;
 }
+
+type PdfOperatorList = Awaited<ReturnType<PDFPageProxy["getOperatorList"]>>;
 
 export function applyPoint(m: Mat, x: number, y: number): [number, number] {
   const p: [number, number] = [x, y];
@@ -165,6 +167,10 @@ const TEXT_SHOWING_OPS = new Set([
   OPS.nextLineShowText,
   OPS.nextLineSetSpacingShowText,
 ]);
+
+function isImagePaintOp(fn: number): boolean {
+  return fn === OPS.paintImageXObject || fn === OPS.paintInlineImageXObject;
+}
 
 const FILL_PAINT_OPS = new Set([
   OPS.fill,
@@ -615,6 +621,19 @@ export function detectBlockAlignment(
   blockRight: number,
 ): "left" | "center" | "right" {
   if (blockLines.length < 2) return "left";
+  // The block bounds come from these same lines. Equal-width lines therefore
+  // have identical left edges, right edges, and midpoints whether they were
+  // left-aligned or centered; keep that ambiguous case left-aligned rather
+  // than moving ordinary paragraphs to the center.
+  const widths = blockLines.map((line) => line.right - line.left);
+  const minWidth = Math.min(...widths);
+  const maxWidth = Math.max(...widths);
+  const sameBounds = blockLines.every(
+    (line) => line.left === blockLeft && line.right === blockRight,
+  );
+  if (maxWidth - minWidth <= TEXT_ALIGNMENT_TOLERANCE_PT && sameBounds) {
+    return "left";
+  }
   const midpoint = (blockLeft + blockRight) / 2;
   const centered = blockLines.every(
     (line) =>
@@ -870,6 +889,8 @@ export interface TextColorRun {
 /** An image's placed rect plus its index in this page's real paint order, shared with `TextColorRun.paintOrder` so images and text can be z-ordered by how the PDF actually painted them instead of images always going first. */
 export interface PaintedImageRect extends Rect {
   paintOrder: number;
+  /** The PDF resource name shared with the corresponding `pdf.getImage()` result. */
+  imageName: string | undefined;
 }
 
 interface PageGraphics {
@@ -895,9 +916,10 @@ interface PageGraphics {
 export async function walkPageGraphics(
   page: PDFPageProxy,
   viewport: { transform: Mat; width: number; height: number },
+  operatorList?: PdfOperatorList,
 ): Promise<PageGraphics> {
   const viewportTransform = viewport.transform;
-  const opList = await page.getOperatorList();
+  const opList = operatorList ?? (await page.getOperatorList());
   const imageRects: PaintedImageRect[] = [];
   const textRuns: TextColorRun[] = [];
   const underlineRects: UnderlineRect[] = [];
@@ -931,10 +953,7 @@ export async function walkPageGraphics(
       }
     } else if (fn === OPS.transform) {
       ctm = Util.transform(ctm, args as Mat) as Mat;
-    } else if (
-      fn === OPS.paintImageXObject ||
-      fn === OPS.paintInlineImageXObject
-    ) {
+    } else if (isImagePaintOp(fn)) {
       const unitCorners: [number, number][] = [
         [0, 0],
         [1, 0],
@@ -948,6 +967,7 @@ export async function walkPageGraphics(
       imageRects.push({
         ...rectFromCorners(deviceCorners),
         paintOrder: paintOrder++,
+        imageName: typeof args[0] === "string" ? args[0] : undefined,
       });
     } else if (TEXT_SHOWING_OPS.has(fn)) {
       // Count only the glyph descriptors, not the raw kerning-adjustment
@@ -1079,26 +1099,30 @@ export async function parsePdfFidelity(
   doc: PDFDocumentProxy,
   imagesByPage: PdfPageImage[],
 ): Promise<PdfFidelityPage[]> {
-  const imageBytesByPage = new Map<number, Uint8Array[]>();
+  const imageBytesByPage = new Map<number, PdfPageImage["images"]>();
   for (const entry of imagesByPage) {
-    imageBytesByPage.set(
-      entry.pageNumber,
-      entry.images.map((img) => img.data),
-    );
+    imageBytesByPage.set(entry.pageNumber, entry.images);
   }
 
   const pages: PdfFidelityPage[] = [];
   for (let pageNumber = 1; pageNumber <= doc.numPages; pageNumber++) {
+    let imagePaintCount = 0;
     try {
       const page = await doc.getPage(pageNumber);
       const viewport = page.getViewport({ scale: 1, rotation: page.rotate });
       const viewportTransform = viewport.transform as Mat;
+      const operatorList = await page.getOperatorList();
+      imagePaintCount = operatorList.fnArray.filter(isImagePaintOp).length;
 
-      const graphics = await walkPageGraphics(page, {
-        transform: viewportTransform,
-        width: viewport.width,
-        height: viewport.height,
-      });
+      const graphics = await walkPageGraphics(
+        page,
+        {
+          transform: viewportTransform,
+          width: viewport.width,
+          height: viewport.height,
+        },
+        operatorList,
+      );
       const linkRects = await collectLinkRects(page, viewportTransform);
       const imageRects = graphics.imageRects;
       // The largest image that covers a substantial share of the page is
@@ -1111,9 +1135,34 @@ export async function parsePdfFidelity(
         .filter((rect) => rectArea(rect) >= pageArea * 0.4)
         .sort((a, b) => rectArea(b) - rectArea(a))[0];
       const imageBytes = imageBytesByPage.get(pageNumber) ?? [];
+      const rectsByImageName = new Map<string, PaintedImageRect[]>();
+      for (const rect of imageRects) {
+        if (rect.imageName === undefined) continue;
+        const rects = rectsByImageName.get(rect.imageName) ?? [];
+        rects.push(rect);
+        rectsByImageName.set(rect.imageName, rects);
+      }
+      const bytesByImageName = new Map<string, PdfPageImage["images"]>();
+      for (const image of imageBytes) {
+        const images = bytesByImageName.get(image.name) ?? [];
+        images.push(image);
+        bytesByImageName.set(image.name, images);
+      }
+      const imageDataByRect = new Map<PaintedImageRect, Uint8Array>();
+      for (const [imageName, rects] of rectsByImageName) {
+        const images = bytesByImageName.get(imageName);
+        // A resource can be painted more than once. If extraction returned a
+        // different number of occurrences, there is no safe way to know which
+        // placement is missing, so omit all of them rather than misplacing one.
+        if (!images || images.length !== rects.length) continue;
+        for (let index = 0; index < rects.length; index++) {
+          const data = images[index].data;
+          if (data.byteLength > 0) imageDataByRect.set(rects[index], data);
+        }
+      }
       const imageResults: { element: ParsedElement; paintOrder: number }[] =
         imageRects
-          .map((rect, index) => ({ rect, data: imageBytes[index] }))
+          .map((rect) => ({ rect, data: imageDataByRect.get(rect) }))
           .filter(
             ({ rect, data }) =>
               data &&
@@ -1136,6 +1185,9 @@ export async function parsePdfFidelity(
             },
             paintOrder: rect.paintOrder,
           }));
+      const imagesSkipped = imageRects.filter(
+        (rect) => !imageDataByRect.has(rect),
+      ).length;
 
       const textResults = await buildTextElements(
         page,
@@ -1158,7 +1210,7 @@ export async function parsePdfFidelity(
         heightEmu: viewport.height * EMU_PER_POINT,
         backgroundColor: graphics.backgroundColor,
         elements,
-        imagesSkipped: imageRects.length - imageResults.length,
+        imagesSkipped,
       });
     } catch (err) {
       console.warn(
@@ -1171,10 +1223,10 @@ export async function parsePdfFidelity(
         heightEmu: 0,
         backgroundColor: undefined,
         elements: [],
-        // A failed page parse is a fidelity loss even when no individual
-        // image extraction failed. Keep the source-import metadata partial so
-        // callers do not report this page as source-faithful.
-        imagesSkipped: 1,
+        // A parse failure after operator-list inspection must remain visibly
+        // partial. If inspection itself failed, keep the failure loud rather
+        // than allowing a text-only fallback to look source-faithful.
+        imagesSkipped: Math.max(imagePaintCount, 1),
       });
     }
   }

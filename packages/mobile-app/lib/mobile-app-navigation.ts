@@ -48,10 +48,11 @@ export function orderMobileApps<T extends Pick<AppConfig, "id">>(
 }
 
 export function getDefaultMobileTabAppIds(
-  apps: readonly Pick<AppConfig, "id">[],
+  apps: readonly (Pick<AppConfig, "id"> &
+    Partial<Pick<AppConfig, "enabled">>)[],
 ): string[] {
   const eligibleApps = orderMobileApps(
-    apps.filter((app) => supportsMobileTab(app.id)),
+    apps.filter((app) => app.enabled !== false && supportsMobileTab(app.id)),
   );
   const preferredIds = new Set<string>(CHAT_FIRST_DEFAULT_APP_IDS);
   const preferred = eligibleApps.filter((app) => preferredIds.has(app.id));
@@ -59,6 +60,16 @@ export function getDefaultMobileTabAppIds(
   return [...preferred, ...remaining]
     .slice(0, MOBILE_BOTTOM_TAB_LIMIT)
     .map((app) => app.id);
+}
+
+export function filterAvailableMobileTabAppIds(
+  selectedIds: readonly string[],
+  availableIds: ReadonlySet<string>,
+): string[] {
+  return [...new Set(selectedIds.filter((id) => availableIds.has(id)))].slice(
+    0,
+    MOBILE_BOTTOM_TAB_LIMIT,
+  );
 }
 
 export function toggleMobileTabAppId(

@@ -130,9 +130,6 @@ describe("parseSlideHtml", () => {
           <p style="line-height:1.5;"><span style="font-size:25.333px;font-family:'Poppins',sans-serif;color:#d9d9d9;">Body </span><span style="font-size:25.333px;font-family:'Poppins',sans-serif;color:#28e2fa;">accent</span></p>
         </div>
         <div class="fmd-pptx-image" data-pptx-element-kind="image" style="position:absolute;left:100px;top:300px;width:200px;height:100px;"><img src="/api/import-assets/token" alt="" /></div>
-        <div class="fmd-pptx-table" data-pptx-element-kind="table" style="position:absolute;left:100px;top:420px;width:400px;height:80px;">
-          <table><tr><td colspan="2" style="background:#11223380;"><p><span style="font-size:20px;font-family:'Poppins',sans-serif;color:#ffffff80;font-weight:700;">Cell</span></p></td></tr></table>
-        </div>
       </div>`,
       "16:9",
       2,
@@ -155,18 +152,6 @@ describe("parseSlideHtml", () => {
         y: expect.closeTo((300 / 540) * 7.5, 4),
       }),
     ]);
-    expect(result.tables).toHaveLength(1);
-    expect(result.tables[0]?.rows[0]?.[0]).toEqual(
-      expect.objectContaining({
-        text: "Cell",
-        options: expect.objectContaining({
-          colspan: 2,
-          color: "FFFFFF",
-          transparency: 50,
-          fill: { color: "112233", transparency: 50 },
-        }),
-      }),
-    );
   });
 
   it("keeps a source-faithful PDF page as a full-slide image", () => {
@@ -241,7 +226,7 @@ describe("parseSlideHtml", () => {
     expect(result.texts[0].transparency).toBe(50);
   });
 
-  it("threads eight-digit hex alpha through as pptxgenjs transparency", () => {
+  it("preserves 8-digit CSS hex alpha through PPTX export", () => {
     const result = parseSlideHtml(
       '<div class="fmd-slide"><h1 style="color: #11223380;">Title</h1></div>',
       undefined,
@@ -250,6 +235,38 @@ describe("parseSlideHtml", () => {
 
     expect(result.texts[0].color).toBe("112233");
     expect(result.texts[0].transparency).toBe(50);
+  });
+
+  it("exports imported tables with cell text, fills, and spans", () => {
+    const result = parseSlideHtml(
+      [
+        '<div class="fmd-slide fmd-imported-pptx" data-imported-pptx="true" style="background:#000000;">',
+        '<div data-pptx-element-kind="table" style="position:absolute;left:72px;top:68px;width:480px;height:180px;">',
+        '<table><tr><td colspan="2" style="background:#11223380;border:1px solid rgba(255,255,255,0.25);"><p><span style="font-size:24px;color:#ffffff;font-weight:700;">Header</span></p></td></tr>',
+        '<tr><td rowspan="2"><p>Left</p></td><td><p>Right</p></td></tr><tr><td><p>Bottom</p></td></tr></table>',
+        "</div></div>",
+      ].join(""),
+      "16:9",
+      1,
+    );
+
+    expect(result.tables).toHaveLength(1);
+    expect(result.tables[0]?.x).toBeCloseTo(1, 3);
+    const [headerRow, bodyRow] = result.tables[0]?.rows ?? [];
+    expect(headerRow?.[0]?.options).toMatchObject({
+      colspan: 2,
+      fill: { color: "112233", transparency: 50 },
+    });
+    expect(headerRow?.[0]?.text).toEqual(
+      expect.arrayContaining([expect.objectContaining({ text: "Header" })]),
+    );
+    expect(bodyRow?.[0]?.options).toMatchObject({ rowspan: 2 });
+    expect(bodyRow?.[0]?.text).toEqual(
+      expect.arrayContaining([expect.objectContaining({ text: "Left" })]),
+    );
+    expect(bodyRow?.[1]?.text).toEqual(
+      expect.arrayContaining([expect.objectContaining({ text: "Right" })]),
+    );
   });
 
   it("warns and falls back to white instead of silently defaulting an unrecognized color", () => {

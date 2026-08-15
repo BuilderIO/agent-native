@@ -469,7 +469,7 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     );
     const clearIndex = sentEvents.findIndex((event) => event.type === "clear");
     expect(autoContinueIndex).toBeGreaterThanOrEqual(0);
-    expect(clearIndex).toBeGreaterThan(autoContinueIndex);
+    expect(clearIndex).toBe(-1);
     const continuationText = messages
       .map((m) => (m.content[0]?.type === "text" ? m.content[0].text : ""))
       .find((t) => t.startsWith(AGENT_INTERNAL_CONTINUE_PROMPT));
@@ -1244,21 +1244,19 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     ]);
   });
 
-  // Fix 4: emit 'clear' before resumable-error continuation
-  it("emits a clear event before resuming after a resumable engine error", async () => {
-    // The partial text was already streamed to the client but the model needs
-    // to re-generate from the beginning of the sentence. Without 'clear' the
-    // fold duplicates the streamed text inside one assistant message.
-    const sentEvents: import("./types.js").AgentChatEvent[] = [];
+  it("keeps the streamed prefix visible when a resume emits only the suffix", async () => {
+    const sentEvents: AgentChatEvent[] = [];
     let attempts = 0;
 
-    mockRunAgentLoop.mockImplementation(async () => {
+    mockRunAgentLoop.mockImplementation(async (opts) => {
       attempts++;
       if (attempts === 1) {
+        opts.send({ type: "text", text: "prefix " });
         throw new EngineError("Builder gateway timed out after 45s", {
           errorCode: "builder_gateway_timeout",
         });
       }
+      opts.send({ type: "text", text: "suffix" });
       return {
         inputTokens: 10,
         outputTokens: 5,
@@ -1278,12 +1276,18 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     );
 
     expect(attempts).toBe(2);
-    // A 'clear' event must have been emitted before the second attempt.
-    expect(sentEvents).toContainEqual({ type: "clear" });
-    // It must appear before the continuation message is appended (i.e. sent
-    // while retrying, not after).
-    const clearIndex = sentEvents.findIndex((e) => e.type === "clear");
-    expect(clearIndex).toBeGreaterThanOrEqual(0);
+    expect(sentEvents.filter((event) => event.type === "clear")).toHaveLength(
+      0,
+    );
+    expect(
+      sentEvents
+        .filter(
+          (event): event is Extract<AgentChatEvent, { type: "text" }> =>
+            event.type === "text",
+        )
+        .map((event) => event.text)
+        .join(""),
+    ).toBe("prefix suffix");
   });
 
   it("does not emit clear when there is no resumable error", async () => {

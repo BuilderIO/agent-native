@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  filterAvailableMobileTabAppIds,
   getAppRoute,
   getDefaultMobileTabAppIds,
   MOBILE_BOTTOM_TAB_LIMIT,
@@ -31,6 +32,17 @@ describe("mobile chat-first navigation", () => {
     ).toEqual(["calendar", "clips", "analytics"]);
   });
 
+  it("does not choose disabled apps for default slots", () => {
+    expect(
+      getDefaultMobileTabAppIds([
+        { id: "content", enabled: false },
+        { id: "design", enabled: true },
+        { id: "mail", enabled: true },
+        { id: "calendar", enabled: true },
+      ]),
+    ).toEqual(["design", "mail", "calendar"]);
+  });
+
   it("keeps Chat and More outside the three app slots", () => {
     expect(MOBILE_BOTTOM_TAB_LIMIT).toBe(3);
     expect(
@@ -39,6 +51,19 @@ describe("mobile chat-first navigation", () => {
       ids: ["content", "design", "mail"],
       changed: false,
       limitReached: true,
+    });
+  });
+
+  it("filters stale saved ids before applying the tab limit", () => {
+    const currentIds = filterAvailableMobileTabAppIds(
+      ["content", "design", "removed"],
+      new Set(["content", "design", "calendar"]),
+    );
+
+    expect(toggleMobileTabAppId(currentIds, "calendar")).toEqual({
+      ids: ["content", "design", "calendar"],
+      changed: true,
+      limitReached: false,
     });
   });
 

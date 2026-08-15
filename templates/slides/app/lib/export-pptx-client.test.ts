@@ -231,6 +231,29 @@ describe("pptxExportScale", () => {
   });
 });
 
+describe("pptxExportScale", () => {
+  it("matches dom-to-pptx's own fit-to-slide scale for a 16:9 deck", () => {
+    // 960x540 px canvas into a 13.33x7.5in slide: dom-to-pptx's own
+    // `processSlide` computes this same ~1.333 factor and applies it to
+    // every measurement it takes, including bullet indents.
+    const scale = pptxExportScale({
+      width: 960,
+      height: 540,
+      pptxInches: { w: 13.33, h: 7.5 },
+    });
+    expect(scale).toBeCloseTo(1.3333, 3);
+  });
+
+  it("matches dom-to-pptx's own fit-to-slide scale for a 1:1 deck", () => {
+    const scale = pptxExportScale({
+      width: 1080,
+      height: 1080,
+      pptxInches: { w: 10, h: 10 },
+    });
+    expect(scale).toBeCloseTo(0.8889, 3);
+  });
+});
+
 describe("waitForImagesToSettle", () => {
   it("continues after a remote image exceeds the bounded wait", async () => {
     const realSetTimeout = globalThis.setTimeout.bind(globalThis);
