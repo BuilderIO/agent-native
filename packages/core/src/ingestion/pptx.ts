@@ -206,18 +206,25 @@ export async function parsePptxPresentation(
         target: slideMasterRelationship.target,
       })
     : undefined;
+  const droppedSlides: string[] = [];
   const slidePaths = slideIds.flatMap((id) => {
     const relationship = relationships.get(id);
-    if (!relationship) return [];
+    if (!relationship) {
+      droppedSlides.push(
+        `r:id="${id}" has no matching relationship in ppt/_rels/presentation.xml.rels`,
+      );
+      return [];
+    }
     return [
       relationship.target.startsWith("/")
         ? relationship.target.slice(1)
         : `ppt/${relationship.target}`,
     ];
   });
-  if (process.env.PPTX_PROBE)
-    console.error("PROBE slideIds", slideIds, "slidePaths", slidePaths);
   if (slidePaths.length === 0) {
+    // Scanning the package recovers every slide the rels could not name, so
+    // the unresolved ids above are no longer missing content.
+    droppedSlides.length = 0;
     slidePaths.push(
       ...Object.keys(zip.files)
         .filter((path) => /^ppt\/slides\/slide\d+\.xml$/.test(path))
@@ -287,36 +294,27 @@ export async function parsePptxPresentation(
     Promise<SlideTemplateContext | undefined>
   >();
   const slides: ParsedPptxSlide[] = [];
+  let hiddenSlideCount = 0;
   for (const slidePath of slidePaths) {
-    if (process.env.PPTX_PROBE) console.error("PROBE enter", slidePath);
     const xml = await zip.file(slidePath)?.async("string");
     if (!xml) {
-      if (process.env.PPTX_PROBE) console.error("PROBE skip:no-xml", slidePath);
+      droppedSlides.push(`${slidePath} is missing from the package`);
       continue;
     }
     let slide: unknown;
     try {
       slide = parseXml(xml);
-    } catch {
-      if (process.env.PPTX_PROBE) console.error("PROBE skip:throw", slidePath);
+    } catch (error) {
+      droppedSlides.push(
+        `${slidePath} could not be parsed: ${error instanceof Error ? error.message : String(error)}`,
+      );
       continue;
     }
     // `show="0"` is the author having removed this slide from the deck's own
     // flow. Importing it anyway hands every deck back slides its presenter
     // had already cut.
     if (stringValue(record(record(slide)?.["p:sld"])?.["@_show"]) === "0") {
-      if (process.env.PPTX_PROBE)
-        console.error(
-          "PROBE skip:show0",
-          slidePath,
-          JSON.stringify(
-            Object.fromEntries(
-              Object.entries(record(record(slide)?.["p:sld"]) ?? {}).filter(
-                ([key]) => key.startsWith("@_"),
-              ),
-            ),
-          ),
-        );
+      hiddenSlideCount += 1;
       continue;
     }
     const metadata = parsePptxSlideMetadata(slide);
@@ -914,6 +912,8 @@ interface ParsedShapeTransform {
   y: number;
   width: number;
   height: number;
+  flipH?: boolean;
+  flipV?: boolean;
   rotation?: number;
 }
 
@@ -1193,6 +1193,8 @@ async function parseShapeFragment(
   const shapeType = stringValue(
     record(shapeProperties?.["a:prstGeom"])?.["@_prst"],
   );
+  const shapeAdjustments = parseShapeAdjustments(shapeProperties);
+  const geometry = parseCustomGeometry(shapeProperties, effectiveLocalTransform);
 
   if (entry === "pic") {
     const embedId = stringValue(
@@ -1235,6 +1237,8 @@ async function parseShapeFragment(
         kind: "text",
         ...transform,
         shapeType,
+        ...(shapeAdjustments ? { shapeAdjustments } : {}),
+        ...(geometry ? { geometry } : {}),
         ...(fill ? { fill } : {}),
         ...(line ? { lineColor: line.color, lineWidth: line.width } : {}),
         ...parseTextBoxProperties(node),
@@ -1251,6 +1255,8 @@ async function parseShapeFragment(
         kind: "shape",
         ...transform,
         shapeType,
+        ...(shapeAdjustments ? { shapeAdjustments } : {}),
+        ...(geometry ? { geometry } : {}),
         ...(fill ? { fill } : {}),
         ...(line ? { lineColor: line.color, lineWidth: line.width } : {}),
       },
@@ -1482,6 +1488,12 @@ function transformFromXfrmNode(
     y: off.y,
     width: ext.x,
     height: ext.y,
+    ...(xfrm?.["@_flipH"] !== undefined && xmlBoolean(xfrm["@_flipH"])
+      ? { flipH: true }
+      : {}),
+    ...(xfrm?.["@_flipV"] !== undefined && xmlBoolean(xfrm["@_flipV"])
+      ? { flipV: true }
+      : {}),
     ...(Number.isFinite(rawRotation) && rawRotation !== 0
       ? { rotation: rawRotation / 60000 }
       : {}),
@@ -1511,6 +1523,8 @@ function applyTransform(
     y: center.y - height / 2,
     width,
     height,
+    ...(transform.flipH ? { flipH: true } : {}),
+    ...(transform.flipV ? { flipV: true } : {}),
     ...(rotation ? { rotation } : {}),
   };
 }
