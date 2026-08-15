@@ -617,7 +617,9 @@ describe("cssGradientToDrawingMl", () => {
   });
 
   it("declines gradients DrawingML cannot express instead of writing a broken fill", () => {
-    expect(cssGradientToDrawingMl("conic-gradient(#fff, #000)")).toBeUndefined();
+    expect(
+      cssGradientToDrawingMl("conic-gradient(#fff, #000)"),
+    ).toBeUndefined();
     expect(
       cssGradientToDrawingMl("linear-gradient(90deg, #ffffff 0%)"),
     ).toBeUndefined();
@@ -666,8 +668,11 @@ describe("applyDeckIdentity", () => {
 
   async function readPart(buffer: Buffer, partPath: string): Promise<string> {
     const JSZip = (await import("jszip")).default;
-    const part = await (await JSZip.loadAsync(buffer)).file(partPath)?.
-      async("string");
+    const part = await (
+      await JSZip.loadAsync(buffer)
+    )
+      .file(partPath)
+      ?.async("string");
     if (part === undefined) throw new Error(`missing ${partPath}`);
     return part;
   }
@@ -683,7 +688,7 @@ describe("applyDeckIdentity", () => {
     const slideXml = await readPart(patched, "ppt/slides/slide1.xml");
     expect(slideXml).toContain('<p:bg><p:bgPr><a:gradFill rotWithShape="1">');
     expect(slideXml).toContain('<a:srgbClr val="018589"/>');
-    expect(slideXml).not.toContain("<a:solidFill><a:srgbClr val=\"013445\"/>");
+    expect(slideXml).not.toContain('<a:solidFill><a:srgbClr val="013445"/>');
   });
 
   it("replaces the hardcoded Office palette with the deck's theme", async () => {
@@ -706,16 +711,18 @@ describe("applyDeckIdentity", () => {
     });
 
     const themeXml = await readPart(patched, "ppt/theme/theme1.xml");
-    expect(themeXml).toContain('<a:accent1><a:srgbClr val="FFAB40"/></a:accent1>');
+    expect(themeXml).toContain(
+      '<a:accent1><a:srgbClr val="FFAB40"/></a:accent1>',
+    );
     expect(themeXml).not.toContain("4472C4");
   });
 
   it("returns the package untouched when the deck has nothing of its own", async () => {
     const buffer = await writeDeck();
 
-    expect(
-      await applyDeckIdentity(buffer, { slideGradients: new Map() }),
-    ).toBe(buffer);
+    expect(await applyDeckIdentity(buffer, { slideGradients: new Map() })).toBe(
+      buffer,
+    );
   });
 
   it("fails loudly rather than shipping a deck that silently lost its gradient", async () => {

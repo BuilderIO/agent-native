@@ -686,8 +686,7 @@ function parseImportedSlideHtml(html: string, dims: SlideDims): ParsedSlide {
     ? getStyle(outerStyle, "background(?:-color)?")
     : undefined;
   const parsedBg =
-    cssFillToSolid(background) ??
-    colorToHex(IMPORTED_PPTX_BACKGROUND_FALLBACK);
+    cssFillToSolid(background) ?? colorToHex(IMPORTED_PPTX_BACKGROUND_FALLBACK);
   const bgColor = parsedBg.hex;
   const bgTransparency = parsedBg.transparency;
   const bgGradient =
@@ -1338,7 +1337,9 @@ export default defineAction({
     // source page size settles it for the whole export; `parseSlideHtml`
     // re-derives the same value per slide.
     const slideContents: string[] = slides.map((slide: unknown) =>
-      slide && typeof slide === "object" && typeof (slide as { content?: unknown }).content === "string"
+      slide &&
+      typeof slide === "object" &&
+      typeof (slide as { content?: unknown }).content === "string"
         ? (slide as { content: string }).content
         : "",
     );
