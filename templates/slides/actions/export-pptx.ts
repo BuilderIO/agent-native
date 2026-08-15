@@ -30,7 +30,7 @@ function getStyle(style: string, prop: string): string | null {
 
 /**
  * Convert a CSS color string to a 6-char hex string (no #) plus an optional
- * pptxgenjs transparency (0-100, percent transparent) carried from an rgba()
+ * pptxgenjs transparency (0-100, percent transparent) carried from an RGBA
  * alpha channel.
  * Handles #hex, #shortHex, rgb(), rgba(), and named colors.
  */
