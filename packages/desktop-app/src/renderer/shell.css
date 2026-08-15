@@ -329,6 +329,73 @@ body {
   -webkit-app-region: drag;
 }
 
+/* Collapsed macOS rails use a compact custom cluster because the native
+   traffic lights cannot expose only two buttons. Keep the third control
+   keyboard reachable while making its visual reveal intentional. */
+.desktop-chat-first-hub .collapsed-mac-window-controls {
+  position: absolute;
+  z-index: 20;
+  top: 6px;
+  left: 1px;
+  width: 54px;
+  height: 24px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background-color: transparent;
+  -webkit-app-region: no-drag;
+  transition:
+    background-color var(--ease-collapse),
+    border-color var(--ease-collapse),
+    box-shadow var(--ease-collapse);
+}
+
+.desktop-chat-first-hub .collapsed-mac-window-controls:hover,
+.desktop-chat-first-hub .collapsed-mac-window-controls:focus-within {
+  border-color: hsl(var(--sidebar-foreground) / 0.14);
+  background-color: hsl(var(--sidebar-background) / 0.92);
+  box-shadow: 0 4px 14px hsl(var(--sidebar-background) / 0.42);
+}
+
+.desktop-chat-first-hub .collapsed-mac-window-controls .win-btn {
+  position: absolute;
+  top: 5px;
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  transition:
+    opacity var(--ease-collapse),
+    transform var(--ease-collapse);
+}
+
+.desktop-chat-first-hub .collapsed-mac-window-controls .win-btn--close {
+  left: 4px;
+}
+
+.desktop-chat-first-hub .collapsed-mac-window-controls .win-btn--minimize {
+  left: 21px;
+}
+
+.desktop-chat-first-hub .collapsed-mac-window-controls .win-btn--maximize {
+  left: 38px;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-7px) scale(0.86);
+}
+
+.desktop-chat-first-hub .collapsed-mac-window-controls:hover .win-btn--maximize,
+.desktop-chat-first-hub
+  .collapsed-mac-window-controls:focus-within
+  .win-btn--maximize {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(0) scale(1);
+}
+
+.desktop-chat-first-hub .collapsed-mac-window-controls .win-btn:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
 .desktop-chat-first-hub
   .code-agents-rail--collapsed
   .code-agents-primary-new-chat-shell {
@@ -857,6 +924,15 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .desktop-chat-first-hub > .code-agents-surface {
     transition: none;
+  }
+
+  .desktop-chat-first-hub .collapsed-mac-window-controls,
+  .desktop-chat-first-hub .collapsed-mac-window-controls .win-btn {
+    transition: none;
+  }
+
+  .desktop-chat-first-hub .collapsed-mac-window-controls .win-btn--maximize {
+    transform: none;
   }
 }
 

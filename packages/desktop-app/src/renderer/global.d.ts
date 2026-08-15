@@ -698,6 +698,7 @@ interface ElectronAPI {
     minimize(): void;
     maximize(): void;
     close(): void;
+    setNativeTrafficLightsVisible(visible: boolean): void;
     isMaximized(): Promise<boolean>;
     onMaximizedChange(cb: (isMaximized: boolean) => void): () => void;
   };

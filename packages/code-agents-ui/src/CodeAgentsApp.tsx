@@ -297,6 +297,8 @@ export interface CodeAgentsAppProps {
   railWorkspaceSlot?: ReactNode;
   /** Optional actions pinned to the bottom of the rail. */
   railFooterSlot?: ReactNode;
+  /** Optional window controls mounted in the rail's title-bar area. */
+  railWindowControlsSlot?: ReactNode;
   /** Optional content shown below the empty new-chat composer. */
   overviewFooterSlot?: ReactNode;
   renderAppSurface?: CodeAgentsRenderAppSurface;
@@ -670,6 +672,7 @@ export default function CodeAgentsApp({
   mainToolbarSlot,
   railWorkspaceSlot,
   railFooterSlot,
+  railWindowControlsSlot,
   overviewFooterSlot,
   renderAppSurface,
   newSessionExtension,
@@ -2319,6 +2322,7 @@ export default function CodeAgentsApp({
         }`}
         aria-label="Agent chats and navigation"
       >
+        {railWindowControlsSlot}
         <div className="code-agents-window-drag-region" aria-hidden="true" />
         <div className="code-agents-rail-scroll">
           <ChatFirstPrimaryNavigation

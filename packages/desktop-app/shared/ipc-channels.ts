@@ -16,6 +16,7 @@ export const IPC = {
   WINDOW_MINIMIZE: "window:minimize",
   WINDOW_MAXIMIZE: "window:maximize",
   WINDOW_CLOSE: "window:close",
+  WINDOW_NATIVE_BUTTONS_VISIBILITY: "window:native-buttons-visibility",
 
   /** Window state query (renderer ↔ main) */
   WINDOW_IS_MAXIMIZED: "window:is-maximized",

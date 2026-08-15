@@ -126,6 +126,8 @@ const electronAPI = {
     minimize: () => ipcRenderer.send(IPC.WINDOW_MINIMIZE),
     maximize: () => ipcRenderer.send(IPC.WINDOW_MAXIMIZE),
     close: () => ipcRenderer.send(IPC.WINDOW_CLOSE),
+    setNativeTrafficLightsVisible: (visible: boolean): void =>
+      ipcRenderer.send(IPC.WINDOW_NATIVE_BUTTONS_VISIBILITY, visible),
     isMaximized: (): Promise<boolean> =>
       ipcRenderer.invoke(IPC.WINDOW_IS_MAXIMIZED),
 

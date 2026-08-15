@@ -130,6 +130,7 @@ import {
   type MultiFrontierSecondaryActionInput,
 } from "./MultiFrontierWorkspace.js";
 import { UpdateIndicator } from "./UpdateIndicator.js";
+import { CollapsedMacWindowControls } from "./WindowControls.js";
 
 const agentNativeIconUrl = new URL(
   "../assets/agent-native-icon-dark.svg",
@@ -965,6 +966,14 @@ export default function CodeAgentsHub({
       CHAT_FIRST_RAIL_COLLAPSED_STORAGE_KEY,
       chatFirstRailCollapsed ? "1" : "0",
     );
+  }, [chatFirstRailCollapsed]);
+
+  useEffect(() => {
+    if (window.electronAPI?.platform !== "darwin") return;
+    const setNativeTrafficLightsVisible =
+      window.electronAPI.windowControls?.setNativeTrafficLightsVisible;
+    if (!setNativeTrafficLightsVisible) return;
+    setNativeTrafficLightsVisible(!chatFirstRailCollapsed);
   }, [chatFirstRailCollapsed]);
 
   useEffect(() => {
@@ -2272,6 +2281,12 @@ export default function CodeAgentsHub({
           onWatchedRunChange={handleChatFirstWatchedRunChange}
           chatFirstNavigation={chatFirstNavigation}
           onChatFirstOpenApp={emitChatFirstOpenAppStable}
+          railWindowControlsSlot={
+            chatFirstRailCollapsed &&
+            window.electronAPI?.platform === "darwin" ? (
+              <CollapsedMacWindowControls />
+            ) : undefined
+          }
           railWorkspaceSlot={chatFirstRailWorkspaceSlot}
           overviewFooterSlot={
             <DesktopAppsGrid

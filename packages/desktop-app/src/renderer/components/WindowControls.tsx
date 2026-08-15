@@ -26,3 +26,35 @@ export default function WindowControls({
     </div>
   );
 }
+
+export function CollapsedMacWindowControls() {
+  return (
+    <div
+      className="collapsed-mac-window-controls"
+      role="group"
+      aria-label="Window controls"
+    >
+      <button
+        type="button"
+        className="win-btn win-btn--close"
+        onClick={() => window.electronAPI?.windowControls.close()}
+        aria-label="Close window"
+        title="Close"
+      />
+      <button
+        type="button"
+        className="win-btn win-btn--minimize"
+        onClick={() => window.electronAPI?.windowControls.minimize()}
+        aria-label="Minimize window"
+        title="Minimize"
+      />
+      <button
+        type="button"
+        className="win-btn win-btn--maximize"
+        onClick={() => window.electronAPI?.windowControls.maximize()}
+        aria-label="Zoom window"
+        title="Zoom"
+      />
+    </div>
+  );
+}
