@@ -30,6 +30,7 @@ import {
 } from "../shared/aspect-ratios.js";
 import { getDeckUrl } from "./_app-url.js";
 import { readUserUploadedFile } from "./_uploaded-files.js";
+import { withDeckLock } from "./patch-deck.js";
 
 export interface ImportedImageFallback {
   slideIndex: number;
@@ -125,7 +126,6 @@ export async function importPptxBufferToDeck(args: {
   // a side effect with real storage cost, so an unauthorized caller must
   // be rejected before that side effect happens, not after.
   const db = getDb();
-  let existingDeck: typeof schema.decks.$inferSelect | undefined;
   if (deckId) {
     await assertAccess("deck", deckId, "editor");
     const [deck] = await db
@@ -135,7 +135,6 @@ export async function importPptxBufferToDeck(args: {
     if (!deck) {
       throw new Error(`Deck ${deckId} not found`);
     }
-    existingDeck = deck;
   }
   assertPptxImagesRenderable(presentation.slides);
 
@@ -210,47 +209,56 @@ export async function importPptxBufferToDeck(args: {
   const now = new Date().toISOString();
 
   if (deckId) {
-    if (!existingDeck) {
-      throw new Error(`Deck ${deckId} not found`);
-    }
+    return withDeckLock(deckId, async () => {
+      // Image uploads happen before this lock because they are independent of
+      // the deck row. Re-read inside the lock so the replacement is based on
+      // the latest deck data rather than the preflight snapshot.
+      const [latestDeck] = await db
+        .select()
+        .from(schema.decks)
+        .where(eq(schema.decks.id, deckId));
+      if (!latestDeck) {
+        throw new Error(`Deck ${deckId} not found`);
+      }
 
-    const previousData = safeParseDeckData(existingDeck.data);
-    const data = {
-      ...previousData,
-      title: deckTitle,
-      slides,
-      ...(aspectRatio ? { aspectRatio } : {}),
-      sourceImport,
-      updatedAt: now,
-    };
-    await db
-      .update(schema.decks)
-      .set({
+      const previousData = safeParseDeckData(latestDeck.data);
+      const data = {
+        ...previousData,
         title: deckTitle,
-        data: JSON.stringify(data),
-        ...(designSystemId !== undefined
-          ? { designSystemId }
-          : { designSystemId: existingDeck.designSystemId }),
+        slides,
+        ...(aspectRatio ? { aspectRatio } : {}),
+        sourceImport,
         updatedAt: now,
-      })
-      .where(eq(schema.decks.id, deckId));
+      };
+      await db
+        .update(schema.decks)
+        .set({
+          title: deckTitle,
+          data: JSON.stringify(data),
+          ...(designSystemId !== undefined
+            ? { designSystemId }
+            : { designSystemId: latestDeck.designSystemId }),
+          updatedAt: now,
+        })
+        .where(eq(schema.decks.id, deckId));
 
-    notifyClients(deckId);
-    await writeAppState("refresh-signal", {
-      ts: now,
-      source,
+      notifyClients(deckId);
+      await writeAppState("refresh-signal", {
+        ts: now,
+        source,
+      });
+
+      return {
+        id: deckId,
+        title: deckTitle,
+        slideCount: slides.length,
+        theme: presentation.theme,
+        imported: true,
+        url: getDeckUrl(deckId),
+        ...(imagesSkipped > 0 ? { imagesSkipped } : {}),
+        ...(tablesDegraded > 0 ? { tablesDegraded } : {}),
+      };
     });
-
-    return {
-      id: deckId,
-      title: deckTitle,
-      slideCount: slides.length,
-      theme: presentation.theme,
-      imported: true,
-      url: getDeckUrl(deckId),
-      ...(imagesSkipped > 0 ? { imagesSkipped } : {}),
-      ...(tablesDegraded > 0 ? { tablesDegraded } : {}),
-    };
   }
 
   // Create new deck

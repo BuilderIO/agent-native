@@ -628,7 +628,12 @@ export function detectBlockAlignment(
   const widths = blockLines.map((line) => line.right - line.left);
   const minWidth = Math.min(...widths);
   const maxWidth = Math.max(...widths);
-  if (maxWidth - minWidth <= TEXT_ALIGNMENT_TOLERANCE_PT) return "left";
+  const sameBounds = blockLines.every(
+    (line) => line.left === blockLeft && line.right === blockRight,
+  );
+  if (maxWidth - minWidth <= TEXT_ALIGNMENT_TOLERANCE_PT && sameBounds) {
+    return "left";
+  }
   const midpoint = (blockLeft + blockRight) / 2;
   const centered = blockLines.every(
     (line) =>
