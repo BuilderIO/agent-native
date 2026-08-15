@@ -3,6 +3,7 @@ import {
   IconCopy,
   IconGitFork,
   IconId,
+  IconMessageCircle,
   IconMenu2,
   IconShare2,
   IconSquareRoundedPlus,
@@ -106,6 +107,7 @@ export default function ChatTab() {
   );
   const [historyOpen, setHistoryOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [signInOpen, setSignInOpen] = useState(false);
   const [actionsFor, setActionsFor] = useState<ChatMessage | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [settings, setSettings] = useChatSettings();
@@ -179,6 +181,10 @@ export default function ChatTab() {
   }, [authRequired, clearAuthRequired]);
 
   useEffect(() => {
+    if (authState === "connected") setSignInOpen(false);
+  }, [authState]);
+
+  useEffect(() => {
     if (!notice) return;
     const timer = setTimeout(() => setNotice(null), 2000);
     return () => clearTimeout(timer);
@@ -230,27 +236,6 @@ export default function ChatTab() {
       .catch(() => showNotice("Could not fork chat"));
   };
 
-  if (authState === "checking") {
-    return (
-      <SafeAreaView className="flex-1 bg-background-dark">
-        <View className="flex-1 items-center justify-center">
-          <ActivityIndicator color="#d4d4d8" />
-          <Text className="text-status-gray text-[13px] mt-2.5">
-            Opening Chat…
-          </Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
-  if (authState === "signed-out") {
-    return (
-      <SafeAreaView className="flex-1 bg-background-dark">
-        <AppWebView url={getAppUrl(chatApp)} captureSessionToken />
-      </SafeAreaView>
-    );
-  }
-
   return (
     <SafeAreaView edges={["top"]} className="flex-1 bg-background-dark">
       <View className="flex-row items-center gap-0.5 px-2 py-1.5">
@@ -276,7 +261,36 @@ export default function ChatTab() {
         keyboardVerticalOffset={TAB_BAR_HEIGHT}
         className="flex-1"
       >
-        {chat.historyLoading ? (
+        {authState === "checking" ? (
+          <View className="flex-1 items-center justify-center">
+            <ActivityIndicator color="#d4d4d8" />
+            <Text className="text-status-gray text-[13px] mt-2.5">
+              Opening Chat…
+            </Text>
+          </View>
+        ) : authState === "signed-out" ? (
+          <View className="flex-1 items-center justify-center px-7">
+            <View className="h-14 w-14 items-center justify-center rounded-2xl bg-gray-charcoal">
+              <IconMessageCircle color="#d4d4d8" size={27} strokeWidth={1.7} />
+            </View>
+            <Text className="mt-5 text-center text-2xl font-bold text-foreground">
+              Native Chat
+            </Text>
+            <Text className="mt-2 max-w-[300px] text-center text-[15px] leading-6 text-text-muted">
+              Sign in once to use the native chat experience on your phone.
+            </Text>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Sign in to Chat"
+              onPress={() => setSignInOpen(true)}
+              className="mt-6 min-h-11 items-center justify-center rounded-xl bg-primary px-5 active:opacity-75"
+            >
+              <Text className="text-[14px] font-bold text-background-dark">
+                Sign in
+              </Text>
+            </Pressable>
+          </View>
+        ) : chat.historyLoading ? (
           <View className="flex-1 items-center justify-center">
             <ActivityIndicator color="#d4d4d8" />
           </View>
@@ -366,6 +380,29 @@ export default function ChatTab() {
         onChange={setSettings}
         onClose={() => setSettingsOpen(false)}
       />
+
+      <Modal
+        visible={signInOpen}
+        animationType="slide"
+        onRequestClose={() => setSignInOpen(false)}
+      >
+        <SafeAreaView className="flex-1 bg-background-dark">
+          <View className="flex-row items-center justify-between border-b border-border-dark px-3 py-2">
+            <Text className="px-2 text-[17px] font-bold text-foreground">
+              Sign in to Chat
+            </Text>
+            <HeaderButton
+              label="Close sign in"
+              onPress={() => setSignInOpen(false)}
+            >
+              <Text className="text-[15px] font-semibold text-text-muted">
+                Close
+              </Text>
+            </HeaderButton>
+          </View>
+          <AppWebView url={getAppUrl(chatApp)} captureSessionToken />
+        </SafeAreaView>
+      </Modal>
     </SafeAreaView>
   );
 }

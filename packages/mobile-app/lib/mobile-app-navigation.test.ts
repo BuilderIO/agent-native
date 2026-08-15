@@ -19,7 +19,7 @@ describe("mobile chat-first navigation", () => {
         { id: "calendar" },
         { id: "clips" },
       ]),
-    ).toEqual(["content", "design", "mail"]);
+    ).toEqual(["content", "design", "mail", "calendar"]);
   });
 
   it("fills missing preferred slots with the next registered app", () => {
@@ -43,12 +43,15 @@ describe("mobile chat-first navigation", () => {
     ).toEqual(["design", "mail", "calendar"]);
   });
 
-  it("keeps Chat and More outside the three app slots", () => {
-    expect(MOBILE_BOTTOM_TAB_LIMIT).toBe(3);
+  it("keeps Chat and More outside the four app slots", () => {
+    expect(MOBILE_BOTTOM_TAB_LIMIT).toBe(4);
     expect(
-      toggleMobileTabAppId(["content", "design", "mail"], "calendar"),
+      toggleMobileTabAppId(
+        ["content", "design", "mail", "calendar"],
+        "clips",
+      ),
     ).toEqual({
-      ids: ["content", "design", "mail"],
+      ids: ["content", "design", "mail", "calendar"],
       changed: false,
       limitReached: true,
     });

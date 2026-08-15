@@ -3,14 +3,14 @@
 ## Direction
 
 Mobile uses the same chat-first information architecture in a native form:
-Chat is the leftmost bottom-tab destination, three device-local workspace app
-slots follow it with the shared app colors/icons, and More holds the rest of
+Chat is the leftmost bottom-tab destination, four device-local workspace app
+slots follow it with grayscale icons, and More holds the rest of
 the registry plus native capture/session tools and Settings. Mobile always opens
 in this chat-first shell.
 
 ## Layout contract
 
-- Bottom navigation is Chat + up to three app slots + More. The app slots are
+- Bottom navigation is Chat + up to four app slots + More. The app slots are
   chosen in Settings and default from `CHAT_FIRST_DEFAULT_APP_IDS`.
 - More is the overflow destination for all enabled apps, native tools, and the
   settings surface that manages the bottom-tab selection.

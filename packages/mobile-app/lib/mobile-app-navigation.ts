@@ -24,7 +24,7 @@ export const APP_ID_TO_ROUTE: Record<string, string> = {
   slides: "/slides",
 };
 
-export const MOBILE_BOTTOM_TAB_LIMIT = 3;
+export const MOBILE_BOTTOM_TAB_LIMIT = 4;
 
 export function getAppRoute(appId: string): string {
   return APP_ID_TO_ROUTE[appId] ?? `/app/${appId}`;

@@ -44,35 +44,17 @@ const ICON_MAP: Record<string, AppIconComponent> = {
   Users: IconUsers,
 };
 
-const FALLBACK_APP_COLORS = [
-  "#0EA5E9",
-  "#8B5CF6",
-  "#10B981",
-  "#F59E0B",
-  "#F472B6",
-  "#14B8A6",
-];
-
-function hashForApp(id: string, name: string): number {
-  let hash = 0;
-  for (const character of `${id}:${name}`) {
-    hash = (hash * 31 + character.charCodeAt(0)) | 0;
-  }
-  return Math.abs(hash);
-}
+const APP_ICON_COLOR = "#d4d4d8";
+const APP_ICON_BACKGROUND = "#27272a";
 
 export function appAccentColor(
-  app: Pick<AppConfig, "id" | "name" | "color">,
+  _app: Pick<AppConfig, "id" | "name" | "color">,
 ): string {
-  if (app.color && /^#[0-9a-f]{6}$/i.test(app.color)) return app.color;
-  return FALLBACK_APP_COLORS[
-    hashForApp(app.id, app.name) % FALLBACK_APP_COLORS.length
-  ];
+  return APP_ICON_COLOR;
 }
 
-export function appAccentBackgroundColor(color: string): string {
-  if (!/^#[0-9a-f]{6}$/i.test(color)) return "#27272A";
-  return `${color}24`;
+export function appAccentBackgroundColor(_color: string): string {
+  return APP_ICON_BACKGROUND;
 }
 
 export function AppIcon({

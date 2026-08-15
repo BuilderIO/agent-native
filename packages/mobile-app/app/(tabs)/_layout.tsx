@@ -37,14 +37,6 @@ export default function TabLayout() {
       }}
     >
       <Tabs.Screen
-        name="index"
-        options={{
-          title: "Home",
-          href: null,
-        }}
-      />
-      <Tabs.Screen name="home" options={{ href: null }} />
-      <Tabs.Screen
         name="clips"
         options={{
           title: "Clips",

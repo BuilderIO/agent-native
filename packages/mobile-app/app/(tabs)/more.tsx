@@ -1,6 +1,5 @@
 import {
   IconChevronRight,
-  IconMicrophone,
   IconSettings,
   IconTerminal2,
 } from "@tabler/icons-react-native";
@@ -58,24 +57,11 @@ export default function AppsScreen() {
         <View className="bg-card-dark border border-border-dark rounded-2xl overflow-hidden">
           <Pressable
             accessibilityRole="button"
-            onPress={() => router.push("/home" as never)}
-            className="flex-row items-center px-3.5 py-3.5 border-b border-border-dark active:bg-white/5"
-          >
-            <View className="items-center justify-center bg-accent-green-dim rounded-xl h-10 w-10">
-              <IconMicrophone color="#9ad6b0" size={19} strokeWidth={1.8} />
-            </View>
-            <Text className="text-text-light text-[15px] font-semibold flex-1 ml-3">
-              Capture
-            </Text>
-            <IconChevronRight color="#71717a" size={19} />
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
             onPress={() => router.push("/sessions" as never)}
             className="flex-row items-center px-3.5 py-3.5 active:bg-white/5"
           >
-            <View className="items-center justify-center bg-accent-orange rounded-xl h-10 w-10">
-              <IconTerminal2 color="#0b0b0c" size={19} strokeWidth={1.8} />
+            <View className="items-center justify-center bg-gray-charcoal rounded-xl h-10 w-10">
+              <IconTerminal2 color="#d4d4d8" size={19} strokeWidth={1.8} />
             </View>
             <Text className="text-text-light text-[15px] font-semibold flex-1 ml-3">
               Sessions
@@ -89,7 +75,7 @@ export default function AppsScreen() {
           onPress={() => router.push("/settings" as never)}
           className="items-center bg-card-dark border border-border-dark rounded-2xl flex-row mt-4 p-[14px] active:opacity-75"
         >
-          <View className="items-center bg-accent-green-dim rounded-xl h-[42px] w-[42px] justify-center">
+          <View className="items-center bg-gray-charcoal rounded-xl h-[42px] w-[42px] justify-center">
             <IconSettings color="#d4d4d8" size={20} strokeWidth={1.8} />
           </View>
           <View className="flex-1 ml-3">
