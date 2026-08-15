@@ -14,6 +14,7 @@ export function isTrustedWebViewUrl(
   try {
     return new URL(candidateUrl).origin === trustedOrigin;
   } catch {
+    // coercion-ok: malformed URLs must fail closed and stay inside the WebView.
     return false;
   }
 }
