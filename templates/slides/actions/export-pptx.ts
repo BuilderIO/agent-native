@@ -267,6 +267,7 @@ interface TextElement {
   letterSpacing?: number;
   lineSpacingMultiple?: number;
   runs?: TextRunElement[];
+  rotate?: number; // degrees clockwise
   order?: number;
 }
 
@@ -289,6 +290,7 @@ interface ImageElement {
   y: number;
   w: number;
   h: number;
+  rotate?: number; // degrees clockwise
   order?: number;
 }
 
@@ -307,6 +309,7 @@ interface ShapeElement {
   shapeType?: string;
   rectRadius?: number; // inches; roundRect corner radius
   points?: PptxGenJS.ShapeProps["points"];
+  rotate?: number; // degrees clockwise
   order?: number;
 }
 
@@ -316,6 +319,10 @@ interface TableElement {
   y: number;
   w: number;
   h: number;
+  /** Per-column widths in inches, from the source `a:tblGrid`; absent when the HTML declares none. */
+  colW?: number[];
+  /** Per-row heights in inches, from the source `a:tr/@h`; absent when the HTML declares none. */
+  rowH?: number[];
   order?: number;
 }
 
