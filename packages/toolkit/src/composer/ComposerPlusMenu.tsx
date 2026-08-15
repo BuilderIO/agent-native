@@ -211,6 +211,7 @@ function MenuItemHelp({
           role="img"
           tabIndex={0}
           aria-label={`${label}: ${description}`}
+          onClick={(event) => event.stopPropagation()}
           className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         >
           <IconHelpCircle
@@ -679,11 +680,16 @@ function ComposerPlusMenuFull({
                       )}
                     >
                       <span className="text-muted-foreground">{item.icon}</span>
-                      <span className="min-w-0 truncate text-[12px] font-medium text-foreground">
-                        {item.label}
+                      <span className="flex min-w-0 items-center gap-1.5">
+                        <span className="min-w-0 truncate text-[12px] font-medium text-foreground">
+                          {item.label}
+                        </span>
+                        <MenuItemHelp
+                          label={item.label}
+                          description={item.desc}
+                        />
                       </span>
                     </button>
-                    <MenuItemHelp label={item.label} description={item.desc} />
                     {isSkill && (
                       <span className="me-3 ms-1 text-muted-foreground/60">
                         ›
@@ -714,24 +720,26 @@ function ComposerPlusMenuFull({
                             <span className="text-muted-foreground">
                               <IconBulb className="h-3.5 w-3.5" />
                             </span>
-                            <span className="min-w-0 truncate text-[12px] font-medium text-foreground">
-                              {t("agentChat.composer.skill.createNew", {
-                                defaultValue: "Create new skill",
-                              })}
+                            <span className="flex min-w-0 items-center gap-1.5">
+                              <span className="min-w-0 truncate text-[12px] font-medium text-foreground">
+                                {t("agentChat.composer.skill.createNew", {
+                                  defaultValue: "Create new skill",
+                                })}
+                              </span>
+                              <MenuItemHelp
+                                label={t("agentChat.composer.skill.createNew", {
+                                  defaultValue: "Create new skill",
+                                })}
+                                description={t(
+                                  "agentChat.composer.skill.createDescription",
+                                  {
+                                    defaultValue:
+                                      "Describe a skill and let the agent draft it",
+                                  },
+                                )}
+                              />
                             </span>
                           </button>
-                          <MenuItemHelp
-                            label={t("agentChat.composer.skill.createNew", {
-                              defaultValue: "Create new skill",
-                            })}
-                            description={t(
-                              "agentChat.composer.skill.createDescription",
-                              {
-                                defaultValue:
-                                  "Describe a skill and let the agent draft it",
-                              },
-                            )}
-                          />
                         </div>
                         <div className="flex items-center hover:bg-accent/50">
                           <button
@@ -745,24 +753,29 @@ function ComposerPlusMenuFull({
                             <span className="text-muted-foreground">
                               <IconUpload className="h-3.5 w-3.5" />
                             </span>
-                            <span className="min-w-0 truncate text-[12px] font-medium text-foreground">
-                              {t("agentChat.composer.skill.uploadFile", {
-                                defaultValue: "Upload skill file",
-                              })}
+                            <span className="flex min-w-0 items-center gap-1.5">
+                              <span className="min-w-0 truncate text-[12px] font-medium text-foreground">
+                                {t("agentChat.composer.skill.uploadFile", {
+                                  defaultValue: "Upload skill file",
+                                })}
+                              </span>
+                              <MenuItemHelp
+                                label={t(
+                                  "agentChat.composer.skill.uploadFile",
+                                  {
+                                    defaultValue: "Upload skill file",
+                                  },
+                                )}
+                                description={t(
+                                  "agentChat.composer.skill.uploadDescription",
+                                  {
+                                    defaultValue:
+                                      "Import an existing SKILL.md file",
+                                  },
+                                )}
+                              />
                             </span>
                           </button>
-                          <MenuItemHelp
-                            label={t("agentChat.composer.skill.uploadFile", {
-                              defaultValue: "Upload skill file",
-                            })}
-                            description={t(
-                              "agentChat.composer.skill.uploadDescription",
-                              {
-                                defaultValue:
-                                  "Import an existing SKILL.md file",
-                              },
-                            )}
-                          />
                         </div>
                       </div>
                     )}
