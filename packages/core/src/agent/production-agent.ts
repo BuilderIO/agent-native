@@ -6711,7 +6711,7 @@ export async function runAgentLoop(opts: {
       // the user-visible turn.
       if (opts.ownerEmail) {
         const compactThreadId = opts.threadId;
-        void maybeCompactThread({
+        const compaction = maybeCompactThread({
           threadId: compactThreadId,
           ownerEmail: opts.ownerEmail,
           orgId: opts.orgId ?? null,
@@ -6722,6 +6722,15 @@ export async function runAgentLoop(opts: {
             err instanceof Error ? err.message : String(err),
           );
         });
+        // This pass has to finish a streaming model call before it writes, and
+        // it starts after the turn's `done` event — on a host that freezes the
+        // isolate once the response settles, an unregistered promise is simply
+        // killed, so the thread never accrues the memory that would spare the
+        // next turn. Hand it to the platform keep-alive where there is one;
+        // long-lived hosts keep the existing fire-and-forget behavior.
+        const waitUntil = getRequestRunContext()?.waitUntil;
+        if (waitUntil) waitUntil(compaction);
+        else void compaction;
       }
     }
   }
