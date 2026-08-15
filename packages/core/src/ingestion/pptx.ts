@@ -48,6 +48,10 @@ export interface ParsedPptxElement {
   fill?: string;
   lineColor?: string;
   lineWidth?: number;
+  /** `a:ln/a:headEnd` — the decoration drawn where the line starts. */
+  lineHeadEnd?: ParsedPptxLineEnd;
+  /** `a:ln/a:tailEnd` — the decoration drawn where the line ends. */
+  lineTailEnd?: ParsedPptxLineEnd;
   padding?: {
     left: number;
     right: number;
@@ -58,6 +62,21 @@ export interface ParsedPptxElement {
   paragraphs?: ParsedPptxParagraph[];
   image?: ParsedPptxImage;
   table?: ParsedPptxTable;
+}
+
+/**
+ * One end of a line or connector — the round dots a chevron timeline's
+ * connectors terminate in (`<a:headEnd type="oval"/>`), an arrowhead, a
+ * diamond. Recorded whatever the type, including the ones a consumer cannot
+ * draw, so an end a renderer skips stays distinguishable from a line the
+ * source drew bare and an export can still round-trip it.
+ */
+export interface ParsedPptxLineEnd {
+  /** `@_type`: `none`, `triangle`, `stealth`, `diamond`, `oval`, or `arrow`. */
+  type: string;
+  /** `@_w`/`@_len` — the end's size across and along the line, as `sm`/`med`/`lg` multiples of the line's own width, not absolute units. Absent means the OOXML default (`med`). */
+  w?: string;
+  len?: string;
 }
 
 /** A single `a:path` command, in the path's own `w`/`h` coordinate space. `arcTo` keeps OOXML's radii-and-angles form because converting it needs the current point, which only a consumer walking the whole command list knows. */
@@ -1295,7 +1314,14 @@ async function parseShapeFragment(
         ...(shapeAdjustments ? { shapeAdjustments } : {}),
         ...(geometry ? { geometry } : {}),
         ...(fill ? { fill } : {}),
-        ...(line ? { lineColor: line.color, lineWidth: line.width } : {}),
+        ...(line
+          ? {
+              lineColor: line.color,
+              lineWidth: line.width,
+              lineHeadEnd: line.headEnd,
+              lineTailEnd: line.tailEnd,
+            }
+          : {}),
         ...parseTextBoxProperties(node),
         paragraphs: text,
       },
@@ -1313,7 +1339,14 @@ async function parseShapeFragment(
         ...(shapeAdjustments ? { shapeAdjustments } : {}),
         ...(geometry ? { geometry } : {}),
         ...(fill ? { fill } : {}),
-        ...(line ? { lineColor: line.color, lineWidth: line.width } : {}),
+        ...(line
+          ? {
+              lineColor: line.color,
+              lineWidth: line.width,
+              lineHeadEnd: line.headEnd,
+              lineTailEnd: line.tailEnd,
+            }
+          : {}),
       },
     ];
   }
@@ -2171,16 +2204,34 @@ function parseShapeFill(
 function parseShapeLine(
   shapeProperties: Record<string, unknown> | null,
   context?: ColorContext,
-): { color: string; width?: number } | undefined {
+): {
+  color: string;
+  width?: number;
+  headEnd?: ParsedPptxLineEnd;
+  tailEnd?: ParsedPptxLineEnd;
+} | undefined {
   const line = record(shapeProperties?.["a:ln"]);
   if (!line || line["a:noFill"] !== undefined) return undefined;
   const color = parseColor(record(line["a:solidFill"]), context);
   if (!color) return undefined;
   const width = Number(line["@_w"]);
+  const headEnd = parseLineEnd(line["a:headEnd"]);
+  const tailEnd = parseLineEnd(line["a:tailEnd"]);
   return {
     color,
     ...(Number.isFinite(width) && width > 0 ? { width } : {}),
+    ...(headEnd ? { headEnd } : {}),
+    ...(tailEnd ? { tailEnd } : {}),
   };
+}
+
+function parseLineEnd(node: unknown): ParsedPptxLineEnd | undefined {
+  const end = record(node);
+  const type = stringValue(end?.["@_type"]);
+  if (!type) return undefined;
+  const w = stringValue(end?.["@_w"]);
+  const len = stringValue(end?.["@_len"]);
+  return { type, ...(w ? { w } : {}), ...(len ? { len } : {}) };
 }
 
 /**
