@@ -390,7 +390,7 @@ function ComposerPlusMenuTerminal({
         <PopoverContent
           align="start"
           sideOffset={8}
-          className="w-56 p-1"
+          className="w-56 border-input bg-muted/45 p-1 text-foreground"
           onOpenAutoFocus={(event) => event.preventDefault()}
         >
           <button

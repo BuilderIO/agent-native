@@ -3362,7 +3362,15 @@ function CodeAgentComposer({
         );
       }}
       attachmentsEnabled
-      plusMenuMode={terminalModeControl ? "terminal" : undefined}
+      plusMenuMode={
+        terminalModeControl
+          ? terminalModeControl.enabled
+            ? "terminal"
+            : "full"
+          : terminalAgent
+            ? "upload-only"
+            : undefined
+      }
       terminalModeControl={terminalModeControl}
       voiceEnabled
       preserveDraftOnSubmit={false}
