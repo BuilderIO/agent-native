@@ -101,6 +101,24 @@ export interface ParsedPptxTableCell {
   colSpan?: number;
   rowSpan?: number;
   fill?: string;
+  /** Resolved cell edges. A side is present only when the cell's own `a:tcPr/a:lnL|R|T|B` or the deck table style's `a:tcBdr` draws a line there — a cell the source leaves borderless stays borderless. */
+  borders?: ParsedPptxTableCellBorders;
+}
+
+export interface ParsedPptxTableCellBorders {
+  left?: ParsedPptxTableBorder;
+  right?: ParsedPptxTableBorder;
+  top?: ParsedPptxTableBorder;
+  bottom?: ParsedPptxTableBorder;
+}
+
+/** One resolved table cell edge, from an `a:ln`. */
+export interface ParsedPptxTableBorder {
+  color: string;
+  /** `a:ln/@_w`, in EMU. Absent when the line declares no width. */
+  widthEmu?: number;
+  /** `a:prstDash/@_val`, collapsed onto the CSS border styles that can draw it. Absent for a solid line. */
+  dash?: "dashed" | "dotted";
 }
 
 export type ParsedPptxTransition =
@@ -1247,6 +1265,12 @@ async function parseShapeFragment(
         name,
         kind: "image",
         ...transform,
+        // A picture is painted inside its `p:spPr` geometry, not its bounding
+        // box: dropping the shape here is what turns a portrait cropped to an
+        // `ellipse` frame back into the hard square its box happens to be.
+        shapeType,
+        ...(shapeAdjustments ? { shapeAdjustments } : {}),
+        ...(geometry ? { geometry } : {}),
         image: image.image,
       },
     ];

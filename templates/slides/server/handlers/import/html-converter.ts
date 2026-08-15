@@ -292,7 +292,20 @@ function buildFidelityElement(
   if (element.kind === "image") {
     const url = imageUrlForElement(element, imageUrls);
     const imageStyle = imageRenderStyle(element);
-    return `<div class="fmd-pptx-image" data-pptx-element-kind="image" data-pptx-image-name="${esc(element.image?.name ?? "image")}"${objectId} style="${position}${rotation} overflow: hidden;">${url ? `<img src="${esc(url)}" alt="" style="${imageStyle}" />` : `<div class="fmd-img-placeholder" style="width:100%;height:100%;">Imported image: ${esc(element.image?.name ?? "image")}</div>`}</div>`;
+    // PowerPoint paints a picture inside its shape, so a portrait in an
+    // `ellipse` frame is a circle, not the square its bounding box is. Text
+    // is the one kind that must keep its box — clipping it would eat the
+    // text with the outline.
+    const imagePath = customGeometryPath(element, widthPx, heightPx);
+    const clip = imagePath
+      ? `clip-path: path('${imagePath}');`
+      : geometryCss(
+          element.shapeType,
+          widthPx,
+          heightPx,
+          element.shapeAdjustments,
+        );
+    return `<div class="fmd-pptx-image" data-pptx-element-kind="image" data-pptx-image-name="${esc(element.image?.name ?? "image")}"${objectId} style="${position}${rotation} overflow: hidden;${clip}">${url ? `<img src="${esc(url)}" alt="" style="${imageStyle}" />` : `<div class="fmd-img-placeholder" style="width:100%;height:100%;">Imported image: ${esc(element.image?.name ?? "image")}</div>`}</div>`;
   }
 
   if (element.kind === "table") {
