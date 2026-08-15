@@ -1607,7 +1607,8 @@ function tableStylePartBorder(
       record(record(style?.[`a:${parts[index]}`])?.["a:tcStyle"])?.["a:tcBdr"],
     );
     const declared = record(borderSet?.[side]);
-    if (declared) return parseTableBorderLine(record(declared["a:ln"]), context);
+    if (declared)
+      return parseTableBorderLine(record(declared["a:ln"]), context);
   }
   return undefined;
 }

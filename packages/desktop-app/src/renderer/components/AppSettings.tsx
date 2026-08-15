@@ -73,6 +73,7 @@ const desktopSettingsQueryClient = createAgentNativeQueryClient();
 interface AppSettingsProps {
   apps: AppConfig[];
   onClose: () => void;
+  initialTab?: string;
   onAppsChanged: (apps: AppConfig[]) => void;
   onAddAppClick?: () => void;
   onCodeAgentProvidersChanged?: () => void;
@@ -511,6 +512,7 @@ function SoftwareUpdateCard() {
 export default function AppSettings({
   apps,
   onClose,
+  initialTab,
   onAppsChanged,
   onAddAppClick,
   onCodeAgentProvidersChanged,
@@ -1500,6 +1502,7 @@ export default function AppSettings({
                 extraTabs={settingsTabs}
                 enableSearch
                 searchPlaceholder="Search settings…"
+                defaultTab={initialTab}
                 className="h-full"
                 navClassName="settings-page-tabs-nav"
                 navHeader={

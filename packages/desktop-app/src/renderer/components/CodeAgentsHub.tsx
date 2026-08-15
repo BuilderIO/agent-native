@@ -79,7 +79,6 @@ import {
   IconWorld,
 } from "@tabler/icons-react";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { toast } from "sonner";
 import {
   useCallback,
   useEffect,
@@ -88,6 +87,7 @@ import {
   useState,
   type CSSProperties,
 } from "react";
+import { toast } from "sonner";
 
 import type { DesktopCreateAppResult } from "../../../shared/ipc-channels.js";
 import type {

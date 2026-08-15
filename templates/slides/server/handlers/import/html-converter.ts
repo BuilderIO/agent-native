@@ -823,6 +823,239 @@ function blockArcPath(
   ].join(" ");
 }
 
+/** OOXML's `pin`: a preset's declared adjustment clamped to the range its own guides allow. */
+function pin(min: number, value: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
+}
+
+/**
+ * OOXML angles are 60000ths of a degree, and on an ellipse they are the angle
+ * a ray from the centre actually makes, not the parametric angle whose sine
+ * and cosine give the point. The presets say so themselves: `pie` computes its
+ * arc's endpoints with `cat2`/`sat2`, which is this correction, and those
+ * endpoints must land where its own `arcTo` lands or the slice never closes.
+ * On a circular arc — every arc in the two arrow presets — it is the identity.
+ */
+function ellipseAngle(
+  angle60k: number,
+  radiusX: number,
+  radiusY: number,
+): number {
+  const radians = (angle60k / 60000) * (Math.PI / 180);
+  return Math.atan2(radiusX * Math.sin(radians), radiusY * Math.cos(radians));
+}
+
+/**
+ * Draws one preset outline as an SVG path in the shape's own pixel box. An
+ * OOXML `arcTo` gives radii and a start/sweep angle but neither the centre nor
+ * the end point SVG's `A` needs — the current point is the arc's start, so the
+ * centre is that point walked back along the start angle.
+ *
+ * `flipH`/`flipV` mirror the geometry before the element's CSS rotation runs,
+ * and are folded into the coordinates rather than added to the `transform`,
+ * which would mirror any text the box carries along with its outline.
+ */
+function presetPen(
+  widthPx: number,
+  heightPx: number,
+  flipH?: boolean,
+  flipV?: boolean,
+) {
+  const parts: string[] = [];
+  const toX = (x: number) => round1(flipH ? widthPx - x : x);
+  const toY = (y: number) => round1(flipV ? heightPx - y : y);
+  // A single mirror reverses the direction an arc sweeps in; two cancel out.
+  const mirrored = Boolean(flipH) !== Boolean(flipV);
+  let currentX = 0;
+  let currentY = 0;
+  const emit = (command: string, points: [number, number][]) => {
+    const last = points[points.length - 1]!;
+    currentX = last[0];
+    currentY = last[1];
+    parts.push(
+      `${command}${points.map(([x, y]) => `${toX(x)} ${toY(y)}`).join(" ")}`,
+    );
+  };
+  return {
+    move: (x: number, y: number) => emit("M", [[x, y]]),
+    line: (x: number, y: number) => emit("L", [[x, y]]),
+    cubic: (points: [number, number][]) => emit("C", points),
+    arc: (
+      radiusX: number,
+      radiusY: number,
+      start60k: number,
+      swing60k: number,
+    ) => {
+      const start = ellipseAngle(start60k, radiusX, radiusY);
+      const end = ellipseAngle(start60k + swing60k, radiusX, radiusY);
+      const centerX = currentX - radiusX * Math.cos(start);
+      const centerY = currentY - radiusY * Math.sin(start);
+      currentX = centerX + radiusX * Math.cos(end);
+      currentY = centerY + radiusY * Math.sin(end);
+      const large = Math.abs(swing60k) > 180 * 60000 ? 1 : 0;
+      const sweep = swing60k >= 0 !== mirrored ? 1 : 0;
+      parts.push(
+        `A${round1(radiusX)} ${round1(radiusY)} 0 ${large} ${sweep} ${toX(currentX)} ${toY(currentY)}`,
+      );
+    },
+    close: () => parts.push("Z"),
+    path: () => parts.join(" "),
+  };
+}
+
+/**
+ * Preset geometries whose outline needs an arc or a curve, so no polygon can
+ * state them. Each is OOXML's own `gdLst` and `pathLst` for that preset
+ * evaluated against the shape's box and its `a:avLst` adjustments — a
+ * `uturnArrow`'s shaft width, head width, head length and bend radius all live
+ * there, and a version built from the preset's defaults draws a different
+ * arrow from the one the deck asked for.
+ */
+const PRESET_PATH_GEOMETRIES: Record<
+  string,
+  (
+    pen: ReturnType<typeof presetPen>,
+    w: number,
+    h: number,
+    adj: Record<string, number> | undefined,
+  ) => void
+> = {
+  heart: (pen, w, h) => {
+    // The one preset here with no adjustments at all: two cubics whose control
+    // points sit outside the box on purpose — `hc - dx1` is left of it and
+    // `y1` is a third of the height above it, which is what gives the lobes
+    // their overhang.
+    const hc = w / 2;
+    const quarter = h / 4;
+    const dx1 = (w * 49) / 48;
+    const dx2 = (w * 10) / 48;
+    const y1 = -h / 3;
+    pen.move(hc, quarter);
+    pen.cubic([
+      [hc + dx2, y1],
+      [hc + dx1, quarter],
+      [hc, h],
+    ]);
+    pen.cubic([
+      [hc - dx1, quarter],
+      [hc - dx2, y1],
+      [hc, quarter],
+    ]);
+    pen.close();
+  },
+  pie: (pen, w, h, adj) => {
+    const radiusX = w / 2;
+    const radiusY = h / 2;
+    const startAngle = pin(0, adj?.adj1 ?? 0, 21599999);
+    const endAngle = pin(0, adj?.adj2 ?? 16200000, 21599999);
+    const span = endAngle - startAngle;
+    // OOXML's `?: sw1 sw1 sw2` wraps a backwards slice forward a full turn. A
+    // slice that then closes on itself is a whole disc in PowerPoint but draws
+    // nothing at all in SVG, where the arc's two ends coincide.
+    const swing = Math.min(span > 0 ? span : span + 21600000, 21594000);
+    const start = ellipseAngle(startAngle, radiusX, radiusY);
+    pen.move(
+      radiusX + radiusX * Math.cos(start),
+      radiusY + radiusY * Math.sin(start),
+    );
+    pen.arc(radiusX, radiusY, startAngle, swing);
+    pen.line(radiusX, radiusY);
+    pen.close();
+  },
+  uturnArrow: (pen, w, h, adj) => {
+    // A stadium-shaped arrow: two parallel straight runs joined by a 180°
+    // bend, with the head on the returning run. `adj1` is the shaft width,
+    // `adj2` the half head width, `adj3` the head length, `adj4` the bend
+    // radius and `adj5` how far down the box the head's tip reaches — each a
+    // fraction of the shortest side except `adj5`, which is of the height.
+    const ss = Math.min(w, h);
+    const a2 = pin(0, adj?.adj2 ?? 25000, 25000);
+    const a1 = pin(0, adj?.adj1 ?? 25000, a2 * 2);
+    const a3 = pin(0, adj?.adj3 ?? 25000, ((100000 - (a1 * ss) / h) * h) / ss);
+    const a5 = pin(((a3 + a1) * ss) / h, adj?.adj5 ?? 75000, 100000);
+    const th = (ss * a1) / 100000;
+    const aw2 = (ss * a2) / 100000;
+    const dh2 = aw2 - th / 2;
+    const y5 = (h * a5) / 100000;
+    const y4 = y5 - (ss * a3) / 100000;
+    const x9 = w - dh2;
+    const a4 = pin(0, adj?.adj4 ?? 43750, (Math.min(x9 / 2, y4) * 100000) / ss);
+    const bd = (ss * a4) / 100000;
+    const bd2 = Math.max(bd - th, 0);
+    const x3 = th + bd2;
+    const x8 = w - aw2;
+    const x6 = x8 - aw2;
+    const x7 = x6 + dh2;
+    pen.move(0, h);
+    pen.line(0, bd);
+    pen.arc(bd, bd, 10800000, 5400000);
+    pen.line(x9 - bd, 0);
+    pen.arc(bd, bd, 16200000, 5400000);
+    pen.line(x9, y4);
+    pen.line(w, y4);
+    pen.line(x8, y5);
+    pen.line(x6, y4);
+    pen.line(x7, y4);
+    // Not a mis-copied `y3`: OOXML reuses the guide named `x3` as this
+    // vertical, and it is where the inner bend starts.
+    pen.line(x7, x3);
+    pen.arc(bd2, bd2, 0, -5400000);
+    pen.line(x3, th);
+    pen.arc(bd2, bd2, 16200000, -5400000);
+    pen.line(th, h);
+    pen.close();
+  },
+  bentArrow: (pen, w, h, adj) => {
+    // The same shaft/head/bend adjustments as `uturnArrow`, but one 90° bend
+    // instead of a 180° one: up the left edge, round the corner, right to a
+    // head pointing at the box's right side.
+    const ss = Math.min(w, h);
+    const a2 = pin(0, adj?.adj2 ?? 25000, 50000);
+    const a1 = pin(0, adj?.adj1 ?? 25000, a2 * 2);
+    const a3 = pin(0, adj?.adj3 ?? 25000, 50000);
+    const th = (ss * a1) / 100000;
+    const aw2 = (ss * a2) / 100000;
+    const dh2 = aw2 - th / 2;
+    const ah = (ss * a3) / 100000;
+    const a4 = pin(
+      0,
+      adj?.adj4 ?? 43750,
+      (100000 * Math.min(w - ah, h - dh2)) / ss,
+    );
+    const bd = (ss * a4) / 100000;
+    const bd2 = Math.max(bd - th, 0);
+    const x4 = w - ah;
+    const y3 = dh2 + th;
+    pen.move(0, h);
+    pen.line(0, dh2 + bd);
+    pen.arc(bd, bd, 10800000, 5400000);
+    pen.line(x4, dh2);
+    pen.line(x4, 0);
+    pen.line(w, aw2);
+    pen.line(x4, y3 + dh2);
+    pen.line(x4, y3);
+    pen.line(th + bd2, y3);
+    pen.arc(bd2, bd2, 16200000, -5400000);
+    pen.line(th, h);
+    pen.close();
+  },
+};
+
+function presetGeometryPath(
+  element: ParsedElement,
+  widthPx: number,
+  heightPx: number,
+): string | undefined {
+  const build = element.shapeType
+    ? PRESET_PATH_GEOMETRIES[element.shapeType]
+    : undefined;
+  if (!build) return undefined;
+  if (!(widthPx > 0) || !(heightPx > 0)) return undefined;
+  const pen = presetPen(widthPx, heightPx, element.flipH, element.flipV);
+  build(pen, widthPx, heightPx, element.shapeAdjustments);
+  return pen.path();
+}
+
 /**
  * Reproduce the shape's declared preset geometry. `shapeType` is the only
  * geometry the parser records, so this maps the preset to the CSS that draws
@@ -830,11 +1063,12 @@ function blockArcPath(
  * box happens to be.
  */
 function geometryCss(
-  shapeType: string | undefined,
+  element: ParsedElement,
   widthPx: number,
   heightPx: number,
-  adjustments?: Record<string, number>,
 ): string {
+  const shapeType = element.shapeType;
+  const adjustments = element.shapeAdjustments;
   if (!shapeType) return "";
   const shortest = Math.min(widthPx, heightPx);
   const corner = round3(shortest * DEFAULT_CORNER_ADJUSTMENT);
@@ -887,6 +1121,7 @@ function clippedPresetPath(
     widthPx,
     heightPx,
     Math.min(widthPx, heightPx),
+    adjustments,
   );
   if (!points) return undefined;
   return `${points

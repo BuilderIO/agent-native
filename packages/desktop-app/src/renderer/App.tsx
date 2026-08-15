@@ -31,6 +31,7 @@ export default function App() {
   const [apps, setApps] = useState<AppConfig[]>([]);
   const [loading, setLoading] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
+  const [settingsTab, setSettingsTab] = useState("general");
   const [showAddApp, setShowAddApp] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [activeChatFirstAppId, setActiveChatFirstAppId] = useState("");
@@ -78,6 +79,11 @@ export default function App() {
 
   const handleAppsChanged = useCallback((nextApps: AppConfig[]) => {
     setApps(nextApps);
+  }, []);
+
+  const handleOpenSettings = useCallback((tab?: string) => {
+    setSettingsTab(tab ?? "general");
+    setShowSettings(true);
   }, []);
 
   const handleChatFirstAppSelectionChange = useCallback((appId?: string) => {
@@ -321,7 +327,7 @@ export default function App() {
               chatFirstPreviewStatus={chatFirstPreviewStatus?.state}
               chatFirstPreviewStatusMessage={chatFirstPreviewStatus?.message}
               refreshKey={refreshKey}
-              onOpenSettings={() => setShowSettings(true)}
+              onOpenSettings={handleOpenSettings}
               onCreateApp={() => setShowAddApp(true)}
               onChatFirstAppCreated={handleChatFirstAppCreated}
               onChatFirstAppRemove={(app) => {
@@ -336,7 +342,11 @@ export default function App() {
       {showSettings ? (
         <AppSettings
           apps={apps}
-          onClose={() => setShowSettings(false)}
+          initialTab={settingsTab}
+          onClose={() => {
+            setShowSettings(false);
+            setSettingsTab("general");
+          }}
           onAppsChanged={handleAppsChanged}
           onCodeAgentProvidersChanged={() => setRefreshKey((n) => n + 1)}
           onAddAppClick={() => {

@@ -1018,7 +1018,9 @@ export function materializeClipPathShapes(root: HTMLElement) {
     const overlay = element.firstElementChild;
     // Anything else inside the clip is its own exported object and would be
     // flattened into the bitmap, so leave those shapes to the exporter.
-    if (element.childElementCount > (overlay instanceof SVGSVGElement ? 1 : 0)) {
+    if (
+      element.childElementCount > (overlay instanceof SVGSVGElement ? 1 : 0)
+    ) {
       continue;
     }
 

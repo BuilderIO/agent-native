@@ -311,9 +311,7 @@ export function ComposerPlusMenu({
   }
   if (mode === "terminal" && terminalModeControl) {
     return (
-      <ComposerPlusMenuTerminal
-        terminalModeControl={terminalModeControl}
-      />
+      <ComposerPlusMenuTerminal terminalModeControl={terminalModeControl} />
     );
   }
   return (
@@ -349,8 +347,8 @@ function ComposerPlusMenuTerminal({
           <button
             type="button"
             className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-            aria-label="Terminal and attachment options"
-            title="Terminal and attachment options"
+            aria-label="Terminal options"
+            title="Terminal options"
           >
             <IconPlus className="h-4 w-4" />
           </button>

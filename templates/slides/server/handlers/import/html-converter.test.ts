@@ -769,12 +769,8 @@ describe("convertToSlideHtml paragraph defaults", () => {
         { runs: [{ content: "Latin only", fontSize: 14 }] },
       ]),
     );
-    const rtlParagraph = html.match(
-      /<p data-pptx-paragraph="0"([^>]*)>/,
-    )?.[1];
-    const ltrParagraph = html.match(
-      /<p data-pptx-paragraph="1"([^>]*)>/,
-    )?.[1];
+    const rtlParagraph = html.match(/<p data-pptx-paragraph="0"([^>]*)>/)?.[1];
+    const ltrParagraph = html.match(/<p data-pptx-paragraph="1"([^>]*)>/)?.[1];
     // `dir` is the semantic form; the CSS carries it past sanitizeSlideHtml,
     // whose ALLOWED_ATTRS drops `dir`.
     expect(rtlParagraph).toContain('dir="rtl"');
@@ -792,12 +788,12 @@ describe("convertToSlideHtml paragraph defaults", () => {
         { runs: [] },
       ]),
     );
-    // 14pt -> 14px in this slide's 960px reference box. An 18pt fallback
-    // would reserve 24px for an empty line inside a 14pt box, and every
-    // blank paragraph would push the copy below it further down.
+    // 14pt -> 14px in this slide's 960px reference box, x1.2 single spacing.
+    // An 18pt fallback would reserve 21.6px more for an empty line inside a
+    // 14pt box, and every blank paragraph would push the copy below it down.
     const blank = html.match(/data-pptx-paragraph="1" style="([^"]*)"/)?.[1];
     if (!blank) throw new Error("missing blank paragraph");
     expect(blank).toContain("font-size:14px");
-    expect(blank).toContain("min-height:14px");
+    expect(blank).toContain("min-height:16.8px");
   });
 });
