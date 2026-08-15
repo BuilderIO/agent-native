@@ -194,6 +194,29 @@ interface ParsedCssBorder {
   color: string;
 }
 
+/**
+ * PowerPoint's `a:spcPct val="100000"` is 100% of the font's *natural* line
+ * height, which CSS renders as `line-height: 1.2`, so the importer multiplies a
+ * declared percentage by that ratio. Writing the CSS value back out as `lnSpc`
+ * unchanged applied that correction a second time, and every imported paragraph
+ * came back 20% looser than the source. Neither copy of the constant is
+ * exported — `SINGLE_LINE_SPACING_RATIO` in packages/core/src/ingestion/pptx.ts
+ * and `DEFAULT_LINE_SPACING` in server/handlers/import/html-converter.ts — so
+ * all three have to move together.
+ */
+const SINGLE_LINE_SPACING_RATIO = 1.2;
+
+/** A CSS line-height ratio as the single-spacing multiple `lnSpc` measures. */
+function cssLineHeightToSpacingMultiple(
+  lineHeight: number | undefined,
+): number | undefined {
+  return lineHeight !== undefined &&
+    Number.isFinite(lineHeight) &&
+    lineHeight > 0
+    ? lineHeight / SINGLE_LINE_SPACING_RATIO
+    : undefined;
+}
+
 /** Parse a CSS `border` shorthand. `none`/`hidden` borders yield `undefined`. */
 function parseCssBorder(
   border: string | null | undefined,
@@ -320,6 +343,8 @@ interface ShapeElement {
   lineTransparency?: number; // 0-100, percent transparent
   lineWidth?: number; // in pt
   lineDashType?: NonNullable<PptxGenJS.ShapeLineProps["dashType"]>;
+  lineHeadType?: NonNullable<PptxGenJS.ShapeLineProps["beginArrowType"]>;
+  lineTailType?: NonNullable<PptxGenJS.ShapeLineProps["endArrowType"]>;
   /** A PowerPoint preset geometry name, or `custGeom` when `points` carry a traced outline. */
   shapeType?: string;
   rectRadius?: number; // inches; roundRect corner radius
@@ -591,7 +616,7 @@ export function parseSlideHtml(
         w: contentW,
         h: elHeight + 0.2,
         letterSpacing: letterSpacing ? parseFloat(letterSpacing) : undefined,
-        lineSpacingMultiple: lineH,
+        lineSpacingMultiple: cssLineHeightToSpacingMultiple(lineH),
       });
 
       yPos += elHeight + pxToIn(marginBottom, dims) + 0.1;
@@ -748,6 +773,7 @@ function parseImportedSlideHtml(html: string, dims: SlideDims): ParsedSlide {
       const border = parseCssBorder(getStyle(style, "border"));
       const parsedLine = border ? colorToHex(border.color) : undefined;
       const outline = importedFreeformStroke(innerHtml, dims);
+      const line = importedLineStroke(style, innerHtml, dims);
       shapes.push({
         ...geometry,
         ...(parsedFill
@@ -770,6 +796,9 @@ function parseImportedSlideHtml(html: string, dims: SlideDims): ParsedSlide {
               }
             : {}),
         ...importedShapeGeometry(attrs, style, outline?.path, geometry, dims),
+        // A single-edge border is the importer's own verdict that this box is a
+        // line rather than an outline, so it settles the geometry too.
+        ...line,
         ...(rotate != null ? { rotate } : {}),
         order: match.index,
       });
@@ -818,7 +847,9 @@ function parseImportedSlideHtml(html: string, dims: SlideDims): ParsedSlide {
       bold: runs.length > 0 && runs.every((run) => run.options.bold === true),
       align:
         alignValue === "center" || alignValue === "right" ? alignValue : "left",
-      lineSpacingMultiple: lineHeight ? Number(lineHeight) : undefined,
+      lineSpacingMultiple: cssLineHeightToSpacingMultiple(
+        lineHeight ? Number(lineHeight) : undefined,
+      ),
       x: geometry.x,
       y: geometry.y,
       w: geometry.w,
@@ -996,6 +1027,86 @@ function importedFreeformStroke(
     // hairline outline that rounds to 0pt is an invisible shape.
     width: Math.max(0.5, pxToPt(Number.isFinite(widthPx) ? widthPx : 1, dims)),
   };
+}
+
+/** The line axis each single-edge border the importer writes draws along. */
+const SINGLE_EDGE_BORDER_AXES = {
+  "border-top": "x",
+  "border-left": "y",
+} as const;
+
+/**
+ * The stroke of a `<p:cxnSp>` or a degenerate `<p:sp>` — a box with one
+ * dimension of zero. The importer draws those with a single `border-left` or
+ * `border-top` rather than the `border` shorthand (`strokeDecoration` in
+ * server/handlers/import/html-converter.ts), which `parseCssBorder` above
+ * cannot see, so every connector used to export as a `rect` of `cx="0"` with
+ * `<a:noFill/>` and an empty `<a:ln/>`: no width, no color, no ends, nothing
+ * drawn. Reading the edge the importer actually wrote gives back the real line.
+ */
+function importedLineStroke(
+  style: string,
+  innerHtml: string,
+  dims: SlideDims,
+):
+  | Pick<
+      ShapeElement,
+      | "shapeType"
+      | "lineColor"
+      | "lineTransparency"
+      | "lineWidth"
+      | "lineDashType"
+      | "lineHeadType"
+      | "lineTailType"
+    >
+  | undefined {
+  for (const [property, axis] of Object.entries(SINGLE_EDGE_BORDER_AXES)) {
+    const border = parseCssBorder(getStyle(style, property));
+    if (!border) continue;
+    const color = colorToHex(border.color);
+    return {
+      shapeType: "line",
+      lineColor: color.hex,
+      lineTransparency: color.transparency,
+      // The same 0.5pt floor the outline paths use, for the same reason:
+      // `pxToPt` rounds, and a hairline that rounds to 0pt draws nothing.
+      lineWidth: Math.max(0.5, pxToPt(border.widthPx, dims)),
+      ...(border.dashType ? { lineDashType: border.dashType } : {}),
+      ...importedLineEndTypes(innerHtml, axis),
+    };
+  }
+  return undefined;
+}
+
+/**
+ * The `<a:headEnd>`/`<a:tailEnd>` the importer redraws as absolutely
+ * positioned `<circle>` overlays (`lineEndCaps` in html-converter.ts). It only
+ * ever reproduces `oval`, and it centers the overlay on the line, so a circle
+ * before the viewBox midpoint caps the head and one after it caps the tail —
+ * still true for a flipped source, because the importer swapped the two before
+ * drawing them.
+ */
+function importedLineEndTypes(
+  innerHtml: string,
+  axis: "x" | "y",
+): Pick<ShapeElement, "lineHeadType" | "lineTailType"> {
+  const svg = innerHtml.match(/<svg\b([^>]*)>([\s\S]*?)<\/svg>/i);
+  const viewBox = getAttribute(svg?.[1] ?? "", "viewBox")
+    ?.trim()
+    .split(/[\s,]+/)
+    .map(Number);
+  if (!svg || viewBox?.length !== 4 || !viewBox.every(Number.isFinite)) {
+    return {};
+  }
+  const middle = (axis === "x" ? viewBox[2] : viewBox[3]) / 2;
+  const ends: Pick<ShapeElement, "lineHeadType" | "lineTailType"> = {};
+  for (const circle of svg[2].matchAll(/<circle\b([^>]*)>/gi)) {
+    const along = Number(getAttribute(circle[1], axis === "x" ? "cx" : "cy"));
+    if (!Number.isFinite(along)) continue;
+    if (along < middle) ends.lineHeadType = "oval";
+    else ends.lineTailType = "oval";
+  }
+  return ends;
 }
 
 type CustomGeometryPoint = NonNullable<ShapeElement["points"]>[number];
@@ -2020,6 +2131,12 @@ export default defineAction({
                       width: shape.lineWidth ?? 1,
                       ...(shape.lineDashType
                         ? { dashType: shape.lineDashType }
+                        : {}),
+                      ...(shape.lineHeadType
+                        ? { beginArrowType: shape.lineHeadType }
+                        : {}),
+                      ...(shape.lineTailType
+                        ? { endArrowType: shape.lineTailType }
                         : {}),
                       ...(shape.lineTransparency != null
                         ? { transparency: shape.lineTransparency }
