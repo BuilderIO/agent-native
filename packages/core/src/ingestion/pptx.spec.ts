@@ -596,7 +596,7 @@ describe("parsePptxPresentation", () => {
     expect(paragraph?.lineSpacing).toBeCloseTo(1, 5);
   });
 
-  it("keeps a percent line spacing (a:spcPct) as its own unitless ratio", async () => {
+  it("resolves a percent line spacing (a:spcPct) against single line spacing, not the em size", async () => {
     const presentation = await parsePptxPresentation(
       await buildMinimalPptxBuffer(`
         <p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
@@ -616,7 +616,8 @@ describe("parsePptxPresentation", () => {
     );
 
     const paragraph = presentation.slides[0]?.elements[0]?.paragraphs?.[0];
-    expect(paragraph?.lineSpacing).toBeCloseTo(1.5, 5);
+    // 150% of the font's own line height (~1.2em), not 1.5em.
+    expect(paragraph?.lineSpacing).toBeCloseTo(1.8, 5);
   });
 
   it("clamps an implausibly tight spcPts/font-size ratio instead of rendering overlapping lines", async () => {
@@ -645,6 +646,65 @@ describe("parsePptxPresentation", () => {
 
     const paragraph = presentation.slides[0]?.elements[0]?.paragraphs?.[0];
     expect(paragraph?.lineSpacing).toBeGreaterThanOrEqual(0.8);
+  });
+
+  it("divides an absolute spcPts by the renderer's default font size when the run declares none, instead of emitting the raw point count", async () => {
+    // Without a declared `sz`, html-converter puts DEFAULT_PPTX_FONT_SIZE_PT
+    // (18pt) on the paragraph. Falling through with the raw point count made
+    // an 18pt line spacing read as an 18x ratio, clamped to the 3x ceiling —
+    // a triple-height line box on text that is exactly single-spaced.
+    const presentation = await parsePptxPresentation(
+      await buildMinimalPptxBuffer(`
+        <p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+          <p:cSld><p:spTree>
+            <p:sp>
+              <p:nvSpPr><p:cNvPr id="2" name="Body"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+              <p:spPr/><p:txBody><a:bodyPr/><a:lstStyle/>
+                <a:p>
+                  <a:pPr><a:lnSpc><a:spcPts val="1800"/></a:lnSpc></a:pPr>
+                  <a:r><a:rPr/><a:t>Body</a:t></a:r>
+                </a:p>
+              </p:txBody>
+            </p:sp>
+          </p:spTree></p:cSld>
+        </p:sld>
+      `),
+    );
+
+    const paragraph = presentation.slides[0]?.elements[0]?.paragraphs?.[0];
+    expect(paragraph?.lineSpacing).toBeCloseTo(1, 5);
+  });
+
+  it("reads a right-to-left paragraph's base direction from a:pPr/@rtl", async () => {
+    const presentation = await parsePptxPresentation(
+      await buildMinimalPptxBuffer(`
+        <p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+          <p:cSld><p:spTree>
+            <p:sp>
+              <p:nvSpPr><p:cNvPr id="2" name="Body"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+              <p:spPr/><p:txBody><a:bodyPr/><a:lstStyle/>
+                <a:p>
+                  <a:pPr rtl="1"/>
+                  <a:r><a:rPr sz="1800"/><a:t>مرحبا Builder 2026</a:t></a:r>
+                </a:p>
+                <a:p>
+                  <a:pPr rtl="0"/>
+                  <a:r><a:rPr sz="1800"/><a:t>Latin</a:t></a:r>
+                </a:p>
+                <a:p>
+                  <a:r><a:rPr sz="1800"/><a:t>Inherited</a:t></a:r>
+                </a:p>
+              </p:txBody>
+            </p:sp>
+          </p:spTree></p:cSld>
+        </p:sld>
+      `),
+    );
+
+    const paragraphs = presentation.slides[0]?.elements[0]?.paragraphs;
+    expect(paragraphs?.[0]?.rtl).toBe(true);
+    expect(paragraphs?.[1]?.rtl).toBeUndefined();
+    expect(paragraphs?.[2]?.rtl).toBeUndefined();
   });
 
   it("positions two placeholders missing their own xfrm at their distinct layout-defined positions instead of both landing on the same full-slide fallback box", async () => {
@@ -1172,7 +1232,8 @@ describe("parsePptxPresentation", () => {
 
     const paragraph = presentation.slides[0]?.elements[0]?.paragraphs?.[0];
     expect(paragraph?.runs[0]?.fontSize).toBe(36);
-    expect(paragraph?.lineSpacing).toBe(0.9);
+    // 100% single spacing (1.2) reduced by the 10% PowerPoint already baked in.
+    expect(paragraph?.lineSpacing).toBe(1.08);
   });
 
   it("skips slides the author removed from the deck flow with show=0", async () => {

@@ -216,15 +216,43 @@ describe("convertToSlideHtml table fidelity", () => {
 
   it("does not stamp an invented cell border, and pads cells with the format's own default margins", () => {
     const html = convertToSlideHtml(tableSlide());
-    // A fixed light border is invisible on the white slides these tables
-    // usually sit on and draws a grid the source never declared on dark
-    // ones — the parser reads no `a:tcPr` line properties, so there is
-    // nothing to reproduce.
+    // A border is drawn only where the source declares one. A fixed light
+    // rule is invisible on the white slides these tables usually sit on and
+    // draws a grid the source never had on dark ones.
     expect(html).not.toContain("rgba(255,255,255,0.25)");
-    expect(html).not.toMatch(/<td[^>]*border:/);
+    expect(html).not.toMatch(/<td[^>]*border/);
     // 0.05in top/bottom, 0.1in left/right, scaled by this slide's own
     // canvas: 12192000 EMU -> 960px.
     expect(html).toContain("padding:3.6px 7.2px");
+  });
+
+  it("draws each declared cell edge as its own border-* rule so the grid reads as a table", () => {
+    const slide = tableSlide();
+    const rows = slide.elements[0]?.table?.rows;
+    if (!rows) throw new Error("missing table rows");
+    rows[0][0].borders = {
+      left: { color: "#111111", widthEmu: 19050 },
+      top: { color: "#111111", widthEmu: 19050 },
+      right: { color: "#9E9E9E", widthEmu: 9525 },
+      bottom: { color: "#9E9E9E", widthEmu: 9525, dash: "dashed" },
+    };
+
+    const html = convertToSlideHtml(slide);
+    const cell = html.match(/<td[^>]*>A1/)?.[0];
+    if (!cell) throw new Error("missing A1 cell in rendered table");
+
+    expect(cell).toContain("border-left:1.5px solid #111111;");
+    expect(cell).toContain("border-top:1.5px solid #111111;");
+    // A 0.75pt hairline scales to 0.75px on the reference canvas, which the
+    // browser can round away entirely — the floor keeps the rule visible.
+    expect(cell).toContain("border-right:1px solid #9E9E9E;");
+    expect(cell).toContain("border-bottom:1px dashed #9E9E9E;");
+    // Collapsed borders, or every interior rule doubles against its
+    // neighbour's.
+    expect(html).toContain("border-collapse:collapse");
+    // A cell with no declared edges still gets none, so it yields to its
+    // neighbour's rule instead of erasing it.
+    expect(html.match(/<td[^>]*>Merged/)?.[0]).not.toContain("border");
   });
 });
 

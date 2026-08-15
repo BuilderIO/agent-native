@@ -14,7 +14,7 @@ import {
   addSpeakerNotesToPptxBlob,
   buildDeckPptxBlob,
   exportDeckAsPptx,
-  materializeClipPathShapes,
+  rasterizeClipPathShapes,
   patchBulletIndentsInPptxBlob,
   pptxExportScale,
 } from "./export-pptx-client";
@@ -519,7 +519,7 @@ describe("patchBulletIndentsInPptxBlob", () => {
   });
 });
 
-describe("materializeClipPathShapes", () => {
+describe("rasterizeClipPathShapes", () => {
   function clipped(clipPath: string, inner = "") {
     const element = document.createElement("div");
     element.setAttribute(
@@ -530,64 +530,75 @@ describe("materializeClipPathShapes", () => {
     const root = document.createElement("div");
     root.appendChild(element);
     document.body.appendChild(root);
-    return { root, element };
+    return root;
+  }
+
+  /** The `<svg>` the rasterizer handed to the canvas, read back off the data URL. */
+  function rasterizedSvg(root: HTMLElement) {
+    const src = root.querySelector("img")?.getAttribute("src") ?? "";
+    return decodeURIComponent(src.replace(/^data:image\/svg\+xml;charset=utf-8,/, ""));
   }
 
   afterEach(() => {
     document.body.innerHTML = "";
   });
 
-  it("redraws a freeform clip as a real path, since dom-to-pptx exports the box", () => {
-    const { root, element } = clipped("path('M0 0 L96 0 L0 54 Z')");
+  it("redraws a freeform clip as a real path, since dom-to-pptx exports the box", async () => {
+    const root = clipped("path('M0 0 L96 0 L0 54 Z')");
 
-    materializeClipPathShapes(root);
+    await rasterizeClipPathShapes(root);
 
-    const path = element.querySelector("svg > path");
-    expect(path?.getAttribute("d")).toBe("M0 0 L96 0 L0 54 Z");
-    expect(path?.getAttribute("fill")).toBe("rgb(18, 52, 86)");
-    expect(element.querySelector("svg")?.getAttribute("viewBox")).toBe(
-      "0 0 192 108",
-    );
-    // The clipped box must stop painting, or the rectangle ships underneath.
-    expect(element.style.clipPath).toBe("none");
-    expect(element.style.backgroundColor).toBe("transparent");
+    // The clipped div itself is gone: leaving it behind ships the rectangle
+    // underneath the silhouette.
+    expect(root.querySelector("div")).toBeNull();
+    const svg = rasterizedSvg(root);
+    expect(svg).toContain('d="M0 0 L96 0 L0 54 Z"');
+    expect(svg).toContain('fill="rgb(18, 52, 86)"');
+    expect(svg).toContain('viewBox="0 0 192 108"');
   });
 
-  it("traces a polygon clip through the same path, in the element's pixels", () => {
-    const { root, element } = clipped("polygon(0% 0%, 100% 0%, 50% 100%)");
+  it("traces a polygon clip through the same path, in the element's pixels", async () => {
+    const root = clipped("polygon(0% 0%, 100% 0%, 50% 100%)");
 
-    materializeClipPathShapes(root);
+    await rasterizeClipPathShapes(root);
 
-    expect(element.querySelector("svg > path")?.getAttribute("d")).toBe(
-      "M0 0 L192 0 L96 108 Z",
-    );
+    expect(rasterizedSvg(root)).toContain('d="M 0 0 L 192 0 L 96 108 Z"');
   });
 
-  it("puts the fill under the freeform's own stroke overlay, not in a second image", () => {
-    const { root, element } = clipped(
+  it("keeps a freeform's stroke overlay, which is 211 of the 212 world-map shapes", async () => {
+    const root = clipped(
       "path('M0 0 L96 54 Z')",
-      `<svg viewBox="0 0 192 108"><path d="M0 0 L96 54" fill="none" stroke="#ff0000" /></svg>`,
+      `<svg viewBox="0 0 192 108"><path d="M0 0 L96 54" fill="none" stroke="#ff0000" stroke-width="2" /></svg>`,
     );
 
-    materializeClipPathShapes(root);
+    await rasterizeClipPathShapes(root);
 
-    expect(element.querySelectorAll("svg")).toHaveLength(1);
-    const paths = element.querySelectorAll("svg > path");
-    expect(paths).toHaveLength(2);
-    expect(paths[0]?.getAttribute("fill")).toBe("rgb(18, 52, 86)");
-    expect(paths[1]?.getAttribute("stroke")).toBe("#ff0000");
+    const svg = rasterizedSvg(root);
+    expect(svg).toContain('fill="rgb(18, 52, 86)"');
+    expect(svg).toContain('stroke="#ff0000"');
   });
 
-  it("leaves an unclipped element alone", () => {
+  it("leaves a clipped container's children as their own exported objects", async () => {
+    const root = clipped(
+      "path('M0 0 L96 54 Z')",
+      `<div>a</div><div>b</div>`,
+    );
+
+    await rasterizeClipPathShapes(root);
+
+    expect(root.querySelector("img")).toBeNull();
+    expect(root.querySelectorAll("div")).toHaveLength(3);
+  });
+
+  it("leaves an unclipped element alone", async () => {
     const element = document.createElement("div");
     element.setAttribute("style", "width:192px;height:108px;background:#123456;");
     const root = document.createElement("div");
     root.appendChild(element);
     document.body.appendChild(root);
 
-    materializeClipPathShapes(root);
+    await rasterizeClipPathShapes(root);
 
-    expect(element.querySelector("svg")).toBeNull();
-    expect(element.style.clipPath).toBe("");
+    expect(root.querySelector("img")).toBeNull();
   });
 });

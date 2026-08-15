@@ -8,38 +8,43 @@ import { parsePptx } from "./pptx-parser.js";
 const DIR =
   "/Users/steve/Projects/builder/agent-native/framework/templates/slides/data/uploads/8d88f02d8c4cd6719fac1e81";
 
-async function slideHtml(file: string, oneBased: number) {
-  const parsed = await parsePptx(await readFile(`${DIR}/${file}.pptx`));
-  const slide = parsed.slides[oneBased - 1]!;
-  return { html: convertToSlideHtml(slide, undefined, parsed.theme?.fonts?.[0]), slide };
+const DECKS = [
+  "slidesmania-soze",
+  "slidesmania-canyon",
+  "slidesmania-raven",
+  "slidesmania-infographics-set1",
+  "slidesmania-infographics-set2",
+  "games-fund-game-company-pitch-deck",
+  "nicest-pitch-deck-template",
+  "creandum-board-deck-template",
+  "superteam-brand-guidelines",
+  "creative-circus-brand-style-guide",
+  "posette-keynote-2024",
+];
+
+function count(html: string, needle: RegExp) {
+  return html.match(needle)?.length ?? 0;
 }
 
-function count(html: string, needle: string | RegExp) {
-  const re =
-    typeof needle === "string"
-      ? new RegExp(needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")
-      : needle;
-  return html.match(re)?.length ?? 0;
-}
-
-it("measures", async () => {
-  for (const [file, n] of [
-    ["nicest-pitch-deck-template", 21],
-    ["slidesmania-soze", 2],
-  ] as const) {
-    const { html, slide } = await slideHtml(file, n);
-    console.log(`\n### ${file} slide ${n} — elements=${slide.elements?.length}`);
-    console.log("  fmd-pptx-shape :", count(html, "fmd-pptx-shape"));
-    console.log("  fmd-pptx-image :", count(html, "fmd-pptx-image"));
-    console.log("  fmd-pptx-text  :", count(html, "fmd-pptx-text"));
-    console.log("  <svg           :", count(html, "<svg"));
-    console.log("  clip-path      :", count(html, "clip-path"));
-    console.log("  border-radius  :", count(html, "border-radius"));
-    console.log("  border: Npx    :", count(html, /(?<!-)border: /g));
-    for (const m of html.matchAll(
-      /<div class="fmd-pptx-(?:shape|image)"[^>]*>/g,
-    )) {
-      console.log("   |", m[0].slice(0, 400));
+it("sweeps", async () => {
+  let totalShapedImages = 0;
+  let totalStrokeSvg = 0;
+  for (const file of DECKS) {
+    const parsed = await parsePptx(await readFile(`${DIR}/${file}.pptx`));
+    let shapedImages = 0;
+    let strokeSvg = 0;
+    for (const slide of parsed.slides) {
+      const html = convertToSlideHtml(slide, undefined, parsed.theme?.fonts?.[0]);
+      for (const div of html.matchAll(/<div class="fmd-pptx-image"[^>]*>/g)) {
+        if (/border-radius|clip-path/.test(div[0])) shapedImages++;
+      }
+      strokeSvg += count(html, /<svg/g);
     }
+    totalShapedImages += shapedImages;
+    totalStrokeSvg += strokeSvg;
+    console.log(
+      `${file}: shapedImages=${shapedImages} strokeSvg=${strokeSvg} slides=${parsed.slides.length}`,
+    );
   }
+  console.log(`TOTAL shapedImages=${totalShapedImages} strokeSvg=${totalStrokeSvg}`);
 });

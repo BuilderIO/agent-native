@@ -960,114 +960,96 @@ async function rasterizeSvgElement(
 
 const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
 
-function cssLengthToPx(value: string, basis: number) {
-  const parsed = Number.parseFloat(value);
-  if (!Number.isFinite(parsed)) return Number.NaN;
-  return value.trim().endsWith("%") ? (parsed / 100) * basis : parsed;
-}
-
-/** SVG path data for a `path()` or `polygon()` clip, in the element's own px space. */
-export function clipPathPathData(
+/**
+ * The `d` of a computed `clip-path`, in the element's own pixels. `path()` is
+ * already one; `polygon()` — what the importer draws every preset geometry
+ * with — becomes the equivalent closed path so both take the same route out.
+ */
+function clipPathOutline(
   clipPath: string,
   width: number,
   height: number,
-) {
-  const path = /^path\(\s*(?:\w+\s*,\s*)?["']([^"']+)["']\s*\)/.exec(clipPath);
-  if (path) return path[1];
-
-  const polygon = /^polygon\(\s*(?:\w+\s*,\s*)?([^)]+)\)/.exec(clipPath);
-  if (!polygon) return null;
-
-  const points: string[] = [];
-  for (const pair of polygon[1].split(",")) {
+): string | undefined {
+  const path = clipPath.match(/^path\(\s*["']?([^"')]*)["']?\s*\)$/i)?.[1];
+  if (path) return path;
+  const polygon = clipPath.match(/^polygon\(([^)]*)\)$/i)?.[1];
+  if (!polygon) return undefined;
+  const points = polygon.split(",").map((pair) => {
     const [rawX, rawY] = pair.trim().split(/\s+/);
-    const x = cssLengthToPx(rawX ?? "", width);
-    const y = cssLengthToPx(rawY ?? "", height);
-    // A dropped vertex silently deforms the shape, so give up on the whole
-    // clip instead and leave the element for the exporter to handle.
-    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
-    points.push(`${x} ${y}`);
+    const x = clipPathPixels(rawX, width);
+    const y = clipPathPixels(rawY, height);
+    return x == null || y == null ? null : `${x} ${y}`;
+  });
+  if (points.length < 3 || points.some((point) => point == null)) {
+    return undefined;
   }
-  return points.length > 2 ? `M ${points.join(" L ")} Z` : null;
+  return `M${points.join(" L")} Z`;
+}
+
+function clipPathPixels(raw: string | undefined, side: number) {
+  if (!raw) return undefined;
+  const value = Number.parseFloat(raw);
+  if (!Number.isFinite(value)) return undefined;
+  return raw.endsWith("%") ? (value / 100) * side : value;
 }
 
 /**
- * Imported PPTX freeform shapes are divs whose whole outline lives in a
- * `clip-path`. dom-to-pptx has no custom-geometry surface — it never emits
- * pptxgenjs `points` — so it exports the full element box as a filled
- * `prstGeom="rect"`: infographics slide 5's 405px ring-segment arrows shipped
- * as 5.62in solid squares, and soze slide 12's 212-country world map as a
- * field of blocks. Rasterize the clipped path into an <img> of the same box so
- * the exporter emits a picture with the real silhouette.
+ * dom-to-pptx has no custom-geometry surface — it never emits pptxgenjs
+ * `points`, so a clipped element reaches PowerPoint as the filled rectangle of
+ * its bounding box: infographics slide 5 shipped each 405px ring-segment arrow
+ * as a 5.62in solid square, one of them covering the title. Redraw the clip as
+ * a real path in an <svg> that takes the element's place, so
+ * `replaceInlineSvgsWithImages` below carries the outline across.
  *
- * The server-side `export-pptx` action writes the same outlines as true
- * `custGeom`; this path is bounded by what dom-to-pptx can represent.
+ * The replacement has to *be* the element rather than sit inside it: rotation
+ * is read per node, so an <svg> child of a rotated shape would export
+ * unrotated at the size of its rotated bounding box — bigger than the square
+ * this replaces. Run it after the geometry passes that resolve recorded child
+ * indexes; swapping a node keeps its index, adding one does not.
  */
-export async function rasterizeClipPathShapes(root: HTMLElement) {
+export function materializeClipPathShapes(root: HTMLElement) {
   for (const element of Array.from(root.querySelectorAll<HTMLElement>("*"))) {
-    // A clipped container's children are their own exported objects; only the
-    // leaf shapes can be flattened into a single bitmap. The importer's stroke
-    // overlay is not such a child — it is this same shape's outline, drawn as
-    // an SVG because a `border` cannot follow a freeform edge — so it is
-    // rasterized with the fill rather than blocking it. Every country on the
-    // imported world map carries one.
-    const overlay =
-      element.childElementCount === 1 &&
-      element.firstElementChild instanceof SVGSVGElement
-        ? element.firstElementChild
-        : null;
-    if (
-      (element.childElementCount > 0 && !overlay) ||
-      element.textContent?.trim()
-    ) {
+    const style = window.getComputedStyle(element);
+    const width = computedLength(style.width, 0);
+    const height = computedLength(style.height, 0);
+    if (!(width > 0) || !(height > 0)) continue;
+    const outline = clipPathOutline(style.clipPath, width, height);
+    if (!outline) continue;
+    const overlay = element.firstElementChild;
+    // Anything else inside the clip is its own exported object and would be
+    // flattened into the bitmap, so leave those shapes to the exporter.
+    if (element.childElementCount > (overlay instanceof SVGSVGElement ? 1 : 0)) {
       continue;
     }
 
-    const style = window.getComputedStyle(element);
-    const clipPath = style.clipPath || element.style.clipPath;
-    if (!clipPath || clipPath === "none") continue;
-
-    const width = computedLength(style.width, element.offsetWidth);
-    const height = computedLength(style.height, element.offsetHeight);
-    if (!(width > 0) || !(height > 0)) continue;
-
-    const pathData = clipPathPathData(clipPath, width, height);
-    if (!pathData) continue;
-
     const svg = document.createElementNS(SVG_NAMESPACE, "svg");
-    svg.setAttribute("xmlns", SVG_NAMESPACE);
-    svg.setAttribute("width", `${width}`);
-    svg.setAttribute("height", `${height}`);
     svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+    svg.setAttribute("preserveAspectRatio", "none");
+    svg.style.cssText = element.style.cssText;
+    Object.assign(svg.style, {
+      background: "none",
+      border: "0",
+      clipPath: "none",
+      height: `${height}px`,
+      overflow: "visible",
+      width: `${width}px`,
+    });
+
     const path = document.createElementNS(SVG_NAMESPACE, "path");
-    path.setAttribute("d", pathData);
-    path.setAttribute("fill", style.backgroundColor || "none");
+    path.setAttribute("d", outline);
+    path.setAttribute("fill", style.backgroundColor);
     const strokeWidth = computedLength(style.borderTopWidth, 0);
     if (strokeWidth > 0) {
       path.setAttribute("stroke", style.borderTopColor);
       path.setAttribute("stroke-width", `${strokeWidth}`);
     }
     svg.appendChild(path);
-    // The overlay is authored in this same pixel box, so its strokes need no
-    // transform to land on top of the fill.
-    for (const stroke of Array.from(overlay?.children ?? [])) {
-      svg.appendChild(stroke.cloneNode(true));
+    // The importer's stroke overlay is already in this element's pixel box, so
+    // its strokes belong over the fill rather than in a second image.
+    if (overlay instanceof SVGSVGElement) {
+      svg.append(...Array.from(overlay.childNodes));
     }
-
-    const image = document.createElement("img");
-    image.alt = "";
-    image.src = await rasterizeSvgElement(svg, width, height);
-    image.style.cssText = element.style.cssText;
-    Object.assign(image.style, {
-      background: "none",
-      border: "0",
-      boxSizing: "border-box",
-      clipPath: "none",
-      height: `${height}px`,
-      objectFit: "fill",
-      width: `${width}px`,
-    });
-    element.replaceWith(image);
+    element.replaceWith(svg);
   }
 }
 
@@ -1076,10 +1058,20 @@ async function replaceInlineSvgsWithImages(root: HTMLElement) {
   for (const svg of svgs) {
     const rect = svg.getBoundingClientRect();
     const viewBox = svg.viewBox?.baseVal;
+    const style = window.getComputedStyle(svg);
+    // getBoundingClientRect on a rotated node is the axis-aligned box around
+    // it — 1.41x the real edge on a 45deg shape — and the rotation is carried
+    // onto the <img> below, so measuring it here would apply the angle twice.
     const width =
-      rect.width || Number(svg.getAttribute("width")) || viewBox?.width || 1;
+      computedLength(style.width, rect.width) ||
+      Number(svg.getAttribute("width")) ||
+      viewBox?.width ||
+      1;
     const height =
-      rect.height || Number(svg.getAttribute("height")) || viewBox?.height || 1;
+      computedLength(style.height, rect.height) ||
+      Number(svg.getAttribute("height")) ||
+      viewBox?.height ||
+      1;
     const dataUrl = await rasterizeSvgElement(svg, width, height);
     const img = document.createElement("img");
     const style = window.getComputedStyle(svg);
@@ -1372,7 +1364,7 @@ export async function buildDeckPptxBlob(
       );
       normalizeSingleLineText(clone.element, clone.textGeometry);
       widenNoWrapTextElements(clone.element);
-      await rasterizeClipPathShapes(clone.element);
+      materializeClipPathShapes(clone.element);
       await replaceInlineSvgsWithImages(clone.element);
       await preloadImagesWithCors(clone.element);
       restoreImageGeometry(
