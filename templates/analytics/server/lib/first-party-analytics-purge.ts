@@ -23,8 +23,9 @@ type CountTable =
 
 type CountTimeColumn = "received_at" | "event_date";
 
-const PURGE_BATCH_SIZE = 50_000;
+const PURGE_BATCH_SIZE = 10_000;
 const PURGE_BATCH_TIMEOUT_MS = 60_000;
+const PURGE_COUNT_TIMEOUT_MS = 60_000;
 
 function purgeWhereSql(
   table: CountTable,
@@ -86,7 +87,7 @@ async function countScopedRows(
              ${eventFilter}
              AND ${timeColumn} >= ?`,
     args,
-    timeoutMs: 5_000,
+    timeoutMs: PURGE_COUNT_TIMEOUT_MS,
     maxAttempts: 1,
   });
   const rawCount = (rows[0] as { row_count?: unknown } | undefined)?.row_count;

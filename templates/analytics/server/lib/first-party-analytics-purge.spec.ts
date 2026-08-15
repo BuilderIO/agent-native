@@ -39,7 +39,7 @@ describe("countFirstPartyAnalyticsPostgresRows", () => {
           /FROM analytics_events[\s\S]*event_name IS DISTINCT FROM 'http\.response'/,
         ),
         args: ["org-1", "2026-07-01T00:00:00.000Z"],
-        timeoutMs: 5_000,
+        timeoutMs: 60_000,
         maxAttempts: 1,
       }),
     );
@@ -87,7 +87,7 @@ describe("purgeFirstPartyAnalyticsPostgresRows", () => {
       .mockResolvedValueOnce({ rows: [{ row_count: "5" }] })
       .mockResolvedValueOnce({ rows: [{ row_count: "1" }] })
       .mockResolvedValueOnce({ rows: [{ row_count: "1" }] })
-      .mockResolvedValueOnce({ rows: [], rowsAffected: 50_000 })
+      .mockResolvedValueOnce({ rows: [], rowsAffected: 10_000 })
       .mockResolvedValueOnce({ rows: [], rowsAffected: 1 })
       .mockResolvedValueOnce({ rows: [], rowsAffected: 1 })
       .mockResolvedValueOnce({ rows: [], rowsAffected: 1 });
@@ -103,7 +103,7 @@ describe("purgeFirstPartyAnalyticsPostgresRows", () => {
         sql: expect.stringMatching(
           /WITH candidates[\s\S]*LIMIT \?[\s\S]*DELETE FROM analytics_events/,
         ),
-        args: ["org-1", "2026-07-01T00:00:00.000Z", 50_000],
+        args: ["org-1", "2026-07-01T00:00:00.000Z", 10_000],
         timeoutMs: 60_000,
         maxAttempts: 1,
       }),
