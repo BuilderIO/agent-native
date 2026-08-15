@@ -161,6 +161,24 @@ describe("ConnectBuilderCard", () => {
     );
   });
 
+  it("does not expose local mode for a non-code-change card", () => {
+    Object.defineProperty(window, "electronAPI", {
+      configurable: true,
+      value: { appConfig: {} },
+    });
+
+    act(() => {
+      root.render(
+        <ConnectBuilderCard configured builderEnabled connectUrl="" />,
+      );
+    });
+
+    expect(container.textContent).not.toContain("Do locally");
+    expect(
+      container.querySelector("[data-desktop-local-code-change]"),
+    ).toBeNull();
+  });
+
   it("shows a code-change fallback when Builder Cloud Agents are unavailable", () => {
     act(() => {
       root.render(
