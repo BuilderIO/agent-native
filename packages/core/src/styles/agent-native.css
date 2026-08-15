@@ -744,6 +744,28 @@
   line-height: 1.4rem;
 }
 
+/* Settings rows size themselves from the available content column. The full
+   Settings page can be narrow even on a desktop viewport when its navigation
+   rail and agent sidebar are both open, so viewport breakpoints are not a
+   reliable signal for keeping copy and controls side by side. */
+.agent-native-settings-row {
+  container-type: inline-size;
+  container-name: settings-row;
+}
+
+@container settings-row (min-width: 36rem) {
+  .agent-native-settings-row__layout {
+    align-items: center;
+    flex-direction: row;
+    justify-content: space-between;
+  }
+
+  .agent-native-settings-row__control {
+    margin-inline-start: 1rem;
+    text-align: end;
+  }
+}
+
 /* Composer toolbar: keep the model name + version readable on narrow
    chatfields. The bordered composer box is a size container; below 370px
    wide (e.g. a narrow agent sidebar) we drop the reasoning-level suffix
