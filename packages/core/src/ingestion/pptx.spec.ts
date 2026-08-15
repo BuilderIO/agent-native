@@ -1128,6 +1128,29 @@ describe("parsePptxPresentation", () => {
     expect(presentation.slides.map((slide) => slide.texts[0]?.content)).toEqual(
       ["Kept", "Also kept"],
     );
+    expect(presentation.hiddenSlideCount).toBe(1);
+  });
+
+  it("fails loudly instead of importing short when a p:sldId resolves to no slide part", async () => {
+    await expect(
+      parsePptxPresentation(
+        await buildPptxBufferWithParts({
+          slides: [textSlideXml("Kept"), textSlideXml("Lost")],
+          files: {
+            // The deck still lists both slides, but rId2 is unresolvable — the
+            // shape that used to drop a slide with no error at all.
+            "ppt/_rels/presentation.xml.rels": pptxRelsXml([
+              { id: "rId1", type: "slide", target: "slides/slide1.xml" },
+              {
+                id: "rId3",
+                type: "slideMaster",
+                target: "slideMasters/slideMaster1.xml",
+              },
+            ]),
+          },
+        }),
+      ),
+    ).rejects.toThrow(/expected 2 slides but parsed 1.*rId2/s);
   });
 
   it("keeps a cxnSp connector's authored id stable across imports", async () => {

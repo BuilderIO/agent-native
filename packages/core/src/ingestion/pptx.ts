@@ -418,7 +418,9 @@ export async function parsePptxPresentation(
         (hiddenSlideCount > 0
           ? ` (${hiddenSlideCount} hidden slide${hiddenSlideCount === 1 ? "" : "s"} excluded)`
           : "") +
-        (droppedSlides.length > 0 ? `; dropped: ${droppedSlides.join("; ")}` : ""),
+        (droppedSlides.length > 0
+          ? `; dropped: ${droppedSlides.join("; ")}`
+          : ""),
     );
   }
   const firstSlide = slides[0]?.texts ?? [];
@@ -1214,7 +1216,10 @@ async function parseShapeFragment(
     record(shapeProperties?.["a:prstGeom"])?.["@_prst"],
   );
   const shapeAdjustments = parseShapeAdjustments(shapeProperties);
-  const geometry = parseCustomGeometry(shapeProperties, effectiveLocalTransform);
+  const geometry = parseCustomGeometry(
+    shapeProperties,
+    effectiveLocalTransform,
+  );
 
   if (entry === "pic") {
     const embedId = stringValue(
@@ -1864,7 +1869,11 @@ function readPathCommands(
         node,
         usable
           ? {
-              kind: tag.slice(2) as "moveTo" | "lnTo" | "quadBezTo" | "cubicBezTo",
+              kind: tag.slice(2) as
+                | "moveTo"
+                | "lnTo"
+                | "quadBezTo"
+                | "cubicBezTo",
               points,
             }
           : undefined,
