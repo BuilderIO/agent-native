@@ -43,6 +43,11 @@ import { MentionReference } from "./extensions/MentionReference.js";
 import { SkillReference } from "./extensions/SkillReference.js";
 import { MentionPopover, type MentionPopoverRef } from "./MentionPopover.js";
 import {
+  isClaudeCodeAgentId,
+  isLunaModel,
+  resolvePreferredAgentModel,
+} from "./model-selection.js";
+import {
   createPastedAttachmentFile,
   readClipboardPaste,
   shouldConvertClipboardToAttachment,
@@ -1323,8 +1328,11 @@ function ModelSelector({
   const reasoning = adapters.models?.reasoning;
   const defaultEffort = reasoning?.defaultEffort ?? DEFAULT_REASONING_EFFORT;
   const [open, setOpen] = useState(false);
+  const isClaudeCodeAgent = isClaudeCodeAgentId(selectedAgent);
   const autoModelGroup = showAutoModelOption
-    ? engines.find((group) => group.models.includes("auto"))
+    ? isClaudeCodeAgent
+      ? undefined
+      : engines.find((group) => group.models.includes("auto"))
     : undefined;
   const providerGroups = useMemo(
     () =>
@@ -1342,7 +1350,7 @@ function ModelSelector({
     const hasCodexLocalGroup = providerGroups.some(
       (group) => group.engine === "codex-cli",
     );
-    return providerGroups.flatMap((group) => {
+    const groups = providerGroups.flatMap((group) => {
       if (group.engine === "codex-cli") {
         return isCodexAgent && isOpenAiModelProviderGroup(group) ? [group] : [];
       }
@@ -1365,7 +1373,31 @@ function ModelSelector({
         : group.models.filter(isOpenAiModelId);
       return models.length > 0 ? [{ ...group, models }] : [];
     });
-  }, [isCodexAgent, providerGroups]);
+    if (!isClaudeCodeAgent) return groups;
+    return groups
+      .map((group) => ({
+        ...group,
+        models: group.models.filter((candidate) => !isLunaModel(candidate)),
+      }))
+      .filter((group) => group.models.length > 0);
+  }, [isClaudeCodeAgent, isCodexAgent, providerGroups]);
+  const preferredAgentModel = useMemo(
+    () => resolvePreferredAgentModel(selectedAgent, providerGroups),
+    [providerGroups, selectedAgent],
+  );
+  useEffect(() => {
+    if (!isClaudeCodeAgent || !isLunaModel(model) || !preferredAgentModel) {
+      return;
+    }
+    if (
+      preferredAgentModel.model === model &&
+      preferredAgentModel.engine ===
+        engines.find((group) => group.models.includes(model))?.engine
+    ) {
+      return;
+    }
+    onChange(preferredAgentModel.model, preferredAgentModel.engine);
+  }, [engines, isClaudeCodeAgent, model, onChange, preferredAgentModel]);
   const effortOptions =
     reasoning?.getOptionsForModel?.(model) ??
     getComposerReasoningEffortOptions(model);
@@ -1534,7 +1566,7 @@ function ModelSelector({
                           />
                         </span>
                       </TooltipTrigger>
-                      <TooltipContent side="right" className="max-w-xs">
+                      <TooltipContent side="right" className="z-[400] max-w-xs">
                         <span className="block">
                           {t("agentChat.composer.harnessAgentDescription", {
                             defaultValue:
@@ -1677,7 +1709,7 @@ function ModelSelector({
                                 </TooltipTrigger>
                                 <TooltipContent
                                   side="left"
-                                  className="max-w-xs"
+                                  className="z-[400] max-w-xs"
                                 >
                                   {agent.description}
                                 </TooltipContent>

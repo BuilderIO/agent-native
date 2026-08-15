@@ -28,6 +28,36 @@ import { usePollLoop } from "../use-poll-loop.js";
 import { cn } from "../utils.js";
 
 type AgentRunDto = AgentRun;
+type BackgroundAgentRunDto = {
+  id: string;
+  kind: "code" | "agent-team" | "harness";
+  source: string;
+  sourceLabel?: string;
+  title: string;
+  subtitle?: string;
+  status:
+    | "queued"
+    | "running"
+    | "paused"
+    | "needs-input"
+    | "needs-approval"
+    | "completed"
+    | "errored"
+    | "unknown";
+  phase?: string;
+  goalId: string;
+  needsInput: boolean;
+  needsApproval: boolean;
+  createdAt: string;
+  updatedAt: string;
+  surfaceUrl?: string;
+  metadata?: Record<string, unknown>;
+  sourceRecord?: {
+    threadId?: string;
+    parentThreadId?: string;
+    name?: string;
+  };
+};
 type RunsTrayTriggerVariant = "icon" | "pill";
 const RUN_CHANGE_SETTLE_MS = 250;
 /**
@@ -86,20 +116,54 @@ function useRunsTrayState({
 
   const refresh = useCallback(
     async (signal?: AbortSignal) => {
-      try {
-        const query = new URLSearchParams({ limit: String(limit) });
-        if (!includeRecent) query.set("active", "true");
-        const res = await fetch(
-          agentNativePath(`/_agent-native/runs?${query.toString()}`),
+      const query = new URLSearchParams({ limit: String(limit) });
+      if (!includeRecent) query.set("active", "true");
+      const [legacyResult, backgroundResult] = await Promise.allSettled([
+        fetch(agentNativePath(`/_agent-native/runs?${query.toString()}`), {
+          signal,
+        }),
+        fetch(
+          agentNativePath(
+            `/_agent-native/agent-chat/runs/list?${new URLSearchParams({ limit: String(limit) }).toString()}`,
+          ),
           { signal },
-        );
-        if (!res.ok) return;
-        const rows = (await res.json()) as AgentRunDto[];
-        setRuns(rows);
-      } catch {
-        // coercion-ok: `runs` keeps its last good value rather than being
-        // cleared to an empty tray; the next poll tick retries.
+        ),
+      ]);
+
+      const rows =
+        legacyResult.status === "fulfilled" && legacyResult.value.ok
+          ? ((await legacyResult.value.json()) as AgentRunDto[])
+          : [];
+      const backgroundRows =
+        backgroundResult.status === "fulfilled" && backgroundResult.value.ok
+          ? await backgroundResult.value
+              .json()
+              .then((body) =>
+                Array.isArray(body?.runs)
+                  ? (body.runs as BackgroundAgentRunDto[])
+                  : [],
+              )
+          : [];
+      const hasSuccessfulResponse =
+        (legacyResult.status === "fulfilled" && legacyResult.value.ok) ||
+        (backgroundResult.status === "fulfilled" && backgroundResult.value.ok);
+      if (!hasSuccessfulResponse) {
+        return;
       }
+
+      const merged = new Map<string, AgentRunDto>();
+      for (const row of rows) merged.set(row.id, row);
+      for (const row of backgroundRows) {
+        const normalized = normalizeBackgroundRun(row);
+        if (includeRecent || normalized.status === "running") {
+          merged.set(normalized.id, normalized);
+        }
+      }
+      setRuns(
+        [...merged.values()]
+          .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+          .slice(0, limit),
+      );
     },
     [includeRecent, limit],
   );
@@ -125,7 +189,9 @@ function useRunsTrayState({
 
   const dismissRun = useCallback(
     async (runId: string) => {
+      const existing = runs.find((run) => run.id === runId);
       setRuns((current) => current.filter((run) => run.id !== runId));
+      if (existing && isBackgroundRun(existing)) return;
       try {
         const res = await fetch(
           agentNativePath(`/_agent-native/runs/${runId}`),
@@ -139,7 +205,7 @@ function useRunsTrayState({
         refresh();
       }
     },
-    [refresh],
+    [refresh, runs],
   );
 
   const stopRun = useCallback(
@@ -498,6 +564,47 @@ function RunsTrayContent({
   );
 }
 
+function normalizeBackgroundRun(run: BackgroundAgentRunDto): AgentRunDto {
+  const metadata = run.metadata ?? {};
+  const threadId =
+    run.sourceRecord?.threadId ??
+    (typeof metadata.threadId === "string" ? metadata.threadId : undefined);
+  const status: ProgressStatus =
+    run.status === "errored"
+      ? "failed"
+      : run.status === "queued" ||
+          run.status === "running" ||
+          run.status === "needs-input" ||
+          run.status === "needs-approval"
+        ? "running"
+        : "succeeded";
+  return {
+    id: run.id,
+    owner: "",
+    title: run.title,
+    step: run.needsApproval
+      ? "Needs approval"
+      : (run.subtitle ?? (run.status === "paused" ? "Paused" : run.phase)),
+    percent: null,
+    status,
+    startedAt: run.createdAt,
+    updatedAt: run.updatedAt,
+    completedAt: status === "running" ? null : run.updatedAt,
+    metadata: {
+      ...metadata,
+      kind: run.kind,
+      source: run.source,
+      sourceLabel: run.sourceLabel,
+      backgroundStatus: run.status,
+      backgroundGoalId: run.goalId,
+      needsApproval: run.needsApproval,
+      needsInput: run.needsInput,
+      ...(run.surfaceUrl ? { surfaceUrl: run.surfaceUrl } : {}),
+      ...(threadId ? { threadId } : {}),
+    },
+  };
+}
+
 function getRunThreadId(run: AgentRunDto): string | undefined {
   const metadata = run.metadata ?? {};
   const direct =
@@ -557,6 +664,15 @@ function isAgentTeamRun(run: AgentRunDto): boolean {
   );
 }
 
+function isBackgroundRun(run: AgentRunDto): boolean {
+  return (
+    typeof run.metadata === "object" &&
+    run.metadata !== null &&
+    typeof (run.metadata as Record<string, unknown>).backgroundStatus ===
+      "string"
+  );
+}
+
 function RunRow({
   run,
   onDismiss,
@@ -572,7 +688,7 @@ function RunRow({
   const { formatDate } = useFormatters();
   const threadId = getRunThreadId(run);
   const isRunning = run.status === "running";
-  const canStop = isRunning && isAgentTeamRun(run);
+  const canStop = isRunning && (isAgentTeamRun(run) || isBackgroundRun(run));
 
   return (
     <div className="flex flex-col gap-1.5 px-3 py-2.5 text-sm">

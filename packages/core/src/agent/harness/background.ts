@@ -152,7 +152,7 @@ function toAgentHarnessBackgroundRun(
     },
     title: `${session.harnessName} harness`,
     subtitle: session.status === "running" ? "Running" : undefined,
-    status: backgroundStatus(session.status),
+    status: backgroundStatus(session.status, Boolean(session.pendingApproval)),
     phase: session.status,
     createdAt,
     updatedAt,
@@ -286,12 +286,13 @@ function parseRunEvent(row: {
 
 function backgroundStatus(
   status: AgentHarnessSessionStatus,
+  needsApproval: boolean,
 ): BackgroundAgentRun["status"] {
   if (status === "running") return "running";
   if (status === "errored") return "errored";
-  if (status === "idle" || status === "stopped" || status === "destroyed") {
-    return "completed";
-  }
+  if (needsApproval) return "needs-approval";
+  if (status === "idle") return "paused";
+  if (status === "stopped" || status === "destroyed") return "completed";
   return "unknown";
 }
 

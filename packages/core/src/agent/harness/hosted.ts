@@ -27,7 +27,7 @@ export const HOSTED_HARNESS_AGENT_DESCRIPTIONS: Record<
 
 export const HOSTED_HARNESS_AGENT_LABELS: Record<HostedHarnessRuntime, string> =
   {
-    "claude-code": "Claude Code Agent",
+    "claude-code": "Claude Code",
     codex: "Codex",
     pi: "Pi",
     opencode: "OpenCode",

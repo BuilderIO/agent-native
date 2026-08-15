@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  HOSTED_HARNESS_AGENT_LABELS,
   HOSTED_HARNESS_AGENT_DESCRIPTIONS,
   filterHostedHarnessToolNames,
   hostedHarnessSystemPrompt,
@@ -58,6 +59,7 @@ describe("hosted tools-only harness policy", () => {
   });
 
   it("explains the production boundary for every picker runtime", () => {
+    expect(HOSTED_HARNESS_AGENT_LABELS["claude-code"]).toBe("Claude Code");
     expect(HOSTED_HARNESS_AGENT_DESCRIPTIONS.codex).toContain(
       "Use the Electron app for full coding workflows.",
     );

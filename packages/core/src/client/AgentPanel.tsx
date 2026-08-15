@@ -3298,7 +3298,7 @@ export function AgentSidebar({
         setHostedHarnessRuntime(saved);
       }
     } catch {
-      // The picker falls back to Claude Code Agent when storage is unavailable.
+      // The picker falls back to Claude Code when storage is unavailable.
     }
   }, [hostedHarnessStorageKey]);
 

@@ -23,7 +23,10 @@ import {
 import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import {
   PromptComposer,
+  isClaudeCodeAgentId,
+  isLunaModel,
   readAgentPromptAttachment,
+  resolvePreferredAgentModel,
   type PromptComposerFile,
   type SlashCommand,
   type TiptapComposerHandle,
@@ -3157,11 +3160,19 @@ function CodeAgentComposer({
       }
       selectedEffort={showModelSelector ? normalizedModel.effort : undefined}
       onModelChange={(model, engine) =>
-        onModelSelectionChange({
-          engine,
-          model,
-          effort: normalizedModel.effort,
-        })
+        onModelSelectionChange(
+          isClaudeCodeAgentId(selectedAgent) && isLunaModel(model)
+            ? getCodeAgentSelection(
+                selectedAgent,
+                normalizedModel,
+                modelOptions,
+              )
+            : {
+                engine,
+                model,
+                effort: normalizedModel.effort,
+              },
+        )
       }
       onAgentChange={showModelSelector ? handleAgentChange : undefined}
       onEffortChange={(effort) =>
@@ -3336,10 +3347,26 @@ export function normalizeModelSelection(
   models: CodeAgentModelOption[],
 ): CodeAgentModelSelection {
   const first = models[0] ?? DEFAULT_CODE_AGENT_MODEL_OPTIONS[0];
+  const engineCandidates =
+    value.engine === "claude-cli"
+      ? models.filter(
+          (model) => model.engine === value.engine && !isLunaModel(model.model),
+        )
+      : models;
   const selected =
-    models.find(
+    engineCandidates.find(
       (model) => model.engine === value.engine && model.model === value.model,
-    ) ?? first;
+    ) ??
+    (value.engine === "claude-cli"
+      ? (engineCandidates.find(
+          (model) =>
+            model.configured !== false &&
+            model.model.toLowerCase().includes("sonnet"),
+        ) ??
+        engineCandidates.find((model) => model.configured !== false) ??
+        engineCandidates[0])
+      : first) ??
+    first;
   return {
     engine: selected.engine,
     model: selected.model,
@@ -3382,7 +3409,11 @@ export function getCodeAgentPickerOptions(models: CodeAgentModelOption[]) {
       return { ...agent, configured: true };
     }
 
-    const model = models.find((option) => option.engine === agent.engine);
+    const model = models.find(
+      (option) =>
+        option.engine === agent.engine &&
+        (!isClaudeCodeAgentId(agent.id) || !isLunaModel(option.model)),
+    );
     return {
       ...agent,
       configured: model !== undefined && model.configured !== false,
@@ -3417,8 +3448,24 @@ export function getCodeAgentSelection(
       ? model.engine === engine
       : !CODE_AGENT_LOCAL_ENGINES.has(model.engine),
   );
+  const eligibleCandidates = isClaudeCodeAgentId(agentId)
+    ? candidates.filter((model) => !isLunaModel(model.model))
+    : candidates;
+  const preferredModel = resolvePreferredAgentModel(
+    agentId,
+    eligibleCandidates.map((model) => ({
+      engine: model.engine,
+      models: [model.model],
+      configured: model.configured,
+    })),
+  )?.model;
   const option =
-    candidates.find((model) => model.configured !== false) ?? candidates[0];
+    eligibleCandidates.find(
+      (model) => model.model === preferredModel && model.configured !== false,
+    ) ??
+    eligibleCandidates.find((model) => model.model === preferredModel) ??
+    eligibleCandidates.find((model) => model.configured !== false) ??
+    eligibleCandidates[0];
   if (!option) return current;
   return {
     engine: option.engine,

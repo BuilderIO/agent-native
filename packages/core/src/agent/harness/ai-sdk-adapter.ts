@@ -339,8 +339,11 @@ async function createNativeSession(
   if (options.resumeState && typeof agent.createSession === "function") {
     try {
       return await agent.createSession({ resumeState: options.resumeState });
-    } catch {
-      return agent.createSession();
+    } catch (error) {
+      if (isExplicitlyMissingHarnessSession(error)) {
+        return agent.createSession();
+      }
+      throw error;
     }
   }
   if (typeof agent.createSession !== "function") {
@@ -386,7 +389,9 @@ class AiSdkHarnessSession implements AgentHarnessSession {
     input: AgentHarnessContinueInput = {},
   ): AsyncIterable<AgentHarnessEvent> {
     if (typeof this.agent.continueStream !== "function") {
-      return;
+      throw new Error(
+        "[agent-harness] This runtime cannot continue a harness turn.",
+      );
     }
     const result = await this.agent.continueStream({
       session: this.nativeSession,
@@ -506,4 +511,16 @@ function normalizeFileOperation(
     value === "rename"
     ? value
     : "unknown";
+}
+
+function isExplicitlyMissingHarnessSession(error: unknown): boolean {
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === "string"
+        ? error
+        : "";
+  return /(?:session|conversation).*(?:not found|does not exist|unknown|unsupported)/i.test(
+    message,
+  );
 }
