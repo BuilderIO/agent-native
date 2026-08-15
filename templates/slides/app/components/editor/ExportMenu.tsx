@@ -165,7 +165,10 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
       }
       triggerBlobDownload(
         await res.blob(),
-        filenameFromDisposition(res.headers.get("content-disposition"), ".pptx"),
+        filenameFromDisposition(
+          res.headers.get("content-disposition"),
+          ".pptx",
+        ),
       );
     };
 

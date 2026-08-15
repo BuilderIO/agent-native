@@ -119,11 +119,11 @@ const pptxResponse = () =>
 
 function captureDownloadNames() {
   const names: string[] = [];
-  vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
-    this: HTMLAnchorElement,
-  ) {
-    names.push(this.download);
-  });
+  vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(
+    function (this: HTMLAnchorElement) {
+      names.push(this.download);
+    },
+  );
   return names;
 }
 
@@ -187,6 +187,118 @@ describe("<ExportMenu>", () => {
     await waitFor(() => expect(onExportPptx).toHaveBeenCalledTimes(1));
     expect(fetch).not.toHaveBeenCalled();
     expect(window.open).not.toHaveBeenCalled();
+  });
+
+  it("exports an imported deck through the vector-capable server path", async () => {
+    // dom-to-pptx has no custGeom and rasterizes every shape, so a deck whose
+    // geometry came from the source XML must not go out through the browser.
+    getDeckMock.mockReturnValue(
+      importedDeck([importedSlide(importedShape), importedSlide("")]),
+    );
+    const downloads = captureDownloadNames();
+    vi.mocked(fetch).mockResolvedValue(pptxResponse());
+    const onExportPptx = vi.fn().mockResolvedValue(undefined);
+    renderMenu({ onExportPptx });
+
+    openExportMenu();
+    fireEvent.click(await screen.findByText("Export as PPTX"));
+
+    await waitFor(() => expect(downloads).toEqual(["quarterly-review.pptx"]));
+    expect(fetch).toHaveBeenCalledWith(
+      "/slides/api/exports/pptx",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ deckId: "deck-1" }),
+      }),
+    );
+    // Unflushed edits would be missing from the file the server builds.
+    expect(flushDeckSaveMock).toHaveBeenCalledWith("deck-1");
+    expect(onExportPptx).not.toHaveBeenCalled();
+    expect(toastErrorMock).not.toHaveBeenCalled();
+  });
+
+  it("surfaces the server's positioned-object guard instead of quietly downgrading", async () => {
+    getDeckMock.mockReturnValue(importedDeck([importedSlide(importedShape)]));
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          error:
+            "Slide 3 contains freeform positioned objects. Export this deck from the Slides editor with Export > PowerPoint so browser-rendered geometry is preserved.",
+        }),
+        { status: 500, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    const onExportPptx = vi.fn().mockResolvedValue(undefined);
+    renderMenu({ onExportPptx });
+
+    openExportMenu();
+    fireEvent.click(await screen.findByText("Export as PPTX"));
+
+    await waitFor(() =>
+      expect(toastErrorMock).toHaveBeenCalledWith(
+        "Export failed",
+        expect.objectContaining({
+          description: expect.stringContaining(
+            "contains freeform positioned objects",
+          ),
+        }),
+      ),
+    );
+    expect(onExportPptx).not.toHaveBeenCalled();
+    expect(URL.createObjectURL).not.toHaveBeenCalled();
+  });
+
+  it("keeps the browser path once an imported deck gains editor-authored geometry", async () => {
+    getDeckMock.mockReturnValue(
+      importedDeck([
+        importedSlide(importedShape),
+        importedSlide(importedShape + editorTextBox),
+      ]),
+    );
+    const onExportPptx = vi.fn().mockResolvedValue(undefined);
+    renderMenu({ onExportPptx });
+
+    openExportMenu();
+    fireEvent.click(await screen.findByText("Export as PPTX"));
+
+    await waitFor(() => expect(onExportPptx).toHaveBeenCalledTimes(1));
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("routes only decks the server exporter can render losslessly", () => {
+    const imported = importedDeck([
+      importedSlide(importedShape),
+      importedSlide(importedShape),
+    ]);
+    expect(canExportPptxFromServer(imported)).toBe(true);
+    expect(
+      canExportPptxFromServer({
+        ...imported,
+        slides: [
+          ...imported.slides,
+          // An agent-written slide has no source geometry to preserve, and the
+          // server would render it without the browser's measurements.
+          { id: "new", content: '<div class="fmd-slide"><h1>Added</h1></div>' },
+        ],
+      }),
+    ).toBe(false);
+    expect(
+      canExportPptxFromServer({
+        ...imported,
+        slides: [
+          {
+            id: "s0",
+            content: importedSlide(
+              '<div class="fmd-freeform-object" data-slide-object-id="frozen-1" style="position:absolute;left:10px;top:10px">Frozen block</div>',
+            ),
+          },
+        ],
+      }),
+    ).toBe(false);
+    expect(canExportPptxFromServer({ ...imported, sourceImport: null })).toBe(
+      false,
+    );
+    expect(canExportPptxFromServer(undefined)).toBe(false);
   });
 
   it("renders export actions inline inside a parent menu", async () => {
