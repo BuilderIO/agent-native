@@ -3,11 +3,19 @@
 ## Direction
 
 Mobile uses the same chat-first information architecture in a native form:
-Sessions is the initial landing surface for connecting a laptop, Chat is the
-leftmost bottom-tab destination, four device-local workspace app slots follow it
-with each app's accent color and tinted icon background, and More holds the rest
-of the registry and Settings.
+Chat is the initial landing surface and leftmost bottom-tab destination, with
+Cloud as the default target for workspace-wide conversations. Computer is an
+optional target for a paired laptop, while Sessions remains the connection and
+run-management flow. Four device-local workspace app slots follow Chat with
+each app's accent color and tinted icon background, and More holds the rest of
+the registry and Settings.
 Mobile keeps Chat native while workspace apps remain secure WebView routes.
+
+The product mode is operate: frequent, focused actions on a phone. The visual
+world is ink-and-graphite utility - quiet dark surfaces, crisp white type,
+semantic app accents, compact controls, and generous space around the next
+action. Avoid dense setup dashboards, explanatory hero copy, desktop sidebars,
+and status-chip-heavy empty states.
 
 ## Layout contract
 
