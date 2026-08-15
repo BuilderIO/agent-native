@@ -325,6 +325,10 @@ describe("exportDeckAsPptx", () => {
     expect(exported?.style.width).toBe("405.164px");
     expect(exported?.style.height).toBe("405.164px");
     expect(exported?.style.transform).toBe("rotate(-137.59755deg)");
+    // ...and the angle stays out of the bitmap it is applied to. Serializing
+    // it into the standalone SVG rotated the drawing inside its own viewport
+    // instead: measured on that arrow, 0 painted pixels of 16,313.
+    expect(decodeURIComponent(exported?.src ?? "")).not.toContain("rotate(");
   });
 
   it("bakes an overflow-hidden crop into the exported bitmap", async () => {
