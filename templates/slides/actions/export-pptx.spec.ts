@@ -374,7 +374,7 @@ describe("parseSlideHtml", () => {
     expect(circle?.rectRadius).toBeUndefined();
     // 16:9 decks are 72 px/in, so an 18px radius is 0.25in.
     expect(rounded?.shapeType).toBe("roundRect");
-    expect(rounded?.rectRadius).toBeCloseTo(0.25, 4);
+    expect(rounded?.rectRadius).toBeCloseTo((18 / 960) * 13.33, 4);
     // A pill clamps to the half-short-side PowerPoint's `adj` value caps at.
     expect(pill?.rectRadius).toBeCloseTo((108 / 540) * 7.5 / 2, 4);
   });

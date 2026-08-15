@@ -536,10 +536,20 @@ export function parseSlideHtml(
 
 type SlideDims = ReturnType<typeof getAspectRatioDims>;
 
+/**
+ * The `.fmd-slide` wrapper's inline style. The delimiter has to be captured and
+ * back-referenced: the importer writes `font-family: 'Work Sans', sans-serif`
+ * into a double-quoted attribute, so a naive `[^"']*` body silently truncates
+ * the style at the first font name and hides every declaration after it.
+ */
+function slideWrapperStyle(html: string): string | undefined {
+  return html.match(
+    /class=(["'])[^"']*\bfmd-slide\b[^"']*\1[^>]*\bstyle=(["'])([\s\S]*?)\2/i,
+  )?.[3];
+}
+
 function parseImportedPdfSlideHtml(html: string, dims: SlideDims): ParsedSlide {
-  const outerStyle = html.match(
-    /class=["'][^"']*\bfmd-slide\b[^"']*["'][^>]*style=["']([^"']*)["']/i,
-  )?.[1];
+  const outerStyle = slideWrapperStyle(html);
   const parsedBg = colorToHex(
     outerStyle
       ? (getStyle(outerStyle, "background(?:-color)?") ?? "#000000") // guard:allow-raw-color - imported PDF fallback
@@ -608,9 +618,7 @@ function parseImportedSlideHtml(html: string, dims: SlideDims): ParsedSlide {
   const images: ImageElement[] = [];
   const shapes: ShapeElement[] = [];
   const tables: TableElement[] = [];
-  const outerStyle = html.match(
-    /class=["'][^"']*\bfmd-slide\b[^"']*["'][^>]*style=["']([^"']*)["']/i,
-  )?.[1];
+  const outerStyle = slideWrapperStyle(html);
   const parsedBg =
     cssFillToSolid(
       outerStyle ? getStyle(outerStyle, "background(?:-color)?") : undefined,

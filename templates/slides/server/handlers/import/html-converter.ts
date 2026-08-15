@@ -723,17 +723,10 @@ function geometryCss(
     case "round2DiagRect":
       return `border-radius: ${corner}px 0 ${corner}px 0;`;
   }
-  const points = CLIP_PATH_GEOMETRIES[shapeType]?.(
-    widthPx,
-    heightPx,
-    shortest,
-  );
+  const points = CLIP_PATH_GEOMETRIES[shapeType]?.(widthPx, heightPx, shortest);
   if (!points) return "";
   const polygon = points
-    .map(
-      ([x, y]) =>
-        `${toPercent(x, widthPx)}% ${toPercent(y, heightPx)}%`,
-    )
+    .map(([x, y]) => `${toPercent(x, widthPx)}% ${toPercent(y, heightPx)}%`)
     .join(", ");
   return `clip-path: polygon(${polygon});`;
 }

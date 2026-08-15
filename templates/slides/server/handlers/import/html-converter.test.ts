@@ -227,3 +227,281 @@ describe("convertToSlideHtml table fidelity", () => {
     expect(html).toContain("padding:3.6px 7.2px");
   });
 });
+
+/** One shape on a standard 13.33in x 7.5in widescreen slide (960x540 reference box). */
+function shapeSlide(shape: Partial<ParsedElement>): ParsedSlide {
+  const widthEmu = 12192000;
+  const heightEmu = 6858000;
+  return {
+    texts: [],
+    images: [],
+    elements: [
+      {
+        id: "shape-1",
+        kind: "shape",
+        x: 0,
+        y: 0,
+        width: 1219200,
+        height: 1219200,
+        ...shape,
+      } as ParsedElement,
+    ],
+    widthEmu,
+    heightEmu,
+  };
+}
+
+describe("convertToSlideHtml shape geometry", () => {
+  it("renders an ellipse as a round shape, not a square", () => {
+    const style = styleAttr(
+      convertToSlideHtml(shapeSlide({ shapeType: "ellipse", fill: "#ff0000" })),
+      "shape",
+    );
+    expect(style).toContain("border-radius: 50%");
+    expect(style).toContain("background: #ff0000");
+  });
+
+  it("rounds a roundRect by PowerPoint's own default adjustment, not a fixed 6px", () => {
+    // 1219200 EMU -> 96px; PowerPoint's default roundRect adj is 16.667% of
+    // the shortest side, so a 95x95px card's real radius is ~16px.
+    const style = styleAttr(
+      convertToSlideHtml(shapeSlide({ shapeType: "roundRect" })),
+      "shape",
+    );
+    const radius = Number(style.match(/border-radius: ([\d.]+)px/)?.[1]);
+    expect(radius).toBeCloseTo(96 * 0.16667, 1);
+  });
+
+  it("clips polygonal presets instead of leaving them as their bounding rectangle", () => {
+    for (const shapeType of [
+      "triangle",
+      "rtTriangle",
+      "hexagon",
+      "chevron",
+      "homePlate",
+      "trapezoid",
+      "parallelogram",
+      "downArrow",
+      "rightArrow",
+    ]) {
+      const style = styleAttr(
+        convertToSlideHtml(shapeSlide({ shapeType, fill: "#ff0000" })),
+        "shape",
+      );
+      expect(style, shapeType).toContain("clip-path: polygon(");
+    }
+    const triangle = styleAttr(
+      convertToSlideHtml(shapeSlide({ shapeType: "triangle" })),
+      "shape",
+    );
+    expect(triangle).toContain(
+      "clip-path: polygon(50% 0%, 100% 100%, 0% 100%)",
+    );
+  });
+
+  it("paints nothing for a geometry whose real outline is mostly empty space", () => {
+    // A blockArc ring or a halfFrame L-bracket is over 90% transparent.
+    // Filling its bounding box covers the neighbouring content the real
+    // geometry leaves visible — four concentric rings become one opaque
+    // square over the slide title.
+    for (const shapeType of ["blockArc", "halfFrame", "uturnArrow", "donut"]) {
+      const style = styleAttr(
+        convertToSlideHtml(
+          shapeSlide({ shapeType, fill: "#ff0000", lineColor: "#00ff00" }),
+        ),
+        "shape",
+      );
+      expect(style, shapeType).not.toContain("background:");
+      expect(style, shapeType).not.toContain("solid");
+    }
+  });
+});
+
+describe("convertToSlideHtml stroke geometry", () => {
+  it("draws a zero-height rule as a single edge at its authored weight, not a four-sided border", () => {
+    // A 2.25pt horizontal rule: the `border` shorthand paints the top *and*
+    // bottom edges of the zero-height box, drawing 6px of line instead of 3px
+    // and growing left/right nubs the source never had.
+    const style = styleAttr(
+      convertToSlideHtml(
+        shapeSlide({
+          height: 0,
+          width: 3048000,
+          lineColor: "#595959",
+          lineWidth: 28575,
+        }),
+      ),
+      "shape",
+    );
+    expect(style).toContain("border-top: 2.25px solid #595959");
+    expect(style).not.toMatch(/(?<!-)border: /);
+  });
+
+  it("draws a zero-width rule as a single left edge so it is not longer than authored", () => {
+    const style = styleAttr(
+      convertToSlideHtml(
+        shapeSlide({
+          width: 0,
+          height: 921544,
+          lineColor: "#000000",
+          lineWidth: 19050,
+        }),
+      ),
+      "shape",
+    );
+    expect(style).toContain("border-left: 1.5px solid #000000");
+    expect(style).not.toMatch(/(?<!-)border: /);
+  });
+
+  it("keeps a real four-sided border on a box with both dimensions", () => {
+    const style = styleAttr(
+      convertToSlideHtml(
+        shapeSlide({ lineColor: "#000000", lineWidth: 12700 }),
+      ),
+      "shape",
+    );
+    expect(style).toContain("border: 1px solid #000000");
+  });
+});
+
+describe("convertToSlideHtml font families", () => {
+  it("falls back to the base family for a PowerPoint weight-variant typeface name", () => {
+    const widthEmu = 12192000;
+    const html = convertToSlideHtml({
+      texts: [],
+      images: [],
+      elements: [
+        {
+          id: "text-1",
+          kind: "text",
+          x: 0,
+          y: 0,
+          width: widthEmu,
+          height: 6858000,
+          paragraphs: [
+            {
+              runs: [
+                { content: "Hi", fontSize: 14, fontFamily: "Work Sans Medium" },
+              ],
+            },
+          ],
+        },
+      ],
+      widthEmu,
+      heightEmu: 6858000,
+    });
+    // No webfont registers "Work Sans Medium" as a family, so a raw
+    // pass-through always falls back to sans-serif even when Work Sans is
+    // loaded. The exact name stays first for the deck that really does ship
+    // the variant family.
+    expect(html).toContain(
+      "font-family:'Work Sans Medium', 'Work Sans', sans-serif",
+    );
+    expect(html).toContain("font-weight:500");
+  });
+
+  it("maps a Black typeface name to weight 900 instead of regular", () => {
+    const widthEmu = 12192000;
+    const html = convertToSlideHtml({
+      texts: [],
+      images: [],
+      elements: [
+        {
+          id: "text-1",
+          kind: "text",
+          x: 0,
+          y: 0,
+          width: widthEmu,
+          height: 6858000,
+          paragraphs: [
+            {
+              runs: [
+                { content: "Hi", fontSize: 14, fontFamily: "Roboto Black" },
+              ],
+            },
+          ],
+        },
+      ],
+      widthEmu,
+      heightEmu: 6858000,
+    });
+    expect(html).toContain("font-family:'Roboto Black', 'Roboto', sans-serif");
+    expect(html).toContain("font-weight:900");
+  });
+});
+
+describe("convertToSlideHtml empty slides", () => {
+  it("renders a zero-element slide as its own declared background, not an invented title", () => {
+    // A deliberate full-bleed divider slide has an empty `<p:spTree>`. The
+    // title template invents copy that appears nowhere in the source and
+    // drops the background the slide states explicitly.
+    const html = convertToSlideHtml({
+      texts: [],
+      images: [],
+      elements: [],
+      widthEmu: 12192000,
+      heightEmu: 6858000,
+      backgroundColor: "#242424",
+    });
+    expect(html).not.toContain("Untitled Slide");
+    expect(html).toContain("background: #242424");
+    expect(html).toContain('data-imported-pptx="true"');
+    expect(html).toContain('data-slide-width-emu="12192000"');
+  });
+});
+
+describe("convertToSlideHtml paragraph defaults", () => {
+  function paragraphSlide(
+    paragraphs: ParsedElement["paragraphs"],
+  ): ParsedSlide {
+    const widthEmu = 12192000;
+    return {
+      texts: [],
+      images: [],
+      elements: [
+        {
+          id: "text-1",
+          kind: "text",
+          x: 0,
+          y: 0,
+          width: widthEmu,
+          height: 6858000,
+          paragraphs,
+        },
+      ],
+      widthEmu,
+      heightEmu: 6858000,
+    };
+  }
+
+  it("single-spaces a paragraph that declares no line spacing, matching a declared 100%", () => {
+    const declared = convertToSlideHtml(
+      paragraphSlide([
+        { runs: [{ content: "Hi", fontSize: 14 }], lineSpacing: 1 },
+      ]),
+    );
+    const inherited = convertToSlideHtml(
+      paragraphSlide([{ runs: [{ content: "Hi", fontSize: 14 }] }]),
+    );
+    const lineHeight = (html: string) =>
+      html.match(/line-height:([\d.]+)/)?.[1];
+    expect(lineHeight(inherited)).toBe(lineHeight(declared));
+    expect(lineHeight(inherited)).toBe("1");
+  });
+
+  it("sizes a blank spacer paragraph from its own text box, not the format-wide default", () => {
+    const html = convertToSlideHtml(
+      paragraphSlide([
+        { runs: [{ content: "Body copy", fontSize: 14 }] },
+        { runs: [] },
+      ]),
+    );
+    // 14pt -> 14px in this slide's 960px reference box. An 18pt fallback
+    // would reserve 24px for an empty line inside a 14pt box, and every
+    // blank paragraph would push the copy below it further down.
+    const blank = html.match(/data-pptx-paragraph="1" style="([^"]*)"/)?.[1];
+    if (!blank) throw new Error("missing blank paragraph");
+    expect(blank).toContain("font-size:14px");
+    expect(blank).toContain("min-height:14px");
+  });
+});

@@ -1,7 +1,5 @@
 import { cleanup, render, waitFor } from "@testing-library/react";
 // @vitest-environment happy-dom
-// Imported decks inject a Google Fonts <link>; keep the suite off the network.
-// @vitest-environment-options { "settings": { "disableCSSFileLoading": true } }
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -457,6 +455,8 @@ describe("SlideInner autofit", () => {
 });
 
 describe("imported deck webfonts", () => {
+  const appendedToHead: HTMLElement[] = [];
+
   beforeEach(() => {
     vi.stubGlobal(
       "ResizeObserver",
@@ -473,6 +473,15 @@ describe("imported deck webfonts", () => {
         removeEventListener: () => {},
       },
     });
+    // happy-dom really requests a connected <link rel="stylesheet">, so record
+    // the element instead of connecting it and putting the suite on the network.
+    appendedToHead.length = 0;
+    vi.spyOn(document.head, "appendChild").mockImplementation(((
+      node: HTMLElement,
+    ) => {
+      appendedToHead.push(node);
+      return node;
+    }) as typeof document.head.appendChild);
   });
 
   afterEach(() => {
@@ -535,17 +544,19 @@ describe("imported deck webfonts", () => {
       id: "imported-fonts",
       layout: "blank",
       notes: "",
-      content:
-        `<div class="fmd-slide fmd-imported-pptx" style="font-family: 'Yanone Kaffeesatz', sans-serif;">Brand</div>`,
+      content: `<div class="fmd-slide fmd-imported-pptx" style="font-family: 'Yanone Kaffeesatz', sans-serif;">Brand</div>`,
     };
     render(<SlideInner slide={slide} />);
 
     await waitFor(() => {
       expect(
-        document.head.querySelector(
-          'link[href*="Yanone+Kaffeesatz"][rel="stylesheet"]',
+        appendedToHead.some(
+          (node) =>
+            node instanceof HTMLLinkElement &&
+            node.rel === "stylesheet" &&
+            node.href.includes("Yanone+Kaffeesatz"),
         ),
-      ).not.toBeNull();
+      ).toBe(true);
     });
   });
 });

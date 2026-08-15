@@ -1075,16 +1075,22 @@ async function parseShapeFragment(
       : localTransform;
   const transform = applyTransform(effectiveLocalTransform, args.context);
   const shapeProperties = record(node["p:spPr"]);
-  const rawText = parseTextBody(node, args.colorContext);
-  const placeholderDefaultColor =
+  const rawText = parseTextBody(node, args.colorContext, {
+    relationships: args.slideRelationships,
+    slideNumber: args.slideNumber,
+  });
+  const placeholderRunDefaults =
     placeholder && args.placeholderDefaults
-      ? resolvePlaceholderColorsByLevel({
+      ? resolvePlaceholderRunDefaults({
           type: placeholderType,
           idx: placeholderIdx,
           defaults: args.placeholderDefaults,
         })
       : undefined;
-  const text = applyPlaceholderDefaultColor(rawText, placeholderDefaultColor);
+  const text = applyAutofitScale(
+    applyPlaceholderRunDefaults(rawText, placeholderRunDefaults),
+    record(record(node["p:txBody"])?.["a:bodyPr"]),
+  );
   const fill = parseShapeFill(shapeProperties, args.colorContext);
   const line = parseShapeLine(shapeProperties, args.colorContext);
   const shapeType = stringValue(
@@ -1173,15 +1179,27 @@ function parseGraphicFrameFragment(
     colorContext?: ColorContext;
   },
 ): ParsedPptxElement[] {
-  const transform = applyTransform(
-    transformFromXfrmNode(record(node["p:xfrm"])),
-    args.context,
-  );
   const table = parseGraphicFrameTable(node, args.colorContext);
   if (!table) {
     args.tablesDegraded.count += 1;
     return [];
   }
+  // Google Slides always writes the sentinel `3000000x3000000` into a table
+  // graphicFrame's `<a:ext>`; the authored `<a:tblGrid>`/`<a:tr h>` is the
+  // real geometry, and PowerPoint sizes tables from it too. Trusting the ext
+  // rendered an 88%-wide grid at 33% and perfectly square, wrapping every
+  // header one character per line.
+  const frameTransform = transformFromXfrmNode(record(node["p:xfrm"]));
+  const gridWidth = sumOf(table.columnWidthsEmu);
+  const gridHeight = sumOf(table.rowHeightsEmu);
+  const transform = applyTransform(
+    {
+      ...frameTransform,
+      width: gridWidth ?? frameTransform.width,
+      height: gridHeight ?? frameTransform.height,
+    },
+    args.context,
+  );
   return [
     {
       id: readShapeId(node),
@@ -1390,11 +1408,18 @@ function applyTransform(
   };
 }
 
+/** Everything a run needs beyond color resolution: the part's relationships (for `<a:hlinkClick r:id>`) and this slide's own 1-based number (for `<a:fld type="slidenum">`). */
+interface TextResolutionContext {
+  relationships?: Map<string, { target: string; type: string }>;
+  slideNumber?: number;
+}
+
 function parseTextBody(
   node: Record<string, unknown>,
   context?: ColorContext,
+  text?: TextResolutionContext,
 ): ParsedPptxParagraph[] {
-  return parseTextBodyParagraphs(record(node["p:txBody"]), context);
+  return parseTextBodyParagraphs(record(node["p:txBody"]), context, text);
 }
 
 /** PowerPoint's `buAutoNum` variants (arabicPeriod, alphaLcPeriod, romanUcPeriod, ...) all number the same underlying sequence — approximating every variant with arabic digits keeps list order/grouping correct even though the glyph style doesn't match `type` exactly. */
@@ -1406,6 +1431,7 @@ function formatAutoNumBullet(n: number): string {
 function parseTextBodyParagraphs(
   txBody: Record<string, unknown> | null,
   context?: ColorContext,
+  text?: TextResolutionContext,
 ): ParsedPptxParagraph[] {
   if (!txBody) return [];
   // `a:buAutoNum` carries no explicit number — PowerPoint derives it from
@@ -1423,19 +1449,44 @@ function parseTextBodyParagraphs(
       if (content) {
         runs.push({
           content,
-          ...runProperties(record(run?.["a:rPr"]), {}, context),
+          ...runProperties(
+            record(run?.["a:rPr"]),
+            {},
+            context,
+            text?.relationships,
+          ),
         });
       }
     }
     for (const rawField of asArray(paragraph?.["a:fld"])) {
       const field = record(rawField);
-      const content = innerText(field?.["a:t"]);
+      // A slide-number field caches the authoring tool's placeholder glyph
+      // ("‹#›") in its `<a:t>`; importing that literally puts the glyph on
+      // the slide instead of the number it stands for.
+      const content =
+        stringValue(field?.["@_type"]) === "slidenum" &&
+        text?.slideNumber !== undefined
+          ? String(text.slideNumber)
+          : innerText(field?.["a:t"]);
       if (content) {
         runs.push({
           content,
-          ...runProperties(record(field?.["a:rPr"]), {}, context),
+          ...runProperties(
+            record(field?.["a:rPr"]),
+            {},
+            context,
+            text?.relationships,
+          ),
         });
       }
+    }
+    // `<a:br/>` was rewritten into a bare newline run before parsing, so it
+    // carries none of its neighbours' styling and would otherwise collapse to
+    // the default font size mid-paragraph.
+    for (const [index, run] of runs.entries()) {
+      if (run.content !== "\n" || run.fontSize !== undefined) continue;
+      const source = runs[index - 1] ?? runs[index + 1];
+      if (source) runs[index] = { ...source, content: "\n" };
     }
     const bullet = record(pPr?.["a:buChar"]);
     const bulletColor = parseColor(record(pPr?.["a:buClr"]), context);
@@ -1522,13 +1573,7 @@ function parseShapeFill(
   if (shapeProperties["a:noFill"] !== undefined) return undefined;
   const solid = parseColor(record(shapeProperties["a:solidFill"]), context);
   if (solid) return solid;
-  // A gradient fill (`<a:gradFill>`) has no `a:solidFill` at all — approximate
-  // it with its first stop's resolved color rather than leaving the shape
-  // unfilled, which silently turned every gradient-filled shape transparent.
-  const stops = asArray(
-    record(record(shapeProperties["a:gradFill"])?.["a:gsLst"])?.["a:gs"],
-  );
-  return parseColor(record(stops[0]), context);
+  return parseGradientFill(record(shapeProperties["a:gradFill"]), context);
 }
 
 function parseShapeLine(
@@ -2313,9 +2358,15 @@ function runProperties(
   value: Record<string, unknown> | null,
   inherited: Omit<ParsedPptxTextRun, "content">,
   context?: ColorContext,
+  relationships?: Map<string, { target: string; type: string }>,
 ): Omit<ParsedPptxTextRun, "content"> {
   if (!value) return inherited;
   const size = Number(value["@_sz"]);
+  // `<a:hlinkClick r:id>` points at an external relationship whose Target is
+  // the URL; without it, a deck's own "click here" instructions import as
+  // styled but inert text.
+  const linkId = stringValue(record(value["a:hlinkClick"])?.["@_r:id"]);
+  const href = linkId ? relationships?.get(linkId)?.target : undefined;
   const color = parseColor(record(value["a:solidFill"]), context);
   const fontFamily =
     stringValue(record(value["a:latin"])?.["@_typeface"]) ??
@@ -2333,6 +2384,7 @@ function runProperties(
     ...(color ? { color } : {}),
     ...(fontFamily ? { fontFamily } : {}),
     ...(value["@_u"] && value["@_u"] !== "none" ? { underline: true } : {}),
+    ...(href ? { href } : {}),
   };
 }
 
@@ -2468,6 +2520,12 @@ function positiveAttributeNumber(
 ): number | undefined {
   const parsed = Number(record(value)?.[attribute]);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function sumOf(values: number[] | undefined): number | undefined {
+  if (!values || values.length === 0) return undefined;
+  const total = values.reduce((sum, value) => sum + value, 0);
+  return total > 0 ? total : undefined;
 }
 
 function xmlBoolean(value: unknown): boolean {
