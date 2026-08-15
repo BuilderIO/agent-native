@@ -6458,10 +6458,7 @@ async function createDesktopAppFromPrompt(
   // The target is intentionally empty until the coding agent runs the
   // scaffold command. Start the runner from the framework workspace so the
   // local Codex/Claude CLIs can initialize before they write into the target.
-  // The template CLI creates into its current directory. Running from the
-  // configured apps root keeps the generated checkout beside the path saved
-  // in AppStore, even when Desktop itself is launched outside the repository.
-  const appCreationCwd = appsRoot;
+  const appCreationCwd = resolveRepositoryRoot(appsRoot);
   const runResult = await createCodeAgentRun({
     goalId: "task",
     prompt: agentPrompt,
@@ -6615,10 +6612,14 @@ async function prepareDesktopAppForLocalCodeChange(
     userPrompt: prompt,
     folderName,
     targetPath,
+    appsRoot,
     port,
     existingLocalApp,
   });
-  const appCreationCwd = resolveRepositoryRoot(appsRoot);
+  // The template CLI creates into its current directory. Running from the
+  // configured apps root keeps the generated checkout beside the path saved
+  // in AppStore, even when Desktop itself is launched outside the repository.
+  const appCreationCwd = appsRoot;
   const runResult = await createCodeAgentRun({
     goalId: "task",
     prompt: agentPrompt,

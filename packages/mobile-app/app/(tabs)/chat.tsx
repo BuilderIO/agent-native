@@ -35,7 +35,6 @@ import { MessagesList } from "@/components/chat/MessagesList";
 import {
   MobileWorkspaceControls,
   type ChatTarget,
-  type MobileExecutionTarget,
 } from "@/components/chat/MobileWorkspaceControls";
 import { ThreadHistorySheet } from "@/components/chat/ThreadHistorySheet";
 import { SafeAreaView } from "@/components/uniwind-interop";
@@ -293,6 +292,125 @@ export default function ChatTab() {
     const timer = setTimeout(() => setNotice(null), 2000);
     return () => clearTimeout(timer);
   }, [notice]);
+
+  const selectedRemoteHost = remoteHosts.find(
+    (host) => host.id === selectedRemoteHostId,
+  );
+
+  const refreshRemoteHosts = useCallback(async () => {
+    const result = await listPairedHosts();
+    if (!result.ok) {
+      setRemoteError(result.error ?? "Could not load connected computers.");
+      return;
+    }
+    const hosts = result.data ?? [];
+    setRemoteHosts(hosts);
+    setSelectedRemoteHostId((current) => {
+      if (current && hosts.some((host) => host.id === current)) return current;
+      return (
+        hosts.find((host) => host.status === "online")?.id ?? hosts[0]?.id
+      );
+    });
+    setRemoteError(null);
+  }, []);
+
+  const refreshRemoteTranscript = useCallback(async (runId: string) => {
+    const result = await readRemoteTranscript(runId);
+    if (result.ok) {
+      setRemoteEvents(result.data ?? []);
+      setRemoteError(null);
+    } else {
+      setRemoteError(result.error ?? "Could not load computer chat.");
+    }
+  }, []);
+
+  useEffect(() => {
+    if (authState !== "connected" || chatTarget !== "computer") return;
+    void refreshRemoteHosts();
+  }, [authState, chatTarget, refreshRemoteHosts]);
+
+  useEffect(() => {
+    if (authState !== "connected" || chatTarget !== "computer" || !remoteRun) {
+      return;
+    }
+    void refreshRemoteTranscript(remoteRun.id);
+    const interval = setInterval(() => {
+      void refreshRemoteTranscript(remoteRun.id);
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [authState, chatTarget, refreshRemoteTranscript, remoteRun]);
+
+  const handleRemoteSend = useCallback(
+    (text: string) => {
+      const prompt = text.trim();
+      if (!prompt || remoteSending) return;
+      if (!selectedRemoteHostId) {
+        setNotice("Connect a computer first");
+        router.push("/sessions" as never);
+        return;
+      }
+
+      void (async () => {
+        setRemoteSending(true);
+        setRemoteError(null);
+        const result =
+          remoteRun && isRemoteRunActive(remoteRun)
+            ? await appendRemoteFollowUp({
+                runId: remoteRun.id,
+                hostId: selectedRemoteHostId,
+                prompt,
+                followUpMode: "immediate",
+              })
+            : await createRemoteRun({
+                prompt,
+                hostId: selectedRemoteHostId,
+                permissionMode: "ask-before-edit",
+                engine: settings.engine,
+                model: settings.model,
+                effort: settings.effort,
+              });
+
+        if (!result.ok) {
+          if (result.status === 401) setAuthState("signed-out");
+          setRemoteError(result.error ?? "Could not reach the computer.");
+          setRemoteSending(false);
+          return;
+        }
+
+        const nextRun = result.data?.run ?? remoteRun;
+        if (nextRun) {
+          setRemoteRun(nextRun);
+          await refreshRemoteTranscript(nextRun.id);
+        }
+        if (result.data?.event) {
+          setRemoteEvents((current) => [
+            ...current.filter((event) => event.id !== result.data?.event?.id),
+            result.data.event!,
+          ]);
+        }
+        setRemoteSending(false);
+      })().catch(() => {
+        setRemoteError("Could not reach the computer.");
+        setRemoteSending(false);
+      });
+    },
+    [
+      remoteRun,
+      remoteSending,
+      refreshRemoteTranscript,
+      router,
+      selectedRemoteHostId,
+      settings.engine,
+      settings.effort,
+      settings.model,
+    ],
+  );
+
+  const handleRemoteStop = useCallback(() => {
+    if (!remoteRun) return;
+    setRemoteSending(false);
+    void stopRemoteRun(remoteRun.id, selectedRemoteHostId).catch(() => {});
+  }, [remoteRun, selectedRemoteHostId]);
 
   const showNotice = (message: string) => setNotice(message);
 
