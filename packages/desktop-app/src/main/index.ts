@@ -90,6 +90,8 @@ import {
   type DesktopAppRuntimeStatus,
   type DesktopCreateAppRequest,
   type DesktopCreateAppResult,
+  type DesktopPrepareLocalCodeChangeRequest,
+  type DesktopPrepareLocalCodeChangeResult,
   type DesktopShortcutActivationRequest,
   type DesktopShortcutSettings,
   type DesktopShortcutUpdateResult,
@@ -6319,6 +6321,22 @@ function nextDesktopManagedAppPort(apps: AppConfig[]): number {
   return 6000 + Math.floor(Math.random() * 1000);
 }
 
+function preferredDesktopManagedAppPort(
+  apps: AppConfig[],
+  appId: string,
+  preferredPort: number,
+): number {
+  const used = new Set(
+    apps
+      .filter((candidate) => candidate.id !== appId)
+      .map((candidate) => candidate.devPort)
+      .filter((port) => Number.isInteger(port) && port > 0),
+  );
+  return Number.isInteger(preferredPort) && preferredPort > 0 && !used.has(preferredPort)
+    ? preferredPort
+    : nextDesktopManagedAppPort(apps);
+}
+
 function buildDesktopCreateAppAgentPrompt(input: {
   userPrompt: string;
   folderName: string;
@@ -6337,6 +6355,39 @@ function buildDesktopCreateAppAgentPrompt(input: {
     additionalInstructions: [
       `The Desktop shell will run the app on port ${input.port}; do not leave a long-running dev server running yourself.`,
       "Use production-quality behavior by default. Keep local development conveniences out of the shipped app unless the user is actively editing it.",
+    ],
+  });
+}
+
+function buildDesktopLocalCodeChangeAgentPrompt(input: {
+  sourceTemplate: string;
+  userPrompt: string;
+  folderName: string;
+  targetPath: string;
+  port: number;
+  existingLocalApp: boolean;
+}): string {
+  const scaffoldCommand = input.existingLocalApp
+    ? `The local app already exists at ${input.targetPath}. Do not scaffold a second app. Work only inside that folder.`
+    : `Run this non-interactive scaffold command from the current directory, then work only inside ${input.targetPath}:\nnpx --yes @agent-native/core@latest create ${input.folderName} --standalone --template ${input.sourceTemplate}`;
+  return buildChatFirstAppCreationPrompt({
+    appId: input.sourceTemplate,
+    prompt: input.userPrompt,
+    selectedKeys: [],
+    selectedResources: [],
+    vaultAccessMode: "all-apps",
+    appRoot: input.targetPath,
+    mountPath: "/",
+    scaffoldCommand,
+    additionalInstructions: [
+      "This is an explicit request to customize a first-party template locally. The user chose local development from the Desktop app.",
+      `The source template is ${input.sourceTemplate}. Preserve its app identity and behavior unless the user's request changes them.`,
+      input.existingLocalApp
+        ? `Start by running pnpm install from ${input.targetPath} if dependencies are missing or stale.`
+        : `After scaffolding, run pnpm install from ${input.targetPath} before making the requested code changes.`,
+      "Never edit a hosted or production checkout. This local folder is the only source you may modify for this request; leave the production URL and deployment configuration untouched.",
+      `The Desktop shell will run the local app on port ${input.port}; do not leave a long-running dev server running yourself.`,
+      "Keep local-only setup in the local clone. Do not add development shortcuts or fake data to the production-facing app behavior unless the user explicitly asks for them.",
     ],
   });
 }
@@ -6462,6 +6513,151 @@ async function createDesktopAppFromPrompt(
     app: appConfig,
     run: runResult.run,
     message: `Building ${appConfig.name}.`,
+  };
+}
+
+async function prepareDesktopAppForLocalCodeChange(
+  input: DesktopPrepareLocalCodeChangeRequest,
+): Promise<DesktopPrepareLocalCodeChangeResult> {
+  const prompt = typeof input?.prompt === "string" ? input.prompt.trim() : "";
+  const appId = typeof input?.appId === "string" ? input.appId.trim() : "";
+  const currentApps = AppStore.loadApps();
+  const appConfig = currentApps.find((candidate) => candidate.id === appId);
+  if (!appConfig) {
+    return {
+      ok: false,
+      apps: currentApps,
+      message: "That app is no longer available in Desktop.",
+      error: "Unknown app.",
+    };
+  }
+  if (!prompt) {
+    return {
+      ok: false,
+      apps: currentApps,
+      message: "Describe the code change you want to make.",
+      error: "Missing prompt.",
+    };
+  }
+  if (prompt.length > 8_000) {
+    return {
+      ok: false,
+      apps: currentApps,
+      message: "Keep the code-change prompt under 8,000 characters.",
+      error: "Prompt is too long.",
+    };
+  }
+
+  const template = getTemplate(appId);
+  const existingLocalPath = resolveUsableDirectory(appConfig.localPath);
+  const existingLocalApp = Boolean(
+    existingLocalPath && fs.existsSync(path.join(existingLocalPath, "package.json")),
+  );
+  if (!template && !existingLocalApp) {
+    return {
+      ok: false,
+      apps: currentApps,
+      message: "This app does not have a local template to clone yet.",
+      error: "No local template.",
+    };
+  }
+
+  const appsRoot = normalizeDesktopAppsRoot(
+    AppStore.loadDesktopAppPreferences().appsRoot,
+  );
+  if (!appsRoot) {
+    return {
+      ok: false,
+      apps: currentApps,
+      message: "Choose a valid folder for local apps in Desktop settings.",
+      error: "Invalid apps folder.",
+    };
+  }
+
+  let targetPath = existingLocalApp ? existingLocalPath : "";
+  let folderName = targetPath ? path.basename(targetPath) : "";
+  if (!targetPath) {
+    try {
+      fs.mkdirSync(appsRoot, { recursive: true });
+      AppStore.saveDesktopAppPreferences({ appsRoot });
+    } catch (err) {
+      return {
+        ok: false,
+        apps: currentApps,
+        message: "Desktop could not prepare the local apps folder.",
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+    const folder = uniqueDesktopAppFolder(appsRoot, `${appId}-local`);
+    targetPath = folder.path;
+    folderName = folder.name;
+  }
+
+  const sourceTemplate = template?.name ?? appId;
+  const port = preferredDesktopManagedAppPort(
+    currentApps,
+    appId,
+    appConfig.devPort || template?.devPort || 5173,
+  );
+  const agentPrompt = buildDesktopLocalCodeChangeAgentPrompt({
+    sourceTemplate,
+    userPrompt: prompt,
+    folderName,
+    targetPath,
+    port,
+    existingLocalApp,
+  });
+  const appCreationCwd = resolveRepositoryRoot(appsRoot);
+  const runResult = await createCodeAgentRun({
+    goalId: "task",
+    prompt: agentPrompt,
+    cwd: appCreationCwd,
+    permissionMode: "full-auto",
+    metadata: {
+      kind: "desktop-local-code-change",
+      appId,
+      sourceTemplate,
+      appPath: targetPath,
+      userPrompt: prompt,
+    },
+  });
+  if (!runResult.ok || !runResult.run) {
+    return {
+      ok: false,
+      apps: currentApps,
+      message: runResult.message,
+      error: runResult.error,
+    };
+  }
+
+  const apps = AppStore.updateApp(appId, {
+    mode: "dev",
+    devPort: port,
+    devUrl: `http://localhost:${port}`,
+    devCommand: `pnpm exec agent-native dev --port ${port} --host 127.0.0.1`,
+    localPath: targetPath,
+  });
+  const updatedApp = apps.find((candidate) => candidate.id === appId);
+  if (!updatedApp) {
+    return {
+      ok: false,
+      apps: currentApps,
+      message: "Desktop could not save the local app configuration.",
+      error: "App disappeared while preparing local code change.",
+    };
+  }
+
+  AppStore.markDesktopManagedApp(appId, appsRoot);
+  if (activeAppId === appId) {
+    setManagedDesktopAppDemand(appId, "active-app", true);
+  }
+  refreshDesktopShortcutBindings();
+  return {
+    ok: true,
+    apps,
+    app: updatedApp,
+    run: runResult.run,
+    message: `Preparing ${updatedApp.name} locally.`,
   };
 }
 
@@ -9632,6 +9828,7 @@ registerAppsIpc({
   desktopAppCreationSettings,
   normalizeDesktopAppsRoot,
   createDesktopAppFromPrompt,
+  prepareDesktopAppForLocalCodeChange,
   showDesktopAppContextMenu,
 });
 
