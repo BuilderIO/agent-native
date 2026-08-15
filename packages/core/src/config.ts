@@ -77,6 +77,23 @@ export interface AgentNativeChangelogConfig {
   enabled?: boolean;
 }
 
+export type AgentNativeHarnessRuntime =
+  | "claude-code"
+  | "codex"
+  | "pi"
+  | "opencode";
+
+export type AgentNativeHarnessUi = "default" | "desktop";
+
+export interface AgentNativeHarnessConfig {
+  /** Declare that this app can expose the hosted, tools-only harness UI. */
+  enabled?: boolean;
+  /** Hosted harness labels shown in the agent picker. */
+  runtimes?: AgentNativeHarnessRuntime[];
+  /** Use the Electron-style left rail and always-open chat surface. */
+  ui?: AgentNativeHarnessUi;
+}
+
 export interface AgentNativeConfig {
   version?: typeof AGENT_NATIVE_CONFIG_VERSION;
   onboarding?: AgentNativeOnboardingConfig;
@@ -85,6 +102,7 @@ export interface AgentNativeConfig {
   instructions?: AgentNativeInstructionsConfig;
   translations?: AgentNativeTranslationsConfig;
   changelog?: AgentNativeChangelogConfig;
+  harness?: AgentNativeHarnessConfig;
 }
 
 export interface AgentNativeConfigContext {
@@ -138,6 +156,7 @@ export function normalizeAgentNativeConfig(
   const instructionsValue = input.instructions;
   const translationsValue = input.translations;
   const changelogValue = input.changelog;
+  const harnessValue = input.harness;
 
   const normalized: AgentNativeConfig = {
     ...(input.version === undefined
@@ -188,6 +207,13 @@ export function normalizeAgentNativeConfig(
     normalized.changelog = normalizeChangelogConfig(
       changelogValue,
       `${source}.changelog`,
+    );
+  }
+
+  if (harnessValue !== undefined) {
+    normalized.harness = normalizeHarnessConfig(
+      harnessValue,
+      `${source}.harness`,
     );
   }
 
@@ -278,6 +304,22 @@ export function mergeAgentNativeConfigs(
         ? {
             ...base.changelog,
             ...override.changelog,
+          }
+        : undefined,
+    harness:
+      base.harness || override.harness
+        ? {
+            ...base.harness,
+            ...override.harness,
+            ...(base.harness?.runtimes !== undefined ||
+            override.harness?.runtimes !== undefined
+              ? {
+                  runtimes: mergeHarnessRuntimes(
+                    base.harness?.runtimes,
+                    override.harness?.runtimes,
+                  ),
+                }
+              : {}),
           }
         : undefined,
   };
@@ -456,6 +498,54 @@ function normalizeChangelogConfig(
   return value.enabled === undefined ? {} : { enabled: value.enabled };
 }
 
+function normalizeHarnessConfig(
+  value: unknown,
+  source: string,
+): AgentNativeHarnessConfig {
+  if (!isRecord(value)) {
+    throw new Error(`${source} must be an object`);
+  }
+  if (value.enabled !== undefined && typeof value.enabled !== "boolean") {
+    throw new Error(`${source}.enabled must be a boolean`);
+  }
+  if (value.ui !== undefined && value.ui !== "default" && value.ui !== "desktop") {
+    throw new Error(`${source}.ui must be "default" or "desktop"`);
+  }
+
+  const runtimes = value.runtimes;
+  if (runtimes !== undefined) {
+    if (
+      !Array.isArray(runtimes) ||
+      runtimes.some((runtime) => !isAgentNativeHarnessRuntime(runtime))
+    ) {
+      throw new Error(
+        `${source}.runtimes must contain only "claude-code", "codex", "pi", or "opencode"`,
+      );
+    }
+  }
+
+  return {
+    ...(value.enabled === undefined ? {} : { enabled: value.enabled }),
+    ...(value.ui === undefined ? {} : { ui: value.ui }),
+    ...(runtimes === undefined
+      ? {}
+      : { runtimes: [...new Set(runtimes as AgentNativeHarnessRuntime[])] }),
+  };
+}
+
+function mergeHarnessRuntimes(
+  base: AgentNativeHarnessRuntime[] | undefined,
+  override: AgentNativeHarnessRuntime[] | undefined,
+): AgentNativeHarnessRuntime[] | undefined {
+  if (base === undefined && override === undefined) return undefined;
+  return [
+    ...new Set<AgentNativeHarnessRuntime>([
+      ...(base ?? []),
+      ...(override ?? []),
+    ]),
+  ];
+}
+
 function normalizeRelativeFilePath(value: string, source: string): string {
   const normalized = value.trim().replaceAll("\\", "/");
   if (
@@ -501,6 +591,17 @@ function isFirstRunMode(
     value === "off" ||
     value === "connect" ||
     value === "connect-and-integrations"
+  );
+}
+
+function isAgentNativeHarnessRuntime(
+  value: unknown,
+): value is AgentNativeHarnessRuntime {
+  return (
+    value === "claude-code" ||
+    value === "codex" ||
+    value === "pi" ||
+    value === "opencode"
   );
 }
 
