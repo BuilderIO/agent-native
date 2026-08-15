@@ -772,6 +772,8 @@ export interface TiptapComposerProps {
   availableAgents?: ComposerAgentOption[];
   /** Selected agent runtime identifier. Defaults to the built-in agent. */
   selectedAgent?: string;
+  /** Mark the selected runtime as the hosted tools-only harness mode. */
+  hostedHarness?: boolean;
   /** Callback when the user picks an agent runtime. */
   onAgentChange?: (agent: string) => void;
   /**
@@ -1291,6 +1293,7 @@ function ModelSelector({
   engines,
   agents,
   selectedAgent,
+  hostedHarness = false,
   showAutoModelOption = true,
   modelListLoading = false,
   onChange,
@@ -1305,6 +1308,7 @@ function ModelSelector({
   effort?: ReasoningEffort;
   agents?: ComposerAgentOption[];
   selectedAgent?: string;
+  hostedHarness?: boolean;
   engines: Array<{
     engine: string;
     label: string;
@@ -1568,10 +1572,15 @@ function ModelSelector({
                       </TooltipTrigger>
                       <TooltipContent side="right" className="z-[400] max-w-xs">
                         <span className="block">
-                          {t("agentChat.composer.harnessAgentDescription", {
-                            defaultValue:
-                              "Harnesses run their own coding loop and local tools.",
-                          })}
+                          {hostedHarness
+                            ? t("agentChat.composer.hostedHarnessDescription", {
+                                defaultValue:
+                                  "Hosted mode uses app tools only. For full coding with a repository and shell, use Agent Native Desktop.",
+                              })
+                            : t("agentChat.composer.harnessAgentDescription", {
+                                defaultValue:
+                                  "Harnesses run their own coding loop and local tools.",
+                              })}
                         </span>
                         <a
                           href={HARNESS_AGENTS_DOCS_URL}
@@ -2112,6 +2121,7 @@ export function TiptapComposer({
   onEffortChange,
   availableAgents,
   selectedAgent,
+  hostedHarness,
   onAgentChange,
   providerConnectStatusEnabled,
   onConnectProvider,
@@ -3620,6 +3630,7 @@ export function TiptapComposer({
             engines={availableModels}
             agents={availableAgents}
             selectedAgent={selectedAgent}
+            hostedHarness={hostedHarness}
             showAutoModelOption={showAutoModelOption}
             modelListLoading={modelListLoading}
             onChange={onModelChange}

@@ -224,7 +224,7 @@ function MenuItemHelp({
         </span>
       </TooltipTrigger>
       <TooltipContent side="right" className="max-w-xs">
-          {normalizedDescription}
+        {normalizedDescription}
       </TooltipContent>
     </Tooltip>
   );

@@ -2418,6 +2418,7 @@ const AssistantChatInner = forwardRef<
     onEffortChange,
     availableAgents,
     selectedAgent,
+    hostedHarness,
     onAgentChange,
     imageModelMenu,
     onForkChat,
@@ -6414,6 +6415,7 @@ const AssistantChatInner = forwardRef<
                                       availableModels={availableModels}
                                       availableAgents={availableAgents}
                                       selectedAgent={selectedAgent}
+                                      hostedHarness={hostedHarness}
                                       modelListLoading={modelListLoading}
                                       onModelChange={
                                         shouldShowAssistantChatModelSelector(

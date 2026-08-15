@@ -3297,7 +3297,8 @@ export function AgentSidebar({
       if (saved && isHostedHarnessRuntime(saved)) {
         setHostedHarnessRuntime(saved);
       }
-    } catch { // coercion-ok: localStorage is optional persistence; memory state remains authoritative.
+    } catch {
+      // coercion-ok: localStorage is optional persistence; memory state remains authoritative.
       // The picker falls back to Claude Code when storage is unavailable.
     }
   }, [hostedHarnessStorageKey]);
@@ -3311,7 +3312,8 @@ export function AgentSidebar({
     if (next !== hostedHarnessRuntime) setHostedHarnessRuntime(next);
     try {
       localStorage.setItem(hostedHarnessStorageKey, next);
-    } catch { // coercion-ok: localStorage is optional persistence; memory state remains authoritative.
+    } catch {
+      // coercion-ok: localStorage is optional persistence; memory state remains authoritative.
       // The selected runtime remains in memory for this tab.
     }
   }, [

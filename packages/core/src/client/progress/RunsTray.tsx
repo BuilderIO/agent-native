@@ -689,6 +689,7 @@ function RunRow({
   const threadId = getRunThreadId(run);
   const isRunning = run.status === "running";
   const canStop = isRunning && (isAgentTeamRun(run) || isBackgroundRun(run));
+  const backgroundStatus = getBackgroundStatus(run);
 
   return (
     <div className="flex flex-col gap-1.5 px-3 py-2.5 text-sm">
@@ -703,7 +704,7 @@ function RunRow({
             </div>
           ) : null}
         </div>
-        <StatusPill status={run.status} />
+        <StatusPill status={run.status} backgroundStatus={backgroundStatus} />
       </div>
       {run.percent != null || isRunning ? (
         <div className="h-1 w-full overflow-hidden rounded bg-muted">
@@ -782,8 +783,38 @@ const STATUS_PILL_STYLES: Record<ProgressStatus, string> = {
   cancelled: "bg-muted text-muted-foreground",
 };
 
-function StatusPill({ status }: { status: ProgressStatus }) {
+function StatusPill({
+  status,
+  backgroundStatus,
+}: {
+  status: ProgressStatus;
+  backgroundStatus?: BackgroundAgentRunDto["status"];
+}) {
   const t = useT();
+  if (backgroundStatus === "needs-approval") {
+    return (
+      <span className="inline-flex h-5 shrink-0 items-center gap-1 rounded-md bg-primary/10 px-1.5 text-[10px] font-medium text-primary">
+        <IconAlertCircle size={12} aria-hidden />
+        {t("runsTray.statusNeedsApproval", { defaultValue: "Needs approval" })}
+      </span>
+    );
+  }
+  if (backgroundStatus === "needs-input") {
+    return (
+      <span className="inline-flex h-5 shrink-0 items-center gap-1 rounded-md bg-primary/10 px-1.5 text-[10px] font-medium text-primary">
+        <IconAlertCircle size={12} aria-hidden />
+        {t("runsTray.statusNeedsInput", { defaultValue: "Needs input" })}
+      </span>
+    );
+  }
+  if (backgroundStatus === "paused") {
+    return (
+      <span className="inline-flex h-5 shrink-0 items-center gap-1 rounded-md bg-muted px-1.5 text-[10px] font-medium text-muted-foreground">
+        <IconClock size={12} aria-hidden />
+        {t("runsTray.statusPaused", { defaultValue: "Paused" })}
+      </span>
+    );
+  }
   const { Icon, className } = STATUS_GLYPHS[status];
   const spinClass = status === "running" ? " animate-spin" : "";
   return (
@@ -796,6 +827,30 @@ function StatusPill({ status }: { status: ProgressStatus }) {
       <Icon size={12} className={`${className}${spinClass}`} aria-hidden />
       {t(STATUS_COPY_KEYS[status])}
     </span>
+  );
+}
+
+function getBackgroundStatus(
+  run: AgentRunDto,
+): BackgroundAgentRunDto["status"] | undefined {
+  const value = run.metadata?.backgroundStatus;
+  return typeof value === "string" && isBackgroundStatus(value)
+    ? value
+    : undefined;
+}
+
+function isBackgroundStatus(
+  value: string,
+): value is BackgroundAgentRunDto["status"] {
+  return (
+    value === "queued" ||
+    value === "running" ||
+    value === "paused" ||
+    value === "needs-input" ||
+    value === "needs-approval" ||
+    value === "completed" ||
+    value === "errored" ||
+    value === "unknown"
   );
 }
 
