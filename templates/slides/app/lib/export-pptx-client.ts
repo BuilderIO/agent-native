@@ -945,15 +945,35 @@ function svgDataUrl(svg: SVGSVGElement) {
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(serialized)}`;
 }
 
+/**
+ * Whether a rasterized shape came back with nothing painted in it —
+ * `undefined` when the canvas cannot be read at all, which is a third outcome
+ * and not the same as "it has content". A fully transparent result is the
+ * shape silently disappearing from the deck, so it is reported, not returned
+ * as a successful render. Fully *opaque* pixels are left alone: a flat white
+ * rectangle is a legitimate shape.
+ */
+export function blankRasterResult(
+  data: Uint8ClampedArray | undefined,
+): boolean | undefined {
+  if (!data || data.length === 0) return undefined;
+  for (let i = 3; i < data.length; i += 4) {
+    if (data[i] !== 0) return false;
+  }
+  return true;
+}
+
 async function rasterizeSvgElement(
   svg: SVGSVGElement,
   width: number,
   height: number,
-) {
+): Promise<{ dataUrl: string; blank: boolean | undefined }> {
   const fallback = svgDataUrl(svg);
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d");
-  if (!ctx || typeof Image === "undefined") return fallback;
+  if (!ctx || typeof Image === "undefined") {
+    return { dataUrl: fallback, blank: undefined };
+  }
 
   const scale = Math.max(2, window.devicePixelRatio || 1);
   canvas.width = Math.max(1, Math.ceil(width * scale));
@@ -969,9 +989,19 @@ async function rasterizeSvgElement(
   try {
     await loaded;
     ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
-    return canvas.toDataURL("image/png");
+    let pixels: Uint8ClampedArray | undefined;
+    try {
+      pixels = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+    } catch {
+      // A tainted canvas cannot be inspected; "unknown", not "has content".
+      pixels = undefined;
+    }
+    return {
+      dataUrl: canvas.toDataURL("image/png"),
+      blank: blankRasterResult(pixels),
+    };
   } catch {
-    return fallback;
+    return { dataUrl: fallback, blank: undefined };
   }
 }
 
@@ -1001,6 +1031,100 @@ function clipPathOutline(
     return undefined;
   }
   return `M${points.join(" L")} Z`;
+}
+
+let gradientId = 0;
+
+const GRADIENT_SIDE_ANGLES: Record<string, number> = {
+  "to top": 0,
+  "to right": 90,
+  "to bottom": 180,
+  "to left": 270,
+};
+
+/** Split a CSS argument list on its top-level commas, so `rgb(1, 2, 3) 40%` stays one stop. */
+function splitTopLevel(list: string): string[] | undefined {
+  const parts: string[] = [];
+  let depth = 0;
+  let current = "";
+  for (const character of list) {
+    if (character === "(") depth++;
+    else if (character === ")") depth--;
+    if (depth < 0) return undefined;
+    if (character === "," && depth === 0) {
+      parts.push(current.trim());
+      current = "";
+      continue;
+    }
+    current += character;
+  }
+  if (depth !== 0) return undefined;
+  parts.push(current.trim());
+  return parts;
+}
+
+/**
+ * A CSS `linear-gradient` as an SVG paint server for the traced outline.
+ * Without this the outline is filled with `background-color`, which a
+ * gradient-filled shape leaves at `rgba(0, 0, 0, 0)`: canyon's master draws 20
+ * `gradFill` freeforms behind every slide, and each one rasterized to a fully
+ * transparent PNG that the export then shipped as a successful render.
+ *
+ * `userSpaceOnUse` rather than the default bounding box because the CSS
+ * gradient line's length depends on the box's real proportions, which
+ * normalized coordinates have already thrown away.
+ */
+export function linearGradientPaint(
+  backgroundImage: string,
+  width: number,
+  height: number,
+  id: string,
+): SVGLinearGradientElement | undefined {
+  const body = backgroundImage
+    .trim()
+    .match(/^linear-gradient\(([\s\S]*)\)$/i)?.[1];
+  if (body == null) return undefined;
+  const parts = splitTopLevel(body);
+  if (!parts || parts.length < 2) return undefined;
+
+  const head = parts[0].toLowerCase();
+  const declaredAngle = head.match(/^(-?[\d.]+)deg$/)?.[1];
+  const angle =
+    declaredAngle != null
+      ? Number.parseFloat(declaredAngle)
+      : GRADIENT_SIDE_ANGLES[head];
+  // A corner keyword or an interpolation hint is a gradient this cannot place;
+  // leaving it to the blank-raster report is better than inventing a direction.
+  const stopParts = angle === undefined ? parts : parts.slice(1);
+  if (angle === undefined && /^(to\b|[\d.]|calc\()/.test(head)) return undefined;
+  if (stopParts.length < 2) return undefined;
+
+  const radians = (((angle ?? 180) - 90) * Math.PI) / 180;
+  const dx = Math.cos(radians);
+  const dy = Math.sin(radians);
+  const lineLength = Math.abs(width * dx) + Math.abs(height * dy);
+  const gradient = document.createElementNS(SVG_NAMESPACE, "linearGradient");
+  gradient.setAttribute("id", id);
+  gradient.setAttribute("gradientUnits", "userSpaceOnUse");
+  gradient.setAttribute("x1", `${width / 2 - (dx * lineLength) / 2}`);
+  gradient.setAttribute("y1", `${height / 2 - (dy * lineLength) / 2}`);
+  gradient.setAttribute("x2", `${width / 2 + (dx * lineLength) / 2}`);
+  gradient.setAttribute("y2", `${height / 2 + (dy * lineLength) / 2}`);
+
+  stopParts.forEach((part, index) => {
+    const position = part.match(/\s(-?[\d.]+)%$/)?.[1];
+    const color = position == null ? part : part.slice(0, -position.length - 1);
+    const stop = document.createElementNS(SVG_NAMESPACE, "stop");
+    stop.setAttribute(
+      "offset",
+      position != null
+        ? `${position}%`
+        : `${(index / (stopParts.length - 1)) * 100}%`,
+    );
+    stop.setAttribute("stop-color", color.trim());
+    gradient.appendChild(stop);
+  });
+  return gradient;
 }
 
 function clipPathPixels(raw: string | undefined, side: number) {
@@ -1056,7 +1180,20 @@ export function materializeClipPathShapes(root: HTMLElement) {
 
     const path = document.createElementNS(SVG_NAMESPACE, "path");
     path.setAttribute("d", outline);
-    path.setAttribute("fill", style.backgroundColor);
+    const gradient = linearGradientPaint(
+      style.backgroundImage,
+      width,
+      height,
+      `fmd-grad-${gradientId++}`,
+    );
+    if (gradient) {
+      const defs = document.createElementNS(SVG_NAMESPACE, "defs");
+      defs.appendChild(gradient);
+      svg.appendChild(defs);
+      path.setAttribute("fill", `url(#${gradient.id})`);
+    } else {
+      path.setAttribute("fill", style.backgroundColor);
+    }
     const strokeWidth = computedLength(style.borderTopWidth, 0);
     if (strokeWidth > 0) {
       path.setAttribute("stroke", style.borderTopColor);
