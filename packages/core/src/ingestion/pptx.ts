@@ -34,7 +34,15 @@ export interface ParsedPptxElement {
   width: number;
   height: number;
   rotation?: number;
+  /** `a:xfrm/@_flipH` — the shape's geometry is mirrored across its own vertical axis before rotation. */
+  flipH?: boolean;
+  /** `a:xfrm/@_flipV` — the shape's geometry is mirrored across its own horizontal axis before rotation. */
+  flipV?: boolean;
   shapeType?: string;
+  /** `a:prstGeom/a:avLst` adjustment values keyed by guide name (`adj`, `adj1`, ...), in the preset's own units. Absent when the deck accepts the preset's defaults. */
+  shapeAdjustments?: Record<string, number>;
+  /** `a:custGeom`'s authored outline, when the shape declares one instead of a preset. */
+  geometry?: ParsedPptxGeometry;
   fill?: string;
   lineColor?: string;
   lineWidth?: number;
@@ -48,6 +56,35 @@ export interface ParsedPptxElement {
   paragraphs?: ParsedPptxParagraph[];
   image?: ParsedPptxImage;
   table?: ParsedPptxTable;
+}
+
+/** A single `a:path` command, in the path's own `w`/`h` coordinate space. `arcTo` keeps OOXML's radii-and-angles form because converting it needs the current point, which only a consumer walking the whole command list knows. */
+export type ParsedPptxPathCommand =
+  | {
+      kind: "moveTo" | "lnTo" | "quadBezTo" | "cubicBezTo";
+      points: { x: number; y: number }[];
+    }
+  | {
+      kind: "arcTo";
+      /** Ellipse radii in path units. */
+      wR: number;
+      hR: number;
+      /** Start angle and swing, in 60000ths of a degree, clockwise from the +x axis. */
+      stAng: number;
+      swAng: number;
+    }
+  | { kind: "close" };
+
+/** One `a:custGeom/a:pathLst/a:path`. `w`/`h` define the coordinate space its points are expressed in; the shape's own box is what they scale onto. */
+export interface ParsedPptxPath {
+  w: number;
+  h: number;
+  commands: ParsedPptxPathCommand[];
+}
+
+export interface ParsedPptxGeometry {
+  kind: "custom";
+  paths: ParsedPptxPath[];
 }
 
 /** A `p:graphicFrame`'s `a:tbl` flattened into a simple row/cell grid. `hMerge`/`vMerge` continuation cells are omitted — their content is already represented once, by the spanning cell's `colSpan`/`rowSpan`. */
@@ -1701,6 +1738,127 @@ function parseTextBoxProperties(
   };
 }
 
+/** Point count each straight/curve command carries, keyed by tag. `a:arcTo` and `a:close` carry none and are read separately. */
+const PATH_COMMAND_POINTS: Record<string, number> = {
+  "a:moveTo": 1,
+  "a:lnTo": 1,
+  "a:quadBezTo": 2,
+  "a:cubicBezTo": 3,
+};
+
+/** `a:prstGeom/a:avLst` adjustments, keyed by guide name. A deck that overrides a preset's `adj` (a 50%-radius pill, a block arc's start and sweep) records it here and nowhere else, so a consumer reproducing the preset from its defaults alone draws the wrong shape. */
+function parseShapeAdjustments(
+  shapeProperties: Record<string, unknown> | null,
+): Record<string, number> | undefined {
+  const guides = asArray(
+    record(record(shapeProperties?.["a:prstGeom"])?.["a:avLst"])?.["a:gd"],
+  );
+  const adjustments: Record<string, number> = {};
+  for (const raw of guides) {
+    const guide = record(raw);
+    const name = stringValue(guide?.["@_name"]);
+    // Only the literal `val <n>` form is a value; anything else is a formula
+    // referencing other guides, which reproducing here would mean shipping
+    // OOXML's whole guide language.
+    const value = Number(
+      stringValue(guide?.["@_fmla"])?.match(/^val\s+(-?\d+)$/)?.[1],
+    );
+    if (name && Number.isFinite(value)) adjustments[name] = value;
+  }
+  return Object.keys(adjustments).length > 0 ? adjustments : undefined;
+}
+
+/**
+ * `a:custGeom`'s authored outline. Every command maps 1:1 onto an SVG path
+ * segment, so the shape can be reproduced exactly rather than flattened to
+ * the rectangle its bounding box happens to be.
+ */
+function parseCustomGeometry(
+  shapeProperties: Record<string, unknown> | null,
+  shapeBox: { width: number; height: number },
+): ParsedPptxGeometry | undefined {
+  const custGeom = record(shapeProperties?.["a:custGeom"]);
+  if (!custGeom) return undefined;
+  const paths: ParsedPptxPath[] = [];
+  for (const rawList of asArray(custGeom["a:pathLst"])) {
+    for (const rawPath of asArray(record(rawList)?.["a:path"])) {
+      const node = record(rawPath);
+      if (!node) continue;
+      const commands = readPathCommands(node);
+      if (!commands) continue;
+      // A path with no `w`/`h` states its points in the shape's own EMU space.
+      const w = Number(node["@_w"]) || shapeBox.width;
+      const h = Number(node["@_h"]) || shapeBox.height;
+      if (!(w > 0) || !(h > 0)) continue;
+      paths.push({ w, h, commands });
+    }
+  }
+  return paths.length > 0 ? { kind: "custom", paths } : undefined;
+}
+
+/**
+ * Rebuilds one `a:path`'s command sequence from the order stamped on by
+ * `annotatePathCommandOrder`. Returns `undefined` — not a partial list — when
+ * any command is unreadable: a path missing a segment is not a simpler path,
+ * it is a different and wrong one, and the caller's fallback (the shape's
+ * plain box) is at least a state a reader can recognize as unreproduced.
+ */
+function readPathCommands(
+  path: Record<string, unknown>,
+): ParsedPptxPathCommand[] | undefined {
+  const ordered: { order: number; command: ParsedPptxPathCommand }[] = [];
+  let unreadable = false;
+  const push = (
+    node: Record<string, unknown> | null,
+    command: ParsedPptxPathCommand | undefined,
+  ) => {
+    const order = Number(node?.[PATH_COMMAND_ORDER_ATTRIBUTE]);
+    if (!command || !Number.isFinite(order)) unreadable = true;
+    else ordered.push({ order, command });
+  };
+  for (const [tag, count] of Object.entries(PATH_COMMAND_POINTS)) {
+    for (const raw of asArray(path[tag])) {
+      const node = record(raw);
+      const points = asArray(node?.["a:pt"]).map((raw) => {
+        const pt = record(raw);
+        return { x: Number(pt?.["@_x"]), y: Number(pt?.["@_y"]) };
+      });
+      const usable =
+        points.length === count &&
+        points.every((pt) => Number.isFinite(pt.x) && Number.isFinite(pt.y));
+      push(
+        node,
+        usable
+          ? {
+              kind: tag.slice(2) as "moveTo" | "lnTo" | "quadBezTo" | "cubicBezTo",
+              points,
+            }
+          : undefined,
+      );
+    }
+  }
+  for (const raw of asArray(path["a:arcTo"])) {
+    const node = record(raw);
+    const arc = {
+      kind: "arcTo" as const,
+      wR: Number(node?.["@_wR"]),
+      hR: Number(node?.["@_hR"]),
+      stAng: Number(node?.["@_stAng"]),
+      swAng: Number(node?.["@_swAng"]),
+    };
+    const usable = [arc.wR, arc.hR, arc.stAng, arc.swAng].every((value) =>
+      Number.isFinite(value),
+    );
+    push(node, usable ? arc : undefined);
+  }
+  for (const raw of asArray(path["a:close"])) {
+    push(record(raw), { kind: "close" });
+  }
+  if (unreadable || ordered.length === 0) return undefined;
+  ordered.sort((a, b) => a.order - b.order);
+  return ordered.map((entry) => entry.command);
+}
+
 function parseShapeFill(
   shapeProperties: Record<string, unknown> | null,
   context?: ColorContext,
@@ -2622,7 +2780,8 @@ async function loadPptxDependencies(): Promise<{
     });
     return {
       loadZip: (data) => zipModule.default.loadAsync(data),
-      parseXml: (xml) => parser.parse(normalizeHardLineBreaks(xml)),
+      parseXml: (xml) =>
+        parser.parse(annotatePathCommandOrder(normalizeHardLineBreaks(xml))),
     };
   } catch {
     throw new Error(
@@ -2644,6 +2803,25 @@ function normalizeHardLineBreaks(xml: string): string {
   return xml.replace(
     /<a:br(?:\s[^>]*?)?\/>|<a:br(?:\s[^>]*?)?>[\s\S]*?<\/a:br>/g,
     "<a:r><a:t>\n</a:t></a:r>",
+  );
+}
+
+/** Attribute `annotatePathCommandOrder` stamps on, as the parser exposes it. */
+const PATH_COMMAND_ORDER_ATTRIBUTE = "@_an-order";
+
+/**
+ * An `<a:path>`'s children are a *sequence* — `moveTo`, `lnTo`, `cubicBezTo`,
+ * `close` — and, exactly as with `<a:br/>` above, a tree built without
+ * `preserveOrder` groups them by tag name and loses the one property a path
+ * is made of. Stamping document order onto each command before parsing keeps
+ * it recoverable; these six tag names appear nowhere else in the format, so
+ * the global rewrite cannot touch anything but a path.
+ */
+function annotatePathCommandOrder(xml: string): string {
+  let order = 0;
+  return xml.replace(
+    /<a:(?:moveTo|lnTo|cubicBezTo|quadBezTo|arcTo|close)\b/g,
+    (match) => `${match} an-order="${order++}"`,
   );
 }
 
