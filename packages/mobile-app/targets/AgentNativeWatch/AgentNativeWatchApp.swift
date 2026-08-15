@@ -197,7 +197,7 @@ struct ContentView: View {
     VStack(spacing: 12) {
       Image(systemName: capture.isRecording ? "waveform.circle.fill" : "mic.circle.fill")
         .font(.system(size: 42))
-        .foregroundStyle(capture.isRecording ? .red : Color(white: 0.84))
+        .foregroundStyle(capture.isRecording ? .red : Color.green)
       Text(capture.isRecording ? duration(capture.elapsedSeconds) : capture.message)
         .font(capture.isRecording ? .title3.monospacedDigit() : .caption)
         .multilineTextAlignment(.center)
@@ -205,7 +205,7 @@ struct ContentView: View {
         capture.toggleRecording()
       }
       .buttonStyle(.borderedProminent)
-      .tint(capture.isRecording ? .red : Color(white: 0.84))
+      .tint(capture.isRecording ? .red : .green)
       if capture.pendingTransfers > 0 {
         Text("\(capture.pendingTransfers) waiting to sync")
           .font(.caption2)

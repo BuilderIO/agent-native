@@ -1,7 +1,4 @@
-import {
-  CHAT_FIRST_DEFAULT_APP_IDS,
-  type AppConfig,
-} from "@agent-native/shared-app-config";
+import type { AppConfig } from "@agent-native/shared-app-config";
 
 /**
  * Native tab routes are explicit so an app selected in Settings stays inside
@@ -26,6 +23,20 @@ export const APP_ID_TO_ROUTE: Record<string, string> = {
 
 export const MOBILE_BOTTOM_TAB_LIMIT = 4;
 
+export const MOBILE_DEFAULT_APP_IDS = [
+  "mail",
+  "calendar",
+  "content",
+  "analytics",
+] as const;
+
+export const LEGACY_MOBILE_DEFAULT_APP_IDS = [
+  "content",
+  "design",
+  "mail",
+  "calendar",
+] as const;
+
 export function getAppRoute(appId: string): string {
   return APP_ID_TO_ROUTE[appId] ?? `/app/${appId}`;
 }
@@ -38,7 +49,7 @@ export function orderMobileApps<T extends Pick<AppConfig, "id">>(
   apps: readonly T[],
 ): T[] {
   const preferredOrder = new Map<string, number>(
-    CHAT_FIRST_DEFAULT_APP_IDS.map((id, index) => [id, index]),
+    MOBILE_DEFAULT_APP_IDS.map((id, index) => [id, index]),
   );
   return [...apps].sort((a, b) => {
     const aIndex = preferredOrder.get(a.id) ?? Number.MAX_SAFE_INTEGER;
@@ -54,7 +65,7 @@ export function getDefaultMobileTabAppIds(
   const eligibleApps = orderMobileApps(
     apps.filter((app) => app.enabled !== false && supportsMobileTab(app.id)),
   );
-  const preferredIds = new Set<string>(CHAT_FIRST_DEFAULT_APP_IDS);
+  const preferredIds = new Set<string>(MOBILE_DEFAULT_APP_IDS);
   const preferred = eligibleApps.filter((app) => preferredIds.has(app.id));
   const remaining = eligibleApps.filter((app) => !preferredIds.has(app.id));
   return [...preferred, ...remaining]

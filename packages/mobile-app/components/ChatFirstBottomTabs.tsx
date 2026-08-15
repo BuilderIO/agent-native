@@ -53,7 +53,9 @@ function TabButton({
             ? item.app
               ? appAccentBackgroundColor(accentColor)
               : "#27272a"
-            : "transparent",
+            : item.app
+              ? appAccentBackgroundColor(accentColor)
+              : "transparent",
         }}
       >
         {item.app ? (

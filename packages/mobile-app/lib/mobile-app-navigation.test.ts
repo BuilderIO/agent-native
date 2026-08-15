@@ -19,7 +19,7 @@ describe("mobile chat-first navigation", () => {
         { id: "calendar" },
         { id: "clips" },
       ]),
-    ).toEqual(["content", "design", "mail", "calendar"]);
+    ).toEqual(["mail", "calendar", "content", "analytics"]);
   });
 
   it("fills missing preferred slots with the next registered app", () => {
@@ -29,7 +29,7 @@ describe("mobile chat-first navigation", () => {
         { id: "calendar" },
         { id: "clips" },
       ]),
-    ).toEqual(["calendar", "clips", "analytics"]);
+    ).toEqual(["calendar", "analytics", "clips"]);
   });
 
   it("does not choose disabled apps for default slots", () => {
@@ -40,15 +40,15 @@ describe("mobile chat-first navigation", () => {
         { id: "mail", enabled: true },
         { id: "calendar", enabled: true },
       ]),
-    ).toEqual(["design", "mail", "calendar"]);
+    ).toEqual(["mail", "calendar", "design"]);
   });
 
   it("keeps Chat and More outside the four app slots", () => {
     expect(MOBILE_BOTTOM_TAB_LIMIT).toBe(4);
     expect(
-      toggleMobileTabAppId(["content", "design", "mail", "calendar"], "clips"),
+      toggleMobileTabAppId(["mail", "calendar", "content", "analytics"], "clips"),
     ).toEqual({
-      ids: ["content", "design", "mail", "calendar"],
+      ids: ["mail", "calendar", "content", "analytics"],
       changed: false,
       limitReached: true,
     });
@@ -56,12 +56,12 @@ describe("mobile chat-first navigation", () => {
 
   it("filters stale saved ids before applying the tab limit", () => {
     const currentIds = filterAvailableMobileTabAppIds(
-      ["content", "design", "removed"],
-      new Set(["content", "design", "calendar"]),
+      ["mail", "content", "removed"],
+      new Set(["mail", "content", "analytics"]),
     );
 
-    expect(toggleMobileTabAppId(currentIds, "calendar")).toEqual({
-      ids: ["content", "design", "calendar"],
+    expect(toggleMobileTabAppId(currentIds, "analytics")).toEqual({
+      ids: ["mail", "content", "analytics"],
       changed: true,
       limitReached: false,
     });

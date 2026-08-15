@@ -334,7 +334,7 @@ function ProviderKeyRow({
         </Pressable>
       </View>
       {status === "saved" ? (
-        <Text className="text-text-light text-xs">
+        <Text className="text-emerald-400 text-xs">
           Saved to your workspace vault.
         </Text>
       ) : typeof status === "object" ? (

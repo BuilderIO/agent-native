@@ -179,7 +179,7 @@ function EmptyLibrary({
 }) {
   return (
     <View className="flex-1 items-center justify-center px-7 py-18">
-      <View className="w-14 h-14 rounded-2xl bg-accent-neutral-dim items-center justify-center mb-4.5">
+      <View className="w-14 h-14 rounded-2xl bg-accent-green-dim items-center justify-center mb-4.5">
         {searching ? (
           <IconSearch color="#d4d4d8" size={25} strokeWidth={1.7} />
         ) : (

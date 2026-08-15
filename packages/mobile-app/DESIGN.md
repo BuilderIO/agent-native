@@ -5,13 +5,14 @@
 Mobile uses the same chat-first information architecture in a native form:
 Sessions is the initial landing surface for connecting a laptop, Chat is the
 leftmost bottom-tab destination, four device-local workspace app slots follow it
-with grayscale icons, and More holds the rest of the registry and Settings.
+with each app's accent color and tinted icon background, and More holds the rest
+of the registry and Settings.
 Mobile keeps Chat native while workspace apps remain secure WebView routes.
 
 ## Layout contract
 
 - Bottom navigation is Chat + up to four app slots + More. The app slots are
-  chosen in Settings and default from `CHAT_FIRST_DEFAULT_APP_IDS`.
+  chosen in Settings and default to Mail, Calendar, Content, and Analytics.
 - More is the overflow destination for all enabled apps and the settings
   surface that manages the bottom-tab selection.
 - App rows route through the existing Expo app registry and secure WebView

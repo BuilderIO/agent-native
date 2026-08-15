@@ -245,7 +245,7 @@ function RemoteWaitlistModal({
             </Pressable>
           </View>
           {joined ? (
-            <Text className="text-text-light text-[13px] leading-5 mt-4">
+            <Text className="text-emerald-400 text-[13px] leading-5 mt-4">
               You are on the waitlist. We will email you when remote access
               opens.
             </Text>

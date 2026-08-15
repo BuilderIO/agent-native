@@ -3,7 +3,7 @@ import AppIntents
 import SwiftUI
 import WidgetKit
 
-private let captureAccent = Color(white: 0.84)
+private let captureAccent = Color(red: 0.78, green: 0.95, blue: 0.42)
 
 private struct CapturePhasePresentation {
   let color: Color
@@ -25,7 +25,7 @@ private struct CapturePhasePresentation {
       icon = "exclamationmark.triangle.fill"
       title = "Capture needs recovery"
     case "completed":
-      color = .gray
+      color = .green
       icon = "checkmark.circle.fill"
       title = "Capture saved"
     case "discarded":
