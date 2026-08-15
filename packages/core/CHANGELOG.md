@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.157.12
+
+### Patch Changes
+
+- bdbe6a1: Keep Portal device authentication working when a proxy supplies or strips the Authorization header.
+
 ## 0.157.11
 
 ### Patch Changes
