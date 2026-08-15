@@ -1212,11 +1212,11 @@ function importedTextRuns(html: string, dims: SlideDims): TextRunElement[] {
 }
 
 /**
- * No table-level `border`: pptxgenjs copies it onto every cell that declares
- * none of its own, so the white rule this used to pass drew a grid on tables
- * whose HTML has no borders at all. A table-level `margin` is worse than
- * useless — the library normalizes it and then never reads it, so cell padding
- * has to travel per cell. Both now come from the cell's own CSS.
+ * No table-level `border` or `margin`: pptxgenjs cascades every table option
+ * onto each cell that declares none of its own, so the white rule and the flat
+ * 0.04in padding this used to pass were stamped on every cell of every
+ * imported table — a grid the source never drew, over the cell margins it did.
+ * Both now travel per cell, from that cell's own CSS.
  */
 export function tableOptions(table: TableElement): PptxGenJS.TableProps {
   return {

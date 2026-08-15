@@ -895,6 +895,104 @@ function round1(value: number): number {
 }
 
 /**
+ * Freeform path data is by far the largest thing this importer stores: one
+ * decorative layout illustration in a real template is 86KB of coordinates,
+ * and the layout layer repeats it on every slide that uses the layout. Writing
+ * it in absolute commands spends 5-6 characters per coordinate on the shape's
+ * own box origin; the same outline in relative commands spends 1-3 on the step
+ * from the previous point.
+ *
+ * Deltas are measured against the point that was actually *emitted*, never the
+ * exact one, so per-step rounding cannot accumulate: every emitted point stays
+ * within half a rounding unit of its true position no matter how many
+ * thousands of segments precede it.
+ */
+function createPathWriter() {
+  let out = "";
+  let lastCommand = "";
+  let afterLetter = false;
+  let previousNumberHadPoint = false;
+  let x = 0;
+  let y = 0;
+  let subpathX = 0;
+  let subpathY = 0;
+
+  /** Writes the shortest legal spelling of `value` and returns what it rounded to. */
+  const number = (value: number): number => {
+    const rounded = round1(value);
+    let text = String(rounded);
+    if (text.startsWith("0.")) text = text.slice(1);
+    else if (text.startsWith("-0.")) text = `-${text.slice(2)}`;
+    // A leading `.` only runs into the previous number when that one had no
+    // decimal point of its own: `1 .5` may compact to `1.5`, which is one
+    // number, but `1.5 .5` reads as two either way.
+    const joins =
+      afterLetter ||
+      text.startsWith("-") ||
+      (text.startsWith(".") && previousNumberHadPoint);
+    out += joins ? text : ` ${text}`;
+    afterLetter = false;
+    previousNumberHadPoint = text.includes(".");
+    return rounded;
+  };
+
+  const command = (letter: string) => {
+    // SVG repeats the previous command for a bare run of coordinates, and the
+    // command implied after a `moveto` is `lineto`.
+    if (lastCommand === letter) return;
+    out += letter;
+    afterLetter = true;
+    lastCommand = letter === "m" ? "l" : letter;
+  };
+
+  return {
+    /** `points` are absolute px; every one is written relative to the point the command starts from. */
+    write(letter: string, points: { x: number; y: number }[]) {
+      command(letter);
+      const fromX = x;
+      const fromY = y;
+      for (const point of points) {
+        x = fromX + number(point.x - fromX);
+        y = fromY + number(point.y - fromY);
+      }
+      if (letter === "m") {
+        subpathX = x;
+        subpathY = y;
+      }
+    },
+    arc(
+      radiusX: number,
+      radiusY: number,
+      largeArc: number,
+      sweep: number,
+      toX: number,
+      toY: number,
+    ) {
+      command("a");
+      number(radiusX);
+      number(radiusY);
+      number(0);
+      number(largeArc);
+      number(sweep);
+      const fromX = x;
+      const fromY = y;
+      x = fromX + number(toX - fromX);
+      y = fromY + number(toY - fromY);
+    },
+    close() {
+      out += "z";
+      afterLetter = true;
+      // `z` returns the pen to where the subpath started, and no command is
+      // implied after it.
+      lastCommand = "";
+      x = subpathX;
+      y = subpathY;
+    },
+    result: () => out,
+  };
+}
+
+/**
  * Convert a shape's `a:custGeom` outline into an SVG path `d` string in the
  * shape's own pixel box. Every OOXML path command has an exact SVG
  * counterpart, so a freeform outline — a country on a map, a line-art
@@ -914,21 +1012,23 @@ function customGeometryPath(
   const geometry = element.geometry;
   if (!geometry || geometry.kind !== "custom") return undefined;
   if (!(widthPx > 0) || !(heightPx > 0)) return undefined;
-  const parts: string[] = [];
+  const writer = createPathWriter();
+  let wrote = false;
   for (const path of geometry.paths) {
     const scaleX = widthPx / path.w;
     const scaleY = heightPx / path.h;
     // OOXML path space is top-left origin like SVG's, so only the shape's own
     // `flipH`/`flipV` mirror it — there is no axis flip to undo.
     const toX = (x: number) =>
-      round1(element.flipH ? widthPx - x * scaleX : x * scaleX);
+      element.flipH ? widthPx - x * scaleX : x * scaleX;
     const toY = (y: number) =>
-      round1(element.flipV ? heightPx - y * scaleY : y * scaleY);
+      element.flipV ? heightPx - y * scaleY : y * scaleY;
     let currentX = 0;
     let currentY = 0;
     for (const command of path.commands) {
+      wrote = true;
       if (command.kind === "close") {
-        parts.push("Z");
+        writer.close();
         continue;
       }
       if (command.kind === "arcTo") {
@@ -949,23 +1049,28 @@ function customGeometryPath(
           (Boolean(element.flipH) !== Boolean(element.flipV))
             ? 1
             : 0;
-        parts.push(
-          `A${round1(command.wR * scaleX)} ${round1(command.hR * scaleY)} 0 ${largeArc} ${sweep} ${toX(currentX)} ${toY(currentY)}`,
+        writer.arc(
+          command.wR * scaleX,
+          command.hR * scaleY,
+          largeArc,
+          sweep,
+          toX(currentX),
+          toY(currentY),
         );
         continue;
       }
       const last = command.points[command.points.length - 1]!;
       currentX = last.x;
       currentY = last.y;
-      const coordinates = command.points
-        .map((point) => `${toX(point.x)} ${toY(point.y)}`)
-        .join(" ");
-      parts.push(
-        `${{ moveTo: "M", lnTo: "L", quadBezTo: "Q", cubicBezTo: "C" }[command.kind]}${coordinates}`,
+      writer.write(
+        { moveTo: "m", lnTo: "l", quadBezTo: "q", cubicBezTo: "c" }[
+          command.kind
+        ],
+        command.points.map((point) => ({ x: toX(point.x), y: toY(point.y) })),
       );
     }
   }
-  return parts.length > 0 ? parts.join(" ") : undefined;
+  return wrote ? writer.result() : undefined;
 }
 
 /**
@@ -1082,12 +1187,12 @@ function textBoxStyle(
 
 /**
  * OOXML's default `a:lnSpc` is `spcPct val="100000"` — single spacing. The
- * parser hands that declared value through as the ratio `1`, so an inherited
- * default has to resolve to the same number: a 1.2 stand-in makes an
- * unspecified paragraph's line box 20% taller than the identical paragraph
- * that states its spacing explicitly.
+ * parser resolves that declared value against the font's own line height
+ * (`SINGLE_LINE_SPACING_RATIO`), so an inherited default has to land on the
+ * same number, or an unspecified paragraph renders tighter than the identical
+ * paragraph that states its spacing explicitly.
  */
-const DEFAULT_LINE_SPACING = 1;
+const DEFAULT_LINE_SPACING = 1.2;
 
 /**
  * The first size any run in this text box declares. A blank spacer paragraph
@@ -1160,7 +1265,15 @@ function buildFidelityParagraph(
       ),
     )
     .join("");
-  return `<p data-pptx-paragraph="${paragraphIndex}" style="display:block;flex:0 0 auto;text-align:${paragraph.alignment ?? "left"};white-space:pre-wrap;margin:${marginBefore}px 0 ${marginAfter}px;line-height:${lineHeight};font-size:${fontSize}px;min-height:${fontSize * lineHeight}px;padding-left:${marginLeft}px;text-indent:${paragraph.bulletChar ? 0 : indent}px;">${bullet.replace("display:inline-block;", `display:inline-block;${bulletMargin}`)}${text}</p>`;
+  // A right-to-left paragraph needs its base direction stated, or the browser
+  // infers one per run and mixed Arabic/Latin/numeral text reorders differently
+  // than PowerPoint laid it out. The `dir` attribute is the semantic form the
+  // export DOM walker and any non-sanitizing consumer read, but it is not in
+  // `sanitizeSlideHtml`'s ALLOWED_ATTRS — so the CSS equivalent has to carry it
+  // through the renderer, where only `style` survives.
+  const direction = paragraph.rtl ? ` dir="rtl"` : "";
+  const directionCss = paragraph.rtl ? "direction:rtl;" : "";
+  return `<p data-pptx-paragraph="${paragraphIndex}"${direction} style="${directionCss}display:block;flex:0 0 auto;text-align:${paragraph.alignment ?? (paragraph.rtl ? "right" : "left")};white-space:pre-wrap;margin:${marginBefore}px 0 ${marginAfter}px;line-height:${lineHeight};font-size:${fontSize}px;min-height:${fontSize * lineHeight}px;padding-left:${marginLeft}px;text-indent:${paragraph.bulletChar ? 0 : indent}px;">${bullet.replace("display:inline-block;", `display:inline-block;${bulletMargin}`)}${text}</p>`;
 }
 
 function formatFidelityRun(

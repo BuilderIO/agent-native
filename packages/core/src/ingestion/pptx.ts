@@ -1968,6 +1968,9 @@ function parseTextBodyParagraphs(
       ...(lineSpacing !== undefined ? { lineSpacing } : {}),
       ...(spaceBeforePt !== undefined ? { spaceBeforePt } : {}),
       ...(spaceAfterPt !== undefined ? { spaceAfterPt } : {}),
+      ...(pPr?.["@_rtl"] !== undefined && xmlBoolean(pPr["@_rtl"])
+        ? { rtl: true }
+        : {}),
     };
   });
 }

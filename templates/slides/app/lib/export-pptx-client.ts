@@ -958,6 +958,119 @@ async function rasterizeSvgElement(
   }
 }
 
+const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
+
+function cssLengthToPx(value: string, basis: number) {
+  const parsed = Number.parseFloat(value);
+  if (!Number.isFinite(parsed)) return Number.NaN;
+  return value.trim().endsWith("%") ? (parsed / 100) * basis : parsed;
+}
+
+/** SVG path data for a `path()` or `polygon()` clip, in the element's own px space. */
+export function clipPathPathData(
+  clipPath: string,
+  width: number,
+  height: number,
+) {
+  const path = /^path\(\s*(?:\w+\s*,\s*)?["']([^"']+)["']\s*\)/.exec(clipPath);
+  if (path) return path[1];
+
+  const polygon = /^polygon\(\s*(?:\w+\s*,\s*)?([^)]+)\)/.exec(clipPath);
+  if (!polygon) return null;
+
+  const points: string[] = [];
+  for (const pair of polygon[1].split(",")) {
+    const [rawX, rawY] = pair.trim().split(/\s+/);
+    const x = cssLengthToPx(rawX ?? "", width);
+    const y = cssLengthToPx(rawY ?? "", height);
+    // A dropped vertex silently deforms the shape, so give up on the whole
+    // clip instead and leave the element for the exporter to handle.
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+    points.push(`${x} ${y}`);
+  }
+  return points.length > 2 ? `M ${points.join(" L ")} Z` : null;
+}
+
+/**
+ * Imported PPTX freeform shapes are divs whose whole outline lives in a
+ * `clip-path`. dom-to-pptx has no custom-geometry surface — it never emits
+ * pptxgenjs `points` — so it exports the full element box as a filled
+ * `prstGeom="rect"`: infographics slide 5's 405px ring-segment arrows shipped
+ * as 5.62in solid squares, and soze slide 12's 212-country world map as a
+ * field of blocks. Rasterize the clipped path into an <img> of the same box so
+ * the exporter emits a picture with the real silhouette.
+ *
+ * The server-side `export-pptx` action writes the same outlines as true
+ * `custGeom`; this path is bounded by what dom-to-pptx can represent.
+ */
+export async function rasterizeClipPathShapes(root: HTMLElement) {
+  for (const element of Array.from(root.querySelectorAll<HTMLElement>("*"))) {
+    // A clipped container's children are their own exported objects; only the
+    // leaf shapes can be flattened into a single bitmap. The importer's stroke
+    // overlay is not such a child — it is this same shape's outline, drawn as
+    // an SVG because a `border` cannot follow a freeform edge — so it is
+    // rasterized with the fill rather than blocking it. Every country on the
+    // imported world map carries one.
+    const overlay =
+      element.childElementCount === 1 &&
+      element.firstElementChild instanceof SVGSVGElement
+        ? element.firstElementChild
+        : null;
+    if (
+      (element.childElementCount > 0 && !overlay) ||
+      element.textContent?.trim()
+    ) {
+      continue;
+    }
+
+    const style = window.getComputedStyle(element);
+    const clipPath = style.clipPath || element.style.clipPath;
+    if (!clipPath || clipPath === "none") continue;
+
+    const width = computedLength(style.width, element.offsetWidth);
+    const height = computedLength(style.height, element.offsetHeight);
+    if (!(width > 0) || !(height > 0)) continue;
+
+    const pathData = clipPathPathData(clipPath, width, height);
+    if (!pathData) continue;
+
+    const svg = document.createElementNS(SVG_NAMESPACE, "svg");
+    svg.setAttribute("xmlns", SVG_NAMESPACE);
+    svg.setAttribute("width", `${width}`);
+    svg.setAttribute("height", `${height}`);
+    svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+    const path = document.createElementNS(SVG_NAMESPACE, "path");
+    path.setAttribute("d", pathData);
+    path.setAttribute("fill", style.backgroundColor || "none");
+    const strokeWidth = computedLength(style.borderTopWidth, 0);
+    if (strokeWidth > 0) {
+      path.setAttribute("stroke", style.borderTopColor);
+      path.setAttribute("stroke-width", `${strokeWidth}`);
+    }
+    svg.appendChild(path);
+    // The overlay is authored in this same pixel box, so its strokes need no
+    // transform to land on top of the fill.
+    for (const stroke of Array.from(overlay?.children ?? [])) {
+      svg.appendChild(stroke.cloneNode(true));
+    }
+
+    const image = document.createElement("img");
+    image.alt = "";
+    image.src = await rasterizeSvgElement(svg, width, height);
+    image.style.cssText = element.style.cssText;
+    Object.assign(image.style, {
+      background: "none",
+      border: "0",
+      boxSizing: "border-box",
+      clipPath: "none",
+      height: `${height}px`,
+      objectFit: "fill",
+      width: `${width}px`,
+    });
+    element.replaceWith(image);
+  }
+}
+
 async function replaceInlineSvgsWithImages(root: HTMLElement) {
   const svgs = Array.from(root.querySelectorAll<SVGSVGElement>("svg"));
   for (const svg of svgs) {

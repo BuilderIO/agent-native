@@ -1087,6 +1087,67 @@ describe("parsePptxPresentation", () => {
     });
   });
 
+  it("resolves cell borders from ppt/tableStyles.xml when the cells declare none of their own", async () => {
+    const presentation = await parsePptxPresentation(
+      await buildPptxBufferWithParts({
+        slides: [tableStyleSlideXml()],
+        files: { "ppt/tableStyles.xml": tableStylesXml() },
+      }),
+    );
+
+    const rows = presentation.slides[0]?.elements[0]?.table?.rows;
+    // Outer edges take the style's left/right/top/bottom; the rules shared
+    // between two cells take insideV/insideH.
+    expect(rows?.[0]?.[0]?.borders).toEqual({
+      left: { color: "#111111", widthEmu: 19050 },
+      right: { color: "#9E9E9E", widthEmu: 9525 },
+      top: { color: "#111111", widthEmu: 19050 },
+      bottom: { color: "#9E9E9E", widthEmu: 9525 },
+    });
+    expect(rows?.[1]?.[1]?.borders).toEqual({
+      left: { color: "#9E9E9E", widthEmu: 9525 },
+      right: { color: "#111111", widthEmu: 19050 },
+      top: { color: "#9E9E9E", widthEmu: 9525 },
+      bottom: { color: "#111111", widthEmu: 19050 },
+    });
+    // `firstRow="1"` opts the header row into the style's firstRow fill.
+    expect(rows?.[0]?.[0]?.fill).toBe("#DDEEFF");
+    expect(rows?.[1]?.[0]?.fill).toBeUndefined();
+  });
+
+  it("lets a cell's own a:lnL/R/T/B beat the table style, including an explicit noFill that draws nothing", async () => {
+    const presentation = await parsePptxPresentation(
+      await buildPptxBufferWithParts({
+        slides: [
+          tableStyleSlideXml(
+            `<a:lnL w="28575"><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill><a:prstDash val="dash"/></a:lnL><a:lnB><a:noFill/></a:lnB>`,
+          ),
+        ],
+        files: { "ppt/tableStyles.xml": tableStylesXml() },
+      }),
+    );
+
+    const cell = presentation.slides[0]?.elements[0]?.table?.rows[0]?.[0];
+    expect(cell?.borders?.left).toEqual({
+      color: "#FFFFFF",
+      widthEmu: 28575,
+      dash: "dashed",
+    });
+    // The style's insideH rule must not come back for a side the cell
+    // explicitly switched off.
+    expect(cell?.borders?.bottom).toBeUndefined();
+    expect(cell?.borders?.top).toEqual({ color: "#111111", widthEmu: 19050 });
+  });
+
+  it("leaves a table with no style and no cell lines borderless instead of stamping a grid on it", async () => {
+    const presentation = await parsePptxPresentation(
+      await buildPptxBufferWithParts({ slides: [tableStyleSlideXml()] }),
+    );
+
+    const rows = presentation.slides[0]?.elements[0]?.table?.rows;
+    expect(rows?.flat().every((cell) => cell.borders === undefined)).toBe(true);
+  });
+
   it("applies a normAutofit fontScale to the text the author let PowerPoint shrink", async () => {
     const presentation = await parsePptxPresentation(
       await buildMinimalPptxBuffer(`
@@ -1395,6 +1456,49 @@ function themeXml(name: string, accent1: string): string {
  * is deliberately a *different* palette than the master's own theme2 — that is
  * exactly the Google Slides shape where theme1 belongs to the notes master.
  */
+/** A 2x2 table whose `a:tblPr` references the style in `tableStylesXml()` below — the shape a Google Slides export writes, where the cells carry no line properties at all and every rule lives in the deck's table style. */
+function tableStyleSlideXml(cellProperties = ""): string {
+  const cell = (text: string, properties = "") =>
+    `<a:tc><a:txBody><a:bodyPr/><a:p><a:r><a:t>${text}</a:t></a:r></a:p></a:txBody><a:tcPr marT="91425">${properties}</a:tcPr></a:tc>`;
+  return `
+    <p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+      <p:cSld><p:spTree>
+        <p:graphicFrame>
+          <p:nvGraphicFramePr><p:cNvPr id="30" name="KPI table"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr>
+          <p:xfrm><a:off x="0" y="0"/><a:ext cx="4000000" cy="1200000"/></p:xfrm>
+          <a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table">
+            <a:tbl>
+              <a:tblPr firstRow="1"><a:noFill/><a:tableStyleId>{DDFDE955-DE5E-4019-A6DC-C6A011EEF9D1}</a:tableStyleId></a:tblPr>
+              <a:tblGrid><a:gridCol w="2000000"/><a:gridCol w="2000000"/></a:tblGrid>
+              <a:tr h="600000">${cell("Ret D1", cellProperties)}${cell("Ret D7")}</a:tr>
+              <a:tr h="600000">${cell("41%")}${cell("18%")}</a:tr>
+            </a:tbl>
+          </a:graphicData></a:graphic>
+        </p:graphicFrame>
+      </p:spTree></p:cSld>
+    </p:sld>
+  `.trim();
+}
+
+/** Distinct outer (`#111111`) and interior (`#9E9E9E`) rules so a cell that mixed the two up is visible in the assertion, plus a `firstRow` header fill. */
+function tableStylesXml(): string {
+  const line = (color: string, width: number) =>
+    `<a:ln w="${width}"><a:solidFill><a:srgbClr val="${color}"/></a:solidFill><a:prstDash val="solid"/></a:ln>`;
+  const outer = line("111111", 19050);
+  const inner = line("9E9E9E", 9525);
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    <a:tblStyleLst xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" def="{DDFDE955-DE5E-4019-A6DC-C6A011EEF9D1}">
+      <a:tblStyle styleId="{DDFDE955-DE5E-4019-A6DC-C6A011EEF9D1}" styleName="Table_0">
+        <a:wholeTbl><a:tcStyle><a:tcBdr>
+          <a:left>${outer}</a:left><a:right>${outer}</a:right>
+          <a:top>${outer}</a:top><a:bottom>${outer}</a:bottom>
+          <a:insideH>${inner}</a:insideH><a:insideV>${inner}</a:insideV>
+        </a:tcBdr></a:tcStyle></a:wholeTbl>
+        <a:firstRow><a:tcStyle><a:fill><a:solidFill><a:srgbClr val="DDEEFF"/></a:solidFill></a:fill></a:tcStyle></a:firstRow>
+      </a:tblStyle>
+    </a:tblStyleLst>`;
+}
+
 async function buildPptxBufferWithParts(parts: {
   slides: string[];
   layout?: string;
