@@ -621,6 +621,14 @@ export function detectBlockAlignment(
   blockRight: number,
 ): "left" | "center" | "right" {
   if (blockLines.length < 2) return "left";
+  // The block bounds come from these same lines. Equal-width lines therefore
+  // have identical left edges, right edges, and midpoints whether they were
+  // left-aligned or centered; keep that ambiguous case left-aligned rather
+  // than moving ordinary paragraphs to the center.
+  const widths = blockLines.map((line) => line.right - line.left);
+  const minWidth = Math.min(...widths);
+  const maxWidth = Math.max(...widths);
+  if (maxWidth - minWidth <= TEXT_ALIGNMENT_TOLERANCE_PT) return "left";
   const midpoint = (blockLeft + blockRight) / 2;
   const centered = blockLines.every(
     (line) =>

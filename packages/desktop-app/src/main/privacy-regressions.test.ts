@@ -190,7 +190,7 @@ describe("desktop passive-access regressions", () => {
     expect(runner).toContain('phase: "missing-credentials"');
   });
 
-  it("starts empty desktop app creation from the framework workspace", () => {
+  it("starts empty desktop app creation from the selected apps folder", () => {
     const main = source("./index.ts");
     const repository = between(
       main,
@@ -202,14 +202,18 @@ describe("desktop passive-access regressions", () => {
       "async function createDesktopAppFromPrompt(",
       "const lastDesktopAppRuntimeStatus",
     );
+    const prompt = between(
+      main,
+      "function buildDesktopCreateAppAgentPrompt(",
+      "async function createDesktopAppFromPrompt(",
+    );
 
     expect(repository).toContain(
       'IS_DEV ? path.resolve(__dirname, "../../../..") : undefined',
     );
-    expect(creation).toContain(
-      "const appCreationCwd = resolveRepositoryRoot(appsRoot);",
-    );
-    expect(creation).toContain("cwd: appCreationCwd");
+    expect(creation).toContain("cwd: appsRoot");
+    expect(creation).not.toContain("resolveRepositoryRoot(appsRoot)");
+    expect(prompt).toContain("create ${input.folderName} --template chat");
   });
 
   it("only marks the local Codex provider configured after authentication", () => {
