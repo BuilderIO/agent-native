@@ -115,6 +115,11 @@ body.quick-prompt-surface #root {
   --composer-surface-radius: 14px;
 }
 
+/* Leave room for the shared picker's nested model list inside this narrow window. */
+.quick-prompt-overlay [data-agent-native-composer-popover="true"] {
+  width: min(16rem, calc(50vw - 24px));
+}
+
 .quick-prompt-overlay .quick-prompt-overlay__composer :is(textarea, input) {
   font-size: 14px;
 }
