@@ -238,6 +238,11 @@ export default defineAction({
           and(
             isNotNull(schema.meetings.scheduledEnd),
             lt(schema.meetings.scheduledEnd, nowIso),
+            // A meeting that started recording and is still going (actualStart
+            // set, actualEnd not yet) waits for actualEnd even if its schedule
+            // says it should be over — otherwise it double-appears here and on
+            // the Agenda while still in progress.
+            isNull(schema.meetings.actualStart),
           )!,
           and(
             isNull(schema.meetings.scheduledStart),
