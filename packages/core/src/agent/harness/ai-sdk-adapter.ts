@@ -520,7 +520,7 @@ function isExplicitlyMissingHarnessSession(error: unknown): boolean {
       : typeof error === "string"
         ? error
         : "";
-  return /(?:session|conversation).*(?:not found|does not exist|unknown|unsupported)/i.test(
+  return /(?:session|conversation).*(?:not found|does not exist|unknown|unsupported)|(?:unknown|unsupported).*(?:session|conversation)/i.test(
     message,
   );
 }
