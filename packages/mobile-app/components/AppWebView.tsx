@@ -379,6 +379,16 @@ function AppWebView(
     [trustedOrigin, startGoogleAuth, openGoogleSession],
   );
 
+  const handleOpenWindow = useCallback(
+    (event: { nativeEvent: { targetUrl?: string } }) => {
+      const targetUrl = event.nativeEvent.targetUrl;
+      if (typeof targetUrl === "string" && targetUrl.length > 0) {
+        void handleShouldStartLoad({ url: targetUrl });
+      }
+    },
+    [handleShouldStartLoad],
+  );
+
   // Handle messages from the web app (e.g. open a URL in the system browser)
   const handleMessage = useCallback(
     (event: { nativeEvent: { data: string; url: string } }) => {
@@ -515,6 +525,7 @@ function AppWebView(
           if (event.nativeEvent.statusCode >= 500) setError(true);
         }}
         onShouldStartLoadWithRequest={handleShouldStartLoad}
+        onOpenWindow={handleOpenWindow}
         onMessage={handleMessage}
         injectedJavaScriptBeforeContentLoaded={`${MOBILE_ANALYTICS_PLATFORM_SCRIPT}
 ${FORCE_REDIRECT_AUTH_SCRIPT}`}

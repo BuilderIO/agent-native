@@ -254,7 +254,7 @@ export default function ChatTab() {
   );
 
   // While signed out we render the web app so its session bridge can hand us
-  // a token; poll until it lands, then switch to the native chat.
+  // a token; poll until it lands, then switch to the Chat surface.
   useEffect(() => {
     if (authState !== "signed-out") return;
     let active = AppState.currentState === "active";
