@@ -2257,7 +2257,6 @@ export default function CodeAgentsHub({
                 theme={theme}
                 submitRequest={terminalPromptRequest ?? undefined}
                 onPromptSubmitted={handleTerminalPromptSubmitted}
-                onTerminalModeChange={handleTerminalModeChange}
               />
             ) : undefined
           }
@@ -2273,6 +2272,10 @@ export default function CodeAgentsHub({
                 }
               : undefined
           }
+          terminalModeControl={{
+            enabled: terminalPreferences.enabled,
+            onChange: handleTerminalModeChange,
+          }}
           suppressChatFirstUnavailableNotice
           onRunsChange={handleChatFirstRunsChange}
           onSelectedRunChange={(runId) =>

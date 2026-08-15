@@ -328,10 +328,7 @@ export function ComposerPlusMenu({
 function ComposerPlusMenuTerminal({
   onAttachmentError,
   terminalModeControl,
-}: Pick<
-  ComposerPlusMenuProps,
-  "onAttachmentError" | "terminalModeControl"
->) {
+}: Pick<ComposerPlusMenuProps, "onAttachmentError" | "terminalModeControl">) {
   const composerRuntime = useComposerRuntime();
   const t = useComposerRuntimeAdapters().translate!;
   const inputRef = useRef<HTMLInputElement>(null);
@@ -415,7 +412,9 @@ function ComposerPlusMenuTerminal({
               />
             )}
             <span>
-              {terminalModeControl.enabled ? "Add attachments" : "Start terminal"}
+              {terminalModeControl.enabled
+                ? "Add attachments"
+                : "Start terminal"}
             </span>
           </button>
           <div className="my-1 border-t border-border/70" />

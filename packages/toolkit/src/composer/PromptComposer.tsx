@@ -36,10 +36,10 @@ import {
   PROMPT_DOCUMENT_ATTACHMENT_ACCEPT,
   TextAttachmentAdapter,
 } from "./attachment-accept.js";
+import type { ComposerTerminalModeControl } from "./ComposerPlusMenu.js";
 import { isPastedTextAttachmentName } from "./pasted-text.js";
 import { PastedTextChip } from "./PastedTextChip.js";
 import { escapePromptAttachmentAttribute } from "./prompt-attachments.js";
-import type { ComposerTerminalModeControl } from "./ComposerPlusMenu.js";
 import {
   type EngineModelGroup,
   type ReasoningEffort,
