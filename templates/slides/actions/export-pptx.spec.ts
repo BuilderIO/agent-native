@@ -226,6 +226,49 @@ describe("parseSlideHtml", () => {
     expect(result.texts[0].transparency).toBe(50);
   });
 
+  it("preserves 8-digit CSS hex alpha through PPTX export", () => {
+    const result = parseSlideHtml(
+      '<div class="fmd-slide"><h1 style="color: #11223380;">Title</h1></div>',
+      undefined,
+      1,
+    );
+
+    expect(result.texts[0].color).toBe("112233");
+    expect(result.texts[0].transparency).toBe(50);
+  });
+
+  it("exports imported tables with cell text, fills, and spans", () => {
+    const result = parseSlideHtml(
+      [
+        '<div class="fmd-slide fmd-imported-pptx" data-imported-pptx="true" style="background:#000000;">',
+        '<div data-pptx-element-kind="table" style="position:absolute;left:72px;top:68px;width:480px;height:180px;">',
+        '<table><tr><td colspan="2" style="background:#11223380;border:1px solid rgba(255,255,255,0.25);"><p><span style="font-size:24px;color:#ffffff;font-weight:700;">Header</span></p></td></tr>',
+        '<tr><td rowspan="2"><p>Left</p></td><td><p>Right</p></td></tr><tr><td><p>Bottom</p></td></tr></table>',
+        "</div></div>",
+      ].join(""),
+      "16:9",
+      1,
+    );
+
+    expect(result.tables).toHaveLength(1);
+    expect(result.tables[0]?.x).toBeCloseTo(1, 3);
+    const [headerRow, bodyRow] = result.tables[0]?.rows ?? [];
+    expect(headerRow?.[0]?.options).toMatchObject({
+      colspan: 2,
+      fill: { color: "112233", transparency: 50 },
+    });
+    expect(headerRow?.[0]?.text).toEqual(
+      expect.arrayContaining([expect.objectContaining({ text: "Header" })]),
+    );
+    expect(bodyRow?.[0]?.options).toMatchObject({ rowspan: 2 });
+    expect(bodyRow?.[0]?.text).toEqual(
+      expect.arrayContaining([expect.objectContaining({ text: "Left" })]),
+    );
+    expect(bodyRow?.[1]?.text).toEqual(
+      expect.arrayContaining([expect.objectContaining({ text: "Right" })]),
+    );
+  });
+
   it("warns and falls back to white instead of silently defaulting an unrecognized color", () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 

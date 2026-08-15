@@ -3,6 +3,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
+  filterAvailableMobileTabAppIds,
   getDefaultMobileTabAppIds,
   MOBILE_BOTTOM_TAB_LIMIT,
   supportsMobileTab,
@@ -129,15 +130,19 @@ export function useMobileTabLayout(apps: readonly AppConfig[]) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [appIdsKey],
   );
+  const availableIds = useMemo(
+    () =>
+      new Set(
+        apps
+          .filter((app) => app.enabled && supportsMobileTab(app.id))
+          .map((app) => app.id),
+      ),
+    [apps],
+  );
   const selectedAppIds = useMemo(() => {
-    const availableIds = new Set(
-      apps
-        .filter((app) => app.enabled && supportsMobileTab(app.id))
-        .map((app) => app.id),
-    );
     const source = storedIds ?? defaultIds;
-    return source.filter((id) => availableIds.has(id));
-  }, [apps, defaultIds, storedIds]);
+    return filterAvailableMobileTabAppIds(source, availableIds);
+  }, [availableIds, defaultIds, storedIds]);
 
   const toggleApp = useCallback(
     async (appId: string): Promise<MobileTabToggleResult> => {
@@ -150,7 +155,10 @@ export function useMobileTabLayout(apps: readonly AppConfig[]) {
         };
       }
       const previousIds = storedIds;
-      const currentIds = storedIds ?? defaultIds;
+      const currentIds = filterAvailableMobileTabAppIds(
+        storedIds ?? defaultIds,
+        availableIds,
+      );
       const next = toggleMobileTabAppId(currentIds, appId);
       if (!next.changed) return { ok: true, ...next };
 
@@ -169,7 +177,7 @@ export function useMobileTabLayout(apps: readonly AppConfig[]) {
       }
       return { ok: true, ...next };
     },
-    [defaultIds, storedIds],
+    [availableIds, defaultIds, storedIds],
   );
 
   return {

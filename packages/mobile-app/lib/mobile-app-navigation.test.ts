@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  filterAvailableMobileTabAppIds,
   getAppRoute,
   getDefaultMobileTabAppIds,
   MOBILE_BOTTOM_TAB_LIMIT,
@@ -39,6 +40,19 @@ describe("mobile chat-first navigation", () => {
       ids: ["content", "design", "mail"],
       changed: false,
       limitReached: true,
+    });
+  });
+
+  it("filters stale saved ids before applying the tab limit", () => {
+    const currentIds = filterAvailableMobileTabAppIds(
+      ["content", "design", "removed"],
+      new Set(["content", "design", "calendar"]),
+    );
+
+    expect(toggleMobileTabAppId(currentIds, "calendar")).toEqual({
+      ids: ["content", "design", "calendar"],
+      changed: true,
+      limitReached: false,
     });
   });
 

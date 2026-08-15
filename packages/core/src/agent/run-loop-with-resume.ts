@@ -507,22 +507,12 @@ export async function runAgentLoopDirectWithSoftTimeout(
         internalContinuationReasonForAttempt(attemptEvents);
       if (internalContinuationReason && !upstreamSignal.aborted) {
         lastAttemptWasUnfinishedContinuation = true;
-        const continuationEvents = [...localTurnEvents];
-        if (
-          (await completedSideEffectInCurrentTurn(
-            opts.threadId,
-            opts.turnId,
-            continuationEvents,
-          )) === "none"
-        ) {
-          opts.send({ type: "clear" });
-        }
         await appendContinuationAndJournal(
           opts.messages,
           internalContinuationReason,
           opts.threadId,
           opts.turnId,
-          continuationEvents,
+          localTurnEvents,
           attemptEvents,
         );
         continue;
@@ -547,18 +537,7 @@ export async function runAgentLoopDirectWithSoftTimeout(
       return usage;
     } catch (err) {
       if (softTimedOut && !upstreamSignal.aborted) {
-        // Clear partial text the client received before the abort so the
-        // resumed model doesn't re-emit it and produce duplicated output.
         lastAttemptWasUnfinishedContinuation = true;
-        if (
-          (await completedSideEffectInCurrentTurn(
-            opts.threadId,
-            opts.turnId,
-            localTurnEvents,
-          )) === "none"
-        ) {
-          opts.send({ type: "clear" });
-        }
         await appendContinuationAndJournal(
           opts.messages,
           "run_timeout",
@@ -585,15 +564,6 @@ export async function runAgentLoopDirectWithSoftTimeout(
       ) {
         lastAttemptWasUnfinishedContinuation = true;
         backgroundRateLimitContinuations++;
-        if (
-          (await completedSideEffectInCurrentTurn(
-            opts.threadId,
-            opts.turnId,
-            localTurnEvents,
-          )) === "none"
-        ) {
-          opts.send({ type: "clear" });
-        }
         await appendContinuationAndJournal(
           opts.messages,
           "rate_limited",
@@ -613,22 +583,11 @@ export async function runAgentLoopDirectWithSoftTimeout(
       // another LLM call. Anthropic's prompt cache makes the resume call much
       // faster than the cold first attempt.
       //
-      // Emit 'clear' so any partial streamed text is discarded on the client
-      // before the model resumes. Without this the model restarts its sentence
-      // from scratch and the fold produces duplicated text in one message
-      // (the partial text was already sent to the client but is now retained
-      // only as an internal checkpoint so the next attempt can finish it).
+      // Keep streamed text visible while the resumed model finishes from the
+      // internal checkpoint. The continuation prompt tells the model not to
+      // repeat that prefix, so clearing it would leave only the suffix visible.
       if (!upstreamSignal.aborted && isResumableEngineError(err)) {
         lastAttemptWasUnfinishedContinuation = true;
-        if (
-          (await completedSideEffectInCurrentTurn(
-            opts.threadId,
-            opts.turnId,
-            localTurnEvents,
-          )) === "none"
-        ) {
-          opts.send({ type: "clear" });
-        }
         await appendContinuationAndJournal(
           opts.messages,
           continuationReasonForResumableError(err),

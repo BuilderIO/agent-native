@@ -374,13 +374,13 @@ export function HomeScreen() {
 
 export default function MobileEntryScreen() {
   const router = useRouter();
-  const { enabled: chatFirstMode } = useChatFirstMode();
+  const { enabled: chatFirstMode, loaded } = useChatFirstMode();
 
   useEffect(() => {
-    if (chatFirstMode) router.replace("/chat" as never);
-  }, [chatFirstMode, router]);
+    if (loaded && chatFirstMode) router.replace("/chat" as never);
+  }, [chatFirstMode, loaded, router]);
 
-  if (chatFirstMode) {
+  if (!loaded || chatFirstMode) {
     return <View className="flex-1 bg-background-dark" />;
   }
 

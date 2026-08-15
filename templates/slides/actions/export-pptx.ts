@@ -5,6 +5,7 @@ import { defineAction } from "@agent-native/core";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { resolveAccess } from "@agent-native/core/sharing";
+import type PptxGenJS from "pptxgenjs";
 import { z } from "zod";
 
 import "../server/db/index.js"; // ensure registerShareableResource runs
@@ -18,6 +19,9 @@ import {
   getAspectRatioDims,
   ASPECT_RATIO_VALUES,
 } from "../shared/aspect-ratios.js";
+
+type TableCell = PptxGenJS.TableCell;
+type TableRow = PptxGenJS.TableRow;
 
 /**
  * Extract inline style value for a given property from a style string.
@@ -41,6 +45,13 @@ function colorToHex(color: string): { hex: string; transparency?: number } {
   color = color.replace(/['"]/g, "").trim();
 
   // Already hex
+  if (/^#[0-9a-f]{8}$/i.test(color)) {
+    const alpha = parseInt(color.slice(7, 9), 16) / 255;
+    return {
+      hex: color.slice(1, 7).toUpperCase(),
+      transparency: Math.round((1 - alpha) * 100),
+    };
+  }
   if (/^#[0-9a-f]{6}$/i.test(color))
     return { hex: color.slice(1).toUpperCase() };
   if (/^#[0-9a-f]{3}$/i.test(color)) {
@@ -172,6 +183,15 @@ interface ShapeElement {
   order?: number;
 }
 
+interface TableElement {
+  rows: TableRow[];
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  order?: number;
+}
+
 interface GridElement {
   color: string;
   transparency?: number; // 0-100, percent transparent
@@ -206,6 +226,7 @@ interface ParsedSlide {
   texts: TextElement[];
   images: ImageElement[];
   shapes: ShapeElement[];
+  tables: TableElement[];
   grid?: GridElement;
   bgColor: string;
   bgTransparency?: number; // 0-100, percent transparent
@@ -418,7 +439,7 @@ export function parseSlideHtml(
     }
   }
 
-  return { texts, images, shapes, bgColor, bgTransparency };
+  return { texts, images, shapes, tables: [], bgColor, bgTransparency };
 }
 
 type SlideDims = ReturnType<typeof getAspectRatioDims>;
@@ -477,6 +498,7 @@ function parseImportedPdfSlideHtml(html: string, dims: SlideDims): ParsedSlide {
         ]
       : [],
     shapes: [],
+    tables: [],
     bgColor,
     bgTransparency,
   };
@@ -486,6 +508,7 @@ function parseImportedSlideHtml(html: string, dims: SlideDims): ParsedSlide {
   const texts: TextElement[] = [];
   const images: ImageElement[] = [];
   const shapes: ShapeElement[] = [];
+  const tables: TableElement[] = [];
   const outerStyle = html.match(
     /class=["'][^"']*\bfmd-slide\b[^"']*["'][^>]*style=["']([^"']*)["']/i,
   )?.[1];
@@ -498,7 +521,7 @@ function parseImportedSlideHtml(html: string, dims: SlideDims): ParsedSlide {
   const bgTransparency = parsedBg.transparency;
   const grid = outerStyle ? parseImportedGrid(outerStyle) : undefined;
   const elementRegex =
-    /<div\b([^>]*\bdata-pptx-element-kind=["'](text|image|shape)["'][^>]*)>([\s\S]*?)<\/div>/gi;
+    /<div\b([^>]*\bdata-pptx-element-kind=["'](text|image|shape|table)["'][^>]*)>([\s\S]*?)<\/div>/gi;
   let match: RegExpExecArray | null;
   while ((match = elementRegex.exec(html)) !== null) {
     const attrs = match[1];
@@ -542,6 +565,14 @@ function parseImportedSlideHtml(html: string, dims: SlideDims): ParsedSlide {
       continue;
     }
 
+    if (kind === "table") {
+      const rows = importedTableRows(innerHtml, dims);
+      if (rows.length > 0) {
+        tables.push({ ...geometry, rows, order: match.index });
+      }
+      continue;
+    }
+
     const runs = importedTextRuns(innerHtml, dims);
     const firstRun = runs.find((run) => run.text.trim()) ?? runs[0];
     const firstParagraph = innerHtml.match(
@@ -571,7 +602,7 @@ function parseImportedSlideHtml(html: string, dims: SlideDims): ParsedSlide {
     });
   }
 
-  return { texts, images, shapes, grid, bgColor, bgTransparency };
+  return { texts, images, shapes, tables, grid, bgColor, bgTransparency };
 }
 
 function parseImportedGrid(style: string): GridElement | undefined {
@@ -657,6 +688,80 @@ function importedTextRuns(html: string, dims: SlideDims): TextRunElement[] {
     }
   });
   return runs;
+}
+
+function importedTableRows(html: string, dims: SlideDims): TableRow[] {
+  return [...html.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)].map(
+    (rowMatch): TableRow =>
+      [...rowMatch[1].matchAll(/<t[dh]\b([^>]*)>([\s\S]*?)<\/t[dh]>/gi)].map(
+        (cellMatch): TableCell => {
+          const attrs = cellMatch[1];
+          const cellHtml = cellMatch[2];
+          const style = getAttribute(attrs, "style") ?? "";
+          const runs = importedTextRuns(cellHtml, dims);
+          const fill = getStyle(style, "background(?:-color)?");
+          const parsedFill = fill ? colorToHex(fill) : undefined;
+          const border = getStyle(style, "border");
+          const borderMatch = border?.match(/([\d.]+)px\s+solid\s+(.+)/i);
+          const parsedBorder = borderMatch
+            ? colorToHex(borderMatch[2])
+            : undefined;
+          const colSpan = Number.parseInt(
+            getAttribute(attrs, "colspan") ?? "",
+            10,
+          );
+          const rowSpan = Number.parseInt(
+            getAttribute(attrs, "rowspan") ?? "",
+            10,
+          );
+          const align = getStyle(style, "text-align");
+          const verticalAlign = getStyle(style, "vertical-align");
+          const options: NonNullable<TableCell["options"]> = {
+            ...(align === "center" || align === "right" || align === "justify"
+              ? { align }
+              : {}),
+            ...(verticalAlign === "top" ||
+            verticalAlign === "middle" ||
+            verticalAlign === "bottom"
+              ? { valign: verticalAlign }
+              : {}),
+            ...(parsedFill
+              ? {
+                  fill: {
+                    color: parsedFill.hex,
+                    ...(parsedFill.transparency != null
+                      ? { transparency: parsedFill.transparency }
+                      : {}),
+                  },
+                }
+              : {}),
+            ...(parsedBorder && borderMatch
+              ? {
+                  border: {
+                    type: "solid" as const,
+                    color: parsedBorder.hex,
+                    pt: Math.max(
+                      0.5,
+                      pxToPt(Number.parseFloat(borderMatch[1]), dims),
+                    ),
+                  },
+                }
+              : {}),
+            ...(Number.isFinite(colSpan) && colSpan > 1
+              ? { colspan: colSpan }
+              : {}),
+            ...(Number.isFinite(rowSpan) && rowSpan > 1
+              ? { rowspan: rowSpan }
+              : {}),
+          };
+          const text: TableCell["text"] =
+            runs.length > 0
+              ? runs.map((run) => ({ text: run.text, options: run.options }))
+              : "";
+          return { text, options };
+        },
+      ),
+  );
 }
 
 function importedRunOptions(
@@ -821,7 +926,7 @@ export default defineAction({
         slide && typeof slide === "object" && typeof slide.content === "string"
           ? slide.content
           : "";
-      const { texts, images, shapes, grid, bgColor, bgTransparency } =
+      const { texts, images, shapes, tables, grid, bgColor, bgTransparency } =
         parseSlideHtml(slideContent, aspectRatio, slideIndex + 1);
 
       pptxSlide.background = {
@@ -872,6 +977,9 @@ export default defineAction({
       const orderedShapes = [...shapes].sort(
         (a, b) => (a.order ?? 0) - (b.order ?? 0),
       );
+      const orderedTables = [...tables].sort(
+        (a, b) => (a.order ?? 0) - (b.order ?? 0),
+      );
 
       // Imported elements are parsed separately because PptxGenJS needs real
       // slide objects. Keep their source order so overlapping objects retain
@@ -880,6 +988,7 @@ export default defineAction({
         ...orderedTexts.map((value) => ({ kind: "text" as const, value })),
         ...orderedImages.map((value) => ({ kind: "image" as const, value })),
         ...orderedShapes.map((value) => ({ kind: "shape" as const, value })),
+        ...orderedTables.map((value) => ({ kind: "table" as const, value })),
       ].sort((a, b) => (a.value.order ?? 0) - (b.value.order ?? 0));
 
       for (const object of orderedObjects) {
@@ -922,6 +1031,17 @@ export default defineAction({
               h: img.h,
             });
           }
+        } else if (object.kind === "table") {
+          const table = object.value;
+          pptxSlide.addTable(table.rows, {
+            x: table.x,
+            y: table.y,
+            w: table.w,
+            h: table.h,
+            autoPage: false,
+            border: { type: "solid", color: "FFFFFF", pt: 0.5 },
+            margin: 0.04,
+          });
         } else {
           const shape = object.value;
           pptxSlide.addShape(

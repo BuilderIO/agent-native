@@ -19,7 +19,9 @@ const HIDDEN_APP_ROUTES = [
 ] as const;
 
 export default function TabLayout() {
-  const { enabled: chatFirstMode } = useChatFirstMode();
+  const { enabled: chatFirstMode, loaded } = useChatFirstMode();
+
+  if (!loaded) return null;
 
   return (
     <Tabs

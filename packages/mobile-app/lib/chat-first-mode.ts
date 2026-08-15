@@ -54,23 +54,33 @@ export function subscribeChatFirstMode(
 
 export function useChatFirstMode(): {
   enabled: boolean;
+  loaded: boolean;
   error: string | null;
   setEnabled: (enabled: boolean) => Promise<ChatFirstModeStorageResult>;
 } {
   const [enabled, setEnabledState] = useState(true);
+  const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     let active = true;
     void loadChatFirstMode().then((result) => {
       if (!active) return;
       setEnabledState(result.enabled);
+      setLoaded(true);
       setError(result.ok ? null : "Chat-first preference could not be read.");
     });
     return () => {
       active = false;
     };
   }, []);
-  useEffect(() => subscribeChatFirstMode(setEnabledState), []);
+  useEffect(
+    () =>
+      subscribeChatFirstMode((value) => {
+        setEnabledState(value);
+        setLoaded(true);
+      }),
+    [],
+  );
   const setEnabled = useCallback(
     async (value: boolean) => {
       const previous = enabled;
@@ -85,5 +95,5 @@ export function useChatFirstMode(): {
     },
     [enabled],
   );
-  return { enabled, error, setEnabled };
+  return { enabled, error, loaded, setEnabled };
 }

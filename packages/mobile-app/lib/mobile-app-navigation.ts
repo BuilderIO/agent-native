@@ -61,6 +61,16 @@ export function getDefaultMobileTabAppIds(
     .map((app) => app.id);
 }
 
+export function filterAvailableMobileTabAppIds(
+  selectedIds: readonly string[],
+  availableIds: ReadonlySet<string>,
+): string[] {
+  return [...new Set(selectedIds.filter((id) => availableIds.has(id)))].slice(
+    0,
+    MOBILE_BOTTOM_TAB_LIMIT,
+  );
+}
+
 export function toggleMobileTabAppId(
   selectedIds: readonly string[],
   appId: string,
