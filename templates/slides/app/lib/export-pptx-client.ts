@@ -1112,10 +1112,11 @@ export function linearGradientPaint(
   const gradient = document.createElementNS(SVG_NAMESPACE, "linearGradient");
   gradient.setAttribute("id", id);
   gradient.setAttribute("gradientUnits", "userSpaceOnUse");
-  gradient.setAttribute("x1", `${width / 2 - (dx * lineLength) / 2}`);
-  gradient.setAttribute("y1", `${height / 2 - (dy * lineLength) / 2}`);
-  gradient.setAttribute("x2", `${width / 2 + (dx * lineLength) / 2}`);
-  gradient.setAttribute("y2", `${height / 2 + (dy * lineLength) / 2}`);
+  const round = (value: number) => `${Math.round(value * 1000) / 1000}`;
+  gradient.setAttribute("x1", round(width / 2 - (dx * lineLength) / 2));
+  gradient.setAttribute("y1", round(height / 2 - (dy * lineLength) / 2));
+  gradient.setAttribute("x2", round(width / 2 + (dx * lineLength) / 2));
+  gradient.setAttribute("y2", round(height / 2 + (dy * lineLength) / 2));
 
   stopParts.forEach((part, index) => {
     const position = part.match(/\s(-?[\d.]+)%$/)?.[1];

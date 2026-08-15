@@ -12,11 +12,14 @@ vi.mock("dom-to-pptx", () => ({
 
 import {
   addSpeakerNotesToPptxBlob,
+  blankRasterResult,
   buildDeckPptxBlob,
   exportDeckAsPptx,
+  linearGradientPaint,
   materializeClipPathShapes,
   patchBulletIndentsInPptxBlob,
   pptxExportScale,
+  replaceInlineSvgsWithImages,
 } from "./export-pptx-client";
 
 async function buildMinimalPptxBlob(slideCount = 1): Promise<Blob> {
@@ -660,5 +663,152 @@ describe("materializeClipPathShapes", () => {
 
     expect(root.querySelector("svg")).toBeNull();
     expect(root.querySelector("div")).toBe(element);
+  });
+});
+
+describe("linearGradientPaint", () => {
+  it("fills a gradient shape with a paint server, not the transparent background-color", () => {
+    const element = document.createElement("div");
+    element.setAttribute(
+      "style",
+      "position:absolute;width:192px;height:108px;background-image:linear-gradient(315deg, #038DAF 0%, #038DAF 26%, #57308B 62%, #57308B 100%);clip-path:path('M0 0 L96 0 L0 54 Z');",
+    );
+    const root = document.createElement("div");
+    root.appendChild(element);
+    document.body.appendChild(root);
+
+    materializeClipPathShapes(root);
+
+    // canyon's master draws 20 gradFill freeforms behind every slide; filling
+    // them from `background-color` made each one a fully transparent PNG.
+    const fill = root.querySelector("svg > path")?.getAttribute("fill");
+    expect(fill).toMatch(/^url\(#/);
+    const stops = root.querySelectorAll("svg > defs > linearGradient > stop");
+    expect(stops).toHaveLength(4);
+    expect(stops[0]?.getAttribute("stop-color")).toBe("#038DAF");
+    expect(stops[3]?.getAttribute("offset")).toBe("100%");
+    document.body.innerHTML = "";
+  });
+
+  it("places the gradient line the way CSS measures it", () => {
+    const toRight = linearGradientPaint(
+      "linear-gradient(to right, #000000, #ffffff)",
+      200,
+      100,
+      "g",
+    );
+    expect(toRight?.getAttribute("x1")).toBe("0");
+    expect(toRight?.getAttribute("x2")).toBe("200");
+    expect(toRight?.getAttribute("y1")).toBe("50");
+    expect(toRight?.getAttribute("y2")).toBe("50");
+
+    // No direction: CSS defaults to `to bottom`, and the stops spread evenly.
+    const implicit = linearGradientPaint(
+      "linear-gradient(rgb(1, 2, 3), rgb(4, 5, 6), rgb(7, 8, 9))",
+      200,
+      100,
+      "g",
+    );
+    expect(implicit?.getAttribute("y1")).toBe("0");
+    expect(implicit?.getAttribute("y2")).toBe("100");
+    expect(
+      Array.from(implicit?.children ?? []).map((stop) =>
+        stop.getAttribute("offset"),
+      ),
+    ).toEqual(["0%", "50%", "100%"]);
+  });
+
+  it("declines a direction it cannot place instead of inventing one", () => {
+    for (const value of [
+      "linear-gradient(to bottom right, #000000, #ffffff)",
+      "linear-gradient(0.25turn, #000000, #ffffff)",
+      "radial-gradient(circle at 50% 50%, #000000, #ffffff)",
+      "none",
+    ]) {
+      expect(linearGradientPaint(value, 200, 100, "g")).toBeUndefined();
+    }
+  });
+});
+
+describe("blank shape rasters", () => {
+  let warn: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+
+  function stubRasterizer(alphaPerPixel: number) {
+    const realCreateElement = document.createElement.bind(document);
+    vi.spyOn(document, "createElement").mockImplementation(((
+      tag: string,
+      ...rest: unknown[]
+    ) => {
+      const element = realCreateElement(tag, ...(rest as []));
+      if (tag === "canvas") {
+        const canvas = element as HTMLCanvasElement;
+        canvas.getContext = (() => ({
+          drawImage: () => {},
+          getImageData: () => ({
+            data: new Uint8ClampedArray([0, 0, 0, alphaPerPixel]),
+          }),
+        })) as never;
+        canvas.toDataURL = () => "data:image/png;base64,iVBORw0KGgo=";
+      }
+      return element;
+    }) as typeof document.createElement);
+    vi.stubGlobal(
+      "Image",
+      class {
+        onload: (() => void) | null = null;
+        onerror: (() => void) | null = null;
+        set src(_value: string) {
+          queueMicrotask(() => this.onload?.());
+        }
+      },
+    );
+  }
+
+  function shapeRoot() {
+    const root = document.createElement("div");
+    root.innerHTML = `<svg width="384" height="332" viewBox="0 0 384 332"><path d="M0 0 L384 0 L0 332 Z" fill="url(#missing)" /></svg>`;
+    document.body.appendChild(root);
+    return root;
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    document.body.innerHTML = "";
+  });
+
+  it("reports a shape that rasterized to nothing instead of shipping the blank", async () => {
+    stubRasterizer(0);
+    const root = shapeRoot();
+
+    const blanks = await replaceInlineSvgsWithImages(root, 13);
+
+    expect(blanks).toBe(1);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("slide 13 shape 1 rasterized empty"),
+    );
+  });
+
+  it("says nothing about a shape that actually painted", async () => {
+    stubRasterizer(255);
+    const root = shapeRoot();
+
+    const blanks = await replaceInlineSvgsWithImages(root, 13);
+
+    expect(blanks).toBe(0);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("treats an unreadable canvas as unknown, not as a blank render", () => {
+    expect(blankRasterResult(undefined)).toBeUndefined();
+    expect(blankRasterResult(new Uint8ClampedArray())).toBeUndefined();
+    expect(blankRasterResult(new Uint8ClampedArray([0, 0, 0, 0]))).toBe(true);
+    expect(blankRasterResult(new Uint8ClampedArray([255, 255, 255, 255]))).toBe(
+      false,
+    );
   });
 });
