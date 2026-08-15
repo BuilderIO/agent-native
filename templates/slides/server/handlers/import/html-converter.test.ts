@@ -300,11 +300,11 @@ describe("convertToSlideHtml shape geometry", () => {
   });
 
   it("paints nothing for a geometry whose real outline is mostly empty space", () => {
-    // A blockArc ring or a halfFrame L-bracket is over 90% transparent.
-    // Filling its bounding box covers the neighbouring content the real
-    // geometry leaves visible — four concentric rings become one opaque
-    // square over the slide title.
-    for (const shapeType of ["blockArc", "halfFrame", "uturnArrow", "donut"]) {
+    // A donut ring or a halfFrame L-bracket is over 90% transparent. Filling
+    // its bounding box covers the neighbouring content the real geometry
+    // leaves visible — four concentric rings become one opaque square over
+    // the slide title.
+    for (const shapeType of ["halfFrame", "uturnArrow", "donut"]) {
       const style = styleAttr(
         convertToSlideHtml(
           shapeSlide({ shapeType, fill: "#ff0000", lineColor: "#00ff00" }),
@@ -314,6 +314,37 @@ describe("convertToSlideHtml shape geometry", () => {
       expect(style, shapeType).not.toContain("background:");
       expect(style, shapeType).not.toContain("solid");
     }
+  });
+
+  it("draws a blockArc as the ring segment its own adjustments describe", () => {
+    // Real values from a six-segment ring diagram: 146.4deg to 201.7deg, ring
+    // thickness 22.427% of the shortest side. Reproducing the preset from its
+    // defaults instead would draw all six segments as the same half-ring.
+    const style = styleAttr(
+      convertToSlideHtml(
+        shapeSlide({
+          shapeType: "blockArc",
+          fill: "#fecf4f",
+          shapeAdjustments: { adj1: 8786043, adj2: 12102207, adj3: 22427 },
+        }),
+      ),
+      "shape",
+    );
+    // 96x96px box: outer radius 48, inner 48 - 96*0.22427 = 26.5, and the
+    // four corners are (48 + r*cos a, 48 + r*sin a) at 146.434deg/201.703deg.
+    expect(style).toContain("clip-path: path('M8 74.5 A48 48 0 0 1 3.4 30.2");
+    expect(style).toContain("A26.5 26.5 0 0 0 25.9 62.6 Z')");
+    expect(style).toContain("background: #fecf4f");
+  });
+
+  it("keeps a blockArc's default half-ring when the deck declares no adjustments", () => {
+    const style = styleAttr(
+      convertToSlideHtml(shapeSlide({ shapeType: "blockArc", fill: "#ff0000" })),
+      "shape",
+    );
+    // PowerPoint's defaults are adj1=180deg, adj2=0deg: a half ring swept
+    // clockwise from the left edge back to the right.
+    expect(style).toContain("clip-path: path('M0 48 A48 48 0 0 1 96 48");
   });
 });
 

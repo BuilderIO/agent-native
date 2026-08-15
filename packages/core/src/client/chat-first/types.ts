@@ -52,6 +52,7 @@ export interface ChatFirstSurfaceTabsProps {
   onCloseToRight: (tab: ChatFirstSurfaceTab) => void;
   onCloseAll: () => void;
   onOpenSurface?: (kind: ChatFirstSurfaceKind) => void;
+  hiddenSurfaceKinds?: readonly ChatFirstSurfaceKind[];
   onAddTab?: () => void;
   addTabLabel?: string;
   apps?: readonly ChatFirstAppItem[];

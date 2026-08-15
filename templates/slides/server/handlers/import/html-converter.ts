@@ -713,6 +713,53 @@ function toPercent(value: number, total: number): number {
 }
 
 /**
+ * A `blockArc` is a ring segment: two concentric elliptical arcs joined at
+ * their ends. Its three `a:avLst` adjustments — start angle, end angle, and
+ * ring thickness — are the only thing distinguishing one segment of a
+ * six-part ring diagram from another, so reproducing the preset from its
+ * defaults would draw six identical half-rings stacked on each other.
+ */
+function blockArcPath(
+  adjustments: Record<string, number> | undefined,
+  widthPx: number,
+  heightPx: number,
+): string | undefined {
+  const startAngle = (adjustments?.adj1 ?? 10800000) / 60000;
+  const endAngle = (adjustments?.adj2 ?? 0) / 60000;
+  // OOXML's own `pin 0 adj3 50000`: past half the shortest side the ring has
+  // no hole left and the segment is a pie slice.
+  const thickness = Math.min(Math.max(adjustments?.adj3 ?? 25000, 0), 50000);
+  // A swing of zero is a *whole* ring, not an empty one; the tiny shortfall
+  // keeps the two arcs from collapsing onto the same point, where SVG draws
+  // nothing at all.
+  let swing = endAngle - startAngle;
+  while (swing <= 0) swing += 360;
+  swing = Math.min(swing, 359.9);
+  const outerX = widthPx / 2;
+  const outerY = heightPx / 2;
+  const inset = (Math.min(widthPx, heightPx) * thickness) / 100000;
+  const innerX = outerX - inset;
+  const innerY = outerY - inset;
+  if (!(innerX > 0) || !(innerY > 0)) return undefined;
+  // ponytail: parametric angles, exact for a circular block arc — which is
+  // every one in the decks this was measured against. A markedly elliptical
+  // one starts and ends a few degrees around from where PowerPoint puts it;
+  // OOXML's `cat2`/`sat2` true-angle correction is the upgrade.
+  const at = (radiusX: number, radiusY: number, degrees: number) => {
+    const angle = (degrees * Math.PI) / 180;
+    return `${round1(outerX + radiusX * Math.cos(angle))} ${round1(outerY + radiusY * Math.sin(angle))}`;
+  };
+  const large = swing > 180 ? 1 : 0;
+  return [
+    `M${at(outerX, outerY, startAngle)}`,
+    `A${round1(outerX)} ${round1(outerY)} 0 ${large} 1 ${at(outerX, outerY, startAngle + swing)}`,
+    `L${at(innerX, innerY, startAngle + swing)}`,
+    `A${round1(innerX)} ${round1(innerY)} 0 ${large} 0 ${at(innerX, innerY, startAngle)}`,
+    "Z",
+  ].join(" ");
+}
+
+/**
  * Reproduce the shape's declared preset geometry. `shapeType` is the only
  * geometry the parser records, so this maps the preset to the CSS that draws
  * it — without it every preset renders as the plain rectangle its bounding
@@ -722,6 +769,7 @@ function geometryCss(
   shapeType: string | undefined,
   widthPx: number,
   heightPx: number,
+  adjustments?: Record<string, number>,
 ): string {
   if (!shapeType) return "";
   const shortest = Math.min(widthPx, heightPx);
@@ -738,6 +786,10 @@ function geometryCss(
       return `border-radius: ${corner}px ${corner}px 0 0;`;
     case "round2DiagRect":
       return `border-radius: ${corner}px 0 ${corner}px 0;`;
+    case "blockArc": {
+      const path = blockArcPath(adjustments, widthPx, heightPx);
+      return path ? `clip-path: path('${path}');` : "";
+    }
   }
   const points = CLIP_PATH_GEOMETRIES[shapeType]?.(widthPx, heightPx, shortest);
   if (!points) return "";
@@ -921,7 +973,7 @@ function shapeDecoration(
     widthPx,
     heightPx,
   );
-  return `${fill}${line}${geometryCss(element.shapeType, widthPx, heightPx)}`;
+  return `${fill}${line}${geometryCss(element.shapeType, widthPx, heightPx, element.shapeAdjustments)}`;
 }
 
 function textBoxStyle(

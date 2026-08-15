@@ -2326,6 +2326,9 @@ export default function CodeAgentsHub({
                 }}
                 onCloseAll={closeAllChatFirstSurfaceTabs}
                 onOpenSurface={openChatFirstSurface}
+                hiddenSurfaceKinds={
+                  terminalPreferences.enabled ? ["terminal"] : undefined
+                }
                 apps={chatFirstAppItems}
                 onOpenApp={(app) =>
                   openChatFirstApp(app.id, undefined, undefined, "side")

@@ -1004,9 +1004,14 @@ export function createIntegrationsPlugin(
     }
 
     async function requireRemoteDevice(event: any) {
-      const token = extractBearerToken(
-        getRequestHeader(event, "authorization"),
-      );
+      // Some managed proxies omit Authorization before a serverless function
+      // sees the request. Keep the device secret in a dedicated TLS-only
+      // header as a transport fallback; the value is still hashed and looked
+      // up by authenticateRemoteDeviceToken, never persisted raw.
+      const token =
+        extractBearerToken(getRequestHeader(event, "authorization")) ??
+        (getRequestHeader(event, "x-agent-native-device-token")?.trim() ||
+          null);
       const device = await authenticateRemoteDeviceToken(token);
       if (device) return device;
       setResponseStatus(event, 401);

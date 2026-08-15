@@ -57,6 +57,7 @@ export function ChatFirstSurfaceTabs({
   onCloseToRight,
   onCloseAll,
   onOpenSurface,
+  hiddenSurfaceKinds = [],
   apps = [],
   onOpenApp,
   renderAppIcon,
@@ -195,7 +196,9 @@ export function ChatFirstSurfaceTabs({
             data-surface-empty-state
             aria-label={copy("openSideSurfaces")}
           >
-            {CHAT_FIRST_SURFACE_CATALOG.map((surface) => {
+            {CHAT_FIRST_SURFACE_CATALOG.filter(
+              (surface) => !hiddenSurfaceKinds.includes(surface.kind),
+            ).map((surface) => {
               const label = copy(`surface.${surface.kind}.label`);
               const reason =
                 surface.availability === "deferred"

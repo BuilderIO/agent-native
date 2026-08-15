@@ -811,6 +811,7 @@ class RemoteCodeAgentConnector {
       method: "POST",
       headers: {
         authorization: `Bearer ${this.config.token}`,
+        "x-agent-native-device-token": this.config.token,
         "content-type": "application/json",
       },
       body: JSON.stringify(body),

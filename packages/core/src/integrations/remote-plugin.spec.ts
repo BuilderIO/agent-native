@@ -295,6 +295,36 @@ describe("remote integration plugin routes", () => {
     });
   });
 
+  it("accepts the proxy-safe device token header for polling", async () => {
+    authenticateRemoteDeviceTokenMock.mockResolvedValueOnce({
+      id: "device-1",
+      ownerEmail: "alice@example.com",
+      orgId: null,
+      label: "Studio Mac",
+      deviceTokenHash: "hashed",
+      lastSeenAt: 1,
+      status: "active",
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    claimNextRemoteCommandMock.mockResolvedValueOnce(null);
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/remote/poll?waitMs=0",
+      "POST",
+      { waitMs: 0 },
+      { "x-agent-native-device-token": "anr_raw-token" },
+    );
+
+    expect(result.status).toBe(200);
+    expect(authenticateRemoteDeviceTokenMock).toHaveBeenCalledWith(
+      "anr_raw-token",
+    );
+  });
+
   it("claims only computer operations matching advertised device capabilities", async () => {
     const device = {
       id: "device-1",
