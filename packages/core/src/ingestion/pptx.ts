@@ -161,6 +161,8 @@ export interface ParsedPptxPresentation {
   title: string;
   slides: ParsedPptxSlide[];
   theme?: { colors: string[]; fonts: string[] };
+  /** Slides the source deck marked `show="0"` and this import deliberately left out — the only legitimate reason `slides.length` is short of the deck's `p:sldId` count, so callers can say so instead of reporting a silently shorter deck. */
+  hiddenSlideCount?: number;
 }
 
 interface ZipFile {
@@ -231,6 +233,7 @@ export async function parsePptxPresentation(
         .sort((a, b) => slideNumber(a) - slideNumber(b)),
     );
   }
+  const unresolvedSlideIdCount = droppedSlides.length;
   // Deck-wide fallback, used when a slide's own layout→master chain can't be
   // resolved (missing rels, unusual authoring tools) — see
   // `resolveSlideMasterContext` below for the per-slide resolution that
@@ -404,15 +407,32 @@ export async function parsePptxPresentation(
       ...metadata,
     });
   }
-  if (process.env.PPTX_PROBE)
-    console.error("PROBE pushed", slides.length, "of", slidePaths.length);
+  // A short import must never come back looking complete: every slide the deck
+  // still presents has to survive, and slides the author hid are the only
+  // legitimate shortfall.
+  const expectedSlideCount =
+    slidePaths.length + unresolvedSlideIdCount - hiddenSlideCount;
+  if (slides.length !== expectedSlideCount) {
+    throw new Error(
+      `Invalid PPTX: expected ${expectedSlideCount} slides but parsed ${slides.length}` +
+        (hiddenSlideCount > 0
+          ? ` (${hiddenSlideCount} hidden slide${hiddenSlideCount === 1 ? "" : "s"} excluded)`
+          : "") +
+        (droppedSlides.length > 0 ? `; dropped: ${droppedSlides.join("; ")}` : ""),
+    );
+  }
   const firstSlide = slides[0]?.texts ?? [];
   const title =
     [...firstSlide]
       .sort((a, b) => (b.fontSize ?? 0) - (a.fontSize ?? 0))[0]
       ?.content.trim()
       .slice(0, 200) || "Imported Presentation";
-  return { title, slides, theme };
+  return {
+    title,
+    slides,
+    theme,
+    ...(hiddenSlideCount > 0 ? { hiddenSlideCount } : {}),
+  };
 }
 
 /**
