@@ -3515,7 +3515,6 @@ function CodeProviderNotice({
             className="code-agents-button"
             onClick={onOpenSettings}
           >
-            <IconKey size={15} strokeWidth={1.8} aria-hidden="true" />
             {customKeysLabel}
           </button>
         ) : null}

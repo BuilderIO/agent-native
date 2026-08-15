@@ -18,7 +18,6 @@ import {
   IconRefresh,
   IconPlus,
   IconClipboardList,
-  IconKey,
 } from "@tabler/icons-react";
 import { useState, useEffect, useCallback, useRef } from "react";
 
@@ -390,9 +389,6 @@ export function BuilderSetupContent({
             )}
             aria-expanded={keyOpen}
           >
-            {!sidebarLayout ? (
-              <IconKey size={13} strokeWidth={1.8} aria-hidden="true" />
-            ) : null}
             {t("agentPanel.addOwnKeys", {
               defaultValue: "Custom keys",
             })}

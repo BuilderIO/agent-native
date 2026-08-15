@@ -1889,10 +1889,15 @@
 
 .code-agents-provider-menu [role="menuitem"] {
   gap: 8px;
-  padding-inline: 12px;
+  padding-inline: 4px;
 }
 
-.code-agents-provider-menu [role="menuitem"] > svg {
+.code-agents-provider-menu .desktop-dropdown-item__main {
+  gap: 8px;
+  padding-left: 0;
+}
+
+.code-agents-provider-menu .desktop-dropdown-item__main > svg {
   flex: 0 0 auto;
 }
 
@@ -1926,8 +1931,8 @@
 .code-agents-start .code-agents-provider-gate {
   position: relative;
   z-index: 1;
-  margin-bottom: -40px;
-  padding-bottom: 50px;
+  margin-bottom: -35px;
+  padding-bottom: 45px;
   border-bottom-color: transparent;
   border-bottom-left-radius: 0;
   border-bottom-right-radius: 0;
@@ -1950,6 +1955,7 @@
   [data-agent-composer-slot="root"] {
   position: relative;
   z-index: 3;
+  background: hsl(var(--card));
 }
 
 .code-agents-provider-gate + .code-agents-standard-composer {
