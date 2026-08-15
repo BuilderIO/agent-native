@@ -381,15 +381,21 @@ export default function ChatTab() {
           return;
         }
 
-        const nextRun = result.data?.run ?? remoteRun;
+        const responseData = result.data;
+        const createdRun =
+          responseData && "run" in responseData
+            ? (responseData as { run?: RemoteRun }).run
+            : undefined;
+        const nextRun = createdRun ?? remoteRun;
         if (nextRun) {
           setRemoteRun(nextRun);
           await refreshRemoteTranscript(nextRun.id);
         }
-        if (result.data?.event) {
+        const responseEvent = responseData?.event;
+        if (responseEvent) {
           setRemoteEvents((current) => [
-            ...current.filter((event) => event.id !== result.data?.event?.id),
-            result.data.event!,
+            ...current.filter((event) => event.id !== responseEvent.id),
+            responseEvent,
           ]);
         }
         setRemoteSending(false);
