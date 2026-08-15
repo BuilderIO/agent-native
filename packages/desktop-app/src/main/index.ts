@@ -6370,12 +6370,14 @@ function buildDesktopLocalCodeChangeAgentPrompt(input: {
   userPrompt: string;
   folderName: string;
   targetPath: string;
+  appsRoot: string;
   port: number;
   existingLocalApp: boolean;
 }): string {
+  const scaffold = `npx --yes @agent-native/core@latest create ${input.folderName} --standalone --template ${input.sourceTemplate}`;
   const scaffoldCommand = input.existingLocalApp
     ? `The local app already exists at ${input.targetPath}. Do not scaffold a second app. Work only inside that folder.`
-    : `Run this non-interactive scaffold command from the current directory, then work only inside ${input.targetPath}:\nnpx --yes @agent-native/core@latest create ${input.folderName} --standalone --template ${input.sourceTemplate}`;
+    : `Run this non-interactive scaffold command from ${input.appsRoot}, then work only inside ${input.targetPath}:\n${commandForLocalAppFolder(input.appsRoot, scaffold)}`;
   return buildChatFirstAppCreationPrompt({
     appId: input.sourceTemplate,
     prompt: input.userPrompt,
@@ -6456,7 +6458,10 @@ async function createDesktopAppFromPrompt(
   // The target is intentionally empty until the coding agent runs the
   // scaffold command. Start the runner from the framework workspace so the
   // local Codex/Claude CLIs can initialize before they write into the target.
-  const appCreationCwd = resolveRepositoryRoot(appsRoot);
+  // The template CLI creates into its current directory. Running from the
+  // configured apps root keeps the generated checkout beside the path saved
+  // in AppStore, even when Desktop itself is launched outside the repository.
+  const appCreationCwd = appsRoot;
   const runResult = await createCodeAgentRun({
     goalId: "task",
     prompt: agentPrompt,
