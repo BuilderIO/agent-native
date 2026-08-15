@@ -668,6 +668,8 @@ export interface ComposerAgentOption {
   id: string;
   /** Human-readable runtime name shown in the picker. */
   label: string;
+  /** Optional icon shown beside the runtime name. */
+  icon?: React.ReactNode;
   /** Optional short detail shown below the runtime name. */
   description?: string;
   /** Whether this runtime can be selected right now. */
@@ -774,6 +776,8 @@ export interface TiptapComposerProps {
   availableAgents?: ComposerAgentOption[];
   /** Selected agent runtime identifier. Defaults to the built-in agent. */
   selectedAgent?: string;
+  /** Show only the selected agent in the model control. */
+  agentOnly?: boolean;
   /** Mark the selected runtime as the hosted tools-only harness mode. */
   hostedHarness?: boolean;
   /** Callback when the user picks an agent runtime. */
@@ -1297,6 +1301,7 @@ function ModelSelector({
   engines,
   agents,
   selectedAgent,
+  agentOnly = false,
   hostedHarness = false,
   showAutoModelOption = true,
   modelListLoading = false,
@@ -1322,7 +1327,8 @@ function ModelSelector({
     configured: boolean;
     statusLabel?: string;
     isSubscription?: boolean;
-  }>;
+  }>; 
+  agentOnly?: boolean;
   showAutoModelOption?: boolean;
   modelListLoading?: boolean;
   onChange: (model: string, engine: string) => void;
@@ -1411,9 +1417,10 @@ function ModelSelector({
     }
     onChange(preferredAgentModel.model, preferredAgentModel.engine);
   }, [engines, isClaudeCodeAgent, model, onChange, preferredAgentModel]);
-  const effortOptions =
-    reasoning?.getOptionsForModel?.(model) ??
-    getComposerReasoningEffortOptions(model);
+  const effortOptions = agentOnly
+    ? []
+    : (reasoning?.getOptionsForModel?.(model) ??
+      getComposerReasoningEffortOptions(model));
   const selectedEffort =
     reasoning?.resolve?.(model, effort) ??
     resolveReasoningEffortSelection(model, effort ?? defaultEffort);
@@ -1435,7 +1442,7 @@ function ModelSelector({
   const [detailSection, setDetailSection] = useState<
     "agent" | "model" | "effort" | null
   >(null);
-  const resolvedSection = detailSection ?? "model";
+  const resolvedSection = detailSection ?? (agentOnly ? "agent" : "model");
 
   const setPickerOpen = useCallback(
     (nextOpen: boolean) => {
@@ -1518,6 +1525,11 @@ function ModelSelector({
           className="agent-composer-model-button flex min-w-0 max-w-[10.5rem] shrink items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground"
         >
           <span className="min-w-0 truncate">
+            {selectedAgentOption?.icon ? (
+              <span className="me-1 inline-flex shrink-0 align-[-2px] text-muted-foreground">
+                {selectedAgentOption.icon}
+              </span>
+            ) : null}
             {selectedAgentOption && selectedAgentOption.id !== "default"
               ? selectedAgentLabel
               : compactComposerModelName(model, t)}
@@ -1613,7 +1625,8 @@ function ModelSelector({
                   <IconChevronRight className="h-3 w-3 shrink-0 opacity-60 rtl:-scale-x-100" />
                 </button>
               )}
-              <button
+              {!agentOnly && (
+                <button
                 type="button"
                 role="tab"
                 aria-selected={resolvedSection === "model"}
@@ -1630,8 +1643,9 @@ function ModelSelector({
                   {selectedModelLabel}
                 </span>
                 <IconChevronRight className="h-3 w-3 shrink-0 opacity-60 rtl:-scale-x-100" />
-              </button>
-              {effortOptions.length > 0 && (
+                </button>
+              )}
+              {!agentOnly && effortOptions.length > 0 && (
                 <button
                   type="button"
                   role="tab"
@@ -1703,6 +1717,12 @@ function ModelSelector({
                                 : "cursor-default opacity-50"
                             }`}
                           >
+                            <span
+                              className="flex size-4 shrink-0 items-center justify-center text-muted-foreground"
+                              aria-hidden="true"
+                            >
+                              {agent.icon}
+                            </span>
                             <span
                               className={`min-w-0 truncate text-[12px] ${
                                 isSelected

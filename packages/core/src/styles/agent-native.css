@@ -924,6 +924,15 @@
   flex: 1 1 auto;
 }
 
+.agent-builder-setup-card__builder-cta {
+  align-items: stretch;
+}
+
+.agent-builder-setup-card__builder-cta
+  .agent-builder-setup-card__builder-button {
+  width: 100%;
+}
+
 .agent-builder-setup-card__actions
   > :is(
     .agent-builder-setup-card__builder-cta,
@@ -981,14 +990,15 @@
     flex-wrap: nowrap;
   }
 
-  .agent-builder-setup-card__builder-cta,
-  .agent-builder-setup-card__key-button {
+  .agent-builder-setup-card__actions > .agent-builder-setup-card__builder-cta,
+  .agent-builder-setup-card__actions > .agent-builder-setup-card__key-button {
     align-self: stretch;
     flex: 0 0 auto;
     width: 100%;
   }
 
-  .agent-builder-setup-card__actions > .agent-builder-setup-card__builder-button {
+  .agent-builder-setup-card__actions
+    > .agent-builder-setup-card__builder-button {
     flex: 0 0 auto;
     width: 100%;
   }
