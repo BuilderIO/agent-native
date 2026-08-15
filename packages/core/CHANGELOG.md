@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.157.11
+
+### Patch Changes
+
+- 5e19db2: Treat Netlify function runtimes as serverless when configuring database pools so abandoned transactions are reaped.
+
 ## 0.157.10
 
 ### Patch Changes
