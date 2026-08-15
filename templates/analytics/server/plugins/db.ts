@@ -1660,6 +1660,26 @@ export const runAnalyticsMigrations = runMigrations(
           ON analytics_bigquery_backfill_shards (job_id, status, next_run_at, lease_expires_at, start_at);`,
       },
     },
+    {
+      version: 144,
+      name: "analytics-events-backfill-filtered-cursor-index-repair",
+      sql: {
+        postgres: `DROP INDEX CONCURRENTLY IF EXISTS analytics_events_org_received_id_non_http_idx;
+        CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_events_org_received_id_non_http_idx
+          ON analytics_events (org_id, received_at, id)
+          WHERE event_name IS DISTINCT FROM 'http.response';
+        DROP INDEX CONCURRENTLY IF EXISTS analytics_events_owner_received_id_non_http_idx;
+        CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_events_owner_received_id_non_http_idx
+          ON analytics_events (owner_email, received_at, id)
+          WHERE org_id IS NULL AND event_name IS DISTINCT FROM 'http.response';`,
+        sqlite: `CREATE INDEX IF NOT EXISTS analytics_events_org_received_id_non_http_idx
+          ON analytics_events (org_id, received_at, id)
+          WHERE event_name IS NOT 'http.response';
+        CREATE INDEX IF NOT EXISTS analytics_events_owner_received_id_non_http_idx
+          ON analytics_events (owner_email, received_at, id)
+          WHERE org_id IS NULL AND event_name IS NOT 'http.response';`,
+      },
+    },
   ],
   { table: "analytics_migrations" },
 );

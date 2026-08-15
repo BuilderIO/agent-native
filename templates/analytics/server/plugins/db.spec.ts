@@ -243,6 +243,27 @@ describe("analytics db.ts wires ensureAdditiveColumns after runMigrations", () =
     expect(jobEntry).not.toContain("FROM analytics_events");
   });
 
+  it("repairs interrupted non-http event cursor indexes", () => {
+    const repairStart = dbTsSource.indexOf("version: 144,");
+    const repairEnd = dbTsSource.indexOf("\n    },", repairStart);
+    const repairEntry = dbTsSource.slice(repairStart, repairEnd);
+
+    expect(repairStart).toBeGreaterThan(-1);
+    expect(repairEnd).toBeGreaterThan(repairStart);
+    expect(repairEntry).toContain(
+      'name: "analytics-events-backfill-filtered-cursor-index-repair"',
+    );
+    expect(repairEntry).toContain(
+      "DROP INDEX CONCURRENTLY IF EXISTS analytics_events_org_received_id_non_http_idx",
+    );
+    expect(repairEntry).toContain(
+      "DROP INDEX CONCURRENTLY IF EXISTS analytics_events_owner_received_id_non_http_idx",
+    );
+    expect(repairEntry).toContain(
+      "event_name IS DISTINCT FROM 'http.response'",
+    );
+  });
+
   it("stores BigQuery backfill progress in additive PostgreSQL and SQLite shard tables", () => {
     const shardStart = dbTsSource.indexOf("version: 142,");
     const shardEnd = dbTsSource.indexOf("\n    },", shardStart);
