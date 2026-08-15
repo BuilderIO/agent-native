@@ -346,13 +346,20 @@ describe("exportDeckAsPptx", () => {
         '<img alt="" src="/portrait.png" data-test-rect="445,192,521.6,347.6" ' +
         'style="position:absolute;left:-167.7px;top:0px;width:521.6px;height:347.6px;" /></div>',
     );
-    const image = document.querySelector<HTMLImageElement>("img");
-    if (!image) throw new Error("test image missing");
-    markImageAsLoaded(image);
-    Object.defineProperties(image, {
-      naturalHeight: { configurable: true, value: 3476 },
-      naturalWidth: { configurable: true, value: 5216 },
-    });
+    // The export clone carries its own <img>, so the decoded state has to be
+    // on the prototype rather than on the source element.
+    vi.spyOn(HTMLImageElement.prototype, "complete", "get").mockReturnValue(
+      true,
+    );
+    vi.spyOn(HTMLImageElement.prototype, "naturalWidth", "get").mockReturnValue(
+      5216,
+    );
+    vi.spyOn(
+      HTMLImageElement.prototype,
+      "naturalHeight",
+      "get",
+    ).mockReturnValue(3476);
+    vi.spyOn(HTMLImageElement.prototype, "decode").mockResolvedValue(undefined);
 
     await exportDeckAsPptx("Soze", [{ id: "slide-1" }], "16:9");
 
@@ -364,7 +371,12 @@ describe("exportDeckAsPptx", () => {
     expect(exported?.src).toContain("Q1JPUA==");
     // Source window in natural pixels: the wrapper starts 167.7px into the
     // image, at 10 natural px per CSS px.
-    expect(drawImage).toHaveBeenCalledWith(image, 1677, 0, 1929, 1921, 0, 0, 1929, 1921);
+    const [source, sx, sy, sw, sh] = drawImage.mock.calls[0];
+    expect(source).toBe(exported);
+    expect(sx).toBeCloseTo(1677, 3);
+    expect(sy).toBeCloseTo(0, 3);
+    expect(sw).toBe(1929);
+    expect(sh).toBe(1921);
     // ...and the shrunk image lands on the wrapper it used to overflow.
     expect(Number.parseFloat(exported?.style.left ?? "")).toBeCloseTo(0, 3);
   });

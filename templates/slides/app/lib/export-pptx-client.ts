@@ -1146,6 +1146,9 @@ async function flattenCroppedImages(root: HTMLElement) {
       );
       continue;
     }
+    // The clone's own <img> can still be in flight even though the source it
+    // was copied from had settled.
+    await waitForImageToSettle(image);
     if (!image.complete || image.naturalWidth <= 0) {
       console.warn(
         `[export-pptx] cropped image is not decoded and exports uncropped: ${image.src}`,

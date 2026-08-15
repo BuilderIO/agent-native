@@ -334,7 +334,12 @@ describe("convertToSlideHtml shape geometry", () => {
     // bounding box covers the neighbouring content the real geometry leaves
     // visible — four concentric rings become one opaque square over the slide
     // title.
-    for (const shapeType of ["donut", "frame", "bracketPair", "curvedUpArrow"]) {
+    for (const shapeType of [
+      "donut",
+      "frame",
+      "bracketPair",
+      "curvedUpArrow",
+    ]) {
       const style = styleAttr(
         convertToSlideHtml(
           shapeSlide({ shapeType, fill: "#ff0000", lineColor: "#00ff00" }),
@@ -377,6 +382,141 @@ describe("convertToSlideHtml shape geometry", () => {
     // PowerPoint's defaults are adj1=180deg, adj2=0deg: a half ring swept
     // clockwise from the left edge back to the right.
     expect(style).toContain("clip-path: path('M0 48 A48 48 0 0 1 96 48");
+  });
+
+  it("draws a uturnArrow's two runs, bend and head instead of dropping the shape", () => {
+    // Real values from the six-stage serpentine ribbon on an infographics
+    // deck, where all six arrows were absent: 21.237% shaft, 19.892% half
+    // head width, 23.925% head length, and a bend clamped down to the widest
+    // the box allows. The preset's own defaults would draw a fatter arrow with
+    // its head stopping three quarters of the way down the box.
+    const style = styleAttr(
+      convertToSlideHtml(
+        shapeSlide({
+          shapeType: "uturnArrow",
+          fill: "#ff6b35",
+          shapeAdjustments: {
+            adj1: 21237,
+            adj2: 19892,
+            adj3: 23925,
+            adj4: 75000,
+            adj5: 100000,
+          },
+        }),
+      ),
+      "shape",
+    );
+    // 96x96px box. The outward run climbs the left edge to the 43.5px bend
+    // radius, turns over the top, and comes back down the right to y4=73.
+    expect(style).toContain(
+      "clip-path: path('M0 96 L0 43.5 A43.5 43.5 0 0 1 43.5 0",
+    );
+    // The head: base from the right edge across to x6, tip on the bottom edge.
+    expect(style).toContain("L96 73 L76.9 96 L57.8 73");
+    // The inner outline returns along two quarter bends of the smaller radius.
+    expect(style).toContain("A23.2 23.2 0 0 0 20.4 43.5 L20.4 96 Z')");
+    expect(style).toContain("background: #ff6b35");
+  });
+
+  it("mirrors a flipped uturnArrow's outline rather than its text box", () => {
+    // Three of the six ribbon arrows carry flipH with a 180deg rotation. The
+    // rotation is a CSS transform, so the mirror has to live in the path — put
+    // it in the transform too and every glyph in the box reads backwards.
+    const style = styleAttr(
+      convertToSlideHtml(
+        shapeSlide({
+          shapeType: "uturnArrow",
+          flipH: true,
+          fill: "#ff6b35",
+          shapeAdjustments: {
+            adj1: 21237,
+            adj2: 19892,
+            adj3: 23925,
+            adj4: 75000,
+            adj5: 100000,
+          },
+        }),
+      ),
+      "shape",
+    );
+    expect(style).toContain("clip-path: path('M96 96 L96 43.5");
+    // The head tip mirrors from x=76.9 to x=19.1, and the bend sweeps the
+    // other way.
+    expect(style).toContain("L0 73 L19.1 96 L38.2 73");
+    expect(style).toContain("A43.5 43.5 0 0 0 52.5 0");
+  });
+
+  it("draws a bentArrow's corner bend and head", () => {
+    // 25% shaft, 19.072% half head width, 25% head length, 43.75% bend.
+    const style = styleAttr(
+      convertToSlideHtml(
+        shapeSlide({
+          shapeType: "bentArrow",
+          fill: "#0f766e",
+          shapeAdjustments: {
+            adj1: 25000,
+            adj2: 19072,
+            adj3: 25000,
+            adj4: 43750,
+          },
+        }),
+      ),
+      "shape",
+    );
+    expect(style).toContain(
+      "clip-path: path('M0 96 L0 48.3 A42 42 0 0 1 42 6.3",
+    );
+    // Head base at x4=72, tip on the right edge at aw2=18.3.
+    expect(style).toContain("L72 0 L96 18.3 L72 36.6");
+  });
+
+  it("draws a halfFrame as the mitred L-bracket its adjustments describe", () => {
+    // Real values from a title slide's corner rule: a 13.198% top arm and a
+    // 12.863% left arm. Filling the bounding box instead covered the title.
+    const style = styleAttr(
+      convertToSlideHtml(
+        shapeSlide({
+          shapeType: "halfFrame",
+          fill: "#111111",
+          shapeAdjustments: { adj1: 12863, adj2: 13198 },
+        }),
+      ),
+      "shape",
+    );
+    expect(style).toContain(
+      "clip-path: polygon(0% 0%, 100% 0%, 87.14% 12.86%, 13.2% 12.86%, 13.2% 86.8%, 0% 100%)",
+    );
+    expect(style).toContain("background: #111111");
+  });
+
+  it("draws a heart's two lobes, which no adjustment can change", () => {
+    const style = styleAttr(
+      convertToSlideHtml(shapeSlide({ shapeType: "heart", fill: "#e11d48" })),
+      "shape",
+    );
+    // Control points reach outside the 96x96 box on purpose: that overhang is
+    // what rounds the lobes.
+    expect(style).toContain(
+      "clip-path: path('M48 24 C68 -32 146 24 48 96 C-50 24 28 -32 48 24 Z')",
+    );
+  });
+
+  it("draws a pie as the slice between its two angles", () => {
+    // 279.14deg to 270deg wraps forward a full turn: a 350.86deg slice with a
+    // narrow wedge missing, not an empty one.
+    const style = styleAttr(
+      convertToSlideHtml(
+        shapeSlide({
+          shapeType: "pie",
+          fill: "#2563eb",
+          shapeAdjustments: { adj1: 16748208, adj2: 16200000 },
+        }),
+      ),
+      "shape",
+    );
+    expect(style).toContain(
+      "clip-path: path('M55.6 0.6 A48 48 0 1 1 48 0 L48 48 Z')",
+    );
   });
 });
 
@@ -443,6 +583,90 @@ describe("convertToSlideHtml stroke geometry", () => {
       "shape",
     );
     expect(style).toContain("border: 1px solid #000000");
+  });
+
+  it("strokes a clipped preset along its outline instead of bordering the box the clip removes", () => {
+    // The two TAM/SAM/SOM pyramids on a real pitch deck: `prstGeom triangle`,
+    // `a:noFill`, and a 0.75pt blue line. A `border` paints the bounding box's
+    // four edges and the clip then eats every part of them outside the
+    // triangle, so both shapes vanished from the import entirely.
+    const html = convertToSlideHtml(
+      shapeSlide({ shapeType: "triangle", lineColor: "#0000FF" }),
+    );
+    const style = styleAttr(html, "shape");
+    expect(style).not.toMatch(/border/);
+    expect(style).toContain("clip-path: polygon(50% 0%, 100% 100%, 0% 100%)");
+    expect(html).toContain(
+      '<path d="M48 0 L96 96 L0 96 Z" fill="none" stroke="#0000FF"',
+    );
+  });
+
+  it("keeps a border on a preset the renderer draws with radii rather than a clip", () => {
+    // `border-radius` follows the border, so an ellipse or a roundRect has no
+    // reason to pay for an SVG overlay.
+    const style = styleAttr(
+      convertToSlideHtml(
+        shapeSlide({
+          shapeType: "ellipse",
+          lineColor: "#000000",
+          lineWidth: 12700,
+        }),
+      ),
+      "shape",
+    );
+    expect(style).toContain("border: 1px solid #000000");
+    expect(style).toContain("border-radius: 50%");
+  });
+});
+
+/** One picture on a standard widescreen slide, in a 96x96px box. */
+function imageSlide(image: Partial<ParsedElement>): ParsedSlide {
+  return {
+    texts: [],
+    images: [],
+    elements: [
+      {
+        id: "image-1",
+        kind: "image",
+        x: 0,
+        y: 0,
+        width: 1219200,
+        height: 1219200,
+        ...image,
+      } as ParsedElement,
+    ],
+    widthEmu: 12192000,
+    heightEmu: 6858000,
+  };
+}
+
+describe("convertToSlideHtml picture geometry", () => {
+  it("clips a picture to its shape, so a portrait in an ellipse frame is a circle", () => {
+    // Real shape of a `p:pic` on an imported deck: `prstGeom prst="ellipse"`
+    // around a cropped portrait. PowerPoint paints the picture inside that
+    // geometry; rendering the bounding box gives a hard square instead.
+    const style = styleAttr(
+      convertToSlideHtml(imageSlide({ shapeType: "ellipse" })),
+      "image",
+    );
+    expect(style).toContain("border-radius: 50%");
+  });
+
+  it("clips a picture to a custGeom outline too", () => {
+    const style = styleAttr(
+      convertToSlideHtml(imageSlide({ geometry: freeformGeometry() })),
+      "image",
+    );
+    expect(style).toContain("clip-path: path(");
+  });
+
+  it("leaves a plain rectangular picture unclipped", () => {
+    const style = styleAttr(
+      convertToSlideHtml(imageSlide({ shapeType: "rect" })),
+      "image",
+    );
+    expect(style).not.toContain("clip-path");
+    expect(style).not.toContain("border-radius");
   });
 });
 

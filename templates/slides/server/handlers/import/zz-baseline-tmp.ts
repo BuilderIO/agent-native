@@ -323,7 +323,8 @@ function buildFidelityElement(
       : undefined;
   const outlinePath =
     element.kind === "shape"
-      ? (customPath ?? clippedPresetPath(element, widthPx, heightPx))
+      ? (customPath ??
+        clippedPresetPath(element, widthPx, heightPx))
       : undefined;
   const decoration = shapeDecoration(
     element,
@@ -1263,65 +1264,51 @@ function customGeometryPath(
   const geometry = element.geometry;
   if (!geometry || geometry.kind !== "custom") return undefined;
   if (!(widthPx > 0) || !(heightPx > 0)) return undefined;
-  const writer = createPathWriter();
-  let wrote = false;
+  const parts: string[] = [];
   for (const path of geometry.paths) {
     const scaleX = widthPx / path.w;
     const scaleY = heightPx / path.h;
-    // OOXML path space is top-left origin like SVG's, so only the shape's own
-    // `flipH`/`flipV` mirror it — there is no axis flip to undo.
     const toX = (x: number) =>
-      element.flipH ? widthPx - x * scaleX : x * scaleX;
+      round1(element.flipH ? widthPx - x * scaleX : x * scaleX);
     const toY = (y: number) =>
-      element.flipV ? heightPx - y * scaleY : y * scaleY;
+      round1(element.flipV ? heightPx - y * scaleY : y * scaleY);
     let currentX = 0;
     let currentY = 0;
     for (const command of path.commands) {
-      wrote = true;
       if (command.kind === "close") {
-        writer.close();
+        parts.push("Z");
         continue;
       }
       if (command.kind === "arcTo") {
         const start = (command.stAng / 60000) * (Math.PI / 180);
         const swing = (command.swAng / 60000) * (Math.PI / 180);
-        // OOXML gives the arc's radii and angles but not its center: the
-        // current point is the arc's start, so the center is that point
-        // walked back along the start angle.
         const centerX = currentX - command.wR * Math.cos(start);
         const centerY = currentY - command.hR * Math.sin(start);
         currentX = centerX + command.wR * Math.cos(start + swing);
         currentY = centerY + command.hR * Math.sin(start + swing);
         const largeArc = Math.abs(command.swAng) > 180 * 60000 ? 1 : 0;
-        // A single mirror reverses the direction the arc sweeps in; two
-        // cancel out.
         const sweep =
           command.swAng >= 0 !==
           (Boolean(element.flipH) !== Boolean(element.flipV))
             ? 1
             : 0;
-        writer.arc(
-          command.wR * scaleX,
-          command.hR * scaleY,
-          largeArc,
-          sweep,
-          toX(currentX),
-          toY(currentY),
+        parts.push(
+          `A${round1(command.wR * scaleX)} ${round1(command.hR * scaleY)} 0 ${largeArc} ${sweep} ${toX(currentX)} ${toY(currentY)}`,
         );
         continue;
       }
       const last = command.points[command.points.length - 1]!;
       currentX = last.x;
       currentY = last.y;
-      writer.write(
-        { moveTo: "m", lnTo: "l", quadBezTo: "q", cubicBezTo: "c" }[
-          command.kind
-        ],
-        command.points.map((point) => ({ x: toX(point.x), y: toY(point.y) })),
+      const coordinates = command.points
+        .map((point) => `${toX(point.x)} ${toY(point.y)}`)
+        .join(" ");
+      parts.push(
+        `${{ moveTo: "M", lnTo: "L", quadBezTo: "Q", cubicBezTo: "C" }[command.kind]}${coordinates}`,
       );
     }
   }
-  return wrote ? writer.result() : undefined;
+  return parts.length > 0 ? parts.join(" ") : undefined;
 }
 
 /**
