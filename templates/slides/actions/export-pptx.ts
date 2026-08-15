@@ -390,9 +390,14 @@ export function parseSlideHtml(
 
   // Check for background color on the outer .fmd-slide div
   const slideStyleMatch = html.match(/class="fmd-slide"[^>]*style="([^"]*)"/);
-  const parsedBg = slideStyleMatch
-    ? cssFillToSolid(getStyle(slideStyleMatch[1], "background(?:-color)?"))
-    : undefined;
+  const slideBackground = slideStyleMatch
+    ? getStyle(slideStyleMatch[1], "background(?:-color)?")
+    : null;
+  const bgGradient =
+    slideBackground && /gradient\(/i.test(slideBackground)
+      ? slideBackground
+      : undefined;
+  const parsedBg = cssFillToSolid(slideBackground);
   if (parsedBg) {
     bgColor = parsedBg.hex;
     bgTransparency = parsedBg.transparency;
@@ -571,7 +576,15 @@ export function parseSlideHtml(
     }
   }
 
-  return { texts, images, shapes, tables: [], bgColor, bgTransparency };
+  return {
+    texts,
+    images,
+    shapes,
+    tables: [],
+    bgColor,
+    bgTransparency,
+    ...(bgGradient ? { bgGradient } : {}),
+  };
 }
 
 /**
@@ -770,7 +783,16 @@ function parseImportedSlideHtml(html: string, dims: SlideDims): ParsedSlide {
     });
   }
 
-  return { texts, images, shapes, tables, grid, bgColor, bgTransparency };
+  return {
+    texts,
+    images,
+    shapes,
+    tables,
+    grid,
+    bgColor,
+    bgTransparency,
+    ...(bgGradient ? { bgGradient } : {}),
+  };
 }
 
 function parseImportedGrid(style: string): GridElement | undefined {

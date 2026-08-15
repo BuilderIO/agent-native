@@ -78,7 +78,7 @@ async function repairAnalyticsEventCursorIndexes(): Promise<
 
     let lockHeld = true;
     try {
-    const { rows } = await query(`
+      const { rows } = await query(`
       SELECT c.relname, i.indisvalid, i.indisready
       FROM pg_class c
       JOIN pg_index i ON i.indexrelid = c.oid
@@ -87,33 +87,33 @@ async function repairAnalyticsEventCursorIndexes(): Promise<
         'analytics_events_owner_received_id_non_http_idx'
       )
     `);
-    const readyIndexes = new Set(
-      rows
-        .filter((row) => row.indisvalid === true && row.indisready === true)
-        .map((row) => String(row.relname)),
-    );
-    const expectedIndexes = [
-      "analytics_events_org_received_id_non_http_idx",
-      "analytics_events_owner_received_id_non_http_idx",
-    ];
-    if (expectedIndexes.every((name) => readyIndexes.has(name))) return;
+      const readyIndexes = new Set(
+        rows
+          .filter((row) => row.indisvalid === true && row.indisready === true)
+          .map((row) => String(row.relname)),
+      );
+      const expectedIndexes = [
+        "analytics_events_org_received_id_non_http_idx",
+        "analytics_events_owner_received_id_non_http_idx",
+      ];
+      if (expectedIndexes.every((name) => readyIndexes.has(name))) return;
 
-    await query(
-      "DROP INDEX CONCURRENTLY IF EXISTS analytics_events_org_received_id_non_http_idx",
-    );
-    await query(
-      `CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_events_org_received_id_non_http_idx
+      await query(
+        "DROP INDEX CONCURRENTLY IF EXISTS analytics_events_org_received_id_non_http_idx",
+      );
+      await query(
+        `CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_events_org_received_id_non_http_idx
        ON analytics_events (org_id, received_at, id)
        WHERE event_name IS DISTINCT FROM 'http.response'`,
-    );
-    await query(
-      "DROP INDEX CONCURRENTLY IF EXISTS analytics_events_owner_received_id_non_http_idx",
-    );
-    await query(
-      `CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_events_owner_received_id_non_http_idx
+      );
+      await query(
+        "DROP INDEX CONCURRENTLY IF EXISTS analytics_events_owner_received_id_non_http_idx",
+      );
+      await query(
+        `CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_events_owner_received_id_non_http_idx
        ON analytics_events (owner_email, received_at, id)
        WHERE org_id IS NULL AND event_name IS DISTINCT FROM 'http.response'`,
-    );
+      );
     } finally {
       if (lockHeld) {
         await query(
