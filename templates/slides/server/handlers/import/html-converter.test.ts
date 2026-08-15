@@ -638,8 +638,10 @@ describe("convertToSlideHtml stroke geometry", () => {
       "border-left: 1.5px solid #3A3838",
     );
     // 3x the 1.5px stroke across, centred on the line's two endpoints.
-    expect(html).toContain('<circle cx="2.25" cy="2.25" r="2.25"');
-    expect(html).toContain('<circle cx="2.25" cy="74.813" r="2.25"');
+    expect(html).toContain('<circle cx="3" cy="2.25" r="2.25" fill="#3A3838"');
+    expect(html).toContain(
+      '<circle cx="3" cy="74.831" r="2.25" fill="#3A3838"',
+    );
   });
 
   it("leaves a line bare when its ends are types it cannot draw", () => {
