@@ -1205,6 +1205,25 @@ function importedTextRuns(html: string, dims: SlideDims): TextRunElement[] {
   return runs;
 }
 
+/**
+ * No table-level `border`: pptxgenjs copies it onto every cell that declares
+ * none of its own, so the white rule this used to pass drew a grid on tables
+ * whose HTML has no borders at all. A table-level `margin` is worse than
+ * useless — the library normalizes it and then never reads it, so cell padding
+ * has to travel per cell. Both now come from the cell's own CSS.
+ */
+export function tableOptions(table: TableElement): PptxGenJS.TableProps {
+  return {
+    x: table.x,
+    y: table.y,
+    w: table.w,
+    h: table.h,
+    ...(table.colW ? { colW: table.colW } : {}),
+    ...(table.rowH ? { rowH: table.rowH } : {}),
+    autoPage: false,
+  };
+}
+
 /** Inline style of the first `<p>` in a fragment, which is where the importer puts paragraph-level alignment. */
 function firstParagraphStyle(html: string): string | undefined {
   return html.match(/<p\b[^>]*style=["']([^"']*)["']/i)?.[1];
@@ -1844,16 +1863,7 @@ export default defineAction({
             });
           }
         } else if (object.kind === "table") {
-          const table = object.value;
-          pptxSlide.addTable(table.rows, {
-            x: table.x,
-            y: table.y,
-            w: table.w,
-            h: table.h,
-            autoPage: false,
-            border: { type: "solid", color: "FFFFFF", pt: 0.5 },
-            margin: 0.04,
-          });
+          pptxSlide.addTable(object.value.rows, tableOptions(object.value));
         } else {
           const shape = object.value;
           pptxSlide.addShape(

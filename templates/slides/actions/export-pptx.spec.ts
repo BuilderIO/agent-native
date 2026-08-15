@@ -28,6 +28,7 @@ import {
   parseSlideHtml,
   resolveShapeType,
   sourcePageInches,
+  tableOptions,
   themeClrSchemeXml,
 } from "./export-pptx";
 
@@ -349,6 +350,105 @@ describe("parseSlideHtml", () => {
     expect(result.shapes[0]?.shapeType).toBe("trapezoid");
   });
 
+  it("traces a freeform clip-path outline as custom geometry instead of a rectangle", () => {
+    const result = parseSlideHtml(
+      importedSlide(
+        `<div data-pptx-element-kind="shape" style="${SHAPE_BOX}background:#123456;clip-path: path('M0 0 L96 0 C96 27 48 54 0 54 Q0 27 0 0 Z');"></div>`,
+      ),
+      "16:9",
+      1,
+    );
+
+    expect(result.shapes[0]?.shapeType).toBe("custGeom");
+    expect(result.shapes[0]?.points).toEqual([
+      { x: 0, y: 0, moveTo: true },
+      { x: 1, y: 0 },
+      {
+        x: 0,
+        y: 0.5625,
+        curve: { type: "cubic", x1: 1, y1: 0.28125, x2: 0.5, y2: 0.5625 },
+      },
+      { x: 0, y: 0, curve: { type: "quadratic", x1: 0, y1: 0.28125 } },
+      { close: true },
+    ]);
+  });
+
+  it("keeps an arc an arc, so a ring segment does not export as its chord", () => {
+    const result = parseSlideHtml(
+      importedSlide(
+        `<div data-pptx-element-kind="shape" style="${SHAPE_BOX}background:#123456;clip-path: path('M100 50 A50 50 0 0 1 50 100 Z');"></div>`,
+      ),
+      "16:9",
+      1,
+    );
+
+    const [start, arc] = result.shapes[0]?.points ?? [];
+    expect(start).toEqual({ x: 100 / 96, y: 50 / 96, moveTo: true });
+    expect(arc).toEqual({
+      x: 50 / 96,
+      y: 100 / 96,
+      curve: { type: "arc", wR: 50 / 96, hR: 50 / 96, stAng: 0, swAng: 90 },
+    });
+  });
+
+  it("reads a stroke-only freeform's outline and weight from its SVG overlay", () => {
+    const result = parseSlideHtml(
+      importedSlide(
+        `<div data-pptx-element-kind="shape" style="${SHAPE_BOX}"><svg viewBox="0 0 192 108" preserveAspectRatio="none" style="position:absolute;inset:0;"><path d="M0 0 L192 108" fill="none" stroke="#FF0000" stroke-width="4" /></svg></div>`,
+      ),
+      "16:9",
+      1,
+    );
+
+    expect(result.shapes[0]).toMatchObject({
+      shapeType: "custGeom",
+      lineColor: "FF0000",
+      lineWidth: 3,
+    });
+    expect(result.shapes[0]?.points).toEqual([
+      { x: 0, y: 0, moveTo: true },
+      { x: 2, y: 1.125 },
+    ]);
+  });
+
+  it("falls back to a whole rectangle, loudly, when an outline cannot be read", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const result = parseSlideHtml(
+      importedSlide(
+        `<div data-pptx-element-kind="shape" style="${SHAPE_BOX}background:#123456;clip-path: path('m0 0 l96 54 z');"></div>`,
+      ),
+      "16:9",
+      1,
+    );
+
+    expect(result.shapes[0]?.points).toBeUndefined();
+    expect(result.shapes[0]?.shapeType).toBeUndefined();
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('"m"'));
+
+    warnSpy.mockRestore();
+  });
+
+  it("keeps each element's rotation, so a rotated ring is not six stacked arrows", () => {
+    const result = parseSlideHtml(
+      importedSlide(
+        [
+          `<div data-pptx-element-kind="shape" style="${SHAPE_BOX}background:#123456;transform: rotate(60deg);"></div>`,
+          `<div data-pptx-element-kind="text" style="${SHAPE_BOX}transform: rotate(-90deg);"><p><span>Side</span></p></div>`,
+          `<div data-pptx-element-kind="image" style="${SHAPE_BOX}transform: rotate(12.5deg);"><img src="https://example.com/a.png" /></div>`,
+          `<div data-pptx-element-kind="shape" style="${SHAPE_BOX}background:#123456;"></div>`,
+        ].join(""),
+      ),
+      "16:9",
+      1,
+    );
+
+    expect(result.shapes[0]?.rotate).toBe(60);
+    expect(result.texts[0]?.rotate).toBe(-90);
+    expect(result.images[0]?.rotate).toBe(12.5);
+    expect(result.shapes[1]?.rotate).toBeUndefined();
+  });
+
   it("reads a circle and a real corner radius instead of collapsing both to roundRect", () => {
     const [circle] = parseSlideHtml(
       importedSlide(
@@ -446,6 +546,69 @@ describe("parseSlideHtml", () => {
       type: "dash",
       color: "888888",
     });
+  });
+
+  it("keeps the source column and row tracks instead of an even split", () => {
+    const result = parseSlideHtml(
+      importedSlide(
+        `<div data-pptx-element-kind="table" style="${SHAPE_BOX}"><table>` +
+          '<colgroup><col style="width:50%" /><col style="width:25%" /><col style="width:25%" /></colgroup>' +
+          '<tr style="height:40%"><td colspan="2"><p>Wide</p></td><td><p>C</p></td></tr>' +
+          '<tr style="height:60%"><td><p>A</p></td><td><p>B</p></td><td><p>C</p></td></tr>' +
+          "</table></div>",
+      ),
+      "16:9",
+      1,
+    );
+
+    // SHAPE_BOX is 192x108px, which is 2.6667x1.5in on a 16:9 deck.
+    expect(result.tables[0]?.colW).toEqual([
+      expect.closeTo(1.3333, 3),
+      expect.closeTo(0.6667, 3),
+      expect.closeTo(0.6667, 3),
+    ]);
+    expect(result.tables[0]?.rowH).toEqual([
+      expect.closeTo(0.6, 3),
+      expect.closeTo(0.9, 3),
+    ]);
+  });
+
+  it("drops a column track list that does not cover every column", () => {
+    const result = parseSlideHtml(
+      importedSlide(
+        `<div data-pptx-element-kind="table" style="${SHAPE_BOX}"><table>` +
+          '<colgroup><col style="width:50%" /><col style="width:50%" /></colgroup>' +
+          "<tr><td><p>A</p></td><td><p>B</p></td><td><p>C</p></td></tr>" +
+          "</table></div>",
+      ),
+      "16:9",
+      1,
+    );
+
+    expect(result.tables[0]?.colW).toBeUndefined();
+    expect(result.tables[0]?.rowH).toBeUndefined();
+  });
+
+  it("reads a cell's alignment and padding, which the importer writes on the paragraph and the cell", () => {
+    const result = parseSlideHtml(
+      importedSlide(
+        `<div data-pptx-element-kind="table" style="${SHAPE_BOX}"><table>` +
+          '<tr><td style="padding:9.6px 19.2px;"><p style="text-align:center;"><span>Centered</span></p></td></tr>' +
+          "</table></div>",
+      ),
+      "16:9",
+      1,
+    );
+
+    const cell = result.tables[0]?.rows[0]?.[0]?.options;
+    expect(cell?.align).toBe("center");
+    // 9.6px is 0.1333in tall and 19.2px is 0.2667in wide on a 16:9 deck.
+    expect(cell?.margin).toEqual([
+      expect.closeTo(0.1333, 3),
+      expect.closeTo(0.2667, 3),
+      expect.closeTo(0.1333, 3),
+      expect.closeTo(0.2667, 3),
+    ]);
   });
 
   it("writes the source deck's font, not this template's, on a round trip", () => {
@@ -654,6 +817,41 @@ describe("themeClrSchemeXml", () => {
     const { accent4: _dropped, ...incomplete } = palette;
 
     expect(themeClrSchemeXml(incomplete)).toBeUndefined();
+  });
+});
+
+describe("tableOptions", () => {
+  it("writes the source grid and no border the HTML never declared", async () => {
+    const result = parseSlideHtml(
+      importedSlide(
+        `<div data-pptx-element-kind="table" style="${SHAPE_BOX}"><table>` +
+          '<colgroup><col style="width:60%" /><col style="width:40%" /></colgroup>' +
+          '<tr style="height:25%"><td><p>A</p></td><td><p>B</p></td></tr>' +
+          '<tr style="height:75%"><td><p>C</p></td><td><p>D</p></td></tr>' +
+          "</table></div>",
+      ),
+      "16:9",
+      1,
+    );
+    const table = result.tables[0];
+    if (!table) throw new Error("no table parsed");
+
+    const pptx = new PptxGenJS();
+    pptx.addSlide().addTable(table.rows, tableOptions(table));
+    const JSZip = (await import("jszip")).default;
+    const slideXml = await (
+      await JSZip.loadAsync((await pptx.write({ outputType: "nodebuffer" })) as Buffer)
+    )
+      .file("ppt/slides/slide1.xml")
+      ?.async("string");
+
+    // 60/40 of 2.6667in, and 25/75 of 1.5in, in EMUs.
+    expect(slideXml).toContain(
+      '<a:gridCol w="1462674"/><a:gridCol w="975116"/>',
+    );
+    expect(slideXml).toContain('<a:tr h="342900">');
+    expect(slideXml).toContain('<a:tr h="1028700">');
+    expect(slideXml).not.toContain('<a:srgbClr val="FFFFFF"/></a:solidFill>');
   });
 });
 
