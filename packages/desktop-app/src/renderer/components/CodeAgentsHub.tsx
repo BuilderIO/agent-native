@@ -90,7 +90,10 @@ import {
   type CSSProperties,
 } from "react";
 
-import type { DesktopCreateAppResult } from "../../../shared/ipc-channels.js";
+import type {
+  DesktopCreateAppResult,
+  DesktopPrepareLocalCodeChangeResult,
+} from "../../../shared/ipc-channels.js";
 import type {
   MultiFrontierIpcEvent,
   MultiFrontierProviderId,
@@ -464,6 +467,9 @@ interface CodeAgentsHubProps {
   onOpenSettings?: (tab?: string) => void;
   onCreateApp?: () => void;
   onChatFirstAppCreated?: (result: DesktopCreateAppResult) => void;
+  onLocalCodeChangeStarted?: (
+    result: DesktopPrepareLocalCodeChangeResult,
+  ) => void;
   onChatFirstAppRemove?: (app: ChatFirstAppItem) => void;
   onChatFirstAppSelectionChange?: (appId?: string) => void;
 }
@@ -497,6 +503,7 @@ export default function CodeAgentsHub({
   onOpenSettings,
   onCreateApp,
   onChatFirstAppCreated,
+  onLocalCodeChangeStarted,
   onChatFirstAppRemove,
   onChatFirstAppSelectionChange,
 }: CodeAgentsHubProps) {
@@ -2148,6 +2155,7 @@ export default function CodeAgentsHub({
                 appName={surfaceApp.name}
                 authState={chatFirstAppAuthStates[surfaceApp.id] ?? "unknown"}
                 onSignInRequest={() => focusChatFirstApp(tab.id)}
+                onLocalCodeChangeStarted={onLocalCodeChangeStarted}
               >
                 <AppWebview
                   ref={(instance) => {
@@ -2207,6 +2215,7 @@ export default function CodeAgentsHub({
       host,
       isActive,
       chatFirstAppAuthStates,
+      onLocalCodeChangeStarted,
       refreshKey,
       terminalPreferences.agent,
       theme,

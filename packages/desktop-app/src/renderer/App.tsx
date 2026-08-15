@@ -13,6 +13,8 @@ import {
 import { useCallback, useEffect, useState } from "react";
 import { Toaster, toast } from "sonner";
 
+import type { DesktopPrepareLocalCodeChangeResult } from "../../shared/ipc-channels.js";
+
 import AppSettings, { AddAppDialog } from "./components/AppSettings.js";
 import CodeAgentsHub from "./components/CodeAgentsHub.js";
 import UpdatePrompt from "./components/UpdatePrompt.js";
@@ -114,6 +116,20 @@ export default function App() {
       }
       toast(`Building ${result.app.name}`, {
         description: "New chat started. Preview opens on the right.",
+        duration: 5000,
+      });
+    },
+    [],
+  );
+
+  const handleLocalCodeChangeStarted = useCallback(
+    (result: DesktopPrepareLocalCodeChangeResult) => {
+      if (!result.app) return;
+      setApps(result.apps);
+      setRefreshKey((current) => current + 1);
+      toast(`Preparing ${result.app.name} locally`, {
+        description:
+          "The production app stays unchanged. Desktop will open the local preview when it is ready.",
         duration: 5000,
       });
     },
@@ -331,6 +347,7 @@ export default function App() {
               onOpenSettings={handleOpenSettings}
               onCreateApp={() => setShowAddApp(true)}
               onChatFirstAppCreated={handleChatFirstAppCreated}
+              onLocalCodeChangeStarted={handleLocalCodeChangeStarted}
               onChatFirstAppRemove={(app) => {
                 void handleAppRemoval(app.id);
               }}
