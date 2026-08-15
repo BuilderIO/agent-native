@@ -520,7 +520,6 @@ const UNRENDERABLE_GEOMETRIES = new Set([
   "arc",
   "bentArrow",
   "bentUpArrow",
-  "blockArc",
   "bracePair",
   "bracketPair",
   "chord",

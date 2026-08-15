@@ -969,7 +969,22 @@
 .agent-composer-area--attached-above .agent-composer-root {
   position: relative;
   z-index: 3;
+  background: hsl(var(--muted));
+  background: color-mix(
+    in srgb,
+    hsl(var(--card)) 98%,
+    hsl(var(--foreground)) 2%
+  );
+}
+
+.dark .agent-composer-area--attached-above .agent-composer-root {
   background: hsl(var(--card));
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) .agent-composer-area--attached-above .agent-composer-root {
+    background: hsl(var(--card));
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
