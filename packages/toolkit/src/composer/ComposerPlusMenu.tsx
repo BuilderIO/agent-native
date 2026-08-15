@@ -682,7 +682,7 @@ function ComposerPlusMenuFull({
                       )}
                     >
                       <span className="text-muted-foreground">{item.icon}</span>
-                      <span className="flex min-w-0 items-center gap-1.5">
+                      <span className="flex min-w-0 items-center gap-0.5">
                         <span className="min-w-0 truncate text-[12px] font-medium text-foreground">
                           {item.label}
                         </span>
@@ -693,7 +693,7 @@ function ComposerPlusMenuFull({
                       </span>
                     </button>
                     {isSkill && (
-                      <span className="me-3 ms-1 text-muted-foreground/60">
+                      <span className="me-3 ms-auto text-muted-foreground/60">
                         ›
                       </span>
                     )}
@@ -722,7 +722,7 @@ function ComposerPlusMenuFull({
                             <span className="text-muted-foreground">
                               <IconBulb className="h-3.5 w-3.5" />
                             </span>
-                            <span className="flex min-w-0 items-center gap-1.5">
+                            <span className="flex min-w-0 items-center gap-0.5">
                               <span className="min-w-0 truncate text-[12px] font-medium text-foreground">
                                 {t("agentChat.composer.skill.createNew", {
                                   defaultValue: "Create new skill",
@@ -755,7 +755,7 @@ function ComposerPlusMenuFull({
                             <span className="text-muted-foreground">
                               <IconUpload className="h-3.5 w-3.5" />
                             </span>
-                            <span className="flex min-w-0 items-center gap-1.5">
+                            <span className="flex min-w-0 items-center gap-0.5">
                               <span className="min-w-0 truncate text-[12px] font-medium text-foreground">
                                 {t("agentChat.composer.skill.uploadFile", {
                                   defaultValue: "Upload skill file",
