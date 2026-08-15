@@ -36,6 +36,7 @@ export interface RemoteExecutionCapabilities {
   workloads?: RemoteExecutionWorkload[];
   engines?: string[];
   acceptsScheduledWork?: boolean;
+  acceptsPortalHandoffs?: boolean;
   persistence?: RemoteExecutionPersistence;
   adapters?: string[];
 }
