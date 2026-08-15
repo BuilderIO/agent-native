@@ -42,7 +42,10 @@ const toolHeavyTurn = (turn: number, calls: number) => ({
       args: { id: "ext-1", contentQuery: `symbol_${i}` },
       result: "x".repeat(11_000),
     })),
-    { type: "text", text: `Turn ${turn}: the rate filter excludes zero rates.` },
+    {
+      type: "text",
+      text: `Turn ${turn}: the rate filter excludes zero rates.`,
+    },
   ],
 });
 
