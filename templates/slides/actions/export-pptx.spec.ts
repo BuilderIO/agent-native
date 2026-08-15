@@ -40,6 +40,22 @@ function importedSlide(element: string, slideStyle = "background:#000000;") {
 const SHAPE_BOX =
   "position:absolute;left:96px;top:54px;width:192px;height:108px;";
 
+/** `importedSlide`, but stamped with a real 16:9 source page like the importer does. */
+function sourcePagedSlide(element: string) {
+  return `<div class="fmd-slide fmd-imported-pptx" data-imported-pptx="true" data-slide-width-emu="12192000" data-slide-height-emu="6858000" style="background:#FFFFFF;">${element}</div>`;
+}
+
+/**
+ * Slide 4 of SlidesMania "Infographics Set 1", verbatim: a `<p:cxnSp>`
+ * `straightConnector1` of `cx="0"`, which the importer renders as a
+ * zero-width box with one `border-left` plus its two `oval` end caps.
+ */
+const CONNECTOR_ELEMENT =
+  '<div class="fmd-pptx-shape" data-pptx-element-kind="shape" data-slide-object-id="153" style="position: absolute; left: 95.528px; top: 216.774px; width: 0px; height: 72.581px; z-index: 9; box-sizing: border-box; transform: rotate(180deg); transform-origin: center center;border-left: 1.5px solid #3A3838;">' +
+  '<svg viewBox="0 0 4.5 77.081" style="position:absolute;left:-2.25px;top:-2.25px;width:4.5px;height:77.081px;overflow:visible;pointer-events:none;">' +
+  '<circle cx="3" cy="2.25" r="2.25" fill="#3A3838" />' +
+  '<circle cx="3" cy="74.831" r="2.25" fill="#3A3838" /></svg></div>';
+
 describe("fetchImageAsBase64", () => {
   beforeEach(() => {
     mocks.ssrfSafeFetch.mockReset();
@@ -596,6 +612,90 @@ describe("parseSlideHtml", () => {
     expect(solid?.lineDashType).toBeUndefined();
   });
 
+  it("exports a connector as a real line, not a zero-width unstroked rect", () => {
+    const [connector] = parseSlideHtml(
+      sourcePagedSlide(CONNECTOR_ELEMENT),
+      "16:9",
+      4,
+    ).shapes;
+
+    expect(connector).toMatchObject({
+      shapeType: "line",
+      // 1.5px at this deck's 72 px/in is the source's own `<a:ln w="19050">`.
+      lineColor: "3A3838",
+      lineWidth: 2,
+      lineHeadType: "oval",
+      lineTailType: "oval",
+      rotate: 180,
+    });
+    expect(connector.w).toBe(0);
+  });
+
+  it("caps only the end of a line the source actually decorated", () => {
+    const tailOnly = CONNECTOR_ELEMENT.replace(
+      '<circle cx="3" cy="2.25" r="2.25" fill="#3A3838" />',
+      "",
+    );
+    const [connector] = parseSlideHtml(
+      sourcePagedSlide(tailOnly),
+      "16:9",
+      4,
+    ).shapes;
+
+    expect(connector.lineHeadType).toBeUndefined();
+    expect(connector.lineTailType).toBe("oval");
+  });
+
+  it("ignores an end-cap circle that lacks the line-axis coordinate", () => {
+    const malformed = CONNECTOR_ELEMENT.replace('cy="2.25"', 'cx="3"');
+    const [connector] = parseSlideHtml(
+      sourcePagedSlide(malformed),
+      "16:9",
+      4,
+    ).shapes;
+
+    expect(connector.lineHeadType).toBeUndefined();
+    expect(connector.lineTailType).toBe("oval");
+  });
+
+  it("does not read a four-sided outline as a line", () => {
+    const [outlined] = parseSlideHtml(
+      importedSlide(
+        `<div data-pptx-element-kind="shape" style="${SHAPE_BOX}border:1px solid #0000FF;"></div>`,
+      ),
+      "16:9",
+      1,
+    ).shapes;
+
+    expect(outlined.shapeType).toBeUndefined();
+    expect(outlined.lineHeadType).toBeUndefined();
+  });
+
+  it("preserves authored line-height for ordinary server exports", () => {
+    const [text] = parseSlideHtml(
+      '<div class="fmd-slide"><h1 style="font-size:18px;line-height:1.2;">Body</h1></div>',
+      "16:9",
+      1,
+    ).texts;
+
+    expect(text.lineSpacingMultiple).toBe(1.2);
+  });
+
+  it("converts a CSS line-height back to single spacing rather than re-applying it", () => {
+    const [text] = parseSlideHtml(
+      importedSlide(
+        `<div data-pptx-element-kind="text" style="${SHAPE_BOX}">` +
+          `<p style="line-height:1.2;"><span style="font-size:18px;">Body</span></p></div>`,
+      ),
+      "16:9",
+      1,
+    ).texts;
+
+    // The importer renders the source's `spcPct 100000` as CSS 1.2; writing
+    // that back out unchanged shipped every paragraph at 120%.
+    expect(text.lineSpacingMultiple).toBe(1);
+  });
+
   it("maps a dotted table rule to the nearest border pptxgenjs can draw", () => {
     const result = parseSlideHtml(
       importedSlide(
@@ -972,6 +1072,92 @@ describe("themeClrSchemeXml", () => {
     const { accent4: _dropped, ...incomplete } = palette;
 
     expect(themeClrSchemeXml(incomplete)).toBeUndefined();
+  });
+});
+
+describe("exported slide XML", () => {
+  /** The slide part pptxgenjs writes for one parsed slide, exercised the way the action does. */
+  async function writeParsedSlide(html: string): Promise<string> {
+    const { texts, shapes } = parseSlideHtml(html, "16:9", 1);
+    const pptx = new PptxGenJS();
+    const slide = pptx.addSlide();
+    for (const shape of shapes) {
+      slide.addShape(resolveShapeType(pptx.ShapeType, shape.shapeType), {
+        x: shape.x,
+        y: shape.y,
+        w: shape.w,
+        h: shape.h,
+        ...(shape.lineColor
+          ? {
+              line: {
+                color: shape.lineColor,
+                width: shape.lineWidth ?? 1,
+                ...(shape.lineHeadType
+                  ? { beginArrowType: shape.lineHeadType }
+                  : {}),
+                ...(shape.lineTailType
+                  ? { endArrowType: shape.lineTailType }
+                  : {}),
+              },
+            }
+          : {}),
+      });
+    }
+    for (const text of texts) {
+      slide.addText(text.runs ?? text.text, {
+        x: text.x,
+        y: text.y,
+        w: text.w,
+        h: text.h,
+        ...(text.lineSpacingMultiple != null
+          ? { lineSpacingMultiple: text.lineSpacingMultiple }
+          : {}),
+      });
+    }
+    const JSZip = (await import("jszip")).default;
+    const slideXml = await (
+      await JSZip.loadAsync(
+        (await pptx.write({ outputType: "nodebuffer" })) as Buffer,
+      )
+    )
+      .file("ppt/slides/slide1.xml")
+      ?.async("string");
+    if (slideXml === undefined) throw new Error("missing slide part");
+    return slideXml;
+  }
+
+  it("writes a connector with its stroke and both oval ends", async () => {
+    const slideXml = await writeParsedSlide(
+      sourcePagedSlide(CONNECTOR_ELEMENT),
+    );
+
+    expect(slideXml).toContain('<a:prstGeom prst="line">');
+    expect(slideXml).toContain(
+      '<a:ln w="25400"><a:solidFill><a:srgbClr val="3A3838"/></a:solidFill>',
+    );
+    expect(slideXml).toContain('<a:headEnd type="oval"/>');
+    expect(slideXml).toContain('<a:tailEnd type="oval"/>');
+  });
+
+  it("round-trips a source spcPct of 100% back to 100%, not 120%", async () => {
+    const slideXml = await writeParsedSlide(
+      importedSlide(
+        `<div data-pptx-element-kind="text" style="${SHAPE_BOX}">` +
+          `<p style="line-height:1.2;"><span style="font-size:18px;">Body</span></p></div>`,
+      ),
+    );
+
+    expect(slideXml).toContain('<a:lnSpc><a:spcPct val="100000"/></a:lnSpc>');
+    expect(slideXml).not.toContain('<a:spcPct val="120000"/>');
+  });
+
+  it("keeps authored line-height in ordinary server-exported slide XML", async () => {
+    const slideXml = await writeParsedSlide(
+      '<div class="fmd-slide"><h1 style="font-size:18px;line-height:1.2;">Body</h1></div>',
+    );
+
+    expect(slideXml).toContain('<a:lnSpc><a:spcPct val="120000"/></a:lnSpc>');
+    expect(slideXml).not.toContain('<a:spcPct val="100000"/>');
   });
 });
 
