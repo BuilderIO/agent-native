@@ -993,7 +993,11 @@ async function rasterizeSvgElement(
     try {
       pixels = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
     } catch {
-      // A tainted canvas cannot be inspected; "unknown", not "has content".
+      // A tainted canvas cannot be inspected. "Unreadable" is not "rendered",
+      // so say so rather than letting it pass as a verified shape.
+      console.warn(
+        "[export-pptx] rasterized shape could not be inspected; it may be missing from the export",
+      );
       pixels = undefined;
     }
     return {
@@ -1089,17 +1093,19 @@ export function linearGradientPaint(
 
   const head = parts[0].toLowerCase();
   const declaredAngle = head.match(/^(-?[\d.]+)deg$/)?.[1];
+  const sideAngle = GRADIENT_SIDE_ANGLES[head];
+  const hasDirection = declaredAngle != null || sideAngle !== undefined;
+  // A corner keyword or a unit this does not read is still a direction, so it
+  // is not a colour stop either. Reporting it blank beats inventing an angle.
+  if (!hasDirection && /^(to\b|calc\(|-?[\d.]+(deg|rad|grad|turn))/.test(head)) {
+    return undefined;
+  }
   const angle =
-    declaredAngle != null
-      ? Number.parseFloat(declaredAngle)
-      : GRADIENT_SIDE_ANGLES[head];
-  // A corner keyword or an interpolation hint is a gradient this cannot place;
-  // leaving it to the blank-raster report is better than inventing a direction.
-  const stopParts = angle === undefined ? parts : parts.slice(1);
-  if (angle === undefined && /^(to\b|[\d.]|calc\()/.test(head)) return undefined;
+    declaredAngle != null ? Number.parseFloat(declaredAngle) : (sideAngle ?? 180);
+  const stopParts = hasDirection ? parts.slice(1) : parts;
   if (stopParts.length < 2) return undefined;
 
-  const radians = (((angle ?? 180) - 90) * Math.PI) / 180;
+  const radians = ((angle - 90) * Math.PI) / 180;
   const dx = Math.cos(radians);
   const dy = Math.sin(radians);
   const lineLength = Math.abs(width * dx) + Math.abs(height * dy);
@@ -1209,9 +1215,18 @@ export function materializeClipPathShapes(root: HTMLElement) {
   }
 }
 
-async function replaceInlineSvgsWithImages(root: HTMLElement) {
+/**
+ * Rasterize every inline `<svg>` in place, and return how many came back with
+ * nothing painted. A blank bitmap is a shape that vanished from the deck, so
+ * it is counted and named rather than passed on as a rendered image.
+ */
+export async function replaceInlineSvgsWithImages(
+  root: HTMLElement,
+  slideNumber = 1,
+): Promise<number> {
   const svgs = Array.from(root.querySelectorAll<SVGSVGElement>("svg"));
-  for (const svg of svgs) {
+  let blankCount = 0;
+  for (const [index, svg] of svgs.entries()) {
     const rect = svg.getBoundingClientRect();
     const viewBox = svg.viewBox?.baseVal;
     const style = window.getComputedStyle(svg);
@@ -1228,7 +1243,15 @@ async function replaceInlineSvgsWithImages(root: HTMLElement) {
       Number(svg.getAttribute("height")) ||
       viewBox?.height ||
       1;
-    const dataUrl = await rasterizeSvgElement(svg, width, height);
+    const { dataUrl, blank } = await rasterizeSvgElement(svg, width, height);
+    if (blank) {
+      blankCount++;
+      const outline =
+        svg.querySelector("path")?.getAttribute("d")?.slice(0, 48) ?? "no path";
+      console.warn(
+        `[export-pptx] slide ${slideNumber} shape ${index + 1} rasterized empty and will be missing from the export (${Math.round(width)}x${Math.round(height)}, ${outline})`,
+      );
+    }
     const img = document.createElement("img");
     img.src = dataUrl;
     img.alt = svg.getAttribute("aria-label") ?? "";
@@ -1254,6 +1277,7 @@ async function replaceInlineSvgsWithImages(root: HTMLElement) {
     });
     svg.replaceWith(img);
   }
+  return blankCount;
 }
 
 /**
@@ -1483,7 +1507,7 @@ export async function buildDeckPptxBlob(
   deckTitle: string,
   slides: PptxExportSlide[],
   aspectRatio?: AspectRatio,
-): Promise<{ blob: Blob; filename: string }> {
+): Promise<{ blob: Blob; filename: string; blankShapes: number }> {
   const { exportToPptx } = await importExportModule(
     () => import("dom-to-pptx"),
   );
