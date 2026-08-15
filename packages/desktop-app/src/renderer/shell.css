@@ -351,7 +351,7 @@ body {
   position: absolute;
   z-index: 0;
   top: -3px;
-  left: -7px;
+  left: -5px;
   width: 78px;
   height: 28px;
   border: 1px solid hsl(var(--sidebar-foreground) / 0.14);
