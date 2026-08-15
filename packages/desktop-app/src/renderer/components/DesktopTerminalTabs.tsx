@@ -1,4 +1,4 @@
-import { AgentTerminal } from "@agent-native/core/client/terminal";
+import { AgentTerminal } from "@agent-native/core/client";
 import type { AppConfig } from "@shared/app-registry";
 import {
   IconLoader2,

@@ -1445,6 +1445,38 @@ function applyTransform(
   };
 }
 
+/** A slide-number field on a slideLayout/slideMaster is parsed once and shared by every slide using that layout, so its value cannot be known at parse time. This token stands in until `substituteSlideNumber` resolves it per slide — the alternative, keeping the cached "‹#›" glyph, is the literal placeholder text showing up on 36 of 36 slides. */
+const SLIDE_NUMBER_TOKEN = "\u0001slidenum\u0001";
+
+/** Replaces `SLIDE_NUMBER_TOKEN` in shared template-layer elements, cloning only the elements that actually carry one. */
+function substituteSlideNumber(
+  elements: ParsedPptxElement[],
+  slideNumber: number,
+): ParsedPptxElement[] {
+  return elements.map((element) => {
+    if (
+      !element.paragraphs?.some((paragraph) =>
+        paragraph.runs.some((run) => run.content.includes(SLIDE_NUMBER_TOKEN)),
+      )
+    ) {
+      return element;
+    }
+    return {
+      ...element,
+      paragraphs: element.paragraphs.map((paragraph) => ({
+        ...paragraph,
+        runs: paragraph.runs.map((run) => ({
+          ...run,
+          content: run.content.replaceAll(
+            SLIDE_NUMBER_TOKEN,
+            String(slideNumber),
+          ),
+        })),
+      })),
+    };
+  });
+}
+
 /** Everything a run needs beyond color resolution: the part's relationships (for `<a:hlinkClick r:id>`) and this slide's own 1-based number (for `<a:fld type="slidenum">`). */
 interface TextResolutionContext {
   relationships?: Map<string, { target: string; type: string }>;
@@ -1501,9 +1533,8 @@ function parseTextBodyParagraphs(
       // ("‹#›") in its `<a:t>`; importing that literally puts the glyph on
       // the slide instead of the number it stands for.
       const content =
-        stringValue(field?.["@_type"]) === "slidenum" &&
-        text?.slideNumber !== undefined
-          ? String(text.slideNumber)
+        stringValue(field?.["@_type"]) === "slidenum"
+          ? (text?.slideNumber?.toString() ?? SLIDE_NUMBER_TOKEN)
           : innerText(field?.["a:t"]);
       if (content) {
         runs.push({
