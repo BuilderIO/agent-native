@@ -106,6 +106,7 @@ function hideQuickPrompt(options: { restoreFocus?: boolean } = {}): void {
 
   window.hide();
   resizeQuickPromptWindow(window, QUICK_PROMPT_COMPACT_SIZE);
+  window.webContents.send(IPC.QUICK_PROMPT_HIDDEN);
 
   if (!restoreFocus) return;
   if (

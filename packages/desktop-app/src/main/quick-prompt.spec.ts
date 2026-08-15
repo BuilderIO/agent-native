@@ -30,6 +30,9 @@ const electronState = vi.hoisted(() => {
     readonly setPosition = vi.fn((x: number, y: number) => {
       this.position = [x, y];
     });
+    readonly webContents = {
+      send: vi.fn(),
+    };
     readonly loadFile = vi.fn();
     readonly show = vi.fn(() => {
       this.visible = true;

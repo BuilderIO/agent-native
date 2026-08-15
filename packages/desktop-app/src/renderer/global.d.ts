@@ -764,6 +764,7 @@ interface ElectronAPI {
     ): Promise<QuickPromptSettings>;
     dismiss(): void;
     setPickerOpen(open: boolean): void;
+    onHidden(cb: () => void): () => void;
     submit(request: QuickPromptSubmitRequest): Promise<QuickPromptSubmitResult>;
   };
 

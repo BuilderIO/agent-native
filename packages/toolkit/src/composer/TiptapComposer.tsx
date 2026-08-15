@@ -753,6 +753,8 @@ export interface TiptapComposerProps {
   selectedEffort?: ReasoningEffort;
   /** Show the legacy provider-level Auto model option (default: true). */
   showAutoModelOption?: boolean;
+  /** Controlled open state for hosts that resize around the model picker. */
+  modelSelectorOpen?: boolean;
   /** Available models grouped by provider */
   availableModels?: Array<{
     engine: string;
@@ -1298,6 +1300,7 @@ function ModelSelector({
   hostedHarness = false,
   showAutoModelOption = true,
   modelListLoading = false,
+  open: controlledOpen,
   onChange,
   onEffortChange,
   onAgentChange,
@@ -1330,12 +1333,14 @@ function ModelSelector({
   onConnectLocalRuntime?: (engine: string) => void;
   onModelSelectorOpenChange?: (open: boolean) => void;
   imageModel?: ComposerImageModelMenu;
+  open?: boolean;
 }) {
   const adapters = useComposerRuntimeAdapters();
   const t = adapters.translate!;
   const reasoning = adapters.models?.reasoning;
   const defaultEffort = reasoning?.defaultEffort ?? DEFAULT_REASONING_EFFORT;
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = controlledOpen ?? internalOpen;
   const isClaudeCodeAgent = isClaudeCodeAgentId(selectedAgent);
   const autoModelGroup = showAutoModelOption
     ? isClaudeCodeAgent
@@ -1434,11 +1439,11 @@ function ModelSelector({
 
   const setPickerOpen = useCallback(
     (nextOpen: boolean) => {
-      setOpen(nextOpen);
+      if (controlledOpen === undefined) setInternalOpen(nextOpen);
       if (nextOpen) setDetailSection(null);
       onModelSelectorOpenChange?.(nextOpen);
     },
-    [onModelSelectorOpenChange],
+    [controlledOpen, onModelSelectorOpenChange],
   );
 
   const visibleProviderGroups = modelProviderGroups;
@@ -2122,6 +2127,7 @@ export function TiptapComposer({
   selectedModel,
   selectedEffort,
   showAutoModelOption = true,
+  modelSelectorOpen,
   availableModels,
   modelListLoading,
   onModelChange,
@@ -3634,6 +3640,7 @@ export function TiptapComposer({
         {selectedModel && availableModels && onModelChange && (
           <ModelSelector
             model={selectedModel}
+            open={modelSelectorOpen}
             effort={selectedEffort}
             engines={availableModels}
             agents={availableAgents}

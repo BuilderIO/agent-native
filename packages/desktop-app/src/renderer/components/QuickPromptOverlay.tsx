@@ -278,6 +278,13 @@ export default function QuickPromptOverlay({
     window.electronAPI?.quickPrompt.setPickerOpen(open);
   }, []);
 
+  useEffect(() => {
+    const unsubscribe = window.electronAPI?.quickPrompt.onHidden(() => {
+      setModelPickerOpen(false);
+    });
+    return unsubscribe;
+  }, []);
+
   const handleConnectLocalRuntime = useCallback((engine: string) => {
     const api = window.electronAPI?.codeAgents;
     if (!api) return;
@@ -393,6 +400,7 @@ export default function QuickPromptOverlay({
         availableAgents={availableAgents}
         availableModels={availableModels}
         modelListLoading={modelListLoading}
+        modelSelectorOpen={modelPickerOpen}
         modelStatusChecksEnabled={false}
         selectedAgent={getCodeAgentIdForEngine(normalizedModelSelection.engine)}
         selectedEngine={normalizedModelSelection.engine}

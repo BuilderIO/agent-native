@@ -314,6 +314,11 @@ const electronAPI = {
     setPickerOpen: (open: boolean): void => {
       ipcRenderer.send(IPC.QUICK_PROMPT_SET_PICKER_OPEN, open);
     },
+    onHidden: (cb: () => void): (() => void) => {
+      const handler = () => cb();
+      ipcRenderer.on(IPC.QUICK_PROMPT_HIDDEN, handler);
+      return () => ipcRenderer.removeListener(IPC.QUICK_PROMPT_HIDDEN, handler);
+    },
     submit: (
       request: QuickPromptSubmitRequest,
     ): Promise<QuickPromptSubmitResult> =>
