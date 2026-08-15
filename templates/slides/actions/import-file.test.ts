@@ -599,7 +599,11 @@ describe("import-file PDF source extraction", () => {
 
   it("does not restyle an existing deck's theme when appending slides onto it", async () => {
     const db = pptxDeckHarness([{ id: "existing", content: "Existing" }], {
-      theme: { colors: [], colorsByName: { accent1: "#123456" }, fonts: ["Georgia"] },
+      theme: {
+        colors: [],
+        colorsByName: { accent1: "#123456" },
+        fonts: ["Georgia"],
+      },
     });
 
     await action.run({
