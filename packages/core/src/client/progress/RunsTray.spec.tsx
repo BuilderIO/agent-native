@@ -178,8 +178,12 @@ describe("RunsTray polling", () => {
 
     await act(async () => {
       root.render(<RunsTray pollMs={0} hideWhenIdle={false} showRecent />);
+    });
+    await act(async () => {
       await vi.waitFor(() =>
-        expect(document.body.textContent).toContain("Codex harness"),
+        expect(
+          document.querySelector('[aria-label="1 active run"]'),
+        ).toBeTruthy(),
       );
     });
 

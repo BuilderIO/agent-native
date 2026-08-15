@@ -132,28 +132,20 @@ function useRunsTrayState({
 
       const rows =
         legacyResult.status === "fulfilled" && legacyResult.value.ok
-          ? ((await legacyResult.value.json()) as AgentRunDto[])
-          : [];
+          ? await readLegacyRuns(legacyResult.value)
+          : null;
       const backgroundRows =
         backgroundResult.status === "fulfilled" && backgroundResult.value.ok
-          ? await backgroundResult.value
-              .json()
-              .then((body) =>
-                Array.isArray(body?.runs)
-                  ? (body.runs as BackgroundAgentRunDto[])
-                  : [],
-              )
-          : [];
-      const hasSuccessfulResponse =
-        (legacyResult.status === "fulfilled" && legacyResult.value.ok) ||
-        (backgroundResult.status === "fulfilled" && backgroundResult.value.ok);
+          ? await readBackgroundRuns(backgroundResult.value)
+          : null;
+      const hasSuccessfulResponse = rows !== null || backgroundRows !== null;
       if (!hasSuccessfulResponse) {
         return;
       }
 
       const merged = new Map<string, AgentRunDto>();
-      for (const row of rows) merged.set(row.id, row);
-      for (const row of backgroundRows) {
+      for (const row of rows ?? []) merged.set(row.id, row);
+      for (const row of backgroundRows ?? []) {
         const normalized = normalizeBackgroundRun(row);
         if (includeRecent || normalized.status === "running") {
           merged.set(normalized.id, normalized);
@@ -562,6 +554,30 @@ function RunsTrayContent({
       )}
     </>
   );
+}
+
+async function readLegacyRuns(
+  response: Response,
+): Promise<AgentRunDto[] | null> {
+  try {
+    const body: unknown = await response.json();
+    return Array.isArray(body) ? (body as AgentRunDto[]) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function readBackgroundRuns(
+  response: Response,
+): Promise<BackgroundAgentRunDto[] | null> {
+  try {
+    const body: unknown = await response.json();
+    if (!body || typeof body !== "object" || !("runs" in body)) return null;
+    const runs = (body as { runs?: unknown }).runs;
+    return Array.isArray(runs) ? (runs as BackgroundAgentRunDto[]) : null;
+  } catch {
+    return null;
+  }
 }
 
 function normalizeBackgroundRun(run: BackgroundAgentRunDto): AgentRunDto {
