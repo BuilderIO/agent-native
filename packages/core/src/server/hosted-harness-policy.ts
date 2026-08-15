@@ -1,4 +1,4 @@
-import type { AgentNativeConfig, AgentNativeHarnessConfig } from "../config.js";
+import type { AgentNativeHarnessConfig } from "../config.js";
 import {
   HOSTED_HARNESS_ENV_KEY,
   HOSTED_HARNESS_FEATURE_FLAG,
@@ -75,9 +75,3 @@ export function hostedHarnessStatusForClient(
     runtimes: [...policy.runtimes],
   };
 }
-
-export function resetHostedHarnessConfigCacheForTests(): void {
-  // Kept as a no-op seam for callers that previously cached config in tests.
-}
-
-export type { AgentNativeConfig };

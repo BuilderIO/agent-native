@@ -684,6 +684,10 @@ export async function mergeCoreSharingActions(
       () => import("../feature-flags/actions/get-feature-flags.js"),
     ],
     [
+      "get-hosted-harness-config",
+      () => import("../hosted-harness/actions/get-hosted-harness-config.js"),
+    ],
+    [
       "list-feature-flags",
       () => import("../feature-flags/actions/list-feature-flags.js"),
     ],

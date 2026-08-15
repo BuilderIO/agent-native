@@ -28,6 +28,11 @@ import { extractMcpToolResultImages } from "../mcp-client/index.js";
 import { isMcpToolAllowedForRequest } from "../mcp-client/visibility.js";
 import { shouldInferSentimentForTurn } from "../observability/sentiment.js";
 import {
+  filterHostedHarnessToolNames,
+  hostedHarnessSystemPrompt,
+  normalizeHostedHarnessRuntime,
+} from "./harness/hosted.js";
+import {
   completeRun as completeProgressRun,
   startRun as startProgressRun,
   updateRunProgress,
@@ -42,6 +47,7 @@ import {
   readDeployCredentialEnv,
 } from "../server/credential-provider.js";
 import { readBody } from "../server/h3-helpers.js";
+import { resolveHostedHarnessPolicy } from "../server/hosted-harness-policy.js";
 import {
   assertRequestActionSurfaceIsolation,
   getRequestRunContext,
@@ -207,6 +213,7 @@ import type {
   AgentChatStructuredMessage,
   RunEvent,
 } from "./types.js";
+import type { AgentNativeHarnessConfig } from "../config.js";
 
 // Register built-in engines on first import
 registerBuiltinEngines();
@@ -1164,6 +1171,8 @@ export interface ProductionAgentOptions {
   model?: string;
   /** App/template id used for org-scoped per-app model defaults. */
   appId?: string;
+  /** Static app capability for the hosted tools-only harness picker. */
+  hostedHarnessConfig?: AgentNativeHarnessConfig;
   /** Default effort for requests that do not supply an override. */
   reasoningEffort?: ReasoningEffort;
   /** Provider-specific options passed through to the engine */
@@ -8186,8 +8195,8 @@ export function createProductionAgentHandler(
       }
     }
 
-    const {
-      message,
+      const {
+        message,
       history = [],
       structuredHistory,
       references = [],
@@ -8200,10 +8209,11 @@ export function createProductionAgentHandler(
       model: requestModel,
       engine: requestEngine,
       effort: requestEffort,
-      browserTabId,
-      scope,
-      trackInRunsTray,
-    } = body;
+        browserTabId,
+        scope,
+        harness: requestHarness,
+        trackInRunsTray,
+      } = body;
     setupMark("bodyParsed");
 
     // Durable-background marker. Present ONLY when this handler was re-entered
@@ -8341,7 +8351,43 @@ export function createProductionAgentHandler(
         requestAttachments = preparedRequest.attachments;
       }
     }
-    const availableRequestActions = getRequestActions();
+    const requestedHostedHarness = normalizeHostedHarnessRuntime(
+      requestHarness?.runtime,
+    );
+    if (requestHarness !== undefined && !requestedHostedHarness) {
+      setResponseStatus(event, 400);
+      return { error: "Unsupported hosted harness runtime" };
+    }
+    const hostedHarnessPolicy = requestedHostedHarness
+      ? await resolveHostedHarnessPolicy({
+          config: options.hostedHarnessConfig,
+          orgId: getRequestOrgId() ?? null,
+          userEmail: ownerEmail,
+        })
+      : null;
+    if (
+      requestedHostedHarness &&
+      (!hostedHarnessPolicy?.enabled ||
+        !hostedHarnessPolicy.runtimes.includes(requestedHostedHarness))
+    ) {
+      setResponseStatus(event, hostedHarnessPolicy?.configEnabled ? 403 : 404);
+      return {
+        error: hostedHarnessPolicy?.configEnabled
+          ? "Hosted harness is not enabled for this organization"
+          : "Hosted harness is not configured for this app",
+      };
+    }
+    const runContext = ensureRequestRunContext();
+    if (runContext && requestedHostedHarness) {
+      runContext.hostedHarnessRuntime = requestedHostedHarness;
+    }
+    let availableRequestActions = getRequestActions();
+    if (requestedHostedHarness) {
+      availableRequestActions = filterActionsByAllowedNames(
+        availableRequestActions,
+        filterHostedHarnessToolNames(Object.keys(availableRequestActions)),
+      );
+    }
     let surfacedRequestActions = availableRequestActions;
     if (options.resolveActionSurface) {
       const persistedSurface = isBackgroundWorker
@@ -8363,6 +8409,12 @@ export function createProductionAgentHandler(
         availableRequestActions,
         surface.allowedActionNames,
       );
+      if (requestedHostedHarness) {
+        surfacedRequestActions = filterActionsByAllowedNames(
+          surfacedRequestActions,
+          filterHostedHarnessToolNames(Object.keys(surfacedRequestActions)),
+        );
+      }
       const allowedNames = Object.keys(surfacedRequestActions);
       const runCtx = ensureRequestRunContext();
       if (runCtx) runCtx.allowedActionNames = allowedNames;
@@ -8759,7 +8811,9 @@ export function createProductionAgentHandler(
     const filesContextThunk = (): Promise<string> =>
       (async (): Promise<string> => {
         let filesContext = "";
-        if (options.skipFilesContext) return filesContext;
+        if (options.skipFilesContext || requestedHostedHarness) {
+          return filesContext;
+        }
         if (history.length === 0) {
           try {
             const {

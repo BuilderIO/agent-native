@@ -81,6 +81,35 @@ describe("agent-native app config", () => {
     });
   });
 
+  it("normalizes hosted harness capabilities and runtimes", () => {
+    expect(
+      normalizeAgentNativeConfig({
+        harness: {
+          enabled: true,
+          runtimes: ["claude-code", "codex", "claude-code"],
+          ui: "desktop",
+        },
+      }),
+    ).toEqual({
+      harness: {
+        enabled: true,
+        runtimes: ["claude-code", "codex"],
+        ui: "desktop",
+      },
+    });
+    expect(
+      mergeAgentNativeConfigs(
+        { harness: { runtimes: ["claude-code"] } },
+        { harness: { enabled: true, runtimes: ["codex"] } },
+      ),
+    ).toEqual({
+      harness: {
+        enabled: true,
+        runtimes: ["claude-code", "codex"],
+      },
+    });
+  });
+
   it("lets an app replace the inherited locale allowlist", () => {
     expect(
       mergeAgentNativeConfigs(
@@ -96,6 +125,8 @@ describe("agent-native app config", () => {
     { translations: { locales: ["en-US", ""] } },
     { translations: { locales: ["en-US", 42] } },
     { changelog: { enabled: "yes" } },
+    { harness: { enabled: true, runtimes: ["shell"] } },
+    { harness: { ui: "panel" } },
   ])("rejects invalid lightweight policy config: %o", (config) => {
     expect(() => normalizeAgentNativeConfig(config)).toThrow();
   });

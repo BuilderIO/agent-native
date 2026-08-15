@@ -1893,6 +1893,8 @@ export interface AssistantChatAdapterContext {
   modelRef: { current: string | undefined };
   engineRef: { current: string | undefined };
   effortRef: { current: ReasoningEffort | undefined };
+  harnessRef?: { current: string | undefined };
+  hostedHarnessRef?: { current: boolean };
   execModeRef: { current: "build" | "plan" | undefined };
   browserTabId?: string;
   scopeRef: { current: ChatThreadScope | null | undefined };
@@ -2020,6 +2022,8 @@ export interface AssistantChatProps {
   availableAgents?: ComposerAgentOption[];
   /** Selected agent runtime identifier. */
   selectedAgent?: string;
+  /** Mark the selected runtime as the hosted tools-only harness mode. */
+  hostedHarness?: boolean;
   /** Callback when the user picks an agent runtime. */
   onAgentChange?: (agent: string) => void;
   /**
@@ -6532,6 +6536,12 @@ export const AssistantChat = forwardRef<
   engineRef.current = props.selectedEngine;
   const effortRef = useRef<ReasoningEffort | undefined>(props.selectedEffort);
   effortRef.current = props.selectedEffort;
+  const harnessRef = useRef<string | undefined>(
+    props.hostedHarness ? props.selectedAgent : undefined,
+  );
+  harnessRef.current = props.hostedHarness ? props.selectedAgent : undefined;
+  const hostedHarnessRef = useRef(props.hostedHarness === true);
+  hostedHarnessRef.current = props.hostedHarness === true;
   const execModeRef = useRef<"build" | "plan" | undefined>(props.execMode);
   execModeRef.current = props.execMode;
   const scopeRef = useRef<ChatThreadScope | null | undefined>(contextScope);
@@ -6551,6 +6561,8 @@ export const AssistantChat = forwardRef<
         modelRef,
         engineRef,
         effortRef,
+        harnessRef,
+        hostedHarnessRef,
         execModeRef,
         browserTabId,
         scopeRef,

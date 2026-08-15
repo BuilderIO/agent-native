@@ -1793,6 +1793,8 @@ export interface CreateAgentChatAdapterOptions {
   modelRef?: { current: string | undefined };
   engineRef?: { current: string | undefined };
   effortRef?: { current: ReasoningEffort | undefined };
+  harnessRef?: { current: string | undefined };
+  hostedHarnessRef?: { current: boolean };
   execModeRef?: { current: "build" | "plan" | undefined };
   browserTabId?: string;
   scopeRef?: { current: ChatThreadScope | null | undefined };
@@ -1880,6 +1882,8 @@ export function createAgentChatAdapter(
   const modelRef = options?.modelRef;
   const engineRef = options?.engineRef;
   const effortRef = options?.effortRef;
+  const harnessRef = options?.harnessRef;
+  const hostedHarnessRef = options?.hostedHarnessRef;
   const execModeRef = options?.execModeRef;
   const browserTabId = options?.browserTabId;
   const scopeRef = options?.scopeRef;
@@ -1984,7 +1988,9 @@ export function createAgentChatAdapter(
       // Queued turns carry the model/engine/effort they were composed with.
       // The refs track the live picker, so without this a queue that flushes
       // after the user switches models runs under the wrong one.
-      const runConfigSelection = (key: "model" | "engine" | "effort") => {
+      const runConfigSelection = (
+        key: "model" | "engine" | "effort" | "harness",
+      ) => {
         const raw =
           runConfig?.custom && typeof runConfig.custom === "object"
             ? (runConfig.custom as Record<string, unknown>)[key]
@@ -1996,6 +2002,9 @@ export function createAgentChatAdapter(
       const effort =
         (runConfigSelection("effort") as ReasoningEffort | undefined) ??
         effortRef?.current;
+      const harness = hostedHarnessRef?.current
+        ? runConfigSelection("harness") ?? harnessRef?.current
+        : undefined;
       const requestedTurnId = (() => {
         const raw =
           runConfig?.custom && typeof runConfig.custom === "object"
@@ -2460,6 +2469,7 @@ export function createAgentChatAdapter(
         // "dev-frame" explicitly; the reusable in-product chat defaults to
         // "app" even when it is running in Desktop or inside a preview iframe.
         headers["x-agent-native-surface"] = surface;
+        if (harness) headers["x-agent-native-hosted-harness"] = "1";
 
         const reconnectCurrentRun = async function* (): AsyncGenerator<
           ChatModelRunResult,
@@ -3776,6 +3786,7 @@ export function createAgentChatAdapter(
                   ...(model ? { model } : {}),
                   ...(engine ? { engine } : {}),
                   ...(effort ? { effort } : {}),
+                  ...(harness ? { harness: { runtime: harness } } : {}),
                   ...(browserTabId ? { browserTabId } : {}),
                   ...(scopeRef?.current ? { scope: scopeRef.current } : {}),
                   ...(includeAttachments ? { attachments } : {}),

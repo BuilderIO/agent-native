@@ -53,6 +53,12 @@ import { flushSync } from "react-dom";
 
 import type { AgentRun } from "../progress/types.js";
 import {
+  hostedHarnessAgentOption,
+  isHostedHarnessRuntime,
+  normalizeHostedHarnessRuntimes,
+  type HostedHarnessRuntime,
+} from "../agent/harness/hosted.js";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -79,6 +85,7 @@ import { Link, useLocation, useNavigate } from "react-router";
 
 import { withBuilderUtmTrackingParams } from "../shared/builder-link-tracking.js";
 import type { AgentChatSurfaceKind } from "./agent-chat-adapter.js";
+import { injectedAgentNativeConfig } from "./app-config.js";
 import {
   AGENT_SIDEBAR_MIN_WIDTH,
   consumeAgentSidebarUrlOpenOverride,
@@ -128,6 +135,7 @@ import { useOnboardingPreviewMode } from "./onboarding/use-preview-mode.js";
 import { recoverFromStaleChunkError } from "./route-chunk-recovery.js";
 import { withBuilderConnectTrackingParams } from "./settings/useBuilderStatus.js";
 import { useScreenRefreshKey } from "./use-db-sync.js";
+import { useActionQuery } from "./use-action.js";
 import { useDevMode } from "./use-dev-mode.js";
 import { cn } from "./utils.js";
 
@@ -3098,6 +3106,12 @@ export interface AgentSidebarProps {
   suppressFirstRunOnboarding?: boolean;
 }
 
+interface HostedHarnessStatus {
+  enabled: boolean;
+  runtimes: HostedHarnessRuntime[];
+  ui: "default" | "desktop";
+}
+
 /**
  * Wraps app content with a toggleable agent sidebar.
  * Use AgentToggleButton in your header to open/close it.
@@ -3144,6 +3158,53 @@ export function AgentSidebar({
   agentPageHref,
   suppressFirstRunOnboarding = false,
 }: AgentSidebarProps) {
+  const staticHostedHarnessEnabled =
+    injectedAgentNativeConfig().harness?.enabled === true;
+  const hostedHarnessQuery = useActionQuery<HostedHarnessStatus>(
+    "get-hosted-harness-config" as never,
+    undefined,
+    { enabled: staticHostedHarnessEnabled },
+  );
+  const hostedHarnessStatus = hostedHarnessQuery.data;
+  const hostedHarnessEnabled = hostedHarnessStatus?.enabled === true;
+  const hostedHarnessRuntimes = useMemo(
+    () =>
+      hostedHarnessEnabled
+        ? normalizeHostedHarnessRuntimes(hostedHarnessStatus?.runtimes)
+        : [],
+    [hostedHarnessEnabled, hostedHarnessStatus?.runtimes],
+  );
+  const hostedHarnessUi = hostedHarnessEnabled && hostedHarnessStatus?.ui === "desktop";
+  const hostedHarnessStorageKey = `agent-native-hosted-harness${storageKey ? `:${storageKey}` : ""}`;
+  const [hostedHarnessRuntime, setHostedHarnessRuntime] =
+    useState<HostedHarnessRuntime>("claude-code");
+  const hostedHarnessAgentOptions = useMemo(
+    () => hostedHarnessRuntimes.map(hostedHarnessAgentOption),
+    [hostedHarnessRuntimes],
+  );
+  const effectiveAvailableAgents = hostedHarnessEnabled
+    ? [
+        ...hostedHarnessAgentOptions,
+        ...(availableAgents ?? []).filter(
+          (agent) => !isHostedHarnessRuntime(agent.id),
+        ),
+      ]
+    : availableAgents;
+  const effectiveSelectedAgent = hostedHarnessEnabled
+    ? hostedHarnessRuntime
+    : selectedAgent;
+  const effectiveOnAgentChange = hostedHarnessEnabled
+    ? (agent: string) => {
+        if (isHostedHarnessRuntime(agent)) {
+          setHostedHarnessRuntime(agent);
+        }
+        onAgentChange?.(agent);
+      }
+    : onAgentChange;
+  const effectivePosition = hostedHarnessUi ? "left" : position;
+  const effectiveDefaultOpen = hostedHarnessUi || defaultOpen;
+  const effectiveShowTabBar = hostedHarnessUi || showTabBar;
+  const effectiveAnimateDesktop = hostedHarnessUi ? false : animateDesktop;
   const sidebarOpenStorageKey = openStorageKey ?? storageKey;
   const isPerAppChatSidebar = isPerAppChatStorageKey(sidebarOpenStorageKey);
   const perAppChatState = usePerAppChatState(!isPerAppChatSidebar);
@@ -3160,7 +3221,7 @@ export function AgentSidebar({
   const [open, setOpen] = useState(
     () =>
       openOnChatRunning ||
-      getInitialAgentSidebarOpen(defaultOpen, sidebarOpenStorageKey),
+      getInitialAgentSidebarOpen(effectiveDefaultOpen, sidebarOpenStorageKey),
   );
   const [presentationMode, setPresentationMode] = useState(false);
   const [width, setWidth] = useState(initialWidth);
@@ -3228,6 +3289,40 @@ export function AgentSidebar({
     },
     [sidebarOpenStorageKey],
   );
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(hostedHarnessStorageKey);
+      if (saved && isHostedHarnessRuntime(saved)) {
+        setHostedHarnessRuntime(saved);
+      }
+    } catch {
+      // The picker falls back to Claude Code Agent when storage is unavailable.
+    }
+  }, [hostedHarnessStorageKey]);
+
+  useEffect(() => {
+    if (!hostedHarnessEnabled || hostedHarnessRuntimes.length === 0) return;
+    const next = hostedHarnessRuntimes.includes(hostedHarnessRuntime)
+      ? hostedHarnessRuntime
+      : hostedHarnessRuntimes[0];
+    if (!next) return;
+    if (next !== hostedHarnessRuntime) setHostedHarnessRuntime(next);
+    try {
+      localStorage.setItem(hostedHarnessStorageKey, next);
+    } catch {
+      // The selected runtime remains in memory for this tab.
+    }
+  }, [
+    hostedHarnessEnabled,
+    hostedHarnessRuntimes,
+    hostedHarnessRuntime,
+    hostedHarnessStorageKey,
+  ]);
+
+  useEffect(() => {
+    if (hostedHarnessUi) setOpenPersisted(true);
+  }, [hostedHarnessUi, setOpenPersisted]);
 
   const applyUrlOpenOverride = useCallback(() => {
     const override = consumeAgentSidebarUrlOpenOverride(sidebarOpenStorageKey);
@@ -3667,11 +3762,11 @@ export function AgentSidebar({
   const handleResizeStart = useCallback(() => setIsResizing(true), []);
   const handleResizeEnd = useCallback(() => setIsResizing(false), []);
 
-  const isLeft = position === "left";
+  const isLeft = effectivePosition === "left";
   const wideDrawerEnabled = isWideDrawer && !isMobile;
   const mobileAnimationEnabled = !presentationMode && isMobile && animateMobile;
   const desktopAnimationEnabled =
-    !presentationMode && !isMobile && animateDesktop;
+    !presentationMode && !isMobile && effectiveAnimateDesktop;
   const sidebarAnimationEnabled =
     mobileAnimationEnabled || desktopAnimationEnabled;
   const [renderAnimatedPanel, setRenderAnimatedPanel] =
@@ -3791,7 +3886,7 @@ export function AgentSidebar({
     <>
       {showResizeHandle && !isLeft && (
         <ResizeHandle
-          position={position}
+          position={effectivePosition}
           onDrag={handleDrag}
           onResizeStart={handleResizeStart}
           onResizeEnd={handleResizeEnd}
@@ -3812,7 +3907,10 @@ export function AgentSidebar({
                 : undefined
         }
         data-agent-sidebar-layout={panelLayout}
-        data-agent-sidebar-position={position}
+        data-agent-sidebar-position={effectivePosition}
+        data-agent-native-hosted-harness-ui={
+          hostedHarnessUi ? "desktop" : undefined
+        }
         data-agent-sidebar-state={panelOpen ? "open" : "closed"}
         data-agent-sidebar-per-app-chat={
           isPerAppChatSidebar ? "true" : undefined
@@ -3838,18 +3936,19 @@ export function AgentSidebar({
             composerSlot={composerSlot}
             onComposerTextChange={onComposerTextChange}
             imageModelMenu={imageModelMenu}
-            availableAgents={availableAgents}
+            availableAgents={effectiveAvailableAgents}
             availableModels={availableModels}
             modelListLoading={modelListLoading}
-            selectedAgent={selectedAgent}
-            onAgentChange={onAgentChange}
+            selectedAgent={effectiveSelectedAgent}
+            onAgentChange={effectiveOnAgentChange}
+            hostedHarness={hostedHarnessEnabled}
             onConnectLocalRuntime={onConnectLocalRuntime}
             runtime={runtime}
             adapterReloadKey={adapterReloadKey}
             threadFooterSlot={threadFooterSlot}
             apiUrl={apiUrl}
             agentChatSurface={agentChatSurface}
-            showTabBar={showTabBar}
+            showTabBar={effectiveShowTabBar}
             suppressInlineOpenApp={suppressInlineOpenApp}
             composerPlaceholder={composerPlaceholder}
             missingApiKeySetupLayout="sidebar"
@@ -3871,7 +3970,7 @@ export function AgentSidebar({
       </div>
       {showResizeHandle && isLeft && (
         <ResizeHandle
-          position={position}
+          position={effectivePosition}
           onDrag={handleDrag}
           onResizeStart={handleResizeStart}
           onResizeEnd={handleResizeEnd}
@@ -3900,7 +3999,10 @@ export function AgentSidebar({
         )}
         <div
           className="agent-sidebar-shell flex min-w-0 flex-1 h-screen overflow-hidden"
-          data-agent-sidebar-position={position}
+          data-agent-sidebar-position={effectivePosition}
+          data-agent-native-hosted-harness-ui={
+            hostedHarnessUi ? "desktop" : undefined
+          }
           data-agent-native-hosted-chat={
             isPerAppChatHosted ? "true" : undefined
           }
