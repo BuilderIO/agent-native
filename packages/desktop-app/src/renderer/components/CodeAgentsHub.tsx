@@ -2331,7 +2331,7 @@ export default function CodeAgentsHub({
                   <button
                     type="button"
                     className="code-agents-nav-link desktop-chat-first-rail-settings"
-                    onClick={onOpenSettings}
+                    onClick={() => onOpenSettings()}
                     aria-label="Settings"
                     title="Settings"
                   >

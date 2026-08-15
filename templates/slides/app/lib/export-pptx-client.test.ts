@@ -302,6 +302,72 @@ describe("exportDeckAsPptx", () => {
     expect(Number.parseFloat(exported?.style.left ?? "")).toBeCloseTo(0, 3);
     expect(Number.parseFloat(exported?.style.top ?? "")).toBeCloseTo(0, 3);
   });
+
+  it("sizes a rotated freeform from its own box, not its rotated bounding box", async () => {
+    // infog1 slide 5: each ring-segment arrow is a 405.164px square at
+    // rotate(-137.6deg), whose axis-aligned bounding box measures 572.4px.
+    // getBoundingClientRect reports that box, and the rotation is carried onto
+    // the <img>, so measuring it here applied the angle twice and shipped the
+    // arrows 1.41x oversized — one of them over the slide title.
+    stubRectsFromDataAttr();
+    setSlideMarkup(
+      '<svg data-test-rect="195.9,19.5,572.4,572.4" viewBox="0 0 405.164 405.164" ' +
+        'style="position:absolute;left:279.547px;top:103.078px;width:405.164px;height:405.164px;' +
+        'transform:rotate(-137.59755deg);transform-origin:center center;">' +
+        '<path d="M8.9 261.8 L65.7 53.2 L127.5 120.7 Z" fill="#DA474F" /></svg>',
+    );
+
+    await exportDeckAsPptx("Infographics", [{ id: "slide-1" }], "16:9");
+
+    const [targets] = mocks.exportToPptx.mock.calls[0];
+    const [target] = targets as HTMLElement[];
+    const exported = target.querySelector<HTMLImageElement>("img");
+    expect(exported?.style.width).toBe("405.164px");
+    expect(exported?.style.height).toBe("405.164px");
+    expect(exported?.style.transform).toBe("rotate(-137.59755deg)");
+  });
+
+  it("bakes an overflow-hidden crop into the exported bitmap", async () => {
+    // soze slide 2: a PPTX srcRect crop is a 521.6x347.6px <img> hanging out
+    // of a 192.9x192.1px overflow-hidden wrapper. dom-to-pptx exports the
+    // image's own box and never sees the clip, so the portrait shipped at
+    // 2.7x, covering the body text.
+    stubRectsFromDataAttr();
+    const drawImage = vi.fn();
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+      drawImage,
+    } as unknown as CanvasRenderingContext2D);
+    vi.spyOn(HTMLCanvasElement.prototype, "toDataURL").mockReturnValue(
+      "data:image/png;base64,Q1JPUA==",
+    );
+    setSlideMarkup(
+      '<div class="fmd-pptx-image" data-test-rect="612.7,192,192.9,192.1" ' +
+        'style="position:absolute;left:612.7px;top:192px;width:192.9px;height:192.1px;overflow:hidden;">' +
+        '<img alt="" src="/portrait.png" data-test-rect="445,192,521.6,347.6" ' +
+        'style="position:absolute;left:-167.7px;top:0px;width:521.6px;height:347.6px;" /></div>',
+    );
+    const image = document.querySelector<HTMLImageElement>("img");
+    if (!image) throw new Error("test image missing");
+    markImageAsLoaded(image);
+    Object.defineProperties(image, {
+      naturalHeight: { configurable: true, value: 3476 },
+      naturalWidth: { configurable: true, value: 5216 },
+    });
+
+    await exportDeckAsPptx("Soze", [{ id: "slide-1" }], "16:9");
+
+    const [targets] = mocks.exportToPptx.mock.calls[0];
+    const [target] = targets as HTMLElement[];
+    const exported = target.querySelector<HTMLImageElement>("img");
+    expect(exported?.style.width).toBe("192.9px");
+    expect(exported?.style.height).toBe("192.1px");
+    expect(exported?.src).toContain("Q1JPUA==");
+    // Source window in natural pixels: the wrapper starts 167.7px into the
+    // image, at 10 natural px per CSS px.
+    expect(drawImage).toHaveBeenCalledWith(image, 1677, 0, 1929, 1921, 0, 0, 1929, 1921);
+    // ...and the shrunk image lands on the wrapper it used to overflow.
+    expect(Number.parseFloat(exported?.style.left ?? "")).toBeCloseTo(0, 3);
+  });
 });
 
 describe("pptxExportScale", () => {

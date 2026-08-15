@@ -299,12 +299,7 @@ function buildFidelityElement(
     const imagePath = customGeometryPath(element, widthPx, heightPx);
     const clip = imagePath
       ? `clip-path: path('${imagePath}');`
-      : geometryCss(
-          element.shapeType,
-          widthPx,
-          heightPx,
-          element.shapeAdjustments,
-        );
+      : geometryCss(element, widthPx, heightPx);
     return `<div class="fmd-pptx-image" data-pptx-element-kind="image" data-pptx-image-name="${esc(element.image?.name ?? "image")}"${objectId} style="${position}${rotation} overflow: hidden;${clip}">${url ? `<img src="${esc(url)}" alt="" style="${imageStyle}" />` : `<div class="fmd-img-placeholder" style="width:100%;height:100%;">Imported image: ${esc(element.image?.name ?? "image")}</div>`}</div>`;
   }
 
@@ -329,12 +324,7 @@ function buildFidelityElement(
   const outlinePath =
     element.kind === "shape"
       ? (customPath ??
-        clippedPresetPath(
-          element.shapeType,
-          widthPx,
-          heightPx,
-          element.shapeAdjustments,
-        ))
+        clippedPresetPath(element, widthPx, heightPx))
       : undefined;
   const decoration = shapeDecoration(
     element,
@@ -1089,7 +1079,14 @@ function geometryCss(
       return path ? `clip-path: path('${path}');` : "";
     }
   }
-  const points = CLIP_PATH_GEOMETRIES[shapeType]?.(widthPx, heightPx, shortest);
+  const presetPath = presetGeometryPath(element, widthPx, heightPx);
+  if (presetPath) return `clip-path: path('${presetPath}');`;
+  const points = CLIP_PATH_GEOMETRIES[shapeType]?.(
+    widthPx,
+    heightPx,
+    shortest,
+    adjustments,
+  );
   if (!points) return "";
   const polygon = points
     .map(([x, y]) => `${toPercent(x, widthPx)}% ${toPercent(y, heightPx)}%`)
@@ -1108,15 +1105,18 @@ function geometryCss(
  * those correctly.
  */
 function clippedPresetPath(
-  shapeType: string | undefined,
+  element: ParsedElement,
   widthPx: number,
   heightPx: number,
-  adjustments?: Record<string, number>,
 ): string | undefined {
+  const shapeType = element.shapeType;
+  const adjustments = element.shapeAdjustments;
   if (!shapeType) return undefined;
   if (shapeType === "blockArc") {
     return blockArcPath(adjustments, widthPx, heightPx);
   }
+  const presetPath = presetGeometryPath(element, widthPx, heightPx);
+  if (presetPath) return presetPath;
   const points = CLIP_PATH_GEOMETRIES[shapeType]?.(
     widthPx,
     heightPx,
@@ -1410,7 +1410,7 @@ function shapeDecoration(
   const line = outlinePath
     ? ""
     : strokeDecoration(element, widthEmu, refWidthPx, widthPx, heightPx);
-  return `${fill}${line}${geometryCss(element.shapeType, widthPx, heightPx, element.shapeAdjustments)}`;
+  return `${fill}${line}${geometryCss(element, widthPx, heightPx)}`;
 }
 
 function textBoxStyle(

@@ -398,7 +398,7 @@ body {
 .desktop-chat-first-hub .collapsed-mac-window-controls:hover::before,
 .desktop-chat-first-hub .collapsed-mac-window-controls:focus-within::before {
   opacity: 1;
-  transform: scaleX(1.43);
+  transform: scaleX(1.5);
 }
 
 .desktop-chat-first-hub .collapsed-mac-window-controls:hover .win-btn--maximize,
