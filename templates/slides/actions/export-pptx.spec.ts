@@ -359,16 +359,24 @@ describe("parseSlideHtml", () => {
       1,
     );
 
+    const inX = (px: number) => (px / 960) * 13.33;
+    const inY = (px: number) => (px / 540) * 7.5;
     expect(result.shapes[0]?.shapeType).toBe("custGeom");
     expect(result.shapes[0]?.points).toEqual([
       { x: 0, y: 0, moveTo: true },
-      { x: 1, y: 0 },
+      { x: inX(96), y: 0 },
       {
         x: 0,
-        y: 0.5625,
-        curve: { type: "cubic", x1: 1, y1: 0.28125, x2: 0.5, y2: 0.5625 },
+        y: inY(54),
+        curve: {
+          type: "cubic",
+          x1: inX(96),
+          y1: inY(27),
+          x2: inX(48),
+          y2: inY(54),
+        },
       },
-      { x: 0, y: 0, curve: { type: "quadratic", x1: 0, y1: 0.28125 } },
+      { x: 0, y: 0, curve: { type: "quadratic", x1: 0, y1: inY(27) } },
       { close: true },
     ]);
   });
@@ -382,13 +390,27 @@ describe("parseSlideHtml", () => {
       1,
     );
 
-    const [start, arc] = result.shapes[0]?.points ?? [];
-    expect(start).toEqual({ x: 100 / 96, y: 50 / 96, moveTo: true });
-    expect(arc).toEqual({
-      x: 50 / 96,
-      y: 100 / 96,
-      curve: { type: "arc", wR: 50 / 96, hR: 50 / 96, stAng: 0, swAng: 90 },
+    const [start, arc] = (result.shapes[0]?.points ?? []) as Array<
+      Record<string, never>
+    >;
+    // The arc's center is (50px, 50px), so it starts due east and sweeps a
+    // quarter turn clockwise onto its endpoint.
+    expect(start).toEqual({
+      x: (100 / 960) * 13.33,
+      y: (50 / 540) * 7.5,
+      moveTo: true,
     });
+    expect(arc).toMatchObject({
+      x: (50 / 960) * 13.33,
+      y: (100 / 540) * 7.5,
+      curve: {
+        type: "arc",
+        wR: (50 / 960) * 13.33,
+        hR: (50 / 540) * 7.5,
+      },
+    });
+    expect(arc.curve.stAng).toBeCloseTo(0, 6);
+    expect(arc.curve.swAng).toBeCloseTo(90, 6);
   });
 
   it("reads a stroke-only freeform's outline and weight from its SVG overlay", () => {
@@ -403,11 +425,11 @@ describe("parseSlideHtml", () => {
     expect(result.shapes[0]).toMatchObject({
       shapeType: "custGeom",
       lineColor: "FF0000",
-      lineWidth: 3,
+      lineWidth: 4,
     });
     expect(result.shapes[0]?.points).toEqual([
       { x: 0, y: 0, moveTo: true },
-      { x: 2, y: 1.125 },
+      { x: (192 / 960) * 13.33, y: (108 / 540) * 7.5 },
     ]);
   });
 

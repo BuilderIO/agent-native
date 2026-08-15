@@ -326,6 +326,16 @@ function buildFidelityElement(
     element.kind === "shape"
       ? customGeometryPath(element, widthPx, heightPx)
       : undefined;
+  const outlinePath =
+    element.kind === "shape"
+      ? (customPath ??
+        clippedPresetPath(
+          element.shapeType,
+          widthPx,
+          heightPx,
+          element.shapeAdjustments,
+        ))
+      : undefined;
   const decoration = shapeDecoration(
     element,
     widthEmu,
@@ -333,12 +343,13 @@ function buildFidelityElement(
     widthPx,
     heightPx,
     customPath,
+    outlinePath,
   );
   if (element.kind === "shape") {
-    const stroke = customPath
+    const stroke = outlinePath
       ? customGeometryStroke(
           element,
-          customPath,
+          outlinePath,
           widthEmu,
           refBox.width,
           widthPx,
@@ -812,6 +823,39 @@ function geometryCss(
   return `clip-path: polygon(${polygon});`;
 }
 
+/**
+ * The outline a preset geometry is *clipped* to, as an SVG path — the same
+ * shape `geometryCss` writes into `clip-path`, in the form a stroke can
+ * follow. `border` only paints the bounding box's four edges, so on a clipped
+ * preset the clip then removes every part of them the outline does not cover:
+ * a stroke-only triangle keeps a sliver of its base and loses both diagonals,
+ * which is the whole shape gone. Presets that clip nothing (`ellipse`,
+ * `roundRect`) are absent on purpose — `border` plus `border-radius` draws
+ * those correctly.
+ */
+function clippedPresetPath(
+  shapeType: string | undefined,
+  widthPx: number,
+  heightPx: number,
+  adjustments?: Record<string, number>,
+): string | undefined {
+  if (!shapeType) return undefined;
+  if (shapeType === "blockArc") {
+    return blockArcPath(adjustments, widthPx, heightPx);
+  }
+  const points = CLIP_PATH_GEOMETRIES[shapeType]?.(
+    widthPx,
+    heightPx,
+    Math.min(widthPx, heightPx),
+  );
+  if (!points) return undefined;
+  return `${points
+    .map(
+      ([x, y], index) => `${index === 0 ? "M" : "L"}${round1(x)} ${round1(y)}`,
+    )
+    .join(" ")} Z`;
+}
+
 function round3(value: number): number {
   return Math.round(value * 1000) / 1000;
 }
@@ -902,11 +946,11 @@ function customGeometryPath(
 }
 
 /**
- * A freeform outline's stroke follows the path, not the bounding box, so the
- * `border` shorthand cannot draw it — on a line-art pictogram (no fill, a
- * stroked outline only) a border is exactly the generic square the icon
- * collapses into today. The path is stroked as an overlay instead, leaving
- * the fill to the div's own clipped background.
+ * A clipped outline's stroke follows the path, not the bounding box, so the
+ * `border` shorthand cannot draw it — on a line-art pictogram or an
+ * outline-only triangle (no fill, a stroked outline only) a border is exactly
+ * the generic square the shape collapses into today. The path is stroked as
+ * an overlay instead, leaving the fill to the div's own clipped background.
  */
 function customGeometryStroke(
   element: ParsedElement,
@@ -963,6 +1007,7 @@ function shapeDecoration(
   widthPx: number,
   heightPx: number,
   customPath: string | undefined,
+  outlinePath: string | undefined,
 ): string {
   // A reproduced outline is no longer an occluding box, so it paints its real
   // fill even when its preset is one this renderer cannot otherwise draw.
@@ -980,13 +1025,11 @@ function shapeDecoration(
     // the clip is the fill's, not the shape's.
     return fill ? `${fill}clip-path: path('${customPath}');` : "";
   }
-  const line = strokeDecoration(
-    element,
-    widthEmu,
-    refWidthPx,
-    widthPx,
-    heightPx,
-  );
+  // Same reason as above for a clipped preset: `border` draws the box, the
+  // clip eats it, and `customGeometryStroke` draws the outline instead.
+  const line = outlinePath
+    ? ""
+    : strokeDecoration(element, widthEmu, refWidthPx, widthPx, heightPx);
   return `${fill}${line}${geometryCss(element.shapeType, widthPx, heightPx, element.shapeAdjustments)}`;
 }
 

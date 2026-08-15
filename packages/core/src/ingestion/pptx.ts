@@ -1373,6 +1373,7 @@ function parseGraphicFrameTable(
   node: Record<string, unknown>,
   context?: ColorContext,
   text?: TextResolutionContext,
+  tableStyles?: PptxTableStyles,
 ): ParsedPptxTable | undefined {
   const graphicData = record(record(node["a:graphic"])?.["a:graphicData"]);
   const tbl = record(graphicData?.["a:tbl"]);
@@ -1385,10 +1386,26 @@ function parseGraphicFrameTable(
   const rowHeightsEmu = rawRows
     .map((rawRow) => positiveAttributeNumber(rawRow, "@_h"))
     .filter((height): height is number => height !== undefined);
-  const rows = rawRows.map((rawRow) => {
+  const tblPr = record(tbl["a:tblPr"]);
+  const style = tableStyles?.get(
+    normalizeTableStyleId(innerText(tblPr?.["a:tableStyleId"])),
+  );
+  const banding: TableBandingFlags = {
+    firstRow: xmlBoolean(tblPr?.["@_firstRow"]),
+    lastRow: xmlBoolean(tblPr?.["@_lastRow"]),
+    firstCol: xmlBoolean(tblPr?.["@_firstCol"]),
+    lastCol: xmlBoolean(tblPr?.["@_lastCol"]),
+    bandRow: xmlBoolean(tblPr?.["@_bandRow"]),
+    bandCol: xmlBoolean(tblPr?.["@_bandCol"]),
+  };
+  const columnCount = Math.max(
+    rawGridColumns.length,
+    ...rawRows.map((rawRow) => asArray(record(rawRow)?.["a:tc"]).length),
+  );
+  const rows = rawRows.map((rawRow, rowIndex) => {
     const row = record(rawRow);
     const cells: ParsedPptxTableCell[] = [];
-    for (const rawCell of asArray(row?.["a:tc"])) {
+    for (const [columnIndex, rawCell] of asArray(row?.["a:tc"]).entries()) {
       const cell = record(rawCell);
       if (!cell) continue;
       // A merge-continuation cell's content is already represented once, by
@@ -1397,7 +1414,27 @@ function parseGraphicFrameTable(
         continue;
       const gridSpan = Number(cell["@_gridSpan"]);
       const rowSpan = Number(cell["@_rowSpan"]);
-      const fill = parseShapeFill(record(cell["a:tcPr"]), context);
+      const tcPr = record(cell["a:tcPr"]);
+      const styleParts = tableStyleParts(banding, rowIndex, columnIndex);
+      const fill = TABLE_CELL_FILL_ELEMENTS.some(
+        (name) => tcPr?.[name] !== undefined,
+      )
+        ? parseShapeFill(tcPr, context)
+        : tableStylePartFill(style, styleParts, context);
+      const borders = resolveTableCellBorders({
+        tcPr,
+        style,
+        styleParts,
+        context,
+        firstColumn: columnIndex === 0,
+        lastColumn:
+          columnIndex + Math.max(1, Number(cell["@_gridSpan"]) || 1) >=
+          columnCount,
+        firstRow: rowIndex === 0,
+        lastRow:
+          rowIndex + Math.max(1, Number(cell["@_rowSpan"]) || 1) >=
+          rawRows.length,
+      });
       cells.push({
         paragraphs: parseTextBodyParagraphs(
           record(cell["a:txBody"]),
@@ -1409,6 +1446,7 @@ function parseGraphicFrameTable(
           : {}),
         ...(Number.isFinite(rowSpan) && rowSpan > 1 ? { rowSpan } : {}),
         ...(fill ? { fill } : {}),
+        ...(borders ? { borders } : {}),
       });
     }
     return cells;
