@@ -37,6 +37,61 @@ const schemaTables = Object.values(schema).filter(isDrizzleTable);
 // packages/core/src/db/migrations.ts for the full rationale). Version numbers
 // alone are not a safe identity across parallel branches that each extend
 // this list independently — see the v75-v83 incident documented on v75 below.
+const ANALYTICS_EVENT_CURSOR_INDEX_REPAIR_TIMEOUT_MS = 15 * 60 * 1000;
+
+async function repairAnalyticsEventCursorIndexes(): Promise<void> {
+  if (!isPostgres()) return;
+
+  const exec = await createDbExec({ url: getMigrationDatabaseUrl() });
+  const query = (sql: string) =>
+    exec.execute({
+      sql,
+      timeoutMs: ANALYTICS_EVENT_CURSOR_INDEX_REPAIR_TIMEOUT_MS,
+      maxAttempts: 1,
+    });
+
+  try {
+    const { rows } = await query(`
+      SELECT c.relname, i.indisvalid, i.indisready
+      FROM pg_class c
+      JOIN pg_index i ON i.indexrelid = c.oid
+      WHERE c.relname IN (
+        'analytics_events_org_received_id_non_http_idx',
+        'analytics_events_owner_received_id_non_http_idx'
+      )
+    `);
+    const readyIndexes = new Set(
+      rows
+        .filter((row) => row.indisvalid === true && row.indisready === true)
+        .map((row) => String(row.relname)),
+    );
+    const expectedIndexes = [
+      "analytics_events_org_received_id_non_http_idx",
+      "analytics_events_owner_received_id_non_http_idx",
+    ];
+    if (expectedIndexes.every((name) => readyIndexes.has(name))) return;
+
+    await query(
+      "DROP INDEX CONCURRENTLY IF EXISTS analytics_events_org_received_id_non_http_idx",
+    );
+    await query(
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_events_org_received_id_non_http_idx
+       ON analytics_events (org_id, received_at, id)
+       WHERE event_name IS DISTINCT FROM 'http.response'`,
+    );
+    await query(
+      "DROP INDEX CONCURRENTLY IF EXISTS analytics_events_owner_received_id_non_http_idx",
+    );
+    await query(
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_events_owner_received_id_non_http_idx
+       ON analytics_events (owner_email, received_at, id)
+       WHERE org_id IS NULL AND event_name IS DISTINCT FROM 'http.response'`,
+    );
+  } finally {
+    await exec.close?.();
+  }
+}
+
 export const runAnalyticsMigrations = runMigrations(
   [
     {
@@ -1681,6 +1736,15 @@ export const runAnalyticsMigrations = runMigrations(
         CREATE INDEX IF NOT EXISTS analytics_events_owner_received_id_non_http_idx
           ON analytics_events (owner_email, received_at, id)
           WHERE org_id IS NULL AND event_name IS NOT 'http.response';`,
+      },
+    },
+    {
+      version: 145,
+      name: "analytics-events-backfill-filtered-cursor-index-direct-repair",
+      run: repairAnalyticsEventCursorIndexes,
+      sql: {
+        postgres: "SELECT 1",
+        sqlite: "SELECT 1",
       },
     },
   ],
