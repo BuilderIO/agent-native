@@ -718,11 +718,34 @@ describe("gradientPaint", () => {
     ).toEqual(["0%", "50%", "100%"]);
   });
 
+  it("sizes a radial to its farthest corner and keeps its stop alpha", () => {
+    // canyon slide 13, shape 1: a 191.887x166.037 freeform whose only paint is
+    // this gradient, which is why it rasterized to a fully transparent PNG.
+    const gradient = gradientPaint(
+      "radial-gradient(circle at 0% 0%, #038DAF2d 0%, #038DAF2d 17%, #57308B38 62%, #57308B38 100%)",
+      192,
+      166,
+      "g",
+    );
+
+    expect(gradient?.tagName).toBe("radialGradient");
+    expect(gradient?.getAttribute("cx")).toBe("0");
+    expect(gradient?.getAttribute("cy")).toBe("0");
+    expect(Number(gradient?.getAttribute("r"))).toBeCloseTo(
+      Math.hypot(192, 166),
+      2,
+    );
+    const first = gradient?.children[0];
+    expect(first?.getAttribute("stop-color")).toBe("#038DAF");
+    expect(first?.getAttribute("stop-opacity")).toBe("0.176");
+  });
+
   it("declines a direction it cannot place instead of inventing one", () => {
     for (const value of [
       "linear-gradient(to bottom right, #000000, #ffffff)",
       "linear-gradient(0.25turn, #000000, #ffffff)",
-      "radial-gradient(circle at 50% 50%, #000000, #ffffff)",
+      "radial-gradient(farthest-side at 10px 20px, #000000, #ffffff)",
+      "radial-gradient(circle at left top, #000000, #ffffff)",
       "none",
     ]) {
       expect(gradientPaint(value, 200, 100, "g")).toBeUndefined();
