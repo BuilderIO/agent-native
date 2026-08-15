@@ -250,9 +250,23 @@ describe("Quick Prompt focus behavior", () => {
     electronState.getShortcutHandler()?.();
 
     const submit = electronState.ipcMain.handlers.get(IPC.QUICK_PROMPT_SUBMIT);
-    const result = await submit?.(undefined, { prompt: "Investigate this" });
+    const result = await submit?.(undefined, {
+      prompt: "Investigate this",
+      engine: "codex-cli",
+      model: "gpt-5.6-luna",
+      effort: "high",
+    });
 
     expect(result).toMatchObject({ ok: true });
+    expect(createCodeAgentRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: "Investigate this",
+        engine: "codex-cli",
+        model: "gpt-5.6-luna",
+        effort: "high",
+        metadata: { source: "quick-prompt" },
+      }),
+    );
     expect(sendOpenRequestToRenderer).toHaveBeenCalledWith(
       {
         app: CODE_AGENTS_SURFACE_ID,

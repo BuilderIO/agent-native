@@ -257,6 +257,9 @@ async function submitQuickPrompt(
   const result = await quickPromptDependencies.createCodeAgentRun({
     prompt: request?.prompt,
     ...(request?.cwd ? { cwd: request.cwd } : {}),
+    ...(request?.engine ? { engine: request.engine } : {}),
+    ...(request?.model ? { model: request.model } : {}),
+    ...(request?.effort ? { effort: request.effort } : {}),
     ...(request?.attachments ? { attachments: request.attachments } : {}),
     metadata: { source: "quick-prompt" },
   });

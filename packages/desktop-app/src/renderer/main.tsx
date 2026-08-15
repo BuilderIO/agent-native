@@ -24,10 +24,13 @@ if (isQuickPromptSurface) document.body.classList.add("quick-prompt-surface");
 const quickPromptSurface = isQuickPromptSurface ? (
   <QuickPromptOverlay
     onDismiss={() => window.electronAPI.quickPrompt.dismiss()}
-    onSubmit={async (prompt, attachments, cwd) => {
+    onSubmit={async (prompt, attachments, cwd, modelSelection) => {
       const result = await window.electronAPI.quickPrompt.submit({
         prompt,
         ...(cwd ? { cwd } : {}),
+        ...(modelSelection?.engine ? { engine: modelSelection.engine } : {}),
+        ...(modelSelection?.model ? { model: modelSelection.model } : {}),
+        ...(modelSelection?.effort ? { effort: modelSelection.effort } : {}),
         attachments,
       });
       if (!result.ok) {

@@ -593,6 +593,9 @@ type QuickPromptPreferences = {
 type QuickPromptSubmitRequest = {
   prompt: string;
   cwd?: string;
+  engine?: string;
+  model?: string;
+  effort?: CodeAgentReasoningEffort | string;
   attachments?: CodeAgentPromptAttachment[];
 };
 

@@ -783,7 +783,7 @@ export default function CodeAgentsApp({
   const [loadingProjects, setLoadingProjects] = useState(false);
   const [codePack, setCodePack] = useState<CodeAgentCodePack | null>(null);
   const [modelSelection, setModelSelection] = useState<CodeAgentModelSelection>(
-    () => readStoredModelSelection(),
+    () => readCodeAgentModelSelection(),
   );
   const [remoteConnectorStatus, setRemoteConnectorStatus] =
     useState<CodeAgentRemoteConnectorStatus | null>(null);
@@ -1477,7 +1477,7 @@ export default function CodeAgentsApp({
   }, [host, isActive, selectedProjectPath]);
 
   useEffect(() => {
-    writeStoredModelSelection(selectedModelSelection);
+    writeCodeAgentModelSelection(selectedModelSelection);
   }, [selectedModelSelection]);
 
   usePollLoop(() => loadRuns(), {
@@ -3376,7 +3376,7 @@ export function groupCodeAgentModelOptions(models: CodeAgentModelOption[]) {
   return [...groups.values()];
 }
 
-function getCodeAgentPickerOptions(models: CodeAgentModelOption[]) {
+export function getCodeAgentPickerOptions(models: CodeAgentModelOption[]) {
   return CODE_AGENT_RUNTIME_OPTIONS.map((agent) => {
     if (agent.id === "default") {
       return { ...agent, configured: true };
@@ -3391,7 +3391,7 @@ function getCodeAgentPickerOptions(models: CodeAgentModelOption[]) {
   });
 }
 
-function getCodeAgentIdForEngine(engine: string | undefined): string {
+export function getCodeAgentIdForEngine(engine: string | undefined): string {
   return (
     CODE_AGENT_RUNTIME_OPTIONS.find(
       (agent) => getCodeAgentEngine(agent.id) === engine,
@@ -3434,7 +3434,7 @@ function normalizeReasoningEffort(value: unknown): CodeAgentReasoningEffort {
     : "high";
 }
 
-function readStoredModelSelection(): CodeAgentModelSelection {
+export function readCodeAgentModelSelection(): CodeAgentModelSelection {
   if (typeof window === "undefined") return {};
   try {
     const raw = window.localStorage.getItem(CODE_AGENT_MODEL_SELECTION_KEY);
@@ -3450,7 +3450,9 @@ function readStoredModelSelection(): CodeAgentModelSelection {
   }
 }
 
-function writeStoredModelSelection(value: CodeAgentModelSelection): void {
+export function writeCodeAgentModelSelection(
+  value: CodeAgentModelSelection,
+): void {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.setItem(
