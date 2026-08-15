@@ -144,9 +144,9 @@ export const CHAT_FIRST_SURFACE_CATALOG: readonly {
     kind: "terminal",
     label: "Terminal",
     description: "Run commands beside the conversation.",
-    availability: "deferred",
+    availability: "desktop",
     disabledReason:
-      "Deferred in this release: the existing terminal is a standalone host surface; a shared PTY lifecycle is needed for an embedded pane.",
+      "Open a local coding-agent terminal beside the conversation.",
   },
   {
     kind: "files",

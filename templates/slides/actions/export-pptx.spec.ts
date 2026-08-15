@@ -97,9 +97,7 @@ describe("resolveShapeType", () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
     expect(resolveShapeType(shapeTypes, "notAShape")).toBe("rect");
-    expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining("notAShape"),
-    );
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("notAShape"));
 
     warnSpy.mockRestore();
   });
@@ -376,7 +374,7 @@ describe("parseSlideHtml", () => {
     expect(rounded?.shapeType).toBe("roundRect");
     expect(rounded?.rectRadius).toBeCloseTo((18 / 960) * 13.33, 4);
     // A pill clamps to the half-short-side PowerPoint's `adj` value caps at.
-    expect(pill?.rectRadius).toBeCloseTo((108 / 540) * 7.5 / 2, 4);
+    expect(pill?.rectRadius).toBeCloseTo(((108 / 540) * 7.5) / 2, 4);
   });
 
   it("traces a clip-path polygon as custom geometry rather than a rectangle", () => {
@@ -423,7 +421,10 @@ describe("parseSlideHtml", () => {
     ).shapes;
 
     expect(dashed).toMatchObject({ lineColor: "FF0000", lineDashType: "dash" });
-    expect(dotted).toMatchObject({ lineColor: "00FF00", lineDashType: "sysDot" });
+    expect(dotted).toMatchObject({
+      lineColor: "00FF00",
+      lineDashType: "sysDot",
+    });
     expect(solid?.lineColor).toBe("0000FF");
     expect(solid?.lineDashType).toBeUndefined();
   });

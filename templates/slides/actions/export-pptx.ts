@@ -131,8 +131,10 @@ const DEFAULT_DECK_FONT_FACE = "Poppins";
 /** First family name of a CSS `font-family` declaration, unquoted. */
 function cssFontFace(style: string): string | undefined {
   return (
-    getStyle(style, "font-family")?.replace(/["']/g, "").split(",")[0]?.trim() ||
-    undefined
+    getStyle(style, "font-family")
+      ?.replace(/["']/g, "")
+      .split(",")[0]
+      ?.trim() || undefined
   );
 }
 
@@ -925,7 +927,9 @@ function importedTableRows(html: string, dims: SlideDims): TableRow[] {
                   border: {
                     // pptxgenjs table borders only offer solid or dash, so a
                     // dotted rule maps to the nearest broken stroke.
-                    type: border.dashType ? ("dash" as const) : ("solid" as const),
+                    type: border.dashType
+                      ? ("dash" as const)
+                      : ("solid" as const),
                     color: parsedBorder.hex,
                     pt: Math.max(0.5, pxToPt(border.widthPx, dims)),
                   },
@@ -1225,40 +1229,43 @@ export default defineAction({
           });
         } else {
           const shape = object.value;
-          pptxSlide.addShape(resolveShapeType(pptx.ShapeType, shape.shapeType), {
-            x: shape.x,
-            y: shape.y,
-            w: shape.w,
-            h: shape.h,
-            ...(shape.rectRadius != null
-              ? { rectRadius: shape.rectRadius }
-              : {}),
-            ...(shape.points ? { points: shape.points } : {}),
-            ...(shape.fill
-              ? {
-                  fill: {
-                    color: shape.fill,
-                    ...(shape.fillTransparency != null
-                      ? { transparency: shape.fillTransparency }
-                      : {}),
-                  },
-                }
-              : {}),
-            ...(shape.lineColor
-              ? {
-                  line: {
-                    color: shape.lineColor,
-                    width: shape.lineWidth ?? 1,
-                    ...(shape.lineDashType
-                      ? { dashType: shape.lineDashType }
-                      : {}),
-                    ...(shape.lineTransparency != null
-                      ? { transparency: shape.lineTransparency }
-                      : {}),
-                  },
-                }
-              : {}),
-          });
+          pptxSlide.addShape(
+            resolveShapeType(pptx.ShapeType, shape.shapeType),
+            {
+              x: shape.x,
+              y: shape.y,
+              w: shape.w,
+              h: shape.h,
+              ...(shape.rectRadius != null
+                ? { rectRadius: shape.rectRadius }
+                : {}),
+              ...(shape.points ? { points: shape.points } : {}),
+              ...(shape.fill
+                ? {
+                    fill: {
+                      color: shape.fill,
+                      ...(shape.fillTransparency != null
+                        ? { transparency: shape.fillTransparency }
+                        : {}),
+                    },
+                  }
+                : {}),
+              ...(shape.lineColor
+                ? {
+                    line: {
+                      color: shape.lineColor,
+                      width: shape.lineWidth ?? 1,
+                      ...(shape.lineDashType
+                        ? { dashType: shape.lineDashType }
+                        : {}),
+                      ...(shape.lineTransparency != null
+                        ? { transparency: shape.lineTransparency }
+                        : {}),
+                    },
+                  }
+                : {}),
+            },
+          );
         }
       }
 

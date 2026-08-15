@@ -1,8 +1,18 @@
 import { AgentTerminal } from "@agent-native/core/client/terminal";
-import { IconLoader2, IconPlus, IconTerminal2, IconX } from "@tabler/icons-react";
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
-
 import type { AppConfig } from "@shared/app-registry";
+import {
+  IconLoader2,
+  IconPlus,
+  IconTerminal2,
+  IconX,
+} from "@tabler/icons-react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type CSSProperties,
+} from "react";
 
 import {
   DESKTOP_TERMINAL_AGENT_OPTIONS,
@@ -58,17 +68,23 @@ function readSidebarBackground(theme: RendererTheme): string {
   }
 
   const rail = document.querySelector<HTMLElement>(".code-agents-rail");
-  const surface = rail ?? document.querySelector<HTMLElement>(".code-agents-surface");
+  const surface =
+    rail ?? document.querySelector<HTMLElement>(".code-agents-surface");
   const background = surface
     ? getComputedStyle(surface).backgroundColor
-    : getComputedStyle(document.documentElement).getPropertyValue("--sidebar-bg");
+    : getComputedStyle(document.documentElement).getPropertyValue(
+        "--sidebar-bg",
+      );
   if (background && background !== "rgba(0, 0, 0, 0)") return background.trim();
   return theme === "dark" ? "hsl(0 0% 10%)" : "hsl(0 0% 97%)";
 }
 
 function terminalInfoFrom(value: unknown): TerminalInfo {
   if (!value || typeof value !== "object") {
-    return { available: false, error: "The local terminal returned an invalid response." };
+    return {
+      available: false,
+      error: "The local terminal returned an invalid response.",
+    };
   }
   const info = value as Record<string, unknown>;
   return {
@@ -183,18 +199,17 @@ export default function DesktopTerminalTabs({
 
   return (
     <section
-      className={[
-        "desktop-terminal-tabs",
-        className,
-      ]
-        .filter(Boolean)
-        .join(" ")}
+      className={["desktop-terminal-tabs", className].filter(Boolean).join(" ")}
       style={workbenchStyle}
       data-desktop-terminal-tabs
       data-terminal-background={terminalBackground}
     >
       <header className="desktop-terminal-tabs__header">
-        <div className="desktop-terminal-tabs__tab-list" role="tablist" aria-label="Terminal tabs">
+        <div
+          className="desktop-terminal-tabs__tab-list"
+          role="tablist"
+          aria-label="Terminal tabs"
+        >
           {tabs.map((tab) => {
             const active = tab.id === activeTabId;
             return (
@@ -245,7 +260,11 @@ export default function DesktopTerminalTabs({
       <div className="desktop-terminal-tabs__body">
         {connection.state === "loading" ? (
           <div className="desktop-terminal-tabs__state" role="status">
-            <IconLoader2 size={16} className="animate-spin" aria-hidden="true" />
+            <IconLoader2
+              size={16}
+              className="animate-spin"
+              aria-hidden="true"
+            />
             <span>Connecting to the local terminal…</span>
           </div>
         ) : connection.state === "error" ? (
@@ -278,4 +297,3 @@ export default function DesktopTerminalTabs({
     </section>
   );
 }
-

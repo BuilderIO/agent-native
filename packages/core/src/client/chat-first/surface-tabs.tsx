@@ -191,6 +191,8 @@ export function ChatFirstSurfaceTabs({
               const canOpenSurface =
                 onOpenSurface &&
                 (surface.kind === "browser" ||
+                  (surface.kind === "terminal" &&
+                    surface.availability === "desktop") ||
                   surface.kind === "side-chat" ||
                   surface.kind === "agents");
               const row = (

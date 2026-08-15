@@ -60,6 +60,11 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 
+import {
+  DESKTOP_TERMINAL_AGENT_OPTIONS,
+  useDesktopTerminalPreferences,
+  writeDesktopTerminalPreferences,
+} from "../lib/desktop-terminal-preferences.js";
 import { CodeProviderSettings } from "./CodeProviderSettings";
 import { useUpdateStatus } from "./UpdateIndicator.js";
 
@@ -536,6 +541,7 @@ export default function AppSettings({
   const [shortcutMessage, setShortcutMessage] = useState<string | null>(null);
   const [shortcutSaving, setShortcutSaving] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
+  const terminalPreferences = useDesktopTerminalPreferences();
   const closingTimerRef = useRef<number | null>(null);
   const visibleApps = useMemo(() => getDesktopVisibleApps(apps), [apps]);
   const shortcutTargetApps = useMemo(
@@ -947,6 +953,57 @@ export default function AppSettings({
               />
             </SettingsGroup>
           )}
+        </div>
+      ),
+    },
+    {
+      id: "terminal",
+      label: "Terminal tabs",
+      icon: IconTerminal2,
+      group: "agent",
+      content: (
+        <div className="w-full max-w-3xl space-y-8">
+          <SettingsGroup
+            title="Terminal tabs"
+            description="Replace the main chat surface with local coding-agent terminals."
+          >
+            <SettingsRow
+              label="Use terminal tabs"
+              description="Open each desktop chat surface as a terminal instead of hosted chat."
+              control={
+                <Switch
+                  checked={terminalPreferences.enabled}
+                  onCheckedChange={(enabled) =>
+                    writeDesktopTerminalPreferences({ enabled })
+                  }
+                  aria-label="Use terminal tabs"
+                />
+              }
+            />
+            <SettingsRow
+              label="Terminal agent"
+              description="Choose the CLI launched in new terminal tabs."
+              control={
+                <select
+                  className="desktop-terminal-settings-select"
+                  value={terminalPreferences.agent}
+                  onChange={(event) =>
+                    writeDesktopTerminalPreferences({
+                      agent: event.target
+                        .value as (typeof DESKTOP_TERMINAL_AGENT_OPTIONS)[number]["id"],
+                    })
+                  }
+                  aria-label="Terminal agent"
+                >
+                  {DESKTOP_TERMINAL_AGENT_OPTIONS.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              }
+            />
+          </SettingsGroup>
         </div>
       ),
     },

@@ -124,4 +124,3 @@ export function useDesktopTerminalPreferences(): DesktopTerminalPreferences {
     () => DEFAULT_DESKTOP_TERMINAL_PREFERENCES,
   );
 }
-

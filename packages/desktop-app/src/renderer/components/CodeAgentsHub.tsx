@@ -95,6 +95,7 @@ import type {
   MultiFrontierRendererState,
 } from "../../../shared/multi-frontier-ipc.js";
 import type { SubscriptionStatus } from "../../../shared/subscription-status.js";
+import { useDesktopTerminalPreferences } from "../lib/desktop-terminal-preferences.js";
 import { useRendererTheme } from "../lib/theme.js";
 import AppWebview, {
   resolveAppWebviewUrl,
@@ -104,6 +105,7 @@ import AppWebview, {
 import CodeAgentsAppIcon from "./CodeAgentsAppIcon.js";
 import CreateAppPromptPopover from "./CreateAppPromptPopover.js";
 import DesktopAppChatShell from "./DesktopAppChatShell.js";
+import DesktopTerminalTabs from "./DesktopTerminalTabs.js";
 import {
   initialMultiFrontierRunAutoContinue,
   locksMultiFrontierMode,
@@ -489,6 +491,7 @@ export default function CodeAgentsHub({
   onChatFirstAppSelectionChange,
 }: CodeAgentsHubProps) {
   const theme = useRendererTheme();
+  const terminalPreferences = useDesktopTerminalPreferences();
   const emitChatFirstOpenAppStable = useCallback(
     (detail: ChatFirstOpenAppDetail) => emitChatFirstOpenApp(detail),
     [],
@@ -1051,6 +1054,16 @@ export default function CodeAgentsHub({
         });
         return;
       }
+      if (kind === "terminal") {
+        closeChatFirstSessionWatch();
+        chatFirstSurfaceTabsStore.open({
+          id: chatFirstSurfaceTabId("terminal", "desktop"),
+          kind: "terminal",
+          title: "Terminal",
+        });
+        setChatFirstSurfacePanelOpen(true);
+        return;
+      }
       if (kind !== "agents") return;
       closeChatFirstSessionWatch();
       chatFirstSurfaceTabsStore.open({
@@ -1059,7 +1072,7 @@ export default function CodeAgentsHub({
         title: "Agents",
       });
     },
-    [chatFirstSurfaceTabsStore],
+    [chatFirstSurfaceTabsStore, setChatFirstSurfacePanelOpen],
   );
 
   const watchChatFirstAgent = useCallback(
@@ -1999,6 +2012,16 @@ export default function CodeAgentsHub({
           />
         );
       }
+      if (tab.kind === "terminal") {
+        return (
+          <DesktopTerminalTabs
+            apps={apps}
+            agent={terminalPreferences.agent}
+            theme={theme}
+            className="desktop-terminal-tabs--side-surface"
+          />
+        );
+      }
       if (tab.kind === "app" && tab.appId) {
         const app = apps.find((candidate) => candidate.id === tab.appId);
         if (!app) return null;
@@ -2083,6 +2106,8 @@ export default function CodeAgentsHub({
       isActive,
       chatFirstAppAuthStates,
       refreshKey,
+      terminalPreferences.agent,
+      theme,
       watchChatFirstAgent,
     ],
   );
@@ -2121,7 +2146,11 @@ export default function CodeAgentsHub({
           activeChatFirstSurfaceKind={activeChatFirstSurfaceTab?.kind}
           railCollapsed={chatFirstRailCollapsed}
           chatFirstMainKind={
-            chatFirstAllAppsOpen || chatFirstAppTakesMain ? "agent" : "code"
+            chatFirstAllAppsOpen ||
+            chatFirstAppTakesMain ||
+            terminalPreferences.enabled
+              ? "agent"
+              : "code"
           }
           renderChatFirstMainSurface={
             chatFirstAllAppsOpen ? (
@@ -2140,6 +2169,12 @@ export default function CodeAgentsHub({
                 tabs={visibleChatFirstSurfaceTabs}
                 activeTabId={visibleActiveChatFirstSurfaceTabId}
                 renderTab={renderChatFirstSurfaceTab}
+              />
+            ) : terminalPreferences.enabled ? (
+              <DesktopTerminalTabs
+                apps={apps}
+                agent={terminalPreferences.agent}
+                theme={theme}
               />
             ) : undefined
           }
