@@ -36,6 +36,15 @@ export interface AgentTerminalProps {
   onConnectionChange?: (connected: boolean) => void;
   /** Callback when agent running state changes */
   onAgentRunningChange?: (running: boolean) => void;
+  /** Queue a prompt for the CLI once the PTY WebSocket is ready. */
+  submitRequest?: AgentTerminalSubmitRequest;
+  /** Called after a queued prompt is written to the PTY. */
+  onPromptSubmitted?: (request: AgentTerminalSubmitRequest) => void;
+}
+
+export interface AgentTerminalSubmitRequest {
+  id: string | number;
+  text: string;
 }
 
 // Inject xterm CSS once
@@ -130,8 +139,18 @@ export function AgentTerminal({
   style,
   onConnectionChange,
   onAgentRunningChange,
+  submitRequest,
+  onPromptSubmitted,
 }: AgentTerminalProps) {
   const termRef = useRef<HTMLDivElement>(null);
+  const submitPromptRef = useRef<
+    ((request: AgentTerminalSubmitRequest) => void) | null
+  >(null);
+  const pendingSubmitRequestRef = useRef<AgentTerminalSubmitRequest | null>(
+    null,
+  );
+  const onPromptSubmittedRef = useRef(onPromptSubmitted);
+  onPromptSubmittedRef.current = onPromptSubmitted;
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [inFrame, setInFrame] = useState(false);
@@ -291,6 +310,22 @@ export function AgentTerminal({
       let idleTimer: ReturnType<typeof setTimeout> | null = null;
       let connectionId = 0;
 
+      function submitPrompt(request: AgentTerminalSubmitRequest) {
+        const text = request.text.trim();
+        if (!text) return;
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
+          pendingSubmitRequestRef.current = request;
+          return;
+        }
+        ws.send(text + "\r");
+        agentRunning = true;
+        notifyAgentRunning(true);
+        if (pendingSubmitRequestRef.current?.id === request.id) {
+          pendingSubmitRequestRef.current = null;
+        }
+        onPromptSubmittedRef.current?.(request);
+      }
+
       function sendResize() {
         if (ws && ws.readyState === WebSocket.OPEN && term) {
           ws.send(
@@ -334,6 +369,8 @@ export function AgentTerminal({
               rows: term.rows,
             }),
           );
+          const pendingRequest = pendingSubmitRequestRef.current;
+          if (pendingRequest) submitPrompt(pendingRequest);
         };
 
         socket.onmessage = (event) => {
@@ -412,6 +449,9 @@ export function AgentTerminal({
       cleanupMessageHandler = () =>
         window.removeEventListener("message", messageHandler);
 
+      submitPromptRef.current = submitPrompt;
+      const initialRequest = pendingSubmitRequestRef.current;
+      if (initialRequest) submitPrompt(initialRequest);
       connect(fullWsUrl);
 
       // Store cleanup references
@@ -424,6 +464,7 @@ export function AgentTerminal({
           ws.close();
           ws = null;
         }
+        submitPromptRef.current = null;
       };
     }
 
@@ -439,6 +480,12 @@ export function AgentTerminal({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hideInFrame, inFrame, command, flags, wsUrlProp]);
+
+  useEffect(() => {
+    if (!submitRequest) return;
+    pendingSubmitRequestRef.current = submitRequest;
+    submitPromptRef.current?.(submitRequest);
+  }, [submitRequest?.id, submitRequest?.text]);
 
   if (hideInFrame && inFrame) {
     return null;

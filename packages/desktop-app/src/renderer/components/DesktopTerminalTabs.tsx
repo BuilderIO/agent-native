@@ -1,4 +1,7 @@
-import { AgentTerminal } from "@agent-native/core/terminal";
+import {
+  AgentTerminal,
+  type AgentTerminalSubmitRequest,
+} from "@agent-native/core/terminal";
 import type { AppConfig } from "@shared/app-registry";
 import { IconLoader2, IconTerminal2 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
@@ -14,6 +17,8 @@ interface DesktopTerminalTabsProps {
   agent: DesktopTerminalAgentId;
   theme: RendererTheme;
   className?: string;
+  submitRequest?: AgentTerminalSubmitRequest;
+  onPromptSubmitted?: (request: AgentTerminalSubmitRequest) => void;
 }
 
 type TerminalConnection =
@@ -110,6 +115,8 @@ export default function DesktopTerminalTabs({
   agent,
   theme,
   className,
+  submitRequest,
+  onPromptSubmitted,
 }: DesktopTerminalTabsProps) {
   const [connection, setConnection] = useState<TerminalConnection>({
     state: "loading",
@@ -222,6 +229,8 @@ export default function DesktopTerminalTabs({
             wsUrl={connection.wsUrl}
             hideInFrame={false}
             className="desktop-terminal-tabs__terminal"
+            submitRequest={submitRequest}
+            onPromptSubmitted={onPromptSubmitted}
             theme={{
               background: terminalBackground,
               cursor: terminalForeground,

@@ -5,6 +5,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@agent-native/toolkit/ui";
+import type { AgentTerminalSubmitRequest } from "@agent-native/core/terminal";
 import type { AppConfig } from "@shared/app-registry";
 import { IconDotsVertical, IconPlus, IconX } from "@tabler/icons-react";
 import { useCallback, useRef, useState } from "react";
@@ -18,6 +19,8 @@ interface DesktopTerminalSurfaceProps {
   agent: DesktopTerminalAgentId;
   theme: RendererTheme;
   className?: string;
+  submitRequest?: AgentTerminalSubmitRequest;
+  onPromptSubmitted?: (request: AgentTerminalSubmitRequest) => void;
 }
 
 interface DesktopTerminalTab {
@@ -37,6 +40,8 @@ export default function DesktopTerminalSurface({
   agent,
   theme,
   className,
+  submitRequest,
+  onPromptSubmitted,
 }: DesktopTerminalSurfaceProps) {
   const tabCounter = useRef(1);
   const [tabs, setTabs] = useState<DesktopTerminalTab[]>(() => [
@@ -179,7 +184,13 @@ export default function DesktopTerminalSurface({
             aria-hidden={tab.id !== activeTabId}
             hidden={tab.id !== activeTabId}
           >
-            <DesktopTerminalTabs apps={apps} agent={agent} theme={theme} />
+            <DesktopTerminalTabs
+              apps={apps}
+              agent={agent}
+              theme={theme}
+              submitRequest={tab.id === activeTabId ? submitRequest : undefined}
+              onPromptSubmitted={onPromptSubmitted}
+            />
           </div>
         ))}
       </div>

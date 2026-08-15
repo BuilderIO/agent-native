@@ -3091,6 +3091,7 @@ function NewSessionComposer({
   promptSeed,
   inputRef,
   creating,
+  terminalAgent,
   permissionMode,
   modelSelection,
   modelOptions,
@@ -3112,6 +3113,7 @@ function NewSessionComposer({
   promptSeed: number;
   inputRef: React.RefObject<TiptapComposerHandle | null>;
   creating: boolean;
+  terminalAgent?: ComposerAgentOption;
   permissionMode: CodeAgentPermissionMode;
   modelSelection: CodeAgentModelSelection;
   modelOptions: CodeAgentModelOption[];
@@ -3138,6 +3140,7 @@ function NewSessionComposer({
       promptSeed={promptSeed}
       inputRef={inputRef}
       submitting={creating}
+      terminalAgent={terminalAgent}
       permissionMode={permissionMode}
       modelSelection={modelSelection}
       modelOptions={modelOptions}
@@ -3165,6 +3168,7 @@ function CodeAgentComposer({
   promptSeed,
   inputRef,
   submitting,
+  terminalAgent,
   permissionMode,
   modelSelection,
   modelOptions,
@@ -3190,6 +3194,7 @@ function CodeAgentComposer({
   promptSeed?: string | number;
   inputRef?: React.RefObject<TiptapComposerHandle | null>;
   submitting: boolean;
+  terminalAgent?: ComposerAgentOption;
   permissionMode: CodeAgentPermissionMode;
   modelSelection: CodeAgentModelSelection;
   modelOptions: CodeAgentModelOption[];
@@ -3217,10 +3222,13 @@ function CodeAgentComposer({
 }) {
   const normalizedModel = normalizeModelSelection(modelSelection, modelOptions);
   const availableModels = groupCodeAgentModelOptions(modelOptions);
-  const availableAgents = showModelSelector
-    ? getCodeAgentPickerOptions(modelOptions)
-    : undefined;
-  const selectedAgent = getCodeAgentIdForEngine(normalizedModel.engine);
+  const availableAgents = terminalAgent
+    ? [terminalAgent]
+    : showModelSelector
+      ? getCodeAgentPickerOptions(modelOptions)
+      : undefined;
+  const selectedAgent =
+    terminalAgent?.id ?? getCodeAgentIdForEngine(normalizedModel.engine);
   const handleAgentChange = useCallback(
     (agent: string) => {
       onModelSelectionChange(
@@ -3284,6 +3292,7 @@ function CodeAgentComposer({
       availableModels={showModelSelector ? availableModels : undefined}
       availableAgents={availableAgents}
       selectedAgent={showModelSelector ? selectedAgent : undefined}
+      agentOnly={Boolean(terminalAgent)}
       selectedModel={
         showModelSelector
           ? (normalizedModel.model ?? DEFAULT_CODE_AGENT_MODEL_OPTIONS[0].model)
@@ -3311,7 +3320,9 @@ function CodeAgentComposer({
               },
         )
       }
-      onAgentChange={showModelSelector ? handleAgentChange : undefined}
+      onAgentChange={
+        terminalAgent || !showModelSelector ? undefined : handleAgentChange
+      }
       onEffortChange={(effort) =>
         onModelSelectionChange({ ...normalizedModel, effort })
       }

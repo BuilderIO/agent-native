@@ -182,7 +182,9 @@ export default function DictationSettings() {
                   )
                 }
                 className={`flex-row items-center gap-2.5 px-2.75 py-2.5 border border-border-dim rounded-xl bg-background-pure active:opacity-70 ${
-                  selected ? "border-accent-neutral-bright/50 bg-gray-charcoal" : ""
+                  selected
+                    ? "border-accent-neutral-bright/50 bg-gray-charcoal"
+                    : ""
                 }`}
               >
                 <View className="flex-1">

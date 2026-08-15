@@ -105,7 +105,9 @@ import AppWebview, {
 import CodeAgentsAppIcon from "./CodeAgentsAppIcon.js";
 import CreateAppPromptPopover from "./CreateAppPromptPopover.js";
 import DesktopAppChatShell from "./DesktopAppChatShell.js";
-import DesktopTerminalSurface from "./DesktopTerminalSurface.js";
+import DesktopTerminalSurface, {
+  type DesktopTerminalPromptRequest,
+} from "./DesktopTerminalSurface.js";
 import DesktopTerminalTabs from "./DesktopTerminalTabs.js";
 import {
   initialMultiFrontierRunAutoContinue,
@@ -592,6 +594,9 @@ export default function CodeAgentsHub({
   const [chatFirstAllAppsOpen, setChatFirstAllAppsOpen] = useState(false);
   const [hasChatFirstChats, setHasChatFirstChats] = useState(false);
   const [hasChatFirstActiveChat, setHasChatFirstActiveChat] = useState(false);
+  const [terminalSessionStarted, setTerminalSessionStarted] = useState(false);
+  const [terminalPromptRequest, setTerminalPromptRequest] =
+    useState<DesktopTerminalPromptRequest | null>(null);
   const [chatFirstNotice, setChatFirstNotice] = useState<string | null>(null);
   const [chatFirstRailCollapsed, setChatFirstRailCollapsed] = useState(() =>
     typeof window === "undefined"
@@ -601,6 +606,7 @@ export default function CodeAgentsHub({
   );
   const handledChatFirstAppOpenNonceRef = useRef<number | null>(null);
   const handledChatFirstPreviewNonceRef = useRef<number | null>(null);
+  const terminalPromptSequence = useRef(0);
   const [multiFrontierMode, setMultiFrontierMode] = useState(false);
   const [multiFrontierState, setMultiFrontierState] =
     useState<MultiFrontierRendererState>();

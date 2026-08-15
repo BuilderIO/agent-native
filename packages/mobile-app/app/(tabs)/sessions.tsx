@@ -1,10 +1,11 @@
+import { TEMPLATE_APPS } from "@agent-native/shared-app-config";
 import { Feather } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   AppState,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   RefreshControl,
   ScrollView,
@@ -14,7 +15,9 @@ import {
   View,
 } from "react-native";
 
+import AppWebView from "@/components/AppWebView";
 import { SafeAreaView } from "@/components/uniwind-interop";
+import { getAppUrl } from "@/lib/get-app-url";
 import {
   appendRemoteFollowUp,
   clearRemoteSessionToken,
@@ -43,6 +46,7 @@ import { useRemotePushRegistration } from "@/lib/use-remote-push-registration";
 const POLL_INTERVAL_MS = 4000;
 const POLL_TIMEOUT_MS = Math.max(10_000, POLL_INTERVAL_MS * 4);
 const GOAL_ID = "task";
+const dispatchApp = TEMPLATE_APPS.find((app) => app.id === "dispatch")!;
 type RelayState = "checking" | "online" | "offline" | "error" | "signed-out";
 
 /**
@@ -65,7 +69,6 @@ function withPollTimeout<T>(
 }
 
 export default function SessionsScreen() {
-  const router = useRouter();
   const [hosts, setHosts] = useState<RemoteHost[]>([]);
   const [runs, setRuns] = useState<RemoteRun[]>([]);
   const [events, setEvents] = useState<RemoteTranscriptEvent[]>([]);
@@ -88,6 +91,7 @@ export default function SessionsScreen() {
     null,
   );
   const [authRequired, setAuthRequired] = useState(false);
+  const [signInOpen, setSignInOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const pushRegistration = useRemotePushRegistration();
@@ -217,8 +221,12 @@ export default function SessionsScreen() {
     setError(null);
     setNotice(null);
     setRelayState("checking");
-    router.push("/dispatch" as never);
-  }, [router]);
+    setSignInOpen(true);
+  }, []);
+
+  useEffect(() => {
+    if (signInOpen && relayState === "online") setSignInOpen(false);
+  }, [relayState, signInOpen]);
 
   useEffect(() => {
     let cancelled = false;
@@ -488,7 +496,7 @@ export default function SessionsScreen() {
   }, [confirmingRevokeHostId, hosts, refresh, revokingHostId, selectedHost]);
 
   return (
-    <SafeAreaView className="flex-1 bg-background-dark">
+    <SafeAreaView edges={["top"]} className="flex-1 bg-background-dark">
       <KeyboardAvoidingView
         className="flex-1"
         behavior={Platform.OS === "ios" ? "padding" : undefined}
@@ -504,32 +512,27 @@ export default function SessionsScreen() {
             />
           }
         >
-          <View className="flex-row items-center gap-3 pb-3">
-            <View className="w-10.5 h-10.5 rounded-lg bg-gray-medium-dark items-center justify-center border border-gray-border-light">
-              <Feather name="terminal" size={20} color="#ffffff" />
-            </View>
+          <View className="flex-row items-end justify-between pb-5">
             <View className="flex-1">
-              <Text className="text-text-muted text-xs font-bold uppercase tracking-wider">
-                Code Agents
-              </Text>
-              <Text className="text-white text-3xl font-bold mt-0.5">
+              <Text className="text-foreground text-[30px] font-bold tracking-[-1px]">
                 Sessions
               </Text>
-              <Text
-                className="text-status-gray text-xs mt-0.5"
-                numberOfLines={1}
-              >
-                {getRemoteRelayBaseUrl()}
+              <Text className="text-text-muted text-sm leading-5 mt-1">
+                Connect your laptop to run agents from your phone.
               </Text>
             </View>
-            <RelayPill state={relayState} />
-            <TouchableOpacity
-              className="w-10 h-10 rounded-lg items-center justify-center bg-gray-dark border border-gray-border-dim active:opacity-75"
-              onPress={() => void refresh(false)}
-              accessibilityLabel="Refresh sessions"
-            >
-              <Feather name="refresh-cw" size={18} color="#ffffff" />
-            </TouchableOpacity>
+            {!authRequired && relayState !== "checking" ? (
+              <View className="flex-row items-center gap-2 pl-3">
+                <RelayPill state={relayState} />
+                <TouchableOpacity
+                  className="h-10 w-10 items-center justify-center rounded-lg bg-gray-dark border border-gray-border-dim active:opacity-75"
+                  onPress={() => void refresh(false)}
+                  accessibilityLabel="Refresh sessions"
+                >
+                  <Feather name="refresh-cw" size={18} color="#ffffff" />
+                </TouchableOpacity>
+              </View>
+            ) : null}
           </View>
 
           {error && !authRequired && (
@@ -546,11 +549,7 @@ export default function SessionsScreen() {
           )}
 
           {authRequired ? (
-            <ConnectPhoneCard
-              relayUrl={getRemoteRelayBaseUrl()}
-              onConnect={handleConnectPhone}
-              onRefresh={() => void refresh(false)}
-            />
+            <ConnectPhoneCard onConnect={handleConnectPhone} />
           ) : (
             <>
               <RelayStatusCard
@@ -561,10 +560,7 @@ export default function SessionsScreen() {
 
               <SectionHeader title="Paired Hosts" action={selectedHost?.name} />
               {hosts.length === 0 && !loading ? (
-                <PairDesktopCard
-                  relayUrl={getRemoteRelayBaseUrl()}
-                  onRefresh={() => void refresh(false)}
-                />
+                <PairDesktopCard onRefresh={() => void refresh(false)} />
               ) : (
                 <ScrollView
                   horizontal
@@ -832,6 +828,30 @@ export default function SessionsScreen() {
           )}
         </ScrollView>
       </KeyboardAvoidingView>
+      <Modal
+        visible={signInOpen}
+        animationType="slide"
+        onRequestClose={() => setSignInOpen(false)}
+      >
+        <SafeAreaView edges={["top"]} className="flex-1 bg-background-dark">
+          <View className="flex-row items-center justify-between border-b border-border-dark px-3 py-2">
+            <Text className="px-2 text-[17px] font-bold text-foreground">
+              Sign in to Dispatch
+            </Text>
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel="Close Dispatch sign in"
+              onPress={() => setSignInOpen(false)}
+              className="px-2 py-2 active:opacity-75"
+            >
+              <Text className="text-[15px] font-semibold text-text-muted">
+                Close
+              </Text>
+            </TouchableOpacity>
+          </View>
+          <AppWebView url={getAppUrl(dispatchApp)} captureSessionToken />
+        </SafeAreaView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -847,62 +867,33 @@ function SectionHeader({ title, action }: { title: string; action?: string }) {
   );
 }
 
-function ConnectPhoneCard({
-  relayUrl,
-  onConnect,
-  onRefresh,
-}: {
-  relayUrl: string;
-  onConnect: () => void;
-  onRefresh: () => void;
-}) {
+function ConnectPhoneCard({ onConnect }: { onConnect: () => void }) {
   return (
-    <View className="items-stretch p-4.5 rounded-2xl bg-card-dark border border-border-dark mt-2.5">
-      <View className="w-11 h-11 rounded-xl bg-white items-center justify-center mb-3.5">
-        <Feather name="log-in" size={22} color="#111111" />
+    <View className="items-stretch rounded-2xl bg-card-dark border border-border-dark p-5">
+      <View className="h-11 w-11 items-center justify-center rounded-xl bg-gray-charcoal mb-4">
+        <Feather name="monitor" size={21} color="#d4d4d8" />
       </View>
-      <Text className="text-white text-2xl font-extrabold">
-        Connect this phone
+      <Text className="text-foreground text-2xl font-bold">
+        Connect your laptop
       </Text>
       <Text className="text-text-muted text-sm leading-5 mt-2">
-        Sign in to Dispatch once, then return to Sessions. The app will use that
-        session to list paired computers and start remote code-agent runs.
+        Sign in to Dispatch, then pair your desktop app. Once connected, you can
+        start and monitor code-agent sessions from here.
       </Text>
-      <View className="flex-row items-center gap-2 p-2.5 rounded-lg bg-background-pure border border-border-dark mt-3.5">
-        <Feather name="globe" size={14} color="#9CA3AF" />
-        <Text className="flex-1 text-text-light text-xs" numberOfLines={1}>
-          {relayUrl}
-        </Text>
-      </View>
       <TouchableOpacity
-        className="mt-3 h-11 rounded-lg bg-white flex-row items-center justify-center gap-2 active:opacity-75"
+        className="mt-5 h-11 rounded-xl bg-white flex-row items-center justify-center gap-2 active:opacity-75"
         onPress={onConnect}
       >
         <Feather name="external-link" size={16} color="#111111" />
         <Text className="text-background-pure text-sm font-bold">
-          Open Dispatch sign-in
-        </Text>
-      </TouchableOpacity>
-      <TouchableOpacity
-        className="mt-2.5 h-10.5 rounded-lg bg-gray-medium-dark border border-gray-border-light flex-row items-center justify-center gap-1.75 active:opacity-75"
-        onPress={onRefresh}
-      >
-        <Feather name="refresh-cw" size={15} color="#ffffff" />
-        <Text className="text-white text-sm font-semibold">
-          I signed in, refresh
+          Sign in to Dispatch
         </Text>
       </TouchableOpacity>
     </View>
   );
 }
 
-function PairDesktopCard({
-  relayUrl,
-  onRefresh,
-}: {
-  relayUrl: string;
-  onRefresh: () => void;
-}) {
+function PairDesktopCard({ onRefresh }: { onRefresh: () => void }) {
   return (
     <View className="p-3.5 rounded-xl bg-card-dark border border-border-dark">
       <View className="flex-row items-center gap-2.5">
@@ -910,24 +901,11 @@ function PairDesktopCard({
           <Feather name="monitor" size={17} color="#ffffff" />
         </View>
         <View className="flex-1">
-          <Text className="text-white text-base font-bold">
-            Pair your desktop
-          </Text>
+          <Text className="text-white text-lg font-bold">Pair your laptop</Text>
           <Text className="text-status-gray text-xs leading-4 mt-0.75">
-            Remote sessions need an awake Mac polling this relay.
+            Open Agent Native Desktop and pair it in Remote Control.
           </Text>
         </View>
-      </View>
-      <View className="gap-2.5 mt-3.5">
-        <StepRow
-          index="1"
-          text="Open Agent Native Desktop and sign in to Dispatch."
-        />
-        <StepRow
-          index="2"
-          text="Go to Settings, Remote Control, then Pair or repair."
-        />
-        <StepRow index="3" text={`Pair this Mac with ${relayUrl}.`} />
       </View>
       <TouchableOpacity
         className="mt-2.5 h-10.5 rounded-lg bg-gray-medium-dark border border-gray-border-light flex-row items-center justify-center gap-1.75 active:opacity-75"
@@ -938,17 +916,6 @@ function PairDesktopCard({
           Refresh paired hosts
         </Text>
       </TouchableOpacity>
-    </View>
-  );
-}
-
-function StepRow({ index, text }: { index: string; text: string }) {
-  return (
-    <View className="flex-row items-start gap-2.5">
-      <View className="w-5.5 h-5.5 rounded-full items-center justify-center bg-gray-charcoal">
-        <Text className="text-white text-xs font-bold">{index}</Text>
-      </View>
-      <Text className="flex-1 text-text-light text-sm leading-5">{text}</Text>
     </View>
   );
 }
