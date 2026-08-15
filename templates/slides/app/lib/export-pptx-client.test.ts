@@ -206,6 +206,59 @@ describe("exportDeckAsPptx", () => {
     const paragraph = target.querySelector('p[data-pptx-paragraph="0"]');
     expect(paragraph?.textContent).toBe("• PLG-first approach");
   });
+
+  it("keeps a single-line imported paragraph whitespace-preserving instead of collapsing it to nowrap", async () => {
+    // dom-to-pptx extracts one text run per inline node and trims each one
+    // under a collapsing white-space mode, so the space that only exists at
+    // the boundary between two <span> runs ("IMAGE " + "COMPOSITION") is the
+    // thing that disappears. `pre` stops wrapping without collapsing.
+    // Measured on creative-circus slide 8: exported runs were
+    // ["IMAGE","COMPOSITION"], now ["IMAGE ","COMPOSITION"].
+    stubRectsFromDataAttr();
+    setRenderedSlide(
+      '<p data-pptx-paragraph="0" data-test-rect="0,0,300,24" style="white-space:pre-wrap;line-height:24px;">' +
+        "<span>IMAGE </span><span>COMPOSITION</span></p>" +
+        '<h1 data-test-rect="0,40,300,24" style="line-height:24px;">Generated heading</h1>',
+    );
+
+    await exportDeckAsPptx("Brand Guide", [{ id: "slide-1" }], "16:9");
+
+    const [targets] = mocks.exportToPptx.mock.calls[0];
+    const [target] = targets as HTMLElement[];
+    expect(
+      target.querySelector<HTMLElement>("p[data-pptx-paragraph]")?.style
+        .whiteSpace,
+    ).toBe("pre");
+    // Markup that never preserved whitespace keeps the plain no-wrap flag.
+    expect(target.querySelector<HTMLElement>("h1")?.style.whiteSpace).toBe(
+      "nowrap",
+    );
+  });
+
+  it("does not re-anchor a cropped image to slide coordinates inside its own positioned wrapper", async () => {
+    // A cropped imported image is position:absolute inside the equally
+    // absolute .fmd-pptx-image wrapper. Writing the slide-space left/top onto
+    // it added the wrapper's offset a second time: superteam slide 32 tiles
+    // measured at x=313.8/406.1 exported at 627.6/812.1, off the canvas.
+    stubRectsFromDataAttr();
+    setRenderedSlide(
+      '<div class="fmd-pptx-image" data-slide-object-id="373" data-test-rect="313.801,142.444,150,150" ' +
+        'style="position:absolute;left:313.801px;top:142.444px;width:150px;height:150px;overflow:hidden;">' +
+        '<img alt="" src="data:image/png;base64,iVBORw0KGgo=" data-test-rect="313.801,142.444,150,150" ' +
+        'style="display:block;position:absolute;left:0px;top:0px;width:100%;height:100%;" /></div>',
+    );
+    const image = document.querySelector<HTMLImageElement>("img");
+    if (!image) throw new Error("test image missing");
+    markImageAsLoaded(image);
+
+    await exportDeckAsPptx("Superteam", [{ id: "slide-1" }], "16:9");
+
+    const [targets] = mocks.exportToPptx.mock.calls[0];
+    const [target] = targets as HTMLElement[];
+    const exported = target.querySelector<HTMLImageElement>("img");
+    expect(Number.parseFloat(exported?.style.left ?? "")).toBeCloseTo(0, 3);
+    expect(Number.parseFloat(exported?.style.top ?? "")).toBeCloseTo(0, 3);
+  });
 });
 
 describe("pptxExportScale", () => {
