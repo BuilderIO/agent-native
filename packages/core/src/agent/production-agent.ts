@@ -9206,6 +9206,30 @@ export function createProductionAgentHandler(
         // Keep the body-derived messages — never drop the run.
       }
     }
+    // A foreground turn on an existing thread that arrives with NO history is
+    // amnesia, not a new conversation — the client trims history against a size
+    // budget and one tool-heavy turn could zero it out, which reads downstream
+    // as an ordinary first message. Recover what was said from the stored
+    // thread. Runs only on the foreground path, before `onRunPrepared` persists
+    // this turn, so the recovered window cannot contain the current message.
+    if (
+      !isBackgroundWorker &&
+      !internalContinuation &&
+      threadId &&
+      historyMessages.length === 0
+    ) {
+      try {
+        const { getThread } = await import("../chat-threads/store.js");
+        const { recoverThreadHistoryForRequest } =
+          await import("./thread-data-builder.js");
+        const recovered = recoverThreadHistoryForRequest(
+          (await getThread(threadId))?.threadData,
+        );
+        if (recovered.length > 0) messages.unshift(...recovered);
+      } catch {
+        // A turn without recovered history still runs; never drop it.
+      }
+    }
     setupMark("depsThread");
     // DIAGNOSTIC-ONLY: owner/thread resolution + runId/effectiveThreadId +
     // chained-continuation thread fetch finished.

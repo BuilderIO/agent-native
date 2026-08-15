@@ -828,6 +828,42 @@ export function threadDataToEngineMessages(
   return messages;
 }
 
+const MAX_RECOVERED_HISTORY_MESSAGES = 12;
+const MAX_RECOVERED_HISTORY_CHARS = 32_000;
+
+function engineMessageTextLength(message: EngineMessage): number {
+  return message.content.reduce(
+    (total, part) =>
+      total + (part.type === "text" ? (part.text?.length ?? 0) : 0),
+    0,
+  );
+}
+
+/**
+ * The trailing window of what was actually said in a thread, for a request that
+ * arrived carrying no history of its own. The client trims history against a
+ * size budget, so one tool-heavy turn can zero it out; without this floor the
+ * model re-derives answers it already gave and re-asks questions the user
+ * already answered. Contiguous and bounded on purpose — this restores the
+ * conversation, not the tool transcript.
+ */
+export function recoverThreadHistoryForRequest(
+  threadData: string | Record<string, unknown> | null | undefined,
+  limits?: { maxMessages?: number; maxChars?: number },
+): EngineMessage[] {
+  const maxMessages = limits?.maxMessages ?? MAX_RECOVERED_HISTORY_MESSAGES;
+  const maxChars = limits?.maxChars ?? MAX_RECOVERED_HISTORY_CHARS;
+  const window = threadDataToEngineMessages(threadData).slice(-maxMessages);
+  let total = window.reduce(
+    (sum, message) => sum + engineMessageTextLength(message),
+    0,
+  );
+  while (window.length > 1 && total > maxChars) {
+    total -= engineMessageTextLength(window.shift()!);
+  }
+  return window;
+}
+
 const MAX_INTEGRATION_ARTIFACTS_IN_CONTEXT = 12;
 const MAX_INTEGRATION_ARTIFACT_FIELD_CHARS = 500;
 
