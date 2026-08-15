@@ -279,7 +279,7 @@ describe("analytics db.ts wires ensureAdditiveColumns after runMigrations", () =
     expect(dbTsSource).toContain(
       "ANALYTICS_EVENT_CURSOR_INDEX_REPAIR_TIMEOUT_MS = 15 * 60 * 1000",
     );
-    expect(dbTsSource).toContain("getMigrationDatabaseUrl()");
+    expect(dbTsSource).toContain("getAnalyticsMigrationDatabaseUrl()");
   });
 
   it("stores BigQuery backfill progress in additive PostgreSQL and SQLite shard tables", () => {

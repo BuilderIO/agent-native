@@ -2,7 +2,7 @@ import {
   ensureAdditiveColumns,
   createDbExec,
   getDbExec,
-  getMigrationDatabaseUrl,
+  getDatabaseUrl,
   isPostgres,
   runMigrations,
   withMigrationRuntime,
@@ -39,10 +39,23 @@ const schemaTables = Object.values(schema).filter(isDrizzleTable);
 // this list independently — see the v75-v83 incident documented on v75 below.
 const ANALYTICS_EVENT_CURSOR_INDEX_REPAIR_TIMEOUT_MS = 15 * 60 * 1000;
 
+function getAnalyticsMigrationDatabaseUrl(): string {
+  const appName = process.env.APP_NAME?.toUpperCase().replace(/-/g, "_");
+  const directUrl = appName
+    ? process.env[`${appName}_DATABASE_URL_UNPOOLED`]
+    : undefined;
+  const url =
+    directUrl ||
+    process.env.NETLIFY_DATABASE_URL_UNPOOLED ||
+    process.env.DATABASE_URL_UNPOOLED ||
+    getDatabaseUrl();
+  return url.replace(/-pooler(\.[a-z0-9.-]+\.neon\.tech)/, "$1");
+}
+
 async function repairAnalyticsEventCursorIndexes(): Promise<void> {
   if (!isPostgres()) return;
 
-  const exec = await createDbExec({ url: getMigrationDatabaseUrl() });
+  const exec = await createDbExec({ url: getAnalyticsMigrationDatabaseUrl() });
   const query = (sql: string) =>
     exec.execute({
       sql,
