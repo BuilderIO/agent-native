@@ -97,6 +97,31 @@ describe("fleet feature flag contracts", () => {
       ),
     ).toMatchObject({ contractVersion: 2, key: "new-editor", rules });
   });
+
+  it("accepts an explicit no-org target scope only when requested", () => {
+    const body = {
+      contractVersion: 2,
+      status: "ready",
+      key: "new-editor",
+      rules: { mode: "rules", emails: ["admin@example.com"] },
+      scope: { orgDomain: null },
+    };
+
+    expect(() =>
+      validateWorkspaceFeatureFlagMutation(body, {
+        key: "new-editor",
+        orgDomain: "builder.io",
+      }),
+    ).toThrow("unsupported or unverified");
+
+    expect(
+      validateWorkspaceFeatureFlagMutation(body, {
+        key: "new-editor",
+        orgDomain: "builder.io",
+        allowExplicitNoOrgTarget: true,
+      }),
+    ).toMatchObject({ key: "new-editor" });
+  });
   it("verifies off and enable-for-operator persisted semantics", () => {
     const base = {
       contractVersion: 2 as const,

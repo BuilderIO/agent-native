@@ -167,7 +167,11 @@ export function convertToSlideHtml(
 
 const DEFAULT_SLIDE_WIDTH_EMU = 9144000;
 const DEFAULT_SLIDE_HEIGHT_EMU = 5143500;
-const DEFAULT_PPTX_BACKGROUND = "#000000"; // guard:allow-raw-color - preserve PPTX black when no background is declared
+// PowerPoint's own default slide background (no `<p:bg>` declared) is white,
+// not black — defaulting to black here made an undecorated slide's own
+// (often dark, theme-default) text unreadable or fully invisible against a
+// background the source file never actually specified.
+const DEFAULT_PPTX_BACKGROUND = "#ffffff"; // guard:allow-raw-color - PPTX's own white default when no background is declared
 const DEFAULT_PPTX_FOREGROUND = "#ffffff"; // guard:allow-raw-color - preserve PPTX white when no run color is declared
 
 /**
@@ -250,6 +254,18 @@ function buildFidelityElement(
     return `<div class="fmd-pptx-image" data-pptx-element-kind="image" data-pptx-image-name="${esc(element.image?.name ?? "image")}"${objectId} style="${position}${rotation} overflow: hidden;">${url ? `<img src="${esc(url)}" alt="" style="${imageStyle}" />` : `<div class="fmd-img-placeholder" style="width:100%;height:100%;">Imported image: ${esc(element.image?.name ?? "image")}</div>`}</div>`;
   }
 
+  if (element.kind === "table") {
+    return buildFidelityTable(
+      element,
+      widthEmu,
+      refBox.width,
+      themeFont,
+      position,
+      rotation,
+      objectId,
+    );
+  }
+
   const decoration = shapeDecoration(element, widthEmu, refBox.width);
   if (element.kind === "shape") {
     return `<div class="fmd-pptx-shape" data-pptx-element-kind="shape"${objectId} style="${position}${rotation}${decoration}"></div>`;
@@ -329,6 +345,58 @@ function imageRenderStyle(element: ParsedElement): string {
   const visibleWidth = Math.max(0.001, 1 - crop.left - crop.right);
   const visibleHeight = Math.max(0.001, 1 - crop.top - crop.bottom);
   return `display:block;position:absolute;left:${(-crop.left / visibleWidth) * 100}%;top:${(-crop.top / visibleHeight) * 100}%;width:${(1 / visibleWidth) * 100}%;height:${(1 / visibleHeight) * 100}%;object-fit:fill;`;
+}
+
+type ParsedTableCell = NonNullable<
+  ParsedElement["table"]
+>["rows"][number][number];
+
+const DEFAULT_PPTX_TABLE_BORDER = "rgba(255,255,255,0.25)"; // guard:allow-raw-color - imported PPTX table cell border approximation, same fixed-contrast convention as the rest of this fidelity renderer
+
+/** Render a parsed `"table"` element (a PPTX `graphicFrame`'s `a:tbl`) as a real HTML `<table>`, sized/positioned the same way every other fidelity element is. */
+function buildFidelityTable(
+  element: ParsedElement,
+  widthEmu: number,
+  refWidthPx: number,
+  themeFont: string | undefined,
+  position: string,
+  rotation: string,
+  objectId: string,
+): string {
+  const rows = element.table?.rows ?? [];
+  const rowsHtml = rows
+    .map(
+      (row) =>
+        `<tr>${row
+          .map((cell) =>
+            buildFidelityTableCell(cell, widthEmu, refWidthPx, themeFont),
+          )
+          .join("")}</tr>`,
+    )
+    .join("");
+  return `<div class="fmd-pptx-table" data-pptx-element-kind="table"${objectId} style="${position}${rotation} overflow: hidden;"><table style="width:100%;height:100%;border-collapse:collapse;table-layout:fixed;font-family:${cssFontFamily(themeFont)};">${rowsHtml}</table></div>`;
+}
+
+function buildFidelityTableCell(
+  cell: ParsedTableCell,
+  widthEmu: number,
+  refWidthPx: number,
+  themeFont: string | undefined,
+): string {
+  const fill = cell.fill ? `background:${esc(cell.fill)};` : "";
+  const paragraphsHtml = cell.paragraphs
+    .map((paragraph, paragraphIndex) =>
+      buildFidelityParagraph(
+        paragraph,
+        paragraphIndex,
+        widthEmu,
+        refWidthPx,
+        themeFont,
+        400,
+      ),
+    )
+    .join("");
+  return `<td colspan="${cell.colSpan ?? 1}" rowspan="${cell.rowSpan ?? 1}" style="border:1px solid ${DEFAULT_PPTX_TABLE_BORDER};padding:4px 8px;vertical-align:top;${fill}">${paragraphsHtml}</td>`;
 }
 
 function shapeDecoration(

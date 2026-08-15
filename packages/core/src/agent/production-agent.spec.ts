@@ -1888,7 +1888,7 @@ describe("runAgentLoop", () => {
       },
     };
 
-    await runAgentLoop({
+    const usage = await runAgentLoop({
       engine,
       model: "test-model",
       systemPrompt: "system",
@@ -1904,6 +1904,8 @@ describe("runAgentLoop", () => {
         policyId: "crm-sales-routine-local-v1",
       },
     });
+
+    expect(usage.llmCalls).toBe(2);
 
     expect(run).toHaveBeenCalledWith(
       {},

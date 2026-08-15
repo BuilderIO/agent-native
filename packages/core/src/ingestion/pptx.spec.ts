@@ -266,6 +266,190 @@ describe("parsePptxPresentation", () => {
     expect(firstText?.color).toBe("#111111");
     expect(secondText?.color).toBe("#222222");
   });
+
+  it("converts a graphicFrame table into a table element with rows/cells and merges instead of dropping it", async () => {
+    const presentation = await parsePptxPresentation(
+      await buildMinimalPptxBuffer(`
+        <p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+          <p:cSld><p:spTree>
+            <p:graphicFrame>
+              <p:nvGraphicFramePr><p:cNvPr id="20" name="Table 1"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr>
+              <p:xfrm><a:off x="100" y="200"/><a:ext cx="4000" cy="2000"/></p:xfrm>
+              <a:graphic>
+                <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table">
+                  <a:tbl>
+                    <a:tr h="1000">
+                      <a:tc><a:txBody><a:bodyPr/><a:p><a:r><a:t>A1</a:t></a:r></a:p></a:txBody></a:tc>
+                      <a:tc><a:txBody><a:bodyPr/><a:p><a:r><a:t>B1</a:t></a:r></a:p></a:txBody></a:tc>
+                    </a:tr>
+                    <a:tr h="1000">
+                      <a:tc gridSpan="2"><a:txBody><a:bodyPr/><a:p><a:r><a:t>Merged</a:t></a:r></a:p></a:txBody></a:tc>
+                      <a:tc hMerge="1"><a:txBody/></a:tc>
+                    </a:tr>
+                  </a:tbl>
+                </a:graphicData>
+              </a:graphic>
+            </p:graphicFrame>
+          </p:spTree></p:cSld>
+        </p:sld>
+      `),
+    );
+
+    const element = presentation.slides[0]?.elements[0];
+    expect(element?.kind).toBe("table");
+    expect(element?.x).toBe(100);
+    expect(element?.y).toBe(200);
+    expect(element?.width).toBe(4000);
+    expect(element?.height).toBe(2000);
+    expect(element?.table?.rows).toHaveLength(2);
+    expect(
+      element?.table?.rows[0].map(
+        (cell) => cell.paragraphs[0]?.runs[0]?.content,
+      ),
+    ).toEqual(["A1", "B1"]);
+    // The hMerge continuation cell is dropped — its content is already
+    // represented by the spanning cell's colSpan.
+    expect(element?.table?.rows[1]).toHaveLength(1);
+    expect(element?.table?.rows[1][0]?.colSpan).toBe(2);
+    expect(element?.table?.rows[1][0]?.paragraphs[0]?.runs[0]?.content).toBe(
+      "Merged",
+    );
+    expect(presentation.slides[0]?.tablesDegraded).toBeUndefined();
+  });
+
+  it("counts a non-table graphicFrame (chart/SmartArt/OLE) as a fidelity signal instead of silently dropping it", async () => {
+    const presentation = await parsePptxPresentation(
+      await buildMinimalPptxBuffer(`
+        <p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+          <p:cSld><p:spTree>
+            <p:graphicFrame>
+              <p:nvGraphicFramePr><p:cNvPr id="21" name="Chart 1"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr>
+              <p:xfrm><a:off x="0" y="0"/><a:ext cx="100" cy="100"/></p:xfrm>
+              <a:graphic>
+                <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart">
+                  <c:chart xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" r:id="rId1"/>
+                </a:graphicData>
+              </a:graphic>
+            </p:graphicFrame>
+          </p:spTree></p:cSld>
+        </p:sld>
+      `),
+    );
+
+    expect(presentation.slides[0]?.elements).toHaveLength(0);
+    expect(presentation.slides[0]?.tablesDegraded).toBe(1);
+  });
+
+  it("approximates a gradient fill with its first stop's color instead of leaving the shape unfilled", async () => {
+    const presentation = await parsePptxPresentation(
+      await buildMinimalPptxBuffer(`
+        <p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+          <p:cSld><p:spTree>
+            <p:sp>
+              <p:nvSpPr><p:cNvPr id="2" name="Grad"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+              <p:spPr>
+                <a:xfrm><a:off x="0" y="0"/><a:ext cx="100" cy="100"/></a:xfrm>
+                <a:gradFill>
+                  <a:gsLst>
+                    <a:gs pos="0"><a:srgbClr val="112233"/></a:gs>
+                    <a:gs pos="100000"><a:srgbClr val="445566"/></a:gs>
+                  </a:gsLst>
+                </a:gradFill>
+              </p:spPr>
+            </p:sp>
+          </p:spTree></p:cSld>
+        </p:sld>
+      `),
+    );
+
+    const element = presentation.slides[0]?.elements[0];
+    expect(element?.kind).toBe("shape");
+    expect(element?.fill).toBe("#112233");
+  });
+
+  it("reads a:alpha and encodes it as trailing hex alpha digits on the resolved color", async () => {
+    const presentation = await parsePptxPresentation(
+      await buildMinimalPptxBuffer(`
+        <p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+          <p:cSld><p:spTree>
+            <p:sp>
+              <p:nvSpPr><p:cNvPr id="2" name="Body"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+              <p:spPr/><p:txBody><a:bodyPr/><a:lstStyle/>
+                <a:p><a:r>
+                  <a:rPr><a:solidFill><a:srgbClr val="ff0000"><a:alpha val="50000"/></a:srgbClr></a:solidFill></a:rPr>
+                  <a:t>Half opaque</a:t>
+                </a:r></a:p>
+              </p:txBody>
+            </p:sp>
+          </p:spTree></p:cSld>
+        </p:sld>
+      `),
+    );
+
+    expect(presentation.slides[0]?.texts[0]?.color).toBe("#ff000080");
+  });
+
+  it("synthesizes sequential bullet numbers for buAutoNum paragraphs instead of dropping them", async () => {
+    const presentation = await parsePptxPresentation(
+      await buildMinimalPptxBuffer(`
+        <p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+          <p:cSld><p:spTree>
+            <p:sp>
+              <p:nvSpPr><p:cNvPr id="2" name="Body"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+              <p:spPr/><p:txBody><a:bodyPr/><a:lstStyle/>
+                <a:p><a:pPr><a:buAutoNum type="arabicPeriod"/></a:pPr><a:r><a:t>First</a:t></a:r></a:p>
+                <a:p><a:pPr><a:buAutoNum type="arabicPeriod"/></a:pPr><a:r><a:t>Second</a:t></a:r></a:p>
+              </p:txBody>
+            </p:sp>
+          </p:spTree></p:cSld>
+        </p:sld>
+      `),
+    );
+
+    const paragraphs = presentation.slides[0]?.elements[0]?.paragraphs ?? [];
+    expect(paragraphs.map((p) => p.bulletChar)).toEqual(["1.", "2."]);
+  });
+
+  it("sweeps a rotated group's child position around the group's own pivot instead of only spinning it in place", async () => {
+    const presentation = await parsePptxPresentation(
+      await buildMinimalPptxBuffer(`
+        <p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+          <p:cSld><p:spTree>
+            <p:grpSp>
+              <p:nvGrpSpPr><p:cNvPr id="10" name="Group"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
+              <p:grpSpPr>
+                <a:xfrm rot="5400000">
+                  <a:off x="0" y="0"/>
+                  <a:ext cx="200" cy="100"/>
+                  <a:chOff x="0" y="0"/>
+                  <a:chExt cx="200" cy="100"/>
+                </a:xfrm>
+              </p:grpSpPr>
+              <p:sp>
+                <p:nvSpPr><p:cNvPr id="11" name="Child"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+                <p:spPr>
+                  <a:xfrm><a:off x="0" y="0"/><a:ext cx="50" cy="20"/></a:xfrm>
+                  <a:solidFill><a:srgbClr val="FF0000"/></a:solidFill>
+                </p:spPr>
+              </p:sp>
+            </p:grpSp>
+          </p:spTree></p:cSld>
+        </p:sld>
+      `),
+    );
+
+    const element = presentation.slides[0]?.elements[0];
+    // Group box is 200x100 at the origin (pivot at 100,50), rotated 90°
+    // clockwise. The child's own un-rotated center (25,10) is 75 left and 40
+    // above the pivot; swept 90° clockwise it lands 40 right and 75 above the
+    // pivot — center (140,-25) — not just spun in place around its own
+    // center (which is what summing rotation degrees alone would produce).
+    expect(element?.x).toBeCloseTo(115, 5);
+    expect(element?.y).toBeCloseTo(-35, 5);
+    expect(element?.width).toBeCloseTo(50, 5);
+    expect(element?.height).toBeCloseTo(20, 5);
+    expect(element?.rotation).toBeCloseTo(90, 5);
+  });
 });
 
 async function buildMinimalPptxBuffer(slideXml: string): Promise<Uint8Array> {

@@ -12,6 +12,7 @@ import {
   type AgentLoopOutcome,
 } from "./production-agent.js";
 import {
+  AGENT_INTERNAL_CONTINUATION_CHECKPOINT_PROMPT,
   runAgentLoopDirectWithSoftTimeout,
   BACKGROUND_RATE_LIMIT_CONTINUATION_DELAY_MS,
   MAX_BACKGROUND_RATE_LIMIT_CONTINUATIONS,
@@ -307,6 +308,61 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     expect(continuationMessages).toHaveLength(1);
   });
 
+  it("carries an interrupted streamed prefix into the resume context", async () => {
+    let attempts = 0;
+    const messages: EngineMessage[] = [
+      { role: "user", content: [{ type: "text", text: "make a list" }] },
+    ];
+
+    mockRunAgentLoop.mockImplementation(async (opts) => {
+      attempts++;
+      if (attempts === 1) {
+        opts.send({ type: "text", text: "Here are the first three items: " });
+        throw new EngineError("Builder gateway timed out after 45s", {
+          errorCode: "builder_gateway_timeout",
+        });
+      }
+      return {
+        inputTokens: 100,
+        outputTokens: 50,
+        cacheReadTokens: 80,
+        cacheWriteTokens: 0,
+        model: "test-model",
+      };
+    });
+
+    await runAgentLoopDirectWithSoftTimeout(
+      makeOpts(messages, new AbortController().signal),
+      60_000,
+    );
+
+    const checkpoint = messages.find(
+      (message) =>
+        message.role === "assistant" &&
+        message.content.some(
+          (part) =>
+            part.type === "text" &&
+            part.text.startsWith(AGENT_INTERNAL_CONTINUATION_CHECKPOINT_PROMPT),
+        ),
+    );
+    expect(checkpoint).toBeDefined();
+    expect(checkpoint?.content[0]).toMatchObject({
+      type: "text",
+      text: expect.stringContaining("Here are the first three items:"),
+    });
+    expect(
+      messages.some(
+        (message) =>
+          message.role === "user" &&
+          message.content.some(
+            (part) =>
+              part.type === "text" &&
+              part.text.startsWith(AGENT_INTERNAL_CONTINUE_PROMPT),
+          ),
+      ),
+    ).toBe(true);
+  });
+
   it("includes unfinished action-preparation guidance on foreground resume", async () => {
     let attempts = 0;
     const messages: EngineMessage[] = [
@@ -424,6 +480,16 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
       "preparing the `edit-design` action input",
     );
     expect(continuationText).toContain("smaller `edit-design` payload");
+    expect(
+      messages.some(
+        (message) =>
+          message.role === "assistant" &&
+          message.content.some(
+            (part) =>
+              part.type === "text" && part.text.includes("partial lead-in"),
+          ),
+      ),
+    ).toBe(true);
   });
 
   it("does not report an unmeasured run as a measured empty one", async () => {

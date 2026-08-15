@@ -100,6 +100,7 @@ export async function importPptxBufferToDeck(args: {
   imported: true;
   url: string;
   imagesSkipped?: number;
+  tablesDegraded?: number;
 }> {
   const {
     fileBuffer,
@@ -156,6 +157,7 @@ export async function importPptxBufferToDeck(args: {
           sourceText: parsedSlide.texts.map((text) => text.content).join("\n"),
           imageUrls: Object.values(uploadedImages.urls),
           imageSkippedCount: uploadedImages.imageSkippedCount,
+          tablesDegraded: parsedSlide.tablesDegraded ?? 0,
         };
       }),
     ),
@@ -163,6 +165,10 @@ export async function importPptxBufferToDeck(args: {
   const slides = results.map((r) => r.slide);
   const imagesSkipped = results.reduce(
     (total, r) => total + r.imageSkippedCount,
+    0,
+  );
+  const tablesDegraded = results.reduce(
+    (total, r) => total + r.tablesDegraded,
     0,
   );
   if (imagesSkipped > 0) {
@@ -180,6 +186,7 @@ export async function importPptxBufferToDeck(args: {
       editableText: true,
     })),
     imagesSkipped,
+    tablesDegraded,
   });
   const aspectRatio = nearestAspectRatio(
     presentation.slides[0]?.widthEmu,
@@ -234,6 +241,7 @@ export async function importPptxBufferToDeck(args: {
       imported: true,
       url: getDeckUrl(deckId),
       ...(imagesSkipped > 0 ? { imagesSkipped } : {}),
+      ...(tablesDegraded > 0 ? { tablesDegraded } : {}),
     };
   }
 
@@ -269,6 +277,7 @@ export async function importPptxBufferToDeck(args: {
     imported: true,
     url: getDeckUrl(id),
     ...(imagesSkipped > 0 ? { imagesSkipped } : {}),
+    ...(tablesDegraded > 0 ? { tablesDegraded } : {}),
   };
 }
 
