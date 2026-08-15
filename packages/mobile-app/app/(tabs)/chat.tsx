@@ -17,6 +17,7 @@ import {
   Modal,
   Pressable,
   Platform,
+  ScrollView,
   Share,
   Text,
   View,
@@ -33,6 +34,7 @@ import { Composer } from "@/components/chat/Composer";
 import { MessagesList } from "@/components/chat/MessagesList";
 import {
   MobileWorkspaceControls,
+  type ChatTarget,
   type MobileExecutionTarget,
 } from "@/components/chat/MobileWorkspaceControls";
 import { ThreadHistorySheet } from "@/components/chat/ThreadHistorySheet";
@@ -42,6 +44,17 @@ import type { ChatMessage } from "@/lib/agent-chat/types";
 import { messageText } from "@/lib/agent-chat/types";
 import { useAgentChat } from "@/lib/agent-chat/use-agent-chat";
 import { getAppUrl } from "@/lib/get-app-url";
+import {
+  appendRemoteFollowUp,
+  createRemoteRun,
+  isRemoteRunActive,
+  listPairedHosts,
+  readRemoteTranscript,
+  stopRemoteRun,
+  type RemoteHost,
+  type RemoteRun,
+  type RemoteTranscriptEvent,
+} from "@/lib/remote-sessions-api";
 import { getSessionToken } from "@/lib/session-token-store";
 
 const chatApp = TEMPLATE_APPS.find((a) => a.id === "chat")!;
@@ -95,6 +108,86 @@ function ActionSheetRow({
 // strip first, so keyboard padding must be reduced by it.
 const TAB_BAR_HEIGHT = 22;
 
+function ComputerMessages({
+  events,
+  loading,
+  host,
+  onConnect,
+}: {
+  events: RemoteTranscriptEvent[];
+  loading: boolean;
+  host?: RemoteHost;
+  onConnect: () => void;
+}) {
+  if (loading && events.length === 0) {
+    return (
+      <View className="flex-1 items-center justify-center">
+        <ActivityIndicator color="#d4d4d8" />
+      </View>
+    );
+  }
+
+  if (events.length === 0) {
+    return (
+      <View className="flex-1 items-center justify-center px-7">
+        <Text className="text-white text-[22px] font-bold text-center">
+          {host ? "Ready for your computer" : "Connect a computer"}
+        </Text>
+        <Text className="mt-2 max-w-[290px] text-center text-[14px] leading-5 text-text-muted">
+          {host
+            ? `Messages will run on ${host.name}.`
+            : "Pair a computer once, then chat with it here."}
+        </Text>
+        {!host ? (
+          <Pressable
+            className="mt-5 min-h-11 items-center justify-center rounded-xl bg-white px-5 active:opacity-75"
+            onPress={onConnect}
+            accessibilityRole="button"
+            accessibilityLabel="Connect a computer"
+          >
+            <Text className="text-background-dark text-[14px] font-bold">
+              Connect computer
+            </Text>
+          </Pressable>
+        ) : null}
+      </View>
+    );
+  }
+
+  return (
+    <ScrollView
+      className="flex-1"
+      contentContainerStyle={{ paddingTop: 12, paddingHorizontal: 16, paddingBottom: 12 }}
+      showsVerticalScrollIndicator={false}
+    >
+      {events.map((event) => {
+        const isUser = event.type === "user";
+        return (
+          <View
+            key={event.id}
+            className={`mb-3 max-w-[88%] rounded-2xl px-3.5 py-3 ${
+              isUser ? "self-end bg-white" : "self-start bg-card-dark"
+            }`}
+          >
+            {event.title && !isUser ? (
+              <Text className="mb-1 text-status-gray text-[11px] font-semibold uppercase tracking-wide">
+                {event.title}
+              </Text>
+            ) : null}
+            <Text
+              className={`text-[14px] leading-5 ${
+                isUser ? "text-background-dark" : "text-text-light"
+              }`}
+            >
+              {event.text}
+            </Text>
+          </View>
+        );
+      })}
+    </ScrollView>
+  );
+}
+
 export default function ChatTab() {
   const router = useRouter();
   const isWebPreview =
@@ -111,14 +204,25 @@ export default function ChatTab() {
   const [actionsFor, setActionsFor] = useState<ChatMessage | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [settings, setSettings] = useChatSettings();
-  const [workspaceFolder, setWorkspaceFolder] = useState("");
-  const [workspaceTarget, setWorkspaceTarget] =
-    useState<MobileExecutionTarget>("local");
+  const [chatTarget, setChatTarget] = useState<ChatTarget>("cloud");
+  const [remoteHosts, setRemoteHosts] = useState<RemoteHost[]>([]);
+  const [selectedRemoteHostId, setSelectedRemoteHostId] = useState<
+    string | undefined
+  >();
+  const [remoteRun, setRemoteRun] = useState<RemoteRun | null>(null);
+  const [remoteEvents, setRemoteEvents] = useState<RemoteTranscriptEvent[]>(
+    [],
+  );
+  const [remoteLoading, setRemoteLoading] = useState(false);
+  const [remoteSending, setRemoteSending] = useState(false);
+  const [remoteError, setRemoteError] = useState<string | null>(null);
   const chat = useAgentChat(settings);
 
   const startNewChat = useCallback(() => {
-    setWorkspaceFolder("");
-    setWorkspaceTarget("local");
+    setChatTarget("cloud");
+    setRemoteRun(null);
+    setRemoteEvents([]);
+    setRemoteError(null);
     chat.newChat();
   }, [chat]);
 

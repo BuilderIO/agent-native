@@ -3,298 +3,199 @@ import {
   IconChevronDown,
   IconCloud,
   IconDeviceDesktop,
-  IconFolder,
-  IconGitBranch,
   IconX,
 } from "@tabler/icons-react-native";
-import { useEffect, useState } from "react";
-import {
-  ActivityIndicator,
-  Modal,
-  Pressable,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
+import { useState } from "react";
+import { Modal, Pressable, Text, View } from "react-native";
 
-export type MobileExecutionTarget = "local" | "worktree";
+import { SafeAreaView } from "@/components/uniwind-interop";
+import type { RemoteHost } from "@/lib/remote-sessions-api";
 
-const REMOTE_WAITLIST_URL =
-  "https://agent-native.com/_agent-native/builder/branch-waitlist";
+export type ChatTarget = "cloud" | "computer";
 
-function TargetIcon({ target }: { target: "local" | "worktree" | "remote" }) {
-  if (target === "worktree") {
-    return <IconGitBranch color="#a1a1aa" size={16} strokeWidth={1.8} />;
-  }
-  if (target === "remote") {
-    return <IconCloud color="#a1a1aa" size={16} strokeWidth={1.8} />;
-  }
-  return <IconDeviceDesktop color="#a1a1aa" size={16} strokeWidth={1.8} />;
-}
-
-export function MobileWorkspaceControls({
-  folder,
-  target,
-  onFolderChange,
-  onTargetChange,
-}: {
-  folder: string;
-  target: MobileExecutionTarget;
-  onFolderChange: (folder: string) => void;
-  onTargetChange: (target: MobileExecutionTarget) => void;
-}) {
-  const [targetOpen, setTargetOpen] = useState(false);
-  const [waitlistOpen, setWaitlistOpen] = useState(false);
-
-  const chooseTarget = (next: "local" | "worktree" | "remote") => {
-    setTargetOpen(false);
-    if (next === "remote") {
-      setWaitlistOpen(true);
-      return;
-    }
-    onTargetChange(next);
-  };
-
-  return (
-    <>
-      <View className="px-3 pb-1">
-        <View className="flex-row items-center gap-2">
-          <View className="flex-1 h-10 flex-row items-center gap-2 rounded-xl bg-card-dark border border-border-dark px-3">
-            <IconFolder color="#a1a1aa" size={16} strokeWidth={1.8} />
-            <TextInput
-              className="flex-1 text-white text-[13px]"
-              value={folder}
-              onChangeText={onFolderChange}
-              placeholder="Choose folder"
-              placeholderTextColor="#71717a"
-              autoCapitalize="none"
-              autoCorrect={false}
-              numberOfLines={1}
-              accessibilityLabel="Working folder"
-            />
-          </View>
-          <Pressable
-            className="h-10 min-w-[112px] flex-row items-center justify-center gap-1.5 rounded-xl bg-card-dark border border-border-dark px-3 active:bg-white/5"
-            onPress={() => setTargetOpen(true)}
-            accessibilityRole="button"
-            accessibilityLabel={`Workspace target: ${target}`}
-          >
-            <TargetIcon target={target} />
-            <Text className="text-zinc-300 text-[13px] font-medium">
-              {target === "worktree" ? "Worktree" : "Local"}
-            </Text>
-            <IconChevronDown color="#71717a" size={14} strokeWidth={2} />
-          </Pressable>
-        </View>
-      </View>
-
-      <Modal
-        visible={targetOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setTargetOpen(false)}
-      >
-        <Pressable
-          className="flex-1 bg-black/60 justify-end"
-          onPress={() => setTargetOpen(false)}
-          accessibilityLabel="Dismiss workspace target menu"
-        >
-          <Pressable className="mx-3 mb-8 rounded-2xl bg-card-dark border border-border-dark overflow-hidden p-2">
-            <View className="flex-row items-center justify-between px-3 py-2 border-b border-border-dark mb-1">
-              <Text className="text-white text-[15px] font-semibold">
-                Workspace
-              </Text>
-              <Pressable
-                onPress={() => setTargetOpen(false)}
-                className="p-1 active:opacity-75"
-                accessibilityRole="button"
-                accessibilityLabel="Close workspace menu"
-              >
-                <IconX color="#a1a1aa" size={18} strokeWidth={2} />
-              </Pressable>
-            </View>
-            {[
-              {
-                id: "local" as const,
-                label: "Local",
-                description: "Use the selected folder directly",
-              },
-              {
-                id: "worktree" as const,
-                label: "Worktree",
-                description: "Start an isolated copy from the latest commit",
-              },
-              {
-                id: "remote" as const,
-                label: "Remote",
-                description: "Run in the cloud - join the waitlist",
-              },
-            ].map((option) => (
-              <Pressable
-                key={option.id}
-                className="flex-row items-center gap-3 px-3 py-3 rounded-xl active:bg-white/5"
-                onPress={() => chooseTarget(option.id)}
-                accessibilityRole="button"
-                accessibilityLabel={option.label}
-              >
-                <TargetIcon target={option.id} />
-                <View className="flex-1">
-                  <Text className="text-white text-[14px] font-medium">
-                    {option.label}
-                  </Text>
-                  <Text className="text-zinc-500 text-[12px] mt-0.5">
-                    {option.description}
-                  </Text>
-                </View>
-                {option.id !== "remote" && option.id === target && (
-                  <IconCheck color="#2563eb" size={16} strokeWidth={2.5} />
-                )}
-              </Pressable>
-            ))}
-          </Pressable>
-        </Pressable>
-      </Modal>
-
-      <RemoteWaitlistModal
-        visible={waitlistOpen}
-        onClose={() => setWaitlistOpen(false)}
-      />
-    </>
+function TargetIcon({ target }: { target: ChatTarget }) {
+  return target === "cloud" ? (
+    <IconCloud color="#a1a1aa" size={15} strokeWidth={1.8} />
+  ) : (
+    <IconDeviceDesktop color="#a1a1aa" size={15} strokeWidth={1.8} />
   );
 }
 
-function RemoteWaitlistModal({
-  visible,
-  onClose,
+function TargetPill({
+  target,
+  selected,
+  onPress,
 }: {
-  visible: boolean;
-  onClose: () => void;
+  target: ChatTarget;
+  selected: boolean;
+  onPress: () => void;
 }) {
-  const [email, setEmail] = useState("");
-  const [joining, setJoining] = useState(false);
-  const [joined, setJoined] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  return (
+    <Pressable
+      className={`flex-row items-center gap-1.5 rounded-full px-3 py-1.5 active:opacity-75 ${
+        selected ? "bg-white" : "bg-card-dark border border-border-dark"
+      }`}
+      onPress={onPress}
+      accessibilityRole="radio"
+      accessibilityState={{ selected }}
+      accessibilityLabel={target === "cloud" ? "Use cloud chat" : "Use a computer"}
+    >
+      {selected ? (
+        <TargetIcon target={target} />
+      ) : (
+        <View className="opacity-75">
+          <TargetIcon target={target} />
+        </View>
+      )}
+      <Text
+        className={`text-[12px] font-semibold ${
+          selected ? "text-background-dark" : "text-text-light"
+        }`}
+      >
+        {target === "cloud" ? "Cloud" : "Computer"}
+      </Text>
+    </Pressable>
+  );
+}
 
-  useEffect(() => {
-    if (!visible) {
-      setEmail("");
-      setJoined(false);
-      setError(null);
-    }
-  }, [visible]);
-
-  const submit = async () => {
-    const trimmed = email.trim();
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
-      setError("Enter a valid email address.");
-      return;
-    }
-    setJoining(true);
-    setError(null);
-    try {
-      const response = await fetch(REMOTE_WAITLIST_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: trimmed,
-          source: "mobile_code_agents",
-          useCase: "mobile_remote_code_agent_waitlist",
-        }),
-      });
-      if (!response.ok) {
-        setError("Could not join the waitlist. Please try again.");
-        return;
-      }
-      setJoined(true);
-    } catch {
-      setError("Could not join the waitlist. Please try again.");
-    } finally {
-      setJoining(false);
-    }
-  };
+export function MobileWorkspaceControls({
+  target,
+  hosts,
+  selectedHostId,
+  onTargetChange,
+  onHostChange,
+  onConnectComputer,
+}: {
+  target: ChatTarget;
+  hosts: RemoteHost[];
+  selectedHostId?: string;
+  onTargetChange: (target: ChatTarget) => void;
+  onHostChange: (hostId: string) => void;
+  onConnectComputer: () => void;
+}) {
+  const [hostOpen, setHostOpen] = useState(false);
+  const selectedHost = hosts.find((host) => host.id === selectedHostId);
 
   return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="fade"
-      onRequestClose={onClose}
-    >
-      <Pressable
-        className="flex-1 bg-black/60 justify-end"
-        onPress={onClose}
-        accessibilityLabel="Dismiss remote waitlist"
-      >
-        <Pressable className="mx-3 mb-8 rounded-2xl bg-card-dark border border-border-dark p-4">
-          <View className="flex-row items-start justify-between gap-3">
-            <View className="flex-1">
-              <Text className="text-white text-[16px] font-semibold">
-                Join the waitlist
-              </Text>
-              <Text className="text-zinc-400 text-[13px] leading-5 mt-1.5">
-                Run code agents in the cloud from your phone.
-              </Text>
-            </View>
-            <Pressable
-              onPress={onClose}
-              className="p-1 active:opacity-75"
-              accessibilityRole="button"
-              accessibilityLabel="Close remote waitlist"
+    <>
+      <View className="flex-row items-center justify-between px-3 pb-1">
+        <View className="flex-row items-center gap-1.5">
+          <TargetPill
+            target="cloud"
+            selected={target === "cloud"}
+            onPress={() => onTargetChange("cloud")}
+          />
+          <TargetPill
+            target="computer"
+            selected={target === "computer"}
+            onPress={() => onTargetChange("computer")}
+          />
+        </View>
+
+        {target === "computer" ? (
+          <Pressable
+            className="flex-row items-center gap-1.5 rounded-full px-2 py-1.5 active:opacity-75"
+            onPress={() =>
+              hosts.length ? setHostOpen(true) : onConnectComputer()
+            }
+            accessibilityRole="button"
+            accessibilityLabel={
+              selectedHost
+                ? `Computer: ${selectedHost.name}`
+                : "Connect a computer"
+            }
+          >
+            <IconDeviceDesktop color="#a1a1aa" size={14} strokeWidth={1.8} />
+            <Text
+              className="max-w-[130px] text-status-gray text-[12px] font-medium"
+              numberOfLines={1}
             >
-              <IconX color="#71717a" size={18} strokeWidth={2.2} />
-            </Pressable>
-          </View>
-          {joined ? (
-            <Text className="text-emerald-400 text-[13px] leading-5 mt-4">
-              You are on the waitlist. We will email you when remote access
-              opens.
+              {selectedHost?.name ?? "Connect computer"}
             </Text>
-          ) : (
-            <>
-              <TextInput
-                className="h-11 rounded-xl bg-zinc-900 border border-zinc-800 px-3 text-white text-[14px] mt-4"
-                value={email}
-                onChangeText={(next) => {
-                  setEmail(next);
-                  setError(null);
-                }}
-                placeholder="you@company.com"
-                placeholderTextColor="#52525b"
-                autoCapitalize="none"
-                autoCorrect={false}
-                keyboardType="email-address"
-                accessibilityLabel="Waitlist email"
-              />
-              {error ? (
-                <Text className="text-red-400 text-[12px] mt-2">{error}</Text>
-              ) : null}
+            {hosts.length ? (
+              <IconChevronDown color="#71717a" size={13} strokeWidth={2} />
+            ) : null}
+          </Pressable>
+        ) : (
+          <Text className="text-status-gray text-[12px]">All apps</Text>
+        )}
+      </View>
+
+      <Modal
+        visible={hostOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setHostOpen(false)}
+      >
+        <Pressable
+          className="flex-1 justify-end bg-black/60"
+          onPress={() => setHostOpen(false)}
+          accessibilityLabel="Dismiss computer picker"
+        >
+          <Pressable className="mx-3 overflow-hidden rounded-2xl border border-border-dark bg-card-dark">
+            <SafeAreaView edges={["bottom"]}>
+              <View className="flex-row items-center justify-between border-b border-border-dark px-4 py-3">
+                <Text className="text-white text-[15px] font-semibold">
+                  Computer
+                </Text>
+                <Pressable
+                  className="p-1 active:opacity-75"
+                  onPress={() => setHostOpen(false)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Close computer picker"
+                >
+                  <IconX color="#71717a" size={18} strokeWidth={2.2} />
+                </Pressable>
+              </View>
+              {hosts.map((host) => (
+                <Pressable
+                  key={host.id}
+                  className="flex-row items-center gap-3 border-b border-border-dark px-4 py-3.5 active:bg-white/5"
+                  onPress={() => {
+                    onHostChange(host.id);
+                    setHostOpen(false);
+                  }}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: host.id === selectedHostId }}
+                  accessibilityLabel={host.name}
+                >
+                  <View className="h-8 w-8 items-center justify-center rounded-lg bg-gray-medium-dark">
+                    <IconDeviceDesktop
+                      color="#d4d4d8"
+                      size={17}
+                      strokeWidth={1.8}
+                    />
+                  </View>
+                  <View className="flex-1">
+                    <Text className="text-white text-[14px] font-medium">
+                      {host.name}
+                    </Text>
+                    <Text className="text-status-gray text-[12px] mt-0.5">
+                      {host.status === "online" ? "Available" : host.status}
+                    </Text>
+                  </View>
+                  {host.id === selectedHostId ? (
+                    <IconCheck color="#d4d4d8" size={17} strokeWidth={2.2} />
+                  ) : null}
+                </Pressable>
+              ))}
               <Pressable
-                className={`h-11 rounded-xl items-center justify-center mt-3 ${
-                  email.trim() && !joining
-                    ? "bg-white active:opacity-75"
-                    : "bg-zinc-800"
-                }`}
-                disabled={!email.trim() || joining}
-                onPress={() => void submit()}
+                className="flex-row items-center justify-center px-4 py-3.5 active:bg-white/5"
+                onPress={() => {
+                  setHostOpen(false);
+                  onConnectComputer();
+                }}
                 accessibilityRole="button"
-                accessibilityLabel="Join remote waitlist"
+                accessibilityLabel="Manage connected computers"
               >
-                {joining ? (
-                  <ActivityIndicator size="small" color="#71717a" />
-                ) : (
-                  <Text
-                    className={`text-[13px] font-bold ${
-                      email.trim() ? "text-zinc-950" : "text-zinc-500"
-                    }`}
-                  >
-                    Join waitlist
-                  </Text>
-                )}
+                <Text className="text-text-light text-[13px] font-semibold">
+                  Manage computers
+                </Text>
               </Pressable>
-            </>
-          )}
+            </SafeAreaView>
+          </Pressable>
         </Pressable>
-      </Pressable>
-    </Modal>
+      </Modal>
+    </>
   );
 }
