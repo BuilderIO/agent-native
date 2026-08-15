@@ -38,6 +38,7 @@ import type { ComposerMode } from "./types.js";
 export interface ComposerTerminalModeControl {
   enabled: boolean;
   onChange: (enabled: boolean) => void;
+  onNewTerminal?: () => void;
 }
 
 interface ComposerPlusMenuProps {
@@ -53,8 +54,8 @@ interface ComposerPlusMenuProps {
    * Automation, and MCP Server. Extension is included only when
    * `extensionTools` is true. "upload-only": clicking + opens the file picker
    * directly — no popover, no other modes. Use for prompt popovers where the
-   * only thing to attach is a file. "terminal": one terminal/attachment action
-   * plus the Terminal mode switch.
+   * only thing to attach is a file. "terminal": one new-terminal action plus
+   * the Terminal mode switch.
    */
   mode?: "full" | "upload-only" | "terminal";
   terminalModeControl?: ComposerTerminalModeControl;
@@ -311,7 +312,6 @@ export function ComposerPlusMenu({
   if (mode === "terminal" && terminalModeControl) {
     return (
       <ComposerPlusMenuTerminal
-        onAttachmentError={onAttachmentError}
         terminalModeControl={terminalModeControl}
       />
     );
@@ -326,33 +326,11 @@ export function ComposerPlusMenu({
 }
 
 function ComposerPlusMenuTerminal({
-  onAttachmentError,
   terminalModeControl,
-}: Pick<ComposerPlusMenuProps, "onAttachmentError" | "terminalModeControl">) {
-  const composerRuntime = useComposerRuntime();
-  const t = useComposerRuntimeAdapters().translate!;
-  const inputRef = useRef<HTMLInputElement>(null);
+}: Pick<ComposerPlusMenuProps, "terminalModeControl">) {
   const [open, setOpen] = useState(false);
 
   if (!terminalModeControl) return null;
-
-  const handleFilesSelected = async (files: FileList | null) => {
-    if (!files || files.length === 0) return;
-    try {
-      await Promise.all(
-        Array.from(files).map((file) => composerRuntime.addAttachment(file)),
-      );
-    } catch (error) {
-      onAttachmentError?.(
-        formatAttachmentError(
-          error,
-          t("agentChat.composer.uploadFailed", {
-            defaultValue: "Could not upload the selected file.",
-          }),
-        ),
-      );
-    }
-  };
 
   const handlePrimaryAction = () => {
     if (!terminalModeControl.enabled) {
@@ -360,22 +338,12 @@ function ComposerPlusMenuTerminal({
       setOpen(false);
       return;
     }
+    terminalModeControl.onNewTerminal?.();
     setOpen(false);
-    inputRef.current?.click();
   };
 
   return (
     <>
-      <input
-        ref={inputRef}
-        type="file"
-        multiple
-        className="hidden"
-        onChange={(event) => {
-          void handleFilesSelected(event.target.files);
-          event.target.value = "";
-        }}
-      />
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <button
@@ -398,23 +366,13 @@ function ComposerPlusMenuTerminal({
             className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-start text-[12px] font-medium text-foreground hover:bg-accent/60"
             onClick={handlePrimaryAction}
           >
-            {terminalModeControl.enabled ? (
-              <IconUpload
-                size={14}
-                className="shrink-0 text-muted-foreground"
-                aria-hidden="true"
-              />
-            ) : (
-              <IconTerminal2
-                size={14}
-                className="shrink-0 text-muted-foreground"
-                aria-hidden="true"
-              />
-            )}
+            <IconTerminal2
+              size={14}
+              className="shrink-0 text-muted-foreground"
+              aria-hidden="true"
+            />
             <span>
-              {terminalModeControl.enabled
-                ? "Add attachments"
-                : "Start terminal"}
+              {terminalModeControl.enabled ? "New terminal" : "Start terminal"}
             </span>
           </button>
           <div className="my-1 border-t border-border/70" />

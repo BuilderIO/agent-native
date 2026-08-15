@@ -1074,7 +1074,6 @@ async function replaceInlineSvgsWithImages(root: HTMLElement) {
       1;
     const dataUrl = await rasterizeSvgElement(svg, width, height);
     const img = document.createElement("img");
-    const style = window.getComputedStyle(svg);
     img.src = dataUrl;
     img.alt = svg.getAttribute("aria-label") ?? "";
     Object.assign(img.style, {
@@ -1373,6 +1372,9 @@ export async function buildDeckPptxBlob(
         clone.imageGeometry,
         dims,
       );
+      // Runs after that restore, which re-applies each image's own measured
+      // box — the uncropped one — and would undo the crop.
+      await flattenCroppedImages(clone.element);
       // Runs last: it prepends a child to the slide root, which shifts every
       // child index the geometry passes above resolve their recorded paths
       // through.

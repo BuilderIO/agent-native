@@ -238,7 +238,9 @@ describe("convertToSlideHtml table fidelity", () => {
     };
 
     const html = convertToSlideHtml(slide);
-    const cell = html.match(/<td[^>]*>A1/)?.[0];
+    const cellFor = (text: string) =>
+      html.split("<td").find((chunk) => chunk.includes(`>${text}<`));
+    const cell = cellFor("A1");
     if (!cell) throw new Error("missing A1 cell in rendered table");
 
     expect(cell).toContain("border-left:1.5px solid #111111;");
@@ -252,7 +254,7 @@ describe("convertToSlideHtml table fidelity", () => {
     expect(html).toContain("border-collapse:collapse");
     // A cell with no declared edges still gets none, so it yields to its
     // neighbour's rule instead of erasing it.
-    expect(html.match(/<td[^>]*>Merged/)?.[0]).not.toContain("border");
+    expect(cellFor("Merged")?.split(">")[0]).not.toContain("border");
   });
 });
 
@@ -482,8 +484,11 @@ describe("convertToSlideHtml custom geometry", () => {
       ),
       "shape",
     );
+    // Relative commands, the `lineto` implied after a `moveto`, and
+    // shortest-form numbers: the same outline as `M0 0 L96 0 C86.4 38.4 57.6
+    // 76.8 28.8 96 Z`, spelled the way the path minifier writes it.
     expect(style).toContain(
-      "clip-path: path('M0 0 L96 0 C86.4 38.4 57.6 76.8 28.8 96 Z')",
+      "clip-path: path('m0 0 96 0c-9.6 38.4-38.4 76.8-67.2 96z')",
     );
     // The clip is what stops the shape occluding its neighbours, so the fill
     // paints again rather than being suppressed.
@@ -502,7 +507,7 @@ describe("convertToSlideHtml custom geometry", () => {
       "shape",
     );
     expect(style).toContain(
-      "clip-path: path('M96 0 L0 0 C9.6 38.4 38.4 76.8 67.2 96 Z')",
+      "clip-path: path('m96 0-96 0c9.6 38.4 38.4 76.8 67.2 96z')",
     );
   });
 
@@ -537,7 +542,7 @@ describe("convertToSlideHtml custom geometry", () => {
       ),
       "shape",
     );
-    expect(style).toContain("clip-path: path('M96 48 A48 48 0 0 1 48 96 Z')");
+    expect(style).toContain("clip-path: path('m96 48a48 48 0 0 1-48 48z')");
   });
 
   it("strokes a freeform outline as its real path, not as a border around its box", () => {
@@ -552,7 +557,7 @@ describe("convertToSlideHtml custom geometry", () => {
     );
     expect(styleAttr(html, "shape")).not.toMatch(/(?<!-)border(-\w+)?: /);
     expect(html).toContain(
-      '<path d="M0 0 L96 0 C86.4 38.4 57.6 76.8 28.8 96 Z" fill="none" stroke="#262626" stroke-width="1.5"',
+      '<path d="m0 0 96 0c-9.6 38.4-38.4 76.8-67.2 96z" fill="none" stroke="#262626" stroke-width="1.5"',
     );
   });
 
