@@ -1,0 +1,3 @@
+provider: generic
+url: https://www.agent-native.com/api/desktop-updates
+updaterCacheDirName: '@agent-nativedesktop-app-updater'

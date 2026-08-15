@@ -209,6 +209,7 @@ import {
 import {
   initializeDesktopStartup,
   resolveDesktopSsoBrokerStatePath,
+  runDesktopStartupStep,
 } from "./desktop-startup.js";
 import { registerAppsIpc } from "./ipc/apps";
 import { registerChatFirstMcpIpc } from "./ipc/chat-first-mcp.js";
@@ -10065,12 +10066,22 @@ app.whenReady().then(async () => {
         refreshApplicationMenu();
       },
     });
-    await desktopIdentityBroker.refreshStatus(
-      resolveDesktopIdentityApp("dispatch"),
-    );
+    const shouldContinueStartup = await runDesktopStartupStep({
+      start: () =>
+        desktopIdentityBroker!.refreshStatus(
+          resolveDesktopIdentityApp("dispatch"),
+        ),
+      isShuttingDown: () => appIsQuitting,
+    });
+    if (!shouldContinueStartup) return;
   }
 
-  await initializeDesktopComputerMcpBridge();
+  const shouldContinueStartup = await runDesktopStartupStep({
+    start: initializeDesktopComputerMcpBridge,
+    isShuttingDown: () => appIsQuitting,
+    abort: closeDesktopComputerMcpBridge,
+  });
+  if (!shouldContinueStartup) return;
   // Process any deep link that arrived before the app was ready
   if (pendingDeepLink) {
     handleDeepLink(pendingDeepLink);

@@ -21,6 +21,11 @@ extraResources:
     to: chrome-extension
   - from: build/Assets.car
     to: Assets.car
+  # `electron-builder --dir` skips its normal onAfterPack updater metadata
+  # write. Keep local packaged builds installable by supplying the same cache
+  # configuration that release builds receive automatically.
+  - from: desktop-update-config.yml
+    to: app-update.yml
 
 protocols:
   - name: Agent Native
