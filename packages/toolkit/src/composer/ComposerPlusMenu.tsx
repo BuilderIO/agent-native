@@ -758,7 +758,7 @@ function ComposerPlusMenuFull({
           align="start"
           sideOffset={8}
           className={cn(
-            "p-0 rounded-lg",
+            "rounded-lg border-input bg-muted/45 p-0 text-foreground",
             view === "skill-upload"
               ? "max-h-[70vh] w-[calc(100vw-24px)] max-w-[380px] overflow-y-auto"
               : "w-[260px]",
@@ -830,7 +830,7 @@ function ComposerPlusMenuFull({
                         onMouseEnter={() => openSkillFlyout()}
                         onMouseLeave={scheduleSkillFlyoutClose}
                         className={cn(
-                          "absolute top-0 z-20 w-[240px] rounded-lg border border-border bg-popover py-1 shadow-md",
+                          "absolute top-0 z-20 w-[240px] rounded-lg border border-input bg-muted/45 py-1 text-foreground shadow-md",
                           skillFlyoutSide === "right"
                             ? "left-full ml-1"
                             : "right-full mr-1",
