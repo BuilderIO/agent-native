@@ -158,6 +158,8 @@ export interface PromptComposerProps {
   availableAgents?: ComposerAgentOption[];
   /** Selected agent runtime identifier. */
   selectedAgent?: string;
+  /** Show only the selected agent in the model control. */
+  agentOnly?: boolean;
   /** Callback when the user picks an agent runtime. */
   onAgentChange?: (agent: string) => void;
   /** Called when the shared model picker opens or closes. */
@@ -532,6 +534,7 @@ function PromptComposerInner({
   onEffortChange,
   availableAgents,
   selectedAgent,
+  agentOnly = false,
   onAgentChange,
   onModelSelectorOpenChange,
   modelStatusChecksEnabled,
@@ -720,6 +723,7 @@ function PromptComposerInner({
           availableModels={composerModelGroups}
           availableAgents={availableAgents}
           selectedAgent={selectedAgent}
+          agentOnly={agentOnly}
           showAutoModelOption={showAutoModelOption}
           modelListLoading={composerModelListLoading}
           onModelChange={handleModelChange}

@@ -27,6 +27,7 @@ import {
   isLunaModel,
   readAgentPromptAttachment,
   resolvePreferredAgentModel,
+  type ComposerAgentOption,
   type PromptComposerFile,
   type SlashCommand,
   type TiptapComposerHandle,
@@ -316,6 +317,15 @@ export interface CodeAgentsAppProps {
   renderChatFirstMainSurface?: ReactNode;
   /** Host-rendered replacement for the chat stream and composer region. */
   renderChatFirstChatSurface?: ReactNode;
+  /** Local terminal mode replaces the new-chat run with a PTY prompt. */
+  terminalMode?: {
+    agentId: string;
+    agentLabel: string;
+    onSubmit: (
+      prompt: string,
+      attachments: CodeAgentPromptAttachment[],
+    ) => void | Promise<void>;
+  };
   /** Navigation callbacks for the shared chat-first rail. */
   chatFirstNavigation?: {
     activeTab?: ChatFirstPrimaryTab;
@@ -666,6 +676,7 @@ export default function CodeAgentsApp({
   onChatFirstMainKindChange,
   renderChatFirstMainSurface,
   renderChatFirstChatSurface,
+  terminalMode,
   chatFirstNavigation,
   onChatFirstOpenApp,
   onWatchedRunChange,
@@ -714,11 +725,19 @@ export default function CodeAgentsApp({
     setTranscriptError(null);
     setSelectedRunId(runId);
   }, []);
-  const activeNewSessionExtension = newSessionExtension?.active
+  const activeNewSessionExtension = !terminalMode && newSessionExtension?.active
     ? newSessionExtension
     : null;
-  const newSessionExtensionComposerState =
-    resolveNewSessionExtensionComposerState(newSessionExtension);
+  const newSessionExtensionComposerState = terminalMode
+    ? { active: false, useDefaultModeControl: false, showModelSelector: true }
+    : resolveNewSessionExtensionComposerState(newSessionExtension);
+  const terminalAgentOption: ComposerAgentOption | undefined = terminalMode
+    ? {
+        id: terminalMode.agentId,
+        label: terminalMode.agentLabel,
+        icon: <IconTerminal2 size={14} strokeWidth={1.8} aria-hidden="true" />,
+      }
+    : undefined;
   const selectedRun = useMemo(
     () => runs.find((run) => run.id === selectedRunId) ?? null,
     [runs, selectedRunId],
@@ -1895,6 +1914,32 @@ export default function CodeAgentsApp({
     preparedPrompt: string,
     attachments: CodeAgentPromptAttachment[],
   ) {
+    if (terminalMode) {
+      const prompt = preparedPrompt.trim();
+      if (!prompt) {
+        toast("Describe an outcome first", { duration: 1800 });
+        return;
+      }
+      setCreatingRun(true);
+      try {
+        await terminalMode.onSubmit(prompt, attachments);
+        setNewPrompt("");
+        setNewPromptSeed((seed) => seed + 1);
+        selectRun(null);
+        setSelectedExtensionDetailId(null);
+        setWorkbenchOpen(false);
+        setSearchPanelOpen(false);
+        setMobilePanelOpen(false);
+      } catch (err) {
+        toast("Could not start the terminal", {
+          description: err instanceof Error ? err.message : String(err),
+          duration: 3600,
+        });
+      } finally {
+        setCreatingRun(false);
+      }
+      return;
+    }
     if (activeNewSessionExtension) {
       const prompt = preparedPrompt.trim();
       if (!prompt) {
@@ -2501,7 +2546,8 @@ export default function CodeAgentsApp({
                         ) : (
                           <div className="code-agents-start">
                             <h2>What should we do today?</h2>
-                            {!activeNewSessionExtension &&
+                            {!terminalMode &&
+                              !activeNewSessionExtension &&
                               providerGate.blocked &&
                               !portalSelected && (
                                 <ProviderGateNotice
@@ -2524,25 +2570,34 @@ export default function CodeAgentsApp({
                               promptSeed={newPromptSeed}
                               inputRef={newPromptRef}
                               creating={creatingRun}
+                              terminalAgent={terminalAgentOption}
                               permissionMode={newRunPermissionMode}
                               modelSelection={selectedModelSelection}
                               modelOptions={modelOptions}
                               slashCommands={
-                                activeNewSessionExtension ? [] : slashCommands
+                                terminalMode || activeNewSessionExtension
+                                  ? []
+                                  : slashCommands
                               }
                               disabled={
-                                activeNewSessionExtension
+                                terminalMode
+                                  ? false
+                                  : activeNewSessionExtension
                                   ? activeNewSessionExtension.disabled
                                   : providerGate.blocked && !portalSelected
                               }
                               onDisabledClick={
+                                !terminalMode &&
                                 !activeNewSessionExtension &&
                                 providerGate.blocked &&
                                 !portalSelected
                                   ? bounceProviderGate
                                   : undefined
                               }
-                              modeControl={newSessionExtension?.renderModeControl?.(
+                              modeControl={
+                                terminalMode
+                                  ? undefined
+                                  : newSessionExtension?.renderModeControl?.(
                                 {
                                   permissionMode: newRunPermissionMode,
                                   onPermissionModeChange:
@@ -2550,23 +2605,31 @@ export default function CodeAgentsApp({
                                 },
                               )}
                               useDefaultModeControl={
-                                newSessionExtensionComposerState.useDefaultModeControl
+                                terminalMode
+                                  ? false
+                                  : newSessionExtensionComposerState.useDefaultModeControl
                               }
                               showModelSelector={
-                                newSessionExtensionComposerState.showModelSelector
+                                terminalMode
+                                  ? true
+                                  : newSessionExtensionComposerState.showModelSelector
                               }
                               onPromptChange={setNewPrompt}
                               onPermissionModeChange={setNewRunPermissionMode}
                               onModelSelectionChange={setModelSelection}
                               onSlashCommand={
-                                activeNewSessionExtension
+                                terminalMode || activeNewSessionExtension
                                   ? undefined
                                   : handleSlashCommand
                               }
                               onSubmit={createRunFromPrompt}
-                              onConnectProvider={connectBuilderProvider}
+                              onConnectProvider={
+                                terminalMode ? undefined : connectBuilderProvider
+                              }
                               onConnectLocalRuntime={
-                                !activeNewSessionExtension && host.openTerminal
+                                !terminalMode &&
+                                !activeNewSessionExtension &&
+                                host.openTerminal
                                   ? connectLocalRuntime
                                   : undefined
                               }

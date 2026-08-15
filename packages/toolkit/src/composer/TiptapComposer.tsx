@@ -1717,12 +1717,14 @@ function ModelSelector({
                                 : "cursor-default opacity-50"
                             }`}
                           >
-                            <span
-                              className="flex size-4 shrink-0 items-center justify-center text-muted-foreground"
-                              aria-hidden="true"
-                            >
-                              {agent.icon}
-                            </span>
+                            {agent.icon ? (
+                              <span
+                                className="flex size-4 shrink-0 items-center justify-center text-muted-foreground"
+                                aria-hidden="true"
+                              >
+                                {agent.icon}
+                              </span>
+                            ) : null}
                             <span
                               className={`min-w-0 truncate text-[12px] ${
                                 isSelected
@@ -2154,6 +2156,7 @@ export function TiptapComposer({
   onEffortChange,
   availableAgents,
   selectedAgent,
+  agentOnly = false,
   hostedHarness,
   onAgentChange,
   onModelSelectorOpenChange,
@@ -3665,6 +3668,7 @@ export function TiptapComposer({
             engines={availableModels}
             agents={availableAgents}
             selectedAgent={selectedAgent}
+            agentOnly={agentOnly}
             hostedHarness={hostedHarness}
             showAutoModelOption={showAutoModelOption}
             modelListLoading={modelListLoading}
