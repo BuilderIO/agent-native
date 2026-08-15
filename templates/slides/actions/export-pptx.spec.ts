@@ -850,6 +850,59 @@ describe("cssGradientToDrawingMl", () => {
       cssGradientToDrawingMl("linear-gradient(90deg, #ffffff 0%)"),
     ).toBeUndefined();
   });
+
+  it("reads a `to <side>` direction as its angle rather than as a color stop", () => {
+    // Regression: only `<angle>` was recognized as the configuration argument,
+    // so `to right` reached `colorToHex`, which reported an unreadable color
+    // the way it is meant to — by defaulting to white. The gradient came out
+    // with a phantom white stop the deck never had, pointing down instead of
+    // right.
+    expect(cssGradientToDrawingMl("linear-gradient(to right, #013445, #018589)")).toBe(
+      '<a:gradFill rotWithShape="1"><a:gsLst>' +
+        '<a:gs pos="0"><a:srgbClr val="013445"/></a:gs>' +
+        '<a:gs pos="100000"><a:srgbClr val="018589"/></a:gs>' +
+        '</a:gsLst><a:lin ang="0" scaled="0"/></a:gradFill>',
+    );
+    expect(
+      cssGradientToDrawingMl("linear-gradient(to bottom, #013445, #018589)"),
+    ).toContain('<a:lin ang="5400000" scaled="0"/>');
+    expect(
+      cssGradientToDrawingMl("linear-gradient(to top right, #013445, #018589)"),
+    ).toContain('<a:lin ang="18900000" scaled="0"/>');
+  });
+
+  it("centers a radial gradient that names only its shape, without inventing a stop", () => {
+    for (const css of [
+      "radial-gradient(circle, #013445, #018589)",
+      "radial-gradient(ellipse at center, #013445, #018589)",
+    ]) {
+      const xml = cssGradientToDrawingMl(css);
+      expect(xml).toContain(
+        '<a:fillToRect l="50000" t="50000" r="50000" b="50000"/>',
+      );
+      expect(xml).not.toContain("FFFFFF");
+      expect(xml?.match(/<a:gs /g)).toHaveLength(2);
+    }
+  });
+
+  it("resolves a radial focus written with position keywords", () => {
+    expect(
+      cssGradientToDrawingMl(
+        "radial-gradient(circle at top left, #013445, #018589)",
+      ),
+    ).toContain('<a:fillToRect l="0" t="0" r="100000" b="100000"/>');
+  });
+
+  it("flattens rather than whitens a configuration or stop it cannot read", () => {
+    for (const css of [
+      "linear-gradient(0.25turn, #013445, #018589)", // angle unit we do not convert
+      "linear-gradient(in oklab, #013445, #018589)", // color-interpolation syntax
+      "radial-gradient(circle at 10px 20px, #013445, #018589)", // non-percent focus
+      "linear-gradient(90deg, #013445, notacolor)", // unreadable stop
+    ]) {
+      expect(cssGradientToDrawingMl(css)).toBeUndefined();
+    }
+  });
 });
 
 describe("themeClrSchemeXml", () => {

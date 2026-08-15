@@ -8,13 +8,23 @@ import {
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { toastSuccessMock, toastErrorMock, toastWarningMock } = vi.hoisted(
-  () => ({
-    toastSuccessMock: vi.fn(),
-    toastErrorMock: vi.fn(),
-    toastWarningMock: vi.fn(),
-  }),
-);
+const {
+  toastSuccessMock,
+  toastErrorMock,
+  toastWarningMock,
+  getDeckMock,
+  flushDeckSaveMock,
+} = vi.hoisted(() => ({
+  toastSuccessMock: vi.fn(),
+  toastErrorMock: vi.fn(),
+  toastWarningMock: vi.fn(),
+  getDeckMock: vi.fn(),
+  flushDeckSaveMock: vi.fn(),
+}));
+
+vi.mock("@/context/DeckContext", () => ({
+  useDecks: () => ({ getDeck: getDeckMock, flushDeckSave: flushDeckSaveMock }),
+}));
 
 vi.mock("@agent-native/core", () => ({
   cn: (...args: unknown[]) =>

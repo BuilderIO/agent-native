@@ -116,6 +116,7 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
     ref,
   ) {
     const t = useT();
+    const { getDeck, flushDeckSave } = useDecks();
     const [googleSlidesImportOpen, setGoogleSlidesImportOpen] = useState(false);
     const googleSlidesImportTarget = useRef<Window | null>(null);
     const triggerBlobDownload = (blob: Blob, filename: string) => {
@@ -148,8 +149,35 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
       }
     };
 
+    const exportPptxFromServer = async () => {
+      // The server exports the persisted deck, so an unflushed edit would be
+      // missing from the file the user just asked for.
+      await flushDeckSave(deckId);
+      const res = await fetch(`${appBasePath()}/api/exports/pptx`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deckId }),
+      });
+      if (!res.ok) {
+        throw new Error(
+          await readErrorMessage(res, t("editorExport.exportPptxError")),
+        );
+      }
+      triggerBlobDownload(
+        await res.blob(),
+        filenameFromDisposition(res.headers.get("content-disposition"), ".pptx"),
+      );
+    };
+
     const handleExportPptx = async () => {
       try {
+        // An imported deck's shapes survive only on the server path. Falling
+        // back to the browser exporter on failure would hand back rasterized
+        // silhouettes of the same deck without saying so.
+        if (canExportPptxFromServer(getDeck(deckId))) {
+          await exportPptxFromServer();
+          return;
+        }
         await onExportPptx();
       } catch (err) {
         console.error("Export failed:", err);
