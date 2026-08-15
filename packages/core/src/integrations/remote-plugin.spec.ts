@@ -325,6 +325,43 @@ describe("remote integration plugin routes", () => {
     );
   });
 
+  it("tries the proxy-safe token when Authorization is also present", async () => {
+    const device = {
+      id: "device-1",
+      ownerEmail: "alice@example.com",
+      orgId: null,
+      label: "Studio Mac",
+      deviceTokenHash: "hashed",
+      lastSeenAt: 1,
+      status: "active",
+      createdAt: 1,
+      updatedAt: 1,
+    };
+    authenticateRemoteDeviceTokenMock.mockImplementation(async (token) =>
+      token === "anr_raw-token" ? device : null,
+    );
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/remote/poll?waitMs=0",
+      "POST",
+      { waitMs: 0 },
+      {
+        authorization: "Bearer proxy-supplied-token",
+        "x-agent-native-device-token": "anr_raw-token",
+      },
+    );
+
+    expect(result.status).toBe(200);
+    expect(authenticateRemoteDeviceTokenMock).toHaveBeenNthCalledWith(
+      1,
+      "anr_raw-token",
+    );
+    expect(claimNextRemoteCommandMock).toHaveBeenCalledWith("device-1");
+  });
+
   it("claims only computer operations matching advertised device capabilities", async () => {
     const device = {
       id: "device-1",
