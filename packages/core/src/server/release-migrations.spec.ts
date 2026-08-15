@@ -73,5 +73,17 @@ describe("runFrameworkReleaseMigrations", () => {
       mocks.identitySsoMigrations,
       { table: "_identity_sso_migrations" },
     );
+
+    const migrationTables = mocks.runMigrations.mock.calls.map(
+      ([, options]) => (options as { table: string }).table,
+    );
+    expect(migrationTables).toEqual(
+      expect.arrayContaining([
+        "_chat_thread_schema_migrations",
+        "_agent_run_migrations",
+        "_agent_harness_session_migrations",
+        "_usage_alert_migrations",
+      ]),
+    );
   });
 });

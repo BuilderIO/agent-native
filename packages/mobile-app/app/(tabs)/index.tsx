@@ -10,7 +10,13 @@ import {
   IconUsers,
 } from "@tabler/icons-react-native";
 import { useFocusEffect, useRouter } from "expo-router";
-import { useCallback, useMemo, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -23,6 +29,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import UpcomingMeetingCard from "@/components/UpcomingMeetingCard";
 import { type CaptureJob, listCaptureJobs } from "@/lib/capture-queue";
+import { useChatFirstMode } from "@/lib/chat-first-mode";
 import {
   hasClipsSessionToken,
   syncCaptureJob,
@@ -91,7 +98,7 @@ function jobIcon(job: CaptureJob) {
   return <IconMicrophone color="#f4f4f5" size={17} strokeWidth={1.8} />;
 }
 
-export default function HomeScreen() {
+export function HomeScreen() {
   const router = useRouter();
   const [jobs, setJobs] = useState<CaptureJob[]>([]);
   const [connected, setConnected] = useState(false);
@@ -363,4 +370,19 @@ export default function HomeScreen() {
       </SafeAreaView>
     </View>
   );
+}
+
+export default function MobileEntryScreen() {
+  const router = useRouter();
+  const { enabled: chatFirstMode, loaded } = useChatFirstMode();
+
+  useEffect(() => {
+    if (loaded && chatFirstMode) router.replace("/chat" as never);
+  }, [chatFirstMode, loaded, router]);
+
+  if (!loaded || chatFirstMode) {
+    return <View className="flex-1 bg-background-dark" />;
+  }
+
+  return <HomeScreen />;
 }

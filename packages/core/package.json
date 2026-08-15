@@ -396,7 +396,7 @@
     "@tanstack/react-table": "^8.21.3",
     "@uiw/react-codemirror": "^4.25.10",
     "ajv": "^8.20.0",
-    "better-auth": "1.6.16",
+    "better-auth": "1.6.28",
     "better-sqlite3": "^12.8.0",
     "botframework-connector": "^4.23.3",
     "clsx": "catalog:",

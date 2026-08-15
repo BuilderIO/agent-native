@@ -5,6 +5,7 @@ import { defineAction } from "@agent-native/core";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { resolveAccess } from "@agent-native/core/sharing";
+import type PptxGenJS from "pptxgenjs";
 import { z } from "zod";
 
 import "../server/db/index.js"; // ensure registerShareableResource runs
@@ -19,6 +20,9 @@ import {
   ASPECT_RATIO_VALUES,
 } from "../shared/aspect-ratios.js";
 
+type TableCell = PptxGenJS.TableCell;
+type TableRow = PptxGenJS.TableRow;
+
 /**
  * Extract inline style value for a given property from a style string.
  */
@@ -29,42 +33,76 @@ function getStyle(style: string, prop: string): string | null {
 }
 
 /**
- * Convert a CSS color string to a 6-char hex string (no #).
+ * Convert a CSS color string to a 6-char hex string (no #) plus an optional
+ * pptxgenjs transparency (0-100, percent transparent) carried from an
+ * alpha-bearing CSS color.
  * Handles #hex, #shortHex, rgb(), rgba(), and named colors.
  */
-function colorToHex(color: string): string {
-  if (!color) return "FFFFFF";
+function colorToHex(color: string): { hex: string; transparency?: number } {
+  if (!color) return { hex: "FFFFFF" };
 
   // Strip quotes / trim
   color = color.replace(/['"]/g, "").trim();
 
   // Already hex
-  if (/^#[0-9a-f]{6}$/i.test(color)) return color.slice(1).toUpperCase();
+  if (/^#[0-9a-f]{8}$/i.test(color)) {
+    const alpha = parseInt(color.slice(7, 9), 16) / 255;
+    return {
+      hex: color.slice(1, 7).toUpperCase(),
+      transparency: Math.round((1 - alpha) * 100),
+    };
+  }
+  if (/^#[0-9a-f]{6}$/i.test(color))
+    return { hex: color.slice(1).toUpperCase() };
   if (/^#[0-9a-f]{3}$/i.test(color)) {
     const r = color[1],
       g = color[2],
       b = color[3];
-    return `${r}${r}${g}${g}${b}${b}`.toUpperCase();
+    return { hex: `${r}${r}${g}${g}${b}${b}`.toUpperCase() };
   }
 
   // rgb / rgba
   const rgbMatch = color.match(
-    /rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*[\d.]+)?\s*\)/,
+    /rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([\d.]+))?\s*\)/,
   );
   if (rgbMatch) {
     const hex = (n: string) => parseInt(n).toString(16).padStart(2, "0");
-    return `${hex(rgbMatch[1])}${hex(rgbMatch[2])}${hex(rgbMatch[3])}`.toUpperCase();
+    const result = {
+      hex: `${hex(rgbMatch[1])}${hex(rgbMatch[2])}${hex(rgbMatch[3])}`.toUpperCase(),
+    };
+    if (rgbMatch[4] === undefined) return result;
+    const alpha = parseFloat(rgbMatch[4]);
+    return { ...result, transparency: Math.round((1 - alpha) * 100) };
   }
 
-  // Common named colors used in the slide templates
+  // Named colors used in the slide templates, plus the CSS Level 1 keyword set.
   const named: Record<string, string> = {
     white: "FFFFFF",
     black: "000000",
     transparent: "000000",
+    silver: "C0C0C0",
+    gray: "808080",
+    grey: "808080",
+    maroon: "800000",
+    red: "FF0000",
+    purple: "800080",
+    fuchsia: "FF00FF",
+    green: "008000",
+    lime: "00FF00",
+    olive: "808000",
+    yellow: "FFFF00",
+    navy: "000080",
+    blue: "0000FF",
+    teal: "008080",
+    aqua: "00FFFF",
   };
-  if (named[color.toLowerCase()]) return named[color.toLowerCase()];
+  const hex = named[color.toLowerCase()];
+  if (hex) return { hex };
 
-  return "FFFFFF";
+  console.warn(
+    `[export-pptx] unrecognized color "${color}", defaulting to white`,
+  );
+  return { hex: "FFFFFF" };
 }
 
 /**
@@ -79,11 +117,16 @@ function pxToIn(
 }
 
 /**
- * Convert CSS font-size px to PowerPoint points.
- * 1px CSS ≈ 0.75pt.
+ * Convert CSS font-size px to PowerPoint points, using this deck's actual
+ * px/inch ratio (like `pxToIn` above) instead of assuming 96 CSS px/inch —
+ * the ratio varies by aspect ratio (72 for 16:9/9:16, 108 for 1:1/4:5).
  */
-function pxToPt(px: number): number {
-  return Math.round(px * 0.75);
+function pxToPt(
+  px: number,
+  dims: { width: number; pptxInches: { w: number } },
+): number {
+  const pxPerInch = dims.width / dims.pptxInches.w;
+  return Math.round((px / pxPerInch) * 72);
 }
 
 interface TextElement {
@@ -91,6 +134,7 @@ interface TextElement {
   fontSize: number; // in pt
   fontFace: string;
   color: string; // 6-char hex
+  transparency?: number; // 0-100, percent transparent
   bold: boolean;
   x: number; // inches
   y: number; // inches
@@ -109,6 +153,7 @@ interface TextRunElement {
     fontSize?: number;
     fontFace?: string;
     color?: string;
+    transparency?: number; // 0-100, percent transparent
     bold?: boolean;
     italic?: boolean;
     underline?: { style: "sng" };
@@ -130,14 +175,26 @@ interface ShapeElement {
   w: number;
   h: number;
   fill?: string;
+  fillTransparency?: number; // 0-100, percent transparent
   lineColor?: string;
+  lineTransparency?: number; // 0-100, percent transparent
   lineWidth?: number;
   rounded?: boolean;
   order?: number;
 }
 
+interface TableElement {
+  rows: TableRow[];
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  order?: number;
+}
+
 interface GridElement {
   color: string;
+  transparency?: number; // 0-100, percent transparent
   stepX: number;
   stepY: number;
   offsetX: number;
@@ -165,6 +222,16 @@ export function assertServerPptxExportable(
   throw error;
 }
 
+interface ParsedSlide {
+  texts: TextElement[];
+  images: ImageElement[];
+  shapes: ShapeElement[];
+  tables: TableElement[];
+  grid?: GridElement;
+  bgColor: string;
+  bgTransparency?: number; // 0-100, percent transparent
+}
+
 /**
  * Parse slide HTML and extract text/image elements with positioning.
  * We know the exact HTML structure from the slide templates.
@@ -173,13 +240,7 @@ export function parseSlideHtml(
   html: string,
   aspectRatio?: AspectRatio,
   slideNumber = 1,
-): {
-  texts: TextElement[];
-  images: ImageElement[];
-  shapes: ShapeElement[];
-  grid?: GridElement;
-  bgColor: string;
-} {
+): ParsedSlide {
   assertServerPptxExportable(html, slideNumber);
   const dims = getAspectRatioDims(aspectRatio);
   if (html.includes('data-imported-pdf="true"')) {
@@ -193,6 +254,7 @@ export function parseSlideHtml(
   const images: ImageElement[] = [];
   const shapes: ShapeElement[] = [];
   let bgColor = "000000";
+  let bgTransparency: number | undefined;
 
   const slideW = dims.pptxInches.w;
   const slideH = dims.pptxInches.h;
@@ -201,7 +263,11 @@ export function parseSlideHtml(
   const slideStyleMatch = html.match(/class="fmd-slide"[^>]*style="([^"]*)"/);
   if (slideStyleMatch) {
     const bg = getStyle(slideStyleMatch[1], "background(?:-color)?");
-    if (bg) bgColor = colorToHex(bg);
+    if (bg) {
+      const parsedBg = colorToHex(bg);
+      bgColor = parsedBg.hex;
+      bgTransparency = parsedBg.transparency;
+    }
   }
 
   // Extract padding from the .fmd-slide wrapper
@@ -351,47 +417,44 @@ export function parseSlideHtml(
       const mbStr = getStyle(style, "margin-bottom");
       if (mbStr) marginBottom = parseInt(mbStr) || 0;
 
+      const parsedColor = colorToHex(color);
       texts.push({
         text,
-        fontSize: pxToPt(fontSize),
+        fontSize: pxToPt(fontSize, dims),
         fontFace: "Poppins",
-        color: colorToHex(color),
+        color: parsedColor.hex,
+        transparency: parsedColor.transparency,
         bold,
         x: xMargin,
         y: yPos,
         w: contentW,
         h: elHeight + 0.2,
         letterSpacing: letterSpacing ? parseFloat(letterSpacing) : undefined,
-        lineSpacing: lineH ? Math.round(lineH * pxToPt(fontSize)) : undefined,
+        lineSpacing: lineH
+          ? Math.round(lineH * pxToPt(fontSize, dims))
+          : undefined,
       });
 
       yPos += elHeight + pxToIn(marginBottom, dims) + 0.1;
     }
   }
 
-  return { texts, images, shapes, bgColor };
+  return { texts, images, shapes, tables: [], bgColor, bgTransparency };
 }
 
 type SlideDims = ReturnType<typeof getAspectRatioDims>;
 
-function parseImportedPdfSlideHtml(
-  html: string,
-  dims: SlideDims,
-): {
-  texts: TextElement[];
-  images: ImageElement[];
-  shapes: ShapeElement[];
-  grid?: GridElement;
-  bgColor: string;
-} {
+function parseImportedPdfSlideHtml(html: string, dims: SlideDims): ParsedSlide {
   const outerStyle = html.match(
     /class=["'][^"']*\bfmd-slide\b[^"']*["'][^>]*style=["']([^"']*)["']/i,
   )?.[1];
-  const bgColor = colorToHex(
+  const parsedBg = colorToHex(
     outerStyle
       ? (getStyle(outerStyle, "background(?:-color)?") ?? "#000000") // guard:allow-raw-color - imported PDF fallback
       : "#000000", // guard:allow-raw-color - imported PDF fallback
   );
+  const bgColor = parsedBg.hex;
+  const bgTransparency = parsedBg.transparency;
   const src = html.match(/<img\b[^>]*\bsrc=["']([^"']+)["'][^>]*>/i)?.[1];
   const outerAttrs = html.match(/<div\b([^>]*)>/i)?.[1] ?? "";
   const sourceWidth = Number.parseFloat(
@@ -435,34 +498,30 @@ function parseImportedPdfSlideHtml(
         ]
       : [],
     shapes: [],
+    tables: [],
     bgColor,
+    bgTransparency,
   };
 }
 
-function parseImportedSlideHtml(
-  html: string,
-  dims: SlideDims,
-): {
-  texts: TextElement[];
-  images: ImageElement[];
-  shapes: ShapeElement[];
-  grid?: GridElement;
-  bgColor: string;
-} {
+function parseImportedSlideHtml(html: string, dims: SlideDims): ParsedSlide {
   const texts: TextElement[] = [];
   const images: ImageElement[] = [];
   const shapes: ShapeElement[] = [];
+  const tables: TableElement[] = [];
   const outerStyle = html.match(
     /class=["'][^"']*\bfmd-slide\b[^"']*["'][^>]*style=["']([^"']*)["']/i,
   )?.[1];
-  const bgColor = colorToHex(
+  const parsedBg = colorToHex(
     outerStyle
       ? (getStyle(outerStyle, "background(?:-color)?") ?? "#000000") // guard:allow-raw-color - PPTX background fallback
       : "#000000", // guard:allow-raw-color - PPTX background fallback
   );
+  const bgColor = parsedBg.hex;
+  const bgTransparency = parsedBg.transparency;
   const grid = outerStyle ? parseImportedGrid(outerStyle) : undefined;
   const elementRegex =
-    /<div\b([^>]*\bdata-pptx-element-kind=["'](text|image|shape)["'][^>]*)>([\s\S]*?)<\/div>/gi;
+    /<div\b([^>]*\bdata-pptx-element-kind=["'](text|image|shape|table)["'][^>]*)>([\s\S]*?)<\/div>/gi;
   let match: RegExpExecArray | null;
   while ((match = elementRegex.exec(html)) !== null) {
     const attrs = match[1];
@@ -485,14 +544,18 @@ function parseImportedSlideHtml(
       const fill = getStyle(style, "background(?:-color)?");
       const border = getStyle(style, "border");
       const borderMatch = border?.match(/([\d.]+)px\s+solid\s+(.+)/i);
+      const parsedFill =
+        fill && !fill.includes("gradient") ? colorToHex(fill) : undefined;
+      const parsedLine = borderMatch ? colorToHex(borderMatch[2]) : undefined;
       shapes.push({
         ...geometry,
-        ...(fill && !fill.includes("gradient")
-          ? { fill: colorToHex(fill) }
+        ...(parsedFill
+          ? { fill: parsedFill.hex, fillTransparency: parsedFill.transparency }
           : {}),
-        ...(borderMatch
+        ...(borderMatch && parsedLine
           ? {
-              lineColor: colorToHex(borderMatch[2]),
+              lineColor: parsedLine.hex,
+              lineTransparency: parsedLine.transparency,
               lineWidth: Number(borderMatch[1]),
             }
           : {}),
@@ -502,7 +565,15 @@ function parseImportedSlideHtml(
       continue;
     }
 
-    const runs = importedTextRuns(innerHtml);
+    if (kind === "table") {
+      const rows = importedTableRows(innerHtml, dims);
+      if (rows.length > 0) {
+        tables.push({ ...geometry, rows, order: match.index });
+      }
+      continue;
+    }
+
+    const runs = importedTextRuns(innerHtml, dims);
     const firstRun = runs.find((run) => run.text.trim()) ?? runs[0];
     const firstParagraph = innerHtml.match(
       /<p\b[^>]*style=["']([^"']*)["']/i,
@@ -517,6 +588,7 @@ function parseImportedSlideHtml(
       fontSize,
       fontFace: firstRun?.options.fontFace ?? "Poppins",
       color: firstRun?.options.color ?? "FFFFFF",
+      transparency: firstRun?.options.transparency,
       bold: firstRun?.options.bold ?? false,
       align:
         alignValue === "center" || alignValue === "right" ? alignValue : "left",
@@ -530,7 +602,7 @@ function parseImportedSlideHtml(
     });
   }
 
-  return { texts, images, shapes, grid, bgColor };
+  return { texts, images, shapes, tables, grid, bgColor, bgTransparency };
 }
 
 function parseImportedGrid(style: string): GridElement | undefined {
@@ -559,8 +631,10 @@ function parseImportedGrid(style: string): GridElement | undefined {
   ) {
     return undefined;
   }
+  const parsedColor = colorToHex(color);
   return {
-    color: colorToHex(color),
+    color: parsedColor.hex,
+    transparency: parsedColor.transparency,
     stepX: size[0],
     stepY: size[1],
     offsetX: position[0],
@@ -591,7 +665,7 @@ function pxToInY(px: number, dims: SlideDims): number {
   return (px / dims.height) * dims.pptxInches.h;
 }
 
-function importedTextRuns(html: string): TextRunElement[] {
+function importedTextRuns(html: string, dims: SlideDims): TextRunElement[] {
   const paragraphs = [...html.matchAll(/<p\b[^>]*>([\s\S]*?)<\/p>/gi)].map(
     (match) => match[1],
   );
@@ -610,24 +684,105 @@ function importedTextRuns(html: string): TextRunElement[] {
       const style = getAttribute(attrs, "style") ?? "";
       const text = decodeHtmlText(stripTags(span[2]));
       if (!text) continue;
-      runs.push({ text, options: importedRunOptions(style) });
+      runs.push({ text, options: importedRunOptions(style, dims) });
     }
   });
   return runs;
 }
 
-function importedRunOptions(style: string): TextRunElement["options"] {
+function importedTableRows(html: string, dims: SlideDims): TableRow[] {
+  return [...html.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)].map(
+    (rowMatch): TableRow =>
+      [...rowMatch[1].matchAll(/<t[dh]\b([^>]*)>([\s\S]*?)<\/t[dh]>/gi)].map(
+        (cellMatch): TableCell => {
+          const attrs = cellMatch[1];
+          const cellHtml = cellMatch[2];
+          const style = getAttribute(attrs, "style") ?? "";
+          const runs = importedTextRuns(cellHtml, dims);
+          const fill = getStyle(style, "background(?:-color)?");
+          const parsedFill = fill ? colorToHex(fill) : undefined;
+          const border = getStyle(style, "border");
+          const borderMatch = border?.match(/([\d.]+)px\s+solid\s+(.+)/i);
+          const parsedBorder = borderMatch
+            ? colorToHex(borderMatch[2])
+            : undefined;
+          const colSpan = Number.parseInt(
+            getAttribute(attrs, "colspan") ?? "",
+            10,
+          );
+          const rowSpan = Number.parseInt(
+            getAttribute(attrs, "rowspan") ?? "",
+            10,
+          );
+          const align = getStyle(style, "text-align");
+          const verticalAlign = getStyle(style, "vertical-align");
+          const options: NonNullable<TableCell["options"]> = {
+            ...(align === "center" || align === "right" || align === "justify"
+              ? { align }
+              : {}),
+            ...(verticalAlign === "top" ||
+            verticalAlign === "middle" ||
+            verticalAlign === "bottom"
+              ? { valign: verticalAlign }
+              : {}),
+            ...(parsedFill
+              ? {
+                  fill: {
+                    color: parsedFill.hex,
+                    ...(parsedFill.transparency != null
+                      ? { transparency: parsedFill.transparency }
+                      : {}),
+                  },
+                }
+              : {}),
+            ...(parsedBorder && borderMatch
+              ? {
+                  border: {
+                    type: "solid" as const,
+                    color: parsedBorder.hex,
+                    pt: Math.max(
+                      0.5,
+                      pxToPt(Number.parseFloat(borderMatch[1]), dims),
+                    ),
+                  },
+                }
+              : {}),
+            ...(Number.isFinite(colSpan) && colSpan > 1
+              ? { colspan: colSpan }
+              : {}),
+            ...(Number.isFinite(rowSpan) && rowSpan > 1
+              ? { rowspan: rowSpan }
+              : {}),
+          };
+          const text: TableCell["text"] =
+            runs.length > 0
+              ? runs.map((run) => ({ text: run.text, options: run.options }))
+              : "";
+          return { text, options };
+        },
+      ),
+  );
+}
+
+function importedRunOptions(
+  style: string,
+  dims: SlideDims,
+): TextRunElement["options"] {
   const fontSizePx = cssPx(style, "font-size");
   const fontFamily = getStyle(style, "font-family")
     ?.replace(/["']/g, "")
     .split(",")[0]
     ?.trim();
   const fontWeight = getStyle(style, "font-weight");
+  const colorValue = getStyle(style, "color");
+  const parsedColor = colorValue
+    ? colorToHex(colorValue) // guard:allow-raw-color - PPTX text fallback
+    : undefined;
   return {
-    ...(fontSizePx != null ? { fontSize: pxToPt(fontSizePx) } : {}),
+    ...(fontSizePx != null ? { fontSize: pxToPt(fontSizePx, dims) } : {}),
     ...(fontFamily ? { fontFace: fontFamily } : {}),
-    ...(getStyle(style, "color")
-      ? { color: colorToHex(getStyle(style, "color") ?? "#FFFFFF") } // guard:allow-raw-color - PPTX text fallback
+    ...(parsedColor
+      ? { color: parsedColor.hex, transparency: parsedColor.transparency }
       : {}),
     ...(fontWeight
       ? {
@@ -771,13 +926,13 @@ export default defineAction({
         slide && typeof slide === "object" && typeof slide.content === "string"
           ? slide.content
           : "";
-      const { texts, images, shapes, grid, bgColor } = parseSlideHtml(
-        slideContent,
-        aspectRatio,
-        slideIndex + 1,
-      );
+      const { texts, images, shapes, tables, grid, bgColor, bgTransparency } =
+        parseSlideHtml(slideContent, aspectRatio, slideIndex + 1);
 
-      pptxSlide.background = { color: bgColor };
+      pptxSlide.background = {
+        color: bgColor,
+        ...(bgTransparency != null ? { transparency: bgTransparency } : {}),
+      };
 
       if (grid) {
         const gridWidth = pxToIn(grid.stepX, dims);
@@ -785,6 +940,13 @@ export default defineAction({
         const gridX = pxToIn(grid.offsetX, dims);
         const gridY = pxToInY(grid.offsetY, dims);
         const lineWidth = Math.max(0.5, grid.lineWidth * 0.75);
+        const gridLine = {
+          color: grid.color,
+          width: lineWidth,
+          ...(grid.transparency != null
+            ? { transparency: grid.transparency }
+            : {}),
+        };
 
         for (let x = gridX; x < dims.pptxInches.w; x += gridWidth) {
           pptxSlide.addShape(pptx.ShapeType.line, {
@@ -792,7 +954,7 @@ export default defineAction({
             y: 0,
             w: 0,
             h: dims.pptxInches.h,
-            line: { color: grid.color, width: lineWidth },
+            line: gridLine,
           });
         }
         for (let y = gridY; y < dims.pptxInches.h; y += gridHeight) {
@@ -801,7 +963,7 @@ export default defineAction({
             y,
             w: dims.pptxInches.w,
             h: 0,
-            line: { color: grid.color, width: lineWidth },
+            line: gridLine,
           });
         }
       }
@@ -815,6 +977,9 @@ export default defineAction({
       const orderedShapes = [...shapes].sort(
         (a, b) => (a.order ?? 0) - (b.order ?? 0),
       );
+      const orderedTables = [...tables].sort(
+        (a, b) => (a.order ?? 0) - (b.order ?? 0),
+      );
 
       // Imported elements are parsed separately because PptxGenJS needs real
       // slide objects. Keep their source order so overlapping objects retain
@@ -823,6 +988,7 @@ export default defineAction({
         ...orderedTexts.map((value) => ({ kind: "text" as const, value })),
         ...orderedImages.map((value) => ({ kind: "image" as const, value })),
         ...orderedShapes.map((value) => ({ kind: "shape" as const, value })),
+        ...orderedTables.map((value) => ({ kind: "table" as const, value })),
       ].sort((a, b) => (a.value.order ?? 0) - (b.value.order ?? 0));
 
       for (const object of orderedObjects) {
@@ -840,6 +1006,7 @@ export default defineAction({
             align: t.align || "left",
             valign: "top" as const,
             wrap: true,
+            ...(t.transparency != null ? { transparency: t.transparency } : {}),
             ...(t.letterSpacing != null
               ? { charSpacing: t.letterSpacing }
               : {}),
@@ -864,6 +1031,17 @@ export default defineAction({
               h: img.h,
             });
           }
+        } else if (object.kind === "table") {
+          const table = object.value;
+          pptxSlide.addTable(table.rows, {
+            x: table.x,
+            y: table.y,
+            w: table.w,
+            h: table.h,
+            autoPage: false,
+            border: { type: "solid", color: "FFFFFF", pt: 0.5 },
+            margin: 0.04,
+          });
         } else {
           const shape = object.value;
           pptxSlide.addShape(
@@ -873,12 +1051,24 @@ export default defineAction({
               y: shape.y,
               w: shape.w,
               h: shape.h,
-              ...(shape.fill ? { fill: { color: shape.fill } } : {}),
+              ...(shape.fill
+                ? {
+                    fill: {
+                      color: shape.fill,
+                      ...(shape.fillTransparency != null
+                        ? { transparency: shape.fillTransparency }
+                        : {}),
+                    },
+                  }
+                : {}),
               ...(shape.lineColor
                 ? {
                     line: {
                       color: shape.lineColor,
                       width: shape.lineWidth ?? 1,
+                      ...(shape.lineTransparency != null
+                        ? { transparency: shape.lineTransparency }
+                        : {}),
                     },
                   }
                 : {}),

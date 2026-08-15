@@ -22,7 +22,6 @@ import {
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 
 import AppWebView from "@/components/AppWebView";
-import { ChatFirstMobileRail } from "@/components/chat/ChatFirstMobileRail";
 import {
   ChatSettingsSheet,
   DEFAULT_CHAT_SETTINGS,
@@ -36,10 +35,8 @@ import { createThreadShareLink, forkChatThread } from "@/lib/agent-chat/api";
 import type { ChatMessage } from "@/lib/agent-chat/types";
 import { messageText } from "@/lib/agent-chat/types";
 import { useAgentChat } from "@/lib/agent-chat/use-agent-chat";
-import { useChatFirstMode } from "@/lib/chat-first-mode";
 import { getAppUrl } from "@/lib/get-app-url";
 import { getSessionToken } from "@/lib/session-token-store";
-import { useApps } from "@/lib/use-apps";
 
 const chatApp = TEMPLATE_APPS.find((a) => a.id === "chat")!;
 
@@ -99,8 +96,6 @@ export default function ChatTab() {
   const [actionsFor, setActionsFor] = useState<ChatMessage | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [settings, setSettings] = useChatSettings();
-  const { enabled: chatFirstMode } = useChatFirstMode();
-  const { enabledApps } = useApps();
   const chat = useAgentChat(settings);
 
   // A model/engine chosen for one app may not exist in another deployment.
@@ -246,14 +241,6 @@ export default function ChatTab() {
           <IconSquareRoundedPlus color="#fafafa" size={20} strokeWidth={1.9} />
         </HeaderButton>
       </View>
-
-      {chatFirstMode && (
-        <ChatFirstMobileRail
-          apps={enabledApps}
-          onHistory={() => setHistoryOpen(true)}
-          onSettings={() => setSettingsOpen(true)}
-        />
-      )}
 
       <KeyboardAvoidingView
         behavior="padding"

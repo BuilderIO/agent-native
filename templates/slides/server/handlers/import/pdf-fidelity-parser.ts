@@ -19,14 +19,16 @@ export interface PdfFidelityPage {
   heightEmu: number;
   /** The page's own painted background, when a full-page fill was found; undefined means "plain paper" (render white). */
   backgroundColor: string | undefined;
-  /** Images first (so they paint as backgrounds), then text blocks on top. */
+  /** Sorted by the PDF's own real paint order, so an image painted over text (or vice versa) keeps its real stacking instead of images always sitting behind. */
   elements: ParsedElement[];
+  /** Images detected on this page whose pixel data could not be matched to a paint placement (extraction failed, or no canvas renderer was available) — intentionally size-filtered placements are not counted. */
+  imagesSkipped: number;
 }
 
 /** An embedded raster image already resolved by `pdf.getImage()`, keyed by its page. */
 export interface PdfPageImage {
   pageNumber: number;
-  images: { data: Uint8Array }[];
+  images: { data: Uint8Array; name: string }[];
 }
 
 interface Rect {
@@ -35,6 +37,8 @@ interface Rect {
   right: number;
   bottom: number;
 }
+
+type PdfOperatorList = Awaited<ReturnType<PDFPageProxy["getOperatorList"]>>;
 
 export function applyPoint(m: Mat, x: number, y: number): [number, number] {
   const p: [number, number] = [x, y];
@@ -80,6 +84,9 @@ export interface TextRunBox extends Rect {
   color: string;
   underline: boolean;
   href: string | undefined;
+  fontFamily: string | undefined;
+  /** Index in this page's real content-stream paint order, shared with image paint events — lets the final element list be z-ordered by how the PDF actually painted it instead of images-always-first. */
+  paintOrder: number;
 }
 
 /** A thin filled/stroked rect from the content stream — the usual way PDFs draw an underline (there's no inline "underline" text attribute). */
@@ -161,6 +168,10 @@ const TEXT_SHOWING_OPS = new Set([
   OPS.nextLineSetSpacingShowText,
 ]);
 
+function isImagePaintOp(fn: number): boolean {
+  return fn === OPS.paintImageXObject || fn === OPS.paintInlineImageXObject;
+}
+
 const FILL_PAINT_OPS = new Set([
   OPS.fill,
   OPS.eoFill,
@@ -194,6 +205,30 @@ const BACKGROUND_COVERAGE_RATIO = 0.9;
  * their operands (see `fillColorFromOp`), not just which op it is.
  */
 const UNTRACKED_COLOR_OPS = new Set([OPS.setFillColorSpace, OPS.shadingFill]);
+
+/** A PDF-embedded subset font name is prefixed with a 6-letter tag plus "+" (e.g. "MUFUZY+Poppins-Bold") — that tag and the PostScript style suffix after it are never real CSS font-family values. */
+const SUBSET_TAG_PATTERN = /^[a-z]{6}\+/i;
+
+/**
+ * Maps a PDF's real (subset-tag-stripped) font name onto the nearest
+ * websafe CSS family by a simple keyword match, since the raw PostScript
+ * name (e.g. "TimesNewRomanPSMT") usually isn't installed or resolvable as
+ * a browser font-family at all. Returns undefined for an unresolved font id
+ * so the caller falls back to the deck's default font instead of rendering
+ * a literal empty family.
+ */
+function toWebSafeFontFamily(fontName: string): string | undefined {
+  const base = fontName.replace(SUBSET_TAG_PATTERN, "").split(/[-,]/)[0].trim();
+  if (!base) return undefined;
+  const normalized = base.toLowerCase();
+  if (/times|georgia|garamond|cambria|palatino|serif/.test(normalized)) {
+    return "Georgia";
+  }
+  if (/courier|mono|consolas/.test(normalized)) {
+    return "Courier New";
+  }
+  return base;
+}
 
 /**
  * `getTextContent()` gives baseline position + font size per run but no
@@ -244,6 +279,11 @@ export function textItemToBox(
     color,
     underline: false,
     href: undefined,
+    fontFamily: toWebSafeFontFamily(fontName),
+    // Real paint order is only known once this box is sliced from its
+    // originating content-stream op in `sliceTextItemBySegments` — callers
+    // overwrite this with the real value; 0 is just a type-satisfying default.
+    paintOrder: 0,
   };
 }
 
@@ -279,6 +319,8 @@ export function mergeLine(items: TextRunBox[]): TextRunBox {
     color: sorted[0].color,
     underline: sorted.some((s) => s.underline),
     href: sorted.find((s) => s.href)?.href,
+    fontFamily: sorted[0].fontFamily,
+    paintOrder: Math.min(...sorted.map((s) => s.paintOrder)),
   };
 }
 
@@ -331,20 +373,112 @@ export function annotateLineDecorations(
 
 /** Group same-baseline runs into lines, in the order pdf.js emitted them (reading order for typical single-column pages). */
 export function groupIntoLines(items: TextRunBox[]): TextRunBox[] {
-  return groupByBaseline(items).map(mergeLine);
+  return groupByBaseline(items, detectColumnGutter(items)).map(mergeLine);
 }
 
-/** Shared by `groupIntoLines` and `groupIntoStyledLines`: cluster items whose baselines are close enough to read as the same physical line. */
-function groupByBaseline(items: TextRunBox[]): TextRunBox[][] {
+/** Buckets scanned across a page's text-item x-span when looking for a recurring empty column gutter. */
+const COLUMN_GUTTER_BUCKET_COUNT = 40;
+/** A candidate gutter must span at least this fraction of the page's text width — an ordinary word/paragraph gap never gets close. */
+const MIN_COLUMN_GUTTER_WIDTH_FRACTION = 0.06;
+/** Each side of a candidate gutter needs at least this many items, or it's a stray gap rather than a second column. */
+const MIN_ITEMS_PER_COLUMN = 3;
+
+interface ColumnGutter {
+  start: number;
+  end: number;
+}
+
+/**
+ * Looks for an x-band that no text item's [left, right] range ever crosses,
+ * strictly inside the page's overall text span (not a page margin). A band
+ * that wide and that consistently empty across every line on the page — not
+ * just one line's word gap, which some other line would fill in — is a real
+ * column boundary.
+ *
+ * ponytail: one global gutter per page, not per text-region — a page with
+ * more than two columns, or columns that don't share a single vertical
+ * gutter, won't be detected. Upgrade to a real column-layout pass if that
+ * shows up in practice.
+ */
+function detectColumnGutter(items: Rect[]): ColumnGutter | undefined {
+  if (items.length < MIN_ITEMS_PER_COLUMN * 2) return undefined;
+  const minX = Math.min(...items.map((i) => i.left));
+  const maxX = Math.max(...items.map((i) => i.right));
+  const span = maxX - minX;
+  if (span <= 0) return undefined;
+  const bucketWidth = span / COLUMN_GUTTER_BUCKET_COUNT;
+  const covered = new Array<boolean>(COLUMN_GUTTER_BUCKET_COUNT).fill(false);
+  for (const item of items) {
+    const startBucket = Math.max(
+      0,
+      Math.floor((item.left - minX) / bucketWidth),
+    );
+    const endBucket = Math.min(
+      COLUMN_GUTTER_BUCKET_COUNT - 1,
+      Math.floor((item.right - minX) / bucketWidth),
+    );
+    for (let b = startBucket; b <= endBucket; b++) covered[b] = true;
+  }
+  let bestStart = -1;
+  let bestLength = 0;
+  let runStart = -1;
+  // Buckets 0 and the last one are page margins, not a gutter between columns.
+  for (let b = 1; b < COLUMN_GUTTER_BUCKET_COUNT - 1; b++) {
+    if (covered[b]) {
+      runStart = -1;
+      continue;
+    }
+    if (runStart === -1) runStart = b;
+    const length = b - runStart + 1;
+    if (length > bestLength) {
+      bestLength = length;
+      bestStart = runStart;
+    }
+  }
+  const minBuckets = Math.ceil(
+    COLUMN_GUTTER_BUCKET_COUNT * MIN_COLUMN_GUTTER_WIDTH_FRACTION,
+  );
+  if (bestStart === -1 || bestLength < minBuckets) return undefined;
+  const start = minX + bestStart * bucketWidth;
+  const end = minX + (bestStart + bestLength) * bucketWidth;
+  const leftCount = items.filter((i) => i.right <= start).length;
+  const rightCount = items.filter((i) => i.left >= end).length;
+  if (leftCount < MIN_ITEMS_PER_COLUMN || rightCount < MIN_ITEMS_PER_COLUMN) {
+    return undefined;
+  }
+  return { start, end };
+}
+
+/** Which side of a detected column gutter an item falls on; undefined when there's no gutter or the item straddles it. */
+function columnSideOf(
+  item: Rect,
+  gutter: ColumnGutter | undefined,
+): 0 | 1 | undefined {
+  if (!gutter) return undefined;
+  if (item.right <= gutter.start) return 0;
+  if (item.left >= gutter.end) return 1;
+  return undefined;
+}
+
+/** Shared by `groupIntoLines` and `groupIntoStyledLines`: cluster items whose baselines are close enough to read as the same physical line, but never across a detected column gutter even when two columns' baselines coincide. */
+function groupByBaseline(
+  items: TextRunBox[],
+  columnGutter?: ColumnGutter,
+): TextRunBox[][] {
   const lines: TextRunBox[][] = [];
   let current: TextRunBox[] = [];
   for (const item of items) {
     const prev = current[current.length - 1];
-    if (
-      prev &&
+    const differentBaseline =
+      prev !== undefined &&
       Math.abs(item.top - prev.top) >
-        Math.max(item.fontSize, prev.fontSize) * 0.4
-    ) {
+        Math.max(item.fontSize, prev.fontSize) * 0.4;
+    const differentColumn =
+      prev !== undefined &&
+      columnSideOf(prev, columnGutter) !== undefined &&
+      columnSideOf(item, columnGutter) !== undefined &&
+      columnSideOf(prev, columnGutter) !== columnSideOf(item, columnGutter);
+    if (prev && (differentBaseline || differentColumn)) {
       lines.push(current);
       current = [item];
     } else {
@@ -379,7 +513,8 @@ export function mergeLineRuns(items: TextRunBox[]): TextRunBox[] {
       prev.bold === item.bold &&
       prev.italic === item.italic &&
       prev.underline === item.underline &&
-      prev.href === item.href;
+      prev.href === item.href &&
+      prev.fontFamily === item.fontFamily;
     const needsSpace =
       prev !== undefined && item.left - prev.right > item.fontSize * 0.25;
     if (prev && sameStyle) {
@@ -387,6 +522,7 @@ export function mergeLineRuns(items: TextRunBox[]): TextRunBox[] {
       prev.right = Math.max(prev.right, item.right);
       prev.top = Math.min(prev.top, item.top);
       prev.bottom = Math.max(prev.bottom, item.bottom);
+      prev.paintOrder = Math.min(prev.paintOrder, item.paintOrder);
     } else {
       // A word-sized gap has to survive a style change too. Only the
       // same-style branch used to re-add it, so a heading whose colour
@@ -404,7 +540,8 @@ export function mergeLineRuns(items: TextRunBox[]): TextRunBox[] {
 
 /** Like `groupIntoLines`, but keeps each line's distinct-styled runs separate — needed once a line can mix colors/weights within itself. */
 export function groupIntoStyledLines(items: TextRunBox[]): TextLine[] {
-  return groupByBaseline(items).map((lineItems) => ({
+  const columnGutter = detectColumnGutter(items);
+  return groupByBaseline(items, columnGutter).map((lineItems) => ({
     ...rectFromCorners(
       lineItems.flatMap(
         (s) =>
@@ -468,6 +605,36 @@ export function lineSpacingBeforePt(
   return previousLine ? Math.max(0, line.top - previousLine.bottom) : 0;
 }
 
+/** How close a line's own midpoint/edge has to sit to the block's for the whole block to read as centered/right-aligned rather than left. */
+const TEXT_ALIGNMENT_TOLERANCE_PT = 3;
+
+/**
+ * A block's lines already carry their exact `left`/`right` geometry — rather
+ * than always rendering as left-aligned, compare each line against the
+ * block's own bounding box to recover which alignment actually produced
+ * that geometry. A single line can't disambiguate center from left (every
+ * line trivially "centers" on itself), so it's left as-is.
+ */
+export function detectBlockAlignment(
+  blockLines: Rect[],
+  blockLeft: number,
+  blockRight: number,
+): "left" | "center" | "right" {
+  if (blockLines.length < 2) return "left";
+  const midpoint = (blockLeft + blockRight) / 2;
+  const centered = blockLines.every(
+    (line) =>
+      Math.abs((line.left + line.right) / 2 - midpoint) <=
+      TEXT_ALIGNMENT_TOLERANCE_PT,
+  );
+  if (centered) return "center";
+  const rightAligned = blockLines.every(
+    (line) => Math.abs(line.right - blockRight) <= TEXT_ALIGNMENT_TOLERANCE_PT,
+  );
+  if (rightAligned) return "right";
+  return "left";
+}
+
 /** A run needs to overlap most of a candidate background image to inherit its "assume dark" contrast — a run merely near a small inset photo shouldn't be treated as sitting on top of it. */
 const BACKGROUND_IMAGE_OVERLAP_RATIO = 0.5;
 
@@ -517,7 +684,13 @@ function sliceTextItemBySegments(
   if (segments.length <= 1) {
     const color = segments[0]?.color;
     const box = textItemToBox(item, viewportTransform, color);
-    return box ? [{ box, colorKnown: color !== undefined }] : [];
+    if (!box) return [];
+    return [
+      {
+        box: { ...box, paintOrder: segments[0]?.paintOrder ?? 0 },
+        colorKnown: color !== undefined,
+      },
+    ];
   }
   const fullBox = textItemToBox(item, viewportTransform, DEFAULT_TEXT_COLOR);
   if (!fullBox) return [];
@@ -537,6 +710,7 @@ function sliceTextItemBySegments(
           right: fullBox.left + spanX * endFraction,
           text,
           color: segment.color ?? DEFAULT_TEXT_COLOR,
+          paintOrder: segment.paintOrder,
         },
         colorKnown: segment.color !== undefined,
       });
@@ -555,7 +729,7 @@ async function buildTextElements(
   backgroundImageRect: Rect | undefined,
   underlineRects: UnderlineRect[],
   linkRects: LinkRect[],
-): Promise<ParsedElement[]> {
+): Promise<{ element: ParsedElement; paintOrder: number }[]> {
   const content = await page.getTextContent();
   const rawItems = content.items.filter(
     (item): item is TextItem => "str" in item && item.str.trim().length > 0,
@@ -589,15 +763,25 @@ async function buildTextElements(
         // ligature collapsing multiple glyphs into fewer output
         // characters). Split what fits and leave the remainder queued for
         // the next item instead of corrupting this item's text.
-        itemSegments.push({ length: remaining, color: segment.color });
+        itemSegments.push({
+          length: remaining,
+          color: segment.color,
+          paintOrder: segment.paintOrder,
+        });
         segmentQueue[0] = { ...segment, length: segment.length - remaining };
         consumed = item.str.length;
       }
     }
     if (consumed < item.str.length) {
+      // Ran out of tracked color/paint-order segments before this item's
+      // text did — reuse the last known paint order (falling back to the
+      // very start of the page) rather than leaving it unset.
+      const lastPaintOrder =
+        itemSegments[itemSegments.length - 1]?.paintOrder ?? 0;
       itemSegments.push({
         length: item.str.length - consumed,
         color: undefined,
+        paintOrder: lastPaintOrder,
       });
     }
     return sliceTextItemBySegments(
@@ -642,6 +826,7 @@ async function buildTextElements(
     const top = Math.min(...blockLines.map((l) => l.top));
     const right = Math.max(...blockLines.map((l) => l.right));
     const bottom = Math.max(...blockLines.map((l) => l.bottom));
+    const alignment = detectBlockAlignment(blockLines, left, right);
     const paragraphs: ParsedParagraph[] = blockLines.map((line, lineIndex) => {
       const spaceBeforePt = lineSpacingBeforePt(
         line,
@@ -656,19 +841,26 @@ async function buildTextElements(
           italic: run.italic,
           underline: run.underline,
           href: run.href,
+          fontFamily: run.fontFamily,
         })),
-        alignment: "left",
+        alignment,
         ...(spaceBeforePt > 0 ? { spaceBeforePt } : {}),
       };
     });
+    const paintOrder = Math.min(
+      ...blockLines.flatMap((line) => line.runs.map((run) => run.paintOrder)),
+    );
     return {
-      id: `pdf-text-${pageNumber}-${index}`,
-      kind: "text",
-      x: left * EMU_PER_POINT,
-      y: top * EMU_PER_POINT,
-      width: Math.max(1, right - left) * EMU_PER_POINT,
-      height: Math.max(1, bottom - top) * EMU_PER_POINT,
-      paragraphs,
+      element: {
+        id: `pdf-text-${pageNumber}-${index}`,
+        kind: "text",
+        x: left * EMU_PER_POINT,
+        y: top * EMU_PER_POINT,
+        width: Math.max(1, right - left) * EMU_PER_POINT,
+        height: Math.max(1, bottom - top) * EMU_PER_POINT,
+        paragraphs,
+      },
+      paintOrder,
     };
   });
 }
@@ -677,10 +869,19 @@ async function buildTextElements(
 export interface TextColorRun {
   length: number;
   color: string | undefined;
+  /** Index in this page's real content-stream paint order, shared with image paint events. */
+  paintOrder: number;
+}
+
+/** An image's placed rect plus its index in this page's real paint order, shared with `TextColorRun.paintOrder` so images and text can be z-ordered by how the PDF actually painted them instead of images always going first. */
+export interface PaintedImageRect extends Rect {
+  paintOrder: number;
+  /** The PDF resource name shared with the corresponding `pdf.getImage()` result. */
+  imageName: string | undefined;
 }
 
 interface PageGraphics {
-  imageRects: Rect[];
+  imageRects: PaintedImageRect[];
   /** The earliest fill covering most of the page — almost always the deck's background. */
   backgroundColor: string | undefined;
   /** Fill color + character length of each real text-showing op, in operator-list order; `color` is undefined when it wasn't recoverable. */
@@ -702,12 +903,16 @@ interface PageGraphics {
 export async function walkPageGraphics(
   page: PDFPageProxy,
   viewport: { transform: Mat; width: number; height: number },
+  operatorList?: PdfOperatorList,
 ): Promise<PageGraphics> {
   const viewportTransform = viewport.transform;
-  const opList = await page.getOperatorList();
-  const imageRects: Rect[] = [];
+  const opList = operatorList ?? (await page.getOperatorList());
+  const imageRects: PaintedImageRect[] = [];
   const textRuns: TextColorRun[] = [];
   const underlineRects: UnderlineRect[] = [];
+  // Shared by images and text so both can be sorted back into one real
+  // paint order afterward, instead of images always sitting behind text.
+  let paintOrder = 0;
   let backgroundColor: string | undefined;
   let fillColor = DEFAULT_TEXT_COLOR;
   // Starts true: the PDF spec's initial nonstroking color IS black, so text
@@ -735,10 +940,7 @@ export async function walkPageGraphics(
       }
     } else if (fn === OPS.transform) {
       ctm = Util.transform(ctm, args as Mat) as Mat;
-    } else if (
-      fn === OPS.paintImageXObject ||
-      fn === OPS.paintInlineImageXObject
-    ) {
+    } else if (isImagePaintOp(fn)) {
       const unitCorners: [number, number][] = [
         [0, 0],
         [1, 0],
@@ -749,7 +951,11 @@ export async function walkPageGraphics(
         const [ux, uy] = applyPoint(ctm, x, y);
         return applyPoint(viewportTransform, ux, uy);
       });
-      imageRects.push(rectFromCorners(deviceCorners));
+      imageRects.push({
+        ...rectFromCorners(deviceCorners),
+        paintOrder: paintOrder++,
+        imageName: typeof args[0] === "string" ? args[0] : undefined,
+      });
     } else if (TEXT_SHOWING_OPS.has(fn)) {
       // Count only the glyph descriptors, not the raw kerning-adjustment
       // numbers a `TJ` array can interleave between them, so this length
@@ -767,6 +973,7 @@ export async function walkPageGraphics(
         textRuns.push({
           length,
           color: fillColorKnown ? fillColor : undefined,
+          paintOrder: paintOrder++,
         });
       }
     } else if (fn === OPS.constructPath) {
@@ -879,26 +1086,30 @@ export async function parsePdfFidelity(
   doc: PDFDocumentProxy,
   imagesByPage: PdfPageImage[],
 ): Promise<PdfFidelityPage[]> {
-  const imageBytesByPage = new Map<number, Uint8Array[]>();
+  const imageBytesByPage = new Map<number, PdfPageImage["images"]>();
   for (const entry of imagesByPage) {
-    imageBytesByPage.set(
-      entry.pageNumber,
-      entry.images.map((img) => img.data),
-    );
+    imageBytesByPage.set(entry.pageNumber, entry.images);
   }
 
   const pages: PdfFidelityPage[] = [];
   for (let pageNumber = 1; pageNumber <= doc.numPages; pageNumber++) {
+    let imagePaintCount = 0;
     try {
       const page = await doc.getPage(pageNumber);
       const viewport = page.getViewport({ scale: 1, rotation: page.rotate });
       const viewportTransform = viewport.transform as Mat;
+      const operatorList = await page.getOperatorList();
+      imagePaintCount = operatorList.fnArray.filter(isImagePaintOp).length;
 
-      const graphics = await walkPageGraphics(page, {
-        transform: viewportTransform,
-        width: viewport.width,
-        height: viewport.height,
-      });
+      const graphics = await walkPageGraphics(
+        page,
+        {
+          transform: viewportTransform,
+          width: viewport.width,
+          height: viewport.height,
+        },
+        operatorList,
+      );
       const linkRects = await collectLinkRects(page, viewportTransform);
       const imageRects = graphics.imageRects;
       // The largest image that covers a substantial share of the page is
@@ -911,29 +1122,61 @@ export async function parsePdfFidelity(
         .filter((rect) => rectArea(rect) >= pageArea * 0.4)
         .sort((a, b) => rectArea(b) - rectArea(a))[0];
       const imageBytes = imageBytesByPage.get(pageNumber) ?? [];
-      const imageElements: ParsedElement[] = imageRects
-        .map((rect, index) => ({ rect, data: imageBytes[index] }))
-        .filter(
-          ({ rect, data }) =>
-            data &&
-            rect.right - rect.left >= MIN_IMAGE_POINTS &&
-            rect.bottom - rect.top >= MIN_IMAGE_POINTS,
-        )
-        .map(({ rect, data }, index) => ({
-          id: `pdf-img-${pageNumber}-${index}`,
-          kind: "image" as const,
-          x: rect.left * EMU_PER_POINT,
-          y: rect.top * EMU_PER_POINT,
-          width: Math.max(1, rect.right - rect.left) * EMU_PER_POINT,
-          height: Math.max(1, rect.bottom - rect.top) * EMU_PER_POINT,
-          image: {
-            data: data as Uint8Array,
-            mimeType: "image/png",
-            name: `image-${index}`,
-          },
-        }));
+      const rectsByImageName = new Map<string, PaintedImageRect[]>();
+      for (const rect of imageRects) {
+        if (rect.imageName === undefined) continue;
+        const rects = rectsByImageName.get(rect.imageName) ?? [];
+        rects.push(rect);
+        rectsByImageName.set(rect.imageName, rects);
+      }
+      const bytesByImageName = new Map<string, PdfPageImage["images"]>();
+      for (const image of imageBytes) {
+        const images = bytesByImageName.get(image.name) ?? [];
+        images.push(image);
+        bytesByImageName.set(image.name, images);
+      }
+      const imageDataByRect = new Map<PaintedImageRect, Uint8Array>();
+      for (const [imageName, rects] of rectsByImageName) {
+        const images = bytesByImageName.get(imageName);
+        // A resource can be painted more than once. If extraction returned a
+        // different number of occurrences, there is no safe way to know which
+        // placement is missing, so omit all of them rather than misplacing one.
+        if (!images || images.length !== rects.length) continue;
+        for (let index = 0; index < rects.length; index++) {
+          const data = images[index].data;
+          if (data.byteLength > 0) imageDataByRect.set(rects[index], data);
+        }
+      }
+      const imageResults: { element: ParsedElement; paintOrder: number }[] =
+        imageRects
+          .map((rect) => ({ rect, data: imageDataByRect.get(rect) }))
+          .filter(
+            ({ rect, data }) =>
+              data &&
+              rect.right - rect.left >= MIN_IMAGE_POINTS &&
+              rect.bottom - rect.top >= MIN_IMAGE_POINTS,
+          )
+          .map(({ rect, data }, index) => ({
+            element: {
+              id: `pdf-img-${pageNumber}-${index}`,
+              kind: "image" as const,
+              x: rect.left * EMU_PER_POINT,
+              y: rect.top * EMU_PER_POINT,
+              width: Math.max(1, rect.right - rect.left) * EMU_PER_POINT,
+              height: Math.max(1, rect.bottom - rect.top) * EMU_PER_POINT,
+              image: {
+                data: data as Uint8Array,
+                mimeType: "image/png",
+                name: `image-${index}`,
+              },
+            },
+            paintOrder: rect.paintOrder,
+          }));
+      const imagesSkipped = imageRects.filter(
+        (rect) => !imageDataByRect.has(rect),
+      ).length;
 
-      const textElements = await buildTextElements(
+      const textResults = await buildTextElements(
         page,
         viewportTransform,
         pageNumber,
@@ -944,12 +1187,17 @@ export async function parsePdfFidelity(
         linkRects,
       );
 
+      const elements = [...imageResults, ...textResults]
+        .sort((a, b) => a.paintOrder - b.paintOrder)
+        .map((result) => result.element);
+
       pages.push({
         pageNumber,
         widthEmu: viewport.width * EMU_PER_POINT,
         heightEmu: viewport.height * EMU_PER_POINT,
         backgroundColor: graphics.backgroundColor,
-        elements: [...imageElements, ...textElements],
+        elements,
+        imagesSkipped,
       });
     } catch (err) {
       console.warn(
@@ -962,6 +1210,10 @@ export async function parsePdfFidelity(
         heightEmu: 0,
         backgroundColor: undefined,
         elements: [],
+        // A parse failure after operator-list inspection must remain visibly
+        // partial. If inspection itself failed, keep the failure loud rather
+        // than allowing a text-only fallback to look source-faithful.
+        imagesSkipped: Math.max(imagePaintCount, 1),
       });
     }
   }

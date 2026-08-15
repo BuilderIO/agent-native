@@ -14,6 +14,7 @@ import { isActionContractError, isAgentActionStopError } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { isTransientDatabaseError } from "../db/client.js";
 import { declaresFeatureFlagDelegation } from "../feature-flags/a2a-action-route.js";
+import { isFeatureFlagAdminEmail } from "../feature-flags/permissions.js";
 import { resolveOrgByDomain, resolveOrgIdForEmail } from "../org/context.js";
 import { readBody } from "../server/h3-helpers.js";
 import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
@@ -88,7 +89,8 @@ async function resolveFeatureFlagA2ACaller(event: any, actionName: string) {
   if (!claims || !claims.scope.includes(required))
     throw new Error("Invalid feature flag delegation");
   const localOrg = await resolveOrgByDomain(claims.orgDomain);
-  if (!localOrg) throw new Error("Invalid feature flag delegation");
+  if (!localOrg && !isFeatureFlagAdminEmail(claims.email))
+    throw new Error("Invalid feature flag delegation");
   if (
     actionName === "set-feature-flag" &&
     (await consumeOneTimeJti(claims.jti))
@@ -97,7 +99,7 @@ async function resolveFeatureFlagA2ACaller(event: any, actionName: string) {
   }
   return {
     owner: claims.email,
-    orgId: localOrg.orgId,
+    orgId: localOrg?.orgId ?? null,
     anonymous: false,
     delegationJti: claims.jti,
     delegationIssuer: claims.issuer,
@@ -248,12 +250,14 @@ export type ActionRouteResolvedCaller = AgentRunOwnerContext & {
    * Org to scope the request to, verified from the same credential as the
    * caller identity (e.g. the A2A token's org claim). When omitted, the org
    * is derived from the verified owner email via the framework's owner→org
-   * membership lookup. The ambient session/org state on the request is never
-   * consulted for adapter-resolved callers: a request can carry both a valid
-   * A2A bearer and an unrelated browser cookie, and the cookie user's org
-   * must not leak into the token caller's request context.
+   * membership lookup. An explicit `null` means the verified caller has no
+   * org and must not fall back to another membership. The ambient session/org
+   * state on the request is never consulted for adapter-resolved callers: a
+   * request can carry both a valid A2A bearer and an unrelated browser cookie,
+   * and the cookie user's org must not leak into the token caller's request
+   * context.
    */
-  orgId?: string;
+  orgId?: string | null;
   /** Verified A2A correlation and issuer metadata for the audit row. */
   delegationJti?: string;
   delegationIssuer?: string;
@@ -533,7 +537,8 @@ export function mountActionRoutes(
         }
         // Org scoping. For adapter-resolved callers the org must come
         // exclusively from the verified credential: the adapter-asserted
-        // orgId when present, otherwise the owner-email membership lookup.
+        // orgId when present, explicit null when the caller has no org,
+        // otherwise the owner-email membership lookup.
         // The request's ambient session/org state (`resolveOrgId`, usually
         // getSession-backed) is deliberately NOT consulted — a request can
         // carry both a valid A2A bearer and an unrelated same-origin browser
@@ -543,7 +548,12 @@ export function mountActionRoutes(
         let orgId: string | undefined;
         if (resolvedCaller) {
           orgId = normalizeOrgId(resolvedCaller.orgId);
-          if (!orgId && resolvedCaller.owner && !resolvedCaller.anonymous) {
+          if (
+            resolvedCaller.orgId !== null &&
+            !orgId &&
+            resolvedCaller.owner &&
+            !resolvedCaller.anonymous
+          ) {
             orgId = await storedActiveOrgId(resolvedCaller.owner);
           }
         } else {

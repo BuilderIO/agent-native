@@ -1,28 +1,36 @@
-import {
-  IconApps,
-  IconHome,
-  IconMessageCircle,
-  IconSparkles,
-  IconTerminal2,
-} from "@tabler/icons-react-native";
 import { Tabs } from "expo-router";
+
+import ChatFirstBottomTabs from "@/components/ChatFirstBottomTabs";
+import { useChatFirstMode } from "@/lib/chat-first-mode";
 
 const HIDDEN_APP_ROUTES = [
   "analytics",
+  "assets",
   "brain",
   "calendar",
   "content",
   "design",
   "dispatch",
   "forms",
+  "mail",
+  "plan",
   "settings",
   "slides",
 ] as const;
 
 export default function TabLayout() {
+  const { enabled: chatFirstMode, loaded } = useChatFirstMode();
+
+  if (!loaded) return null;
+
   return (
     <Tabs
-      initialRouteName="index"
+      initialRouteName={chatFirstMode ? "chat" : "index"}
+      tabBar={
+        chatFirstMode
+          ? (props) => <ChatFirstBottomTabs {...props} />
+          : undefined
+      }
       screenOptions={{
         headerShown: false,
         tabBarActiveTintColor: "#f4f4f5",
@@ -41,45 +49,34 @@ export default function TabLayout() {
         name="index"
         options={{
           title: "Home",
-          tabBarIcon: ({ color, size }) => (
-            <IconHome color={color} size={size} strokeWidth={1.8} />
-          ),
+          href: chatFirstMode ? null : undefined,
         }}
       />
+      <Tabs.Screen name="home" options={{ href: null }} />
       <Tabs.Screen
         name="clips"
         options={{
           title: "Clips",
-          tabBarIcon: ({ color, size }) => (
-            <IconSparkles color={color} size={size} strokeWidth={1.8} />
-          ),
+          href: chatFirstMode ? null : undefined,
         }}
       />
       <Tabs.Screen
         name="chat"
         options={{
           title: "Chat",
-          tabBarIcon: ({ color, size }) => (
-            <IconMessageCircle color={color} size={size} strokeWidth={1.8} />
-          ),
         }}
       />
       <Tabs.Screen
         name="sessions"
         options={{
           title: "Sessions",
-          tabBarIcon: ({ color, size }) => (
-            <IconTerminal2 color={color} size={size} strokeWidth={1.8} />
-          ),
+          href: chatFirstMode ? null : undefined,
         }}
       />
       <Tabs.Screen
         name="more"
         options={{
-          title: "Apps",
-          tabBarIcon: ({ color, size }) => (
-            <IconApps color={color} size={size} strokeWidth={1.8} />
-          ),
+          title: "More",
         }}
       />
       {HIDDEN_APP_ROUTES.map((name) => (

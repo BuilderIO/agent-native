@@ -28,7 +28,7 @@ export interface ParsedPptxElement {
   id: string;
   name?: string;
   placeholderType?: string;
-  kind: "text" | "image" | "shape";
+  kind: "text" | "image" | "shape" | "table";
   x: number;
   y: number;
   width: number;
@@ -47,6 +47,19 @@ export interface ParsedPptxElement {
   verticalAlign?: "top" | "middle" | "bottom";
   paragraphs?: ParsedPptxParagraph[];
   image?: ParsedPptxImage;
+  table?: ParsedPptxTable;
+}
+
+/** A `p:graphicFrame`'s `a:tbl` flattened into a simple row/cell grid. `hMerge`/`vMerge` continuation cells are omitted — their content is already represented once, by the spanning cell's `colSpan`/`rowSpan`. */
+export interface ParsedPptxTable {
+  rows: ParsedPptxTableCell[][];
+}
+
+export interface ParsedPptxTableCell {
+  paragraphs: ParsedPptxParagraph[];
+  colSpan?: number;
+  rowSpan?: number;
+  fill?: string;
 }
 
 export type ParsedPptxTransition =
@@ -85,6 +98,8 @@ export interface ParsedPptxSlide {
   layoutHint?: string;
   transition?: ParsedPptxTransition;
   splitByParagraph?: boolean;
+  /** Count of this slide's `graphicFrame` shapes that could not be converted into a `"table"` element (charts, SmartArt, embedded OLE objects, or a malformed/empty `a:tbl`) — a fidelity signal for `buildSourceImportMetadata`, the same way `imagesSkipped` already works. */
+  tablesDegraded?: number;
 }
 
 export interface ParsedPptxGrid {
@@ -213,6 +228,7 @@ export async function parsePptxPresentation(
     const metadata = parsePptxSlideMetadata(slide);
     let elements: ParsedPptxElement[] = [];
     const images: ParsedPptxImage[] = [];
+    const tablesDegraded = { count: 0 };
     const relationshipPath = slidePath.replace(
       /slides\/(slide\d+\.xml)/,
       "slides/_rels/$1.rels",
@@ -244,6 +260,7 @@ export async function parsePptxPresentation(
       slideWidthEmu,
       slideHeightEmu,
       images,
+      tablesDegraded,
       colorContext: slideMasterContext.colorContext,
       placeholderDefaults: slideMasterContext.placeholderDefaults,
     });
@@ -275,6 +292,9 @@ export async function parsePptxPresentation(
       ...(backgroundGrid ? { backgroundGrid } : {}),
       notes,
       layoutHint: guessLayoutHint(texts, images.length > 0),
+      ...(tablesDegraded.count > 0
+        ? { tablesDegraded: tablesDegraded.count }
+        : {}),
       ...metadata,
     });
   }
@@ -550,11 +570,61 @@ interface ParsedShapeTransform {
   rotation?: number;
 }
 
+/** A 2D affine transform (translate + scale + rotation, no shear), composed as nested `grpSp` levels are recursed into. Composing full matrices — rather than summing scale factors and rotation degrees separately, as before — is what lets a rotated group correctly sweep its children's positions around the group's own pivot instead of only spinning each child in place. */
+interface Mat2d {
+  a: number;
+  b: number;
+  c: number;
+  d: number;
+  e: number;
+  f: number;
+}
+
+const IDENTITY_MAT: Mat2d = { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
+
+/** Composes two transforms so `inner` is applied to a point first, then `outer`. */
+function composeMat(outer: Mat2d, inner: Mat2d): Mat2d {
+  return {
+    a: outer.a * inner.a + outer.c * inner.b,
+    b: outer.b * inner.a + outer.d * inner.b,
+    c: outer.a * inner.c + outer.c * inner.d,
+    d: outer.b * inner.c + outer.d * inner.d,
+    e: outer.a * inner.e + outer.c * inner.f + outer.e,
+    f: outer.b * inner.e + outer.d * inner.f + outer.f,
+  };
+}
+
+function scaleMat(sx: number, sy: number): Mat2d {
+  return { a: sx, b: 0, c: 0, d: sy, e: 0, f: 0 };
+}
+
+function translateMat(tx: number, ty: number): Mat2d {
+  return { a: 1, b: 0, c: 0, d: 1, e: tx, f: ty };
+}
+
+function rotateAroundMat(degrees: number, cx: number, cy: number): Mat2d {
+  const radians = (degrees * Math.PI) / 180;
+  const cos = Math.cos(radians);
+  const sin = Math.sin(radians);
+  const rotation: Mat2d = { a: cos, b: sin, c: -sin, d: cos, e: 0, f: 0 };
+  return composeMat(
+    translateMat(cx, cy),
+    composeMat(rotation, translateMat(-cx, -cy)),
+  );
+}
+
+function applyMatPoint(
+  m: Mat2d,
+  x: number,
+  y: number,
+): { x: number; y: number } {
+  return { x: m.a * x + m.c * y + m.e, y: m.b * x + m.d * y + m.f };
+}
+
 interface ShapeTransformContext {
-  originX: number;
-  originY: number;
-  scaleX: number;
-  scaleY: number;
+  /** Maps a point in this level's local (un-rotated placement) coordinate space into slide-absolute EMU coordinates, including every ancestor group's own rotation sweep. */
+  matrix: Mat2d;
+  /** Sum of every ancestor's own rotation, in degrees — applied to a leaf's *own* box via CSS `rotate()` around its own center, independent of the positional sweep `matrix` already accounts for. */
   rotation: number;
 }
 
@@ -566,6 +636,10 @@ const SHAPE_ELEMENT_NAMES = new Set([
   "graphicFrame",
 ]);
 
+/** Standard 16:9 widescreen slide size — a last-resort content box for a placeholder shape whose own `<a:xfrm>` is missing and the deck's own slide size wasn't determinable either. */
+const FALLBACK_SLIDE_WIDTH_EMU = 12192000;
+const FALLBACK_SLIDE_HEIGHT_EMU = 6858000;
+
 async function parseSlideElements(args: {
   xml: string;
   parseXml: (xml: string) => unknown;
@@ -575,16 +649,14 @@ async function parseSlideElements(args: {
   slideWidthEmu?: number;
   slideHeightEmu?: number;
   images: ParsedPptxImage[];
+  tablesDegraded: { count: number };
   colorContext?: ColorContext;
   placeholderDefaults?: PlaceholderDefaultColors;
 }): Promise<ParsedPptxElement[]> {
   const fragments = extractDirectShapeFragments(args.xml, "spTree");
   const elements: ParsedPptxElement[] = [];
   const context: ShapeTransformContext = {
-    originX: 0,
-    originY: 0,
-    scaleX: 1,
-    scaleY: 1,
+    matrix: IDENTITY_MAT,
     rotation: 0,
   };
 
@@ -632,6 +704,7 @@ async function parseShapeFragment(
     slideWidthEmu?: number;
     slideHeightEmu?: number;
     images: ParsedPptxImage[];
+    tablesDegraded: { count: number };
     colorContext?: ColorContext;
     placeholderDefaults?: PlaceholderDefaultColors;
     context: ShapeTransformContext;
@@ -656,15 +729,33 @@ async function parseShapeFragment(
       childExtent.x > 0 ? groupTransform.width / childExtent.x : 1;
     const groupScaleY =
       childExtent.y > 0 ? groupTransform.height / childExtent.y : 1;
+    // Places this group's children into the parent's coordinate space,
+    // ignoring the group's own rotation for now.
+    let localToParent = composeMat(
+      translateMat(
+        groupTransform.x - childOffset.x * groupScaleX,
+        groupTransform.y - childOffset.y * groupScaleY,
+      ),
+      scaleMat(groupScaleX, groupScaleY),
+    );
+    // PowerPoint rotates the entire *placed* group box — every child already
+    // positioned by `localToParent` above — as a rigid body around that
+    // box's own center, not each child around its own center. Composing this
+    // rotation on top of the placement (instead of only summing `rotation`
+    // degrees, as before) is what makes children actually orbit the group's
+    // pivot instead of just spinning in place.
+    if (groupTransform.rotation) {
+      localToParent = composeMat(
+        rotateAroundMat(
+          groupTransform.rotation,
+          groupTransform.x + groupTransform.width / 2,
+          groupTransform.y + groupTransform.height / 2,
+        ),
+        localToParent,
+      );
+    }
     const nextContext: ShapeTransformContext = {
-      originX:
-        args.context.originX +
-        args.context.scaleX * (groupTransform.x - childOffset.x * groupScaleX),
-      originY:
-        args.context.originY +
-        args.context.scaleY * (groupTransform.y - childOffset.y * groupScaleY),
-      scaleX: args.context.scaleX * groupScaleX,
-      scaleY: args.context.scaleY * groupScaleY,
+      matrix: composeMat(args.context.matrix, localToParent),
       rotation: args.context.rotation + (groupTransform.rotation ?? 0),
     };
     const output: ParsedPptxElement[] = [];
@@ -679,7 +770,31 @@ async function parseShapeFragment(
     return output;
   }
 
-  const transform = applyTransform(readTransform(node, "p:spPr"), args.context);
+  if (entry === "graphicFrame") {
+    return parseGraphicFrameFragment(node, args);
+  }
+
+  const localTransform = readTransform(node, "p:spPr");
+  // A placeholder shape (`<p:ph>`) commonly omits its own `<a:xfrm>` on the
+  // slide, inheriting position/size from the matching placeholder on the
+  // slide layout/master instead — that layout/master inheritance chain isn't
+  // implemented, so without this fallback the shape silently lands at a
+  // literal 0×0 box, making real title/body text invisible instead of just
+  // mispositioned. This substitutes the slide's own content box so the text
+  // is at least visible; it won't match the placeholder's real authored
+  // position/size.
+  const hasOwnSize = localTransform.width > 0 && localTransform.height > 0;
+  const effectiveLocalTransform =
+    entry === "sp" && !hasOwnSize
+      ? {
+          ...localTransform,
+          x: 0,
+          y: 0,
+          width: args.slideWidthEmu ?? FALLBACK_SLIDE_WIDTH_EMU,
+          height: args.slideHeightEmu ?? FALLBACK_SLIDE_HEIGHT_EMU,
+        }
+      : localTransform;
+  const transform = applyTransform(effectiveLocalTransform, args.context);
   const id = readShapeId(node);
   const name = readShapeName(node);
   const placeholderType = stringValue(
@@ -766,6 +881,76 @@ async function parseShapeFragment(
   return [];
 }
 
+/**
+ * `p:graphicFrame` has no `p:spPr` (its transform lives at `p:xfrm` directly)
+ * and its content is `a:graphic/a:graphicData` rather than `p:txBody` — most
+ * commonly a table, but also charts, SmartArt, and embedded OLE objects that
+ * have no shape structure we can reconstruct. Only tables convert; anything
+ * else is counted as a dropped-content fidelity signal instead of silently
+ * vanishing with no signal at all.
+ */
+function parseGraphicFrameFragment(
+  node: Record<string, unknown>,
+  args: {
+    context: ShapeTransformContext;
+    tablesDegraded: { count: number };
+    colorContext?: ColorContext;
+  },
+): ParsedPptxElement[] {
+  const transform = applyTransform(
+    transformFromXfrmNode(record(node["p:xfrm"])),
+    args.context,
+  );
+  const table = parseGraphicFrameTable(node, args.colorContext);
+  if (!table) {
+    args.tablesDegraded.count += 1;
+    return [];
+  }
+  return [
+    {
+      id: readShapeId(node),
+      name: readShapeName(node),
+      kind: "table",
+      ...transform,
+      table,
+    },
+  ];
+}
+
+/** Reads a graphicFrame's `a:graphic/a:graphicData/a:tbl` into a row/cell grid. Returns `undefined` for a non-table graphicFrame (chart/SmartArt/OLE) or a table with no rows. */
+function parseGraphicFrameTable(
+  node: Record<string, unknown>,
+  context?: ColorContext,
+): ParsedPptxTable | undefined {
+  const graphicData = record(record(node["a:graphic"])?.["a:graphicData"]);
+  const tbl = record(graphicData?.["a:tbl"]);
+  if (!tbl) return undefined;
+  const rows = asArray(tbl["a:tr"]).map((rawRow) => {
+    const row = record(rawRow);
+    const cells: ParsedPptxTableCell[] = [];
+    for (const rawCell of asArray(row?.["a:tc"])) {
+      const cell = record(rawCell);
+      if (!cell) continue;
+      // A merge-continuation cell's content is already represented once, by
+      // the spanning cell's gridSpan/rowSpan below.
+      if (cell["@_hMerge"] === "1" || cell["@_vMerge"] === "1") continue;
+      const gridSpan = Number(cell["@_gridSpan"]);
+      const rowSpan = Number(cell["@_rowSpan"]);
+      const fill = parseShapeFill(record(cell["a:tcPr"]), context);
+      cells.push({
+        paragraphs: parseTextBodyParagraphs(record(cell["a:txBody"]), context),
+        ...(Number.isFinite(gridSpan) && gridSpan > 1
+          ? { colSpan: gridSpan }
+          : {}),
+        ...(Number.isFinite(rowSpan) && rowSpan > 1 ? { rowSpan } : {}),
+        ...(fill ? { fill } : {}),
+      });
+    }
+    return cells;
+  });
+  return rows.length > 0 ? { rows } : undefined;
+}
+
 function extractDirectShapeFragments(xml: string, container: string): string[] {
   const containerMatch = new RegExp(`<p:${container}\\b[^>]*>`, "i").exec(xml);
   if (!containerMatch) return [];
@@ -825,7 +1010,8 @@ function findMatchingXmlTag(
 function readShapeId(node: Record<string, unknown>): string {
   const cNvPr =
     record(record(node["p:nvSpPr"])?.["p:cNvPr"]) ??
-    record(record(node["p:nvPicPr"])?.["p:cNvPr"]);
+    record(record(node["p:nvPicPr"])?.["p:cNvPr"]) ??
+    record(record(node["p:nvGraphicFramePr"])?.["p:cNvPr"]);
   return (
     stringValue(cNvPr?.["@_id"]) ??
     `shape-${Math.random().toString(36).slice(2)}`
@@ -833,7 +1019,10 @@ function readShapeId(node: Record<string, unknown>): string {
 }
 
 function readShapeName(node: Record<string, unknown>): string | undefined {
-  return stringValue(record(record(node["p:nvSpPr"])?.["p:cNvPr"])?.["@_name"]);
+  const cNvPr =
+    record(record(node["p:nvSpPr"])?.["p:cNvPr"]) ??
+    record(record(node["p:nvGraphicFramePr"])?.["p:cNvPr"]);
+  return stringValue(cNvPr?.["@_name"]);
 }
 
 function readPoint(value: unknown): { x: number; y: number } {
@@ -856,7 +1045,13 @@ function readTransform(
   node: Record<string, unknown>,
   key: string,
 ): ParsedShapeTransform {
-  const xfrm = record(record(node[key])?.["a:xfrm"]);
+  return transformFromXfrmNode(record(record(node[key])?.["a:xfrm"]));
+}
+
+/** Shared by `readTransform` (a wrapper-nested `a:xfrm`, e.g. `p:spPr/a:xfrm`) and `graphicFrame`, whose `p:xfrm` sits directly on the node instead of inside a wrapper element. */
+function transformFromXfrmNode(
+  xfrm: Record<string, unknown> | null,
+): ParsedShapeTransform {
   const off = readPoint(xfrm?.["a:off"]);
   const ext = readExtent(xfrm?.["a:ext"]);
   const rawRotation = Number(xfrm?.["@_rot"]);
@@ -875,14 +1070,26 @@ function applyTransform(
   transform: ParsedShapeTransform,
   context: ShapeTransformContext,
 ): ParsedShapeTransform {
+  const scaleX = Math.hypot(context.matrix.a, context.matrix.b);
+  const scaleY = Math.hypot(context.matrix.c, context.matrix.d);
+  const width = transform.width * scaleX;
+  const height = transform.height * scaleY;
+  // Map the shape's own (un-rotated) box center through the accumulated
+  // group matrix so a child inside a rotated group orbits the group's pivot
+  // — the box's own visual spin is applied separately below via `rotation`,
+  // so only the center (not the whole box) needs to go through the matrix.
+  const center = applyMatPoint(
+    context.matrix,
+    transform.x + transform.width / 2,
+    transform.y + transform.height / 2,
+  );
+  const rotation = (transform.rotation ?? 0) + context.rotation;
   return {
-    x: context.originX + transform.x * context.scaleX,
-    y: context.originY + transform.y * context.scaleY,
-    width: transform.width * context.scaleX,
-    height: transform.height * context.scaleY,
-    ...(transform.rotation || context.rotation
-      ? { rotation: (transform.rotation ?? 0) + context.rotation }
-      : {}),
+    x: center.x - width / 2,
+    y: center.y - height / 2,
+    width,
+    height,
+    ...(rotation ? { rotation } : {}),
   };
 }
 
@@ -890,8 +1097,25 @@ function parseTextBody(
   node: Record<string, unknown>,
   context?: ColorContext,
 ): ParsedPptxParagraph[] {
-  const txBody = record(node["p:txBody"]);
+  return parseTextBodyParagraphs(record(node["p:txBody"]), context);
+}
+
+/** PowerPoint's `buAutoNum` variants (arabicPeriod, alphaLcPeriod, romanUcPeriod, ...) all number the same underlying sequence — approximating every variant with arabic digits keeps list order/grouping correct even though the glyph style doesn't match `type` exactly. */
+function formatAutoNumBullet(n: number): string {
+  return `${n}.`;
+}
+
+/** Core `a:p` paragraph parsing, shared by a shape's `p:txBody` and a table cell's `a:txBody` (which sit at different paths in their parent node, so the caller resolves the `txBody` record itself). */
+function parseTextBodyParagraphs(
+  txBody: Record<string, unknown> | null,
+  context?: ColorContext,
+): ParsedPptxParagraph[] {
   if (!txBody) return [];
+  // `a:buAutoNum` carries no explicit number — PowerPoint derives it from
+  // paragraph order — so the sequence has to be tracked per nesting level as
+  // paragraphs are walked in document order, restarting whenever a deeper
+  // level's own sequence begins or a non-auto-numbered paragraph interrupts it.
+  const autoNumCounters = new Map<number, number>();
   return asArray(txBody["a:p"]).map((rawParagraph) => {
     const paragraph = record(rawParagraph);
     const pPr = record(paragraph?.["a:pPr"]);
@@ -924,12 +1148,30 @@ function parseTextBody(
     const spaceBeforePt = parsePoints(pPr?.["a:spcBef"]);
     const spaceAfterPt = parsePoints(pPr?.["a:spcAft"]);
     const alignment = mapAlignment(stringValue(pPr?.["@_algn"]));
+    const level = Number.isFinite(Number(pPr?.["@_lvl"]))
+      ? Number(pPr?.["@_lvl"])
+      : 0;
+
+    let autoNumBullet: string | undefined;
+    if (pPr?.["a:buAutoNum"] !== undefined && pPr?.["a:buNone"] === undefined) {
+      for (const key of [...autoNumCounters.keys()]) {
+        if (key > level) autoNumCounters.delete(key);
+      }
+      const next = (autoNumCounters.get(level) ?? 0) + 1;
+      autoNumCounters.set(level, next);
+      autoNumBullet = formatAutoNumBullet(next);
+    } else if (bullet?.["@_char"] === undefined) {
+      autoNumCounters.clear();
+    }
+
     return {
       runs,
       ...(alignment ? { alignment } : {}),
       ...(bullet?.["@_char"] && !pPr?.["a:buNone"]
         ? { bulletChar: String(bullet["@_char"]) }
-        : {}),
+        : autoNumBullet
+          ? { bulletChar: autoNumBullet }
+          : {}),
       ...(bulletColor ? { bulletColor } : {}),
       ...(bulletFont ? { bulletFontFamily: bulletFont } : {}),
       ...(Number.isFinite(bulletSize) && bulletSize > 0
@@ -978,7 +1220,15 @@ function parseShapeFill(
 ): string | undefined {
   if (!shapeProperties) return undefined;
   if (shapeProperties["a:noFill"] !== undefined) return undefined;
-  return parseColor(record(shapeProperties["a:solidFill"]), context);
+  const solid = parseColor(record(shapeProperties["a:solidFill"]), context);
+  if (solid) return solid;
+  // A gradient fill (`<a:gradFill>`) has no `a:solidFill` at all — approximate
+  // it with its first stop's resolved color rather than leaving the shape
+  // unfilled, which silently turned every gradient-filled shape transparent.
+  const stops = asArray(
+    record(record(shapeProperties["a:gradFill"])?.["a:gsLst"])?.["a:gs"],
+  );
+  return parseColor(record(stops[0]), context);
 }
 
 function parseShapeLine(
@@ -1134,6 +1384,8 @@ interface ColorTransforms {
   lumOff?: number;
   tint?: number;
   shade?: number;
+  /** 0-100 opacity from `<a:alpha val="..."/>` (OOXML stores 0-100000). */
+  alphaPercent?: number;
 }
 
 function readColorTransforms(
@@ -1144,34 +1396,47 @@ function readColorTransforms(
     const raw = stringValue(record(node[key])?.["@_val"]);
     return raw !== undefined ? Number(raw) / 100000 : undefined;
   };
+  const alphaRaw = stringValue(record(node["a:alpha"])?.["@_val"]);
   return {
     lumMod: percent("a:lumMod"),
     lumOff: percent("a:lumOff"),
     tint: percent("a:tint"),
     shade: percent("a:shade"),
+    ...(alphaRaw !== undefined
+      ? { alphaPercent: Number(alphaRaw) / 1000 }
+      : {}),
   };
 }
 
+/** Colors flow through the parser as plain `#rrggbb` hex strings, and every consumer just drops that string straight into CSS — an 8-digit `#rrggbbaa` hex is valid CSS and needs no consumer changes, so alpha rides along as extra hex digits instead of a new color shape. */
 function applyColorTransforms(
   hex: string,
   transforms: ColorTransforms,
 ): string {
-  const { lumMod, lumOff, tint, shade } = transforms;
+  const { lumMod, lumOff, tint, shade, alphaPercent } = transforms;
+  let result = hex;
   if (
-    lumMod === undefined &&
-    lumOff === undefined &&
-    tint === undefined &&
-    shade === undefined
+    lumMod !== undefined ||
+    lumOff !== undefined ||
+    tint !== undefined ||
+    shade !== undefined
   ) {
-    return hex;
+    const [h, s, initialL] = hexToHsl(hex);
+    let l = initialL;
+    if (lumMod !== undefined) l *= lumMod;
+    if (lumOff !== undefined) l += lumOff;
+    if (tint !== undefined) l = l * tint + (1 - tint);
+    if (shade !== undefined) l *= shade;
+    result = hslToHex(h, s, Math.min(1, Math.max(0, l)));
   }
-  const [h, s, initialL] = hexToHsl(hex);
-  let l = initialL;
-  if (lumMod !== undefined) l *= lumMod;
-  if (lumOff !== undefined) l += lumOff;
-  if (tint !== undefined) l = l * tint + (1 - tint);
-  if (shade !== undefined) l *= shade;
-  return hslToHex(h, s, Math.min(1, Math.max(0, l)));
+  if (alphaPercent !== undefined) {
+    const alphaByte = Math.max(
+      0,
+      Math.min(255, Math.round((alphaPercent / 100) * 255)),
+    );
+    result = `${result}${alphaByte.toString(16).padStart(2, "0")}`;
+  }
+  return result;
 }
 
 function parseColor(

@@ -81,6 +81,23 @@ describe("AssistantChat thread restore and composer recovery", () => {
     expect(source).toContain('t("agentChat.common.retry")');
   });
 
+  it("replays embedded transcript restoration safely under StrictMode", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const restoreStart = source.indexOf(
+      "// Restore messages from server on mount",
+    );
+    const restoreEnd = source.indexOf(
+      "  useEffect(() => {\n    if (\n      !loadHistoryRepository",
+      restoreStart,
+    );
+    const restoreSource = source.slice(restoreStart, restoreEnd);
+
+    expect(restoreSource).toContain("React StrictMode replays effects");
+    expect(restoreSource).toContain("hasRestoredRef.current = false;");
+  });
+
   it("persists composer text before the toolkit draft debounce can run", () => {
     const source = readFileSync("src/client/AssistantChat.tsx", {
       encoding: "utf8",
