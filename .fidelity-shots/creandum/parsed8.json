@@ -1,0 +1,563 @@
+{
+  "texts": [
+    {
+      "content": "Highlights / Lowlights",
+      "color": "#000000"
+    },
+    {
+      "content": "\n"
+    },
+    {
+      "content": "Highlights",
+      "bold": true,
+      "fontSize": 14,
+      "color": "#000000"
+    },
+    {
+      "content": "\n"
+    },
+    {
+      "content": "Highlight 1",
+      "bold": true,
+      "color": "#000000"
+    },
+    {
+      "content": "\n"
+    },
+    {
+      "content": "2-3 ",
+      "color": "#000000"
+    },
+    {
+      "content": "explanatory",
+      "color": "#000000"
+    },
+    {
+      "content": " sentences",
+      "color": "#000000"
+    },
+    {
+      "content": "\n"
+    },
+    {
+      "content": "Highlight 2",
+      "bold": true,
+      "color": "#000000"
+    },
+    {
+      "content": "\n"
+    },
+    {
+      "content": "2-3 explanatory sentences",
+      "color": "#000000"
+    },
+    {
+      "content": "\n"
+    },
+    {
+      "content": "Highlight 3",
+      "bold": true,
+      "color": "#000000"
+    },
+    {
+      "content": "\n"
+    },
+    {
+      "content": "2-3 explanatory sentences",
+      "color": "#000000"
+    },
+    {
+      "content": "\n"
+    },
+    {
+      "content": "Highlight 4",
+      "bold": true,
+      "color": "#000000"
+    },
+    {
+      "content": "\n"
+    },
+    {
+      "content": "2-3 explanatory sentences",
+      "color": "#000000"
+    },
+    {
+      "content": "\n"
+    },
+    {
+      "content": "‹#›",
+      "color": "#666666"
+    },
+    {
+      "content": "\n"
+    },
+    {
+      "content": "Lowlights",
+      "bold": true,
+      "fontSize": 14,
+      "color": "#000000"
+    },
+    {
+      "content": "\n"
+    },
+    {
+      "content": "Lowlight 1",
+      "bold": true,
+      "color": "#000000"
+    },
+    {
+      "content": "\n"
+    },
+    {
+      "content": "2-3 explanatory sentences",
+      "color": "#000000"
+    },
+    {
+      "content": "\n"
+    },
+    {
+      "content": "Lowlight 2",
+      "bold": true,
+      "color": "#000000"
+    },
+    {
+      "content": "\n"
+    },
+    {
+      "content": "2-3 explanatory sentences",
+      "color": "#000000"
+    },
+    {
+      "content": "\n"
+    },
+    {
+      "content": "Lowlight 3",
+      "bold": true,
+      "color": "#000000"
+    },
+    {
+      "content": "\n"
+    },
+    {
+      "content": "2-3 explanatory sentences",
+      "color": "#000000"
+    },
+    {
+      "content": "\n"
+    },
+    {
+      "content": "Lowlight 4",
+      "bold": true,
+      "color": "#000000"
+    },
+    {
+      "content": "\n"
+    },
+    {
+      "content": "2-3 explanatory sentences",
+      "color": "#000000"
+    }
+  ],
+  "images": [],
+  "elements": [
+    {
+      "id": "89",
+      "name": "Google Shape;89;p16",
+      "placeholderType": "title",
+      "kind": "text",
+      "x": 311700,
+      "y": 321750,
+      "width": 8520600,
+      "height": 541800,
+      "shapeType": "rect",
+      "padding": {
+        "left": 91425,
+        "right": 91425,
+        "top": 91425,
+        "bottom": 91425
+      },
+      "verticalAlign": "top",
+      "paragraphs": [
+        {
+          "runs": [
+            {
+              "content": "Highlights / Lowlights",
+              "color": "#000000"
+            }
+          ],
+          "alignment": "left",
+          "level": 0,
+          "marginLeftEmu": 0,
+          "indentEmu": 0
+        }
+      ]
+    },
+    {
+      "id": "90",
+      "name": "Google Shape;90;p16",
+      "placeholderType": "body",
+      "kind": "text",
+      "x": 311700,
+      "y": 1080750,
+      "width": 4000500,
+      "height": 4163100,
+      "shapeType": "rect",
+      "padding": {
+        "left": 91425,
+        "right": 91425,
+        "top": 91425,
+        "bottom": 91425
+      },
+      "verticalAlign": "top",
+      "paragraphs": [
+        {
+          "runs": [
+            {
+              "content": "Highlights",
+              "bold": true,
+              "fontSize": 14,
+              "color": "#000000"
+            }
+          ],
+          "alignment": "left",
+          "level": 0,
+          "marginLeftEmu": 0,
+          "indentEmu": 0
+        },
+        {
+          "runs": [
+            {
+              "content": "Highlight 1",
+              "bold": true,
+              "color": "#000000"
+            }
+          ],
+          "alignment": "left",
+          "level": 0,
+          "marginLeftEmu": 0,
+          "indentEmu": 0,
+          "lineSpacing": 1.14
+        },
+        {
+          "runs": [
+            {
+              "content": "2-3 ",
+              "color": "#000000"
+            },
+            {
+              "content": "explanatory",
+              "color": "#000000"
+            },
+            {
+              "content": " sentences",
+              "color": "#000000"
+            }
+          ],
+          "alignment": "left",
+          "bulletChar": "●",
+          "bulletSize": 12,
+          "level": 0,
+          "marginLeftEmu": 457200,
+          "indentEmu": -304800
+        },
+        {
+          "runs": [
+            {
+              "content": "Highlight 2",
+              "bold": true,
+              "color": "#000000"
+            }
+          ],
+          "alignment": "left",
+          "level": 0,
+          "marginLeftEmu": 0,
+          "indentEmu": 0,
+          "lineSpacing": 1.14
+        },
+        {
+          "runs": [
+            {
+              "content": "2-3 explanatory sentences",
+              "color": "#000000"
+            }
+          ],
+          "alignment": "left",
+          "bulletChar": "●",
+          "bulletColor": "#000000",
+          "bulletSize": 12,
+          "level": 0,
+          "marginLeftEmu": 457200,
+          "indentEmu": -304800
+        },
+        {
+          "runs": [
+            {
+              "content": "Highlight 3",
+              "bold": true,
+              "color": "#000000"
+            }
+          ],
+          "alignment": "left",
+          "level": 0,
+          "marginLeftEmu": 0,
+          "indentEmu": 0,
+          "lineSpacing": 1.14
+        },
+        {
+          "runs": [
+            {
+              "content": "2-3 explanatory sentences",
+              "color": "#000000"
+            }
+          ],
+          "alignment": "left",
+          "bulletChar": "●",
+          "bulletColor": "#000000",
+          "bulletSize": 12,
+          "level": 0,
+          "marginLeftEmu": 457200,
+          "indentEmu": -304800
+        },
+        {
+          "runs": [
+            {
+              "content": "Highlight 4",
+              "bold": true,
+              "color": "#000000"
+            }
+          ],
+          "alignment": "left",
+          "level": 0,
+          "marginLeftEmu": 0,
+          "indentEmu": 0,
+          "lineSpacing": 1.14
+        },
+        {
+          "runs": [
+            {
+              "content": "2-3 explanatory sentences",
+              "color": "#000000"
+            }
+          ],
+          "alignment": "left",
+          "bulletChar": "●",
+          "bulletColor": "#000000",
+          "bulletSize": 12,
+          "level": 0,
+          "marginLeftEmu": 457200,
+          "indentEmu": -304800
+        }
+      ]
+    },
+    {
+      "id": "91",
+      "name": "Google Shape;91;p16",
+      "placeholderType": "sldNum",
+      "kind": "text",
+      "x": 8472450,
+      "y": 5314626,
+      "width": 548700,
+      "height": 304200,
+      "shapeType": "rect",
+      "padding": {
+        "left": 91425,
+        "right": 91425,
+        "top": 91425,
+        "bottom": 91425
+      },
+      "verticalAlign": "middle",
+      "paragraphs": [
+        {
+          "runs": [
+            {
+              "content": "‹#›",
+              "color": "#666666"
+            }
+          ],
+          "alignment": "right",
+          "level": 0,
+          "marginLeftEmu": 0,
+          "indentEmu": 0
+        }
+      ]
+    },
+    {
+      "id": "92",
+      "name": "Google Shape;92;p16",
+      "placeholderType": "body",
+      "kind": "text",
+      "x": 4914875,
+      "y": 1080750,
+      "width": 4000500,
+      "height": 4163100,
+      "shapeType": "rect",
+      "padding": {
+        "left": 91425,
+        "right": 91425,
+        "top": 91425,
+        "bottom": 91425
+      },
+      "verticalAlign": "top",
+      "paragraphs": [
+        {
+          "runs": [
+            {
+              "content": "Lowlights",
+              "bold": true,
+              "fontSize": 14,
+              "color": "#000000"
+            }
+          ],
+          "alignment": "left",
+          "bulletColor": "#000000",
+          "bulletFontFamily": "Arial",
+          "bulletSize": 11,
+          "level": 0,
+          "marginLeftEmu": 0,
+          "indentEmu": 0
+        },
+        {
+          "runs": [
+            {
+              "content": "Lowlight 1",
+              "bold": true,
+              "color": "#000000"
+            }
+          ],
+          "alignment": "left",
+          "level": 0,
+          "marginLeftEmu": 0,
+          "indentEmu": 0,
+          "lineSpacing": 1.14
+        },
+        {
+          "runs": [
+            {
+              "content": "2-3 explanatory sentences",
+              "color": "#000000"
+            }
+          ],
+          "alignment": "left",
+          "bulletChar": "●",
+          "bulletColor": "#000000",
+          "bulletSize": 12,
+          "level": 0,
+          "marginLeftEmu": 457200,
+          "indentEmu": -304800
+        },
+        {
+          "runs": [
+            {
+              "content": "Lowlight 2",
+              "bold": true,
+              "color": "#000000"
+            }
+          ],
+          "alignment": "left",
+          "level": 0,
+          "marginLeftEmu": 0,
+          "indentEmu": 0,
+          "lineSpacing": 1.14
+        },
+        {
+          "runs": [
+            {
+              "content": "2-3 explanatory sentences",
+              "color": "#000000"
+            }
+          ],
+          "alignment": "left",
+          "bulletChar": "●",
+          "bulletColor": "#000000",
+          "bulletSize": 12,
+          "level": 0,
+          "marginLeftEmu": 457200,
+          "indentEmu": -304800
+        },
+        {
+          "runs": [
+            {
+              "content": "Lowlight 3",
+              "bold": true,
+              "color": "#000000"
+            }
+          ],
+          "alignment": "left",
+          "level": 0,
+          "marginLeftEmu": 0,
+          "indentEmu": 0,
+          "lineSpacing": 1.14
+        },
+        {
+          "runs": [
+            {
+              "content": "2-3 explanatory sentences",
+              "color": "#000000"
+            }
+          ],
+          "alignment": "left",
+          "bulletChar": "●",
+          "bulletColor": "#000000",
+          "bulletSize": 12,
+          "level": 0,
+          "marginLeftEmu": 457200,
+          "indentEmu": -304800
+        },
+        {
+          "runs": [
+            {
+              "content": "Lowlight 4",
+              "bold": true,
+              "color": "#000000"
+            }
+          ],
+          "alignment": "left",
+          "level": 0,
+          "marginLeftEmu": 0,
+          "indentEmu": 0,
+          "lineSpacing": 1.14
+        },
+        {
+          "runs": [
+            {
+              "content": "2-3 explanatory sentences",
+              "color": "#000000"
+            }
+          ],
+          "alignment": "left",
+          "bulletChar": "●",
+          "bulletColor": "#000000",
+          "bulletSize": 12,
+          "level": 0,
+          "marginLeftEmu": 457200,
+          "indentEmu": -304800
+        }
+      ]
+    },
+    {
+      "id": "shape-z76g9iz7r9q",
+      "kind": "shape",
+      "x": 311700,
+      "y": 1443350,
+      "width": 3350100,
+      "height": 6600,
+      "shapeType": "straightConnector1",
+      "lineColor": "#595959",
+      "lineWidth": 9525
+    },
+    {
+      "id": "shape-vmwokd10kbi",
+      "kind": "shape",
+      "x": 4914875,
+      "y": 1443350,
+      "width": 3350100,
+      "height": 6600,
+      "shapeType": "straightConnector1",
+      "lineColor": "#595959",
+      "lineWidth": 9525
+    }
+  ],
+  "widthEmu": 9144000,
+  "heightEmu": 5715000,
+  "layoutHint": "content"
+}
