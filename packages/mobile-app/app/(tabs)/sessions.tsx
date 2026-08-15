@@ -869,7 +869,7 @@ function SectionHeader({ title, action }: { title: string; action?: string }) {
 
 function ConnectPhoneCard({ onConnect }: { onConnect: () => void }) {
   return (
-    <View className="items-stretch rounded-2xl bg-card-dark border border-border-dark p-5">
+    <View className="w-full items-stretch rounded-2xl bg-card-dark border border-border-dark p-5">
       <View className="h-11 w-11 items-center justify-center rounded-xl bg-gray-charcoal mb-4">
         <Feather name="monitor" size={21} color="#d4d4d8" />
       </View>

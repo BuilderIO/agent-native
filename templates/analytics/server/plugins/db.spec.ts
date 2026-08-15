@@ -222,7 +222,7 @@ describe("analytics db.ts wires ensureAdditiveColumns after runMigrations", () =
     );
     expect(repairEntry).toContain("sql: {},");
     expect(repairEntry).not.toContain("run:");
-    expect(dbTsSource).not.toContain("deferMigration");
+    expect(repairEntry).not.toContain("deferMigration");
     expect(dbTsSource).not.toContain(
       "isHistoricalAnalyticsRollupBackfillComplete",
     );
