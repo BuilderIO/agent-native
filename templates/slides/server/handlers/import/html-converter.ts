@@ -565,7 +565,6 @@ function tableCellBorderCss(
  */
 const UNRENDERABLE_GEOMETRIES = new Set([
   "arc",
-  "bentArrow",
   "bentUpArrow",
   "bracePair",
   "bracketPair",
@@ -578,16 +577,12 @@ const UNRENDERABLE_GEOMETRIES = new Set([
   "curvedUpArrow",
   "donut",
   "frame",
-  "halfFrame",
-  "heart",
   "leftBrace",
   "leftBracket",
   "leftCircularArrow",
   "noSmoking",
-  "pie",
   "rightBrace",
   "rightBracket",
-  "uturnArrow",
 ]);
 
 /**
@@ -606,8 +601,30 @@ const DEFAULT_CORNER_ADJUSTMENT = 0.16667;
  */
 const CLIP_PATH_GEOMETRIES: Record<
   string,
-  (w: number, h: number, ss: number) => [number, number][]
+  (
+    w: number,
+    h: number,
+    ss: number,
+    adj?: Record<string, number>,
+  ) => [number, number][]
 > = {
+  halfFrame: (w, h, ss, adj) => {
+    // An L-bracket: `adj2` is the top arm's thickness and `adj1` the left
+    // arm's, each measured against the shortest side, and the inner corner is
+    // mitred so the two arms meet along the box's own diagonal.
+    const x1 = (ss * pin(0, adj?.adj2 ?? 33333, (100000 * w) / ss)) / 100000;
+    const y1 =
+      (ss * pin(0, adj?.adj1 ?? 33333, (100000 * (h - (h * x1) / w)) / ss)) /
+      100000;
+    return [
+      [0, 0],
+      [w, 0],
+      [w - (y1 * w) / h, y1],
+      [x1, y1],
+      [x1, h - (x1 * h) / w],
+      [0, h],
+    ];
+  },
   triangle: (w, h) => [
     [w / 2, 0],
     [w, h],

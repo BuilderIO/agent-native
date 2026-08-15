@@ -79,6 +79,7 @@ import {
   IconWorld,
 } from "@tabler/icons-react";
 import { QueryClientProvider } from "@tanstack/react-query";
+import { toast } from "sonner";
 import {
   useCallback,
   useEffect,
@@ -459,7 +460,7 @@ interface CodeAgentsHubProps {
   chatFirstPreviewStatus?: "starting" | "ready" | "error";
   chatFirstPreviewStatusMessage?: string;
   refreshKey?: number;
-  onOpenSettings?: () => void;
+  onOpenSettings?: (tab?: string) => void;
   onCreateApp?: () => void;
   onChatFirstAppCreated?: (result: DesktopCreateAppResult) => void;
   onChatFirstAppRemove?: (app: ChatFirstAppItem) => void;
@@ -771,9 +772,29 @@ export default function CodeAgentsHub({
     },
     [],
   );
-  const handleTerminalModeChange = useCallback((enabled: boolean) => {
-    writeDesktopTerminalPreferences({ enabled });
+  const handleNewTerminal = useCallback(() => {
+    setTerminalPromptRequest(null);
+    setTerminalSessionStarted(true);
   }, []);
+  const handleTerminalModeChange = useCallback(
+    (enabled: boolean) => {
+      const wasEnabled = terminalPreferences.enabled;
+      writeDesktopTerminalPreferences({ enabled });
+      if (wasEnabled && !enabled) {
+        toast("Terminal mode is off", {
+          description: "Turn it back on in Terminal tabs settings.",
+          action: onOpenSettings
+            ? {
+                label: "Open settings",
+                onClick: () => onOpenSettings("terminal"),
+              }
+            : undefined,
+          duration: 5000,
+        });
+      }
+    },
+    [onOpenSettings, terminalPreferences.enabled],
+  );
   const openChatFirstAllApps = useCallback(() => {
     setChatFirstAllAppsOpen(true);
     closeChatFirstSessionWatch();
@@ -2275,6 +2296,7 @@ export default function CodeAgentsHub({
           terminalModeControl={{
             enabled: terminalPreferences.enabled,
             onChange: handleTerminalModeChange,
+            onNewTerminal: handleNewTerminal,
           }}
           suppressChatFirstUnavailableNotice
           onRunsChange={handleChatFirstRunsChange}

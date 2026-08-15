@@ -561,6 +561,56 @@ describe("convertToSlideHtml custom geometry", () => {
     );
   });
 
+  it("writes a long outline in relative steps without letting rounding drift off the true point", () => {
+    // The reason this deck's HTML is worth minifying at all: one decorative
+    // layout illustration in a real template carries thousands of segments,
+    // and the layout layer repeats it on every slide that uses the layout. A
+    // relative encoding is only safe if each step is measured from the point
+    // that was *emitted*, not the exact one — chaining exact-to-exact deltas
+    // walks the far end of a path like this several px off its box.
+    const steps = 2000;
+    const style = styleAttr(
+      convertToSlideHtml(
+        shapeSlide({
+          fill: "#ff0000",
+          geometry: {
+            kind: "custom",
+            paths: [
+              {
+                w: 10000,
+                h: 10000,
+                commands: [
+                  { kind: "moveTo", points: [{ x: 0, y: 0 }] },
+                  ...Array.from({ length: steps }, (_, index) => ({
+                    kind: "lnTo" as const,
+                    // 4.9997 path units per step: a delta that never lands on
+                    // the 0.1px grid the writer rounds to.
+                    points: [{ x: (index + 1) * 4.9997, y: index % 2 }],
+                  })),
+                ],
+              },
+            ],
+          },
+        }),
+      ),
+      "shape",
+    );
+    const data = style.match(/clip-path: path\('([^']*)'\)/)?.[1];
+    if (!data) throw new Error(`no clip path in ${style}`);
+
+    const numbers = data.match(/-?(?:\d+\.?\d*|\.\d+)/g)?.map(Number) ?? [];
+    expect(numbers).toHaveLength((steps + 1) * 2);
+    let x = 0;
+    for (let index = 0; index < numbers.length; index += 2) {
+      x += numbers[index]!;
+    }
+    // 96px box, 10000 path units: the last point's true x is 96 * (2000 *
+    // 4.9997) / 10000, and it has to still be there after 2000 relative steps.
+    expect(x).toBeCloseTo((96 * steps * 4.9997) / 10000, 1);
+    // Same outline in absolute coordinates is ~1.9x this size.
+    expect(data.length).toBeLessThan(14 * steps);
+  });
+
   it("falls back to the shape's existing rendering when the geometry converts to nothing", () => {
     for (const geometry of [
       { kind: "custom" as const, paths: [] },
@@ -691,9 +741,13 @@ describe("convertToSlideHtml paragraph defaults", () => {
   }
 
   it("single-spaces a paragraph that declares no line spacing, matching a declared 100%", () => {
+    // The parser resolves a declared `spcPct val="100000"` to 1.2 — a
+    // percentage of the font's own line height, not of its em size. An
+    // inherited default has to land on the same number, and a bare `1` here
+    // is the ~17% leading compression five unrelated decks were reported for.
     const declared = convertToSlideHtml(
       paragraphSlide([
-        { runs: [{ content: "Hi", fontSize: 14 }], lineSpacing: 1 },
+        { runs: [{ content: "Hi", fontSize: 14 }], lineSpacing: 1.2 },
       ]),
     );
     const inherited = convertToSlideHtml(
@@ -702,7 +756,33 @@ describe("convertToSlideHtml paragraph defaults", () => {
     const lineHeight = (html: string) =>
       html.match(/line-height:([\d.]+)/)?.[1];
     expect(lineHeight(inherited)).toBe(lineHeight(declared));
-    expect(lineHeight(inherited)).toBe("1");
+    expect(lineHeight(inherited)).toBe("1.2");
+  });
+
+  it("states a base direction on a right-to-left paragraph so mixed Arabic/Latin/numeral text keeps PowerPoint's order", () => {
+    const html = convertToSlideHtml(
+      paragraphSlide([
+        {
+          runs: [{ content: "مرحبا Builder 2026", fontSize: 14 }],
+          rtl: true,
+        },
+        { runs: [{ content: "Latin only", fontSize: 14 }] },
+      ]),
+    );
+    const rtlParagraph = html.match(
+      /<p data-pptx-paragraph="0"([^>]*)>/,
+    )?.[1];
+    const ltrParagraph = html.match(
+      /<p data-pptx-paragraph="1"([^>]*)>/,
+    )?.[1];
+    // `dir` is the semantic form; the CSS carries it past sanitizeSlideHtml,
+    // whose ALLOWED_ATTRS drops `dir`.
+    expect(rtlParagraph).toContain('dir="rtl"');
+    expect(rtlParagraph).toContain("direction:rtl;");
+    expect(rtlParagraph).toContain("text-align:right;");
+    expect(ltrParagraph).not.toContain("dir=");
+    expect(ltrParagraph).not.toContain("direction:");
+    expect(ltrParagraph).toContain("text-align:left;");
   });
 
   it("sizes a blank spacer paragraph from its own text box, not the format-wide default", () => {

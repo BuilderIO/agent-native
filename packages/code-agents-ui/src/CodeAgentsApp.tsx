@@ -291,7 +291,7 @@ export interface CodeAgentsAppProps {
   openRequest?: CodeAgentsOpenRequest;
   refreshKey?: number;
   brandIconUrl?: string;
-  onOpenSettings?: () => void;
+  onOpenSettings?: (tab?: string) => void;
   /** Compact actions rendered above the primary surface. */
   mainToolbarSlot?: ReactNode;
   /** App shortcuts rendered between navigation and the chat history. */
