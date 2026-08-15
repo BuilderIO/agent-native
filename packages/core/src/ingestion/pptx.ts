@@ -903,7 +903,8 @@ async function parseSlideElements(args: {
   images: ParsedPptxImage[];
   tablesDegraded: { count: number };
   colorContext?: ColorContext;
-  placeholderDefaults?: PlaceholderDefaultColors;
+  placeholderDefaults?: PlaceholderDefaults;
+  slideNumber?: number;
 }): Promise<ParsedPptxElement[]> {
   const fragments = extractDirectShapeFragments(args.xml, "spTree");
   const elements: ParsedPptxElement[] = [];
@@ -958,7 +959,8 @@ async function parseShapeFragment(
     images: ParsedPptxImage[];
     tablesDegraded: { count: number };
     colorContext?: ColorContext;
-    placeholderDefaults?: PlaceholderDefaultColors;
+    placeholderDefaults?: PlaceholderDefaults;
+    slideNumber?: number;
     context: ShapeTransformContext;
   },
 ): Promise<ParsedPptxElement[]> {
@@ -1544,6 +1546,41 @@ function parseTextBodyParagraphs(
   });
 }
 
+/**
+ * `<a:normAutofit fontScale="90000" lnSpcReduction="10000"/>` is the shrink
+ * PowerPoint already computed and baked into the file when the author's text
+ * overflowed its shape. Ignoring it renders that text at its nominal size,
+ * spilling out of the box the author saw it fit into. A bare `<a:normAutofit/>`
+ * carries no scale — computing one ourselves would need text measurement, so
+ * it is left alone rather than guessed at.
+ */
+function applyAutofitScale(
+  paragraphs: ParsedPptxParagraph[],
+  bodyPr: Record<string, unknown> | null,
+): ParsedPptxParagraph[] {
+  const autofit = record(bodyPr?.["a:normAutofit"]);
+  if (!autofit) return paragraphs;
+  const fontScale = Number(autofit["@_fontScale"]) / 100000;
+  const lineReduction = Number(autofit["@_lnSpcReduction"]) / 100000;
+  const scale = Number.isFinite(fontScale) && fontScale > 0 ? fontScale : 1;
+  const lineScale =
+    Number.isFinite(lineReduction) && lineReduction > 0 && lineReduction < 1
+      ? 1 - lineReduction
+      : 1;
+  if (scale === 1 && lineScale === 1) return paragraphs;
+  return paragraphs.map((paragraph) => ({
+    ...paragraph,
+    ...(paragraph.lineSpacing !== undefined
+      ? { lineSpacing: roundTo(paragraph.lineSpacing * lineScale, 4) }
+      : {}),
+    runs: paragraph.runs.map((run) =>
+      run.fontSize === undefined
+        ? run
+        : { ...run, fontSize: roundTo(run.fontSize * scale, 2) },
+    ),
+  }));
+}
+
 function parseTextBoxProperties(
   node: Record<string, unknown>,
 ): Pick<ParsedPptxElement, "padding" | "verticalAlign"> {
@@ -1623,7 +1660,7 @@ interface PlaceholderDefaults {
   masterPlaceholders: PlaceholderShapeDefaults[];
 }
 
-/** Placeholder types that inherit from each other: a slide's `ctrTitle` falls back to the layout/master's `title` shape, a `subTitle` to its `body` shape. Matching the type as a literal string instead sent every title slide past the shape that actually defines its look, down to the `<p:txStyles>` boilerplate that `PlaceholderDefaultColors.masterPlaceholders` documents as the last resort. */
+/** Placeholder types that inherit from each other: a slide's `ctrTitle` falls back to the layout/master's `title` shape, a `subTitle` to its `body` shape. Matching the type as a literal string instead sent every title slide past the shape that actually defines its look, down to the `<p:txStyles>` boilerplate that `PlaceholderDefaults.masterPlaceholders` documents as the last resort. */
 const PLACEHOLDER_TYPE_GROUPS = [
   ["title", "ctrTitle"],
   ["body", "subTitle", "obj"],
