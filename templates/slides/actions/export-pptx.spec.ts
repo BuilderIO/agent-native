@@ -18,11 +18,22 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 
 vi.mock("../server/db/index.js", () => ({}));
 
+import PptxGenJS from "pptxgenjs";
+
 import {
   assertServerPptxExportable,
   fetchImageAsBase64,
   parseSlideHtml,
+  resolveShapeType,
 } from "./export-pptx";
+
+/** An imported-PPTX slide wrapper holding one `data-pptx-element-kind` element. */
+function importedSlide(element: string, slideStyle = "background:#000000;") {
+  return `<div class="fmd-slide fmd-imported-pptx" data-imported-pptx="true" style="${slideStyle}">${element}</div>`;
+}
+
+const SHAPE_BOX =
+  "position:absolute;left:96px;top:54px;width:192px;height:108px;";
 
 describe("fetchImageAsBase64", () => {
   beforeEach(() => {
@@ -66,6 +77,31 @@ describe("fetchImageAsBase64", () => {
     await expect(
       fetchImageAsBase64("http://127.0.0.1/image.png"),
     ).resolves.toBe(null);
+  });
+});
+
+describe("resolveShapeType", () => {
+  const shapeTypes = new PptxGenJS().ShapeType as unknown as Record<
+    string,
+    string
+  >;
+
+  it("passes through preset geometries PowerPoint knows", () => {
+    expect(resolveShapeType(shapeTypes, "trapezoid")).toBe("trapezoid");
+    expect(resolveShapeType(shapeTypes, "ellipse")).toBe("ellipse");
+    expect(resolveShapeType(shapeTypes, "custGeom")).toBe("custGeom");
+    expect(resolveShapeType(shapeTypes, undefined)).toBe("rect");
+  });
+
+  it("warns instead of silently writing a prst PowerPoint would reject", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    expect(resolveShapeType(shapeTypes, "notAShape")).toBe("rect");
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("notAShape"),
+    );
+
+    warnSpy.mockRestore();
   });
 });
 
@@ -284,6 +320,176 @@ describe("parseSlideHtml", () => {
     );
 
     warnSpy.mockRestore();
+  });
+
+  it("fills a gradient shape with its first opaque stop instead of dropping the fill", () => {
+    const result = parseSlideHtml(
+      importedSlide(
+        `<div data-pptx-element-kind="shape" style="${SHAPE_BOX}background:linear-gradient(135deg, rgba(255,95,109,0) 0%, #FF5F6D 20%, #FFC371 100%);"></div>`,
+      ),
+      "16:9",
+      1,
+    );
+
+    expect(result.shapes[0]).toMatchObject({ fill: "FF5F6D" });
+    expect(result.shapes[0]?.fillTransparency).toBeUndefined();
+  });
+
+  it("keeps the source preset geometry the importer carries on the shape", () => {
+    const result = parseSlideHtml(
+      importedSlide(
+        `<div data-pptx-element-kind="shape" data-pptx-shape-type="trapezoid" style="${SHAPE_BOX}background:#123456;"></div>`,
+      ),
+      "16:9",
+      1,
+    );
+
+    expect(result.shapes[0]?.shapeType).toBe("trapezoid");
+  });
+
+  it("reads a circle and a real corner radius instead of collapsing both to roundRect", () => {
+    const [circle] = parseSlideHtml(
+      importedSlide(
+        `<div data-pptx-element-kind="shape" style="${SHAPE_BOX}background:#123456;border-radius:50%;"></div>`,
+      ),
+      "16:9",
+      1,
+    ).shapes;
+    const [rounded] = parseSlideHtml(
+      importedSlide(
+        `<div data-pptx-element-kind="shape" style="${SHAPE_BOX}background:#123456;border-radius:18px;"></div>`,
+      ),
+      "16:9",
+      1,
+    ).shapes;
+    const [pill] = parseSlideHtml(
+      importedSlide(
+        `<div data-pptx-element-kind="shape" style="${SHAPE_BOX}background:#123456;border-radius:9999px;"></div>`,
+      ),
+      "16:9",
+      1,
+    ).shapes;
+
+    expect(circle?.shapeType).toBe("ellipse");
+    expect(circle?.rectRadius).toBeUndefined();
+    // 16:9 decks are 72 px/in, so an 18px radius is 0.25in.
+    expect(rounded?.shapeType).toBe("roundRect");
+    expect(rounded?.rectRadius).toBeCloseTo(0.25, 4);
+    // A pill clamps to the half-short-side PowerPoint's `adj` value caps at.
+    expect(pill?.rectRadius).toBeCloseTo((108 / 540) * 7.5 / 2, 4);
+  });
+
+  it("traces a clip-path polygon as custom geometry rather than a rectangle", () => {
+    const result = parseSlideHtml(
+      importedSlide(
+        `<div data-pptx-element-kind="shape" style="${SHAPE_BOX}background:#123456;clip-path:polygon(50% 0%, 100% 100%, 0% 100%);"></div>`,
+      ),
+      "16:9",
+      1,
+    );
+
+    const w = (192 / 960) * 13.33;
+    const h = (108 / 540) * 7.5;
+    expect(result.shapes[0]?.shapeType).toBe("custGeom");
+    expect(result.shapes[0]?.points).toEqual([
+      { x: expect.closeTo(w / 2, 4), y: 0 },
+      { x: expect.closeTo(w, 4), y: expect.closeTo(h, 4) },
+      { x: 0, y: expect.closeTo(h, 4) },
+      { close: true },
+    ]);
+  });
+
+  it("exports dashed and dotted outlines instead of dropping the line entirely", () => {
+    const [dashed] = parseSlideHtml(
+      importedSlide(
+        `<div data-pptx-element-kind="shape" style="${SHAPE_BOX}border:2px dashed #FF0000;"></div>`,
+      ),
+      "16:9",
+      1,
+    ).shapes;
+    const [dotted] = parseSlideHtml(
+      importedSlide(
+        `<div data-pptx-element-kind="shape" style="${SHAPE_BOX}border:1px dotted #00FF00;"></div>`,
+      ),
+      "16:9",
+      1,
+    ).shapes;
+    const [solid] = parseSlideHtml(
+      importedSlide(
+        `<div data-pptx-element-kind="shape" style="${SHAPE_BOX}border:1px solid #0000FF;"></div>`,
+      ),
+      "16:9",
+      1,
+    ).shapes;
+
+    expect(dashed).toMatchObject({ lineColor: "FF0000", lineDashType: "dash" });
+    expect(dotted).toMatchObject({ lineColor: "00FF00", lineDashType: "sysDot" });
+    expect(solid?.lineColor).toBe("0000FF");
+    expect(solid?.lineDashType).toBeUndefined();
+  });
+
+  it("maps a dotted table rule to the nearest border pptxgenjs can draw", () => {
+    const result = parseSlideHtml(
+      importedSlide(
+        `<div data-pptx-element-kind="table" style="${SHAPE_BOX}"><table><tr><td style="border:1px dotted #888888;"><p>Cell</p></td></tr></table></div>`,
+      ),
+      "16:9",
+      1,
+    );
+
+    expect(result.tables[0]?.rows[0]?.[0]?.options?.border).toMatchObject({
+      type: "dash",
+      color: "888888",
+    });
+  });
+
+  it("writes the source deck's font, not this template's, on a round trip", () => {
+    const result = parseSlideHtml(
+      importedSlide(
+        `<div data-pptx-element-kind="text" style="position:absolute;left:72px;top:68px;width:480px;height:120px;"><p style="line-height:1.5;"><span style="font-size:24px;font-family:'Work Sans',sans-serif;color:#333333;">Heading</span></p></div>`,
+        "background:#ffffff;font-family:'Bodoni Moda',serif;",
+      ),
+      "16:9",
+      1,
+    );
+
+    expect(result.texts[0]?.fontFace).toBe("Work Sans");
+  });
+
+  it("falls back to the imported deck's own theme font when a run declares none", () => {
+    const result = parseSlideHtml(
+      importedSlide(
+        `<div data-pptx-element-kind="text" style="position:absolute;left:72px;top:68px;width:480px;height:120px;"><p>Heading</p></div>`,
+        "background:#ffffff;font-family:'Bodoni Moda',serif;",
+      ),
+      "16:9",
+      1,
+    );
+
+    expect(result.texts[0]?.fontFace).toBe("Bodoni Moda");
+    // No run declared a size, so none is invented on the way out either.
+    expect(result.texts[0]?.fontSize).toBeUndefined();
+  });
+
+  it("uses the deck wrapper's font family on normal-flow slides", () => {
+    const result = parseSlideHtml(
+      `<div class="fmd-slide" style="font-family: 'Montserrat', sans-serif;"><h1 style="font-size: 48px;">Title</h1></div>`,
+      "16:9",
+      1,
+    );
+
+    expect(result.texts[0]?.fontFace).toBe("Montserrat");
+  });
+
+  it("matches the importer's own defaults so an undecorated round trip keeps its colors", () => {
+    const result = parseSlideHtml(
+      `<div class="fmd-slide fmd-imported-pptx" data-imported-pptx="true"><div data-pptx-element-kind="text" style="position:absolute;left:72px;top:68px;width:480px;height:120px;"><p>Heading</p></div></div>`,
+      "16:9",
+      1,
+    );
+
+    expect(result.bgColor).toBe("FFFFFF");
+    expect(result.texts[0]?.color).toBe("111827");
   });
 
   it("ignores imported grids with non-positive spacing", () => {

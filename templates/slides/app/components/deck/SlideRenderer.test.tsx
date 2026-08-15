@@ -1,5 +1,7 @@
 import { cleanup, render, waitFor } from "@testing-library/react";
 // @vitest-environment happy-dom
+// Imported decks inject a Google Fonts <link>; keep the suite off the network.
+// @vitest-environment-options { "settings": { "disableCSSFileLoading": true } }
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 

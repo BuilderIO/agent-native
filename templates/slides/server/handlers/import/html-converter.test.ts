@@ -111,7 +111,10 @@ describe("convertToSlideHtml fidelity text sizing", () => {
     )?.[1];
     if (!slideStyle) throw new Error("missing imported-pptx slide style");
     expect(slideStyle).toContain("background: #ffffff");
-    expect(html).toContain("color:#111827");
+    // A run with no `<a:solidFill>` gets OOXML's own declared default text
+    // color. An invented near-black renders as a visibly different black
+    // beside the deck's real #000000 inside a single text box.
+    expect(html).toContain("color:#000000");
     expect(html).not.toContain("color:#ffffff;font-weight");
   });
 });
@@ -209,5 +212,18 @@ describe("convertToSlideHtml table fidelity", () => {
     expect(html).toContain('<col style="width:75%" />');
     expect(html).toContain('<tr style="height:25%">');
     expect(html).toContain('<tr style="height:75%">');
+  });
+
+  it("does not stamp an invented cell border, and pads cells with the format's own default margins", () => {
+    const html = convertToSlideHtml(tableSlide());
+    // A fixed light border is invisible on the white slides these tables
+    // usually sit on and draws a grid the source never declared on dark
+    // ones — the parser reads no `a:tcPr` line properties, so there is
+    // nothing to reproduce.
+    expect(html).not.toContain("rgba(255,255,255,0.25)");
+    expect(html).not.toMatch(/<td[^>]*border:/);
+    // 0.05in top/bottom, 0.1in left/right, scaled by this slide's own
+    // canvas: 12192000 EMU -> 960px.
+    expect(html).toContain("padding:3.6px 7.2px");
   });
 });

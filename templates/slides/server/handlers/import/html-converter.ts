@@ -202,6 +202,16 @@ const DEFAULT_PPTX_BACKGROUND = "#ffffff"; // guard:allow-raw-color - PPTX's own
 // renders beside the deck's real black inside a single text box, which is
 // visible as two different blacks in one paragraph.
 const DEFAULT_PPTX_FOREGROUND = "#000000"; // guard:allow-raw-color - OOXML's declared default text color
+/**
+ * OOXML's own default run size, used only when the run, its placeholder
+ * chain, and the deck's `<p:defaultTextStyle>` all fail to state one.
+ * KNOWN GAP: the parser does not read `<p:defaultTextStyle>` or the master's
+ * `<p:otherStyle>`, and real decks routinely declare 14pt there — an unsized
+ * run in one of those decks renders 28% oversized and overflows its authored
+ * box. Fixing that needs the parser to surface the deck's declared default,
+ * not a different constant here.
+ */
+const DEFAULT_PPTX_FONT_SIZE_PT = 18;
 
 /**
  * The absolute px box `toSlidePxX`/`toSlidePxY` scale positions and sizes
@@ -818,6 +828,26 @@ function textBoxStyle(
  */
 const DEFAULT_LINE_SPACING = 1;
 
+/**
+ * The first size any run in this text box declares. A blank spacer paragraph
+ * has no run to read a size from, so it would otherwise fall back to the
+ * format-wide default and reserve a taller empty line than the copy it
+ * separates — every blank paragraph in a 14pt box adding a few px of drift
+ * that pushes the rest of the box down. Its real size lives in
+ * `<a:endParaRPr>`, which the parser does not surface; the box's own declared
+ * size is the closest value the source actually states.
+ */
+function firstDeclaredFontSizePt(
+  paragraphs: ParsedParagraph[] | undefined,
+): number | undefined {
+  for (const paragraph of paragraphs ?? []) {
+    for (const run of paragraph.runs) {
+      if (run.fontSize !== undefined) return run.fontSize;
+    }
+  }
+  return undefined;
+}
+
 function buildFidelityParagraph(
   paragraph: ParsedParagraph,
   paragraphIndex: number,
@@ -825,12 +855,17 @@ function buildFidelityParagraph(
   refWidthPx: number,
   themeFont: string | undefined,
   defaultFontWeight: number,
+  boxFontSizePt?: number,
 ): string {
   const firstRun = paragraph.runs[0];
-  const fontSize = ptToSlidePx(firstRun?.fontSize ?? 18, widthEmu, refWidthPx);
+  const paragraphFontSizePt =
+    firstRun?.fontSize ??
+    (paragraph.runs.length === 0 ? boxFontSizePt : undefined) ??
+    DEFAULT_PPTX_FONT_SIZE_PT;
+  const fontSize = ptToSlidePx(paragraphFontSizePt, widthEmu, refWidthPx);
   const lineHeight = paragraph.lineSpacing ?? DEFAULT_LINE_SPACING;
   const bulletFontSize = ptToSlidePx(
-    paragraph.bulletSize ?? firstRun?.fontSize ?? 18,
+    paragraph.bulletSize ?? paragraphFontSizePt,
     widthEmu,
     refWidthPx,
   );
@@ -875,7 +910,7 @@ function formatFidelityRun(
   defaultFontWeight = 400,
 ): string {
   const styles = [
-    `font-size:${ptToSlidePx(run.fontSize ?? 18, widthEmu, refWidthPx)}px`,
+    `font-size:${ptToSlidePx(run.fontSize ?? DEFAULT_PPTX_FONT_SIZE_PT, widthEmu, refWidthPx)}px`,
     `font-family:${cssFontFamily(run.fontFamily ?? themeFont)}`,
     `color:${esc(run.color ?? DEFAULT_PPTX_FOREGROUND)}`,
     `font-weight:${run.bold ? 700 : fontWeightForFamily(run.fontFamily, defaultFontWeight)}`,

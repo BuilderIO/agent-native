@@ -451,20 +451,26 @@ function relsPathForPptxPart(path: string): string {
  * unrelated master's. Returns `undefined` when any hop in that chain is
  * missing, letting the caller fall back to the deck-wide default.
  */
+interface SlideTemplateContext {
+  colorContext: ColorContext;
+  placeholderDefaults: PlaceholderDefaults;
+  /** The layout's own `<p:bg>`, else the master's, already resolved to a CSS `background` value. A slide's own `<p:bg>` still wins over this. */
+  background?: string;
+  /** The layout's (and, unless it sets `showMasterSp="0"`, the master's) non-placeholder shapes and pictures, ordered back-to-front, ready to sit underneath the slide's own elements. */
+  layerElements: ParsedPptxElement[];
+  layerImages: ParsedPptxImage[];
+}
+
 async function resolveSlideMasterContext(args: {
   zip: ZipArchive;
   parseXml: (xml: string) => unknown;
   slideRelationships: Map<string, { target: string; type: string }>;
+  slideWidthEmu?: number;
+  slideHeightEmu?: number;
   themeCache: Map<string, Promise<ThemeInfo>>;
   masterInfoCache: Map<string, ReturnType<typeof parseMasterColorInfo>>;
-  layoutPlaceholdersCache: Map<string, Promise<RawPlaceholderShapeFill[]>>;
-}): Promise<
-  | {
-      colorContext: ColorContext;
-      placeholderDefaults: PlaceholderDefaultColors;
-    }
-  | undefined
-> {
+  templateContextCache: Map<string, Promise<SlideTemplateContext | undefined>>;
+}): Promise<SlideTemplateContext | undefined> {
   const layoutRelationship = [...args.slideRelationships.values()].find(
     (relationship) => relationship.type.endsWith("/slideLayout"),
   );
@@ -473,6 +479,24 @@ async function resolveSlideMasterContext(args: {
     "ppt/slides",
     layoutRelationship.target,
   );
+  let cached = args.templateContextCache.get(layoutPath);
+  if (!cached) {
+    cached = buildSlideTemplateContext({ ...args, layoutPath });
+    args.templateContextCache.set(layoutPath, cached);
+  }
+  return cached;
+}
+
+async function buildSlideTemplateContext(args: {
+  zip: ZipArchive;
+  parseXml: (xml: string) => unknown;
+  layoutPath: string;
+  slideWidthEmu?: number;
+  slideHeightEmu?: number;
+  themeCache: Map<string, Promise<ThemeInfo>>;
+  masterInfoCache: Map<string, ReturnType<typeof parseMasterColorInfo>>;
+}): Promise<SlideTemplateContext | undefined> {
+  const layoutPath = args.layoutPath;
   const layoutXml = await args.zip.file(layoutPath)?.async("string");
   const layoutRelsXml = await args.zip
     .file(relsPathForPptxPart(layoutPath))
@@ -499,14 +523,12 @@ async function resolveSlideMasterContext(args: {
   }
   const masterInfo = await masterInfoPromise;
 
-  let layoutPlaceholdersPromise = args.layoutPlaceholdersCache.get(layoutPath);
-  if (!layoutPlaceholdersPromise) {
-    layoutPlaceholdersPromise = Promise.resolve(
-      layoutXml ? parsePlaceholderShapeFills(layoutXml, args.parseXml) : [],
-    );
-    args.layoutPlaceholdersCache.set(layoutPath, layoutPlaceholdersPromise);
-  }
-  const layoutPlaceholderFills = await layoutPlaceholdersPromise;
+  const layoutRoot = layoutXml
+    ? record(record(args.parseXml(layoutXml))?.["p:sldLayout"])
+    : null;
+  const layoutPlaceholderDefaults = layoutXml
+    ? parsePlaceholderShapeDefaults(layoutXml, args.parseXml)
+    : [];
 
   const masterRelsXml = await args.zip
     .file(relsPathForPptxPart(masterPath))
@@ -533,31 +555,137 @@ async function resolveSlideMasterContext(args: {
     themeColorsByName: theme.colorsByName,
     clrMap: masterInfo.clrMap,
   };
-  const resolveFillsByLevel = (
-    fillsByLevel: Record<number, Record<string, unknown> | null>,
-  ): Record<number, string | undefined> =>
-    Object.fromEntries(
-      Object.entries(fillsByLevel).map(([level, fill]) => [
-        Number(level),
-        parseColor(fill, colorContext),
-      ]),
+  const background =
+    parseBackgroundNode(record(layoutRoot?.["p:cSld"])?.["p:bg"], colorContext) ??
+    parseBackgroundNode(masterInfo.background, colorContext);
+
+  // `showMasterSp="0"` is a layout opting out of the master's own decoration;
+  // honouring it is the difference between reproducing a template and
+  // stamping the master's furniture onto slides that deliberately hid it.
+  const layerImages: ParsedPptxImage[] = [];
+  const layerElements: ParsedPptxElement[] = [];
+  const layerSources: { xml: string; path: string; prefix: string }[] = [];
+  if (masterInfo.xml && stringValue(layoutRoot?.["@_showMasterSp"]) !== "0") {
+    layerSources.push({ xml: masterInfo.xml, path: masterPath, prefix: "master" });
+  }
+  if (layoutXml) {
+    layerSources.push({ xml: layoutXml, path: layoutPath, prefix: "layout" });
+  }
+  for (const source of layerSources) {
+    layerElements.push(
+      ...(await parseTemplateLayerElements({
+        zip: args.zip,
+        parseXml: args.parseXml,
+        xml: source.xml,
+        path: source.path,
+        idPrefix: source.prefix,
+        slideWidthEmu: args.slideWidthEmu,
+        slideHeightEmu: args.slideHeightEmu,
+        images: layerImages,
+        colorContext,
+      })),
     );
+  }
+
   return {
     colorContext,
+    ...(background ? { background } : {}),
+    layerElements,
+    layerImages,
     placeholderDefaults: {
-      title: resolveFillsByLevel(masterInfo.titleFillByLevel),
-      body: resolveFillsByLevel(masterInfo.bodyFillByLevel),
-      other: resolveFillsByLevel(masterInfo.otherFillByLevel),
-      layoutPlaceholders: resolvePlaceholderShapeColors(
-        layoutPlaceholderFills,
+      title: resolveRunDefaultsByLevel(
+        masterInfo.titleDefaultsByLevel,
         colorContext,
       ),
-      masterPlaceholders: resolvePlaceholderShapeColors(
-        masterInfo.placeholderFills,
+      body: resolveRunDefaultsByLevel(
+        masterInfo.bodyDefaultsByLevel,
+        colorContext,
+      ),
+      other: resolveRunDefaultsByLevel(
+        masterInfo.otherDefaultsByLevel,
+        colorContext,
+      ),
+      layoutPlaceholders: resolvePlaceholderShapeDefaults(
+        layoutPlaceholderDefaults,
+        colorContext,
+      ),
+      masterPlaceholders: resolvePlaceholderShapeDefaults(
+        masterInfo.placeholderDefaults,
         colorContext,
       ),
     },
   };
+}
+
+/**
+ * A slideLayout's and slideMaster's *non*-placeholder `<p:sp>`/`<p:pic>`/
+ * `<p:cxnSp>`/`<p:grpSp>` are where a template's visual identity actually
+ * lives — full-bleed bands, brand marks, logos, silhouettes. Reading only
+ * placeholder shapes for their inherited defaults threw all of it away, so
+ * slides whose entire design came from the layout imported as blank white
+ * cards. Placeholder shapes are skipped here: their content is prompt text,
+ * and their geometry/colors already reach the slide through
+ * `PlaceholderDefaults`.
+ */
+async function parseTemplateLayerElements(args: {
+  zip: ZipArchive;
+  parseXml: (xml: string) => unknown;
+  xml: string;
+  path: string;
+  idPrefix: string;
+  slideWidthEmu?: number;
+  slideHeightEmu?: number;
+  images: ParsedPptxImage[];
+  colorContext?: ColorContext;
+}): Promise<ParsedPptxElement[]> {
+  const relsXml = await args.zip
+    .file(relsPathForPptxPart(args.path))
+    ?.async("string");
+  const relationships = relsXml
+    ? parseRelationships(args.parseXml(relsXml))
+    : new Map<string, { target: string; type: string }>();
+  const elements: ParsedPptxElement[] = [];
+  const images: ParsedPptxImage[] = [];
+  const tablesDegraded = { count: 0 };
+  for (const fragment of extractDirectShapeFragments(args.xml, "spTree")) {
+    if (/<p:ph[\s/>]/.test(fragment)) continue;
+    elements.push(
+      ...(await parseShapeFragment(fragment, {
+        parseXml: args.parseXml,
+        zip: args.zip,
+        slideRelationships: relationships,
+        slideWidthEmu: args.slideWidthEmu,
+        slideHeightEmu: args.slideHeightEmu,
+        images,
+        tablesDegraded,
+        colorContext: args.colorContext,
+        context: { matrix: IDENTITY_MAT, rotation: 0 },
+      })),
+    );
+  }
+  // A template layer's icons and logos are frequently EMF/WMF vector art,
+  // which no browser can render and which the import boundary rejects for the
+  // whole deck. Dropping the deck's every other slide over a layout logo is
+  // strictly worse than importing without it, so unrenderable *layer* art is
+  // left out; a slide's own images still fail loudly.
+  const renderable = new Set(images.filter(isBrowserRenderableImage));
+  args.images.push(...renderable);
+  return elements
+    .filter((element) => !element.image || renderable.has(element.image))
+    .map((element) => ({ ...element, id: `${args.idPrefix}-${element.id}` }));
+}
+
+const BROWSER_RENDERABLE_IMAGE_MIME_TYPES = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+  "image/svg+xml",
+  "image/bmp",
+]);
+
+function isBrowserRenderableImage(image: ParsedPptxImage): boolean {
+  return BROWSER_RENDERABLE_IMAGE_MIME_TYPES.has(image.mimeType);
 }
 
 /** Resolves a slide master's color-alias mapping plus its title/body default text-color fills (from p:txStyles), so placeholder text without its own explicit color can inherit the right one. */
@@ -1908,14 +2036,122 @@ function flattenElementText(
   return output;
 }
 
-function extractSlideBackgroundColor(
+function extractSlideBackground(
   value: unknown,
   context?: ColorContext,
 ): string | undefined {
   const root = record(value);
   const cSld = record(record(root?.["p:sld"])?.["p:cSld"] ?? root?.["p:cSld"]);
-  const bgPr = record(record(cSld?.["p:bg"])?.["p:bgPr"]);
-  return parseColor(record(bgPr?.["a:solidFill"]), context);
+  return parseBackgroundNode(cSld?.["p:bg"], context);
+}
+
+/** Resolves a `<p:bg>` into a CSS `background` value. Reading only `a:solidFill` left every gradient-backed deck rendering white — which, on a template whose text is white by design, is an entirely invisible slide. */
+function parseBackgroundNode(
+  value: unknown,
+  context?: ColorContext,
+): string | undefined {
+  const bg = record(value);
+  if (!bg) return undefined;
+  const bgPr = record(bg["p:bgPr"]);
+  if (bgPr) {
+    const solid = parseColor(record(bgPr["a:solidFill"]), context);
+    if (solid) return solid;
+    const gradient = parseGradientFill(record(bgPr["a:gradFill"]), context);
+    if (gradient) return gradient;
+    // `<a:pattFill>` is a two-color hatch we can't reproduce as a single CSS
+    // value; its background color is still far closer than white.
+    const pattern = record(bgPr["a:pattFill"]);
+    if (pattern) {
+      return (
+        parseColor(record(pattern["a:bgClr"]), context) ??
+        parseColor(record(pattern["a:fgClr"]), context)
+      );
+    }
+    return undefined;
+  }
+  // `<p:bgRef idx="1001"><a:schemeClr val="lt1"/></p:bgRef>` references the
+  // theme's fill-style list; the referenced color is the whole of it for the
+  // solid styles that idx 1001-1003 resolve to in practice.
+  return parseColor(record(bg["p:bgRef"]), context);
+}
+
+/**
+ * Converts an `<a:gradFill>` into a CSS gradient. Collapsing to the first
+ * stop, as before, flattened four-stop brand gradients into one flat block.
+ *
+ * OOXML's `<a:lin ang>` is measured clockwise from the positive x-axis in
+ * screen coordinates (y down); CSS measures clockwise from "up". The two
+ * differ by exactly 90°.
+ */
+function parseGradientFill(
+  gradFill: Record<string, unknown> | null,
+  context?: ColorContext,
+): string | undefined {
+  if (!gradFill) return undefined;
+  const stops = asArray(record(gradFill["a:gsLst"])?.["a:gs"]).flatMap(
+    (rawStop) => {
+      const stop = record(rawStop);
+      const color = parseColor(stop, context);
+      if (!color) return [];
+      const position = Number(stop?.["@_pos"]);
+      return [
+        {
+          color,
+          position: Number.isFinite(position) ? position / 1000 : undefined,
+        },
+      ];
+    },
+  );
+  if (stops.length === 0) return undefined;
+  if (stops.length === 1) return stops[0].color;
+  const stopList = stops
+    .map((stop) =>
+      stop.position === undefined
+        ? stop.color
+        : `${stop.color} ${roundTo(stop.position, 2)}%`,
+    )
+    .join(", ");
+  const path = record(gradFill["a:path"]);
+  if (path) {
+    const rect = record(path["a:fillToRect"]);
+    const centerX = fillToRectCenter(rect, "@_l", "@_r");
+    const centerY = fillToRectCenter(rect, "@_t", "@_b");
+    return `radial-gradient(circle at ${centerX}% ${centerY}%, ${stopList})`;
+  }
+  const angle = Number(record(gradFill["a:lin"])?.["@_ang"]);
+  const cssAngle = Number.isFinite(angle)
+    ? (((angle / 60000 + 90) % 360) + 360) % 360
+    : 180;
+  return `linear-gradient(${roundTo(cssAngle, 2)}deg, ${stopList})`;
+}
+
+/** `<a:fillToRect>` gives inset percentages from each edge; the focus point is the center of the rect they collapse to. */
+function fillToRectCenter(
+  rect: Record<string, unknown> | null,
+  nearAttribute: string,
+  farAttribute: string,
+): number {
+  const near = percentAttribute(rect, nearAttribute) ?? 50;
+  const far = percentAttribute(rect, farAttribute) ?? 50;
+  return roundTo((near + (100 - far)) / 2, 2);
+}
+
+/** DrawingML writes these as either `"50%"` or the 1000ths-of-a-percent integer `50000`. */
+function percentAttribute(
+  node: Record<string, unknown> | null,
+  attribute: string,
+): number | undefined {
+  const raw = node?.[attribute];
+  if (raw === undefined || raw === null) return undefined;
+  const text = String(raw).trim();
+  const value = Number(text.replace(/%$/, ""));
+  if (!Number.isFinite(value)) return undefined;
+  return text.endsWith("%") ? value : value / 1000;
+}
+
+function roundTo(value: number, digits: number): number {
+  const factor = 10 ** digits;
+  return Math.round(value * factor) / factor;
 }
 
 export function parsePptxSlideMetadata(
