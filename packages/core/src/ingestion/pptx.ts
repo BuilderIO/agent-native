@@ -311,7 +311,12 @@ export async function parsePptxPresentation(
     // background band, brand mark and silhouette the layout draws under
     // everything the slide itself places.
     images.unshift(...slideMasterContext.layerImages);
-    elements.unshift(...slideMasterContext.layerElements);
+    elements.unshift(
+      ...substituteSlideNumber(
+        slideMasterContext.layerElements,
+        slides.length + 1,
+      ),
+    );
     const texts = flattenElementText(elements);
     const notesXml = await zip
       .file(`ppt/notesSlides/notesSlide${number}.xml`)

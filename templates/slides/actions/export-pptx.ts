@@ -664,7 +664,9 @@ function parseImportedSlideHtml(html: string, dims: SlideDims): ParsedSlide {
           ? {
               lineColor: parsedLine.hex,
               lineTransparency: parsedLine.transparency,
-              lineWidth: pxToPt(border.widthPx, dims),
+              // `pxToPt` rounds, so a hairline needs the same 0.5pt floor the
+              // table borders use or the outline rounds away to nothing.
+              lineWidth: Math.max(0.5, pxToPt(border.widthPx, dims)),
               ...(border.dashType ? { lineDashType: border.dashType } : {}),
             }
           : {}),
