@@ -238,6 +238,7 @@ body {
   --sidebar-accent: 0 0% 95%;
   --sidebar-accent-foreground: 0 0% 15%;
   --sidebar-border: 0 0% 90%;
+  --agent-native-lower-surface: hsl(var(--sidebar-background));
   position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -245,6 +246,24 @@ body {
   min-width: 0;
   min-height: 0;
   background: var(--shell-bg);
+}
+
+@supports (background: color-mix(in srgb, white, black)) {
+  .desktop-chat-first-hub {
+    --agent-native-lower-surface: color-mix(
+      in srgb,
+      hsl(var(--sidebar-background)) 98%,
+      hsl(var(--code-agents-dark-shadow)) 2%
+    );
+  }
+
+  .dark .desktop-chat-first-hub {
+    --agent-native-lower-surface: color-mix(
+      in srgb,
+      hsl(var(--sidebar-background)) 94%,
+      hsl(var(--code-agents-dark-shadow)) 6%
+    );
+  }
 }
 
 .desktop-chat-first-hub:has(.chat-first-surface-panel) {
