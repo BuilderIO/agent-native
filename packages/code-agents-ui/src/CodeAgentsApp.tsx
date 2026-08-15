@@ -27,7 +27,6 @@ import {
   isLunaModel,
   readAgentPromptAttachment,
   resolvePreferredAgentModel,
-  type ComposerAgentOption,
   type PromptComposerFile,
   type SlashCommand,
   type TiptapComposerHandle,
@@ -346,6 +345,12 @@ export interface CodeAgentsAppProps {
   onRunsChange?: (runs: CodeAgentRun[]) => void;
   /** Exposes the selected primary chat to a host-owned surface controller. */
   onSelectedRunChange?: (runId: string | null) => void;
+}
+
+interface CodeAgentTerminalAgentOption {
+  id: string;
+  label: string;
+  icon?: ReactNode;
 }
 
 function recordFromUnknown(value: unknown): Record<string, unknown> | null {
@@ -730,13 +735,16 @@ export default function CodeAgentsApp({
   const newSessionExtensionComposerState = terminalMode
     ? { active: false, useDefaultModeControl: false, showModelSelector: true }
     : resolveNewSessionExtensionComposerState(newSessionExtension);
-  const terminalAgentOption: ComposerAgentOption | undefined = terminalMode
-    ? {
-        id: terminalMode.agentId,
-        label: terminalMode.agentLabel,
-        icon: <IconTerminal2 size={14} strokeWidth={1.8} aria-hidden="true" />,
-      }
-    : undefined;
+  const terminalAgentOption: CodeAgentTerminalAgentOption | undefined =
+    terminalMode
+      ? {
+          id: terminalMode.agentId,
+          label: terminalMode.agentLabel,
+          icon: (
+            <IconTerminal2 size={14} strokeWidth={1.8} aria-hidden="true" />
+          ),
+        }
+      : undefined;
   const selectedRun = useMemo(
     () => runs.find((run) => run.id === selectedRunId) ?? null,
     [runs, selectedRunId],
@@ -3113,7 +3121,7 @@ function NewSessionComposer({
   promptSeed: number;
   inputRef: React.RefObject<TiptapComposerHandle | null>;
   creating: boolean;
-  terminalAgent?: ComposerAgentOption;
+  terminalAgent?: CodeAgentTerminalAgentOption;
   permissionMode: CodeAgentPermissionMode;
   modelSelection: CodeAgentModelSelection;
   modelOptions: CodeAgentModelOption[];
@@ -3194,7 +3202,7 @@ function CodeAgentComposer({
   promptSeed?: string | number;
   inputRef?: React.RefObject<TiptapComposerHandle | null>;
   submitting: boolean;
-  terminalAgent?: ComposerAgentOption;
+  terminalAgent?: CodeAgentTerminalAgentOption;
   permissionMode: CodeAgentPermissionMode;
   modelSelection: CodeAgentModelSelection;
   modelOptions: CodeAgentModelOption[];
