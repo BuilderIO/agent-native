@@ -528,6 +528,20 @@ function resetAutofitTransforms(root: HTMLElement) {
   }
 }
 
+/**
+ * `white-space: nowrap` does not only stop wrapping — it also switches the
+ * element from preserving whitespace to collapsing it. dom-to-pptx trims each
+ * inline run it extracts under a collapsing mode, so an imported PPTX run
+ * boundary that carries the only space between two words ("IMAGE " +
+ * "COMPOSITION") exports as one word, and a `<a:br/>`'s newline-only run
+ * disappears entirely. `pre` suppresses wrapping without giving that up.
+ */
+function noWrapWhiteSpace(element: HTMLElement) {
+  return window.getComputedStyle(element).whiteSpace.startsWith("pre")
+    ? "pre"
+    : "nowrap";
+}
+
 function restoreTextGeometry(
   clone: HTMLElement,
   sourceRect: DOMRect,
@@ -561,7 +575,9 @@ function restoreTextGeometry(
 
     if (record.position === "static" || record.position === "relative") {
       element.dataset.exportTextGeometry = "true";
-      if (record.singleLine) element.style.whiteSpace = "nowrap";
+      if (record.singleLine) {
+        element.style.whiteSpace = noWrapWhiteSpace(element);
+      }
       element.style.left = `${translateX.toFixed(3)}px`;
       element.style.position = "relative";
       element.style.top = `${translateY.toFixed(3)}px`;
