@@ -96,6 +96,7 @@ export const IPC = {
   /** Agent-Native Code hub (renderer ↔ main) */
   CODE_AGENTS_LIST_RUNS: "code-agents:list-runs",
   CODE_AGENTS_CREATE_RUN: "code-agents:create-run",
+  CODE_AGENTS_REMOTE_WAITLIST: "code-agents:remote-waitlist",
   CODE_AGENTS_LIST_MODELS: "code-agents:list-models",
   CODE_AGENTS_READ_TRANSCRIPT: "code-agents:read-transcript",
   CODE_AGENTS_APPEND_FOLLOW_UP: "code-agents:append-follow-up",
@@ -566,6 +567,7 @@ export interface CodeAgentCreateRunRequest {
   goalId?: string;
   prompt: string;
   cwd?: string;
+  executionTarget?: CodeAgentExecutionTarget;
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
@@ -745,6 +747,7 @@ export interface CodeAgentRerunRequest {
   runId: string;
   prompt?: string;
   cwd?: string;
+  executionTarget?: CodeAgentExecutionTarget;
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
@@ -771,6 +774,21 @@ export interface CodeAgentRetryRunResult {
   ok: boolean;
   run?: CodeAgentRun;
   message: string;
+  error?: string;
+}
+
+export type CodeAgentExecutionTarget = "local" | "worktree";
+
+export interface CodeAgentRemoteWaitlistRequest {
+  email: string;
+  pageUrl?: string;
+  source?: string;
+  useCase?: string;
+}
+
+export interface CodeAgentRemoteWaitlistResult {
+  ok: boolean;
+  message?: string;
   error?: string;
 }
 

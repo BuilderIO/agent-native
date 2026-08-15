@@ -19,6 +19,8 @@ import {
   type CodeAgentComputerSetupResult,
   type CodeAgentCreateRunRequest,
   type CodeAgentCreateRunResult,
+  type CodeAgentRemoteWaitlistRequest,
+  type CodeAgentRemoteWaitlistResult,
   type CodeAgentFollowUpRequest,
   type CodeAgentFollowUpResult,
   type CodeAgentHostMetadata,
@@ -356,6 +358,10 @@ const electronAPI = {
       request: CodeAgentCreateRunRequest,
     ): Promise<CodeAgentCreateRunResult> =>
       ipcRenderer.invoke(IPC.CODE_AGENTS_CREATE_RUN, request),
+    submitRemoteWaitlist: (
+      request: CodeAgentRemoteWaitlistRequest,
+    ): Promise<CodeAgentRemoteWaitlistResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_REMOTE_WAITLIST, request),
     readTranscript: (
       request: CodeAgentTranscriptRequest,
     ): Promise<CodeAgentTranscriptResult> =>

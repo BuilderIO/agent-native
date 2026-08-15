@@ -11,6 +11,8 @@ const emitMock = vi.hoisted(() => vi.fn());
 const registerEventMock = vi.hoisted(() => vi.fn());
 const resolveUserSchedulingTimezoneMock = vi.hoisted(() => vi.fn());
 const deleteAutomationRunsMock = vi.hoisted(() => vi.fn());
+const listRemoteDevicesForOwnerMock = vi.hoisted(() => vi.fn());
+const getRemoteExecutionCapabilitiesMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../resources/store.js", () => ({
   SHARED_OWNER: "__shared__",
@@ -48,6 +50,11 @@ vi.mock("../jobs/run-history.js", () => ({
   deleteAutomationRuns: deleteAutomationRunsMock,
 }));
 
+vi.mock("../integrations/remote-devices-store.js", () => ({
+  listRemoteDevicesForOwner: listRemoteDevicesForOwnerMock,
+  getRemoteExecutionCapabilities: getRemoteExecutionCapabilitiesMock,
+}));
+
 describe("manage-automations tool", () => {
   const owner = "alice+qa@agent-native.test";
 
@@ -60,6 +67,8 @@ describe("manage-automations tool", () => {
     refreshEventSubscriptionsMock.mockResolvedValue(undefined);
     resolveUserSchedulingTimezoneMock.mockResolvedValue("America/Los_Angeles");
     deleteAutomationRunsMock.mockResolvedValue(undefined);
+    listRemoteDevicesForOwnerMock.mockResolvedValue([]);
+    getRemoteExecutionCapabilitiesMock.mockReturnValue(null);
   });
 
   function tool() {
@@ -139,6 +148,38 @@ Other body`,
     expect(result).toContain("owned");
     expect(result).not.toContain("shared");
     expect(result).not.toContain("other");
+  });
+
+  it("lists paired execution hosts without exposing device credentials", async () => {
+    listRemoteDevicesForOwnerMock.mockResolvedValue([
+      {
+        id: "remote-device-laptop",
+        label: "Always-on laptop",
+        platform: "darwin",
+        hostName: "laptop.local",
+        status: "active",
+        lastSeenAt: Date.now(),
+        deviceTokenHash: "secret-hash",
+      },
+    ]);
+    getRemoteExecutionCapabilitiesMock.mockReturnValue({
+      backend: "desktop",
+      workloads: ["code-agent", "scheduled-code"],
+      engines: ["codex-cli", "claude-cli"],
+      acceptsScheduledWork: true,
+      persistence: "local-files",
+    });
+
+    const result = await tool().run({ action: "list-hosts" });
+    expect(result).toContain("remote-device-laptop");
+    expect(result).toContain("scheduled-code");
+    expect(result).not.toContain("secret-hash");
+    expect(listRemoteDevicesForOwnerMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ownerEmail: owner,
+        status: "active",
+      }),
+    );
   });
 
   it("creates, updates, and deletes automations under the current user", async () => {
@@ -254,6 +295,30 @@ Updated body.`,
       owner,
       "jobs/qa-omitted-mode.md",
       expect.stringContaining("mode: agentic"),
+    );
+  });
+
+  it("persists an explicit execution host for scheduled automations", async () => {
+    await tool().run({
+      action: "define",
+      name: "qa-hosted-job",
+      trigger_type: "schedule",
+      schedule: "0 9 * * 1-5",
+      execution_host_id: "remote-device-laptop",
+      execution_engine: "claude-cli",
+      execution_cwd: "/Users/alice/Projects/qa",
+      body: "Run the QA checks.",
+    });
+
+    expect(resourcePutMock).toHaveBeenCalledWith(
+      owner,
+      "jobs/qa-hosted-job.md",
+      expect.stringContaining('executionHostId: "remote-device-laptop"'),
+    );
+    expect(resourcePutMock).toHaveBeenCalledWith(
+      owner,
+      "jobs/qa-hosted-job.md",
+      expect.stringContaining('executionEngine: "claude-cli"'),
     );
   });
 

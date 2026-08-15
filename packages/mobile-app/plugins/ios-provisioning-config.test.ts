@@ -12,7 +12,13 @@ type AppExtensionConfig = {
   targetName: string;
 };
 
-function readPublicExpoConfig(appleTeamId = "") {
+function readPublicExpoConfig({
+  appleTeamId = "",
+  disableAppExtensions = false,
+}: {
+  appleTeamId?: string;
+  disableAppExtensions?: boolean;
+} = {}) {
   const expoCli = require.resolve("expo/bin/cli");
   const output = execFileSync(
     process.execPath,
@@ -23,6 +29,9 @@ function readPublicExpoConfig(appleTeamId = "") {
       env: {
         ...process.env,
         AGENT_NATIVE_APPLE_TEAM_ID: appleTeamId,
+        AGENT_NATIVE_MOBILE_DISABLE_APP_EXTENSIONS: disableAppExtensions
+          ? "1"
+          : "",
       },
     },
   );
@@ -36,7 +45,10 @@ function readPublicExpoConfig(appleTeamId = "") {
         };
       };
     };
-    ios?: { appleTeamId?: string };
+    ios?: {
+      appleTeamId?: string;
+      entitlements?: Record<string, unknown>;
+    };
   };
 }
 
@@ -76,8 +88,18 @@ describe("iOS EAS provisioning metadata", () => {
   }, 15_000);
 
   it("accepts a release team only through the build environment", () => {
-    expect(readPublicExpoConfig("example-team-id").ios?.appleTeamId).toBe(
-      "example-team-id",
-    );
+    expect(
+      readPublicExpoConfig({ appleTeamId: "example-team-id" }).ios?.appleTeamId,
+    ).toBe("example-team-id");
+  });
+
+  it("can build the main iPhone app without optional extension targets", () => {
+    const config = readPublicExpoConfig({ disableAppExtensions: true });
+    expect(
+      config.extra?.eas?.build?.experimental?.ios?.appExtensions,
+    ).toBeUndefined();
+    expect(
+      config.ios?.entitlements?.["com.apple.security.application-groups"],
+    ).toBeUndefined();
   }, 15_000);
 });

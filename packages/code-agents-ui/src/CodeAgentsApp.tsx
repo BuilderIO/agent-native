@@ -48,6 +48,7 @@ import {
   IconEye,
   IconFolder,
   IconFolderPlus,
+  IconGitBranch,
   IconLink,
   IconLockAccess,
   IconPlus,
@@ -85,6 +86,7 @@ import {
   type CodeAgentGoalId,
   type CodeAgentPermissionMode,
 } from "./code-agents.js";
+import { RemoteWaitlistPopover } from "./RemoteWaitlistPopover.js";
 import { SessionWatchPanel } from "./SessionWatchPanel.js";
 import type {
   CodeAgentCodePack,
@@ -93,6 +95,7 @@ import type {
   CodeAgentControlResult,
   CodeAgentCreateRunRequest,
   CodeAgentCreateRunResult,
+  CodeAgentExecutionTarget,
   CodeAgentFollowUpMode,
   CodeAgentFollowUpRequest,
   CodeAgentFollowUpResult,
@@ -110,6 +113,8 @@ import type {
   CodeAgentRemoteConnectorPairRequest,
   CodeAgentRemoteConnectorPairResult,
   CodeAgentRemoteConnectorStatus,
+  CodeAgentRemoteWaitlistRequest,
+  CodeAgentRemoteWaitlistResult,
   CodeAgentRerunRequest,
   CodeAgentRerunResult,
   CodeAgentRetryRunRequest,
@@ -162,6 +167,9 @@ export interface CodeAgentsHost {
   createRun: (
     request: CodeAgentCreateRunRequest,
   ) => Promise<CodeAgentCreateRunResult>;
+  submitRemoteWaitlist?: (
+    request: CodeAgentRemoteWaitlistRequest,
+  ) => Promise<CodeAgentRemoteWaitlistResult>;
   readTranscript: (
     request: CodeAgentTranscriptRequest,
   ) => Promise<CodeAgentTranscriptResult>;
@@ -488,6 +496,11 @@ const CODE_AGENT_RUNTIME_OPTIONS = [
     description: "Agent Native hosted chat",
   },
   {
+    id: "remote",
+    label: "Remote",
+    description: "Run in the cloud",
+  },
+  {
     id: "codex",
     label: "Codex",
     description: "Run locally with Codex CLI",
@@ -792,6 +805,8 @@ export default function CodeAgentsApp({
   );
   const [projects, setProjects] = useState<CodeAgentProjectFolder[]>([]);
   const [selectedProjectPath, setSelectedProjectPath] = useState<string>("");
+  const [newRunExecutionTarget, setNewRunExecutionTarget] =
+    useState<CodeAgentExecutionTarget>("local");
   const [loadingProjects, setLoadingProjects] = useState(false);
   const [codePack, setCodePack] = useState<CodeAgentCodePack | null>(null);
   const [modelSelection, setModelSelection] = useState<CodeAgentModelSelection>(
@@ -807,6 +822,7 @@ export default function CodeAgentsApp({
   >(null);
   const [remoteConnectorPairing, setRemoteConnectorPairing] = useState(false);
   const [remoteConnectorUpdating, setRemoteConnectorUpdating] = useState(false);
+  const [remoteWaitlistOpen, setRemoteWaitlistOpen] = useState(false);
   const [searchPanelOpen, setSearchPanelOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchRuns, setSearchRuns] = useState<CodeAgentRun[]>([]);
@@ -1392,6 +1408,9 @@ export default function CodeAgentsApp({
   const localRuntimeEngine = modelOptions.find(
     (option) => option.engine === "codex-cli" || option.engine === "claude-cli",
   )?.engine;
+  const supportsExecutionTarget = CODE_AGENT_LOCAL_ENGINES.has(
+    selectedModelSelection.engine ?? "",
+  );
   const normalizedSearchQuery = searchQuery.trim();
   const searchResults = useMemo(
     () =>
@@ -1516,6 +1535,12 @@ export default function CodeAgentsApp({
   useEffect(() => {
     writeCodeAgentModelSelection(selectedModelSelection);
   }, [selectedModelSelection]);
+
+  useEffect(() => {
+    if (!supportsExecutionTarget && newRunExecutionTarget !== "local") {
+      setNewRunExecutionTarget("local");
+    }
+  }, [newRunExecutionTarget, supportsExecutionTarget]);
 
   usePollLoop(() => loadRuns(), {
     intervalMs: hasActiveRuns ? 2_000 : 10_000,
@@ -1923,6 +1948,9 @@ export default function CodeAgentsApp({
         goalId: typedGoal.id,
         prompt,
         cwd: selectedProjectPath || undefined,
+        executionTarget: supportsExecutionTarget
+          ? newRunExecutionTarget
+          : "local",
         permissionMode: newRunPermissionMode,
         engine: selectedModelSelection.engine,
         model: selectedModelSelection.model,
@@ -2552,63 +2580,78 @@ export default function CodeAgentsApp({
                                   }
                                 />
                               )}
-                            <NewSessionComposer
-                              prompt={newPrompt}
-                              promptSeed={newPromptSeed}
-                              inputRef={newPromptRef}
-                              creating={creatingRun}
-                              permissionMode={newRunPermissionMode}
-                              modelSelection={selectedModelSelection}
-                              modelOptions={modelOptions}
-                              slashCommands={
-                                activeNewSessionExtension ? [] : slashCommands
-                              }
-                              disabled={
-                                activeNewSessionExtension
-                                  ? activeNewSessionExtension.disabled
-                                  : providerGate.blocked
-                              }
-                              modeControl={newSessionExtension?.renderModeControl?.(
-                                {
-                                  permissionMode: newRunPermissionMode,
-                                  onPermissionModeChange:
-                                    setNewRunPermissionMode,
-                                },
-                              )}
-                              useDefaultModeControl={
-                                newSessionExtensionComposerState.useDefaultModeControl
-                              }
-                              showModelSelector={
-                                newSessionExtensionComposerState.showModelSelector
-                              }
-                              onPromptChange={setNewPrompt}
-                              onPermissionModeChange={setNewRunPermissionMode}
-                              onModelSelectionChange={setModelSelection}
-                              onSlashCommand={
-                                activeNewSessionExtension
-                                  ? undefined
-                                  : handleSlashCommand
-                              }
-                              onSubmit={createRunFromPrompt}
-                              onConnectProvider={connectBuilderProvider}
-                              onConnectLocalRuntime={
-                                !activeNewSessionExtension && host.openTerminal
-                                  ? connectLocalRuntime
-                                  : undefined
-                              }
-                            />
-                            {(projects.length > 0 ||
-                              canChooseProjectFolder) && (
-                              <ProjectFolderPicker
-                                variant="bar"
-                                projects={projects}
-                                selectedPath={selectedProjectPath}
-                                loading={loadingProjects}
-                                canChoose={canChooseProjectFolder}
-                                onSelect={selectProjectFolder}
-                                onChoose={chooseProjectFolder}
+                            <RemoteWaitlistPopover
+                              open={remoteWaitlistOpen}
+                              onOpenChange={setRemoteWaitlistOpen}
+                              submit={host.submitRemoteWaitlist}
+                            >
+                              <NewSessionComposer
+                                prompt={newPrompt}
+                                promptSeed={newPromptSeed}
+                                inputRef={newPromptRef}
+                                creating={creatingRun}
+                                permissionMode={newRunPermissionMode}
+                                modelSelection={selectedModelSelection}
+                                modelOptions={modelOptions}
+                                slashCommands={
+                                  activeNewSessionExtension ? [] : slashCommands
+                                }
+                                disabled={
+                                  activeNewSessionExtension
+                                    ? activeNewSessionExtension.disabled
+                                    : providerGate.blocked
+                                }
+                                modeControl={newSessionExtension?.renderModeControl?.(
+                                  {
+                                    permissionMode: newRunPermissionMode,
+                                    onPermissionModeChange:
+                                      setNewRunPermissionMode,
+                                  },
+                                )}
+                                useDefaultModeControl={
+                                  newSessionExtensionComposerState.useDefaultModeControl
+                                }
+                                showModelSelector={
+                                  newSessionExtensionComposerState.showModelSelector
+                                }
+                                onPromptChange={setNewPrompt}
+                                onPermissionModeChange={setNewRunPermissionMode}
+                                onModelSelectionChange={setModelSelection}
+                                onRemoteAgentSelect={() =>
+                                  setRemoteWaitlistOpen(true)
+                                }
+                                onSlashCommand={
+                                  activeNewSessionExtension
+                                    ? undefined
+                                    : handleSlashCommand
+                                }
+                                onSubmit={createRunFromPrompt}
+                                onConnectProvider={connectBuilderProvider}
+                                onConnectLocalRuntime={
+                                  !activeNewSessionExtension &&
+                                  host.openTerminal
+                                    ? connectLocalRuntime
+                                    : undefined
+                                }
                               />
-                            )}
+                              {(projects.length > 0 ||
+                                canChooseProjectFolder) && (
+                                <ProjectFolderPicker
+                                  variant="bar"
+                                  projects={projects}
+                                  selectedPath={selectedProjectPath}
+                                  executionTarget={newRunExecutionTarget}
+                                  showExecutionTarget={supportsExecutionTarget}
+                                  loading={loadingProjects}
+                                  canChoose={canChooseProjectFolder}
+                                  onSelect={selectProjectFolder}
+                                  onChoose={chooseProjectFolder}
+                                  onExecutionTargetChange={
+                                    setNewRunExecutionTarget
+                                  }
+                                />
+                              )}
+                            </RemoteWaitlistPopover>
                             {overviewFooterSlot ? (
                               <div className="code-agents-overview-footer">
                                 {overviewFooterSlot}
@@ -2918,18 +2961,24 @@ function ProjectFolderPicker({
   variant = "rail",
   projects,
   selectedPath,
+  executionTarget = "local",
+  showExecutionTarget = false,
   loading,
   canChoose,
   onSelect,
   onChoose,
+  onExecutionTargetChange,
 }: {
   variant?: "rail" | "bar";
   projects: CodeAgentProjectFolder[];
   selectedPath: string;
+  executionTarget?: CodeAgentExecutionTarget;
+  showExecutionTarget?: boolean;
   loading: boolean;
   canChoose: boolean;
   onSelect: (path: string) => void;
   onChoose: () => void;
+  onExecutionTargetChange?: (target: CodeAgentExecutionTarget) => void;
 }) {
   const active = projects.find((project) => project.path === selectedPath);
 
@@ -2939,6 +2988,40 @@ function ProjectFolderPicker({
     >
       <p className="code-agents-rail-label">Folder</p>
       <div className="code-agents-project-picker__row">
+        {showExecutionTarget && onExecutionTargetChange ? (
+          <Select
+            value={executionTarget}
+            onValueChange={(value) =>
+              onExecutionTargetChange(value as CodeAgentExecutionTarget)
+            }
+          >
+            <SelectTrigger
+              className="code-agents-project-select code-agents-execution-target-select"
+              aria-label="Select workspace"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent className="code-agents-select-content">
+              <SelectGroup>
+                <SelectItem value="local">
+                  <span className="code-agents-project-select__item">
+                    <IconDeviceDesktop size={14} strokeWidth={1.8} />
+                    <span>Local</span>
+                  </span>
+                </SelectItem>
+                <SelectItem
+                  value="worktree"
+                  description="Start an isolated copy from the latest commit"
+                >
+                  <span className="code-agents-project-select__item">
+                    <IconGitBranch size={14} strokeWidth={1.8} />
+                    <span>Worktree</span>
+                  </span>
+                </SelectItem>
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        ) : null}
         <Select
           value={selectedPath || ""}
           disabled={loading || projects.length === 0}
@@ -2981,7 +3064,10 @@ function ProjectFolderPicker({
         </Select>
       </div>
       <p className="code-agents-project-path" title={active?.path}>
-        {active?.path ?? "Runs use the selected folder as cwd."}
+        {active?.path ??
+          (executionTarget === "worktree"
+            ? "A new isolated worktree will be created for this chat."
+            : "Runs use the selected folder as cwd.")}
       </p>
     </div>
   );
@@ -3003,6 +3089,7 @@ function NewSessionComposer({
   onPromptChange,
   onPermissionModeChange,
   onModelSelectionChange,
+  onRemoteAgentSelect,
   onSlashCommand,
   onSubmit,
   onConnectProvider,
@@ -3023,6 +3110,7 @@ function NewSessionComposer({
   onPromptChange: (value: string) => void;
   onPermissionModeChange: (value: CodeAgentPermissionMode) => void;
   onModelSelectionChange: (value: CodeAgentModelSelection) => void;
+  onRemoteAgentSelect?: () => void;
   onSlashCommand?: (command: string) => void;
   onSubmit: (
     preparedPrompt: string,
@@ -3050,6 +3138,7 @@ function NewSessionComposer({
       onPromptChange={onPromptChange}
       onPermissionModeChange={onPermissionModeChange}
       onModelSelectionChange={onModelSelectionChange}
+      onRemoteAgentSelect={onRemoteAgentSelect}
       onSlashCommand={onSlashCommand}
       onSubmit={onSubmit}
       onConnectProvider={onConnectProvider}
@@ -3074,6 +3163,7 @@ function CodeAgentComposer({
   onPromptChange,
   onPermissionModeChange,
   onModelSelectionChange,
+  onRemoteAgentSelect,
   onSlashCommand,
   onSubmit,
   onStop,
@@ -3098,6 +3188,7 @@ function CodeAgentComposer({
   onPromptChange: (value: string) => void;
   onPermissionModeChange: (value: CodeAgentPermissionMode) => void;
   onModelSelectionChange: (value: CodeAgentModelSelection) => void;
+  onRemoteAgentSelect?: () => void;
   onSlashCommand?: (command: string) => void;
   onSubmit: (
     preparedPrompt: string,
@@ -3114,16 +3205,27 @@ function CodeAgentComposer({
   const normalizedModel = normalizeModelSelection(modelSelection, modelOptions);
   const availableModels = groupCodeAgentModelOptions(modelOptions);
   const availableAgents = showModelSelector
-    ? getCodeAgentPickerOptions(modelOptions)
+    ? getCodeAgentPickerOptions(modelOptions).filter(
+        (agent) => agent.id !== "remote" || Boolean(onRemoteAgentSelect),
+      )
     : undefined;
   const selectedAgent = getCodeAgentIdForEngine(normalizedModel.engine);
   const handleAgentChange = useCallback(
     (agent: string) => {
+      if (agent === "remote") {
+        onRemoteAgentSelect?.();
+        return;
+      }
       onModelSelectionChange(
         getCodeAgentSelection(agent, normalizedModel, modelOptions),
       );
     },
-    [modelOptions, normalizedModel, onModelSelectionChange],
+    [
+      modelOptions,
+      normalizedModel,
+      onModelSelectionChange,
+      onRemoteAgentSelect,
+    ],
   );
 
   const readPromptFiles = useCallback(
@@ -3438,7 +3540,7 @@ export function groupCodeAgentModelOptions(models: CodeAgentModelOption[]) {
 
 export function getCodeAgentPickerOptions(models: CodeAgentModelOption[]) {
   return CODE_AGENT_RUNTIME_OPTIONS.map((agent) => {
-    if (agent.id === "default") {
+    if (agent.id === "default" || agent.id === "remote") {
       return { ...agent, configured: true };
     }
 
@@ -3475,6 +3577,7 @@ export function getCodeAgentSelection(
   current: CodeAgentModelSelection,
   models: CodeAgentModelOption[],
 ): CodeAgentModelSelection {
+  if (agentId === "remote") return current;
   const engine = getCodeAgentEngine(agentId);
   const candidates = models.filter((model) =>
     engine

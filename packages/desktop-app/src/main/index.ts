@@ -79,6 +79,7 @@ import {
   type CodeAgentRemoteConnectorPairRequest,
   type CodeAgentRemoteConnectorPairResult,
   type CodeAgentRemoteConnectorStatus,
+  type CodeAgentRemoteWaitlistResult,
   type CodeAgentProviderCredentialKey,
   type CodeAgentProviderSettings,
   type CodeAgentProviderSettingsUpdate,
@@ -177,6 +178,7 @@ import {
   CODE_AGENTS_UNSUBSCRIBE_TRANSCRIPT_CHANNEL,
 } from "./code-agent-transcript-ipc.js";
 import { boundedCodeAgentTranscriptEvents } from "./code-agent-transcript-window.js";
+import { createCodeAgentWorktree } from "./code-agent-worktrees.js";
 import {
   getCodexLoginLaunchSpec,
   spawnDetached,
@@ -359,6 +361,14 @@ const CODEX_CLI_DEFAULT_MODEL = "gpt-5.6-luna";
 const CLAUDE_CLI_ENGINE_NAME = "claude-cli";
 const PI_CLI_ENGINE_NAME = "pi-cli";
 const OPENCODE_CLI_ENGINE_NAME = "opencode-cli";
+const CODE_AGENT_WORKTREE_ENGINES = new Set([
+  CODEX_CLI_ENGINE_NAME,
+  CLAUDE_CLI_ENGINE_NAME,
+  PI_CLI_ENGINE_NAME,
+  OPENCODE_CLI_ENGINE_NAME,
+]);
+const CODE_AGENT_REMOTE_WAITLIST_URL =
+  "https://agent-native.com/_agent-native/builder/branch-waitlist";
 const DESKTOP_BUILDER_CONNECT_TIMEOUT_MS = 5 * 60 * 1000;
 export {
   CODE_AGENTS_SUBSCRIBE_TRANSCRIPT_CHANNEL,
@@ -2001,6 +2011,61 @@ function normalizeRemoteRelayUrl(
     return `${url.origin}${url.pathname.replace(/\/+$/, "") || "/"}`;
   } catch {
     return undefined;
+  }
+}
+
+async function submitCodeAgentRemoteWaitlist(
+  input: unknown,
+): Promise<CodeAgentRemoteWaitlistResult> {
+  const payload = isObject(input) ? input : {};
+  const email = firstStringValue(payload.email)?.trim();
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return { ok: false, error: "Enter a valid email address." };
+  }
+
+  try {
+    const response = await fetch(CODE_AGENT_REMOTE_WAITLIST_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email,
+        pageUrl: firstStringValue(payload.pageUrl),
+        source: firstStringValue(payload.source) ?? "desktop_code_agents",
+        useCase:
+          firstStringValue(payload.useCase) ??
+          "desktop_remote_code_agent_waitlist",
+      }),
+    });
+    const text = await response.text();
+    let result: Record<string, unknown> = {};
+    if (text) {
+      try {
+        const parsed = JSON.parse(text);
+        if (isObject(parsed)) result = parsed;
+      } catch (error) {
+        console.warn(
+          "[desktop] Remote waitlist returned invalid JSON:",
+          error instanceof Error ? error.message : error,
+        );
+      }
+    }
+    if (!response.ok) {
+      return {
+        ok: false,
+        error:
+          firstStringValue(result.error, result.message) ??
+          "Couldn't join the waitlist. Please try again.",
+      };
+    }
+    return {
+      ok: true,
+      message: firstStringValue(result.message),
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
   }
 }
 
@@ -4564,16 +4629,58 @@ async function createCodeAgentRun(
     getCodeAgentGoal(firstStringValue(payload.goalId)) ?? CODE_AGENT_GOALS[0];
   const now = new Date().toISOString();
   const runId = `${goal.id}-${timestampSlug(now)}-${randomUUID().slice(0, 8)}`;
-  const cwd = resolveCodeAgentsTerminalCwd({ cwd: payload.cwd });
+  const sourceCwd = resolveCodeAgentsTerminalCwd({ cwd: payload.cwd });
   const permissionMode =
     getCodeAgentPermissionMode(firstStringValue(payload.permissionMode)) ??
     DEFAULT_CODE_AGENT_PERMISSION_MODE;
   const engine = normalizeCodeAgentRequestedEngine(
     firstStringValue(payload.engine),
   );
+  const requestedExecutionTarget = firstStringValue(payload.executionTarget);
+  if (
+    requestedExecutionTarget &&
+    requestedExecutionTarget !== "local" &&
+    requestedExecutionTarget !== "worktree"
+  ) {
+    return {
+      ok: false,
+      message: "Choose Local or Worktree before starting the chat.",
+      error: `Unsupported execution target: ${requestedExecutionTarget}`,
+    };
+  }
+  const executionTarget = requestedExecutionTarget ?? "local";
   const model = firstStringValue(payload.model);
   const effort = firstStringValue(payload.effort);
   const attachments = normalizeCodeAgentPromptAttachments(payload.attachments);
+  let cwd = sourceCwd;
+  let worktreeMetadata:
+    | { sourcePath: string; path: string; branch: string; baseCommit: string }
+    | undefined;
+  if (executionTarget === "worktree") {
+    if (!engine || !CODE_AGENT_WORKTREE_ENGINES.has(engine)) {
+      return {
+        ok: false,
+        message: "Worktrees are available for local coding agents.",
+        error:
+          "Choose Codex, Claude Code, Pi, or OpenCode before using a worktree.",
+      };
+    }
+    try {
+      const worktree = createCodeAgentWorktree({
+        sourcePath: sourceCwd,
+        worktreeRoot: path.join(codeAgentStoreRoot(), "worktrees"),
+        runId,
+      });
+      cwd = worktree.path;
+      worktreeMetadata = worktree;
+    } catch (error) {
+      return {
+        ok: false,
+        message: "Could not create the isolated worktree.",
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
   const retryOf = firstStringValue(userMetadata.retryOf, payload.retryOf);
   const rerunOf = firstStringValue(userMetadata.rerunOf, payload.rerunOf);
   const attempt = Number(userMetadata.attempt ?? payload.attempt);
@@ -4609,6 +4716,13 @@ async function createCodeAgentRun(
     details: [
       { label: "Goal", value: goal.slashCommand },
       { label: "Working directory", value: cwd },
+      {
+        label: "Workspace",
+        value: executionTarget === "worktree" ? "Worktree" : "Local",
+      },
+      ...(worktreeMetadata
+        ? [{ label: "Branch", value: worktreeMetadata.branch }]
+        : []),
       { label: "Mode", value: permissionMode },
       ...(model
         ? [{ label: "Model", value: formatCodeAgentModel(model, effort) }]
@@ -4619,6 +4733,8 @@ async function createCodeAgentRun(
     metadata: {
       ...userMetadata,
       cwd,
+      executionTarget,
+      ...(worktreeMetadata ? { worktree: worktreeMetadata } : {}),
       permissionMode,
       engine,
       model,
@@ -4668,6 +4784,8 @@ async function createCodeAgentRun(
       queue,
       steering,
       attachments,
+      executionTarget,
+      ...(worktreeMetadata ? { worktree: worktreeMetadata } : {}),
       retryOf,
       rerunOf,
     });
@@ -4768,6 +4886,9 @@ async function rerunCodeAgentRun(
       firstStringValue(payload.cwd) ??
       getRecordString(sourceRecord, "cwd") ??
       firstStringValue(sourceMetadata.cwd),
+    executionTarget:
+      firstStringValue(payload.executionTarget) ??
+      firstStringValue(sourceMetadata.executionTarget),
     permissionMode,
     engine:
       firstStringValue(payload.engine) ??
@@ -8630,6 +8751,7 @@ registerCodeAgentsIpc({
   normalizeCodeAgentRunId,
   listDesktopCodeAgentRuns,
   createCodeAgentRun,
+  submitCodeAgentRemoteWaitlist,
   getCodeAgentModelList,
   readCodeAgentTranscript,
   removeCodeAgentTranscriptSubscription,

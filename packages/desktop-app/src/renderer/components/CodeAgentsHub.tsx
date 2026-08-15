@@ -1673,6 +1673,21 @@ export default function CodeAgentsHub({
         }
         return api.createRun(request);
       },
+      async submitRemoteWaitlist(request: {
+        email: string;
+        pageUrl?: string;
+        source?: string;
+        useCase?: string;
+      }) {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.submitRemoteWaitlist) {
+          return {
+            ok: false,
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.submitRemoteWaitlist(request);
+      },
       async listModels() {
         const api = window.electronAPI?.codeAgents;
         if (!api?.listModels) {

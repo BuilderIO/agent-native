@@ -8,6 +8,7 @@ import { serializeBoundedRemoteJson } from "../integrations/remote-json-safety.j
 import type {
   ComputerCommandEnvelope,
   RemoteComputerCapabilities,
+  RemoteExecutionCapabilities,
 } from "../integrations/remote-types.js";
 import {
   executeDenyCodeAgentApproval,
@@ -33,6 +34,8 @@ export interface RemoteCodeAgentDeviceConfig {
   relayUrl?: string;
   deviceId?: string;
   deviceName?: string;
+  /** Default host-local workspace used when a command omits cwd. */
+  workspacePath?: string;
   pollIntervalMs?: number;
 }
 
@@ -73,11 +76,22 @@ const DEVICE_PATH_ENV = "AGENT_NATIVE_REMOTE_DEVICE_PATH";
 const COMPUTER_BRIDGE_URL_ENV = "AGENT_NATIVE_COMPUTER_BRIDGE_URL";
 const COMPUTER_BRIDGE_TOKEN_ENV = "AGENT_NATIVE_COMPUTER_BRIDGE_TOKEN";
 const COMPUTER_CAPABILITIES_ENV = "AGENT_NATIVE_COMPUTER_CAPABILITIES";
+const REMOTE_ENGINES_ENV = "AGENT_NATIVE_REMOTE_ENGINES";
 const DEFAULT_POLL_INTERVAL_MS = 2_000;
 const MAX_POLL_INTERVAL_MS = 30_000;
 const MAX_TRANSCRIPT_EVENTS_PER_BATCH = 50;
 
 const activeRunners = new Map<string, RunnerProcess>();
+
+export const DEFAULT_REMOTE_EXECUTION_CAPABILITIES: RemoteExecutionCapabilities =
+  {
+    backend: "desktop",
+    workloads: ["code-agent", "scheduled-code"],
+    engines: ["codex-cli", "claude-cli", "pi-cli", "opencode-cli"],
+    acceptsScheduledWork: true,
+    persistence: "local-files",
+    adapters: ["agent-native-code"],
+  };
 
 export function remoteDeviceConfigPath(): string {
   return path.resolve(
@@ -106,6 +120,12 @@ export function loadRemoteCodeAgentDeviceConfig(
       relayUrl: firstStringValue(raw.relayUrl, raw.url, raw.baseUrl),
       deviceId: firstStringValue(raw.deviceId, raw.id),
       deviceName: firstStringValue(raw.deviceName, raw.name),
+      workspacePath: firstStringValue(
+        raw.workspacePath,
+        raw.workspace,
+        raw.cwd,
+        raw.projectPath,
+      ),
       pollIntervalMs:
         Number.isFinite(pollIntervalMs) && pollIntervalMs > 0
           ? Math.min(Math.max(pollIntervalMs, 500), MAX_POLL_INTERVAL_MS)
@@ -158,6 +178,7 @@ export async function runCodeAgentConnector(
 class RemoteCodeAgentConnector {
   private readonly transcriptCursors = new Map<string, TranscriptCursor>();
   private readonly remoteRunIds = new Set<string>();
+  private readonly terminalCommandIds = new Set<string>();
   private stopped = false;
   private readonly computerBridge = loadLocalComputerBridgeConfig();
 
@@ -230,6 +251,7 @@ class RemoteCodeAgentConnector {
           "run-events",
         ],
         computerCapabilities: this.computerBridge?.capabilities ?? {},
+        executionCapabilities: remoteExecutionCapabilities(),
         activeRunIds: Array.from(this.remoteRunIds),
       },
     );
@@ -287,7 +309,9 @@ class RemoteCodeAgentConnector {
       return { ok: false, error: "Missing prompt." };
     }
     const goalId = firstStringValue(command.params.goalId) ?? "task";
-    const cwd = resolveCommandCwd(command.params.cwd);
+    const cwd = resolveCommandCwd(
+      command.params.cwd ?? this.config.workspacePath,
+    );
     const permissionMode =
       normalizeCodeAgentPermissionMode(command.params.permissionMode) ??
       "full-auto";
@@ -606,27 +630,53 @@ class RemoteCodeAgentConnector {
     for (const runId of this.remoteRunIds) {
       const cursor = this.transcriptCursors.get(runId) ?? { offset: 0, seq: 0 };
       const batch = readTranscriptBatch(runId, cursor.offset);
-      if (batch.events.length === 0) {
-        this.transcriptCursors.set(runId, {
-          offset: batch.nextOffset,
-          seq: cursor.seq,
+      if (batch.events.length > 0) {
+        await this.postJson("/_agent-native/integrations/remote/run-events", {
+          deviceId: this.config.deviceId,
+          remoteRunId: runId,
+          cursor: { offset: batch.nextOffset },
+          events: batch.events.map((event, index) => ({
+            seq: cursor.seq + index,
+            event,
+          })),
         });
-        continue;
       }
-      await this.postJson("/_agent-native/integrations/remote/run-events", {
-        deviceId: this.config.deviceId,
-        remoteRunId: runId,
-        cursor: { offset: batch.nextOffset },
-        events: batch.events.map((event, index) => ({
-          seq: cursor.seq + index,
-          event,
-        })),
-      });
       this.transcriptCursors.set(runId, {
         offset: batch.nextOffset,
         seq: cursor.seq + batch.events.length,
       });
+      await this.reportRemoteRunTerminal(runId);
     }
+  }
+
+  private async reportRemoteRunTerminal(runId: string): Promise<void> {
+    const run = getCodeAgentRunRecord(runId);
+    if (!run || (run.status !== "completed" && run.status !== "errored")) {
+      return;
+    }
+    const remote = isObject(run.metadata?.remote) ? run.metadata.remote : {};
+    const commandId = firstStringValue(remote.commandId);
+    if (!commandId || this.terminalCommandIds.has(commandId)) return;
+    const errorMessage = firstStringValue(
+      run.metadata?.error,
+      run.metadata?.runnerError,
+    );
+    await this.postJson("/_agent-native/integrations/remote/result", {
+      deviceId: this.config.deviceId,
+      commandId,
+      kind: "create-run",
+      ok: run.status === "completed",
+      status: run.status === "completed" ? "completed" : "failed",
+      result: {
+        ok: run.status === "completed",
+        run,
+      },
+      errorMessage:
+        run.status === "errored"
+          ? (errorMessage ?? "Remote code-agent run failed.")
+          : undefined,
+    });
+    this.terminalCommandIds.add(commandId);
   }
 
   private async postCommandResult(
@@ -645,12 +695,19 @@ class RemoteCodeAgentConnector {
             : "Connector result rejected as unsafe.",
       };
     }
+    const isAcceptedCreateRun =
+      normalizeKind(command.kind) === "create-run" && safeResult.ok !== false;
     await this.postJson("/_agent-native/integrations/remote/result", {
       deviceId: this.config.deviceId,
       commandId: command.id,
       kind: command.kind,
       ok: safeResult.ok !== false,
-      status: safeResult.ok === false ? "failed" : "completed",
+      status:
+        safeResult.ok === false
+          ? "failed"
+          : isAcceptedCreateRun
+            ? "running"
+            : "completed",
       result: safeResult,
       errorMessage:
         typeof safeResult.error === "string" ? safeResult.error : undefined,
@@ -867,6 +924,19 @@ function isRemoteStartedRun(
 function resolveCommandCwd(value: unknown): string {
   const cwd = firstStringValue(value);
   return cwd ? path.resolve(cwd) : process.cwd();
+}
+
+function remoteExecutionCapabilities(): RemoteExecutionCapabilities {
+  const configured = process.env[REMOTE_ENGINES_ENV]
+    ?.split(",")
+    .map((engine) => engine.trim())
+    .filter(Boolean);
+  return {
+    ...DEFAULT_REMOTE_EXECUTION_CAPABILITIES,
+    ...(configured?.length
+      ? { engines: [...new Set(configured)].slice(0, 32) }
+      : {}),
+  };
 }
 
 function normalizeRelayUrl(value: string | undefined): string | null {

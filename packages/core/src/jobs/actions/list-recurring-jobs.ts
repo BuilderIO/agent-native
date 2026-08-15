@@ -59,6 +59,9 @@ export interface RecurringJobActionItem {
   lastError: string | null;
   nextRun: string | null;
   createdBy: string | null;
+  executionHostId: string | null;
+  executionEngine: string | null;
+  executionCwd: string | null;
   mcpTools: string[];
   canUpdate: boolean;
 }
@@ -117,6 +120,9 @@ export default defineAction({
         lastError: meta.lastError ?? null,
         nextRun: nextRun(meta),
         createdBy: meta.createdBy ?? null,
+        executionHostId: meta.executionHostId ?? null,
+        executionEngine: meta.executionEngine ?? null,
+        executionCwd: meta.executionCwd ?? null,
         mcpTools: meta.mcpTools ?? [],
         canUpdate,
       });

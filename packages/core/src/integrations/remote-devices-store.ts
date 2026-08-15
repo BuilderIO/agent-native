@@ -15,6 +15,7 @@ import type {
   RemoteDevice,
   RemoteDeviceMetadata,
   RemoteExecutionCapabilities,
+  RemoteExecutionWorkload,
 } from "./remote-types.js";
 
 let _initPromise: Promise<void> | undefined;
@@ -502,7 +503,12 @@ function normalizeExecutionCapabilities(
     result.backend = value.backend;
   }
   if (Array.isArray(value.workloads)) {
-    result.workloads = normalizeStringList(value.workloads, 16);
+    result.workloads = normalizeStringList(value.workloads, 16).filter(
+      (entry): entry is RemoteExecutionWorkload =>
+        entry === "code-agent" ||
+        entry === "scheduled-code" ||
+        entry === "external-agent",
+    );
   }
   if (Array.isArray(value.engines)) {
     result.engines = normalizeStringList(value.engines, 32);

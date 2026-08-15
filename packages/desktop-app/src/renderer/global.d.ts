@@ -331,6 +331,7 @@ type CodeAgentCreateRunRequest = {
   goalId?: string;
   prompt: string;
   cwd?: string;
+  executionTarget?: "local" | "worktree";
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
@@ -345,6 +346,19 @@ type CodeAgentCreateRunResult = {
   event?: CodeAgentTranscriptEvent;
   eventFile?: string;
   message: string;
+  error?: string;
+};
+
+type CodeAgentRemoteWaitlistRequest = {
+  email: string;
+  pageUrl?: string;
+  source?: string;
+  useCase?: string;
+};
+
+type CodeAgentRemoteWaitlistResult = {
+  ok: boolean;
+  message?: string;
   error?: string;
 };
 
@@ -422,6 +436,7 @@ type CodeAgentRerunRequest = {
   runId: string;
   prompt?: string;
   cwd?: string;
+  executionTarget?: "local" | "worktree";
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
@@ -782,6 +797,9 @@ interface ElectronAPI {
     createRun(
       request: CodeAgentCreateRunRequest,
     ): Promise<CodeAgentCreateRunResult>;
+    submitRemoteWaitlist(
+      request: CodeAgentRemoteWaitlistRequest,
+    ): Promise<CodeAgentRemoteWaitlistResult>;
     readTranscript(
       request: CodeAgentTranscriptRequest,
     ): Promise<CodeAgentTranscriptResult>;

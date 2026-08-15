@@ -519,10 +519,9 @@ export async function enqueueRemoteCommand(
   });
   const requestedDeviceId =
     readString(command.hostId) ?? readString(command.deviceId);
-  const device =
-    (requestedDeviceId
-      ? devices.find((candidate) => candidate.id === requestedDeviceId)
-      : undefined) ?? devices[0];
+  const device = requestedDeviceId
+    ? devices.find((candidate) => candidate.id === requestedDeviceId)
+    : devices[0];
   if (requestedDeviceId && !device) {
     return {
       ok: false,
@@ -643,6 +642,12 @@ function enqueueBodyToRemoteCodeCommand(
       cwd: payload.cwd,
       goalId: payload.goalId,
       permissionMode: payload.permissionMode,
+      engine: payload.engine,
+      model: payload.model,
+      effort: payload.effort,
+      reasoningEffort: payload.reasoningEffort,
+      workload: payload.workload,
+      metadata: payload.metadata,
     };
   }
   if (operation === "code-agent.run.follow-up") {
@@ -746,9 +751,7 @@ function remoteDeviceToHost(device: RemoteDevice): Record<string, unknown> {
     ...(executionCapabilities?.engines ?? []).map(
       (engine) => `engine:${engine}`,
     ),
-    ...(executionCapabilities?.acceptsScheduledWork
-      ? ["scheduled-task"]
-      : []),
+    ...(executionCapabilities?.acceptsScheduledWork ? ["scheduled-task"] : []),
     ...(device.metadata?.computerCapabilities ? ["computer"] : []),
   ];
   return {
@@ -1132,6 +1135,11 @@ export function createIntegrationsPlugin(
           typeof body.label === "string" && body.label.trim()
             ? body.label.trim().slice(0, 200)
             : "Remote device";
+        const metadata = readObject(body.metadata);
+        const hasExecutionCapabilities = Object.prototype.hasOwnProperty.call(
+          body,
+          "executionCapabilities",
+        );
         const { device, token } = await createRemoteDevice({
           ownerEmail: ctx.ownerEmail,
           orgId: ctx.orgId,
@@ -1139,19 +1147,19 @@ export function createIntegrationsPlugin(
           platform: readString(body.platform),
           appVersion: readString(body.appVersion) ?? readString(body.version),
           hostName: readString(body.hostName) ?? readString(body.hostname),
-          metadata: {
-            ...(readObject(body.metadata) ?? {}),
-            ...(Object.prototype.hasOwnProperty.call(
-              body,
-              "executionCapabilities",
-            )
+          metadata:
+            metadata || hasExecutionCapabilities
               ? {
-                  executionCapabilities: readRemoteExecutionCapabilities(
-                    body.executionCapabilities,
-                  ),
+                  ...(metadata ?? {}),
+                  ...(hasExecutionCapabilities
+                    ? {
+                        executionCapabilities: readRemoteExecutionCapabilities(
+                          body.executionCapabilities,
+                        ),
+                      }
+                    : {}),
                 }
-              : {}),
-          },
+              : null,
         });
         return { device: toPublicRemoteDevice(device), token };
       }),
@@ -3595,14 +3603,16 @@ function readRemoteExecutionCapabilities(
   const backend = readString(input.backend);
   const persistence = readString(input.persistence);
   const list = (candidate: unknown, max: number) =>
-    [...new Set(
-      Array.isArray(candidate)
-        ? candidate
-            .filter((entry): entry is string => typeof entry === "string")
-            .map((entry) => entry.trim().slice(0, 120))
-            .filter(Boolean)
-        : [],
-    )].slice(0, max);
+    [
+      ...new Set(
+        Array.isArray(candidate)
+          ? candidate
+              .filter((entry): entry is string => typeof entry === "string")
+              .map((entry) => entry.trim().slice(0, 120))
+              .filter(Boolean)
+          : [],
+      ),
+    ].slice(0, max);
   return {
     ...(backend === "desktop" ||
     backend === "container" ||
@@ -3610,7 +3620,10 @@ function readRemoteExecutionCapabilities(
     backend === "external"
       ? { backend }
       : {}),
-    workloads: list(input.workloads, 16) as RemoteExecutionCapabilities["workloads"],
+    workloads: list(
+      input.workloads,
+      16,
+    ) as RemoteExecutionCapabilities["workloads"],
     engines: list(input.engines, 32),
     ...(typeof input.acceptsScheduledWork === "boolean"
       ? { acceptsScheduledWork: input.acceptsScheduledWork }

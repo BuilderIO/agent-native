@@ -692,7 +692,9 @@ function randomHex(byteLength: number): string {
     .join("");
 }
 
-function normalizeIdempotencyKey(value: string | null | undefined): string | null {
+function normalizeIdempotencyKey(
+  value: string | null | undefined,
+): string | null {
   if (typeof value !== "string") return null;
   const normalized = value.trim();
   return normalized ? normalized.slice(0, 512) : null;

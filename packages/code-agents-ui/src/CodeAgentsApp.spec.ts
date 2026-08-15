@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   findRunsThatBecameUnread,
+  getCodeAgentPickerOptions,
   getCodeAgentSelection,
   groupCodeAgentModelOptions,
   normalizeModelSelection,
@@ -287,6 +288,24 @@ describe("code-agent model selection", () => {
       model: "claude-sonnet-5",
       effort: "high",
     });
+  });
+
+  it("keeps Remote available as a waitlist action without changing the local runtime", () => {
+    const current = {
+      engine: "claude-cli",
+      model: "claude-sonnet-5",
+      effort: "medium" as const,
+    };
+
+    expect(
+      getCodeAgentPickerOptions(models).find((agent) => agent.id === "remote"),
+    ).toEqual(
+      expect.objectContaining({
+        label: "Remote",
+        configured: true,
+      }),
+    );
+    expect(getCodeAgentSelection("remote", current, models)).toEqual(current);
   });
 });
 
