@@ -3268,17 +3268,13 @@ body {
   color: var(--shell-fg);
 }
 
-.desktop-terminal-tabs .agent-tabs-scroll {
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-}
-
-.desktop-terminal-tabs .agent-tabs-scroll::-webkit-scrollbar {
-  display: none;
-}
-
-.desktop-terminal-tabs .agent-tab-close {
-  background: linear-gradient(to right, transparent, hsl(var(--accent)) 40%);
+.desktop-terminal-surface {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .desktop-terminal-tabs__body {

@@ -1,12 +1,7 @@
 import { AgentTerminal } from "@agent-native/core/client";
 import type { AppConfig } from "@shared/app-registry";
 import { IconLoader2, IconTerminal2 } from "@tabler/icons-react";
-import {
-  useEffect,
-  useMemo,
-  useState,
-  type CSSProperties,
-} from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 
 import {
   DESKTOP_TERMINAL_AGENT_OPTIONS,
