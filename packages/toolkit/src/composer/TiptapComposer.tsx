@@ -36,7 +36,10 @@ import {
   PopoverTrigger,
 } from "../ui/popover.js";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip.js";
-import { ComposerPlusMenu } from "./ComposerPlusMenu.js";
+import {
+  ComposerPlusMenu,
+  type ComposerTerminalModeControl,
+} from "./ComposerPlusMenu.js";
 import { getComposerDraftKey } from "./draft-key.js";
 import { FileReference } from "./extensions/FileReference.js";
 import { MentionReference } from "./extensions/MentionReference.js";
@@ -668,6 +671,8 @@ export interface ComposerAgentOption {
   id: string;
   /** Human-readable runtime name shown in the picker. */
   label: string;
+  /** Optional icon shown beside the runtime name. */
+  icon?: React.ReactNode;
   /** Optional short detail shown below the runtime name. */
   description?: string;
   /** Whether this runtime can be selected right now. */
@@ -774,6 +779,8 @@ export interface TiptapComposerProps {
   availableAgents?: ComposerAgentOption[];
   /** Selected agent runtime identifier. Defaults to the built-in agent. */
   selectedAgent?: string;
+  /** Show only the selected agent in the model control. */
+  agentOnly?: boolean;
   /** Mark the selected runtime as the hosted tools-only harness mode. */
   hostedHarness?: boolean;
   /** Callback when the user picks an agent runtime. */
@@ -811,7 +818,9 @@ export interface TiptapComposerProps {
    * that opens the file picker directly. `"hidden"` hides attachment controls
    * for text-only prompt surfaces.
    */
-  plusMenuMode?: "full" | "upload-only" | "hidden";
+  plusMenuMode?: "full" | "upload-only" | "terminal" | "hidden";
+  /** Controls the terminal-specific plus menu when `plusMenuMode` is terminal. */
+  terminalModeControl?: ComposerTerminalModeControl;
   /**
    * Include extension creation in the full "+" menu. Defaults to false so
    * apps opt into the extension capability deliberately.
@@ -1297,6 +1306,7 @@ function ModelSelector({
   engines,
   agents,
   selectedAgent,
+  agentOnly = false,
   hostedHarness = false,
   showAutoModelOption = true,
   modelListLoading = false,
@@ -1323,6 +1333,7 @@ function ModelSelector({
     statusLabel?: string;
     isSubscription?: boolean;
   }>;
+  agentOnly?: boolean;
   showAutoModelOption?: boolean;
   modelListLoading?: boolean;
   onChange: (model: string, engine: string) => void;
@@ -1411,9 +1422,10 @@ function ModelSelector({
     }
     onChange(preferredAgentModel.model, preferredAgentModel.engine);
   }, [engines, isClaudeCodeAgent, model, onChange, preferredAgentModel]);
-  const effortOptions =
-    reasoning?.getOptionsForModel?.(model) ??
-    getComposerReasoningEffortOptions(model);
+  const effortOptions = agentOnly
+    ? []
+    : (reasoning?.getOptionsForModel?.(model) ??
+      getComposerReasoningEffortOptions(model));
   const selectedEffort =
     reasoning?.resolve?.(model, effort) ??
     resolveReasoningEffortSelection(model, effort ?? defaultEffort);
@@ -1435,15 +1447,15 @@ function ModelSelector({
   const [detailSection, setDetailSection] = useState<
     "agent" | "model" | "effort" | null
   >(null);
-  const resolvedSection = detailSection ?? "model";
+  const resolvedSection = detailSection ?? (agentOnly ? "agent" : "model");
 
   const setPickerOpen = useCallback(
     (nextOpen: boolean) => {
       if (controlledOpen === undefined) setInternalOpen(nextOpen);
-      if (nextOpen) setDetailSection(null);
+      if (nextOpen) setDetailSection(agentOnly ? "agent" : null);
       onModelSelectorOpenChange?.(nextOpen);
     },
-    [controlledOpen, onModelSelectorOpenChange],
+    [agentOnly, controlledOpen, onModelSelectorOpenChange],
   );
 
   const visibleProviderGroups = modelProviderGroups;
@@ -1518,6 +1530,11 @@ function ModelSelector({
           className="agent-composer-model-button flex min-w-0 max-w-[10.5rem] shrink items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground"
         >
           <span className="min-w-0 truncate">
+            {selectedAgentOption?.icon ? (
+              <span className="me-1 inline-flex shrink-0 align-[-2px] text-muted-foreground">
+                {selectedAgentOption.icon}
+              </span>
+            ) : null}
             {selectedAgentOption && selectedAgentOption.id !== "default"
               ? selectedAgentLabel
               : compactComposerModelName(model, t)}
@@ -1613,25 +1630,29 @@ function ModelSelector({
                   <IconChevronRight className="h-3 w-3 shrink-0 opacity-60 rtl:-scale-x-100" />
                 </button>
               )}
-              <button
-                type="button"
-                role="tab"
-                aria-selected={resolvedSection === "model"}
-                onClick={() => setDetailSection("model")}
-                onMouseEnter={() => setDetailSection("model")}
-                className={`flex w-full min-w-0 items-center gap-1 rounded-md px-2 py-2 text-start transition-colors ${
-                  resolvedSection === "model"
-                    ? "bg-accent text-foreground"
-                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-                }`}
-              >
-                <span className="shrink-0 text-[12px] font-medium">Model</span>
-                <span className="ms-auto min-w-0 max-w-[6rem] truncate text-end text-[11px] text-muted-foreground/80">
-                  {selectedModelLabel}
-                </span>
-                <IconChevronRight className="h-3 w-3 shrink-0 opacity-60 rtl:-scale-x-100" />
-              </button>
-              {effortOptions.length > 0 && (
+              {!agentOnly && (
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={resolvedSection === "model"}
+                  onClick={() => setDetailSection("model")}
+                  onMouseEnter={() => setDetailSection("model")}
+                  className={`flex w-full min-w-0 items-center gap-1 rounded-md px-2 py-2 text-start transition-colors ${
+                    resolvedSection === "model"
+                      ? "bg-accent text-foreground"
+                      : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                  }`}
+                >
+                  <span className="shrink-0 text-[12px] font-medium">
+                    Model
+                  </span>
+                  <span className="ms-auto min-w-0 max-w-[6rem] truncate text-end text-[11px] text-muted-foreground/80">
+                    {selectedModelLabel}
+                  </span>
+                  <IconChevronRight className="h-3 w-3 shrink-0 opacity-60 rtl:-scale-x-100" />
+                </button>
+              )}
+              {!agentOnly && effortOptions.length > 0 && (
                 <button
                   type="button"
                   role="tab"
@@ -1703,6 +1724,14 @@ function ModelSelector({
                                 : "cursor-default opacity-50"
                             }`}
                           >
+                            {agent.icon ? (
+                              <span
+                                className="flex size-4 shrink-0 items-center justify-center text-muted-foreground"
+                                aria-hidden="true"
+                              >
+                                {agent.icon}
+                              </span>
+                            ) : null}
                             <span
                               className={`min-w-0 truncate text-[12px] ${
                                 isSelected
@@ -2134,6 +2163,7 @@ export function TiptapComposer({
   onEffortChange,
   availableAgents,
   selectedAgent,
+  agentOnly = false,
   hostedHarness,
   onAgentChange,
   onModelSelectorOpenChange,
@@ -2145,6 +2175,7 @@ export function TiptapComposer({
   contextItems = [],
   onRemoveContextItem,
   plusMenuMode = "full",
+  terminalModeControl,
   extensionTools = false,
   interceptBuildRequestsForBuilder = false,
   onAttachmentError,
@@ -3631,6 +3662,7 @@ export function TiptapComposer({
             <ComposerPlusMenu
               onSelectMode={handleSelectMode}
               mode={plusMenuMode}
+              terminalModeControl={terminalModeControl}
               extensionTools={extensionTools}
               onAttachmentError={onAttachmentError}
             />
@@ -3645,6 +3677,7 @@ export function TiptapComposer({
             engines={availableModels}
             agents={availableAgents}
             selectedAgent={selectedAgent}
+            agentOnly={agentOnly}
             hostedHarness={hostedHarness}
             showAutoModelOption={showAutoModelOption}
             modelListLoading={modelListLoading}

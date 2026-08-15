@@ -47,6 +47,15 @@ export type RemoteRunStatus =
   | "errored"
   | "unknown";
 
+export interface RemoteHostExecutionCapabilities {
+  backend?: "desktop" | "container" | "kubernetes" | "external";
+  workloads?: string[];
+  engines?: string[];
+  acceptsScheduledWork?: boolean;
+  persistence?: "local-files" | "persistent-volume" | "ephemeral";
+  adapters?: string[];
+}
+
 export interface RemoteHost {
   id: string;
   name: string;
@@ -55,6 +64,7 @@ export interface RemoteHost {
   platform?: string;
   version?: string;
   capabilities?: string[];
+  executionCapabilities?: RemoteHostExecutionCapabilities;
   supportsRevoke?: boolean;
 }
 
@@ -103,6 +113,9 @@ export interface CreateRemoteRunInput {
   cwd?: string;
   goalId?: string;
   permissionMode?: "read-only" | "ask-before-edit" | "auto-edit" | "full-auto";
+  engine?: string;
+  model?: string;
+  effort?: string;
 }
 
 export interface AppendRemoteFollowUpInput {
@@ -332,6 +345,10 @@ function normalizeHostStatus(value: unknown): RemoteHostStatus {
 function normalizeHost(record: Record<string, unknown>): RemoteHost {
   const id = asString(record.id) || asString(record.hostId) || "unknown-host";
   const capabilities = asStringArray(record.capabilities);
+  const executionCapabilities = normalizeExecutionCapabilities(
+    asRecord(record.executionCapabilities) ??
+      asRecord(asRecord(record.metadata)?.executionCapabilities),
+  );
   return {
     id,
     name: asString(record.name) || asString(record.label) || id,
@@ -343,10 +360,38 @@ function normalizeHost(record: Record<string, unknown>): RemoteHost {
     platform: asString(record.platform),
     version: asString(record.version) || asString(record.appVersion),
     capabilities,
+    ...(executionCapabilities ? { executionCapabilities } : {}),
     supportsRevoke:
       asBoolean(record.supportsRevoke) ??
       asBoolean(record.canRevoke) ??
       capabilities.includes("revoke"),
+  };
+}
+
+function normalizeExecutionCapabilities(
+  record: Record<string, unknown> | null,
+): RemoteHostExecutionCapabilities | null {
+  if (!record) return null;
+  const backend = asString(record.backend);
+  const persistence = asString(record.persistence);
+  return {
+    ...(backend === "desktop" ||
+    backend === "container" ||
+    backend === "kubernetes" ||
+    backend === "external"
+      ? { backend }
+      : {}),
+    workloads: asStringArray(record.workloads),
+    engines: asStringArray(record.engines),
+    ...(typeof record.acceptsScheduledWork === "boolean"
+      ? { acceptsScheduledWork: record.acceptsScheduledWork }
+      : {}),
+    ...(persistence === "local-files" ||
+    persistence === "persistent-volume" ||
+    persistence === "ephemeral"
+      ? { persistence }
+      : {}),
+    adapters: asStringArray(record.adapters),
   };
 }
 
@@ -597,6 +642,9 @@ export async function createRemoteRun(input: CreateRemoteRunInput): Promise<
       prompt: input.prompt,
       cwd: input.cwd,
       permissionMode: input.permissionMode ?? "full-auto",
+      engine: input.engine,
+      model: input.model,
+      effort: input.effort,
     },
   );
   if (!result.ok) return { ...result, data: undefined };

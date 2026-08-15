@@ -1,71 +1,69 @@
 import "../global.css";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import CaptureSyncProvider from "@/components/CaptureSyncProvider";
+import MobileAnalyticsObserver from "@/components/MobileAnalyticsObserver";
 import OAuthDeepLinkHandler from "@/components/OAuthDeepLinkHandler";
 
 export default function RootLayout() {
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <SafeAreaProvider>
-        <KeyboardProvider>
-          <CaptureSyncProvider>
-            <OAuthDeepLinkHandler />
-            <StatusBar style="light" />
-            <Stack
-              screenOptions={{
-                headerStyle: { backgroundColor: "#111111" },
-                headerTintColor: "#ffffff",
-                headerTitleStyle: { fontWeight: "600" },
-                contentStyle: { backgroundColor: "#111111" },
+    <SafeAreaProvider>
+      <KeyboardProvider>
+        <CaptureSyncProvider>
+          <MobileAnalyticsObserver />
+          <OAuthDeepLinkHandler />
+          <StatusBar style="light" />
+          <Stack
+            screenOptions={{
+              headerStyle: { backgroundColor: "#111111" },
+              headerTintColor: "#ffffff",
+              headerTitleStyle: { fontWeight: "600" },
+              contentStyle: { backgroundColor: "#111111" },
+            }}
+          >
+            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+            <Stack.Screen
+              name="app/[id]"
+              options={{
+                headerShown: true,
+                headerBackTitle: "Apps",
               }}
-            >
-              <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-              <Stack.Screen name="apps" options={{ headerShown: false }} />
-              <Stack.Screen name="settings" options={{ headerShown: false }} />
-              <Stack.Screen
-                name="app/[id]"
-                options={{
-                  headerShown: true,
-                  headerBackTitle: "Apps",
-                }}
-              />
-              <Stack.Screen
-                name="capture/audio"
-                options={{
-                  gestureEnabled: false,
-                  headerShown: false,
-                  presentation: "fullScreenModal",
-                }}
-              />
-              <Stack.Screen
-                name="capture/dictate"
-                options={{
-                  gestureEnabled: false,
-                  headerShown: false,
-                  presentation: "fullScreenModal",
-                }}
-              />
-              <Stack.Screen
-                name="capture/video"
-                options={{
-                  gestureEnabled: false,
-                  headerShown: false,
-                  presentation: "fullScreenModal",
-                }}
-              />
-              <Stack.Screen
-                name="oauth-complete"
-                options={{ headerShown: false }}
-              />
-            </Stack>
-          </CaptureSyncProvider>
-        </KeyboardProvider>
-      </SafeAreaProvider>
-    </GestureHandlerRootView>
+            />
+            <Stack.Screen
+              name="capture/audio"
+              options={{
+                gestureEnabled: false,
+                headerShown: false,
+                presentation: "fullScreenModal",
+              }}
+            />
+            <Stack.Screen
+              name="capture/dictate"
+              options={{
+                gestureEnabled: false,
+                headerShown: false,
+                presentation: "fullScreenModal",
+              }}
+            />
+            <Stack.Screen
+              name="capture/video"
+              options={{
+                gestureEnabled: false,
+                headerShown: false,
+                presentation: "fullScreenModal",
+              }}
+            />
+            <Stack.Screen
+              name="oauth-complete"
+              options={{ headerShown: false }}
+            />
+            <Stack.Screen name="+not-found" options={{ headerShown: false }} />
+          </Stack>
+        </CaptureSyncProvider>
+      </KeyboardProvider>
+    </SafeAreaProvider>
   );
 }

@@ -32,7 +32,11 @@ describe("tracking registry", () => {
     const events = captureEvents();
 
     await runWithRequestContext(
-      { userEmail: "alice@example.com", browserSessionId: "session-1" },
+      {
+        userEmail: "alice@example.com",
+        browserSessionId: "session-1",
+        clientPlatform: "electron",
+      },
       () => {
         track(
           "project_created",
@@ -47,7 +51,7 @@ describe("tracking registry", () => {
       name: "project_created",
       userId: "alice@example.com",
       sessionId: "session-1",
-      properties: { template: "blank" },
+      properties: { template: "blank", client_platform: "electron" },
     });
   });
 

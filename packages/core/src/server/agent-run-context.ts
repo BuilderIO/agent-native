@@ -1,6 +1,11 @@
 import { createError, getHeader, type H3Event } from "h3";
 
 import { resolveOrgIdForEmail, getOrgContext } from "../org/context.js";
+import {
+  ANALYTICS_CLIENT_PLATFORM_BODY_FIELD,
+  ANALYTICS_CLIENT_PLATFORM_HEADER,
+  normalizeAnalyticsClientPlatform,
+} from "../shared/analytics-platform.js";
 import { getSession } from "./auth.js";
 import {
   runWithRequestContext,
@@ -101,6 +106,23 @@ export function readBrowserSessionIdHeader(event: H3Event): string | undefined {
     value.trim().length < 128
     ? value.trim()
     : undefined;
+}
+
+export function readAnalyticsClientPlatformHeader(
+  event: H3Event,
+):
+  | import("../shared/analytics-platform.js").AnalyticsClientPlatform
+  | undefined {
+  const raw = readHeaderValue(event, ANALYTICS_CLIENT_PLATFORM_HEADER);
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  return (
+    normalizeAnalyticsClientPlatform(value) ??
+    normalizeAnalyticsClientPlatform(
+      (event as EventWithAgentRunContext).context?.[
+        ANALYTICS_CLIENT_PLATFORM_BODY_FIELD
+      ],
+    )
+  );
 }
 
 export function seedAgentRunOwnerContext(
@@ -221,6 +243,7 @@ export async function resolveAgentRunRequestContext(options: {
   const orgId = await resolveAgentRunOrgId(options);
   const timezone = readAgentRunTimezone(options.event);
   const browserSessionId = readBrowserSessionIdHeader(options.event);
+  const clientPlatform = readAnalyticsClientPlatformHeader(options.event);
   const waitUntil = requestWaitUntil(options.event);
   const run = {
     ...(options.isBackgroundWorker ? { isBackgroundWorker: true } : {}),
@@ -232,6 +255,7 @@ export async function resolveAgentRunRequestContext(options: {
     orgId,
     timezone,
     ...(browserSessionId ? { browserSessionId } : {}),
+    ...(clientPlatform ? { clientPlatform } : {}),
     ...(Object.keys(run).length > 0 ? { run } : {}),
   };
 }

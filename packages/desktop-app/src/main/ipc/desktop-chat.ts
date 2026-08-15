@@ -304,4 +304,16 @@ export function registerDesktopChatIpc(): void {
       return `http://127.0.0.1:${relay.port}${RELAY_ROOT}/${relay.secret}/${encodeURIComponent(appId)}/_agent-native/agent-chat`;
     },
   );
+  ipcMain.handle(
+    IPC.DESKTOP_CHAT_GET_TERMINAL_INFO_URL,
+    async (_event: IpcMainInvokeEvent, appId: unknown) => {
+      if (typeof appId !== "string" || !appId.trim()) return null;
+      const appConfig = AppStore.loadApps().find(
+        (candidate) => candidate.id === appId,
+      );
+      if (!appConfig || !resolveAppBaseUrl(appConfig)) return null;
+      const relay = await ensureRelay();
+      return `http://127.0.0.1:${relay.port}${RELAY_ROOT}/${relay.secret}/${encodeURIComponent(appId)}/_agent-native/agent-terminal-info`;
+    },
+  );
 }

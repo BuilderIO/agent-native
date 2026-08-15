@@ -10,7 +10,10 @@ vi.mock("../db/index.js", () => ({
   schema: {},
 }));
 
-import { countFirstPartyAnalyticsPostgresRows } from "./first-party-analytics-purge.js";
+import {
+  countFirstPartyAnalyticsPostgresRows,
+  purgeFirstPartyAnalyticsPostgresRows,
+} from "./first-party-analytics-purge.js";
 
 const scope = { orgId: "org-1", userEmail: "admin@example.com" };
 const window = {
@@ -32,9 +35,11 @@ describe("countFirstPartyAnalyticsPostgresRows", () => {
     expect(execute).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
-        sql: expect.stringContaining("FROM analytics_events"),
+        sql: expect.stringMatching(
+          /FROM analytics_events[\s\S]*event_name IS DISTINCT FROM 'http\.response'/,
+        ),
         args: ["org-1", "2026-07-01T00:00:00.000Z"],
-        timeoutMs: 5_000,
+        timeoutMs: 60_000,
         maxAttempts: 1,
       }),
     );
@@ -73,5 +78,35 @@ describe("countFirstPartyAnalyticsPostgresRows", () => {
     await expect(
       countFirstPartyAnalyticsPostgresRows(scope, false, window),
     ).rejects.toThrow("invalid value");
+  });
+});
+
+describe("purgeFirstPartyAnalyticsPostgresRows", () => {
+  it("deletes each scoped table in bounded batches", async () => {
+    execute
+      .mockResolvedValueOnce({ rows: [{ row_count: "5" }] })
+      .mockResolvedValueOnce({ rows: [{ row_count: "1" }] })
+      .mockResolvedValueOnce({ rows: [{ row_count: "1" }] })
+      .mockResolvedValueOnce({ rows: [], rowsAffected: 10_000 })
+      .mockResolvedValueOnce({ rows: [], rowsAffected: 1 })
+      .mockResolvedValueOnce({ rows: [], rowsAffected: 1 })
+      .mockResolvedValueOnce({ rows: [], rowsAffected: 1 });
+
+    await expect(
+      purgeFirstPartyAnalyticsPostgresRows(scope, false, window),
+    ).resolves.toEqual({ eventRows: 5, dailyRollupRows: 1, userDayRows: 1 });
+
+    expect(execute).toHaveBeenCalledTimes(7);
+    expect(execute).toHaveBeenNthCalledWith(
+      4,
+      expect.objectContaining({
+        sql: expect.stringMatching(
+          /WITH candidates[\s\S]*LIMIT \?[\s\S]*DELETE FROM analytics_events/,
+        ),
+        args: ["org-1", "2026-07-01T00:00:00.000Z", 10_000],
+        timeoutMs: 60_000,
+        maxAttempts: 1,
+      }),
+    );
   });
 });

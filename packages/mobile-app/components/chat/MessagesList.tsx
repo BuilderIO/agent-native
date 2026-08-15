@@ -168,12 +168,17 @@ export function MessagesList({
 
       {rows.length === 0 && !chat.historyLoading && (
         <View
-          className="absolute inset-0 items-center justify-center px-8"
-          pointerEvents="none"
+          className="absolute inset-0 items-center justify-center px-5"
+          pointerEvents="box-none"
         >
-          <Text className="text-white text-lg font-semibold text-center">
-            What can I help with?
-          </Text>
+          <View className="items-center">
+            <Text className="text-white text-[22px] font-bold text-center">
+              Start a chat
+            </Text>
+            <Text className="mt-2 text-center text-[14px] text-text-muted">
+              Ask across your workspace.
+            </Text>
+          </View>
         </View>
       )}
     </View>

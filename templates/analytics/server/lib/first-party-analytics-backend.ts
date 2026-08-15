@@ -1130,7 +1130,9 @@ export async function getFirstPartyAnalyticsBigQueryMetrics(
     WITH scoped_events AS (
       SELECT *
       FROM \`${physical.events}\`
-      WHERE ${tenantFilter}${startDateFilter} AND event_date <= ${today}
+      WHERE ${tenantFilter}${startDateFilter}
+        AND event_name IS DISTINCT FROM 'http.response'
+        AND event_date <= ${today}
     )
     SELECT
       COUNT(*) AS event_count,

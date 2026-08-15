@@ -9,6 +9,38 @@ export type RemoteCommandKind =
   | "status"
   | "computer-operation";
 
+/** Workloads a paired execution host may accept from the relay. */
+export type RemoteExecutionWorkload =
+  | "code-agent"
+  | "scheduled-code"
+  | "external-agent";
+
+export type RemoteExecutionBackend =
+  | "desktop"
+  | "container"
+  | "kubernetes"
+  | "external";
+
+export type RemoteExecutionPersistence =
+  | "local-files"
+  | "persistent-volume"
+  | "ephemeral";
+
+/**
+ * Non-secret capabilities advertised by a host during its heartbeat. The
+ * relay uses this to reject a requested workload before queueing it, while
+ * leaving room for a future Kubernetes or external-agent adapter.
+ */
+export interface RemoteExecutionCapabilities {
+  backend?: RemoteExecutionBackend;
+  workloads?: RemoteExecutionWorkload[];
+  engines?: string[];
+  acceptsScheduledWork?: boolean;
+  acceptsPortalHandoffs?: boolean;
+  persistence?: RemoteExecutionPersistence;
+  adapters?: string[];
+}
+
 export type ComputerOperationClass =
   | "browser.observe"
   | "browser.control"
@@ -59,6 +91,7 @@ export interface RemoteComputerCapabilities {
 
 export interface RemoteDeviceMetadata extends Record<string, unknown> {
   computerCapabilities?: RemoteComputerCapabilities;
+  executionCapabilities?: RemoteExecutionCapabilities;
 }
 
 export type RemoteCommandStatus =
@@ -114,6 +147,7 @@ export interface RemoteCommand {
   result: unknown;
   platform: string | null;
   externalThreadId: string | null;
+  idempotencyKey?: string | null;
   computerOperation?: ComputerCommandEnvelope | null;
   attempts: number;
   nextCheckAt: number;

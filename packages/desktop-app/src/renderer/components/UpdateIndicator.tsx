@@ -22,31 +22,15 @@ export function useUpdateStatus(): UpdateStatus | null {
 }
 
 /**
- * Sidebar pill that becomes visible whenever an update is in flight or
- * ready to install. Hidden in idle / not-available / unsupported states so it
- * doesn't add visual noise.
+ * Chat-first rail action that becomes visible whenever an update is in flight
+ * or ready to install. Hidden in idle / not-available / unsupported states so
+ * it doesn't add visual noise.
  */
-export function UpdateIndicator({
-  variant = "sidebar",
-}: {
-  variant?: "sidebar" | "rail";
-}) {
+export function UpdateIndicator() {
   const status = useUpdateStatus();
   const itemClassName = (stateClassName: string) =>
-    `${variant === "rail" ? "code-agents-nav-link" : "sidebar-item"} update-indicator ${stateClassName}`;
-  const itemTabIndex = variant === "rail" ? undefined : -1;
-  const iconSize = variant === "rail" ? 15 : 18;
-  const icon = (element: React.ReactNode) =>
-    variant === "rail" ? (
-      element
-    ) : (
-      <span className="icon-wrapper">{element}</span>
-    );
-  const label = (value: string) => (
-    <span className={variant === "rail" ? undefined : "item-label"}>
-      {value}
-    </span>
-  );
+    `code-agents-nav-link update-indicator ${stateClassName}`;
+  const iconSize = 15;
 
   if (!status) return null;
 
@@ -72,13 +56,12 @@ export function UpdateIndicator({
       <button
         type="button"
         className={itemClassName("update-indicator--pending")}
-        tabIndex={itemTabIndex}
         disabled
         title={`Update ${status.version} available — downloading…`}
         aria-label={`Update ${status.version} available`}
       >
-        {icon(<IconDownload size={iconSize} strokeWidth={1.75} />)}
-        {label("Update")}
+        <IconDownload size={iconSize} strokeWidth={1.75} />
+        <span>Update</span>
       </button>
     );
   }
@@ -88,15 +71,12 @@ export function UpdateIndicator({
       <button
         type="button"
         className={itemClassName("update-indicator--downloading")}
-        tabIndex={itemTabIndex}
         disabled
         title={`Downloading update — ${status.percent}%`}
         aria-label={`Downloading update, ${status.percent} percent`}
       >
-        {icon(
-          <IconLoader2 size={iconSize} strokeWidth={1.75} className="spin" />,
-        )}
-        {label(`${status.percent}%`)}
+        <IconLoader2 size={iconSize} strokeWidth={1.75} className="spin" />
+        <span>{status.percent}%</span>
       </button>
     );
   }
@@ -106,13 +86,12 @@ export function UpdateIndicator({
     <button
       type="button"
       className={itemClassName("update-indicator--ready")}
-      tabIndex={itemTabIndex}
       onClick={() => window.electronAPI?.updater.install()}
       title={`Update ${status.version} ready — click to restart`}
       aria-label={`Restart to update Agent Native to version ${status.version}`}
     >
-      {icon(<IconRefresh size={iconSize} strokeWidth={1.75} />)}
-      {label("Restart to update")}
+      <IconRefresh size={iconSize} strokeWidth={1.75} />
+      <span>Restart to update</span>
     </button>
   );
 }

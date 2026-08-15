@@ -14,10 +14,18 @@ const UPLOAD_URL =
   "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink";
 
 /**
- * Uploads a browser-generated PPTX into the user's Drive, letting Drive convert
- * it to a native Google Slides deck. The PPTX comes from the client because the
- * browser export renders the real slide DOM — the server-side pptxgenjs export
- * is a lower-fidelity fallback and would ship a visibly worse deck to Google.
+ * Uploads a PPTX into the user's Drive, letting Drive convert it to a native
+ * Google Slides deck. The caller decides which exporter produced those bytes,
+ * and which one is higher fidelity depends on the deck:
+ *
+ * - Source-imported decks go through the server `export-pptx`, which writes the
+ *   source's own geometry as real vector shapes. The browser exporter cannot —
+ *   `dom-to-pptx` has no custom-geometry support at all and rasterizes every
+ *   vector shape to a bitmap, so Google receives silhouettes instead of curves.
+ * - Editor-authored decks go through the browser exporter, the only place
+ *   geometry positioned in the DOM is measurable.
+ *
+ * See "Export Behavior" in `templates/slides/AGENTS.md` for the routing rule.
  */
 export default defineEventHandler(async (event) => {
   const session = await getSession(event).catch(() => null);

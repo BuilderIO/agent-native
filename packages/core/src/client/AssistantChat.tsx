@@ -131,7 +131,6 @@ import {
 } from "./chat/repo-helpers.js";
 import {
   BuilderSetupCard,
-  BuilderSetupContent,
   LoopLimitContinueCard,
   RunErrorRecoveryCard,
   PlanModeCallout,
@@ -169,11 +168,6 @@ import {
   MessageScrollerViewport,
   useMessageScroller,
 } from "./components/ui/message-scroller.js";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "./components/ui/popover.js";
 import {
   Tooltip,
   TooltipContent,
@@ -1965,7 +1959,7 @@ export interface AssistantChatProps {
   composerAreaClassName?: string;
   /** Placeholder for the shared composer in its normal idle state. */
   composerPlaceholder?: string;
-  /** Sidebar uses a compact setup CTA above the composer; page chat keeps the default below-composer CTA. */
+  /** Controls the compactness of the provider setup panel attached above the composer. */
   missingApiKeySetupLayout?: BuilderSetupCardLayout;
   /** Visual density for the shared composer shell. */
   composerLayoutVariant?: AgentComposerLayoutVariant;
@@ -2585,14 +2579,6 @@ const AssistantChatInner = forwardRef<
     agentEngineConfigured.state === "missing" &&
     missingApiKey;
   const isComposerDisabled = composerDisabled;
-  const [missingKeySetupOpen, setMissingKeySetupOpen] = useState(false);
-  const requestMissingKeySetup = useCallback(() => {
-    setMissingKeySetupOpen(true);
-  }, []);
-  useEffect(() => {
-    if (agentEngineConfigured.state !== "configured") return;
-    setMissingKeySetupOpen(false);
-  }, [agentEngineConfigured.state]);
   const [authError, setAuthError] = useState<{
     sessionExpired?: boolean;
   } | null>(null);
@@ -4232,7 +4218,6 @@ const AssistantChatInner = forwardRef<
   // Nudge the shared hook to re-check after a Builder connect.
   const handleBuilderConnected = useCallback(() => {
     focusComposerAfterConnectRef.current = true;
-    setMissingKeySetupOpen(false);
     window.dispatchEvent(new Event("agent-engine:configured-changed"));
   }, []);
   useEffect(() => {
@@ -4954,9 +4939,6 @@ const AssistantChatInner = forwardRef<
       continuationTurnId?: string,
     ) => {
       if (isAgentChatSubmitCancelled(submitMessageId)) return;
-      if (engineSetupRequired) {
-        requestMissingKeySetup();
-      }
       if (!preserveReconnectAutoRecoveryBudget) {
         reconnectAutoRecoveryCountRef.current = 0;
       }
@@ -5210,7 +5192,6 @@ const AssistantChatInner = forwardRef<
       markOptimisticRunning,
       engineSetupRequired,
       appendThreadMessage,
-      requestMissingKeySetup,
       selectedEffort,
       selectedEngine,
       selectedModel,
@@ -5500,8 +5481,10 @@ const AssistantChatInner = forwardRef<
     latestMessageRole === "assistant" &&
     getRequestModeMetadata(latestMessage) === "plan";
   const showMissingKeySetup = engineSetupRequired && !authError;
-  const showInlineMissingKeySetup =
-    showMissingKeySetup && missingApiKeySetupLayout === "sidebar";
+  const [missingKeyBouncePulse, setMissingKeyBouncePulse] = useState(0);
+  const bounceMissingKeySetup = useCallback(() => {
+    setMissingKeyBouncePulse((pulse) => pulse + 1);
+  }, []);
   const showPlanModeCallout =
     execMode === "plan" &&
     !planModeDisabled &&
@@ -5640,7 +5623,7 @@ const AssistantChatInner = forwardRef<
     (guidedQuestions && guidedQuestions.length > 0) ||
     visibleComposerContextItems.length > 0 ||
     showPlanModeCallout ||
-    showInlineMissingKeySetup,
+    showMissingKeySetup,
   );
 
   const approvalResolutionScope = threadId ?? tabId ?? "default";
@@ -5953,7 +5936,6 @@ const AssistantChatInner = forwardRef<
                                               key={suggestion}
                                               onClick={() => {
                                                 if (engineSetupRequired) {
-                                                  requestMissingKeySetup();
                                                   return;
                                                 }
                                                 void addToQueue(suggestion);
@@ -6259,252 +6241,167 @@ const AssistantChatInner = forwardRef<
                                 onSwitchToAct={handleSwitchToAct}
                               />
                             )}
-                            {showInlineMissingKeySetup ? (
+                            {showMissingKeySetup ? (
                               <BuilderSetupCard
                                 fullWidth
-                                layout="sidebar"
+                                attached
+                                bouncePulse={missingKeyBouncePulse}
+                                layout={missingApiKeySetupLayout}
                                 onConnected={handleBuilderConnected}
                               />
                             ) : null}
                             {/* Input area */}
-                            <Popover
-                              open={
+                            <AgentComposerFrame
+                              layoutVariant={composerLayoutVariant}
+                              className={cn(
+                                composerAreaClassName,
                                 showMissingKeySetup &&
-                                !showInlineMissingKeySetup &&
-                                missingKeySetupOpen
+                                  "agent-composer-area--attached-above",
+                                isComposerDisabled &&
+                                  !showMissingKeySetup &&
+                                  "opacity-70",
+                              )}
+                              onClick={
+                                showMissingKeySetup
+                                  ? bounceMissingKeySetup
+                                  : undefined
                               }
-                              onOpenChange={setMissingKeySetupOpen}
                             >
-                              <AgentComposerFrame
-                                layoutVariant={composerLayoutVariant}
-                                className={cn(
-                                  composerAreaClassName,
-                                  isComposerDisabled &&
-                                    !showMissingKeySetup &&
-                                    "opacity-70",
-                                )}
-                                rootClassName={cn(
-                                  showMissingKeySetup &&
-                                    "agent-composer-root--missing-key",
-                                )}
-                              >
-                                {showMissingKeySetup &&
-                                !showInlineMissingKeySetup ? (
-                                  <PopoverTrigger asChild>
-                                    <button
-                                      type="button"
-                                      className="agent-composer-missing-key-trigger"
-                                      aria-label={t(
-                                        "agentChat.setup.connectToStart",
-                                      )}
-                                    >
-                                      <span className="agent-composer-missing-key-content">
-                                        <span className="agent-composer-missing-key-copy">
-                                          <span className="agent-composer-missing-key-title">
-                                            {missingApiKeySetupLayout ===
-                                            "sidebar"
-                                              ? t(
-                                                  "agentChat.setup.connectToChat",
-                                                )
-                                              : t(
-                                                  "agentChat.setup.connectToStart",
-                                                )}
-                                          </span>
-                                          {missingApiKeySetupLayout !==
-                                          "sidebar" ? (
-                                            <span className="agent-composer-missing-key-description">
-                                              {t(
-                                                "agentChat.setup.builderCredits",
-                                              )}
-                                            </span>
-                                          ) : null}
-                                        </span>
-                                        <span className="agent-composer-missing-key-cta">
-                                          {t("agentChat.setup.connectAi")}
-                                        </span>
-                                      </span>
-                                    </button>
-                                  </PopoverTrigger>
-                                ) : (
-                                  <>
-                                    <ComposerAttachmentPreviewStrip />
-                                    <TiptapComposer
-                                      focusRef={tiptapRef}
-                                      initialText={
-                                        initialComposerText ?? undefined
-                                      }
-                                      initialTextKey={composerDraftScope}
-                                      onTextChange={
-                                        isActiveComposer
-                                          ? handleComposerTextChange
-                                          : undefined
-                                      }
-                                      disabled={
-                                        isComposerDisabled ||
-                                        showInlineMissingKeySetup
-                                      }
-                                      placeholder={
-                                        showInlineMissingKeySetup
-                                          ? t(
-                                              "agentChat.setup.connectPlaceholder",
-                                            )
-                                          : engineSetupRequired
-                                            ? t(
-                                                "agentChat.setup.connectPlaceholder",
-                                              )
-                                            : composerDisabled
-                                              ? (composerDisabledPlaceholder ??
-                                                t(
-                                                  "agentChat.composer.openDesktop",
-                                                ))
-                                              : isRunning
-                                                ? queuedMessages.length > 0
-                                                  ? t(
-                                                      "agentChat.queue.followUpWithCount",
-                                                      {
-                                                        count:
-                                                          queuedMessages.length,
-                                                      },
-                                                    )
-                                                  : t(
-                                                      "agentChat.queue.followUp",
-                                                    )
-                                                : resolveAssistantChatComposerPlaceholder(
-                                                    composerPlaceholder,
-                                                  )
-                                      }
-                                      onSubmit={
-                                        isRunning ||
-                                        visibleComposerContextItems.length > 0
-                                          ? (
-                                              text,
-                                              references,
-                                              attachments,
-                                              options,
-                                            ) =>
-                                              void addToQueue(
-                                                text,
-                                                undefined,
-                                                references.length > 0
-                                                  ? references
-                                                  : undefined,
-                                                attachments,
-                                                undefined,
-                                                resolveAssistantChatSubmitIntent(
-                                                  {
-                                                    isRunning,
-                                                    requestedIntent:
-                                                      options?.intent,
-                                                  },
-                                                ),
-                                                undefined,
-                                                true,
-                                              )
-                                          : undefined
-                                      }
-                                      willQueue={
-                                        engineSetupRequired || isRunning
-                                      }
-                                      onSlashCommand={onSlashCommand}
-                                      execMode={execMode}
-                                      onExecModeChange={onExecModeChange}
-                                      planModeDisabled={planModeDisabled}
-                                      planModeDisabledReason={
-                                        planModeDisabledReason
-                                      }
-                                      selectedModel={
-                                        selectedModel ?? defaultModel
-                                      }
-                                      selectedEffort={selectedEffort}
-                                      availableModels={availableModels}
-                                      availableAgents={availableAgents}
-                                      selectedAgent={selectedAgent}
-                                      hostedHarness={hostedHarness}
-                                      modelListLoading={modelListLoading}
-                                      onModelChange={
-                                        shouldShowAssistantChatModelSelector(
-                                          showModelSelector,
-                                        )
-                                          ? onModelChange
-                                          : undefined
-                                      }
-                                      onEffortChange={onEffortChange}
-                                      onAgentChange={onAgentChange}
-                                      imageModelMenu={imageModelMenu}
-                                      onConnectProvider={onConnectProvider}
-                                      onConnectLocalRuntime={
-                                        onConnectLocalRuntime
-                                      }
-                                      toolbarSlot={composerToolbarSlot}
-                                      contextItems={visibleComposerContextItems}
-                                      onRemoveContextItem={
-                                        removeComposerContextItem
-                                      }
-                                      plusMenuMode={plusMenuMode}
-                                      layoutVariant={composerLayoutVariant}
-                                      providerConnectStatusEnabled={
-                                        providerStatusChecksEnabled
-                                      }
-                                      voiceEnabled
-                                      draftScope={composerDraftScope}
-                                      interceptBuildRequestsForBuilder
-                                      onAttachmentError={setComposerError}
-                                      extraActionButton={
-                                        composerExtraActionButton
-                                      }
-                                      stopButton={
-                                        showRunningInUI ? (
-                                          <Tooltip>
-                                            <TooltipTrigger asChild>
-                                              <button
-                                                type="button"
-                                                onClick={() =>
-                                                  stopActiveRun({
-                                                    preserveQueuedMessages: true,
-                                                  })
-                                                }
-                                                aria-label={t(
-                                                  "agentChat.composer.stopResponse",
-                                                )}
-                                                data-agent-composer-slot="stop-button"
-                                                className="shrink-0 flex h-7 w-7 cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                                              >
-                                                <IconPlayerStopFilled className="h-3 w-3" />
-                                              </button>
-                                            </TooltipTrigger>
-                                            <TooltipContent>
-                                              {t(
-                                                "agentChat.composer.stopResponse",
-                                              )}
-                                            </TooltipContent>
-                                          </Tooltip>
-                                        ) : undefined
-                                      }
-                                    />
-                                  </>
-                                )}
-                              </AgentComposerFrame>
-                              {showMissingKeySetup &&
-                              !showInlineMissingKeySetup ? (
-                                <PopoverContent
-                                  side={
-                                    missingApiKeySetupLayout === "sidebar"
-                                      ? "top"
-                                      : "bottom"
+                              <>
+                                <ComposerAttachmentPreviewStrip />
+                                <TiptapComposer
+                                  focusRef={tiptapRef}
+                                  initialText={initialComposerText ?? undefined}
+                                  initialTextKey={composerDraftScope}
+                                  onTextChange={
+                                    isActiveComposer
+                                      ? handleComposerTextChange
+                                      : undefined
                                   }
-                                  align="center"
-                                  sideOffset={8}
-                                  collisionPadding={12}
-                                  data-agent-native-composer-popover="true"
-                                  className="z-[260] box-border w-[min(calc(100vw-2rem),var(--radix-popover-content-available-width,26rem),26rem)] rounded-lg border-border p-3 shadow-lg"
-                                >
-                                  <BuilderSetupContent
-                                    onConnected={handleBuilderConnected}
-                                    layout={missingApiKeySetupLayout}
-                                  />
-                                </PopoverContent>
-                              ) : null}
-                            </Popover>
+                                  disabled={
+                                    isComposerDisabled || showMissingKeySetup
+                                  }
+                                  placeholder={
+                                    showMissingKeySetup
+                                      ? t("agentChat.setup.connectPlaceholder")
+                                      : engineSetupRequired
+                                        ? t(
+                                            "agentChat.setup.connectPlaceholder",
+                                          )
+                                        : composerDisabled
+                                          ? (composerDisabledPlaceholder ??
+                                            t("agentChat.composer.openDesktop"))
+                                          : isRunning
+                                            ? queuedMessages.length > 0
+                                              ? t(
+                                                  "agentChat.queue.followUpWithCount",
+                                                  {
+                                                    count:
+                                                      queuedMessages.length,
+                                                  },
+                                                )
+                                              : t("agentChat.queue.followUp")
+                                            : resolveAssistantChatComposerPlaceholder(
+                                                composerPlaceholder,
+                                              )
+                                  }
+                                  onSubmit={
+                                    isRunning ||
+                                    visibleComposerContextItems.length > 0
+                                      ? (
+                                          text,
+                                          references,
+                                          attachments,
+                                          options,
+                                        ) =>
+                                          void addToQueue(
+                                            text,
+                                            undefined,
+                                            references.length > 0
+                                              ? references
+                                              : undefined,
+                                            attachments,
+                                            undefined,
+                                            resolveAssistantChatSubmitIntent({
+                                              isRunning,
+                                              requestedIntent: options?.intent,
+                                            }),
+                                            undefined,
+                                            true,
+                                          )
+                                      : undefined
+                                  }
+                                  willQueue={engineSetupRequired || isRunning}
+                                  onSlashCommand={onSlashCommand}
+                                  execMode={execMode}
+                                  onExecModeChange={onExecModeChange}
+                                  planModeDisabled={planModeDisabled}
+                                  planModeDisabledReason={
+                                    planModeDisabledReason
+                                  }
+                                  selectedModel={selectedModel ?? defaultModel}
+                                  selectedEffort={selectedEffort}
+                                  availableModels={availableModels}
+                                  availableAgents={availableAgents}
+                                  selectedAgent={selectedAgent}
+                                  hostedHarness={hostedHarness}
+                                  modelListLoading={modelListLoading}
+                                  onModelChange={
+                                    shouldShowAssistantChatModelSelector(
+                                      showModelSelector,
+                                    )
+                                      ? onModelChange
+                                      : undefined
+                                  }
+                                  onEffortChange={onEffortChange}
+                                  onAgentChange={onAgentChange}
+                                  imageModelMenu={imageModelMenu}
+                                  onConnectProvider={onConnectProvider}
+                                  onConnectLocalRuntime={onConnectLocalRuntime}
+                                  toolbarSlot={composerToolbarSlot}
+                                  contextItems={visibleComposerContextItems}
+                                  onRemoveContextItem={
+                                    removeComposerContextItem
+                                  }
+                                  plusMenuMode={plusMenuMode}
+                                  layoutVariant={composerLayoutVariant}
+                                  providerConnectStatusEnabled={
+                                    providerStatusChecksEnabled
+                                  }
+                                  voiceEnabled
+                                  draftScope={composerDraftScope}
+                                  interceptBuildRequestsForBuilder
+                                  onAttachmentError={setComposerError}
+                                  extraActionButton={composerExtraActionButton}
+                                  stopButton={
+                                    showRunningInUI ? (
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              stopActiveRun({
+                                                preserveQueuedMessages: true,
+                                              })
+                                            }
+                                            aria-label={t(
+                                              "agentChat.composer.stopResponse",
+                                            )}
+                                            data-agent-composer-slot="stop-button"
+                                            className="shrink-0 flex h-7 w-7 cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                                          >
+                                            <IconPlayerStopFilled className="h-3 w-3" />
+                                          </button>
+                                        </TooltipTrigger>
+                                        <TooltipContent>
+                                          {t("agentChat.composer.stopResponse")}
+                                        </TooltipContent>
+                                      </Tooltip>
+                                    ) : undefined
+                                  }
+                                />
+                              </>
+                            </AgentComposerFrame>
                           </div>
                         </div>
                       </TextStreamingContext.Provider>

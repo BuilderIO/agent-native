@@ -13,12 +13,10 @@ import {
 } from "@/lib/clips-session";
 import { getAppUrl } from "@/lib/get-app-url";
 import { setMobileCaptureStateBestEffort } from "@/lib/mobile-state-api";
-import { useTabBarLayout } from "@/lib/tab-bar-layout";
 
 const clips = TEMPLATE_APPS.find((a) => a.id === "clips")!;
 
 export default function ClipsTab() {
-  const { contentInset } = useTabBarLayout();
   const [authState, setAuthState] = useState<
     "checking" | "connected" | "signed-out"
   >("checking");
@@ -66,7 +64,7 @@ export default function ClipsTab() {
 
   if (authState === "checking") {
     return (
-      <SafeAreaView className="flex-1 bg-background-dark">
+      <SafeAreaView edges={["top"]} className="flex-1 bg-background-dark">
         <View className="items-center flex-1 justify-center">
           <ActivityIndicator color="#d4d4d8" />
           <Text className="text-status-gray text-[13px] mt-2.5">
@@ -93,10 +91,7 @@ export default function ClipsTab() {
   }
 
   return (
-    <SafeAreaView
-      className="flex-1 bg-background-dark"
-      style={{ paddingBottom: contentInset }}
-    >
+    <SafeAreaView edges={["top"]} className="flex-1 bg-background-dark">
       <AppWebView
         url={getAppUrl(clips)}
         captureSessionToken

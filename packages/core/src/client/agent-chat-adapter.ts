@@ -10,6 +10,7 @@ import type {
   AgentChatStructuredContentPart,
   AgentChatStructuredMessage,
 } from "../agent/types.js";
+import { ANALYTICS_CLIENT_PLATFORM_HEADER } from "../shared/analytics-platform.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 import {
   clearPendingTurnIfMatches,
@@ -20,6 +21,7 @@ import {
   clearActiveRunIfMatches,
   setPendingTurn,
 } from "./active-run-state.js";
+import { getAnalyticsClientPlatform } from "./analytics-platform.js";
 import { getOrCreateAnalyticsSessionId } from "./analytics-session.js";
 import { captureError } from "./analytics.js";
 import { agentNativePath } from "./api-path.js";
@@ -2464,6 +2466,8 @@ export function createAgentChatAdapter(
         } catch {
           // Analytics session unavailable — traces just lose replay linkage.
         }
+        headers[ANALYTICS_CLIENT_PLATFORM_HEADER] =
+          getAnalyticsClientPlatform();
         // Surface hint — the server uses this to keep code-editing dev tools
         // out of the app-rendered sidebar. The outer dev frame passes
         // "dev-frame" explicitly; the reusable in-product chat defaults to

@@ -111,7 +111,16 @@ async function runCreate(
   args: Record<string, any>,
   appId?: string,
 ): Promise<string> {
-  const { name, instructions, scope, runAs, model } = args;
+  const {
+    name,
+    instructions,
+    scope,
+    runAs,
+    model,
+    executionHostId,
+    executionEngine,
+    executionCwd,
+  } = args;
   const schedule =
     typeof args.schedule === "string" && args.schedule.trim()
       ? args.schedule.trim()
@@ -178,6 +187,15 @@ async function runCreate(
     ...(typeof model === "string" && model.trim()
       ? { model: model.trim() }
       : {}),
+    ...(typeof executionHostId === "string" && executionHostId.trim()
+      ? { executionHostId: executionHostId.trim() }
+      : {}),
+    ...(typeof executionEngine === "string" && executionEngine.trim()
+      ? { executionEngine: executionEngine.trim() }
+      : {}),
+    ...(typeof executionCwd === "string" && executionCwd.trim()
+      ? { executionCwd: executionCwd.trim() }
+      : {}),
     ...(mcpTools?.length ? { mcpTools } : {}),
   };
 
@@ -239,6 +257,9 @@ async function runList(
         deliveryPlatform: meta.deliveryPlatform || null,
         deliveryDestination: meta.deliveryDestination || null,
         model: meta.model || null,
+        executionHostId: meta.executionHostId || null,
+        executionEngine: meta.executionEngine || null,
+        executionCwd: meta.executionCwd || null,
         mcpTools: meta.mcpTools || [],
       };
     }),
@@ -256,7 +277,18 @@ async function runUpdate(
   args: Record<string, any>,
   appId?: string,
 ): Promise<string> {
-  const { name, schedule, instructions, enabled, scope, runAs, model } = args;
+  const {
+    name,
+    schedule,
+    instructions,
+    enabled,
+    scope,
+    runAs,
+    model,
+    executionHostId,
+    executionEngine,
+    executionCwd,
+  } = args;
   const path = `jobs/${name}.md`;
 
   // Try to find the resource
@@ -325,6 +357,24 @@ async function runUpdate(
     meta.runAs = runAs;
   }
   if (typeof model === "string" && model.trim()) meta.model = model.trim();
+  if (executionHostId !== undefined) {
+    meta.executionHostId =
+      typeof executionHostId === "string" && executionHostId.trim()
+        ? executionHostId.trim()
+        : undefined;
+  }
+  if (executionEngine !== undefined) {
+    meta.executionEngine =
+      typeof executionEngine === "string" && executionEngine.trim()
+        ? executionEngine.trim()
+        : undefined;
+  }
+  if (executionCwd !== undefined) {
+    meta.executionCwd =
+      typeof executionCwd === "string" && executionCwd.trim()
+        ? executionCwd.trim()
+        : undefined;
+  }
 
   if (args.mcpTools !== undefined) {
     try {
@@ -352,6 +402,9 @@ async function runUpdate(
     enabled: meta.enabled,
     nextRun: meta.nextRun,
     mcpTools: meta.mcpTools || [],
+    executionHostId: meta.executionHostId || null,
+    executionEngine: meta.executionEngine || null,
+    executionCwd: meta.executionCwd || null,
   });
 }
 
@@ -403,7 +456,9 @@ Actions:
 
 Cron format is 5 fields: minute hour day-of-month month day-of-week. Common patterns: '0 9 * * *' (daily 9am), '0 9 * * 1-5' (weekdays 9am), '0 * * * *' (every hour), '0 9 * * 1' (Mondays 9am), '*/30 * * * *' (every 30 min).
 
-For jobs that use a connected MCP, pass the exact tool names in mcpTools. This binds only those tools to the background run; OAuth credentials remain in the connector and are resolved for the job's user/org context.`,
+For jobs that use a connected MCP, pass the exact tool names in mcpTools. This binds only those tools to the background run; OAuth credentials remain in the connector and are resolved for the job's user/org context.
+
+To run code-agent work on a paired always-on computer, pass executionHostId (from manage-automations action=list-hosts), and optionally executionEngine and executionCwd. The selected host is explicit and never silently replaced.`,
         parameters: {
           type: "object",
           properties: {
@@ -454,6 +509,21 @@ For jobs that use a connected MCP, pass the exact tool names in mcpTools. This b
               type: "string",
               description:
                 "Optional model id for this routine. The channel/app/engine default is used when omitted.",
+            },
+            executionHostId: {
+              type: "string",
+              description:
+                "Optional exact paired execution host id. Use manage-automations action=list-hosts first.",
+            },
+            executionEngine: {
+              type: "string",
+              description:
+                "Optional host engine id, for example codex-cli or claude-cli.",
+            },
+            executionCwd: {
+              type: "string",
+              description:
+                "Optional workspace path on the selected host; otherwise the connector's configured workspace is used.",
             },
             mcpTools: {
               type: "array",

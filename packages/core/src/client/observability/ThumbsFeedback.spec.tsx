@@ -159,4 +159,90 @@ describe("ThumbsFeedback localization", () => {
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+
+  it("treats non-ok responses as failed and allows a thumbs-up retry", async () => {
+    const fetchMock = vi.mocked(globalThis.fetch);
+    fetchMock
+      .mockResolvedValueOnce({ ok: false, status: 500 })
+      .mockResolvedValueOnce({ ok: true, status: 200 });
+
+    act(() => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <ThumbsFeedback threadId="thread-1" runId="run-1" messageSeq={1} />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    const up = await vi.waitFor(() => {
+      const button = container.querySelector(
+        '[aria-label="Thumbs up"]',
+      ) as HTMLButtonElement | null;
+      expect(button).not.toBeNull();
+      return button!;
+    });
+
+    act(() => up.click());
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() =>
+      expect(up.className).toContain("text-muted-foreground"),
+    );
+
+    act(() => up.click());
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(
+      JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)),
+    ).toMatchObject({ feedbackType: "thumbs_up" });
+    await vi.waitFor(() => expect(up.className).toContain("text-foreground"));
+  });
+
+  it("keeps text feedback available when a non-ok response fails", async () => {
+    const fetchMock = vi.mocked(globalThis.fetch);
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 503 });
+
+    act(() => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <ThumbsFeedback threadId="thread-1" runId="run-1" messageSeq={1} />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    const down = await vi.waitFor(() => {
+      const button = container.querySelector(
+        '[aria-label="Thumbs down"]',
+      ) as HTMLButtonElement | null;
+      expect(button).not.toBeNull();
+      return button!;
+    });
+    act(() => down.click());
+
+    const textarea = await vi.waitFor(() => {
+      const input = document.body.querySelector(
+        "textarea",
+      ) as HTMLTextAreaElement | null;
+      expect(input).not.toBeNull();
+      return input!;
+    });
+    act(() => {
+      Object.getOwnPropertyDescriptor(
+        HTMLTextAreaElement.prototype,
+        "value",
+      )?.set?.call(textarea, "The answer was not useful.");
+      textarea.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    act(() => textarea.form?.requestSubmit());
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(document.body.querySelector("textarea")).not.toBeNull();
+    expect(document.body.textContent).toContain("The answer was not useful.");
+  });
 });

@@ -13,11 +13,7 @@ vi.mock("electron", () => ({
   },
 }));
 
-import {
-  loadApps,
-  loadDesktopAppPreferences,
-  loadFrameSettings,
-} from "./app-store";
+import { loadApps, loadDesktopAppPreferences } from "./app-store";
 
 describe("desktop app mode defaults", () => {
   beforeEach(() => {
@@ -36,7 +32,6 @@ describe("desktop app mode defaults", () => {
     expect(apps.length).toBeGreaterThan(0);
     expect(apps.some((app) => app.id === "chat")).toBe(false);
     expect(apps.every((app) => app.mode === "prod")).toBe(true);
-    expect(loadFrameSettings().mode).toBe("prod");
     expect(loadDesktopAppPreferences().appModeDefaultsVersion).toBe(1);
   });
 
@@ -58,23 +53,6 @@ describe("desktop app mode defaults", () => {
     const migrated = loadApps();
 
     expect(migrated.some((app) => app.id === "chat")).toBe(false);
-  });
-
-  it("ignores a legacy dev frame mode", () => {
-    fs.writeFileSync(
-      path.join(electronState.userData, "frame-config.json"),
-      JSON.stringify({ enabled: true, showCodeTab: true, mode: "dev" }),
-    );
-
-    expect(loadFrameSettings().mode).toBe("prod");
-    expect(
-      JSON.parse(
-        fs.readFileSync(
-          path.join(electronState.userData, "frame-config.json"),
-          "utf8",
-        ),
-      ).mode,
-    ).toBe("prod");
   });
 
   it("preserves explicit built-in dev choices during defaults migration", () => {

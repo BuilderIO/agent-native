@@ -12,10 +12,11 @@ function applySqliteMigrations(
   migrations: MigrationEntry[],
 ): void {
   for (const migration of migrations) {
-    if (typeof migration.sql !== "string") {
-      throw new Error(`Expected ${migration.name} to use shared SQL`);
-    }
-    for (const statement of migration.sql
+    const sql =
+      typeof migration.sql === "string"
+        ? migration.sql
+        : (migration.sql.sqlite ?? "");
+    for (const statement of sql
       .split(";")
       .map((part) => part.trim())
       .filter(Boolean)) {
@@ -84,6 +85,21 @@ describe("framework release schema migrations", () => {
         "stopped_at",
       ]),
     );
+    const timestampMigration = AGENT_HARNESS_SESSION_MIGRATIONS.find(
+      (migration) => migration.version === 3,
+    );
+    expect(timestampMigration?.sql).toMatchObject({
+      postgres: expect.stringContaining("ALTER COLUMN created_at TYPE BIGINT"),
+    });
+    expect(
+      (
+        db
+          .prepare(
+            "SELECT type FROM pragma_table_info('agent_harness_sessions') WHERE name IN ('created_at', 'updated_at', 'stopped_at')",
+          )
+          .all() as Array<{ type: string }>
+      ).every((column) => column.type.toUpperCase().includes("BIGINT")),
+    ).toBe(true);
     expect(columns(db, "usage_alert_rules")).toContain("is_default");
     expect(columns(db, "usage_alert_events")).toContain("notification_id");
     db.close();

@@ -227,6 +227,7 @@ export async function importPptxBufferToDeck(args: {
         title: deckTitle,
         slides,
         ...(aspectRatio ? { aspectRatio } : {}),
+        ...(presentation.theme ? { theme: presentation.theme } : {}),
         sourceImport,
         updatedAt: now,
       };
@@ -267,6 +268,7 @@ export async function importPptxBufferToDeck(args: {
     title: deckTitle,
     slides,
     ...(aspectRatio ? { aspectRatio } : {}),
+    ...(presentation.theme ? { theme: presentation.theme } : {}),
     sourceImport,
     createdAt: now,
     updatedAt: now,
