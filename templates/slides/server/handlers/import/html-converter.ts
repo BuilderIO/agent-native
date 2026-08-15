@@ -84,15 +84,34 @@ function formatRun(run: ParsedTextRun): string {
 
 const DEFAULT_IMPORT_FONT = "'Poppins', sans-serif";
 
+/**
+ * PowerPoint records a weight variant as part of the typeface name
+ * ("Work Sans Medium", "Open Sans SemiBold", "Roboto Black"), which no
+ * webfont registers as a CSS family — `font-family: 'Work Sans Medium'`
+ * always falls back, even when Work Sans itself is loaded. The same token is
+ * read as a numeric weight by `fontWeightForFamily`, so stripping it here
+ * loses nothing.
+ */
+const FONT_WEIGHT_SUFFIX =
+  /[ _-](?:ultra|extra|semi|demi)?[ _-]?(?:black|heavy|bold|medium|regular|normal|roman|book|light|thin|italic|oblique)$/i;
+
 /** Turn an extracted PPTX theme font name into a safe CSS font-family value, falling back to the default when absent. */
 function cssFontFamily(themeFont: string | undefined): string {
   if (!themeFont) return DEFAULT_IMPORT_FONT;
   const safeName = themeFont.replace(/["']/g, "").trim();
   if (!safeName) return DEFAULT_IMPORT_FONT;
-  if (safeName.toLowerCase().startsWith("poppins")) {
-    return "'Poppins', sans-serif";
+  let base = safeName;
+  while (FONT_WEIGHT_SUFFIX.test(base)) {
+    const stripped = base.replace(FONT_WEIGHT_SUFFIX, "").trim();
+    if (!stripped) break;
+    base = stripped;
   }
-  return `'${safeName}', sans-serif`;
+  // The authored name stays first: a deck whose exact variant family *is*
+  // installed still gets it, and a family whose real name ends in a weight
+  // word ("Archivo Black") is not broken by the strip.
+  return base === safeName
+    ? `'${safeName}', sans-serif`
+    : `'${safeName}', '${base}', sans-serif`;
 }
 
 /**
@@ -139,7 +158,12 @@ export function convertToSlideHtml(
   imageUrls?: string | Record<string, string>,
   themeFont?: string,
 ): string {
-  if (slide.elements?.length) {
+  // A slide parsed with real geometry goes through the fidelity renderer even
+  // when it has zero elements: a deliberately empty divider slide (a
+  // full-bleed background and nothing else) is a real state the source
+  // states, and the templates below would replace it with an invented
+  // "Untitled Slide" heading on a background they never apply.
+  if (slide.elements) {
     return buildFidelitySlide(slide, imageUrls, themeFont);
   }
 
@@ -172,7 +196,12 @@ const DEFAULT_SLIDE_HEIGHT_EMU = 5143500;
 // (often dark, theme-default) text unreadable or fully invisible against a
 // background the source file never actually specified.
 const DEFAULT_PPTX_BACKGROUND = "#ffffff"; // guard:allow-raw-color - PPTX's own white default when no background is declared
-const DEFAULT_PPTX_FOREGROUND = "#111827"; // guard:allow-raw-color - readable dark default for white PPTX slides when no run color is declared
+// OOXML's own default run color when nothing in the run, the placeholder
+// chain, or `<p:txStyles>` declares one. It has to be the value the file
+// format states, not a readable-looking approximation: an invented near-black
+// renders beside the deck's real black inside a single text box, which is
+// visible as two different blacks in one paragraph.
+const DEFAULT_PPTX_FOREGROUND = "#000000"; // guard:allow-raw-color - OOXML's declared default text color
 
 /**
  * The absolute px box `toSlidePxX`/`toSlidePxY` scale positions and sizes
@@ -242,7 +271,9 @@ function buildFidelityElement(
   imageUrls: string | Record<string, string> | undefined,
   themeFont: string | undefined,
 ): string {
-  const position = `position: absolute; left: ${toSlidePxX(element.x, widthEmu, refBox.width)}px; top: ${toSlidePxY(element.y, heightEmu, refBox.height)}px; width: ${toSlidePxX(element.width, widthEmu, refBox.width)}px; height: ${toSlidePxY(element.height, heightEmu, refBox.height)}px; z-index: ${index}; box-sizing: border-box;`;
+  const widthPx = toSlidePxX(element.width, widthEmu, refBox.width);
+  const heightPx = toSlidePxY(element.height, heightEmu, refBox.height);
+  const position = `position: absolute; left: ${toSlidePxX(element.x, widthEmu, refBox.width)}px; top: ${toSlidePxY(element.y, heightEmu, refBox.height)}px; width: ${widthPx}px; height: ${heightPx}px; z-index: ${index}; box-sizing: border-box;`;
   const rotation = element.rotation
     ? ` transform: rotate(${element.rotation}deg); transform-origin: center center;`
     : "";
@@ -266,7 +297,13 @@ function buildFidelityElement(
     );
   }
 
-  const decoration = shapeDecoration(element, widthEmu, refBox.width);
+  const decoration = shapeDecoration(
+    element,
+    widthEmu,
+    refBox.width,
+    widthPx,
+    heightPx,
+  );
   if (element.kind === "shape") {
     return `<div class="fmd-pptx-shape" data-pptx-element-kind="shape"${objectId} style="${position}${rotation}${decoration}"></div>`;
   }

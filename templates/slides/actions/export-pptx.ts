@@ -106,6 +106,69 @@ function colorToHex(color: string): { hex: string; transparency?: number } {
 }
 
 /**
+ * Resolve a CSS `background`/`background-color` value to the single solid fill
+ * PowerPoint can hold. pptxgenjs has no gradient fill (`ShapeFillProps.type` is
+ * `'none' | 'solid'`), so a gradient must collapse to one stop — but dropping
+ * the fill entirely, as this used to, exports the shape emptier than the source
+ * rather than merely flatter. Pick the first stop that is not fully
+ * transparent, which is the stop a `<a:gradFill>` leads with.
+ */
+function cssFillToSolid(
+  value: string | null | undefined,
+): { hex: string; transparency?: number } | undefined {
+  if (!value) return undefined;
+  if (!/gradient\(/i.test(value)) return colorToHex(value);
+  for (const stop of value.matchAll(/#[0-9a-f]{3,8}\b|rgba?\([^)]*\)/gi)) {
+    const parsed = colorToHex(stop[0]);
+    if ((parsed.transparency ?? 0) < 100) return parsed;
+  }
+  return undefined;
+}
+
+/** First family name of a CSS `font-family` declaration, unquoted. */
+function cssFontFace(style: string): string | undefined {
+  return (
+    getStyle(style, "font-family")?.replace(/["']/g, "").split(",")[0]?.trim() ||
+    undefined
+  );
+}
+
+/**
+ * CSS border styles PowerPoint can draw. `solid` needs no `dashType`, so it is
+ * absent here; anything unlisted (`double`, `groove`, ...) also falls through to
+ * a solid line, which is the closest single-stroke approximation.
+ */
+const CSS_BORDER_DASH_TYPES: Record<
+  string,
+  NonNullable<PptxGenJS.ShapeLineProps["dashType"]>
+> = {
+  dashed: "dash",
+  dotted: "sysDot",
+};
+
+const CSS_BORDER_STYLE_PATTERN =
+  /([\d.]+)px\s+(solid|dashed|dotted|double|groove|ridge|inset|outset)\s+(.+)/i;
+
+interface ParsedCssBorder {
+  widthPx: number;
+  dashType?: NonNullable<PptxGenJS.ShapeLineProps["dashType"]>;
+  color: string;
+}
+
+/** Parse a CSS `border` shorthand. `none`/`hidden` borders yield `undefined`. */
+function parseCssBorder(
+  border: string | null | undefined,
+): ParsedCssBorder | undefined {
+  const match = border?.match(CSS_BORDER_STYLE_PATTERN);
+  if (!match) return undefined;
+  return {
+    widthPx: Number.parseFloat(match[1]),
+    dashType: CSS_BORDER_DASH_TYPES[match[2].toLowerCase()],
+    color: match[3],
+  };
+}
+
+/**
  * Convert CSS px value to inches at a given slide width.
  * The mapping depends on the aspect ratio: pxPerIn = pxWidth / inchWidth.
  */
@@ -178,8 +241,12 @@ interface ShapeElement {
   fillTransparency?: number; // 0-100, percent transparent
   lineColor?: string;
   lineTransparency?: number; // 0-100, percent transparent
-  lineWidth?: number;
-  rounded?: boolean;
+  lineWidth?: number; // in pt
+  lineDashType?: NonNullable<PptxGenJS.ShapeLineProps["dashType"]>;
+  /** A PowerPoint preset geometry name, or `custGeom` when `points` carry a traced outline. */
+  shapeType?: string;
+  rectRadius?: number; // inches; roundRect corner radius
+  points?: PptxGenJS.ShapeProps["points"];
   order?: number;
 }
 
@@ -504,6 +571,13 @@ function parseImportedPdfSlideHtml(html: string, dims: SlideDims): ParsedSlide {
   };
 }
 
+// Must stay identical to `DEFAULT_PPTX_BACKGROUND` / `DEFAULT_PPTX_FOREGROUND`
+// in server/handlers/import/html-converter.ts. Export previously inverted both
+// (black background, white text), so an undecorated slide came back out of a
+// round trip with its colors flipped rather than unchanged.
+const IMPORTED_PPTX_BACKGROUND_FALLBACK = "#ffffff"; // guard:allow-raw-color - mirrors the importer's PPTX default
+const IMPORTED_PPTX_FOREGROUND_FALLBACK = "111827"; // guard:allow-raw-color - mirrors the importer's PPTX default
+
 function parseImportedSlideHtml(html: string, dims: SlideDims): ParsedSlide {
   const texts: TextElement[] = [];
   const images: ImageElement[] = [];
@@ -512,13 +586,13 @@ function parseImportedSlideHtml(html: string, dims: SlideDims): ParsedSlide {
   const outerStyle = html.match(
     /class=["'][^"']*\bfmd-slide\b[^"']*["'][^>]*style=["']([^"']*)["']/i,
   )?.[1];
-  const parsedBg = colorToHex(
-    outerStyle
-      ? (getStyle(outerStyle, "background(?:-color)?") ?? "#000000") // guard:allow-raw-color - PPTX background fallback
-      : "#000000", // guard:allow-raw-color - PPTX background fallback
-  );
+  const parsedBg =
+    cssFillToSolid(
+      outerStyle ? getStyle(outerStyle, "background(?:-color)?") : undefined,
+    ) ?? colorToHex(IMPORTED_PPTX_BACKGROUND_FALLBACK);
   const bgColor = parsedBg.hex;
   const bgTransparency = parsedBg.transparency;
+  const slideFontFace = outerStyle ? cssFontFace(outerStyle) : undefined;
   const grid = outerStyle ? parseImportedGrid(outerStyle) : undefined;
   const elementRegex =
     /<div\b([^>]*\bdata-pptx-element-kind=["'](text|image|shape|table)["'][^>]*)>([\s\S]*?)<\/div>/gi;
@@ -541,25 +615,25 @@ function parseImportedSlideHtml(html: string, dims: SlideDims): ParsedSlide {
     }
 
     if (kind === "shape") {
-      const fill = getStyle(style, "background(?:-color)?");
-      const border = getStyle(style, "border");
-      const borderMatch = border?.match(/([\d.]+)px\s+solid\s+(.+)/i);
-      const parsedFill =
-        fill && !fill.includes("gradient") ? colorToHex(fill) : undefined;
-      const parsedLine = borderMatch ? colorToHex(borderMatch[2]) : undefined;
+      const parsedFill = cssFillToSolid(
+        getStyle(style, "background(?:-color)?"),
+      );
+      const border = parseCssBorder(getStyle(style, "border"));
+      const parsedLine = border ? colorToHex(border.color) : undefined;
       shapes.push({
         ...geometry,
         ...(parsedFill
           ? { fill: parsedFill.hex, fillTransparency: parsedFill.transparency }
           : {}),
-        ...(borderMatch && parsedLine
+        ...(border && parsedLine
           ? {
               lineColor: parsedLine.hex,
               lineTransparency: parsedLine.transparency,
-              lineWidth: Number(borderMatch[1]),
+              lineWidth: pxToPt(border.widthPx, dims),
+              ...(border.dashType ? { lineDashType: border.dashType } : {}),
             }
           : {}),
-        rounded: style.includes("border-radius"),
+        ...importedShapeGeometry(attrs, style, geometry, dims),
         order: match.index,
       });
       continue;
@@ -581,18 +655,23 @@ function parseImportedSlideHtml(html: string, dims: SlideDims): ParsedSlide {
     const lineHeight = firstParagraph
       ? getStyle(firstParagraph, "line-height")
       : null;
-    const fontSize = firstRun?.options.fontSize ?? 18;
     const alignValue = getStyle(style, "text-align");
+    // Per-run faces still win inside `addText`; this only supplies the
+    // box-level default for runs that declare none, so it must be the source
+    // deck's own theme font rather than this template's.
+    const boxFontFace = firstRun?.options.fontFace ?? slideFontFace;
     texts.push({
       text: runs.map((run) => run.text).join(""),
-      fontSize,
-      fontFace: firstRun?.options.fontFace ?? "Poppins",
-      color: firstRun?.options.color ?? "FFFFFF",
+      ...(firstRun?.options.fontSize != null
+        ? { fontSize: firstRun.options.fontSize }
+        : {}),
+      ...(boxFontFace ? { fontFace: boxFontFace } : {}),
+      color: firstRun?.options.color ?? IMPORTED_PPTX_FOREGROUND_FALLBACK,
       transparency: firstRun?.options.transparency,
       bold: firstRun?.options.bold ?? false,
       align:
         alignValue === "center" || alignValue === "right" ? alignValue : "left",
-      lineSpacing: lineHeight ? Number(lineHeight) * fontSize : undefined,
+      lineSpacingMultiple: lineHeight ? Number(lineHeight) : undefined,
       x: geometry.x,
       y: geometry.y,
       w: geometry.w,

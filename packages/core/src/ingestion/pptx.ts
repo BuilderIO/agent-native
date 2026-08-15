@@ -1149,22 +1149,28 @@ function findMatchingXmlTag(
   return -1;
 }
 
-function readShapeId(node: Record<string, unknown>): string {
-  const cNvPr =
+/** Every shape flavour carries its `<p:cNvPr>` under its own non-visual wrapper. Missing one (`p:cxnSpPr`, for connectors) means that shape gets a fresh random id on every import, breaking the `data-slide-object-id` stability contract. */
+function readNonVisualProperties(
+  node: Record<string, unknown>,
+): Record<string, unknown> | null {
+  return (
     record(record(node["p:nvSpPr"])?.["p:cNvPr"]) ??
     record(record(node["p:nvPicPr"])?.["p:cNvPr"]) ??
-    record(record(node["p:nvGraphicFramePr"])?.["p:cNvPr"]);
+    record(record(node["p:nvCxnSpPr"])?.["p:cNvPr"]) ??
+    record(record(node["p:nvGraphicFramePr"])?.["p:cNvPr"]) ??
+    record(record(node["p:nvGrpSpPr"])?.["p:cNvPr"])
+  );
+}
+
+function readShapeId(node: Record<string, unknown>): string {
   return (
-    stringValue(cNvPr?.["@_id"]) ??
+    stringValue(readNonVisualProperties(node)?.["@_id"]) ??
     `shape-${Math.random().toString(36).slice(2)}`
   );
 }
 
 function readShapeName(node: Record<string, unknown>): string | undefined {
-  const cNvPr =
-    record(record(node["p:nvSpPr"])?.["p:cNvPr"]) ??
-    record(record(node["p:nvGraphicFramePr"])?.["p:cNvPr"]);
-  return stringValue(cNvPr?.["@_name"]);
+  return stringValue(readNonVisualProperties(node)?.["@_name"]);
 }
 
 function readPoint(value: unknown): { x: number; y: number } {
@@ -1423,17 +1429,31 @@ interface PlaceholderDefaultColors {
   masterPlaceholders: PlaceholderShapeColors[];
 }
 
-/** Finds the layout/master placeholder shape a slide's own `<p:ph>` inherits from: an exact `type`+`idx` match first, then `type` alone (a title's `idx` is commonly a sentinel like `4294967295` that won't match anything real), then — for a slide placeholder with no `type` at all, a generic content placeholder — `idx` alone. */
+/** Placeholder types that inherit from each other: a slide's `ctrTitle` falls back to the layout/master's `title` shape, a `subTitle` to its `body` shape. Matching the type as a literal string instead sent every title slide past the shape that actually defines its look, down to the `<p:txStyles>` boilerplate that `PlaceholderDefaultColors.masterPlaceholders` documents as the last resort. */
+const PLACEHOLDER_TYPE_GROUPS = [
+  ["title", "ctrTitle"],
+  ["body", "subTitle", "obj"],
+];
+
+function placeholderTypeCandidates(type: string): string[] {
+  const group = PLACEHOLDER_TYPE_GROUPS.find((names) => names.includes(type));
+  return group ? [type, ...group.filter((name) => name !== type)] : [type];
+}
+
+/** Finds the layout/master placeholder shape a slide's own `<p:ph>` inherits from: an exact `type`+`idx` match first, then `type` alone (a title's `idx` is commonly a sentinel like `4294967295` that won't match anything real), then the same two passes for that type's aliases, then — for a slide placeholder with no `type` at all, a generic content placeholder — `idx` alone. */
 function findMatchingPlaceholderShape(
   placeholders: PlaceholderShapeColors[],
   type: string | undefined,
   idx: string | undefined,
 ): PlaceholderShapeColors | undefined {
   if (type) {
-    return (
-      placeholders.find((p) => p.type === type && p.idx === idx) ??
-      placeholders.find((p) => p.type === type)
-    );
+    for (const candidate of placeholderTypeCandidates(type)) {
+      const match =
+        placeholders.find((p) => p.type === candidate && p.idx === idx) ??
+        placeholders.find((p) => p.type === candidate);
+      if (match) return match;
+    }
+    return undefined;
   }
   return placeholders.find((p) => p.idx === idx);
 }
@@ -1750,9 +1770,11 @@ function parseParagraphSpacing(
   );
 }
 
+/** `<a:spcBef>`/`<a:spcAft>` nest the value one level down (`<a:spcBef><a:spcPts val="1600"/></a:spcBef>`), while `<a:lnSpc>`'s caller unwraps `a:spcPts` itself — reading `@_val` off the outer node alone silently produced NaN for every paragraph spacing in every deck. */
 function parsePoints(value: unknown): number | undefined {
   const node = record(value);
-  const points = Number(node?.["@_val"]);
+  const target = record(node?.["a:spcPts"]) ?? node;
+  const points = Number(target?.["@_val"]);
   return Number.isFinite(points) && points >= 0 ? points / 100 : undefined;
 }
 
@@ -2119,16 +2141,37 @@ async function loadPptxDependencies(): Promise<{
       ignoreAttributes: false,
       attributeNamePrefix: "@_",
       trimValues: false,
+      // A numeric-looking `<a:t>` body is still text: fast-xml-parser's default
+      // `parseTagValue: true` turns a type specimen "0123456789" into the
+      // number 123456789 and a spec line "CMYK: 00, 00, 00, 00" loses its
+      // leading zeros — content corruption, not a styling loss.
+      parseTagValue: false,
     });
     return {
       loadZip: (data) => zipModule.default.loadAsync(data),
-      parseXml: (xml) => parser.parse(xml),
+      parseXml: (xml) => parser.parse(normalizeHardLineBreaks(xml)),
     };
   } catch {
     throw new Error(
       "Structured PPTX parsing requires the optional jszip and fast-xml-parser dependencies.",
     );
   }
+}
+
+/**
+ * `<a:br/>` is a hard line break sitting *between* `<a:r>` runs, but the
+ * parser is not built with `preserveOrder`, so that interleaving is absent
+ * from the parsed tree — an `a:br` array with no position in it is
+ * unrecoverable. Rewriting each break into an ordinary run carrying a newline
+ * keeps it in document order, which is the one thing a position-less tree
+ * cannot reconstruct later. (A global `preserveOrder: true` would instead
+ * rewrite every accessor in this file.)
+ */
+function normalizeHardLineBreaks(xml: string): string {
+  return xml.replace(
+    /<a:br(?:\s[^>]*?)?\/>|<a:br(?:\s[^>]*?)?>[\s\S]*?<\/a:br>/g,
+    "<a:r><a:t>\n</a:t></a:r>",
+  );
 }
 
 function slideNumber(value: string): number {
