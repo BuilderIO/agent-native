@@ -136,3 +136,6 @@ packages/core/corpus.tmp-*/
 
 # Local pnpm store (used for cached dependencies)
 .pnpm-store/
+
+# Throwaway PPTX/PDF fidelity verification screenshots (regenerable; kept on disk, not in git)
+.fidelity-shots/

@@ -710,12 +710,18 @@ function parseImportedSlideHtml(html: string, dims: SlideDims): ParsedSlide {
     const style = getAttribute(attrs, "style") ?? "";
     const geometry = importedGeometry(style, dims);
     if (!geometry) continue;
+    const rotate = importedRotation(style);
 
     if (kind === "image") {
       const imageAttrs = innerHtml.match(/<img\b([^>]*)>/i)?.[1] ?? "";
       const src = getAttribute(imageAttrs, "src");
       if (src) {
-        images.push({ src, ...geometry, order: match.index });
+        images.push({
+          src,
+          ...geometry,
+          ...(rotate != null ? { rotate } : {}),
+          order: match.index,
+        });
       }
       continue;
     }
@@ -749,6 +755,7 @@ function parseImportedSlideHtml(html: string, dims: SlideDims): ParsedSlide {
               }
             : {}),
         ...importedShapeGeometry(attrs, style, outline?.path, geometry, dims),
+        ...(rotate != null ? { rotate } : {}),
         order: match.index,
       });
       continue;
@@ -757,7 +764,12 @@ function parseImportedSlideHtml(html: string, dims: SlideDims): ParsedSlide {
     if (kind === "table") {
       const rows = importedTableRows(innerHtml, dims);
       if (rows.length > 0) {
-        tables.push({ ...geometry, rows, order: match.index });
+        tables.push({
+          ...geometry,
+          rows,
+          ...importedTableTracks(innerHtml, rows, geometry),
+          order: match.index,
+        });
       }
       continue;
     }
@@ -792,6 +804,7 @@ function parseImportedSlideHtml(html: string, dims: SlideDims): ParsedSlide {
       w: geometry.w,
       h: geometry.h,
       runs,
+      ...(rotate != null ? { rotate } : {}),
       order: match.index,
     });
   }
@@ -866,6 +879,20 @@ function importedGeometry(
 
 function pxToInY(px: number, dims: SlideDims): number {
   return (px / dims.height) * dims.pptxInches.h;
+}
+
+/**
+ * The `<a:xfrm rot="...">` the importer rendered as `transform: rotate(Ndeg)`.
+ * Dropping it exports a rotated object square to the slide, which on a ring of
+ * six curved arrows leaves six copies of the same arrow stacked at the top
+ * rather than a ring.
+ */
+function importedRotation(style: string): number | undefined {
+  const degrees = Number.parseFloat(
+    getStyle(style, "transform")?.match(/rotate\(\s*(-?[\d.]+)deg\s*\)/i)?.[1] ??
+      "",
+  );
+  return Number.isFinite(degrees) && degrees !== 0 ? degrees : undefined;
 }
 
 /**
@@ -1178,6 +1205,82 @@ function importedTextRuns(html: string, dims: SlideDims): TextRunElement[] {
   return runs;
 }
 
+/** Inline style of the first `<p>` in a fragment, which is where the importer puts paragraph-level alignment. */
+function firstParagraphStyle(html: string): string | undefined {
+  return html.match(/<p\b[^>]*style=["']([^"']*)["']/i)?.[1];
+}
+
+/**
+ * The `<colgroup>` and `<tr>` percentages the importer derives from
+ * `a:tblGrid/a:gridCol` and `a:tr/@h`, back as the inch sizes `addTable`
+ * needs. Without them pptxgenjs divides the box evenly, so a table exports
+ * with columns and rows the source never had — nine equal columns in place of
+ * gamesfund's 1001175/836125/862000/899775... grid.
+ *
+ * A track list that does not cover every column (pptxgenjs counts colspans) or
+ * every row is dropped whole: a partial `colW` makes pptxgenjs warn and fall
+ * back anyway, and a partial `rowH` would size some rows from the source and
+ * the rest from the box.
+ */
+function importedTableTracks(
+  html: string,
+  rows: TableRow[],
+  box: { w: number; h: number },
+): { colW?: number[]; rowH?: number[] } {
+  const percentages = (pattern: RegExp) => {
+    const values = [...html.matchAll(pattern)].map((match) =>
+      Number.parseFloat(match[1]),
+    );
+    return values.every((value) => Number.isFinite(value) && value > 0)
+      ? values
+      : [];
+  };
+  const columnCount = (rows[0] ?? []).reduce(
+    (total, cell) => total + (Number(cell.options?.colspan) || 1),
+    0,
+  );
+  const colW = percentages(
+    /<col\b[^>]*\bstyle=["'][^"']*\bwidth\s*:\s*([\d.]+)%/gi,
+  );
+  const rowH = percentages(
+    /<tr\b[^>]*\bstyle=["'][^"']*\bheight\s*:\s*([\d.]+)%/gi,
+  );
+  return {
+    ...(colW.length === columnCount
+      ? { colW: colW.map((percent) => (percent / 100) * box.w) }
+      : {}),
+    ...(rowH.length === rows.length
+      ? { rowH: rowH.map((percent) => (percent / 100) * box.h) }
+      : {}),
+  };
+}
+
+/**
+ * A cell's CSS `padding` as pptxgenjs's `[top, right, bottom, left]` margin.
+ * The library reads any side >= 1 as points rather than inches, so a padding
+ * that large is left to its default instead of exporting an inch as a point.
+ */
+function importedCellMargin(
+  style: string,
+  dims: SlideDims,
+): [number, number, number, number] | undefined {
+  const parts = getStyle(style, "padding")
+    ?.trim()
+    .split(/\s+/)
+    .map((value) => Number.parseFloat(value));
+  if (!parts?.length || parts.length > 4) return undefined;
+  if (parts.some((value) => !Number.isFinite(value) || value < 0))
+    return undefined;
+  const [top, right = top, bottom = top, left = right] = parts;
+  const margin: [number, number, number, number] = [
+    pxToInY(top, dims),
+    pxToIn(right, dims),
+    pxToInY(bottom, dims),
+    pxToIn(left, dims),
+  ];
+  return margin.some((inches) => inches >= 1) ? undefined : margin;
+}
+
 function importedTableRows(html: string, dims: SlideDims): TableRow[] {
   return [...html.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)].map(
     (rowMatch): TableRow =>
@@ -1200,9 +1303,16 @@ function importedTableRows(html: string, dims: SlideDims): TableRow[] {
             getAttribute(attrs, "rowspan") ?? "",
             10,
           );
-          const align = getStyle(style, "text-align");
+          // The importer writes the cell's alignment on the paragraph, not the
+          // `<td>`; reading only the cell style exported every imported table
+          // left-aligned regardless of what the source `a:pPr algn` said.
+          const align =
+            getStyle(style, "text-align") ??
+            getStyle(firstParagraphStyle(cellHtml) ?? "", "text-align");
           const verticalAlign = getStyle(style, "vertical-align");
+          const margin = importedCellMargin(style, dims);
           const options: NonNullable<TableCell["options"]> = {
+            ...(margin ? { margin } : {}),
             ...(align === "center" || align === "right" || align === "justify"
               ? { align }
               : {}),
@@ -1713,6 +1823,7 @@ export default defineAction({
             ...(t.lineSpacingMultiple != null
               ? { lineSpacingMultiple: t.lineSpacingMultiple }
               : {}),
+            ...(t.rotate != null ? { rotate: t.rotate } : {}),
           };
           if (t.runs?.length) {
             pptxSlide.addText(t.runs, options);
@@ -1729,6 +1840,7 @@ export default defineAction({
               y: img.y,
               w: img.w,
               h: img.h,
+              ...(img.rotate != null ? { rotate: img.rotate } : {}),
             });
           }
         } else if (object.kind === "table") {
@@ -1754,6 +1866,7 @@ export default defineAction({
               ...(shape.rectRadius != null
                 ? { rectRadius: shape.rectRadius }
                 : {}),
+              ...(shape.rotate != null ? { rotate: shape.rotate } : {}),
               ...(shape.points ? { points: shape.points } : {}),
               ...(shape.fill
                 ? {
