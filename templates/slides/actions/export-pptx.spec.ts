@@ -646,6 +646,18 @@ describe("parseSlideHtml", () => {
     expect(connector.lineTailType).toBe("oval");
   });
 
+  it("ignores an end-cap circle that lacks the line-axis coordinate", () => {
+    const malformed = CONNECTOR_ELEMENT.replace('cy="2.25"', 'cx="3"');
+    const [connector] = parseSlideHtml(
+      sourcePagedSlide(malformed),
+      "16:9",
+      4,
+    ).shapes;
+
+    expect(connector.lineHeadType).toBeUndefined();
+    expect(connector.lineTailType).toBe("oval");
+  });
+
   it("does not read a four-sided outline as a line", () => {
     const [outlined] = parseSlideHtml(
       importedSlide(
@@ -657,6 +669,16 @@ describe("parseSlideHtml", () => {
 
     expect(outlined.shapeType).toBeUndefined();
     expect(outlined.lineHeadType).toBeUndefined();
+  });
+
+  it("preserves authored line-height for ordinary server exports", () => {
+    const [text] = parseSlideHtml(
+      '<div class="fmd-slide"><h1 style="font-size:18px;line-height:1.2;">Body</h1></div>',
+      "16:9",
+      1,
+    ).texts;
+
+    expect(text.lineSpacingMultiple).toBe(1.2);
   });
 
   it("converts a CSS line-height back to single spacing rather than re-applying it", () => {
@@ -1127,6 +1149,15 @@ describe("exported slide XML", () => {
 
     expect(slideXml).toContain('<a:lnSpc><a:spcPct val="100000"/></a:lnSpc>');
     expect(slideXml).not.toContain('<a:spcPct val="120000"/>');
+  });
+
+  it("keeps authored line-height in ordinary server-exported slide XML", async () => {
+    const slideXml = await writeParsedSlide(
+      '<div class="fmd-slide"><h1 style="font-size:18px;line-height:1.2;">Body</h1></div>',
+    );
+
+    expect(slideXml).toContain('<a:lnSpc><a:spcPct val="120000"/></a:lnSpc>');
+    expect(slideXml).not.toContain('<a:spcPct val="100000"/>');
   });
 });
 

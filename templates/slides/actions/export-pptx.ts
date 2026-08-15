@@ -616,7 +616,9 @@ export function parseSlideHtml(
         w: contentW,
         h: elHeight + 0.2,
         letterSpacing: letterSpacing ? parseFloat(letterSpacing) : undefined,
-        lineSpacingMultiple: cssLineHeightToSpacingMultiple(lineH),
+        // Editor-authored HTML already uses the multiple pptxgenjs expects;
+        // the importer-only correction belongs in parseImportedSlideHtml.
+        lineSpacingMultiple: lineH,
       });
 
       yPos += elHeight + pxToIn(marginBottom, dims) + 0.1;
@@ -1101,7 +1103,9 @@ function importedLineEndTypes(
   const middle = (axis === "x" ? viewBox[2] : viewBox[3]) / 2;
   const ends: Pick<ShapeElement, "lineHeadType" | "lineTailType"> = {};
   for (const circle of svg[2].matchAll(/<circle\b([^>]*)>/gi)) {
-    const along = Number(getAttribute(circle[1], axis === "x" ? "cx" : "cy"));
+    const alongAttribute = getAttribute(circle[1], axis === "x" ? "cx" : "cy");
+    if (alongAttribute == null) continue;
+    const along = Number(alongAttribute);
     if (!Number.isFinite(along)) continue;
     if (along < middle) ends.lineHeadType = "oval";
     else ends.lineTailType = "oval";
