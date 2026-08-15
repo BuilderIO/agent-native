@@ -40,6 +40,24 @@ function getStyle(style: string, prop: string): string | null {
  */
 function colorToHex(color: string): { hex: string; transparency?: number } {
   if (!color) return { hex: "FFFFFF" };
+  const parsed = parseCssColor(color);
+  if (parsed) return parsed;
+  console.warn(
+    `[export-pptx] unrecognized color "${color}", defaulting to white`,
+  );
+  return { hex: "FFFFFF" };
+}
+
+/**
+ * The recognition half of `colorToHex`, reporting `undefined` rather than white
+ * for a value that is not a color at all. A caller that can act on "not a
+ * color" — a gradient deciding whether its first argument is a direction or a
+ * stop — must not be handed a color the source never contained.
+ */
+function parseCssColor(
+  color: string,
+): { hex: string; transparency?: number } | undefined {
+  if (!color) return undefined;
 
   // Strip quotes / trim
   color = color.replace(/['"]/g, "").trim();
@@ -99,10 +117,7 @@ function colorToHex(color: string): { hex: string; transparency?: number } {
   const hex = named[color.toLowerCase()];
   if (hex) return { hex };
 
-  console.warn(
-    `[export-pptx] unrecognized color "${color}", defaulting to white`,
-  );
-  return { hex: "FFFFFF" };
+  return undefined;
 }
 
 /**
@@ -795,7 +810,12 @@ function parseImportedSlideHtml(html: string, dims: SlideDims): ParsedSlide {
       ...(boxFontFace ? { fontFace: boxFontFace } : {}),
       color: firstRun?.options.color ?? IMPORTED_PPTX_FOREGROUND_FALLBACK,
       transparency: firstRun?.options.transparency,
-      bold: firstRun?.options.bold ?? false,
+      // pptxgenjs copies a box-level option onto any run whose own value is
+      // falsy (`!textObj.options[key]`), so a box default of `bold: true` taken
+      // from the first run overwrites every later run that said `bold: false` —
+      // a bold heading made its whole text box bold. The box may only default
+      // to bold when the runs already agree.
+      bold: runs.length > 0 && runs.every((run) => run.options.bold === true),
       align:
         alignValue === "center" || alignValue === "right" ? alignValue : "left",
       lineSpacingMultiple: lineHeight ? Number(lineHeight) : undefined,
