@@ -433,12 +433,53 @@ describe("parseSlideHtml", () => {
     ]);
   });
 
+  it("reads the importer's compact relative path, not just the absolute spelling", () => {
+    // What `createPathWriter` emits: lowercase commands, no separator before a
+    // sign or a bare `.`, and a repeated command left implicit.
+    const compact = parseSlideHtml(
+      importedSlide(
+        `<div data-pptx-element-kind="shape" style="${SHAPE_BOX}background:#123456;clip-path: path('m0 0 96 0-96 54z');"></div>`,
+      ),
+      "16:9",
+      1,
+    ).shapes[0];
+    const absolute = parseSlideHtml(
+      importedSlide(
+        `<div data-pptx-element-kind="shape" style="${SHAPE_BOX}background:#123456;clip-path: path('M0 0 L96 0 L0 54 Z');"></div>`,
+      ),
+      "16:9",
+      1,
+    ).shapes[0];
+
+    expect(compact?.shapeType).toBe("custGeom");
+    expect(compact?.points).toEqual(absolute?.points);
+  });
+
+  it("steps a relative curve's control points from the segment start, not the last point", () => {
+    const [relative] = parseSlideHtml(
+      importedSlide(
+        `<div data-pptx-element-kind="shape" style="${SHAPE_BOX}background:#123456;clip-path: path('m10 10c5 0 10 5 10 10z');"></div>`,
+      ),
+      "16:9",
+      1,
+    ).shapes;
+    const [absolute] = parseSlideHtml(
+      importedSlide(
+        `<div data-pptx-element-kind="shape" style="${SHAPE_BOX}background:#123456;clip-path: path('M10 10 C15 10 20 15 20 20 Z');"></div>`,
+      ),
+      "16:9",
+      1,
+    ).shapes;
+
+    expect(relative?.points).toEqual(absolute?.points);
+  });
+
   it("falls back to a whole rectangle, loudly, when an outline cannot be read", () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
     const result = parseSlideHtml(
       importedSlide(
-        `<div data-pptx-element-kind="shape" style="${SHAPE_BOX}background:#123456;clip-path: path('m0 0 l96 54 z');"></div>`,
+        `<div data-pptx-element-kind="shape" style="${SHAPE_BOX}background:#123456;clip-path: path('M0 0 H96 Z');"></div>`,
       ),
       "16:9",
       1,
@@ -446,7 +487,7 @@ describe("parseSlideHtml", () => {
 
     expect(result.shapes[0]?.points).toBeUndefined();
     expect(result.shapes[0]?.shapeType).toBeUndefined();
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('"m"'));
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("H96"));
 
     warnSpy.mockRestore();
   });
