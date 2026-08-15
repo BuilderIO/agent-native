@@ -316,6 +316,7 @@ function buildFidelityElement(
     themeFont,
   );
   const defaultFontWeight = element.placeholderType === "title" ? 700 : 400;
+  const boxFontSizePt = firstDeclaredFontSizePt(element.paragraphs);
   const paragraphs = (element.paragraphs ?? [])
     .map((paragraph, paragraphIndex) =>
       buildFidelityParagraph(
@@ -325,6 +326,7 @@ function buildFidelityElement(
         refBox.width,
         themeFont,
         defaultFontWeight,
+        boxFontSizePt,
       ),
     )
     .join("\n");
@@ -388,7 +390,15 @@ type ParsedTableCell = NonNullable<
   ParsedElement["table"]
 >["rows"][number][number];
 
-const DEFAULT_PPTX_TABLE_BORDER = "rgba(255,255,255,0.25)"; // guard:allow-raw-color - imported PPTX table cell border approximation, same fixed-contrast convention as the rest of this fidelity renderer
+/**
+ * ECMA-376's own default `a:tcPr` cell margins, in EMU (0.1in left/right,
+ * 0.05in top/bottom). They run through the same slide scale as every other
+ * measurement, so a portrait or otherwise non-16:9 deck gets margins
+ * proportional to its own canvas instead of a fixed px pair sized for one
+ * slide shape.
+ */
+const DEFAULT_TABLE_CELL_MARGIN_X_EMU = 91440;
+const DEFAULT_TABLE_CELL_MARGIN_Y_EMU = 45720;
 
 /** Render a parsed `"table"` element (a PPTX `graphicFrame`'s `a:tbl`) as a real HTML `<table>`, sized/positioned the same way every other fidelity element is. */
 function buildFidelityTable(
@@ -453,7 +463,21 @@ function buildFidelityTableCell(
       ),
     )
     .join("");
-  return `<td colspan="${cell.colSpan ?? 1}" rowspan="${cell.rowSpan ?? 1}" style="border:1px solid ${DEFAULT_PPTX_TABLE_BORDER};padding:4px 8px;vertical-align:top;${fill}">${paragraphsHtml}</td>`;
+  const paddingY = toSlidePxX(
+    DEFAULT_TABLE_CELL_MARGIN_Y_EMU,
+    widthEmu,
+    refWidthPx,
+  );
+  const paddingX = toSlidePxX(
+    DEFAULT_TABLE_CELL_MARGIN_X_EMU,
+    widthEmu,
+    refWidthPx,
+  );
+  // No border: the parser does not read `a:tcPr`'s line properties or the
+  // table style, and a stamped-on one is a fabrication that lands wrong
+  // either way — a light rule is invisible on the white slides these tables
+  // usually sit on, and a dark one draws a grid the source never had.
+  return `<td colspan="${cell.colSpan ?? 1}" rowspan="${cell.rowSpan ?? 1}" style="padding:${paddingY}px ${paddingX}px;vertical-align:top;${fill}">${paragraphsHtml}</td>`;
 }
 
 /**
@@ -785,6 +809,15 @@ function textBoxStyle(
   return `display:flex;flex-direction:column;${vertical}padding:${top}px ${right}px ${bottom}px ${left}px;font-family:${cssFontFamily(themeFont)};text-align:${align};overflow:visible;`;
 }
 
+/**
+ * OOXML's default `a:lnSpc` is `spcPct val="100000"` — single spacing. The
+ * parser hands that declared value through as the ratio `1`, so an inherited
+ * default has to resolve to the same number: a 1.2 stand-in makes an
+ * unspecified paragraph's line box 20% taller than the identical paragraph
+ * that states its spacing explicitly.
+ */
+const DEFAULT_LINE_SPACING = 1;
+
 function buildFidelityParagraph(
   paragraph: ParsedParagraph,
   paragraphIndex: number,
@@ -795,7 +828,7 @@ function buildFidelityParagraph(
 ): string {
   const firstRun = paragraph.runs[0];
   const fontSize = ptToSlidePx(firstRun?.fontSize ?? 18, widthEmu, refWidthPx);
-  const lineHeight = paragraph.lineSpacing ?? 1.2;
+  const lineHeight = paragraph.lineSpacing ?? DEFAULT_LINE_SPACING;
   const bulletFontSize = ptToSlidePx(
     paragraph.bulletSize ?? firstRun?.fontSize ?? 18,
     widthEmu,
@@ -868,7 +901,8 @@ function fontWeightForFamily(
   const normalized = fontFamily?.toLowerCase() ?? "";
   if (!normalized) return fallback;
   if (/(?:semi|demi)bold|semibold/.test(normalized)) return 600;
-  if (/extra[- ]?bold|heavy/.test(normalized)) return 800;
+  if (/black|heavy/.test(normalized)) return 900;
+  if (/extra[- ]?bold|ultra[- ]?bold/.test(normalized)) return 800;
   if (/bold/.test(normalized)) return 700;
   if (/medium/.test(normalized)) return 500;
   if (/light|thin/.test(normalized)) return 300;

@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   computeSlideFitTransform,
+  prepareImportedFonts,
+  resolveImportedFont,
   SlideInner,
 } from "@/components/deck/SlideRenderer";
 import type { Slide } from "@/context/DeckContext";
@@ -156,7 +158,11 @@ describe("SlideInner autofit", () => {
     });
     Object.defineProperty(document, "fonts", {
       configurable: true,
-      value: { ready: Promise.resolve() },
+      value: {
+        ready: Promise.resolve(),
+        addEventListener: () => {},
+        removeEventListener: () => {},
+      },
     });
 
     vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(
@@ -443,6 +449,100 @@ describe("SlideInner autofit", () => {
     await waitFor(() => {
       expect(
         document.querySelector("[data-fmd-autofit-content]"),
+      ).not.toBeNull();
+    });
+  });
+});
+
+describe("imported deck webfonts", () => {
+  beforeEach(() => {
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        observe() {}
+        disconnect() {}
+      },
+    );
+    Object.defineProperty(document, "fonts", {
+      configurable: true,
+      value: {
+        ready: Promise.resolve(),
+        addEventListener: () => {},
+        removeEventListener: () => {},
+      },
+    });
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("serves a family the deck names", () => {
+    expect(resolveImportedFont("Work Sans")).toEqual({
+      family: "Work Sans",
+      href: "https://fonts.googleapis.com/css2?family=Work+Sans:ital,wght@0,100..900;1,100..900&display=swap",
+    });
+  });
+
+  it("asks a static-weight family for discrete weights, not a variable axis", () => {
+    // The css2 endpoint 400s the whole request when a family has no such axis.
+    expect(resolveImportedFont("Open Sans")?.href).toBe(
+      "https://fonts.googleapis.com/css2?family=Open+Sans:ital,wght@0,400;0,700;1,400;1,700&display=swap",
+    );
+  });
+
+  it("maps a PPTX weight-suffixed typeface onto its base family", () => {
+    expect(resolveImportedFont("Work Sans Medium")?.family).toBe("Work Sans");
+    expect(resolveImportedFont("Open Sans SemiBold")?.family).toBe("Open Sans");
+    expect(resolveImportedFont("Montserrat Light")?.family).toBe("Montserrat");
+  });
+
+  it("resolves families Google Fonts serves under another name", () => {
+    expect(resolveImportedFont("Source Sans Pro")?.family).toBe(
+      "Source Sans 3",
+    );
+    expect(resolveImportedFont("Bodoni")?.family).toBe("Bodoni Moda");
+  });
+
+  it("leaves a family it cannot serve alone instead of guessing", () => {
+    expect(resolveImportedFont("Helvetica Neue")).toBeUndefined();
+    expect(resolveImportedFont("Century Gothic")).toBeUndefined();
+    expect(resolveImportedFont("")).toBeUndefined();
+  });
+
+  it("rewrites suffixed names in slide HTML and collects one href per family", () => {
+    const { html, hrefs } = prepareImportedFonts(
+      `<div class="fmd-slide" style="font-family: 'Work Sans', sans-serif;">` +
+        `<span style="font-family:'Work Sans Medium', sans-serif;">a</span>` +
+        `<span style="font-family:'Helvetica Neue', sans-serif;">b</span></div>`,
+    );
+
+    expect(html).toContain("font-family:'Work Sans', sans-serif");
+    expect(html).not.toContain("Work Sans Medium");
+    // Unservable families stay as authored so a locally installed copy still matches.
+    expect(html).toContain("font-family:'Helvetica Neue', sans-serif");
+    expect(hrefs).toEqual([
+      "https://fonts.googleapis.com/css2?family=Work+Sans:ital,wght@0,100..900;1,100..900&display=swap",
+    ]);
+  });
+
+  it("loads the stylesheet for a rendered imported slide", async () => {
+    const slide: Slide = {
+      id: "imported-fonts",
+      layout: "blank",
+      notes: "",
+      content:
+        `<div class="fmd-slide fmd-imported-pptx" style="font-family: 'Yanone Kaffeesatz', sans-serif;">Brand</div>`,
+    };
+    render(<SlideInner slide={slide} />);
+
+    await waitFor(() => {
+      expect(
+        document.head.querySelector(
+          'link[href*="Yanone+Kaffeesatz"][rel="stylesheet"]',
+        ),
       ).not.toBeNull();
     });
   });

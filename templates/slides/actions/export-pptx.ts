@@ -137,6 +137,25 @@ function cssFontFace(style: string): string | undefined {
 }
 
 /**
+ * A preset name copied from `<a:prstGeom prst="...">` only survives if
+ * PowerPoint knows it, and pptxgenjs writes whatever string it is handed
+ * straight into `prst`. Report an unrecognized one the way `colorToHex`
+ * reports an unreadable color instead of shipping a file PowerPoint rejects.
+ */
+export function resolveShapeType(
+  shapeTypes: Record<string, string>,
+  shapeType: string | undefined,
+): PptxGenJS.ShapeType {
+  if (!shapeType) return "rect" as PptxGenJS.ShapeType;
+  const known = shapeTypes[shapeType];
+  if (known) return known as PptxGenJS.ShapeType;
+  console.warn(
+    `[export-pptx] unrecognized shape geometry "${shapeType}", defaulting to a rectangle`,
+  );
+  return "rect" as PptxGenJS.ShapeType;
+}
+
+/**
  * CSS border styles PowerPoint can draw. `solid` needs no `dashType`, so it is
  * absent here; anything unlisted (`double`, `groove`, ...) also falls through to
  * a solid line, which is the closest single-stroke approximation.
@@ -1198,7 +1217,7 @@ export default defineAction({
           });
         } else {
           const shape = object.value;
-          pptxSlide.addShape(resolveShapeType(pptx, shape.shapeType), {
+          pptxSlide.addShape(resolveShapeType(pptx.ShapeType, shape.shapeType), {
             x: shape.x,
             y: shape.y,
             w: shape.w,

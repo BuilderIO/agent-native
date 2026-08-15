@@ -1431,23 +1431,23 @@ interface ColorContext {
   clrMap: Record<string, string>;
 }
 
-/** A resolved slideLayout/slideMaster placeholder shape's per-level default run colors — see `RawPlaceholderShapeFill` for where these come from. */
-interface PlaceholderShapeColors {
+/** A resolved slideLayout/slideMaster placeholder shape's per-level default run properties — see `RawPlaceholderShapeDefaults` for where these come from. */
+interface PlaceholderShapeDefaults {
   type?: string;
   idx?: string;
-  colorsByLevel: Record<number, string | undefined>;
-  /** Carried through from `RawPlaceholderShapeFill.transform` — see there for when it's absent. */
+  runDefaultsByLevel: Record<number, InheritedRunProperties>;
+  /** Carried through from `RawPlaceholderShapeDefaults.transform` — see there for when it's absent. */
   transform?: ParsedShapeTransform;
 }
 
-interface PlaceholderDefaultColors {
-  title: Record<number, string | undefined>;
-  body: Record<number, string | undefined>;
-  other: Record<number, string | undefined>;
+interface PlaceholderDefaults {
+  title: Record<number, InheritedRunProperties>;
+  body: Record<number, InheritedRunProperties>;
+  other: Record<number, InheritedRunProperties>;
   /** This slide's own layout's placeholder shapes — checked first, since a layout's placeholder is more specific than its master's. */
-  layoutPlaceholders: PlaceholderShapeColors[];
-  /** The slide master's own placeholder shapes (its actual `<p:sp><p:ph>` shapes, not `<p:txStyles>`) — checked before the `title`/`body`/`other` txStyles fallback below, since that's where a placeholder type's real default color usually lives. `<p:txStyles>` is the last resort PowerPoint/Google Slides falls back to only when neither the layout nor the master defines the placeholder shape itself. */
-  masterPlaceholders: PlaceholderShapeColors[];
+  layoutPlaceholders: PlaceholderShapeDefaults[];
+  /** The slide master's own placeholder shapes (its actual `<p:sp><p:ph>` shapes, not `<p:txStyles>`) — checked before the `title`/`body`/`other` txStyles fallback below, since that's where a placeholder type's real defaults usually live. `<p:txStyles>` is the last resort PowerPoint/Google Slides falls back to only when neither the layout nor the master defines the placeholder shape itself. */
+  masterPlaceholders: PlaceholderShapeDefaults[];
 }
 
 /** Placeholder types that inherit from each other: a slide's `ctrTitle` falls back to the layout/master's `title` shape, a `subTitle` to its `body` shape. Matching the type as a literal string instead sent every title slide past the shape that actually defines its look, down to the `<p:txStyles>` boilerplate that `PlaceholderDefaultColors.masterPlaceholders` documents as the last resort. */
@@ -1494,12 +1494,12 @@ function txStylesTierForType(
   return "other";
 }
 
-/** Resolves a placeholder run's inherited color chain — this slide's own layout placeholder shape, then the slide master's own placeholder shape, then the master's generic `<p:txStyles>` bucket for this placeholder's type — per nesting level, so a paragraph at level N gets level N's own default instead of only ever level 0's. */
-function resolvePlaceholderColorsByLevel(args: {
+/** Resolves a placeholder run's inherited property chain — this slide's own layout placeholder shape, then the slide master's own placeholder shape, then the master's generic `<p:txStyles>` bucket for this placeholder's type — per nesting level, so a paragraph at level N gets level N's own defaults instead of only ever level 0's. Merging is per-property, not per-tier: a layout that declares only a size still inherits the master's color. */
+function resolvePlaceholderRunDefaults(args: {
   type: string | undefined;
   idx: string | undefined;
-  defaults: PlaceholderDefaultColors;
-}): Record<number, string | undefined> | undefined {
+  defaults: PlaceholderDefaults;
+}): Record<number, InheritedRunProperties> | undefined {
   const layoutMatch = findMatchingPlaceholderShape(
     args.defaults.layoutPlaceholders,
     args.type,
@@ -1511,15 +1511,16 @@ function resolvePlaceholderColorsByLevel(args: {
     args.idx,
   );
   const txStylesByLevel = args.defaults[txStylesTierForType(args.type)];
-  const merged: Record<number, string | undefined> = {};
+  const merged: Record<number, InheritedRunProperties> = {};
   let any = false;
   for (let level = 0; level < 9; level++) {
-    const color =
-      layoutMatch?.colorsByLevel[level] ??
-      masterMatch?.colorsByLevel[level] ??
-      txStylesByLevel[level];
-    merged[level] = color;
-    if (color) any = true;
+    const properties: InheritedRunProperties = {
+      ...txStylesByLevel[level],
+      ...masterMatch?.runDefaultsByLevel[level],
+      ...layoutMatch?.runDefaultsByLevel[level],
+    };
+    merged[level] = properties;
+    if (Object.keys(properties).length > 0) any = true;
   }
   return any ? merged : undefined;
 }
@@ -1528,7 +1529,7 @@ function resolvePlaceholderColorsByLevel(args: {
 function resolvePlaceholderTransform(args: {
   type: string | undefined;
   idx: string | undefined;
-  defaults: PlaceholderDefaultColors;
+  defaults: PlaceholderDefaults;
 }): ParsedShapeTransform | undefined {
   const layoutMatch = findMatchingPlaceholderShape(
     args.defaults.layoutPlaceholders,
@@ -1543,19 +1544,21 @@ function resolvePlaceholderTransform(args: {
   return layoutMatch?.transform ?? masterMatch?.transform;
 }
 
-/** Placeholder text has no explicit color of its own when the author relied on the slide master's default run properties — apply that inherited color to any run that didn't resolve one, using each paragraph's own nested-bullet level (falling back to level 0's color when a deeper level has no default of its own). */
-function applyPlaceholderDefaultColor(
+/** Placeholder text commonly declares no color, size or typeface of its own, relying entirely on the layout/master defaults — apply those to any property a run didn't resolve itself, using each paragraph's own nested-bullet level (falling back to level 0 when a deeper level has no default of its own). */
+function applyPlaceholderRunDefaults(
   paragraphs: ParsedPptxParagraph[],
-  colorsByLevel: Record<number, string | undefined> | undefined,
+  defaultsByLevel: Record<number, InheritedRunProperties> | undefined,
 ): ParsedPptxParagraph[] {
-  if (!colorsByLevel) return paragraphs;
+  if (!defaultsByLevel) return paragraphs;
   return paragraphs.map((paragraph) => {
     const level = paragraph.level ?? 0;
-    const color = colorsByLevel[level] ?? colorsByLevel[0];
-    if (!color) return paragraph;
+    const own = defaultsByLevel[level];
+    const defaults =
+      own && Object.keys(own).length > 0 ? own : defaultsByLevel[0];
+    if (!defaults || Object.keys(defaults).length === 0) return paragraph;
     return {
       ...paragraph,
-      runs: paragraph.runs.map((run) => (run.color ? run : { ...run, color })),
+      runs: paragraph.runs.map((run) => ({ ...defaults, ...run })),
     };
   });
 }
