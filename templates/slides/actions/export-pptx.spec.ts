@@ -862,7 +862,9 @@ describe("tableOptions", () => {
     pptx.addSlide().addTable(table.rows, tableOptions(table));
     const JSZip = (await import("jszip")).default;
     const slideXml = await (
-      await JSZip.loadAsync((await pptx.write({ outputType: "nodebuffer" })) as Buffer)
+      await JSZip.loadAsync(
+        (await pptx.write({ outputType: "nodebuffer" })) as Buffer,
+      )
     )
       .file("ppt/slides/slide1.xml")
       ?.async("string");

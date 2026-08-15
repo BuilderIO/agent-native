@@ -14,6 +14,7 @@ import {
   addSpeakerNotesToPptxBlob,
   buildDeckPptxBlob,
   exportDeckAsPptx,
+  materializeClipPathShapes,
   patchBulletIndentsInPptxBlob,
   pptxExportScale,
 } from "./export-pptx-client";
@@ -515,5 +516,78 @@ describe("patchBulletIndentsInPptxBlob", () => {
       ?.async("string");
 
     expect(slideXml).toContain('marL="251460" indent="-251460"');
+  });
+});
+
+describe("materializeClipPathShapes", () => {
+  function clipped(clipPath: string, inner = "") {
+    const element = document.createElement("div");
+    element.setAttribute(
+      "style",
+      `position:absolute;width:192px;height:108px;background-color:rgb(18, 52, 86);clip-path:${clipPath};`,
+    );
+    element.innerHTML = inner;
+    const root = document.createElement("div");
+    root.appendChild(element);
+    document.body.appendChild(root);
+    return { root, element };
+  }
+
+  afterEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  it("redraws a freeform clip as a real path, since dom-to-pptx exports the box", () => {
+    const { root, element } = clipped("path('M0 0 L96 0 L0 54 Z')");
+
+    materializeClipPathShapes(root);
+
+    const path = element.querySelector("svg > path");
+    expect(path?.getAttribute("d")).toBe("M0 0 L96 0 L0 54 Z");
+    expect(path?.getAttribute("fill")).toBe("rgb(18, 52, 86)");
+    expect(element.querySelector("svg")?.getAttribute("viewBox")).toBe(
+      "0 0 192 108",
+    );
+    // The clipped box must stop painting, or the rectangle ships underneath.
+    expect(element.style.clipPath).toBe("none");
+    expect(element.style.backgroundColor).toBe("transparent");
+  });
+
+  it("traces a polygon clip through the same path, in the element's pixels", () => {
+    const { root, element } = clipped("polygon(0% 0%, 100% 0%, 50% 100%)");
+
+    materializeClipPathShapes(root);
+
+    expect(element.querySelector("svg > path")?.getAttribute("d")).toBe(
+      "M0 0 L192 0 L96 108 Z",
+    );
+  });
+
+  it("puts the fill under the freeform's own stroke overlay, not in a second image", () => {
+    const { root, element } = clipped(
+      "path('M0 0 L96 54 Z')",
+      `<svg viewBox="0 0 192 108"><path d="M0 0 L96 54" fill="none" stroke="#ff0000" /></svg>`,
+    );
+
+    materializeClipPathShapes(root);
+
+    expect(element.querySelectorAll("svg")).toHaveLength(1);
+    const paths = element.querySelectorAll("svg > path");
+    expect(paths).toHaveLength(2);
+    expect(paths[0]?.getAttribute("fill")).toBe("rgb(18, 52, 86)");
+    expect(paths[1]?.getAttribute("stroke")).toBe("#ff0000");
+  });
+
+  it("leaves an unclipped element alone", () => {
+    const element = document.createElement("div");
+    element.setAttribute("style", "width:192px;height:108px;background:#123456;");
+    const root = document.createElement("div");
+    root.appendChild(element);
+    document.body.appendChild(root);
+
+    materializeClipPathShapes(root);
+
+    expect(element.querySelector("svg")).toBeNull();
+    expect(element.style.clipPath).toBe("");
   });
 });

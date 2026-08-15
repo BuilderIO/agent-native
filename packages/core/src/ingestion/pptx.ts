@@ -257,6 +257,7 @@ export async function parsePptxPresentation(
   // `resolveSlideMasterContext` below for the per-slide resolution that
   // presentations with more than one slide master actually need.
   const theme = await parseTheme(zip, parseXml, slideMasterRelationship);
+  const tableStyles = await parseTableStyles(zip, parseXml);
   const masterColorInfo = slideMasterRelationship
     ? await parseMasterColorInfo({
         zip,
@@ -382,6 +383,7 @@ export async function parsePptxPresentation(
       colorContext: slideMasterContext.colorContext,
       placeholderDefaults: slideMasterContext.placeholderDefaults,
       slideNumber: slides.length + 1,
+      tableStyles,
     });
     // The template layer sits behind the slide's own scene graph: it is the
     // background band, brand mark and silhouette the layout draws under
@@ -1040,6 +1042,7 @@ async function parseSlideElements(args: {
   colorContext?: ColorContext;
   placeholderDefaults?: PlaceholderDefaults;
   slideNumber?: number;
+  tableStyles?: PptxTableStyles;
 }): Promise<ParsedPptxElement[]> {
   const fragments = extractDirectShapeFragments(args.xml, "spTree");
   const elements: ParsedPptxElement[] = [];
@@ -1096,6 +1099,7 @@ async function parseShapeFragment(
     colorContext?: ColorContext;
     placeholderDefaults?: PlaceholderDefaults;
     slideNumber?: number;
+    tableStyles?: PptxTableStyles;
     context: ShapeTransformContext;
   },
 ): Promise<ParsedPptxElement[]> {
@@ -1331,12 +1335,18 @@ function parseGraphicFrameFragment(
     colorContext?: ColorContext;
     slideRelationships?: Map<string, { target: string; type: string }>;
     slideNumber?: number;
+    tableStyles?: PptxTableStyles;
   },
 ): ParsedPptxElement[] {
-  const table = parseGraphicFrameTable(node, args.colorContext, {
-    relationships: args.slideRelationships,
-    slideNumber: args.slideNumber,
-  });
+  const table = parseGraphicFrameTable(
+    node,
+    args.colorContext,
+    {
+      relationships: args.slideRelationships,
+      slideNumber: args.slideNumber,
+    },
+    args.tableStyles,
+  );
   if (!table) {
     args.tablesDegraded.count += 1;
     return [];
@@ -1458,6 +1468,183 @@ function parseGraphicFrameTable(
         ...(rowHeightsEmu.length > 0 ? { rowHeightsEmu } : {}),
       }
     : undefined;
+}
+
+/**
+ * `ppt/tableStyles.xml`'s `a:tblStyle` records, keyed by normalized `styleId`
+ * (the deck's `@def` default is also stored under `""`). Kept as raw XML
+ * records rather than pre-resolved values because a style's `schemeClr`
+ * references only mean something against the slide's own color map, and a
+ * deck can mix masters.
+ *
+ * This is where most real-world table borders live: a Google Slides export
+ * writes bare `a:tcPr` cells and puts the whole grid's rules in the style's
+ * `wholeTbl/a:tcBdr`, so a parser that reads only `a:tcPr` sees no borders at
+ * all.
+ */
+type PptxTableStyles = Map<string, Record<string, unknown>>;
+
+async function parseTableStyles(
+  zip: ZipArchive,
+  parseXml: (xml: string) => unknown,
+): Promise<PptxTableStyles> {
+  const styles: PptxTableStyles = new Map();
+  const xml = await zip.file("ppt/tableStyles.xml")?.async("string");
+  if (!xml) return styles;
+  const list = record(record(parseXml(xml))?.["a:tblStyleLst"]);
+  if (!list) return styles;
+  for (const raw of asArray(list["a:tblStyle"])) {
+    const style = record(raw);
+    const id = stringValue(style?.["@_styleId"]);
+    if (style && id) styles.set(normalizeTableStyleId(id), style);
+  }
+  const fallback = styles.get(
+    normalizeTableStyleId(stringValue(list["@_def"]) ?? ""),
+  );
+  if (fallback) styles.set("", fallback);
+  return styles;
+}
+
+function normalizeTableStyleId(value: string): string {
+  return value.replace(/[{}\s]/g, "").toLowerCase();
+}
+
+interface TableBandingFlags {
+  firstRow: boolean;
+  lastRow: boolean;
+  firstCol: boolean;
+  lastCol: boolean;
+  bandRow: boolean;
+  bandCol: boolean;
+}
+
+/**
+ * The table style parts that apply to one cell, lowest precedence first
+ * (ECMA-376 §20.1.4.2). The corner parts (`nwCell`, `seCell`, ...) are not
+ * resolved — no table style shipped by the decks this parser was built
+ * against defines them.
+ */
+function tableStyleParts(
+  banding: TableBandingFlags,
+  rowIndex: number,
+  columnIndex: number,
+): string[] {
+  const parts = ["wholeTbl"];
+  if (banding.bandCol) {
+    const band = columnIndex - (banding.firstCol ? 1 : 0);
+    if (band >= 0) parts.push(band % 2 === 0 ? "band1V" : "band2V");
+  }
+  if (banding.bandRow) {
+    const band = rowIndex - (banding.firstRow ? 1 : 0);
+    if (band >= 0) parts.push(band % 2 === 0 ? "band1H" : "band2H");
+  }
+  if (banding.firstCol && columnIndex === 0) parts.push("firstCol");
+  if (banding.firstRow && rowIndex === 0) parts.push("firstRow");
+  return parts;
+}
+
+/** `a:tcPr`'s own fill elements. Their presence — not the color they resolve to — is what makes a cell's fill an override, since `a:noFill` is an explicit "no fill" that has to beat the table style. */
+const TABLE_CELL_FILL_ELEMENTS = ["a:noFill", "a:solidFill", "a:gradFill"];
+
+const TABLE_BORDER_SIDES = [
+  { side: "left", cellElement: "a:lnL", edge: "a:left", inside: "a:insideV" },
+  { side: "right", cellElement: "a:lnR", edge: "a:right", inside: "a:insideV" },
+  { side: "top", cellElement: "a:lnT", edge: "a:top", inside: "a:insideH" },
+  {
+    side: "bottom",
+    cellElement: "a:lnB",
+    edge: "a:bottom",
+    inside: "a:insideH",
+  },
+] as const;
+
+function resolveTableCellBorders(args: {
+  tcPr: Record<string, unknown> | null;
+  style: Record<string, unknown> | undefined;
+  styleParts: string[];
+  context?: ColorContext;
+  firstColumn: boolean;
+  lastColumn: boolean;
+  firstRow: boolean;
+  lastRow: boolean;
+}): ParsedPptxTableCellBorders | undefined {
+  const atEdge = {
+    left: args.firstColumn,
+    right: args.lastColumn,
+    top: args.firstRow,
+    bottom: args.lastRow,
+  };
+  const borders: ParsedPptxTableCellBorders = {};
+  for (const { side, cellElement, edge, inside } of TABLE_BORDER_SIDES) {
+    // A cell that declares the side at all decides it, including
+    // `<a:lnL><a:noFill/></a:lnL>` — that is the author switching the style's
+    // rule off for this cell, not a missing value to fall back from.
+    const declared = record(args.tcPr?.[cellElement]);
+    const border = declared
+      ? parseTableBorderLine(declared, args.context)
+      : tableStylePartBorder(
+          args.style,
+          args.styleParts,
+          atEdge[side] ? edge : inside,
+          args.context,
+        );
+    if (border) borders[side] = border;
+  }
+  return Object.keys(borders).length > 0 ? borders : undefined;
+}
+
+/** Walks the cell's style parts highest precedence first, stopping at the first part that declares this side — including one that declares it as `a:noFill`. */
+function tableStylePartBorder(
+  style: Record<string, unknown> | undefined,
+  parts: string[],
+  side: string,
+  context?: ColorContext,
+): ParsedPptxTableBorder | undefined {
+  for (let index = parts.length - 1; index >= 0; index -= 1) {
+    const borderSet = record(
+      record(record(style?.[`a:${parts[index]}`])?.["a:tcStyle"])?.["a:tcBdr"],
+    );
+    const declared = record(borderSet?.[side]);
+    if (declared) return parseTableBorderLine(record(declared["a:ln"]), context);
+  }
+  return undefined;
+}
+
+function tableStylePartFill(
+  style: Record<string, unknown> | undefined,
+  parts: string[],
+  context?: ColorContext,
+): string | undefined {
+  for (let index = parts.length - 1; index >= 0; index -= 1) {
+    const fill = record(
+      record(record(style?.[`a:${parts[index]}`])?.["a:tcStyle"])?.["a:fill"],
+    );
+    if (fill) return parseShapeFill(fill, context);
+  }
+  return undefined;
+}
+
+/** An `a:ln` cell edge. `undefined` means "draws nothing here": either the line declares `a:noFill`, or its fill is one this parser cannot resolve to a color. */
+function parseTableBorderLine(
+  line: Record<string, unknown> | null,
+  context?: ColorContext,
+): ParsedPptxTableBorder | undefined {
+  if (!line || line["a:noFill"] !== undefined) return undefined;
+  const color = parseColor(record(line["a:solidFill"]), context);
+  if (!color) return undefined;
+  const widthEmu = positiveAttributeNumber(line, "@_w");
+  const preset = stringValue(record(line["a:prstDash"])?.["@_val"]);
+  const dash =
+    !preset || preset === "solid"
+      ? undefined
+      : preset === "dot" || preset === "sysDot"
+        ? "dotted"
+        : "dashed";
+  return {
+    color,
+    ...(widthEmu ? { widthEmu } : {}),
+    ...(dash ? { dash } : {}),
+  };
 }
 
 function extractDirectShapeFragments(xml: string, container: string): string[] {

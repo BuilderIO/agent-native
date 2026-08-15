@@ -356,14 +356,13 @@ body {
   height: 22px;
   border: 1px solid hsl(var(--sidebar-foreground) / 0.14);
   border-radius: 999px;
-  background-color: hsl(var(--sidebar-background) / 0.92);
+  background-color: hsl(var(--sidebar-background));
   box-shadow: 0 4px 14px hsl(var(--sidebar-background) / 0.42);
   content: "";
-  opacity: 1;
   pointer-events: none;
-  transition:
-    opacity var(--ease-collapse),
-    transform var(--ease-collapse);
+  transform: scaleX(1);
+  transform-origin: left center;
+  transition: transform var(--ease-collapse);
 }
 
 .desktop-chat-first-hub .collapsed-mac-window-controls .win-btn {
@@ -395,8 +394,7 @@ body {
 
 .desktop-chat-first-hub .collapsed-mac-window-controls:hover::before,
 .desktop-chat-first-hub .collapsed-mac-window-controls:focus-within::before {
-  opacity: 0;
-  transform: scale(0.96);
+  transform: scaleX(1.5);
 }
 
 .desktop-chat-first-hub .collapsed-mac-window-controls:hover .win-btn--maximize,

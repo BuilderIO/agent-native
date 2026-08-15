@@ -889,8 +889,9 @@ function pxToInY(px: number, dims: SlideDims): number {
  */
 function importedRotation(style: string): number | undefined {
   const degrees = Number.parseFloat(
-    getStyle(style, "transform")?.match(/rotate\(\s*(-?[\d.]+)deg\s*\)/i)?.[1] ??
-      "",
+    getStyle(style, "transform")?.match(
+      /rotate\(\s*(-?[\d.]+)deg\s*\)/i,
+    )?.[1] ?? "",
   );
   return Number.isFinite(degrees) && degrees !== 0 ? degrees : undefined;
 }
@@ -957,7 +958,9 @@ function importedShapeGeometry(
 function importedFreeformStroke(
   innerHtml: string,
   dims: SlideDims,
-): { path: string; color: ReturnType<typeof colorToHex>; width: number } | undefined {
+):
+  | { path: string; color: ReturnType<typeof colorToHex>; width: number }
+  | undefined {
   const pathAttrs = innerHtml.match(/<svg\b[^>]*>\s*<path\b([^>]*)>/i)?.[1];
   if (!pathAttrs) return undefined;
   const path = getAttribute(pathAttrs, "d");
@@ -1127,7 +1130,10 @@ function svgArcToPptxCurve(
     Math.sqrt(Math.max(0, numerator / denominator));
   const centerX = (factor * (rx * midY)) / ry + (startX + endX) / 2;
   const centerY = (-factor * (ry * midX)) / rx + (startY + endY) / 2;
-  const startAngle = Math.atan2((startY - centerY) / ry, (startX - centerX) / rx);
+  const startAngle = Math.atan2(
+    (startY - centerY) / ry,
+    (startX - centerX) / rx,
+  );
   const endAngle = Math.atan2((endY - centerY) / ry, (endX - centerX) / rx);
   let swingAngle = endAngle - startAngle;
   if (sweep && swingAngle < 0) swingAngle += 2 * Math.PI;
