@@ -1105,7 +1105,9 @@ describe("exported slide XML", () => {
   }
 
   it("writes a connector with its stroke and both oval ends", async () => {
-    const slideXml = await writeParsedSlide(sourcePagedSlide(CONNECTOR_ELEMENT));
+    const slideXml = await writeParsedSlide(
+      sourcePagedSlide(CONNECTOR_ELEMENT),
+    );
 
     expect(slideXml).toContain('<a:prstGeom prst="line">');
     expect(slideXml).toContain(
