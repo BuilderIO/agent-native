@@ -1522,6 +1522,7 @@ export async function buildDeckPptxBlob(
     cleanup: () => void;
   }> = [];
   const slideBulletIndents: number[][] = [];
+  let blankShapes = 0;
 
   try {
     for (let i = 0; i < slides.length; i++) {
@@ -1552,7 +1553,7 @@ export async function buildDeckPptxBlob(
       normalizeSingleLineText(clone.element, clone.textGeometry);
       widenNoWrapTextElements(clone.element);
       materializeClipPathShapes(clone.element);
-      await replaceInlineSvgsWithImages(clone.element);
+      blankShapes += await replaceInlineSvgsWithImages(clone.element, i + 1);
       await preloadImagesWithCors(clone.element);
       restoreImageGeometry(
         clone.element,
@@ -1590,7 +1591,12 @@ export async function buildDeckPptxBlob(
       slides,
       dims.pptxInches,
     );
-    return { blob, filename: safePptxName(deckTitle) };
+    if (blankShapes > 0) {
+      console.warn(
+        `[export-pptx] ${blankShapes} shape(s) rendered empty and are missing from ${deckTitle}`,
+      );
+    }
+    return { blankShapes, blob, filename: safePptxName(deckTitle) };
   } finally {
     for (const clone of exportClones) {
       clone.cleanup();
@@ -1602,11 +1608,12 @@ export async function exportDeckAsPptx(
   deckTitle: string,
   slides: PptxExportSlide[],
   aspectRatio?: AspectRatio,
-): Promise<void> {
-  const { blob, filename } = await buildDeckPptxBlob(
+): Promise<{ blankShapes: number }> {
+  const { blankShapes, blob, filename } = await buildDeckPptxBlob(
     deckTitle,
     slides,
     aspectRatio,
   );
   triggerBlobDownload(blob, filename);
+  return { blankShapes };
 }
