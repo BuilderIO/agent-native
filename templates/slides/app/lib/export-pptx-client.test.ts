@@ -718,6 +718,28 @@ describe("gradientPaint", () => {
     ).toEqual(["0%", "50%", "100%"]);
   });
 
+  it("paints canyon slide 13's freeform, which shipped as a blank PNG", () => {
+    const element = document.createElement("div");
+    // Copied from the imported deck: this shape's only paint is the gradient,
+    // so filling the traced outline from `background-color` produced a fully
+    // transparent 384x332 bitmap that the export reported as rendered.
+    element.setAttribute(
+      "style",
+      "position: absolute; left: 3.631px; top: 133.58px; width: 191.887px; height: 166.037px; transform: rotate(145.47675deg);background: radial-gradient(circle at 0% 0%, #038DAF2d 0%, #038DAF2d 17%, #57308B38 62%, #57308B38 100%);clip-path: path('m143.6 14c-31.1-18.5-79.3-16.9-103-5.4-23.8 11.5-45.5 37.2-39.6 74.4 5.8 37.2 39.5 76.8 57.5 82 18 5.2 36.2-8.6 50.4-50.9 14.1-42.3 76.3 6.2 82.1-10.5 5.8-16.7-16.4-71-47.4-89.6z');",
+    );
+    const root = document.createElement("div");
+    root.appendChild(element);
+    document.body.appendChild(root);
+
+    materializeClipPathShapes(root);
+
+    const path = root.querySelector("svg > path");
+    const gradient = root.querySelector("svg > defs > radialGradient");
+    expect(path?.getAttribute("fill")).toBe(`url(#${gradient?.id})`);
+    expect(gradient?.children).toHaveLength(4);
+    document.body.innerHTML = "";
+  });
+
   it("sizes a radial to its farthest corner and keeps its stop alpha", () => {
     // canyon slide 13, shape 1: a 191.887x166.037 freeform whose only paint is
     // this gradient, which is why it rasterized to a fully transparent PNG.
