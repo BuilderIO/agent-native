@@ -29,37 +29,125 @@ export interface UploadedFile {
   size: number;
 }
 
-export async function uploadPromptFiles(
-  files: File[],
-): Promise<UploadedFile[]> {
-  if (files.length === 0) return [];
+// Netlify functions cap request bodies well under what a real PPTX/PDF
+// needs, so any file above this size streams through the chunked upload
+// endpoints (sub-4 MB slices, reassembled server-side) instead of one
+// multipart POST.
+const CHUNK_UPLOAD_THRESHOLD_BYTES = 4 * 1024 * 1024;
+const CHUNK_SIZE_BYTES = 4 * 1024 * 1024;
+
+async function readJsonSafe(response: Response): Promise<unknown> {
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+function extractErrorMessage(data: unknown): string | null {
+  if (
+    data &&
+    typeof data === "object" &&
+    "error" in data &&
+    typeof (data as { error: unknown }).error === "string" &&
+    (data as { error: string }).error.trim()
+  ) {
+    return (data as { error: string }).error;
+  }
+  return null;
+}
+
+async function uploadSingleFileMultipart(file: File): Promise<UploadedFile> {
   const formData = new FormData();
-  files.forEach((file) => formData.append("files", file));
-  ensureEmbedAuthFetchInterceptor();
+  formData.append("files", file);
   const response = await fetch(`${appBasePath()}/api/uploads`, {
     method: "POST",
     body: formData,
     credentials: "include",
   });
+  const data = await readJsonSafe(response);
   if (!response.ok) {
-    let message = "Upload failed";
-    try {
-      const data: unknown = await response.json();
-      if (
-        data &&
-        typeof data === "object" &&
-        "error" in data &&
-        typeof data.error === "string" &&
-        data.error.trim()
-      ) {
-        message = data.error;
-      }
-    } catch (error) {
-      throw new Error(`Upload failed (${response.status})`, { cause: error });
-    }
-    throw new Error(message);
+    throw new Error(
+      extractErrorMessage(data) || `Upload failed (${response.status})`,
+    );
   }
-  return (await response.json()) as UploadedFile[];
+  const result = Array.isArray(data) ? (data[0] as UploadedFile) : undefined;
+  if (!result) throw new Error("Upload failed: no file returned");
+  return result;
+}
+
+async function uploadFileChunked(file: File): Promise<UploadedFile> {
+  const startResponse = await fetch(
+    `${appBasePath()}/api/uploads-chunked/start`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({
+        filename: file.name,
+        mimetype: file.type || "application/octet-stream",
+        declaredSize: file.size,
+      }),
+    },
+  );
+  const startData = await readJsonSafe(startResponse);
+  const sessionId =
+    startData && typeof startData === "object"
+      ? (startData as { sessionId?: unknown }).sessionId
+      : undefined;
+  if (!startResponse.ok || typeof sessionId !== "string" || !sessionId) {
+    throw new Error(
+      extractErrorMessage(startData) ||
+        `Upload failed (${startResponse.status})`,
+    );
+  }
+
+  const totalChunks = Math.max(1, Math.ceil(file.size / CHUNK_SIZE_BYTES));
+  for (let index = 0; index < totalChunks; index++) {
+    const start = index * CHUNK_SIZE_BYTES;
+    const end = Math.min(start + CHUNK_SIZE_BYTES, file.size);
+    const isFinal = index === totalChunks - 1;
+    const chunkResponse = await fetch(
+      `${appBasePath()}/api/uploads-chunked/${sessionId}/chunk?index=${index}&isFinal=${
+        isFinal ? "1" : "0"
+      }`,
+      {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/octet-stream" },
+        body: file.slice(start, end),
+      },
+    );
+    const chunkData = await readJsonSafe(chunkResponse);
+    if (!chunkResponse.ok) {
+      throw new Error(
+        extractErrorMessage(chunkData) ||
+          `Upload failed (${chunkResponse.status})`,
+      );
+    }
+    if (isFinal) {
+      const result = Array.isArray(chunkData)
+        ? (chunkData[0] as UploadedFile)
+        : undefined;
+      if (!result) throw new Error("Upload failed: no file returned");
+      return result;
+    }
+  }
+  throw new Error("Upload failed: no final chunk response");
+}
+
+export async function uploadPromptFiles(
+  files: File[],
+): Promise<UploadedFile[]> {
+  if (files.length === 0) return [];
+  ensureEmbedAuthFetchInterceptor();
+  return Promise.all(
+    files.map((file) =>
+      file.size > CHUNK_UPLOAD_THRESHOLD_BYTES
+        ? uploadFileChunked(file)
+        : uploadSingleFileMultipart(file),
+    ),
+  );
 }
 
 /**
