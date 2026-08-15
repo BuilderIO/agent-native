@@ -27,6 +27,7 @@ import {
   isLunaModel,
   readAgentPromptAttachment,
   resolvePreferredAgentModel,
+  type ComposerTerminalModeControl,
   type PromptComposerFile,
   type SlashCommand,
   type TiptapComposerHandle,
@@ -327,6 +328,8 @@ export interface CodeAgentsAppProps {
       attachments: CodeAgentPromptAttachment[],
     ) => void | Promise<void>;
   };
+  /** Controls terminal mode from the new-chat composer plus menu. */
+  terminalModeControl?: ComposerTerminalModeControl;
   /** Navigation callbacks for the shared chat-first rail. */
   chatFirstNavigation?: {
     activeTab?: ChatFirstPrimaryTab;
@@ -685,6 +688,7 @@ export default function CodeAgentsApp({
   renderChatFirstMainSurface,
   renderChatFirstChatSurface,
   terminalMode,
+  terminalModeControl,
   chatFirstNavigation,
   onChatFirstOpenApp,
   onWatchedRunChange,
@@ -2582,6 +2586,7 @@ export default function CodeAgentsApp({
                               inputRef={newPromptRef}
                               creating={creatingRun}
                               terminalAgent={terminalAgentOption}
+                              terminalModeControl={terminalModeControl}
                               permissionMode={newRunPermissionMode}
                               modelSelection={selectedModelSelection}
                               modelOptions={modelOptions}
@@ -3104,6 +3109,7 @@ function NewSessionComposer({
   inputRef,
   creating,
   terminalAgent,
+  terminalModeControl,
   permissionMode,
   modelSelection,
   modelOptions,
@@ -3126,6 +3132,7 @@ function NewSessionComposer({
   inputRef: React.RefObject<TiptapComposerHandle | null>;
   creating: boolean;
   terminalAgent?: CodeAgentTerminalAgentOption;
+  terminalModeControl?: ComposerTerminalModeControl;
   permissionMode: CodeAgentPermissionMode;
   modelSelection: CodeAgentModelSelection;
   modelOptions: CodeAgentModelOption[];
@@ -3153,6 +3160,7 @@ function NewSessionComposer({
       inputRef={inputRef}
       submitting={creating}
       terminalAgent={terminalAgent}
+      terminalModeControl={terminalModeControl}
       permissionMode={permissionMode}
       modelSelection={modelSelection}
       modelOptions={modelOptions}
@@ -3201,12 +3209,14 @@ function CodeAgentComposer({
   modeControl: modeControlOverride,
   useDefaultModeControl = true,
   showModelSelector = true,
+  terminalModeControl,
 }: {
   prompt: string;
   promptSeed?: string | number;
   inputRef?: React.RefObject<TiptapComposerHandle | null>;
   submitting: boolean;
   terminalAgent?: CodeAgentTerminalAgentOption;
+  terminalModeControl?: ComposerTerminalModeControl;
   permissionMode: CodeAgentPermissionMode;
   modelSelection: CodeAgentModelSelection;
   modelOptions: CodeAgentModelOption[];
@@ -3352,7 +3362,8 @@ function CodeAgentComposer({
         );
       }}
       attachmentsEnabled
-      plusMenuMode={terminalAgent ? "upload-only" : undefined}
+      plusMenuMode={terminalModeControl ? "terminal" : undefined}
+      terminalModeControl={terminalModeControl}
       voiceEnabled
       preserveDraftOnSubmit={false}
       onConnectProvider={onConnectProvider}

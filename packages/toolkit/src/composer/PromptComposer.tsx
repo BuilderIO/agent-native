@@ -39,6 +39,7 @@ import {
 import { isPastedTextAttachmentName } from "./pasted-text.js";
 import { PastedTextChip } from "./PastedTextChip.js";
 import { escapePromptAttachmentAttribute } from "./prompt-attachments.js";
+import type { ComposerTerminalModeControl } from "./ComposerPlusMenu.js";
 import {
   type EngineModelGroup,
   type ReasoningEffort,
@@ -114,7 +115,9 @@ export interface PromptComposerProps {
    * Controls the shared "+" affordance. Defaults to upload-only for standalone
    * prompt forms; chat surfaces can opt into the full sidebar menu.
    */
-  plusMenuMode?: "full" | "upload-only" | "hidden";
+  plusMenuMode?: "full" | "upload-only" | "terminal" | "hidden";
+  /** Controls the terminal-specific plus menu when `plusMenuMode` is terminal. */
+  terminalModeControl?: ComposerTerminalModeControl;
   /**
    * Include extension creation in the full "+" menu. Defaults to false.
    */
@@ -511,6 +514,7 @@ function PromptComposerInner({
   voiceEnabled = DEFAULT_VOICE_DICTATION_ENABLED,
   attachmentsEnabled = true,
   plusMenuMode,
+  terminalModeControl,
   extensionTools = false,
   initialText,
   initialTextKey,
@@ -702,6 +706,7 @@ function PromptComposerInner({
           plusMenuMode={
             plusMenuMode ?? (attachmentsEnabled ? "upload-only" : "hidden")
           }
+          terminalModeControl={terminalModeControl}
           extensionTools={extensionTools}
           attachButton={attachButton}
           modeControl={modeControl}
