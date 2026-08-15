@@ -753,6 +753,17 @@ function round3(value: number): number {
 }
 
 /**
+ * Path coordinates are rounded harder than the rest of the renderer: a single
+ * freeform illustration can carry ten thousand of them, and at the 960px
+ * reference width 0.1px is well under one device pixel on any display. Three
+ * decimals instead costs ~25% more HTML on a slide that is already the
+ * largest this importer produces.
+ */
+function round1(value: number): number {
+  return Math.round(value * 10) / 10;
+}
+
+/**
  * Convert a shape's `a:custGeom` outline into an SVG path `d` string in the
  * shape's own pixel box. Every OOXML path command has an exact SVG
  * counterpart, so a freeform outline — a country on a map, a line-art
@@ -779,9 +790,9 @@ function customGeometryPath(
     // OOXML path space is top-left origin like SVG's, so only the shape's own
     // `flipH`/`flipV` mirror it — there is no axis flip to undo.
     const toX = (x: number) =>
-      round3(element.flipH ? widthPx - x * scaleX : x * scaleX);
+      round1(element.flipH ? widthPx - x * scaleX : x * scaleX);
     const toY = (y: number) =>
-      round3(element.flipV ? heightPx - y * scaleY : y * scaleY);
+      round1(element.flipV ? heightPx - y * scaleY : y * scaleY);
     let currentX = 0;
     let currentY = 0;
     for (const command of path.commands) {
@@ -807,7 +818,7 @@ function customGeometryPath(
             ? 1
             : 0;
         parts.push(
-          `A${round3(command.wR * scaleX)} ${round3(command.hR * scaleY)} 0 ${largeArc} ${sweep} ${toX(currentX)} ${toY(currentY)}`,
+          `A${round1(command.wR * scaleX)} ${round1(command.hR * scaleY)} 0 ${largeArc} ${sweep} ${toX(currentX)} ${toY(currentY)}`,
         );
         continue;
       }

@@ -530,9 +530,10 @@ export default function CodeAgentsHub({
   const previousChatFirstSurfaceTabCountRef = useRef<number | null>(null);
   const visibleChatFirstSurfaceTabs = useMemo(
     () =>
-      chatFirstSurfaceTabs.tabs.filter((tab) =>
-        isVisibleChatFirstSurfaceTab(tab, apps) &&
-        !(terminalPreferences.enabled && tab.kind === "terminal"),
+      chatFirstSurfaceTabs.tabs.filter(
+        (tab) =>
+          isVisibleChatFirstSurfaceTab(tab, apps) &&
+          !(terminalPreferences.enabled && tab.kind === "terminal"),
       ),
     [apps, chatFirstSurfaceTabs.tabs, terminalPreferences.enabled],
   );
@@ -2177,10 +2178,7 @@ export default function CodeAgentsHub({
           activeChatFirstSurfaceKind={activeChatFirstSurfaceTab?.kind}
           railCollapsed={chatFirstRailCollapsed}
           chatFirstMainKind={
-            chatFirstAllAppsOpen ||
-            chatFirstAppTakesMain
-              ? "agent"
-              : "code"
+            chatFirstAllAppsOpen || chatFirstAppTakesMain ? "agent" : "code"
           }
           renderChatFirstMainSurface={
             chatFirstAllAppsOpen ? (

@@ -370,6 +370,18 @@ body {
   border-bottom: 0;
 }
 
+/* Terminal mode occupies the same chat stream/composer region. */
+.desktop-chat-first-hub .code-agents-overview--chat-surface {
+  display: flex;
+  overflow: hidden;
+  padding: 0;
+}
+
+.desktop-chat-first-hub .code-agents-overview--chat-surface > * {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
 .desktop-chat-first-hub .code-agents-start {
   justify-content: flex-start;
   max-width: min(1000px, 100%);
@@ -3267,16 +3279,6 @@ body {
   overflow: hidden;
   background: var(--desktop-terminal-background);
   color: var(--shell-fg);
-}
-
-.desktop-terminal-surface {
-  display: flex;
-  height: 100%;
-  min-width: 0;
-  min-height: 0;
-  flex: 1;
-  flex-direction: column;
-  overflow: hidden;
 }
 
 .desktop-terminal-tabs__body {
