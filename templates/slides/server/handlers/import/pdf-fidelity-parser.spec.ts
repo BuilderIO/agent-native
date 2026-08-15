@@ -686,12 +686,55 @@ function fakeDoc(fnArray: number[], argsArray: unknown[][]) {
 describe("parsePdfFidelity: paint order", () => {
   it("sorts a later-painted image after earlier-painted text instead of always putting images first", async () => {
     const fnArray = [OPS.showText, OPS.transform, OPS.paintImageXObject];
-    const argsArray = [[[{}, {}]], [100, 0, 0, 100, 10, 10], []];
+    const argsArray = [[[{}, {}]], [100, 0, 0, 100, 10, 10], ["image-1"]];
     const doc = fakeDoc(fnArray, argsArray);
     const pages = await parsePdfFidelity(doc, [
-      { pageNumber: 1, images: [{ data: new Uint8Array([1, 2, 3]) }] },
+      {
+        pageNumber: 1,
+        images: [{ data: new Uint8Array([1, 2, 3]), name: "image-1" }],
+      },
     ]);
     expect(pages[0].elements.map((el) => el.kind)).toEqual(["text", "image"]);
+  });
+
+  it("matches extracted image bytes to their named paint rect instead of their filtered array index", async () => {
+    const fnArray = [
+      OPS.save,
+      OPS.transform,
+      OPS.paintImageXObject,
+      OPS.restore,
+      OPS.save,
+      OPS.transform,
+      OPS.paintImageXObject,
+      OPS.restore,
+    ];
+    const argsArray = [
+      [],
+      [100, 0, 0, 100, 10, 10],
+      ["skipped-image"],
+      [],
+      [],
+      [100, 0, 0, 100, 100, 100],
+      ["kept-image"],
+      [],
+    ];
+    const doc = fakeDoc(fnArray, argsArray);
+    const pages = await parsePdfFidelity(doc, [
+      {
+        pageNumber: 1,
+        images: [{ data: new Uint8Array([4, 5, 6]), name: "kept-image" }],
+      },
+    ]);
+
+    const image = pages[0].elements.find((element) => element.kind === "image");
+    expect(image).toMatchObject({
+      kind: "image",
+      x: 1_270_000,
+      y: 1_270_000,
+    });
+    expect(image?.kind).toBe("image");
+    expect(image?.image?.data).toEqual(new Uint8Array([4, 5, 6]));
+    expect(pages[0].imagesSkipped).toBe(1);
   });
 });
 
@@ -701,7 +744,7 @@ describe("parsePdfFidelity: paint order", () => {
 describe("parsePdfFidelity: imagesSkipped", () => {
   it("counts a detected image with no extracted bytes as skipped", async () => {
     const fnArray = [OPS.showText, OPS.transform, OPS.paintImageXObject];
-    const argsArray = [[[{}, {}]], [100, 0, 0, 100, 10, 10], []];
+    const argsArray = [[[{}, {}]], [100, 0, 0, 100, 10, 10], ["image-1"]];
     const doc = fakeDoc(fnArray, argsArray);
     const pages = await parsePdfFidelity(doc, []);
     expect(pages[0].imagesSkipped).toBe(1);

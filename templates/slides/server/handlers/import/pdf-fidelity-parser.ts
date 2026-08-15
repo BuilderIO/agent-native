@@ -28,7 +28,7 @@ export interface PdfFidelityPage {
 /** An embedded raster image already resolved by `pdf.getImage()`, keyed by its page. */
 export interface PdfPageImage {
   pageNumber: number;
-  images: { data: Uint8Array }[];
+  images: { data: Uint8Array; name: string }[];
 }
 
 interface Rect {
@@ -870,6 +870,8 @@ export interface TextColorRun {
 /** An image's placed rect plus its index in this page's real paint order, shared with `TextColorRun.paintOrder` so images and text can be z-ordered by how the PDF actually painted them instead of images always going first. */
 export interface PaintedImageRect extends Rect {
   paintOrder: number;
+  /** The PDF resource name shared with the corresponding `pdf.getImage()` result. */
+  imageName: string | undefined;
 }
 
 interface PageGraphics {
@@ -948,6 +950,7 @@ export async function walkPageGraphics(
       imageRects.push({
         ...rectFromCorners(deviceCorners),
         paintOrder: paintOrder++,
+        imageName: typeof args[0] === "string" ? args[0] : undefined,
       });
     } else if (TEXT_SHOWING_OPS.has(fn)) {
       // Count only the glyph descriptors, not the raw kerning-adjustment
@@ -1079,12 +1082,9 @@ export async function parsePdfFidelity(
   doc: PDFDocumentProxy,
   imagesByPage: PdfPageImage[],
 ): Promise<PdfFidelityPage[]> {
-  const imageBytesByPage = new Map<number, Uint8Array[]>();
+  const imageBytesByPage = new Map<number, PdfPageImage["images"]>();
   for (const entry of imagesByPage) {
-    imageBytesByPage.set(
-      entry.pageNumber,
-      entry.images.map((img) => img.data),
-    );
+    imageBytesByPage.set(entry.pageNumber, entry.images);
   }
 
   const pages: PdfFidelityPage[] = [];
@@ -1111,9 +1111,33 @@ export async function parsePdfFidelity(
         .filter((rect) => rectArea(rect) >= pageArea * 0.4)
         .sort((a, b) => rectArea(b) - rectArea(a))[0];
       const imageBytes = imageBytesByPage.get(pageNumber) ?? [];
+      const rectsByImageName = new Map<string, PaintedImageRect[]>();
+      for (const rect of imageRects) {
+        if (rect.imageName === undefined) continue;
+        const rects = rectsByImageName.get(rect.imageName) ?? [];
+        rects.push(rect);
+        rectsByImageName.set(rect.imageName, rects);
+      }
+      const bytesByImageName = new Map<string, PdfPageImage["images"]>();
+      for (const image of imageBytes) {
+        const images = bytesByImageName.get(image.name) ?? [];
+        images.push(image);
+        bytesByImageName.set(image.name, images);
+      }
+      const imageDataByRect = new Map<PaintedImageRect, Uint8Array>();
+      for (const [imageName, rects] of rectsByImageName) {
+        const images = bytesByImageName.get(imageName);
+        // A resource can be painted more than once. If extraction returned a
+        // different number of occurrences, there is no safe way to know which
+        // placement is missing, so omit all of them rather than misplacing one.
+        if (!images || images.length !== rects.length) continue;
+        for (let index = 0; index < rects.length; index++) {
+          imageDataByRect.set(rects[index], images[index].data);
+        }
+      }
       const imageResults: { element: ParsedElement; paintOrder: number }[] =
         imageRects
-          .map((rect, index) => ({ rect, data: imageBytes[index] }))
+          .map((rect) => ({ rect, data: imageDataByRect.get(rect) }))
           .filter(
             ({ rect, data }) =>
               data &&
