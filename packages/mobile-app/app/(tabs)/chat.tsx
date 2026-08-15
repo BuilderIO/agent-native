@@ -8,13 +8,14 @@ import {
   IconSquareRoundedPlus,
 } from "@tabler/icons-react-native";
 import * as Clipboard from "expo-clipboard";
-import { useFocusEffect } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   AppState,
   Modal,
   Pressable,
+  Platform,
   Share,
   Text,
   View,
@@ -29,6 +30,10 @@ import {
 } from "@/components/chat/ChatSettingsSheet";
 import { Composer } from "@/components/chat/Composer";
 import { MessagesList } from "@/components/chat/MessagesList";
+import {
+  MobileWorkspaceControls,
+  type MobileExecutionTarget,
+} from "@/components/chat/MobileWorkspaceControls";
 import { ThreadHistorySheet } from "@/components/chat/ThreadHistorySheet";
 import { SafeAreaView } from "@/components/uniwind-interop";
 import { createThreadShareLink, forkChatThread } from "@/lib/agent-chat/api";
@@ -90,13 +95,30 @@ function ActionSheetRow({
 const TAB_BAR_HEIGHT = 22;
 
 export default function ChatTab() {
-  const [authState, setAuthState] = useState<AuthState>("checking");
+  const router = useRouter();
+  const isWebPreview =
+    __DEV__ &&
+    Platform.OS === "web" &&
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("preview") === "chat-empty";
+  const [authState, setAuthState] = useState<AuthState>(
+    isWebPreview ? "connected" : "checking",
+  );
   const [historyOpen, setHistoryOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [actionsFor, setActionsFor] = useState<ChatMessage | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [settings, setSettings] = useChatSettings();
+  const [workspaceFolder, setWorkspaceFolder] = useState("");
+  const [workspaceTarget, setWorkspaceTarget] =
+    useState<MobileExecutionTarget>("local");
   const chat = useAgentChat(settings);
+
+  const startNewChat = useCallback(() => {
+    setWorkspaceFolder("");
+    setWorkspaceTarget("local");
+    chat.newChat();
+  }, [chat]);
 
   // A model/engine chosen for one app may not exist in another deployment.
   // Reset to the shared Luna/high default when the active thread's app changes
@@ -111,9 +133,13 @@ export default function ChatTab() {
   }, [chat.baseUrl, settings, setSettings]);
 
   const refreshAuth = useCallback(async () => {
+    if (isWebPreview) {
+      setAuthState("connected");
+      return;
+    }
     const token = await getSessionToken().catch(() => null);
     setAuthState(token ? "connected" : "signed-out");
-  }, []);
+  }, [isWebPreview]);
 
   useFocusEffect(
     useCallback(() => {
@@ -240,7 +266,7 @@ export default function ChatTab() {
         <HeaderButton label="Share chat" onPress={shareThread}>
           <IconShare2 color="#fafafa" size={19} strokeWidth={1.9} />
         </HeaderButton>
-        <HeaderButton label="New chat" onPress={chat.newChat}>
+        <HeaderButton label="New chat" onPress={startNewChat}>
           <IconSquareRoundedPlus color="#fafafa" size={20} strokeWidth={1.9} />
         </HeaderButton>
       </View>
@@ -259,6 +285,15 @@ export default function ChatTab() {
             chat={chat}
             bottomInset={8}
             onMessageActions={setActionsFor}
+            onConnectDesktop={() => router.push("/sessions" as never)}
+          />
+        )}
+        {chat.messages.length === 0 && !chat.historyLoading && (
+          <MobileWorkspaceControls
+            folder={workspaceFolder}
+            target={workspaceTarget}
+            onFolderChange={setWorkspaceFolder}
+            onTargetChange={setWorkspaceTarget}
           />
         )}
         <Composer

@@ -139,13 +139,6 @@
   scrollbar-gutter: stable;
 }
 
-.code-agents-nav-list {
-  display: grid;
-  gap: 1px;
-  padding: 6px var(--code-agents-rail-gutter);
-  border-bottom: 1px solid hsl(var(--sidebar-border));
-}
-
 .code-agents-primary-new-chat-shell {
   position: sticky;
   z-index: 3;
@@ -326,13 +319,15 @@
 }
 
 .code-agents-project-picker--bar {
-  width: 100%;
+  width: min(100%, var(--code-agents-chat-max));
+  max-width: var(--code-agents-chat-max);
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 0;
   border-bottom: 0;
-  margin-top: -10px;
+  margin-top: 8px;
 }
 
 .code-agents-project-picker--bar .code-agents-rail-label,
@@ -348,9 +343,10 @@
 }
 
 .code-agents-project-picker--bar .code-agents-project-select {
+  flex: 0 1 auto;
   width: auto;
   min-width: 0;
-  max-width: 240px;
+  max-width: calc(100% - 100px);
   height: 28px;
   border: 0;
   background: transparent;
@@ -360,6 +356,8 @@
 }
 
 .code-agents-project-picker--bar .code-agents-execution-target-select {
+  flex: 0 0 auto;
+  width: auto;
   max-width: 112px;
   min-width: 96px;
   padding-left: 6px;
@@ -548,8 +546,7 @@
 }
 
 /* The chat-first rail uses one neutral treatment for New chat, Search, and
-   the shared Integrations/Scheduled actions. The legacy Agent rail keeps its
-   active-state styling above. */
+   the shared Integrations/Scheduled actions. */
 .desktop-chat-first-hub .code-agents-nav-link {
   color: hsl(var(--sidebar-foreground) / 0.8);
 }
@@ -1833,6 +1830,69 @@
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.code-agents-provider-runtime-trigger {
+  min-width: 0;
+}
+
+.code-agents-provider-menu {
+  min-width: 184px;
+}
+
+.code-agents-provider-bounce {
+  animation: code-agents-provider-bounce 460ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes code-agents-provider-bounce {
+  0% {
+    transform: translateY(0);
+  }
+  35% {
+    transform: translateY(-5px);
+  }
+  65% {
+    transform: translateY(-1px);
+  }
+  100% {
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .code-agents-provider-bounce {
+    animation: none;
+  }
+}
+
+/* The gate and disabled composer are one connected control on the start
+   surface. The negative margin absorbs the start rail's default gap. */
+.code-agents-start .code-agents-provider-gate {
+  position: relative;
+  z-index: 1;
+  margin-bottom: -18px;
+  border-bottom-color: transparent;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.code-agents-start .code-agents-remote-waitlist-anchor {
+  width: min(100%, var(--code-agents-chat-max));
+  max-width: var(--code-agents-chat-max);
+}
+
+.code-agents-start
+  .code-agents-remote-waitlist-anchor
+  .code-agents-standard-composer {
+  padding-top: 0;
+}
+
+.code-agents-start
+  .code-agents-remote-waitlist-anchor
+  .code-agents-standard-composer
+  [data-agent-composer-slot="root"] {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
 }
 
 .code-agents-provider-gate + .code-agents-standard-composer {

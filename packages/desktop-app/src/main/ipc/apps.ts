@@ -27,7 +27,7 @@ export interface AppsIpcDeps {
   ) => Promise<DesktopAppContextAction | null>;
 }
 
-/** Registers the app-config (sidebar app list) CRUD and creation IPC handlers. */
+/** Registers the app-config (chat-first app rail) CRUD and creation IPC handlers. */
 export function registerAppsIpc(deps: AppsIpcDeps): void {
   const {
     getManagedDesktopAppIds,

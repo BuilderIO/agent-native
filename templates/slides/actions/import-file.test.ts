@@ -418,6 +418,53 @@ describe("import-file PDF source extraction", () => {
     expect(updatedDeck.sourceImport.fidelity).toBe("source-faithful");
   });
 
+  it("resolves a classic 4:3 PowerPoint page size to 4:3, not 1:1", async () => {
+    mockPdfText.mockResolvedValue({ pages: [{ num: 1, text: "" }] });
+    mockParsePdfFidelity.mockResolvedValue([
+      {
+        pageNumber: 1,
+        // 10in x 7.5in in EMU (914400 EMU/in) — the standard 4:3 PPTX page.
+        widthEmu: 9144000,
+        heightEmu: 6858000,
+        backgroundColor: undefined,
+        elements: [{ kind: "image" }],
+      },
+    ]);
+    const updateWhere = vi.fn().mockResolvedValue([]);
+    const db = {
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn().mockResolvedValue([
+              {
+                id: "deck-1",
+                title: "4:3 deck",
+                data: JSON.stringify({ slides: [] }),
+              },
+            ]),
+          })),
+        })),
+      })),
+      update: vi.fn(() => ({
+        set: vi.fn(() => ({ where: updateWhere })),
+      })),
+    };
+    mockGetDb.mockReturnValue(db);
+
+    const result = (await action.run({
+      filePath: "classic.pdf",
+      format: "pdf",
+      deckId: "deck-1",
+      importIntoDeck: true,
+    })) as any;
+
+    expect(result).toMatchObject({
+      imported: true,
+      slideCount: 1,
+      aspectRatio: "4:3",
+    });
+  });
+
   it("retains source provenance when appending to a nonempty deck", async () => {
     mockPdfText.mockResolvedValue({
       pages: [{ num: 1, text: "Appended source page" }],

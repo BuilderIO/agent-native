@@ -29,7 +29,6 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import UpcomingMeetingCard from "@/components/UpcomingMeetingCard";
 import { type CaptureJob, listCaptureJobs } from "@/lib/capture-queue";
-import { useChatFirstMode } from "@/lib/chat-first-mode";
 import {
   hasClipsSessionToken,
   syncCaptureJob,
@@ -372,18 +371,4 @@ export function HomeScreen() {
   );
 }
 
-export default function MobileEntryScreen() {
-  const router = useRouter();
-  const { enabled: chatFirstMode, loaded } = useChatFirstMode();
-
-  useEffect(() => {
-    if (!loaded) return;
-    if (chatFirstMode) router.replace("/chat" as never);
-  }, [chatFirstMode, loaded, router]);
-
-  if (!loaded || chatFirstMode) {
-    return <View className="flex-1 bg-background-dark" />;
-  }
-
-  return <HomeScreen />;
-}
+export default HomeScreen;

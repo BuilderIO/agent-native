@@ -128,7 +128,6 @@ export {
   toAppDefinition,
   generateAppId,
   templateToAppConfig,
-  type FrameSettings,
   TEMPLATES,
   visibleTemplates,
   getTemplate,

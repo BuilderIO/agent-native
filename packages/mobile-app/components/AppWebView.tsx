@@ -87,6 +87,12 @@ const FORCE_REDIRECT_AUTH_SCRIPT = `
   })();
   true;
 `;
+const MOBILE_ANALYTICS_PLATFORM_SCRIPT = `
+  (function () {
+    window.__AGENT_NATIVE_HOST_PLATFORM__ = "mobile";
+  })();
+  true;
+`;
 const SESSION_BRIDGE_SCRIPT = `
   (function () {
     if (window.__agentNativeSessionBridgeRunning) return true;
@@ -509,7 +515,8 @@ function AppWebView(
         }}
         onShouldStartLoadWithRequest={handleShouldStartLoad}
         onMessage={handleMessage}
-        injectedJavaScriptBeforeContentLoaded={FORCE_REDIRECT_AUTH_SCRIPT}
+        injectedJavaScriptBeforeContentLoaded={`${MOBILE_ANALYTICS_PLATFORM_SCRIPT}
+${FORCE_REDIRECT_AUTH_SCRIPT}`}
         javaScriptEnabled
         domStorageEnabled
         sharedCookiesEnabled

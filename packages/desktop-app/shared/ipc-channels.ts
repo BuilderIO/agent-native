@@ -81,10 +81,6 @@ export const IPC = {
   CLIPBOARD_WRITE_TEXT: "clipboard:write-text",
   SHELL_OPEN_EXTERNAL: "shell:open-external",
 
-  /** Frame settings (renderer ↔ main) */
-  FRAME_LOAD: "frame:load",
-  FRAME_UPDATE: "frame:update",
-
   /** Auto-update (renderer ↔ main) */
   UPDATE_CHECK: "update:check",
   UPDATE_DOWNLOAD: "update:download",

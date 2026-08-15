@@ -38,9 +38,11 @@ import {
   IconAlertCircle,
   IconBan,
   IconCheck,
+  IconChevronDown,
   IconClock,
   IconCode,
   IconBrandChrome,
+  IconCloud,
   IconCopy,
   IconDeviceMobile,
   IconDeviceDesktop,
@@ -51,7 +53,6 @@ import {
   IconGitBranch,
   IconLink,
   IconLockAccess,
-  IconPlus,
   IconPlayerPlay,
   IconPlayerStop,
   IconQrcode,
@@ -291,8 +292,6 @@ export interface CodeAgentsAppProps {
   onOpenSettings?: () => void;
   /** Compact actions rendered above the primary surface. */
   mainToolbarSlot?: ReactNode;
-  /** Extra first-party navigation items rendered below New chat. */
-  railNavigationSlot?: ReactNode;
   /** App shortcuts rendered between navigation and the chat history. */
   railWorkspaceSlot?: ReactNode;
   /** Optional actions pinned to the bottom of the rail. */
@@ -304,17 +303,15 @@ export interface CodeAgentsAppProps {
   openDetailRequest?: { detailId: string; nonce: number };
   /** Active chat-first side surface; watch is rendered only when selected. */
   activeChatFirstSurfaceKind?: ChatFirstSurfaceKind;
-  /** Keep session-watch affordances opt-in with the chat-first shell. */
-  chatFirstMode?: boolean;
-  /** Selected primary chat kind in the opt-in chat-first shell. */
+  /** Selected primary chat kind in the chat-first shell. */
   chatFirstMainKind?: "agent" | "code";
   /** Keep the chat-first navigation rail in its compact icon-only state. */
   railCollapsed?: boolean;
   /** Hide host transport-unavailable copy while the chat-first shell is booting. */
   suppressChatFirstUnavailableNotice?: boolean;
-  /** Select the primary chat kind in the opt-in chat-first shell. */
+  /** Select the primary chat kind in the chat-first shell. */
   onChatFirstMainKindChange?: (kind: "agent" | "code") => void;
-  /** Host-rendered shared Agent-Native chat surface for chat-first mode. */
+  /** Host-rendered shared Agent-Native chat surface for the agent chat tab. */
   renderChatFirstMainSurface?: ReactNode;
   /** Navigation callbacks for the shared chat-first rail. */
   chatFirstNavigation?: {
@@ -489,16 +486,33 @@ const CODE_AGENT_LOCAL_ENGINES = new Set([
   "opencode-cli",
 ]);
 
+type LocalRuntimeEngine = "codex-cli" | "claude-cli";
+
+function getLocalRuntimeOptions(
+  modelOptions: CodeAgentModelOption[],
+): Array<{ engine: LocalRuntimeEngine; label: string }> {
+  const availableEngines = new Set(
+    modelOptions
+      .map((option) => option.engine)
+      .filter(
+        (engine): engine is LocalRuntimeEngine =>
+          engine === "codex-cli" || engine === "claude-cli",
+      ),
+  );
+  return (["codex-cli", "claude-cli"] as const)
+    .filter((engine) => availableEngines.has(engine))
+    .map((engine) => ({
+      engine,
+      label:
+        engine === "codex-cli" ? "Sign in with ChatGPT" : "Sign in with Claude",
+    }));
+}
+
 const CODE_AGENT_RUNTIME_OPTIONS = [
   {
     id: "default",
     label: "Default",
     description: "Agent Native hosted chat",
-  },
-  {
-    id: "remote",
-    label: "Remote",
-    description: "Run in the cloud",
   },
   {
     id: "codex",
@@ -636,7 +650,6 @@ export default function CodeAgentsApp({
   brandIconUrl,
   onOpenSettings,
   mainToolbarSlot,
-  railNavigationSlot,
   railWorkspaceSlot,
   railFooterSlot,
   overviewFooterSlot,
@@ -644,7 +657,6 @@ export default function CodeAgentsApp({
   newSessionExtension,
   openDetailRequest,
   activeChatFirstSurfaceKind,
-  chatFirstMode = false,
   chatFirstMainKind = "code",
   railCollapsed = false,
   suppressChatFirstUnavailableNotice = false,
@@ -673,8 +685,6 @@ export default function CodeAgentsApp({
   const watchedSessionTargetGoalId = watchedSessionTarget?.goalId ?? null;
   const selectedRunIdRef = useRef(selectedRunId);
   selectedRunIdRef.current = selectedRunId;
-  const chatFirstModeRef = useRef(chatFirstMode);
-  chatFirstModeRef.current = chatFirstMode;
   const onChatFirstMainKindChangeRef = useRef(onChatFirstMainKindChange);
   onChatFirstMainKindChangeRef.current = onChatFirstMainKindChange;
   const toggleRunPinnedRef = useRef<(run: CodeAgentRun) => Promise<void>>(
@@ -823,6 +833,7 @@ export default function CodeAgentsApp({
   const [remoteConnectorPairing, setRemoteConnectorPairing] = useState(false);
   const [remoteConnectorUpdating, setRemoteConnectorUpdating] = useState(false);
   const [remoteWaitlistOpen, setRemoteWaitlistOpen] = useState(false);
+  const remoteWaitlistOpeningRef = useRef(false);
   const [searchPanelOpen, setSearchPanelOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchRuns, setSearchRuns] = useState<CodeAgentRun[]>([]);
@@ -1375,17 +1386,11 @@ export default function CodeAgentsApp({
     if (nextGoal) setSelectedGoalId(nextGoal.id);
     setSelectedExtensionDetailId(null);
     selectRun(openRequest.runId ?? null);
-    setWorkbenchOpen(!chatFirstMode);
+    setWorkbenchOpen(false);
     setSearchPanelOpen(false);
     setMobilePanelOpen(false);
     void loadRuns(true);
-  }, [
-    chatFirstMode,
-    loadRuns,
-    onChatFirstMainKindChange,
-    openRequest,
-    selectRun,
-  ]);
+  }, [loadRuns, onChatFirstMainKindChange, openRequest, selectRun]);
 
   const hasActiveRuns = useMemo(() => runs.some(isRunActive), [runs]);
   const selectedRunIsActive = selectedRun ? isRunActive(selectedRun) : false;
@@ -1397,17 +1402,25 @@ export default function CodeAgentsApp({
     () => buildCodeAgentSlashCommands(codePack),
     [codePack],
   );
-  const canOpenTerminal = !chatFirstMode && Boolean(host.openTerminal);
+  const canOpenTerminal = false;
   const canChooseProjectFolder = Boolean(host.chooseProject);
   const providerGate = useMemo(
     () => getProviderGate(hostMetadata),
     [hostMetadata],
   );
+  const computerControlMetadata = hostMetadata?.computerControl
+    ? hostMetadata!
+    : null;
+  const [providerGateBouncePulse, setProviderGateBouncePulse] = useState(0);
+  const bounceProviderGate = useCallback(() => {
+    setProviderGateBouncePulse((pulse) => pulse + 1);
+  }, []);
   // `listModels` only includes local runtimes when their CLI is installed.
   // Keep sign-in hidden until the host has confirmed the capability.
-  const localRuntimeEngine = modelOptions.find(
-    (option) => option.engine === "codex-cli" || option.engine === "claude-cli",
-  )?.engine;
+  const localRuntimeOptions = useMemo(
+    () => getLocalRuntimeOptions(modelOptions),
+    [modelOptions],
+  );
   const supportsExecutionTarget = CODE_AGENT_LOCAL_ENGINES.has(
     selectedModelSelection.engine ?? "",
   );
@@ -1594,7 +1607,7 @@ export default function CodeAgentsApp({
     selectedRunIsActive,
   ]);
 
-  // Cmd+N / Ctrl+N — start a new chat from anywhere in the Code tab.
+  // Cmd+N / Ctrl+N — start a new chat from anywhere in the workbench.
   // Use a ref so the effect is stable and doesn't re-register on every render.
   const openSelectedGoalRef = useRef(openSelectedGoal);
   openSelectedGoalRef.current = openSelectedGoal;
@@ -2201,34 +2214,32 @@ export default function CodeAgentsApp({
           <IconCopy size={13} strokeWidth={1.8} />
           <span>Copy session ID</span>
         </button>
-        {chatFirstModeRef.current ? (
-          <button
-            type="button"
-            role="menuitem"
-            className="an-chat-history-row__menu-item"
-            onClick={() => {
-              closeMenu();
-              const run = runsRef.current.find(
-                (candidate) => candidate.id === item.id,
-              );
-              if (!run) return;
-              emitChatFirstSessionWatch({
-                sessionId: item.id,
-                title: getRunTitle(run) ?? "Untitled session",
-                kind: "code-agent",
-                goalId: run.goalId,
-                sourceSessionId: selectedRunIdRef.current ?? undefined,
-              });
-            }}
-          >
-            <IconEye size={13} strokeWidth={1.8} />
-            <span>
-              {watchedSessionTargetRef.current?.sessionId === item.id
-                ? "Keep watching session"
-                : "Watch and message session"}
-            </span>
-          </button>
-        ) : null}
+        <button
+          type="button"
+          role="menuitem"
+          className="an-chat-history-row__menu-item"
+          onClick={() => {
+            closeMenu();
+            const run = runsRef.current.find(
+              (candidate) => candidate.id === item.id,
+            );
+            if (!run) return;
+            emitChatFirstSessionWatch({
+              sessionId: item.id,
+              title: getRunTitle(run) ?? "Untitled session",
+              kind: "code-agent",
+              goalId: run.goalId,
+              sourceSessionId: selectedRunIdRef.current ?? undefined,
+            });
+          }}
+        >
+          <IconEye size={13} strokeWidth={1.8} />
+          <span>
+            {watchedSessionTargetRef.current?.sessionId === item.id
+              ? "Keep watching session"
+              : "Watch and message session"}
+          </span>
+        </button>
       </>
     ),
     [],
@@ -2243,105 +2254,30 @@ export default function CodeAgentsApp({
   return (
     <section
       className={`code-agents-surface${
-        chatFirstMode && railCollapsed
-          ? " code-agents-surface--rail-collapsed"
-          : ""
+        railCollapsed ? " code-agents-surface--rail-collapsed" : ""
       }`}
       aria-label="Agent workspace"
     >
       <aside
         className={`code-agents-rail${
-          chatFirstMode && railCollapsed ? " code-agents-rail--collapsed" : ""
+          railCollapsed ? " code-agents-rail--collapsed" : ""
         }`}
         aria-label="Agent chats and navigation"
       >
-        {chatFirstMode ? (
-          <div className="code-agents-window-drag-region" aria-hidden="true" />
-        ) : null}
+        <div className="code-agents-window-drag-region" aria-hidden="true" />
         <div className="code-agents-rail-scroll">
-          {chatFirstMode ? (
-            <ChatFirstPrimaryNavigation
-              onNewChat={() => {
-                chatFirstNavigation?.onNewChat?.();
-                openSelectedGoal();
-              }}
-              onOpenIntegrations={() =>
-                chatFirstNavigation?.onOpenIntegrations()
-              }
-              onOpenScheduled={() => chatFirstNavigation?.onOpenScheduled()}
-              onSearch={openSearchPanel}
-              activeTab={chatFirstNavigation?.activeTab}
-              collapsed={railCollapsed}
-              stickyNewChat
-            />
-          ) : (
-            <div className="code-agents-nav-list" aria-label="Agent navigation">
-              <>
-                <button
-                  type="button"
-                  className={`code-agents-nav-link${
-                    !chatFirstMode &&
-                    !searchPanelOpen &&
-                    !mobilePanelOpen &&
-                    !selectedRunId &&
-                    (!chatFirstMode || chatFirstMainKind === "code")
-                      ? " code-agents-nav-link--active"
-                      : ""
-                  }`}
-                  style={
-                    chatFirstMode
-                      ? { color: "hsl(var(--sidebar-foreground) / 0.8)" }
-                      : undefined
-                  }
-                  onClick={openSelectedGoal}
-                  aria-pressed={
-                    !chatFirstMode &&
-                    !searchPanelOpen &&
-                    !mobilePanelOpen &&
-                    !selectedRunId &&
-                    (!chatFirstMode || chatFirstMainKind === "code")
-                  }
-                >
-                  <IconPlus size={15} strokeWidth={1.8} />
-                  <span>New chat</span>
-                </button>
-                {railNavigationSlot}
-                <button
-                  type="button"
-                  className={`code-agents-nav-link${
-                    !chatFirstMode && searchPanelOpen
-                      ? " code-agents-nav-link--active"
-                      : ""
-                  }`}
-                  style={
-                    chatFirstMode
-                      ? { color: "hsl(var(--sidebar-foreground) / 0.8)" }
-                      : undefined
-                  }
-                  onClick={openSearchPanel}
-                  aria-pressed={searchPanelOpen}
-                >
-                  <IconSearch size={15} strokeWidth={1.8} />
-                  <span>Search</span>
-                </button>
-                {host.getRemoteConnectorStatus && (
-                  <MobileRailItem
-                    status={remoteConnectorStatus}
-                    error={remoteConnectorError}
-                    active={mobilePanelOpen}
-                    onOpen={openMobilePanel}
-                  />
-                )}
-                {hostMetadata?.computerControl && (
-                  <ComputerAccessRailItem
-                    metadata={hostMetadata}
-                    onOpen={() => setComputerSetupOpen(true)}
-                  />
-                )}
-              </>
-            </div>
-          )}
-
+          <ChatFirstPrimaryNavigation
+            onNewChat={() => {
+              chatFirstNavigation?.onNewChat?.();
+              openSelectedGoal();
+            }}
+            onOpenIntegrations={() => chatFirstNavigation?.onOpenIntegrations()}
+            onOpenScheduled={() => chatFirstNavigation?.onOpenScheduled()}
+            onSearch={openSearchPanel}
+            activeTab={chatFirstNavigation?.activeTab}
+            collapsed={railCollapsed}
+            stickyNewChat
+          />
           {railWorkspaceSlot}
 
           <ChatFirstChatHistory
@@ -2384,14 +2320,11 @@ export default function CodeAgentsApp({
         {mainToolbarSlot ? (
           <div className="code-agents-main-toolbar">{mainToolbarSlot}</div>
         ) : null}
-        {chatFirstMode &&
-        chatFirstMainKind === "agent" &&
-        renderChatFirstMainSurface ? (
+        {chatFirstMainKind === "agent" && renderChatFirstMainSurface ? (
           renderChatFirstMainSurface
         ) : (
           <>
-            {chatFirstMode &&
-            !onWatchedRunChange &&
+            {!onWatchedRunChange &&
             watchedRun &&
             (!activeChatFirstSurfaceKind ||
               activeChatFirstSurfaceKind === "side-chat") ? (
@@ -2502,7 +2435,6 @@ export default function CodeAgentsApp({
                       <>
                         {status !== "ok" &&
                         !(
-                          chatFirstMode &&
                           suppressChatFirstUnavailableNotice &&
                           status === "unavailable"
                         ) ? (
@@ -2568,21 +2500,26 @@ export default function CodeAgentsApp({
                                   description={providerGate.description}
                                   connecting={builderConnecting}
                                   message={builderConnectMessage}
+                                  bouncePulse={providerGateBouncePulse}
                                   onConnectBuilder={connectBuilderProvider}
                                   onOpenSettings={onOpenSettings}
+                                  localRuntimeOptions={localRuntimeOptions}
                                   onConnectLocalRuntime={
                                     host.openTerminal
-                                      ? () =>
-                                          void connectLocalRuntime(
-                                            localRuntimeEngine ?? "codex-cli",
-                                          )
+                                      ? connectLocalRuntime
                                       : undefined
                                   }
                                 />
                               )}
                             <RemoteWaitlistPopover
                               open={remoteWaitlistOpen}
-                              onOpenChange={setRemoteWaitlistOpen}
+                              onOpenChange={(open) => {
+                                if (!open && remoteWaitlistOpeningRef.current) {
+                                  remoteWaitlistOpeningRef.current = false;
+                                  return;
+                                }
+                                setRemoteWaitlistOpen(open);
+                              }}
                               submit={host.submitRemoteWaitlist}
                             >
                               <NewSessionComposer
@@ -2601,6 +2538,12 @@ export default function CodeAgentsApp({
                                     ? activeNewSessionExtension.disabled
                                     : providerGate.blocked
                                 }
+                                onDisabledClick={
+                                  !activeNewSessionExtension &&
+                                  providerGate.blocked
+                                    ? bounceProviderGate
+                                    : undefined
+                                }
                                 modeControl={newSessionExtension?.renderModeControl?.(
                                   {
                                     permissionMode: newRunPermissionMode,
@@ -2617,9 +2560,6 @@ export default function CodeAgentsApp({
                                 onPromptChange={setNewPrompt}
                                 onPermissionModeChange={setNewRunPermissionMode}
                                 onModelSelectionChange={setModelSelection}
-                                onRemoteAgentSelect={() =>
-                                  setRemoteWaitlistOpen(true)
-                                }
                                 onSlashCommand={
                                   activeNewSessionExtension
                                     ? undefined
@@ -2646,6 +2586,18 @@ export default function CodeAgentsApp({
                                   canChoose={canChooseProjectFolder}
                                   onSelect={selectProjectFolder}
                                   onChoose={chooseProjectFolder}
+                                  onRemoteSelect={() => {
+                                    remoteWaitlistOpeningRef.current = true;
+                                    // Radix Select renders its menu in a portal;
+                                    // wait until that dismissal finishes before
+                                    // opening the surrounding waitlist popover.
+                                    globalThis.setTimeout(() => {
+                                      setRemoteWaitlistOpen(true);
+                                      globalThis.setTimeout(() => {
+                                        remoteWaitlistOpeningRef.current = false;
+                                      }, 0);
+                                    }, 0);
+                                  }}
                                   onExecutionTargetChange={
                                     setNewRunExecutionTarget
                                   }
@@ -2967,6 +2919,7 @@ function ProjectFolderPicker({
   canChoose,
   onSelect,
   onChoose,
+  onRemoteSelect,
   onExecutionTargetChange,
 }: {
   variant?: "rail" | "bar";
@@ -2978,6 +2931,7 @@ function ProjectFolderPicker({
   canChoose: boolean;
   onSelect: (path: string) => void;
   onChoose: () => void;
+  onRemoteSelect?: () => void;
   onExecutionTargetChange?: (target: CodeAgentExecutionTarget) => void;
 }) {
   const active = projects.find((project) => project.path === selectedPath);
@@ -2988,40 +2942,6 @@ function ProjectFolderPicker({
     >
       <p className="code-agents-rail-label">Folder</p>
       <div className="code-agents-project-picker__row">
-        {showExecutionTarget && onExecutionTargetChange ? (
-          <Select
-            value={executionTarget}
-            onValueChange={(value) =>
-              onExecutionTargetChange(value as CodeAgentExecutionTarget)
-            }
-          >
-            <SelectTrigger
-              className="code-agents-project-select code-agents-execution-target-select"
-              aria-label="Select workspace"
-            >
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent className="code-agents-select-content">
-              <SelectGroup>
-                <SelectItem value="local">
-                  <span className="code-agents-project-select__item">
-                    <IconDeviceDesktop size={14} strokeWidth={1.8} />
-                    <span>Local</span>
-                  </span>
-                </SelectItem>
-                <SelectItem
-                  value="worktree"
-                  description="Start an isolated copy from the latest commit"
-                >
-                  <span className="code-agents-project-select__item">
-                    <IconGitBranch size={14} strokeWidth={1.8} />
-                    <span>Worktree</span>
-                  </span>
-                </SelectItem>
-              </SelectGroup>
-            </SelectContent>
-          </Select>
-        ) : null}
         <Select
           value={selectedPath || ""}
           disabled={loading || projects.length === 0}
@@ -3062,6 +2982,53 @@ function ProjectFolderPicker({
             </SelectGroup>
           </SelectContent>
         </Select>
+        {showExecutionTarget && onExecutionTargetChange ? (
+          <Select
+            value={executionTarget}
+            onValueChange={(value) => {
+              if (value === "remote") {
+                onRemoteSelect?.();
+                return;
+              }
+              onExecutionTargetChange(value as CodeAgentExecutionTarget);
+            }}
+          >
+            <SelectTrigger
+              className="code-agents-project-select code-agents-execution-target-select"
+              aria-label="Select workspace"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent className="code-agents-select-content">
+              <SelectGroup>
+                <SelectItem value="local">
+                  <span className="code-agents-project-select__item">
+                    <IconDeviceDesktop size={14} strokeWidth={1.8} />
+                    <span>Local</span>
+                  </span>
+                </SelectItem>
+                <SelectItem
+                  value="worktree"
+                  description="Start an isolated copy from the latest commit"
+                >
+                  <span className="code-agents-project-select__item">
+                    <IconGitBranch size={14} strokeWidth={1.8} />
+                    <span>Worktree</span>
+                  </span>
+                </SelectItem>
+                <SelectItem
+                  value="remote"
+                  description="Run in the cloud - join the waitlist"
+                >
+                  <span className="code-agents-project-select__item">
+                    <IconCloud size={14} strokeWidth={1.8} />
+                    <span>Remote</span>
+                  </span>
+                </SelectItem>
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        ) : null}
       </div>
       <p className="code-agents-project-path" title={active?.path}>
         {active?.path ??
@@ -3089,11 +3056,11 @@ function NewSessionComposer({
   onPromptChange,
   onPermissionModeChange,
   onModelSelectionChange,
-  onRemoteAgentSelect,
   onSlashCommand,
   onSubmit,
   onConnectProvider,
   onConnectLocalRuntime,
+  onDisabledClick,
 }: {
   prompt: string;
   promptSeed: number;
@@ -3110,7 +3077,6 @@ function NewSessionComposer({
   onPromptChange: (value: string) => void;
   onPermissionModeChange: (value: CodeAgentPermissionMode) => void;
   onModelSelectionChange: (value: CodeAgentModelSelection) => void;
-  onRemoteAgentSelect?: () => void;
   onSlashCommand?: (command: string) => void;
   onSubmit: (
     preparedPrompt: string,
@@ -3118,6 +3084,7 @@ function NewSessionComposer({
   ) => void;
   onConnectProvider?: () => void;
   onConnectLocalRuntime?: (engine: string) => void;
+  onDisabledClick?: () => void;
 }) {
   return (
     <CodeAgentComposer
@@ -3138,11 +3105,11 @@ function NewSessionComposer({
       onPromptChange={onPromptChange}
       onPermissionModeChange={onPermissionModeChange}
       onModelSelectionChange={onModelSelectionChange}
-      onRemoteAgentSelect={onRemoteAgentSelect}
       onSlashCommand={onSlashCommand}
       onSubmit={onSubmit}
       onConnectProvider={onConnectProvider}
       onConnectLocalRuntime={onConnectLocalRuntime}
+      onDisabledClick={onDisabledClick}
     />
   );
 }
@@ -3163,12 +3130,12 @@ function CodeAgentComposer({
   onPromptChange,
   onPermissionModeChange,
   onModelSelectionChange,
-  onRemoteAgentSelect,
   onSlashCommand,
   onSubmit,
   onStop,
   onConnectProvider,
   onConnectLocalRuntime,
+  onDisabledClick,
   modeControl: modeControlOverride,
   useDefaultModeControl = true,
   showModelSelector = true,
@@ -3188,7 +3155,6 @@ function CodeAgentComposer({
   onPromptChange: (value: string) => void;
   onPermissionModeChange: (value: CodeAgentPermissionMode) => void;
   onModelSelectionChange: (value: CodeAgentModelSelection) => void;
-  onRemoteAgentSelect?: () => void;
   onSlashCommand?: (command: string) => void;
   onSubmit: (
     preparedPrompt: string,
@@ -3198,6 +3164,7 @@ function CodeAgentComposer({
   onStop?: () => void;
   onConnectProvider?: () => void;
   onConnectLocalRuntime?: (engine: string) => void;
+  onDisabledClick?: () => void;
   modeControl?: React.ReactNode;
   useDefaultModeControl?: boolean;
   showModelSelector?: boolean;
@@ -3205,27 +3172,16 @@ function CodeAgentComposer({
   const normalizedModel = normalizeModelSelection(modelSelection, modelOptions);
   const availableModels = groupCodeAgentModelOptions(modelOptions);
   const availableAgents = showModelSelector
-    ? getCodeAgentPickerOptions(modelOptions).filter(
-        (agent) => agent.id !== "remote" || Boolean(onRemoteAgentSelect),
-      )
+    ? getCodeAgentPickerOptions(modelOptions)
     : undefined;
   const selectedAgent = getCodeAgentIdForEngine(normalizedModel.engine);
   const handleAgentChange = useCallback(
     (agent: string) => {
-      if (agent === "remote") {
-        onRemoteAgentSelect?.();
-        return;
-      }
       onModelSelectionChange(
         getCodeAgentSelection(agent, normalizedModel, modelOptions),
       );
     },
-    [
-      modelOptions,
-      normalizedModel,
-      onModelSelectionChange,
-      onRemoteAgentSelect,
-    ],
+    [modelOptions, normalizedModel, onModelSelectionChange],
   );
 
   const readPromptFiles = useCallback(
@@ -3331,6 +3287,7 @@ function CodeAgentComposer({
       preserveDraftOnSubmit={false}
       onConnectProvider={onConnectProvider}
       onConnectLocalRuntime={onConnectLocalRuntime}
+      onDisabledClick={onDisabledClick}
     />
   );
 }
@@ -3385,16 +3342,23 @@ function ProviderGateNotice({
   description,
   connecting,
   message,
+  bouncePulse,
   onConnectBuilder,
   onOpenSettings,
+  localRuntimeOptions,
   onConnectLocalRuntime,
 }: {
   description: string;
   connecting: boolean;
   message: string | null;
+  bouncePulse?: number;
   onConnectBuilder: () => void;
   onOpenSettings?: () => void;
-  onConnectLocalRuntime?: () => void;
+  localRuntimeOptions?: Array<{
+    engine: LocalRuntimeEngine;
+    label: string;
+  }>;
+  onConnectLocalRuntime?: (engine: string) => void;
 }) {
   return (
     <CodeProviderNotice
@@ -3404,7 +3368,8 @@ function ProviderGateNotice({
       primaryActionLabel={connecting ? "Waiting..." : "Connect Builder.io"}
       primaryDisabled={connecting}
       onPrimaryAction={onConnectBuilder}
-      localRuntimeActionLabel="Sign in with ChatGPT"
+      bouncePulse={bouncePulse}
+      localRuntimeOptions={localRuntimeOptions}
       onConnectLocalRuntime={onConnectLocalRuntime}
       secondaryActionLabel="Custom keys"
       onOpenSettings={onOpenSettings}
@@ -3419,10 +3384,11 @@ function CodeProviderNotice({
   primaryActionLabel,
   primaryDisabled,
   onPrimaryAction,
-  localRuntimeActionLabel,
+  localRuntimeOptions = [],
   onConnectLocalRuntime,
   secondaryActionLabel,
   onOpenSettings,
+  bouncePulse,
 }: {
   className: string;
   title: string;
@@ -3430,13 +3396,31 @@ function CodeProviderNotice({
   primaryActionLabel?: string;
   primaryDisabled?: boolean;
   onPrimaryAction?: () => void;
-  localRuntimeActionLabel?: string;
-  onConnectLocalRuntime?: () => void;
+  localRuntimeOptions?: Array<{
+    engine: LocalRuntimeEngine;
+    label: string;
+  }>;
+  onConnectLocalRuntime?: (engine: string) => void;
   secondaryActionLabel?: string;
   onOpenSettings?: () => void;
+  bouncePulse?: number;
 }) {
+  const noticeRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!bouncePulse) return;
+    const element = noticeRef.current;
+    if (!element) return;
+    element.classList.remove("code-agents-provider-bounce");
+    void element.offsetWidth;
+    element.classList.add("code-agents-provider-bounce");
+  }, [bouncePulse]);
+
+  const showRuntimeMenu =
+    localRuntimeOptions.length > 0 && Boolean(onConnectLocalRuntime);
+  const customKeysLabel = secondaryActionLabel ?? "Custom keys";
+
   return (
-    <div className={className}>
+    <div ref={noticeRef} className={className}>
       <IconAlertCircle size={16} strokeWidth={1.8} />
       <div>
         <strong>{title}</strong>
@@ -3453,25 +3437,45 @@ function CodeProviderNotice({
             {primaryActionLabel}
           </button>
         )}
-        {onConnectLocalRuntime && localRuntimeActionLabel && (
-          <button
-            type="button"
-            className="code-agents-button"
-            onClick={onConnectLocalRuntime}
-          >
-            <IconTerminal2 size={14} strokeWidth={1.8} />
-            {localRuntimeActionLabel}
-          </button>
-        )}
-        {onOpenSettings && secondaryActionLabel && (
+        {showRuntimeMenu ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="code-agents-button code-agents-provider-runtime-trigger"
+              >
+                {localRuntimeOptions[0].label}
+                <IconChevronDown size={14} strokeWidth={1.8} />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="end"
+              className="code-agents-provider-menu"
+            >
+              {localRuntimeOptions.slice(1).map((option) => (
+                <DropdownMenuItem
+                  key={option.engine}
+                  onSelect={() => onConnectLocalRuntime?.(option.engine)}
+                >
+                  {option.label}
+                </DropdownMenuItem>
+              ))}
+              {onOpenSettings && (
+                <DropdownMenuItem onSelect={onOpenSettings}>
+                  {customKeysLabel}
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : onOpenSettings && customKeysLabel ? (
           <button
             type="button"
             className="code-agents-button"
             onClick={onOpenSettings}
           >
-            {secondaryActionLabel}
+            {customKeysLabel}
           </button>
-        )}
+        ) : null}
       </div>
     </div>
   );
@@ -3540,7 +3544,7 @@ export function groupCodeAgentModelOptions(models: CodeAgentModelOption[]) {
 
 export function getCodeAgentPickerOptions(models: CodeAgentModelOption[]) {
   return CODE_AGENT_RUNTIME_OPTIONS.map((agent) => {
-    if (agent.id === "default" || agent.id === "remote") {
+    if (agent.id === "default") {
       return { ...agent, configured: true };
     }
 
@@ -3577,7 +3581,6 @@ export function getCodeAgentSelection(
   current: CodeAgentModelSelection,
   models: CodeAgentModelOption[],
 ): CodeAgentModelSelection {
-  if (agentId === "remote") return current;
   const engine = getCodeAgentEngine(agentId);
   const candidates = models.filter((model) =>
     engine
@@ -4495,7 +4498,7 @@ function RunDetailCard({
         <p>
           {selectedRunId
             ? `Open ${goal.surfaceLabel} to load the linked chat.`
-            : "Start a new chat or choose one from the sidebar."}
+            : "Start a new chat or choose one from the rail."}
         </p>
       </div>
     );
@@ -4518,21 +4521,6 @@ function RunDetailCard({
     : false;
   const showApprovalBanner =
     Boolean(pendingApproval) && !hasInlineApprovalAffordance;
-  const localRuntimeOption =
-    modelOptions.find(
-      (option) =>
-        option.engine === modelSelection.engine &&
-        (option.engine === "codex-cli" || option.engine === "claude-cli"),
-    ) ??
-    modelOptions.find(
-      (option) =>
-        option.engine === "codex-cli" || option.engine === "claude-cli",
-    );
-  const localRuntimeEngine = localRuntimeOption?.engine;
-  const localRuntimeLabel =
-    localRuntimeEngine === "claude-cli"
-      ? "Sign in with Claude"
-      : "Sign in with ChatGPT";
 
   return (
     <div className="code-agents-detail code-agents-detail--chat">
@@ -4549,12 +4537,8 @@ function RunDetailCard({
           }
           primaryDisabled={builderConnecting}
           onPrimaryAction={onConnectBuilder}
-          localRuntimeActionLabel={localRuntimeLabel}
-          onConnectLocalRuntime={
-            onConnectLocalRuntime && localRuntimeEngine
-              ? () => onConnectLocalRuntime(localRuntimeEngine)
-              : undefined
-          }
+          localRuntimeOptions={getLocalRuntimeOptions(modelOptions)}
+          onConnectLocalRuntime={onConnectLocalRuntime}
           secondaryActionLabel="Custom keys"
           onOpenSettings={onOpenSettings}
         />

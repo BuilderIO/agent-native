@@ -620,6 +620,8 @@ interface RawPlaceholderShapeFill {
   type?: string;
   idx?: string;
   fillsByLevel: Record<number, Record<string, unknown> | null>;
+  /** This placeholder shape's own `<p:spPr><a:xfrm>`, when the layout/master author gave it explicit position/size — absent for placeholder types (commonly Google Slides' `idx="4294967295"` sentinel) that inherit geometry from further up the chain, or nowhere at all. */
+  transform?: ParsedShapeTransform;
 }
 
 /** Parses every direct placeholder shape out of a slideLayout's or slideMaster's `p:spTree`, keyed by that shape's own `<p:ph>` `type`/`idx` — reuses `extractDirectShapeFragments`, since layouts and masters share the same `spTree` structure slides do. */
@@ -632,12 +634,14 @@ function parsePlaceholderShapeFills(
     const node = record(record(parseXml(fragment))?.["p:sp"]);
     const ph = record(record(record(node?.["p:nvSpPr"])?.["p:nvPr"])?.["p:ph"]);
     if (!node || !ph) continue;
+    const transform = readTransform(node, "p:spPr");
     placeholders.push({
       type: stringValue(ph["@_type"]),
       idx: stringValue(ph["@_idx"]),
       fillsByLevel: levelFillsFromTextStyle(
         record(record(node["p:txBody"])?.["a:lstStyle"]),
       ),
+      ...(transform.width > 0 && transform.height > 0 ? { transform } : {}),
     });
   }
   return placeholders;
@@ -657,6 +661,7 @@ function resolvePlaceholderShapeColors(
         parseColor(fill, colorContext),
       ]),
     ),
+    transform: placeholder.transform,
   }));
 }
 
@@ -822,7 +827,12 @@ async function parseShapeFragment(
     const groupTransform = readTransform(node, "p:grpSpPr");
     const groupXfrm = record(record(node["p:grpSpPr"])?.["a:xfrm"]);
     const childOffset = readPoint(groupXfrm?.["a:chOff"]);
-    const childExtent = readPoint(groupXfrm?.["a:chExt"]);
+    // `a:chExt` carries `cx`/`cy` attributes like `a:ext`, not `x`/`y` like
+    // `a:off`/`a:chOff` — using `readPoint` here silently read 0, which made
+    // every scaled group (chExt != ext) fall back to an identity scale and
+    // rendered children at their unscaled local size (e.g. a connector/line
+    // shape's width/height came out too large, overflowing the canvas).
+    const childExtent = readExtent(groupXfrm?.["a:chExt"]);
     const groupScaleX =
       childExtent.x > 0 ? groupTransform.width / childExtent.x : 1;
     const groupScaleY =
@@ -873,26 +883,6 @@ async function parseShapeFragment(
   }
 
   const localTransform = readTransform(node, "p:spPr");
-  // A placeholder shape (`<p:ph>`) commonly omits its own `<a:xfrm>` on the
-  // slide, inheriting position/size from the matching placeholder on the
-  // slide layout/master instead — that layout/master inheritance chain isn't
-  // implemented, so without this fallback the shape silently lands at a
-  // literal 0×0 box, making real title/body text invisible instead of just
-  // mispositioned. This substitutes the slide's own content box so the text
-  // is at least visible; it won't match the placeholder's real authored
-  // position/size.
-  const hasOwnSize = localTransform.width > 0 && localTransform.height > 0;
-  const effectiveLocalTransform =
-    entry === "sp" && !hasOwnSize
-      ? {
-          ...localTransform,
-          x: 0,
-          y: 0,
-          width: args.slideWidthEmu ?? FALLBACK_SLIDE_WIDTH_EMU,
-          height: args.slideHeightEmu ?? FALLBACK_SLIDE_HEIGHT_EMU,
-        }
-      : localTransform;
-  const transform = applyTransform(effectiveLocalTransform, args.context);
   const id = readShapeId(node);
   const name = readShapeName(node);
   const placeholder = record(
@@ -900,6 +890,41 @@ async function parseShapeFragment(
   );
   const placeholderType = stringValue(placeholder?.["@_type"]);
   const placeholderIdx = stringValue(placeholder?.["@_idx"]);
+  // A placeholder shape (`<p:ph>`) commonly omits its own `<a:xfrm>` on the
+  // slide, inheriting position/size from the matching placeholder on the
+  // slide layout/master instead. Try the layout's own placeholder shape
+  // first, then the master's — same order as the color inheritance chain
+  // above — and only fall back to the slide's own content box when neither
+  // defines explicit geometry for this placeholder either (real for
+  // `idx="4294967295"` sentinel placeholders in some Google Slides exports).
+  // Without that last-resort fallback the shape would land at a literal 0×0
+  // box, making real title/body text invisible instead of just mispositioned.
+  const hasOwnSize = localTransform.width > 0 && localTransform.height > 0;
+  const inheritedTransform =
+    entry === "sp" && !hasOwnSize && placeholder && args.placeholderDefaults
+      ? resolvePlaceholderTransform({
+          type: placeholderType,
+          idx: placeholderIdx,
+          defaults: args.placeholderDefaults,
+        })
+      : undefined;
+  const effectiveLocalTransform =
+    entry === "sp" && !hasOwnSize
+      ? {
+          ...localTransform,
+          x: inheritedTransform?.x ?? 0,
+          y: inheritedTransform?.y ?? 0,
+          width:
+            inheritedTransform?.width ??
+            args.slideWidthEmu ??
+            FALLBACK_SLIDE_WIDTH_EMU,
+          height:
+            inheritedTransform?.height ??
+            args.slideHeightEmu ??
+            FALLBACK_SLIDE_HEIGHT_EMU,
+        }
+      : localTransform;
+  const transform = applyTransform(effectiveLocalTransform, args.context);
   const shapeProperties = record(node["p:spPr"]);
   const rawText = parseTextBody(node, args.colorContext);
   const placeholderDefaultColor =
@@ -1261,7 +1286,10 @@ function parseTextBodyParagraphs(
     const bulletColor = parseColor(record(pPr?.["a:buClr"]), context);
     const bulletFont = stringValue(record(pPr?.["a:buFont"])?.["@_typeface"]);
     const bulletSize = Number(record(pPr?.["a:buSzPts"])?.["@_val"]);
-    const lineSpacing = parseParagraphSpacing(pPr?.["a:lnSpc"]);
+    const lineSpacing = parseParagraphSpacing(
+      pPr?.["a:lnSpc"],
+      runs[0]?.fontSize,
+    );
     const spaceBeforePt = parsePoints(pPr?.["a:spcBef"]);
     const spaceAfterPt = parsePoints(pPr?.["a:spcAft"]);
     const alignment = mapAlignment(stringValue(pPr?.["@_algn"]));
@@ -1381,6 +1409,8 @@ interface PlaceholderShapeColors {
   type?: string;
   idx?: string;
   colorsByLevel: Record<number, string | undefined>;
+  /** Carried through from `RawPlaceholderShapeFill.transform` — see there for when it's absent. */
+  transform?: ParsedShapeTransform;
 }
 
 interface PlaceholderDefaultColors {
@@ -1451,6 +1481,25 @@ function resolvePlaceholderColorsByLevel(args: {
     if (color) any = true;
   }
   return any ? merged : undefined;
+}
+
+/** Resolves a placeholder shape's inherited position/size — this slide's own layout placeholder shape's own `<a:xfrm>` first, then the slide master's, mirroring `resolvePlaceholderColorsByLevel`'s layout-before-master order. Returns `undefined` when neither defines explicit geometry for this placeholder type either (real for `idx="4294967295"` sentinel placeholders in some Google Slides exports), letting the caller fall back to a full-slide content box. */
+function resolvePlaceholderTransform(args: {
+  type: string | undefined;
+  idx: string | undefined;
+  defaults: PlaceholderDefaultColors;
+}): ParsedShapeTransform | undefined {
+  const layoutMatch = findMatchingPlaceholderShape(
+    args.defaults.layoutPlaceholders,
+    args.type,
+    args.idx,
+  );
+  const masterMatch = findMatchingPlaceholderShape(
+    args.defaults.masterPlaceholders,
+    args.type,
+    args.idx,
+  );
+  return layoutMatch?.transform ?? masterMatch?.transform;
 }
 
 /** Placeholder text has no explicit color of its own when the author relied on the slide master's default run properties — apply that inherited color to any run that didn't resolve one, using each paragraph's own nested-bullet level (falling back to level 0's color when a deeper level has no default of its own). */
@@ -1666,11 +1715,39 @@ function parseColor(
     : undefined;
 }
 
-function parseParagraphSpacing(value: unknown): number | undefined {
+// `a:lnSpc` is either a unitless percent (`a:spcPct`, e.g. 100% = single
+// spacing) or an absolute point size (`a:spcPts`, e.g. "52pt line height").
+// Every consumer of the returned `lineSpacing` (html-converter.ts, and our
+// own PPTX export re-imported through this same parser) treats it as a
+// unitless ratio multiplied by the run's font size — so an absolute
+// `spcPts` value must be normalized to that same ratio here, by dividing by
+// the paragraph's own font size, or a 52pt line spacing on 52pt text
+// silently becomes a ~52x line-height and pushes the paragraph thousands of
+// pixels off the slide instead of the intended single-spaced line.
+// No real deck design intentionally sets exact line spacing under ~0.8x a
+// paragraph's own font size — anything tighter reads as overlapping text,
+// not a stylistic choice. Below that floor is a strong signal the exporting
+// tool (including our own dom-to-pptx-based export, whose line-height
+// pixel measurement isn't always attached to the same element it read the
+// font size from) wrote a spcPts value that doesn't correspond to this
+// paragraph's actual font size, so clamp rather than render it unreadable.
+const MIN_LINE_SPACING_RATIO = 0.8;
+const MAX_LINE_SPACING_RATIO = 3;
+
+function parseParagraphSpacing(
+  value: unknown,
+  fontSizePt: number | undefined,
+): number | undefined {
   const node = record(value);
   const percent = Number(record(node?.["a:spcPct"])?.["@_val"]);
   if (Number.isFinite(percent) && percent > 0) return percent / 100000;
-  return parsePoints(node?.["a:spcPts"]);
+  const points = parsePoints(node?.["a:spcPts"]);
+  if (points === undefined) return undefined;
+  const ratio = fontSizePt && fontSizePt > 0 ? points / fontSizePt : points;
+  return Math.min(
+    MAX_LINE_SPACING_RATIO,
+    Math.max(MIN_LINE_SPACING_RATIO, ratio),
+  );
 }
 
 function parsePoints(value: unknown): number | undefined {

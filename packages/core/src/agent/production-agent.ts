@@ -54,6 +54,7 @@ import {
   runWithRequestContext,
 } from "../server/request-context.js";
 import { fireInternalDispatch } from "../server/self-dispatch.js";
+import { ANALYTICS_CLIENT_PLATFORM_BODY_FIELD } from "../shared/analytics-platform.js";
 import {
   isReasoningEffort,
   normalizeReasoningEffortForRequest,
@@ -8302,6 +8303,16 @@ export function createProductionAgentHandler(
       isAgentChatDurableBackgroundEnabled({
         appOptIn: options.durableBackgroundRuns,
       });
+    const mutableBody = body as unknown as Record<string, unknown>;
+    if (!isBackgroundWorker) {
+      delete mutableBody[ANALYTICS_CLIENT_PLATFORM_BODY_FIELD];
+    }
+    if (dispatchToBackground) {
+      const clientPlatform = getRequestContext()?.clientPlatform;
+      if (clientPlatform) {
+        mutableBody[ANALYTICS_CLIENT_PLATFORM_BODY_FIELD] = clientPlatform;
+      }
+    }
     const requestBrowserTabId = normalizeBrowserTabId(browserTabId);
     const requestChatScope = normalizeChatScope(scope);
     const requestRunCtx = ensureRequestRunContext();

@@ -26,7 +26,6 @@ import {
 import AppForm from "@/components/AppForm";
 import DictationSettings from "@/components/DictationSettings";
 import { SafeAreaView } from "@/components/uniwind-interop";
-import { useChatFirstMode } from "@/lib/chat-first-mode";
 import { supportsMobileTab } from "@/lib/mobile-app-navigation";
 import { useMobileTabLayout } from "@/lib/mobile-tab-layout";
 import { useApps } from "@/lib/use-apps";
@@ -123,11 +122,6 @@ function AppIdentity({ app }: { app: AppConfig }) {
 export default function SettingsScreen() {
   const { apps, updateApp, addApp, removeApp, resetToDefaults } = useApps();
   const {
-    enabled: chatFirstMode,
-    error: chatFirstModeError,
-    setEnabled: setChatFirstMode,
-  } = useChatFirstMode();
-  const {
     error: tabLayoutError,
     limit: tabLimit,
     selectedAppIds,
@@ -213,27 +207,6 @@ export default function SettingsScreen() {
             Settings
           </Text>
         </View>
-
-        <SectionLabel>WORKSPACE</SectionLabel>
-        <View className="flex-row items-center justify-between border-b border-gray-dark px-4 py-3.5">
-          <View className="flex-1 pr-4">
-            <Text className="text-white text-[15px] font-semibold">
-              Chat-first workspace
-            </Text>
-            <Text className="text-gray-medium text-xs mt-0.5">
-              {chatFirstMode ? "Chat opens first" : "Home opens first"}
-            </Text>
-          </View>
-          <IOSBlueSwitch
-            value={chatFirstMode}
-            onValueChange={(value) => void setChatFirstMode(value)}
-          />
-        </View>
-        {chatFirstModeError ? (
-          <Text className="px-4 pt-2 text-error text-xs">
-            {chatFirstModeError}
-          </Text>
-        ) : null}
 
         <SectionLabel>BOTTOM TABS</SectionLabel>
         <View className="flex-row items-center justify-between border-b border-gray-dark px-4 pb-2">

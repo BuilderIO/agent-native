@@ -39,28 +39,18 @@
   --sidebar-accent-foreground: 0 0% 15%;
   --sidebar-border: 0 0% 90%;
   --sidebar-ring: 0 0% 40%;
-  --sidebar-width: 56px;
-  --tabbar-height: 38px;
+  --window-titlebar-height: 38px;
   --macos-traffic-light-safe-area: 100px;
   --sidebar-bg: hsl(var(--sidebar-background, 0 0% 97%));
   --app-surface-radius: 12px;
   --item-hover-bg: hsl(var(--foreground, 0 0% 10%) / 0.06);
-  --icon-inactive: hsl(var(--foreground, 0 0% 10%) / 0.52);
-  --icon-hover: hsl(var(--foreground, 0 0% 10%) / 0.8);
-  --icon-active: hsl(var(--foreground, 0 0% 10%));
   --label-inactive: hsl(var(--foreground, 0 0% 10%) / 0.48);
   --label-hover: hsl(var(--foreground, 0 0% 10%) / 0.72);
   --label-active: hsl(var(--foreground, 0 0% 10%) / 0.88);
   --shell-bg: hsl(var(--background, 0 0% 100%));
   --shell-fg: hsl(var(--foreground, 0 0% 10%));
   --separator: hsl(var(--foreground, 0 0% 10%) / 0.1);
-  --tabbar-bg: hsl(var(--background, 0 0% 100%));
-  --tab-bg: transparent;
-  --tab-active-bg: hsl(var(--muted, 0 0% 95%));
-  --tab-hover-bg: hsl(var(--foreground, 0 0% 10%) / 0.04);
-  --tab-text: hsl(var(--muted-foreground, 0 0% 45%));
-  --tab-active-text: hsl(var(--foreground, 0 0% 10%));
-  --tab-close-hover: hsl(var(--foreground, 0 0% 10%) / 0.08);
+  --surface-active-bg: hsl(var(--muted, 0 0% 95%));
 
   /* Transition */
   --ease: 0.15s ease;
@@ -97,21 +87,13 @@
   --sidebar-ring: 0 0% 60%;
   --sidebar-bg: hsl(var(--sidebar-background, 0 0% 7%));
   --item-hover-bg: hsl(var(--foreground, 0 0% 100%) / 0.1);
-  --icon-inactive: hsl(var(--foreground, 0 0% 100%) / 0.52);
-  --icon-hover: hsl(var(--foreground, 0 0% 100%) / 0.8);
-  --icon-active: hsl(var(--foreground, 0 0% 100%));
   --label-inactive: hsl(var(--foreground, 0 0% 100%) / 0.48);
   --label-hover: hsl(var(--foreground, 0 0% 100%) / 0.72);
   --label-active: hsl(var(--foreground, 0 0% 100%) / 0.88);
   --shell-bg: hsl(var(--background, 0 0% 10%));
   --shell-fg: hsl(var(--foreground, 0 0% 100%));
   --separator: hsl(var(--foreground, 0 0% 100%) / 0.1);
-  --tabbar-bg: hsl(var(--background, 0 0% 10%));
-  --tab-active-bg: hsl(var(--muted, 0 0% 10%));
-  --tab-hover-bg: hsl(var(--foreground, 0 0% 100%) / 0.06);
-  --tab-text: hsl(var(--muted-foreground, 0 0% 60%));
-  --tab-active-text: hsl(var(--foreground, 0 0% 90%));
-  --tab-close-hover: hsl(var(--foreground, 0 0% 100%) / 0.12);
+  --surface-active-bg: hsl(var(--muted, 0 0% 10%));
 }
 
 /* ─── Base ───────────────────────────────────────────────────── */
@@ -134,7 +116,6 @@ body {
 }
 
 /* ─── Shell layout ───────────────────────────────────────────── */
-/* New layout: tab bar full width on top, sidebar + content below */
 .shell {
   display: flex;
   flex-direction: column;
@@ -143,368 +124,12 @@ body {
   position: relative;
 }
 
-.find-overlay {
-  position: absolute;
-  top: 10px;
-  right: 16px;
-  z-index: 30;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px;
-  border: 1px solid var(--separator);
-  border-radius: 10px;
-  background: rgba(18, 18, 18, 0.96);
-  box-shadow: 0 18px 36px rgba(0, 0, 0, 0.35);
-}
-
-.find-input {
-  width: 220px;
-  height: 32px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.04);
-  color: #fff;
-  padding: 0 10px;
-  font-size: 13px;
-  outline: none;
-}
-
-.find-input:focus {
-  border-color: rgba(255, 255, 255, 0.22);
-  background: rgba(255, 255, 255, 0.06);
-}
-
-.find-button {
-  height: 32px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.04);
-  color: rgba(255, 255, 255, 0.82);
-  padding: 0 10px;
-  font-size: 12px;
-  cursor: pointer;
-  transition:
-    background var(--ease),
-    color var(--ease),
-    border-color var(--ease);
-}
-
-.find-button:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: #fff;
-}
-
-.find-button--close {
-  color: rgba(255, 255, 255, 0.65);
-}
-
 .shell-body {
   display: flex;
   flex: 1 1 auto;
   min-height: 0;
   height: auto;
   overflow: hidden;
-}
-
-/* ─── Tab bar (full width, top of window) ────────────────────── */
-.tabbar {
-  height: var(--tabbar-height);
-  min-height: var(--tabbar-height);
-  background: var(--tabbar-bg);
-  display: flex;
-  align-items: stretch;
-  overflow: hidden;
-  -webkit-app-region: drag;
-}
-
-.tabbar-window-spacer {
-  flex: 0 0 var(--macos-traffic-light-safe-area);
-  align-self: stretch;
-  background: var(--tabbar-bg);
-  -webkit-app-region: drag;
-}
-
-.tabbar-strip {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  flex: 1 1 auto;
-  min-width: 0;
-  height: 100%;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: none;
-  -webkit-app-region: drag;
-}
-
-.tabbar-strip::-webkit-scrollbar {
-  display: none;
-}
-
-.tab {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0 14px;
-  height: 28px;
-  background: var(--tab-bg);
-  border: none;
-  border-radius: 7px;
-  color: var(--tab-text);
-  font-size: 12px;
-  font-weight: 450;
-  cursor: pointer;
-  white-space: nowrap;
-  transition:
-    background var(--ease),
-    color var(--ease);
-  -webkit-app-region: no-drag;
-  min-width: 0;
-  max-width: 200px;
-}
-
-.tab:hover {
-  background: var(--tab-hover-bg);
-  color: var(--tab-active-text);
-}
-
-.tab--active {
-  background: var(--tab-active-bg);
-  color: var(--tab-active-text);
-}
-
-.tab-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.tab-close,
-.tab-refresh {
-  flex-shrink: 0;
-  width: 16px;
-  height: 16px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  background: transparent;
-  color: inherit;
-  border-radius: 3px;
-  cursor: pointer;
-  opacity: 0;
-  transition:
-    opacity var(--ease),
-    background var(--ease);
-}
-
-.tab:hover .tab-close {
-  opacity: 0.5;
-}
-
-.tab-close:hover {
-  opacity: 1 !important;
-  background: var(--tab-close-hover);
-}
-
-/* Refresh reveals — and is clickable — only on the active tab, so it isn't an
-   accidental click target when you're reaching for another tab to switch to.
-   pointer-events:none lets clicks on the (invisible) slot fall through to the
-   tab button on non-active tabs. */
-.tab-refresh {
-  pointer-events: none;
-}
-
-.tab--active .tab-refresh {
-  pointer-events: auto;
-}
-
-.tab--active:hover .tab-refresh {
-  opacity: 0.5;
-}
-
-.tab--active .tab-refresh:hover {
-  opacity: 1 !important;
-  background: var(--tab-close-hover);
-}
-
-.tab-new {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  min-width: 32px;
-  height: 28px;
-  border: none;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--tab-text);
-  cursor: pointer;
-  transition:
-    background var(--ease),
-    color var(--ease);
-  -webkit-app-region: no-drag;
-}
-
-.tab-new:hover {
-  background: var(--tab-hover-bg);
-  color: var(--tab-active-text);
-}
-
-.tabbar--shell {
-  overflow: hidden;
-}
-
-.tab--locked {
-  cursor: default;
-  -webkit-app-region: drag;
-}
-
-/* ─── Sidebar ────────────────────────────────────────────────── */
-.sidebar {
-  width: var(--sidebar-width);
-  min-width: var(--sidebar-width);
-  background: var(--sidebar-bg);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding-top: 8px;
-  /* Sidebar is draggable (moves the window) except for interactive elements */
-  -webkit-app-region: drag;
-}
-
-.sidebar-nav {
-  flex: 1;
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  padding: 8px 0;
-  overflow-y: auto;
-  overflow-x: hidden;
-  scrollbar-width: none;
-}
-
-.sidebar-nav::-webkit-scrollbar {
-  display: none;
-}
-
-.sidebar:focus,
-.sidebar:focus-visible,
-.sidebar-nav:focus,
-.sidebar-nav:focus-visible,
-.sidebar-footer:focus,
-.sidebar-footer:focus-visible,
-.sidebar-item:focus,
-.sidebar-item:focus-visible {
-  outline: none;
-}
-
-.sidebar-footer {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  padding: 8px 0 12px;
-}
-
-/* ─── Sidebar item ───────────────────────────────────────────── */
-.sidebar-item {
-  position: relative;
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 3px;
-  padding: 6px 0;
-  cursor: pointer;
-  border: none;
-  background: none;
-  color: inherit;
-  -webkit-app-region: no-drag;
-}
-
-/* ─── Icon wrapper ───────────────────────────────────────────── */
-.icon-wrapper {
-  width: 36px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 9px;
-  color: var(--icon-inactive);
-  transition:
-    background var(--ease),
-    color var(--ease);
-}
-
-.sidebar-item:hover .icon-wrapper {
-  background: var(--item-hover-bg);
-  color: var(--icon-hover);
-}
-
-.sidebar-item.sidebar-item--active .icon-wrapper {
-  background: color-mix(in srgb, #888 15%, transparent);
-  color: var(--icon-active);
-}
-
-.sidebar-agent-native-icon {
-  width: 21px;
-  height: auto;
-  display: block;
-  opacity: 0.55;
-  transition:
-    opacity var(--ease),
-    filter var(--ease);
-}
-
-.sidebar-item:hover .sidebar-agent-native-icon,
-.sidebar-item.sidebar-item--active .sidebar-agent-native-icon {
-  opacity: 1;
-}
-
-.sidebar-item--add {
-  margin-top: 4px;
-}
-
-/* Same size and resting color as its siblings — the only distinction
-   is a faint dashed outline that reads as "action, not destination". */
-.sidebar-item--add .icon-wrapper {
-  border: 1px dashed rgba(255, 255, 255, 0.13);
-}
-
-.sidebar-item--add:hover .icon-wrapper {
-  border-color: rgba(255, 255, 255, 0.22);
-  background: var(--item-hover-bg);
-  color: var(--icon-hover);
-}
-
-/* ─── Item label ─────────────────────────────────────────────── */
-.item-label {
-  font-size: 9px;
-  font-weight: 500;
-  letter-spacing: 0.02em;
-  color: var(--label-inactive);
-  line-height: 1;
-  transition: color var(--ease);
-}
-
-.item-label--two-line {
-  max-width: 46px;
-  line-height: 1.05;
-  text-align: center;
-  white-space: normal;
-}
-
-.sidebar-item:hover .item-label {
-  color: var(--label-hover);
-}
-
-.sidebar-item.sidebar-item--active .item-label {
-  color: var(--label-active);
 }
 
 /* ─── Windows/Linux custom window controls ───────────────────── */
@@ -572,10 +197,6 @@ body {
   isolation: isolate;
 }
 
-.content-area > .agent-sidebar-shell {
-  height: 100%;
-}
-
 .code-agents-shell-surface {
   position: absolute;
   inset: 0;
@@ -585,12 +206,6 @@ body {
   background: var(--shell-bg);
   isolation: isolate;
   transform: translate3d(0, 0, 0);
-}
-
-.code-agents-shell-surface--hidden {
-  opacity: 0;
-  pointer-events: none;
-  transform: translate3d(-200vw, 0, 0);
 }
 
 .content-area--chat-first {
@@ -632,7 +247,7 @@ body {
   background: var(--shell-bg);
 }
 
-.desktop-chat-first-hub--enabled:has(.chat-first-surface-panel) {
+.desktop-chat-first-hub:has(.chat-first-surface-panel) {
   grid-template-columns: minmax(0, 1fr) minmax(
       320px,
       var(--chat-first-surface-width, 40%)
@@ -695,10 +310,6 @@ body {
   -webkit-app-region: drag;
 }
 
-.desktop-chat-first-hub .code-agents-rail--collapsed .code-agents-nav-list {
-  padding-inline: 8px;
-}
-
 .desktop-chat-first-hub
   .code-agents-rail--collapsed
   .code-agents-primary-new-chat-shell {
@@ -712,21 +323,17 @@ body {
   .code-agents-primary-new-chat,
 .desktop-chat-first-hub
   .code-agents-rail--collapsed
-  .code-agents-nav-list
   .code-agents-nav-link,
 .desktop-chat-first-hub
   .code-agents-rail--collapsed
-  .code-agents-nav-list
   [role="tablist"]
   > button,
 .desktop-chat-first-hub
   .code-agents-rail--collapsed
-  .code-agents-nav-list
   > div
   > button,
 .desktop-chat-first-hub
   .code-agents-rail--collapsed
-  .code-agents-nav-list
   > button {
   justify-content: center;
   padding-inline: 0;
@@ -739,7 +346,6 @@ body {
   > span,
 .desktop-chat-first-hub
   .code-agents-rail--collapsed
-  .code-agents-nav-list
   span:not(.code-agents-mobile-indicator),
 .desktop-chat-first-hub
   .code-agents-rail--collapsed
@@ -770,7 +376,6 @@ body {
   display: none;
 }
 
-.desktop-chat-first-hub .code-agents-nav-list,
 .desktop-chat-first-hub .code-agents-main-toolbar {
   border-bottom: 0;
 }
@@ -802,7 +407,9 @@ body {
 
 .desktop-chat-first-hub .code-agents-start .code-agents-project-picker--bar {
   align-self: center;
-  width: min(100%, 750px);
+  width: min(100%, var(--code-agents-chat-max));
+  max-width: var(--code-agents-chat-max);
+  box-sizing: border-box;
 }
 
 .desktop-chat-first-hub--no-chats [data-chat-first-chat-history] {
@@ -1099,7 +706,7 @@ body {
 }
 
 @media (max-width: 767px) {
-  .desktop-chat-first-hub--enabled:has(.chat-first-surface-panel) {
+  .desktop-chat-first-hub:has(.chat-first-surface-panel) {
     position: relative;
     grid-template-columns: minmax(0, 1fr);
   }
@@ -1216,10 +823,10 @@ body {
 }
 
 /* ─── Webview slot ───────────────────────────────────────────── */
-/* Each slot is absolutely positioned so tabs stack on top of each
+/* Each slot is absolutely positioned so contextual surfaces stack on top of each
    other. Electron <webview> is a native guest surface on macOS, and
-   visibility:hidden can leave stale pixels composited over the active
-   tab. Move inactive tabs out of the viewport instead. */
+   visibility:hidden can leave stale pixels composited over the active surface.
+   Move inactive surfaces out of the viewport instead. */
 .webview-slot {
   position: absolute;
   top: 0;
@@ -1240,22 +847,6 @@ body {
   opacity: 0;
   pointer-events: none;
   transform: translate3d(-200vw, 0, 0);
-}
-
-.content-area--code-agents .webview-slot {
-  z-index: 0;
-  opacity: 0;
-  pointer-events: none;
-  transform: translate3d(-200vw, 0, 0);
-}
-
-/* Chat-first owns the visible center slot. The legacy code-agent rule above
-   must not hide its active Dispatch guest when both shells share a surface. */
-.content-area--code-agents .desktop-chat-first-hub .webview-slot--active {
-  z-index: 1;
-  opacity: 1;
-  pointer-events: auto;
-  transform: translate3d(0, 0, 0);
 }
 
 .webview-slot--fullscreen {
@@ -1734,15 +1325,15 @@ body {
   background: rgba(59, 130, 246, 0.1);
 }
 
-/* Dev/Prod mode toggle */
-.settings-mode-toggle {
+/* Shortcut behavior selector */
+.settings-shortcut-behavior-toggle {
   display: flex;
   border-radius: 4px;
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-.settings-mode-btn {
+.settings-shortcut-behavior-btn {
   background: none;
   border: none;
   color: #555;
@@ -1755,55 +1346,14 @@ body {
     background var(--ease);
 }
 
-.settings-mode-btn:hover {
+.settings-shortcut-behavior-btn:hover {
   color: #aaa;
   background: rgba(255, 255, 255, 0.04);
 }
 
-.settings-mode-btn--active {
+.settings-shortcut-behavior-btn--active {
   color: #fff;
   background: rgba(255, 255, 255, 0.1);
-}
-
-/* Larger pill for the global mode toggle */
-.settings-mode-toggle--lg {
-  border-radius: 6px;
-}
-
-.settings-mode-toggle--lg .settings-mode-btn {
-  padding: 6px 14px;
-  font-size: 12px;
-}
-
-/* Global mode hero card */
-.settings-mode-card {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 14px 16px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 10px;
-  margin-bottom: 12px;
-}
-
-.settings-mode-card-text {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.settings-mode-card-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: #fff;
-}
-
-.settings-mode-card-status {
-  font-size: 11px;
-  color: #777;
 }
 
 .settings-provider-card {
@@ -2062,32 +1612,6 @@ body {
   word-break: break-word;
 }
 
-.settings-code-tab-card {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 14px;
-  background: hsl(var(--foreground) / 0.025);
-  border: 1px solid hsl(var(--border) / 0.6);
-  border-radius: 10px;
-  margin-bottom: 12px;
-}
-
-.settings-chat-first-card {
-  background: linear-gradient(
-    135deg,
-    hsl(var(--primary) / 0.08),
-    hsl(var(--foreground) / 0.025) 55%
-  );
-  border-color: hsl(var(--primary) / 0.22);
-}
-
-.settings-chat-first-card:focus-within {
-  border-color: hsl(var(--primary) / 0.5);
-  box-shadow: 0 0 0 2px hsl(var(--primary) / 0.12);
-}
-
 .settings-subscriptions-card {
   display: grid;
   gap: 10px;
@@ -2162,13 +1686,6 @@ body {
 
 .settings-subscription-status--ok {
   color: hsl(var(--primary));
-}
-
-.settings-code-tab-copy {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 2px;
 }
 
 .settings-update-card {
@@ -2552,11 +2069,11 @@ body {
   border-color: rgba(59, 130, 246, 0.5);
 }
 
-.settings-shortcut-form .settings-mode-toggle {
+.settings-shortcut-form .settings-shortcut-behavior-toggle {
   height: 34px;
 }
 
-.settings-shortcut-form .settings-mode-btn {
+.settings-shortcut-form .settings-shortcut-behavior-btn {
   padding: 0 8px;
 }
 
@@ -3121,39 +2638,17 @@ body {
   margin-bottom: 0;
 }
 
-/* ─── Update indicator (sidebar pill) ─────────────────────────── */
-.update-indicator .icon-wrapper {
-  color: rgba(255, 255, 255, 0.55);
-}
-
-.update-indicator .item-label {
-  color: rgba(255, 255, 255, 0.55);
-}
-
-.update-indicator--pending .icon-wrapper,
-.update-indicator--downloading .icon-wrapper {
-  background: rgba(59, 130, 246, 0.15);
+/* ─── Update indicator (chat-first rail action) ───────────────── */
+.desktop-chat-first-hub .update-indicator--pending,
+.desktop-chat-first-hub .update-indicator--downloading {
   color: #60a5fa;
 }
 
-.update-indicator--pending .item-label,
-.update-indicator--downloading .item-label {
-  color: rgba(96, 165, 250, 0.85);
-}
-
-.update-indicator--ready .icon-wrapper {
+.desktop-chat-first-hub .update-indicator--ready,
+.desktop-chat-first-hub .update-indicator--ready:hover {
   background: transparent;
-  color: #60a5fa;
-  box-shadow: none;
-}
-
-.update-indicator--ready .item-label {
   color: #60a5fa;
   font-weight: 600;
-}
-
-.update-indicator--ready:hover .icon-wrapper {
-  background: transparent;
 }
 
 @keyframes update-spin {
@@ -3410,7 +2905,7 @@ body {
 }
 
 .settings-sidebar-link--active {
-  background: var(--tab-active-bg);
+  background: var(--surface-active-bg);
   color: var(--label-active);
   font-weight: 500;
 }
@@ -3499,25 +2994,20 @@ body {
   line-height: 1.45;
 }
 
-.settings-mode-card,
 .settings-provider-card,
 .settings-builder-connect-card,
-.settings-code-tab-card,
 .settings-remote-card,
 .settings-update-card {
   border-color: var(--separator);
-  background: var(--tab-active-bg);
+  background: var(--surface-active-bg);
   box-shadow: none;
 }
 
-.settings-mode-card,
-.settings-code-tab-card,
 .settings-remote-card {
   min-height: 62px;
   border-radius: 8px;
 }
 
-.settings-mode-card-title,
 .settings-app-name,
 .settings-header h2,
 .settings-update-title,
@@ -3525,7 +3015,6 @@ body {
   color: var(--shell-fg);
 }
 
-.settings-mode-card-status,
 .settings-app-url,
 .settings-provider-card small,
 .settings-field-hint,
@@ -3662,10 +3151,10 @@ body {
   background: var(--sidebar-bg);
 }
 
-/* The settings destination covers the normal tab bar, so preserve the native
+/* The settings destination covers the workbench, so preserve the native
    macOS title-bar clearance before placing the back affordance in the rail. */
 .platform-darwin .settings-page-tabs-nav {
-  padding-top: calc(var(--tabbar-height) + 16px);
+  padding-top: calc(var(--window-titlebar-height) + 16px);
 }
 
 .settings-page-tabs-content {
@@ -3674,7 +3163,7 @@ body {
 
 .settings-page-tabs-content .rounded-xl {
   border-color: var(--separator);
-  background: var(--tab-active-bg);
+  background: var(--surface-active-bg);
 }
 
 .settings-page-tabs-content .divide-border\/60 > :not(:last-child) {
@@ -3735,18 +3224,18 @@ body {
   color: hsl(var(--foreground));
 }
 
-.settings-page-tabs-content .settings-mode-toggle {
+.settings-page-tabs-content .settings-shortcut-behavior-toggle {
   border-color: hsl(var(--border));
   border-radius: calc(var(--radius) - 2px);
   background: hsl(var(--background));
 }
 
-.settings-page-tabs-content .settings-mode-btn {
+.settings-page-tabs-content .settings-shortcut-behavior-btn {
   color: hsl(var(--muted-foreground));
 }
 
-.settings-page-tabs-content .settings-mode-btn:hover,
-.settings-page-tabs-content .settings-mode-btn--active {
+.settings-page-tabs-content .settings-shortcut-behavior-btn:hover,
+.settings-page-tabs-content .settings-shortcut-behavior-btn--active {
   background: hsl(var(--accent));
   color: hsl(var(--foreground));
 }

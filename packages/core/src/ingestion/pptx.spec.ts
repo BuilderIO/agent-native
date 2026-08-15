@@ -521,6 +521,208 @@ describe("parsePptxPresentation", () => {
     expect(element?.height).toBeCloseTo(20, 5);
     expect(element?.rotation).toBeCloseTo(90, 5);
   });
+
+  it("scales a connector/line shape's own width by the enclosing group's chExt-to-ext ratio instead of leaving it at its unscaled child-space size", async () => {
+    // `a:chExt` (like `a:ext`) carries `cx`/`cy` attributes, not `x`/`y`.
+    // Reading it with the `x`/`y` point reader silently produced a 0 child
+    // extent, which fell back to an identity scale for every group whose
+    // placed size (`a:ext`) differs from its child coordinate space
+    // (`a:chExt`) — most visibly on a `p:cxnSp` connector/divider line,
+    // whose width came out at its full unscaled child-space size and
+    // overflowed the slide canvas.
+    const presentation = await parsePptxPresentation(
+      await buildMinimalPptxBuffer(`
+        <p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+          <p:cSld><p:spTree>
+            <p:grpSp>
+              <p:nvGrpSpPr><p:cNvPr id="10" name="Group"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
+              <p:grpSpPr>
+                <a:xfrm>
+                  <a:off x="100" y="0"/>
+                  <a:ext cx="400" cy="200"/>
+                  <a:chOff x="0" y="0"/>
+                  <a:chExt cx="500" cy="200"/>
+                </a:xfrm>
+              </p:grpSpPr>
+              <p:cxnSp>
+                <p:nvCxnSpPr><p:cNvPr id="11" name="Divider"/><p:cNvCxnSpPr/><p:nvPr/></p:nvCxnSpPr>
+                <p:spPr>
+                  <a:xfrm><a:off x="0" y="100"/><a:ext cx="500" cy="0"/></a:xfrm>
+                  <a:ln><a:solidFill><a:srgbClr val="222222"/></a:solidFill></a:ln>
+                </p:spPr>
+              </p:cxnSp>
+            </p:grpSp>
+          </p:spTree></p:cSld>
+        </p:sld>
+      `),
+    );
+
+    const element = presentation.slides[0]?.elements[0];
+    // Group scales child-space (500x200) down to its placed size (400x200):
+    // scaleX 0.8, scaleY 1. The connector's own child-space width (500) must
+    // scale by 0.8 to 400 — not pass through unscaled.
+    expect(element?.x).toBeCloseTo(100, 5);
+    expect(element?.width).toBeCloseTo(400, 5);
+    expect(element?.height).toBeCloseTo(0, 5);
+  });
+
+  it("normalizes an absolute-point line spacing (a:spcPts) into a font-size-relative ratio instead of leaving it as a raw point count", async () => {
+    // Our own PPTX export writes absolute-point line spacing (dom-to-pptx's
+    // spcPts), so re-importing an exported deck hits this exact shape: a
+    // 52pt line spacing on 52pt text is single spacing (ratio ~1), not a
+    // ~52x line-height that would push the paragraph thousands of px off
+    // the slide.
+    const presentation = await parsePptxPresentation(
+      await buildMinimalPptxBuffer(`
+        <p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+          <p:cSld><p:spTree>
+            <p:sp>
+              <p:nvSpPr><p:cNvPr id="2" name="Title"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+              <p:spPr/><p:txBody><a:bodyPr/><a:lstStyle/>
+                <a:p>
+                  <a:pPr><a:lnSpc><a:spcPts val="5200"/></a:lnSpc></a:pPr>
+                  <a:r><a:rPr sz="5200"/><a:t>Title</a:t></a:r>
+                </a:p>
+              </p:txBody>
+            </p:sp>
+          </p:spTree></p:cSld>
+        </p:sld>
+      `),
+    );
+
+    const paragraph = presentation.slides[0]?.elements[0]?.paragraphs?.[0];
+    expect(paragraph?.lineSpacing).toBeCloseTo(1, 5);
+  });
+
+  it("keeps a percent line spacing (a:spcPct) as its own unitless ratio", async () => {
+    const presentation = await parsePptxPresentation(
+      await buildMinimalPptxBuffer(`
+        <p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+          <p:cSld><p:spTree>
+            <p:sp>
+              <p:nvSpPr><p:cNvPr id="2" name="Body"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+              <p:spPr/><p:txBody><a:bodyPr/><a:lstStyle/>
+                <a:p>
+                  <a:pPr><a:lnSpc><a:spcPct val="150000"/></a:lnSpc></a:pPr>
+                  <a:r><a:rPr sz="1800"/><a:t>Body</a:t></a:r>
+                </a:p>
+              </p:txBody>
+            </p:sp>
+          </p:spTree></p:cSld>
+        </p:sld>
+      `),
+    );
+
+    const paragraph = presentation.slides[0]?.elements[0]?.paragraphs?.[0];
+    expect(paragraph?.lineSpacing).toBeCloseTo(1.5, 5);
+  });
+
+  it("clamps an implausibly tight spcPts/font-size ratio instead of rendering overlapping lines", async () => {
+    // Real repro from a round-tripped export: our own export wrote
+    // spcPts="989" (9.89pt) on 57.99pt title text — a ratio of ~0.17, which
+    // stacks a wrapped second line almost directly on top of the first
+    // instead of below it. No real deck design intends line spacing this
+    // tight; this is an export measurement bug, not authored intent.
+    const presentation = await parsePptxPresentation(
+      await buildMinimalPptxBuffer(`
+        <p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+          <p:cSld><p:spTree>
+            <p:sp>
+              <p:nvSpPr><p:cNvPr id="2" name="Title"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+              <p:spPr/><p:txBody><a:bodyPr/><a:lstStyle/>
+                <a:p>
+                  <a:pPr><a:lnSpc><a:spcPts val="989"/></a:lnSpc></a:pPr>
+                  <a:r><a:rPr sz="5799"/><a:t>PLG-first approach</a:t></a:r>
+                </a:p>
+              </p:txBody>
+            </p:sp>
+          </p:spTree></p:cSld>
+        </p:sld>
+      `),
+    );
+
+    const paragraph = presentation.slides[0]?.elements[0]?.paragraphs?.[0];
+    expect(paragraph?.lineSpacing).toBeGreaterThanOrEqual(0.8);
+  });
+
+  it("positions two placeholders missing their own xfrm at their distinct layout-defined positions instead of both landing on the same full-slide fallback box", async () => {
+    const slideXml = `
+      <p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+        <p:cSld><p:spTree>
+          <p:sp>
+            <p:nvSpPr><p:cNvPr id="1" name="Title"/><p:cNvSpPr txBox="1"/><p:nvPr><p:ph type="title"/></p:nvPr></p:nvSpPr>
+            <p:spPr/>
+            <p:txBody><a:bodyPr/><a:lstStyle/>
+              <a:p><a:r><a:rPr lang="en"/><a:t>Title text</a:t></a:r></a:p>
+            </p:txBody>
+          </p:sp>
+          <p:sp>
+            <p:nvSpPr><p:cNvPr id="2" name="Body"/><p:cNvSpPr txBox="1"/><p:nvPr><p:ph type="body"/></p:nvPr></p:nvSpPr>
+            <p:spPr/>
+            <p:txBody><a:bodyPr/><a:lstStyle/>
+              <a:p><a:r><a:rPr lang="en"/><a:t>Body text</a:t></a:r></a:p>
+            </p:txBody>
+          </p:sp>
+        </p:spTree></p:cSld>
+      </p:sld>
+    `.trim();
+
+    const presentation = await parsePptxPresentation(
+      await buildPptxBufferWithLayoutPlaceholderGeometry(slideXml),
+    );
+
+    const elements = presentation.slides[0]?.elements ?? [];
+    const title = elements.find(
+      (element) => element.placeholderType === "title",
+    );
+    const body = elements.find((element) => element.placeholderType === "body");
+    expect(title).toMatchObject({
+      x: 500_000,
+      y: 300_000,
+      width: 8_000_000,
+      height: 1_000_000,
+    });
+    expect(body).toMatchObject({
+      x: 500_000,
+      y: 1_600_000,
+      width: 8_000_000,
+      height: 4_000_000,
+    });
+  });
+
+  it("falls back to a visible full-slide box, not 0×0, when a placeholder has no geometry anywhere in the slide/layout/master chain", async () => {
+    const slideXml = `
+      <p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+        <p:cSld><p:spTree>
+          <p:sp>
+            <p:nvSpPr><p:cNvPr id="337" name="Title"/><p:cNvSpPr txBox="1"/>
+              <p:nvPr><p:ph idx="4294967295" type="title"/></p:nvPr>
+            </p:nvSpPr>
+            <p:spPr/>
+            <p:txBody><a:bodyPr/><a:lstStyle/>
+              <a:p><a:r><a:rPr lang="en"/><a:t>The Path Forward</a:t></a:r></a:p>
+            </p:txBody>
+          </p:sp>
+        </p:spTree></p:cSld>
+      </p:sld>
+    `.trim();
+
+    const presentation = await parsePptxPresentation(
+      await buildPptxBufferWithLayoutAndMaster(slideXml),
+    );
+
+    const title = presentation.slides[0]?.elements.find(
+      (element) => element.placeholderType === "title",
+    );
+    expect(title?.width).toBeGreaterThan(0);
+    expect(title?.height).toBeGreaterThan(0);
+    expect(title).toMatchObject({
+      x: 0,
+      y: 0,
+      width: 12_192_000,
+      height: 6_858_000,
+    });
+  });
 });
 
 async function buildMinimalPptxBuffer(slideXml: string): Promise<Uint8Array> {
@@ -862,6 +1064,107 @@ async function buildPptxBufferWithLayoutAndMaster(
     `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
       <p:sldLayout xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
         <p:cSld><p:spTree/></p:cSld>
+      </p:sldLayout>`,
+  );
+  zip.file(
+    "ppt/slideLayouts/_rels/slideLayout1.xml.rels",
+    pptxRelsXml([
+      {
+        id: "rId1",
+        type: "slideMaster",
+        target: "../slideMasters/slideMaster1.xml",
+      },
+    ]),
+  );
+  zip.file("ppt/slides/slide1.xml", slideXml);
+  zip.file(
+    "ppt/slides/_rels/slide1.xml.rels",
+    pptxRelsXml([
+      {
+        id: "rId1",
+        type: "slideLayout",
+        target: "../slideLayouts/slideLayout1.xml",
+      },
+    ]),
+  );
+  return zip.generateAsync({ type: "uint8array" });
+}
+
+/** Same slide → slideLayout → slideMaster → theme chain as `buildPptxBufferWithLayoutAndMaster`, but the layout itself defines two distinct, non-overlapping `<a:xfrm>` placeholder shapes (title, body) — reproduces the geometry side of placeholder inheritance the way that helper reproduces the color side. */
+async function buildPptxBufferWithLayoutPlaceholderGeometry(
+  slideXml: string,
+): Promise<Uint8Array> {
+  const zip = new JSZip();
+  zip.file(
+    "ppt/presentation.xml",
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+      <p:presentation xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+                      xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+                      xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+        <p:sldIdLst>
+          <p:sldId id="256" r:id="rId1"/>
+        </p:sldIdLst>
+        <p:sldSz cx="12192000" cy="6858000"/>
+      </p:presentation>`,
+  );
+  zip.file(
+    "ppt/_rels/presentation.xml.rels",
+    pptxRelsXml([{ id: "rId1", type: "slide", target: "slides/slide1.xml" }]),
+  );
+  zip.file(
+    "ppt/theme/theme1.xml",
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+      <a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" name="Test">
+        <a:themeElements>
+          <a:clrScheme name="Test">
+            <a:dk1><a:sysClr val="windowText" lastClr="000000"/></a:dk1>
+            <a:lt1><a:sysClr val="window" lastClr="FFFFFF"/></a:lt1>
+            <a:dk2><a:srgbClr val="000000"/></a:dk2>
+            <a:lt2><a:srgbClr val="FFFFFF"/></a:lt2>
+            <a:accent1><a:srgbClr val="336699"/></a:accent1>
+            <a:accent2><a:srgbClr val="336699"/></a:accent2>
+            <a:accent3><a:srgbClr val="336699"/></a:accent3>
+            <a:accent4><a:srgbClr val="336699"/></a:accent4>
+            <a:accent5><a:srgbClr val="336699"/></a:accent5>
+            <a:accent6><a:srgbClr val="336699"/></a:accent6>
+            <a:hlink><a:srgbClr val="0000FF"/></a:hlink>
+            <a:folHlink><a:srgbClr val="800080"/></a:folHlink>
+          </a:clrScheme>
+          <a:fontScheme name="Test">
+            <a:majorFont><a:latin typeface="Arial"/></a:majorFont>
+            <a:minorFont><a:latin typeface="Arial"/></a:minorFont>
+          </a:fontScheme>
+        </a:themeElements>
+      </a:theme>`,
+  );
+  zip.file(
+    "ppt/slideMasters/slideMaster1.xml",
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+      <p:sldMaster xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+        <p:cSld><p:spTree/></p:cSld>
+        <p:clrMap bg1="lt1" tx1="dk1" bg2="lt2" tx2="dk2" accent1="accent1" accent2="accent2" accent3="accent3" accent4="accent4" accent5="accent5" accent6="accent6" hlink="hlink" folHlink="folHlink"/>
+      </p:sldMaster>`,
+  );
+  zip.file(
+    "ppt/slideMasters/_rels/slideMaster1.xml.rels",
+    pptxRelsXml([{ id: "rId1", type: "theme", target: "../theme/theme1.xml" }]),
+  );
+  zip.file(
+    "ppt/slideLayouts/slideLayout1.xml",
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+      <p:sldLayout xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+        <p:cSld><p:spTree>
+          <p:sp>
+            <p:nvSpPr><p:cNvPr id="10" name="Title Placeholder"/><p:cNvSpPr txBox="1"/><p:nvPr><p:ph type="title"/></p:nvPr></p:nvSpPr>
+            <p:spPr><a:xfrm><a:off x="500000" y="300000"/><a:ext cx="8000000" cy="1000000"/></a:xfrm></p:spPr>
+            <p:txBody><a:bodyPr/><a:lstStyle/></p:txBody>
+          </p:sp>
+          <p:sp>
+            <p:nvSpPr><p:cNvPr id="11" name="Body Placeholder"/><p:cNvSpPr txBox="1"/><p:nvPr><p:ph type="body"/></p:nvPr></p:nvSpPr>
+            <p:spPr><a:xfrm><a:off x="500000" y="1600000"/><a:ext cx="8000000" cy="4000000"/></a:xfrm></p:spPr>
+            <p:txBody><a:bodyPr/><a:lstStyle/></p:txBody>
+          </p:sp>
+        </p:spTree></p:cSld>
       </p:sldLayout>`,
   );
   zip.file(

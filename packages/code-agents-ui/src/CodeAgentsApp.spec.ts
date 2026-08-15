@@ -56,6 +56,15 @@ describe("CodeAgentsApp full-page chat width", () => {
     expect(css).toMatch(
       /\.code-agents-overview-skeleton\s*\{[\s\S]*?max-width: var\(--code-agents-chat-max\);/,
     );
+    expect(css).toMatch(
+      /\.code-agents-project-picker--bar\s*\{[\s\S]*?width: min\(100%, var\(--code-agents-chat-max\)\);/,
+    );
+    expect(css).toMatch(
+      /\.code-agents-project-picker--bar\s*\{[\s\S]*?margin-top: 8px;/,
+    );
+    expect(css).toMatch(
+      /\.code-agents-project-picker--bar \.code-agents-project-select\s*\{[\s\S]*?flex: 0 1 auto;/,
+    );
   });
 });
 
@@ -107,7 +116,12 @@ describe("CodeAgentsApp project folder picker", () => {
 
     expect(source).toContain("<span>Add folder...</span>");
     expect(source).not.toContain('aria-label="Add folder"');
-    expect(css).toContain("margin-top: -10px;");
+    expect(source).toContain('value="remote"');
+    expect(source).toContain("onRemoteSelect?.();");
+    expect(source.indexOf('aria-label="Select working folder"')).toBeLessThan(
+      source.indexOf('aria-label="Select workspace"'),
+    );
+    expect(css).toContain("margin-top: 8px;");
   });
 });
 
@@ -290,22 +304,10 @@ describe("code-agent model selection", () => {
     });
   });
 
-  it("keeps Remote available as a waitlist action without changing the local runtime", () => {
-    const current = {
-      engine: "claude-cli",
-      model: "claude-sonnet-5",
-      effort: "medium" as const,
-    };
-
+  it("keeps Remote out of the agent runtime list", () => {
     expect(
       getCodeAgentPickerOptions(models).find((agent) => agent.id === "remote"),
-    ).toEqual(
-      expect.objectContaining({
-        label: "Remote",
-        configured: true,
-      }),
-    );
-    expect(getCodeAgentSelection("remote", current, models)).toEqual(current);
+    ).toBeUndefined();
   });
 });
 

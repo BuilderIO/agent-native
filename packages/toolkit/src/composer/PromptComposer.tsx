@@ -85,6 +85,8 @@ export interface PromptComposerProps {
   ) => void | Promise<void>;
   placeholder?: string;
   disabled?: boolean;
+  /** Called when a host-gated composer is clicked while it is disabled. */
+  onDisabledClick?: () => void;
   /** Override the generic document attachment cap for a multipart host. */
   maxDocumentAttachmentBytes?: number;
   /** Label used in the visible document attachment limit error. */
@@ -491,6 +493,7 @@ function PromptComposerInner({
   onSubmit,
   placeholder,
   disabled,
+  onDisabledClick,
   maxDocumentAttachmentBytes,
   documentAttachmentLimitLabel,
   autoFocus,
@@ -643,12 +646,13 @@ function PromptComposerInner({
         <BuilderSetupCard
           onConnected={handleBuilderConnected}
           bouncePulse={missingKeyBouncePulse}
+          attached
           fullWidth
           layout="sidebar"
         />
       ) : null}
       {missingApiKey && useInlineMissingKeySetup && BuilderSetupContent ? (
-        <div className="mb-2 rounded-md border border-border/80 bg-background/80 p-2.5 text-start shadow-sm">
+        <div className="agent-builder-setup-inline--attached mb-0 rounded-md border border-border/80 bg-background/80 p-2.5 text-start shadow-sm">
           <BuilderSetupContent
             onConnected={handleBuilderConnected}
             layout="sidebar"
@@ -659,13 +663,21 @@ function PromptComposerInner({
         className={cn(
           "text-start",
           gateComposer && "cursor-pointer",
+          (gateComposer || onDisabledClick) &&
+            "agent-composer-area--attached-above",
           className,
         )}
         rootClassName={rootClassName}
         style={style}
         rootStyle={rootStyle}
         layoutVariant={layoutVariant}
-        onClick={gateComposer ? bounceMissingKeySetup : undefined}
+        onClick={
+          gateComposer
+            ? bounceMissingKeySetup
+            : onDisabledClick
+              ? () => onDisabledClick()
+              : undefined
+        }
       >
         <PromptAttachmentStrip />
         <TiptapComposer

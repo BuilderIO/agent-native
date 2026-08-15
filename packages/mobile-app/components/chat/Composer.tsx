@@ -42,6 +42,10 @@ import {
   mentionToReference,
   replaceMention,
 } from "@/lib/agent-chat/mention-query";
+import {
+  formatMobileModelLabel,
+  getMobileAgentLabel,
+} from "@/lib/agent-chat/model-picker";
 import type {
   ChatAttachment,
   ChatReference,
@@ -84,21 +88,11 @@ function MentionRowIcon({ refType }: { refType: string }) {
 }
 
 function settingsSummary(settings: AgentChatSettings): string {
-  if (!settings.model) return "Auto";
-  const raw = settings.model.replace(/-\d{8}$/, "");
-  let model = raw;
-  if (/sonnet/i.test(raw)) model = "Sonnet 5";
-  else if (/opus/i.test(raw)) model = "Opus 3.5";
-  else if (/haiku/i.test(raw)) model = "Haiku 3.5";
-  else if (/gpt-4o/i.test(raw)) model = "GPT-4o";
-  else if (/gemini/i.test(raw)) model = "Gemini 2.0";
-  else {
-    model = raw.charAt(0).toUpperCase() + raw.slice(1);
-  }
+  const agent = getMobileAgentLabel(settings.engine);
   const effort = settings.effort
     ? ` · ${settings.effort[0]!.toUpperCase()}${settings.effort.slice(1, 3)}`
     : "";
-  return `${model}${effort}`;
+  return `${agent === "Default" ? formatMobileModelLabel(settings.model) : agent}${effort}`;
 }
 
 function detectMimeType(fileName: string, providedMime?: string): string {

@@ -218,7 +218,6 @@ import { registerChatFirstMcpIpc } from "./ipc/chat-first-mcp.js";
 import { registerCodeAgentsIpc } from "./ipc/code-agents";
 import { registerContentFilesIpc } from "./ipc/content-files";
 import { registerDesktopChatIpc } from "./ipc/desktop-chat";
-import { registerFrameIpc } from "./ipc/frame";
 import { registerInterAppIpc } from "./ipc/inter-app";
 import { registerPlanFilesIpc } from "./ipc/plan-files";
 import { registerShortcutsIpc } from "./ipc/shortcuts";
@@ -1270,10 +1269,10 @@ function createWindow(): BrowserWindow {
     minWidth: 960,
     minHeight: 600,
 
-    // macOS: hidden title bar with traffic lights positioned in the tab bar
+    // macOS: hidden title bar with traffic lights positioned above the chat rail
     // Windows/Linux: fully frameless, custom controls in renderer
     titleBarStyle: "hidden",
-    // Traffic lights in the far top-left of the tab bar
+    // Traffic lights in the far top-left of the chat-first workbench
     ...(isMac && { trafficLightPosition: { x: 14, y: 12 } }),
 
     backgroundColor: "#111111",
@@ -9046,10 +9045,6 @@ registerContentFilesIpc({
   revealContentFileForRequest,
   clearContentFilesGrant,
 });
-
-// ---------- IPC: Frame settings ----------
-// See main/ipc/frame.ts.
-registerFrameIpc();
 
 // ---------- IPC: Local app-launch shortcuts ----------
 // See main/ipc/shortcuts.ts.

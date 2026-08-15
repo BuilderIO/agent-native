@@ -160,6 +160,8 @@ export interface RequestContext {
    * replay; never used for authorization.
    */
   browserSessionId?: string;
+  /** Canonical client surface for analytics attribution. */
+  clientPlatform?: import("../shared/analytics-platform.js").AnalyticsClientPlatform;
   /**
    * Set when code reads authenticated request context. Public SSR shell/data
    * should not depend on this value; user/org-specific reads belong behind

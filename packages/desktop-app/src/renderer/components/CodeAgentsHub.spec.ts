@@ -254,7 +254,7 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
 
     expect(hubSource).toContain("desktop-chat-first-rail-footer-actions");
     expect(hubSource).toContain(
-      'desktop-chat-first-rail-settings"\n                      onClick',
+      'desktop-chat-first-rail-settings"\n                    onClick',
     );
     expect(hubSource).toContain("IconLayoutSidebarLeftCollapse");
     expect(hubSource).toContain("desktop-chat-first-rail-collapse");
@@ -268,8 +268,8 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
       ".desktop-chat-first-rail-footer-actions > .code-agents-nav-link",
     );
     expect(shellCss).toContain("code-agents-primary-new-chat-shell");
-    expect(shellCss).toMatch(
-      /\.code-agents-rail--collapsed[\s\S]*\.code-agents-nav-list\s*>\s*button/,
+    expect(shellCss).toContain(
+      ".code-agents-rail--collapsed\n  .code-agents-nav-link",
     );
     expect(shellCss).toContain("border-bottom: 0;");
     expect(shellCss).toMatch(
@@ -378,9 +378,7 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
       "utf8",
     );
 
-    expect(hubSource).toContain(
-      "suppressChatFirstUnavailableNotice={chatFirstMode}",
-    );
+    expect(hubSource).toContain("suppressChatFirstUnavailableNotice");
     expect(hubSource).toContain('error: "Desktop bridge is not available."');
   });
 

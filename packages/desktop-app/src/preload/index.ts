@@ -5,7 +5,7 @@ import type {
   McpServerScope,
   TestMcpUrlResult,
 } from "@agent-native/core/client/resources";
-import type { AppConfig, FrameSettings } from "@shared/app-registry";
+import type { AppConfig } from "@shared/app-registry";
 import {
   CHAT_FIRST_MCP_IPC,
   type ChatFirstMcpPluginImportResult,
@@ -293,13 +293,6 @@ const electronAPI = {
   shell: {
     openExternal: (url: string): Promise<void> =>
       ipcRenderer.invoke(IPC.SHELL_OPEN_EXTERNAL, url),
-  },
-
-  /** Local dev frame settings */
-  frame: {
-    load: (): Promise<FrameSettings> => ipcRenderer.invoke(IPC.FRAME_LOAD),
-    update: (settings: Partial<FrameSettings>): Promise<FrameSettings> =>
-      ipcRenderer.invoke(IPC.FRAME_UPDATE, settings),
   },
 
   /** Global Quick Prompt overlay controls */

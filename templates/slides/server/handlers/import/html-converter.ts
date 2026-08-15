@@ -472,8 +472,13 @@ function buildFidelityParagraph(
     widthEmu,
     refWidthPx,
   );
+  // `min-width` (not a hard `width`) with `white-space:nowrap`: the parent
+  // paragraph inherits `white-space:pre-wrap`, and a hard width sized for a
+  // single bullet glyph wrapped multi-character auto-num bullets like "2."
+  // internally — the digit on one line, the period pushed onto the next
+  // alongside the paragraph text.
   const bullet = paragraph.bulletChar
-    ? `<span aria-hidden="true" style="display:inline-block;width:${fontSize * 0.75}px;min-width:${fontSize * 0.75}px;margin-right:${fontSize * 0.65}px;color:${esc(paragraph.bulletColor ?? firstRun?.color ?? DEFAULT_PPTX_FOREGROUND)};font-family:${cssFontFamily(paragraph.bulletFontFamily ?? themeFont)};font-size:${bulletFontSize}px;">${esc(paragraph.bulletChar)}</span>`
+    ? `<span aria-hidden="true" style="display:inline-block;min-width:${fontSize * 0.75}px;white-space:nowrap;margin-right:${fontSize * 0.65}px;color:${esc(paragraph.bulletColor ?? firstRun?.color ?? DEFAULT_PPTX_FOREGROUND)};font-family:${cssFontFamily(paragraph.bulletFontFamily ?? themeFont)};font-size:${bulletFontSize}px;">${esc(paragraph.bulletChar)}</span>`
     : "";
   const marginLeft = paragraph.marginLeftEmu
     ? toSlidePxX(paragraph.marginLeftEmu, widthEmu, refWidthPx)

@@ -753,6 +753,29 @@ function normalizeListsForPptx(
   return bulletIndents;
 }
 
+/**
+ * Imported PPTX paragraphs render their bullet as a decorative
+ * `aria-hidden` marker span separated from the text only by CSS
+ * margin-right (see server html-converter). dom-to-pptx extracts plain text
+ * per DOM node and has no notion of margin, so without a real space
+ * character the marker glyph and the first word run together in the
+ * exported file (e.g. "•PLG-first approach"). Insert one.
+ */
+function ensureBulletMarkerSpacing(root: HTMLElement) {
+  for (const marker of root.querySelectorAll<HTMLElement>(
+    'p[data-pptx-paragraph] > span[aria-hidden="true"]:first-child',
+  )) {
+    const next = marker.nextSibling;
+    if (
+      next?.nodeType === Node.TEXT_NODE &&
+      /^\s/.test(next.textContent ?? "")
+    ) {
+      continue;
+    }
+    marker.after(document.createTextNode(" "));
+  }
+}
+
 const EMU_PER_POINT = 12_700;
 
 /**
@@ -1078,6 +1101,7 @@ export async function buildDeckPptxBlob(
       await preloadImagesWithCors(clone.element);
       resetAutofitTransforms(clone.element);
       slideBulletIndents.push(normalizeListsForPptx(clone.element, dims));
+      ensureBulletMarkerSpacing(clone.element);
       restorePositionedGeometry(
         clone.element,
         clone.sourceRect,

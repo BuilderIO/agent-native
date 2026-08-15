@@ -1,7 +1,6 @@
 import { Tabs } from "expo-router";
 
 import ChatFirstBottomTabs from "@/components/ChatFirstBottomTabs";
-import { useChatFirstMode } from "@/lib/chat-first-mode";
 
 const HIDDEN_APP_ROUTES = [
   "analytics",
@@ -19,16 +18,10 @@ const HIDDEN_APP_ROUTES = [
 ] as const;
 
 export default function TabLayout() {
-  const { enabled: chatFirstMode, loaded } = useChatFirstMode();
-
   return (
     <Tabs
-      initialRouteName={loaded ? (chatFirstMode ? "chat" : "index") : undefined}
-      tabBar={
-        loaded && chatFirstMode
-          ? (props) => <ChatFirstBottomTabs {...props} />
-          : undefined
-      }
+      initialRouteName="chat"
+      tabBar={(props) => <ChatFirstBottomTabs {...props} />}
       screenOptions={{
         headerShown: false,
         tabBarActiveTintColor: "#f4f4f5",
@@ -47,7 +40,7 @@ export default function TabLayout() {
         name="index"
         options={{
           title: "Home",
-          href: loaded && chatFirstMode ? null : undefined,
+          href: null,
         }}
       />
       <Tabs.Screen name="home" options={{ href: null }} />
@@ -55,7 +48,7 @@ export default function TabLayout() {
         name="clips"
         options={{
           title: "Clips",
-          href: loaded && chatFirstMode ? null : undefined,
+          href: null,
         }}
       />
       <Tabs.Screen
@@ -68,7 +61,7 @@ export default function TabLayout() {
         name="sessions"
         options={{
           title: "Sessions",
-          href: loaded && chatFirstMode ? null : undefined,
+          href: null,
         }}
       />
       <Tabs.Screen

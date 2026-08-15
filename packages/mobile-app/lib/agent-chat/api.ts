@@ -1,6 +1,7 @@
 import { TEMPLATE_APPS } from "@agent-native/shared-app-config";
 import { fetch as expoFetch } from "expo/fetch";
 
+import { getMobileAnalyticsHeaders } from "@/lib/analytics";
 import { getSessionToken } from "@/lib/session-token-store";
 
 import type { NavigateCommand } from "./navigate-command";
@@ -43,6 +44,7 @@ async function authHeaders(): Promise<Record<string, string>> {
     Authorization: `Bearer ${token}`,
     Accept: "application/json",
     "Content-Type": "application/json",
+    ...(await getMobileAnalyticsHeaders()),
   };
 }
 

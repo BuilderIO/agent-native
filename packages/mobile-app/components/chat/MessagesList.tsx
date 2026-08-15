@@ -1,5 +1,9 @@
 import { LegendList, type LegendListRef } from "@legendapp/list/react-native";
-import { IconArrowDown } from "@tabler/icons-react-native";
+import {
+  IconArrowDown,
+  IconArrowRight,
+  IconDeviceDesktop,
+} from "@tabler/icons-react-native";
 import { useCallback, useRef, useState } from "react";
 import { Platform, Pressable, Text, View } from "react-native";
 import { KeyboardGestureArea } from "react-native-keyboard-controller";
@@ -50,11 +54,13 @@ export function MessagesList({
   chat,
   bottomInset,
   onMessageActions,
+  onConnectDesktop,
 }: {
   chat: AgentChatController;
   /** Height of the floating composer + keyboard area to pad the scroll end. */
   bottomInset: number;
   onMessageActions?: (message: ChatMessage) => void;
+  onConnectDesktop?: () => void;
 }) {
   const listRef = useRef<LegendListRef>(null);
   const [awayFromEnd, setAwayFromEnd] = useState(false);
@@ -168,12 +174,39 @@ export function MessagesList({
 
       {rows.length === 0 && !chat.historyLoading && (
         <View
-          className="absolute inset-0 items-center justify-center px-8"
-          pointerEvents="none"
+          className="absolute inset-0 items-center justify-center px-5"
+          pointerEvents="box-none"
         >
-          <Text className="text-white text-lg font-semibold text-center">
-            What can I help with?
-          </Text>
+          <View className="w-full max-w-[350px] items-center">
+            <Text className="text-white text-[22px] font-bold text-center">
+              What can I help with?
+            </Text>
+            {onConnectDesktop && (
+              <Pressable
+                className="w-full flex-row items-center gap-3 rounded-2xl border border-border-dark bg-card-dark px-3.5 py-3.5 mt-5 active:opacity-75"
+                onPress={onConnectDesktop}
+                accessibilityRole="button"
+                accessibilityLabel="Connect your desktop"
+              >
+                <View className="h-10 w-10 items-center justify-center rounded-xl bg-gray-medium-dark">
+                  <IconDeviceDesktop
+                    color="#d4d4d8"
+                    size={20}
+                    strokeWidth={1.8}
+                  />
+                </View>
+                <View className="flex-1">
+                  <Text className="text-white text-[15px] font-semibold">
+                    Connect your desktop
+                  </Text>
+                  <Text className="text-text-muted text-xs mt-0.5">
+                    Run tasks on your computer from Chat.
+                  </Text>
+                </View>
+                <IconArrowRight color="#71717a" size={18} strokeWidth={1.9} />
+              </Pressable>
+            )}
+          </View>
         </View>
       )}
     </View>

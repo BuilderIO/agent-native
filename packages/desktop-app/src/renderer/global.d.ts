@@ -749,29 +749,6 @@ interface ElectronAPI {
     on(cb: (from: string, event: string, data: unknown) => void): () => void;
   };
 
-  frame: {
-    load(): Promise<{
-      enabled: boolean;
-      showCodeTab: boolean;
-      chatFirstMode: boolean;
-      mode: "dev" | "prod";
-      prodUrl?: string;
-    }>;
-    update(settings: {
-      enabled?: boolean;
-      showCodeTab?: boolean;
-      chatFirstMode?: boolean;
-      mode?: "dev" | "prod";
-      prodUrl?: string;
-    }): Promise<{
-      enabled: boolean;
-      showCodeTab: boolean;
-      chatFirstMode: boolean;
-      mode: "dev" | "prod";
-      prodUrl?: string;
-    }>;
-  };
-
   quickPrompt: {
     load(): Promise<QuickPromptSettings>;
     update(

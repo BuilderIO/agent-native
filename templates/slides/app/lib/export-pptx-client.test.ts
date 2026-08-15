@@ -193,6 +193,19 @@ describe("exportDeckAsPptx", () => {
       width: 10,
     });
   });
+
+  it("inserts a real space after imported-PPTX bullet marker spans so the marker and text don't run together", async () => {
+    setRenderedSlide(
+      '<p data-pptx-paragraph="0"><span aria-hidden="true" style="margin-right:8px;">•</span>PLG-first approach</p>',
+    );
+
+    await exportDeckAsPptx("Contents", [{ id: "slide-1" }], "16:9");
+
+    const [targets] = mocks.exportToPptx.mock.calls[0];
+    const [target] = targets as HTMLElement[];
+    const paragraph = target.querySelector('p[data-pptx-paragraph="0"]');
+    expect(paragraph?.textContent).toBe("• PLG-first approach");
+  });
 });
 
 describe("pptxExportScale", () => {

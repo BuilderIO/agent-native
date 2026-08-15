@@ -114,6 +114,47 @@ describe("convertToSlideHtml fidelity text sizing", () => {
   });
 });
 
+describe("convertToSlideHtml numbered bullets", () => {
+  it("keeps a multi-character auto-num bullet like '2.' from wrapping onto its own line", () => {
+    const widthEmu = 12192000;
+    const heightEmu = 6858000;
+    const text: ParsedElement = {
+      id: "text-1",
+      kind: "text",
+      x: 0,
+      y: 0,
+      width: widthEmu,
+      height: heightEmu,
+      paragraphs: [
+        {
+          bulletChar: "2.",
+          runs: [{ content: "Give me a button", fontSize: 19 }],
+        },
+      ],
+    };
+    const slide: ParsedSlide = {
+      texts: [],
+      images: [],
+      elements: [text],
+      widthEmu,
+      heightEmu,
+    };
+
+    const html = convertToSlideHtml(slide);
+    const bulletStyle = html.match(
+      /<span aria-hidden="true" style="([^"]*)">2\.<\/span>/,
+    )?.[1];
+    if (!bulletStyle) throw new Error("missing bullet span in rendered run");
+
+    // A hard `width` sized for one glyph (the common case, e.g. "•") wraps
+    // a two-character bullet like "2." internally under the paragraph's
+    // inherited `white-space:pre-wrap`, splitting the digit from the
+    // period onto separate lines.
+    expect(bulletStyle).not.toMatch(/(?<!min-)width:/);
+    expect(bulletStyle).toContain("white-space:nowrap");
+  });
+});
+
 describe("convertToSlideHtml table fidelity", () => {
   function tableSlide(): ParsedSlide {
     const widthEmu = 12192000;

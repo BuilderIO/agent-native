@@ -18,7 +18,6 @@ import {
   getDesktopTemplateGatewayAppUrl,
   isDefaultDesktopTemplateDevTarget,
   type AppConfig,
-  type FrameSettings,
 } from "@shared/app-registry";
 import {
   formatDesktopShortcutAccelerator,
@@ -71,7 +70,6 @@ interface AppSettingsProps {
   onClose: () => void;
   onAppsChanged: (apps: AppConfig[]) => void;
   onAddAppClick?: () => void;
-  onFrameSettingsChanged?: (settings: FrameSettings) => void;
   onCodeAgentProvidersChanged?: () => void;
 }
 
@@ -510,13 +508,9 @@ export default function AppSettings({
   onClose,
   onAppsChanged,
   onAddAppClick,
-  onFrameSettingsChanged,
   onCodeAgentProvidersChanged,
 }: AppSettingsProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [frameSettings, setFrameSettings] = useState<FrameSettings | null>(
-    null,
-  );
   const [identityStatus, setIdentityStatus] =
     useState<DesktopIdentityStatus>("idle");
   const [remoteStatus, setRemoteStatus] =
@@ -579,16 +573,6 @@ export default function AppSettings({
     },
     [isClosing, onClose],
   );
-
-  // Load frame settings
-  useEffect(() => {
-    if (window.electronAPI?.frame) {
-      window.electronAPI.frame.load().then((settings) => {
-        setFrameSettings(settings);
-        onFrameSettingsChanged?.(settings);
-      });
-    }
-  }, [onFrameSettingsChanged]);
 
   useEffect(() => {
     const identity = window.electronAPI?.identity;
@@ -689,29 +673,6 @@ export default function AppSettings({
     }, 5000);
     return () => window.clearInterval(timer);
   }, [refreshRemoteStatus]);
-
-  const handleCodeTabToggle = useCallback(
-    async (showCodeTab: boolean) => {
-      if (window.electronAPI?.frame) {
-        const updated = await window.electronAPI.frame.update({ showCodeTab });
-        setFrameSettings(updated);
-        onFrameSettingsChanged?.(updated);
-      }
-    },
-    [onFrameSettingsChanged],
-  );
-
-  const handleChatFirstToggle = useCallback(
-    async (chatFirstMode: boolean) => {
-      if (!window.electronAPI?.frame) return;
-      const updated = await window.electronAPI.frame.update({
-        chatFirstMode,
-      });
-      setFrameSettings(updated);
-      onFrameSettingsChanged?.(updated);
-    },
-    [onFrameSettingsChanged],
-  );
 
   const desktopMcpApi = useMemo<McpServersApi | null>(() => {
     const api = window.electronAPI?.mcpServers;
@@ -998,36 +959,8 @@ export default function AppSettings({
         <div className="w-full max-w-3xl space-y-8">
           <SettingsGroup
             title="Workspace"
-            description="Choose the shell, apps, and remote access for this workspace."
+            description="Manage apps and remote access for this workspace."
           >
-            {frameSettings ? (
-              <SettingsRow
-                label="Agent in the sidebar"
-                description="Keep the Agent workspace available in the desktop navigation."
-                control={
-                  <Switch
-                    checked={frameSettings.showCodeTab}
-                    onCheckedChange={handleCodeTabToggle}
-                    aria-label="Show Agent in the sidebar"
-                  />
-                }
-              />
-            ) : null}
-            {frameSettings ? (
-              <SettingsRow
-                label="Chat-first workbench"
-                description="Keep chats at the center and open workspace apps beside them."
-                control={
-                  <Switch
-                    checked={frameSettings.chatFirstMode}
-                    onCheckedChange={(checked) =>
-                      void handleChatFirstToggle(checked)
-                    }
-                    aria-label="Use the chat-first desktop shell"
-                  />
-                }
-              />
-            ) : null}
             <SettingsRow
               label="Remote control"
               description={remoteCopy.label + " · " + remoteCopy.description}
@@ -1282,15 +1215,15 @@ export default function AppSettings({
                   aria-label="Shortcut target view"
                   className="settings-shortcut-view-input"
                 />
-                <div className="settings-mode-toggle settings-shortcut-behavior">
+                <div className="settings-shortcut-behavior-toggle">
                   {(["toggle", "show"] as const).map((behavior) => (
                     <button
                       key={behavior}
                       type="button"
                       className={
                         shortcutDraft.behavior === behavior
-                          ? "settings-mode-btn settings-mode-btn--active"
-                          : "settings-mode-btn"
+                          ? "settings-shortcut-behavior-btn settings-shortcut-behavior-btn--active"
+                          : "settings-shortcut-behavior-btn"
                       }
                       onClick={() =>
                         setShortcutDraft((current) => ({
@@ -1675,7 +1608,7 @@ export function AddAppDialog({
           <h3>New App</h3>
           <p className="settings-form-subtitle">
             Describe what you want. The coding agent will build it and add it to
-            your sidebar.
+            your workspace.
           </p>
         </div>
 
