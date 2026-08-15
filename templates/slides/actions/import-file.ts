@@ -202,6 +202,7 @@ export default defineAction({
           aspectRatio,
           sourceImport,
           pptxResults[0]?.sourceText,
+          presentation.theme,
         );
         return {
           format: "pptx",
@@ -704,6 +705,7 @@ async function appendDeckSlides(
   aspectRatio?: AspectRatio,
   sourceImport?: ReturnType<typeof buildSourceImportMetadata>,
   titleSource?: unknown,
+  theme?: import("../server/handlers/import/pptx-parser.js").ParsedPresentation["theme"],
 ): Promise<string> {
   await assertAccess("deck", deckId, "editor");
 
@@ -752,6 +754,11 @@ async function appendDeckSlides(
       title: nextTitle,
       slides: [...previousSlides, ...slides],
       ...(!hadExistingSlides && aspectRatio ? { aspectRatio } : {}),
+      // Same rule as aspectRatio above: an appended file's palette only
+      // becomes the deck's theme when the deck had no slides yet, so
+      // appending onto an existing deck can't silently restyle every slide
+      // already on it.
+      ...(!hadExistingSlides && theme ? { theme } : {}),
       ...(nextSourceImport ? { sourceImport: nextSourceImport } : {}),
       updatedAt: writeNow,
     };
