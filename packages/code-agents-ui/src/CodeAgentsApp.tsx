@@ -36,7 +36,6 @@ import { createPollEngine } from "@agent-native/core/shared";
 import type { AppConfig } from "@agent-native/shared-app-config";
 import {
   IconAlertCircle,
-  IconAsteriskSimple,
   IconBan,
   IconBrandOpenai,
   IconCheck,
@@ -3387,7 +3386,23 @@ function LocalRuntimeIcon({ engine }: { engine: LocalRuntimeEngine }) {
   return engine === "codex-cli" ? (
     <IconBrandOpenai size={15} strokeWidth={1.7} aria-hidden="true" />
   ) : (
-    <IconAsteriskSimple size={15} strokeWidth={1.7} aria-hidden="true" />
+    <AnthropicMark size={15} />
+  );
+}
+
+function AnthropicMark({ size }: { size: number }) {
+  return (
+    <svg
+      aria-hidden="true"
+      fill="currentColor"
+      fillRule="evenodd"
+      height={size}
+      viewBox="0 0 24 24"
+      width={size}
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path d="M13.827 3.52h3.603L24 20h-3.603l-6.57-16.48zm-7.258 0h3.767L16.906 20h-3.674l-1.343-3.461H5.017l-1.344 3.46H0L6.57 3.522zm4.132 9.959L8.453 7.687 6.205 13.48H10.7z" />
+    </svg>
   );
 }
 

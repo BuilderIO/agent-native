@@ -838,20 +838,26 @@
   min-inline-size: min(18rem, 100%);
 }
 
-/* Provider setup is part of the composer, not a separate banner. Pull the
-   frame's own top padding into the card so the two surfaces share one seam. */
+/* Provider setup tucks behind the composer. The extra bottom paint is hidden
+   by the higher composer layer, leaving one connected control. */
 .agent-builder-setup-card--attached {
   position: relative;
   z-index: 1;
-  margin-bottom: -0.5rem;
+  margin-bottom: -2.5rem;
   padding-bottom: 0 !important;
 }
 
 .agent-builder-setup-card--attached .agent-builder-setup-card__panel {
+  padding-bottom: calc(0.75rem + 2.5rem);
   border-bottom-color: transparent;
   border-bottom-left-radius: 0;
   border-bottom-right-radius: 0;
   box-shadow: none;
+}
+
+.agent-builder-setup-card--attached.agent-builder-setup-card--sidebar
+  .agent-builder-setup-card__panel {
+  padding-bottom: calc(0.625rem + 2.5rem);
 }
 
 .agent-builder-setup-card--attached:not(.agent-builder-setup-card--sidebar) {
@@ -863,7 +869,8 @@
 .agent-builder-setup-inline--attached {
   position: relative;
   z-index: 1;
-  margin-bottom: -0.5rem !important;
+  margin-bottom: -2.5rem !important;
+  padding-bottom: calc(0.625rem + 2.5rem) !important;
   border-bottom-color: transparent;
   border-bottom-left-radius: 0;
   border-bottom-right-radius: 0;
@@ -951,7 +958,7 @@
 
 .agent-composer-area--attached-above .agent-composer-root {
   position: relative;
-  z-index: 2;
+  z-index: 3;
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -1887,6 +1887,15 @@
   min-width: 184px;
 }
 
+.code-agents-provider-menu [role="menuitem"] {
+  gap: 8px;
+  padding-inline: 12px;
+}
+
+.code-agents-provider-menu [role="menuitem"] > svg {
+  flex: 0 0 auto;
+}
+
 .code-agents-provider-bounce {
   animation: code-agents-provider-bounce 460ms cubic-bezier(0.34, 1.56, 0.64, 1);
 }
@@ -1917,7 +1926,8 @@
 .code-agents-start .code-agents-provider-gate {
   position: relative;
   z-index: 1;
-  margin-bottom: -18px;
+  margin-bottom: -40px;
+  padding-bottom: 50px;
   border-bottom-color: transparent;
   border-bottom-left-radius: 0;
   border-bottom-right-radius: 0;
@@ -1939,7 +1949,7 @@
   .code-agents-standard-composer
   [data-agent-composer-slot="root"] {
   position: relative;
-  z-index: 2;
+  z-index: 3;
 }
 
 .code-agents-provider-gate + .code-agents-standard-composer {

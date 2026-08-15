@@ -390,7 +390,9 @@ export function BuilderSetupContent({
             )}
             aria-expanded={keyOpen}
           >
-            <IconKey size={13} strokeWidth={1.8} aria-hidden="true" />
+            {!sidebarLayout ? (
+              <IconKey size={13} strokeWidth={1.8} aria-hidden="true" />
+            ) : null}
             {t("agentPanel.addOwnKeys", {
               defaultValue: "Custom keys",
             })}
