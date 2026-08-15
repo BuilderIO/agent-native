@@ -518,6 +518,23 @@ describe("convertToSlideHtml shape geometry", () => {
       "clip-path: path('M55.6 0.6 A48 48 0 1 1 48 0 L48 48 Z')",
     );
   });
+
+  it("gives flow chart terminator and decision nodes their own shapes", () => {
+    // Both render as the plain rectangle of a process box otherwise, which is
+    // the only cue a reader has for where a chart starts and where it branches.
+    const terminator = styleAttr(
+      convertToSlideHtml(shapeSlide({ shapeType: "flowChartTerminator" })),
+      "shape",
+    );
+    expect(terminator).toContain("border-radius: 48px");
+    const decision = styleAttr(
+      convertToSlideHtml(shapeSlide({ shapeType: "flowChartDecision" })),
+      "shape",
+    );
+    expect(decision).toContain(
+      "clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)",
+    );
+  });
 });
 
 describe("convertToSlideHtml stroke geometry", () => {
