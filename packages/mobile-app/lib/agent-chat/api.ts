@@ -225,20 +225,42 @@ async function listTaggedThreads(
   }));
 }
 
+export interface AllThreadsResult {
+  threads: ChatThreadSummary[];
+  failedAppIds: string[];
+}
+
 /**
  * Cross-app thread history. Each workspace app is its own deployment with its
  * own thread store, so aggregation means fanning out to every app's `/threads`
- * endpoint and tagging each thread with its origin. Per-app failures (an app
- * that is down, or one the session token can't authenticate against) are
- * swallowed so the rest of the history still renders — never fail the whole
- * list because one app rejected. Results are newest-first across all apps.
+ * endpoint and tagging each thread with its origin. A per-app failure is
+ * reported separately from an empty result so the UI never presents a partial
+ * workspace history as complete.
  */
-export async function listAllThreads(): Promise<ChatThreadSummary[]> {
+export async function listAllThreadsWithStatus(): Promise<AllThreadsResult> {
   const apps = chatCapableApps();
   const perApp = await Promise.all(
-    apps.map((app) => listTaggedThreads(app).catch(() => [])),
+    apps.map(async (app) => {
+      try {
+        return { appId: app.id, threads: await listTaggedThreads(app) };
+      } catch {
+        return { appId: app.id, threads: null };
+      }
+    }),
   );
-  return perApp.flat().sort((a, b) => b.updatedAt - a.updatedAt);
+  return {
+    threads: perApp
+      .flatMap((result) => result.threads ?? [])
+      .sort((a, b) => b.updatedAt - a.updatedAt),
+    failedAppIds: perApp
+      .filter((result) => result.threads === null)
+      .map((result) => result.appId),
+  };
+}
+
+/** Backwards-compatible thread-only view for callers that do not need status. */
+export async function listAllThreads(): Promise<ChatThreadSummary[]> {
+  return (await listAllThreadsWithStatus()).threads;
 }
 
 /**

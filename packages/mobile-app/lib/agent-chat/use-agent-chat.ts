@@ -81,7 +81,7 @@ export interface AgentChatController {
   approve: (approvalKey: string) => void;
   deny: (approvalKey?: string) => void;
   retry: () => void;
-  newChat: () => void;
+  newChat: (baseUrl?: string) => void;
   /** Open a thread; pass its origin app base URL for cross-app threads. */
   openThread: (threadId: string, baseUrl?: string) => void;
   clearAuthRequired: () => void;
@@ -385,12 +385,11 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
     setTimeout(() => void runTurn(prompt), 0);
   }, [runTurn]);
 
-  const newChat = useCallback(() => {
+  const newChat = useCallback((nextBaseUrl = DEFAULT_CHAT_BASE_URL) => {
     activeGenerationRef.current++;
     liveTurnRef.current?.abort();
     setThreadId(newThreadId());
-    // New chats always start on the chat app.
-    setBaseUrl(DEFAULT_CHAT_BASE_URL);
+    setBaseUrl(nextBaseUrl);
     lastPromptRef.current = null;
     setState({
       messages: [],

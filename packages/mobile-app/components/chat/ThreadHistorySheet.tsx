@@ -15,9 +15,10 @@ import { SafeAreaView } from "@/components/uniwind-interop";
 import {
   chatCapableApps,
   deleteChatThread,
+  listAllThreadsWithStatus,
   listThreadsForApp,
 } from "@/lib/agent-chat/api";
-import { groupThreadsByApp, threadKey } from "@/lib/agent-chat/thread-grouping";
+import { threadKey } from "@/lib/agent-chat/thread-grouping";
 import type { ChatThreadSummary } from "@/lib/agent-chat/types";
 
 function formatWhen(timestamp: number): string {
@@ -87,17 +88,18 @@ export function ThreadHistorySheet({
   activeThreadId: string;
   activeBaseUrl: string;
   onSelect: (threadId: string, baseUrl?: string) => void;
-  onNewChat: () => void;
+  onNewChat: (baseUrl?: string) => void;
   onClose: () => void;
 }) {
   const [threads, setThreads] = useState<ChatThreadSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [partialError, setPartialError] = useState(false);
   const [confirmingDeleteKey, setConfirmingDeleteKey] = useState<string | null>(
     null,
   );
-  // History shows one app at a time, defaulting to Chat.
-  const [selectedAppId, setSelectedAppId] = useState<string>("chat");
+  // Start with the complete workspace history, then let the user narrow it.
+  const [selectedAppId, setSelectedAppId] = useState<"all" | string>("all");
   // Discards results from a superseded app-filter request.
   const requestIdRef = useRef(0);
 
@@ -114,9 +116,19 @@ export function ThreadHistorySheet({
     const requestId = ++requestIdRef.current;
     setLoading(true);
     setLoadError(null);
-    listThreadsForApp(selectedAppId)
+    setPartialError(false);
+    const resultPromise =
+      selectedAppId === "all"
+        ? listAllThreadsWithStatus()
+        : listThreadsForApp(selectedAppId).then((result) => ({
+            threads: result,
+            failedAppIds: [],
+          }));
+    resultPromise
       .then((result) => {
-        if (requestIdRef.current === requestId) setThreads(result);
+        if (requestIdRef.current !== requestId) return;
+        setThreads(result.threads);
+        setPartialError(result.failedAppIds.length > 0);
       })
       .catch((error) => {
         if (requestIdRef.current !== requestId) return;
@@ -139,9 +151,16 @@ export function ThreadHistorySheet({
   // The chip row already names the app, so the per-app section header is
   // redundant — keep only the thread rows.
   const rows = useMemo(
-    () => groupThreadsByApp(threads).filter((r) => r.type !== "header"),
+    () =>
+      threads.map((thread) => ({
+        type: "thread" as const,
+        thread,
+        key: threadKey(thread),
+      })),
     [threads],
   );
+
+  const selectedApp = apps.find((app) => app.id === selectedAppId);
 
   const handleDelete = (thread: ChatThreadSummary) => {
     const key = threadKey(thread);
@@ -182,7 +201,7 @@ export function ThreadHistorySheet({
             <Pressable
               className="flex-row items-center gap-3 px-4 py-3.5 border-b border-border-dark active:opacity-75"
               onPress={() => {
-                onNewChat();
+                onNewChat(selectedApp?.url);
                 onClose();
               }}
               accessibilityRole="button"
@@ -202,6 +221,11 @@ export function ThreadHistorySheet({
                 showsHorizontalScrollIndicator={false}
                 contentContainerClassName="flex-row items-center gap-2 px-3 py-3"
               >
+                <AppFilterChip
+                  label="All"
+                  selected={selectedAppId === "all"}
+                  onPress={() => setSelectedAppId("all")}
+                />
                 {apps.map((app) => (
                   <AppFilterChip
                     key={app.id}
@@ -213,6 +237,19 @@ export function ThreadHistorySheet({
                 ))}
               </ScrollView>
             </View>
+
+            {partialError ? (
+              <View className="flex-row items-center justify-between gap-3 px-4 py-2.5 bg-amber-500/10 border-b border-amber-500/20">
+                <Text className="flex-1 text-amber-200 text-xs">
+                  Some app chats could not be loaded.
+                </Text>
+                <Pressable onPress={refresh} accessibilityRole="button">
+                  <Text className="text-amber-200 text-xs font-semibold">
+                    Retry
+                  </Text>
+                </Pressable>
+              </View>
+            ) : null}
 
             {loading && threads.length === 0 ? (
               <View className="flex-1 items-center justify-center">
@@ -235,7 +272,9 @@ export function ThreadHistorySheet({
             ) : threads.length === 0 ? (
               <View className="flex-1 items-center justify-center px-8">
                 <Text className="text-status-gray text-sm text-center">
-                  {`No ${apps.find((a) => a.id === selectedAppId)?.name ?? "app"} chats yet. Start a conversation there and it will show up here.`}
+                  {selectedAppId === "all"
+                    ? "No chats yet. Start a conversation and it will show up here."
+                    : `No ${selectedApp?.name ?? "app"} chats yet. Start a conversation there and it will show up here.`}
                 </Text>
               </View>
             ) : (
@@ -261,6 +300,18 @@ export function ThreadHistorySheet({
                       accessibilityLabel={`Open chat ${thread.title}`}
                     >
                       <View className="flex-1">
+                        {selectedAppId === "all" && thread.appName ? (
+                          <View className="flex-row items-center gap-1.5 mb-0.5">
+                            <AppIcon
+                              iconName={thread.appIcon ?? "MessageSquare"}
+                              size={12}
+                              color="#a1a1aa"
+                            />
+                            <Text className="text-status-gray text-[11px]">
+                              {thread.appName}
+                            </Text>
+                          </View>
+                        ) : null}
                         <Text
                           className="text-white text-[15px] font-medium"
                           numberOfLines={1}
