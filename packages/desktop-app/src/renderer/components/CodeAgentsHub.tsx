@@ -105,6 +105,7 @@ import AppWebview, {
 import CodeAgentsAppIcon from "./CodeAgentsAppIcon.js";
 import CreateAppPromptPopover from "./CreateAppPromptPopover.js";
 import DesktopAppChatShell from "./DesktopAppChatShell.js";
+import DesktopTerminalSurface from "./DesktopTerminalSurface.js";
 import DesktopTerminalTabs from "./DesktopTerminalTabs.js";
 import {
   initialMultiFrontierRunAutoContinue,
@@ -2183,7 +2184,7 @@ export default function CodeAgentsHub({
                 renderTab={renderChatFirstSurfaceTab}
               />
             ) : terminalPreferences.enabled ? (
-              <DesktopTerminalTabs
+              <DesktopTerminalSurface
                 apps={apps}
                 agent={terminalPreferences.agent}
                 theme={theme}

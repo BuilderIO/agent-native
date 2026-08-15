@@ -13,6 +13,7 @@ import {
   IconFiles,
   IconGitCompare,
   IconMessageCircle,
+  IconPlus,
   IconTerminal2,
   IconUsersGroup,
   IconWorld,
@@ -59,6 +60,8 @@ export function ChatFirstSurfaceTabs({
   apps = [],
   onOpenApp,
   renderAppIcon,
+  onAddTab,
+  addTabLabel = "New tab",
   copy = defaultChatFirstCopy,
 }: ChatFirstSurfaceTabsProps) {
   return (
@@ -174,6 +177,17 @@ export function ChatFirstSurfaceTabs({
                 </ContextMenuContent>
               </ContextMenu>
             ))}
+            {onAddTab ? (
+              <button
+                type="button"
+                className="flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground/65 transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                aria-label={addTabLabel}
+                title={addTabLabel}
+                onClick={onAddTab}
+              >
+                <IconPlus size={14} aria-hidden="true" />
+              </button>
+            ) : null}
           </div>
         ) : (
           <div

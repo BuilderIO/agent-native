@@ -85,7 +85,8 @@ describe("createPortalHandoff", () => {
       (await execFile("git", ["rev-parse", "HEAD"], { cwd: source })).stdout,
     ).trim();
     const beforeStatus = String(
-      (await execFile("git", ["status", "--porcelain"], { cwd: source })).stdout,
+      (await execFile("git", ["status", "--porcelain"], { cwd: source }))
+        .stdout,
     );
 
     try {
@@ -97,25 +98,30 @@ describe("createPortalHandoff", () => {
       });
       const transferred = String(
         (
-          await execFile(
-            "git",
-            ["--git-dir", remote, "show", `${result.branch}:tracked.txt`],
-          )
+          await execFile("git", [
+            "--git-dir",
+            remote,
+            "show",
+            `${result.branch}:tracked.txt`,
+          ])
         ).stdout,
       );
       const transferredUntracked = String(
         (
-          await execFile(
-            "git",
-            ["--git-dir", remote, "show", `${result.branch}:untracked.txt`],
-          )
+          await execFile("git", [
+            "--git-dir",
+            remote,
+            "show",
+            `${result.branch}:untracked.txt`,
+          ])
         ).stdout,
       );
       const afterHead = String(
         (await execFile("git", ["rev-parse", "HEAD"], { cwd: source })).stdout,
       ).trim();
       const afterStatus = String(
-        (await execFile("git", ["status", "--porcelain"], { cwd: source })).stdout,
+        (await execFile("git", ["status", "--porcelain"], { cwd: source }))
+          .stdout,
       );
 
       expect(result.createdCommit).toBe(true);

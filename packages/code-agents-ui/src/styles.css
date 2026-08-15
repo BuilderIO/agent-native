@@ -1931,8 +1931,8 @@
 .code-agents-start .code-agents-provider-gate {
   position: relative;
   z-index: 1;
-  margin-bottom: -20px;
-  padding-bottom: 30px;
+  margin-bottom: -50px;
+  padding-bottom: 40px;
   border-bottom-color: transparent;
   border-bottom-left-radius: 0;
   border-bottom-right-radius: 0;
