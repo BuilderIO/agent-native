@@ -216,6 +216,42 @@ function pxToPt(
   return Math.round((px / pxPerInch) * 72);
 }
 
+const EMU_PER_INCH = 914400;
+
+/**
+ * The page size an imported slide carries from its source `<p:sldSz>`. The
+ * importer lays elements out against the nearest `ASPECT_RATIOS` preset box, so
+ * exporting onto that preset's inches instead re-pages the deck: a 10x5.625in
+ * source comes back 13.33x7.5in, and a 16:10 source (creandum) comes back 16:9
+ * with every element stretched 11% vertically, because the preset it snapped to
+ * is not its real shape. Scaling the preset's px box onto the source's own
+ * inches makes both round trips exact.
+ */
+export function sourcePageInches(
+  html: string,
+): { w: number; h: number } | undefined {
+  const widthEmu = Number(html.match(/data-slide-width-emu="(\d+)"/)?.[1]);
+  const heightEmu = Number(html.match(/data-slide-height-emu="(\d+)"/)?.[1]);
+  if (!widthEmu || !heightEmu) return undefined;
+  const w = widthEmu / EMU_PER_INCH;
+  const h = heightEmu / EMU_PER_INCH;
+  // PowerPoint itself refuses a page outside 1-56in; a value beyond that is a
+  // corrupt attribute, not a page size, and must not silently re-page the deck.
+  if (w < 1 || w > 56 || h < 1 || h > 56) {
+    console.warn(
+      `[export-pptx] ignoring out-of-range source page size ${widthEmu}x${heightEmu} EMU`,
+    );
+    return undefined;
+  }
+  return { w, h };
+}
+
+/** `dims` re-based onto the source page size when the slide declares one. */
+function withSourcePageInches(dims: SlideDims, html: string): SlideDims {
+  const pptxInches = sourcePageInches(html);
+  return pptxInches ? { ...dims, pptxInches } : dims;
+}
+
 interface TextElement {
   text: string;
   fontSize?: number; // in pt; omitted when the source declares none
@@ -321,6 +357,8 @@ interface ParsedSlide {
   grid?: GridElement;
   bgColor: string;
   bgTransparency?: number; // 0-100, percent transparent
+  /** The slide background's CSS gradient, when it has one. `bgColor` still holds its flattened stop for the shape-level path. */
+  bgGradient?: string;
 }
 
 /**
@@ -333,7 +371,7 @@ export function parseSlideHtml(
   slideNumber = 1,
 ): ParsedSlide {
   assertServerPptxExportable(html, slideNumber);
-  const dims = getAspectRatioDims(aspectRatio);
+  const dims = withSourcePageInches(getAspectRatioDims(aspectRatio), html);
   if (html.includes('data-imported-pdf="true"')) {
     return parseImportedPdfSlideHtml(html, dims);
   }
@@ -536,7 +574,17 @@ export function parseSlideHtml(
   return { texts, images, shapes, tables: [], bgColor, bgTransparency };
 }
 
-type SlideDims = ReturnType<typeof getAspectRatioDims>;
+/**
+ * Structural rather than `ReturnType<typeof getAspectRatioDims>`: the px box
+ * stays the aspect-ratio preset the importer laid out against, while
+ * `pptxInches` is re-based onto the source page size, so the two halves no
+ * longer come from the same preset literal.
+ */
+interface SlideDims {
+  width: number;
+  height: number;
+  pptxInches: { w: number; h: number };
+}
 
 /**
  * The `.fmd-slide` wrapper's inline style. The delimiter has to be captured and
@@ -621,12 +669,16 @@ function parseImportedSlideHtml(html: string, dims: SlideDims): ParsedSlide {
   const shapes: ShapeElement[] = [];
   const tables: TableElement[] = [];
   const outerStyle = slideWrapperStyle(html);
+  const background = outerStyle
+    ? getStyle(outerStyle, "background(?:-color)?")
+    : undefined;
   const parsedBg =
-    cssFillToSolid(
-      outerStyle ? getStyle(outerStyle, "background(?:-color)?") : undefined,
-    ) ?? colorToHex(IMPORTED_PPTX_BACKGROUND_FALLBACK);
+    cssFillToSolid(background) ??
+    colorToHex(IMPORTED_PPTX_BACKGROUND_FALLBACK);
   const bgColor = parsedBg.hex;
   const bgTransparency = parsedBg.transparency;
+  const bgGradient =
+    background && /gradient\(/i.test(background) ? background : undefined;
   const slideFontFace = outerStyle ? cssFontFace(outerStyle) : undefined;
   const grid = outerStyle ? parseImportedGrid(outerStyle) : undefined;
   const elementRegex =

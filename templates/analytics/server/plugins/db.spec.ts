@@ -275,6 +275,8 @@ describe("analytics db.ts wires ensureAdditiveColumns after runMigrations", () =
       'name: "analytics-events-backfill-filtered-cursor-index-direct-repair"',
     );
     expect(repairEntry).toContain("repairAnalyticsEventCursorIndexes");
+    expect(dbTsSource).toContain("pg_try_advisory_lock");
+    expect(dbTsSource).toContain("deferMigration()");
     expect(repairEntry).toContain('postgres: "SELECT 1"');
     expect(dbTsSource).toContain(
       "ANALYTICS_EVENT_CURSOR_INDEX_REPAIR_TIMEOUT_MS = 15 * 60 * 1000",

@@ -307,15 +307,32 @@ function buildFidelityElement(
     );
   }
 
+  // Text keeps its box: clipping a text element to its outline would eat the
+  // text with it, which PowerPoint does not do either.
+  const customPath =
+    element.kind === "shape"
+      ? customGeometryPath(element, widthPx, heightPx)
+      : undefined;
   const decoration = shapeDecoration(
     element,
     widthEmu,
     refBox.width,
     widthPx,
     heightPx,
+    customPath,
   );
   if (element.kind === "shape") {
-    return `<div class="fmd-pptx-shape" data-pptx-element-kind="shape"${objectId} style="${position}${rotation}${decoration}"></div>`;
+    const stroke = customPath
+      ? customGeometryStroke(
+          element,
+          customPath,
+          widthEmu,
+          refBox.width,
+          widthPx,
+          heightPx,
+        )
+      : "";
+    return `<div class="fmd-pptx-shape" data-pptx-element-kind="shape"${objectId} style="${position}${rotation}${decoration}">${stroke}</div>`;
   }
 
   const textStyle = textBoxStyle(
@@ -736,6 +753,102 @@ function round3(value: number): number {
 }
 
 /**
+ * Convert a shape's `a:custGeom` outline into an SVG path `d` string in the
+ * shape's own pixel box. Every OOXML path command has an exact SVG
+ * counterpart, so a freeform outline — a country on a map, a line-art
+ * pictogram, one segment of a curved-arrow ring — is reproduced rather than
+ * flattened into the rectangle its bounding box happens to be, which is what
+ * turns a 422-path world map into a field of staircase blocks.
+ *
+ * Returns `undefined` rather than a partial path when the geometry cannot be
+ * converted, so the caller falls back to the shape's existing rendering
+ * instead of clipping it down to a fragment.
+ */
+function customGeometryPath(
+  element: ParsedElement,
+  widthPx: number,
+  heightPx: number,
+): string | undefined {
+  const geometry = element.geometry;
+  if (!geometry || geometry.kind !== "custom") return undefined;
+  if (!(widthPx > 0) || !(heightPx > 0)) return undefined;
+  const parts: string[] = [];
+  for (const path of geometry.paths) {
+    const scaleX = widthPx / path.w;
+    const scaleY = heightPx / path.h;
+    // OOXML path space is top-left origin like SVG's, so only the shape's own
+    // `flipH`/`flipV` mirror it — there is no axis flip to undo.
+    const toX = (x: number) =>
+      round3(element.flipH ? widthPx - x * scaleX : x * scaleX);
+    const toY = (y: number) =>
+      round3(element.flipV ? heightPx - y * scaleY : y * scaleY);
+    let currentX = 0;
+    let currentY = 0;
+    for (const command of path.commands) {
+      if (command.kind === "close") {
+        parts.push("Z");
+        continue;
+      }
+      if (command.kind === "arcTo") {
+        const start = (command.stAng / 60000) * (Math.PI / 180);
+        const swing = (command.swAng / 60000) * (Math.PI / 180);
+        // OOXML gives the arc's radii and angles but not its center: the
+        // current point is the arc's start, so the center is that point
+        // walked back along the start angle.
+        const centerX = currentX - command.wR * Math.cos(start);
+        const centerY = currentY - command.hR * Math.sin(start);
+        currentX = centerX + command.wR * Math.cos(start + swing);
+        currentY = centerY + command.hR * Math.sin(start + swing);
+        const largeArc = Math.abs(command.swAng) > 180 * 60000 ? 1 : 0;
+        // A single mirror reverses the direction the arc sweeps in; two
+        // cancel out.
+        const sweep =
+          command.swAng >= 0 !== (Boolean(element.flipH) !== Boolean(element.flipV))
+            ? 1
+            : 0;
+        parts.push(
+          `A${round3(command.wR * scaleX)} ${round3(command.hR * scaleY)} 0 ${largeArc} ${sweep} ${toX(currentX)} ${toY(currentY)}`,
+        );
+        continue;
+      }
+      const last = command.points[command.points.length - 1]!;
+      currentX = last.x;
+      currentY = last.y;
+      const coordinates = command.points
+        .map((point) => `${toX(point.x)} ${toY(point.y)}`)
+        .join(" ");
+      parts.push(
+        `${{ moveTo: "M", lnTo: "L", quadBezTo: "Q", cubicBezTo: "C" }[command.kind]}${coordinates}`,
+      );
+    }
+  }
+  return parts.length > 0 ? parts.join(" ") : undefined;
+}
+
+/**
+ * A freeform outline's stroke follows the path, not the bounding box, so the
+ * `border` shorthand cannot draw it — on a line-art pictogram (no fill, a
+ * stroked outline only) a border is exactly the generic square the icon
+ * collapses into today. The path is stroked as an overlay instead, leaving
+ * the fill to the div's own clipped background.
+ */
+function customGeometryStroke(
+  element: ParsedElement,
+  pathData: string,
+  widthEmu: number,
+  refWidthPx: number,
+  widthPx: number,
+  heightPx: number,
+): string {
+  if (!element.lineColor) return "";
+  const stroke = Math.max(
+    1,
+    toSlidePxX(element.lineWidth ?? 12700, widthEmu, refWidthPx),
+  );
+  return `<svg viewBox="0 0 ${round3(widthPx)} ${round3(heightPx)}" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%;overflow:visible;pointer-events:none;"><path d="${esc(pathData)}" fill="none" stroke="${esc(element.lineColor)}" stroke-width="${stroke}" /></svg>`;
+}
+
+/**
  * A PPTX line or connector is a box with one dimension of zero — or thinner
  * than the two borders that would have to meet inside it. Emitting the
  * `border` shorthand on it paints *both* parallel edges, so the rule draws at
@@ -773,11 +886,24 @@ function shapeDecoration(
   refWidthPx: number,
   widthPx: number,
   heightPx: number,
+  customPath: string | undefined,
 ): string {
-  if (element.shapeType && UNRENDERABLE_GEOMETRIES.has(element.shapeType)) {
+  // A reproduced outline is no longer an occluding box, so it paints its real
+  // fill even when its preset is one this renderer cannot otherwise draw.
+  if (
+    !customPath &&
+    element.shapeType &&
+    UNRENDERABLE_GEOMETRIES.has(element.shapeType)
+  ) {
     return "";
   }
   const fill = element.fill ? `background: ${esc(element.fill)};` : "";
+  if (customPath) {
+    // No `border`: the stroke follows the outline, and `customGeometryStroke`
+    // draws it. Clipping an unfilled box would only eat half that stroke, so
+    // the clip is the fill's, not the shape's.
+    return fill ? `${fill}clip-path: path('${customPath}');` : "";
+  }
   const line = strokeDecoration(
     element,
     widthEmu,

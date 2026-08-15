@@ -1,9 +1,11 @@
 import {
+  deferMigration,
   ensureAdditiveColumns,
   createDbExec,
   getDbExec,
   getDatabaseUrl,
   isPostgres,
+  MIGRATION_DEFERRED,
   runMigrations,
   withMigrationRuntime,
 } from "@agent-native/core/db";
@@ -52,7 +54,12 @@ function getAnalyticsMigrationDatabaseUrl(): string {
   return url.replace(/-pooler(\.[a-z0-9.-]+\.neon\.tech)/, "$1");
 }
 
-async function repairAnalyticsEventCursorIndexes(): Promise<void> {
+const ANALYTICS_EVENT_CURSOR_INDEX_REPAIR_LOCK =
+  "hashtext('agent-native:analytics-event-cursor-index-repair')";
+
+async function repairAnalyticsEventCursorIndexes(): Promise<
+  void | typeof MIGRATION_DEFERRED
+> {
   if (!isPostgres()) return;
 
   const exec = await createDbExec({ url: getAnalyticsMigrationDatabaseUrl() });
@@ -64,6 +71,13 @@ async function repairAnalyticsEventCursorIndexes(): Promise<void> {
     });
 
   try {
+    const lockResult = await query(
+      `SELECT pg_try_advisory_lock(${ANALYTICS_EVENT_CURSOR_INDEX_REPAIR_LOCK}) AS acquired`,
+    );
+    if (lockResult.rows[0]?.acquired !== true) return deferMigration();
+
+    let lockHeld = true;
+    try {
     const { rows } = await query(`
       SELECT c.relname, i.indisvalid, i.indisready
       FROM pg_class c
@@ -100,6 +114,14 @@ async function repairAnalyticsEventCursorIndexes(): Promise<void> {
        ON analytics_events (owner_email, received_at, id)
        WHERE org_id IS NULL AND event_name IS DISTINCT FROM 'http.response'`,
     );
+    } finally {
+      if (lockHeld) {
+        await query(
+          `SELECT pg_advisory_unlock(${ANALYTICS_EVENT_CURSOR_INDEX_REPAIR_LOCK})`,
+        );
+        lockHeld = false;
+      }
+    }
   } finally {
     await exec.close?.();
   }
