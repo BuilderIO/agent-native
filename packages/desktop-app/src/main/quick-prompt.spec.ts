@@ -20,7 +20,7 @@ const electronState = vi.hoisted(() => {
 
     readonly setAlwaysOnTop = vi.fn();
     readonly setVisibleOnAllWorkspaces = vi.fn();
-    readonly getSize = vi.fn(() => [460, 108] as [number, number]);
+    readonly getSize = vi.fn(() => [560, 108] as [number, number]);
     readonly setPosition = vi.fn();
     readonly loadFile = vi.fn();
     readonly show = vi.fn(() => {

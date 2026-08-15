@@ -74,6 +74,7 @@ body.quick-prompt-surface #root {
 
 .quick-prompt-overlay__composer {
   width: 100%;
+  max-width: 460px;
   min-width: 0;
   -webkit-app-region: no-drag;
 }
@@ -116,7 +117,7 @@ body.quick-prompt-surface #root {
 }
 
 /* Leave room for the shared picker's nested model list inside this narrow window. */
-.quick-prompt-overlay [data-agent-native-composer-popover="true"] {
+body.quick-prompt-surface [data-agent-native-composer-popover="true"] {
   width: min(16rem, calc(50vw - 24px));
 }
 

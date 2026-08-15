@@ -15,7 +15,7 @@ import { app, BrowserWindow, globalShortcut, ipcMain, screen } from "electron";
 import * as AppStore from "./app-store";
 
 const QUICK_PROMPT_SURFACE = "quick-prompt";
-const QUICK_PROMPT_WIDTH = 460;
+const QUICK_PROMPT_WIDTH = 560;
 const QUICK_PROMPT_HEIGHT = 108;
 
 interface QuickPromptDependencies {
