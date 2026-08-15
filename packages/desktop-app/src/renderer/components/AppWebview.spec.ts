@@ -9,6 +9,7 @@ import {
   resolveAppWebviewPartition,
   resolveAppWebviewAuthState,
   resolveAppWebviewUrl,
+  resolveGuestChatCommand,
 } from "./AppWebview.js";
 
 describe("AppWebview auth state", () => {
@@ -114,16 +115,24 @@ describe("AppWebview runtime preferences", () => {
 });
 
 describe("AppWebview per-app chat state propagation", () => {
+  it("maps guest chat commands to host sidebar events", () => {
+    expect(resolveGuestChatCommand("toggle")).toBe("agent-panel:toggle");
+    expect(resolveGuestChatCommand("open")).toBe("agent-panel:open");
+    expect(resolveGuestChatCommand("close")).toBe("agent-panel:close");
+    expect(resolveGuestChatCommand("ignore")).toBeNull();
+  });
+
   it("dispatches the host chat state inside the guest document", () => {
-    let open: unknown;
+    let state: unknown;
     const handleState = (event: Event) => {
-      open = (event as CustomEvent<{ open?: unknown }>).detail?.open;
+      state = (event as CustomEvent<{ open?: unknown; hosted?: unknown }>)
+        .detail;
     };
     window.addEventListener("agent-native:per-app-chat-state", handleState);
 
     try {
       window.eval(buildGuestAppChatSidebarStateScript(true));
-      expect(open).toBe(true);
+      expect(state).toEqual({ open: true, hosted: true });
     } finally {
       window.removeEventListener(
         "agent-native:per-app-chat-state",

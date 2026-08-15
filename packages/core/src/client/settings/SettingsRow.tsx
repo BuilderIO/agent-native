@@ -91,9 +91,15 @@ export function SettingsRow({
   className,
 }: SettingsRowProps) {
   return (
-    <div id={id} className={cn("scroll-mt-16 px-5 py-4 sm:px-6", className)}>
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex min-w-0 gap-3">
+    <div
+      id={id}
+      className={cn(
+        "agent-native-settings-row scroll-mt-16 px-5 py-4 sm:px-6",
+        className,
+      )}
+    >
+      <div className="agent-native-settings-row__layout flex flex-col gap-3">
+        <div className="agent-native-settings-row__main flex min-w-0 flex-1 gap-3">
           {icon && (
             <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md border border-border bg-background text-muted-foreground [&>svg]:size-[18px]">
               {icon}
@@ -114,7 +120,9 @@ export function SettingsRow({
           </div>
         </div>
         {control && (
-          <div className="shrink-0 sm:ms-4 sm:text-end">{control}</div>
+          <div className="agent-native-settings-row__control max-w-full shrink-0">
+            {control}
+          </div>
         )}
       </div>
       {children && <div className="mt-4">{children}</div>}

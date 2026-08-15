@@ -14,6 +14,13 @@ const clientState = vi.hoisted(() => {
   const actionNames: string[] = [];
   return {
     actionNames,
+    grantedApps: [
+      {
+        id: "analytics.agent-native.com",
+        name: "Analytics",
+        url: "https://analytics.agent-native.com",
+      },
+    ],
     legacyMutateAsync,
     theme: "dark" as "dark" | "light",
     workspaceSsoEnabled: false,
@@ -22,6 +29,13 @@ const clientState = vi.hoisted(() => {
 });
 
 vi.mock("@agent-native/core/client/chat-first", () => ({
+  CHAT_FIRST_DEFAULT_APP_IDS: [
+    "content",
+    "design",
+    "mail",
+    "calendar",
+    "clips",
+  ],
   ChatFirstAppPane: ({
     app,
     embedUrl,
@@ -56,31 +70,40 @@ vi.mock("@agent-native/core/client/hooks", () => ({
           : clientState.legacyMutateAsync,
     };
   },
-  useActionQuery: () => ({
-    data: [
-      { id: "mail", name: "Mail", path: "/mail", url: null, status: "ready" },
-      {
-        id: "calendar",
-        name: "Calendar",
-        path: "/calendar",
-        url: null,
-        status: "ready",
-      },
-      {
-        id: "documents",
-        name: "Documents",
-        path: "/documents",
-        url: null,
-        status: "ready",
-      },
-      {
-        id: "settings",
-        name: "Settings",
-        path: "/settings",
-        url: null,
-        status: "ready",
-      },
-    ],
+  useActionQuery: (name: string) => ({
+    data:
+      name === "list_apps"
+        ? { apps: clientState.grantedApps }
+        : [
+            {
+              id: "mail",
+              name: "Mail",
+              path: "/mail",
+              url: null,
+              status: "ready",
+            },
+            {
+              id: "calendar",
+              name: "Calendar",
+              path: "/calendar",
+              url: null,
+              status: "ready",
+            },
+            {
+              id: "documents",
+              name: "Documents",
+              path: "/documents",
+              url: null,
+              status: "ready",
+            },
+            {
+              id: "settings",
+              name: "Settings",
+              path: "/settings",
+              url: null,
+              status: "ready",
+            },
+          ],
     isError: false,
     isLoading: false,
     refetch: vi.fn(),
@@ -148,6 +171,30 @@ describe("WorkspaceAppKeepAlive", () => {
     expect(calendarEntry?.classList.contains("hidden")).toBe(false);
     expect(calendarEntry?.querySelector("iframe")).not.toBeNull();
     expect(container.querySelectorAll("iframe")).toHaveLength(2);
+  });
+
+  it("resolves a granted external app instead of showing app not found", async () => {
+    await act(async () => {
+      root.render(
+        <WorkspaceAppKeepAlive activeAppId="analytics.agent-native.com" />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      container.querySelector(
+        '[data-dispatch-workspace-app-cache-entry="analytics.agent-native.com"]',
+      ),
+    ).not.toBeNull();
+    expect(
+      container.querySelector('[data-chat-first-app-status="ready"]'),
+    ).not.toBeNull();
+    expect(clientState.legacyMutateAsync).toHaveBeenCalledWith({
+      app: "analytics.agent-native.com",
+      url: "https://analytics.agent-native.com",
+      chrome: "minimal",
+    });
   });
 
   it("uses the app-scoped workspace session action when the rollout is enabled", async () => {

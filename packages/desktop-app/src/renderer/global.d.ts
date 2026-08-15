@@ -593,6 +593,9 @@ type QuickPromptPreferences = {
 type QuickPromptSubmitRequest = {
   prompt: string;
   cwd?: string;
+  engine?: string;
+  model?: string;
+  effort?: CodeAgentReasoningEffort | string;
   attachments?: CodeAgentPromptAttachment[];
 };
 
@@ -672,6 +675,7 @@ interface ElectronAPI {
     enabled: boolean;
   };
   webviewPreloadPath: string;
+  webviewChatPreloadPath: string;
 
   windowControls: {
     minimize(): void;
@@ -759,6 +763,8 @@ interface ElectronAPI {
       settings: Partial<QuickPromptPreferences>,
     ): Promise<QuickPromptSettings>;
     dismiss(): void;
+    setPickerOpen(open: boolean): void;
+    onHidden(cb: () => void): () => void;
     submit(request: QuickPromptSubmitRequest): Promise<QuickPromptSubmitResult>;
   };
 

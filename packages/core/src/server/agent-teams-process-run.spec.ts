@@ -341,6 +341,7 @@ vi.mock("../org/context.js", () => ({
 
 vi.mock("./request-context.js", () => ({
   getRequestUserEmail: () => activeRequestContext?.userEmail,
+  getRequestOrgId: () => activeRequestContext?.orgId,
   getRequestRunContext: () => activeRequestContext?.run,
   runWithRequestContext: (ctx: any, fn: () => any) => {
     const previous = activeRequestContext;
@@ -403,6 +404,8 @@ async function seedTask(
   appState.set(`agent-task:${taskId}`, {
     taskId,
     threadId: "thread-1",
+    ownerEmail: OWNER,
+    orgId: null,
     description: "do the thing",
     status: "running",
     preview: "",

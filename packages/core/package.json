@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.157.6",
+  "version": "0.157.8",
   "description": "Framework for agent-native application development — where AI agents and UI share SQL state, actions, and context",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -185,6 +185,8 @@
     "./feature-flags/actions/get-feature-flags": "./dist/feature-flags/actions/get-feature-flags.js",
     "./feature-flags/actions/list-feature-flags": "./dist/feature-flags/actions/list-feature-flags.js",
     "./feature-flags/actions/set-feature-flag": "./dist/feature-flags/actions/set-feature-flag.js",
+    "./hosted-harness/actions/get-hosted-harness-config": "./dist/hosted-harness/actions/get-hosted-harness-config.js",
+    "./hosted-harness/actions/set-hosted-harness-enabled": "./dist/hosted-harness/actions/set-hosted-harness-enabled.js",
     "./localization": "./dist/localization/index.js",
     "./localization/actions/get-localization-preference": "./dist/localization/actions/get-localization-preference.js",
     "./localization/actions/set-localization-preference": "./dist/localization/actions/set-localization-preference.js",

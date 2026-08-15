@@ -56,13 +56,14 @@ import {
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import enMessages from "@/i18n/en-US";
+import {
+  buildMeetingHistoryQuery,
+  MEETING_HISTORY_PAGE_SIZE,
+} from "@/lib/meeting-history-query";
 
 export function meta() {
   return [{ title: enMessages.meetingsRoute.pageTitle }];
 }
-
-/** Rows per history page. History is the page body, so it loads in slices. */
-const HISTORY_PAGE_SIZE = 50;
 
 type MeetingsTab = "agenda" | "past";
 
@@ -717,19 +718,14 @@ export default function MeetingsIndexRoute() {
     queryKey: ["action", "list-meetings", "history"],
     initialPageParam: 0,
     queryFn: ({ pageParam, signal }) =>
-      callAction(
-        "list-meetings",
-        {
-          view: "past",
-          hasContent: true,
-          includeLiveCalendar: false,
-          limit: HISTORY_PAGE_SIZE,
-          offset: pageParam,
-        },
-        { method: "GET", signal },
-      ) as Promise<ListMeetingsResponse>,
+      callAction("list-meetings", buildMeetingHistoryQuery(pageParam), {
+        method: "GET",
+        signal,
+      }) as Promise<ListMeetingsResponse>,
     getNextPageParam: (lastPage, allPages) =>
-      lastPage?.hasMore ? allPages.length * HISTORY_PAGE_SIZE : undefined,
+      lastPage?.hasMore
+        ? allPages.length * MEETING_HISTORY_PAGE_SIZE
+        : undefined,
     retry: false,
   });
 

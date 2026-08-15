@@ -2194,6 +2194,72 @@ describe("createAgentChatAdapter", () => {
 
     const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
     expect(JSON.stringify(body.structuredHistory).length).toBeLessThan(400_000);
+
+    // Pricing the tool calls was only half of it: the budget then evicted the
+    // asks themselves. One bulky turn costs more than the whole budget, so
+    // walking newest-first and breaking dropped every earlier message —
+    // production thread 062ab179 re-read the same extension and re-stated the
+    // same diagnosis for eight turns because each turn started blind.
+    const historyText = body.structuredHistory
+      .filter((message: any) => message.role === "user")
+      .flatMap((message: any) =>
+        message.content
+          .filter((part: any) => part.type === "text")
+          .map((part: any) => part.text),
+      )
+      .join("\n");
+    expect(historyText).toContain("the original ask");
+    expect(historyText).toContain("second ask");
+    expect(historyText).toContain("third ask");
+  });
+
+  it("keeps an over-budget turn's conclusions after dropping its tool results", async () => {
+    // A tool-heavy turn's results are ~97% of its cost; the prose it wrote is
+    // the other 3% and is the part that cannot be re-read. Dropping the whole
+    // message evicted both, so the agent re-derived the same finding each turn.
+    const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-history-findings",
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "why is it empty" }],
+          },
+          {
+            role: "assistant",
+            content: [
+              ...Array.from({ length: 8 }, (_, i) => ({
+                type: "tool-call",
+                toolCallId: `call-${i}`,
+                toolName: "read-source",
+                args: { query: "x".repeat(7_000) },
+                result: "y".repeat(11_000),
+              })),
+              { type: "text", text: "the rate filter excludes zero-rate rows" },
+            ],
+          },
+          { role: "user", content: [{ type: "text", text: "so change it" }] },
+          {
+            role: "assistant",
+            content: [{ type: "text", text: "confirming the filter" }],
+          },
+          { role: "user", content: [{ type: "text", text: "now fix it" }] },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    const body = fetchSpy.mock.calls[0][1].body as string;
+    expect(body).toContain("why is it empty");
+    expect(body).toContain("the rate filter excludes zero-rate rows");
+    expect(body).not.toContain("y".repeat(11_000));
   });
 
   it("prices object tool results by what the request actually carries", async () => {
@@ -2233,7 +2299,12 @@ describe("createAgentChatAdapter", () => {
 
     const body = fetchSpy.mock.calls[0][1].body as string;
     expect(body).toContain("now do it");
-    expect(body).not.toContain("the original ask");
+    // Priced correctly, this one turn exceeds the whole assistant budget and is
+    // dropped. Priced as `String(result)` it would cost 15 chars per call and
+    // sail through — so the absent payload, not an evicted user ask, is what
+    // proves the pricing. The asks themselves are on a separate budget and stay.
+    expect(body).not.toContain("y".repeat(13_000));
+    expect(body).toContain("the original ask");
   });
 
   it("preserves structured tool history when auto-continuing after a transient error", async () => {

@@ -10,7 +10,16 @@ export type {
   CodeAgentsNewSessionExtensionSubmitResult,
   CodeAgentsRenderAppSurface,
 } from "./CodeAgentsApp.js";
-export { resolveNewSessionExtensionComposerState } from "./CodeAgentsApp.js";
+export {
+  getCodeAgentIdForEngine,
+  getCodeAgentPickerOptions,
+  getCodeAgentSelection,
+  groupCodeAgentModelOptions,
+  normalizeModelSelection,
+  readCodeAgentModelSelection,
+  resolveNewSessionExtensionComposerState,
+  writeCodeAgentModelSelection,
+} from "./CodeAgentsApp.js";
 export { SessionWatchPanel } from "./SessionWatchPanel.js";
 export * from "./composer-primitives.js";
 export * from "./code-agents.js";

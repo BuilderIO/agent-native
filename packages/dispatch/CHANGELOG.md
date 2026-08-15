@@ -1,5 +1,17 @@
 # @agent-native/dispatch
 
+## 0.27.1
+
+### Patch Changes
+
+- fb18771: Keep Dispatch chat surfaces at the full viewport height so the composer stays anchored to the bottom of the page.
+- fb18771: Avoid querying admin-only vault grants from workspace member key panels and
+  return a proper forbidden response for unauthorized grant requests.
+- fb18771: Keep Dispatch's collapsed chat-first sidebar actions visible and icon-only, matching the Electron rail.
+- fb18771: Keep selected chat-first apps visible and open granted external apps from Dispatch.
+- Updated dependencies [fb18771]
+  - @agent-native/toolkit@0.16.1
+
 ## 0.27.0
 
 ### Minor Changes

@@ -27,6 +27,29 @@ import type { AppWebviewAuthState } from "./AppWebview.js";
 
 const desktopChatQueryClient = createAgentNativeQueryClient();
 
+type DesktopChatModelGroup = {
+  engine: string;
+  label: string;
+  models: string[];
+  configured: boolean;
+  statusLabel?: string;
+  isSubscription?: boolean;
+};
+
+function desktopModelProviderLabel(model: CodeAgentModelOption): string {
+  const normalizedModel = model.model.toLowerCase();
+  if (
+    model.engine === "codex-cli" ||
+    normalizedModel.startsWith("gpt-") ||
+    normalizedModel.startsWith("openai/gpt-")
+  ) {
+    return "OpenAI";
+  }
+  if (normalizedModel.startsWith("claude-")) return "Anthropic";
+  if (normalizedModel.startsWith("gemini-")) return "Gemini";
+  return model.engineLabel;
+}
+
 export interface DesktopAppChatShellProps {
   appId: string;
   appName: string;
@@ -44,12 +67,9 @@ export default function DesktopAppChatShell({
 }: DesktopAppChatShellProps) {
   const [apiUrl, setApiUrl] = useState<string | null>(null);
   const [localAgentModels, setLocalAgentModels] = useState<
-    Array<{
-      engine: string;
-      configured?: boolean;
-      statusLabel?: string;
-    }>
+    CodeAgentModelOption[]
   >([]);
+  const [localAgentModelsLoading, setLocalAgentModelsLoading] = useState(true);
   const [selectedAgent, setSelectedAgent] = useState("default");
 
   useEffect(() => {
@@ -64,19 +84,55 @@ export default function DesktopAppChatShell({
 
   useEffect(() => {
     let cancelled = false;
+    setLocalAgentModelsLoading(true);
     const listModels = window.electronAPI?.codeAgents?.listModels;
-    if (!listModels) return () => undefined;
+    if (!listModels) {
+      setLocalAgentModelsLoading(false);
+      return () => undefined;
+    }
     void listModels()
       .then((result) => {
         if (!cancelled) setLocalAgentModels(result.models);
       })
       .catch(() => {
         if (!cancelled) setLocalAgentModels([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLocalAgentModelsLoading(false);
       });
     return () => {
       cancelled = true;
     };
   }, [appId]);
+
+  const availableModels = useMemo<DesktopChatModelGroup[]>(() => {
+    const groups = new Map<string, DesktopChatModelGroup>();
+    for (const model of localAgentModels) {
+      const modelId = model.model.trim();
+      if (!modelId || modelId === "auto") continue;
+      const label = desktopModelProviderLabel(model);
+      const key = `${model.engine}:${label}`;
+      const existing = groups.get(key);
+      if (existing) {
+        if (!existing.models.includes(modelId)) existing.models.push(modelId);
+        existing.configured ||= model.configured === true;
+        if (!existing.statusLabel && model.statusLabel) {
+          existing.statusLabel = model.statusLabel;
+        }
+        existing.isSubscription ||= model.isSubscription === true;
+        continue;
+      }
+      groups.set(key, {
+        engine: model.engine,
+        label,
+        models: [modelId],
+        configured: model.configured === true,
+        ...(model.statusLabel ? { statusLabel: model.statusLabel } : {}),
+        ...(model.isSubscription ? { isSubscription: true } : {}),
+      });
+    }
+    return [...groups.values()];
+  }, [localAgentModels]);
 
   const availableAgents = useMemo(
     () =>
@@ -208,6 +264,12 @@ export default function DesktopAppChatShell({
           selectedAgent={selectedAgent}
           onAgentChange={handleAgentChange}
           onConnectLocalRuntime={handleLocalRuntimeSetup}
+          availableModels={
+            localAgentModelsLoading || localAgentModels.length > 0
+              ? availableModels
+              : undefined
+          }
+          modelListLoading={localAgentModelsLoading}
           runtime={localRuntime}
         >
           {appSurface}

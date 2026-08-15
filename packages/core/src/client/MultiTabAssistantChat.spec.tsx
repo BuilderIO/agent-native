@@ -954,6 +954,38 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     expect(composerChildren).toEqual([hostSlot]);
   });
 
+  it("replaces a legacy generated resource chip when the scope changes", async () => {
+    setAgentChatContextItem({
+      key: "agent-current-resource-context",
+      title: "Old app",
+      context: "Resource context: desktop-app:old-app\nResource name: Old app",
+    });
+
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          scope={{
+            type: "desktop-app",
+            id: "new-app",
+            label: "New app",
+          }}
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    expect(listAgentChatContext()).toEqual([
+      expect.objectContaining({
+        key: "agent-current-resource-context",
+        title: "New app",
+        context: expect.stringContaining(
+          "Resource context: desktop-app:new-app",
+        ),
+      }),
+    ]);
+  });
+
   it("passes an app context namespace to the active composer", async () => {
     await act(async () => {
       root.render(

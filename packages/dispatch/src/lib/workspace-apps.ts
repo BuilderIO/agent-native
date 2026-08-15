@@ -1,6 +1,8 @@
 import { CHAT_FIRST_DEFAULT_APP_IDS } from "@agent-native/core/client/chat-first";
 import { withBuilderUtmTrackingParams } from "@agent-native/core/shared/builder-link-tracking";
 
+import { CANONICAL_WORKSPACE_SSO_APP_ORIGINS } from "../shared/workspace-sso";
+
 export interface WorkspaceAppSummary {
   id: string;
   name: string;
@@ -169,8 +171,11 @@ export function mergeChatFirstWorkspaceApps(
     merged.set(id, {
       id,
       name: id.charAt(0).toUpperCase() + id.slice(1),
-      path: `/${id}`,
-      url: null,
+      // The five default rows are hosted sibling apps, not routes owned by
+      // Dispatch. Keep a mounted path for legacy callers, but give embed
+      // session resolution the exact canonical origin.
+      path: "/",
+      url: CANONICAL_WORKSPACE_SSO_APP_ORIGINS[id],
       status: "ready",
     });
   }

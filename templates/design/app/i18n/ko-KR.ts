@@ -6,6 +6,11 @@ const messages = {
     ...messagesByLocale["ko-KR"].designEditor,
     commenterRoleLabel: "댓글 작성자",
     commenterRoleDescription: "보고 검토 댓글을 추가할 수 있음",
+    toasts: {
+      ...messagesByLocale["ko-KR"].designEditor.toasts,
+      pdfExportError: "PDF를 내보낼 수 없습니다.",
+      pdfDownloaded: "PDF 다운로드됨",
+    },
     nodeRewrite: {
       composerTitle: "선택 영역 질문 또는 변경",
       send: "보내기",
