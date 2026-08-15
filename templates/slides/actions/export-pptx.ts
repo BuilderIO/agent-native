@@ -1060,9 +1060,8 @@ function importedLineStroke(
       | "lineDashType"
       | "lineHeadType"
       | "lineTailType"
-      | "w"
-      | "h"
     >
+      & Partial<Pick<ShapeElement, "w" | "h">>>
   | undefined {
   for (const [property, axis] of Object.entries(SINGLE_EDGE_BORDER_AXES)) {
     const border = parseCssBorder(getStyle(style, property));

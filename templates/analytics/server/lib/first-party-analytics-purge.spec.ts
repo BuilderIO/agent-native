@@ -10,7 +10,10 @@ vi.mock("../db/index.js", () => ({
   schema: {},
 }));
 
-import { countFirstPartyAnalyticsPostgresRows } from "./first-party-analytics-purge.js";
+import {
+  countFirstPartyAnalyticsPostgresRows,
+  purgeFirstPartyAnalyticsPostgresRows,
+} from "./first-party-analytics-purge.js";
 
 const scope = { orgId: "org-1", userEmail: "admin@example.com" };
 const window = {
@@ -75,5 +78,37 @@ describe("countFirstPartyAnalyticsPostgresRows", () => {
     await expect(
       countFirstPartyAnalyticsPostgresRows(scope, false, window),
     ).rejects.toThrow("invalid value");
+  });
+});
+
+describe("purgeFirstPartyAnalyticsPostgresRows", () => {
+  it("deletes each scoped table in bounded returning batches", async () => {
+    execute
+      .mockResolvedValueOnce({ rows: [{ row_count: "5" }] })
+      .mockResolvedValueOnce({ rows: [{ row_count: "1" }] })
+      .mockResolvedValueOnce({ rows: [{ row_count: "1" }] })
+      .mockResolvedValueOnce({
+        rows: Array.from({ length: 5_000 }, () => ({ id: "id" })),
+      })
+      .mockResolvedValueOnce({ rows: [{ id: "last" }] })
+      .mockResolvedValueOnce({ rows: [{ id: "rollup" }] })
+      .mockResolvedValueOnce({ rows: [{ id: "user-day" }] });
+
+    await expect(
+      purgeFirstPartyAnalyticsPostgresRows(scope, false, window),
+    ).resolves.toEqual({ eventRows: 5, dailyRollupRows: 1, userDayRows: 1 });
+
+    expect(execute).toHaveBeenCalledTimes(7);
+    expect(execute).toHaveBeenNthCalledWith(
+      4,
+      expect.objectContaining({
+        sql: expect.stringMatching(
+          /WITH candidates[\s\S]*LIMIT \?[\s\S]*DELETE FROM analytics_events[\s\S]*RETURNING id/,
+        ),
+        args: ["org-1", "2026-07-01T00:00:00.000Z", 5_000],
+        timeoutMs: 30_000,
+        maxAttempts: 1,
+      }),
+    );
   });
 });
