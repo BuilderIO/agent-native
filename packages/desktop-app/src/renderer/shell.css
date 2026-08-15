@@ -3344,8 +3344,8 @@ body {
   color: hsl(var(--foreground));
 }
 
-  /* Embedded terminals inherit the chat stream surface so the max-width frame
-     does not introduce a second background band. */
+/* Embedded terminals inherit the chat stream surface so the max-width frame
+   does not introduce a second background band. */
 .desktop-terminal-tabs {
   --desktop-terminal-background: hsl(var(--background));
   display: flex;
