@@ -763,6 +763,7 @@ interface ElectronAPI {
       settings: Partial<QuickPromptPreferences>,
     ): Promise<QuickPromptSettings>;
     dismiss(): void;
+    setPickerOpen(open: boolean): void;
     submit(request: QuickPromptSubmitRequest): Promise<QuickPromptSubmitResult>;
   };
 

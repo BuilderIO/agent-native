@@ -328,7 +328,11 @@ async function controlAgentHarnessBackgroundRun(
   }
   if (input.command === "approve" || input.command === "deny") {
     const session = await getAgentHarnessSessionByRunId(input.runId);
-    if (!session || session.ownerEmail !== scope.ownerEmail) {
+    if (
+      !session ||
+      session.ownerEmail !== scope.ownerEmail ||
+      (scope.orgId !== undefined && session.orgId !== scope.orgId)
+    ) {
       return missingHarnessRunResult(input.runId);
     }
     const pending = session.pendingApproval as { id?: unknown } | undefined;

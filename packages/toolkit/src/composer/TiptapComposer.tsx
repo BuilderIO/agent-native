@@ -776,6 +776,8 @@ export interface TiptapComposerProps {
   hostedHarness?: boolean;
   /** Callback when the user picks an agent runtime. */
   onAgentChange?: (agent: string) => void;
+  /** Called when the shared model picker opens or closes. */
+  onModelSelectorOpenChange?: (open: boolean) => void;
   /**
    * Disable Builder/provider status polling for hosts that supply provider
    * state through another channel, such as Electron IPC.
@@ -1299,6 +1301,7 @@ function ModelSelector({
   onChange,
   onEffortChange,
   onAgentChange,
+  onModelSelectorOpenChange,
   providerConnectStatusEnabled = true,
   onConnectProvider,
   onConnectLocalRuntime,
@@ -1325,6 +1328,7 @@ function ModelSelector({
   providerConnectStatusEnabled?: boolean;
   onConnectProvider?: () => void;
   onConnectLocalRuntime?: (engine: string) => void;
+  onModelSelectorOpenChange?: (open: boolean) => void;
   imageModel?: ComposerImageModelMenu;
 }) {
   const adapters = useComposerRuntimeAdapters();
@@ -1428,6 +1432,15 @@ function ModelSelector({
   >(null);
   const resolvedSection = detailSection ?? "model";
 
+  const setPickerOpen = useCallback(
+    (nextOpen: boolean) => {
+      setOpen(nextOpen);
+      if (nextOpen) setDetailSection(null);
+      onModelSelectorOpenChange?.(nextOpen);
+    },
+    [onModelSelectorOpenChange],
+  );
+
   const visibleProviderGroups = modelProviderGroups;
   const showModelListSkeleton = shouldShowModelSelectorSkeleton(
     modelListLoading,
@@ -1468,24 +1481,18 @@ function ModelSelector({
       window.location.hash = "llm";
     } catch {}
     window.dispatchEvent(new CustomEvent("agent-panel:open-settings"));
-    setOpen(false);
-  }, []);
+    setPickerOpen(false);
+  }, [setPickerOpen]);
   const connectLocalRuntime = useCallback(
     (engine: string) => {
       onConnectLocalRuntime?.(engine);
-      setOpen(false);
+      setPickerOpen(false);
     },
-    [onConnectLocalRuntime],
+    [onConnectLocalRuntime, setPickerOpen],
   );
 
   return (
-    <Popover
-      open={open}
-      onOpenChange={(nextOpen) => {
-        setOpen(nextOpen);
-        if (nextOpen) setDetailSection(null);
-      }}
-    >
+    <Popover open={open} onOpenChange={setPickerOpen}>
       <PopoverTrigger asChild>
         <button
           type="button"
@@ -1683,7 +1690,7 @@ function ModelSelector({
                             onClick={() => {
                               if (!isConfigured) return;
                               onAgentChange?.(agent.id);
-                              setOpen(false);
+                              setPickerOpen(false);
                             }}
                             className={`flex min-w-0 flex-1 items-center gap-0.5 px-2 py-2 text-start ${
                               isConfigured
@@ -1836,7 +1843,7 @@ function ModelSelector({
                             type="button"
                             onClick={() => {
                               imageModel.onChange(option.value);
-                              setOpen(false);
+                              setPickerOpen(false);
                             }}
                             className="flex w-full items-center gap-3 rounded-md px-2 py-2 text-start hover:bg-accent/50"
                           >
@@ -1881,7 +1888,7 @@ function ModelSelector({
                         type="button"
                         onClick={() => {
                           onChange("auto", autoModelGroup.engine);
-                          setOpen(false);
+                          setPickerOpen(false);
                         }}
                         className="mt-1 flex w-full items-center gap-3 rounded-md px-2 py-1.5 text-start hover:bg-accent/50"
                       >
@@ -1982,7 +1989,7 @@ function ModelSelector({
                                     ) {
                                       onEffortChange?.(defaultEffort);
                                     }
-                                    setOpen(false);
+                                    setPickerOpen(false);
                                   }}
                                   className={`group flex w-full items-center gap-3 rounded-md px-2 py-2 text-start ${
                                     group.configured
@@ -2123,6 +2130,7 @@ export function TiptapComposer({
   selectedAgent,
   hostedHarness,
   onAgentChange,
+  onModelSelectorOpenChange,
   providerConnectStatusEnabled,
   onConnectProvider,
   onConnectLocalRuntime,
@@ -3636,6 +3644,7 @@ export function TiptapComposer({
             onChange={onModelChange}
             onEffortChange={onEffortChange}
             onAgentChange={onAgentChange}
+            onModelSelectorOpenChange={onModelSelectorOpenChange}
             providerConnectStatusEnabled={providerConnectStatusEnabled}
             onConnectProvider={onConnectProvider}
             onConnectLocalRuntime={onConnectLocalRuntime}

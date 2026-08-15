@@ -311,6 +311,9 @@ const electronAPI = {
     dismiss: (): void => {
       ipcRenderer.send(IPC.QUICK_PROMPT_DISMISS);
     },
+    setPickerOpen: (open: boolean): void => {
+      ipcRenderer.send(IPC.QUICK_PROMPT_SET_PICKER_OPEN, open);
+    },
     submit: (
       request: QuickPromptSubmitRequest,
     ): Promise<QuickPromptSubmitResult> =>

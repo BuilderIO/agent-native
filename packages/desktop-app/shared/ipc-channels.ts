@@ -135,6 +135,7 @@ export const IPC = {
   QUICK_PROMPT_LOAD: "quick-prompt:load",
   QUICK_PROMPT_UPDATE: "quick-prompt:update",
   QUICK_PROMPT_DISMISS: "quick-prompt:dismiss",
+  QUICK_PROMPT_SET_PICKER_OPEN: "quick-prompt:set-picker-open",
   QUICK_PROMPT_SUBMIT: "quick-prompt:submit",
 } as const;
 

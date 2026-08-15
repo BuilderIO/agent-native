@@ -154,6 +154,7 @@ export default function QuickPromptOverlay({
   const [projectLoading, setProjectLoading] = useState(true);
   const [modelOptions, setModelOptions] = useState<CodeAgentModelOption[]>([]);
   const [modelListLoading, setModelListLoading] = useState(true);
+  const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [modelSelection, setModelSelection] =
     useState<CodeAgentModelSelectionType>(() => readCodeAgentModelSelection());
   const effectiveProjectPath = selectedProjectPath || projects[0]?.path || "";
@@ -272,6 +273,11 @@ export default function QuickPromptOverlay({
     }));
   }, []);
 
+  const handleModelPickerOpenChange = useCallback((open: boolean) => {
+    setModelPickerOpen(open);
+    window.electronAPI?.quickPrompt.setPickerOpen(open);
+  }, []);
+
   const handleConnectLocalRuntime = useCallback((engine: string) => {
     const api = window.electronAPI?.codeAgents;
     if (!api) return;
@@ -365,7 +371,9 @@ export default function QuickPromptOverlay({
   return (
     <div
       ref={overlayRef}
-      className="quick-prompt-overlay"
+      className={`quick-prompt-overlay${
+        modelPickerOpen ? " quick-prompt-overlay--picker-open" : ""
+      }`}
       role="dialog"
       aria-modal="true"
       aria-label="Prompt"
@@ -394,6 +402,7 @@ export default function QuickPromptOverlay({
         onConnectLocalRuntime={handleConnectLocalRuntime}
         onEffortChange={handleEffortChange}
         onModelChange={handleModelChange}
+        onModelSelectorOpenChange={handleModelPickerOpenChange}
         toolbarSlot={
           <QuickPromptProjectPicker
             loading={projectLoading}

@@ -15,13 +15,21 @@ const electronState = vi.hoisted(() => {
     private readonly eventHandlers = new Map<string, Handler>();
     private visible = false;
     private destroyed = false;
+    private size: [number, number] = [460, 108];
+    private position: [number, number] = [0, 0];
 
     static getFocusedWindow = vi.fn(() => focusedWindow);
 
     readonly setAlwaysOnTop = vi.fn();
     readonly setVisibleOnAllWorkspaces = vi.fn();
-    readonly getSize = vi.fn(() => [460, 108] as [number, number]);
-    readonly setPosition = vi.fn();
+    readonly getSize = vi.fn(() => this.size);
+    readonly getPosition = vi.fn(() => this.position);
+    readonly setSize = vi.fn((width: number, height: number) => {
+      this.size = [width, height];
+    });
+    readonly setPosition = vi.fn((x: number, y: number) => {
+      this.position = [x, y];
+    });
     readonly loadFile = vi.fn();
     readonly show = vi.fn(() => {
       this.visible = true;
@@ -202,6 +210,37 @@ describe("Quick Prompt focus behavior", () => {
 
     expect(promptWindow?.hide).toHaveBeenCalled();
     expect(electronState.app.hide).not.toHaveBeenCalled();
+  });
+
+  it("expands the picker bounds around the existing overlay center", async () => {
+    vi.resetModules();
+    const { registerQuickPromptIpc, registerQuickPromptShortcut } =
+      await import("./quick-prompt.js");
+
+    registerQuickPromptIpc({
+      createCodeAgentRun: vi.fn(),
+      sendOpenRequestToRenderer: vi.fn(),
+    });
+    registerQuickPromptShortcut();
+    electronState.getShortcutHandler()?.();
+
+    const promptWindow = electronState.getWindow();
+    expect(promptWindow?.getSize()).toEqual([460, 108]);
+    expect(promptWindow?.getPosition()).toEqual([490, 396]);
+
+    electronState.ipcMain.handlers.get(IPC.QUICK_PROMPT_SET_PICKER_OPEN)?.(
+      undefined,
+      true,
+    );
+    expect(promptWindow?.getSize()).toEqual([760, 360]);
+    expect(promptWindow?.getPosition()).toEqual([340, 270]);
+
+    electronState.ipcMain.handlers.get(IPC.QUICK_PROMPT_SET_PICKER_OPEN)?.(
+      undefined,
+      false,
+    );
+    expect(promptWindow?.getSize()).toEqual([460, 108]);
+    expect(promptWindow?.getPosition()).toEqual([490, 396]);
   });
 
   it("does not resurrect after dismissal before ready-to-show", async () => {

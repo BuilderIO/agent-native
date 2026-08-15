@@ -156,6 +156,8 @@ export interface PromptComposerProps {
   selectedAgent?: string;
   /** Callback when the user picks an agent runtime. */
   onAgentChange?: (agent: string) => void;
+  /** Called when the shared model picker opens or closes. */
+  onModelSelectorOpenChange?: (open: boolean) => void;
   /**
    * Enable server-backed model/provider status checks. Defaults off when the
    * host supplies model state and callbacks, otherwise on.
@@ -525,6 +527,7 @@ function PromptComposerInner({
   availableAgents,
   selectedAgent,
   onAgentChange,
+  onModelSelectorOpenChange,
   modelStatusChecksEnabled,
   onTextChange,
   onConnectProvider,
@@ -706,6 +709,7 @@ function PromptComposerInner({
           onModelChange={handleModelChange}
           onEffortChange={handleEffortChange}
           onAgentChange={onAgentChange}
+          onModelSelectorOpenChange={onModelSelectorOpenChange}
           providerConnectStatusEnabled={resolvedModelStatusChecksEnabled}
           onConnectProvider={onConnectProvider}
           onConnectLocalRuntime={onConnectLocalRuntime}

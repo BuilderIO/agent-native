@@ -1173,10 +1173,9 @@ export function MultiTabAssistantChat({
   );
 
   useEffect(() => {
-    const preferredAgentModel = resolvePreferredAgentModel(
-      props.selectedAgent,
-      availableModels,
-    );
+    const preferredAgentModel = props.selectedAgent
+      ? resolvePreferredAgentModel(props.selectedAgent, availableModels)
+      : undefined;
     if (!preferredAgentModel) return;
 
     const threadId = activeThreadIdRef.current;

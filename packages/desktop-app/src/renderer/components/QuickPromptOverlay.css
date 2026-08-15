@@ -67,6 +67,14 @@ body.quick-prompt-surface #root {
   background: transparent;
 }
 
+.quick-prompt-overlay--picker-open {
+  pointer-events: none;
+}
+
+.quick-prompt-overlay--picker-open .quick-prompt-overlay__composer {
+  pointer-events: auto;
+}
+
 .quick-prompt-overlay > * {
   position: relative;
   z-index: 1;
