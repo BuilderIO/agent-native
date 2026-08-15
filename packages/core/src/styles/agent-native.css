@@ -852,6 +852,7 @@
   border-bottom-color: transparent;
   border-bottom-left-radius: 0;
   border-bottom-right-radius: 0;
+  background: hsl(var(--card));
   box-shadow: none;
 }
 
@@ -874,6 +875,7 @@
   border-bottom-color: transparent;
   border-bottom-left-radius: 0;
   border-bottom-right-radius: 0;
+  background: hsl(var(--card));
   box-shadow: none;
 }
 

@@ -1797,7 +1797,7 @@
   padding: 10px 12px;
   border: 1px solid hsl(var(--border));
   border-radius: var(--radius);
-  background: hsl(var(--muted) / 0.38);
+  background: hsl(var(--card));
   color: hsl(var(--foreground) / 0.82);
 }
 
