@@ -1086,7 +1086,7 @@ function decodeHtmlText(value: string): string {
     .replace(/&#x25cf;/gi, "●");
 }
 
-/** Split a CSS function argument list on top-level commas — `rgba(0,0,0,.5)` carries its own. */
+/** Split a CSS function argument list on top-level commas — an rgb/rgba stop carries its own. */
 function splitTopLevel(value: string): string[] {
   const parts: string[] = [];
   let depth = 0;
@@ -1104,7 +1104,7 @@ function splitTopLevel(value: string): string[] {
   return parts.map((part) => part.trim()).filter(Boolean);
 }
 
-/** `<a:srgbClr>` carrying the alpha an `rgba()` / `#rrggbbaa` value declares. */
+/** `<a:srgbClr>` carrying the alpha an rgba or 8-digit-hex value declares. */
 function drawingMlColor(parsed: {
   hex: string;
   transparency?: number;

@@ -865,7 +865,8 @@ function customGeometryPath(
         // A single mirror reverses the direction the arc sweeps in; two
         // cancel out.
         const sweep =
-          command.swAng >= 0 !== (Boolean(element.flipH) !== Boolean(element.flipV))
+          command.swAng >= 0 !==
+          (Boolean(element.flipH) !== Boolean(element.flipV))
             ? 1
             : 0;
         parts.push(

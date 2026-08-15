@@ -339,7 +339,9 @@ describe("convertToSlideHtml shape geometry", () => {
 
   it("keeps a blockArc's default half-ring when the deck declares no adjustments", () => {
     const style = styleAttr(
-      convertToSlideHtml(shapeSlide({ shapeType: "blockArc", fill: "#ff0000" })),
+      convertToSlideHtml(
+        shapeSlide({ shapeType: "blockArc", fill: "#ff0000" }),
+      ),
       "shape",
     );
     // PowerPoint's defaults are adj1=180deg, adj2=0deg: a half ring swept
