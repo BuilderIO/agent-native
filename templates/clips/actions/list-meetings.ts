@@ -64,6 +64,12 @@ import { booleanParam } from "./lib/cli-params.js";
 import { meetingRowHasContent } from "./lib/meeting-content.js";
 
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+// Must stay above `limit`'s own max (500): the persisted query always fetches
+// one row past the caller's limit as a `hasMore` probe, so if this cap ever
+// equalled 500 a caller requesting the max limit would have that probe row
+// truncated away and `hasMore` would silently read false forever at that
+// exact boundary, even with more rows still to page through.
+const MAX_PERSISTED_ROWS_PER_QUERY = 1000;
 
 /** SQL mirror of `meetingRowHasContent`. Keep the two in lockstep. */
 function meetingHasContentFilter() {
@@ -153,9 +159,10 @@ export default defineAction({
     // correct we must fetch enough rows from BOTH sources to cover the whole
     // offset + limit window before merging — fetching only `limit` would drop
     // events once offset > 0 or the calendar is large. Keep the hard caps
-    // (500 persisted, 250 live) so a huge calendar can't blow up the request.
-    // We fetch one row past the window purely as a `hasMore` probe: the extra
-    // row is never returned, it only tells the caller another page exists.
+    // (MAX_PERSISTED_ROWS_PER_QUERY persisted, 250 live) so a huge calendar
+    // can't blow up the request. We fetch one row past the window purely as a
+    // `hasMore` probe: the extra row is never returned, it only tells the
+    // caller another page exists.
     const windowCount = args.offset + args.limit;
     const upcomingWindowMaxIso = args.upcomingWithinMin
       ? new Date(
@@ -277,7 +284,7 @@ export default defineAction({
         .from(schema.meetings)
         .where(and(...whereClauses))
         .orderBy(...orderBy)
-        .limit(Math.min(500, windowCount + 1))
+        .limit(Math.min(MAX_PERSISTED_ROWS_PER_QUERY, windowCount + 1))
         .offset(0);
     } else {
       const page = await db
@@ -285,7 +292,7 @@ export default defineAction({
         .from(schema.meetings)
         .where(and(...whereClauses))
         .orderBy(...orderBy)
-        .limit(Math.min(500, args.limit + 1))
+        .limit(Math.min(MAX_PERSISTED_ROWS_PER_QUERY, args.limit + 1))
         .offset(args.offset);
       persistedHasMore = page.length > args.limit;
       rows = page.slice(0, args.limit);
