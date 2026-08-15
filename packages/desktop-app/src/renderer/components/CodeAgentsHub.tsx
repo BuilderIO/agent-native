@@ -62,6 +62,8 @@ import {
   SelectItem,
   SelectTrigger,
 } from "@agent-native/toolkit/ui/select";
+import { ToastAction } from "@agent-native/toolkit/ui/toast";
+import { toast } from "@agent-native/toolkit/ui/use-toast";
 import {
   getDesktopVisibleApps,
   isDesktopAppVisible,
@@ -87,7 +89,6 @@ import {
   useState,
   type CSSProperties,
 } from "react";
-import { toast } from "sonner";
 
 import type { DesktopCreateAppResult } from "../../../shared/ipc-channels.js";
 import type {
@@ -781,15 +782,17 @@ export default function CodeAgentsHub({
       const wasEnabled = terminalPreferences.enabled;
       writeDesktopTerminalPreferences({ enabled });
       if (wasEnabled && !enabled) {
-        toast("Terminal mode is off", {
+        toast({
+          title: "Terminal mode is off",
           description: "Turn it back on in Terminal tabs settings.",
-          action: onOpenSettings
-            ? {
-                label: "Open settings",
-                onClick: () => onOpenSettings("terminal"),
-              }
-            : undefined,
-          duration: 5000,
+          action: onOpenSettings ? (
+            <ToastAction
+              altText="Open terminal settings"
+              onClick={() => onOpenSettings("terminal")}
+            >
+              Open settings
+            </ToastAction>
+          ) : undefined,
         });
       }
     },

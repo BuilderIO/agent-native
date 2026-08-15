@@ -2964,37 +2964,6 @@ body {
   color: rgba(255, 255, 255, 0.85);
 }
 
-/* ─── Shell snackbar (shadcn/sonner) ─────────────────────────── */
-.shell [data-sonner-toaster].shell-snackbar-toaster {
-  --width: auto;
-}
-
-.shell [data-sonner-toast].shell-snackbar[data-styled="true"] {
-  width: max-content;
-  min-width: 148px;
-  max-width: min(360px, calc(100vw - 32px));
-  justify-content: center;
-  padding: 10px 14px;
-  background: hsl(var(--popover, 0 0% 100%));
-  color: hsl(var(--popover-foreground, 0 0% 10%));
-  border-color: hsl(var(--border, 0 0% 90%) / 0.78);
-  border-radius: 8px;
-  box-shadow:
-    0 18px 42px hsl(var(--foreground, 0 0% 10%) / 0.14),
-    0 0 0 1px hsl(var(--border, 0 0% 90%) / 0.2) inset;
-}
-
-.shell [data-sonner-toast].shell-snackbar [data-content] {
-  align-items: center;
-}
-
-.shell-snackbar-title {
-  font-size: 13px;
-  font-weight: 500;
-  letter-spacing: 0;
-  color: hsl(var(--popover-foreground, 0 0% 10%));
-}
-
 /* ─── Full-page settings ──────────────────────────────────────
    Settings is a destination in the desktop shell, not a modal over it. */
 .settings-overlay {

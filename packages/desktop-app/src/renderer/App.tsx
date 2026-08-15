@@ -1,3 +1,4 @@
+import { Toaster as ToastToaster } from "@agent-native/toolkit/ui/toaster";
 import {
   DESKTOP_DEFAULT_APPS,
   getDesktopVisibleApps,
@@ -366,20 +367,13 @@ export default function App() {
 
       <UpdatePrompt />
       <Toaster
-        className="shell-snackbar-toaster"
         theme="system"
         position="bottom-center"
         offset={20}
         closeButton
         visibleToasts={1}
-        toastOptions={{
-          duration: 4000,
-          classNames: {
-            toast: "shell-snackbar",
-            title: "shell-snackbar-title",
-          },
-        }}
       />
+      <ToastToaster />
     </div>
   );
 }
