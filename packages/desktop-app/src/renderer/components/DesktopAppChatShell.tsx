@@ -248,13 +248,174 @@ export default function DesktopAppChatShell({
     };
   }, [appId]);
 
+  const startLocalCodeChange = useCallback(
+    async (prompt: string) => {
+      const trimmed = prompt.trim();
+      if (!trimmed || localCodeChange.status === "starting") return;
+
+      setLocalCodeChangePrompt(trimmed);
+      setLocalCodeChange({
+        status: "starting",
+        message: `Preparing ${appName} in a local workspace.`,
+      });
+      const prepare = window.electronAPI?.appConfig?.prepareLocalCodeChange;
+      if (!prepare) {
+        setLocalCodeChange({
+          status: "error",
+          message: "Local code setup is unavailable in this Desktop session.",
+        });
+        return;
+      }
+
+      try {
+        const result = await prepare({ appId, prompt: trimmed });
+        if (!result.ok) {
+          throw new Error(result.error ?? result.message);
+        }
+        onLocalCodeChangeStarted?.(result);
+        setLocalCodeChange({
+          status: "starting",
+          message: `Cloning the template and applying your change in ${appName}.`,
+        });
+      } catch (error) {
+        setLocalCodeChange({
+          status: "error",
+          message:
+            error instanceof Error
+              ? error.message
+              : "Desktop could not prepare the local app.",
+        });
+      }
+    },
+    [appId, appName, localCodeChange.status, onLocalCodeChangeStarted],
+  );
+
+  useEffect(() => {
+    const shellRoot = shellRootRef.current;
+    if (!shellRoot) return;
+    const handleLocalCodeChange = (event: Event) => {
+      const detail = (event as CustomEvent<{ prompt?: unknown }>).detail;
+      const prompt = typeof detail?.prompt === "string" ? detail.prompt : "";
+      if (!prompt || localCodeChange.status === "starting") return;
+      event.stopPropagation();
+      void startLocalCodeChange(prompt);
+    };
+    shellRoot.addEventListener(
+      DESKTOP_LOCAL_CODE_CHANGE_EVENT,
+      handleLocalCodeChange,
+    );
+    return () => {
+      shellRoot.removeEventListener(
+        DESKTOP_LOCAL_CODE_CHANGE_EVENT,
+        handleLocalCodeChange,
+      );
+    };
+  }, [localCodeChange.status, startLocalCodeChange]);
+
+  useEffect(() => {
+    if (localCodeChange.status === "idle") return;
+    const onRuntimeStatus = window.electronAPI?.appConfig?.onRuntimeStatus;
+    if (!onRuntimeStatus) return;
+    return onRuntimeStatus((status: DesktopAppRuntimeStatus) => {
+      if (status.appId !== appId) return;
+      if (status.state === "waiting" || status.state === "starting") {
+        setLocalCodeChange({
+          status: "starting",
+          message: status.message,
+        });
+        return;
+      }
+      if (status.state === "running") {
+        setLocalCodeChange({ status: "ready" });
+        return;
+      }
+      if (status.state === "error" || status.state === "stopped") {
+        setLocalCodeChange({
+          status: "error",
+          message: status.message ?? `The local ${appName} preview stopped.`,
+        });
+      }
+    });
+  }, [appId, appName, localCodeChange.status]);
+
+  useEffect(() => {
+    if (localCodeChange.status !== "ready") return;
+    const timer = window.setTimeout(
+      () => setLocalCodeChange({ status: "idle" }),
+      900,
+    );
+    return () => window.clearTimeout(timer);
+  }, [localCodeChange.status]);
+
+  const closeLocalCodeChangeDialog = useCallback(() => {
+    if (localCodeChange.status === "starting") return;
+    setLocalCodeChange({ status: "idle" });
+  }, [localCodeChange.status]);
+
   const appSurface = (
     <div className="desktop-app-webview-surface relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
       {children}
     </div>
   );
 
-  if (!apiUrl) return appSurface;
+  const localCodeChangeDialog = (
+    <Dialog
+      open={localCodeChange.status !== "idle"}
+      onOpenChange={(open) => {
+        if (!open) closeLocalCodeChangeDialog();
+      }}
+    >
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>
+            {localCodeChange.status === "error"
+              ? `Couldn’t start ${appName} locally`
+              : localCodeChange.status === "ready"
+                ? `${appName} is ready locally`
+                : `Preparing ${appName} locally`}
+          </DialogTitle>
+          <DialogDescription>
+            {localCodeChange.status === "error"
+              ? localCodeChange.message
+              : localCodeChange.status === "ready"
+                ? "The app is now running from your local code."
+                : localCodeChange.message ??
+                  "Cloning the template, installing dependencies, and applying your request."}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="flex items-center gap-3 rounded-lg border border-border/70 bg-muted/30 px-3 py-3 text-sm">
+          {localCodeChange.status === "error" ? (
+            <IconAlertCircle className="size-5 shrink-0 text-destructive" />
+          ) : localCodeChange.status === "ready" ? (
+            <IconCircleCheck className="size-5 shrink-0 text-emerald-600" />
+          ) : (
+            <IconLoader2 className="size-5 shrink-0 animate-spin text-muted-foreground" />
+          )}
+          <span className="text-muted-foreground">
+            {localCodeChange.status === "error"
+              ? "You can close this and keep working in the current app."
+              : localCodeChange.status === "ready"
+                ? "Continue prompting to customize the local app."
+                : "This usually takes a moment."}
+          </span>
+        </div>
+        {localCodeChange.status === "error" ? (
+          <DialogFooter>
+            <Button variant="outline" onClick={closeLocalCodeChangeDialog}>
+              Close
+            </Button>
+            {localCodeChangePrompt ? (
+              <Button
+                onClick={() => void startLocalCodeChange(localCodeChangePrompt)}
+              >
+                Try again
+              </Button>
+            ) : null}
+          </DialogFooter>
+        ) : null}
+      </DialogContent>
+    </Dialog>
+  );
 
   const signInPrompt =
     authState === "unauthenticated" ? (
@@ -275,42 +436,52 @@ export default function DesktopAppChatShell({
     ) : null;
 
   return (
-    <MemoryRouter>
-      <QueryClientProvider client={desktopChatQueryClient}>
-        <AgentSidebar
-          position="left"
-          defaultOpen
-          openStorageKey="desktop-app-chat"
-          storageKey={`desktop-app-chat:${appId}`}
-          scope={{
-            type: "desktop-app",
-            id: appId,
-            label: appName,
-            contextKey: `desktop-app:${appId}`,
-          }}
-          apiUrl={apiUrl}
-          agentChatSurface="desktop"
-          composerSlot={signInPrompt}
-          showTabBar
-          suppressInlineOpenApp
-          dynamicSuggestions={false}
-          suggestions={[]}
-          emptyStateText={`Ask about ${appName}`}
-          availableAgents={availableAgents}
-          selectedAgent={selectedAgent}
-          onAgentChange={handleAgentChange}
-          onConnectLocalRuntime={handleLocalRuntimeSetup}
-          availableModels={
-            localAgentModelsLoading || localAgentModels.length > 0
-              ? availableModels
-              : undefined
-          }
-          modelListLoading={localAgentModelsLoading}
-          runtime={localRuntime}
-        >
-          {appSurface}
-        </AgentSidebar>
-      </QueryClientProvider>
-    </MemoryRouter>
+    <div
+      ref={shellRootRef}
+      className="relative flex h-full min-h-0 min-w-0 flex-1 overflow-hidden"
+    >
+      {apiUrl ? (
+        <MemoryRouter>
+          <QueryClientProvider client={desktopChatQueryClient}>
+            <AgentSidebar
+              position="left"
+              defaultOpen
+              openStorageKey="desktop-app-chat"
+              storageKey={`desktop-app-chat:${appId}`}
+              scope={{
+                type: "desktop-app",
+                id: appId,
+                label: appName,
+                contextKey: `desktop-app:${appId}`,
+              }}
+              apiUrl={apiUrl}
+              agentChatSurface="desktop"
+              composerSlot={signInPrompt}
+              showTabBar
+              suppressInlineOpenApp
+              dynamicSuggestions={false}
+              suggestions={[]}
+              emptyStateText={`Ask about ${appName}`}
+              availableAgents={availableAgents}
+              selectedAgent={selectedAgent}
+              onAgentChange={handleAgentChange}
+              onConnectLocalRuntime={handleLocalRuntimeSetup}
+              availableModels={
+                localAgentModelsLoading || localAgentModels.length > 0
+                  ? availableModels
+                  : undefined
+              }
+              modelListLoading={localAgentModelsLoading}
+              runtime={localRuntime}
+            >
+              {appSurface}
+            </AgentSidebar>
+          </QueryClientProvider>
+        </MemoryRouter>
+      ) : (
+        appSurface
+      )}
+      {localCodeChangeDialog}
+    </div>
   );
 }
