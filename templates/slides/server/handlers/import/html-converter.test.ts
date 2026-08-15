@@ -383,6 +383,137 @@ describe("convertToSlideHtml stroke geometry", () => {
   });
 });
 
+/**
+ * `shapeSlide`'s 1219200 EMU box lands on 96x96px, so a 200x100 path space
+ * scales by 0.48 in x and 0.96 in y — every expected coordinate below is that
+ * arithmetic, not a recorded snapshot.
+ */
+function freeformGeometry(): ParsedElement["geometry"] {
+  return {
+    kind: "custom",
+    paths: [
+      {
+        w: 200,
+        h: 100,
+        commands: [
+          { kind: "moveTo", points: [{ x: 0, y: 0 }] },
+          { kind: "lnTo", points: [{ x: 200, y: 0 }] },
+          {
+            kind: "cubicBezTo",
+            points: [
+              { x: 180, y: 40 },
+              { x: 120, y: 80 },
+              { x: 60, y: 100 },
+            ],
+          },
+          { kind: "close" },
+        ],
+      },
+    ],
+  };
+}
+
+describe("convertToSlideHtml custom geometry", () => {
+  it("clips a freeform outline to its real path instead of painting its bounding rectangle", () => {
+    const style = styleAttr(
+      convertToSlideHtml(
+        shapeSlide({ geometry: freeformGeometry(), fill: "#ff0000" }),
+      ),
+      "shape",
+    );
+    expect(style).toContain(
+      "clip-path: path('M0 0 L96 0 C86.4 38.4 57.6 76.8 28.8 96 Z')",
+    );
+    // The clip is what stops the shape occluding its neighbours, so the fill
+    // paints again rather than being suppressed.
+    expect(style).toContain("background: #ff0000");
+  });
+
+  it("mirrors a flipH freeform across its own box", () => {
+    const style = styleAttr(
+      convertToSlideHtml(
+        shapeSlide({
+          geometry: freeformGeometry(),
+          fill: "#ff0000",
+          flipH: true,
+        }),
+      ),
+      "shape",
+    );
+    expect(style).toContain(
+      "clip-path: path('M96 0 L0 0 C9.6 38.4 38.4 76.8 67.2 96 Z')",
+    );
+  });
+
+  it("converts an arcTo against the current point, which is where OOXML starts the sweep", () => {
+    // Quarter circle: start at (100,50), radii 50/50, sweeping 90deg from 0deg
+    // puts the center at (50,50) and the end point at (50,100).
+    const style = styleAttr(
+      convertToSlideHtml(
+        shapeSlide({
+          fill: "#ff0000",
+          geometry: {
+            kind: "custom",
+            paths: [
+              {
+                w: 100,
+                h: 100,
+                commands: [
+                  { kind: "moveTo", points: [{ x: 100, y: 50 }] },
+                  {
+                    kind: "arcTo",
+                    wR: 50,
+                    hR: 50,
+                    stAng: 0,
+                    swAng: 90 * 60000,
+                  },
+                  { kind: "close" },
+                ],
+              },
+            ],
+          },
+        }),
+      ),
+      "shape",
+    );
+    expect(style).toContain("clip-path: path('M96 48 A48 48 0 0 1 48 96 Z')");
+  });
+
+  it("strokes a freeform outline as its real path, not as a border around its box", () => {
+    // A line-art pictogram: no fill, a stroked outline only. A `border` here
+    // is exactly the generic square every icon used to collapse into.
+    const html = convertToSlideHtml(
+      shapeSlide({
+        geometry: freeformGeometry(),
+        lineColor: "#262626",
+        lineWidth: 19050,
+      }),
+    );
+    expect(styleAttr(html, "shape")).not.toMatch(/(?<!-)border(-\w+)?: /);
+    expect(html).toContain(
+      '<path d="M0 0 L96 0 C86.4 38.4 57.6 76.8 28.8 96 Z" fill="none" stroke="#262626" stroke-width="1.5"',
+    );
+  });
+
+  it("falls back to the shape's existing rendering when the geometry converts to nothing", () => {
+    for (const geometry of [
+      { kind: "custom" as const, paths: [] },
+      { kind: "custom" as const, paths: [{ w: 200, h: 100, commands: [] }] },
+      { kind: "custom" as const, paths: [{ w: 0, h: 0, commands: [] }] },
+    ]) {
+      const style = styleAttr(
+        convertToSlideHtml(
+          shapeSlide({ geometry, fill: "#ff0000", lineColor: "#000000" }),
+        ),
+        "shape",
+      );
+      expect(style).not.toContain("clip-path: path(");
+      expect(style).toContain("background: #ff0000");
+      expect(style).toContain("border: 1px solid #000000");
+    }
+  });
+});
+
 describe("convertToSlideHtml font families", () => {
   it("falls back to the base family for a PowerPoint weight-variant typeface name", () => {
     const widthEmu = 12192000;

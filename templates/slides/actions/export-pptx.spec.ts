@@ -21,10 +21,14 @@ vi.mock("../server/db/index.js", () => ({}));
 import PptxGenJS from "pptxgenjs";
 
 import {
+  applyDeckIdentity,
   assertServerPptxExportable,
+  cssGradientToDrawingMl,
   fetchImageAsBase64,
   parseSlideHtml,
   resolveShapeType,
+  sourcePageInches,
+  themeClrSchemeXml,
 } from "./export-pptx";
 
 /** An imported-PPTX slide wrapper holding one `data-pptx-element-kind` element. */
@@ -493,6 +497,45 @@ describe("parseSlideHtml", () => {
     expect(result.texts[0]?.color).toBe("111827");
   });
 
+  it("scales onto the source page size, not the preset the import snapped to", () => {
+    // creandum-board-deck-template is 9144000x5715000 EMU (16:10). The nearest
+    // renderable preset is 16:9, so exporting onto the preset's 13.33x7.5in
+    // page stretched every element vertically by 16:9 / 16:10.
+    const element = `<div data-pptx-element-kind="text" style="position:absolute;left:96px;top:54px;width:192px;height:108px;"><p><span style="font-size:32px;">Title</span></p></div>`;
+    const onSourcePage = parseSlideHtml(
+      `<div class="fmd-slide fmd-imported-pptx" data-imported-pptx="true" data-slide-width-emu="9144000" data-slide-height-emu="5715000" style="background:#ffffff;">${element}</div>`,
+      "16:9",
+      1,
+    );
+    const onPresetPage = parseSlideHtml(
+      `<div class="fmd-slide fmd-imported-pptx" data-imported-pptx="true" style="background:#ffffff;">${element}</div>`,
+      "16:9",
+      1,
+    );
+
+    // 96px of a 960px box on a 10in page is exactly the source's own 914400 EMU.
+    expect(onSourcePage.texts[0].x).toBeCloseTo(1, 6);
+    expect(onSourcePage.texts[0].y).toBeCloseTo((54 / 540) * 6.25, 6);
+    // 96 px/in here, so the source's 24pt run comes back 24pt, not 32pt.
+    expect(onSourcePage.texts[0].fontSize).toBe(24);
+    expect(onPresetPage.texts[0].x).toBeCloseTo((96 / 960) * 13.33, 6);
+    expect(onPresetPage.texts[0].y).toBeCloseTo((54 / 540) * 7.5, 6);
+    expect(onPresetPage.texts[0].fontSize).toBe(32);
+  });
+
+  it("keeps a gradient background alongside the solid stop it falls back to", () => {
+    const result = parseSlideHtml(
+      `<div class="fmd-slide fmd-imported-pptx" data-imported-pptx="true" style="background: linear-gradient(140.02deg, #2A80D0 0%, #67A99C 50%, #9CCB5A 100%);"><div data-pptx-element-kind="text" style="left:0px;top:0px;width:100px;height:40px;"><p>Title</p></div></div>`,
+      "16:9",
+      1,
+    );
+
+    expect(result.bgGradient).toBe(
+      "linear-gradient(140.02deg, #2A80D0 0%, #67A99C 50%, #9CCB5A 100%)",
+    );
+    expect(result.bgColor).toBe("2A80D0");
+  });
+
   it("ignores imported grids with non-positive spacing", () => {
     for (const backgroundSize of [
       "0px 24px",
@@ -508,5 +551,178 @@ describe("parseSlideHtml", () => {
 
       expect(result.grid).toBeUndefined();
     }
+  });
+});
+
+describe("sourcePageInches", () => {
+  it("reads the page size the importer stamped on the slide root", () => {
+    expect(
+      sourcePageInches(
+        '<div data-slide-width-emu="9144000" data-slide-height-emu="5715000">',
+      ),
+    ).toEqual({ w: 10, h: 6.25 });
+  });
+
+  it("falls back to the deck preset when the slide declares no source size", () => {
+    expect(sourcePageInches('<div class="fmd-slide">')).toBeUndefined();
+  });
+
+  it("warns instead of re-paging the deck onto an out-of-range size", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    expect(
+      sourcePageInches(
+        '<div data-slide-width-emu="914400000" data-slide-height-emu="5143500">',
+      ),
+    ).toBeUndefined();
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("out-of-range source page size"),
+    );
+
+    warnSpy.mockRestore();
+  });
+});
+
+describe("cssGradientToDrawingMl", () => {
+  it("re-orients a linear gradient back to the OOXML angle the importer read", () => {
+    // CSS measures clockwise from "up", `<a:lin ang>` from the positive x-axis:
+    // 140.02deg is (140.02 - 90) * 60000 = 3001200, not 8401200.
+    expect(
+      cssGradientToDrawingMl(
+        "linear-gradient(140.02deg, #2A80D0 0%, #67A99C 50%, #9CCB5A 100%)",
+      ),
+    ).toBe(
+      '<a:gradFill rotWithShape="1"><a:gsLst>' +
+        '<a:gs pos="0"><a:srgbClr val="2A80D0"/></a:gs>' +
+        '<a:gs pos="50000"><a:srgbClr val="67A99C"/></a:gs>' +
+        '<a:gs pos="100000"><a:srgbClr val="9CCB5A"/></a:gs>' +
+        '</a:gsLst><a:lin ang="3001200" scaled="0"/></a:gradFill>',
+    );
+  });
+
+  it("puts a radial gradient's focus back where fillToRect had it", () => {
+    expect(
+      cssGradientToDrawingMl(
+        "radial-gradient(circle at 0% 0%, #013445 0%, #018589 100%)",
+      ),
+    ).toContain('<a:fillToRect l="0" t="0" r="100000" b="100000"/>');
+  });
+
+  it("keeps the alpha an rgba stop carries", () => {
+    expect(
+      cssGradientToDrawingMl(
+        "linear-gradient(90deg, rgba(255,0,0,0.5) 0%, #00FF00 100%)",
+      ),
+    ).toContain('<a:srgbClr val="FF0000"><a:alpha val="50000"/></a:srgbClr>');
+  });
+
+  it("declines gradients DrawingML cannot express instead of writing a broken fill", () => {
+    expect(cssGradientToDrawingMl("conic-gradient(#fff, #000)")).toBeUndefined();
+    expect(
+      cssGradientToDrawingMl("linear-gradient(90deg, #ffffff 0%)"),
+    ).toBeUndefined();
+  });
+});
+
+describe("themeClrSchemeXml", () => {
+  const palette = {
+    dk1: "#000000",
+    lt1: "#FFFFFF",
+    dk2: "#595959",
+    lt2: "#EEEEEE",
+    accent1: "#FFAB40",
+    accent2: "#212121",
+    accent3: "#78909C",
+    accent4: "#FFAB40",
+    accent5: "#0097A7",
+    accent6: "#EEFF41",
+    hlink: "#0097A7",
+    folHlink: "#0097A7",
+  };
+
+  it("writes the deck's own palette in the slot order PowerPoint requires", () => {
+    const xml = themeClrSchemeXml(palette);
+
+    expect(xml).toContain('<a:accent1><a:srgbClr val="FFAB40"/></a:accent1>');
+    expect(xml).not.toContain("4472C4"); // the Office default accent1
+    expect(xml?.indexOf("<a:dk1>")).toBeLessThan(xml?.indexOf("<a:lt1>") ?? -1);
+  });
+
+  it("keeps the Office default rather than writing a partial scheme", () => {
+    const { accent4: _dropped, ...incomplete } = palette;
+
+    expect(themeClrSchemeXml(incomplete)).toBeUndefined();
+  });
+});
+
+describe("applyDeckIdentity", () => {
+  async function writeDeck(): Promise<Buffer> {
+    const pptx = new PptxGenJS();
+    const slide = pptx.addSlide();
+    slide.background = { color: "013445" };
+    slide.addText("Title", { x: 1, y: 1, w: 4, h: 1 });
+    return (await pptx.write({ outputType: "nodebuffer" })) as Buffer;
+  }
+
+  async function readPart(buffer: Buffer, partPath: string): Promise<string> {
+    const JSZip = (await import("jszip")).default;
+    const part = await (await JSZip.loadAsync(buffer)).file(partPath)?.
+      async("string");
+    if (part === undefined) throw new Error(`missing ${partPath}`);
+    return part;
+  }
+
+  it("carries a gradient background pptxgenjs has no fill type for", async () => {
+    const gradFill = cssGradientToDrawingMl(
+      "radial-gradient(circle at 0% 0%, #013445 0%, #018589 100%)",
+    );
+    const patched = await applyDeckIdentity(await writeDeck(), {
+      slideGradients: new Map([[0, gradFill ?? ""]]),
+    });
+
+    const slideXml = await readPart(patched, "ppt/slides/slide1.xml");
+    expect(slideXml).toContain('<p:bg><p:bgPr><a:gradFill rotWithShape="1">');
+    expect(slideXml).toContain('<a:srgbClr val="018589"/>');
+    expect(slideXml).not.toContain("<a:solidFill><a:srgbClr val=\"013445\"/>");
+  });
+
+  it("replaces the hardcoded Office palette with the deck's theme", async () => {
+    const patched = await applyDeckIdentity(await writeDeck(), {
+      themeColors: {
+        dk1: "#000000",
+        lt1: "#FFFFFF",
+        dk2: "#595959",
+        lt2: "#EEEEEE",
+        accent1: "#FFAB40",
+        accent2: "#212121",
+        accent3: "#78909C",
+        accent4: "#FFAB40",
+        accent5: "#0097A7",
+        accent6: "#EEFF41",
+        hlink: "#0097A7",
+        folHlink: "#0097A7",
+      },
+      slideGradients: new Map(),
+    });
+
+    const themeXml = await readPart(patched, "ppt/theme/theme1.xml");
+    expect(themeXml).toContain('<a:accent1><a:srgbClr val="FFAB40"/></a:accent1>');
+    expect(themeXml).not.toContain("4472C4");
+  });
+
+  it("returns the package untouched when the deck has nothing of its own", async () => {
+    const buffer = await writeDeck();
+
+    expect(
+      await applyDeckIdentity(buffer, { slideGradients: new Map() }),
+    ).toBe(buffer);
+  });
+
+  it("fails loudly rather than shipping a deck that silently lost its gradient", async () => {
+    await expect(
+      applyDeckIdentity(await writeDeck(), {
+        slideGradients: new Map([[7, "<a:gradFill/>"]]),
+      }),
+    ).rejects.toThrowError(/missing ppt\/slides\/slide8\.xml/);
   });
 });
