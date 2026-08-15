@@ -547,6 +547,11 @@ describe("detectBlockAlignment", () => {
     expect(detectBlockAlignment(lines, 10, 90)).toBe("center");
   });
 
+  it("keeps equal-width left-aligned lines left when their midpoint is ambiguous", () => {
+    const lines = [box({ left: 10, right: 90 }), box({ left: 10, right: 90 })];
+    expect(detectBlockAlignment(lines, 10, 90)).toBe("left");
+  });
+
   it("detects right-aligned lines from their shared right edge", () => {
     const lines = [
       box({ left: 50, right: 200 }),

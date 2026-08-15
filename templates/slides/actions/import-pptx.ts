@@ -12,7 +12,10 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
 import { convertToSlideHtml } from "../server/handlers/import/html-converter.js";
-import { uploadPptxSlideImages } from "../server/handlers/import/pptx-assets.js";
+import {
+  assertPptxImagesRenderable,
+  uploadPptxSlideImages,
+} from "../server/handlers/import/pptx-assets.js";
 import {
   parsePptx,
   type ParsedElement,
@@ -121,9 +124,20 @@ export async function importPptxBufferToDeck(args: {
   // Check edit access before uploading any embedded images — uploads are
   // a side effect with real storage cost, so an unauthorized caller must
   // be rejected before that side effect happens, not after.
+  const db = getDb();
+  let existingDeck: typeof schema.decks.$inferSelect | undefined;
   if (deckId) {
     await assertAccess("deck", deckId, "editor");
+    const [deck] = await db
+      .select()
+      .from(schema.decks)
+      .where(eq(schema.decks.id, deckId));
+    if (!deck) {
+      throw new Error(`Deck ${deckId} not found`);
+    }
+    existingDeck = deck;
   }
+  assertPptxImagesRenderable(presentation.slides);
 
   // Convert each parsed slide to its positioned scene graph, uploading every
   // browser-renderable image so the imported deck keeps the source layering
@@ -193,20 +207,14 @@ export async function importPptxBufferToDeck(args: {
     presentation.slides[0]?.heightEmu,
   );
 
-  const db = getDb();
   const now = new Date().toISOString();
 
   if (deckId) {
-    const existing = await db
-      .select()
-      .from(schema.decks)
-      .where(eq(schema.decks.id, deckId));
-
-    if (!existing.length) {
+    if (!existingDeck) {
       throw new Error(`Deck ${deckId} not found`);
     }
 
-    const previousData = safeParseDeckData(existing[0].data);
+    const previousData = safeParseDeckData(existingDeck.data);
     const data = {
       ...previousData,
       title: deckTitle,
@@ -222,7 +230,7 @@ export async function importPptxBufferToDeck(args: {
         data: JSON.stringify(data),
         ...(designSystemId !== undefined
           ? { designSystemId }
-          : { designSystemId: existing[0].designSystemId }),
+          : { designSystemId: existingDeck.designSystemId }),
         updatedAt: now,
       })
       .where(eq(schema.decks.id, deckId));

@@ -5667,13 +5667,12 @@ async function createDesktopAppFromPrompt(
     port,
   });
   // The target is intentionally empty until the coding agent runs the
-  // scaffold command. Start the runner from the framework workspace so the
-  // local Codex/Claude CLIs can initialize before they write into the target.
-  const appCreationCwd = resolveRepositoryRoot(appsRoot);
+  // scaffold command. Run from appsRoot so the relative scaffold command
+  // creates the app exactly where the Desktop registry points.
   const runResult = await createCodeAgentRun({
     goalId: "task",
     prompt: agentPrompt,
-    cwd: appCreationCwd,
+    cwd: appsRoot,
     permissionMode: "full-auto",
     metadata: {
       kind: "desktop-create-app",

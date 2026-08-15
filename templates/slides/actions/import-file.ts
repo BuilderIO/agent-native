@@ -14,7 +14,10 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
-import { uploadPptxSlideImages } from "../server/handlers/import/pptx-assets.js";
+import {
+  assertPptxImagesRenderable,
+  uploadPptxSlideImages,
+} from "../server/handlers/import/pptx-assets.js";
 import { upsertBuilderProxyDesignSystem } from "../server/lib/builder-design-system-proxy.js";
 import { setupPdfParse } from "../server/lib/pdf-parse-setup.js";
 import {
@@ -148,6 +151,7 @@ export default defineAction({
         await assertAccess("deck", deckId, "editor");
         const pptxOwnerEmail = getRequestUserEmail();
         if (!pptxOwnerEmail) throw new Error("no authenticated user");
+        assertPptxImagesRenderable(presentation.slides);
         const pptxThemeFont = presentation.theme?.fonts?.[0];
         const uploadLimit = pLimit(4);
         const pptxResults = await Promise.all(
