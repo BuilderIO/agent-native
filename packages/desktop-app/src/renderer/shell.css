@@ -406,6 +406,15 @@ body {
 }
 
 .desktop-chat-first-hub .desktop-terminal-surface__header {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  min-width: 0;
+  height: 48px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   padding: 0 8px;
   background: var(--agent-native-lower-surface, hsl(var(--sidebar-background)));
   border-bottom: 1px solid hsl(var(--border));
