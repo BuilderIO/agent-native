@@ -53,7 +53,21 @@ async function buildMinimalPptxBlob(slideCount = 1): Promise<Blob> {
 }
 
 function setRenderedSlide(html = "Editable title") {
-  document.body.innerHTML = `<div data-slide-canvas="slide-1" style="width: 960px; height: 540px;"><h1>${html}</h1></div>`;
+  document.body.innerHTML = `<div data-slide-canvas="slide-1" data-test-rect="0,0,960,540" style="width: 960px; height: 540px;"><h1>${html}</h1></div>`;
+  const slideCanvas = document.querySelector<HTMLElement>(
+    '[data-slide-canvas="slide-1"]',
+  );
+  if (!slideCanvas) throw new Error("test slide missing");
+  Object.defineProperty(slideCanvas, "offsetWidth", {
+    configurable: true,
+    value: 960,
+  });
+  return slideCanvas;
+}
+
+/** `setRenderedSlide` wraps its argument in an <h1>; imported-slide markup needs to sit directly on the canvas. */
+function setSlideMarkup(markup: string) {
+  document.body.innerHTML = `<div data-slide-canvas="slide-1" data-test-rect="0,0,960,540" style="width: 960px; height: 540px;">${markup}</div>`;
   const slideCanvas = document.querySelector<HTMLElement>(
     '[data-slide-canvas="slide-1"]',
   );
@@ -76,6 +90,34 @@ function setPendingImage() {
     naturalWidth: { configurable: true, value: 0 },
   });
   return image;
+}
+
+/**
+ * happy-dom has no layout, so every getBoundingClientRect is 0x0 and the
+ * geometry passes under test never see an element. Give the fixture a fake
+ * layout: `data-test-rect="x,y,w,h"`, read identically on the source DOM and
+ * on the export clone (which is a deep copy, i.e. already in place).
+ */
+function stubRectsFromDataAttr() {
+  vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(
+    function (this: Element) {
+      const raw = (this as HTMLElement).dataset?.testRect;
+      const [x, y, width, height] = raw
+        ? raw.split(",").map(Number)
+        : [0, 0, 0, 0];
+      return {
+        bottom: y + height,
+        height,
+        left: x,
+        right: x + width,
+        toJSON: () => ({}),
+        top: y,
+        width,
+        x,
+        y,
+      } as DOMRect;
+    },
+  );
 }
 
 function markImageAsLoaded(image: HTMLImageElement) {
@@ -215,7 +257,7 @@ describe("exportDeckAsPptx", () => {
     // Measured on creative-circus slide 8: exported runs were
     // ["IMAGE","COMPOSITION"], now ["IMAGE ","COMPOSITION"].
     stubRectsFromDataAttr();
-    setRenderedSlide(
+    setSlideMarkup(
       '<p data-pptx-paragraph="0" data-test-rect="0,0,300,24" style="white-space:pre-wrap;line-height:24px;">' +
         "<span>IMAGE </span><span>COMPOSITION</span></p>" +
         '<h1 data-test-rect="0,40,300,24" style="line-height:24px;">Generated heading</h1>',
@@ -241,7 +283,7 @@ describe("exportDeckAsPptx", () => {
     // it added the wrapper's offset a second time: superteam slide 32 tiles
     // measured at x=313.8/406.1 exported at 627.6/812.1, off the canvas.
     stubRectsFromDataAttr();
-    setRenderedSlide(
+    setSlideMarkup(
       '<div class="fmd-pptx-image" data-slide-object-id="373" data-test-rect="313.801,142.444,150,150" ' +
         'style="position:absolute;left:313.801px;top:142.444px;width:150px;height:150px;overflow:hidden;">' +
         '<img alt="" src="data:image/png;base64,iVBORw0KGgo=" data-test-rect="313.801,142.444,150,150" ' +

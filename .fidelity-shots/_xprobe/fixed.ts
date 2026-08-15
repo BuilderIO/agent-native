@@ -576,7 +576,7 @@ function restoreTextGeometry(
     if (record.position === "static" || record.position === "relative") {
       element.dataset.exportTextGeometry = "true";
       if (record.singleLine) {
-        element.style.whiteSpace = "nowrap";
+        element.style.whiteSpace = noWrapWhiteSpace(element);
       }
       element.style.left = `${translateX.toFixed(3)}px`;
       element.style.position = "relative";
@@ -594,7 +594,7 @@ function restoreTextGeometry(
 
     element.dataset.exportTextGeometry = "true";
     if (record.singleLine) {
-      element.style.whiteSpace = "nowrap";
+      element.style.whiteSpace = noWrapWhiteSpace(element);
     }
     element.style.boxSizing = "border-box";
     element.style.bottom = "auto";
@@ -697,7 +697,7 @@ function normalizeSingleLineText(
     element.dataset.exportSingleLineText = "true";
     if (element.dataset.exportTextGeometry === "true") continue;
     element.style.boxSizing = "border-box";
-    element.style.whiteSpace = "nowrap";
+    element.style.whiteSpace = noWrapWhiteSpace(element);
     if (record.heading) {
       element.style.maxWidth = "none";
       element.style.width = `${Math.max(1, Math.ceil(cloneRect.right - rect.left))}px`;
