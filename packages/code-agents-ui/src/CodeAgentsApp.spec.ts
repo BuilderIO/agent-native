@@ -71,6 +71,34 @@ describe("CodeAgentsApp chat-first rail scrolling", () => {
   });
 });
 
+describe("CodeAgentsApp transcript selection", () => {
+  it("does not let an older transcript read replace a newly selected chat", () => {
+    const source = readFileSync("src/CodeAgentsApp.tsx", "utf8");
+    const loadTranscriptStart = source.indexOf("const loadTranscript =");
+    const loadProjectsStart = source.indexOf("const loadProjects =");
+    const loadTranscriptSource = source.slice(
+      loadTranscriptStart,
+      loadProjectsStart,
+    );
+
+    expect(loadTranscriptSource).toContain(
+      "const transcriptRequestId = ++transcriptRequestRef.current;",
+    );
+    expect(loadTranscriptSource).toContain(
+      "transcriptRequestId !== transcriptRequestRef.current ||",
+    );
+    expect(loadTranscriptSource).toContain(
+      "runId !== selectedRunIdRef.current",
+    );
+    expect(loadTranscriptSource).toContain(
+      "transcriptRequestId === transcriptRequestRef.current &&",
+    );
+    expect(source).toContain(
+      "<RunDetailCard\n                            key={selectedRun.id}",
+    );
+  });
+});
+
 describe("CodeAgentsApp project folder picker", () => {
   it("keeps folder creation in the dropdown instead of duplicating its action", () => {
     const source = readFileSync("src/CodeAgentsApp.tsx", "utf8");

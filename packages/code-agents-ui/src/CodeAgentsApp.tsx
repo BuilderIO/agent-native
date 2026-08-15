@@ -673,6 +673,20 @@ export default function CodeAgentsApp({
   const [selectedExtensionDetailId, setSelectedExtensionDetailId] = useState<
     string | null
   >(null);
+  const [transcriptEvents, setTranscriptEvents] = useState<
+    CodeAgentTranscriptEvent[]
+  >([]);
+  const [transcriptLoading, setTranscriptLoading] = useState(false);
+  const [transcriptError, setTranscriptError] = useState<string | null>(null);
+  const transcriptRequestRef = useRef(0);
+  const selectRun = useCallback((runId: string | null) => {
+    // Do not mount a newly selected chat with the previous run's repository.
+    // The transcript fetch completes after this render, and the shared chat
+    // runtime correctly rejects a shorter same-length repository as stale.
+    setTranscriptEvents([]);
+    setTranscriptError(null);
+    setSelectedRunId(runId);
+  }, []);
   const activeNewSessionExtension = newSessionExtension?.active
     ? newSessionExtension
     : null;
@@ -739,9 +753,9 @@ export default function CodeAgentsApp({
 
   useEffect(() => {
     if (!openDetailRequest || !activeNewSessionExtension?.renderDetail) return;
-    setSelectedRunId(null);
+    selectRun(null);
     setSelectedExtensionDetailId(openDetailRequest.detailId);
-  }, [activeNewSessionExtension, openDetailRequest]);
+  }, [activeNewSessionExtension, openDetailRequest, selectRun]);
   const selectedRunUsesAppSurface = selectedRun
     ? isMigrationRun(selectedRun)
     : false;
@@ -759,11 +773,6 @@ export default function CodeAgentsApp({
   const [newPrompt, setNewPrompt] = useState("");
   const [newPromptSeed, setNewPromptSeed] = useState(0);
   const [creatingRun, setCreatingRun] = useState(false);
-  const [transcriptEvents, setTranscriptEvents] = useState<
-    CodeAgentTranscriptEvent[]
-  >([]);
-  const [transcriptLoading, setTranscriptLoading] = useState(false);
-  const [transcriptError, setTranscriptError] = useState<string | null>(null);
   const seenChatFirstOpenAppEvents = useRef(new Set<string>());
   const registeredChatFirstMcpServerIds = useMemo(
     () =>
@@ -1019,6 +1028,7 @@ export default function CodeAgentsApp({
 
   const loadTranscript = useCallback(
     async (runId: string | null = selectedRunId, busy = false) => {
+      const transcriptRequestId = ++transcriptRequestRef.current;
       if (!runId) {
         setTranscriptEvents([]);
         setTranscriptError(null);
@@ -1034,14 +1044,31 @@ export default function CodeAgentsApp({
           }),
           getHostCallTimeoutMs(1_000),
         );
+        if (
+          transcriptRequestId !== transcriptRequestRef.current ||
+          runId !== selectedRunIdRef.current
+        ) {
+          return;
+        }
         routeChatFirstOpenAppEvents(result.events);
         setTranscriptEvents(result.events);
         setTranscriptError(result.error ?? null);
       } catch (err) {
+        if (
+          transcriptRequestId !== transcriptRequestRef.current ||
+          runId !== selectedRunIdRef.current
+        ) {
+          return;
+        }
         setTranscriptEvents([]);
         setTranscriptError(err instanceof Error ? err.message : String(err));
       } finally {
-        setTranscriptLoading(false);
+        if (
+          transcriptRequestId === transcriptRequestRef.current &&
+          runId === selectedRunIdRef.current
+        ) {
+          setTranscriptLoading(false);
+        }
       }
     },
     [host, routeChatFirstOpenAppEvents, selectedGoal.id, selectedRunId],
@@ -1197,7 +1224,7 @@ export default function CodeAgentsApp({
             ...current.filter((run) => run.id !== retryResult.run!.id),
           ]);
           setSelectedExtensionDetailId(null);
-          setSelectedRunId(retryResult.run.id);
+          selectRun(retryResult.run.id);
           await loadTranscript(retryResult.run.id, true);
         }
       }
@@ -1215,6 +1242,7 @@ export default function CodeAgentsApp({
     loadRuns,
     loadTranscript,
     modelSelection.model,
+    selectRun,
     onOpenSettings,
     selectedGoal.id,
     selectedModelSelection,
@@ -1330,12 +1358,18 @@ export default function CodeAgentsApp({
     const nextGoal = getCodeAgentGoal(openRequest.goalId);
     if (nextGoal) setSelectedGoalId(nextGoal.id);
     setSelectedExtensionDetailId(null);
-    setSelectedRunId(openRequest.runId ?? null);
+    selectRun(openRequest.runId ?? null);
     setWorkbenchOpen(!chatFirstMode);
     setSearchPanelOpen(false);
     setMobilePanelOpen(false);
     void loadRuns(true);
-  }, [chatFirstMode, loadRuns, onChatFirstMainKindChange, openRequest]);
+  }, [
+    chatFirstMode,
+    loadRuns,
+    onChatFirstMainKindChange,
+    openRequest,
+    selectRun,
+  ]);
 
   const hasActiveRuns = useMemo(() => runs.some(isRunActive), [runs]);
   const selectedRunIsActive = selectedRun ? isRunActive(selectedRun) : false;
@@ -1603,7 +1637,7 @@ export default function CodeAgentsApp({
     if (matchingGoal) {
       setSelectedGoalId(matchingGoal.id);
       setSelectedExtensionDetailId(null);
-      setSelectedRunId(null);
+      selectRun(null);
       setWorkbenchOpen(false);
       setSearchPanelOpen(false);
       setMobilePanelOpen(false);
@@ -1617,7 +1651,7 @@ export default function CodeAgentsApp({
     );
     setSelectedGoalId("task");
     setSelectedExtensionDetailId(null);
-    setSelectedRunId(null);
+    selectRun(null);
     setWorkbenchOpen(false);
     setSearchPanelOpen(false);
     setMobilePanelOpen(false);
@@ -1676,7 +1710,7 @@ export default function CodeAgentsApp({
       current.some((item) => item.id === run.id) ? current : [run, ...current],
     );
     setSelectedExtensionDetailId(null);
-    setSelectedRunId(run.id);
+    selectRun(run.id);
     setSearchPanelOpen(false);
     setMobilePanelOpen(false);
     setWorkbenchOpen(false);
@@ -1777,12 +1811,10 @@ export default function CodeAgentsApp({
     onChatFirstMainKindChange?.("code");
     setSelectedGoalId("task");
     setSelectedExtensionDetailId(null);
-    setSelectedRunId(null);
+    selectRun(null);
     setWorkbenchOpen(false);
     setSearchPanelOpen(false);
     setMobilePanelOpen(false);
-    setTranscriptEvents([]);
-    setTranscriptError(null);
     seedNewPrompt("");
   }
 
@@ -1851,7 +1883,7 @@ export default function CodeAgentsApp({
         }
         setNewPrompt("");
         setNewPromptSeed((seed) => seed + 1);
-        setSelectedRunId(null);
+        selectRun(null);
         setSelectedExtensionDetailId(result.detailId ?? null);
         setWorkbenchOpen(false);
         setSearchPanelOpen(false);
@@ -1908,7 +1940,7 @@ export default function CodeAgentsApp({
       setNewPromptSeed((seed) => seed + 1);
       setRuns((current) => [result.run!, ...current]);
       setSelectedExtensionDetailId(null);
-      setSelectedRunId(result.run.id);
+      selectRun(result.run.id);
       if (typedGoal.id !== selectedGoal.id) {
         setSelectedGoalId(typedGoal.id);
       }
@@ -2091,11 +2123,11 @@ export default function CodeAgentsApp({
       onChatFirstMainKindChangeRef.current?.("code");
       markRunsRead([id]);
       setSelectedExtensionDetailId(null);
-      setSelectedRunId(id);
+      selectRun(id);
       setSearchPanelOpen(false);
       setMobilePanelOpen(false);
     },
-    [markRunsRead],
+    [markRunsRead, selectRun],
   );
 
   const handleRailOpen = useCallback(
@@ -2103,12 +2135,12 @@ export default function CodeAgentsApp({
       onChatFirstMainKindChangeRef.current?.("code");
       markRunsRead([id]);
       setSelectedExtensionDetailId(null);
-      setSelectedRunId(id);
+      selectRun(id);
       setWorkbenchOpen(true);
       setSearchPanelOpen(false);
       setMobilePanelOpen(false);
     },
-    [markRunsRead],
+    [markRunsRead, selectRun],
   );
 
   const handleRailTogglePin = useCallback((id: string) => {
@@ -2468,6 +2500,7 @@ export default function CodeAgentsApp({
                           })
                         ) : selectedRun ? (
                           <RunDetailCard
+                            key={selectedRun.id}
                             host={host}
                             run={selectedRun}
                             selectedRunId={selectedRunId}

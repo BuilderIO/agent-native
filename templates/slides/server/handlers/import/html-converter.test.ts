@@ -139,6 +139,8 @@ describe("convertToSlideHtml table fidelity", () => {
             },
           ],
         ],
+        columnWidthsEmu: [1000, 3000],
+        rowHeightsEmu: [500, 1500],
       },
     };
     return {
@@ -160,5 +162,9 @@ describe("convertToSlideHtml table fidelity", () => {
     expect(html).toContain('colspan="2"');
     expect(html).toContain(">Merged<");
     expect(html).toContain("background:#112233");
+    expect(html).toContain('<col style="width:25%" />');
+    expect(html).toContain('<col style="width:75%" />');
+    expect(html).toContain('<tr style="height:25%">');
+    expect(html).toContain('<tr style="height:75%">');
   });
 });

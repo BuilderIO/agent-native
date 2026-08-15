@@ -1171,7 +1171,10 @@ export async function parsePdfFidelity(
         heightEmu: 0,
         backgroundColor: undefined,
         elements: [],
-        imagesSkipped: 0,
+        // A failed page parse is a fidelity loss even when no individual
+        // image extraction failed. Keep the source-import metadata partial so
+        // callers do not report this page as source-faithful.
+        imagesSkipped: 1,
       });
     }
   }

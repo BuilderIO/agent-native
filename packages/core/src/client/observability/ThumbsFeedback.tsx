@@ -34,21 +34,29 @@ export function ThumbsFeedback({
     async (
       feedbackType: "thumbs_up" | "thumbs_down" | "text",
       value?: string,
-    ) => {
+    ): Promise<boolean> => {
       try {
-        await fetch(agentNativePath("/_agent-native/observability/feedback"), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            threadId,
-            runId,
-            messageSeq,
-            feedbackType,
-            value: value ?? "",
-          }),
-        });
+        const response = await fetch(
+          agentNativePath("/_agent-native/observability/feedback"),
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              threadId,
+              runId,
+              messageSeq,
+              feedbackType,
+              value: value ?? "",
+            }),
+          },
+        );
+        if (!response.ok) {
+          throw new Error(`Feedback submission failed (${response.status})`);
+        }
+        return true;
       } catch {
-        // Fire-and-forget; don't block the UI on feedback submission failures
+        // coercion-ok: callers receive false and restore the retryable UI state.
+        return false;
       }
     },
     [threadId, runId, messageSeq],
@@ -58,7 +66,9 @@ export function ThumbsFeedback({
     if (selection === "up") return;
     setSelection("up");
     setPopoverOpen(false);
-    sendFeedback("thumbs_up");
+    void sendFeedback("thumbs_up").then((submitted) => {
+      if (!submitted) setSelection(null);
+    });
   }, [selection, sendFeedback]);
 
   const handleThumbsDown = useCallback(() => {
@@ -68,15 +78,19 @@ export function ThumbsFeedback({
     }
     setSelection("down");
     setPopoverOpen(true);
-    sendFeedback("thumbs_down");
+    void sendFeedback("thumbs_down").then((submitted) => {
+      if (!submitted) setSelection(null);
+    });
   }, [selection, sendFeedback]);
 
   const handleTextFeedback = useCallback(() => {
     const value = textFeedback.trim();
     if (!value) return;
-    setTextFeedback("");
-    setPopoverOpen(false);
-    sendFeedback("text", value);
+    void sendFeedback("text", value).then((submitted) => {
+      if (!submitted) return;
+      setTextFeedback("");
+      setPopoverOpen(false);
+    });
   }, [sendFeedback, textFeedback]);
 
   return (

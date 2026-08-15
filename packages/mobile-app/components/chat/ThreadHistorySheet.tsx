@@ -180,11 +180,8 @@ export function ThreadHistorySheet({
       transparent
       onRequestClose={onClose}
     >
-      <View className="flex-1 flex-row bg-black/60">
-        <Pressable
-          className="w-[88%] max-w-[380px] bg-background-dark"
-          onPress={(event) => event.stopPropagation()}
-        >
+      <View className="flex-1 flex-row">
+        <View className="w-[88%] max-w-[380px] bg-background-dark">
           <SafeAreaView edges={["top", "bottom"]} className="flex-1">
             <View className="flex-row items-center justify-between px-4 pt-3 pb-2 border-b border-border-dark">
               <Text className="text-white text-lg font-bold">Chats</Text>
@@ -288,48 +285,52 @@ export function ThreadHistorySheet({
                     (thread.baseUrl ?? "") === activeBaseUrl;
                   const confirming = confirmingDeleteKey === item.key;
                   return (
-                    <Pressable
+                    <View
                       className={`flex-row items-center gap-3 px-4 py-3 border-b border-border-dark active:opacity-75 ${
                         isActive ? "bg-card-dark" : ""
                       }`}
-                      onPress={() => {
-                        onSelect(thread.id, thread.baseUrl);
-                        onClose();
-                      }}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Open chat ${thread.title}`}
                     >
-                      <View className="flex-1">
-                        {selectedAppId === "all" && thread.appName ? (
-                          <View className="flex-row items-center gap-1.5 mb-0.5">
-                            <AppIcon
-                              iconName={thread.appIcon ?? "MessageSquare"}
-                              size={12}
-                              color="#a1a1aa"
-                            />
-                            <Text className="text-status-gray text-[11px]">
-                              {thread.appName}
-                            </Text>
-                          </View>
-                        ) : null}
-                        <Text
-                          className="text-white text-[15px] font-medium"
-                          numberOfLines={1}
-                        >
-                          {thread.title}
-                        </Text>
-                        {thread.preview ? (
+                      <Pressable
+                        className="flex-1 flex-row items-center gap-3 active:opacity-75"
+                        onPress={() => {
+                          onSelect(thread.id, thread.baseUrl);
+                          onClose();
+                        }}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Open chat ${thread.title}`}
+                      >
+                        <View className="flex-1">
+                          {selectedAppId === "all" && thread.appName ? (
+                            <View className="flex-row items-center gap-1.5 mb-0.5">
+                              <AppIcon
+                                iconName={thread.appIcon ?? "MessageSquare"}
+                                size={12}
+                                color="#a1a1aa"
+                              />
+                              <Text className="text-status-gray text-[11px]">
+                                {thread.appName}
+                              </Text>
+                            </View>
+                          ) : null}
                           <Text
-                            className="text-status-gray text-[13px] mt-0.5"
+                            className="text-white text-[15px] font-medium"
                             numberOfLines={1}
                           >
-                            {thread.preview}
+                            {thread.title}
                           </Text>
-                        ) : null}
-                      </View>
-                      <Text className="text-status-gray text-xs">
-                        {formatWhen(thread.updatedAt)}
-                      </Text>
+                          {thread.preview ? (
+                            <Text
+                              className="text-status-gray text-[13px] mt-0.5"
+                              numberOfLines={1}
+                            >
+                              {thread.preview}
+                            </Text>
+                          ) : null}
+                        </View>
+                        <Text className="text-status-gray text-xs">
+                          {formatWhen(thread.updatedAt)}
+                        </Text>
+                      </Pressable>
                       <Pressable
                         className="p-1.5 active:opacity-75"
                         onPress={() => handleDelete(thread)}
@@ -346,15 +347,15 @@ export function ThreadHistorySheet({
                           strokeWidth={1.8}
                         />
                       </Pressable>
-                    </Pressable>
+                    </View>
                   );
                 }}
               />
             )}
           </SafeAreaView>
-        </Pressable>
+        </View>
         <Pressable
-          className="flex-1"
+          className="flex-1 bg-black/60"
           onPress={onClose}
           accessibilityRole="button"
           accessibilityLabel="Close chat history"

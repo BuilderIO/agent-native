@@ -19,13 +19,13 @@ const HIDDEN_APP_ROUTES = [
 ] as const;
 
 export default function TabLayout() {
-  const { enabled: chatFirstMode } = useChatFirstMode();
+  const { enabled: chatFirstMode, loaded } = useChatFirstMode();
 
   return (
     <Tabs
-      initialRouteName={chatFirstMode ? "chat" : "index"}
+      initialRouteName={loaded ? (chatFirstMode ? "chat" : "index") : undefined}
       tabBar={
-        chatFirstMode
+        loaded && chatFirstMode
           ? (props) => <ChatFirstBottomTabs {...props} />
           : undefined
       }
@@ -47,7 +47,7 @@ export default function TabLayout() {
         name="index"
         options={{
           title: "Home",
-          href: chatFirstMode ? null : undefined,
+          href: loaded && chatFirstMode ? null : undefined,
         }}
       />
       <Tabs.Screen name="home" options={{ href: null }} />
@@ -55,7 +55,7 @@ export default function TabLayout() {
         name="clips"
         options={{
           title: "Clips",
-          href: chatFirstMode ? null : undefined,
+          href: loaded && chatFirstMode ? null : undefined,
         }}
       />
       <Tabs.Screen
@@ -68,7 +68,7 @@ export default function TabLayout() {
         name="sessions"
         options={{
           title: "Sessions",
-          href: chatFirstMode ? null : undefined,
+          href: loaded && chatFirstMode ? null : undefined,
         }}
       />
       <Tabs.Screen

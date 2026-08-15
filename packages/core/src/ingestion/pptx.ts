@@ -53,6 +53,10 @@ export interface ParsedPptxElement {
 /** A `p:graphicFrame`'s `a:tbl` flattened into a simple row/cell grid. `hMerge`/`vMerge` continuation cells are omitted — their content is already represented once, by the spanning cell's `colSpan`/`rowSpan`. */
 export interface ParsedPptxTable {
   rows: ParsedPptxTableCell[][];
+  /** Authored `a:tblGrid/a:gridCol/@_w` values, in EMUs, when present. */
+  columnWidthsEmu?: number[];
+  /** Authored `a:tr/@_h` values, in EMUs, when present. */
+  rowHeightsEmu?: number[];
 }
 
 export interface ParsedPptxTableCell {
@@ -192,7 +196,13 @@ export async function parsePptxPresentation(
         target: slideMasterRelationship.target,
         parseXml,
       })
-    : { clrMap: {}, titleFillByLevel: {}, bodyFillByLevel: {} };
+    : {
+        clrMap: {},
+        titleFillByLevel: {},
+        bodyFillByLevel: {},
+        otherFillByLevel: {},
+        placeholderFills: [],
+      };
   const colorContext: ColorContext = {
     themeColorsByName: theme.colorsByName,
     clrMap: masterColorInfo.clrMap,
@@ -209,11 +219,21 @@ export async function parsePptxPresentation(
   const placeholderDefaults: PlaceholderDefaultColors = {
     title: resolveFillsByLevel(masterColorInfo.titleFillByLevel),
     body: resolveFillsByLevel(masterColorInfo.bodyFillByLevel),
+    other: resolveFillsByLevel(masterColorInfo.otherFillByLevel),
+    layoutPlaceholders: [],
+    masterPlaceholders: resolvePlaceholderShapeColors(
+      masterColorInfo.placeholderFills,
+      colorContext,
+    ),
   };
   const themeCache = new Map<string, Promise<ThemeInfo>>();
   const masterInfoCache = new Map<
     string,
     ReturnType<typeof parseMasterColorInfo>
+  >();
+  const layoutPlaceholdersCache = new Map<
+    string,
+    Promise<RawPlaceholderShapeFill[]>
   >();
   const slides: ParsedPptxSlide[] = [];
   for (const slidePath of slidePaths) {
@@ -250,6 +270,7 @@ export async function parsePptxPresentation(
       slideRelationships,
       themeCache,
       masterInfoCache,
+      layoutPlaceholdersCache,
     })) ?? { colorContext, placeholderDefaults };
     elements = await parseSlideElements({
       xml,
@@ -436,6 +457,7 @@ async function resolveSlideMasterContext(args: {
   slideRelationships: Map<string, { target: string; type: string }>;
   themeCache: Map<string, Promise<ThemeInfo>>;
   masterInfoCache: Map<string, ReturnType<typeof parseMasterColorInfo>>;
+  layoutPlaceholdersCache: Map<string, Promise<RawPlaceholderShapeFill[]>>;
 }): Promise<
   | {
       colorContext: ColorContext;
@@ -451,6 +473,7 @@ async function resolveSlideMasterContext(args: {
     "ppt/slides",
     layoutRelationship.target,
   );
+  const layoutXml = await args.zip.file(layoutPath)?.async("string");
   const layoutRelsXml = await args.zip
     .file(relsPathForPptxPart(layoutPath))
     ?.async("string");
@@ -475,6 +498,15 @@ async function resolveSlideMasterContext(args: {
     args.masterInfoCache.set(masterPath, masterInfoPromise);
   }
   const masterInfo = await masterInfoPromise;
+
+  let layoutPlaceholdersPromise = args.layoutPlaceholdersCache.get(layoutPath);
+  if (!layoutPlaceholdersPromise) {
+    layoutPlaceholdersPromise = Promise.resolve(
+      layoutXml ? parsePlaceholderShapeFills(layoutXml, args.parseXml) : [],
+    );
+    args.layoutPlaceholdersCache.set(layoutPath, layoutPlaceholdersPromise);
+  }
+  const layoutPlaceholderFills = await layoutPlaceholdersPromise;
 
   const masterRelsXml = await args.zip
     .file(relsPathForPptxPart(masterPath))
@@ -515,6 +547,15 @@ async function resolveSlideMasterContext(args: {
     placeholderDefaults: {
       title: resolveFillsByLevel(masterInfo.titleFillByLevel),
       body: resolveFillsByLevel(masterInfo.bodyFillByLevel),
+      other: resolveFillsByLevel(masterInfo.otherFillByLevel),
+      layoutPlaceholders: resolvePlaceholderShapeColors(
+        layoutPlaceholderFills,
+        colorContext,
+      ),
+      masterPlaceholders: resolvePlaceholderShapeColors(
+        masterInfo.placeholderFills,
+        colorContext,
+      ),
     },
   };
 }
@@ -528,8 +569,16 @@ async function parseMasterColorInfo(args: {
   clrMap: Record<string, string>;
   titleFillByLevel: Record<number, Record<string, unknown> | null>;
   bodyFillByLevel: Record<number, Record<string, unknown> | null>;
+  otherFillByLevel: Record<number, Record<string, unknown> | null>;
+  placeholderFills: RawPlaceholderShapeFill[];
 }> {
-  const empty = { clrMap: {}, titleFillByLevel: {}, bodyFillByLevel: {} };
+  const empty = {
+    clrMap: {},
+    titleFillByLevel: {},
+    bodyFillByLevel: {},
+    otherFillByLevel: {},
+    placeholderFills: [],
+  };
   const path = args.target.startsWith("/")
     ? args.target.slice(1)
     : "ppt/" + args.target.replace(/^\.\.\//, "");
@@ -545,6 +594,10 @@ async function parseMasterColorInfo(args: {
       record(txStyles?.["p:titleStyle"]),
     ),
     bodyFillByLevel: levelFillsFromTextStyle(record(txStyles?.["p:bodyStyle"])),
+    otherFillByLevel: levelFillsFromTextStyle(
+      record(txStyles?.["p:otherStyle"]),
+    ),
+    placeholderFills: parsePlaceholderShapeFills(xml, args.parseXml),
   };
 }
 
@@ -560,6 +613,51 @@ function levelFillsFromTextStyle(
     fills[level] = record(defRPr?.["a:solidFill"]);
   }
   return fills;
+}
+
+/** A slideLayout's or slideMaster's own placeholder shape (a `<p:sp>` carrying a `<p:ph>`) and its per-level `<a:lstStyle>` default run fills — this is where a placeholder type's *real* default color usually lives; Google Slides exports still emit a `<p:txStyles>` bucket, but only as an unused boilerplate stub with its own (often wrong) colors, so this shape-level default has to be tried first. */
+interface RawPlaceholderShapeFill {
+  type?: string;
+  idx?: string;
+  fillsByLevel: Record<number, Record<string, unknown> | null>;
+}
+
+/** Parses every direct placeholder shape out of a slideLayout's or slideMaster's `p:spTree`, keyed by that shape's own `<p:ph>` `type`/`idx` — reuses `extractDirectShapeFragments`, since layouts and masters share the same `spTree` structure slides do. */
+function parsePlaceholderShapeFills(
+  xml: string,
+  parseXml: (xml: string) => unknown,
+): RawPlaceholderShapeFill[] {
+  const placeholders: RawPlaceholderShapeFill[] = [];
+  for (const fragment of extractDirectShapeFragments(xml, "spTree")) {
+    const node = record(record(parseXml(fragment))?.["p:sp"]);
+    const ph = record(record(record(node?.["p:nvSpPr"])?.["p:nvPr"])?.["p:ph"]);
+    if (!node || !ph) continue;
+    placeholders.push({
+      type: stringValue(ph["@_type"]),
+      idx: stringValue(ph["@_idx"]),
+      fillsByLevel: levelFillsFromTextStyle(
+        record(record(node["p:txBody"])?.["a:lstStyle"]),
+      ),
+    });
+  }
+  return placeholders;
+}
+
+/** Resolves a set of raw placeholder-shape fills' `schemeClr` references against the slide's theme/clrMap, mirroring `resolveFillsByLevel`'s deferred-resolution pattern above (the raw fills are cached before the theme is known, so resolution happens per-call instead). */
+function resolvePlaceholderShapeColors(
+  raw: RawPlaceholderShapeFill[],
+  colorContext: ColorContext,
+): PlaceholderShapeColors[] {
+  return raw.map((placeholder) => ({
+    type: placeholder.type,
+    idx: placeholder.idx,
+    colorsByLevel: Object.fromEntries(
+      Object.entries(placeholder.fillsByLevel).map(([level, fill]) => [
+        Number(level),
+        parseColor(fill, colorContext),
+      ]),
+    ),
+  }));
 }
 
 interface ParsedShapeTransform {
@@ -797,17 +895,21 @@ async function parseShapeFragment(
   const transform = applyTransform(effectiveLocalTransform, args.context);
   const id = readShapeId(node);
   const name = readShapeName(node);
-  const placeholderType = stringValue(
-    record(record(record(node["p:nvSpPr"])?.["p:nvPr"])?.["p:ph"])?.["@_type"],
+  const placeholder = record(
+    record(record(node["p:nvSpPr"])?.["p:nvPr"])?.["p:ph"],
   );
+  const placeholderType = stringValue(placeholder?.["@_type"]);
+  const placeholderIdx = stringValue(placeholder?.["@_idx"]);
   const shapeProperties = record(node["p:spPr"]);
   const rawText = parseTextBody(node, args.colorContext);
   const placeholderDefaultColor =
-    placeholderType === "title" || placeholderType === "ctrTitle"
-      ? args.placeholderDefaults?.title
-      : placeholderType
-        ? args.placeholderDefaults?.body
-        : undefined;
+    placeholder && args.placeholderDefaults
+      ? resolvePlaceholderColorsByLevel({
+          type: placeholderType,
+          idx: placeholderIdx,
+          defaults: args.placeholderDefaults,
+        })
+      : undefined;
   const text = applyPlaceholderDefaultColor(rawText, placeholderDefaultColor);
   const fill = parseShapeFill(shapeProperties, args.colorContext);
   const line = parseShapeLine(shapeProperties, args.colorContext);
@@ -925,7 +1027,15 @@ function parseGraphicFrameTable(
   const graphicData = record(record(node["a:graphic"])?.["a:graphicData"]);
   const tbl = record(graphicData?.["a:tbl"]);
   if (!tbl) return undefined;
-  const rows = asArray(tbl["a:tr"]).map((rawRow) => {
+  const rawRows = asArray(tbl["a:tr"]);
+  const rawGridColumns = asArray(record(tbl["a:tblGrid"])?.["a:gridCol"]);
+  const columnWidthsEmu = rawGridColumns
+    .map((rawColumn) => positiveAttributeNumber(rawColumn, "@_w"))
+    .filter((width): width is number => width !== undefined);
+  const rowHeightsEmu = rawRows
+    .map((rawRow) => positiveAttributeNumber(rawRow, "@_h"))
+    .filter((height): height is number => height !== undefined);
+  const rows = rawRows.map((rawRow) => {
     const row = record(rawRow);
     const cells: ParsedPptxTableCell[] = [];
     for (const rawCell of asArray(row?.["a:tc"])) {
@@ -933,7 +1043,8 @@ function parseGraphicFrameTable(
       if (!cell) continue;
       // A merge-continuation cell's content is already represented once, by
       // the spanning cell's gridSpan/rowSpan below.
-      if (cell["@_hMerge"] === "1" || cell["@_vMerge"] === "1") continue;
+      if (xmlBoolean(cell["@_hMerge"]) || xmlBoolean(cell["@_vMerge"]))
+        continue;
       const gridSpan = Number(cell["@_gridSpan"]);
       const rowSpan = Number(cell["@_rowSpan"]);
       const fill = parseShapeFill(record(cell["a:tcPr"]), context);
@@ -948,7 +1059,13 @@ function parseGraphicFrameTable(
     }
     return cells;
   });
-  return rows.length > 0 ? { rows } : undefined;
+  return rows.length > 0
+    ? {
+        rows,
+        ...(columnWidthsEmu.length > 0 ? { columnWidthsEmu } : {}),
+        ...(rowHeightsEmu.length > 0 ? { rowHeightsEmu } : {}),
+      }
+    : undefined;
 }
 
 function extractDirectShapeFragments(xml: string, container: string): string[] {
@@ -1259,9 +1376,81 @@ interface ColorContext {
   clrMap: Record<string, string>;
 }
 
+/** A resolved slideLayout/slideMaster placeholder shape's per-level default run colors — see `RawPlaceholderShapeFill` for where these come from. */
+interface PlaceholderShapeColors {
+  type?: string;
+  idx?: string;
+  colorsByLevel: Record<number, string | undefined>;
+}
+
 interface PlaceholderDefaultColors {
-  title?: Record<number, string | undefined>;
-  body?: Record<number, string | undefined>;
+  title: Record<number, string | undefined>;
+  body: Record<number, string | undefined>;
+  other: Record<number, string | undefined>;
+  /** This slide's own layout's placeholder shapes — checked first, since a layout's placeholder is more specific than its master's. */
+  layoutPlaceholders: PlaceholderShapeColors[];
+  /** The slide master's own placeholder shapes (its actual `<p:sp><p:ph>` shapes, not `<p:txStyles>`) — checked before the `title`/`body`/`other` txStyles fallback below, since that's where a placeholder type's real default color usually lives. `<p:txStyles>` is the last resort PowerPoint/Google Slides falls back to only when neither the layout nor the master defines the placeholder shape itself. */
+  masterPlaceholders: PlaceholderShapeColors[];
+}
+
+/** Finds the layout/master placeholder shape a slide's own `<p:ph>` inherits from: an exact `type`+`idx` match first, then `type` alone (a title's `idx` is commonly a sentinel like `4294967295` that won't match anything real), then — for a slide placeholder with no `type` at all, a generic content placeholder — `idx` alone. */
+function findMatchingPlaceholderShape(
+  placeholders: PlaceholderShapeColors[],
+  type: string | undefined,
+  idx: string | undefined,
+): PlaceholderShapeColors | undefined {
+  if (type) {
+    return (
+      placeholders.find((p) => p.type === type && p.idx === idx) ??
+      placeholders.find((p) => p.type === type)
+    );
+  }
+  return placeholders.find((p) => p.idx === idx);
+}
+
+/** `<p:txStyles>` groups its per-level defaults into three buckets by placeholder type — `titleStyle` for title-ish placeholders, `bodyStyle` for body/content-ish ones (including a bare `<p:ph/>` with no `type`, which the schema defaults to `"body"`), and `otherStyle` for everything else (`dt`, `ftr`, `sldNum`, ...). */
+function txStylesTierForType(
+  type: string | undefined,
+): "title" | "body" | "other" {
+  if (type === "title" || type === "ctrTitle") return "title";
+  if (
+    type === undefined ||
+    type === "body" ||
+    type === "subTitle" ||
+    type === "obj"
+  )
+    return "body";
+  return "other";
+}
+
+/** Resolves a placeholder run's inherited color chain — this slide's own layout placeholder shape, then the slide master's own placeholder shape, then the master's generic `<p:txStyles>` bucket for this placeholder's type — per nesting level, so a paragraph at level N gets level N's own default instead of only ever level 0's. */
+function resolvePlaceholderColorsByLevel(args: {
+  type: string | undefined;
+  idx: string | undefined;
+  defaults: PlaceholderDefaultColors;
+}): Record<number, string | undefined> | undefined {
+  const layoutMatch = findMatchingPlaceholderShape(
+    args.defaults.layoutPlaceholders,
+    args.type,
+    args.idx,
+  );
+  const masterMatch = findMatchingPlaceholderShape(
+    args.defaults.masterPlaceholders,
+    args.type,
+    args.idx,
+  );
+  const txStylesByLevel = args.defaults[txStylesTierForType(args.type)];
+  const merged: Record<number, string | undefined> = {};
+  let any = false;
+  for (let level = 0; level < 9; level++) {
+    const color =
+      layoutMatch?.colorsByLevel[level] ??
+      masterMatch?.colorsByLevel[level] ??
+      txStylesByLevel[level];
+    merged[level] = color;
+    if (color) any = true;
+  }
+  return any ? merged : undefined;
 }
 
 /** Placeholder text has no explicit color of its own when the author relied on the slide master's default run properties — apply that inherited color to any run that didn't resolve one, using each paragraph's own nested-bullet level (falling back to level 0's color when a deeper level has no default of its own). */
@@ -1891,4 +2080,16 @@ function record(value: unknown): Record<string, unknown> | null {
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function positiveAttributeNumber(
+  value: unknown,
+  attribute: string,
+): number | undefined {
+  const parsed = Number(record(value)?.[attribute]);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function xmlBoolean(value: unknown): boolean {
+  return value === true || value === 1 || /^(?:1|true)$/i.test(String(value));
 }

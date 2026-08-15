@@ -366,15 +366,35 @@ function buildFidelityTable(
   const rows = element.table?.rows ?? [];
   const rowsHtml = rows
     .map(
-      (row) =>
-        `<tr>${row
+      (row, rowIndex) =>
+        `<tr${rowHeightStyle(element, rowIndex)}>${row
           .map((cell) =>
             buildFidelityTableCell(cell, widthEmu, refWidthPx, themeFont),
           )
           .join("")}</tr>`,
     )
     .join("");
-  return `<div class="fmd-pptx-table" data-pptx-element-kind="table"${objectId} style="${position}${rotation} overflow: hidden;"><table style="width:100%;height:100%;border-collapse:collapse;table-layout:fixed;font-family:${cssFontFamily(themeFont)};">${rowsHtml}</table></div>`;
+  const columnWidths = element.table?.columnWidthsEmu ?? [];
+  const totalColumnWidth = columnWidths.reduce(
+    (total, width) => total + width,
+    0,
+  );
+  const colgroup =
+    totalColumnWidth > 0
+      ? `<colgroup>${columnWidths
+          .map(
+            (width) =>
+              `<col style="width:${(width / totalColumnWidth) * 100}%" />`,
+          )
+          .join("")}</colgroup>`
+      : "";
+  return `<div class="fmd-pptx-table" data-pptx-element-kind="table"${objectId} style="${position}${rotation} overflow: hidden;"><table style="width:100%;height:100%;border-collapse:collapse;table-layout:fixed;font-family:${cssFontFamily(themeFont)};">${colgroup}${rowsHtml}</table></div>`;
+}
+
+function rowHeightStyle(element: ParsedElement, rowIndex: number): string {
+  const rowHeight = element.table?.rowHeightsEmu?.[rowIndex];
+  if (!rowHeight || element.height <= 0) return "";
+  return ` style="height:${(rowHeight / element.height) * 100}%"`;
 }
 
 function buildFidelityTableCell(

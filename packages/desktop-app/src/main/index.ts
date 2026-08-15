@@ -5609,6 +5609,19 @@ function titleizeAppFolder(value: string): string {
     .replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
+function requestedDesktopAppName(prompt: string): string | undefined {
+  const quotedMatch = prompt.match(
+    /\b(?:called|named)\s+["“]([^"”\n]{1,48})["”]/i,
+  );
+  const unquotedMatch = prompt.match(
+    /\b(?:called|named)\s+([A-Za-z][A-Za-z0-9&' -]{0,47}?)(?=\s*(?:[.!?,;:\n]|\s+(?:that|which|with|for|to|and|it|so)\b|$))/i,
+  );
+  const name = (quotedMatch?.[1] ?? unquotedMatch?.[1] ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return name || undefined;
+}
+
 function nextDesktopManagedAppPort(apps: AppConfig[]): number {
   const used = new Set(
     apps
@@ -5724,15 +5737,17 @@ async function createDesktopAppFromPrompt(
   }
 
   const generatedName = runResult.run.title?.trim();
+  const requestedName = requestedDesktopAppName(prompt);
   const appConfig: AppConfig = {
     id: appId,
     name:
-      generatedName &&
+      requestedName ??
+      (generatedName &&
       generatedName !== "Coding task" &&
       generatedName.length <= 48 &&
       !generatedName.endsWith("...")
         ? generatedName
-        : titleizeAppFolder(folder.name),
+        : titleizeAppFolder(folder.name)),
     icon: "Code",
     description: prompt.replace(/\s+/g, " ").slice(0, 180),
     url: "",

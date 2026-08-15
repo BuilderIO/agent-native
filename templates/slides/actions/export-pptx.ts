@@ -41,6 +41,13 @@ function colorToHex(color: string): { hex: string; transparency?: number } {
   color = color.replace(/['"]/g, "").trim();
 
   // Already hex
+  if (/^#[0-9a-f]{8}$/i.test(color)) {
+    const alpha = parseInt(color.slice(7), 16) / 255;
+    return {
+      hex: color.slice(1, 7).toUpperCase(),
+      transparency: Math.round((1 - alpha) * 100),
+    };
+  }
   if (/^#[0-9a-f]{6}$/i.test(color))
     return { hex: color.slice(1).toUpperCase() };
   if (/^#[0-9a-f]{3}$/i.test(color)) {
@@ -172,6 +179,32 @@ interface ShapeElement {
   order?: number;
 }
 
+interface TableCellElement {
+  text: string;
+  options?: {
+    align?: "left" | "center" | "right" | "justify";
+    bold?: boolean;
+    color?: string;
+    fill?: { color: string; transparency?: number };
+    fontFace?: string;
+    fontSize?: number;
+    margin?: number;
+    colspan?: number;
+    rowspan?: number;
+    transparency?: number;
+    valign?: "top" | "middle" | "bottom";
+  };
+}
+
+interface TableElement {
+  rows: TableCellElement[][];
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  order?: number;
+}
+
 interface GridElement {
   color: string;
   transparency?: number; // 0-100, percent transparent
@@ -206,6 +239,7 @@ interface ParsedSlide {
   texts: TextElement[];
   images: ImageElement[];
   shapes: ShapeElement[];
+  tables: TableElement[];
   grid?: GridElement;
   bgColor: string;
   bgTransparency?: number; // 0-100, percent transparent
@@ -418,7 +452,7 @@ export function parseSlideHtml(
     }
   }
 
-  return { texts, images, shapes, bgColor, bgTransparency };
+  return { texts, images, shapes, tables: [], bgColor, bgTransparency };
 }
 
 type SlideDims = ReturnType<typeof getAspectRatioDims>;
@@ -477,6 +511,7 @@ function parseImportedPdfSlideHtml(html: string, dims: SlideDims): ParsedSlide {
         ]
       : [],
     shapes: [],
+    tables: [],
     bgColor,
     bgTransparency,
   };
@@ -486,6 +521,7 @@ function parseImportedSlideHtml(html: string, dims: SlideDims): ParsedSlide {
   const texts: TextElement[] = [];
   const images: ImageElement[] = [];
   const shapes: ShapeElement[] = [];
+  const tables: TableElement[] = [];
   const outerStyle = html.match(
     /class=["'][^"']*\bfmd-slide\b[^"']*["'][^>]*style=["']([^"']*)["']/i,
   )?.[1];
@@ -498,7 +534,7 @@ function parseImportedSlideHtml(html: string, dims: SlideDims): ParsedSlide {
   const bgTransparency = parsedBg.transparency;
   const grid = outerStyle ? parseImportedGrid(outerStyle) : undefined;
   const elementRegex =
-    /<div\b([^>]*\bdata-pptx-element-kind=["'](text|image|shape)["'][^>]*)>([\s\S]*?)<\/div>/gi;
+    /<div\b([^>]*\bdata-pptx-element-kind=["'](text|image|shape|table)["'][^>]*)>([\s\S]*?)<\/div>/gi;
   let match: RegExpExecArray | null;
   while ((match = elementRegex.exec(html)) !== null) {
     const attrs = match[1];
@@ -542,6 +578,12 @@ function parseImportedSlideHtml(html: string, dims: SlideDims): ParsedSlide {
       continue;
     }
 
+    if (kind === "table") {
+      const table = parseImportedTable(innerHtml, geometry, dims);
+      if (table) tables.push({ ...table, order: match.index });
+      continue;
+    }
+
     const runs = importedTextRuns(innerHtml, dims);
     const firstRun = runs.find((run) => run.text.trim()) ?? runs[0];
     const firstParagraph = innerHtml.match(
@@ -571,7 +613,75 @@ function parseImportedSlideHtml(html: string, dims: SlideDims): ParsedSlide {
     });
   }
 
-  return { texts, images, shapes, grid, bgColor, bgTransparency };
+  return { texts, images, shapes, tables, grid, bgColor, bgTransparency };
+}
+
+function parseImportedTable(
+  html: string,
+  geometry: { x: number; y: number; w: number; h: number },
+  dims: SlideDims,
+): TableElement | null {
+  const rows: TableCellElement[][] = [];
+  for (const rowMatch of html.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)) {
+    const cells: TableCellElement[] = [];
+    for (const cellMatch of rowMatch[1].matchAll(
+      /<t[dh]\b([^>]*)>([\s\S]*?)<\/t[dh]>/gi,
+    )) {
+      const attrs = cellMatch[1];
+      const cellHtml = cellMatch[2];
+      const style = getAttribute(attrs, "style") ?? "";
+      const runs = importedTextRuns(cellHtml, dims);
+      const firstRun = runs.find((run) => run.text.trim()) ?? runs[0];
+      const fillValue = getStyle(style, "background(?:-color)?");
+      const parsedFill = fillValue ? colorToHex(fillValue) : undefined;
+      const alignValue = getStyle(style, "text-align");
+      const colspan = positiveIntegerAttribute(attrs, "colspan");
+      const rowspan = positiveIntegerAttribute(attrs, "rowspan");
+      cells.push({
+        text: runs.map((run) => run.text).join(""),
+        options: {
+          ...(firstRun?.options.fontFace
+            ? { fontFace: firstRun.options.fontFace }
+            : {}),
+          ...(firstRun?.options.fontSize
+            ? { fontSize: firstRun.options.fontSize }
+            : {}),
+          ...(firstRun?.options.color ? { color: firstRun.options.color } : {}),
+          ...(firstRun?.options.bold != null
+            ? { bold: firstRun.options.bold }
+            : {}),
+          ...(firstRun?.options.transparency != null
+            ? { transparency: firstRun.options.transparency }
+            : {}),
+          ...(parsedFill
+            ? {
+                fill: {
+                  color: parsedFill.hex,
+                  ...(parsedFill.transparency != null
+                    ? { transparency: parsedFill.transparency }
+                    : {}),
+                },
+              }
+            : {}),
+          ...(alignValue === "center" ||
+          alignValue === "right" ||
+          alignValue === "justify"
+            ? { align: alignValue }
+            : {}),
+          ...(colspan ? { colspan } : {}),
+          ...(rowspan ? { rowspan } : {}),
+          valign: "top",
+        },
+      });
+    }
+    if (cells.length > 0) rows.push(cells);
+  }
+  return rows.length > 0 ? { rows, ...geometry } : null;
+}
+
+function positiveIntegerAttribute(attrs: string, name: string): number | null {
+  const value = Number.parseInt(getAttribute(attrs, name) ?? "", 10);
+  return Number.isInteger(value) && value > 1 ? value : null;
 }
 
 function parseImportedGrid(style: string): GridElement | undefined {
@@ -821,7 +931,7 @@ export default defineAction({
         slide && typeof slide === "object" && typeof slide.content === "string"
           ? slide.content
           : "";
-      const { texts, images, shapes, grid, bgColor, bgTransparency } =
+      const { texts, images, shapes, tables, grid, bgColor, bgTransparency } =
         parseSlideHtml(slideContent, aspectRatio, slideIndex + 1);
 
       pptxSlide.background = {
@@ -872,6 +982,9 @@ export default defineAction({
       const orderedShapes = [...shapes].sort(
         (a, b) => (a.order ?? 0) - (b.order ?? 0),
       );
+      const orderedTables = [...tables].sort(
+        (a, b) => (a.order ?? 0) - (b.order ?? 0),
+      );
 
       // Imported elements are parsed separately because PptxGenJS needs real
       // slide objects. Keep their source order so overlapping objects retain
@@ -880,6 +993,7 @@ export default defineAction({
         ...orderedTexts.map((value) => ({ kind: "text" as const, value })),
         ...orderedImages.map((value) => ({ kind: "image" as const, value })),
         ...orderedShapes.map((value) => ({ kind: "shape" as const, value })),
+        ...orderedTables.map((value) => ({ kind: "table" as const, value })),
       ].sort((a, b) => (a.value.order ?? 0) - (b.value.order ?? 0));
 
       for (const object of orderedObjects) {
@@ -922,7 +1036,7 @@ export default defineAction({
               h: img.h,
             });
           }
-        } else {
+        } else if (object.kind === "shape") {
           const shape = object.value;
           pptxSlide.addShape(
             shape.rounded ? pptx.ShapeType.roundRect : pptx.ShapeType.rect,
@@ -954,6 +1068,14 @@ export default defineAction({
                 : {}),
             },
           );
+        } else {
+          const table = object.value;
+          pptxSlide.addTable(table.rows, {
+            x: table.x,
+            y: table.y,
+            w: table.w,
+            h: table.h,
+          });
         }
       }
 

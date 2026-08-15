@@ -10,6 +10,7 @@ import {
   Alert,
   Platform,
   PlatformColor,
+  Pressable,
   ScrollView,
   Switch,
   Text,
@@ -66,6 +67,24 @@ function IOSBlueSwitch({
   onValueChange: (value: boolean) => void;
   disabled?: boolean;
 }) {
+  if (Platform.OS === "web") {
+    return (
+      <Pressable
+        className={`h-5 w-10 justify-center rounded-full p-0.5 ${
+          value ? "bg-accent-blue" : "bg-gray-zinc"
+        } ${disabled ? "opacity-50" : ""}`}
+        disabled={disabled}
+        onPress={() => onValueChange(!value)}
+        accessibilityRole="switch"
+        accessibilityState={{ checked: value, disabled }}
+      >
+        <View
+          className={`h-4 w-4 rounded-full bg-white-pure ${value ? "ml-5" : "ml-0"}`}
+        />
+      </Pressable>
+    );
+  }
+
   return (
     <Switch
       value={value}

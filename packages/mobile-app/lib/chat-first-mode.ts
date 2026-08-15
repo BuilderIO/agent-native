@@ -54,10 +54,11 @@ export function subscribeChatFirstMode(
 
 export function useChatFirstMode(): {
   enabled: boolean;
+  loaded: boolean;
   error: string | null;
   setEnabled: (enabled: boolean) => Promise<ChatFirstModeStorageResult>;
 } {
-  const [enabled, setEnabledState] = useState(true);
+  const [enabledState, setEnabledState] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     let active = true;
@@ -73,7 +74,7 @@ export function useChatFirstMode(): {
   useEffect(() => subscribeChatFirstMode(setEnabledState), []);
   const setEnabled = useCallback(
     async (value: boolean) => {
-      const previous = enabled;
+      const previous = enabledState ?? true;
       setEnabledState(value);
       setError(null);
       const result = await saveChatFirstMode(value);
@@ -83,7 +84,12 @@ export function useChatFirstMode(): {
       }
       return result;
     },
-    [enabled],
+    [enabledState],
   );
-  return { enabled, error, setEnabled };
+  return {
+    enabled: enabledState ?? true,
+    loaded: enabledState !== null,
+    error,
+    setEnabled,
+  };
 }

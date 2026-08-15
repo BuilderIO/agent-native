@@ -1,5 +1,5 @@
 import { OPS } from "pdfjs-dist/legacy/build/pdf.mjs";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   annotateLineDecorations,
@@ -706,5 +706,23 @@ describe("parsePdfFidelity: imagesSkipped", () => {
     const pages = await parsePdfFidelity(doc, []);
     expect(pages[0].imagesSkipped).toBe(1);
     expect(pages[0].elements.map((el) => el.kind)).toEqual(["text"]);
+  });
+
+  it("marks a page parse failure as degraded instead of source-faithful", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const doc = {
+      numPages: 1,
+      getPage: async () => {
+        throw new Error("synthetic page failure");
+      },
+    } as unknown as Parameters<typeof parsePdfFidelity>[0];
+
+    try {
+      const pages = await parsePdfFidelity(doc, []);
+      expect(pages[0]?.imagesSkipped).toBe(1);
+      expect(pages[0]?.elements).toEqual([]);
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 });
