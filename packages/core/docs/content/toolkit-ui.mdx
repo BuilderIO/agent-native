@@ -132,12 +132,12 @@ The grid does not fetch data, call actions, resolve credentials, or persist
 edits. Use `renderHeader`, `renderBody`, `renderRow`, and `renderFooter` when an
 app needs to keep its own headers, grouping, row actions, or summary rows.
 
-| Export | Purpose |
-| --- | --- |
-| `<DataGrid>` | Render rows and columns with shared grid mechanics. |
-| `DataGridColumn<Row>` | Describe a typed column, including values, widths, cells, and editors. |
-| `clampDataGridColumnWidth()` | Clamp an app-owned width to a column's configured bounds. |
-| `dataGridColumnTemplate()` | Build the shared CSS grid template for custom slots. |
+| Export                       | Purpose                                                                |
+| ---------------------------- | ---------------------------------------------------------------------- |
+| `<DataGrid>`                 | Render rows and columns with shared grid mechanics.                    |
+| `DataGridColumn<Row>`        | Describe a typed column, including values, widths, cells, and editors. |
+| `clampDataGridColumnWidth()` | Clamp an app-owned width to a column's configured bounds.              |
+| `dataGridColumnTemplate()`   | Build the shared CSS grid template for custom slots.                   |
 
 The smallest adapter only supplies rows, columns, and stable row IDs:
 

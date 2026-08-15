@@ -42,6 +42,7 @@ async function loadAnalyticsSessionId(): Promise<string> {
         session = { id: parsed.id, lastSeenAt: parsed.lastSeenAt };
       }
     } catch {
+      // coercion-ok: unreadable persisted analytics state starts a fresh session.
       // Start a new session when persisted analytics state is unreadable.
     }
   }
@@ -122,6 +123,7 @@ export async function trackMobileEvent(
       }),
     });
   } catch {
+    // coercion-ok: analytics is best-effort and must not interrupt navigation.
     // Analytics must never interrupt navigation or a chat turn.
   }
 }

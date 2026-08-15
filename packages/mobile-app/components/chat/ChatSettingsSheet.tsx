@@ -226,7 +226,7 @@ function AgentItem({
   onPress,
 }: {
   label: string;
-  description: string;
+  description?: string;
   selected: boolean;
   available: boolean;
   onPress: () => void;
@@ -249,9 +249,11 @@ function AgentItem({
         >
           {label}
         </Text>
-        <Text className="text-zinc-500 text-[12px] mt-0.5" numberOfLines={1}>
-          {description}
-        </Text>
+        {description ? (
+          <Text className="text-zinc-500 text-[12px] mt-0.5" numberOfLines={1}>
+            {description}
+          </Text>
+        ) : null}
       </View>
       {!available ? (
         <Text className="text-zinc-600 text-[11px]">Unavailable</Text>

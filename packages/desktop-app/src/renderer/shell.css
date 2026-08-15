@@ -321,20 +321,10 @@ body {
   .code-agents-rail--collapsed
   .code-agents-primary-new-chat-shell
   .code-agents-primary-new-chat,
-.desktop-chat-first-hub
-  .code-agents-rail--collapsed
-  .code-agents-nav-link,
-.desktop-chat-first-hub
-  .code-agents-rail--collapsed
-  [role="tablist"]
-  > button,
-.desktop-chat-first-hub
-  .code-agents-rail--collapsed
-  > div
-  > button,
-.desktop-chat-first-hub
-  .code-agents-rail--collapsed
-  > button {
+.desktop-chat-first-hub .code-agents-rail--collapsed .code-agents-nav-link,
+.desktop-chat-first-hub .code-agents-rail--collapsed [role="tablist"] > button,
+.desktop-chat-first-hub .code-agents-rail--collapsed > div > button,
+.desktop-chat-first-hub .code-agents-rail--collapsed > button {
   justify-content: center;
   padding-inline: 0;
 }

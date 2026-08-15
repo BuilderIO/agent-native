@@ -48,10 +48,13 @@ export const AGENT_HARNESS_SESSION_MIGRATIONS: MigrationEntry[] = [
     // additive and keeps Date.now() values representable on those databases.
     sql: {
       postgres: `
+        -- guard:allow-destructive-ddl — widen legacy int4 timestamp storage to preserve Date.now() values
         ALTER TABLE agent_harness_sessions
           ALTER COLUMN created_at TYPE BIGINT;
+        -- guard:allow-destructive-ddl — widen legacy int4 timestamp storage to preserve Date.now() values
         ALTER TABLE agent_harness_sessions
           ALTER COLUMN updated_at TYPE BIGINT;
+        -- guard:allow-destructive-ddl — widen legacy int4 timestamp storage to preserve Date.now() values
         ALTER TABLE agent_harness_sessions
           ALTER COLUMN stopped_at TYPE BIGINT
       `,

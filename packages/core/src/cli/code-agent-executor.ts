@@ -1108,6 +1108,7 @@ function consumeCodexJsonLine(
     const parsed = JSON.parse(trimmed) as unknown;
     if (isRecordValue(parsed)) onEvent?.(parsed);
   } catch {
+    // coercion-ok: older CLI output is intentionally ignored when it is not JSON.
     // Older Codex versions and test doubles can still emit human-readable
     // stdout. Keep that output available to terminal callers without making
     // the structured transcript parser fail the run.

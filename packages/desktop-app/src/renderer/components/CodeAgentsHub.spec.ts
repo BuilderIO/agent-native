@@ -269,7 +269,7 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     );
     expect(shellCss).toContain("code-agents-primary-new-chat-shell");
     expect(shellCss).toContain(
-      ".code-agents-rail--collapsed\n  .code-agents-nav-link",
+      ".desktop-chat-first-hub .code-agents-rail--collapsed .code-agents-nav-link",
     );
     expect(shellCss).toContain("border-bottom: 0;");
     expect(shellCss).toMatch(

@@ -257,11 +257,11 @@ contract, framed-development relay, tests, and remaining compositor phases.
 
 ## Platform differences
 
-| Feature             | macOS                                    | Windows / Linux                |
-| ------------------- | ---------------------------------------- | ------------------------------ |
-| Window controls     | Native traffic lights (red/yellow/green) | Custom colored dots in chat rail |
-| Title bar drag      | Top of chat rail is draggable             | Top of chat rail is draggable    |
-| Rail top padding    | 48 px (clears traffic lights)             | 8 px                             |
+| Feature          | macOS                                    | Windows / Linux                  |
+| ---------------- | ---------------------------------------- | -------------------------------- |
+| Window controls  | Native traffic lights (red/yellow/green) | Custom colored dots in chat rail |
+| Title bar drag   | Top of chat rail is draggable            | Top of chat rail is draggable    |
+| Rail top padding | 48 px (clears traffic lights)            | 8 px                             |
 
 ---
 
