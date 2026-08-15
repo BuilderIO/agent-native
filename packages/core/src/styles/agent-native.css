@@ -945,9 +945,13 @@
   padding-block: 0.5rem;
 }
 
+.agent-composer-area--attached-above {
+  padding-top: 0 !important;
+}
+
 .agent-composer-area--attached-above .agent-composer-root {
-  border-top-left-radius: 0;
-  border-top-right-radius: 0;
+  position: relative;
+  z-index: 2;
 }
 
 @media (prefers-reduced-motion: reduce) {

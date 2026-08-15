@@ -172,7 +172,7 @@ const DEFAULT_SLIDE_HEIGHT_EMU = 5143500;
 // (often dark, theme-default) text unreadable or fully invisible against a
 // background the source file never actually specified.
 const DEFAULT_PPTX_BACKGROUND = "#ffffff"; // guard:allow-raw-color - PPTX's own white default when no background is declared
-const DEFAULT_PPTX_FOREGROUND = "#ffffff"; // guard:allow-raw-color - preserve PPTX white when no run color is declared
+const DEFAULT_PPTX_FOREGROUND = "#111827"; // guard:allow-raw-color - readable dark default for white PPTX slides when no run color is declared
 
 /**
  * The absolute px box `toSlidePxX`/`toSlidePxY` scale positions and sizes

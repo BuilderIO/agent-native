@@ -37,6 +37,7 @@ import { buildJobResourceContent, type JobFrontmatter } from "./frontmatter.js";
 import {
   dispatchRemoteAutomation,
   getRemoteAutomationStatus,
+  REMOTE_AUTOMATION_MAX_ACTIVE_MS,
 } from "./remote-execution.js";
 
 function makeResource(meta: JobFrontmatter): Resource {
@@ -201,6 +202,7 @@ describe("remote automation execution", () => {
   });
 
   it("keeps a running relay command active and recognizes a terminal run", async () => {
+    const now = new Date("2026-08-15T12:30:00.000Z");
     const meta: JobFrontmatter = {
       schedule: "0 * * * *",
       enabled: true,
@@ -211,12 +213,13 @@ describe("remote automation execution", () => {
       remoteCommandId: "remote-command-1",
     };
     getRemoteCommandMock.mockResolvedValueOnce(
-      makeCommand({ status: "running" }),
+      makeCommand({ status: "running", updatedAt: now.getTime() }),
     );
     await expect(
       getRemoteAutomationStatus({
         meta,
         ownerEmail: "alice@example.com",
+        now,
       }),
     ).resolves.toMatchObject({ state: "active" });
 
@@ -236,4 +239,37 @@ describe("remote automation execution", () => {
       }),
     ).resolves.toMatchObject({ state: "completed" });
   });
+
+  it.each(["pending", "claimed", "running"] as const)(
+    "fails a stale %s relay command instead of keeping the automation active",
+    async (status) => {
+      const now = new Date("2026-08-15T12:30:00.000Z");
+      const meta: JobFrontmatter = {
+        schedule: "0 * * * *",
+        enabled: true,
+        lastRun: "2026-08-15T12:00:00.000Z",
+        lastStatus: "running",
+        executionHostId: "remote-device-laptop",
+        remoteRequestId: "remote-request-1",
+        remoteCommandId: "remote-command-1",
+      };
+      getRemoteCommandMock.mockResolvedValueOnce(
+        makeCommand({
+          status,
+          updatedAt: now.getTime() - REMOTE_AUTOMATION_MAX_ACTIVE_MS - 1,
+        }),
+      );
+
+      await expect(
+        getRemoteAutomationStatus({
+          meta,
+          ownerEmail: "alice@example.com",
+          now,
+        }),
+      ).resolves.toMatchObject({
+        state: "failed",
+        error: "The remote command remained active for more than 24 hours.",
+      });
+    },
+  );
 });

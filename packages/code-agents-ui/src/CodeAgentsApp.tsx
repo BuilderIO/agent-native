@@ -36,7 +36,9 @@ import { createPollEngine } from "@agent-native/core/shared";
 import type { AppConfig } from "@agent-native/shared-app-config";
 import {
   IconAlertCircle,
+  IconAsteriskSimple,
   IconBan,
+  IconBrandOpenai,
   IconCheck,
   IconChevronDown,
   IconClock,
@@ -51,6 +53,7 @@ import {
   IconFolder,
   IconFolderPlus,
   IconGitBranch,
+  IconKey,
   IconLink,
   IconLockAccess,
   IconPlayerPlay,
@@ -3380,6 +3383,14 @@ function ProviderGateNotice({
   );
 }
 
+function LocalRuntimeIcon({ engine }: { engine: LocalRuntimeEngine }) {
+  return engine === "codex-cli" ? (
+    <IconBrandOpenai size={15} strokeWidth={1.7} aria-hidden="true" />
+  ) : (
+    <IconAsteriskSimple size={15} strokeWidth={1.7} aria-hidden="true" />
+  );
+}
+
 function CodeProviderNotice({
   className,
   title,
@@ -3442,15 +3453,27 @@ function CodeProviderNotice({
         )}
         {showRuntimeMenu ? (
           <DropdownMenu>
-            <DropdownMenuTrigger asChild>
+            <div className="code-agents-provider-runtime-split">
               <button
                 type="button"
-                className="code-agents-button code-agents-provider-runtime-trigger"
+                className="code-agents-button code-agents-provider-runtime-main"
+                onClick={() =>
+                  onConnectLocalRuntime?.(localRuntimeOptions[0].engine)
+                }
               >
-                {localRuntimeOptions[0].label}
-                <IconChevronDown size={14} strokeWidth={1.8} />
+                <LocalRuntimeIcon engine={localRuntimeOptions[0].engine} />
+                <span>{localRuntimeOptions[0].label}</span>
               </button>
-            </DropdownMenuTrigger>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="code-agents-button code-agents-provider-runtime-chevron"
+                  aria-label="More sign-in options"
+                >
+                  <IconChevronDown size={14} strokeWidth={1.8} />
+                </button>
+              </DropdownMenuTrigger>
+            </div>
             <DropdownMenuContent
               align="end"
               className="code-agents-provider-menu"
@@ -3460,12 +3483,14 @@ function CodeProviderNotice({
                   key={option.engine}
                   onSelect={() => onConnectLocalRuntime?.(option.engine)}
                 >
-                  {option.label}
+                  <LocalRuntimeIcon engine={option.engine} />
+                  <span>{option.label}</span>
                 </DropdownMenuItem>
               ))}
               {onOpenSettings && (
                 <DropdownMenuItem onSelect={onOpenSettings}>
-                  {customKeysLabel}
+                  <IconKey size={15} strokeWidth={1.8} aria-hidden="true" />
+                  <span>{customKeysLabel}</span>
                 </DropdownMenuItem>
               )}
             </DropdownMenuContent>
@@ -3476,6 +3501,7 @@ function CodeProviderNotice({
             className="code-agents-button"
             onClick={onOpenSettings}
           >
+            <IconKey size={15} strokeWidth={1.8} aria-hidden="true" />
             {customKeysLabel}
           </button>
         ) : null}

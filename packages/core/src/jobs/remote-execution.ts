@@ -49,6 +49,8 @@ export interface RemoteAutomationDispatchInput {
   prompt: string;
   title: string;
   historyId?: string;
+  /** Whether completing this remote dispatch should advance its cron schedule. */
+  advanceSchedule?: boolean;
   now?: Date;
 }
 
@@ -256,6 +258,7 @@ export async function dispatchRemoteAutomation(
       remoteCommandId: command.id,
       remoteRunId: remoteRunIdFromCommand(command),
       remoteAutomationRunId: automationRunId,
+      remoteAdvanceSchedule: input.advanceSchedule !== false,
     };
     const persisted = await resourcePutIfCurrent({
       owner: currentResource.owner,
@@ -344,6 +347,16 @@ export async function getRemoteAutomationStatus(input: {
     };
   }
   if (command.status !== "completed") {
+    const activeAt =
+      command.updatedAt || command.claimedAt || command.createdAt;
+    const age = (input.now ?? new Date()).getTime() - activeAt;
+    if (Number.isFinite(age) && age >= REMOTE_AUTOMATION_MAX_ACTIVE_MS) {
+      return {
+        state: "failed",
+        command,
+        error: "The remote command remained active for more than 24 hours.",
+      };
+    }
     return { state: "active", command };
   }
 

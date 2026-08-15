@@ -67,6 +67,8 @@ export interface JobFrontmatter {
   remoteRunId?: string;
   /** Durable automation history row associated with the remote dispatch. */
   remoteAutomationRunId?: string;
+  /** Whether a completed remote dispatch should advance the cron schedule. */
+  remoteAdvanceSchedule?: boolean;
   /**
    * Optional application-owned policy id carried into actions by the trusted
    * trigger dispatcher. It is not model-supplied action input.
@@ -300,6 +302,9 @@ function parseKnownField(
     case "remoteAutomationRunId":
       meta.remoteAutomationRunId = value || undefined;
       break;
+    case "remoteAdvanceSchedule":
+      meta.remoteAdvanceSchedule = value !== "false";
+      break;
     case "delegatedPolicyId":
       meta.delegatedPolicyId = value || undefined;
       break;
@@ -436,6 +441,9 @@ export function buildJobResourceContent(
   pushString(lines, "remoteCommandId", meta.remoteCommandId);
   pushString(lines, "remoteRunId", meta.remoteRunId);
   pushString(lines, "remoteAutomationRunId", meta.remoteAutomationRunId);
+  if (meta.remoteAdvanceSchedule !== undefined) {
+    lines.push(`remoteAdvanceSchedule: ${meta.remoteAdvanceSchedule}`);
+  }
   // Keep the long-standing human-readable owner shape used by existing
   // resources and diagnostics; values that can contain free-form text use
   // JSON quoting below.

@@ -9,6 +9,11 @@ export interface CodeAgentWorktreeResult {
   baseCommit: string;
 }
 
+export interface CodeAgentWorktreeCleanupResult {
+  branchRemoved: boolean;
+  worktreeRemoved: boolean;
+}
+
 interface GitResult {
   error?: Error;
   status: number | null;
@@ -92,6 +97,46 @@ export function createCodeAgentWorktree(input: {
     branch,
     baseCommit: head.stdout.trim(),
   };
+}
+
+/** Remove a generated worktree and its agent-owned branch after a terminal run. */
+export function cleanupCodeAgentWorktree(input: {
+  sourcePath: string;
+  path: string;
+  branch: string;
+  runGit?: RunGit;
+}): CodeAgentWorktreeCleanupResult {
+  const executeGit = input.runGit ?? runGit;
+  const sourcePath = path.resolve(input.sourcePath);
+  const worktreePath = path.resolve(input.path);
+  const branchPrefix = "agent-native/";
+  const branchSlug = input.branch.startsWith(branchPrefix)
+    ? input.branch.slice(branchPrefix.length)
+    : "";
+  if (!branchSlug || path.basename(worktreePath) !== branchSlug) {
+    throw new Error("Refusing to clean up an unmanaged Code Agent worktree.");
+  }
+  if (worktreePath === sourcePath) {
+    throw new Error("Refusing to clean up the source repository.");
+  }
+
+  const worktreeRemoved = !fs.existsSync(worktreePath)
+    ? true
+    : executeGit(
+        ["worktree", "remove", "--force", "--", worktreePath],
+        sourcePath,
+      ).status === 0;
+  const branchRef = executeGit(
+    ["show-ref", "--verify", "--quiet", `refs/heads/${input.branch}`],
+    sourcePath,
+  );
+  const branchRemoved =
+    branchRef.status === 1
+      ? true
+      : branchRef.status === 0 &&
+        executeGit(["branch", "-D", "--", input.branch], sourcePath).status ===
+          0;
+  return { branchRemoved, worktreeRemoved };
 }
 
 export type { RunGit };

@@ -549,7 +549,8 @@ async function reconcileRemoteJob(
       remoteCommandId: undefined,
       remoteRunId: undefined,
       remoteAutomationRunId: undefined,
-      advanceSchedule: true,
+      remoteAdvanceSchedule: undefined,
+      advanceSchedule: meta.remoteAdvanceSchedule !== false,
     });
     console.log(
       `[recurring-jobs] Remote job "${resource.path}" reached ${remote.state}.`,
@@ -570,7 +571,8 @@ async function reconcileRemoteJob(
       remoteCommandId: undefined,
       remoteRunId: undefined,
       remoteAutomationRunId: undefined,
-      advanceSchedule: true,
+      remoteAdvanceSchedule: undefined,
+      advanceSchedule: meta.remoteAdvanceSchedule !== false,
     });
     console.error(
       `[recurring-jobs] Remote job "${resource.path}" failed:`,
@@ -667,6 +669,7 @@ async function executeJob(
         prompt,
         title: `${options.manual ? "Automation" : "Job"}: ${jobName}`,
         historyId: options.historyId,
+        advanceSchedule: options.advanceSchedule,
         now,
       });
       console.log(
@@ -687,6 +690,7 @@ async function executeJob(
         remoteCommandId: undefined,
         remoteRunId: undefined,
         remoteAutomationRunId: undefined,
+        remoteAdvanceSchedule: undefined,
         advanceSchedule: options.advanceSchedule,
       });
       if (options.historyId) {
@@ -846,6 +850,7 @@ type ExecutionOutcome = Pick<
   | "remoteCommandId"
   | "remoteRunId"
   | "remoteAutomationRunId"
+  | "remoteAdvanceSchedule"
 > & { advanceSchedule?: boolean };
 
 /**

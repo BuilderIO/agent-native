@@ -111,6 +111,8 @@ describe("convertToSlideHtml fidelity text sizing", () => {
     )?.[1];
     if (!slideStyle) throw new Error("missing imported-pptx slide style");
     expect(slideStyle).toContain("background: #ffffff");
+    expect(html).toContain("color:#111827");
+    expect(html).not.toContain("color:#ffffff;font-weight");
   });
 });
 

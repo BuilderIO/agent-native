@@ -101,7 +101,8 @@ export default defineAction({
       const { meta, body } = parseJobFrontmatter(full.content);
       if (!jobBelongsToApp(meta, ctx?.appId)) continue;
       const canUpdate =
-        scope === "personal" || !(await authorizeJobMutation(owner, meta));
+        scope === "personal" ||
+        (await authorizeJobMutation(owner, meta)) === null;
       jobs.push({
         id: full.id,
         name: jobName(full.path),

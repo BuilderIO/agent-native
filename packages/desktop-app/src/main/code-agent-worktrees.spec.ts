@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  cleanupCodeAgentWorktree,
   createCodeAgentWorktree,
   type RunGit,
 } from "./code-agent-worktrees.js";
@@ -66,5 +67,50 @@ describe("createCodeAgentWorktree", () => {
     ).toThrow(
       "Selected folder is not a Git repository. Choose a Git folder to use a worktree.",
     );
+  });
+});
+
+describe("cleanupCodeAgentWorktree", () => {
+  it("removes only the generated worktree and its local branch", () => {
+    const calls: Array<{ args: string[]; cwd: string }> = [];
+    const runGit: RunGit = (args, cwd) => {
+      calls.push({ args, cwd });
+      return { status: 0 };
+    };
+
+    expect(
+      cleanupCodeAgentWorktree({
+        sourcePath: "/tmp/project",
+        path: "/tmp/code-agent-worktrees/task-1",
+        branch: "agent-native/task-1",
+        runGit,
+      }),
+    ).toEqual({ branchRemoved: true, worktreeRemoved: true });
+    expect(calls).toEqual([
+      {
+        args: [
+          "show-ref",
+          "--verify",
+          "--quiet",
+          "refs/heads/agent-native/task-1",
+        ],
+        cwd: "/tmp/project",
+      },
+      {
+        args: ["branch", "-D", "--", "agent-native/task-1"],
+        cwd: "/tmp/project",
+      },
+    ]);
+  });
+
+  it("refuses paths that are not owned by the generated branch", () => {
+    expect(() =>
+      cleanupCodeAgentWorktree({
+        sourcePath: "/tmp/project",
+        path: "/tmp/other/task-1",
+        branch: "feature/task-1",
+        runGit: () => ({ status: 0 }),
+      }),
+    ).toThrow("Refusing to clean up an unmanaged Code Agent worktree.");
   });
 });

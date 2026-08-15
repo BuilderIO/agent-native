@@ -1833,6 +1833,56 @@
   min-width: 0;
 }
 
+.code-agents-provider-runtime-split {
+  display: inline-flex;
+  height: 32px;
+  overflow: hidden;
+  border: 1px solid hsl(var(--border));
+  border-radius: calc(var(--radius) - 2px);
+  background: hsl(var(--card));
+}
+
+.code-agents-provider-runtime-split .code-agents-button {
+  height: 30px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.code-agents-provider-runtime-main {
+  min-width: 0;
+  padding-inline: 10px;
+}
+
+.code-agents-provider-runtime-main span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.code-agents-provider-runtime-chevron {
+  width: 30px;
+  flex: 0 0 30px;
+  padding: 0;
+  border-left: 1px solid hsl(var(--border)) !important;
+}
+
+.code-agents-provider-runtime-split .code-agents-button:hover {
+  border-color: transparent;
+  background: hsl(var(--accent) / 0.5);
+  color: hsl(var(--foreground));
+}
+
+.code-agents-provider-runtime-split
+  .code-agents-provider-runtime-chevron:focus-visible,
+.code-agents-provider-runtime-split
+  .code-agents-provider-runtime-main:focus-visible {
+  position: relative;
+  z-index: 1;
+  outline: 2px solid hsl(var(--ring) / 0.72);
+  outline-offset: -2px;
+}
+
 .code-agents-provider-menu {
   min-width: 184px;
 }
@@ -1888,8 +1938,8 @@
   .code-agents-remote-waitlist-anchor
   .code-agents-standard-composer
   [data-agent-composer-slot="root"] {
-  border-top-left-radius: 0;
-  border-top-right-radius: 0;
+  position: relative;
+  z-index: 2;
 }
 
 .code-agents-provider-gate + .code-agents-standard-composer {

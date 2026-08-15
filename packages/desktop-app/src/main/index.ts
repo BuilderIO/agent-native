@@ -178,7 +178,10 @@ import {
   CODE_AGENTS_UNSUBSCRIBE_TRANSCRIPT_CHANNEL,
 } from "./code-agent-transcript-ipc.js";
 import { boundedCodeAgentTranscriptEvents } from "./code-agent-transcript-window.js";
-import { createCodeAgentWorktree } from "./code-agent-worktrees.js";
+import {
+  cleanupCodeAgentWorktree,
+  createCodeAgentWorktree,
+} from "./code-agent-worktrees.js";
 import {
   getCodexLoginLaunchSpec,
   spawnDetached,
@@ -2447,6 +2450,7 @@ function codeAgentEventFilePath(runId: string): string | null {
 
 function listDesktopCodeAgentRuns(goalId?: string): CodeAgentRun[] {
   reconcileInterruptedCodeAgentRuns("list", goalId);
+  reclaimTerminalCodeAgentWorktrees(goalId);
   const runs = desktopCodeBackgroundAgentController.list({
     goalId,
   }) as BackgroundAgentRun[];
@@ -2455,6 +2459,7 @@ function listDesktopCodeAgentRuns(goalId?: string): CodeAgentRun[] {
 
 function readDesktopCodeAgentRun(runId: string): CodeAgentRun | null {
   reconcileInterruptedCodeAgentRun(runId, "read");
+  reclaimTerminalCodeAgentWorktree(readCodeAgentRunRecord(runId));
   const run = desktopCodeBackgroundAgentController.get(
     runId,
   ) as BackgroundAgentRun | null;
@@ -2484,6 +2489,53 @@ function listRawCodeAgentRunRecords(
         record: Record<string, unknown>;
       } => Boolean(item),
     );
+}
+
+function isTerminalCodeAgentRun(record: Record<string, unknown>): boolean {
+  const status = getRecordString(record, "status");
+  return status === "completed" || status === "errored";
+}
+
+function reclaimTerminalCodeAgentWorktree(
+  record: Record<string, unknown> | null,
+): void {
+  if (!record || !isTerminalCodeAgentRun(record)) return;
+  const metadata = isObject(record.metadata) ? record.metadata : undefined;
+  if (metadata?.retainWorktree === true || metadata?.keepWorktree === true) {
+    return;
+  }
+  const worktree = isObject(metadata?.worktree) ? metadata.worktree : undefined;
+  if (!worktree || worktree.retain === true || worktree.keep === true) {
+    return;
+  }
+  const sourcePath = firstStringValue(worktree.sourcePath);
+  const worktreePath = firstStringValue(worktree.path);
+  const branch = firstStringValue(worktree.branch);
+  if (!sourcePath || !worktreePath || !branch) return;
+
+  try {
+    const result = cleanupCodeAgentWorktree({
+      sourcePath,
+      path: worktreePath,
+      branch,
+    });
+    if (!result.worktreeRemoved || !result.branchRemoved) {
+      console.warn(
+        `[code-agents] Could not fully reclaim worktree for run ${getRecordString(record, "id") ?? "unknown"}.`,
+      );
+    }
+  } catch (error) {
+    console.warn(
+      `[code-agents] Could not reclaim worktree for run ${getRecordString(record, "id") ?? "unknown"}:`,
+      error instanceof Error ? error.message : error,
+    );
+  }
+}
+
+function reclaimTerminalCodeAgentWorktrees(goalId?: string): void {
+  for (const { record } of listRawCodeAgentRunRecords(goalId)) {
+    reclaimTerminalCodeAgentWorktree(record);
+  }
 }
 
 function reconcileInterruptedCodeAgentRuns(
@@ -3906,6 +3958,7 @@ async function spawnCodeAgentRunner(
       });
       // Notify user if window is not focused.
       const finalRecord = readCodeAgentRunRecord(runId);
+      reclaimTerminalCodeAgentWorktree(finalRecord);
       const finalStatus = getRecordString(finalRecord, "status");
       const runTitle =
         getRecordString(finalRecord, "title") ??
@@ -3937,6 +3990,7 @@ async function spawnCodeAgentRunner(
           metadata: { runnerState: "failed" },
         });
       });
+      reclaimTerminalCodeAgentWorktree(readCodeAgentRunRecord(runId));
     });
     child.unref();
   } catch (err) {
@@ -3962,6 +4016,7 @@ async function spawnCodeAgentRunner(
         },
       });
     });
+    reclaimTerminalCodeAgentWorktree(readCodeAgentRunRecord(runId));
   }
 }
 
@@ -4099,6 +4154,7 @@ function spawnCodeAgentApprovalRunner(
       });
       // Notify user if window is not focused.
       const finalRecord = readCodeAgentRunRecord(runId);
+      reclaimTerminalCodeAgentWorktree(finalRecord);
       const finalStatus = getRecordString(finalRecord, "status");
       const runTitle =
         getRecordString(finalRecord, "title") ??
@@ -4130,6 +4186,7 @@ function spawnCodeAgentApprovalRunner(
           metadata: { approvalRunnerState: "failed" },
         });
       });
+      reclaimTerminalCodeAgentWorktree(readCodeAgentRunRecord(runId));
     });
     child.unref();
     return {
@@ -4161,6 +4218,7 @@ function spawnCodeAgentApprovalRunner(
         },
       });
     });
+    reclaimTerminalCodeAgentWorktree(readCodeAgentRunRecord(runId));
     return {
       ok: false,
       command: "approve",

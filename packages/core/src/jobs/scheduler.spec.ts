@@ -265,6 +265,7 @@ Inspect the workspace.`,
           executionHostId: "remote-device-laptop",
           executionEngine: "claude-cli",
         }),
+        advanceSchedule: false,
       }),
     );
     expect(runAgentLoopMock).not.toHaveBeenCalled();
