@@ -21,7 +21,7 @@ export interface PdfFidelityPage {
   backgroundColor: string | undefined;
   /** Sorted by the PDF's own real paint order, so an image painted over text (or vice versa) keeps its real stacking instead of images always sitting behind. */
   elements: ParsedElement[];
-  /** Images detected on this page whose pixel data never made it into `elements` (extraction failed, or no canvas renderer was available) — a non-zero count means this page's fidelity is not source-faithful. */
+  /** Images detected on this page whose pixel data could not be matched to a paint placement (extraction failed, or no canvas renderer was available) — intentionally size-filtered placements are not counted. */
   imagesSkipped: number;
 }
 
@@ -37,6 +37,8 @@ interface Rect {
   right: number;
   bottom: number;
 }
+
+type PdfOperatorList = Awaited<ReturnType<PDFPageProxy["getOperatorList"]>>;
 
 export function applyPoint(m: Mat, x: number, y: number): [number, number] {
   const p: [number, number] = [x, y];
@@ -165,6 +167,10 @@ const TEXT_SHOWING_OPS = new Set([
   OPS.nextLineShowText,
   OPS.nextLineSetSpacingShowText,
 ]);
+
+function isImagePaintOp(fn: number): boolean {
+  return fn === OPS.paintImageXObject || fn === OPS.paintInlineImageXObject;
+}
 
 const FILL_PAINT_OPS = new Set([
   OPS.fill,
@@ -897,9 +903,10 @@ interface PageGraphics {
 export async function walkPageGraphics(
   page: PDFPageProxy,
   viewport: { transform: Mat; width: number; height: number },
+  operatorList?: PdfOperatorList,
 ): Promise<PageGraphics> {
   const viewportTransform = viewport.transform;
-  const opList = await page.getOperatorList();
+  const opList = operatorList ?? (await page.getOperatorList());
   const imageRects: PaintedImageRect[] = [];
   const textRuns: TextColorRun[] = [];
   const underlineRects: UnderlineRect[] = [];
@@ -933,10 +940,7 @@ export async function walkPageGraphics(
       }
     } else if (fn === OPS.transform) {
       ctm = Util.transform(ctm, args as Mat) as Mat;
-    } else if (
-      fn === OPS.paintImageXObject ||
-      fn === OPS.paintInlineImageXObject
-    ) {
+    } else if (isImagePaintOp(fn)) {
       const unitCorners: [number, number][] = [
         [0, 0],
         [1, 0],
@@ -1089,16 +1093,23 @@ export async function parsePdfFidelity(
 
   const pages: PdfFidelityPage[] = [];
   for (let pageNumber = 1; pageNumber <= doc.numPages; pageNumber++) {
+    let imagePaintCount = 0;
     try {
       const page = await doc.getPage(pageNumber);
       const viewport = page.getViewport({ scale: 1, rotation: page.rotate });
       const viewportTransform = viewport.transform as Mat;
+      const operatorList = await page.getOperatorList();
+      imagePaintCount = operatorList.fnArray.filter(isImagePaintOp).length;
 
-      const graphics = await walkPageGraphics(page, {
-        transform: viewportTransform,
-        width: viewport.width,
-        height: viewport.height,
-      });
+      const graphics = await walkPageGraphics(
+        page,
+        {
+          transform: viewportTransform,
+          width: viewport.width,
+          height: viewport.height,
+        },
+        operatorList,
+      );
       const linkRects = await collectLinkRects(page, viewportTransform);
       const imageRects = graphics.imageRects;
       // The largest image that covers a substantial share of the page is
@@ -1160,6 +1171,9 @@ export async function parsePdfFidelity(
             },
             paintOrder: rect.paintOrder,
           }));
+      const imagesSkipped = imageRects.filter(
+        (rect) => !imageDataByRect.has(rect),
+      ).length;
 
       const textResults = await buildTextElements(
         page,
@@ -1182,7 +1196,7 @@ export async function parsePdfFidelity(
         heightEmu: viewport.height * EMU_PER_POINT,
         backgroundColor: graphics.backgroundColor,
         elements,
-        imagesSkipped: imageRects.length - imageResults.length,
+        imagesSkipped,
       });
     } catch (err) {
       console.warn(
@@ -1195,7 +1209,10 @@ export async function parsePdfFidelity(
         heightEmu: 0,
         backgroundColor: undefined,
         elements: [],
-        imagesSkipped: 0,
+        // A parse failure after operator-list inspection must remain visibly
+        // partial. If inspection itself failed, keep the failure loud rather
+        // than allowing a text-only fallback to look source-faithful.
+        imagesSkipped: Math.max(imagePaintCount, 1),
       });
     }
   }

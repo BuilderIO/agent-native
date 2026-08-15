@@ -32,6 +32,17 @@ describe("mobile chat-first navigation", () => {
     ).toEqual(["calendar", "clips", "analytics"]);
   });
 
+  it("does not choose disabled apps for default slots", () => {
+    expect(
+      getDefaultMobileTabAppIds([
+        { id: "content", enabled: false },
+        { id: "design", enabled: true },
+        { id: "mail", enabled: true },
+        { id: "calendar", enabled: true },
+      ]),
+    ).toEqual(["design", "mail", "calendar"]);
+  });
+
   it("keeps Chat and More outside the three app slots", () => {
     expect(MOBILE_BOTTOM_TAB_LIMIT).toBe(3);
     expect(
