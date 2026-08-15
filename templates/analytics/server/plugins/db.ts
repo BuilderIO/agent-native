@@ -1,6 +1,9 @@
 import {
   ensureAdditiveColumns,
+  createDbExec,
   getDbExec,
+  getMigrationDatabaseUrl,
+  isPostgres,
   runMigrations,
   withMigrationRuntime,
 } from "@agent-native/core/db";
