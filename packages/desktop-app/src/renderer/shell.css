@@ -329,35 +329,46 @@ body {
   -webkit-app-region: drag;
 }
 
-/* Collapsed macOS rails use a compact custom cluster because the native
+/* Collapsed macOS rails use a fixed-width custom cluster because the native
    traffic lights cannot expose only two buttons. Keep the third control
    keyboard reachable while making its visual reveal intentional. */
+.desktop-chat-first-hub
+  .code-agents-rail--collapsed:has(.collapsed-mac-window-controls) {
+  overflow: visible;
+}
+
 .desktop-chat-first-hub .collapsed-mac-window-controls {
   position: absolute;
   z-index: 20;
   top: 6px;
   left: 1px;
-  width: 54px;
-  height: 24px;
-  border: 1px solid transparent;
-  border-radius: 999px;
-  background-color: transparent;
+  width: 76px;
+  height: 28px;
   -webkit-app-region: no-drag;
-  transition:
-    background-color var(--ease-collapse),
-    border-color var(--ease-collapse),
-    box-shadow var(--ease-collapse);
 }
 
-.desktop-chat-first-hub .collapsed-mac-window-controls:hover,
-.desktop-chat-first-hub .collapsed-mac-window-controls:focus-within {
-  border-color: hsl(var(--sidebar-foreground) / 0.14);
+.desktop-chat-first-hub .collapsed-mac-window-controls::before {
+  position: absolute;
+  z-index: 0;
+  top: 1px;
+  left: 1px;
+  width: 46px;
+  height: 22px;
+  border: 1px solid hsl(var(--sidebar-foreground) / 0.14);
+  border-radius: 999px;
   background-color: hsl(var(--sidebar-background) / 0.92);
   box-shadow: 0 4px 14px hsl(var(--sidebar-background) / 0.42);
+  content: "";
+  opacity: 1;
+  pointer-events: none;
+  transition:
+    opacity var(--ease-collapse),
+    transform var(--ease-collapse);
 }
 
 .desktop-chat-first-hub .collapsed-mac-window-controls .win-btn {
   position: absolute;
+  z-index: 1;
   top: 5px;
   width: 12px;
   height: 12px;
@@ -372,14 +383,20 @@ body {
 }
 
 .desktop-chat-first-hub .collapsed-mac-window-controls .win-btn--minimize {
-  left: 21px;
+  left: 29px;
 }
 
 .desktop-chat-first-hub .collapsed-mac-window-controls .win-btn--maximize {
-  left: 38px;
+  left: 54px;
   opacity: 0;
   pointer-events: none;
   transform: translateX(-7px) scale(0.86);
+}
+
+.desktop-chat-first-hub .collapsed-mac-window-controls:hover::before,
+.desktop-chat-first-hub .collapsed-mac-window-controls:focus-within::before {
+  opacity: 0;
+  transform: scale(0.96);
 }
 
 .desktop-chat-first-hub .collapsed-mac-window-controls:hover .win-btn--maximize,
@@ -927,8 +944,13 @@ body {
   }
 
   .desktop-chat-first-hub .collapsed-mac-window-controls,
+  .desktop-chat-first-hub .collapsed-mac-window-controls::before,
   .desktop-chat-first-hub .collapsed-mac-window-controls .win-btn {
     transition: none;
+  }
+
+  .desktop-chat-first-hub .collapsed-mac-window-controls::before {
+    transform: none;
   }
 
   .desktop-chat-first-hub .collapsed-mac-window-controls .win-btn--maximize {
