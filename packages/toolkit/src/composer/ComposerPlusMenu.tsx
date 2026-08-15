@@ -11,6 +11,7 @@ import {
   IconLoader2,
   IconArrowLeft,
   IconX,
+  IconHelpCircle,
 } from "@tabler/icons-react";
 import React, {
   useState,
@@ -194,6 +195,36 @@ function slugifyName(value: string): string {
 
 function formatAttachmentError(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
+}
+
+function MenuItemHelp({
+  label,
+  description,
+}: {
+  label: string;
+  description: string;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          role="img"
+          tabIndex={0}
+          aria-label={`${label} details`}
+          className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        >
+          <IconHelpCircle
+            aria-hidden="true"
+            className="size-3"
+            strokeWidth={1.8}
+          />
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side="right" className="max-w-xs">
+        {description}
+      </TooltipContent>
+    </Tooltip>
+  );
 }
 
 function UploadOnlyAttachButton({
@@ -612,7 +643,11 @@ function ComposerPlusMenuFull({
                 return (
                   <div
                     key={item.label}
-                    className={cn("relative", isSkill && "group/skill")}
+                    className={cn(
+                      "relative flex items-center hover:bg-accent/50",
+                      isSkill && "group/skill",
+                      isSkill && skillFlyoutOpen && "bg-accent/50",
+                    )}
                     onMouseEnter={(e) => {
                       if (isSkill) {
                         openSkillFlyout(e.currentTarget);
@@ -640,25 +675,20 @@ function ComposerPlusMenuFull({
                       type="button"
                       onClick={item.action}
                       className={cn(
-                        "flex w-full items-center gap-2.5 px-3 py-2 text-start hover:bg-accent/50",
-                        isSkill && skillFlyoutOpen && "bg-accent/50",
+                        "flex min-w-0 flex-1 items-center gap-2.5 px-3 py-2 text-start",
                       )}
                     >
                       <span className="text-muted-foreground">{item.icon}</span>
-                      <div className="min-w-0 flex-1">
-                        <div className="text-[12px] font-medium text-foreground">
-                          {item.label}
-                        </div>
-                        <div className="mt-0.5 text-[10px] text-muted-foreground/60">
-                          {item.desc}
-                        </div>
-                      </div>
-                      {isSkill && (
-                        <span className="ms-auto text-muted-foreground/60">
-                          ›
-                        </span>
-                      )}
+                      <span className="min-w-0 truncate text-[12px] font-medium text-foreground">
+                        {item.label}
+                      </span>
                     </button>
+                    <MenuItemHelp label={item.label} description={item.desc} />
+                    {isSkill && (
+                      <span className="me-3 ms-1 text-muted-foreground/60">
+                        ›
+                      </span>
+                    )}
                     {isSkill && skillFlyoutOpen && (
                       <div
                         role="menu"
@@ -671,57 +701,69 @@ function ComposerPlusMenuFull({
                             : "right-full mr-1",
                         )}
                       >
-                        <button
-                          type="button"
-                          onClick={() => {
-                            onSelectMode?.("skill");
-                            setSkillFlyoutOpen(false);
-                            setOpen(false);
-                          }}
-                          className="flex w-full items-center gap-2.5 px-3 py-2 text-start hover:bg-accent/50"
-                        >
-                          <span className="text-muted-foreground">
-                            <IconBulb className="h-3.5 w-3.5" />
-                          </span>
-                          <div className="min-w-0">
-                            <div className="text-[12px] font-medium text-foreground">
+                        <div className="flex items-center hover:bg-accent/50">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onSelectMode?.("skill");
+                              setSkillFlyoutOpen(false);
+                              setOpen(false);
+                            }}
+                            className="flex min-w-0 flex-1 items-center gap-2.5 px-3 py-2 text-start"
+                          >
+                            <span className="text-muted-foreground">
+                              <IconBulb className="h-3.5 w-3.5" />
+                            </span>
+                            <span className="min-w-0 truncate text-[12px] font-medium text-foreground">
                               {t("agentChat.composer.skill.createNew", {
                                 defaultValue: "Create new skill",
                               })}
-                            </div>
-                            <div className="mt-0.5 text-[10px] text-muted-foreground/60">
-                              {t("agentChat.composer.skill.createDescription", {
+                            </span>
+                          </button>
+                          <MenuItemHelp
+                            label={t("agentChat.composer.skill.createNew", {
+                              defaultValue: "Create new skill",
+                            })}
+                            description={t(
+                              "agentChat.composer.skill.createDescription",
+                              {
                                 defaultValue:
                                   "Describe a skill and let the agent draft it",
-                              })}
-                            </div>
-                          </div>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSkillFlyoutOpen(false);
-                            skillFileInputRef.current?.click();
-                          }}
-                          className="flex w-full items-center gap-2.5 px-3 py-2 text-start hover:bg-accent/50"
-                        >
-                          <span className="text-muted-foreground">
-                            <IconUpload className="h-3.5 w-3.5" />
-                          </span>
-                          <div className="min-w-0">
-                            <div className="text-[12px] font-medium text-foreground">
+                              },
+                            )}
+                          />
+                        </div>
+                        <div className="flex items-center hover:bg-accent/50">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSkillFlyoutOpen(false);
+                              skillFileInputRef.current?.click();
+                            }}
+                            className="flex min-w-0 flex-1 items-center gap-2.5 px-3 py-2 text-start"
+                          >
+                            <span className="text-muted-foreground">
+                              <IconUpload className="h-3.5 w-3.5" />
+                            </span>
+                            <span className="min-w-0 truncate text-[12px] font-medium text-foreground">
                               {t("agentChat.composer.skill.uploadFile", {
                                 defaultValue: "Upload skill file",
                               })}
-                            </div>
-                            <div className="mt-0.5 text-[10px] text-muted-foreground/60">
-                              {t("agentChat.composer.skill.uploadDescription", {
+                            </span>
+                          </button>
+                          <MenuItemHelp
+                            label={t("agentChat.composer.skill.uploadFile", {
+                              defaultValue: "Upload skill file",
+                            })}
+                            description={t(
+                              "agentChat.composer.skill.uploadDescription",
+                              {
                                 defaultValue:
                                   "Import an existing SKILL.md file",
-                              })}
-                            </div>
-                          </div>
-                        </button>
+                              },
+                            )}
+                          />
+                        </div>
                       </div>
                     )}
                   </div>
