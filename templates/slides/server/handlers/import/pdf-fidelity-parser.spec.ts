@@ -5,12 +5,14 @@ import {
   annotateLineDecorations,
   applyPoint,
   contrastingDefaultColor,
+  detectBlockAlignment,
   groupIntoBlocks,
   groupIntoLines,
   groupIntoStyledLines,
   lineSpacingBeforePt,
   mergeLine,
   mergeLineRuns,
+  parsePdfFidelity,
   textItemToBox,
   walkPageGraphics,
   type LinkRect,
@@ -101,6 +103,8 @@ function box(partial: Partial<TextRunBox>): TextRunBox {
     color: "#000000",
     underline: false,
     href: undefined,
+    fontFamily: undefined,
+    paintOrder: 0,
     ...partial,
   };
 }
@@ -340,7 +344,9 @@ describe("walkPageGraphics", () => {
       [["#0000ff"], [{}]],
     );
     const graphics = await walkPageGraphics(page, VIEWPORT);
-    expect(graphics.textRuns).toEqual([{ length: 1, color: "#0000ff" }]);
+    expect(graphics.textRuns).toEqual([
+      { length: 1, color: "#0000ff", paintOrder: 0 },
+    ]);
   });
 
   it("skips a zero-glyph showText op instead of pushing a stray color entry, since getTextContent never reports an item for one", async () => {
@@ -356,8 +362,8 @@ describe("walkPageGraphics", () => {
     );
     const graphics = await walkPageGraphics(page, VIEWPORT);
     expect(graphics.textRuns).toEqual([
-      { length: 1, color: "#ffffff" },
-      { length: 1, color: "#18b6f6" },
+      { length: 1, color: "#ffffff", paintOrder: 0 },
+      { length: 1, color: "#18b6f6", paintOrder: 1 },
     ]);
   });
 
@@ -367,7 +373,9 @@ describe("walkPageGraphics", () => {
       [["Pattern1"], [{}]],
     );
     const graphics = await walkPageGraphics(page, VIEWPORT);
-    expect(graphics.textRuns).toEqual([{ length: 1, color: undefined }]);
+    expect(graphics.textRuns).toEqual([
+      { length: 1, color: undefined, paintOrder: 0 },
+    ]);
   });
 
   it("decodes a resolved hex color from a setFillColorN op (ICCBased/CalRGB/Separation colors routed through scn are pre-resolved to a hex string the same way rg is)", async () => {
@@ -376,7 +384,9 @@ describe("walkPageGraphics", () => {
       [["#ffffff"], [{}]],
     );
     const graphics = await walkPageGraphics(page, VIEWPORT);
-    expect(graphics.textRuns).toEqual([{ length: 1, color: "#ffffff" }]);
+    expect(graphics.textRuns).toEqual([
+      { length: 1, color: "#ffffff", paintOrder: 0 },
+    ]);
   });
 
   it("decodes a resolved hex color from a setFillColorN op, matching a solid black page background set via scn instead of rg/g", async () => {
@@ -521,5 +531,180 @@ describe("annotateLineDecorations", () => {
       [linkRect({ left: 200, top: 200, right: 240, bottom: 212 })],
     );
     expect(annotated.href).toBeUndefined();
+  });
+});
+
+// Bug A: alignment was hardcoded "left" even though each line's exact
+// left/right geometry was already computed.
+describe("detectBlockAlignment", () => {
+  it("stays left for a single-line block (one line can't disambiguate center from left)", () => {
+    const lines = [box({ left: 40, right: 200 })];
+    expect(detectBlockAlignment(lines, 40, 200)).toBe("left");
+  });
+
+  it("detects centered lines from their shared midpoint", () => {
+    const lines = [box({ left: 10, right: 90 }), box({ left: 30, right: 70 })];
+    expect(detectBlockAlignment(lines, 10, 90)).toBe("center");
+  });
+
+  it("detects right-aligned lines from their shared right edge", () => {
+    const lines = [
+      box({ left: 50, right: 200 }),
+      box({ left: 20, right: 200 }),
+    ];
+    expect(detectBlockAlignment(lines, 20, 200)).toBe("right");
+  });
+
+  it("defaults to left for ordinary ragged-right paragraph lines", () => {
+    const lines = [
+      box({ left: 10, right: 200 }),
+      box({ left: 10, right: 120 }),
+    ];
+    expect(detectBlockAlignment(lines, 10, 200)).toBe("left");
+  });
+});
+
+// Bug B: the PDF's real embedded font name was resolved but never attached
+// to the emitted run, so every PDF import silently rendered in the
+// hardcoded default font.
+describe("textItemToBox: font family", () => {
+  it("strips the subset-tag prefix and passes a plain sans font name through", () => {
+    const result = textItemToBox(
+      {
+        str: "Hi",
+        transform: [12, 0, 0, 12, 0, 0],
+        width: 20,
+        fontName: "MUFUZY+Poppins-Bold",
+      },
+      IDENTITY,
+    );
+    expect(result!.fontFamily).toBe("Poppins");
+  });
+
+  it("maps a serif-keyword font name to a websafe serif family", () => {
+    const result = textItemToBox(
+      {
+        str: "Hi",
+        transform: [12, 0, 0, 12, 0, 0],
+        width: 20,
+        fontName: "ABCDEF+TimesNewRomanPSMT",
+      },
+      IDENTITY,
+    );
+    expect(result!.fontFamily).toBe("Georgia");
+  });
+
+  it("maps a monospace-keyword font name to a websafe monospace family", () => {
+    const result = textItemToBox(
+      {
+        str: "Hi",
+        transform: [12, 0, 0, 12, 0, 0],
+        width: 20,
+        fontName: "ABCDEF+CourierNewPSMT",
+      },
+      IDENTITY,
+    );
+    expect(result!.fontFamily).toBe("Courier New");
+  });
+
+  it("leaves fontFamily undefined when no font name is available", () => {
+    const result = textItemToBox(
+      { str: "Hi", transform: IDENTITY, width: 10 },
+      IDENTITY,
+    );
+    expect(result!.fontFamily).toBeUndefined();
+  });
+});
+
+// Bug C: baseline grouping only checked Y-proximity, so a two-column page's
+// column-1 last line and column-2 first line at the same baseline got
+// merged and joined with a single space.
+describe("groupIntoLines: column-aware baseline grouping", () => {
+  it("keeps a two-column page's lines separate even when a column-1 line and a column-2 line share a baseline", () => {
+    const items = [
+      box({ text: "C1L1", left: 0, right: 200, top: 0, bottom: 10 }),
+      box({ text: "C1L2", left: 0, right: 200, top: 20, bottom: 30 }),
+      box({ text: "C1L3", left: 0, right: 200, top: 40, bottom: 50 }),
+      box({ text: "C2L1", left: 340, right: 550, top: 40, bottom: 50 }),
+      box({ text: "C2L2", left: 340, right: 550, top: 60, bottom: 70 }),
+      box({ text: "C2L3", left: 340, right: 550, top: 80, bottom: 90 }),
+    ];
+    const lines = groupIntoLines(items);
+    expect(lines.map((l) => l.text)).toEqual([
+      "C1L1",
+      "C1L2",
+      "C1L3",
+      "C2L1",
+      "C2L2",
+      "C2L3",
+    ]);
+  });
+
+  it("still merges a shared-baseline pair when there's no real recurring column gutter (ordinary wide word gap)", () => {
+    const items = [
+      box({ text: "C1L1", left: 0, right: 200, top: 0, bottom: 10 }),
+      box({ text: "C1L2", left: 0, right: 200, top: 20, bottom: 30 }),
+      box({ text: "C1L3", left: 0, right: 200, top: 40, bottom: 50 }),
+      box({ text: "C2L1", left: 210, right: 420, top: 40, bottom: 50 }),
+      box({ text: "C2L2", left: 0, right: 200, top: 60, bottom: 70 }),
+      box({ text: "C2L3", left: 0, right: 200, top: 80, bottom: 90 }),
+    ];
+    const lines = groupIntoLines(items);
+    expect(lines).toHaveLength(5);
+    expect(lines[2].text).toBe("C1L3 C2L1");
+  });
+});
+
+function fakeFullPage(fnArray: number[], argsArray: unknown[][]) {
+  return {
+    rotate: 0,
+    getViewport: () => ({
+      transform: IDENTITY,
+      width: 200,
+      height: 200,
+    }),
+    getOperatorList: async () => ({ fnArray, argsArray }),
+    getAnnotations: async () => [],
+    getTextContent: async () => ({
+      items: [{ str: "Hi", transform: [12, 0, 0, 12, 50, 50], width: 24 }],
+    }),
+    commonObjs: { has: () => false, get: () => null },
+  } as unknown as Parameters<typeof walkPageGraphics>[0];
+}
+
+function fakeDoc(fnArray: number[], argsArray: unknown[][]) {
+  const page = fakeFullPage(fnArray, argsArray);
+  return {
+    numPages: 1,
+    getPage: async () => page,
+  } as unknown as Parameters<typeof parsePdfFidelity>[0];
+}
+
+// Bug D: images were always concatenated before text in the final elements
+// array regardless of the PDF's real paint order, so an image painted after
+// (on top of) text always rendered behind it instead.
+describe("parsePdfFidelity: paint order", () => {
+  it("sorts a later-painted image after earlier-painted text instead of always putting images first", async () => {
+    const fnArray = [OPS.showText, OPS.transform, OPS.paintImageXObject];
+    const argsArray = [[[{}, {}]], [100, 0, 0, 100, 10, 10], []];
+    const doc = fakeDoc(fnArray, argsArray);
+    const pages = await parsePdfFidelity(doc, [
+      { pageNumber: 1, images: [{ data: new Uint8Array([1, 2, 3]) }] },
+    ]);
+    expect(pages[0].elements.map((el) => el.kind)).toEqual(["text", "image"]);
+  });
+});
+
+// Bug E: PDF image extraction failures were silently swallowed and never
+// counted, so `fidelity` always reported "source-faithful" even when every
+// image on the page failed to import.
+describe("parsePdfFidelity: imagesSkipped", () => {
+  it("counts a detected image with no extracted bytes as skipped", async () => {
+    const fnArray = [OPS.showText, OPS.transform, OPS.paintImageXObject];
+    const argsArray = [[[{}, {}]], [100, 0, 0, 100, 10, 10], []];
+    const doc = fakeDoc(fnArray, argsArray);
+    const pages = await parsePdfFidelity(doc, []);
+    expect(pages[0].imagesSkipped).toBe(1);
+    expect(pages[0].elements.map((el) => el.kind)).toEqual(["text"]);
   });
 });

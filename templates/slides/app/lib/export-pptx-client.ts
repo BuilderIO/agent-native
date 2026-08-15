@@ -56,6 +56,9 @@ function waitForImageToSettle(image: HTMLImageElement): Promise<void> {
       if (decodeStarted) return;
       decodeStarted = true;
       if (!image.complete || image.naturalWidth <= 0) {
+        console.warn(
+          `[export-pptx] image could not be loaded for export: ${image.src}`,
+        );
         finish();
         return;
       }
@@ -141,9 +144,12 @@ const NOTES_MASTER_XML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?
 const NOTES_MASTER_RELS_XML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme" Target="../theme/theme1.xml"/></Relationships>`;
 
+const EMU_PER_INCH = 914_400;
+
 export async function addSpeakerNotesToPptxBlob(
   blob: Blob,
   slides: PptxExportSlide[],
+  pptxInches: { w: number; h: number },
 ): Promise<Blob> {
   const hasNotes = slides.some((slide) => slide.notes?.trim());
   if (!hasNotes) return blob;
@@ -194,9 +200,14 @@ export async function addSpeakerNotesToPptxBlob(
   }
 
   if (!presentationXml.includes("<p:notesSz")) {
+    // The notes page is a portrait rotation of the slide, so its cx/cy swap
+    // the slide's own width/height (matches PowerPoint's own notesMaster
+    // output, e.g. a 13.33x7.5in 16:9 slide gets a 7.5x13.33in notes page).
+    const notesCx = Math.round(pptxInches.h * EMU_PER_INCH);
+    const notesCy = Math.round(pptxInches.w * EMU_PER_INCH);
     presentationXml = presentationXml.replace(
       "<p:defaultTextStyle>",
-      '<p:notesSz cx="6858000" cy="12192000"/><p:defaultTextStyle>',
+      `<p:notesSz cx="${notesCx}" cy="${notesCy}"/><p:defaultTextStyle>`,
     );
   }
 
@@ -667,13 +678,36 @@ function normalizeSingleLineText(
   }
 }
 
+const CSS_PX_PER_INCH = 96;
+
+/**
+ * dom-to-pptx fits the rendered clone into the requested slide size and
+ * scales every measurement it takes by this same factor (dist/dom-to-pptx.mjs
+ * `processSlide`). The bullet indent patched in afterward must match that
+ * scale or it drifts off the deck's actual aspect ratio.
+ */
+export function pptxExportScale(dims: {
+  width: number;
+  height: number;
+  pptxInches: { w: number; h: number };
+}) {
+  return Math.min(
+    dims.pptxInches.w / (dims.width / CSS_PX_PER_INCH),
+    dims.pptxInches.h / (dims.height / CSS_PX_PER_INCH),
+  );
+}
+
 /**
  * CSS markers live outside the LI box, so dom-to-pptx cannot infer the gap
  * between a bullet and its text from getBoundingClientRect alone. Add that
  * source-visible gap only on the export clone; the source DOM stays editable.
  */
-function normalizeListsForPptx(root: HTMLElement) {
+function normalizeListsForPptx(
+  root: HTMLElement,
+  dims: { width: number; height: number; pptxInches: { w: number; h: number } },
+) {
   const bulletIndents: number[] = [];
+  const scale = pptxExportScale(dims);
 
   for (const list of root.querySelectorAll<HTMLElement>("ul,ol")) {
     const listStyle = window.getComputedStyle(list);
@@ -711,7 +745,9 @@ function normalizeListsForPptx(root: HTMLElement) {
     if (!listRect.width || !itemRect.width) continue;
 
     const visualIndentPx = itemRect.left - listRect.left;
-    bulletIndents.push(Math.max(0, (visualIndentPx - paddingLeft) * 0.75));
+    bulletIndents.push(
+      Math.max(0, (visualIndentPx - paddingLeft) * 0.75 * scale),
+    );
   }
 
   return bulletIndents;
@@ -1041,7 +1077,7 @@ export async function buildDeckPptxBlob(
       exportClones.push(clone);
       await preloadImagesWithCors(clone.element);
       resetAutofitTransforms(clone.element);
-      slideBulletIndents.push(normalizeListsForPptx(clone.element));
+      slideBulletIndents.push(normalizeListsForPptx(clone.element, dims));
       restorePositionedGeometry(
         clone.element,
         clone.sourceRect,
@@ -1083,7 +1119,11 @@ export async function buildDeckPptxBlob(
       initialBlob,
       slideBulletIndents,
     );
-    const blob = await addSpeakerNotesToPptxBlob(bulletPatchedBlob, slides);
+    const blob = await addSpeakerNotesToPptxBlob(
+      bulletPatchedBlob,
+      slides,
+      dims.pptxInches,
+    );
     return { blob, filename: safePptxName(deckTitle) };
   } finally {
     for (const clone of exportClones) {

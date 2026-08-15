@@ -129,6 +129,7 @@ export function WorkspaceAppFrame({
         : "light";
   const [embedUrl, setEmbedUrl] = useState<string | null>(null);
   const [embedError, setEmbedError] = useState<Error | null>(null);
+  const [isDirectFallback, setIsDirectFallback] = useState(false);
   const [embedAttempt, setEmbedAttempt] = useState(0);
   const [authState, setAuthState] = useState<WorkspaceAppAuthState>("unknown");
   const embedFrameRef = useRef<HTMLIFrameElement>(null);
@@ -140,6 +141,7 @@ export function WorkspaceAppFrame({
   }, [theme]);
   const handleFrameLoad = useCallback(() => {
     postThemeToFrame();
+    if (isDirectFallback) setEmbedError(null);
     const frame = embedFrameRef.current;
     let frameUrl = embedUrl;
     try {
@@ -150,7 +152,7 @@ export function WorkspaceAppFrame({
     }
     const nextAuthState = resolveWorkspaceAppAuthState(frameUrl);
     if (nextAuthState !== "unknown") setAuthState(nextAuthState);
-  }, [embedUrl, postThemeToFrame]);
+  }, [embedUrl, isDirectFallback, postThemeToFrame]);
   const workspaceSsoEnabled = useFeatureFlag(DISPATCH_WORKSPACE_SSO_FLAG.key);
   const createEmbedSession = useActionMutation<
     EmbedSessionResult,
@@ -187,6 +189,7 @@ export function WorkspaceAppFrame({
     let cancelled = false;
     setEmbedUrl(null);
     setEmbedError(null);
+    setIsDirectFallback(false);
     setAuthState("unknown");
     const createSession = workspaceSsoEnabled
       ? createWorkspaceSsoEmbedSession
@@ -198,6 +201,7 @@ export function WorkspaceAppFrame({
       })
       .catch((cause: unknown) => {
         if (cancelled) return;
+        setIsDirectFallback(true);
         setEmbedUrl(
           workspaceAppDirectHref(
             { path: app.path ?? "", url: app.url },

@@ -1,4 +1,5 @@
-import { and, count, eq, gte, isNull, or } from "drizzle-orm";
+import { getDbExec } from "@agent-native/core/db";
+import { and, eq, gte, isNull, or } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
 
@@ -46,13 +47,47 @@ function windowPredicate(
     : and(predicate, gte(table.eventDate, window.startEventDate));
 }
 
-async function countScopedRows(table: any, predicate: any): Promise<number> {
-  const [row] = await (getDb() as any)
-    .select({ count: count() })
-    .from(table)
-    .where(predicate);
-  const value = Number(row?.count ?? 0);
-  return Number.isFinite(value) ? value : 0;
+type CountTable =
+  | "analytics_events"
+  | "analytics_event_daily_rollups"
+  | "analytics_user_days";
+
+type CountTimeColumn = "received_at" | "event_date";
+
+async function countScopedRows(
+  table: CountTable,
+  timeColumn: CountTimeColumn,
+  scope: FirstPartyAnalyticsPurgeScope,
+  includeLegacyOwnerRows: boolean,
+  window: FirstPartyAnalyticsPurgeWindow,
+): Promise<number> {
+  const scopeSql = includeLegacyOwnerRows
+    ? "(org_id = ? OR (org_id IS NULL AND owner_email = ?))"
+    : "org_id = ?";
+  const args: unknown[] = includeLegacyOwnerRows
+    ? [scope.orgId, scope.userEmail]
+    : [scope.orgId];
+  args.push(
+    timeColumn === "received_at"
+      ? window.startReceivedAt
+      : window.startEventDate,
+  );
+
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT COUNT(*) AS row_count
+            FROM ${table}
+           WHERE ${scopeSql}
+             AND ${timeColumn} >= ?`,
+    args,
+    timeoutMs: 5_000,
+    maxAttempts: 1,
+  });
+  const rawCount = (rows[0] as { row_count?: unknown } | undefined)?.row_count;
+  const value = Number(rawCount);
+  if (!Number.isFinite(value)) {
+    throw new Error(`Postgres count returned an invalid value for ${table}`);
+  }
+  return value;
 }
 
 export async function countFirstPartyAnalyticsPostgresRows(
@@ -60,31 +95,28 @@ export async function countFirstPartyAnalyticsPostgresRows(
   includeLegacyOwnerRows: boolean,
   window: FirstPartyAnalyticsPurgeWindow,
 ): Promise<FirstPartyAnalyticsPostgresPurgeCounts> {
-  const predicates = [
-    windowPredicate(
-      schema.analyticsEvents,
-      scopePredicate(schema.analyticsEvents, scope, includeLegacyOwnerRows),
-      window,
-    ),
-    windowPredicate(
-      schema.analyticsEventDailyRollups,
-      scopePredicate(
-        schema.analyticsEventDailyRollups,
-        scope,
-        includeLegacyOwnerRows,
-      ),
-      window,
-    ),
-    windowPredicate(
-      schema.analyticsUserDays,
-      scopePredicate(schema.analyticsUserDays, scope, includeLegacyOwnerRows),
-      window,
-    ),
-  ];
   const [eventRows, dailyRollupRows, userDayRows] = await Promise.all([
-    countScopedRows(schema.analyticsEvents, predicates[0]),
-    countScopedRows(schema.analyticsEventDailyRollups, predicates[1]),
-    countScopedRows(schema.analyticsUserDays, predicates[2]),
+    countScopedRows(
+      "analytics_events",
+      "received_at",
+      scope,
+      includeLegacyOwnerRows,
+      window,
+    ),
+    countScopedRows(
+      "analytics_event_daily_rollups",
+      "event_date",
+      scope,
+      includeLegacyOwnerRows,
+      window,
+    ),
+    countScopedRows(
+      "analytics_user_days",
+      "event_date",
+      scope,
+      includeLegacyOwnerRows,
+      window,
+    ),
   ]);
   return { eventRows, dailyRollupRows, userDayRows };
 }

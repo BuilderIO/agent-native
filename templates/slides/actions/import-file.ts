@@ -162,6 +162,10 @@ export default defineAction({
           (total, r) => total + r.imageSkippedCount,
           0,
         );
+        const tablesDegraded = presentation.slides.reduce(
+          (total, s) => total + (s.tablesDegraded ?? 0),
+          0,
+        );
         const sourceImport = buildSourceImportMetadata({
           format: "pptx",
           slides: pptxResults.map((result) => ({
@@ -172,6 +176,7 @@ export default defineAction({
             editableText: true,
           })),
           imagesSkipped,
+          tablesDegraded,
         });
         if (imagesSkipped > 0) {
           throw new Error(
@@ -202,6 +207,7 @@ export default defineAction({
           deckId,
           imported: true,
           ...(imagesSkipped > 0 ? { imagesSkipped } : {}),
+          ...(tablesDegraded > 0 ? { tablesDegraded } : {}),
         };
       }
 
@@ -527,9 +533,14 @@ async function importPdfPagesWithFidelity(args: {
     ),
   );
   const slides = imported.map((entry) => entry.slide);
+  const imagesSkipped = fidelityPages.reduce(
+    (total, page) => total + page.imagesSkipped,
+    0,
+  );
   const sourceImport = buildSourceImportMetadata({
     format: "pdf",
     slides: imported.map((entry) => entry.snapshot),
+    imagesSkipped,
   });
 
   const importedTitle = await appendDeckSlides(
@@ -550,6 +561,7 @@ async function importPdfPagesWithFidelity(args: {
     aspectRatio,
     deckId,
     imported: true,
+    ...(imagesSkipped > 0 ? { imagesSkipped } : {}),
   };
 }
 

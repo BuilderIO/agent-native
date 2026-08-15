@@ -3563,6 +3563,7 @@ interface DesktopCodeAgentMcpEnvironment {
  */
 async function desktopCodeAgentMcpEnvironment(
   cwd: string,
+  options: { includeWorkspaceApps?: boolean } = {},
 ): Promise<DesktopCodeAgentMcpEnvironment> {
   const workspaceRoot = resolveCodeAgentsTerminalCwd({});
   const workspaceConfig = loadMcpConfig(workspaceRoot);
@@ -3575,6 +3576,33 @@ async function desktopCodeAgentMcpEnvironment(
   const appIds: string[] = [];
   const remoteConfig: DesktopCodeAgentMcpEnvironment["remoteConfig"] =
     desktopRemoteMcpUnavailable();
+
+  if (options.includeWorkspaceApps === false) {
+    return {
+      env: {
+        MCP_SERVERS: JSON.stringify({
+          servers: {
+            ...(workspaceConfig?.servers ?? {}),
+            ...(localConfig?.servers ?? {}),
+          },
+        }),
+        AGENT_NATIVE_CODE_AGENT_MCP_SERVER_ALLOWLIST:
+          [
+            ...new Set([
+              ...Object.keys(workspaceConfig?.servers ?? {}),
+              ...Object.keys(localConfig?.servers ?? {}),
+            ]),
+          ].join(",") || "__none__",
+        AGENT_NATIVE_CODE_AGENT_MCP_APP_IDS: "[]",
+        AGENT_NATIVE_CODE_AGENT_SKILLS_ROOT: path.join(
+          workspaceRoot,
+          ".agents",
+          "skills",
+        ),
+      },
+      remoteConfig,
+    };
+  }
 
   for (const appConfig of loadAppsForAuthContext()) {
     if (appConfig.enabled === false) continue;
@@ -3722,7 +3750,11 @@ async function spawnCodeAgentRunner(
   );
   const { command, args } = invocation;
   try {
-    const mcpEnvironment = await desktopCodeAgentMcpEnvironment(cwd);
+    const runMetadata = isObject(runRecord?.metadata) ? runRecord.metadata : {};
+    const isDesktopAppCreation = runMetadata.kind === "desktop-create-app";
+    const mcpEnvironment = await desktopCodeAgentMcpEnvironment(cwd, {
+      includeWorkspaceApps: !isDesktopAppCreation,
+    });
     if (mcpEnvironment.remoteConfig.state === "unavailable") {
       appendCodeAgentStatusEvent(
         runId,
@@ -4392,6 +4424,7 @@ function resolveRepositoryRoot(cwd: string): string {
     process.env.INIT_CWD,
     process.env.PWD,
     IS_DEV ? path.resolve(".") : undefined,
+    IS_DEV ? path.resolve(__dirname, "../../../..") : undefined,
     cwd,
   ];
   for (const candidate of candidates) {
@@ -4914,9 +4947,13 @@ function updateCodeAgentRun(input: unknown): CodeAgentUpdateRunResult {
   const permissionMode = requestedPermissionMode
     ? getCodeAgentPermissionMode(requestedPermissionMode)
     : undefined;
-  const engine = normalizeCodeAgentRequestedEngine(
-    firstStringValue(payload.engine),
-  );
+  // A mode/title/metadata update is allowed to omit model selection. Do not
+  // turn that omission into the default local engine: a Claude run must stay
+  // a Claude run when the transcript syncs its permission mode.
+  const requestedEngine = firstStringValue(payload.engine);
+  const engine = requestedEngine
+    ? normalizeCodeAgentRequestedEngine(requestedEngine)
+    : undefined;
   const model = firstStringValue(payload.model);
   const effort = firstStringValue(payload.effort);
   const userMetadata = isObject(payload.metadata) ? payload.metadata : {};
@@ -4930,14 +4967,29 @@ function updateCodeAgentRun(input: unknown): CodeAgentUpdateRunResult {
     };
   }
 
+  const record = readCodeAgentRunRecord(runId);
+  const recordMetadata = isObject(record?.metadata) ? record.metadata : {};
+  const preservedEngine = firstStringValue(
+    recordMetadata.engine,
+    record?.engine,
+  );
+  const preservedModel = firstStringValue(recordMetadata.model, record?.model);
+  const preservedEffort = firstStringValue(
+    recordMetadata.effort,
+    recordMetadata.reasoningEffort,
+    record?.effort,
+  );
+  const nextEngine = engine ?? preservedEngine;
+  const nextModel = model ?? preservedModel;
+  const nextEffort = effort ?? preservedEffort;
+
   if (permissionMode) {
-    const record = readCodeAgentRunRecord(runId);
     const steering = buildCodeAgentSteeringMetadata({
       cwd: getRecordString(record, "cwd"),
       permissionMode,
-      engine,
-      model,
-      effort,
+      engine: nextEngine,
+      model: nextModel,
+      effort: nextEffort,
       attachments: normalizeCodeAgentPromptAttachments(
         isObject(record?.metadata) ? record.metadata.attachments : undefined,
       ),
@@ -4949,20 +5001,19 @@ function updateCodeAgentRun(input: unknown): CodeAgentUpdateRunResult {
       metadata: {
         ...userMetadata,
         permissionMode,
-        ...(engine ? { engine } : {}),
-        ...(model ? { model } : {}),
-        ...(effort ? { effort } : {}),
+        ...(nextEngine ? { engine: nextEngine } : {}),
+        ...(nextModel ? { model: nextModel } : {}),
+        ...(nextEffort ? { effort: nextEffort } : {}),
         steering,
       },
     });
-  } else if (engine || model || effort) {
-    const record = readCodeAgentRunRecord(runId);
+  } else if (requestedEngine || model || effort) {
     const steering = buildCodeAgentSteeringMetadata({
       cwd: getRecordString(record, "cwd"),
       permissionMode: readCodeAgentPermissionMode(record),
-      engine,
-      model,
-      effort,
+      engine: nextEngine,
+      model: nextModel,
+      effort: nextEffort,
       attachments: normalizeCodeAgentPromptAttachments(
         isObject(record?.metadata) ? record.metadata.attachments : undefined,
       ),
@@ -4972,9 +5023,9 @@ function updateCodeAgentRun(input: unknown): CodeAgentUpdateRunResult {
       steering,
       metadata: {
         ...userMetadata,
-        ...(engine ? { engine } : {}),
-        ...(model ? { model } : {}),
-        ...(effort ? { effort } : {}),
+        ...(nextEngine ? { engine: nextEngine } : {}),
+        ...(nextModel ? { model: nextModel } : {}),
+        ...(nextEffort ? { effort: nextEffort } : {}),
         steering,
       },
     });
@@ -5647,10 +5698,14 @@ async function createDesktopAppFromPrompt(
     targetPath: folder.path,
     port,
   });
+  // The target is intentionally empty until the coding agent runs the
+  // scaffold command. Start the runner from the framework workspace so the
+  // local Codex/Claude CLIs can initialize before they write into the target.
+  const appCreationCwd = resolveRepositoryRoot(appsRoot);
   const runResult = await createCodeAgentRun({
     goalId: "task",
     prompt: agentPrompt,
-    cwd: appsRoot,
+    cwd: appCreationCwd,
     permissionMode: "full-auto",
     metadata: {
       kind: "desktop-create-app",

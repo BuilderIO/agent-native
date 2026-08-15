@@ -11,6 +11,7 @@ const clientState = vi.hoisted(() => {
   const workspaceSsoMutateAsync = vi.fn().mockImplementation(async () => ({
     startUrl: "about:blank",
   }));
+  const legacyErrorMutateAsync = vi.fn();
   const actionNames: string[] = [];
   return {
     actionNames,
@@ -22,6 +23,10 @@ const clientState = vi.hoisted(() => {
       },
     ],
     legacyMutateAsync,
+    legacyMutateError: null as Error | null,
+    legacyErrorMutateAsync,
+    frameLoadHandler: null as (() => void) | null,
+    suppressFrameLoad: false,
     theme: "dark" as "dark" | "light",
     workspaceSsoEnabled: false,
     workspaceSsoMutateAsync,
@@ -39,17 +44,33 @@ vi.mock("@agent-native/core/client/chat-first", () => ({
   ChatFirstAppPane: ({
     app,
     embedUrl,
+    errorMessage,
     renderEmbed,
     status,
   }: {
     app: { name: string } | null;
     embedUrl?: string | null;
+    errorMessage?: string;
     renderEmbed: (target: { url: string; title?: string }) => React.ReactNode;
     status: string;
   }) => (
-    <div data-chat-first-app-status={status}>
+    <div
+      data-chat-first-app-error={errorMessage ?? ""}
+      data-chat-first-app-status={status}
+    >
       {status === "ready" && embedUrl
-        ? renderEmbed({ url: embedUrl, title: app?.name })
+        ? (() => {
+            const frame = renderEmbed({ url: embedUrl, title: app?.name });
+            if (clientState.suppressFrameLoad && React.isValidElement(frame)) {
+              clientState.frameLoadHandler =
+                (frame.props as { onLoad?: () => void }).onLoad ?? null;
+              return React.cloneElement(frame, {
+                onLoad: undefined,
+                src: undefined,
+              });
+            }
+            return frame;
+          })()
         : null}
     </div>
   ),
@@ -67,7 +88,9 @@ vi.mock("@agent-native/core/client/hooks", () => ({
       mutateAsync:
         name === "create-workspace-app-embed-session"
           ? clientState.workspaceSsoMutateAsync
-          : clientState.legacyMutateAsync,
+          : clientState.legacyMutateError
+            ? clientState.legacyErrorMutateAsync
+            : clientState.legacyMutateAsync,
     };
   },
   useActionQuery: (name: string) => ({
@@ -131,6 +154,10 @@ describe("WorkspaceAppKeepAlive", () => {
     root = createRoot(container);
     clientState.actionNames.length = 0;
     clientState.legacyMutateAsync.mockClear();
+    clientState.legacyMutateError = null;
+    clientState.legacyErrorMutateAsync.mockReset();
+    clientState.frameLoadHandler = null;
+    clientState.suppressFrameLoad = false;
     clientState.workspaceSsoMutateAsync.mockClear();
     clientState.theme = "dark";
     clientState.workspaceSsoEnabled = false;
@@ -265,6 +292,44 @@ describe("WorkspaceAppKeepAlive", () => {
       },
       "*",
     );
+  });
+
+  it("clears the embed error after a direct fallback iframe loads", async () => {
+    clientState.legacyMutateError = new Error("Restore request failed");
+    clientState.legacyErrorMutateAsync.mockRejectedValue(
+      clientState.legacyMutateError,
+    );
+    clientState.suppressFrameLoad = true;
+
+    await act(async () => {
+      root.render(
+        <WorkspaceAppFrame app={{ id: "mail", name: "Mail", path: "/mail" }} />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const iframe = container.querySelector<HTMLIFrameElement>("iframe");
+    expect(iframe).not.toBeNull();
+    expect(
+      container
+        .querySelector("[data-chat-first-app-error]")
+        ?.getAttribute("data-chat-first-app-error"),
+    ).toBe("Restore request failed");
+
+    if (!iframe) throw new Error("Workspace app iframe was not rendered");
+    expect(clientState.frameLoadHandler).not.toBeNull();
+
+    await act(async () => {
+      clientState.frameLoadHandler?.();
+      await Promise.resolve();
+    });
+
+    expect(
+      container
+        .querySelector("[data-chat-first-app-error]")
+        ?.getAttribute("data-chat-first-app-error"),
+    ).toBe("");
   });
 
   it("evicts the oldest inactive app after reaching the keep-alive limit", async () => {

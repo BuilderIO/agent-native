@@ -2,8 +2,9 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useCallback, useEffect, useState } from "react";
 
 // Keep this value aligned with @agent-native/core's browser preference so the
-// three clients share one documented opt-in contract without bundling the web
-// storage implementation into React Native.
+// three clients share one documented preference contract without bundling the
+// web storage implementation into React Native. New mobile installs open in
+// the same chat-first mode as Electron; an explicit saved false still wins.
 export const CHAT_FIRST_MODE_STORAGE_KEY = "agent-native:chat-first-mode:v1";
 
 const listeners = new Set<(enabled: boolean) => void>();
@@ -14,15 +15,15 @@ export type ChatFirstModeStorageResult =
 
 export async function loadChatFirstMode(): Promise<ChatFirstModeStorageResult> {
   try {
+    const stored = await AsyncStorage.getItem(CHAT_FIRST_MODE_STORAGE_KEY);
     return {
       ok: true,
-      enabled:
-        (await AsyncStorage.getItem(CHAT_FIRST_MODE_STORAGE_KEY)) === "true",
+      enabled: stored === null ? true : stored === "true",
     };
   } catch (error) {
     return {
       ok: false,
-      enabled: false,
+      enabled: true,
       reason: error instanceof Error ? error.message : String(error),
     };
   }
@@ -56,7 +57,7 @@ export function useChatFirstMode(): {
   error: string | null;
   setEnabled: (enabled: boolean) => Promise<ChatFirstModeStorageResult>;
 } {
-  const [enabled, setEnabledState] = useState(false);
+  const [enabled, setEnabledState] = useState(true);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     let active = true;
