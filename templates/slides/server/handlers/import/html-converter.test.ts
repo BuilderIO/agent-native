@@ -330,11 +330,11 @@ describe("convertToSlideHtml shape geometry", () => {
   });
 
   it("paints nothing for a geometry whose real outline is mostly empty space", () => {
-    // A donut ring or a halfFrame L-bracket is over 90% transparent. Filling
-    // its bounding box covers the neighbouring content the real geometry
-    // leaves visible — four concentric rings become one opaque square over
-    // the slide title.
-    for (const shapeType of ["halfFrame", "uturnArrow", "donut"]) {
+    // A donut ring or a bracket pair is over 90% transparent. Filling its
+    // bounding box covers the neighbouring content the real geometry leaves
+    // visible — four concentric rings become one opaque square over the slide
+    // title.
+    for (const shapeType of ["donut", "frame", "bracketPair", "curvedUpArrow"]) {
       const style = styleAttr(
         convertToSlideHtml(
           shapeSlide({ shapeType, fill: "#ff0000", lineColor: "#00ff00" }),
