@@ -2003,7 +2003,7 @@ export function createAgentChatAdapter(
         (runConfigSelection("effort") as ReasoningEffort | undefined) ??
         effortRef?.current;
       const harness = hostedHarnessRef?.current
-        ? runConfigSelection("harness") ?? harnessRef?.current
+        ? (runConfigSelection("harness") ?? harnessRef?.current)
         : undefined;
       const requestedTurnId = (() => {
         const raw =

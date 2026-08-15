@@ -82,29 +82,27 @@ describe("agent-native app config", () => {
   });
 
   it("normalizes hosted harness capabilities and runtimes", () => {
+    expect(normalizeAgentNativeConfig({ harness: true })).toEqual({
+      harness: true,
+    });
     expect(
       normalizeAgentNativeConfig({
         harness: {
-          enabled: true,
           runtimes: ["claude-code", "codex", "claude-code"],
-          ui: "desktop",
         },
       }),
     ).toEqual({
       harness: {
-        enabled: true,
         runtimes: ["claude-code", "codex"],
-        ui: "desktop",
       },
     });
     expect(
       mergeAgentNativeConfigs(
         { harness: { runtimes: ["claude-code"] } },
-        { harness: { enabled: true, runtimes: ["codex"] } },
+        { harness: { runtimes: ["codex"] } },
       ),
     ).toEqual({
       harness: {
-        enabled: true,
         runtimes: ["claude-code", "codex"],
       },
     });
@@ -125,8 +123,9 @@ describe("agent-native app config", () => {
     { translations: { locales: ["en-US", ""] } },
     { translations: { locales: ["en-US", 42] } },
     { changelog: { enabled: "yes" } },
-    { harness: { enabled: true, runtimes: ["shell"] } },
-    { harness: { ui: "panel" } },
+    { harness: { runtimes: ["shell"] } },
+    { harness: { enabled: true } },
+    { harness: { ui: "desktop" } },
   ])("rejects invalid lightweight policy config: %o", (config) => {
     expect(() => normalizeAgentNativeConfig(config)).toThrow();
   });

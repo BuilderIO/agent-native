@@ -68,6 +68,7 @@ import {
 import { SYSTEM_PROMPT_CACHE_SPLIT } from "../agent/engine/prompt-cache.js";
 import { PROVIDER_TO_ENV } from "../agent/engine/provider-env-vars.js";
 import type { EngineMessage } from "../agent/engine/types.js";
+import { hostedHarnessSystemPrompt } from "../agent/harness/hosted.js";
 import {
   createProductionAgentHandler,
   actionsToEngineTools,
@@ -83,11 +84,6 @@ import {
   type AgentLoopOutcome,
   type ResolvedOwnerApiKey,
 } from "../agent/production-agent.js";
-import {
-  HOSTED_HARNESS_FEATURE_FLAG_DEFINITION,
-  hostedHarnessSystemPrompt,
-} from "../agent/harness/hosted.js";
-import { registerFeatureFlags } from "../feature-flags/registry.js";
 import {
   callerHasRunAccess,
   callerHasThreadAccess,
@@ -174,7 +170,6 @@ import {
   isHubServeEnabled,
 } from "../mcp-client/index.js";
 import { setProgressPreListHook } from "../progress/store.js";
-import { loadHostedHarnessConfig } from "./hosted-harness-policy.js";
 import { getSkillNameFromPath } from "../resources/metadata.js";
 import {
   resourceList,
@@ -214,6 +209,7 @@ import {
 } from "./framework-request-handler.js";
 import { getOrigin } from "./google-oauth.js";
 import { readBody } from "./h3-helpers.js";
+import { loadHostedHarnessConfig } from "./hosted-harness-policy.js";
 import { startIntervalJob } from "./interval-job.js";
 import { getModelFamilyOverlay } from "./prompts/index.js";
 import { mountRealtimeVoiceRoutes } from "./realtime-voice.js";
@@ -643,7 +639,6 @@ export function createAgentChatPlugin(
       // recovery sweep below handles abandoned runs with no connected client.
 
       const env = process.env.NODE_ENV;
-      registerFeatureFlags([HOSTED_HARNESS_FEATURE_FLAG_DEFINITION]);
       const hostedHarnessConfig = await loadHostedHarnessConfig();
       // AGENT_MODE=production forces production agent constraints even in dev
       const canToggle =
@@ -3554,9 +3549,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             additionalFramework:
               codeEditingSurfaceRestriction +
               requestProdCodeExecPromptNote +
-              (hostedHarnessPromptNote
-                ? `\n\n${hostedHarnessPromptNote}`
-                : ""),
+              (hostedHarnessPromptNote ? `\n\n${hostedHarnessPromptNote}` : ""),
           });
           return setSystemPromptOnContext(
             requestBasePrompt +

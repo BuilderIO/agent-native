@@ -1,12 +1,12 @@
-import type { AgentNativeHarnessConfig } from "../config.js";
 import {
   HOSTED_HARNESS_ENV_KEY,
-  HOSTED_HARNESS_FEATURE_FLAG,
+  HOSTED_HARNESS_ORG_SETTING_KEY,
+  isHostedHarnessConfigured,
   normalizeHostedHarnessRuntimes,
-  resolveHostedHarnessUi,
   type HostedHarnessRuntime,
 } from "../agent/harness/hosted.js";
-import { evaluateFeatureFlag } from "../feature-flags/store.js";
+import type { AgentNativeHarnessSetting } from "../config.js";
+import { getOrgSetting } from "../settings/org-settings.js";
 import {
   createAgentNativeConfigContext,
   loadResolvedAgentNativeConfig,
@@ -18,7 +18,6 @@ export interface HostedHarnessPolicy {
   envEnabled: boolean;
   organizationEnabled: boolean;
   runtimes: HostedHarnessRuntime[];
-  ui: "default" | "desktop";
 }
 
 export function isHostedHarnessEnvEnabled(
@@ -30,7 +29,7 @@ export function isHostedHarnessEnvEnabled(
 
 export async function loadHostedHarnessConfig(
   cwd = process.cwd(),
-): Promise<AgentNativeHarnessConfig | undefined> {
+): Promise<AgentNativeHarnessSetting | undefined> {
   const production = process.env.NODE_ENV === "production";
   const config = await loadResolvedAgentNativeConfig(
     cwd,
@@ -43,27 +42,27 @@ export async function loadHostedHarnessConfig(
 }
 
 export async function resolveHostedHarnessPolicy(options: {
-  config?: AgentNativeHarnessConfig;
+  config?: AgentNativeHarnessSetting;
   orgId?: string | null;
   userEmail?: string | null;
 }): Promise<HostedHarnessPolicy> {
   const config = options.config ?? (await loadHostedHarnessConfig());
-  const organizationEnabled = await evaluateFeatureFlag(
-    HOSTED_HARNESS_FEATURE_FLAG,
-    {
-      userEmail: options.userEmail ?? undefined,
-      orgId: options.orgId ?? null,
-    },
-  ).catch(() => false);
+  const organizationSetting = options.orgId
+    ? await getOrgSetting(options.orgId, HOSTED_HARNESS_ORG_SETTING_KEY)
+    : null;
+  const organizationEnabled = organizationSetting?.enabled === true;
   const envEnabled = isHostedHarnessEnvEnabled();
-  const configEnabled = config?.enabled === true;
+  const configEnabled = isHostedHarnessConfigured(config);
   return {
     enabled: configEnabled && (envEnabled || organizationEnabled),
     configEnabled,
     envEnabled,
     organizationEnabled,
-    runtimes: normalizeHostedHarnessRuntimes(config?.runtimes),
-    ui: resolveHostedHarnessUi(config),
+    runtimes: normalizeHostedHarnessRuntimes(
+      typeof config === "object" && config !== null
+        ? config.runtimes
+        : undefined,
+    ),
   };
 }
 

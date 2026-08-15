@@ -33,6 +33,14 @@ let quickPromptDependencies: QuickPromptDependencies | null = null;
 let quickPromptPreviousFocusedWindow: BrowserWindow | null = null;
 let quickPromptShouldBeVisible = false;
 
+export function isQuickPromptActive(): boolean {
+  return Boolean(
+    quickPromptShouldBeVisible &&
+    quickPromptWindow &&
+    !quickPromptWindow.isDestroyed(),
+  );
+}
+
 function debugQuickPrompt(message: string, details?: unknown): void {
   if (process.env.AGENT_NATIVE_DESKTOP_SHORTCUT_DEBUG !== "1") return;
   if (details === undefined) {

@@ -124,8 +124,11 @@ describe("Quick Prompt focus behavior", () => {
 
   it("restores the previously focused window instead of the main app on dismiss", async () => {
     vi.resetModules();
-    const { registerQuickPromptIpc, registerQuickPromptShortcut } =
-      await import("./quick-prompt.js");
+    const {
+      isQuickPromptActive,
+      registerQuickPromptIpc,
+      registerQuickPromptShortcut,
+    } = await import("./quick-prompt.js");
 
     registerQuickPromptIpc({
       createCodeAgentRun: vi.fn(),
@@ -133,13 +136,16 @@ describe("Quick Prompt focus behavior", () => {
     });
     registerQuickPromptShortcut();
 
+    expect(isQuickPromptActive()).toBe(false);
     electronState.getShortcutHandler()?.();
+    expect(isQuickPromptActive()).toBe(true);
     const promptWindow = electronState.getWindow();
     expect(promptWindow?.show).toHaveBeenCalled();
     expect(promptWindow?.focus).toHaveBeenCalled();
     expect(electronState.app.focus).not.toHaveBeenCalled();
 
     electronState.getShortcutHandler()?.();
+    expect(isQuickPromptActive()).toBe(false);
     expect(promptWindow?.hide).toHaveBeenCalled();
     if (process.platform === "darwin") {
       expect(electronState.app.hide).toHaveBeenCalledTimes(1);

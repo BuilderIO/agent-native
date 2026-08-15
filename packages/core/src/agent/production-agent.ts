@@ -20,6 +20,7 @@ import {
 } from "../action.js";
 import { readAppState } from "../application-state/script-helpers.js";
 import { isReadOnlyShellCommand } from "../coding-tools/index.js";
+import type { AgentNativeHarnessSetting } from "../config.js";
 import { getDbExec, isTransientDatabaseError } from "../db/client.js";
 import { extensionIdFromPathname } from "../extensions/path.js";
 import { preUploadAttachments } from "../file-upload/pre-upload-attachments.js";
@@ -27,11 +28,6 @@ import { isMcpActionResult } from "../mcp-client/app-result.js";
 import { extractMcpToolResultImages } from "../mcp-client/index.js";
 import { isMcpToolAllowedForRequest } from "../mcp-client/visibility.js";
 import { shouldInferSentimentForTurn } from "../observability/sentiment.js";
-import {
-  filterHostedHarnessToolNames,
-  hostedHarnessSystemPrompt,
-  normalizeHostedHarnessRuntime,
-} from "./harness/hosted.js";
 import {
   completeRun as completeProgressRun,
   startRun as startProgressRun,
@@ -123,6 +119,10 @@ import type {
 } from "./engine/types.js";
 import { EngineError } from "./engine/types.js";
 import {
+  filterHostedHarnessToolNames,
+  normalizeHostedHarnessRuntime,
+} from "./harness/hosted.js";
+import {
   type AgentLoopSettings,
   getDefaultMaxIterations,
   getDefaultMaxRunInputTokens,
@@ -213,7 +213,6 @@ import type {
   AgentChatStructuredMessage,
   RunEvent,
 } from "./types.js";
-import type { AgentNativeHarnessConfig } from "../config.js";
 
 // Register built-in engines on first import
 registerBuiltinEngines();
@@ -1172,7 +1171,7 @@ export interface ProductionAgentOptions {
   /** App/template id used for org-scoped per-app model defaults. */
   appId?: string;
   /** Static app capability for the hosted tools-only harness picker. */
-  hostedHarnessConfig?: AgentNativeHarnessConfig;
+  hostedHarnessConfig?: AgentNativeHarnessSetting;
   /** Default effort for requests that do not supply an override. */
   reasoningEffort?: ReasoningEffort;
   /** Provider-specific options passed through to the engine */
@@ -8195,8 +8194,8 @@ export function createProductionAgentHandler(
       }
     }
 
-      const {
-        message,
+    const {
+      message,
       history = [],
       structuredHistory,
       references = [],
@@ -8209,11 +8208,11 @@ export function createProductionAgentHandler(
       model: requestModel,
       engine: requestEngine,
       effort: requestEffort,
-        browserTabId,
-        scope,
-        harness: requestHarness,
-        trackInRunsTray,
-      } = body;
+      browserTabId,
+      scope,
+      harness: requestHarness,
+      trackInRunsTray,
+    } = body;
     setupMark("bodyParsed");
 
     // Durable-background marker. Present ONLY when this handler was re-entered

@@ -28,6 +28,16 @@ export interface CodeAgentRunnerSignalProcess {
   removeListener(signal: NodeJS.Signals, listener: () => void): unknown;
 }
 
+type CodeAgentRunIdCollection = Pick<ReadonlySet<string>, "has">;
+
+export function isCodeAgentRunnerInFlight(
+  runId: string,
+  activeRunIds: CodeAgentRunIdCollection,
+  startingRunIds: CodeAgentRunIdCollection,
+): boolean {
+  return activeRunIds.has(runId) || startingRunIds.has(runId);
+}
+
 export async function runCodeAgentRunnerWithSignal<T>(
   processRef: CodeAgentRunnerSignalProcess,
   execute: (signal: AbortSignal) => Promise<T>,

@@ -83,16 +83,16 @@ export type AgentNativeHarnessRuntime =
   | "pi"
   | "opencode";
 
-export type AgentNativeHarnessUi = "default" | "desktop";
-
 export interface AgentNativeHarnessConfig {
-  /** Declare that this app can expose the hosted, tools-only harness UI. */
-  enabled?: boolean;
-  /** Hosted harness labels shown in the agent picker. */
+  /** Optionally narrow the hosted harness picker to these runtimes. */
   runtimes?: AgentNativeHarnessRuntime[];
-  /** Use the Electron-style left rail and always-open chat surface. */
-  ui?: AgentNativeHarnessUi;
 }
+
+/**
+ * The intentionally small app-level switch for hosted tools-only harnesses.
+ * `true` enables every supported runtime; an object narrows the picker.
+ */
+export type AgentNativeHarnessSetting = boolean | AgentNativeHarnessConfig;
 
 export interface AgentNativeConfig {
   version?: typeof AGENT_NATIVE_CONFIG_VERSION;
@@ -102,7 +102,7 @@ export interface AgentNativeConfig {
   instructions?: AgentNativeInstructionsConfig;
   translations?: AgentNativeTranslationsConfig;
   changelog?: AgentNativeChangelogConfig;
-  harness?: AgentNativeHarnessConfig;
+  harness?: AgentNativeHarnessSetting;
 }
 
 export interface AgentNativeConfigContext {
@@ -306,22 +306,7 @@ export function mergeAgentNativeConfigs(
             ...override.changelog,
           }
         : undefined,
-    harness:
-      base.harness || override.harness
-        ? {
-            ...base.harness,
-            ...override.harness,
-            ...(base.harness?.runtimes !== undefined ||
-            override.harness?.runtimes !== undefined
-              ? {
-                  runtimes: mergeHarnessRuntimes(
-                    base.harness?.runtimes,
-                    override.harness?.runtimes,
-                  ),
-                }
-              : {}),
-          }
-        : undefined,
+    harness: mergeHarnessSettings(base.harness, override.harness),
   };
 }
 
@@ -501,15 +486,13 @@ function normalizeChangelogConfig(
 function normalizeHarnessConfig(
   value: unknown,
   source: string,
-): AgentNativeHarnessConfig {
+): AgentNativeHarnessSetting {
+  if (typeof value === "boolean") return value;
   if (!isRecord(value)) {
-    throw new Error(`${source} must be an object`);
+    throw new Error(`${source} must be a boolean or object`);
   }
-  if (value.enabled !== undefined && typeof value.enabled !== "boolean") {
-    throw new Error(`${source}.enabled must be a boolean`);
-  }
-  if (value.ui !== undefined && value.ui !== "default" && value.ui !== "desktop") {
-    throw new Error(`${source}.ui must be "default" or "desktop"`);
+  if ("enabled" in value || "ui" in value) {
+    throw new Error(`${source} must be true or an object with runtimes`);
   }
 
   const runtimes = value.runtimes;
@@ -525,25 +508,30 @@ function normalizeHarnessConfig(
   }
 
   return {
-    ...(value.enabled === undefined ? {} : { enabled: value.enabled }),
-    ...(value.ui === undefined ? {} : { ui: value.ui }),
     ...(runtimes === undefined
       ? {}
       : { runtimes: [...new Set(runtimes as AgentNativeHarnessRuntime[])] }),
   };
 }
 
-function mergeHarnessRuntimes(
-  base: AgentNativeHarnessRuntime[] | undefined,
-  override: AgentNativeHarnessRuntime[] | undefined,
-): AgentNativeHarnessRuntime[] | undefined {
-  if (base === undefined && override === undefined) return undefined;
-  return [
-    ...new Set<AgentNativeHarnessRuntime>([
-      ...(base ?? []),
-      ...(override ?? []),
-    ]),
-  ];
+function mergeHarnessSettings(
+  base: AgentNativeHarnessSetting | undefined,
+  override: AgentNativeHarnessSetting | undefined,
+): AgentNativeHarnessSetting | undefined {
+  if (override === undefined) return base;
+  if (typeof override === "boolean") return override;
+  if (typeof base !== "object" || base === null) return override;
+  if (base.runtimes === undefined && override.runtimes === undefined) {
+    return {};
+  }
+  return {
+    runtimes: [
+      ...new Set<AgentNativeHarnessRuntime>([
+        ...(base.runtimes ?? []),
+        ...(override.runtimes ?? []),
+      ]),
+    ],
+  };
 }
 
 function normalizeRelativeFilePath(value: string, source: string): string {

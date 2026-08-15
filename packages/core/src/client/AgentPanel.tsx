@@ -51,13 +51,14 @@ import React, {
 } from "react";
 import { flushSync } from "react-dom";
 
-import type { AgentRun } from "../progress/types.js";
 import {
   hostedHarnessAgentOption,
+  isHostedHarnessConfigured,
   isHostedHarnessRuntime,
   normalizeHostedHarnessRuntimes,
   type HostedHarnessRuntime,
 } from "../agent/harness/hosted.js";
+import type { AgentRun } from "../progress/types.js";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -85,7 +86,6 @@ import { Link, useLocation, useNavigate } from "react-router";
 
 import { withBuilderUtmTrackingParams } from "../shared/builder-link-tracking.js";
 import type { AgentChatSurfaceKind } from "./agent-chat-adapter.js";
-import { injectedAgentNativeConfig } from "./app-config.js";
 import {
   AGENT_SIDEBAR_MIN_WIDTH,
   consumeAgentSidebarUrlOpenOverride,
@@ -109,6 +109,7 @@ import {
   requestPerAppChatCommand,
   usePerAppChatState,
 } from "./app-chat-sidebar.js";
+import { injectedAgentNativeConfig } from "./app-config.js";
 import { readClientAppState } from "./application-state.js";
 import { assistantUiRecoverableRenderErrorKind } from "./assistant-ui-recovery.js";
 import type { AssistantChatProps } from "./AssistantChat.js";
@@ -134,8 +135,8 @@ import { useFirstRunOnboardingGateOwnsSurface } from "./onboarding/first-run-sta
 import { useOnboardingPreviewMode } from "./onboarding/use-preview-mode.js";
 import { recoverFromStaleChunkError } from "./route-chunk-recovery.js";
 import { withBuilderConnectTrackingParams } from "./settings/useBuilderStatus.js";
-import { useScreenRefreshKey } from "./use-db-sync.js";
 import { useActionQuery } from "./use-action.js";
+import { useScreenRefreshKey } from "./use-db-sync.js";
 import { useDevMode } from "./use-dev-mode.js";
 import { cn } from "./utils.js";
 
@@ -3109,7 +3110,6 @@ export interface AgentSidebarProps {
 interface HostedHarnessStatus {
   enabled: boolean;
   runtimes: HostedHarnessRuntime[];
-  ui: "default" | "desktop";
 }
 
 /**
@@ -3158,8 +3158,9 @@ export function AgentSidebar({
   agentPageHref,
   suppressFirstRunOnboarding = false,
 }: AgentSidebarProps) {
-  const staticHostedHarnessEnabled =
-    injectedAgentNativeConfig().harness?.enabled === true;
+  const staticHostedHarnessEnabled = isHostedHarnessConfigured(
+    injectedAgentNativeConfig().harness,
+  );
   const hostedHarnessQuery = useActionQuery<HostedHarnessStatus>(
     "get-hosted-harness-config" as never,
     undefined,
@@ -3174,7 +3175,7 @@ export function AgentSidebar({
         : [],
     [hostedHarnessEnabled, hostedHarnessStatus?.runtimes],
   );
-  const hostedHarnessUi = hostedHarnessEnabled && hostedHarnessStatus?.ui === "desktop";
+  const hostedHarnessUi = hostedHarnessEnabled;
   const hostedHarnessStorageKey = `agent-native-hosted-harness${storageKey ? `:${storageKey}` : ""}`;
   const [hostedHarnessRuntime, setHostedHarnessRuntime] =
     useState<HostedHarnessRuntime>("claude-code");

@@ -167,7 +167,10 @@ import {
   type CliStatusCache,
 } from "./cli-status-cache.js";
 import { guardCodeAgentPersistence } from "./code-agent-persistence-guard.js";
-import { resolveCodeAgentRunnerInvocation } from "./code-agent-runner.js";
+import {
+  isCodeAgentRunnerInFlight,
+  resolveCodeAgentRunnerInvocation,
+} from "./code-agent-runner.js";
 import {
   CODE_AGENTS_SUBSCRIBE_TRANSCRIPT_CHANNEL,
   CODE_AGENTS_TRANSCRIPT_EVENTS_CHANNEL,
@@ -230,6 +233,7 @@ import {
   type MultiFrontierAppIntegration,
 } from "./multi-frontier-app-integration.js";
 import {
+  isQuickPromptActive,
   registerQuickPromptIpc,
   registerQuickPromptShortcut,
 } from "./quick-prompt";
@@ -2434,7 +2438,12 @@ function reconcileInterruptedCodeAgentRun(
   let currentRecord = record;
   if (
     !currentRecord ||
-    (reason !== "shutdown" && activeCodeAgentProcesses.has(runId))
+    (reason !== "shutdown" &&
+      isCodeAgentRunnerInFlight(
+        runId,
+        activeCodeAgentProcesses,
+        startingCodeAgentRuns,
+      ))
   )
     return;
   if (!isDesktopCodeAgentRunInterruptible(currentRecord)) return;
@@ -2444,7 +2453,11 @@ function reconcileInterruptedCodeAgentRun(
   currentRecord = readCodeAgentRunRecord(runId) ?? currentRecord;
   if (
     reason !== "shutdown" &&
-    (activeCodeAgentProcesses.has(runId) ||
+    (isCodeAgentRunnerInFlight(
+      runId,
+      activeCodeAgentProcesses,
+      startingCodeAgentRuns,
+    ) ||
       hasLivePersistedCodeAgentRunner(currentRecord))
   )
     return;
@@ -10408,6 +10421,7 @@ app.whenReady().then(async () => {
 
   // macOS: restore/focus the window when dock icon is clicked
   app.on("activate", () => {
+    if (isQuickPromptActive()) return;
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
     } else if (win && !win.isDestroyed()) {

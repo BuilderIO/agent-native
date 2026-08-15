@@ -119,11 +119,7 @@ export interface RequestRunContext {
   /** Request-authorized action names exposed to this agent run. */
   allowedActionNames?: readonly string[];
   /** Hosted tools-only harness selected for this agent run. */
-  hostedHarnessRuntime?:
-    | "claude-code"
-    | "codex"
-    | "pi"
-    | "opencode";
+  hostedHarnessRuntime?: "claude-code" | "codex" | "pi" | "opencode";
   /**
    * True when this run is executing inside the durable background-function
    * worker (the `_process-run` self-dispatch), not the synchronous foreground

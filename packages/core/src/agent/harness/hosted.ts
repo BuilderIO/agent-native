@@ -1,20 +1,9 @@
-import type {
-  AgentNativeHarnessConfig,
-  AgentNativeHarnessRuntime,
-  AgentNativeHarnessUi,
-} from "../../config.js";
+import type { AgentNativeHarnessRuntime } from "../../config.js";
 
 export type HostedHarnessRuntime = AgentNativeHarnessRuntime;
 
-export const HOSTED_HARNESS_FEATURE_FLAG = "agent-harness.hosted" as const;
 export const HOSTED_HARNESS_ENV_KEY = "AGENT_NATIVE_HOSTED_HARNESS" as const;
-
-export const HOSTED_HARNESS_FEATURE_FLAG_DEFINITION = {
-  key: HOSTED_HARNESS_FEATURE_FLAG,
-  displayName: "Hosted tools-only harness",
-  description:
-    "Allow Claude Code Agent, Codex, Pi, and OpenCode to use app tools in production without repository or shell access.",
-} as const;
+export const HOSTED_HARNESS_ORG_SETTING_KEY = "agent-harness.enabled" as const;
 
 export const HOSTED_HARNESS_RUNTIME_ORDER: readonly HostedHarnessRuntime[] = [
   "claude-code",
@@ -36,15 +25,13 @@ export const HOSTED_HARNESS_AGENT_DESCRIPTIONS: Record<
     "Production mode is tools-only: no repository, shell, or code editing. Use the Electron app for full coding workflows.",
 };
 
-export const HOSTED_HARNESS_AGENT_LABELS: Record<
-  HostedHarnessRuntime,
-  string
-> = {
-  "claude-code": "Claude Code Agent",
-  codex: "Codex",
-  pi: "Pi",
-  opencode: "OpenCode",
-};
+export const HOSTED_HARNESS_AGENT_LABELS: Record<HostedHarnessRuntime, string> =
+  {
+    "claude-code": "Claude Code Agent",
+    codex: "Codex",
+    pi: "Pi",
+    opencode: "OpenCode",
+  };
 
 export const HOSTED_HARNESS_BLOCKED_TOOL_NAMES = new Set([
   "bash",
@@ -60,6 +47,7 @@ export const HOSTED_HARNESS_BLOCKED_TOOL_NAMES = new Set([
   "write-workspace-file",
   "delete-workspace-file",
   "grep-workspace-file",
+  "connect-builder",
 ]);
 
 export function isHostedHarnessRuntime(
@@ -86,14 +74,17 @@ export function normalizeHostedHarnessRuntimes(
   if (!Array.isArray(value)) return [...HOSTED_HARNESS_RUNTIME_ORDER];
   const runtimes = value
     .map((runtime) => normalizeHostedHarnessRuntime(runtime))
-    .filter((runtime): runtime is HostedHarnessRuntime => runtime !== undefined);
+    .filter(
+      (runtime): runtime is HostedHarnessRuntime => runtime !== undefined,
+    );
   return [...new Set(runtimes)];
 }
 
-export function resolveHostedHarnessUi(
-  config: AgentNativeHarnessConfig | undefined,
-): AgentNativeHarnessUi {
-  return config?.ui === "desktop" ? "desktop" : "default";
+export function isHostedHarnessConfigured(value: unknown): boolean {
+  return (
+    value === true ||
+    (!!value && typeof value === "object" && !Array.isArray(value))
+  );
 }
 
 export function hostedHarnessAgentOption(runtime: HostedHarnessRuntime) {
@@ -118,7 +109,9 @@ export function filterHostedHarnessToolNames(
   return names.filter((name) => !isHostedHarnessBlockedToolName(name));
 }
 
-export function hostedHarnessSystemPrompt(runtime: HostedHarnessRuntime): string {
+export function hostedHarnessSystemPrompt(
+  runtime: HostedHarnessRuntime,
+): string {
   return `<hosted-tools-only-harness runtime="${runtime}">
 You are running as a hosted ${HOSTED_HARNESS_AGENT_LABELS[runtime]} inside a production app.
 This is a tools-only mode. You have no repository, shell, filesystem, code-editing, or code-execution tools.

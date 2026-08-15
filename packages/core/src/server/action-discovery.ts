@@ -612,6 +612,10 @@ export const ALWAYS_ON_CORE_ACTIONS: ReadonlySet<string> = new Set([
   "revoke-org-service-token",
   "list-mcp-tools",
   "call-mcp-tool",
+  // Hosted harness capability/policy routes are UI-facing and deliberately
+  // never enter the model's action surface (`agentTool: false`).
+  "get-hosted-harness-config",
+  "set-hosted-harness-enabled",
 ]);
 
 export async function mergeCoreSharingActions(
@@ -686,6 +690,10 @@ export async function mergeCoreSharingActions(
     [
       "get-hosted-harness-config",
       () => import("../hosted-harness/actions/get-hosted-harness-config.js"),
+    ],
+    [
+      "set-hosted-harness-enabled",
+      () => import("../hosted-harness/actions/set-hosted-harness-enabled.js"),
     ],
     [
       "list-feature-flags",
