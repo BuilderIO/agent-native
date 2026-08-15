@@ -154,6 +154,14 @@ export function useMobileTabLayout(apps: readonly AppConfig[]) {
           reason: "That app cannot be shown as a native mobile tab.",
         };
       }
+      if (!availableIds.has(appId)) {
+        return {
+          ok: false,
+          changed: false,
+          limitReached: false,
+          reason: "That app is not available for a native mobile tab.",
+        };
+      }
       const previousIds = storedIds;
       const currentIds = filterAvailableMobileTabAppIds(
         storedIds ?? defaultIds,

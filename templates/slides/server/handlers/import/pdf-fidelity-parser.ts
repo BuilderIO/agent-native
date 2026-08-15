@@ -1143,7 +1143,8 @@ export async function parsePdfFidelity(
         // placement is missing, so omit all of them rather than misplacing one.
         if (!images || images.length !== rects.length) continue;
         for (let index = 0; index < rects.length; index++) {
-          imageDataByRect.set(rects[index], images[index].data);
+          const data = images[index].data;
+          if (data.byteLength > 0) imageDataByRect.set(rects[index], data);
         }
       }
       const imageResults: { element: ParsedElement; paintOrder: number }[] =

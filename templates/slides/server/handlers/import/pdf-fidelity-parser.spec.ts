@@ -776,6 +776,44 @@ describe("parsePdfFidelity: imagesSkipped", () => {
     expect(pages[0].elements.map((el) => el.kind)).toEqual(["text"]);
   });
 
+  it("counts an empty extracted image buffer as skipped without shifting later named images", async () => {
+    const fnArray = [
+      OPS.save,
+      OPS.transform,
+      OPS.paintImageXObject,
+      OPS.restore,
+      OPS.save,
+      OPS.transform,
+      OPS.paintImageXObject,
+      OPS.restore,
+    ];
+    const argsArray = [
+      [],
+      [100, 0, 0, 100, 10, 10],
+      ["empty-image"],
+      [],
+      [],
+      [100, 0, 0, 100, 100, 100],
+      ["valid-image"],
+      [],
+    ];
+    const doc = fakeDoc(fnArray, argsArray);
+    const pages = await parsePdfFidelity(doc, [
+      {
+        pageNumber: 1,
+        images: [
+          { data: new Uint8Array(), name: "empty-image" },
+          { data: new Uint8Array([7, 8, 9]), name: "valid-image" },
+        ],
+      },
+    ]);
+
+    const image = pages[0].elements.find((element) => element.kind === "image");
+    expect(image).toMatchObject({ x: 1_270_000, y: 1_270_000 });
+    expect(image?.image?.data).toEqual(new Uint8Array([7, 8, 9]));
+    expect(pages[0].imagesSkipped).toBe(1);
+  });
+
   it("marks a page partial when fidelity parsing fails after detecting an image", async () => {
     const fnArray = [OPS.transform, OPS.paintImageXObject];
     const argsArray = [[100, 0, 0, 100, 10, 10], ["image-1"]];
