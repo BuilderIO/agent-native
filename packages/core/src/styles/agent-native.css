@@ -836,8 +836,6 @@
    sidebars stack the copy and actions before the secondary button clips. */
 .agent-builder-setup-card {
   min-inline-size: min(18rem, 100%);
-  container-type: inline-size;
-  container-name: agent-builder-setup;
 }
 
 /* Provider setup tucks behind the composer. The extra bottom paint is hidden
@@ -873,11 +871,6 @@
   padding-inline: 0 !important;
 }
 
-.agent-builder-setup-card--sidebar {
-  container-type: inline-size;
-  container-name: agent-builder-setup;
-}
-
 .agent-builder-setup-inline--attached {
   position: relative;
   z-index: 1;
@@ -892,6 +885,11 @@
     hsl(var(--foreground)) 3%
   );
   box-shadow: none;
+}
+
+.agent-builder-setup-card--sidebar {
+  container-type: inline-size;
+  container-name: agent-builder-setup;
 }
 
 .agent-builder-setup-card--sidebar .agent-builder-setup-card__actions {
@@ -920,29 +918,6 @@
   color: hsl(var(--foreground));
 }
 
-.agent-builder-setup-card__content > .agent-builder-setup-card__actions {
-  flex: 1 1 auto;
-}
-
-.agent-builder-setup-card__builder-cta {
-  align-items: stretch;
-}
-
-.agent-builder-setup-card__builder-cta
-  .agent-builder-setup-card__builder-button {
-  width: 100%;
-}
-
-.agent-builder-setup-card__actions
-  > :is(
-    .agent-builder-setup-card__builder-cta,
-    .agent-builder-setup-card__builder-button,
-    .agent-builder-setup-card__key-button
-  ) {
-  flex: 1 1 0;
-  min-width: 0;
-}
-
 @container agent-builder-setup (max-width: 560px) {
   .agent-builder-setup-card__content {
     align-items: stretch;
@@ -959,9 +934,7 @@
 
   .agent-builder-setup-card__builder-cta {
     align-items: stretch;
-    flex: 1 1 0;
-    min-width: 0;
-    width: 100%;
+    flex: 0 1 auto;
   }
 
   .agent-builder-setup-card__builder-button {
@@ -971,15 +944,9 @@
   }
 
   .agent-builder-setup-card__key-button {
-    align-self: stretch;
-    flex: 1 1 0;
+    flex: 0 0 auto;
     min-width: 0;
-    width: 100%;
-  }
-
-  .agent-builder-setup-card--sidebar .agent-builder-setup-card__key-button {
-    align-self: stretch;
-    width: 100%;
+    width: auto;
   }
 }
 
@@ -987,20 +954,6 @@
   .agent-builder-setup-card__actions {
     align-items: stretch;
     flex-direction: column;
-    flex-wrap: nowrap;
-  }
-
-  .agent-builder-setup-card__actions > .agent-builder-setup-card__builder-cta,
-  .agent-builder-setup-card__actions > .agent-builder-setup-card__key-button {
-    align-self: stretch;
-    flex: 0 0 auto;
-    width: 100%;
-  }
-
-  .agent-builder-setup-card__actions
-    > .agent-builder-setup-card__builder-button {
-    flex: 0 0 auto;
-    width: 100%;
   }
 }
 

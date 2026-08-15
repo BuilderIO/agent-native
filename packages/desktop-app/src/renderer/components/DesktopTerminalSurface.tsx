@@ -14,6 +14,8 @@ import { type DesktopTerminalAgentId } from "../lib/desktop-terminal-preferences
 import type { RendererTheme } from "../lib/theme.js";
 import DesktopTerminalTabs from "./DesktopTerminalTabs.js";
 
+export interface DesktopTerminalPromptRequest extends AgentTerminalSubmitRequest {}
+
 interface DesktopTerminalSurfaceProps {
   apps: readonly AppConfig[];
   agent: DesktopTerminalAgentId;
