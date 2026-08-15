@@ -3348,6 +3348,7 @@ function CodeAgentComposer({
         );
       }}
       attachmentsEnabled
+      plusMenuMode={terminalAgent ? "upload-only" : undefined}
       voiceEnabled
       preserveDraftOnSubmit={false}
       onConnectProvider={onConnectProvider}

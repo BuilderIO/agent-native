@@ -97,6 +97,7 @@ import type {
 import type { SubscriptionStatus } from "../../../shared/subscription-status.js";
 import {
   DESKTOP_TERMINAL_AGENT_OPTIONS,
+  writeDesktopTerminalPreferences,
   useDesktopTerminalPreferences,
 } from "../lib/desktop-terminal-preferences.js";
 import { useRendererTheme } from "../lib/theme.js";
@@ -769,6 +770,9 @@ export default function CodeAgentsHub({
     },
     [],
   );
+  const handleTerminalModeChange = useCallback((enabled: boolean) => {
+    writeDesktopTerminalPreferences({ enabled });
+  }, []);
   const openChatFirstAllApps = useCallback(() => {
     setChatFirstAllAppsOpen(true);
     closeChatFirstSessionWatch();
@@ -2244,6 +2248,7 @@ export default function CodeAgentsHub({
                 theme={theme}
                 submitRequest={terminalPromptRequest ?? undefined}
                 onPromptSubmitted={handleTerminalPromptSubmitted}
+                onTerminalModeChange={handleTerminalModeChange}
               />
             ) : undefined
           }

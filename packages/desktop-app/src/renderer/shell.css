@@ -423,7 +423,7 @@ body {
   flex: 1 1 auto;
   flex-direction: column;
   overflow: hidden;
-  background: var(--agent-native-lower-surface, hsl(var(--sidebar-background)));
+  background: hsl(var(--background));
   color: hsl(var(--foreground));
 }
 
@@ -438,7 +438,7 @@ body {
   justify-content: space-between;
   gap: 8px;
   padding: 0 8px;
-  background: var(--agent-native-lower-surface, hsl(var(--sidebar-background)));
+  background: hsl(var(--background));
   border-bottom: 0;
 }
 
@@ -3347,7 +3347,7 @@ body {
 /* Embedded terminals intentionally use the resolved code-agent rail color so
    the PTY feels like another shell surface instead of a dark widget. */
 .desktop-terminal-tabs {
-  --desktop-terminal-background: var(--sidebar-bg);
+  --desktop-terminal-background: hsl(var(--background));
   display: flex;
   height: 100%;
   min-width: 0;

@@ -47,6 +47,9 @@ function findTerminalApp(apps: readonly AppConfig[]): AppConfig | undefined {
 function readChatSurface(): HTMLElement | null {
   if (typeof document === "undefined") return null;
   return (
+    document.querySelector<HTMLElement>(
+      ".code-agents-overview--chat-surface",
+    ) ??
     document.querySelector<HTMLElement>(".agent-sidebar-panel") ??
     document.querySelector<HTMLElement>(".agent-sidebar-shell") ??
     document.querySelector<HTMLElement>(".code-agents-rail") ??
