@@ -302,28 +302,32 @@ export default function ChatTab() {
             onConnectDesktop={() => router.push("/sessions" as never)}
           />
         )}
-        {chat.messages.length === 0 && !chat.historyLoading && (
-          <MobileWorkspaceControls
-            folder={workspaceFolder}
-            target={workspaceTarget}
-            onFolderChange={setWorkspaceFolder}
-            onTargetChange={setWorkspaceTarget}
+        {authState === "connected" &&
+          chat.messages.length === 0 &&
+          !chat.historyLoading && (
+            <MobileWorkspaceControls
+              folder={workspaceFolder}
+              target={workspaceTarget}
+              onFolderChange={setWorkspaceFolder}
+              onTargetChange={setWorkspaceTarget}
+            />
+          )}
+        {authState === "connected" ? (
+          <Composer
+            isStreaming={chat.isStreaming}
+            settings={settings}
+            baseUrl={chat.baseUrl}
+            onSend={chat.send}
+            onStop={chat.stop}
+            onOpenSettings={() => setSettingsOpen(true)}
+            onToggleMode={() =>
+              setSettings({
+                ...settings,
+                mode: settings.mode === "plan" ? undefined : "plan",
+              })
+            }
           />
-        )}
-        <Composer
-          isStreaming={chat.isStreaming}
-          settings={settings}
-          baseUrl={chat.baseUrl}
-          onSend={chat.send}
-          onStop={chat.stop}
-          onOpenSettings={() => setSettingsOpen(true)}
-          onToggleMode={() =>
-            setSettings({
-              ...settings,
-              mode: settings.mode === "plan" ? undefined : "plan",
-            })
-          }
-        />
+        ) : null}
       </KeyboardAvoidingView>
 
       {notice && (

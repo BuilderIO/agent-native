@@ -95,7 +95,10 @@ import type {
   MultiFrontierRendererState,
 } from "../../../shared/multi-frontier-ipc.js";
 import type { SubscriptionStatus } from "../../../shared/subscription-status.js";
-import { useDesktopTerminalPreferences } from "../lib/desktop-terminal-preferences.js";
+import {
+  DESKTOP_TERMINAL_AGENT_OPTIONS,
+  useDesktopTerminalPreferences,
+} from "../lib/desktop-terminal-preferences.js";
 import { useRendererTheme } from "../lib/theme.js";
 import AppWebview, {
   resolveAppWebviewUrl,
@@ -743,11 +746,29 @@ export default function CodeAgentsHub({
   }, []);
   const returnToChatFirstChats = useCallback(() => {
     setChatFirstAllAppsOpen(false);
+    setTerminalSessionStarted(false);
+    setTerminalPromptRequest(null);
     closeChatFirstSessionWatch();
     setChatFirstBrowserSelection(null);
     chatFirstSurfaceTabsStore.closeAll();
     setChatFirstSurfacePanelOpen(false);
   }, [chatFirstSurfaceTabsStore, setChatFirstSurfacePanelOpen]);
+  const handleTerminalPromptSubmit = useCallback((prompt: string) => {
+    const request: DesktopTerminalPromptRequest = {
+      id: ++terminalPromptSequence.current,
+      text: prompt,
+    };
+    setTerminalPromptRequest(request);
+    setTerminalSessionStarted(true);
+  }, []);
+  const handleTerminalPromptSubmitted = useCallback(
+    (request: DesktopTerminalPromptRequest) => {
+      setTerminalPromptRequest((current) =>
+        current?.id === request.id ? null : current,
+      );
+    },
+    [],
+  );
   const openChatFirstAllApps = useCallback(() => {
     setChatFirstAllAppsOpen(true);
     closeChatFirstSessionWatch();
@@ -1006,6 +1027,12 @@ export default function CodeAgentsHub({
     chatFirstSurfaceTabsStore,
     terminalPreferences.enabled,
   ]);
+
+  useEffect(() => {
+    if (terminalPreferences.enabled) return;
+    setTerminalSessionStarted(false);
+    setTerminalPromptRequest(null);
+  }, [terminalPreferences.enabled]);
 
   useEffect(() => {
     const activeTab = activeChatFirstSurfaceTab;
@@ -2149,6 +2176,9 @@ export default function CodeAgentsHub({
       watchChatFirstAgent,
     ],
   );
+  const showTerminalSurface =
+    terminalPreferences.enabled &&
+    (terminalSessionStarted || hasChatFirstActiveChat || chatFirstAppSelected);
   return (
     <QueryClientProvider client={codeAgentsQueryClient}>
       <div
@@ -2207,13 +2237,27 @@ export default function CodeAgentsHub({
             ) : undefined
           }
           renderChatFirstChatSurface={
-            terminalPreferences.enabled ? (
+            showTerminalSurface ? (
               <DesktopTerminalSurface
                 apps={apps}
                 agent={terminalPreferences.agent}
                 theme={theme}
+                submitRequest={terminalPromptRequest ?? undefined}
+                onPromptSubmitted={handleTerminalPromptSubmitted}
               />
             ) : undefined
+          }
+          terminalMode={
+            terminalPreferences.enabled
+              ? {
+                  agentId: terminalPreferences.agent,
+                  agentLabel:
+                    DESKTOP_TERMINAL_AGENT_OPTIONS.find(
+                      (option) => option.id === terminalPreferences.agent,
+                    )?.label ?? terminalPreferences.agent,
+                  onSubmit: handleTerminalPromptSubmit,
+                }
+              : undefined
           }
           suppressChatFirstUnavailableNotice
           onRunsChange={handleChatFirstRunsChange}

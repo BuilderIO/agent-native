@@ -1,3 +1,4 @@
+import type { AgentTerminalSubmitRequest } from "@agent-native/core/terminal";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -5,7 +6,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@agent-native/toolkit/ui";
-import type { AgentTerminalSubmitRequest } from "@agent-native/core/terminal";
 import type { AppConfig } from "@shared/app-registry";
 import { IconDotsVertical, IconPlus, IconX } from "@tabler/icons-react";
 import { useCallback, useRef, useState } from "react";

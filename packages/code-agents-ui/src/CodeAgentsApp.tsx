@@ -725,9 +725,8 @@ export default function CodeAgentsApp({
     setTranscriptError(null);
     setSelectedRunId(runId);
   }, []);
-  const activeNewSessionExtension = !terminalMode && newSessionExtension?.active
-    ? newSessionExtension
-    : null;
+  const activeNewSessionExtension =
+    !terminalMode && newSessionExtension?.active ? newSessionExtension : null;
   const newSessionExtensionComposerState = terminalMode
     ? { active: false, useDefaultModeControl: false, showModelSelector: true }
     : resolveNewSessionExtensionComposerState(newSessionExtension);
@@ -2583,8 +2582,8 @@ export default function CodeAgentsApp({
                                 terminalMode
                                   ? false
                                   : activeNewSessionExtension
-                                  ? activeNewSessionExtension.disabled
-                                  : providerGate.blocked && !portalSelected
+                                    ? activeNewSessionExtension.disabled
+                                    : providerGate.blocked && !portalSelected
                               }
                               onDisabledClick={
                                 !terminalMode &&
@@ -2597,13 +2596,12 @@ export default function CodeAgentsApp({
                               modeControl={
                                 terminalMode
                                   ? undefined
-                                  : newSessionExtension?.renderModeControl?.(
-                                {
-                                  permissionMode: newRunPermissionMode,
-                                  onPermissionModeChange:
-                                    setNewRunPermissionMode,
-                                },
-                              )}
+                                  : newSessionExtension?.renderModeControl?.({
+                                      permissionMode: newRunPermissionMode,
+                                      onPermissionModeChange:
+                                        setNewRunPermissionMode,
+                                    })
+                              }
                               useDefaultModeControl={
                                 terminalMode
                                   ? false
@@ -2624,7 +2622,9 @@ export default function CodeAgentsApp({
                               }
                               onSubmit={createRunFromPrompt}
                               onConnectProvider={
-                                terminalMode ? undefined : connectBuilderProvider
+                                terminalMode
+                                  ? undefined
+                                  : connectBuilderProvider
                               }
                               onConnectLocalRuntime={
                                 !terminalMode &&

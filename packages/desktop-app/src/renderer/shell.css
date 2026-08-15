@@ -415,6 +415,9 @@ body {
 
 .desktop-chat-first-hub .desktop-terminal-surface {
   display: flex;
+  width: min(100%, 1000px);
+  max-width: 1000px;
+  margin-inline: auto;
   min-width: 0;
   min-height: 0;
   flex: 1 1 auto;
@@ -436,7 +439,7 @@ body {
   gap: 8px;
   padding: 0 8px;
   background: var(--agent-native-lower-surface, hsl(var(--sidebar-background)));
-  border-bottom: 1px solid hsl(var(--border));
+  border-bottom: 0;
 }
 
 .desktop-chat-first-hub .desktop-terminal-surface__body {

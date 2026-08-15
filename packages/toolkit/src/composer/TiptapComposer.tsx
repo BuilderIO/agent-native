@@ -1327,7 +1327,7 @@ function ModelSelector({
     configured: boolean;
     statusLabel?: string;
     isSubscription?: boolean;
-  }>; 
+  }>;
   agentOnly?: boolean;
   showAutoModelOption?: boolean;
   modelListLoading?: boolean;
@@ -1627,22 +1627,24 @@ function ModelSelector({
               )}
               {!agentOnly && (
                 <button
-                type="button"
-                role="tab"
-                aria-selected={resolvedSection === "model"}
-                onClick={() => setDetailSection("model")}
-                onMouseEnter={() => setDetailSection("model")}
-                className={`flex w-full min-w-0 items-center gap-1 rounded-md px-2 py-2 text-start transition-colors ${
-                  resolvedSection === "model"
-                    ? "bg-accent text-foreground"
-                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-                }`}
-              >
-                <span className="shrink-0 text-[12px] font-medium">Model</span>
-                <span className="ms-auto min-w-0 max-w-[6rem] truncate text-end text-[11px] text-muted-foreground/80">
-                  {selectedModelLabel}
-                </span>
-                <IconChevronRight className="h-3 w-3 shrink-0 opacity-60 rtl:-scale-x-100" />
+                  type="button"
+                  role="tab"
+                  aria-selected={resolvedSection === "model"}
+                  onClick={() => setDetailSection("model")}
+                  onMouseEnter={() => setDetailSection("model")}
+                  className={`flex w-full min-w-0 items-center gap-1 rounded-md px-2 py-2 text-start transition-colors ${
+                    resolvedSection === "model"
+                      ? "bg-accent text-foreground"
+                      : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                  }`}
+                >
+                  <span className="shrink-0 text-[12px] font-medium">
+                    Model
+                  </span>
+                  <span className="ms-auto min-w-0 max-w-[6rem] truncate text-end text-[11px] text-muted-foreground/80">
+                    {selectedModelLabel}
+                  </span>
+                  <IconChevronRight className="h-3 w-3 shrink-0 opacity-60 rtl:-scale-x-100" />
                 </button>
               )}
               {!agentOnly && effortOptions.length > 0 && (
