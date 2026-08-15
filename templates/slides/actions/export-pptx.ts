@@ -990,6 +990,14 @@ const SVG_PATH_ARITY: Record<string, number> = {
 };
 
 /**
+ * One SVG number. The importer writes path data in its shortest legal
+ * spelling — `-1.7 0-1.2-.2` is four numbers, not one token per space — so
+ * splitting on whitespace reads a 200-country map as a single unreadable
+ * command and exports the whole thing as rectangles.
+ */
+const SVG_PATH_NUMBER = /[-+]?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?/gi;
+
+/**
  * Trace the importer's freeform outline — `clip-path: path('...')`, or the
  * stroke overlay it draws for an unfilled one — as pptxgenjs custom geometry.
  * Every command `customGeometryPath`/`blockArcPath` emit has an exact
@@ -1011,25 +1019,22 @@ function svgPathPoints(
   const toY = (px: number) => pxToInY(px, dims);
   let cursorX = 0;
   let cursorY = 0;
+  let subpathX = 0;
+  let subpathY = 0;
   let seenCommand = false;
 
   for (const match of path.matchAll(/([A-Za-z])([^A-Za-z]*)/g)) {
     const command = match[1].toUpperCase();
-    if (match[1] !== command) {
-      console.warn(
-        `[export-pptx] relative SVG path command "${match[1]}" in a shape outline; exported as a rectangle`,
-      );
-      return undefined;
-    }
+    const relative = match[1] !== command;
     seenCommand = true;
-    const args = match[2]
-      .trim()
-      .split(/[\s,]+/)
-      .filter(Boolean)
-      .map(Number);
+    const args = (match[2].match(SVG_PATH_NUMBER) ?? []).map(Number);
     if (command === "Z") {
       if (args.length > 0) return undefined;
       points.push({ close: true });
+      // `z` returns the pen to where the subpath started; the next relative
+      // command steps from there, not from the last point drawn.
+      cursorX = subpathX;
+      cursorY = subpathY;
       continue;
     }
     const arity = SVG_PATH_ARITY[command];
@@ -1046,7 +1051,15 @@ function svgPathPoints(
     }
     for (let i = 0; i < args.length; i += arity) {
       const chunk = args.slice(i, i + arity);
-      const [endX, endY] = chunk.slice(-2);
+      // A relative command steps from the point its own segment starts at —
+      // including a curve's control points, which are offsets from that same
+      // point rather than from each other.
+      const originX = relative ? cursorX : 0;
+      const originY = relative ? cursorY : 0;
+      const atX = (index: number) => originX + chunk[index];
+      const atY = (index: number) => originY + chunk[index];
+      const endX = atX(arity - 2);
+      const endY = atY(arity - 1);
       if (command === "M") {
         // A repeated pair after `M` is an implicit lineto, and every `M` past
         // the first opens a subpath pptxgenjs only reopens for `moveTo`.
@@ -1055,6 +1068,10 @@ function svgPathPoints(
             ? { x: toX(endX), y: toY(endY), moveTo: true }
             : { x: toX(endX), y: toY(endY) },
         );
+        if (i === 0) {
+          subpathX = endX;
+          subpathY = endY;
+        }
       } else if (command === "L") {
         points.push({ x: toX(endX), y: toY(endY) });
       } else if (command === "C") {
@@ -1063,20 +1080,27 @@ function svgPathPoints(
           y: toY(endY),
           curve: {
             type: "cubic",
-            x1: toX(chunk[0]),
-            y1: toY(chunk[1]),
-            x2: toX(chunk[2]),
-            y2: toY(chunk[3]),
+            x1: toX(atX(0)),
+            y1: toY(atY(1)),
+            x2: toX(atX(2)),
+            y2: toY(atY(3)),
           },
         });
       } else if (command === "Q") {
         points.push({
           x: toX(endX),
           y: toY(endY),
-          curve: { type: "quadratic", x1: toX(chunk[0]), y1: toY(chunk[1]) },
+          curve: { type: "quadratic", x1: toX(atX(0)), y1: toY(atY(1)) },
         });
       } else {
-        const arc = svgArcToPptxCurve(cursorX, cursorY, chunk, dims);
+        // Only an arc's endpoint is relative: its radii and flags are not
+        // coordinates.
+        const arc = svgArcToPptxCurve(
+          cursorX,
+          cursorY,
+          [...chunk.slice(0, 5), endX, endY],
+          dims,
+        );
         if (!arc) return undefined;
         points.push(arc);
       }
