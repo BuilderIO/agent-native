@@ -221,9 +221,7 @@ export function ConnectBuilderCard({
 
   const handleDoLocally = useCallback(
     (event: React.MouseEvent<HTMLButtonElement>) => {
-      if (
-        requestDesktopLocalCodeChange(prompt, event.currentTarget)
-      ) {
+      if (requestDesktopLocalCodeChange(prompt, event.currentTarget)) {
         setLocalCodeChangeRequested(true);
       }
     },

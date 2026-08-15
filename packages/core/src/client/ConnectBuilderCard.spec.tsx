@@ -143,9 +143,7 @@ describe("ConnectBuilderCard", () => {
     });
 
     expect(container.textContent).toContain("Do locally");
-    const button = container.querySelector(
-      "[data-desktop-local-code-change]",
-    );
+    const button = container.querySelector("[data-desktop-local-code-change]");
     expect(button).toBeTruthy();
 
     await act(async () => {

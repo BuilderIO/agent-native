@@ -6338,7 +6338,9 @@ function preferredDesktopManagedAppPort(
       .map((candidate) => candidate.devPort)
       .filter((port) => Number.isInteger(port) && port > 0),
   );
-  return Number.isInteger(preferredPort) && preferredPort > 0 && !used.has(preferredPort)
+  return Number.isInteger(preferredPort) &&
+    preferredPort > 0 &&
+    !used.has(preferredPort)
     ? preferredPort
     : nextDesktopManagedAppPort(apps);
 }
@@ -6559,7 +6561,8 @@ async function prepareDesktopAppForLocalCodeChange(
   const template = getTemplate(appId);
   const existingLocalPath = resolveUsableDirectory(appConfig.localPath);
   const existingLocalApp = Boolean(
-    existingLocalPath && fs.existsSync(path.join(existingLocalPath, "package.json")),
+    existingLocalPath &&
+    fs.existsSync(path.join(existingLocalPath, "package.json")),
   );
   if (!template && !existingLocalApp) {
     return {

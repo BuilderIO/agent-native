@@ -3,7 +3,6 @@ import {
   IconCopy,
   IconGitFork,
   IconId,
-  IconMessageCircle,
   IconMenu2,
   IconShare2,
   IconSquareRoundedPlus,
@@ -315,12 +314,17 @@ export default function ChatTab() {
   }, []);
 
   const refreshRemoteTranscript = useCallback(async (runId: string) => {
-    const result = await readRemoteTranscript(runId);
-    if (result.ok) {
-      setRemoteEvents(result.data ?? []);
-      setRemoteError(null);
-    } else {
-      setRemoteError(result.error ?? "Could not load computer chat.");
+    setRemoteLoading(true);
+    try {
+      const result = await readRemoteTranscript(runId);
+      if (result.ok) {
+        setRemoteEvents(result.data ?? []);
+        setRemoteError(null);
+      } else {
+        setRemoteError(result.error ?? "Could not load computer chat.");
+      }
+    } finally {
+      setRemoteLoading(false);
     }
   }, []);
 

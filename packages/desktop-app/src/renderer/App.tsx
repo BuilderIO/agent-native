@@ -14,7 +14,6 @@ import { useCallback, useEffect, useState } from "react";
 import { Toaster, toast } from "sonner";
 
 import type { DesktopPrepareLocalCodeChangeResult } from "../../shared/ipc-channels.js";
-
 import AppSettings, { AddAppDialog } from "./components/AppSettings.js";
 import CodeAgentsHub from "./components/CodeAgentsHub.js";
 import UpdatePrompt from "./components/UpdatePrompt.js";

@@ -2,8 +2,8 @@ import {
   AgentChatMemoryRouter as MemoryRouter,
   AgentSidebar,
 } from "@agent-native/core/client/agent-chat";
-import { createAgentNativeQueryClient } from "@agent-native/core/client/hooks";
 import { DESKTOP_LOCAL_CODE_CHANGE_EVENT } from "@agent-native/core/client/chat";
+import { createAgentNativeQueryClient } from "@agent-native/core/client/hooks";
 import { Button } from "@agent-native/toolkit/ui/button";
 import {
   Dialog,
@@ -13,6 +13,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@agent-native/toolkit/ui/dialog";
+import type {
+  DesktopAppRuntimeStatus,
+  DesktopPrepareLocalCodeChangeResult,
+} from "@shared/ipc-channels";
 import {
   IconAlertCircle,
   IconArrowUpRight,
@@ -29,11 +33,6 @@ import {
   useState,
   type ReactNode,
 } from "react";
-
-import type {
-  DesktopAppRuntimeStatus,
-  DesktopPrepareLocalCodeChangeResult,
-} from "@shared/ipc-channels";
 
 import {
   installDesktopChatFetchRelay,
@@ -105,8 +104,9 @@ export default function DesktopAppChatShell({
   const [localAgentModelsLoading, setLocalAgentModelsLoading] = useState(true);
   const [selectedAgent, setSelectedAgent] = useState("default");
   const [localCodeChangePrompt, setLocalCodeChangePrompt] = useState("");
-  const [localCodeChange, setLocalCodeChange] =
-    useState<LocalCodeChangeState>({ status: "idle" });
+  const [localCodeChange, setLocalCodeChange] = useState<LocalCodeChangeState>({
+    status: "idle",
+  });
 
   useEffect(() => {
     try {
@@ -380,8 +380,8 @@ export default function DesktopAppChatShell({
               : localCodeChange.status === "ready"
                 ? "The app is now running from your local code."
                 : localCodeChange.status === "starting"
-                  ? localCodeChange.message ??
-                    "Cloning the template, installing dependencies, and applying your request."
+                  ? (localCodeChange.message ??
+                    "Cloning the template, installing dependencies, and applying your request.")
                   : ""}
           </DialogDescription>
         </DialogHeader>
