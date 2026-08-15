@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.157.8
+
+### Patch Changes
+
+- cb0b70c: Serialize durable sync-event retention prunes across Postgres workers.
+
 ## 0.157.7
 
 ### Patch Changes
