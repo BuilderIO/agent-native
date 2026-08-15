@@ -48,6 +48,7 @@ export const IPC = {
   APPS_GET_CREATION_SETTINGS: "apps:get-creation-settings",
   APPS_UPDATE_CREATION_SETTINGS: "apps:update-creation-settings",
   APPS_CREATE_FROM_PROMPT: "apps:create-from-prompt",
+  APPS_PREPARE_LOCAL_CODE_CHANGE: "apps:prepare-local-code-change",
   APPS_SHOW_CONTEXT_MENU: "apps:show-context-menu",
 
   /** Loopback relay for shell-owned chat requests using an app's session */
@@ -205,6 +206,11 @@ export interface DesktopCreateAppRequest {
   appsRoot?: string;
 }
 
+export interface DesktopPrepareLocalCodeChangeRequest {
+  appId: string;
+  prompt: string;
+}
+
 export interface DesktopCreateAppResult {
   ok: boolean;
   apps: import("@agent-native/shared-app-config").AppConfig[];
@@ -213,6 +219,8 @@ export interface DesktopCreateAppResult {
   message: string;
   error?: string;
 }
+
+export type DesktopPrepareLocalCodeChangeResult = DesktopCreateAppResult;
 
 export type DesktopAppContextAction =
   | "edit"

@@ -55,6 +55,8 @@ import {
   type DesktopIdentityStatus,
   type DesktopCreateAppRequest,
   type DesktopCreateAppResult,
+  type DesktopPrepareLocalCodeChangeRequest,
+  type DesktopPrepareLocalCodeChangeResult,
   type DesktopShortcutActivationRequest,
   type DesktopShortcutSettings,
   type DesktopShortcutUpdateResult,
@@ -217,6 +219,10 @@ const electronAPI = {
       request: DesktopCreateAppRequest,
     ): Promise<DesktopCreateAppResult> =>
       ipcRenderer.invoke(IPC.APPS_CREATE_FROM_PROMPT, request),
+    prepareLocalCodeChange: (
+      request: DesktopPrepareLocalCodeChangeRequest,
+    ): Promise<DesktopPrepareLocalCodeChangeResult> =>
+      ipcRenderer.invoke(IPC.APPS_PREPARE_LOCAL_CODE_CHANGE, request),
     showContextMenu: (appId: string): Promise<DesktopAppContextAction | null> =>
       ipcRenderer.invoke(IPC.APPS_SHOW_CONTEXT_MENU, appId),
     onRuntimeStatus: (

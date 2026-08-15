@@ -652,6 +652,13 @@ type DesktopCreateAppResult = {
   error?: string;
 };
 
+type DesktopPrepareLocalCodeChangeRequest = {
+  appId: string;
+  prompt: string;
+};
+
+type DesktopPrepareLocalCodeChangeResult = DesktopCreateAppResult;
+
 type DesktopAppContextAction = "edit" | "remove" | "move-up" | "move-down";
 
 type DesktopAppRuntimeStatus = {
@@ -905,6 +912,9 @@ interface ElectronAPI {
     createFromPrompt(
       request: DesktopCreateAppRequest,
     ): Promise<DesktopCreateAppResult>;
+    prepareLocalCodeChange(
+      request: DesktopPrepareLocalCodeChangeRequest,
+    ): Promise<DesktopPrepareLocalCodeChangeResult>;
     showContextMenu(appId: string): Promise<DesktopAppContextAction | null>;
     onRuntimeStatus(cb: (status: DesktopAppRuntimeStatus) => void): () => void;
   };
