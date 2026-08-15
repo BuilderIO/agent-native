@@ -2030,6 +2030,448 @@ function normalizeRemoteRelayUrl(
   }
 }
 
+interface PortalRemoteHost {
+  id: string;
+  label: string;
+  status: string;
+  hostName?: string;
+  executionCapabilities?: Record<string, unknown>;
+}
+
+interface PortalRelayResult extends Record<string, unknown> {
+  ok?: boolean;
+  error?: string;
+  message?: string;
+}
+
+function resolvePortalRelayUrl(input: unknown): string {
+  const payload = isObject(input) ? input : {};
+  const configuredAppUrl = (() => {
+    try {
+      const appConfig = loadAppsForAuthContext().find(
+        (candidate) => candidate.id === "dispatch",
+      );
+      return appConfig ? getAppOrigin(appConfig) : undefined;
+    } catch {
+      return undefined;
+    }
+  })();
+  let activeWebviewUrl: string | undefined;
+  try {
+    activeWebviewUrl = getActiveWebviewContents()?.getURL();
+  } catch {
+    activeWebviewUrl = undefined;
+  }
+  const candidates = [
+    firstStringValue(payload.relayUrl),
+    readRemoteDeviceConfig()?.relayUrl,
+    configuredAppUrl,
+    activeWebviewUrl,
+    process.env.AGENT_NATIVE_PORTAL_RELAY_URL,
+    DEFAULT_PORTAL_RELAY_URL,
+  ];
+  for (const candidate of candidates) {
+    const normalized = normalizeRemoteRelayUrl(candidate);
+    if (normalized) return normalized;
+  }
+  return DEFAULT_PORTAL_RELAY_URL;
+}
+
+function normalizePortalHost(value: unknown): PortalRemoteHost | null {
+  if (!isObject(value)) return null;
+  const id = firstStringValue(value.id);
+  const label = firstStringValue(value.label, value.name) ?? id;
+  const status = firstStringValue(value.status) ?? "offline";
+  if (!id || !label || status === "revoked") return null;
+  return {
+    id,
+    label,
+    status,
+    hostName: firstStringValue(value.hostName),
+    executionCapabilities: isObject(value.executionCapabilities)
+      ? value.executionCapabilities
+      : undefined,
+  };
+}
+
+async function portalRelayRequest(
+  relayUrl: string,
+  method: "GET" | "POST",
+  pathname: string,
+  body?: unknown,
+): Promise<PortalRelayResult> {
+  const relaySession = findRemoteRelaySession(relayUrl);
+  const cookieHeader = await cookieHeaderForRelay(relaySession, relayUrl);
+  if (!cookieHeader) {
+    return {
+      ok: false,
+      error: "Sign in to the Portal relay in Desktop before starting a Portal run.",
+    };
+  }
+  try {
+    const response = await fetch(new URL(pathname, relayUrl), {
+      method,
+      headers: {
+        ...(cookieHeader ? { cookie: cookieHeader } : {}),
+        ...(method === "POST" ? { "content-type": "application/json" } : {}),
+      },
+      ...(method === "POST" ? { body: JSON.stringify(body ?? {}) } : {}),
+    });
+    const text = await response.text();
+    let payload: PortalRelayResult = {};
+    if (text) {
+      try {
+        const parsed = JSON.parse(text);
+        if (isObject(parsed)) payload = parsed;
+      } catch {
+        // The status and safe fallback below are enough for a user-facing error.
+      }
+    }
+    if (!response.ok) {
+      return {
+        ok: false,
+        error:
+          firstStringValue(payload.error, payload.message) ??
+          `Portal relay returned ${response.status}.`,
+      };
+    }
+    return payload;
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+async function selectPortalHost(input: unknown): Promise<{
+  relayUrl: string;
+  host: PortalRemoteHost;
+} | { error: string }> {
+  const relayUrl = resolvePortalRelayUrl(input);
+  const result = await portalRelayRequest(
+    relayUrl,
+    "GET",
+    "/_agent-native/integrations/remote/hosts",
+  );
+  const hosts = Array.isArray(result.hosts)
+    ? result.hosts
+        .map(normalizePortalHost)
+        .filter((host): host is PortalRemoteHost => Boolean(host))
+    : [];
+  if (result.ok === false) return { error: result.error ?? "Portal hosts are unavailable." };
+  const requestedHostId = isObject(input)
+    ? firstStringValue(input.portalHostId, input.hostId)
+    : undefined;
+  const host = requestedHostId
+    ? hosts.find((candidate) => candidate.id === requestedHostId)
+    : hosts.find((candidate) => candidate.status === "online") ?? hosts[0];
+  if (!host) {
+    return {
+      error:
+        "No paired computer is available. Pair the always-on computer with the Portal relay first.",
+    };
+  }
+  if (requestedHostId && host.id !== requestedHostId) {
+    return { error: "The selected Portal computer is no longer paired." };
+  }
+  if (host.executionCapabilities?.acceptsPortalHandoffs === false) {
+    return { error: "The selected Portal computer needs the latest connector." };
+  }
+  return { relayUrl, host };
+}
+
+function portalPrompt(
+  prompt: string,
+  handoff: PortalHandoff,
+  host: PortalRemoteHost,
+): string {
+  return [
+    `[Portal execution residence]`,
+    `Run on paired computer: ${host.label} (${host.id})`,
+    `Portal handoff: ${handoff.handoffId}`,
+    `Source snapshot: ${handoff.branch} at ${handoff.commit}`,
+    "Before doing work, use the Portal workspace prepared on that computer and load its latest local environment files. Never copy environment values, tokens, or secrets into the relay or chat.",
+    "",
+    prompt,
+  ].join("\n");
+}
+
+async function createPortalCodeAgentRun(input: {
+  payload: Record<string, unknown>;
+  prompt: string;
+  userMetadata: Record<string, unknown>;
+  goal: ReturnType<typeof getCodeAgentGoal> extends infer T ? NonNullable<T> : never;
+  runId: string;
+  sourceCwd: string;
+  permissionMode: CodeAgentPermissionMode;
+  engine?: string;
+  model?: string;
+  effort?: string;
+  attachments?: CodeAgentPromptAttachment[];
+}): Promise<CodeAgentCreateRunResult> {
+  const selected = await selectPortalHost(input.payload);
+  if ("error" in selected) {
+    return { ok: false, message: "Could not start the Portal run.", error: selected.error };
+  }
+
+  let handoff: PortalHandoff;
+  try {
+    handoff = await createPortalHandoff({ sourcePath: input.sourceCwd });
+  } catch (error) {
+    return {
+      ok: false,
+      message: "Could not portal the local code.",
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+
+  const remote = await portalRelayRequest(
+    selected.relayUrl,
+    "POST",
+    "/_agent-native/integrations/remote/enqueue",
+    {
+      operation: "code-agent.run.create",
+      payload: {
+        hostId: selected.host.id,
+        runId: input.runId,
+        prompt: portalPrompt(input.prompt, handoff, selected.host),
+        title: input.prompt.replace(/\s+/g, " ").trim().slice(0, 72),
+        goalId: input.goal.id,
+        permissionMode: input.permissionMode,
+        engine: input.engine,
+        model: input.model,
+        effort: input.effort,
+        metadata: {
+          ...input.userMetadata,
+          portal: handoff,
+          executionResidence: {
+            schemaVersion: 1,
+            kind: "portal",
+            state: "queued",
+            hostId: selected.host.id,
+            hostLabel: selected.host.label,
+            handoffId: handoff.handoffId,
+            sourceBranch: handoff.sourceBranch,
+            sourceCommit: handoff.commit,
+            portalBranch: handoff.branch,
+            envPolicy: handoff.envPolicy,
+          },
+        },
+      },
+    },
+  );
+  if (remote.ok === false) {
+    return {
+      ok: false,
+      message: "Portal code was pushed but the remote run was not queued.",
+      error: remote.error ?? "The Portal relay rejected the run.",
+    };
+  }
+  const commandId = firstStringValue(remote.commandId, remote.requestId);
+  if (!commandId) {
+    return {
+      ok: false,
+      message: "Portal code was pushed but the relay returned no run id.",
+      error: "Invalid Portal relay response.",
+    };
+  }
+
+  const now = new Date().toISOString();
+  const queue = buildCodeAgentQueueMetadata({
+    goalId: input.goal.id,
+    queuedAt: now,
+    attempt: 1,
+  });
+  const steering = buildCodeAgentSteeringMetadata({
+    cwd: input.sourceCwd,
+    permissionMode: input.permissionMode,
+    engine: input.engine,
+    model: input.model,
+    effort: input.effort,
+    attachments: input.attachments,
+  });
+  const portalMetadata = {
+    ...input.userMetadata,
+    cwd: input.sourceCwd,
+    executionTarget: "portal",
+    portal: handoff,
+    executionResidence: {
+      schemaVersion: 1,
+      kind: "portal",
+      state: "queued",
+      hostId: selected.host.id,
+      hostLabel: selected.host.label,
+      handoffId: handoff.handoffId,
+      sourceBranch: handoff.sourceBranch,
+      sourceCommit: handoff.commit,
+      portalBranch: handoff.branch,
+      envPolicy: handoff.envPolicy,
+    },
+    remote: {
+      commandId,
+      remoteRunId: input.runId,
+      deviceId: selected.host.id,
+      relayUrl: selected.relayUrl,
+    },
+    queue,
+    steering,
+    source: "desktop-portal",
+    queued: true,
+    queuedAt: now,
+    initialPrompt: input.prompt,
+    permissionMode: input.permissionMode,
+    engine: input.engine,
+    model: input.model,
+    effort: input.effort,
+    attachments: input.attachments,
+  };
+  const run: CodeAgentRun = {
+    id: input.runId,
+    goalId: input.goal.id,
+    title: input.prompt.replace(/\s+/g, " ").trim().slice(0, 72),
+    subtitle: `Portal queued on ${selected.host.label}`,
+    status: "queued",
+    phase: "portal-queued",
+    progress: { label: "Portal queued", completed: 0, total: 1, percent: 0 },
+    details: [
+      { label: "Goal", value: input.goal.slashCommand },
+      { label: "Workspace", value: `Portal · ${selected.host.label}` },
+      { label: "Snapshot", value: `${handoff.branch} @ ${handoff.commit.slice(0, 12)}` },
+      { label: "Environment", value: "Loaded locally on paired computer" },
+      { label: "Mode", value: input.permissionMode },
+    ],
+    createdAt: now,
+    updatedAt: now,
+    metadata: portalMetadata,
+  };
+  const record = {
+    schemaVersion: 1,
+    ...run,
+    cwd: input.sourceCwd,
+    permissionMode: input.permissionMode,
+    queue,
+    steering,
+    metadata: portalMetadata,
+  };
+  const runFile = codeAgentRunFilePath(input.runId);
+  if (!runFile) {
+    return {
+      ok: false,
+      message: "Could not create a Portal session id.",
+      error: "Invalid generated run id.",
+    };
+  }
+  try {
+    withFileLockSync(runFile, () => {
+      if (fs.existsSync(runFile)) {
+        throw new Error(`A Code Agent run already exists: ${input.runId}`);
+      }
+      writeJsonFileAtomically(runFile, record);
+    });
+    const event = createDesktopUserTranscriptEvent(
+      input.runId,
+      input.prompt,
+      input.goal.id,
+      { queue, steering, attachments: input.attachments, executionTarget: "portal", portal: handoff },
+    );
+    const eventFile = appendCodeAgentTranscriptEvent(event);
+    return {
+      ok: true,
+      run,
+      event,
+      eventFile,
+      message:
+        firstStringValue(remote.message) ??
+        `Portal queued on ${selected.host.label}.`,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      message: "The Portal run was queued remotely but could not be recorded locally.",
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+async function appendPortalCodeAgentFollowUp(input: {
+  runId: string;
+  prompt: string;
+  followUpMode: "immediate" | "queued";
+  permissionMode?: CodeAgentPermissionMode;
+  metadata: Record<string, unknown>;
+  runRecord: Record<string, unknown>;
+}): Promise<CodeAgentFollowUpResult> {
+  const metadata = isObject(input.runRecord.metadata)
+    ? input.runRecord.metadata
+    : {};
+  const portal = isObject(metadata.portal) ? metadata.portal : {};
+  const remote = isObject(metadata.remote) ? metadata.remote : {};
+  const relayUrl = firstStringValue(remote.relayUrl);
+  const hostId = firstStringValue(remote.deviceId);
+  const remoteRunId = firstStringValue(remote.remoteRunId) ?? input.runId;
+  if (!relayUrl || !hostId) {
+    return {
+      ok: false,
+      message: "Portal host details are missing from this session.",
+      error: "Invalid Portal execution residence.",
+    };
+  }
+  const result = await portalRelayRequest(
+    relayUrl,
+    "POST",
+    "/_agent-native/integrations/remote/enqueue",
+    {
+      operation: "code-agent.run.follow-up",
+      payload: {
+        hostId,
+        runId: remoteRunId,
+        prompt: input.prompt,
+        permissionMode: input.permissionMode,
+      },
+    },
+  );
+  if (result.ok === false) {
+    return {
+      ok: false,
+      message: "Could not send the follow-up to Portal.",
+      error: result.error,
+    };
+  }
+  const event = createDesktopUserTranscriptEvent(
+    input.runId,
+    input.prompt,
+    getRecordString(input.runRecord, "goalId"),
+    {
+      ...input.metadata,
+      source: "desktop-portal-follow-up",
+      followUpMode: input.followUpMode,
+      executionResidence: portal,
+    },
+  );
+  const eventFile = appendCodeAgentTranscriptEvent(event);
+  touchCodeAgentRunRecord(input.runId, {
+    updatedAt: new Date().toISOString(),
+    metadata: {
+      lastPortalFollowUpAt: event.createdAt,
+      ...(input.permissionMode ? { permissionMode: input.permissionMode } : {}),
+    },
+  });
+  return {
+    ok: true,
+    event,
+    eventFile,
+    message: firstStringValue(result.message) ?? "Follow-up sent to Portal.",
+  };
+}
+
+function isPortalCodeAgentRunRecord(
+  record: Record<string, unknown>,
+): boolean {
+  const metadata = isObject(record.metadata) ? record.metadata : {};
+  return metadata.executionTarget === "portal" || isObject(metadata.portal);
+}
+
 async function submitCodeAgentRemoteWaitlist(
   input: unknown,
 ): Promise<CodeAgentRemoteWaitlistResult> {
@@ -4685,8 +5127,22 @@ async function createCodeAgentRun(
   }
   const userMetadata = isObject(payload.metadata) ? payload.metadata : {};
   const isDesktopAppCreation = userMetadata.kind === "desktop-create-app";
+  const requestedExecutionTarget = firstStringValue(payload.executionTarget);
+  if (
+    requestedExecutionTarget &&
+    requestedExecutionTarget !== "local" &&
+    requestedExecutionTarget !== "worktree" &&
+    requestedExecutionTarget !== "portal"
+  ) {
+    return {
+      ok: false,
+      message: "Choose Local, Worktree, or Portal before starting the chat.",
+      error: `Unsupported execution target: ${requestedExecutionTarget}`,
+    };
+  }
+  const executionTarget = requestedExecutionTarget ?? "local";
   const provider = ensureCodeAgentLlmProvider();
-  if (!provider.ok && !isDesktopAppCreation) {
+  if (!provider.ok && !isDesktopAppCreation && executionTarget !== "portal") {
     return {
       ok: false,
       message: "Connect a model provider before starting a coding chat.",
@@ -4709,22 +5165,24 @@ async function createCodeAgentRun(
   const engine = normalizeCodeAgentRequestedEngine(
     firstStringValue(payload.engine),
   );
-  const requestedExecutionTarget = firstStringValue(payload.executionTarget);
-  if (
-    requestedExecutionTarget &&
-    requestedExecutionTarget !== "local" &&
-    requestedExecutionTarget !== "worktree"
-  ) {
-    return {
-      ok: false,
-      message: "Choose Local or Worktree before starting the chat.",
-      error: `Unsupported execution target: ${requestedExecutionTarget}`,
-    };
-  }
-  const executionTarget = requestedExecutionTarget ?? "local";
   const model = firstStringValue(payload.model);
   const effort = firstStringValue(payload.effort);
   const attachments = normalizeCodeAgentPromptAttachments(payload.attachments);
+  if (executionTarget === "portal") {
+    return createPortalCodeAgentRun({
+      payload,
+      prompt,
+      userMetadata,
+      goal,
+      runId,
+      sourceCwd,
+      permissionMode,
+      engine,
+      model,
+      effort,
+      attachments,
+    });
+  }
   let cwd = sourceCwd;
   let worktreeMetadata:
     | { sourcePath: string; path: string; branch: string; baseCommit: string }
@@ -5024,6 +5482,17 @@ async function appendCodeAgentFollowUp(
       message: "Enter a follow-up prompt.",
       error: "Missing prompt.",
     };
+  }
+  const portalRunRecord = readCodeAgentRunRecord(runId);
+  if (portalRunRecord && isPortalCodeAgentRunRecord(portalRunRecord)) {
+    return appendPortalCodeAgentFollowUp({
+      runId,
+      prompt,
+      followUpMode,
+      permissionMode,
+      metadata: userMetadata,
+      runRecord: portalRunRecord,
+    });
   }
   const provider = ensureCodeAgentLlmProvider();
   if (!provider.ok) {
@@ -8739,6 +9208,62 @@ async function controlCodeAgentRun(
       message: "Choose a valid run mode.",
       error: `Unsupported run mode: ${requestedPermissionMode}`,
     };
+  }
+
+  const portalRecord = readCodeAgentRunRecord(runId);
+  if (portalRecord && isPortalCodeAgentRunRecord(portalRecord)) {
+    const portalMetadata = isObject(portalRecord.metadata)
+      ? portalRecord.metadata
+      : {};
+    const portalRemote = isObject(portalMetadata.remote)
+      ? portalMetadata.remote
+      : {};
+    const portalRelayUrl = firstStringValue(portalRemote.relayUrl);
+    const portalHostId = firstStringValue(portalRemote.deviceId);
+    const portalRunId =
+      firstStringValue(portalRemote.remoteRunId) ?? runId;
+    if (command === "stop") {
+      if (!portalRelayUrl || !portalHostId) {
+        return {
+          ok: false,
+          command,
+          action: "none",
+          message: "Portal host details are missing from this session.",
+          error: "Invalid Portal execution residence.",
+        };
+      }
+      const result = await portalRelayRequest(
+        portalRelayUrl,
+        "POST",
+        "/_agent-native/integrations/remote/enqueue",
+        {
+          operation: "code-agent.run.stop",
+          payload: {
+            hostId: portalHostId,
+            runId: portalRunId,
+          },
+        },
+      );
+      return {
+        ok: result.ok !== false,
+        command,
+        action: "refresh",
+        message:
+          firstStringValue(result.message) ??
+          (result.ok === false
+            ? "Could not stop the Portal run."
+            : "Stop sent to Portal."),
+        error: result.error,
+      };
+    }
+    if (command === "approve" || command === "approve-always" || command === "deny") {
+      return {
+        ok: false,
+        command,
+        action: "open-ui",
+        message: "Approve or deny this Portal run from the paired computer or phone.",
+      };
+    }
   }
 
   if (permissionMode) {
