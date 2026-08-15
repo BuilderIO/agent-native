@@ -593,7 +593,9 @@ function restoreTextGeometry(
     }
 
     element.dataset.exportTextGeometry = "true";
-    if (record.singleLine) element.style.whiteSpace = "nowrap";
+    if (record.singleLine) {
+      element.style.whiteSpace = noWrapWhiteSpace(element);
+    }
     element.style.boxSizing = "border-box";
     element.style.bottom = "auto";
     element.style.display = "block";
@@ -645,20 +647,37 @@ function restoreImageGeometry(
     element.style.maxWidth = "none";
     element.style.width = `${Math.max(1, desiredWidth)}px`;
 
+    const currentRect = element.getBoundingClientRect();
+    const deltaX = desiredLeft - (currentRect.left - cloneRect.left);
+    const deltaY = desiredTop - (currentRect.top - cloneRect.top);
+
     if (record.position === "absolute" || record.position === "fixed") {
+      // A cropped imported image is absolutely positioned inside its own
+      // absolutely positioned wrapper, so its containing block is that
+      // wrapper — not the slide root these coordinates are measured against.
+      // Assigning slide-space left/top there adds the wrapper's offset a
+      // second time and doubles the position (a tile at x=313.8px exported at
+      // 627.6px, off the canvas). Shift the element's own offsets by the
+      // measured delta instead, which holds for any containing block.
+      const style = window.getComputedStyle(element);
+      const cssLeft = Number.parseFloat(style.left);
+      const cssTop = Number.parseFloat(style.top);
       element.style.bottom = "auto";
-      element.style.left = `${desiredLeft.toFixed(3)}px`;
+      element.style.left = `${(Number.isFinite(cssLeft)
+        ? cssLeft + deltaX
+        : desiredLeft
+      ).toFixed(3)}px`;
       element.style.position = "absolute";
       element.style.right = "auto";
-      element.style.top = `${desiredTop.toFixed(3)}px`;
+      element.style.top = `${(Number.isFinite(cssTop)
+        ? cssTop + deltaY
+        : desiredTop
+      ).toFixed(3)}px`;
       element.style.transform = "none";
       continue;
     }
 
-    const currentRect = element.getBoundingClientRect();
-    const currentLeft = currentRect.left - cloneRect.left;
-    const currentTop = currentRect.top - cloneRect.top;
-    element.style.transform = `translate(${(desiredLeft - currentLeft).toFixed(3)}px, ${(desiredTop - currentTop).toFixed(3)}px)`;
+    element.style.transform = `translate(${deltaX.toFixed(3)}px, ${deltaY.toFixed(3)}px)`;
   }
 }
 
@@ -678,7 +697,7 @@ function normalizeSingleLineText(
     element.dataset.exportSingleLineText = "true";
     if (element.dataset.exportTextGeometry === "true") continue;
     element.style.boxSizing = "border-box";
-    element.style.whiteSpace = "nowrap";
+    element.style.whiteSpace = noWrapWhiteSpace(element);
     if (record.heading) {
       element.style.maxWidth = "none";
       element.style.width = `${Math.max(1, Math.ceil(cloneRect.right - rect.left))}px`;
@@ -1131,7 +1150,6 @@ export async function buildDeckPptxBlob(
         dims,
       );
       normalizeSingleLineText(clone.element, clone.textGeometry);
-      materializeImportedBackgroundGrid(clone.element);
       widenNoWrapTextElements(clone.element);
       await replaceInlineSvgsWithImages(clone.element);
       await preloadImagesWithCors(clone.element);
@@ -1141,6 +1159,10 @@ export async function buildDeckPptxBlob(
         clone.imageGeometry,
         dims,
       );
+      // Runs last: it prepends a child to the slide root, which shifts every
+      // child index the geometry passes above resolve their recorded paths
+      // through.
+      materializeImportedBackgroundGrid(clone.element);
     }
 
     const initialBlob = await exportToPptx(

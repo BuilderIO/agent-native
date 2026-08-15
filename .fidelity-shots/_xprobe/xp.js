@@ -59818,6 +59818,9 @@ body {
       layer.style.transform = "none";
     }
   }
+  function noWrapWhiteSpace(element) {
+    return window.getComputedStyle(element).whiteSpace.startsWith("pre") ? "pre" : "nowrap";
+  }
   function restoreTextGeometry(clone, sourceRect, records, dims) {
     if (!sourceRect.width || !sourceRect.height) return;
     const scaleX = dims.width / sourceRect.width;
@@ -59842,7 +59845,9 @@ body {
       const translateY = desiredTop - currentTop;
       if (record.position === "static" || record.position === "relative") {
         element.dataset.exportTextGeometry = "true";
-        if (record.singleLine) element.style.whiteSpace = "nowrap";
+        if (record.singleLine) {
+          element.style.whiteSpace = noWrapWhiteSpace(element);
+        }
         element.style.left = `${translateX.toFixed(3)}px`;
         element.style.position = "relative";
         element.style.top = `${translateY.toFixed(3)}px`;
@@ -59855,7 +59860,9 @@ body {
         continue;
       }
       element.dataset.exportTextGeometry = "true";
-      if (record.singleLine) element.style.whiteSpace = "nowrap";
+      if (record.singleLine) {
+        element.style.whiteSpace = noWrapWhiteSpace(element);
+      }
       element.style.boxSizing = "border-box";
       element.style.bottom = "auto";
       element.style.display = "block";
@@ -59896,19 +59903,22 @@ body {
       element.style.maxHeight = "none";
       element.style.maxWidth = "none";
       element.style.width = `${Math.max(1, desiredWidth)}px`;
+      const currentRect = element.getBoundingClientRect();
+      const deltaX = desiredLeft - (currentRect.left - cloneRect.left);
+      const deltaY = desiredTop - (currentRect.top - cloneRect.top);
       if (record.position === "absolute" || record.position === "fixed") {
+        const style = window.getComputedStyle(element);
+        const cssLeft = Number.parseFloat(style.left);
+        const cssTop = Number.parseFloat(style.top);
         element.style.bottom = "auto";
-        element.style.left = `${desiredLeft.toFixed(3)}px`;
+        element.style.left = `${(Number.isFinite(cssLeft) ? cssLeft + deltaX : desiredLeft).toFixed(3)}px`;
         element.style.position = "absolute";
         element.style.right = "auto";
-        element.style.top = `${desiredTop.toFixed(3)}px`;
+        element.style.top = `${(Number.isFinite(cssTop) ? cssTop + deltaY : desiredTop).toFixed(3)}px`;
         element.style.transform = "none";
         continue;
       }
-      const currentRect = element.getBoundingClientRect();
-      const currentLeft = currentRect.left - cloneRect.left;
-      const currentTop = currentRect.top - cloneRect.top;
-      element.style.transform = `translate(${(desiredLeft - currentLeft).toFixed(3)}px, ${(desiredTop - currentTop).toFixed(3)}px)`;
+      element.style.transform = `translate(${deltaX.toFixed(3)}px, ${deltaY.toFixed(3)}px)`;
     }
   }
   function normalizeSingleLineText(clone, records) {
@@ -59922,7 +59932,7 @@ body {
       element.dataset.exportSingleLineText = "true";
       if (element.dataset.exportTextGeometry === "true") continue;
       element.style.boxSizing = "border-box";
-      element.style.whiteSpace = "nowrap";
+      element.style.whiteSpace = noWrapWhiteSpace(element);
       if (record.heading) {
         element.style.maxWidth = "none";
         element.style.width = `${Math.max(1, Math.ceil(cloneRect.right - rect.left))}px`;
@@ -60238,7 +60248,6 @@ body {
           dims
         );
         normalizeSingleLineText(clone.element, clone.textGeometry);
-        materializeImportedBackgroundGrid(clone.element);
         widenNoWrapTextElements(clone.element);
         await replaceInlineSvgsWithImages(clone.element);
         await preloadImagesWithCors(clone.element);
@@ -60248,6 +60257,7 @@ body {
           clone.imageGeometry,
           dims
         );
+        materializeImportedBackgroundGrid(clone.element);
       }
       const initialBlob = await exportToPptx2(
         exportClones.map((clone) => clone.element),

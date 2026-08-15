@@ -757,11 +757,12 @@ async function appendDeckSlides(
       // Same rule as aspectRatio above: an appended file's palette only
       // becomes the deck's theme when the deck had no slides yet, so
       // appending onto an existing deck can't silently restyle every slide
-      // already on it. An empty deck can still carry a theme seeded from a
-      // reference deck, and that deliberate choice outranks an import's own
-      // palette — OOXML allows one theme per master, so overwriting it would
-      // repaint the whole deck rather than style only the incoming slides.
-      ...(!hadExistingSlides && !previousData.theme && theme ? { theme } : {}),
+      // already on it. Deliberately keyed on slides rather than on whether a
+      // theme already exists: export writes one deck-level theme (OOXML allows
+      // one per master), so with zero slides there is nothing to protect, and
+      // refusing a new theme there would strand a deck whose slides were
+      // deleted with the old file's palette, unfixable by re-importing.
+      ...(!hadExistingSlides && theme ? { theme } : {}),
       ...(nextSourceImport ? { sourceImport: nextSourceImport } : {}),
       updatedAt: writeNow,
     };
