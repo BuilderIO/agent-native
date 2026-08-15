@@ -3864,6 +3864,7 @@ export function AgentSidebar({
       background: "var(--agent-sidebar-background)",
       width: desktopAnimationEnabled ? undefined : width,
       maxHeight: "var(--agent-native-viewport-height, 100vh)",
+      zIndex: hostedHarnessUi ? SIDEBAR_OVERLAY_Z_INDEX : undefined,
       borderLeft:
         !panelOpen || isLeft || showResizeHandle
           ? "none"
