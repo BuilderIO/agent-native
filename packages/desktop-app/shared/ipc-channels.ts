@@ -647,6 +647,7 @@ export interface CodeAgentRemoteConnectorStatus {
   configured: boolean;
   configPath: string;
   relayUrl?: string;
+  workspacePath?: string;
   pid?: number;
   startedAt?: string;
   lastExitAt?: string;
@@ -666,6 +667,7 @@ export interface CodeAgentRemoteConnectorControlResult {
 export interface CodeAgentRemoteConnectorPairRequest {
   relayUrl?: string;
   label?: string;
+  workspacePath?: string;
 }
 
 export interface CodeAgentRemoteConnectorPairResult {

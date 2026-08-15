@@ -141,28 +141,28 @@ function remoteStatusCopy(status: CodeAgentRemoteConnectorStatus | null): {
   if (!status) {
     return {
       label: "Checking",
-      description: "Reading remote-control status.",
+      description: "Reading Portal host status.",
       tone: "pending",
     };
   }
   if (!status.configured) {
     return {
       label: "Offline",
-      description: "Pair this computer with an Agent-Native app.",
+      description: "Pair this computer with the Portal relay.",
       tone: "offline",
     };
   }
   if (!status.enabled) {
     return {
       label: "Off",
-      description: "Remote requests are paused on this computer.",
+      description: "Portal requests are paused on this computer.",
       tone: "offline",
     };
   }
   if (status.state === "error") {
     return {
       label: "Error",
-      description: status.error ?? "Remote control needs attention.",
+      description: status.error ?? "Portal host needs attention.",
       tone: "error",
     };
   }
@@ -178,13 +178,13 @@ function remoteStatusCopy(status: CodeAgentRemoteConnectorStatus | null): {
       label: "Connecting",
       description: status.nextRestartAt
         ? "Waiting to retry the remote connector."
-        : "Starting remote control.",
+        : "Starting Portal host.",
       tone: "pending",
     };
   }
   return {
     label: "Offline",
-    description: "Remote control is not currently polling.",
+    description: "Portal host is not currently polling.",
     tone: "offline",
   };
 }
@@ -521,6 +521,7 @@ export default function AppSettings({
   const [remoteStatus, setRemoteStatus] =
     useState<CodeAgentRemoteConnectorStatus | null>(null);
   const [remotePairUrl, setRemotePairUrl] = useState("");
+  const [remoteWorkspacePath, setRemoteWorkspacePath] = useState("");
   const [remotePairing, setRemotePairing] = useState(false);
   const [showRemotePairing, setShowRemotePairing] = useState(false);
   const [remoteMessage, setRemoteMessage] = useState<string | null>(null);
@@ -661,6 +662,9 @@ export default function AppSettings({
       setRemotePairUrl(
         (current) => current || status.relayUrl || defaultRemoteRelayUrl(apps),
       );
+      setRemoteWorkspacePath(
+        (current) => current || status.workspacePath || "",
+      );
       if (!status.configured) setShowRemotePairing(true);
     } catch (err) {
       setRemoteMessage(err instanceof Error ? err.message : String(err));
@@ -735,6 +739,7 @@ export default function AppSettings({
       const result = await api.pairRemoteConnector({
         relayUrl: remotePairUrl.trim(),
         label: "Agent Native Desktop",
+        workspacePath: remoteWorkspacePath.trim() || undefined,
       });
       setRemoteStatus(result.status);
       setRemoteMessage(result.error ?? result.message ?? null);
@@ -744,7 +749,7 @@ export default function AppSettings({
     } finally {
       setRemotePairing(false);
     }
-  }, [remotePairUrl]);
+  }, [remotePairUrl, remoteWorkspacePath]);
 
   const shortcutRegistrations = useMemo(() => {
     const map = new Map<string, DesktopShortcutRegistration>();
@@ -1016,10 +1021,10 @@ export default function AppSettings({
         <div className="w-full max-w-3xl space-y-8">
           <SettingsGroup
             title="Workspace"
-            description="Manage apps and remote access for this workspace."
+            description="Manage apps and Portal hosts for this workspace."
           >
             <SettingsRow
-              label="Remote control"
+              label="Portal host"
               description={remoteCopy.label + " · " + remoteCopy.description}
               control={
                 <Switch
@@ -1027,8 +1032,8 @@ export default function AppSettings({
                   onCheckedChange={handleRemoteToggle}
                   aria-label={
                     remoteStatus?.enabled
-                      ? "Turn remote control off"
-                      : "Turn remote control on"
+                      ? "Turn Portal host off"
+                      : "Turn Portal host on"
                   }
                 />
               }
@@ -1066,16 +1071,26 @@ export default function AppSettings({
                       placeholder="https://dispatch.agent-native.com"
                       className="h-9 min-w-0 rounded-md border border-border bg-background px-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring/40"
                     />
+                    <input
+                      type="text"
+                      value={remoteWorkspacePath}
+                      onChange={(event) =>
+                        setRemoteWorkspacePath(event.target.value)
+                      }
+                      placeholder="/Users/you/Projects/your-repo"
+                      aria-label="Portal workspace path"
+                      className="h-9 min-w-0 rounded-md border border-border bg-background px-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring/40 sm:col-span-2"
+                    />
                     <button
                       type="button"
                       className="settings-btn settings-btn--primary"
                       onClick={handleRemotePair}
                       disabled={remotePairing || !remotePairUrl.trim()}
                     >
-                      {remotePairing ? "Pairing…" : "Pair this Mac"}
+                      {remotePairing ? "Pairing…" : "Pair this computer"}
                     </button>
                     <span className="text-xs text-muted-foreground sm:col-span-2">
-                      Use an app you are signed into inside Desktop.
+                      Use the repository folder that should receive Portal code.
                     </span>
                   </div>
                 ) : null}

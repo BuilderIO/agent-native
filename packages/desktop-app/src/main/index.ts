@@ -2201,7 +2201,7 @@ async function createPortalCodeAgentRun(input: {
   payload: Record<string, unknown>;
   prompt: string;
   userMetadata: Record<string, unknown>;
-  goal: ReturnType<typeof getCodeAgentGoal> extends infer T ? NonNullable<T> : never;
+  goal: NonNullable<ReturnType<typeof getCodeAgentGoal>>;
   runId: string;
   sourceCwd: string;
   permissionMode: CodeAgentPermissionMode;
@@ -2543,6 +2543,7 @@ function getRemoteConnectorStatus(): CodeAgentRemoteConnectorStatus {
     configured,
     configPath: remoteDeviceConfigPath(),
     relayUrl,
+    workspacePath: config?.workspacePath,
     pid: remoteConnectorProcess?.pid,
     startedAt: remoteConnectorStartedAt,
     lastExitAt: remoteConnectorLastExitAt,
@@ -2722,6 +2723,10 @@ function parseRemoteConnectorPairRequest(
   return {
     relayUrl: firstStringValue(input.relayUrl, input.url),
     label: firstStringValue(input.label, input.name),
+    workspacePath: firstStringValue(
+      input.workspacePath,
+      input.portalWorkspacePath,
+    ),
   };
 }
 
@@ -2839,12 +2844,16 @@ async function pairRemoteCodeAgentConnector(
       device.name,
     );
     const existingWorkspacePath = readRemoteDeviceConfig()?.workspacePath;
+    const workspacePath =
+      request.workspacePath ??
+      existingWorkspacePath ??
+      firstStringValue(process.env.AGENT_NATIVE_PORTAL_WORKSPACE_PATH);
     writeRemoteDeviceConfig({
       token,
       relayUrl,
       deviceId,
       deviceName,
-      workspacePath: existingWorkspacePath,
+      workspacePath,
     });
 
     remoteConnectorEnabled = true;

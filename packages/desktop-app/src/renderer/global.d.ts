@@ -100,6 +100,7 @@ type CodeAgentRemoteConnectorStatus = {
   configured: boolean;
   configPath: string;
   relayUrl?: string;
+  workspacePath?: string;
   pid?: number;
   startedAt?: string;
   lastExitAt?: string;
@@ -119,6 +120,7 @@ type CodeAgentRemoteConnectorControlResult = {
 type CodeAgentRemoteConnectorPairRequest = {
   relayUrl?: string;
   label?: string;
+  workspacePath?: string;
 };
 
 type CodeAgentRemoteConnectorPairResult = {
@@ -331,7 +333,7 @@ type CodeAgentCreateRunRequest = {
   goalId?: string;
   prompt: string;
   cwd?: string;
-  executionTarget?: "local" | "worktree";
+  executionTarget?: "local" | "worktree" | "portal";
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
@@ -436,7 +438,7 @@ type CodeAgentRerunRequest = {
   runId: string;
   prompt?: string;
   cwd?: string;
-  executionTarget?: "local" | "worktree";
+  executionTarget?: "local" | "worktree" | "portal";
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
