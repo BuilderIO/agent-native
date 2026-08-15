@@ -375,6 +375,7 @@ const CODE_AGENT_WORKTREE_ENGINES = new Set([
 ]);
 const CODE_AGENT_REMOTE_WAITLIST_URL =
   "https://agent-native.com/_agent-native/builder/branch-waitlist";
+const DEFAULT_PORTAL_RELAY_URL = "https://dispatch.agent-native.com";
 const DESKTOP_BUILDER_CONNECT_TIMEOUT_MS = 5 * 60 * 1000;
 export {
   CODE_AGENTS_SUBSCRIBE_TRANSCRIPT_CHANNEL,
@@ -2395,11 +2396,13 @@ async function pairRemoteCodeAgentConnector(
       device.label,
       device.name,
     );
+    const existingWorkspacePath = readRemoteDeviceConfig()?.workspacePath;
     writeRemoteDeviceConfig({
       token,
       relayUrl,
       deviceId,
       deviceName,
+      workspacePath: existingWorkspacePath,
     });
 
     remoteConnectorEnabled = true;
